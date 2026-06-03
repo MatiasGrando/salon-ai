@@ -38,12 +38,15 @@ export class WhatsAppCloudApi {
 
     if (!response.ok) {
       const errorBody = await response.text()
+      const parsedError = parseWhatsAppError(errorBody)
 
       return {
         sent: false,
         to: recipientPhone,
         status: response.status,
-        error: errorBody
+        error: errorBody,
+        errorCode: parsedError.code,
+        errorMessage: parsedError.message
       }
     }
 
@@ -51,6 +54,30 @@ export class WhatsAppCloudApi {
       sent: true,
       to: recipientPhone,
       response: await response.json()
+    }
+  }
+}
+
+function parseWhatsAppError(errorBody: string) {
+  try {
+    const parsedBody = JSON.parse(errorBody) as {
+      error?: {
+        code?: number | string
+        message?: string
+        error_data?: {
+          details?: string
+        }
+      }
+    }
+
+    return {
+      code: parsedBody.error?.code ? String(parsedBody.error.code) : undefined,
+      message: parsedBody.error?.error_data?.details ?? parsedBody.error?.message
+    }
+  } catch {
+    return {
+      code: undefined,
+      message: errorBody
     }
   }
 }

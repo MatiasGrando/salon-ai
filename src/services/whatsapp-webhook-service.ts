@@ -128,6 +128,9 @@ export class WhatsAppWebhookService {
         body: string
         providerMessageId?: string
         status: string
+        providerStatusCode?: number
+        providerErrorCode?: string
+        providerErrorMessage?: string
         metadata: Awaited<ReturnType<WhatsAppCloudApi['sendTextMessage']>>
       } = {
         conversationId: conversation.id,
@@ -140,6 +143,20 @@ export class WhatsAppWebhookService {
 
       if (outgoingProviderMessageId) {
         outboundMessageData.providerMessageId = outgoingProviderMessageId
+      }
+
+      if (!deliveryResult.sent) {
+        if ('status' in deliveryResult && deliveryResult.status) {
+          outboundMessageData.providerStatusCode = deliveryResult.status
+        }
+
+        if ('errorCode' in deliveryResult && deliveryResult.errorCode) {
+          outboundMessageData.providerErrorCode = deliveryResult.errorCode
+        }
+
+        if ('errorMessage' in deliveryResult && deliveryResult.errorMessage) {
+          outboundMessageData.providerErrorMessage = deliveryResult.errorMessage
+        }
       }
 
       await prisma.message.create({

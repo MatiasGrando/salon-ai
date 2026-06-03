@@ -176,6 +176,9 @@ model Message {
 
   providerMessageId String? @unique
   status String?
+  providerStatusCode Int?
+  providerErrorCode String?
+  providerErrorMessage String?
   metadata Json?
 
   createdAt DateTime @default(now())
