@@ -12,6 +12,8 @@ import { chatRoutes } from './routes/chat.js'
 import { whatsappWebhookRoutes } from './routes/whatsapp-webhook.js'
 
 const app = Fastify()
+const port = Number(process.env.PORT ?? 3000)
+const host = process.env.HOST ?? '0.0.0.0'
 
 await app.register(healthRoutes)
 await app.register(businessRoutes)
@@ -25,9 +27,11 @@ await app.register(availabilityRoutes)
 await app.register(chatRoutes)
 await app.register(whatsappWebhookRoutes)
 
-console.log(app.printRoutes())
+if (process.env.NODE_ENV !== 'production') {
+  console.log(app.printRoutes())
+}
 
-app.listen({ port: 3000 }, (err, address) => {
+app.listen({ port, host }, (err, address) => {
   if (err) {
     console.error(err)
     process.exit(1)
