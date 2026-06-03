@@ -1,5 +1,7 @@
 import type { FastifyInstance } from 'fastify'
-import { prisma } from '../config/prisma.js'
+import { BusinessService } from '../services/business-service.js'
+
+const service = new BusinessService()
 
 export async function businessRoutes(app: FastifyInstance) {
 
@@ -9,13 +11,11 @@ export async function businessRoutes(app: FastifyInstance) {
       name: string
     }
 
-    const business = await prisma.business.create({
-      data: {
-        name: body.name
-      }
-    })
+    return service.create(body.name)
+  })
 
-    return business
+  app.get('/businesses', async () => {
+    return service.findAll()
   })
 
 }

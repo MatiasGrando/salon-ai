@@ -12,11 +12,38 @@ datasource db {
   provider = "postgresql"
 }
 
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+enum ConversationStep {
+  START
+  ASK_SERVICE
+  ASK_PROFESSIONAL
+  ASK_DATE
+  ASK_TIME
+  ASK_CUSTOMER_NAME
+  CONFIRM
+  COMPLETED
+  CANCEL_SELECT_APPOINTMENT
+  EDIT_SELECT_APPOINTMENT
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
 model Business {
   id            String         @id @default(cuid())
   name          String
 
   professionals Professional[]
+  services      Service[]
+  businessHours BusinessHours[]
 
   createdAt     DateTime       @default(now())
 }
@@ -28,5 +55,128 @@ model Professional {
   businessId String
   business   Business @relation(fields: [businessId], references: [id])
 
+  appointments Appointment[]
+  workingHours ProfessionalHours[]
+
   createdAt  DateTime @default(now())
+}
+
+model Service {
+  id         String   @id @default(cuid())
+
+  name       String
+  duration   Int
+  category   String?
+
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+
+  appointments Appointment[]
+  aliases      ServiceAlias[]
+
+  createdAt  DateTime @default(now())
+}
+
+model ServiceAlias {
+  id   String @id @default(cuid())
+  name String
+
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id])
+}
+
+model Customer {
+  id        String   @id @default(cuid())
+
+  name      String
+  phone     String
+
+  appointments Appointment[]
+
+  createdAt DateTime @default(now())
+}
+
+model Appointment {
+  id String @id @default(cuid())
+
+  customerId String
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  professionalId String
+  professional Professional @relation(fields: [professionalId], references: [id])
+
+  serviceId String
+  service Service @relation(fields: [serviceId], references: [id])
+
+  startAt DateTime
+
+  status AppointmentStatus @default(CONFIRMED)
+
+  createdAt DateTime @default(now())
+}
+
+model BusinessHours {
+  id         String @id @default(cuid())
+
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+
+  dayOfWeek Int
+
+  startTime String
+  endTime   String
+}
+
+model ProfessionalHours {
+  id String @id @default(cuid())
+
+  professionalId String
+  professional Professional @relation(fields: [professionalId], references: [id])
+
+  dayOfWeek Int
+
+  startTime String
+  endTime String
+
+  createdAt DateTime @default(now())
+}
+
+model Conversation {
+  id String @id @default(cuid())
+
+  phone String @unique
+  businessId String?
+
+  currentStep ConversationStep @default(START)
+
+  selectedServiceId String?
+  selectedProfessionalId String?
+  selectedDate String?
+  selectedTime String?
+  selectedCustomerName String?
+  lastAvailability Json?
+
+  lastMessage String?
+
+  messages Message[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Message {
+  id String @id @default(cuid())
+
+  conversationId String
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+
+  phone String
+  direction MessageDirection
+  body String
+
+  providerMessageId String? @unique
+  status String?
+  metadata Json?
+
+  createdAt DateTime @default(now())
 }
