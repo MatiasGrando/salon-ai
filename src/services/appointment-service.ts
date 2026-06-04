@@ -229,6 +229,11 @@ export class AppointmentService {
       ) {
         const startAt = setMinutesSinceMidnight(dayStart, slotStartMinutes)
         const endAt = addMinutes(startAt, service.duration)
+
+        if (startAt <= new Date()) {
+          continue
+        }
+
         const hasOverlap = await this.hasAppointmentOverlap({
           professionalId: input.professionalId,
           startAt,

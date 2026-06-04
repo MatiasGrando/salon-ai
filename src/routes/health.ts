@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { openAiConfig } from '../config/openai.js'
 import { prisma } from '../config/prisma.js'
 import { whatsappConfig } from '../config/whatsapp.js'
 
@@ -13,10 +14,11 @@ export async function healthRoutes(app: FastifyInstance) {
   app.get('/health', async (request, reply) => {
     const checks = {
       database: await checkDatabase(),
-      whatsapp: checkWhatsAppConfig()
+      whatsapp: checkWhatsAppConfig(),
+      openai: checkOpenAiConfig()
     }
 
-    const isHealthy = Object.values(checks).every((check) => check.status === 'ok')
+    const isHealthy = Object.values(checks).every((check) => check.status !== 'error')
 
     return reply.status(isHealthy ? 200 : 503).send({
       status: isHealthy ? 'ok' : 'degraded',
@@ -63,5 +65,28 @@ function checkWhatsAppConfig() {
     status: 'ok',
     apiVersion: whatsappConfig.apiVersion,
     phoneNumberMode: whatsappConfig.phoneNumberMode
+  }
+}
+
+function checkOpenAiConfig() {
+  if (!openAiConfig.enabled) {
+    return {
+      status: 'ok',
+      enabled: false
+    }
+  }
+
+  if (!openAiConfig.apiKey) {
+    return {
+      status: 'warning',
+      enabled: false,
+      message: 'OPENAI_API_KEY is not configured. Cami will use the basic message parser.'
+    }
+  }
+
+  return {
+    status: 'ok',
+    enabled: true,
+    model: openAiConfig.model
   }
 }

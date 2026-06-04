@@ -91,13 +91,23 @@ export class MessageUnderstandingService {
 
   parseTime(message: string) {
     const normalizedMessage = normalizeText(message)
-    const directTime = normalizedMessage.match(/^(\d{1,2}):(\d{2})$/)
+    const directTime = normalizedMessage.match(/^(\d{1,2}):(\d{2})\s*(am|pm)?$/)
 
     if (directTime) {
-      return formatParsedTime(Number(directTime[1]), Number(directTime[2]))
+      let hours = Number(directTime[1])
+
+      if (directTime[3] === 'pm' && hours < 12) {
+        hours += 12
+      }
+
+      if (directTime[3] === 'am' && hours === 12) {
+        hours = 0
+      }
+
+      return formatParsedTime(hours, Number(directTime[2]))
     }
 
-    const hourOnly = normalizedMessage.match(/(?:a las\s*)?(\d{1,2})(?:\s*(?:hs|h))?/)
+    const hourOnly = normalizedMessage.match(/(?:a las\s*)?(\d{1,2})(?:\s*(am|pm|hs|h))?/)
 
     if (!hourOnly) {
       return null
@@ -105,7 +115,17 @@ export class MessageUnderstandingService {
 
     let hours = Number(hourOnly[1])
 
-    if (normalizedMessage.includes('tarde') && hours < 12) {
+    const marker = hourOnly[2]
+
+    if (marker === 'pm' && hours < 12) {
+      hours += 12
+    }
+
+    if (marker === 'am' && hours === 12) {
+      hours = 0
+    }
+
+    if (!marker && normalizedMessage.includes('tarde') && hours < 12) {
       hours += 12
     }
 
