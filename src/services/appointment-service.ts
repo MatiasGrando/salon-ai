@@ -1,6 +1,6 @@
 import { prisma } from '../config/prisma.js'
 
-const availabilitySlotInterval = 15
+const availabilitySlotInterval = 30
 
 type CreateAppointmentInput = {
   customerId: string

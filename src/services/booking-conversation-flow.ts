@@ -153,7 +153,8 @@ export class BookingConversationFlow {
 
       return {
         reply: botCopyService.availability({
-          slots: availability.options.map(formatAvailabilityOption),
+          slots: formatAvailabilitySlots(availability.options),
+          professionalName: getSharedProfessionalName(availability.options),
           prefix: 'Dale, cambiamos el horario.'
         })
       }
@@ -344,8 +345,9 @@ export class BookingConversationFlow {
           serviceId: selectedService.id,
           professionalId: null,
           date: messageIntent.date,
-          time: messageIntent.time,
+          time: parseAfterTimeFromMessage(input.message) ? null : messageIntent.time,
           timePreference: messageIntent.timePreference ?? parseTimePreferenceFromMessage(input.message),
+          afterTime: parseAfterTimeFromMessage(input.message),
           prefix: buildIntentAvailabilityPrefix({
             serviceName: selectedService.name,
             date: messageIntent.date,
@@ -384,8 +386,9 @@ export class BookingConversationFlow {
         serviceId: selectedService.id,
         professionalId: selectedProfessional.id,
         date: selectedDate,
-        time: messageIntent?.time ?? null,
+        time: parseAfterTimeFromMessage(input.message) ? null : messageIntent?.time ?? null,
         timePreference: messageIntent?.timePreference ?? parseTimePreferenceFromMessage(input.message),
+        afterTime: parseAfterTimeFromMessage(input.message),
         prefix: buildIntentAvailabilityPrefix({
           serviceName: selectedService.name,
           professionalName: selectedProfessional.name,
@@ -439,22 +442,18 @@ export class BookingConversationFlow {
       }
     }
 
-    await this.updateConversation(input.phone, {
-      currentStep: 'ASK_TIME',
-      selectedDate,
-      lastAvailability: {
-        serviceId: input.conversation.selectedServiceId,
-        professionalId: input.conversation.selectedProfessionalId,
-        date: selectedDate,
-        options: availability.options
-      }
+    return this.buildAvailabilityReply({
+      phone: input.phone,
+      serviceId: input.conversation.selectedServiceId,
+      professionalId: input.conversation.selectedProfessionalId,
+      date: selectedDate,
+      time: parseAfterTimeFromMessage(input.message)
+        ? null
+        : messageUnderstandingService.parseTime(input.message)
+          ?? await aiMessageUnderstandingService.parseTime(input.message),
+      timePreference: parseTimePreferenceFromMessage(input.message),
+      afterTime: parseAfterTimeFromMessage(input.message)
     })
-
-    return {
-      reply: botCopyService.availability({
-        slots: availability.options.map(formatAvailabilityOption)
-      })
-    }
   }
 
   private async handleTimeStep(input: {
@@ -492,8 +491,9 @@ export class BookingConversationFlow {
 
       return {
         reply: botCopyService.availability({
-          slots: availability.options.map(formatAvailabilityOption),
-          prefix: 'No encontre ese horario entre las opciones. Elegi uno de estos horarios disponibles.'
+          slots: formatAvailabilitySlots(availability.options),
+          professionalName: getSharedProfessionalName(availability.options),
+          prefix: 'No encontre ese horario disponible. Te paso los horarios que veo libres.'
         })
       }
     }
@@ -834,8 +834,9 @@ export class BookingConversationFlow {
       serviceId: selectedService.id,
       professionalId: selectedProfessionalId,
       date: intent.date,
-      time: intent.time,
+      time: parseAfterTimeFromMessage(input.message) ? null : intent.time,
       timePreference: intent.timePreference ?? parseTimePreferenceFromMessage(input.message),
+      afterTime: parseAfterTimeFromMessage(input.message),
       prefix: buildIntentAvailabilityPrefix({
         serviceName: selectedService.name,
         ...(selectedProfessional?.name ? { professionalName: selectedProfessional.name } : {}),
@@ -884,6 +885,7 @@ export class BookingConversationFlow {
     date: string
     time?: string | null
     timePreference?: TimePreference | null
+    afterTime?: string | null
     prefix?: string
   }): Promise<HandleBookingResult> {
     const availability = await this.findAvailabilityOptions({
@@ -900,7 +902,8 @@ export class BookingConversationFlow {
 
     const hasTimePreference = Boolean(input.timePreference && input.timePreference !== 'any')
     const preferredOptions = filterAvailabilityByPreference(availability.options, input.timePreference)
-    const options = hasTimePreference ? preferredOptions : availability.options
+    const timePreferenceOptions = hasTimePreference ? preferredOptions : availability.options
+    const options = filterAvailabilityAfterTime(timePreferenceOptions, input.afterTime)
 
     if (input.time) {
       const requestedTime = input.time
@@ -954,7 +957,8 @@ export class BookingConversationFlow {
 
     return {
       reply: botCopyService.availability({
-        slots: options.map(formatAvailabilityOption),
+        slots: formatAvailabilitySlots(options),
+        professionalName: getSharedProfessionalName(options),
         ...(
           input.time
             ? { prefix: `No tengo justo ${input.time}, pero te muestro horarios cercanos disponibles.` }
@@ -1111,11 +1115,6 @@ export class BookingConversationFlow {
 
     if (!options) {
       return null
-    }
-
-    const selectedOption = Number(input.message)
-    if (Number.isInteger(selectedOption) && selectedOption >= 1) {
-      return options[selectedOption - 1] ?? null
     }
 
     const normalizedMessage = normalizeText(input.message)
@@ -1298,8 +1297,32 @@ function isChangeTimeMessage(message: string) {
   return normalizedMessage === 'cambiar horario' || normalizedMessage === 'otro horario'
 }
 
-function formatAvailabilityOption(option: AvailabilityOption) {
-  return `${option.time} con ${option.professionalName}`
+function formatAvailabilitySlots(options: AvailabilityOption[]) {
+  const sharedProfessionalName = getSharedProfessionalName(options)
+
+  return options.map((option) => {
+    if (sharedProfessionalName) {
+      return option.time
+    }
+
+    return `${option.time} con ${option.professionalName}`
+  })
+}
+
+function getSharedProfessionalName(options: AvailabilityOption[]) {
+  if (options.length === 0) {
+    return null
+  }
+
+  const [firstOption] = options
+
+  if (!firstOption) {
+    return null
+  }
+
+  const allSameProfessional = options.every((option) => option.professionalName === firstOption.professionalName)
+
+  return allSameProfessional ? firstOption.professionalName : null
 }
 
 function filterAvailabilityByPreference(options: AvailabilityOption[], preference?: TimePreference | null) {
@@ -1322,6 +1345,14 @@ function filterAvailabilityByPreference(options: AvailabilityOption[], preferenc
   })
 }
 
+function filterAvailabilityAfterTime(options: AvailabilityOption[], afterTime?: string | null) {
+  if (!afterTime) {
+    return options
+  }
+
+  return options.filter((option) => option.time >= afterTime)
+}
+
 function parseTimePreferenceFromMessage(message: string): TimePreference | null {
   const normalizedMessage = normalizeText(message)
 
@@ -1338,6 +1369,24 @@ function parseTimePreferenceFromMessage(message: string): TimePreference | null 
   }
 
   return null
+}
+
+function parseAfterTimeFromMessage(message: string) {
+  const normalizedMessage = normalizeText(message)
+
+  if (!normalizedMessage.includes('despues de') && !normalizedMessage.includes('despues de las')) {
+    return null
+  }
+
+  const parsedTime = messageUnderstandingService.parseTime(normalizedMessage)
+
+  if (!parsedTime) {
+    return null
+  }
+
+  return parsedTime < '08:00'
+    ? toAfternoonTime(parsedTime) ?? parsedTime
+    : parsedTime
 }
 
 function buildIntentAvailabilityPrefix(input: {

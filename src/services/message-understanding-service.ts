@@ -46,15 +46,15 @@ export class MessageUnderstandingService {
     const normalizedMessage = normalizeText(message)
     const today = startOfDay(new Date())
 
-    if (normalizedMessage === '1' || normalizedMessage === 'hoy') {
+    if (normalizedMessage === '1' || normalizedMessage.includes('hoy')) {
       return formatDate(today)
     }
 
-    if (normalizedMessage === '2' || normalizedMessage === 'manana') {
+    if (normalizedMessage === '2' || normalizedMessage.includes('manana')) {
       return formatDate(addDays(today, 1))
     }
 
-    if (normalizedMessage === '3' || normalizedMessage === 'pasado') {
+    if (normalizedMessage === '3' || normalizedMessage.includes('pasado')) {
       return formatDate(addDays(today, 2))
     }
 

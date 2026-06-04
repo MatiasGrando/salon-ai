@@ -104,16 +104,20 @@ export class BotCopyService {
   availability(input: {
     slots: string[]
     prefix?: string
+    professionalName?: string | null
   }) {
-    const options = input.slots.map((slot, index) => {
-      return `${index + 1}) ${slot}`
+    const title = input.professionalName
+      ? `Horarios disponibles de ${input.professionalName}:`
+      : 'Horarios disponibles:'
+    const options = input.slots.map((slot) => {
+      return `- ${slot}`
     })
 
     return [
       input.prefix,
-      'Mira, tengo estos horarios disponibles:',
+      title,
       ...options,
-      'Decime el numero de la opcion o escribime la hora que preferis.'
+      'Decime que horario preferis.'
     ].filter(Boolean).join('\n')
   }
 
