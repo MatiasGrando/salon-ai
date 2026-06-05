@@ -1,0 +1,4 @@
+interface:
+  display_name: "Salon AI Bot QA"
+  short_description: "Checklist de regresiones y reglas de Cami"
+  default_prompt: "Usá esta skill para revisar cambios del flujo de Cami y evitar repetir errores ya encontrados."

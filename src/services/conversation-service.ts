@@ -109,6 +109,33 @@ export class ConversationService {
       }
     }
 
+    if (
+      conversation.currentStep === 'COMPLETED' &&
+      isPostBookingClosingMessage(message)
+    ) {
+      return {
+        reply: botCopyService.postBookingClosing(conversation.selectedCustomerName)
+      }
+    }
+
+    if (
+      conversation.currentStep === 'COMPLETED' &&
+      isPostBookingGreetingMessage(message)
+    ) {
+      await this.updateConversation(input.phone, {
+        currentStep: 'START',
+        selectedServiceId: null,
+        selectedProfessionalId: null,
+        selectedDate: null,
+        selectedTime: null,
+        lastAvailability: null
+      })
+
+      return {
+        reply: botCopyService.reopenAfterBooking(conversation.selectedCustomerName)
+      }
+    }
+
     const orchestratedReply = await this.tryHandleOrchestratedIntent({
       phone: input.phone,
       message,
@@ -491,6 +518,75 @@ function isEditAppointmentMessage(message: string, currentStep: string) {
   const normalizedMessage = normalizeText(message)
 
   return (isMenuStep(currentStep) && normalizedMessage === '4') || normalizedMessage === 'editar turno'
+}
+
+function isPostBookingClosingMessage(message: string) {
+  const normalizedMessage = normalizeText(message)
+
+  if (isBookingStartMessage(message, 'START')) {
+    return false
+  }
+
+  return [
+    'gracias',
+    'muchas gracias',
+    'dale gracias',
+    'dale',
+    'genial',
+    'excelente',
+    'buenisimo',
+    'buenisimo gracias',
+    'perfecto',
+    'ok',
+    'okay',
+    'okey',
+    'listo',
+    'joya',
+    'barbaro',
+    'barbaro gracias',
+    'dale excelente',
+    'dale perfecto',
+    'nos vemos'
+  ].includes(normalizedMessage) ||
+    [
+      'muchas gracias',
+      'dale excelente',
+      'dale perfecto',
+      'todo listo',
+      'quedamos asi',
+      'nos vemos',
+      'hasta luego'
+    ].some((phrase) => normalizedMessage.includes(phrase))
+}
+
+function isPostBookingGreetingMessage(message: string) {
+  const normalizedMessage = normalizeText(message)
+
+  if (isBookingStartMessage(message, 'START')) {
+    return false
+  }
+
+  return [
+    'hola',
+    'holaa',
+    'buenas',
+    'buen dia',
+    'buenas tardes',
+    'buenas noches',
+    'hola como estas',
+    'hola como estas?',
+    'como estas',
+    'como va',
+    'que tal',
+    'todo bien'
+  ].includes(normalizedMessage) ||
+    [
+      'hola cami',
+      'hola como estas',
+      'como estas',
+      'como va',
+      'que tal'
+    ].some((phrase) => normalizedMessage.includes(phrase))
 }
 
 function formatDate(date: Date) {

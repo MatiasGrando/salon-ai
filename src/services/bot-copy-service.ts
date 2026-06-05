@@ -234,6 +234,25 @@ export class BotCopyService {
     return `${message}. Probemos con otra fecha u horario y lo acomodamos.`
   }
 
+  postBookingClosing(customerName?: string | null) {
+    const nameText = customerName ? `, ${getFirstName(customerName)}` : ''
+
+    return `Gracias a vos${nameText} 😊 Quedó todo listo. Cualquier cosa que necesites cambiar o consultar, escribime por acá.`
+  }
+
+  reopenAfterBooking(customerName?: string | null) {
+    const nameText = customerName ? ` ${getFirstName(customerName)}` : ''
+
+    return [
+      `¡Hola${nameText}! 😊 Yo muy bien, gracias por preguntar.`,
+      'Decime qué necesitás y te doy una mano:',
+      '- Reservar otro turno',
+      '- Ver tus turnos',
+      '- Cancelar un turno',
+      '- Cambiar un turno'
+    ].join('\n')
+  }
+
   myAppointments(items: AppointmentListItem[]) {
     if (items.length === 0) {
       return 'No encontré turnos activos para este número.'
