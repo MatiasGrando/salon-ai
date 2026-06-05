@@ -660,8 +660,7 @@ export class BookingConversationFlow {
             }
           }
 
-          const requestedProfessional = await this.findProfessionalByMessage(input.message, selectedService.businessId)
-            ?? await this.findProfessionalMentionedInMessage(input.message, selectedService.businessId)
+          const requestedProfessional = await this.findProfessionalMentionedInMessage(input.message, selectedService.businessId)
 
           if (requestedProfessional) {
             await this.updateConversation(input.phone, {
@@ -699,8 +698,7 @@ export class BookingConversationFlow {
         return this.buildServicesReply('Ese servicio ya no aparece disponible. ¿Elegimos otro?', input.businessId)
       }
 
-      const requestedProfessional = await this.findProfessionalByMessage(input.message, selectedService.businessId)
-        ?? await this.findProfessionalMentionedInMessage(input.message, selectedService.businessId)
+      const requestedProfessional = await this.findProfessionalMentionedInMessage(input.message, selectedService.businessId)
 
       if (requestedProfessional) {
         return this.buildAvailabilityReply({
@@ -780,6 +778,34 @@ export class BookingConversationFlow {
       await this.restartBooking(input.phone)
 
       return this.buildServicesReply('Me falta confirmar servicio y fecha, asi que volvemos un paso y lo ordenamos.', input.businessId)
+    }
+
+    const selectedProfessionalName = await this.findProfessionalName(input.conversation.selectedProfessionalId)
+
+    if (selectedProfessionalName && rejectsSelectedProfessional(input.message, selectedProfessionalName)) {
+      const selectedService = await prisma.service.findUnique({
+        where: {
+          id: input.conversation.selectedServiceId
+        }
+      })
+
+      if (!selectedService) {
+        await this.restartBooking(input.phone)
+
+        return this.buildServicesReply('Ese servicio ya no aparece disponible. ¿Elegimos otro?', input.businessId)
+      }
+
+      await this.updateConversation(input.phone, {
+        currentStep: 'ASK_PROFESSIONAL',
+        selectedProfessionalId: null,
+        selectedTime: null,
+        lastAvailability: null
+      })
+
+      return this.buildProfessionalsReply(
+        selectedService.businessId,
+        `Tenés razón, perdón 😊 No dejo ${selectedProfessionalName}. ¿Con quién preferís atenderte?`
+      )
     }
 
     const noAvailabilityChoice = normalizeText(input.message)
@@ -1051,6 +1077,8 @@ export class BookingConversationFlow {
     businessId: string | null
     conversation: ConversationState
   }) {
+    const wantsToConfirm = isConfirmAppointmentMessage(input.message)
+
     if (isChangeTimeQuestion(input.message) || isTimeFilterRequest(input.message)) {
       if (!input.conversation.selectedServiceId || !input.conversation.selectedDate) {
         await this.restartBooking(input.phone)
@@ -1074,7 +1102,7 @@ export class BookingConversationFlow {
       })
     }
 
-    if (input.conversation.selectedServiceId && input.conversation.selectedDate) {
+    if (!wantsToConfirm && input.conversation.selectedServiceId && input.conversation.selectedDate) {
       const selectedService = await prisma.service.findUnique({
         where: {
           id: input.conversation.selectedServiceId
@@ -1129,7 +1157,7 @@ export class BookingConversationFlow {
       }
     }
 
-    if (normalizeText(input.message) !== 'confirmar') {
+    if (!wantsToConfirm) {
       return {
         reply: botCopyService.askConfirm()
       }
@@ -2578,6 +2606,72 @@ function isChangeTimeQuestion(message: string) {
       normalizedMessage.includes('hora') ||
       normalizedMessage.includes('turno')
     )
+}
+
+function isConfirmAppointmentMessage(message: string) {
+  const normalizedMessage = normalizeText(message)
+
+  if ([
+    'confirmar',
+    'confirmo',
+    'si confirmar',
+    'si confirmo',
+    'si a confirmar',
+    'confirmalo',
+    'reservalo',
+    'reserva',
+    'reservame',
+    'dale',
+    'dale confirmo',
+    'ok',
+    'okay',
+    'okey',
+    'perfecto',
+    'listo',
+    'esta bien',
+    'todo bien',
+    'quedamos asi',
+    'quedamos asÃ­',
+    'si esta bien',
+    'si perfecto',
+    'de una'
+  ].includes(normalizedMessage)) {
+    return true
+  }
+
+  return [
+    'queda asi',
+    'quedamos asi',
+    'esta perfecto',
+    'todo correcto',
+    'asi esta bien',
+    'lo confirmo',
+    'te confirmo'
+  ].some((phrase) => normalizedMessage.includes(phrase))
+}
+
+function rejectsSelectedProfessional(message: string, professionalName: string) {
+  const normalizedMessage = normalizeText(message)
+  const normalizedProfessionalName = normalizeText(professionalName)
+  const firstName = normalizedProfessionalName.split(/\s+/)[0] ?? normalizedProfessionalName
+
+  if (!normalizedMessage.includes(firstName)) {
+    return false
+  }
+
+  return [
+    'nunca te dije',
+    'no te dije',
+    'yo no dije',
+    'no dije',
+    'no pedi',
+    'no pedí',
+    'no elegi',
+    'no elegí',
+    'no queria',
+    'no quería',
+    'no con'
+  ].some((phrase) => normalizedMessage.includes(normalizeText(phrase)))
 }
 
 function parseRelativeTimeFilter(message: string, selectedTime?: string | null) {
