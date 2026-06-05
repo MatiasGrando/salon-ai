@@ -412,8 +412,7 @@ export class BookingConversationFlow {
       return this.buildServicesReply(botCopyService.serviceNotFound(), input.businessId)
     }
 
-    const selectedDateFromMessage = messageUnderstandingService.parseDate(input.message)
-      ?? await aiMessageUnderstandingService.parseDate(input.message)
+    const selectedDateFromMessage = await this.parseDateFromMessage(input.message)
     const selectedTimeFromMessage = parseAfterTimeFromMessage(input.message)
       ? null
       : messageUnderstandingService.parseTime(input.message)
@@ -493,11 +492,20 @@ export class BookingConversationFlow {
     }
 
     await this.updateConversation(input.phone, {
-      currentStep: 'ASK_PROFESSIONAL',
-      selectedServiceId: selectedService.id
+      currentStep: 'ASK_DATE',
+      selectedServiceId: selectedService.id,
+      selectedProfessionalId: null,
+      selectedDate: null,
+      selectedTime: null,
+      lastAvailability: null
     })
 
-    return this.buildProfessionalsReply(selectedService.businessId, `Perfecto, elegiste ${selectedService.name}.`)
+    return {
+      reply: [
+        `Perfecto, elegiste ${selectedService.name}.`,
+        botCopyService.askDate('el profesional que prefieras')
+      ].join('\n')
+    }
   }
 
   private async handleProfessionalStep(input: {
@@ -527,32 +535,44 @@ export class BookingConversationFlow {
       return this.buildServicesReply('Ese servicio ya no aparece disponible. ¿Elegimos otro?', input.businessId)
     }
 
-    if (messageUnderstandingService.isAnyProfessionalMessage(input.message)) {
-      const messageIntent = await this.extractIntentForSelectedService({
-        message: input.message,
-        service: selectedService,
-        businessId: selectedService.businessId
+    const correctedDate = await this.parseDateFromMessage(input.message)
+
+    if (correctedDate) {
+      await this.updateConversation(input.phone, {
+        currentStep: 'ASK_PROFESSIONAL',
+        selectedDate: correctedDate,
+        selectedTime: null,
+        lastAvailability: null
       })
+
+      return this.buildProfessionalsReply(
+        selectedService.businessId,
+        `Dale, lo cambiamos para ${formatDisplayDate(correctedDate)}.`
+      )
+    }
+
+    if (messageUnderstandingService.isAnyProfessionalMessage(input.message)) {
+      const selectedDate = await this.parseDateFromMessage(input.message)
 
       await this.updateConversation(input.phone, {
-        currentStep: messageIntent?.date ? 'ASK_TIME' : 'ASK_DATE',
+        currentStep: selectedDate ? 'ASK_TIME' : 'ASK_DATE',
         selectedProfessionalId: null,
-        selectedDate: messageIntent?.date ?? null
+        selectedDate: selectedDate ?? null
       })
 
-      if (messageIntent?.date) {
+      if (selectedDate) {
         return this.buildAvailabilityReply({
           phone: input.phone,
           serviceId: selectedService.id,
           professionalId: null,
-          date: messageIntent.date,
-          time: parseAfterTimeFromMessage(input.message) ? null : messageIntent.time,
-          timePreference: messageIntent.timePreference ?? parseTimePreferenceFromMessage(input.message),
+          date: selectedDate,
+          time: parseAfterTimeFromMessage(input.message) ? null : messageUnderstandingService.parseTime(input.message) ?? await aiMessageUnderstandingService.parseTime(input.message),
+          timePreference: parseTimePreferenceFromMessage(input.message),
           afterTime: parseAfterTimeFromMessage(input.message),
           prefix: buildIntentAvailabilityPrefix({
             serviceName: selectedService.name,
-            date: messageIntent.date,
-            timePreference: messageIntent.timePreference ?? parseTimePreferenceFromMessage(input.message)
+            date: selectedDate,
+            timePreference: parseTimePreferenceFromMessage(input.message)
           })
         })
       }
@@ -573,7 +593,7 @@ export class BookingConversationFlow {
       service: selectedService,
       businessId: selectedService.businessId
     })
-    const selectedDate = messageIntent?.date ?? input.conversation.selectedDate
+    const selectedDate = await this.parseDateFromMessage(input.message) ?? input.conversation.selectedDate
 
     await this.updateConversation(input.phone, {
       currentStep: selectedDate ? 'ASK_TIME' : 'ASK_DATE',
@@ -616,8 +636,7 @@ export class BookingConversationFlow {
       return this.buildServicesReply('Me falta confirmar el servicio, asi que volvemos un paso y lo elegimos bien.', input.businessId)
     }
 
-    const selectedDate = messageUnderstandingService.parseDate(input.message)
-      ?? await aiMessageUnderstandingService.parseDate(input.message)
+    const selectedDate = await this.parseDateFromMessage(input.message)
 
     if (!selectedDate) {
       return {
@@ -698,8 +717,7 @@ export class BookingConversationFlow {
       })
     }
 
-    const changedDate = messageUnderstandingService.parseDate(input.message)
-      ?? await aiMessageUnderstandingService.parseDate(input.message)
+    const changedDate = await this.parseDateFromMessage(input.message)
 
     if (changedDate && changedDate !== input.conversation.selectedDate) {
       return this.buildAvailabilityReply({
@@ -1298,6 +1316,7 @@ export class BookingConversationFlow {
       return null
     }
 
+    const intentDate = await this.parseDateFromMessage(input.message)
     const anyProfessional = intent.anyProfessional && mentionsAnyProfessionalPreference(input.message)
     const selectedProfessional = anyProfessional
       ? null
@@ -1307,9 +1326,9 @@ export class BookingConversationFlow {
 
     const selectedProfessionalId = selectedProfessional?.id ?? null
 
-    if (!intent.date) {
+    if (!intentDate) {
       await this.updateConversation(input.phone, {
-        currentStep: selectedProfessionalId || anyProfessional ? 'ASK_DATE' : 'ASK_PROFESSIONAL',
+        currentStep: 'ASK_DATE',
         selectedServiceId: selectedService.id,
         selectedProfessionalId,
         selectedDate: null,
@@ -1317,13 +1336,18 @@ export class BookingConversationFlow {
         lastAvailability: null
       })
 
-      if (selectedProfessionalId || anyProfessional) {
+      if (!selectedProfessionalId && !anyProfessional) {
         return {
-          reply: botCopyService.askDate(selectedProfessional?.name ?? 'cualquier profesional')
+          reply: [
+            `Perfecto, elegiste ${selectedService.name}.`,
+            botCopyService.askDate('el profesional que prefieras')
+          ].join('\n')
         }
       }
 
-      return this.buildProfessionalsReply(selectedService.businessId, `Perfecto, elegiste ${selectedService.name}.`)
+      return {
+        reply: botCopyService.askDate(selectedProfessional?.name ?? 'cualquier profesional')
+      }
     }
 
     if (!selectedProfessionalId && !anyProfessional) {
@@ -1331,14 +1355,14 @@ export class BookingConversationFlow {
         currentStep: 'ASK_PROFESSIONAL',
         selectedServiceId: selectedService.id,
         selectedProfessionalId: null,
-        selectedDate: intent.date,
+        selectedDate: intentDate,
         selectedTime: null,
         lastAvailability: null
       })
 
       return this.buildProfessionalsReply(
         selectedService.businessId,
-        `Perfecto, elegiste ${selectedService.name} para ${formatDisplayDate(intent.date)}.`
+        `Perfecto, elegiste ${selectedService.name} para ${formatDisplayDate(intentDate)}.`
       )
     }
 
@@ -1346,14 +1370,14 @@ export class BookingConversationFlow {
       phone: input.phone,
       serviceId: selectedService.id,
       professionalId: selectedProfessionalId,
-      date: intent.date,
+      date: intentDate,
       time: parseAfterTimeFromMessage(input.message) ? null : intent.time,
       timePreference: intent.timePreference ?? parseTimePreferenceFromMessage(input.message),
       afterTime: parseAfterTimeFromMessage(input.message),
       prefix: buildIntentAvailabilityPrefix({
         serviceName: selectedService.name,
         ...(selectedProfessional?.name ? { professionalName: selectedProfessional.name } : {}),
-        date: intent.date,
+        date: intentDate,
         timePreference: intent.timePreference ?? parseTimePreferenceFromMessage(input.message)
       })
     })
@@ -1418,9 +1442,7 @@ export class BookingConversationFlow {
       serviceBusinessId: selectedService?.businessId ?? null,
       professionalId: selectedProfessional?.id ?? null,
       professionalName: selectedProfessional?.name ?? null,
-      date: intent?.date
-        ?? messageUnderstandingService.parseDate(input.message)
-        ?? await aiMessageUnderstandingService.parseDate(input.message),
+      date: await this.parseDateFromMessage(input.message),
       time: parseAfterTimeFromMessage(input.message)
         ? null
         : intent?.time
@@ -1835,6 +1857,20 @@ export class BookingConversationFlow {
     return parseCustomerIntro(message)
   }
 
+  private async parseDateFromMessage(message: string) {
+    const localDate = messageUnderstandingService.parseDate(message)
+
+    if (localDate) {
+      return localDate
+    }
+
+    if (!hasExplicitDateSignal(message)) {
+      return null
+    }
+
+    return aiMessageUnderstandingService.parseDate(message)
+  }
+
   private async findOrCreateCustomer(phone: string, name: string) {
     const customer = await prisma.customer.findFirst({
       where: {
@@ -2072,6 +2108,38 @@ function isCorrectionPrefix(prefix: string) {
     prefix.includes('Por aca puedo ayudarte') ||
     prefix.includes('Estoy aca para ayudarte')
   )
+}
+
+function hasExplicitDateSignal(message: string) {
+  const normalizedMessage = normalizeText(message)
+
+  return [
+    'hoy',
+    'manana',
+    'pasado',
+    'lunes',
+    'martes',
+    'miercoles',
+    'jueves',
+    'viernes',
+    'sabado',
+    'domingo',
+    'enero',
+    'febrero',
+    'marzo',
+    'abril',
+    'mayo',
+    'junio',
+    'julio',
+    'agosto',
+    'septiembre',
+    'setiembre',
+    'octubre',
+    'noviembre',
+    'diciembre',
+    'dia'
+  ].some((word) => normalizedMessage.includes(word)) ||
+    /\b\d{1,2}[/-]\d{1,2}/.test(normalizedMessage)
 }
 
 function shouldLetAiPlanBooking(message: string) {
