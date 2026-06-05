@@ -23,6 +23,19 @@ type AiTimeResult = {
   confidence: number
 }
 
+export type AiConversationIntent =
+  | 'book_appointment'
+  | 'my_appointments'
+  | 'cancel_appointment'
+  | 'edit_appointment'
+  | 'reset_conversation'
+  | 'unknown'
+
+export type AiConversationIntentResult = {
+  intent: AiConversationIntent
+  confidence: number
+}
+
 export type AiCustomerIntroResult = {
   name: string | null
   remainingMessage: string | null
@@ -45,6 +58,63 @@ const minimumConfidence = 0.65
 export class AiMessageUnderstandingService {
   isEnabled() {
     return Boolean(getOpenAiClient())
+  }
+
+  async classifyConversationIntent(input: {
+    message: string
+    currentStep: string
+  }) {
+    if (!openAiConfig.orchestratorEnabled) {
+      return null
+    }
+
+    const result = await this.askJson<AiConversationIntentResult>({
+      instructions: [
+        'Sos el orquestador de Cami, un asistente de turnos por WhatsApp para salones en Argentina.',
+        'Tu trabajo es clasificar la intencion general del cliente.',
+        'No reserves, no canceles y no edites nada. Solo elegi una intencion.',
+        'Usa book_appointment cuando la persona quiere reservar, cortarse, hacerse un servicio o pedir disponibilidad.',
+        'Usa my_appointments cuando pregunta por sus turnos o reservas existentes.',
+        'Usa cancel_appointment cuando quiere cancelar un turno.',
+        'Usa edit_appointment cuando quiere cambiar, mover o reprogramar un turno.',
+        'Usa reset_conversation cuando quiere empezar de nuevo o reiniciar la charla.',
+        'Si no esta claro, usa unknown.'
+      ].join('\n'),
+      input: {
+        customerMessage: input.message,
+        currentStep: input.currentStep
+      },
+      schemaName: 'conversation_intent_understanding',
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['intent', 'confidence'],
+        properties: {
+          intent: {
+            type: 'string',
+            enum: [
+              'book_appointment',
+              'my_appointments',
+              'cancel_appointment',
+              'edit_appointment',
+              'reset_conversation',
+              'unknown'
+            ]
+          },
+          confidence: {
+            type: 'number',
+            minimum: 0,
+            maximum: 1
+          }
+        }
+      }
+    })
+
+    if (!result || result.confidence < minimumConfidence || result.intent === 'unknown') {
+      return null
+    }
+
+    return result
   }
 
   async findOptionByMessage<T extends MatchableOption>(input: {

@@ -87,6 +87,7 @@ function checkOpenAiConfig() {
   return {
     status: 'ok',
     enabled: true,
-    model: openAiConfig.model
+    model: openAiConfig.model,
+    orchestratorEnabled: openAiConfig.orchestratorEnabled
   }
 }

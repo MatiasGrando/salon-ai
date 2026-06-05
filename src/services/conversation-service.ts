@@ -1,5 +1,7 @@
 import { prisma } from '../config/prisma.js'
+import { Prisma } from '../generated/prisma/client.js'
 import { InternalBookingProvider } from '../providers/internal-booking-provider.js'
+import { AiMessageUnderstandingService, type AiConversationIntent } from './ai-message-understanding-service.js'
 import { BookingConversationFlow, isBookingStartMessage, isMenuStep } from './booking-conversation-flow.js'
 import { BotCopyService } from './bot-copy-service.js'
 import { normalizeText } from './message-understanding-service.js'
@@ -7,6 +9,7 @@ import { normalizeText } from './message-understanding-service.js'
 const bookingConversationFlow = new BookingConversationFlow()
 const bookingProvider = new InternalBookingProvider()
 const botCopyService = new BotCopyService()
+const aiMessageUnderstandingService = new AiMessageUnderstandingService()
 
 type HandleMessageInput = {
   phone: string
@@ -97,6 +100,17 @@ export class ConversationService {
       }
     }
 
+    const orchestratedReply = await this.tryHandleOrchestratedIntent({
+      phone: input.phone,
+      message,
+      businessId,
+      conversation
+    })
+
+    if (orchestratedReply) {
+      return orchestratedReply
+    }
+
     if (
       isMenuStep(conversation.currentStep) &&
       !conversation.selectedCustomerName &&
@@ -128,6 +142,103 @@ export class ConversationService {
       businessId,
       conversation
     })
+  }
+
+  private async tryHandleOrchestratedIntent(input: {
+    phone: string
+    message: string
+    businessId: string | null
+    conversation: {
+      currentStep: string
+      selectedCustomerName: string | null
+    }
+  }): Promise<HandleMessageResult | null> {
+    if (!isMenuStep(input.conversation.currentStep)) {
+      return null
+    }
+
+    const result = await aiMessageUnderstandingService.classifyConversationIntent({
+      message: input.message,
+      currentStep: input.conversation.currentStep
+    })
+
+    if (!result) {
+      return null
+    }
+
+    return this.handleOrchestratedIntent({
+      intent: result.intent,
+      phone: input.phone,
+      message: input.message,
+      businessId: input.businessId,
+      conversation: input.conversation
+    })
+  }
+
+  private async handleOrchestratedIntent(input: {
+    intent: AiConversationIntent
+    phone: string
+    message: string
+    businessId: string | null
+    conversation: {
+      currentStep: string
+      selectedCustomerName: string | null
+    }
+  }): Promise<HandleMessageResult | null> {
+    if (input.intent === 'my_appointments') {
+      return this.buildMyAppointmentsReply(input.phone)
+    }
+
+    if (input.intent === 'cancel_appointment') {
+      await this.updateConversation(input.phone, {
+        currentStep: 'CANCEL_SELECT_APPOINTMENT'
+      })
+
+      return this.buildMyAppointmentsReply(input.phone, botCopyService.cancelAppointmentIntro())
+    }
+
+    if (input.intent === 'edit_appointment') {
+      await this.updateConversation(input.phone, {
+        currentStep: 'EDIT_SELECT_APPOINTMENT'
+      })
+
+      return this.buildMyAppointmentsReply(input.phone, botCopyService.editAppointmentIntro())
+    }
+
+    if (input.intent === 'reset_conversation') {
+      await this.updateConversation(input.phone, {
+        currentStep: 'START',
+        selectedServiceId: null,
+        selectedProfessionalId: null,
+        selectedDate: null,
+        selectedTime: null,
+        lastAvailability: null
+      })
+
+      return {
+        reply: botCopyService.resetDone()
+      }
+    }
+
+    if (input.intent === 'book_appointment') {
+      return bookingConversationFlow.handle({
+        phone: input.phone,
+        message: input.message,
+        businessId: input.businessId,
+        conversation: {
+          ...input.conversation,
+          phone: input.phone,
+          selectedServiceId: null,
+          selectedProfessionalId: null,
+          selectedDate: null,
+          selectedTime: null,
+          lastAvailability: null,
+          lastMessage: input.message
+        }
+      })
+    }
+
+    return null
   }
 
   private async buildMyAppointmentsReply(phone: string, prefix?: string): Promise<HandleMessageResult> {
@@ -287,11 +398,21 @@ export class ConversationService {
       lastAvailability?: unknown
     }
   ) {
+    const { lastAvailability, ...rest } = data
+    const dataToUpdate = lastAvailability === undefined
+      ? rest
+      : {
+          ...rest,
+          lastAvailability: lastAvailability === null
+            ? Prisma.JsonNull
+            : lastAvailability as Prisma.InputJsonValue
+        }
+
     return prisma.conversation.update({
       where: {
         phone
       },
-      data
+      data: dataToUpdate
     })
   }
 }
