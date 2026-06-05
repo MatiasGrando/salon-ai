@@ -157,6 +157,10 @@ export class ConversationService {
     result: HandleMessageResult
     message: string
   }): Promise<HandleMessageResult> {
+    if (!canHumanizeSafely(input.result.reply)) {
+      return input.result
+    }
+
     const styledReply = await aiMessageUnderstandingService.humanizeReply({
       customerMessage: input.message,
       draftReply: input.result.reply,
@@ -498,4 +502,20 @@ function formatTime(date: Date) {
   const minutes = String(date.getMinutes()).padStart(2, '0')
 
   return `${hours}:${minutes}`
+}
+
+function canHumanizeSafely(reply: string) {
+  const protectedPatterns = [
+    /\b\d{4}-\d{2}-\d{2}\b/,
+    /\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b/,
+    /\b\d{2}:\d{2}\b/,
+    /Horarios disponibles/i,
+    /Fecha:/i,
+    /Horario:/i,
+    /Profesional:/i,
+    /Servicio:/i,
+    /confirmar/i
+  ]
+
+  return !protectedPatterns.some((pattern) => pattern.test(reply))
 }

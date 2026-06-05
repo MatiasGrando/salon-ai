@@ -661,6 +661,25 @@ export class BookingConversationFlow {
       return this.buildServicesReply('Me falta confirmar servicio y fecha, asi que volvemos un paso y lo ordenamos.', input.businessId)
     }
 
+    const changedDate = messageUnderstandingService.parseDate(input.message)
+      ?? await aiMessageUnderstandingService.parseDate(input.message)
+
+    if (changedDate && changedDate !== input.conversation.selectedDate) {
+      return this.buildAvailabilityReply({
+        phone: input.phone,
+        serviceId: input.conversation.selectedServiceId,
+        professionalId: input.conversation.selectedProfessionalId,
+        date: changedDate,
+        time: parseAfterTimeFromMessage(input.message)
+          ? null
+          : messageUnderstandingService.parseTime(input.message)
+            ?? await aiMessageUnderstandingService.parseTime(input.message),
+        timePreference: parseTimePreferenceFromMessage(input.message),
+        afterTime: parseAfterTimeFromMessage(input.message),
+        prefix: `Dale, lo vemos para ${changedDate}.`
+      })
+    }
+
     const selectedAvailability = await this.findAvailableTimeByMessage({
       message: input.message,
       professionalId: input.conversation.selectedProfessionalId,
