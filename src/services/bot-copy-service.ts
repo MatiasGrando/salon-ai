@@ -45,10 +45,10 @@ export class BotCopyService {
 
     return [
       input.prefix,
-      '¿Qué servicio te gustaría reservar? Aquí tienes algunas opciones:',
+      '😊 ¿Qué servicio te gustaría reservar?',
       '',
       ...options,
-      'Espero tu respuesta.'
+      'Contame cuál preferís y seguimos 💫'
     ].filter((line): line is string => line !== undefined && line !== null).join('\n')
   }
 
@@ -61,11 +61,11 @@ export class BotCopyService {
   }
 
   bookingOnly() {
-    return 'Te entiendo. Por acá puedo ayudarte con turnos: reservar, ver tus turnos, cancelar o cambiar uno.'
+    return 'Te entiendo 😊 Por acá puedo ayudarte con turnos: reservar, ver tus turnos, cancelar o cambiar uno.'
   }
 
   answerBotName() {
-    return 'Soy Cami. Estoy acá para ayudarte con tu turno.'
+    return 'Soy Cami 😊 Estoy acá para ayudarte con tu turno.'
   }
 
   professionalsList(input: {
@@ -78,7 +78,7 @@ export class BotCopyService {
 
     return [
       input.prefix,
-      'Perfecto. ¿Preferís atenderte con alguien en particular?',
+      'Perfecto 😊 ¿Preferís atenderte con alguien en particular?',
       ...options,
       '• Cualquier profesional'
     ].filter(Boolean).join('\n')
@@ -95,7 +95,7 @@ export class BotCopyService {
   askDate(professionalName: string) {
     return [
       `Dale, dejamos ${professionalName}.`,
-      '¿Para qué día te gustaría?',
+      '¿Para qué día te gustaría? 😊',
       '- Hoy',
       '- Mañana',
       '- Pasado',
@@ -104,7 +104,7 @@ export class BotCopyService {
   }
 
   dateNotUnderstood() {
-    return 'No llegué a entender bien el día. Puede ser hoy, mañana, pasado o una fecha como 25/6/26.'
+    return 'No me quedó claro el día 😊 ¿Te referís a hoy, mañana, pasado o a una fecha como 25/6/26?'
   }
 
   noAvailabilityForDate(input?: {
@@ -121,7 +121,7 @@ export class BotCopyService {
         ? ` ${input.timePreference}`
         : ''
 
-    return `No veo horarios disponibles${professionalText}${dateText}${timeText}. Si querés, probamos con otro día, otro profesional o sin preferencia.`
+    return `No veo horarios disponibles${professionalText}${dateText}${timeText}. Si querés, probamos con otro día, otro profesional o sin preferencia 😊`
   }
 
   noAvailabilityTodayForProfessional(input: {
@@ -129,7 +129,7 @@ export class BotCopyService {
   }) {
     return [
       `Para hoy no veo horarios disponibles con ${input.professionalName}.`,
-      'Si querés, podemos hacer una de estas dos cosas:',
+      'Podemos hacer una de estas dos cosas 😊',
       '1. Buscar otro día con el mismo profesional',
       '2. Buscar horarios para hoy con todos los profesionales'
     ].join('\n')
@@ -151,16 +151,16 @@ export class BotCopyService {
       input.prefix,
       title,
       ...options,
-      'Decime cuál te queda mejor y te lo dejo reservado.'
+      'Decime cuál te queda mejor y te lo dejo reservado 😊'
     ].filter(Boolean).join('\n')
   }
 
   askCustomerName() {
-    return 'Perfecto. ¿A nombre de quién lo dejamos?'
+    return 'Perfecto 😊 ¿A nombre de quién lo dejamos?'
   }
 
   askCustomerNameAgain() {
-    return 'Perdón, no llegué a tomar tu nombre. ¿Cómo te llamás? Así te lo dejo bien cargado.'
+    return 'Perdón, no llegué a tomar tu nombre 😊 ¿Cómo te llamás? Así te lo dejo bien cargado.'
   }
 
   askFullCustomerName() {
@@ -169,7 +169,7 @@ export class BotCopyService {
 
   confirmation(summary: AppointmentSummary) {
     return [
-      'Genial, te confirmo así lo dejamos bien:',
+      'Genial 😊 Te confirmo así lo dejamos bien:',
       '',
       `Nombre: ${summary.customerName}`,
       `Servicio: ${summary.serviceName}`,
@@ -184,8 +184,8 @@ export class BotCopyService {
 
   askConfirm() {
     return [
-      'No te entendi bien.',
-      'Puede ser alguna de estas opciones?',
+      'No me quedó del todo claro 😊',
+      '¿Te referís a alguna de estas opciones?',
       '* confirmar',
       '* cambiar horario',
       '* cambiar profesional',
@@ -196,12 +196,25 @@ export class BotCopyService {
     ].join('\n')
   }
 
+  clarifyProfessionalChange(input: {
+    professionalName: string
+  }) {
+    return [
+      `No me quedó del todo claro 😊 ¿Querés cambiar el turno para atenderte con ${input.professionalName}?`,
+      'Podés responder:',
+      '* si, con ese profesional',
+      '* no, dejar como estaba',
+      '* cambiar horario',
+      '* confirmar'
+    ].join('\n')
+  }
+
   appointmentConfirmed(input: {
     customerName: string
     date: string
     time: string
   }) {
-    return `Listo, ${getFirstName(input.customerName)}. Tu turno quedó confirmado para el ${input.date} a las ${input.time}. Te esperamos.`
+    return `Listo, ${getFirstName(input.customerName)} 😊 Tu turno quedó confirmado para el ${input.date} a las ${input.time}. Te esperamos.`
   }
 
   appointmentFailed(message: string) {

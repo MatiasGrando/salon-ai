@@ -176,16 +176,8 @@ export class BookingConversationFlow {
       }
     }
 
-    if (
-      conversation.currentStep === 'START' &&
-      conversation.selectedCustomerName &&
-      isBookingStartMessage(message, conversation.currentStep)
-    ) {
-      return this.handleServiceStep({ phone, message, businessId, conversation })
-    }
-
-    if (conversation.currentStep === 'START' || isBookingStartMessage(message, conversation.currentStep)) {
-      return this.startBooking({ phone, businessId, conversation })
+    if (conversation.currentStep === 'CONFIRM') {
+      return this.handleConfirmStep({ phone, message, businessId, conversation })
     }
 
     if (conversation.currentStep === 'ASK_SERVICE') {
@@ -285,8 +277,16 @@ export class BookingConversationFlow {
       return this.handleCustomerNameStep({ phone, message, businessId, conversation })
     }
 
-    if (conversation.currentStep === 'CONFIRM') {
-      return this.handleConfirmStep({ phone, message, businessId, conversation })
+    if (
+      conversation.currentStep === 'START' &&
+      conversation.selectedCustomerName &&
+      isBookingStartMessage(message, conversation.currentStep)
+    ) {
+      return this.handleServiceStep({ phone, message, businessId, conversation })
+    }
+
+    if (conversation.currentStep === 'START' || isBookingStartMessage(message, conversation.currentStep)) {
+      return this.startBooking({ phone, businessId, conversation })
     }
 
     await this.updateConversation(phone, {
@@ -955,6 +955,7 @@ export class BookingConversationFlow {
 
       if (selectedService) {
         const requestedProfessional = await this.findProfessionalByMessage(input.message, selectedService.businessId)
+          ?? await this.findProfessionalMentionedInMessage(input.message, selectedService.businessId)
 
         if (requestedProfessional && requestedProfessional.id !== input.conversation.selectedProfessionalId) {
           return this.buildAvailabilityReply({
@@ -966,6 +967,14 @@ export class BookingConversationFlow {
             afterTime: parseAfterTimeFromMessage(input.message),
             prefix: `Dale, vemos si hay lugar con ${requestedProfessional.name}.`
           })
+        }
+
+        if (requestedProfessional && requestedProfessional.id === input.conversation.selectedProfessionalId) {
+          return {
+            reply: botCopyService.clarifyProfessionalChange({
+              professionalName: requestedProfessional.name
+            })
+          }
         }
       }
     }
@@ -1633,6 +1642,27 @@ export class BookingConversationFlow {
         options: professionals,
         optionType: 'professional'
       })
+  }
+
+  private async findProfessionalMentionedInMessage(message: string, businessId: string) {
+    const professionals = await prisma.professional.findMany({
+      where: {
+        businessId
+      },
+      orderBy: {
+        name: 'asc'
+      }
+    })
+    const normalizedMessage = normalizeText(message)
+
+    return professionals.find((professional) => {
+      const normalizedName = normalizeText(professional.name)
+      const firstName = normalizedName.split(/\s+/)[0] ?? normalizedName
+
+      return normalizedMessage.includes(normalizedName) ||
+        (firstName.length >= 4 && normalizedMessage.includes(firstName)) ||
+        (firstName.length >= 5 && normalizedMessage.includes(firstName.slice(0, 4)))
+    }) ?? null
   }
 
   private async findAvailabilityOptions(input: {
