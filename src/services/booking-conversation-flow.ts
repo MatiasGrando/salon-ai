@@ -946,6 +946,30 @@ export class BookingConversationFlow {
       })
     }
 
+    if (input.conversation.selectedServiceId && input.conversation.selectedDate) {
+      const selectedService = await prisma.service.findUnique({
+        where: {
+          id: input.conversation.selectedServiceId
+        }
+      })
+
+      if (selectedService) {
+        const requestedProfessional = await this.findProfessionalByMessage(input.message, selectedService.businessId)
+
+        if (requestedProfessional && requestedProfessional.id !== input.conversation.selectedProfessionalId) {
+          return this.buildAvailabilityReply({
+            phone: input.phone,
+            serviceId: input.conversation.selectedServiceId,
+            professionalId: requestedProfessional.id,
+            date: input.conversation.selectedDate,
+            timePreference: parseTimePreferenceFromMessage(input.message),
+            afterTime: parseAfterTimeFromMessage(input.message),
+            prefix: `Dale, vemos si hay lugar con ${requestedProfessional.name}.`
+          })
+        }
+      }
+    }
+
     if (normalizeText(input.message) !== 'confirmar') {
       return {
         reply: botCopyService.askConfirm()
@@ -992,7 +1016,7 @@ export class BookingConversationFlow {
     return {
       reply: botCopyService.appointmentConfirmed({
         customerName: input.conversation.selectedCustomerName,
-        date: input.conversation.selectedDate,
+        date: formatDisplayDate(input.conversation.selectedDate),
         time: input.conversation.selectedTime
       })
     }

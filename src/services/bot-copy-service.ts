@@ -184,12 +184,14 @@ export class BotCopyService {
 
   askConfirm() {
     return [
-      'Para dejar el turno reservado, respondeme confirmar.',
-      'Si querés ajustar algo, podés decirme:',
+      'No te entendi bien.',
+      'Puede ser alguna de estas opciones?',
+      '* confirmar',
       '* cambiar horario',
-      '* cambiar fecha',
       '* cambiar profesional',
+      '* cambiar fecha',
       '* cambiar servicio',
+      '* cancelar',
       '* volver'
     ].join('\n')
   }
