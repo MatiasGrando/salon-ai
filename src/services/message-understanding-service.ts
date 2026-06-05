@@ -234,7 +234,7 @@ function parseWeekday(normalizedMessage: string, today: Date) {
 }
 
 function parseShortDate(normalizedMessage: string) {
-  const match = normalizedMessage.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2}|\d{4}))?$/)
+  const match = normalizedMessage.match(/^(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2}|\d{4}))?$/)
 
   if (!match) {
     return null

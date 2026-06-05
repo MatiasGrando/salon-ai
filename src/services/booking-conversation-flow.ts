@@ -246,7 +246,7 @@ export class BookingConversationFlow {
           if (bookingIntentReply) {
             return {
               reply: [
-                `Hola, soy Cami. Un gusto, ${getFirstName(customerIntro.name)}.`,
+                `Un gusto, ${getFirstName(customerIntro.name)}.`,
                 bookingIntentReply.reply
               ].join('\n')
             }
@@ -632,7 +632,7 @@ export class BookingConversationFlow {
         if (bookingIntentReply) {
           return {
             reply: [
-              `Hola, soy Cami. Un gusto, ${getFirstName(customerName)}.`,
+              `Un gusto, ${getFirstName(customerName)}.`,
               bookingIntentReply.reply
             ].join('\n')
           }

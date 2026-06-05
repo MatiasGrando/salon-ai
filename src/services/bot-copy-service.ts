@@ -89,12 +89,12 @@ export class BotCopyService {
       '- Hoy',
       '- Manana',
       '- Pasado',
-      'O decime una fecha, por ejemplo 2026-06-06.'
+      'O decime una fecha, por ejemplo 25/6/26 o 25-6-26.'
     ].join('\n')
   }
 
   dateNotUnderstood() {
-    return 'No llegue a entender bien el dia. Puede ser hoy, manana, pasado o una fecha como 2026-06-06.'
+    return 'No llegue a entender bien el dia. Puede ser hoy, manana, pasado o una fecha como 25/6/26.'
   }
 
   noAvailabilityForDate(input?: {
