@@ -12,11 +12,16 @@ export class MessageUnderstandingService {
       '0',
       'cualquier profesional',
       'cualquiera',
+      'cualquiera esta bien',
+      'cualquier esta bien',
+      'con cualquiera',
+      'el que sea',
       'me da igual',
+      'me da lo mismo',
       'el que tenga antes',
       'quien sea',
       'sin preferencia'
-    ].includes(normalizedMessage)
+    ].some((phrase) => normalizedMessage === phrase || normalizedMessage.includes(phrase))
   }
 
   findOptionByMessage<T extends MatchableOption>(message: string, options: T[]) {

@@ -221,6 +221,10 @@ export class ConversationService {
       return input.result
     }
 
+    if (styledReply && !preservesRequiredBotName(input.result.reply, styledReply)) {
+      return input.result
+    }
+
     return {
       reply: styledReply ?? input.result.reply
     }
@@ -515,19 +519,34 @@ function isExpiredInProgressConversation(currentStep: string, updatedAt: Date) {
 function isMyAppointmentsMessage(message: string, currentStep: string) {
   const normalizedMessage = normalizeText(message)
 
-  return (isMenuStep(currentStep) && normalizedMessage === '2') || normalizedMessage === 'mis turnos'
+  return (isMenuStep(currentStep) && normalizedMessage === '2') ||
+    normalizedMessage === 'mis turnos' ||
+    normalizedMessage.includes('ver mis turnos') ||
+    normalizedMessage.includes('quiero ver mis turnos') ||
+    normalizedMessage.includes('tengo turnos') ||
+    normalizedMessage.includes('que turnos tengo')
 }
 
 function isCancelAppointmentMessage(message: string, currentStep: string) {
   const normalizedMessage = normalizeText(message)
 
-  return (isMenuStep(currentStep) && normalizedMessage === '3') || normalizedMessage === 'cancelar turno'
+  return (isMenuStep(currentStep) && normalizedMessage === '3') ||
+    normalizedMessage === 'cancelar turno' ||
+    normalizedMessage.includes('cancelar un turno') ||
+    normalizedMessage.includes('cancelar mi turno') ||
+    normalizedMessage.includes('quiero cancelar') ||
+    normalizedMessage.includes('puedo cancelar')
 }
 
 function isEditAppointmentMessage(message: string, currentStep: string) {
   const normalizedMessage = normalizeText(message)
 
-  return (isMenuStep(currentStep) && normalizedMessage === '4') || normalizedMessage === 'editar turno'
+  return (isMenuStep(currentStep) && normalizedMessage === '4') ||
+    normalizedMessage === 'editar turno' ||
+    normalizedMessage.includes('cambiar un turno') ||
+    normalizedMessage.includes('cambiar mi turno') ||
+    normalizedMessage.includes('editar mi turno') ||
+    normalizedMessage.includes('reprogramar')
 }
 
 function parseAppointmentListOption(message: string) {
@@ -666,4 +685,8 @@ function preservesRequiredLines(originalReply: string, styledReply: string) {
     })
 
   return requiredLines.every((line) => styledReply.includes(line))
+}
+
+function preservesRequiredBotName(originalReply: string, styledReply: string) {
+  return !originalReply.includes('Cami') || styledReply.includes('Cami')
 }

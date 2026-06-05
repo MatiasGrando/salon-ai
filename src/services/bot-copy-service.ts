@@ -93,14 +93,22 @@ export class BotCopyService {
   }
 
   askDate(professionalName: string) {
+    const prefix = [
+      'el profesional que prefieras',
+      'cualquier profesional',
+      'el profesional seleccionado'
+    ].includes(professionalName)
+      ? null
+      : `Dale, dejamos ${professionalName}.`
+
     return [
-      `Dale, dejamos ${professionalName}.`,
+      prefix,
       '¿Para qué día te gustaría? 😊',
       '- Hoy',
       '- Mañana',
       '- Pasado',
       'O decime una fecha, por ejemplo 25/6/26 o 25-6-26.'
-    ].join('\n')
+    ].filter(Boolean).join('\n')
   }
 
   dateNotUnderstood() {

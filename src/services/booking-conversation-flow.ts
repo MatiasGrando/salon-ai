@@ -1984,11 +1984,26 @@ export class BookingConversationFlow {
 
     const normalizedMessage = normalizeText(input.message)
 
-    if (normalizedMessage === 'primero' || normalizedMessage === 'el primero') {
+    if (
+      normalizedMessage === 'primero' ||
+      normalizedMessage === 'el primero' ||
+      normalizedMessage.includes('primer turno') ||
+      normalizedMessage.includes('primero que tengas') ||
+      normalizedMessage.includes('primer horario') ||
+      normalizedMessage.includes('mas temprano') ||
+      normalizedMessage.includes('el mas temprano')
+    ) {
       return options[0] ?? null
     }
 
-    if (normalizedMessage === 'ultimo' || normalizedMessage === 'el ultimo') {
+    if (
+      normalizedMessage === 'ultimo' ||
+      normalizedMessage === 'el ultimo' ||
+      normalizedMessage.includes('ultimo que tengas') ||
+      normalizedMessage.includes('ultimo horario') ||
+      normalizedMessage.includes('mas tarde') ||
+      normalizedMessage.includes('el mas tarde')
+    ) {
       return options[options.length - 1] ?? null
     }
 
