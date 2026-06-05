@@ -10,6 +10,7 @@ export class MessageUnderstandingService {
 
     return [
       '0',
+      'cualquier profesional',
       'cualquiera',
       'me da igual',
       'el que tenga antes',

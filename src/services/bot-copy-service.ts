@@ -209,6 +209,19 @@ export class BotCopyService {
     ].join('\n')
   }
 
+  clarifyServiceChange(input: {
+    serviceName: string
+  }) {
+    return [
+      `No me quedo del todo claro 😊 ¿Querés dejar el turno como ${input.serviceName}?`,
+      'Podés responder:',
+      '* si, ese servicio',
+      '* cambiar servicio',
+      '* cambiar horario',
+      '* confirmar'
+    ].join('\n')
+  }
+
   appointmentConfirmed(input: {
     customerName: string
     date: string

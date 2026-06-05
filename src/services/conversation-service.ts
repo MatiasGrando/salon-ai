@@ -517,10 +517,7 @@ function canHumanizeSafely(reply: string) {
     /^\d+\.\s/m,
     /Horarios disponibles/i,
     /opciones disponibles/i,
-    /Cualquier profesional/i,
-    /Preferis/i,
     /Preferís/i,
-    /Para que dia/i,
     /Para qué dia/i,
     /Fecha:/i,
     /Horario:/i,
@@ -536,7 +533,12 @@ function preservesRequiredLines(originalReply: string, styledReply: string) {
   const requiredLines = originalReply
     .split('\n')
     .map((line) => line.trim())
-    .filter((line) => line.startsWith('* '))
+    .filter((line) => {
+      return line.startsWith('* ') ||
+        line.startsWith('- ') ||
+        line.startsWith('• ') ||
+        line.startsWith('â€¢ ')
+    })
 
   return requiredLines.every((line) => styledReply.includes(line))
 }
