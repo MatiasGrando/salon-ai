@@ -28,7 +28,7 @@ export class BotCopyService {
   }
 
   askInitialName() {
-    return 'Hola, soy Cami. Mucho gusto. Te ayudo con tu turno.\nAntes de empezar, decime tu nombre asi te atiendo mejor.'
+    return '¡Hola! 💖 Soy Cami, un gusto conocerte 😊\n\nAntes de empezar, ¿me decís tu nombre? Así puedo ayudarte mejor y hacer que tu experiencia sea más personalizada ✨'
   }
 
   resetDone() {
