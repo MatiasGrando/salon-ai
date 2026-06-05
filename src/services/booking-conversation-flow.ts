@@ -1692,6 +1692,20 @@ function findServiceBySalonWords<T extends {
   aliases?: Array<{ name: string }>
 }>(message: string, services: T[]) {
   const normalizedMessage = normalizeText(message)
+  const asksForSimpleCut = [
+    'solo corte',
+    'solamente corte',
+    'nada mas corte',
+    'corte solo',
+    'corte simple',
+    'solo pelo',
+    'solo cortarme'
+  ].some((phrase) => normalizedMessage.includes(phrase))
+
+  if (asksForSimpleCut) {
+    return findSimpleHaircutService(services)
+  }
+
   const mentionsColor = [
     'color',
     'teñir',
@@ -1728,6 +1742,19 @@ function findServiceBySalonWords<T extends {
   return haircutServices.length === 1 ? haircutServices[0] ?? null : null
 }
 
+function findSimpleHaircutService<T extends {
+  name: string
+  aliases?: Array<{ name: string }>
+}>(services: T[]) {
+  const haircutServices = services.filter((service) => {
+    const searchableText = serviceSearchText(service)
+
+    return searchableText.includes('corte') && !searchableText.includes('color')
+  })
+
+  return haircutServices.length === 1 ? haircutServices[0] ?? null : null
+}
+
 function serviceSearchText(service: {
   name: string
   aliases?: Array<{ name: string }>
@@ -1750,7 +1777,7 @@ function ensureQuestionHasOptions<T extends { name: string }>(question: string, 
 
   return [
     question,
-    ...services.map((service, index) => `${index + 1}. ${service.name}`)
+    ...services.map((service) => `• ${service.name}`)
   ].join('\n')
 }
 

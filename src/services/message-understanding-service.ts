@@ -41,7 +41,8 @@ export class MessageUnderstandingService {
           value === normalizedMessage ||
           value.includes(normalizedMessage) ||
           normalizedMessage.includes(value) ||
-          matchesTokenPrefix(normalizedMessage, value)
+          matchesTokenPrefix(normalizedMessage, value) ||
+          matchesCloseToken(normalizedMessage, value)
         )
       })
     }) ?? null
@@ -159,6 +160,53 @@ function matchesTokenPrefix(normalizedMessage: string, normalizedValue: string) 
       return messageToken.length >= 4 && valueToken.startsWith(messageToken)
     })
   })
+}
+
+function matchesCloseToken(normalizedMessage: string, normalizedValue: string) {
+  const messageTokens = normalizedMessage.split(/\s+/).filter(Boolean)
+  const valueTokens = normalizedValue.split(/\s+/).filter(Boolean)
+
+  return valueTokens.some((valueToken) => {
+    if (valueToken.length < 5) {
+      return false
+    }
+
+    return messageTokens.some((messageToken) => {
+      if (messageToken.length < 4) {
+        return false
+      }
+
+      const distance = levenshteinDistance(messageToken, valueToken)
+      const allowedDistance = valueToken.length <= 5 ? 1 : 2
+
+      return distance <= allowedDistance
+    })
+  })
+}
+
+function levenshteinDistance(left: string, right: string) {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index)
+  const current = Array.from({ length: right.length + 1 }, () => 0)
+
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    current[0] = leftIndex
+
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      const substitutionCost = left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1
+
+      current[rightIndex] = Math.min(
+        (current[rightIndex - 1] ?? 0) + 1,
+        (previous[rightIndex] ?? 0) + 1,
+        (previous[rightIndex - 1] ?? 0) + substitutionCost
+      )
+    }
+
+    for (let index = 0; index < previous.length; index += 1) {
+      previous[index] = current[index] ?? 0
+    }
+  }
+
+  return previous[right.length] ?? 0
 }
 
 function parseWeekday(normalizedMessage: string, today: Date) {

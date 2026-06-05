@@ -19,16 +19,16 @@ export class BotCopyService {
 
     return [
       greeting,
-      'Contame que necesitas y te doy una mano.',
-      '1. Reservar turno',
-      '2. Mis turnos',
-      '3. Cancelar turno',
-      '4. Editar turno'
+      'Decime tranquilo que necesitas y te doy una mano.',
+      '- Reservar turno',
+      '- Ver tus turnos',
+      '- Cancelar un turno',
+      '- Cambiar un turno'
     ].join('\n')
   }
 
   askInitialName() {
-    return 'Hola, soy Cami. Mucho gusto. Te ayudo a reservar tu turno.\nAntes de empezar, como te llamas?'
+    return 'Hola, soy Cami. Mucho gusto. Te ayudo con tu turno.\nAntes de empezar, decime tu nombre asi te atiendo mejor.'
   }
 
   resetDone() {
@@ -39,13 +39,13 @@ export class BotCopyService {
     prefix?: string
     services: Array<{ name: string; duration: number }>
   }) {
-    const options = input.services.map((service, index) => {
-      return `${index + 1}. ${service.name} - ${service.duration} min`
+    const options = input.services.map((service) => {
+      return `• ${service.name} (${service.duration} min)`
     })
 
     return [
       input.prefix,
-      'Que servicio queres reservar?',
+      '😊 ¡Genial! ¿Qué te gustaría hacerte?',
       ...options
     ].filter(Boolean).join('\n')
   }
@@ -55,22 +55,22 @@ export class BotCopyService {
   }
 
   serviceNotFound() {
-    return 'No encontre ese servicio entre las opciones. Proba respondiendo con el numero, el nombre o una forma parecida.'
+    return 'No lo ubique bien. Decime el numero o el nombre del servicio y lo seguimos.'
   }
 
   professionalsList(input: {
     prefix?: string
     professionals: Array<{ name: string }>
   }) {
-    const options = input.professionals.map((professional, index) => {
-      return `${index + 1}. ${professional.name}`
+    const options = input.professionals.map((professional) => {
+      return `• ${professional.name}`
     })
 
     return [
       input.prefix,
-      'Con que profesional queres atenderte?',
+      'Perfecto. ¿Preferís atenderte con alguien en particular?',
       ...options,
-      '0. Cualquier profesional'
+      '• Cualquier profesional'
     ].filter(Boolean).join('\n')
   }
 
@@ -79,22 +79,22 @@ export class BotCopyService {
   }
 
   professionalNotFound() {
-    return 'No encontre ese profesional entre las opciones. Responde con el numero o con el nombre.'
+    return 'No lo encontre entre los profesionales disponibles. Decime el numero o el nombre y lo reviso.'
   }
 
   askDate(professionalName: string) {
     return [
       `Dale, dejamos ${professionalName}.`,
-      'Para que fecha queres el turno?',
-      '1. Hoy',
-      '2. Manana',
-      '3. Pasado',
+      'Para que dia te gustaria?',
+      '- Hoy',
+      '- Manana',
+      '- Pasado',
       'O decime una fecha, por ejemplo 2026-06-06.'
     ].join('\n')
   }
 
   dateNotUnderstood() {
-    return 'No llegue a entender la fecha. Podes responder 1 para hoy, 2 para manana, 3 para pasado, o escribirme una fecha como 2026-06-06.'
+    return 'No llegue a entender bien el dia. Puede ser hoy, manana, pasado o una fecha como 2026-06-06.'
   }
 
   noAvailabilityForDate(input?: {
@@ -111,7 +111,7 @@ export class BotCopyService {
         ? ` ${input.timePreference}`
         : ''
 
-    return `No veo horarios disponibles${professionalText}${dateText}${timeText}. Podemos probar con otro dia, otro profesional o sin preferencia.`
+    return `No veo horarios disponibles${professionalText}${dateText}${timeText}. Si queres, probamos con otro dia, otro profesional o sin preferencia.`
   }
 
   availability(input: {
@@ -130,16 +130,16 @@ export class BotCopyService {
       input.prefix,
       title,
       ...options,
-      'Decime que horario preferis.'
+      'Decime cual te queda mejor y te lo dejo reservado.'
     ].filter(Boolean).join('\n')
   }
 
   askCustomerName() {
-    return 'Perfecto. A nombre de quien dejamos el turno?'
+    return 'Perfecto. A nombre de quien lo dejamos?'
   }
 
   askCustomerNameAgain() {
-    return 'Perdon, no llegue a tomar tu nombre. Como te llamas?'
+    return 'Perdon, no llegue a tomar tu nombre. Como te llamas? Asi te lo dejo bien cargado.'
   }
 
   askFullCustomerName() {
@@ -148,7 +148,7 @@ export class BotCopyService {
 
   confirmation(summary: AppointmentSummary) {
     return [
-      'Genial, te confirmo los datos antes de reservar:',
+      'Genial, te confirmo asi lo dejamos bien:',
       '',
       `Nombre: ${summary.customerName}`,
       `Servicio: ${summary.serviceName}`,
@@ -156,7 +156,7 @@ export class BotCopyService {
       `Fecha: ${summary.date}`,
       `Horario: ${summary.time}`,
       '',
-      'Si esta todo bien, respondeme confirmar.',
+      'Si esta todo bien, respondeme confirmar y te lo reservo.',
       'Si queres cambiar algo, decime que queres modificar.'
     ].join('\n')
   }
@@ -170,7 +170,7 @@ export class BotCopyService {
     date: string
     time: string
   }) {
-    return `Listo, ${getFirstName(input.customerName)}. Tu turno quedo confirmado para el ${input.date} a las ${input.time}. Te espero.`
+    return `Listo, ${getFirstName(input.customerName)}. Tu turno quedo confirmado para el ${input.date} a las ${input.time}. Te esperamos.`
   }
 
   appointmentFailed(message: string) {
