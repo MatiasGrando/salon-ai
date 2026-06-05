@@ -388,17 +388,21 @@ export class BookingConversationFlow {
     businessId: string | null
     conversation?: ConversationState
   }) {
-    const bookingIntentReply = await this.tryHandleBookingIntent({
-      phone: input.phone,
-      message: input.message,
-      businessId: input.businessId
-    })
+    let selectedService = await this.findServiceByMessage(input.message, input.businessId)
 
-    if (bookingIntentReply) {
-      return bookingIntentReply
+    if (!selectedService || shouldLetAiPlanBooking(input.message)) {
+      const bookingIntentReply = await this.tryHandleBookingIntent({
+        phone: input.phone,
+        message: input.message,
+        businessId: input.businessId
+      })
+
+      if (bookingIntentReply) {
+        return bookingIntentReply
+      }
+
+      selectedService ??= await this.findServiceByMessage(input.message, input.businessId)
     }
-
-    const selectedService = await this.findServiceByMessage(input.message, input.businessId)
 
     if (!selectedService) {
       return this.buildServicesReply(botCopyService.serviceNotFound(), input.businessId)
@@ -1812,6 +1816,34 @@ function isCorrectionPrefix(prefix: string) {
     prefix.includes('Por aca puedo ayudarte') ||
     prefix.includes('Estoy aca para ayudarte')
   )
+}
+
+function shouldLetAiPlanBooking(message: string) {
+  const normalizedMessage = normalizeText(message)
+
+  return [
+    'hoy',
+    'manana',
+    'pasado',
+    'lunes',
+    'martes',
+    'miercoles',
+    'jueves',
+    'viernes',
+    'sabado',
+    'domingo',
+    'despues',
+    'tarde',
+    'manana',
+    'noche',
+    ' con ',
+    'profesional',
+    'lucas',
+    'agus',
+    'agustin'
+  ].some((word) => normalizedMessage.includes(word)) ||
+    /\b\d{1,2}(:\d{2})?\b/.test(normalizedMessage) ||
+    /\b\d{1,2}[/-]\d{1,2}/.test(normalizedMessage)
 }
 
 function isSocialGreetingPrefix(prefix: string) {
