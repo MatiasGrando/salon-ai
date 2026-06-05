@@ -776,13 +776,13 @@ export class BookingConversationFlow {
       professionals
     })
 
-    if (!intent?.selectedServiceIndex) {
-      return null
-    }
+    const selectedService = intent?.selectedServiceIndex
+      ? services[intent.selectedServiceIndex - 1]
+      : services.length === 1 && isBookingStartMessage(input.message, 'START')
+        ? services[0]
+        : null
 
-    const selectedService = services[intent.selectedServiceIndex - 1]
-
-    if (!selectedService) {
+    if (!intent || !selectedService) {
       return null
     }
 
