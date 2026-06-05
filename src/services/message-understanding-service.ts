@@ -176,12 +176,40 @@ function matchesCloseToken(normalizedMessage: string, normalizedValue: string) {
         return false
       }
 
+      if (isFuzzyStopWord(messageToken)) {
+        return false
+      }
+
       const distance = levenshteinDistance(messageToken, valueToken)
       const allowedDistance = valueToken.length <= 5 ? 1 : 2
 
       return distance <= allowedDistance
     })
   })
+}
+
+function isFuzzyStopWord(token: string) {
+  return [
+    'nombre',
+    'servicio',
+    'turno',
+    'horario',
+    'fecha',
+    'hola',
+    'salir',
+    'linda',
+    'como',
+    'cual',
+    'quien',
+    'podra',
+    'puede',
+    'podes',
+    'quiero',
+    'queres',
+    'quieres',
+    'hacer',
+    'hacerte'
+  ].includes(token)
 }
 
 function levenshteinDistance(left: string, right: string) {
@@ -280,7 +308,13 @@ function parseWrittenDate(normalizedMessage: string) {
   }
 
   const day = Number(match[1])
-  const month = months.get(match[2])
+  const monthName = match[2]
+
+  if (!monthName) {
+    return null
+  }
+
+  const month = months.get(monthName)
 
   if (!month) {
     return null

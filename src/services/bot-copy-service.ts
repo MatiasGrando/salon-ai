@@ -55,7 +55,15 @@ export class BotCopyService {
   }
 
   serviceNotFound() {
-    return 'No lo ubique bien. Decime el numero o el nombre del servicio y lo seguimos.'
+    return 'No lo ubique bien. Decime el nombre del servicio y lo seguimos.'
+  }
+
+  bookingOnly() {
+    return 'Jaja, te entiendo 😊 Por aca puedo ayudarte con turnos: reservar, ver tus turnos, cancelar o cambiar uno.'
+  }
+
+  answerBotName() {
+    return 'Soy Cami 😊 Estoy aca para ayudarte con tu turno.'
   }
 
   professionalsList(input: {
@@ -79,7 +87,7 @@ export class BotCopyService {
   }
 
   professionalNotFound() {
-    return 'No lo encontre entre los profesionales disponibles. Decime el numero o el nombre y lo reviso.'
+    return 'No lo encontre entre los profesionales disponibles. Decime el nombre y lo reviso.'
   }
 
   askDate(professionalName: string) {

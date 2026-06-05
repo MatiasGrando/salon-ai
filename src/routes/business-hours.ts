@@ -91,9 +91,11 @@ export async function businessHoursRoutes(app: FastifyInstance) {
     }
 
     return prisma.businessHours.findMany({
-      where: {
-        businessId: query.businessId
-      },
+      where: query.businessId
+        ? {
+            businessId: query.businessId
+          }
+        : {},
       select: {
         dayOfWeek: true,
         startTime: true,

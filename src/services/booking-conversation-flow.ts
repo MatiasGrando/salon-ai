@@ -185,22 +185,99 @@ export class BookingConversationFlow {
     }
 
     if (conversation.currentStep === 'ASK_SERVICE') {
+      const humanQuestionReply = this.replyToHumanQuestion(message)
+
+      if (humanQuestionReply) {
+        return humanQuestionReply
+      }
+
+      if (isClearlyOffBookingFlowMessage(message)) {
+        return this.buildServicesReply(botCopyService.bookingOnly(), businessId)
+      }
+
       return this.handleServiceStep({ phone, message, businessId, conversation })
     }
 
     if (conversation.currentStep === 'ASK_PROFESSIONAL') {
+      const humanQuestionReply = this.replyToHumanQuestion(message)
+
+      if (humanQuestionReply) {
+        return humanQuestionReply
+      }
+
+      if (isClearlyOffBookingFlowMessage(message)) {
+        const service = conversation.selectedServiceId
+          ? await prisma.service.findUnique({
+              where: {
+                id: conversation.selectedServiceId
+              }
+            })
+          : null
+
+        if (service) {
+          return this.buildProfessionalsReply(service.businessId, botCopyService.bookingOnly())
+        }
+      }
+
       return this.handleProfessionalStep({ phone, message, businessId, conversation })
     }
 
     if (conversation.currentStep === 'ASK_DATE') {
+      const humanQuestionReply = this.replyToHumanQuestion(message)
+
+      if (humanQuestionReply) {
+        return humanQuestionReply
+      }
+
+      if (isClearlyOffBookingFlowMessage(message)) {
+        return {
+          reply: [
+            botCopyService.bookingOnly(),
+            botCopyService.askDate(await this.findProfessionalName(conversation.selectedProfessionalId) ?? 'el profesional seleccionado')
+          ].join('\n\n')
+        }
+      }
+
       return this.handleDateStep({ phone, message, businessId, conversation })
     }
 
     if (conversation.currentStep === 'ASK_TIME') {
+      const humanQuestionReply = this.replyToHumanQuestion(message)
+
+      if (humanQuestionReply) {
+        return humanQuestionReply
+      }
+
+      if (isClearlyOffBookingFlowMessage(message)) {
+        const options = readLastAvailabilityOptions(conversation.lastAvailability)
+
+        if (options) {
+          return {
+            reply: botCopyService.availability({
+              slots: formatAvailabilitySlots(options),
+              professionalName: getSharedProfessionalName(options),
+              prefix: botCopyService.bookingOnly()
+            })
+          }
+        }
+      }
+
       return this.handleTimeStep({ phone, message, businessId, conversation })
     }
 
     if (conversation.currentStep === 'ASK_CUSTOMER_NAME') {
+      const humanQuestionReply = this.replyToHumanQuestion(message)
+
+      if (humanQuestionReply) {
+        return {
+          reply: [
+            humanQuestionReply.reply,
+            '',
+            'Y vos, como te llamas?'
+          ].join('\n')
+        }
+      }
+
       return this.handleCustomerNameStep({ phone, message, businessId, conversation })
     }
 
@@ -327,6 +404,15 @@ export class BookingConversationFlow {
       return this.buildServicesReply(botCopyService.serviceNotFound(), input.businessId)
     }
 
+    const selectedDateFromMessage = messageUnderstandingService.parseDate(input.message)
+      ?? await aiMessageUnderstandingService.parseDate(input.message)
+    const selectedTimeFromMessage = parseAfterTimeFromMessage(input.message)
+      ? null
+      : messageUnderstandingService.parseTime(input.message)
+        ?? await aiMessageUnderstandingService.parseTime(input.message)
+    const timePreferenceFromMessage = parseTimePreferenceFromMessage(input.message)
+    const afterTimeFromMessage = parseAfterTimeFromMessage(input.message)
+
     if (input.conversation?.selectedProfessionalId && input.conversation.selectedDate) {
       const professionalName = await this.findProfessionalName(input.conversation.selectedProfessionalId)
 
@@ -347,6 +433,26 @@ export class BookingConversationFlow {
       })
     }
 
+    if (input.conversation?.selectedProfessionalId && selectedDateFromMessage) {
+      const professionalName = await this.findProfessionalName(input.conversation.selectedProfessionalId)
+
+      return this.buildAvailabilityReply({
+        phone: input.phone,
+        serviceId: selectedService.id,
+        professionalId: input.conversation.selectedProfessionalId,
+        date: selectedDateFromMessage,
+        time: selectedTimeFromMessage,
+        afterTime: afterTimeFromMessage,
+        timePreference: timePreferenceFromMessage,
+        prefix: buildIntentAvailabilityPrefix({
+          serviceName: selectedService.name,
+          ...(professionalName ? { professionalName } : {}),
+          date: selectedDateFromMessage,
+          timePreference: timePreferenceFromMessage
+        })
+      })
+    }
+
     if (input.conversation?.selectedProfessionalId) {
       await this.updateConversation(input.phone, {
         currentStep: 'ASK_DATE',
@@ -360,6 +466,22 @@ export class BookingConversationFlow {
       return {
         reply: botCopyService.askDate(await this.findProfessionalName(input.conversation.selectedProfessionalId) ?? 'el profesional seleccionado')
       }
+    }
+
+    if (selectedDateFromMessage) {
+      await this.updateConversation(input.phone, {
+        currentStep: 'ASK_PROFESSIONAL',
+        selectedServiceId: selectedService.id,
+        selectedProfessionalId: null,
+        selectedDate: selectedDateFromMessage,
+        selectedTime: selectedTimeFromMessage,
+        lastAvailability: null
+      })
+
+      return this.buildProfessionalsReply(
+        selectedService.businessId,
+        `Dale, hacemos ${selectedService.name} para ${selectedDateFromMessage}.`
+      )
     }
 
     await this.updateConversation(input.phone, {
@@ -603,7 +725,8 @@ export class BookingConversationFlow {
     conversation: ConversationState
   }) {
     const customerIntro = await this.extractCustomerIntroFromMessage(input.message)
-    const customerName = customerIntro?.name ?? parseCustomerName(input.message, { allowPlainName: true })
+    const rawCustomerName = customerIntro?.name ?? parseCustomerName(input.message, { allowPlainName: true })
+    const customerName = rawCustomerName ? formatCustomerName(rawCustomerName) : null
 
     if (!customerName || customerName.length < 2) {
       return {
@@ -778,12 +901,41 @@ export class BookingConversationFlow {
       }
     }
 
+    if (prefix && isCorrectionPrefix(prefix)) {
+      return {
+        reply: [
+          prefix,
+          'Estas son las opciones disponibles:',
+          ...services.map((service) => `• ${service.name} (${service.duration} min)`)
+        ].join('\n')
+      }
+    }
+
     return {
       reply: botCopyService.servicesList({
         ...(prefix ? { prefix } : {}),
         services
       })
     }
+  }
+
+  private replyToHumanQuestion(message: string): HandleBookingResult | null {
+    const normalizedMessage = normalizeText(message)
+
+    if (asksBotName(normalizedMessage)) {
+      return {
+        reply: [
+          botCopyService.answerBotName(),
+          'Decime que queres hacer y te guio.',
+          '- Reservar turno',
+          '- Ver tus turnos',
+          '- Cancelar un turno',
+          '- Cambiar un turno'
+        ].join('\n')
+      }
+    }
+
+    return null
   }
 
   private async buildProfessionalsReply(businessId: string, prefix?: string): Promise<HandleBookingResult> {
@@ -1534,6 +1686,106 @@ function isChangeTimeMessage(message: string) {
   return normalizedMessage === 'cambiar horario' || normalizedMessage === 'otro horario'
 }
 
+function asksBotName(normalizedMessage: string) {
+  return [
+    'cual es tu nombre',
+    'como te llamas',
+    'quien sos',
+    'quien eres',
+    'tu nombre'
+  ].some((phrase) => normalizedMessage.includes(phrase))
+}
+
+function isClearlyOffBookingFlowMessage(message: string) {
+  const normalizedMessage = normalizeText(message)
+
+  if (!normalizedMessage) {
+    return false
+  }
+
+  const offFlowPhrases = [
+    'salimos',
+    'queres salir',
+    'quieres salir',
+    'sos linda',
+    'sos muy linda',
+    'sos hermosa',
+    'te amo',
+    'casate conmigo',
+    'tenes novio',
+    'tienes novio'
+  ]
+
+  if (offFlowPhrases.some((phrase) => normalizedMessage.includes(phrase))) {
+    return true
+  }
+
+  return looksLikeRandomText(normalizedMessage)
+}
+
+function looksLikeRandomText(normalizedMessage: string) {
+  if (!/^[a-z\s]+$/.test(normalizedMessage)) {
+    return false
+  }
+
+  const compactText = normalizedMessage.replace(/\s+/g, '')
+
+  if (compactText.length < 6) {
+    return false
+  }
+
+  const allowedShortMessages = [
+    'corte',
+    'color',
+    'lucas',
+    'agustin',
+    'agustín',
+    'cualquiera',
+    'manana',
+    'pasado',
+    'confirmar'
+  ]
+
+  if (allowedShortMessages.includes(normalizedMessage)) {
+    return false
+  }
+
+  const bookingWords = [
+    'turno',
+    'reserv',
+    'corte',
+    'color',
+    'pelo',
+    'barba',
+    'lucas',
+    'agustin',
+    'hoy',
+    'manana',
+    'pasado',
+    'horario',
+    'profesional',
+    'confirmar',
+    'cancelar',
+    'editar'
+  ]
+
+  if (bookingWords.some((word) => normalizedMessage.includes(word))) {
+    return false
+  }
+
+  const vowelCount = (compactText.match(/[aeiou]/g) ?? []).length
+
+  return vowelCount <= 1
+}
+
+function isCorrectionPrefix(prefix: string) {
+  return (
+    prefix.includes('No lo ubique') ||
+    prefix.includes('Por aca puedo ayudarte') ||
+    prefix.includes('Estoy aca para ayudarte')
+  )
+}
+
 function formatAvailabilitySlots(options: AvailabilityOption[]) {
   const sharedProfessionalName = getSharedProfessionalName(options)
 
@@ -1904,6 +2156,17 @@ function looksLikeCustomerName(name: string) {
   }
 
   return /^[a-zA-Z\s]+$/.test(name) && name.split(/\s+/).length <= 3
+}
+
+function formatCustomerName(name: string) {
+  return name
+    .trim()
+    .replace(/\s+/g, ' ')
+    .split(' ')
+    .map((word) => {
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+    })
+    .join(' ')
 }
 
 function extractRemainingBookingMessage(message: string) {

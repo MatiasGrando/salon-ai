@@ -16,7 +16,7 @@ export async function chatRoutes(app: FastifyInstance) {
     return service.handleMessage({
       phone: body.phone,
       message: body.message,
-      businessId: body.businessId
+      ...(body.businessId ? { businessId: body.businessId } : {})
     })
   })
 
