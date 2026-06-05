@@ -34,21 +34,44 @@ export class ConversationService {
   private async handleMessageCore(input: HandleMessageInput): Promise<HandleMessageResult> {
     const message = input.message.trim()
     const businessId = await this.resolveBusinessId(input.businessId)
-
-    const conversation = await prisma.conversation.upsert({
+    const existingConversation = await prisma.conversation.findUnique({
       where: {
         phone: input.phone
-      },
-      update: {
-        lastMessage: message,
-        businessId
-      },
-      create: {
-        phone: input.phone,
-        lastMessage: message,
-        businessId
       }
     })
+    const shouldResetExpiredFlow = existingConversation
+      ? isExpiredInProgressConversation(existingConversation.currentStep, existingConversation.updatedAt)
+      : false
+
+    const conversation = existingConversation
+      ? await prisma.conversation.update({
+          where: {
+            phone: input.phone
+          },
+          data: shouldResetExpiredFlow
+            ? {
+                lastMessage: message,
+                businessId,
+                currentStep: 'START',
+                selectedServiceId: null,
+                selectedProfessionalId: null,
+                selectedDate: null,
+                selectedTime: null,
+                selectedCustomerName: null,
+                lastAvailability: Prisma.JsonNull
+              }
+            : {
+                lastMessage: message,
+                businessId
+              }
+        })
+      : await prisma.conversation.create({
+          data: {
+            phone: input.phone,
+            lastMessage: message,
+            businessId
+          }
+        })
 
     if (isMyAppointmentsMessage(message, conversation.currentStep)) {
       return this.buildMyAppointmentsReply(input.phone)
@@ -301,23 +324,7 @@ export class ConversationService {
   }
 
   private async buildMyAppointmentsReply(phone: string, prefix?: string): Promise<HandleMessageResult> {
-    const appointments = await prisma.appointment.findMany({
-      where: {
-        customer: {
-          phone
-        },
-        status: {
-          not: 'CANCELLED'
-        }
-      },
-      include: {
-        service: true,
-        professional: true
-      },
-      orderBy: {
-        startAt: 'asc'
-      }
-    })
+    const appointments = await this.findUpcomingAppointments(phone)
 
     return {
       reply: [
@@ -333,33 +340,18 @@ export class ConversationService {
   }
 
   private async cancelAppointmentByMessage(phone: string, message: string): Promise<HandleMessageResult> {
-    const selectedOption = Number(message)
+    const selectedOption = parseAppointmentListOption(message)
 
-    if (!Number.isInteger(selectedOption) || selectedOption < 1) {
-      return this.buildMyAppointmentsReply(phone, 'Decime el número del turno que querés cancelar y lo hago por vos.')
+    if (!selectedOption) {
+      return this.buildMyAppointmentsReply(phone, 'No llegué a entender qué turno querés cancelar. Respondeme con el número de la lista, por ejemplo: 1, el 1 o cancelar el número 1.')
     }
 
-    const appointments = await prisma.appointment.findMany({
-      where: {
-        customer: {
-          phone
-        },
-        status: {
-          not: 'CANCELLED'
-        }
-      },
-      include: {
-        service: true
-      },
-      orderBy: {
-        startAt: 'asc'
-      }
-    })
+    const appointments = await this.findUpcomingAppointments(phone)
 
     const appointment = appointments[selectedOption - 1]
 
     if (!appointment) {
-      return this.buildMyAppointmentsReply(phone, 'No encontré ese turno en la lista. Elegí una de las opciones que te muestro.')
+      return this.buildMyAppointmentsReply(phone, 'No encontré ese número en la lista. Elegí uno de los turnos que te muestro, por ejemplo: 1 o el 1.')
     }
 
     await bookingProvider.cancelAppointment(appointment.id)
@@ -369,7 +361,7 @@ export class ConversationService {
     })
 
     return {
-      reply: botCopyService.cancelConfirmed({
+      reply: botCopyService.cancelConfirmedWithFollowUp({
         serviceName: appointment.service.name,
         date: formatDate(appointment.startAt),
         time: formatTime(appointment.startAt)
@@ -378,33 +370,18 @@ export class ConversationService {
   }
 
   private async editAppointmentByMessage(phone: string, message: string): Promise<HandleMessageResult> {
-    const selectedOption = Number(message)
+    const selectedOption = parseAppointmentListOption(message)
 
-    if (!Number.isInteger(selectedOption) || selectedOption < 1) {
-      return this.buildMyAppointmentsReply(phone, 'Decime el número del turno que querés editar y lo cambiamos.')
+    if (!selectedOption) {
+      return this.buildMyAppointmentsReply(phone, 'No llegué a entender qué turno querés cambiar. Respondeme con el número de la lista, por ejemplo: 1, el 1 o cambiar el número 1.')
     }
 
-    const appointments = await prisma.appointment.findMany({
-      where: {
-        customer: {
-          phone
-        },
-        status: {
-          not: 'CANCELLED'
-        }
-      },
-      include: {
-        service: true
-      },
-      orderBy: {
-        startAt: 'asc'
-      }
-    })
+    const appointments = await this.findUpcomingAppointments(phone)
 
     const appointment = appointments[selectedOption - 1]
 
     if (!appointment) {
-      return this.buildMyAppointmentsReply(phone, 'No encontré ese turno en la lista. Elegí una de las opciones que te muestro.')
+      return this.buildMyAppointmentsReply(phone, 'No encontré ese número en la lista. Elegí uno de los turnos que te muestro, por ejemplo: 1 o el 1.')
     }
 
     await bookingProvider.cancelAppointment(appointment.id)
@@ -424,6 +401,29 @@ export class ConversationService {
         'Escribí quiero un turno y buscamos un nuevo horario.'
       ].join('\n')
     }
+  }
+
+  private async findUpcomingAppointments(phone: string) {
+    return prisma.appointment.findMany({
+      where: {
+        customer: {
+          phone
+        },
+        status: {
+          not: 'CANCELLED'
+        },
+        startAt: {
+          gte: new Date()
+        }
+      },
+      include: {
+        service: true,
+        professional: true
+      },
+      orderBy: {
+        startAt: 'asc'
+      }
+    })
   }
 
   private async resolveBusinessId(businessId?: string) {
@@ -502,6 +502,16 @@ function isResetMessage(message: string) {
   ].includes(normalizedMessage)
 }
 
+function isExpiredInProgressConversation(currentStep: string, updatedAt: Date) {
+  if (currentStep === 'START' || currentStep === 'COMPLETED') {
+    return false
+  }
+
+  const expirationMs = 24 * 60 * 60 * 1000
+
+  return Date.now() - updatedAt.getTime() >= expirationMs
+}
+
 function isMyAppointmentsMessage(message: string, currentStep: string) {
   const normalizedMessage = normalizeText(message)
 
@@ -518,6 +528,25 @@ function isEditAppointmentMessage(message: string, currentStep: string) {
   const normalizedMessage = normalizeText(message)
 
   return (isMenuStep(currentStep) && normalizedMessage === '4') || normalizedMessage === 'editar turno'
+}
+
+function parseAppointmentListOption(message: string) {
+  const normalizedMessage = normalizeText(message)
+  const directOption = normalizedMessage.match(/^(\d{1,2})(?:\.|\)|-)?(?:\s|$)/)
+
+  if (directOption?.[1]) {
+    return Number(directOption[1])
+  }
+
+  const optionFromText = normalizedMessage.match(/\b(?:el|la|numero|nro|opcion|turno)\s+(\d{1,2})\b/)
+
+  if (optionFromText?.[1]) {
+    return Number(optionFromText[1])
+  }
+
+  const anyNumber = normalizedMessage.match(/\b(\d{1,2})\b/)
+
+  return anyNumber?.[1] ? Number(anyNumber[1]) : null
 }
 
 function isPostBookingClosingMessage(message: string) {

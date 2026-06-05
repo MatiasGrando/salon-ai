@@ -289,6 +289,17 @@ export class BotCopyService {
     return `Listo, cancelé tu turno de ${input.serviceName} para el ${input.date} a las ${input.time}.`
   }
 
+  cancelConfirmedWithFollowUp(input: {
+    serviceName: string
+    date: string
+    time: string
+  }) {
+    return [
+      this.cancelConfirmed(input),
+      '¿Te puedo ayudar con algo más o querés que busquemos otro turno? 😊'
+    ].join('\n\n')
+  }
+
   editNotImplementedYet() {
     return 'Listo, cancelé ese turno para que puedas elegir uno nuevo.'
   }

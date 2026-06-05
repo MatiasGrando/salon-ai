@@ -125,6 +125,40 @@ Only start a new booking/menu flow after confirmation if the user explicitly ask
 
 If the user greets again after a confirmed booking, such as "hola", "hola como estas", or "buenas", reopen the conversation warmly. Do not ask for the name again if it is already known.
 
+### Expired Flows
+
+If a user leaves an unfinished flow and returns after 24 hours, reset the flow to the beginning. Do not continue from stale service/date/professional/time data.
+
+Completed conversations are different: do not reset only because time passed. If the user greets again after a completed booking, reopen warmly.
+
+### Cancellation Closing
+
+After canceling an appointment, Cami should confirm the cancellation and ask if the user needs anything else or wants to book another appointment.
+
+Bad:
+`Listo, cancele tu turno...`
+
+Correct:
+`Listo, cancele tu turno... Te puedo ayudar con algo mas o queres que busquemos otro turno?`
+
+### Appointment Lists
+
+"Mis turnos", cancellation lists, and edit lists must show only future active appointments. Never show appointments whose `startAt` is already in the past.
+
+When the bot asks the user to choose an appointment from a list, accept natural numeric replies:
+- `7`
+- `el 7`
+- `numero 7`
+- `quiero cancelar el numero 7`
+- `7. Corte Hombre`
+
+Use the same filtered appointment list for display and for selecting/canceling/editing, so the visible numbers match the action.
+
+If the bot cannot understand which appointment the user selected, explain what was unclear and give a concrete example. Do not only repeat the same list.
+
+Good:
+"No llegue a entender que turno queres cancelar. Respondeme con el numero de la lista, por ejemplo: 1, el 1 o cancelar el numero 1."
+
 ### Off-Flow Or Flirty Messages
 
 If user says things like "sos linda", "salimos?", "queres una cena", answer warmly but return to the booking flow.
