@@ -330,7 +330,7 @@ export class BookingConversationFlow {
           }
         }
 
-        return this.buildServicesReply(`Gracias, ${getFirstName(customerIntro.name)}.`, input.businessId)
+        return this.buildServicesReply(buildNameReceivedPrefix(customerIntro.name, input.conversation.lastMessage ?? ''), input.businessId)
       }
 
       const bookingDraft = await this.extractBookingDraft({
@@ -762,7 +762,7 @@ export class BookingConversationFlow {
         }
       }
 
-      return this.buildServicesReply(`Gracias, ${getFirstName(customerName)}.`, input.businessId)
+      return this.buildServicesReply(buildNameReceivedPrefix(customerName, input.message), input.businessId)
     }
 
     await this.updateConversation(input.phone, {
@@ -823,7 +823,7 @@ export class BookingConversationFlow {
       return this.buildProfessionalsReply(selectedService.businessId, `Gracias, ${getFirstName(customerName)}. Dejamos ${selectedService.name}.`)
     }
 
-    return this.buildServicesReply(`Gracias, ${getFirstName(customerName)}.`, input.businessId)
+    return this.buildServicesReply(buildNameReceivedPrefix(customerName, input.message), input.businessId)
   }
 
   private async handleConfirmStep(input: {
@@ -906,6 +906,15 @@ export class BookingConversationFlow {
         reply: [
           prefix,
           'Estas son las opciones disponibles:',
+          ...services.map((service) => `• ${service.name} (${service.duration} min)`)
+        ].join('\n')
+      }
+    }
+
+    if (prefix && isSocialGreetingPrefix(prefix)) {
+      return {
+        reply: [
+          prefix,
           ...services.map((service) => `• ${service.name} (${service.duration} min)`)
         ].join('\n')
       }
@@ -1784,6 +1793,37 @@ function isCorrectionPrefix(prefix: string) {
     prefix.includes('Por aca puedo ayudarte') ||
     prefix.includes('Estoy aca para ayudarte')
   )
+}
+
+function isSocialGreetingPrefix(prefix: string) {
+  return prefix.includes('Contame,')
+}
+
+function buildNameReceivedPrefix(name: string, message: string) {
+  const firstName = getFirstName(name)
+
+  if (hasSocialGreeting(message)) {
+    return [
+      `¡Mucho gusto, ${firstName}! 😊`,
+      'Yo muy bien, gracias por preguntar. Espero que vos tambien estes genial.',
+      'Contame, ¿que te gustaria hacerte hoy?'
+    ].join('\n')
+  }
+
+  return `Gracias, ${firstName}.`
+}
+
+function hasSocialGreeting(message: string) {
+  const normalizedMessage = normalizeText(message)
+
+  return [
+    'que tal',
+    'como estas',
+    'como va',
+    'todo bien',
+    'como andas',
+    'como te va'
+  ].some((phrase) => normalizedMessage.includes(phrase))
 }
 
 function formatAvailabilitySlots(options: AvailabilityOption[]) {

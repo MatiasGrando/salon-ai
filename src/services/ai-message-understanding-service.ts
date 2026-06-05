@@ -23,6 +23,10 @@ type AiTimeResult = {
   confidence: number
 }
 
+type AiReplyStyleResult = {
+  reply: string
+}
+
 export type AiConversationIntent =
   | 'book_appointment'
   | 'my_appointments'
@@ -64,6 +68,55 @@ const minimumClarificationConfidence = 0.35
 export class AiMessageUnderstandingService {
   isEnabled() {
     return Boolean(getOpenAiClient())
+  }
+
+  async humanizeReply(input: {
+    customerMessage: string
+    draftReply: string
+    currentStep: string
+    customerName?: string | null
+  }) {
+    if (!openAiConfig.copyEnabled) {
+      return null
+    }
+
+    const result = await this.askJson<AiReplyStyleResult>({
+      instructions: [
+        'Sos Cami, una asistente de WhatsApp para reservar turnos en un salon de Argentina.',
+        'Tu tarea es reescribir la respuesta del sistema para que suene mas calida, humana y atenta.',
+        'No cambies la intencion del mensaje.',
+        'No agregues servicios, profesionales, fechas, horarios, precios ni promesas que no esten en la respuesta original.',
+        'Conserva todas las opciones disponibles de la respuesta original. Podes cambiar el tono, pero no eliminar opciones.',
+        'Si hay horarios o datos de reserva, mantenelos exactamente.',
+        'Si el cliente saludo o pregunto como estas, respondelo brevemente antes de seguir el flujo.',
+        'Si el cliente coquetea, invita a salir o se va muy fuera del flujo, respondelo con amabilidad y volve al turno.',
+        'Usa un tono cercano, femenino, amable y profesional. No exageres.',
+        'Evita sonar como formulario.'
+      ].join('\n'),
+      input: {
+        customerMessage: input.customerMessage,
+        draftReply: input.draftReply,
+        currentStep: input.currentStep,
+        customerName: input.customerName ?? null
+      },
+      schemaName: 'cami_reply_style',
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['reply'],
+        properties: {
+          reply: {
+            type: 'string'
+          }
+        }
+      }
+    })
+
+    if (!result?.reply || result.reply.length > 1800) {
+      return null
+    }
+
+    return result.reply.trim()
   }
 
   async classifyConversationIntent(input: {

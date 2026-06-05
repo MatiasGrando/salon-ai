@@ -23,6 +23,15 @@ type HandleMessageResult = {
 
 export class ConversationService {
   async handleMessage(input: HandleMessageInput): Promise<HandleMessageResult> {
+    const result = await this.handleMessageCore(input)
+
+    return this.humanizeResult({
+      result,
+      message: input.message.trim()
+    })
+  }
+
+  private async handleMessageCore(input: HandleMessageInput): Promise<HandleMessageResult> {
     const message = input.message.trim()
     const businessId = await this.resolveBusinessId(input.businessId)
 
@@ -142,6 +151,21 @@ export class ConversationService {
       businessId,
       conversation
     })
+  }
+
+  private async humanizeResult(input: {
+    result: HandleMessageResult
+    message: string
+  }): Promise<HandleMessageResult> {
+    const styledReply = await aiMessageUnderstandingService.humanizeReply({
+      customerMessage: input.message,
+      draftReply: input.result.reply,
+      currentStep: 'UNKNOWN'
+    })
+
+    return {
+      reply: styledReply ?? input.result.reply
+    }
   }
 
   private async tryHandleOrchestratedIntent(input: {
