@@ -167,6 +167,10 @@ export class ConversationService {
       currentStep: 'UNKNOWN'
     })
 
+    if (styledReply && !preservesRequiredLines(input.result.reply, styledReply)) {
+      return input.result
+    }
+
     return {
       reply: styledReply ?? input.result.reply
     }
@@ -305,7 +309,7 @@ export class ConversationService {
     const selectedOption = Number(message)
 
     if (!Number.isInteger(selectedOption) || selectedOption < 1) {
-      return this.buildMyAppointmentsReply(phone, 'Decime el numero del turno que queres cancelar y lo hago por vos.')
+      return this.buildMyAppointmentsReply(phone, 'Decime el número del turno que querés cancelar y lo hago por vos.')
     }
 
     const appointments = await prisma.appointment.findMany({
@@ -328,7 +332,7 @@ export class ConversationService {
     const appointment = appointments[selectedOption - 1]
 
     if (!appointment) {
-      return this.buildMyAppointmentsReply(phone, 'No encontre ese turno en la lista. Elegi una de las opciones que te muestro.')
+      return this.buildMyAppointmentsReply(phone, 'No encontré ese turno en la lista. Elegí una de las opciones que te muestro.')
     }
 
     await bookingProvider.cancelAppointment(appointment.id)
@@ -350,7 +354,7 @@ export class ConversationService {
     const selectedOption = Number(message)
 
     if (!Number.isInteger(selectedOption) || selectedOption < 1) {
-      return this.buildMyAppointmentsReply(phone, 'Decime el numero del turno que queres editar y lo cambiamos.')
+      return this.buildMyAppointmentsReply(phone, 'Decime el número del turno que querés editar y lo cambiamos.')
     }
 
     const appointments = await prisma.appointment.findMany({
@@ -373,7 +377,7 @@ export class ConversationService {
     const appointment = appointments[selectedOption - 1]
 
     if (!appointment) {
-      return this.buildMyAppointmentsReply(phone, 'No encontre ese turno en la lista. Elegi una de las opciones que te muestro.')
+      return this.buildMyAppointmentsReply(phone, 'No encontré ese turno en la lista. Elegí una de las opciones que te muestro.')
     }
 
     await bookingProvider.cancelAppointment(appointment.id)
@@ -390,7 +394,7 @@ export class ConversationService {
     return {
       reply: [
         botCopyService.editNotImplementedYet(),
-        'Escribi quiero un turno y buscamos un nuevo horario.'
+        'Escribí quiero un turno y buscamos un nuevo horario.'
       ].join('\n')
     }
   }
@@ -490,11 +494,11 @@ function isEditAppointmentMessage(message: string, currentStep: string) {
 }
 
 function formatDate(date: Date) {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const year = date.getFullYear()
 
-  return `${year}-${month}-${day}`
+  return `${day}/${month}/${year}`
 }
 
 function formatTime(date: Date) {
@@ -513,11 +517,7 @@ function canHumanizeSafely(reply: string) {
     /^\d+\.\s/m,
     /Horarios disponibles/i,
     /opciones disponibles/i,
-    /Corte Hombre/i,
-    /Corte y color/i,
     /Cualquier profesional/i,
-    /Que servicio/i,
-    /Qué servicio/i,
     /Preferis/i,
     /Preferís/i,
     /Para que dia/i,
@@ -530,4 +530,13 @@ function canHumanizeSafely(reply: string) {
   ]
 
   return !protectedPatterns.some((pattern) => pattern.test(reply))
+}
+
+function preservesRequiredLines(originalReply: string, styledReply: string) {
+  const requiredLines = originalReply
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('* '))
+
+  return requiredLines.every((line) => styledReply.includes(line))
 }

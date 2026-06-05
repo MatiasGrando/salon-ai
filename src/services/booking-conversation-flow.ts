@@ -93,7 +93,7 @@ export class BookingConversationFlow {
       if (!selectedService) {
         await this.restartBooking(phone)
 
-        return this.buildServicesReply('Ese servicio ya no aparece disponible. Elegimos otro?', businessId)
+        return this.buildServicesReply('Ese servicio ya no aparece disponible. ¿Elegimos otro?', businessId)
       }
 
       await this.updateConversation(phone, {
@@ -273,7 +273,7 @@ export class BookingConversationFlow {
           reply: [
             humanQuestionReply.reply,
             '',
-            'Y vos, como te llamas?'
+            'Y vos, ¿cómo te llamás?'
           ].join('\n')
         }
       }
@@ -351,7 +351,7 @@ export class BookingConversationFlow {
         return {
           reply: [
             'Dale, te ayudo con ese turno.',
-            'Antes de reservarlo, como te llamas?'
+            'Antes de reservarlo, ¿cómo te llamás?'
           ].join('\n')
         }
       }
@@ -484,7 +484,7 @@ export class BookingConversationFlow {
 
       return this.buildProfessionalsReply(
         selectedService.businessId,
-        `Dale, hacemos ${selectedService.name} para ${selectedDateFromMessage}.`
+        `Dale, hacemos ${selectedService.name} para ${formatDisplayDate(selectedDateFromMessage)}.`
       )
     }
 
@@ -520,7 +520,7 @@ export class BookingConversationFlow {
     if (!selectedService) {
       await this.restartBooking(input.phone)
 
-      return this.buildServicesReply('Ese servicio ya no aparece disponible. Elegimos otro?', input.businessId)
+      return this.buildServicesReply('Ese servicio ya no aparece disponible. ¿Elegimos otro?', input.businessId)
     }
 
     if (messageUnderstandingService.isAnyProfessionalMessage(input.message)) {
@@ -665,6 +665,35 @@ export class BookingConversationFlow {
       return this.buildServicesReply('Me falta confirmar servicio y fecha, asi que volvemos un paso y lo ordenamos.', input.businessId)
     }
 
+    const noAvailabilityChoice = normalizeText(input.message)
+
+    const waitingForNoAvailabilityChoice = isToday(input.conversation.selectedDate) &&
+      input.conversation.selectedProfessionalId &&
+      !readLastAvailabilityOptions(input.conversation.lastAvailability)
+
+    if (waitingForNoAvailabilityChoice && noAvailabilityChoice === '1') {
+      await this.updateConversation(input.phone, {
+        currentStep: 'ASK_DATE',
+        selectedDate: null,
+        selectedTime: null,
+        lastAvailability: null
+      })
+
+      return {
+        reply: botCopyService.askDate(await this.findProfessionalName(input.conversation.selectedProfessionalId) ?? 'el profesional seleccionado')
+      }
+    }
+
+    if (waitingForNoAvailabilityChoice && noAvailabilityChoice === '2') {
+      return this.buildAvailabilityReply({
+        phone: input.phone,
+        serviceId: input.conversation.selectedServiceId,
+        professionalId: null,
+        date: input.conversation.selectedDate,
+        prefix: 'Dale, te muestro los horarios de hoy con todos los profesionales.'
+      })
+    }
+
     const changedDate = messageUnderstandingService.parseDate(input.message)
       ?? await aiMessageUnderstandingService.parseDate(input.message)
 
@@ -680,7 +709,7 @@ export class BookingConversationFlow {
             ?? await aiMessageUnderstandingService.parseTime(input.message),
         timePreference: parseTimePreferenceFromMessage(input.message),
         afterTime: parseAfterTimeFromMessage(input.message),
-        prefix: `Dale, lo vemos para ${changedDate}.`
+        prefix: `Dale, lo vemos para ${formatDisplayDate(changedDate)}.`
       })
     }
 
@@ -709,7 +738,7 @@ export class BookingConversationFlow {
         reply: botCopyService.availability({
           slots: formatAvailabilitySlots(availability.options),
           professionalName: getSharedProfessionalName(availability.options),
-          prefix: 'No encontre ese horario disponible. Te paso los horarios que veo libres.'
+          prefix: 'No encontré ese horario disponible. Te paso los horarios que veo libres.'
         })
       }
     }
@@ -789,7 +818,7 @@ export class BookingConversationFlow {
     }
 
     await this.updateConversation(input.phone, {
-      currentStep: input.conversation.selectedServiceId && input.conversation.selectedDate
+      currentStep: input.conversation.selectedServiceId && input.conversation.selectedDate && input.conversation.selectedProfessionalId
         ? 'ASK_TIME'
         : input.conversation.selectedServiceId
           ? input.conversation.selectedProfessionalId
@@ -798,6 +827,25 @@ export class BookingConversationFlow {
           : 'ASK_SERVICE',
       selectedCustomerName: customerName
     })
+
+    if (input.conversation.selectedServiceId && input.conversation.selectedDate && !input.conversation.selectedProfessionalId) {
+      const selectedService = await prisma.service.findUnique({
+        where: {
+          id: input.conversation.selectedServiceId
+        }
+      })
+
+      if (!selectedService) {
+        await this.restartBooking(input.phone)
+
+        return this.buildServicesReply('Ese servicio ya no aparece disponible. ¿Elegimos otro?', input.businessId)
+      }
+
+      return this.buildProfessionalsReply(
+        selectedService.businessId,
+        `Gracias, ${getFirstName(customerName)}. Te busco ${selectedService.name} para ${formatDisplayDate(input.conversation.selectedDate)}.`
+      )
+    }
 
     if (input.conversation.selectedServiceId && input.conversation.selectedDate) {
       const selectedService = await prisma.service.findUnique({
@@ -834,7 +882,7 @@ export class BookingConversationFlow {
       if (!selectedService) {
         await this.restartBooking(input.phone)
 
-        return this.buildServicesReply('Ese servicio ya no aparece disponible. Elegimos otro?', input.businessId)
+        return this.buildServicesReply('Ese servicio ya no aparece disponible. ¿Elegimos otro?', input.businessId)
       }
 
       if (input.conversation.selectedProfessionalId) {
@@ -958,7 +1006,7 @@ export class BookingConversationFlow {
       return {
         reply: [
           botCopyService.answerBotName(),
-          'Decime que queres hacer y te guio.',
+          'Decime qué querés hacer y te guío.',
           '- Reservar turno',
           '- Ver tus turnos',
           '- Cancelar un turno',
@@ -1019,7 +1067,7 @@ export class BookingConversationFlow {
         customerName: input.selectedCustomerName,
         serviceName: service?.name ?? 'Servicio seleccionado',
         professionalName: professional?.name ?? 'Profesional seleccionado',
-        date: input.selectedDate,
+        date: formatDisplayDate(input.selectedDate),
         time: input.selectedTime
       })
     }
@@ -1100,7 +1148,8 @@ export class BookingConversationFlow {
       return null
     }
 
-    const selectedProfessional = intent.anyProfessional
+    const anyProfessional = intent.anyProfessional && mentionsAnyProfessionalPreference(input.message)
+    const selectedProfessional = anyProfessional
       ? null
       : intent.selectedProfessionalIndex
         ? professionals[intent.selectedProfessionalIndex - 1] ?? null
@@ -1110,7 +1159,7 @@ export class BookingConversationFlow {
 
     if (!intent.date) {
       await this.updateConversation(input.phone, {
-        currentStep: selectedProfessionalId || intent.anyProfessional ? 'ASK_DATE' : 'ASK_PROFESSIONAL',
+        currentStep: selectedProfessionalId || anyProfessional ? 'ASK_DATE' : 'ASK_PROFESSIONAL',
         selectedServiceId: selectedService.id,
         selectedProfessionalId,
         selectedDate: null,
@@ -1118,7 +1167,7 @@ export class BookingConversationFlow {
         lastAvailability: null
       })
 
-      if (selectedProfessionalId || intent.anyProfessional) {
+      if (selectedProfessionalId || anyProfessional) {
         return {
           reply: botCopyService.askDate(selectedProfessional?.name ?? 'cualquier profesional')
         }
@@ -1127,7 +1176,7 @@ export class BookingConversationFlow {
       return this.buildProfessionalsReply(selectedService.businessId, `Perfecto, elegiste ${selectedService.name}.`)
     }
 
-    if (!selectedProfessionalId && !intent.anyProfessional) {
+    if (!selectedProfessionalId && !anyProfessional) {
       await this.updateConversation(input.phone, {
         currentStep: 'ASK_PROFESSIONAL',
         selectedServiceId: selectedService.id,
@@ -1139,7 +1188,7 @@ export class BookingConversationFlow {
 
       return this.buildProfessionalsReply(
         selectedService.businessId,
-        `Perfecto, elegiste ${selectedService.name} para ${intent.date}.`
+        `Perfecto, elegiste ${selectedService.name} para ${formatDisplayDate(intent.date)}.`
       )
     }
 
@@ -1331,10 +1380,29 @@ export class BookingConversationFlow {
     }
 
     if (options.length === 0) {
+      const professionalName = await this.findProfessionalName(input.professionalId)
+
+      if (input.professionalId && professionalName && isToday(input.date)) {
+        await this.updateConversation(input.phone, {
+          currentStep: 'ASK_TIME',
+          selectedServiceId: input.serviceId,
+          selectedProfessionalId: input.professionalId,
+          selectedDate: input.date,
+          selectedTime: null,
+          lastAvailability: null
+        })
+
+        return {
+          reply: botCopyService.noAvailabilityTodayForProfessional({
+            professionalName
+          })
+        }
+      }
+
       return {
         reply: botCopyService.noAvailabilityForDate({
-          date: input.date,
-          professionalName: await this.findProfessionalName(input.professionalId),
+          date: formatDisplayDate(input.date),
+          professionalName,
           ...(input.afterTime ? { afterTime: input.afterTime } : {}),
           ...(formatTimePreferenceForCopy(input.timePreference)
             ? { timePreference: formatTimePreferenceForCopy(input.timePreference) }
@@ -1846,6 +1914,20 @@ function shouldLetAiPlanBooking(message: string) {
     /\b\d{1,2}[/-]\d{1,2}/.test(normalizedMessage)
 }
 
+function mentionsAnyProfessionalPreference(message: string) {
+  const normalizedMessage = normalizeText(message)
+
+  return [
+    'cualquier profesional',
+    'cualquiera',
+    'me da igual',
+    'el que tenga antes',
+    'quien sea',
+    'sin preferencia',
+    'con cualquiera'
+  ].some((phrase) => normalizedMessage.includes(phrase))
+}
+
 function isSocialGreetingPrefix(prefix: string) {
   return prefix.includes('Contame,')
 }
@@ -1855,13 +1937,12 @@ function buildNameReceivedPrefix(name: string, message: string) {
 
   if (hasSocialGreeting(message)) {
     return [
-      `¡Mucho gusto, ${firstName}! 😊`,
-      'Yo muy bien, gracias por preguntar. Espero que vos tambien estes genial.',
-      'Contame, ¿que te gustaria hacerte hoy?'
+      `¡Hola ${firstName}! 😊 Un placer conocerte.`,
+      'Yo muy bien, gracias por preguntar.'
     ].join('\n')
   }
 
-  return `Gracias, ${firstName}.`
+  return `¡Hola ${firstName}! 😊 Un placer conocerte.`
 }
 
 function hasSocialGreeting(message: string) {
@@ -2003,7 +2084,7 @@ function buildIntentAvailabilityPrefix(input: {
     ? ` ${formatTimePreference(input.timePreference)}`
     : ''
 
-  return `Dale, te busco ${input.serviceName}${professionalText} para ${input.date}${preferenceText}.`
+  return `Dale, te busco ${input.serviceName}${professionalText} para ${formatDisplayDate(input.date)}${preferenceText}.`
 }
 
 function formatTimePreference(preference: TimePreference) {
@@ -2028,6 +2109,29 @@ function formatTimePreferenceForCopy(preference?: TimePreference | null) {
   }
 
   return formatTimePreference(preference)
+}
+
+function formatDisplayDate(date: string) {
+  const match = date.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+
+  if (!match) {
+    return date
+  }
+
+  const [, year, month, day] = match
+
+  return `${day}/${month}/${year}`
+}
+
+function isToday(date: string) {
+  const today = new Date()
+  const todayText = [
+    today.getFullYear(),
+    String(today.getMonth() + 1).padStart(2, '0'),
+    String(today.getDate()).padStart(2, '0')
+  ].join('-')
+
+  return date === todayText
 }
 
 function findServiceBySalonWords<T extends {

@@ -87,6 +87,8 @@ export class AiMessageUnderstandingService {
         'No cambies la intencion del mensaje.',
         'No agregues servicios, profesionales, fechas, horarios, precios ni promesas que no esten en la respuesta original.',
         'Conserva todas las opciones disponibles de la respuesta original. Podes cambiar el tono, pero no eliminar opciones.',
+        'Si la respuesta original trae una lista de opciones, conserva cada opcion exactamente con su nombre, duracion y formato de linea.',
+        'Podes variar saludos, conectores, pregunta inicial y cierre, siempre manteniendo una estructura parecida.',
         'Si hay horarios o datos de reserva, mantenelos exactamente.',
         'Si el cliente saludo o pregunto como estas, respondelo brevemente antes de seguir el flujo.',
         'Si el cliente coquetea, invita a salir o se va muy fuera del flujo, respondelo con amabilidad y volve al turno.',
