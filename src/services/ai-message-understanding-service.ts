@@ -53,7 +53,13 @@ export type AiBookingIntentResult = {
   confidence: number
 }
 
+export type AiBookingAgentResult = AiBookingIntentResult & {
+  action: 'continue_booking' | 'ask_clarification' | 'unknown'
+  clarificationQuestion: string | null
+}
+
 const minimumConfidence = 0.65
+const minimumClarificationConfidence = 0.35
 
 export class AiMessageUnderstandingService {
   isEnabled() {
@@ -373,6 +379,149 @@ export class AiMessageUnderstandingService {
       ...result,
       date: normalizeDateResult(result.date),
       time: normalizeTimeResult(result.time)
+    }
+  }
+
+  async planBookingAction(input: {
+    message: string
+    services: MatchableOption[]
+    professionals: MatchableOption[]
+  }) {
+    if (!openAiConfig.orchestratorEnabled) {
+      return null
+    }
+
+    const result = await this.askJson<AiBookingAgentResult>({
+      instructions: [
+        'Sos Cami actuando como agente de reservas por WhatsApp para un salon en Argentina.',
+        'Recibis una frase del cliente y listas cerradas de servicios/profesionales.',
+        'Tu salida debe ser una accion segura para el backend.',
+        'Usa continue_booking cuando puedas elegir servicio/profesional/fecha/hora con confianza suficiente.',
+        'Usa ask_clarification cuando haya una ambiguedad real que podria causar una reserva equivocada.',
+        'Usa unknown si el mensaje no parece parte de una reserva.',
+        'Si tu confianza es baja pero el mensaje parece de reserva, preferi ask_clarification antes que unknown.',
+        'Cuando pidas aclaracion sobre servicio o profesional, inclui opciones numeradas tomadas de las listas recibidas.',
+        'Ejemplo: "Te referis a 1. Corte Hombre o 2. Corte y color?"',
+        'Si el cliente dice cortarme el pelo, cortarme, corte o pelo, y NO menciona color, tintura, mechas o reflejos, preferi el servicio de corte simple si existe.',
+        'Si el cliente menciona color, tintura, mechas o reflejos, preferi el servicio que incluya color.',
+        'Si el cliente escribe un apodo o abreviatura de profesional, por ejemplo Agus, puede referirse a Agustin.',
+        'No inventes servicios ni profesionales fuera de las listas.',
+        'Si action es ask_clarification, escribi una pregunta breve y humana en clarificationQuestion.',
+        'Interpreta fechas relativas con currentDate y timezone.',
+        'time es solo para una hora concreta. Si dice manana, tarde o noche sin hora exacta, usa timePreference.'
+      ].join('\n'),
+      input: {
+        customerMessage: input.message,
+        currentDate: formatDate(new Date()),
+        timezone: 'America/Buenos_Aires',
+        services: input.services.map((service, index) => ({
+          index: index + 1,
+          name: service.name,
+          category: service.category ?? null,
+          aliases: service.aliases?.map((alias) => alias.name) ?? []
+        })),
+        professionals: input.professionals.map((professional, index) => ({
+          index: index + 1,
+          name: professional.name
+        }))
+      },
+      schemaName: 'booking_agent_action',
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: [
+          'action',
+          'clarificationQuestion',
+          'selectedServiceIndex',
+          'selectedProfessionalIndex',
+          'anyProfessional',
+          'date',
+          'time',
+          'timePreference',
+          'confidence'
+        ],
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['continue_booking', 'ask_clarification', 'unknown']
+          },
+          clarificationQuestion: {
+            anyOf: [
+              { type: 'string' },
+              { type: 'null' }
+            ]
+          },
+          selectedServiceIndex: {
+            anyOf: [
+              { type: 'integer' },
+              { type: 'null' }
+            ]
+          },
+          selectedProfessionalIndex: {
+            anyOf: [
+              { type: 'integer' },
+              { type: 'null' }
+            ]
+          },
+          anyProfessional: {
+            type: 'boolean'
+          },
+          date: {
+            anyOf: [
+              { type: 'string' },
+              { type: 'null' }
+            ]
+          },
+          time: {
+            anyOf: [
+              { type: 'string' },
+              { type: 'null' }
+            ]
+          },
+          timePreference: {
+            anyOf: [
+              {
+                type: 'string',
+                enum: ['morning', 'afternoon', 'evening', 'any']
+              },
+              { type: 'null' }
+            ]
+          },
+          confidence: {
+            type: 'number',
+            minimum: 0,
+            maximum: 1
+          }
+        }
+      }
+    })
+
+    if (!result || result.action === 'unknown') {
+      return null
+    }
+
+    if (
+      result.action === 'ask_clarification' &&
+      result.clarificationQuestion &&
+      result.confidence >= minimumClarificationConfidence
+    ) {
+      return {
+        ...result,
+        date: normalizeDateResult(result.date),
+        time: normalizeTimeResult(result.time),
+        clarificationQuestion: result.clarificationQuestion.trim()
+      }
+    }
+
+    if (result.confidence < minimumConfidence) {
+      return null
+    }
+
+    return {
+      ...result,
+      date: normalizeDateResult(result.date),
+      time: normalizeTimeResult(result.time),
+      clarificationQuestion: result.clarificationQuestion?.trim() || null
     }
   }
 

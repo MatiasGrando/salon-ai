@@ -165,7 +165,7 @@ export class BookingConversationFlow {
       conversation.selectedCustomerName &&
       isBookingStartMessage(message, conversation.currentStep)
     ) {
-      return this.handleServiceStep({ phone, message, businessId })
+      return this.handleServiceStep({ phone, message, businessId, conversation })
     }
 
     if (conversation.currentStep === 'START' || isBookingStartMessage(message, conversation.currentStep)) {
@@ -173,7 +173,7 @@ export class BookingConversationFlow {
     }
 
     if (conversation.currentStep === 'ASK_SERVICE') {
-      return this.handleServiceStep({ phone, message, businessId })
+      return this.handleServiceStep({ phone, message, businessId, conversation })
     }
 
     if (conversation.currentStep === 'ASK_PROFESSIONAL') {
@@ -274,6 +274,7 @@ export class BookingConversationFlow {
     phone: string
     message: string
     businessId: string | null
+    conversation?: ConversationState
   }) {
     const bookingIntentReply = await this.tryHandleBookingIntent({
       phone: input.phone,
@@ -289,6 +290,41 @@ export class BookingConversationFlow {
 
     if (!selectedService) {
       return this.buildServicesReply(botCopyService.serviceNotFound(), input.businessId)
+    }
+
+    if (input.conversation?.selectedProfessionalId && input.conversation.selectedDate) {
+      const professionalName = await this.findProfessionalName(input.conversation.selectedProfessionalId)
+
+      return this.buildAvailabilityReply({
+        phone: input.phone,
+        serviceId: selectedService.id,
+        professionalId: input.conversation.selectedProfessionalId,
+        date: input.conversation.selectedDate,
+        time: input.conversation.selectedTime,
+        afterTime: parseAfterTimeFromMessage(input.conversation.lastMessage ?? ''),
+        timePreference: parseTimePreferenceFromMessage(input.conversation.lastMessage ?? ''),
+        prefix: buildIntentAvailabilityPrefix({
+          serviceName: selectedService.name,
+          ...(professionalName ? { professionalName } : {}),
+          date: input.conversation.selectedDate,
+          timePreference: parseTimePreferenceFromMessage(input.conversation.lastMessage ?? '')
+        })
+      })
+    }
+
+    if (input.conversation?.selectedProfessionalId) {
+      await this.updateConversation(input.phone, {
+        currentStep: 'ASK_DATE',
+        selectedServiceId: selectedService.id,
+        selectedProfessionalId: input.conversation.selectedProfessionalId,
+        selectedDate: null,
+        selectedTime: null,
+        lastAvailability: null
+      })
+
+      return {
+        reply: botCopyService.askDate(await this.findProfessionalName(input.conversation.selectedProfessionalId) ?? 'el profesional seleccionado')
+      }
     }
 
     await this.updateConversation(input.phone, {
@@ -770,11 +806,40 @@ export class BookingConversationFlow {
       }
     })
 
-    const intent = await aiMessageUnderstandingService.extractBookingIntent({
+    const agentDecision = await aiMessageUnderstandingService.planBookingAction({
       message: input.message,
       services,
       professionals
     })
+
+    if (agentDecision?.action === 'ask_clarification' && agentDecision.clarificationQuestion) {
+      const selectedProfessional = agentDecision.anyProfessional
+        ? null
+        : agentDecision.selectedProfessionalIndex
+          ? professionals[agentDecision.selectedProfessionalIndex - 1] ?? null
+          : null
+
+      await this.updateConversation(input.phone, {
+        currentStep: 'ASK_SERVICE',
+        selectedServiceId: null,
+        selectedProfessionalId: selectedProfessional?.id ?? null,
+        selectedDate: agentDecision.date,
+        selectedTime: agentDecision.time,
+        lastAvailability: null
+      })
+
+      return {
+        reply: ensureQuestionHasOptions(agentDecision.clarificationQuestion, services)
+      }
+    }
+
+    const intent = agentDecision?.action === 'continue_booking'
+      ? agentDecision
+      : await aiMessageUnderstandingService.extractBookingIntent({
+          message: input.message,
+          services,
+          professionals
+        })
 
     const selectedService = intent?.selectedServiceIndex
       ? services[intent.selectedServiceIndex - 1]
@@ -937,7 +1002,14 @@ export class BookingConversationFlow {
 
     if (options.length === 0) {
       return {
-        reply: botCopyService.noAvailabilityForDate()
+        reply: botCopyService.noAvailabilityForDate({
+          date: input.date,
+          professionalName: await this.findProfessionalName(input.professionalId),
+          ...(input.afterTime ? { afterTime: input.afterTime } : {}),
+          ...(formatTimePreferenceForCopy(input.timePreference)
+            ? { timePreference: formatTimePreferenceForCopy(input.timePreference) }
+            : {})
+        })
       }
     }
 
@@ -982,11 +1054,26 @@ export class BookingConversationFlow {
     })
 
     return messageUnderstandingService.findOptionByMessage(message, services)
+      ?? findServiceBySalonWords(message, services)
       ?? await aiMessageUnderstandingService.findOptionByMessage({
         message,
         options: services,
         optionType: 'service'
       })
+  }
+
+  private async findProfessionalName(professionalId?: string | null) {
+    if (!professionalId) {
+      return null
+    }
+
+    const professional = await prisma.professional.findUnique({
+      where: {
+        id: professionalId
+      }
+    })
+
+    return professional?.name ?? null
   }
 
   private async findProfessionalByMessage(message: string, businessId: string) {
@@ -1444,6 +1531,81 @@ function formatTimePreference(preference: TimePreference) {
   }
 
   return ''
+}
+
+function formatTimePreferenceForCopy(preference?: TimePreference | null) {
+  if (!preference || preference === 'any') {
+    return null
+  }
+
+  return formatTimePreference(preference)
+}
+
+function findServiceBySalonWords<T extends {
+  name: string
+  aliases?: Array<{ name: string }>
+}>(message: string, services: T[]) {
+  const normalizedMessage = normalizeText(message)
+  const mentionsColor = [
+    'color',
+    'teñir',
+    'tenir',
+    'tintura',
+    'mechas',
+    'reflejos'
+  ].some((word) => normalizedMessage.includes(normalizeText(word)))
+
+  if (mentionsColor) {
+    return services.find((service) => {
+      return serviceSearchText(service).includes('color')
+    }) ?? null
+  }
+
+  const mentionsHaircut = [
+    'corte',
+    'cortar',
+    'cortarme',
+    'pelo',
+    'cabello'
+  ].some((word) => normalizedMessage.includes(word))
+
+  if (!mentionsHaircut) {
+    return null
+  }
+
+  const haircutServices = services.filter((service) => {
+    const searchableText = serviceSearchText(service)
+
+    return searchableText.includes('corte') && !searchableText.includes('color')
+  })
+
+  return haircutServices.length === 1 ? haircutServices[0] ?? null : null
+}
+
+function serviceSearchText(service: {
+  name: string
+  aliases?: Array<{ name: string }>
+}) {
+  return [
+    service.name,
+    ...(service.aliases?.map((alias) => alias.name) ?? [])
+  ].map(normalizeText).join(' ')
+}
+
+function ensureQuestionHasOptions<T extends { name: string }>(question: string, services: T[]) {
+  const normalizedQuestion = normalizeText(question)
+  const alreadyMentionsOptions = services.some((service, index) => {
+    return normalizedQuestion.includes(normalizeText(service.name)) || normalizedQuestion.includes(`${index + 1}.`)
+  })
+
+  if (alreadyMentionsOptions || services.length === 0) {
+    return question
+  }
+
+  return [
+    question,
+    ...services.map((service, index) => `${index + 1}. ${service.name}`)
+  ].join('\n')
 }
 
 function toAfternoonTime(time: string) {
