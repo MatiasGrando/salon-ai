@@ -1117,6 +1117,10 @@ export class BookingConversationFlow {
       return null
     }
 
+    if (options.length === 1 && isSingleRemainingSlotMessage(input.message)) {
+      return options[0] ?? null
+    }
+
     const normalizedMessage = normalizeText(input.message)
 
     if (normalizedMessage === 'primero' || normalizedMessage === 'el primero') {
@@ -1369,6 +1373,27 @@ function parseTimePreferenceFromMessage(message: string): TimePreference | null 
   }
 
   return null
+}
+
+function isSingleRemainingSlotMessage(message: string) {
+  const normalizedMessage = normalizeText(message)
+
+  return [
+    'dame ese',
+    'dame ese turno',
+    'dame el que quedo',
+    'dame el turno que quedo',
+    'el que queda',
+    'el que quedo',
+    'el unico',
+    'el unico que queda',
+    'ese',
+    'ese mismo',
+    'cualquiera',
+    'mandame ese',
+    'reservalo',
+    'reservame ese'
+  ].includes(normalizedMessage)
 }
 
 function parseAfterTimeFromMessage(message: string) {

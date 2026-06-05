@@ -26,6 +26,7 @@ Objetivo: que cada local pueda configurar como atiende su asistente.
 
 - Nombre del bot.
 - Tono de atencion: formal, cercano, juvenil, premium, etc.
+- Nivel de IA por negocio: sin IA, IA simple o agente/orquestador.
 - Mensaje de bienvenida.
 - Reglas del local.
 - Servicios destacados.
