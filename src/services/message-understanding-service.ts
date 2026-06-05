@@ -37,7 +37,12 @@ export class MessageUnderstandingService {
         .map(normalizeText)
 
       return searchableValues.some((value) => {
-        return value === normalizedMessage || value.includes(normalizedMessage) || normalizedMessage.includes(value)
+        return (
+          value === normalizedMessage ||
+          value.includes(normalizedMessage) ||
+          normalizedMessage.includes(value) ||
+          matchesTokenPrefix(normalizedMessage, value)
+        )
       })
     }) ?? null
   }
@@ -139,6 +144,21 @@ export function normalizeText(text: string) {
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+}
+
+function matchesTokenPrefix(normalizedMessage: string, normalizedValue: string) {
+  const messageTokens = normalizedMessage.split(/\s+/).filter(Boolean)
+  const valueTokens = normalizedValue.split(/\s+/).filter(Boolean)
+
+  return valueTokens.some((valueToken) => {
+    if (valueToken.length < 5) {
+      return false
+    }
+
+    return messageTokens.some((messageToken) => {
+      return messageToken.length >= 4 && valueToken.startsWith(messageToken)
+    })
+  })
 }
 
 function parseWeekday(normalizedMessage: string, today: Date) {

@@ -48,6 +48,18 @@ type LastAvailabilityState = {
 
 type TimePreference = NonNullable<AiBookingIntentResult['timePreference']>
 
+type BookingDraft = {
+  serviceId: string | null
+  serviceName: string | null
+  serviceBusinessId: string | null
+  professionalId: string | null
+  professionalName: string | null
+  date: string | null
+  time: string | null
+  timePreference: TimePreference | null
+  afterTime: string | null
+}
+
 export class BookingConversationFlow {
   async handle(input: HandleBookingInput): Promise<HandleBookingResult> {
     const { phone, message, businessId, conversation } = input
@@ -242,6 +254,29 @@ export class BookingConversationFlow {
         }
 
         return this.buildServicesReply(`Gracias, ${getFirstName(customerIntro.name)}.`, input.businessId)
+      }
+
+      const bookingDraft = await this.extractBookingDraft({
+        message: input.conversation.lastMessage?.toString() ?? '',
+        businessId: input.businessId
+      })
+
+      if (bookingDraft) {
+        await this.updateConversation(input.phone, {
+          currentStep: 'ASK_CUSTOMER_NAME',
+          selectedServiceId: bookingDraft.serviceId,
+          selectedProfessionalId: bookingDraft.professionalId,
+          selectedDate: bookingDraft.date,
+          selectedTime: bookingDraft.time,
+          lastAvailability: null
+        })
+
+        return {
+          reply: [
+            'Dale, te ayudo con ese turno.',
+            'Antes de reservarlo, como te llamas?'
+          ].join('\n')
+        }
       }
 
       await this.updateConversation(input.phone, {
@@ -567,21 +602,21 @@ export class BookingConversationFlow {
     businessId: string | null
     conversation: ConversationState
   }) {
+    const customerIntro = await this.extractCustomerIntroFromMessage(input.message)
+    const customerName = customerIntro?.name ?? parseCustomerName(input.message, { allowPlainName: true })
+
+    if (!customerName || customerName.length < 2) {
+      return {
+        reply: botCopyService.askCustomerNameAgain()
+      }
+    }
+
     if (
       !input.conversation.selectedServiceId &&
       !input.conversation.selectedProfessionalId &&
       !input.conversation.selectedDate &&
       !input.conversation.selectedTime
     ) {
-      const customerIntro = await this.extractCustomerIntroFromMessage(input.message)
-      const customerName = customerIntro?.name ?? parseCustomerName(input.message, { allowPlainName: true })
-
-      if (!customerName || customerName.length < 2) {
-        return {
-          reply: botCopyService.askCustomerNameAgain()
-        }
-      }
-
       await this.updateConversation(input.phone, {
         currentStep: 'ASK_SERVICE',
         selectedCustomerName: customerName
@@ -607,35 +642,65 @@ export class BookingConversationFlow {
       return this.buildServicesReply(`Gracias, ${getFirstName(customerName)}.`, input.businessId)
     }
 
-    if (
-      !input.conversation.selectedServiceId ||
-      !input.conversation.selectedProfessionalId ||
-      !input.conversation.selectedDate ||
-      !input.conversation.selectedTime
-    ) {
-      await this.restartBooking(input.phone)
-
-      return this.buildServicesReply('Me faltan algunos datos del turno, asi que volvemos un paso y lo armamos bien.', input.businessId)
-    }
-
-    if (input.message.length < 2) {
-      return {
-        reply: botCopyService.askFullCustomerName()
-      }
-    }
-
     await this.updateConversation(input.phone, {
-      currentStep: 'CONFIRM',
-      selectedCustomerName: input.message
+      currentStep: input.conversation.selectedServiceId && input.conversation.selectedDate
+        ? 'ASK_TIME'
+        : input.conversation.selectedServiceId
+          ? input.conversation.selectedProfessionalId
+            ? 'ASK_DATE'
+            : 'ASK_PROFESSIONAL'
+          : 'ASK_SERVICE',
+      selectedCustomerName: customerName
     })
 
-    return this.buildConfirmationReply({
-      selectedServiceId: input.conversation.selectedServiceId,
-      selectedProfessionalId: input.conversation.selectedProfessionalId,
-      selectedDate: input.conversation.selectedDate,
-      selectedTime: input.conversation.selectedTime,
-      selectedCustomerName: input.message
-    })
+    if (input.conversation.selectedServiceId && input.conversation.selectedDate) {
+      const selectedService = await prisma.service.findUnique({
+        where: {
+          id: input.conversation.selectedServiceId
+        }
+      })
+      const professionalName = await this.findProfessionalName(input.conversation.selectedProfessionalId)
+
+      return this.buildAvailabilityReply({
+        phone: input.phone,
+        serviceId: input.conversation.selectedServiceId,
+        professionalId: input.conversation.selectedProfessionalId,
+        date: input.conversation.selectedDate,
+        time: input.conversation.selectedTime,
+        afterTime: parseAfterTimeFromMessage(input.conversation.lastMessage ?? ''),
+        timePreference: parseTimePreferenceFromMessage(input.conversation.lastMessage ?? ''),
+        prefix: buildIntentAvailabilityPrefix({
+          serviceName: selectedService?.name ?? 'el servicio',
+          ...(professionalName ? { professionalName } : {}),
+          date: input.conversation.selectedDate,
+          timePreference: parseTimePreferenceFromMessage(input.conversation.lastMessage ?? '')
+        })
+      })
+    }
+
+    if (input.conversation.selectedServiceId) {
+      const selectedService = await prisma.service.findUnique({
+        where: {
+          id: input.conversation.selectedServiceId
+        }
+      })
+
+      if (!selectedService) {
+        await this.restartBooking(input.phone)
+
+        return this.buildServicesReply('Ese servicio ya no aparece disponible. Elegimos otro?', input.businessId)
+      }
+
+      if (input.conversation.selectedProfessionalId) {
+        return {
+          reply: botCopyService.askDate(await this.findProfessionalName(input.conversation.selectedProfessionalId) ?? 'el profesional seleccionado')
+        }
+      }
+
+      return this.buildProfessionalsReply(selectedService.businessId, `Gracias, ${getFirstName(customerName)}. Dejamos ${selectedService.name}.`)
+    }
+
+    return this.buildServicesReply(`Gracias, ${getFirstName(customerName)}.`, input.businessId)
   }
 
   private async handleConfirmStep(input: {
@@ -911,6 +976,87 @@ export class BookingConversationFlow {
     })
 
     return availabilityReply
+  }
+
+  private async extractBookingDraft(input: {
+    message: string
+    businessId: string | null
+  }): Promise<BookingDraft | null> {
+    if (!aiMessageUnderstandingService.isEnabled() || !isBookingStartMessage(input.message, 'START')) {
+      return null
+    }
+
+    const services = await prisma.service.findMany({
+      where: input.businessId ? { businessId: input.businessId } : {},
+      include: {
+        aliases: true
+      },
+      orderBy: {
+        name: 'asc'
+      }
+    })
+
+    if (services.length === 0) {
+      return null
+    }
+
+    const professionals = await prisma.professional.findMany({
+      where: input.businessId ? { businessId: input.businessId } : {},
+      orderBy: {
+        name: 'asc'
+      }
+    })
+
+    const agentDecision = await aiMessageUnderstandingService.planBookingAction({
+      message: input.message,
+      services,
+      professionals
+    })
+    const intent = agentDecision
+      ?? await aiMessageUnderstandingService.extractBookingIntent({
+        message: input.message,
+        services,
+        professionals
+      })
+
+    const selectedService = intent?.selectedServiceIndex
+      ? services[intent.selectedServiceIndex - 1]
+      : findServiceBySalonWords(input.message, services)
+
+    const selectedProfessional = intent?.anyProfessional
+      ? null
+      : intent?.selectedProfessionalIndex
+        ? professionals[intent.selectedProfessionalIndex - 1] ?? null
+        : messageUnderstandingService.findOptionByMessage(input.message, professionals)
+
+    const draft: BookingDraft = {
+      serviceId: selectedService?.id ?? null,
+      serviceName: selectedService?.name ?? null,
+      serviceBusinessId: selectedService?.businessId ?? null,
+      professionalId: selectedProfessional?.id ?? null,
+      professionalName: selectedProfessional?.name ?? null,
+      date: intent?.date
+        ?? messageUnderstandingService.parseDate(input.message)
+        ?? await aiMessageUnderstandingService.parseDate(input.message),
+      time: parseAfterTimeFromMessage(input.message)
+        ? null
+        : intent?.time
+          ?? messageUnderstandingService.parseTime(input.message)
+          ?? await aiMessageUnderstandingService.parseTime(input.message),
+      timePreference: intent?.timePreference ?? parseTimePreferenceFromMessage(input.message),
+      afterTime: parseAfterTimeFromMessage(input.message)
+    }
+
+    const hasUsefulDraft = Boolean(
+      draft.serviceId ||
+      draft.professionalId ||
+      draft.date ||
+      draft.time ||
+      draft.timePreference ||
+      draft.afterTime
+    )
+
+    return hasUsefulDraft ? draft : null
   }
 
   private async extractIntentForSelectedService(input: {
@@ -1676,7 +1822,61 @@ function parseCustomerName(message: string, options?: { allowPlainName?: boolean
     return null
   }
 
-  return message.trim().replace(/\s+/g, ' ')
+  const plainName = message.trim().replace(/\s+/g, ' ')
+
+  if (!looksLikeCustomerName(plainName)) {
+    return null
+  }
+
+  return plainName
+}
+
+function looksLikeCustomerName(name: string) {
+  const normalizedName = normalizeText(name)
+
+  if (normalizedName.length < 2) {
+    return false
+  }
+
+  const rejectedMessages = [
+    'hola',
+    'hola que tal',
+    'buenas',
+    'buen dia',
+    'buenas tardes',
+    'buenas noches',
+    'que tal',
+    'como estas',
+    'todo bien',
+    'quiero reservar',
+    'quiero un turno',
+    'reservar turno',
+    'sacar turno'
+  ]
+
+  if (rejectedMessages.includes(normalizedName)) {
+    return false
+  }
+
+  const rejectedWords = [
+    'turno',
+    'reservar',
+    'reserva',
+    'servicio',
+    'horario',
+    'manana',
+    'pasado',
+    'hoy',
+    'corte',
+    'color',
+    'profesional'
+  ]
+
+  if (rejectedWords.some((word) => normalizedName.includes(word))) {
+    return false
+  }
+
+  return /^[a-zA-Z\s]+$/.test(name) && name.split(/\s+/).length <= 3
 }
 
 function extractRemainingBookingMessage(message: string) {

@@ -97,8 +97,21 @@ export class BotCopyService {
     return 'No llegue a entender la fecha. Podes responder 1 para hoy, 2 para manana, 3 para pasado, o escribirme una fecha como 2026-06-06.'
   }
 
-  noAvailabilityForDate() {
-    return 'Para esa fecha no veo horarios disponibles. Probamos con otro dia?'
+  noAvailabilityForDate(input?: {
+    date?: string
+    professionalName?: string | null
+    afterTime?: string | null
+    timePreference?: string | null
+  }) {
+    const dateText = input?.date ? ` para ${input.date}` : ' para esa fecha'
+    const professionalText = input?.professionalName ? ` con ${input.professionalName}` : ''
+    const timeText = input?.afterTime
+      ? ` despues de las ${input.afterTime}`
+      : input?.timePreference
+        ? ` ${input.timePreference}`
+        : ''
+
+    return `No veo horarios disponibles${professionalText}${dateText}${timeText}. Podemos probar con otro dia, otro profesional o sin preferencia.`
   }
 
   availability(input: {
@@ -126,7 +139,7 @@ export class BotCopyService {
   }
 
   askCustomerNameAgain() {
-    return 'Hola, soy Cami. Asi puedo ayudarte mejor, decime tu nombre por favor.'
+    return 'Perdon, no llegue a tomar tu nombre. Como te llamas?'
   }
 
   askFullCustomerName() {

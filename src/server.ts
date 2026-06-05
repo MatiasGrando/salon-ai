@@ -11,6 +11,8 @@ import { availabilityRoutes } from './routes/availability.js'
 import { chatRoutes } from './routes/chat.js'
 import { whatsappWebhookRoutes } from './routes/whatsapp-webhook.js'
 
+process.env.TZ ??= 'America/Argentina/Buenos_Aires'
+
 const app = Fastify()
 const port = Number(process.env.PORT ?? 3000)
 const host = process.env.HOST ?? '0.0.0.0'
