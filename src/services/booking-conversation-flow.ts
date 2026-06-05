@@ -64,6 +64,10 @@ export class BookingConversationFlow {
   async handle(input: HandleBookingInput): Promise<HandleBookingResult> {
     const { phone, message, businessId, conversation } = input
 
+    if (isBackMessage(message)) {
+      return this.handleBackStep({ phone, businessId, conversation })
+    }
+
     if (isChangeServiceMessage(message)) {
       await this.updateConversation(phone, {
         currentStep: 'ASK_SERVICE',
@@ -703,13 +707,29 @@ export class BookingConversationFlow {
         serviceId: input.conversation.selectedServiceId,
         professionalId: input.conversation.selectedProfessionalId,
         date: changedDate,
-        time: parseAfterTimeFromMessage(input.message)
+        time: isTimeFilterRequest(input.message)
           ? null
           : messageUnderstandingService.parseTime(input.message)
             ?? await aiMessageUnderstandingService.parseTime(input.message),
         timePreference: parseTimePreferenceFromMessage(input.message),
         afterTime: parseAfterTimeFromMessage(input.message),
+        beforeTime: parseBeforeTimeFromMessage(input.message),
         prefix: `Dale, lo vemos para ${formatDisplayDate(changedDate)}.`
+      })
+    }
+
+    if (isTimeFilterRequest(input.message)) {
+      const relativeTimeFilter = parseRelativeTimeFilter(input.message, input.conversation.selectedTime)
+
+      return this.buildAvailabilityReply({
+        phone: input.phone,
+        serviceId: input.conversation.selectedServiceId,
+        professionalId: input.conversation.selectedProfessionalId,
+        date: input.conversation.selectedDate,
+        timePreference: parseTimePreferenceFromMessage(input.message),
+        afterTime: parseAfterTimeFromMessage(input.message) ?? relativeTimeFilter.afterTime,
+        beforeTime: parseBeforeTimeFromMessage(input.message) ?? relativeTimeFilter.beforeTime,
+        prefix: buildTimeFilterPrefix(input.message)
       })
     }
 
@@ -903,6 +923,29 @@ export class BookingConversationFlow {
     businessId: string | null
     conversation: ConversationState
   }) {
+    if (isChangeTimeQuestion(input.message) || isTimeFilterRequest(input.message)) {
+      if (!input.conversation.selectedServiceId || !input.conversation.selectedDate) {
+        await this.restartBooking(input.phone)
+
+        return this.buildServicesReply('Me falta confirmar servicio y fecha, así que volvemos un paso y lo ordenamos.', input.businessId)
+      }
+
+      const relativeTimeFilter = parseRelativeTimeFilter(input.message, input.conversation.selectedTime)
+
+      return this.buildAvailabilityReply({
+        phone: input.phone,
+        serviceId: input.conversation.selectedServiceId,
+        professionalId: input.conversation.selectedProfessionalId,
+        date: input.conversation.selectedDate,
+        timePreference: parseTimePreferenceFromMessage(input.message),
+        afterTime: parseAfterTimeFromMessage(input.message) ?? relativeTimeFilter.afterTime,
+        beforeTime: parseBeforeTimeFromMessage(input.message) ?? relativeTimeFilter.beforeTime,
+        prefix: isTimeFilterRequest(input.message)
+          ? buildTimeFilterPrefix(input.message)
+          : 'Sí, podemos cambiar el horario. Te paso las opciones disponibles.'
+      })
+    }
+
     if (normalizeText(input.message) !== 'confirmar') {
       return {
         reply: botCopyService.askConfirm()
@@ -952,6 +995,80 @@ export class BookingConversationFlow {
         date: input.conversation.selectedDate,
         time: input.conversation.selectedTime
       })
+    }
+  }
+
+  private async handleBackStep(input: {
+    phone: string
+    businessId: string | null
+    conversation: ConversationState
+  }): Promise<HandleBookingResult> {
+    if (input.conversation.currentStep === 'CONFIRM' && input.conversation.selectedServiceId && input.conversation.selectedDate) {
+      await this.updateConversation(input.phone, {
+        currentStep: 'ASK_TIME',
+        selectedTime: null,
+        lastAvailability: null
+      })
+
+      return this.buildAvailabilityReply({
+        phone: input.phone,
+        serviceId: input.conversation.selectedServiceId,
+        professionalId: input.conversation.selectedProfessionalId,
+        date: input.conversation.selectedDate,
+        prefix: 'Dale, volvemos al horario. Te paso las opciones disponibles.'
+      })
+    }
+
+    if (input.conversation.currentStep === 'ASK_TIME' && input.conversation.selectedProfessionalId) {
+      await this.updateConversation(input.phone, {
+        currentStep: 'ASK_DATE',
+        selectedDate: null,
+        selectedTime: null,
+        lastAvailability: null
+      })
+
+      return {
+        reply: botCopyService.askDate(await this.findProfessionalName(input.conversation.selectedProfessionalId) ?? 'el profesional seleccionado')
+      }
+    }
+
+    if (input.conversation.currentStep === 'ASK_DATE' && input.conversation.selectedServiceId) {
+      const selectedService = await prisma.service.findUnique({
+        where: {
+          id: input.conversation.selectedServiceId
+        }
+      })
+
+      if (selectedService) {
+        await this.updateConversation(input.phone, {
+          currentStep: 'ASK_PROFESSIONAL',
+          selectedProfessionalId: null,
+          selectedDate: null,
+          selectedTime: null,
+          lastAvailability: null
+        })
+
+        return this.buildProfessionalsReply(selectedService.businessId, 'Dale, volvemos al profesional.')
+      }
+    }
+
+    if (input.conversation.currentStep === 'ASK_PROFESSIONAL' || input.conversation.currentStep === 'ASK_DATE') {
+      await this.restartBooking(input.phone)
+
+      return this.buildServicesReply('Dale, volvemos al servicio.', input.businessId)
+    }
+
+    await this.updateConversation(input.phone, {
+      currentStep: 'START',
+      selectedServiceId: null,
+      selectedProfessionalId: null,
+      selectedDate: null,
+      selectedTime: null,
+      lastAvailability: null
+    })
+
+    return {
+      reply: botCopyService.mainMenu(input.conversation.selectedCustomerName)
     }
   }
 
@@ -1330,6 +1447,7 @@ export class BookingConversationFlow {
     time?: string | null
     timePreference?: TimePreference | null
     afterTime?: string | null
+    beforeTime?: string | null
     prefix?: string
   }): Promise<HandleBookingResult> {
     const availability = await this.findAvailabilityOptions({
@@ -1347,7 +1465,8 @@ export class BookingConversationFlow {
     const hasTimePreference = Boolean(input.timePreference && input.timePreference !== 'any')
     const preferredOptions = filterAvailabilityByPreference(availability.options, input.timePreference)
     const timePreferenceOptions = hasTimePreference ? preferredOptions : availability.options
-    const options = filterAvailabilityAfterTime(timePreferenceOptions, input.afterTime)
+    const afterTimeOptions = filterAvailabilityAfterTime(timePreferenceOptions, input.afterTime)
+    const options = filterAvailabilityBeforeTime(afterTimeOptions, input.beforeTime)
 
     if (input.time) {
       const requestedTime = input.time
@@ -1404,8 +1523,8 @@ export class BookingConversationFlow {
           date: formatDisplayDate(input.date),
           professionalName,
           ...(input.afterTime ? { afterTime: input.afterTime } : {}),
-          ...(formatTimePreferenceForCopy(input.timePreference)
-            ? { timePreference: formatTimePreferenceForCopy(input.timePreference) }
+          ...(formatAvailabilityFilterForCopy(input.beforeTime, input.timePreference)
+            ? { timePreference: formatAvailabilityFilterForCopy(input.beforeTime, input.timePreference) }
             : {})
         })
       }
@@ -1786,6 +1905,21 @@ function isChangeTimeMessage(message: string) {
   return normalizedMessage === 'cambiar horario' || normalizedMessage === 'otro horario'
 }
 
+function isBackMessage(message: string) {
+  const normalizedMessage = normalizeText(message)
+
+  return [
+    'volver',
+    'atras',
+    'atrás',
+    'volver atras',
+    'volver atrás',
+    'paso anterior',
+    'ir para atras',
+    'ir para atrás'
+  ].includes(normalizedMessage)
+}
+
 function asksBotName(normalizedMessage: string) {
   return [
     'cual es tu nombre',
@@ -2014,6 +2148,14 @@ function filterAvailabilityAfterTime(options: AvailabilityOption[], afterTime?: 
   return options.filter((option) => option.time >= afterTime)
 }
 
+function filterAvailabilityBeforeTime(options: AvailabilityOption[], beforeTime?: string | null) {
+  if (!beforeTime) {
+    return options
+  }
+
+  return options.filter((option) => option.time <= beforeTime)
+}
+
 function parseTimePreferenceFromMessage(message: string): TimePreference | null {
   const normalizedMessage = normalizeText(message)
 
@@ -2056,7 +2198,13 @@ function isSingleRemainingSlotMessage(message: string) {
 function parseAfterTimeFromMessage(message: string) {
   const normalizedMessage = normalizeText(message)
 
-  if (!normalizedMessage.includes('despues de') && !normalizedMessage.includes('despues de las')) {
+  if (![
+    'despues de',
+    'despues de las',
+    'posterior a',
+    'mas tarde de',
+    'luego de'
+  ].some((phrase) => normalizedMessage.includes(phrase))) {
     return null
   }
 
@@ -2069,6 +2217,118 @@ function parseAfterTimeFromMessage(message: string) {
   return parsedTime < '08:00'
     ? toAfternoonTime(parsedTime) ?? parsedTime
     : parsedTime
+}
+
+function parseBeforeTimeFromMessage(message: string) {
+  const normalizedMessage = normalizeText(message)
+
+  if (![
+    'antes de',
+    'antes de las',
+    'hasta las',
+    'previo a',
+    'mas temprano que'
+  ].some((phrase) => normalizedMessage.includes(phrase))) {
+    return null
+  }
+
+  const parsedTime = messageUnderstandingService.parseTime(normalizedMessage)
+
+  if (!parsedTime) {
+    return null
+  }
+
+  return parsedTime < '08:00'
+    ? toAfternoonTime(parsedTime) ?? parsedTime
+    : parsedTime
+}
+
+function isTimeFilterRequest(message: string) {
+  const normalizedMessage = normalizeText(message)
+
+  return [
+    'despues de',
+    'despues de las',
+    'antes de',
+    'antes de las',
+    'hasta las',
+    'mas tarde',
+    'mas temprano',
+    'otro horario',
+    'otros horarios',
+    'que horarios',
+    'horarios tenes',
+    'horarios tienes',
+    'tenes horarios',
+    'tienes horarios',
+    'hay horario',
+    'hay horarios'
+  ].some((phrase) => normalizedMessage.includes(phrase))
+}
+
+function isChangeTimeQuestion(message: string) {
+  const normalizedMessage = normalizeText(message)
+
+  return normalizedMessage.includes('cambiar') &&
+    (
+      normalizedMessage.includes('horario') ||
+      normalizedMessage.includes('hora') ||
+      normalizedMessage.includes('turno')
+    )
+}
+
+function parseRelativeTimeFilter(message: string, selectedTime?: string | null) {
+  const normalizedMessage = normalizeText(message)
+
+  if (!selectedTime) {
+    return {
+      afterTime: null,
+      beforeTime: null
+    }
+  }
+
+  if (normalizedMessage.includes('mas tarde') || normalizedMessage.includes('despues')) {
+    return {
+      afterTime: selectedTime,
+      beforeTime: null
+    }
+  }
+
+  if (normalizedMessage.includes('mas temprano') || normalizedMessage.includes('antes')) {
+    return {
+      afterTime: null,
+      beforeTime: selectedTime
+    }
+  }
+
+  return {
+    afterTime: null,
+    beforeTime: null
+  }
+}
+
+function buildTimeFilterPrefix(message: string) {
+  const normalizedMessage = normalizeText(message)
+  const afterTime = parseAfterTimeFromMessage(message)
+  const beforeTime = parseBeforeTimeFromMessage(message)
+
+  if (afterTime) {
+    return `Sí, después de las ${afterTime} tengo estos horarios:`
+  }
+
+  if (beforeTime) {
+    return `Sí, antes de las ${beforeTime} tengo estos horarios:`
+  }
+
+  if (normalizedMessage.includes('mas tarde')) {
+    return 'Sí, te muestro horarios más tarde:'
+  }
+
+  if (normalizedMessage.includes('mas temprano') || normalizedMessage.includes('antes')) {
+    return 'Sí, te muestro horarios más temprano:'
+  }
+
+  return 'Sí, te paso otros horarios disponibles:'
 }
 
 function buildIntentAvailabilityPrefix(input: {
@@ -2109,6 +2369,14 @@ function formatTimePreferenceForCopy(preference?: TimePreference | null) {
   }
 
   return formatTimePreference(preference)
+}
+
+function formatAvailabilityFilterForCopy(beforeTime?: string | null, preference?: TimePreference | null) {
+  if (beforeTime) {
+    return `antes de las ${beforeTime}`
+  }
+
+  return formatTimePreferenceForCopy(preference)
 }
 
 function formatDisplayDate(date: string) {

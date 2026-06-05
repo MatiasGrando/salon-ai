@@ -183,7 +183,15 @@ export class BotCopyService {
   }
 
   askConfirm() {
-    return 'Para dejar el turno reservado, respondeme confirmar. Si querés cambiar algo, decime cambiar fecha, cambiar horario, cambiar profesional o cambiar servicio.'
+    return [
+      'Para dejar el turno reservado, respondeme confirmar.',
+      'Si querés ajustar algo, podés decirme:',
+      '* cambiar horario',
+      '* cambiar fecha',
+      '* cambiar profesional',
+      '* cambiar servicio',
+      '* volver'
+    ].join('\n')
   }
 
   appointmentConfirmed(input: {
