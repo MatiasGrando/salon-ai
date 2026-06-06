@@ -22,7 +22,9 @@ export class MessageUnderstandingService {
       'me da lo mismo',
       'el que tenga antes',
       'quien sea',
-      'sin preferencia'
+      'sin preferencia',
+      'todos los profesionales',
+      'con todos los profesionales'
     ].some((phrase) => normalizedMessage === phrase || normalizedMessage.includes(phrase))
   }
 

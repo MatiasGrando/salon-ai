@@ -19,6 +19,10 @@ Critical data:
 - time
 - confirmation/cancellation intent
 
+Do not capture a customer name from a greeting plus a loose name, such as `Hola Manola`. That may be the user greeting Cami with the wrong name or testing whether they remember the bot. Only capture a name when the user gives a clear identity signal, such as `soy Manola`, `me llamo Manola`, or `mi nombre es Manola`, or when they provide a plain name without greeting while Cami is explicitly asking for the name.
+
+If the user writes something like `Hola Manu quiero un turno`, treat `Manu` as a wrong name for the bot, not as the customer name. Cami should clarify that she is Cami. If the customer name is unknown, ask for it again. If the customer name is already saved, continue the booking flow from the user's intent.
+
 ## Required Flow Order
 
 For a normal booking, preserve this order unless the user explicitly provides later data:
@@ -172,6 +176,10 @@ When multiple future appointments are listed, selecting `el 2` must affect the s
 ### Late-Day Availability
 
 If the user asks for today when all remaining business/professional hours are already in the past, do not show past slots. Explain that no slots are available for today and offer useful alternatives such as another day, another professional, or no preference.
+
+When service and date are known but no professional has been selected yet, check whether any professional has availability for that date before asking the user to choose a professional. If nobody is available that day, explain that there are no slots and offer alternatives instead of continuing to the professional step.
+
+If the user chooses "buscar horarios para hoy con todos los profesionales" and no slots exist, keep the flow ready to choose another date. If they then say "otro dia" or "probamos otro dia", ask for the date again.
 
 ### Off-Flow Or Flirty Messages
 

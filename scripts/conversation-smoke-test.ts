@@ -66,6 +66,71 @@ async function main() {
       ]
     },
     {
+      name: 'no toma saludo con nombre ajeno como nombre del cliente',
+      phone: `${testPhonePrefix}greeting-not-name`,
+      steps: [
+        {
+          message: 'reset total',
+          includes: ['Cami']
+        },
+        {
+          message: 'Hola Manola',
+          includes: ['nombre'],
+          excludes: ['Manola', service.name]
+        }
+      ]
+    },
+    {
+      name: 'corrige nombre equivocado de Cami y pide nombre si falta',
+      phone: `${testPhonePrefix}wrong-bot-name-no-customer`,
+      steps: [
+        {
+          message: 'reset total',
+          includes: ['Cami']
+        },
+        {
+          message: 'Hola Manu quiero un turno',
+          includes: ['Cami', 'nombre'],
+          excludes: ['Manu', service.name]
+        }
+      ]
+    },
+    {
+      name: 'corrige nombre equivocado de Cami y sigue si ya conoce al cliente',
+      phone: `${testPhonePrefix}wrong-bot-name-known-customer`,
+      setup: async () => {
+        await prisma.conversation.create({
+          data: {
+            phone: `${testPhonePrefix}wrong-bot-name-known-customer`,
+            businessId: business.id,
+            currentStep: 'START',
+            selectedCustomerName: 'Mati QA'
+          }
+        })
+      },
+      steps: [
+        {
+          message: 'Hola Manu quiero un turno',
+          includes: ['Cami', service.name],
+          excludes: ['Manu', 'nombre']
+        }
+      ]
+    },
+    {
+      name: 'acepta nombre cuando el usuario lo da explicitamente',
+      phone: `${testPhonePrefix}explicit-name`,
+      steps: [
+        {
+          message: 'reset total',
+          includes: ['Cami']
+        },
+        {
+          message: 'Hola soy Manola',
+          includes: ['Manola', service.name]
+        }
+      ]
+    },
+    {
       name: 'flujo completo con lenguaje natural',
       phone: `${testPhonePrefix}full-flow`,
       steps: [
@@ -316,6 +381,50 @@ async function main() {
           message: `hola soy Noche quiero ${service.name} hoy con ${professional.name}`,
           includesAny: ['No veo horarios disponibles', 'Para hoy no veo horarios disponibles'],
           excludes: ['Horarios disponibles:', '- 09:', '- 10:', '- 11:']
+        }
+      ]
+    },
+    {
+      name: 'buscar horarios hoy con todos no pide profesional si no hay disponibilidad',
+      phone: `${testPhonePrefix}today-all-professionals-late`,
+      fakeNow: dateWithOffset(0, 23),
+      steps: [
+        {
+          message: 'reset total',
+          includes: ['Cami']
+        },
+        {
+          message: `hola soy Noche quiero ${service.name}`,
+          includes: ['Para qué día']
+        },
+        {
+          message: 'busca horarios para hoy con todos los profesionales',
+          includes: ['No veo horarios disponibles'],
+          excludes: [professional.name, 'Cualquier profesional', 'Preferis atenderte']
+        }
+      ]
+    },
+    {
+      name: 'sin disponibilidad hoy permite volver a elegir otro dia',
+      phone: `${testPhonePrefix}today-no-availability-another-day`,
+      fakeNow: dateWithOffset(0, 23),
+      steps: [
+        {
+          message: 'reset total',
+          includes: ['Cami']
+        },
+        {
+          message: `hola soy Noche quiero ${service.name} hoy con ${professional.name}`,
+          includesAny: ['Para hoy no veo horarios disponibles', 'No veo horarios disponibles']
+        },
+        {
+          message: '2',
+          includes: ['No veo horarios disponibles'],
+          excludes: ['Horarios disponibles:']
+        },
+        {
+          message: 'okey probamos otro dia',
+          includes: ['Para qué día']
         }
       ]
     },

@@ -64,6 +64,20 @@ export class BookingConversationFlow {
   async handle(input: HandleBookingInput): Promise<HandleBookingResult> {
     const { phone, message, businessId, conversation } = input
 
+    const misaddressedBotGreeting = parseMisaddressedBotGreeting(message)
+
+    if (
+      misaddressedBotGreeting &&
+      (conversation.currentStep === 'START' || conversation.currentStep === 'ASK_CUSTOMER_NAME')
+    ) {
+      return this.handleMisaddressedBotGreeting({
+        phone,
+        businessId,
+        conversation,
+        remainingMessage: misaddressedBotGreeting.remainingMessage
+      })
+    }
+
     if (isBackMessage(message)) {
       return this.handleBackStep({ phone, businessId, conversation })
     }
@@ -296,6 +310,75 @@ export class BookingConversationFlow {
     return {
       reply: botCopyService.mainMenu(null)
     }
+  }
+
+  private async handleMisaddressedBotGreeting(input: {
+    phone: string
+    businessId: string | null
+    conversation: ConversationState
+    remainingMessage: string | null
+  }): Promise<HandleBookingResult> {
+    const correction = 'Soy Cami. Te ayudo por aca.'
+
+    if (!input.conversation.selectedCustomerName) {
+      await this.updateConversation(input.phone, {
+        currentStep: 'ASK_CUSTOMER_NAME',
+        selectedServiceId: null,
+        selectedProfessionalId: null,
+        selectedDate: null,
+        selectedTime: null,
+        lastAvailability: null
+      })
+
+      return {
+        reply: [
+          correction,
+          'Antes de seguir, como te llamas?'
+        ].join('\n')
+      }
+    }
+
+    const remainingMessage = input.remainingMessage ?? 'reservar turno'
+
+    await this.updateConversation(input.phone, {
+      currentStep: 'ASK_SERVICE',
+      selectedServiceId: null,
+      selectedProfessionalId: null,
+      selectedDate: null,
+      selectedTime: null,
+      lastAvailability: null
+    })
+
+    if (!isGenericBookingRequest(remainingMessage)) {
+      const reply = await this.handleServiceStep({
+        phone: input.phone,
+        message: remainingMessage,
+        businessId: input.businessId,
+        conversation: {
+          ...input.conversation,
+          currentStep: 'ASK_SERVICE',
+          selectedServiceId: null,
+          selectedProfessionalId: null,
+          selectedDate: null,
+          selectedTime: null,
+          lastAvailability: null
+        }
+      })
+
+      return {
+        reply: [
+          correction,
+          reply.reply
+        ].join('\n')
+      }
+    }
+
+    const reply = await this.buildServicesReply(
+      `${correction} Hola ${getFirstName(input.conversation.selectedCustomerName)}.`,
+      input.businessId
+    )
+
+    return reply
   }
 
   private async startBooking(input: {
@@ -636,6 +719,12 @@ export class BookingConversationFlow {
       return this.buildServicesReply('Me falta confirmar el servicio, asi que volvemos un paso y lo elegimos bien.', input.businessId)
     }
 
+    if (wantsAnotherDay(input.message)) {
+      return {
+        reply: botCopyService.askDate(await this.findProfessionalName(input.conversation.selectedProfessionalId) ?? 'cualquier profesional')
+      }
+    }
+
     const selectedDate = await this.parseDateFromMessage(input.message)
 
     if (!selectedDate) {
@@ -721,7 +810,57 @@ export class BookingConversationFlow {
         })
       }
 
-      if (!(await this.isAnyProfessionalSelection(input.message, selectedService.businessId))) {
+      const asksForAnyProfessional = await this.isAnyProfessionalSelection(input.message, selectedService.businessId)
+      const asksForBroadAvailability = asksBroadAvailability(input.message)
+
+      if (asksForAnyProfessional || asksForBroadAvailability) {
+        return this.buildAvailabilityReply({
+          phone: input.phone,
+          serviceId: input.conversation.selectedServiceId,
+          professionalId: null,
+          date: selectedDate,
+          time: parseAfterTimeFromMessage(input.message)
+            ? null
+            : messageUnderstandingService.parseTime(input.message)
+              ?? await aiMessageUnderstandingService.parseTime(input.message),
+          timePreference: parseTimePreferenceFromMessage(input.message),
+          afterTime: parseAfterTimeFromMessage(input.message),
+          prefix: buildIntentAvailabilityPrefix({
+            serviceName: selectedService.name,
+            date: selectedDate,
+            timePreference: parseTimePreferenceFromMessage(input.message)
+          })
+        })
+      }
+
+      const dayAvailability = await this.findAvailabilityOptions({
+        professionalId: null,
+        serviceId: input.conversation.selectedServiceId,
+        date: selectedDate
+      })
+
+      if (!dayAvailability.ok) {
+        return {
+          reply: dayAvailability.message
+        }
+      }
+
+      if (dayAvailability.options.length === 0) {
+        await this.updateConversation(input.phone, {
+          currentStep: 'ASK_DATE',
+          selectedDate: null,
+          selectedTime: null,
+          lastAvailability: null
+        })
+
+        return {
+          reply: botCopyService.noAvailabilityForDate({
+            date: formatDisplayDate(selectedDate)
+          })
+        }
+      }
+
+      if (!asksForAnyProfessional) {
         await this.updateConversation(input.phone, {
           currentStep: 'ASK_PROFESSIONAL',
           selectedDate,
@@ -814,7 +953,7 @@ export class BookingConversationFlow {
       input.conversation.selectedProfessionalId &&
       !readLastAvailabilityOptions(input.conversation.lastAvailability)
 
-    if (waitingForNoAvailabilityChoice && noAvailabilityChoice === '1') {
+    if (waitingForNoAvailabilityChoice && (noAvailabilityChoice === '1' || wantsAnotherDay(input.message))) {
       await this.updateConversation(input.phone, {
         currentStep: 'ASK_DATE',
         selectedDate: null,
@@ -835,6 +974,19 @@ export class BookingConversationFlow {
         date: input.conversation.selectedDate,
         prefix: 'Dale, te muestro los horarios de hoy con todos los profesionales.'
       })
+    }
+
+    if (wantsAnotherDay(input.message)) {
+      await this.updateConversation(input.phone, {
+        currentStep: 'ASK_DATE',
+        selectedDate: null,
+        selectedTime: null,
+        lastAvailability: null
+      })
+
+      return {
+        reply: botCopyService.askDate(await this.findProfessionalName(input.conversation.selectedProfessionalId) ?? 'cualquier profesional')
+      }
     }
 
     const changedDate = await this.parseDateFromMessage(input.message)
@@ -1749,6 +1901,15 @@ export class BookingConversationFlow {
         }
       }
 
+      await this.updateConversation(input.phone, {
+        currentStep: 'ASK_DATE',
+        selectedServiceId: input.serviceId,
+        selectedProfessionalId: input.professionalId,
+        selectedDate: null,
+        selectedTime: null,
+        lastAvailability: null
+      })
+
       return {
         reply: botCopyService.noAvailabilityForDate({
           date: formatDisplayDate(input.date),
@@ -2399,6 +2560,12 @@ function asksBroadAvailability(message: string) {
   const normalizedMessage = normalizeText(message)
 
   const asksForAvailability = [
+    'buscar horario',
+    'buscar horarios',
+    'busca horario',
+    'busca horarios',
+    'buscame horario',
+    'buscame horarios',
     'hay turnos',
     'tenes turnos',
     'tienes turnos',
@@ -2420,6 +2587,23 @@ function asksBroadAvailability(message: string) {
     'con agustin',
     'con agustin',
     'profesional'
+  ].some((phrase) => normalizedMessage.includes(phrase)) ||
+    mentionsAnyProfessionalPreference(normalizedMessage) ||
+    normalizedMessage.includes('todos los profesionales')
+}
+
+function wantsAnotherDay(message: string) {
+  const normalizedMessage = normalizeText(message)
+
+  return [
+    'otro dia',
+    'otra fecha',
+    'probemos otro dia',
+    'probamos otro dia',
+    'buscar otro dia',
+    'busca otro dia',
+    'okey probamos otro dia',
+    'ok probamos otro dia'
   ].some((phrase) => normalizedMessage.includes(phrase))
 }
 
@@ -2983,6 +3167,40 @@ function parseCustomerIntro(message: string) {
   return null
 }
 
+function parseMisaddressedBotGreeting(message: string) {
+  const normalizedMessage = message.trim().replace(/\s+/g, ' ')
+  const match = normalizedMessage.match(/^(?:hola|holaa|buenas|buen dia|buenas tardes|buenas noches)\s+([a-zA-ZÃ¡Ã©Ã­Ã³ÃºÃÃ‰ÃÃ“ÃšÃ±Ã‘]+)\b(.*)$/i)
+
+  if (!match?.[1]) {
+    return null
+  }
+
+  const addressedName = normalizeText(match[1])
+
+  if (['cami', 'camila', 'soy', 'me', 'mi'].includes(addressedName)) {
+    return null
+  }
+
+  return {
+    addressedName: match[1],
+    remainingMessage: extractRemainingBookingMessage(match[2]?.trim() ?? '')
+  }
+}
+
+function isGenericBookingRequest(message: string) {
+  const normalizedMessage = normalizeText(message)
+
+  return [
+    'turno',
+    'un turno',
+    'quiero un turno',
+    'reservar',
+    'reservar turno',
+    'quiero reservar',
+    'sacar turno'
+  ].includes(normalizedMessage)
+}
+
 function parseCustomerName(message: string, options?: { allowPlainName?: boolean }) {
   const intro = parseCustomerIntro(message)
 
@@ -3030,6 +3248,10 @@ function looksLikeCustomerName(name: string) {
     return false
   }
 
+  if (startsWithGreetingButNoNameSignal(normalizedName)) {
+    return false
+  }
+
   const rejectedWords = [
     'turno',
     'reservar',
@@ -3049,6 +3271,27 @@ function looksLikeCustomerName(name: string) {
   }
 
   return /^[a-zA-Z\s]+$/.test(name) && name.split(/\s+/).length <= 3
+}
+
+function startsWithGreetingButNoNameSignal(normalizedMessage: string) {
+  const startsWithGreeting = [
+    'hola ',
+    'holaa ',
+    'buenas ',
+    'buen dia ',
+    'buenas tardes ',
+    'buenas noches '
+  ].some((greeting) => normalizedMessage.startsWith(greeting))
+
+  if (!startsWithGreeting) {
+    return false
+  }
+
+  return ![
+    ' soy ',
+    ' me llamo ',
+    ' mi nombre es '
+  ].some((nameSignal) => normalizedMessage.includes(nameSignal))
 }
 
 function formatCustomerName(name: string) {
