@@ -1103,6 +1103,21 @@ export class BookingConversationFlow {
     }
 
     if (!wantsToConfirm && input.conversation.selectedServiceId && input.conversation.selectedDate) {
+      const requestedDate = await this.parseDateFromMessage(input.message)
+
+      if (requestedDate && requestedDate !== input.conversation.selectedDate) {
+        return this.buildAvailabilityReply({
+          phone: input.phone,
+          serviceId: input.conversation.selectedServiceId,
+          professionalId: input.conversation.selectedProfessionalId,
+          date: requestedDate,
+          timePreference: parseTimePreferenceFromMessage(input.message),
+          afterTime: parseAfterTimeFromMessage(input.message),
+          beforeTime: parseBeforeTimeFromMessage(input.message),
+          prefix: `Dale, lo vemos para ${formatDisplayDate(requestedDate)}.`
+        })
+      }
+
       const selectedService = await prisma.service.findUnique({
         where: {
           id: input.conversation.selectedServiceId
@@ -2655,13 +2670,16 @@ function isConfirmAppointmentMessage(message: string) {
   }
 
   return [
+    'confirmalo',
+    'de una',
     'queda asi',
     'quedamos asi',
     'esta perfecto',
     'todo correcto',
     'asi esta bien',
     'lo confirmo',
-    'te confirmo'
+    'te confirmo',
+    'mandale'
   ].some((phrase) => normalizedMessage.includes(phrase))
 }
 

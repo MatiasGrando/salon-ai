@@ -13,6 +13,8 @@ export class MessageUnderstandingService {
       'cualquier profesional',
       'cualquiera',
       'cualquiera esta bien',
+      'cualkiera',
+      'cualkiera esta bien',
       'cualquier esta bien',
       'con cualquiera',
       'el que sea',
@@ -62,7 +64,7 @@ export class MessageUnderstandingService {
       return formatDate(today)
     }
 
-    if (normalizedMessage === '2' || normalizedMessage.includes('manana')) {
+    if (normalizedMessage === '2' || normalizedMessage.includes('manana') || includesTomorrowTypo(normalizedMessage)) {
       return formatDate(addDays(today, 1))
     }
 
@@ -216,6 +218,16 @@ function isFuzzyStopWord(token: string) {
     'hacer',
     'hacerte'
   ].includes(token)
+}
+
+function includesTomorrowTypo(normalizedMessage: string) {
+  return [
+    'maniana',
+    'mannana',
+    'manna',
+    'maana',
+    'manan'
+  ].some((typo) => normalizedMessage.includes(typo))
 }
 
 function levenshteinDistance(left: string, right: string) {

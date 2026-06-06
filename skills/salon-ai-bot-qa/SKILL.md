@@ -159,6 +159,20 @@ If the bot cannot understand which appointment the user selected, explain what w
 Good:
 "No llegue a entender que turno queres cancelar. Respondeme con el numero de la lista, por ejemplo: 1, el 1 o cancelar el numero 1."
 
+If the user is choosing from a cancellation/edit list and says "volver a empezar", "empezar de nuevo", or "reset", stop waiting for the list selection and reset to a clean booking/menu state. Do not treat those messages as invalid appointment selections.
+
+Handle common typos for high-intent appointment actions:
+- `kiero cancelar`
+- `kiero canselar`
+- `camviar turno`
+- `kiero camviar`
+
+When multiple future appointments are listed, selecting `el 2` must affect the second visible item, not the first or a hidden/past item.
+
+### Late-Day Availability
+
+If the user asks for today when all remaining business/professional hours are already in the past, do not show past slots. Explain that no slots are available for today and offer useful alternatives such as another day, another professional, or no preference.
+
 ### Off-Flow Or Flirty Messages
 
 If user says things like "sos linda", "salimos?", "queres una cena", answer warmly but return to the booking flow.

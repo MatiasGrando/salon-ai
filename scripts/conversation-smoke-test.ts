@@ -3,6 +3,7 @@ import { ConversationService } from '../src/services/conversation-service.js'
 
 type Check = {
   includes?: string[]
+  includesAny?: string[]
   excludes?: string[]
 }
 
@@ -14,6 +15,7 @@ type Scenario = {
   name: string
   phone: string
   setup?: () => Promise<void>
+  fakeNow?: Date
   steps: Step[]
 }
 
@@ -76,7 +78,7 @@ async function main() {
           includes: [service.name]
         },
         {
-          message: 'mañana',
+          message: 'manana',
           includes: [professional.name]
         },
         {
@@ -132,7 +134,7 @@ async function main() {
           includes: ['Para qué día']
         },
         {
-          message: 'mañana',
+          message: 'manana',
           includes: [professional.name]
         },
         {
@@ -158,12 +160,82 @@ async function main() {
           includes: ['Para qué día']
         },
         {
-          message: 'mañana',
+          message: 'manana',
           includes: [professional.name]
         },
         {
           message: 'cualquiera esta bien',
           includes: ['Horarios disponibles']
+        }
+      ]
+    },
+    {
+      name: 'acepta cualquier profesional con error de tipeo',
+      phone: `${testPhonePrefix}any-professional-typo`,
+      steps: [
+        {
+          message: 'reset total',
+          includes: ['Cami']
+        },
+        {
+          message: 'soy Nico',
+          includes: [service.name]
+        },
+        {
+          message: service.name,
+          includes: ['Para qué día']
+        },
+        {
+          message: 'manana',
+          includes: [professional.name]
+        },
+        {
+          message: 'cualkiera esta bien',
+          includes: ['Horarios disponibles']
+        }
+      ]
+    },
+    {
+      name: 'confirma con tono argentino natural',
+      phone: `${testPhonePrefix}confirm-local-tone`,
+      steps: [
+        {
+          message: 'reset total',
+          includes: ['Cami']
+        },
+        {
+          message: `hola soy Juli quiero ${service.name} manana con ${professional.name}`,
+          includes: ['Horarios disponibles']
+        },
+        {
+          message: 'el primero que tengas',
+          includes: ['confirm']
+        },
+        {
+          message: 'dale de una',
+          includes: ['confirmado']
+        }
+      ]
+    },
+    {
+      name: 'confirma con joya confirmalo',
+      phone: `${testPhonePrefix}confirm-joya`,
+      steps: [
+        {
+          message: 'reset total',
+          includes: ['Cami']
+        },
+        {
+          message: `hola soy Sofi quiero ${service.name} manana con ${professional.name}`,
+          includes: ['Horarios disponibles']
+        },
+        {
+          message: 'el primero que tengas',
+          includes: ['confirm']
+        },
+        {
+          message: 'joya confirmalo',
+          includes: ['confirmado']
         }
       ]
     },
@@ -210,6 +282,44 @@ async function main() {
       ]
     },
     {
+      name: 'entiende typo de manana',
+      phone: `${testPhonePrefix}tomorrow-typo`,
+      steps: [
+        {
+          message: 'reset total',
+          includes: ['Cami']
+        },
+        {
+          message: 'soy Mati',
+          includes: [service.name]
+        },
+        {
+          message: service.name,
+          includes: ['Para qué día']
+        },
+        {
+          message: 'maniana',
+          includes: [professional.name]
+        }
+      ]
+    },
+    {
+      name: 'no ofrece horarios de hoy si ya es tarde',
+      phone: `${testPhonePrefix}today-late-night`,
+      fakeNow: dateWithOffset(0, 23),
+      steps: [
+        {
+          message: 'reset total',
+          includes: ['Cami']
+        },
+        {
+          message: `hola soy Noche quiero ${service.name} hoy con ${professional.name}`,
+          includesAny: ['No veo horarios disponibles', 'Para hoy no veo horarios disponibles'],
+          excludes: ['Horarios disponibles:', '- 09:', '- 10:', '- 11:']
+        }
+      ]
+    },
+    {
       name: 'cancelar turno acepta el numero natural',
       phone: `${testPhonePrefix}cancel`,
       setup: async () => {
@@ -232,6 +342,245 @@ async function main() {
       ]
     },
     {
+      name: 'cancelar turno acepta numero en frase completa',
+      phone: `${testPhonePrefix}cancel-number-phrase`,
+      setup: async () => {
+        await seedAppointment({
+          phone: `${testPhonePrefix}cancel-number-phrase`,
+          customerName: 'Mati QA',
+          serviceId: service.id,
+          professionalId: professional.id
+        })
+      },
+      steps: [
+        {
+          message: 'quiero cancelar un turno',
+          includes: ['cancelarlo', service.name]
+        },
+        {
+          message: 'quiero cancelar el numero 1',
+          includes: ['cancel', 'ayudar', 'otro turno']
+        }
+      ]
+    },
+    {
+      name: 'cancelar turno orienta si no entiende la seleccion',
+      phone: `${testPhonePrefix}cancel-unclear`,
+      setup: async () => {
+        await seedAppointment({
+          phone: `${testPhonePrefix}cancel-unclear`,
+          customerName: 'Mati QA',
+          serviceId: service.id,
+          professionalId: professional.id
+        })
+      },
+      steps: [
+        {
+          message: 'quiero cancelar un turno',
+          includes: ['cancelarlo', service.name]
+        },
+        {
+          message: 'ese no',
+          includes: ['entender', 'lista', 'por ejemplo', service.name]
+        }
+      ]
+    },
+    {
+      name: 'cancelar turno orienta si el numero no existe',
+      phone: `${testPhonePrefix}cancel-invalid-number`,
+      setup: async () => {
+        await seedAppointment({
+          phone: `${testPhonePrefix}cancel-invalid-number`,
+          customerName: 'Mati QA',
+          serviceId: service.id,
+          professionalId: professional.id
+        })
+      },
+      steps: [
+        {
+          message: 'quiero cancelar un turno',
+          includes: ['cancelarlo', service.name]
+        },
+        {
+          message: 'el 9',
+          includes: ['lista', 'por ejemplo', service.name]
+        }
+      ]
+    },
+    {
+      name: 'mis turnos muestra solo turnos futuros',
+      phone: `${testPhonePrefix}future-only`,
+      setup: async () => {
+        await seedAppointment({
+          phone: `${testPhonePrefix}future-only`,
+          customerName: 'Mati QA',
+          serviceId: service.id,
+          professionalId: professional.id,
+          startAt: dateWithOffset(-2)
+        })
+        await seedAppointment({
+          phone: `${testPhonePrefix}future-only`,
+          customerName: 'Mati QA',
+          serviceId: service.id,
+          professionalId: professional.id,
+          startAt: dateWithOffset(30)
+        })
+      },
+      steps: [
+        {
+          message: 'mis turnos',
+          includes: ['1.', service.name],
+          excludes: ['2.']
+        }
+      ]
+    },
+    {
+      name: 'cancelar multiples turnos respeta el numero elegido',
+      phone: `${testPhonePrefix}cancel-second`,
+      setup: async () => {
+        await seedAppointment({
+          phone: `${testPhonePrefix}cancel-second`,
+          customerName: 'Mati QA',
+          serviceId: service.id,
+          professionalId: professional.id,
+          startAt: dateWithOffset(30, 10)
+        })
+        await seedAppointment({
+          phone: `${testPhonePrefix}cancel-second`,
+          customerName: 'Mati QA',
+          serviceId: service.id,
+          professionalId: professional.id,
+          startAt: dateWithOffset(31, 11)
+        })
+      },
+      steps: [
+        {
+          message: 'quiero cancelar un turno',
+          includes: ['1.', '2.', service.name]
+        },
+        {
+          message: 'el 2',
+          includes: ['cancel', 'ayudar', 'otro turno']
+        },
+        {
+          message: 'mis turnos',
+          includes: ['1.', service.name],
+          excludes: ['2.']
+        }
+      ]
+    },
+    {
+      name: 'entiende typo fuerte para cancelar',
+      phone: `${testPhonePrefix}cancel-typo`,
+      setup: async () => {
+        await seedAppointment({
+          phone: `${testPhonePrefix}cancel-typo`,
+          customerName: 'Mati QA',
+          serviceId: service.id,
+          professionalId: professional.id
+        })
+      },
+      steps: [
+        {
+          message: 'kiero cancelar',
+          includes: ['cancelarlo', service.name]
+        }
+      ]
+    },
+    {
+      name: 'editar turno orienta si no entiende la seleccion',
+      phone: `${testPhonePrefix}edit-unclear`,
+      setup: async () => {
+        await seedAppointment({
+          phone: `${testPhonePrefix}edit-unclear`,
+          customerName: 'Mati QA',
+          serviceId: service.id,
+          professionalId: professional.id
+        })
+      },
+      steps: [
+        {
+          message: 'quiero cambiar un turno',
+          includes: ['cambiarlo', service.name]
+        },
+        {
+          message: 'ese no',
+          includes: ['entender', 'lista', 'por ejemplo', service.name]
+        }
+      ]
+    },
+    {
+      name: 'entiende typo fuerte para editar',
+      phone: `${testPhonePrefix}edit-typo`,
+      setup: async () => {
+        await seedAppointment({
+          phone: `${testPhonePrefix}edit-typo`,
+          customerName: 'Mati QA',
+          serviceId: service.id,
+          professionalId: professional.id
+        })
+      },
+      steps: [
+        {
+          message: 'kiero camviar turno',
+          includes: ['cambiarlo', service.name]
+        }
+      ]
+    },
+    {
+      name: 'volver a empezar desde seleccion de cancelacion',
+      phone: `${testPhonePrefix}cancel-reset-to-service`,
+      setup: async () => {
+        await seedAppointment({
+          phone: `${testPhonePrefix}cancel-reset-to-service`,
+          customerName: 'Mati QA',
+          serviceId: service.id,
+          professionalId: professional.id
+        })
+      },
+      steps: [
+        {
+          message: 'quiero cancelar un turno',
+          includes: ['cancelarlo', service.name]
+        },
+        {
+          message: 'volver a empezar',
+          includes: ['empezamos de nuevo']
+        },
+        {
+          message: 'reservar turno',
+          includes: [service.name]
+        }
+      ]
+    },
+    {
+      name: 'editar turno vuelve a reservar desde servicio',
+      phone: `${testPhonePrefix}edit-rebook`,
+      setup: async () => {
+        await seedAppointment({
+          phone: `${testPhonePrefix}edit-rebook`,
+          customerName: 'Mati QA',
+          serviceId: service.id,
+          professionalId: professional.id
+        })
+      },
+      steps: [
+        {
+          message: 'quiero cambiar un turno',
+          includes: ['cambiarlo', service.name]
+        },
+        {
+          message: 'el 1',
+          includes: ['cancel', 'reservarlo de nuevo', 'servicio']
+        },
+        {
+          message: 'reservar turno',
+          includes: [service.name],
+          excludes: ['nombre']
+        }
+      ]
+    },
+    {
       name: 'cambiar de profesional antes de confirmar',
       phone: `${testPhonePrefix}change-professional`,
       steps: [
@@ -240,7 +589,7 @@ async function main() {
           includes: ['Cami']
         },
         {
-          message: `hola soy Mati quiero ${service.name} mañana con ${professional.name}`,
+          message: `hola soy Mati quiero ${service.name} manana con ${professional.name}`,
           includes: ['Horarios disponibles']
         },
         {
@@ -250,7 +599,53 @@ async function main() {
         {
           message: `mejor puede ser con ${secondProfessional.name}`,
           includes: [secondProfessional.name],
-          excludes: ['Qué servicio']
+          excludes: ['servicio?']
+        }
+      ]
+    },
+    {
+      name: 'cambiar a un horario mas tarde antes de confirmar',
+      phone: `${testPhonePrefix}change-time-later`,
+      steps: [
+        {
+          message: 'reset total',
+          includes: ['Cami']
+        },
+        {
+          message: `hola soy Mati quiero ${service.name} manana con ${professional.name}`,
+          includes: ['Horarios disponibles']
+        },
+        {
+          message: 'el primero que tengas',
+          includes: ['confirm']
+        },
+        {
+          message: 'mejor mas tarde',
+          includes: ['Horarios disponibles'],
+          excludes: ['servicio?']
+        }
+      ]
+    },
+    {
+      name: 'cambiar de fecha antes de confirmar',
+      phone: `${testPhonePrefix}change-date-before-confirm`,
+      steps: [
+        {
+          message: 'reset total',
+          includes: ['Cami']
+        },
+        {
+          message: `hola soy Mati quiero ${service.name} manana con ${professional.name}`,
+          includes: ['Horarios disponibles']
+        },
+        {
+          message: 'el primero que tengas',
+          includes: ['confirm']
+        },
+        {
+          message: 'mejor pasado',
+          includesAny: ['Horarios disponibles', 'No veo horarios disponibles'],
+          excludes: ['servicio?']
         }
       ]
     },
@@ -265,7 +660,7 @@ async function main() {
             currentStep: 'ASK_DATE',
             selectedCustomerName: 'Mati',
             selectedServiceId: service.id,
-            lastMessage: 'mañana'
+            lastMessage: 'manana'
           }
         })
 
@@ -310,21 +705,27 @@ async function main() {
 }
 
 async function runScenario(scenario: Scenario) {
-  await cleanupPhone(scenario.phone)
-  await scenario.setup?.()
+  const restoreDate = scenario.fakeNow ? installFakeNow(scenario.fakeNow) : null
 
-  console.log(`\nEscenario: ${scenario.name}`)
+  try {
+    await cleanupPhone(scenario.phone)
+    await scenario.setup?.()
 
-  for (const step of scenario.steps) {
-    const result = await conversationService.handleMessage({
-      phone: scenario.phone,
-      message: step.message
-    })
+    console.log(`\nEscenario: ${scenario.name}`)
 
-    console.log(`Usuario: ${step.message}`)
-    console.log(`Cami: ${result.reply}`)
+    for (const step of scenario.steps) {
+      const result = await conversationService.handleMessage({
+        phone: scenario.phone,
+        message: step.message
+      })
 
-    assertReply(result.reply, step)
+      console.log(`Usuario: ${step.message}`)
+      console.log(`Cami: ${result.reply}`)
+
+      assertReply(result.reply, step)
+    }
+  } finally {
+    restoreDate?.()
   }
 }
 
@@ -333,6 +734,7 @@ async function seedAppointment(input: {
   customerName: string
   serviceId: string
   professionalId: string
+  startAt?: Date
 }) {
   const customer = await prisma.customer.create({
     data: {
@@ -346,7 +748,7 @@ async function seedAppointment(input: {
       customerId: customer.id,
       serviceId: input.serviceId,
       professionalId: input.professionalId,
-      startAt: nextFutureAppointmentDate()
+      startAt: input.startAt ?? nextFutureAppointmentDate()
     }
   })
 }
@@ -399,6 +801,10 @@ function assertReply(reply: string, check: Check) {
     }
   }
 
+  if (check.includesAny && !check.includesAny.some((expected) => normalizedReply.includes(normalizeForCheck(expected)))) {
+    throw new Error(`Esperaba que la respuesta incluya alguna de estas opciones: ${check.includesAny.map((expected) => `"${expected}"`).join(', ')}.\nRespuesta:\n${reply}`)
+  }
+
   for (const forbidden of check.excludes ?? []) {
     if (normalizedReply.includes(normalizeForCheck(forbidden))) {
       throw new Error(`No esperaba que la respuesta incluya "${forbidden}".\nRespuesta:\n${reply}`)
@@ -413,10 +819,37 @@ function normalizeForCheck(value: string) {
     .toLowerCase()
 }
 
+function installFakeNow(fakeNow: Date) {
+  const RealDate = Date
+  const FakeDate = function (...args: unknown[]) {
+    return args.length === 0
+      ? new RealDate(fakeNow.getTime())
+      : Reflect.construct(RealDate, args)
+  } as unknown as DateConstructor
+
+  Object.setPrototypeOf(FakeDate, RealDate)
+  Object.defineProperty(FakeDate, 'prototype', {
+    value: RealDate.prototype
+  })
+  FakeDate.now = () => fakeNow.getTime()
+  FakeDate.parse = RealDate.parse
+  FakeDate.UTC = RealDate.UTC
+
+  globalThis.Date = FakeDate
+
+  return () => {
+    globalThis.Date = RealDate
+  }
+}
+
 function nextFutureAppointmentDate() {
+  return dateWithOffset(30)
+}
+
+function dateWithOffset(days: number, hour = 10) {
   const date = new Date()
-  date.setDate(date.getDate() + 30)
-  date.setHours(10, 0, 0, 0)
+  date.setDate(date.getDate() + days)
+  date.setHours(hour, 0, 0, 0)
 
   return date
 }

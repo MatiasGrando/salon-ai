@@ -73,6 +73,14 @@ export class ConversationService {
           }
         })
 
+    if (conversation.currentStep === 'CANCEL_SELECT_APPOINTMENT') {
+      return this.cancelAppointmentByMessage(input.phone, message)
+    }
+
+    if (conversation.currentStep === 'EDIT_SELECT_APPOINTMENT') {
+      return this.editAppointmentByMessage(input.phone, message)
+    }
+
     if (isMyAppointmentsMessage(message, conversation.currentStep)) {
       return this.buildMyAppointmentsReply(input.phone)
     }
@@ -91,14 +99,6 @@ export class ConversationService {
       })
 
       return this.buildMyAppointmentsReply(input.phone, botCopyService.editAppointmentIntro())
-    }
-
-    if (conversation.currentStep === 'CANCEL_SELECT_APPOINTMENT') {
-      return this.cancelAppointmentByMessage(input.phone, message)
-    }
-
-    if (conversation.currentStep === 'EDIT_SELECT_APPOINTMENT') {
-      return this.editAppointmentByMessage(input.phone, message)
     }
 
     if (isHardResetMessage(message)) {
@@ -344,6 +344,24 @@ export class ConversationService {
   }
 
   private async cancelAppointmentByMessage(phone: string, message: string): Promise<HandleMessageResult> {
+    if (isResetMessage(message)) {
+      const appointments = await this.findUpcomingAppointments(phone)
+
+      await this.updateConversation(phone, {
+        currentStep: 'START',
+        selectedServiceId: null,
+        selectedProfessionalId: null,
+        selectedDate: null,
+        selectedTime: null,
+        selectedCustomerName: appointments[0]?.customer.name ?? null,
+        lastAvailability: null
+      })
+
+      return {
+        reply: botCopyService.resetDone()
+      }
+    }
+
     const selectedOption = parseAppointmentListOption(message)
 
     if (!selectedOption) {
@@ -374,6 +392,24 @@ export class ConversationService {
   }
 
   private async editAppointmentByMessage(phone: string, message: string): Promise<HandleMessageResult> {
+    if (isResetMessage(message)) {
+      const appointments = await this.findUpcomingAppointments(phone)
+
+      await this.updateConversation(phone, {
+        currentStep: 'START',
+        selectedServiceId: null,
+        selectedProfessionalId: null,
+        selectedDate: null,
+        selectedTime: null,
+        selectedCustomerName: appointments[0]?.customer.name ?? null,
+        lastAvailability: null
+      })
+
+      return {
+        reply: botCopyService.resetDone()
+      }
+    }
+
     const selectedOption = parseAppointmentListOption(message)
 
     if (!selectedOption) {
@@ -396,13 +432,14 @@ export class ConversationService {
       selectedProfessionalId: null,
       selectedDate: null,
       selectedTime: null,
+      selectedCustomerName: appointment.customer.name,
       lastAvailability: null
     })
 
     return {
       reply: [
         botCopyService.editNotImplementedYet(),
-        'Escribí quiero un turno y buscamos un nuevo horario.'
+        'Si queres reservarlo de nuevo, escribi reservar turno y arrancamos desde el servicio.'
       ].join('\n')
     }
   }
@@ -421,6 +458,7 @@ export class ConversationService {
         }
       },
       include: {
+        customer: true,
         service: true,
         professional: true
       },
@@ -535,6 +573,9 @@ function isCancelAppointmentMessage(message: string, currentStep: string) {
     normalizedMessage.includes('cancelar un turno') ||
     normalizedMessage.includes('cancelar mi turno') ||
     normalizedMessage.includes('quiero cancelar') ||
+    normalizedMessage.includes('kiero cancelar') ||
+    normalizedMessage.includes('quiero canselar') ||
+    normalizedMessage.includes('kiero canselar') ||
     normalizedMessage.includes('puedo cancelar')
 }
 
@@ -545,6 +586,10 @@ function isEditAppointmentMessage(message: string, currentStep: string) {
     normalizedMessage === 'editar turno' ||
     normalizedMessage.includes('cambiar un turno') ||
     normalizedMessage.includes('cambiar mi turno') ||
+    normalizedMessage.includes('camviar turno') ||
+    normalizedMessage.includes('camviar un turno') ||
+    normalizedMessage.includes('kiero cambiar') ||
+    normalizedMessage.includes('kiero camviar') ||
     normalizedMessage.includes('editar mi turno') ||
     normalizedMessage.includes('reprogramar')
 }
@@ -667,7 +712,10 @@ function canHumanizeSafely(reply: string) {
     /Horario:/i,
     /Profesional:/i,
     /Servicio:/i,
-    /confirmar/i
+    /confirmar/i,
+    /reservar turno/i,
+    /cancel[eé] ese turno/i,
+    /empezamos de nuevo/i
   ]
 
   return !protectedPatterns.some((pattern) => pattern.test(reply))
