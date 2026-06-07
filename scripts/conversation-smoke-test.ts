@@ -21,6 +21,8 @@ type Scenario = {
 
 const conversationService = new ConversationService()
 const testPhonePrefix = 'qa-cami-'
+const workingDayMorning = new Date('2026-07-06T08:00:00')
+const workingDayLateNight = new Date('2026-07-06T23:00:00')
 
 async function main() {
   const business = await prisma.business.findFirst({
@@ -133,6 +135,7 @@ async function main() {
     {
       name: 'flujo completo con lenguaje natural',
       phone: `${testPhonePrefix}full-flow`,
+      fakeNow: workingDayMorning,
       steps: [
         {
           message: 'reset total',
@@ -185,6 +188,7 @@ async function main() {
     {
       name: 'entiende profesional abreviado',
       phone: `${testPhonePrefix}short-professional`,
+      fakeNow: workingDayMorning,
       steps: [
         {
           message: 'reset total',
@@ -211,6 +215,7 @@ async function main() {
     {
       name: 'acepta cualquier profesional escrito natural',
       phone: `${testPhonePrefix}any-professional`,
+      fakeNow: workingDayMorning,
       steps: [
         {
           message: 'reset total',
@@ -237,6 +242,7 @@ async function main() {
     {
       name: 'acepta cualquier profesional con error de tipeo',
       phone: `${testPhonePrefix}any-professional-typo`,
+      fakeNow: workingDayMorning,
       steps: [
         {
           message: 'reset total',
@@ -263,6 +269,7 @@ async function main() {
     {
       name: 'confirma con tono argentino natural',
       phone: `${testPhonePrefix}confirm-local-tone`,
+      fakeNow: workingDayMorning,
       steps: [
         {
           message: 'reset total',
@@ -285,6 +292,7 @@ async function main() {
     {
       name: 'confirma con joya confirmalo',
       phone: `${testPhonePrefix}confirm-joya`,
+      fakeNow: workingDayMorning,
       steps: [
         {
           message: 'reset total',
@@ -326,6 +334,7 @@ async function main() {
     {
       name: 'no inventa profesional cuando el usuario solo dice fecha',
       phone: `${testPhonePrefix}date-without-professional`,
+      fakeNow: workingDayMorning,
       steps: [
         {
           message: 'reset total',
@@ -349,6 +358,7 @@ async function main() {
     {
       name: 'entiende typo de manana',
       phone: `${testPhonePrefix}tomorrow-typo`,
+      fakeNow: workingDayMorning,
       steps: [
         {
           message: 'reset total',
@@ -371,7 +381,7 @@ async function main() {
     {
       name: 'no ofrece horarios de hoy si ya es tarde',
       phone: `${testPhonePrefix}today-late-night`,
-      fakeNow: dateWithOffset(0, 23),
+      fakeNow: workingDayLateNight,
       steps: [
         {
           message: 'reset total',
@@ -387,7 +397,7 @@ async function main() {
     {
       name: 'buscar horarios hoy con todos no pide profesional si no hay disponibilidad',
       phone: `${testPhonePrefix}today-all-professionals-late`,
-      fakeNow: dateWithOffset(0, 23),
+      fakeNow: workingDayLateNight,
       steps: [
         {
           message: 'reset total',
@@ -407,7 +417,7 @@ async function main() {
     {
       name: 'sin disponibilidad hoy permite volver a elegir otro dia',
       phone: `${testPhonePrefix}today-no-availability-another-day`,
-      fakeNow: dateWithOffset(0, 23),
+      fakeNow: workingDayLateNight,
       steps: [
         {
           message: 'reset total',
@@ -692,6 +702,7 @@ async function main() {
     {
       name: 'cambiar de profesional antes de confirmar',
       phone: `${testPhonePrefix}change-professional`,
+      fakeNow: workingDayMorning,
       steps: [
         {
           message: 'reset total',
@@ -715,6 +726,7 @@ async function main() {
     {
       name: 'cambiar a un horario mas tarde antes de confirmar',
       phone: `${testPhonePrefix}change-time-later`,
+      fakeNow: workingDayMorning,
       steps: [
         {
           message: 'reset total',
@@ -738,6 +750,7 @@ async function main() {
     {
       name: 'cambiar de fecha antes de confirmar',
       phone: `${testPhonePrefix}change-date-before-confirm`,
+      fakeNow: workingDayMorning,
       steps: [
         {
           message: 'reset total',

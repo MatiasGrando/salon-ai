@@ -1694,19 +1694,23 @@ export class BookingConversationFlow {
       )
     }
 
+    const timePreference = normalizeTimePreferenceForMessage(
+      input.message,
+      intent.timePreference ?? parseTimePreferenceFromMessage(input.message)
+    )
     const availabilityReply = await this.buildAvailabilityReply({
       phone: input.phone,
       serviceId: selectedService.id,
       professionalId: selectedProfessionalId,
       date: intentDate,
       time: parseAfterTimeFromMessage(input.message) ? null : intent.time,
-      timePreference: intent.timePreference ?? parseTimePreferenceFromMessage(input.message),
+      timePreference,
       afterTime: parseAfterTimeFromMessage(input.message),
       prefix: buildIntentAvailabilityPrefix({
         serviceName: selectedService.name,
         ...(selectedProfessional?.name ? { professionalName: selectedProfessional.name } : {}),
         date: intentDate,
-        timePreference: intent.timePreference ?? parseTimePreferenceFromMessage(input.message)
+        timePreference
       })
     })
 
@@ -2704,7 +2708,12 @@ function filterAvailabilityBeforeTime(options: AvailabilityOption[], beforeTime?
 function parseTimePreferenceFromMessage(message: string): TimePreference | null {
   const normalizedMessage = normalizeText(message)
 
-  if (normalizedMessage.includes('manana') || normalizedMessage.includes('temprano')) {
+  if (
+    normalizedMessage.includes('temprano') ||
+    normalizedMessage.includes('a la manana') ||
+    normalizedMessage.includes('por la manana') ||
+    normalizedMessage.includes('durante la manana')
+  ) {
     return 'morning'
   }
 
@@ -2717,6 +2726,22 @@ function parseTimePreferenceFromMessage(message: string): TimePreference | null 
   }
 
   return null
+}
+
+function normalizeTimePreferenceForMessage(message: string, preference?: TimePreference | null): TimePreference | null {
+  if (preference !== 'morning') {
+    return preference ?? null
+  }
+
+  const normalizedMessage = normalizeText(message)
+  const explicitlyMentionsMorning = [
+    'temprano',
+    'a la manana',
+    'por la manana',
+    'durante la manana'
+  ].some((phrase) => normalizedMessage.includes(phrase))
+
+  return explicitlyMentionsMorning ? preference : null
 }
 
 function isSingleRemainingSlotMessage(message: string) {

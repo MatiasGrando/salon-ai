@@ -115,6 +115,21 @@ export class AppointmentService {
       }
     }
 
+    const hasScheduleBlock = await this.hasScheduleBlockOverlap({
+      businessId: professional.businessId,
+      professionalId: input.professionalId,
+      startAt,
+      endAt
+    })
+
+    if (hasScheduleBlock) {
+      return {
+        ok: false,
+        statusCode: 409,
+        message: 'Ese horario esta bloqueado en la agenda'
+      }
+    }
+
     const hasOverlap = await this.hasAppointmentOverlap({
       professionalId: input.professionalId,
       startAt,
@@ -203,7 +218,8 @@ export class AppointmentService {
     }
 
     const dayOfWeek = dayStart.getDay()
-    const [businessHours, professionalHours] = await Promise.all([
+    const dayEnd = addDays(dayStart, 1)
+    const [businessHours, professionalHours, scheduleBlocks] = await Promise.all([
       prisma.businessHours.findMany({
         where: {
           businessId: professional.businessId,
@@ -214,6 +230,25 @@ export class AppointmentService {
         where: {
           professionalId: input.professionalId,
           dayOfWeek
+        }
+      }),
+      prisma.scheduleBlock.findMany({
+        where: {
+          businessId: professional.businessId,
+          startAt: {
+            lt: dayEnd
+          },
+          endAt: {
+            gt: dayStart
+          },
+          OR: [
+            {
+              professionalId: input.professionalId
+            },
+            {
+              professionalId: null
+            }
+          ]
         }
       })
     ])
@@ -231,6 +266,10 @@ export class AppointmentService {
         const endAt = addMinutes(startAt, service.duration)
 
         if (startAt <= new Date()) {
+          continue
+        }
+
+        if (hasBlockedIntervalOverlap(scheduleBlocks, startAt, endAt)) {
           continue
         }
 
@@ -333,10 +372,43 @@ export class AppointmentService {
       return existingStart < input.endAt && existingEnd > input.startAt
     })
   }
+
+  private async hasScheduleBlockOverlap(input: {
+    businessId: string
+    professionalId: string
+    startAt: Date
+    endAt: Date
+  }) {
+    const scheduleBlock = await prisma.scheduleBlock.findFirst({
+      where: {
+        businessId: input.businessId,
+        startAt: {
+          lt: input.endAt
+        },
+        endAt: {
+          gt: input.startAt
+        },
+        OR: [
+          {
+            professionalId: input.professionalId
+          },
+          {
+            professionalId: null
+          }
+        ]
+      }
+    })
+
+    return scheduleBlock !== null
+  }
 }
 
 function addMinutes(date: Date, minutes: number) {
   return new Date(date.getTime() + minutes * 60_000)
+}
+
+function addDays(date: Date, days: number) {
+  return new Date(date.getTime() + days * 24 * 60 * 60_000)
 }
 
 function minutesSinceMidnight(date: Date) {
@@ -395,5 +467,15 @@ function getAvailabilityWindows(
 
       return [{ start, end }]
     })
+  })
+}
+
+function hasBlockedIntervalOverlap(
+  scheduleBlocks: Array<{ startAt: Date; endAt: Date }>,
+  startAt: Date,
+  endAt: Date
+) {
+  return scheduleBlocks.some((scheduleBlock) => {
+    return scheduleBlock.startAt < endAt && scheduleBlock.endAt > startAt
   })
 }

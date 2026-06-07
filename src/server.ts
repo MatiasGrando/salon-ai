@@ -9,6 +9,8 @@ import { businessHoursRoutes } from './routes/business-hours.js'
 import { professionalHoursRoutes } from './routes/professional-hours.js'
 import { availabilityRoutes } from './routes/availability.js'
 import { chatRoutes } from './routes/chat.js'
+import { crmRoutes } from './routes/crm.js'
+import { scheduleBlockRoutes } from './routes/schedule-block.js'
 import { whatsappWebhookRoutes } from './routes/whatsapp-webhook.js'
 
 process.env.TZ ??= 'America/Argentina/Buenos_Aires'
@@ -25,8 +27,10 @@ await app.register(customerRoutes)
 await app.register(appointmentRoutes)
 await app.register(businessHoursRoutes)
 await app.register(professionalHoursRoutes)
+await app.register(scheduleBlockRoutes)
 await app.register(availabilityRoutes)
 await app.register(chatRoutes)
+await app.register(crmRoutes)
 await app.register(whatsappWebhookRoutes)
 
 if (process.env.NODE_ENV !== 'production') {
