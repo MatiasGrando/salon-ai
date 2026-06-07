@@ -10,6 +10,7 @@ import { professionalHoursRoutes } from './routes/professional-hours.js'
 import { availabilityRoutes } from './routes/availability.js'
 import { chatRoutes } from './routes/chat.js'
 import { crmRoutes } from './routes/crm.js'
+import { crmUiRoutes } from './routes/crm-ui.js'
 import { scheduleBlockRoutes } from './routes/schedule-block.js'
 import { whatsappWebhookRoutes } from './routes/whatsapp-webhook.js'
 
@@ -30,6 +31,7 @@ await app.register(professionalHoursRoutes)
 await app.register(scheduleBlockRoutes)
 await app.register(availabilityRoutes)
 await app.register(chatRoutes)
+await app.register(crmUiRoutes)
 await app.register(crmRoutes)
 await app.register(whatsappWebhookRoutes)
 
