@@ -51,7 +51,17 @@ export class WhatsAppWebhookService {
     const messages = this.extractTextMessages(payload)
     const results = []
 
+    console.info('[whatsapp-webhook] received payload', {
+      entries: payload.entry?.length ?? 0,
+      textMessages: messages.length
+    })
+
     for (const message of messages) {
+      console.info('[whatsapp-webhook] processing text message', {
+        messageId: message.id,
+        from: message.from
+      })
+
       if (message.id) {
         const existingMessage = await prisma.message.findUnique({
           where: {
@@ -60,6 +70,11 @@ export class WhatsAppWebhookService {
         })
 
         if (existingMessage) {
+          console.info('[whatsapp-webhook] skipped duplicate message', {
+            messageId: message.id,
+            from: message.from
+          })
+
           results.push({
             messageId: message.id,
             from: message.from,
@@ -108,6 +123,12 @@ export class WhatsAppWebhookService {
 
       await prisma.message.create({
         data: inboundMessageData
+      })
+
+      console.info('[whatsapp-webhook] saved inbound message', {
+        messageId: message.id,
+        from: message.from,
+        conversationId: conversation.id
       })
 
       const conversationResult = await conversationService.handleMessage({
@@ -161,6 +182,13 @@ export class WhatsAppWebhookService {
 
       await prisma.message.create({
         data: outboundMessageData
+      })
+
+      console.info('[whatsapp-webhook] saved outbound reply', {
+        messageId: outgoingProviderMessageId,
+        to: message.from,
+        sent: deliveryResult.sent,
+        conversationId: conversation.id
       })
 
       results.push({

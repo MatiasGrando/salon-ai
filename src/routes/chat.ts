@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { prisma } from '../config/prisma.js'
 import { ConversationService } from '../services/conversation-service.js'
 
 const service = new ConversationService()
@@ -13,11 +14,54 @@ export async function chatRoutes(app: FastifyInstance) {
       businessId?: string
     }
 
-    return service.handleMessage({
+    const conversation = await prisma.conversation.upsert({
+      where: {
+        phone: body.phone
+      },
+      update: body.businessId
+        ? {
+            businessId: body.businessId
+          }
+        : {},
+      create: {
+        phone: body.phone,
+        ...(body.businessId ? { businessId: body.businessId } : {})
+      }
+    })
+
+    await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        phone: body.phone,
+        direction: 'INBOUND',
+        body: body.message,
+        status: 'received',
+        metadata: {
+          provider: 'internal_chat'
+        }
+      }
+    })
+
+    const result = await service.handleMessage({
       phone: body.phone,
       message: body.message,
       ...(body.businessId ? { businessId: body.businessId } : {})
     })
+
+    await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        phone: body.phone,
+        direction: 'OUTBOUND',
+        body: result.reply,
+        status: 'sent',
+        metadata: {
+          provider: 'internal_chat'
+        }
+      }
+    })
+
+    return result
   })
 
 }
