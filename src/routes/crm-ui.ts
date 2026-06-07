@@ -607,7 +607,8 @@ const crmHtml = `<!doctype html>
       messages: [],
       appointments: [],
       professionals: [],
-      businessId: null
+      businessId: null,
+      isRefreshing: false
     }
 
     const els = {
@@ -678,20 +679,40 @@ const crmHtml = `<!doctype html>
       renderProfessionals()
     }
 
-    async function loadConversations() {
+    async function loadConversations(options = {}) {
+      if (state.isRefreshing) return
+      state.isRefreshing = true
       const params = new URLSearchParams()
       const phone = els.search.value.trim()
       if (phone) params.set('phone', phone)
+      params.set('take', '100')
       const query = params.toString() ? '?' + params.toString() : ''
-      state.conversations = await getJson('/crm/conversations' + query)
-      renderConversations()
 
-      if (!state.selected && state.conversations[0]) {
-        await selectConversation(state.conversations[0].id)
-      } else if (state.selected) {
-        const fresh = state.conversations.find((item) => item.id === state.selected.id)
-        if (fresh) state.selected = fresh
+      try {
+        state.conversations = await getJson('/crm/conversations' + query)
         renderConversations()
+
+        if (!state.selected && state.conversations[0]) {
+          await selectConversation(state.conversations[0].id)
+        } else if (state.selected) {
+          const fresh = state.conversations.find((item) => item.id === state.selected.id)
+          if (fresh) {
+            state.selected = fresh
+            await refreshSelectedConversation()
+          }
+          renderConversations()
+        }
+
+        els.count.textContent = state.conversations.length + ' conversaciones · actualizado ' + new Date().toLocaleTimeString('es-AR', {
+          hour: '2-digit',
+          minute: '2-digit'
+        })
+      } catch (error) {
+        if (!options.silent) {
+          els.list.innerHTML = '<div class="error">' + escapeHtml(error.message) + '</div>'
+        }
+      } finally {
+        state.isRefreshing = false
       }
     }
 
@@ -727,7 +748,12 @@ const crmHtml = `<!doctype html>
       const conversation = state.conversations.find((item) => item.id === id)
       if (!conversation) return
       state.selected = conversation
-      state.messages = await getJson('/crm/conversations/' + id + '/messages')
+      await refreshSelectedConversation()
+    }
+
+    async function refreshSelectedConversation() {
+      if (!state.selected) return
+      state.messages = await getJson('/crm/conversations/' + state.selected.id + '/messages')
       await loadAppointments()
       renderSelected()
       renderConversations()
@@ -889,6 +915,10 @@ const crmHtml = `<!doctype html>
       .catch((error) => {
         els.list.innerHTML = '<div class="error">' + escapeHtml(error.message) + '</div>'
       })
+
+    setInterval(() => {
+      loadConversations({ silent: true })
+    }, 5000)
   </script>
 </body>
 </html>`
