@@ -30,6 +30,7 @@ enum ConversationStep {
   COMPLETED
   CANCEL_SELECT_APPOINTMENT
   EDIT_SELECT_APPOINTMENT
+  HUMAN_HANDOFF
 }
 
 enum MessageDirection {

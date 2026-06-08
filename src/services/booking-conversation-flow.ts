@@ -333,7 +333,7 @@ export class BookingConversationFlow {
       return {
         reply: [
           correction,
-          'Antes de seguir, como te llamas?'
+          'Antes de seguir, decime tu nombre. Como te llamas?'
         ].join('\n')
       }
     }
@@ -2381,6 +2381,7 @@ function isBackMessage(message: string) {
     'volver atras',
     'volver atrás',
     'paso anterior',
+    'volver al paso anterior',
     'ir para atras',
     'ir para atrás'
   ].includes(normalizedMessage)

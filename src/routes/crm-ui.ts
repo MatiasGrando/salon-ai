@@ -302,6 +302,11 @@ const crmHtml = `<!doctype html>
       background: var(--warn-soft);
     }
 
+    .chip.handoff {
+      color: var(--danger);
+      background: var(--danger-soft);
+    }
+
     .chat {
       min-width: 0;
       min-height: 0;
@@ -840,7 +845,7 @@ const crmHtml = `<!doctype html>
           '<div class="conversation-main">' +
             '<div class="row">' +
               '<div class="phone">' + escapeHtml(conversation.phone) + '</div>' +
-              '<span class="chip">' + escapeHtml(conversation.currentStep) + '</span>' +
+              '<span class="' + conversationStepChipClass(conversation.currentStep) + '">' + escapeHtml(conversation.currentStep) + '</span>' +
             '</div>' +
             '<p class="preview">' + escapeHtml(last?.body || conversation.lastMessage || 'Sin mensajes') + '</p>' +
             '<p class="meta">' + formatDateTime(latestConversationActivityValue(conversation)) + '</p>' +
@@ -891,6 +896,7 @@ const crmHtml = `<!doctype html>
       els.chatPhone.textContent = selected.phone
       els.chatStatus.textContent = 'Actualizado ' + formatDateTime(latestConversationActivityValue(selected))
       els.stepChip.textContent = selected.currentStep
+      els.stepChip.className = conversationStepChipClass(selected.currentStep)
       els.detailPhone.textContent = selected.phone
       els.detailStep.textContent = selected.currentStep
       els.detailUpdated.textContent = formatDateTime(latestConversationActivityValue(selected))
@@ -1021,6 +1027,10 @@ const crmHtml = `<!doctype html>
     function latestConversationActivityAt(conversation) {
       const value = latestConversationActivityValue(conversation)
       return value ? new Date(value).getTime() : 0
+    }
+
+    function conversationStepChipClass(step) {
+      return step === 'HUMAN_HANDOFF' ? 'chip handoff' : 'chip'
     }
 
     function isMobile() {

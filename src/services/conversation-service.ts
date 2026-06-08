@@ -132,6 +132,22 @@ export class ConversationService {
       }
     }
 
+    if (isHumanHandoffMessage(message)) {
+      await this.updateConversation(input.phone, {
+        currentStep: 'HUMAN_HANDOFF'
+      })
+
+      return {
+        reply: botCopyService.humanHandoffQueued()
+      }
+    }
+
+    if (conversation.currentStep === 'HUMAN_HANDOFF') {
+      return {
+        reply: botCopyService.humanHandoffAlreadyQueued()
+      }
+    }
+
     if (
       conversation.currentStep === 'COMPLETED' &&
       isPostBookingClosingMessage(message)
@@ -490,6 +506,7 @@ export class ConversationService {
         | 'ASK_CUSTOMER_NAME'
         | 'CANCEL_SELECT_APPOINTMENT'
         | 'EDIT_SELECT_APPOINTMENT'
+        | 'HUMAN_HANDOFF'
         | 'COMPLETED'
       selectedServiceId?: string | null
       selectedProfessionalId?: string | null
@@ -545,13 +562,43 @@ function isResetMessage(message: string) {
 }
 
 function isExpiredInProgressConversation(currentStep: string, updatedAt: Date) {
-  if (currentStep === 'START' || currentStep === 'COMPLETED') {
+  if (currentStep === 'START' || currentStep === 'COMPLETED' || currentStep === 'HUMAN_HANDOFF') {
     return false
   }
 
   const expirationMs = 24 * 60 * 60 * 1000
 
   return Date.now() - updatedAt.getTime() >= expirationMs
+}
+
+function isHumanHandoffMessage(message: string) {
+  const normalizedMessage = normalizeText(message)
+  const exactMessages = [
+    'persona',
+    'humano',
+    'operador',
+    'asesor',
+    'recepcion',
+    'recepcionista'
+  ]
+
+  if (exactMessages.includes(normalizedMessage)) {
+    return true
+  }
+
+  return [
+    'hablar con una persona',
+    'hablar con persona',
+    'hablar con humano',
+    'quiero hablar con una persona',
+    'quiero hablar con persona',
+    'quiero hablar con humano',
+    'atendido por una persona',
+    'atendida por una persona',
+    'que me atienda una persona',
+    'que me atienda alguien',
+    'necesito una persona'
+  ].some((phrase) => normalizedMessage.includes(phrase))
 }
 
 function isMyAppointmentsMessage(message: string, currentStep: string) {
@@ -702,6 +749,7 @@ function canHumanizeSafely(reply: string) {
     /\b\d{4}-\d{2}-\d{2}\b/,
     /\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b/,
     /\b\d{2}:\d{2}\b/,
+    /^\*\s/m,
     /^[-•]\s/m,
     /^\d+\.\s/m,
     /Horarios disponibles/i,
@@ -715,7 +763,9 @@ function canHumanizeSafely(reply: string) {
     /confirmar/i,
     /reservar turno/i,
     /cancel[eé] ese turno/i,
-    /empezamos de nuevo/i
+    /empezamos de nuevo/i,
+    /hablar con una persona/i,
+    /te derivo con una persona/i
   ]
 
   return !protectedPatterns.some((pattern) => pattern.test(reply))

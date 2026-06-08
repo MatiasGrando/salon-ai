@@ -5,6 +5,7 @@ type Check = {
   includes?: string[]
   includesAny?: string[]
   excludes?: string[]
+  currentStep?: string
 }
 
 type Step = Check & {
@@ -772,6 +773,58 @@ async function main() {
       ]
     },
     {
+      name: 'mensaje confuso ofrece recuperacion y derivacion',
+      phone: `${testPhonePrefix}fallback-recovery`,
+      steps: [
+        {
+          message: 'reset total',
+          includes: ['Cami']
+        },
+        {
+          message: 'soy Mati',
+          includes: [service.name]
+        },
+        {
+          message: service.name,
+          includes: ['gustar']
+        },
+        {
+          message: 'no elegÃ­ eso',
+          includes: [
+            'volver al paso anterior',
+            'cambiar servicio',
+            'empezar de nuevo',
+            'hablar con una persona'
+          ]
+        },
+        {
+          message: 'volver al paso anterior',
+          includes: [professional.name, 'Cualquier profesional'],
+          currentStep: 'ASK_PROFESSIONAL'
+        }
+      ]
+    },
+    {
+      name: 'deriva a una persona y queda marcado en CRM',
+      phone: `${testPhonePrefix}human-handoff`,
+      steps: [
+        {
+          message: 'reset total',
+          includes: ['Cami']
+        },
+        {
+          message: 'hablar con una persona',
+          includes: ['derivo', 'persona'],
+          currentStep: 'HUMAN_HANDOFF'
+        },
+        {
+          message: 'hola?',
+          includes: ['derivado', 'persona'],
+          currentStep: 'HUMAN_HANDOFF'
+        }
+      ]
+    },
+    {
       name: 'flujo abandonado por 24 horas se reinicia',
       phone: `${testPhonePrefix}expired`,
       setup: async () => {
@@ -845,9 +898,29 @@ async function runScenario(scenario: Scenario) {
       console.log(`Cami: ${result.reply}`)
 
       assertReply(result.reply, step)
+      await assertConversationStep(scenario.phone, step)
     }
   } finally {
     restoreDate?.()
+  }
+}
+
+async function assertConversationStep(phone: string, step: Step) {
+  if (!step.currentStep) {
+    return
+  }
+
+  const conversation = await prisma.conversation.findUnique({
+    where: {
+      phone
+    },
+    select: {
+      currentStep: true
+    }
+  })
+
+  if (conversation?.currentStep !== step.currentStep) {
+    throw new Error(`Esperaba currentStep ${step.currentStep}, recibÃ­ ${conversation?.currentStep ?? 'sin conversaciÃ³n'}.`)
   }
 }
 

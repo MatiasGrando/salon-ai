@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "ConversationStep" ADD VALUE IF NOT EXISTS 'HUMAN_HANDOFF';

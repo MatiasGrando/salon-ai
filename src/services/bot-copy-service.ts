@@ -57,7 +57,12 @@ export class BotCopyService {
   }
 
   serviceNotFound() {
-    return 'No lo ubiqué bien. Decime el nombre del servicio y lo seguimos.'
+    return withRecoveryOptions(
+      'No lo ubiqué bien. Decime el nombre del servicio y lo seguimos.',
+      {
+        includeChangeService: false
+      }
+    )
   }
 
   bookingOnly() {
@@ -89,7 +94,7 @@ export class BotCopyService {
   }
 
   professionalNotFound() {
-    return 'No lo encontré entre los profesionales disponibles. Decime el nombre y lo reviso.'
+    return withRecoveryOptions('No lo encontré entre los profesionales disponibles. Decime el nombre y lo reviso.')
   }
 
   askDate(professionalName: string) {
@@ -112,7 +117,7 @@ export class BotCopyService {
   }
 
   dateNotUnderstood() {
-    return 'No me quedó claro el día 😊 ¿Te referís a hoy, mañana, pasado o a una fecha como 25/6/26?'
+    return withRecoveryOptions('No me quedó claro el día 😊 ¿Te referís a hoy, mañana, pasado o a una fecha como 25/6/26?')
   }
 
   noAvailabilityForDate(input?: {
@@ -168,7 +173,12 @@ export class BotCopyService {
   }
 
   askCustomerNameAgain() {
-    return 'Perdón, no llegué a tomar tu nombre 😊 ¿Cómo te llamás? Así te lo dejo bien cargado.'
+    return withRecoveryOptions(
+      'Perdón, no llegué a tomar tu nombre 😊 ¿Cómo te llamás? Así te lo dejo bien cargado.',
+      {
+        includeChangeService: false
+      }
+    )
   }
 
   askFullCustomerName() {
@@ -200,8 +210,20 @@ export class BotCopyService {
       '* cambiar fecha',
       '* cambiar servicio',
       '* cancelar',
-      '* volver'
+      '* volver',
+      '* hablar con una persona'
     ].join('\n')
+  }
+
+  humanHandoffQueued() {
+    return [
+      'Listo, te derivo con una persona del equipo.',
+      'Esperá un momento por favor, ya queda marcado para que te atiendan por acá 😊'
+    ].join('\n')
+  }
+
+  humanHandoffAlreadyQueued() {
+    return 'Ya te dejé derivado con una persona del equipo. Esperá un momento por favor, te van a responder por acá 😊'
   }
 
   clarifyProfessionalChange(input: {
@@ -319,4 +341,23 @@ export class BotCopyService {
 
 export function getFirstName(name: string) {
   return name.trim().split(/\s+/)[0] ?? name
+}
+
+function withRecoveryOptions(message: string, options?: {
+  includeChangeService?: boolean
+}) {
+  const includeChangeService = options?.includeChangeService ?? true
+  const recoveryOptions = [
+    '* volver al paso anterior',
+    includeChangeService ? '* cambiar servicio' : null,
+    '* empezar de nuevo',
+    '* hablar con una persona'
+  ].filter(Boolean)
+
+  return [
+    message,
+    '',
+    'También podés escribir:',
+    ...recoveryOptions
+  ].join('\n')
 }
