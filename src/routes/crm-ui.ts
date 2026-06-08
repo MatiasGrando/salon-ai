@@ -798,6 +798,7 @@ const crmHtml = `<!doctype html>
 
       try {
         state.conversations = await getJson('/crm/conversations' + query)
+        state.conversations.sort((left, right) => latestConversationActivityAt(right) - latestConversationActivityAt(left))
         renderConversations()
 
         if (!state.selected && state.conversations[0]) {
@@ -842,7 +843,7 @@ const crmHtml = `<!doctype html>
               '<span class="chip">' + escapeHtml(conversation.currentStep) + '</span>' +
             '</div>' +
             '<p class="preview">' + escapeHtml(last?.body || conversation.lastMessage || 'Sin mensajes') + '</p>' +
-            '<p class="meta">' + formatDateTime(conversation.updatedAt) + '</p>' +
+            '<p class="meta">' + formatDateTime(latestConversationActivityValue(conversation)) + '</p>' +
           '</div>' +
         '</button>'
       }).join('')
@@ -888,11 +889,11 @@ const crmHtml = `<!doctype html>
 
       els.chatAvatar.textContent = initials(selected.phone)
       els.chatPhone.textContent = selected.phone
-      els.chatStatus.textContent = 'Actualizado ' + formatDateTime(selected.updatedAt)
+      els.chatStatus.textContent = 'Actualizado ' + formatDateTime(latestConversationActivityValue(selected))
       els.stepChip.textContent = selected.currentStep
       els.detailPhone.textContent = selected.phone
       els.detailStep.textContent = selected.currentStep
-      els.detailUpdated.textContent = formatDateTime(selected.updatedAt)
+      els.detailUpdated.textContent = formatDateTime(latestConversationActivityValue(selected))
       els.replyText.disabled = false
       els.sendButton.disabled = false
 
@@ -1011,6 +1012,15 @@ const crmHtml = `<!doctype html>
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;')
+    }
+
+    function latestConversationActivityValue(conversation) {
+      return conversation.messages?.[0]?.createdAt || conversation.updatedAt || conversation.createdAt
+    }
+
+    function latestConversationActivityAt(conversation) {
+      const value = latestConversationActivityValue(conversation)
+      return value ? new Date(value).getTime() : 0
     }
 
     function isMobile() {

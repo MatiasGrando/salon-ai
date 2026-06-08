@@ -13,7 +13,7 @@ export async function crmRoutes(app: FastifyInstance) {
     }
     const take = Math.min(Number(query.take ?? 50) || 50, 100)
 
-    return prisma.conversation.findMany({
+    const conversations = await prisma.conversation.findMany({
       where: {
         ...(query.businessId ? { businessId: query.businessId } : {}),
         ...(query.phone ? { phone: { contains: query.phone } } : {})
@@ -30,6 +30,10 @@ export async function crmRoutes(app: FastifyInstance) {
         updatedAt: 'desc'
       },
       take
+    })
+
+    return conversations.sort((left, right) => {
+      return latestConversationActivityAt(right) - latestConversationActivityAt(left)
     })
   })
 
@@ -146,6 +150,15 @@ export async function crmRoutes(app: FastifyInstance) {
       delivery: deliveryResult
     }
   })
+}
+
+function latestConversationActivityAt(conversation: {
+  updatedAt: Date
+  messages: Array<{
+    createdAt: Date
+  }>
+}) {
+  return conversation.messages[0]?.createdAt.getTime() ?? conversation.updatedAt.getTime()
 }
 
 function getOutgoingProviderMessageId(deliveryResult: Awaited<ReturnType<WhatsAppCloudApi['sendTextMessage']>>) {
