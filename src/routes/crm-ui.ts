@@ -37,6 +37,12 @@ const crmHtml = `<!doctype html>
       box-sizing: border-box;
     }
 
+    html,
+    body {
+      height: 100%;
+      overflow: hidden;
+    }
+
     body {
       margin: 0;
       min-height: 100vh;
@@ -59,13 +65,16 @@ const crmHtml = `<!doctype html>
     .app {
       display: grid;
       grid-template-columns: minmax(280px, 340px) minmax(360px, 1fr) minmax(300px, 360px);
-      height: 100vh;
+      height: 100dvh;
       overflow: hidden;
+      min-height: 0;
     }
 
     .sidebar,
     .details {
       min-width: 0;
+      min-height: 0;
+      height: 100%;
       background: var(--surface);
       border-color: var(--line);
       border-style: solid;
@@ -79,6 +88,12 @@ const crmHtml = `<!doctype html>
 
     .details {
       border-width: 0 0 0 1px;
+      overflow: auto;
+    }
+
+    .mobile-nav,
+    .mobile-only {
+      display: none;
     }
 
     .topbar {
@@ -90,6 +105,7 @@ const crmHtml = `<!doctype html>
       justify-content: space-between;
       gap: 12px;
       background: var(--surface);
+      flex-shrink: 0;
     }
 
     .brand {
@@ -120,6 +136,7 @@ const crmHtml = `<!doctype html>
       display: flex;
       gap: 8px;
       background: var(--surface-soft);
+      flex-shrink: 0;
     }
 
     .search input,
@@ -198,6 +215,10 @@ const crmHtml = `<!doctype html>
     .scroll {
       overflow: auto;
       min-height: 0;
+    }
+
+    .conversation-list {
+      flex: 1;
     }
 
     .conversation {
@@ -283,6 +304,8 @@ const crmHtml = `<!doctype html>
 
     .chat {
       min-width: 0;
+      min-height: 0;
+      height: 100%;
       display: flex;
       flex-direction: column;
       background: #eef3f1;
@@ -297,6 +320,7 @@ const crmHtml = `<!doctype html>
       justify-content: space-between;
       gap: 12px;
       background: var(--surface);
+      flex-shrink: 0;
     }
 
     .chat-title {
@@ -352,6 +376,7 @@ const crmHtml = `<!doctype html>
       grid-template-columns: 1fr auto;
       gap: 10px;
       align-items: end;
+      flex-shrink: 0;
     }
 
     textarea {
@@ -468,12 +493,84 @@ const crmHtml = `<!doctype html>
     }
 
     @media (max-width: 760px) {
+      body {
+        min-height: 100dvh;
+      }
+
+      .mobile-nav {
+        height: 52px;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 6px;
+        padding: 6px;
+        border-bottom: 1px solid var(--line);
+        background: var(--surface);
+      }
+
+      .mobile-nav button {
+        height: 40px;
+        border-radius: 7px;
+        color: var(--muted);
+        background: var(--surface-soft);
+        font-size: 13px;
+        font-weight: 750;
+      }
+
+      .mobile-nav button.active {
+        color: #fff;
+        background: var(--accent);
+      }
+
+      .mobile-only {
+        display: inline-flex;
+      }
+
       .app {
-        grid-template-columns: 1fr;
+        display: block;
+        height: calc(100dvh - 52px);
+        min-height: 0;
+      }
+
+      .sidebar,
+      .chat,
+      .details {
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        border-width: 0;
       }
 
       .sidebar {
         display: none;
+      }
+
+      .chat,
+      .details {
+        display: none;
+      }
+
+      body[data-mobile-view="inbox"] .sidebar,
+      body[data-mobile-view="chat"] .chat,
+      body[data-mobile-view="details"] .details {
+        display: flex;
+      }
+
+      body[data-mobile-view="details"] .details {
+        overflow: auto;
+      }
+
+      .topbar,
+      .chat-header {
+        min-height: 58px;
+        padding: 10px 12px;
+      }
+
+      .search {
+        padding: 10px;
+      }
+
+      .conversation {
+        min-height: 84px;
       }
 
       .messages {
@@ -490,7 +587,13 @@ const crmHtml = `<!doctype html>
     }
   </style>
 </head>
-<body>
+<body data-mobile-view="inbox">
+  <nav class="mobile-nav" aria-label="Vistas CRM">
+    <button class="active" id="mobile-inbox" type="button">Chats</button>
+    <button id="mobile-chat" type="button">Conversacion</button>
+    <button id="mobile-details" type="button">Cliente</button>
+  </nav>
+
   <main class="app">
     <aside class="sidebar">
       <div class="topbar">
@@ -512,6 +615,7 @@ const crmHtml = `<!doctype html>
     <section class="chat">
       <header class="chat-header">
         <div class="chat-title">
+          <button class="icon-button mobile-only" id="mobile-back" type="button" title="Volver a chats">&lt;</button>
           <div class="avatar" id="chat-avatar">--</div>
           <div>
             <div class="panel-title" id="chat-phone">Selecciona una conversacion</div>
@@ -637,7 +741,11 @@ const crmHtml = `<!doctype html>
       blockStart: document.getElementById('block-start'),
       blockEnd: document.getElementById('block-end'),
       blockTitle: document.getElementById('block-title'),
-      blockFeedback: document.getElementById('block-feedback')
+      blockFeedback: document.getElementById('block-feedback'),
+      mobileInbox: document.getElementById('mobile-inbox'),
+      mobileChat: document.getElementById('mobile-chat'),
+      mobileDetails: document.getElementById('mobile-details'),
+      mobileBack: document.getElementById('mobile-back')
     }
 
     function initials(phone) {
@@ -749,6 +857,9 @@ const crmHtml = `<!doctype html>
       if (!conversation) return
       state.selected = conversation
       await refreshSelectedConversation()
+      if (isMobile()) {
+        setMobileView('chat')
+      }
     }
 
     async function refreshSelectedConversation() {
@@ -902,6 +1013,17 @@ const crmHtml = `<!doctype html>
         .replace(/'/g, '&#039;')
     }
 
+    function isMobile() {
+      return window.matchMedia('(max-width: 760px)').matches
+    }
+
+    function setMobileView(view) {
+      document.body.dataset.mobileView = view
+      els.mobileInbox.classList.toggle('active', view === 'inbox')
+      els.mobileChat.classList.toggle('active', view === 'chat')
+      els.mobileDetails.classList.toggle('active', view === 'details')
+    }
+
     els.replyForm.addEventListener('submit', sendReply)
     els.blockForm.addEventListener('submit', createBlock)
     els.refresh.addEventListener('click', loadConversations)
@@ -909,6 +1031,10 @@ const crmHtml = `<!doctype html>
     els.search.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') loadConversations()
     })
+    els.mobileInbox.addEventListener('click', () => setMobileView('inbox'))
+    els.mobileChat.addEventListener('click', () => setMobileView('chat'))
+    els.mobileDetails.addEventListener('click', () => setMobileView('details'))
+    els.mobileBack.addEventListener('click', () => setMobileView('inbox'))
 
     loadBasics()
       .then(loadConversations)
