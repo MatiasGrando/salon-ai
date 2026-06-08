@@ -5,6 +5,92 @@ import { WhatsAppCloudApi } from '../integrations/whatsapp-cloud-api.js'
 const whatsappCloudApi = new WhatsAppCloudApi()
 
 export async function crmRoutes(app: FastifyInstance) {
+  app.get('/crm/maintenance/delete-qa-conversations', async (request, reply) => {
+    const query = request.query as {
+      date?: string
+      confirm?: string
+    }
+
+    if (query.confirm !== 'delete-qa-cami') {
+      return reply.status(400).send({
+        message: 'confirm=delete-qa-cami es requerido'
+      })
+    }
+
+    if (!query.date || !/^\d{4}-\d{2}-\d{2}$/.test(query.date)) {
+      return reply.status(400).send({
+        message: 'date debe tener formato YYYY-MM-DD'
+      })
+    }
+
+    const start = new Date(`${query.date}T00:00:00`)
+    const end = new Date(start)
+    end.setDate(end.getDate() + 1)
+
+    const conversations = await prisma.conversation.findMany({
+      where: {
+        phone: {
+          startsWith: 'qa-cami-'
+        },
+        OR: [
+          {
+            updatedAt: {
+              gte: start,
+              lt: end
+            }
+          },
+          {
+            messages: {
+              some: {
+                createdAt: {
+                  gte: start,
+                  lt: end
+                }
+              }
+            }
+          }
+        ]
+      },
+      select: {
+        id: true,
+        phone: true
+      }
+    })
+
+    const conversationIds = conversations.map((conversation) => conversation.id)
+
+    if (conversationIds.length === 0) {
+      return {
+        deletedConversations: 0,
+        deletedMessages: 0,
+        phones: []
+      }
+    }
+
+    const [deletedMessages, deletedConversations] = await prisma.$transaction([
+      prisma.message.deleteMany({
+        where: {
+          conversationId: {
+            in: conversationIds
+          }
+        }
+      }),
+      prisma.conversation.deleteMany({
+        where: {
+          id: {
+            in: conversationIds
+          }
+        }
+      })
+    ])
+
+    return {
+      deletedConversations: deletedConversations.count,
+      deletedMessages: deletedMessages.count,
+      phones: conversations.map((conversation) => conversation.phone)
+    }
+  })
+
   app.get('/crm/conversations', async (request) => {
     const query = request.query as {
       businessId?: string
