@@ -533,6 +533,57 @@ const crmHtml = `<!doctype html>
       gap: 6px;
     }
 
+    .config-panel {
+      border-bottom: 1px solid var(--line);
+    }
+
+    .config-panel > summary {
+      min-height: 48px;
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      cursor: pointer;
+      list-style: none;
+    }
+
+    .config-panel > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .config-panel > summary::after {
+      content: ">";
+      color: var(--muted);
+      font-weight: 800;
+      transform: rotate(90deg);
+    }
+
+    .config-panel:not([open]) > summary::after {
+      transform: rotate(0);
+    }
+
+    .config-panel-body {
+      padding: 0 16px 14px;
+    }
+
+    .schedule-row {
+      display: grid;
+      grid-template-columns: minmax(92px, 1fr) 86px 86px;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .schedule-row label {
+      min-width: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 650;
+    }
+
     .empty,
     .error {
       padding: 18px;
@@ -777,44 +828,63 @@ const crmHtml = `<!doctype html>
         </form>
       </div>
 
-      <div class="details-section">
-        <div class="row">
+      <details class="config-panel">
+        <summary>
           <div class="panel-title">Profesionales</div>
           <span class="chip" id="professional-count">0</span>
+        </summary>
+        <div class="config-panel-body">
+          <form class="block-form" id="professional-form">
+            <input id="professional-id" type="hidden">
+            <input class="field" id="professional-name" placeholder="Nombre del profesional">
+            <div class="schedule-row">
+              <label><input id="professional-weekdays-enabled" type="checkbox" checked> Lun a vie</label>
+              <input class="field" id="professional-weekdays-start" type="time" value="09:00">
+              <input class="field" id="professional-weekdays-end" type="time" value="18:00">
+            </div>
+            <div class="schedule-row">
+              <label><input id="professional-saturday-enabled" type="checkbox"> Sabado</label>
+              <input class="field" id="professional-saturday-start" type="time" value="09:00">
+              <input class="field" id="professional-saturday-end" type="time" value="13:00">
+            </div>
+            <div class="schedule-row">
+              <label><input id="professional-sunday-enabled" type="checkbox"> Domingo</label>
+              <input class="field" id="professional-sunday-start" type="time" value="09:00">
+              <input class="field" id="professional-sunday-end" type="time" value="13:00">
+            </div>
+            <div class="config-actions">
+              <button class="secondary" id="professional-cancel" type="button" hidden>Cancelar</button>
+              <button class="primary" type="submit">Guardar</button>
+            </div>
+            <p class="hint" id="professional-feedback"></p>
+          </form>
+          <div class="config-list" id="professional-list"></div>
         </div>
-        <form class="block-form" id="professional-form">
-          <input id="professional-id" type="hidden">
-          <input class="field" id="professional-name" placeholder="Nombre del profesional">
-          <div class="config-actions">
-            <button class="secondary" id="professional-cancel" type="button" hidden>Cancelar</button>
-            <button class="primary" type="submit">Guardar</button>
-          </div>
-          <p class="hint" id="professional-feedback"></p>
-        </form>
-        <div class="config-list" id="professional-list"></div>
-      </div>
+      </details>
 
-      <div class="details-section">
-        <div class="row">
+      <details class="config-panel">
+        <summary>
           <div class="panel-title">Servicios</div>
           <span class="chip" id="service-count">0</span>
+        </summary>
+        <div class="config-panel-body">
+          <form class="block-form" id="service-form">
+            <input id="service-id" type="hidden">
+            <input class="field" id="service-name" placeholder="Nombre del servicio">
+            <div class="config-grid">
+              <input class="field" id="service-duration" type="number" min="1" step="1" placeholder="Minutos">
+              <input class="field" id="service-category" placeholder="Categoria opcional">
+            </div>
+            <input class="field" id="service-aliases" placeholder="Alias separados por coma">
+            <div class="config-actions">
+              <button class="secondary" id="service-cancel" type="button" hidden>Cancelar</button>
+              <button class="primary" type="submit">Guardar</button>
+            </div>
+            <p class="hint" id="service-feedback"></p>
+          </form>
+          <div class="config-list" id="service-list"></div>
         </div>
-        <form class="block-form" id="service-form">
-          <input id="service-id" type="hidden">
-          <input class="field" id="service-name" placeholder="Nombre del servicio">
-          <div class="config-grid">
-            <input class="field" id="service-duration" type="number" min="1" step="1" placeholder="Minutos">
-            <input class="field" id="service-category" placeholder="Categoria opcional">
-          </div>
-          <input class="field" id="service-aliases" placeholder="Alias separados por coma">
-          <div class="config-actions">
-            <button class="secondary" id="service-cancel" type="button" hidden>Cancelar</button>
-            <button class="primary" type="submit">Guardar</button>
-          </div>
-          <p class="hint" id="service-feedback"></p>
-        </form>
-        <div class="config-list" id="service-list"></div>
-      </div>
+      </details>
     </aside>
   </main>
 
@@ -867,6 +937,15 @@ const crmHtml = `<!doctype html>
       professionalForm: document.getElementById('professional-form'),
       professionalId: document.getElementById('professional-id'),
       professionalName: document.getElementById('professional-name'),
+      professionalWeekdaysEnabled: document.getElementById('professional-weekdays-enabled'),
+      professionalWeekdaysStart: document.getElementById('professional-weekdays-start'),
+      professionalWeekdaysEnd: document.getElementById('professional-weekdays-end'),
+      professionalSaturdayEnabled: document.getElementById('professional-saturday-enabled'),
+      professionalSaturdayStart: document.getElementById('professional-saturday-start'),
+      professionalSaturdayEnd: document.getElementById('professional-saturday-end'),
+      professionalSundayEnabled: document.getElementById('professional-sunday-enabled'),
+      professionalSundayStart: document.getElementById('professional-sunday-start'),
+      professionalSundayEnd: document.getElementById('professional-sunday-end'),
       professionalCancel: document.getElementById('professional-cancel'),
       professionalFeedback: document.getElementById('professional-feedback'),
       professionalList: document.getElementById('professional-list'),
@@ -1097,15 +1176,20 @@ const crmHtml = `<!doctype html>
       els.professionalCount.textContent = String(state.professionals.length)
       els.professionalList.innerHTML = state.professionals.length
         ? state.professionals.map((professional) => {
-            return '<div class="item">' +
-              '<div class="row">' +
-                '<div class="item-title">' + escapeHtml(professional.name) + '</div>' +
+            return '<details class="item">' +
+              '<summary class="row">' +
+                '<div>' +
+                  '<div class="item-title">' + escapeHtml(professional.name) + '</div>' +
+                  '<p>' + escapeHtml(summarizeWorkingHours(professional.workingHours || [])) + '</p>' +
+                '</div>' +
+              '</summary>' +
+              '<div>' +
                 '<div class="config-actions">' +
                   '<button class="secondary" type="button" data-edit-professional="' + professional.id + '">Editar</button>' +
                   '<button class="danger" type="button" data-delete-professional="' + professional.id + '">Eliminar</button>' +
                 '</div>' +
               '</div>' +
-            '</div>'
+            '</details>'
           }).join('')
         : '<div class="empty">No hay profesionales cargados.</div>'
 
@@ -1123,17 +1207,21 @@ const crmHtml = `<!doctype html>
       els.serviceList.innerHTML = state.services.length
         ? state.services.map((service) => {
             const aliases = (service.aliases || []).map((alias) => alias.name).join(', ')
-            return '<div class="item">' +
-              '<div class="row">' +
-                '<div class="item-title">' + escapeHtml(service.name) + '</div>' +
+            return '<details class="item">' +
+              '<summary class="row">' +
+                '<div>' +
+                  '<div class="item-title">' + escapeHtml(service.name) + '</div>' +
+                  '<p>' + escapeHtml(service.duration + ' min' + (service.category ? ' · ' + service.category : '')) + '</p>' +
+                '</div>' +
+              '</summary>' +
+              '<div>' +
+                (aliases ? '<p>Alias: ' + escapeHtml(aliases) + '</p>' : '<p>Sin alias cargados.</p>') +
                 '<div class="config-actions">' +
                   '<button class="secondary" type="button" data-edit-service="' + service.id + '">Editar</button>' +
                   '<button class="danger" type="button" data-delete-service="' + service.id + '">Eliminar</button>' +
                 '</div>' +
               '</div>' +
-              '<p>' + escapeHtml(service.duration + ' min' + (service.category ? ' · ' + service.category : '')) + '</p>' +
-              (aliases ? '<p>Alias: ' + escapeHtml(aliases) + '</p>' : '') +
-            '</div>'
+            '</details>'
           }).join('')
         : '<div class="empty">No hay servicios cargados.</div>'
 
@@ -1295,11 +1383,12 @@ const crmHtml = `<!doctype html>
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             name,
-            businessId: state.businessId
+            businessId: state.businessId,
+            workingHours: buildProfessionalWorkingHours()
           })
         })
         els.professionalFeedback.textContent = id ? 'Profesional actualizado.' : 'Profesional creado.'
-        resetProfessionalForm()
+        resetProfessionalForm(false)
         state.professionals = await getJson('/professionals')
         renderProfessionals()
       } catch (error) {
@@ -1312,6 +1401,7 @@ const crmHtml = `<!doctype html>
       if (!professional) return
       els.professionalId.value = professional.id
       els.professionalName.value = professional.name
+      setProfessionalWorkingHours(professional.workingHours || [])
       els.professionalCancel.hidden = false
       els.professionalFeedback.textContent = 'Editando profesional.'
     }
@@ -1332,10 +1422,102 @@ const crmHtml = `<!doctype html>
       }
     }
 
-    function resetProfessionalForm() {
+    function resetProfessionalForm(clearFeedback = true) {
       els.professionalId.value = ''
       els.professionalName.value = ''
       els.professionalCancel.hidden = true
+      setProfessionalWorkingHours([
+        { dayOfWeek: 1, startTime: '09:00', endTime: '18:00' },
+        { dayOfWeek: 2, startTime: '09:00', endTime: '18:00' },
+        { dayOfWeek: 3, startTime: '09:00', endTime: '18:00' },
+        { dayOfWeek: 4, startTime: '09:00', endTime: '18:00' },
+        { dayOfWeek: 5, startTime: '09:00', endTime: '18:00' }
+      ])
+      if (clearFeedback) {
+        els.professionalFeedback.textContent = ''
+      }
+    }
+
+    function buildProfessionalWorkingHours() {
+      const hours = []
+
+      if (els.professionalWeekdaysEnabled.checked) {
+        for (const dayOfWeek of [1, 2, 3, 4, 5]) {
+          hours.push({
+            dayOfWeek,
+            startTime: els.professionalWeekdaysStart.value,
+            endTime: els.professionalWeekdaysEnd.value
+          })
+        }
+      }
+
+      if (els.professionalSaturdayEnabled.checked) {
+        hours.push({
+          dayOfWeek: 6,
+          startTime: els.professionalSaturdayStart.value,
+          endTime: els.professionalSaturdayEnd.value
+        })
+      }
+
+      if (els.professionalSundayEnabled.checked) {
+        hours.push({
+          dayOfWeek: 0,
+          startTime: els.professionalSundayStart.value,
+          endTime: els.professionalSundayEnd.value
+        })
+      }
+
+      return hours
+    }
+
+    function setProfessionalWorkingHours(hours) {
+      const byDay = new Map((hours || []).map((hour) => [hour.dayOfWeek, hour]))
+      const weekdays = [1, 2, 3, 4, 5].map((day) => byDay.get(day)).filter(Boolean)
+      const firstWeekday = weekdays[0]
+      const saturday = byDay.get(6)
+      const sunday = byDay.get(0)
+
+      els.professionalWeekdaysEnabled.checked = weekdays.length > 0
+      els.professionalWeekdaysStart.value = firstWeekday?.startTime || '09:00'
+      els.professionalWeekdaysEnd.value = firstWeekday?.endTime || '18:00'
+      els.professionalSaturdayEnabled.checked = Boolean(saturday)
+      els.professionalSaturdayStart.value = saturday?.startTime || '09:00'
+      els.professionalSaturdayEnd.value = saturday?.endTime || '13:00'
+      els.professionalSundayEnabled.checked = Boolean(sunday)
+      els.professionalSundayStart.value = sunday?.startTime || '09:00'
+      els.professionalSundayEnd.value = sunday?.endTime || '13:00'
+    }
+
+    function summarizeWorkingHours(hours) {
+      if (!hours.length) {
+        return 'Sin horarios cargados'
+      }
+
+      const grouped = new Map()
+      for (const hour of hours) {
+        const key = hour.startTime + '-' + hour.endTime
+        const days = grouped.get(key) || []
+        days.push(hour.dayOfWeek)
+        grouped.set(key, days)
+      }
+
+      return Array.from(grouped.entries()).map(([timeRange, days]) => {
+        return summarizeDays(days) + ' ' + timeRange.replace('-', ' a ')
+      }).join(' · ')
+    }
+
+    function summarizeDays(days) {
+      const sorted = [...days].sort((left, right) => left - right)
+      if ([1, 2, 3, 4, 5].every((day) => sorted.includes(day))) {
+        const weekend = sorted.filter((day) => day === 0 || day === 6)
+        return ['Lun a vie', ...weekend.map(dayName)].join(', ')
+      }
+
+      return sorted.map(dayName).join(', ')
+    }
+
+    function dayName(dayOfWeek) {
+      return ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab'][dayOfWeek] || 'Dia'
     }
 
     async function saveService(event) {
