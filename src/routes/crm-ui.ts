@@ -674,6 +674,7 @@ const crmHtml = `<!doctype html>
           </div>
         </div>
         <div class="chat-actions">
+          <button class="secondary" id="resolve-handoff" type="button" disabled hidden>Resolver y activar IA</button>
           <button class="secondary" id="conversation-ai-toggle" type="button" disabled>Desactivar IA</button>
           <span class="chip" id="step-chip">CRM</span>
         </div>
@@ -785,6 +786,7 @@ const crmHtml = `<!doctype html>
       chatPhone: document.getElementById('chat-phone'),
       chatStatus: document.getElementById('chat-status'),
       stepChip: document.getElementById('step-chip'),
+      resolveHandoff: document.getElementById('resolve-handoff'),
       conversationAiToggle: document.getElementById('conversation-ai-toggle'),
       replyForm: document.getElementById('reply-form'),
       replyText: document.getElementById('reply-text'),
@@ -955,6 +957,9 @@ const crmHtml = `<!doctype html>
       els.chatStatus.textContent = 'Actualizado ' + formatDateTime(latestConversationActivityValue(selected))
       els.stepChip.textContent = selected.currentStep
       els.stepChip.className = conversationStepChipClass(selected.currentStep, selected.aiEnabled)
+      const canResolveHandoff = selected.currentStep === 'HUMAN_HANDOFF' || selected.aiEnabled === false
+      els.resolveHandoff.hidden = !canResolveHandoff
+      els.resolveHandoff.disabled = !canResolveHandoff
       els.conversationAiToggle.disabled = false
       els.conversationAiToggle.textContent = selected.aiEnabled === false ? 'Activar IA' : 'Desactivar IA'
       els.conversationAiToggle.className = selected.aiEnabled === false ? 'secondary' : 'danger'
@@ -1086,6 +1091,27 @@ const crmHtml = `<!doctype html>
       }
     }
 
+    async function resolveHandoff() {
+      if (!state.selected) return
+      els.resolveHandoff.disabled = true
+      try {
+        const updated = await getJson('/crm/conversations/' + state.selected.id + '/ai', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            aiEnabled: true
+          })
+        })
+        state.selected = updated
+        await loadConversations()
+        renderSelected()
+      } catch (error) {
+        alert(error.message)
+      } finally {
+        els.resolveHandoff.disabled = false
+      }
+    }
+
     async function createBlock(event) {
       event.preventDefault()
       if (!state.businessId) {
@@ -1158,6 +1184,7 @@ const crmHtml = `<!doctype html>
     els.blockForm.addEventListener('submit', createBlock)
     els.globalAiToggle.addEventListener('click', toggleGlobalAi)
     els.conversationAiToggle.addEventListener('click', toggleConversationAi)
+    els.resolveHandoff.addEventListener('click', resolveHandoff)
     els.refresh.addEventListener('click', loadConversations)
     els.searchButton.addEventListener('click', loadConversations)
     els.search.addEventListener('keydown', (event) => {

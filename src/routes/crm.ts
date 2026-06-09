@@ -231,11 +231,13 @@ export async function crmRoutes(app: FastifyInstance) {
         ? {
             aiEnabled: true,
             currentStep: conversation.currentStep === 'HUMAN_HANDOFF' ? 'START' : conversation.currentStep,
+            misunderstandingCount: 0,
             humanHandoffResolvedAt: conversation.currentStep === 'HUMAN_HANDOFF' ? new Date() : conversation.humanHandoffResolvedAt
           }
         : {
             aiEnabled: false,
             currentStep: 'HUMAN_HANDOFF',
+            misunderstandingCount: 0,
             humanHandoffAt: conversation.humanHandoffAt ?? new Date(),
             humanHandoffResolvedAt: null
           }
