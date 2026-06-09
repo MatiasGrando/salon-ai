@@ -139,6 +139,32 @@ const crmHtml = `<!doctype html>
       flex-shrink: 0;
     }
 
+    .ops-panel {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      display: grid;
+      gap: 8px;
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+
+    .ops-panel .row {
+      align-items: center;
+    }
+
+    .counter {
+      min-width: 28px;
+      height: 24px;
+      padding: 0 8px;
+      border-radius: 999px;
+      display: inline-grid;
+      place-items: center;
+      color: var(--danger);
+      background: var(--danger-soft);
+      font-weight: 800;
+      font-size: 12px;
+    }
+
     .search input,
     .field,
     textarea,
@@ -307,6 +333,11 @@ const crmHtml = `<!doctype html>
       background: var(--danger-soft);
     }
 
+    .chip.manual {
+      color: var(--warn);
+      background: var(--warn-soft);
+    }
+
     .chat {
       min-width: 0;
       min-height: 0;
@@ -333,6 +364,14 @@ const crmHtml = `<!doctype html>
       display: flex;
       align-items: center;
       gap: 10px;
+    }
+
+    .chat-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
     }
 
     .messages {
@@ -612,6 +651,13 @@ const crmHtml = `<!doctype html>
         <input id="search" type="search" placeholder="Buscar telefono">
         <button class="secondary" id="search-button">Buscar</button>
       </div>
+      <div class="ops-panel">
+        <div class="row">
+          <span class="hint">Derivados sin responder</span>
+          <span class="counter" id="handoff-count">0</span>
+        </div>
+        <button class="secondary" id="global-ai-toggle" type="button">IA general activa</button>
+      </div>
       <div class="conversation-list" id="conversation-list">
         <div class="empty">Cargando conversaciones...</div>
       </div>
@@ -627,7 +673,10 @@ const crmHtml = `<!doctype html>
             <div class="hint" id="chat-status">Historial y respuesta manual</div>
           </div>
         </div>
-        <span class="chip" id="step-chip">CRM</span>
+        <div class="chat-actions">
+          <button class="secondary" id="conversation-ai-toggle" type="button" disabled>Desactivar IA</button>
+          <span class="chip" id="step-chip">CRM</span>
+        </div>
       </header>
       <div class="messages" id="messages">
         <div class="empty">Elegi un chat para ver los mensajes.</div>
@@ -716,6 +765,9 @@ const crmHtml = `<!doctype html>
       messages: [],
       appointments: [],
       professionals: [],
+      aiSettings: {
+        aiEnabled: true
+      },
       businessId: null,
       isRefreshing: false
     }
@@ -726,11 +778,14 @@ const crmHtml = `<!doctype html>
       search: document.getElementById('search'),
       searchButton: document.getElementById('search-button'),
       refresh: document.getElementById('refresh'),
+      handoffCount: document.getElementById('handoff-count'),
+      globalAiToggle: document.getElementById('global-ai-toggle'),
       messages: document.getElementById('messages'),
       chatAvatar: document.getElementById('chat-avatar'),
       chatPhone: document.getElementById('chat-phone'),
       chatStatus: document.getElementById('chat-status'),
       stepChip: document.getElementById('step-chip'),
+      conversationAiToggle: document.getElementById('conversation-ai-toggle'),
       replyForm: document.getElementById('reply-form'),
       replyText: document.getElementById('reply-text'),
       sendButton: document.getElementById('send-button'),
@@ -788,7 +843,9 @@ const crmHtml = `<!doctype html>
     async function loadBasics() {
       const businesses = await getJson('/businesses')
       state.businessId = businesses[0]?.id || null
+      state.aiSettings = await getJson('/crm/ai-settings' + (state.businessId ? '?businessId=' + encodeURIComponent(state.businessId) : ''))
       state.professionals = await getJson('/professionals')
+      renderAiControls()
       renderProfessionals()
     }
 
@@ -805,6 +862,7 @@ const crmHtml = `<!doctype html>
         state.conversations = await getJson('/crm/conversations' + query)
         state.conversations.sort((left, right) => latestConversationActivityAt(right) - latestConversationActivityAt(left))
         renderConversations()
+        renderAiControls()
 
         if (!state.selected && state.conversations[0]) {
           await selectConversation(state.conversations[0].id)
@@ -845,7 +903,7 @@ const crmHtml = `<!doctype html>
           '<div class="conversation-main">' +
             '<div class="row">' +
               '<div class="phone">' + escapeHtml(conversation.phone) + '</div>' +
-              '<span class="' + conversationStepChipClass(conversation.currentStep) + '">' + escapeHtml(conversation.currentStep) + '</span>' +
+              '<span class="' + conversationStepChipClass(conversation.currentStep, conversation.aiEnabled) + '">' + escapeHtml(conversation.aiEnabled === false ? 'IA OFF' : conversation.currentStep) + '</span>' +
             '</div>' +
             '<p class="preview">' + escapeHtml(last?.body || conversation.lastMessage || 'Sin mensajes') + '</p>' +
             '<p class="meta">' + formatDateTime(latestConversationActivityValue(conversation)) + '</p>' +
@@ -896,7 +954,10 @@ const crmHtml = `<!doctype html>
       els.chatPhone.textContent = selected.phone
       els.chatStatus.textContent = 'Actualizado ' + formatDateTime(latestConversationActivityValue(selected))
       els.stepChip.textContent = selected.currentStep
-      els.stepChip.className = conversationStepChipClass(selected.currentStep)
+      els.stepChip.className = conversationStepChipClass(selected.currentStep, selected.aiEnabled)
+      els.conversationAiToggle.disabled = false
+      els.conversationAiToggle.textContent = selected.aiEnabled === false ? 'Activar IA' : 'Desactivar IA'
+      els.conversationAiToggle.className = selected.aiEnabled === false ? 'secondary' : 'danger'
       els.detailPhone.textContent = selected.phone
       els.detailStep.textContent = selected.currentStep
       els.detailUpdated.textContent = formatDateTime(latestConversationActivityValue(selected))
@@ -951,6 +1012,15 @@ const crmHtml = `<!doctype html>
       els.blockProfessional.innerHTML = options.join('')
     }
 
+    function renderAiControls() {
+      const pending = state.conversations.filter((conversation) => {
+        return conversation.currentStep === 'HUMAN_HANDOFF' && !conversation.humanHandoffResolvedAt
+      }).length
+      els.handoffCount.textContent = String(pending)
+      els.globalAiToggle.textContent = state.aiSettings.aiEnabled === false ? 'IA general apagada' : 'IA general activa'
+      els.globalAiToggle.className = state.aiSettings.aiEnabled === false ? 'danger' : 'secondary'
+    }
+
     async function sendReply(event) {
       event.preventDefault()
       if (!state.selected) return
@@ -974,6 +1044,45 @@ const crmHtml = `<!doctype html>
         alert(error.message)
       } finally {
         els.sendButton.disabled = false
+      }
+    }
+
+    async function toggleGlobalAi() {
+      const nextValue = state.aiSettings.aiEnabled === false
+      try {
+        state.aiSettings = await getJson('/crm/ai-settings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            businessId: state.businessId,
+            aiEnabled: nextValue
+          })
+        })
+        renderAiControls()
+      } catch (error) {
+        alert(error.message)
+      }
+    }
+
+    async function toggleConversationAi() {
+      if (!state.selected) return
+      const nextValue = state.selected.aiEnabled === false
+      els.conversationAiToggle.disabled = true
+      try {
+        const updated = await getJson('/crm/conversations/' + state.selected.id + '/ai', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            aiEnabled: nextValue
+          })
+        })
+        state.selected = updated
+        await loadConversations()
+        renderSelected()
+      } catch (error) {
+        alert(error.message)
+      } finally {
+        els.conversationAiToggle.disabled = false
       }
     }
 
@@ -1029,7 +1138,8 @@ const crmHtml = `<!doctype html>
       return value ? new Date(value).getTime() : 0
     }
 
-    function conversationStepChipClass(step) {
+    function conversationStepChipClass(step, aiEnabled) {
+      if (aiEnabled === false) return 'chip manual'
       return step === 'HUMAN_HANDOFF' ? 'chip handoff' : 'chip'
     }
 
@@ -1046,6 +1156,8 @@ const crmHtml = `<!doctype html>
 
     els.replyForm.addEventListener('submit', sendReply)
     els.blockForm.addEventListener('submit', createBlock)
+    els.globalAiToggle.addEventListener('click', toggleGlobalAi)
+    els.conversationAiToggle.addEventListener('click', toggleConversationAi)
     els.refresh.addEventListener('click', loadConversations)
     els.searchButton.addEventListener('click', loadConversations)
     els.search.addEventListener('keydown', (event) => {

@@ -42,6 +42,45 @@ export async function chatRoutes(app: FastifyInstance) {
       }
     })
 
+    const freshConversation = await prisma.conversation.findUnique({
+      where: {
+        id: conversation.id
+      },
+      include: {
+        business: true
+      }
+    })
+    const fallbackBusiness = freshConversation?.business
+      ? null
+      : await prisma.business.findFirst({
+          orderBy: {
+            createdAt: 'asc'
+          },
+          select: {
+            aiEnabled: true
+          }
+        })
+    const businessAiEnabled = freshConversation?.business?.aiEnabled ?? fallbackBusiness?.aiEnabled ?? true
+
+    if (freshConversation?.currentStep === 'HUMAN_HANDOFF') {
+      await prisma.conversation.update({
+        where: {
+          id: conversation.id
+        },
+        data: {
+          humanHandoffResolvedAt: null
+        }
+      })
+    }
+
+    if (!businessAiEnabled || freshConversation?.aiEnabled === false) {
+      return {
+        reply: null,
+        skipped: true,
+        reason: 'IA desactivada'
+      }
+    }
+
     const result = await service.handleMessage({
       phone: body.phone,
       message: body.message,

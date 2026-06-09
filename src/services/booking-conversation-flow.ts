@@ -736,6 +736,23 @@ export class BookingConversationFlow {
         })
 
         if (selectedService) {
+          if (rejectsSelectedService(input.message, selectedService)) {
+            await this.updateConversation(input.phone, {
+              currentStep: 'ASK_SERVICE',
+              selectedServiceId: null,
+              selectedProfessionalId: null,
+              selectedDate: null,
+              selectedTime: null,
+              lastAvailability: null
+            })
+
+            return {
+              reply: botCopyService.selectedServiceRejected({
+                serviceName: selectedService.name
+              })
+            }
+          }
+
           if (await this.isAnyProfessionalSelection(input.message, selectedService.businessId)) {
             await this.updateConversation(input.phone, {
               currentStep: 'ASK_DATE',
@@ -2915,6 +2932,46 @@ function rejectsSelectedProfessional(message: string, professionalName: string) 
     'no quería',
     'no con'
   ].some((phrase) => normalizedMessage.includes(normalizeText(phrase)))
+}
+
+function rejectsSelectedService(message: string, service: {
+  name: string
+  aliases?: Array<{ name: string }>
+}) {
+  const normalizedMessage = normalizeText(message)
+  const serviceText = serviceSearchText(service)
+  const rejectPhrases = [
+    'nunca te dije',
+    'no te dije',
+    'yo no dije',
+    'no dije',
+    'no pedi',
+    'no pedí',
+    'no elegi',
+    'no elegí',
+    'no queria',
+    'no quería',
+    'no quiero',
+    'no me entendiste',
+    'no es eso',
+    'ese no',
+    'eso no'
+  ]
+
+  const rejectsGenerally = rejectPhrases.some((phrase) => normalizedMessage.includes(normalizeText(phrase)))
+
+  if (!rejectsGenerally) {
+    return false
+  }
+
+  const rejectsColor = [
+    'color',
+    'teñir',
+    'tenir',
+    'tintura'
+  ].some((word) => normalizedMessage.includes(normalizeText(word)))
+
+  return (rejectsColor && serviceText.includes('color')) || normalizedMessage.includes(serviceText)
 }
 
 function parseRelativeTimeFilter(message: string, selectedTime?: string | null) {

@@ -53,11 +53,13 @@ enum ScheduleBlockReason {
 model Business {
   id            String         @id @default(cuid())
   name          String
+  aiEnabled     Boolean        @default(true)
 
   professionals Professional[]
   services      Service[]
   businessHours BusinessHours[]
   scheduleBlocks ScheduleBlock[]
+  conversations Conversation[]
 
   createdAt     DateTime       @default(now())
 }
@@ -161,8 +163,10 @@ model Conversation {
 
   phone String @unique
   businessId String?
+  business Business? @relation(fields: [businessId], references: [id])
 
   currentStep ConversationStep @default(START)
+  aiEnabled Boolean @default(true)
 
   selectedServiceId String?
   selectedProfessionalId String?
@@ -172,6 +176,8 @@ model Conversation {
   lastAvailability Json?
 
   lastMessage String?
+  humanHandoffAt DateTime?
+  humanHandoffResolvedAt DateTime?
 
   messages Message[]
 

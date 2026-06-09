@@ -123,6 +123,53 @@ export async function crmRoutes(app: FastifyInstance) {
     })
   })
 
+  app.get('/crm/ai-settings', async (request) => {
+    const query = request.query as {
+      businessId?: string
+    }
+
+    const business = await findCrmBusiness(query.businessId)
+
+    return {
+      businessId: business?.id ?? null,
+      aiEnabled: business?.aiEnabled ?? true
+    }
+  })
+
+  app.patch('/crm/ai-settings', async (request, reply) => {
+    const body = request.body as {
+      businessId?: string
+      aiEnabled?: boolean
+    }
+
+    if (typeof body.aiEnabled !== 'boolean') {
+      return reply.status(400).send({
+        message: 'aiEnabled debe ser boolean'
+      })
+    }
+
+    const business = await findCrmBusiness(body.businessId)
+
+    if (!business) {
+      return reply.status(404).send({
+        message: 'No encontre un negocio cargado'
+      })
+    }
+
+    return prisma.business.update({
+      where: {
+        id: business.id
+      },
+      data: {
+        aiEnabled: body.aiEnabled
+      },
+      select: {
+        id: true,
+        aiEnabled: true
+      }
+    })
+  })
+
   app.get('/crm/conversations/:id/messages', async (request, reply) => {
     const params = request.params as {
       id: string
@@ -147,6 +194,51 @@ export async function crmRoutes(app: FastifyInstance) {
       orderBy: {
         createdAt: 'asc'
       }
+    })
+  })
+
+  app.patch('/crm/conversations/:id/ai', async (request, reply) => {
+    const params = request.params as {
+      id: string
+    }
+    const body = request.body as {
+      aiEnabled?: boolean
+    }
+
+    if (typeof body.aiEnabled !== 'boolean') {
+      return reply.status(400).send({
+        message: 'aiEnabled debe ser boolean'
+      })
+    }
+
+    const conversation = await prisma.conversation.findUnique({
+      where: {
+        id: params.id
+      }
+    })
+
+    if (!conversation) {
+      return reply.status(404).send({
+        message: 'No encontre esa conversacion'
+      })
+    }
+
+    return prisma.conversation.update({
+      where: {
+        id: params.id
+      },
+      data: body.aiEnabled
+        ? {
+            aiEnabled: true,
+            currentStep: conversation.currentStep === 'HUMAN_HANDOFF' ? 'START' : conversation.currentStep,
+            humanHandoffResolvedAt: conversation.currentStep === 'HUMAN_HANDOFF' ? new Date() : conversation.humanHandoffResolvedAt
+          }
+        : {
+            aiEnabled: false,
+            currentStep: 'HUMAN_HANDOFF',
+            humanHandoffAt: conversation.humanHandoffAt ?? new Date(),
+            humanHandoffResolvedAt: null
+          }
     })
   })
 
@@ -227,13 +319,32 @@ export async function crmRoutes(app: FastifyInstance) {
         id: conversation.id
       },
       data: {
-        lastMessage: text
+        lastMessage: text,
+        humanHandoffResolvedAt: conversation.currentStep === 'HUMAN_HANDOFF'
+          ? new Date()
+          : conversation.humanHandoffResolvedAt
       }
     })
 
     return {
       message,
       delivery: deliveryResult
+    }
+  })
+}
+
+async function findCrmBusiness(businessId?: string) {
+  if (businessId) {
+    return prisma.business.findUnique({
+      where: {
+        id: businessId
+      }
+    })
+  }
+
+  return prisma.business.findFirst({
+    orderBy: {
+      createdAt: 'asc'
     }
   })
 }

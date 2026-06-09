@@ -108,16 +108,13 @@ export class BotCopyService {
 
     return [
       prefix,
-      '¿Para qué día te gustaría? 😊',
-      '- Hoy',
-      '- Mañana',
-      '- Pasado',
-      'O decime una fecha, por ejemplo 25/6/26 o 25-6-26.'
+      'Perfecto 😊 ¿Para cuándo te gustaría el turno?',
+      'Puede ser hoy, mañana o directamente una fecha, por ejemplo 25/6.'
     ].filter(Boolean).join('\n')
   }
 
   dateNotUnderstood() {
-    return withRecoveryOptions('No me quedó claro el día 😊 ¿Te referís a hoy, mañana, pasado o a una fecha como 25/6/26?')
+    return withRecoveryOptions('Perdón, no me quedó claro el día 😅 ¿Me lo podés decir de otra forma? Puede ser hoy, mañana o una fecha como 25/6.')
   }
 
   noAvailabilityForDate(input?: {
@@ -217,13 +214,26 @@ export class BotCopyService {
 
   humanHandoffQueued() {
     return [
-      'Listo, te derivo con una persona del equipo.',
-      'Esperá un momento por favor, ya queda marcado para que te atiendan por acá 😊'
+      'Dale 😊',
+      'Ya le avisé a una de las chicas del equipo para que siga la conversación por acá.',
+      'En un ratito te responde 💖'
     ].join('\n')
   }
 
   humanHandoffAlreadyQueued() {
-    return 'Ya te dejé derivado con una persona del equipo. Esperá un momento por favor, te van a responder por acá 😊'
+    return 'Tranqui 😊 Ya quedó avisado el equipo. Te van a responder por este mismo chat.'
+  }
+
+  selectedServiceRejected(input: {
+    serviceName: string
+  }) {
+    return [
+      'Uy, perdón 😅',
+      `Entendí que habías elegido "${input.serviceName}", por eso seguí con ese servicio.`,
+      '',
+      '¿Querés cambiar el servicio?',
+      'Si querés, decime cuál preferís y lo acomodamos.'
+    ].join('\n')
   }
 
   clarifyProfessionalChange(input: {
@@ -348,16 +358,15 @@ function withRecoveryOptions(message: string, options?: {
 }) {
   const includeChangeService = options?.includeChangeService ?? true
   const recoveryOptions = [
-    '* volver al paso anterior',
     includeChangeService ? '* cambiar servicio' : null,
-    '* empezar de nuevo',
-    '* hablar con una persona'
+    '* volver al paso anterior',
+    '* pasarte con una persona'
   ].filter(Boolean)
 
   return [
     message,
     '',
-    'También podés escribir:',
+    'Si querés, también puedo:',
     ...recoveryOptions
   ].join('\n')
 }

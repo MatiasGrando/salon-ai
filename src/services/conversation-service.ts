@@ -134,7 +134,10 @@ export class ConversationService {
 
     if (isHumanHandoffMessage(message)) {
       await this.updateConversation(input.phone, {
-        currentStep: 'HUMAN_HANDOFF'
+        currentStep: 'HUMAN_HANDOFF',
+        aiEnabled: false,
+        humanHandoffAt: new Date(),
+        humanHandoffResolvedAt: null
       })
 
       return {
@@ -514,6 +517,9 @@ export class ConversationService {
       selectedTime?: string | null
       selectedCustomerName?: string | null
       lastAvailability?: unknown
+      aiEnabled?: boolean
+      humanHandoffAt?: Date | null
+      humanHandoffResolvedAt?: Date | null
     }
   ) {
     const { lastAvailability, ...rest } = data
@@ -597,7 +603,10 @@ function isHumanHandoffMessage(message: string) {
     'atendida por una persona',
     'que me atienda una persona',
     'que me atienda alguien',
-    'necesito una persona'
+    'necesito una persona',
+    'pasarte con una persona',
+    'pasame con una persona',
+    'pasame con alguien'
   ].some((phrase) => normalizedMessage.includes(phrase))
 }
 

@@ -182,7 +182,7 @@ async function main() {
         },
         {
           message: 'me quiero cortar el pelo',
-          includes: ['Para qué día']
+          includes: ['gustar']
         }
       ]
     },
@@ -201,7 +201,7 @@ async function main() {
         },
         {
           message: service.name,
-          includes: ['Para qué día']
+          includes: ['gustar']
         },
         {
           message: 'manana',
@@ -228,7 +228,7 @@ async function main() {
         },
         {
           message: service.name,
-          includes: ['Para qué día']
+          includes: ['gustar']
         },
         {
           message: 'manana',
@@ -255,7 +255,7 @@ async function main() {
         },
         {
           message: service.name,
-          includes: ['Para qué día']
+          includes: ['gustar']
         },
         {
           message: 'manana',
@@ -347,7 +347,7 @@ async function main() {
         },
         {
           message: service.name,
-          includes: ['Para qué día']
+          includes: ['gustar']
         },
         {
           message: 'para hoy si es posible',
@@ -371,7 +371,7 @@ async function main() {
         },
         {
           message: service.name,
-          includes: ['Para qué día']
+          includes: ['gustar']
         },
         {
           message: 'maniana',
@@ -406,7 +406,7 @@ async function main() {
         },
         {
           message: `hola soy Noche quiero ${service.name}`,
-          includes: ['Para qué día']
+          includes: ['gustar']
         },
         {
           message: 'busca horarios para hoy con todos los profesionales',
@@ -435,7 +435,7 @@ async function main() {
         },
         {
           message: 'okey probamos otro dia',
-          includes: ['Para qué día']
+          includes: ['gustar']
         }
       ]
     },
@@ -793,8 +793,7 @@ async function main() {
           includes: [
             'volver al paso anterior',
             'cambiar servicio',
-            'empezar de nuevo',
-            'hablar con una persona'
+            'pasarte con una persona'
           ]
         },
         {
@@ -814,12 +813,12 @@ async function main() {
         },
         {
           message: 'hablar con una persona',
-          includes: ['derivo', 'persona'],
+          includes: ['avisé', 'equipo'],
           currentStep: 'HUMAN_HANDOFF'
         },
         {
           message: 'hola?',
-          includes: ['derivado', 'persona'],
+          includes: ['avisado', 'equipo'],
           currentStep: 'HUMAN_HANDOFF'
         }
       ]
@@ -852,7 +851,7 @@ async function main() {
         {
           message: 'hola',
           includes: ['Cami'],
-          excludes: ['Para qué día']
+          excludes: ['gustar']
         }
       ]
     }

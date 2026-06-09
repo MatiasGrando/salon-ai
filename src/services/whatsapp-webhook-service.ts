@@ -93,6 +93,9 @@ export class WhatsAppWebhookService {
         update: {},
         create: {
           phone: message.from
+        },
+        include: {
+          business: true
         }
       })
 
@@ -130,6 +133,39 @@ export class WhatsAppWebhookService {
         from: message.from,
         conversationId: conversation.id
       })
+
+      if (conversation.currentStep === 'HUMAN_HANDOFF') {
+        await prisma.conversation.update({
+          where: {
+            id: conversation.id
+          },
+          data: {
+            humanHandoffResolvedAt: null
+          }
+        })
+      }
+
+      const businessAiEnabled = conversation.business
+        ? conversation.business.aiEnabled
+        : await this.isDefaultBusinessAiEnabled()
+
+      if (!businessAiEnabled || !conversation.aiEnabled) {
+        console.info('[whatsapp-webhook] skipped automatic reply because AI is disabled', {
+          from: message.from,
+          conversationId: conversation.id,
+          businessAiEnabled,
+          conversationAiEnabled: conversation.aiEnabled
+        })
+
+        results.push({
+          messageId: message.id,
+          from: message.from,
+          skipped: true,
+          reason: 'IA desactivada'
+        })
+
+        continue
+      }
 
       const conversationResult = await conversationService.handleMessage({
         phone: message.from,
@@ -239,6 +275,19 @@ export class WhatsAppWebhookService {
     }
 
     return messages
+  }
+
+  private async isDefaultBusinessAiEnabled() {
+    const business = await prisma.business.findFirst({
+      orderBy: {
+        createdAt: 'asc'
+      },
+      select: {
+        aiEnabled: true
+      }
+    })
+
+    return business?.aiEnabled ?? true
   }
 }
 
