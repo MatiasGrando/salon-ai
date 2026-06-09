@@ -800,33 +800,35 @@ const crmHtml = `<!doctype html>
         </div>
       </div>
 
-      <div class="details-section">
-        <div class="row">
+      <details class="config-panel">
+        <summary>
           <div class="panel-title">Bloquear agenda</div>
           <span class="chip warn">Manual</span>
+        </summary>
+        <div class="config-panel-body">
+          <form class="block-form" id="block-form">
+            <select id="block-reason">
+              <option value="ABSENCE">Falta</option>
+              <option value="VACATION">Vacaciones</option>
+              <option value="LATE_ARRIVAL">Llegada tarde</option>
+              <option value="SICK_LEAVE">Enfermedad</option>
+              <option value="PERSONAL">Personal</option>
+              <option value="HOLIDAY">Feriado</option>
+              <option value="OTHER">Otro</option>
+            </select>
+            <select id="block-professional">
+              <option value="">Todo el salon</option>
+            </select>
+            <div class="block-grid">
+              <input class="field" id="block-start" type="datetime-local">
+              <input class="field" id="block-end" type="datetime-local">
+            </div>
+            <input class="field" id="block-title" placeholder="Titulo opcional">
+            <button class="secondary" type="submit">Crear bloqueo</button>
+            <p class="hint" id="block-feedback"></p>
+          </form>
         </div>
-        <form class="block-form" id="block-form">
-          <select id="block-reason">
-            <option value="ABSENCE">Falta</option>
-            <option value="VACATION">Vacaciones</option>
-            <option value="LATE_ARRIVAL">Llegada tarde</option>
-            <option value="SICK_LEAVE">Enfermedad</option>
-            <option value="PERSONAL">Personal</option>
-            <option value="HOLIDAY">Feriado</option>
-            <option value="OTHER">Otro</option>
-          </select>
-          <select id="block-professional">
-            <option value="">Todo el salon</option>
-          </select>
-          <div class="block-grid">
-            <input class="field" id="block-start" type="datetime-local">
-            <input class="field" id="block-end" type="datetime-local">
-          </div>
-          <input class="field" id="block-title" placeholder="Titulo opcional">
-          <button class="secondary" type="submit">Crear bloqueo</button>
-          <p class="hint" id="block-feedback"></p>
-        </form>
-      </div>
+      </details>
 
       <details class="config-panel">
         <summary>
