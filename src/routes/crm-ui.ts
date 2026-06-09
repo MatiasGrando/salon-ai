@@ -507,10 +507,30 @@ const crmHtml = `<!doctype html>
       margin-top: 12px;
     }
 
-    .block-grid {
+    .block-grid,
+    .config-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 8px;
+    }
+
+    .config-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    .config-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .config-list .item {
+      display: grid;
+      gap: 6px;
     }
 
     .empty,
@@ -756,6 +776,45 @@ const crmHtml = `<!doctype html>
           <p class="hint" id="block-feedback"></p>
         </form>
       </div>
+
+      <div class="details-section">
+        <div class="row">
+          <div class="panel-title">Profesionales</div>
+          <span class="chip" id="professional-count">0</span>
+        </div>
+        <form class="block-form" id="professional-form">
+          <input id="professional-id" type="hidden">
+          <input class="field" id="professional-name" placeholder="Nombre del profesional">
+          <div class="config-actions">
+            <button class="secondary" id="professional-cancel" type="button" hidden>Cancelar</button>
+            <button class="primary" type="submit">Guardar</button>
+          </div>
+          <p class="hint" id="professional-feedback"></p>
+        </form>
+        <div class="config-list" id="professional-list"></div>
+      </div>
+
+      <div class="details-section">
+        <div class="row">
+          <div class="panel-title">Servicios</div>
+          <span class="chip" id="service-count">0</span>
+        </div>
+        <form class="block-form" id="service-form">
+          <input id="service-id" type="hidden">
+          <input class="field" id="service-name" placeholder="Nombre del servicio">
+          <div class="config-grid">
+            <input class="field" id="service-duration" type="number" min="1" step="1" placeholder="Minutos">
+            <input class="field" id="service-category" placeholder="Categoria opcional">
+          </div>
+          <input class="field" id="service-aliases" placeholder="Alias separados por coma">
+          <div class="config-actions">
+            <button class="secondary" id="service-cancel" type="button" hidden>Cancelar</button>
+            <button class="primary" type="submit">Guardar</button>
+          </div>
+          <p class="hint" id="service-feedback"></p>
+        </form>
+        <div class="config-list" id="service-list"></div>
+      </div>
     </aside>
   </main>
 
@@ -766,6 +825,7 @@ const crmHtml = `<!doctype html>
       messages: [],
       appointments: [],
       professionals: [],
+      services: [],
       aiSettings: {
         aiEnabled: true
       },
@@ -804,6 +864,23 @@ const crmHtml = `<!doctype html>
       blockEnd: document.getElementById('block-end'),
       blockTitle: document.getElementById('block-title'),
       blockFeedback: document.getElementById('block-feedback'),
+      professionalForm: document.getElementById('professional-form'),
+      professionalId: document.getElementById('professional-id'),
+      professionalName: document.getElementById('professional-name'),
+      professionalCancel: document.getElementById('professional-cancel'),
+      professionalFeedback: document.getElementById('professional-feedback'),
+      professionalList: document.getElementById('professional-list'),
+      professionalCount: document.getElementById('professional-count'),
+      serviceForm: document.getElementById('service-form'),
+      serviceId: document.getElementById('service-id'),
+      serviceName: document.getElementById('service-name'),
+      serviceDuration: document.getElementById('service-duration'),
+      serviceCategory: document.getElementById('service-category'),
+      serviceAliases: document.getElementById('service-aliases'),
+      serviceCancel: document.getElementById('service-cancel'),
+      serviceFeedback: document.getElementById('service-feedback'),
+      serviceList: document.getElementById('service-list'),
+      serviceCount: document.getElementById('service-count'),
       mobileInbox: document.getElementById('mobile-inbox'),
       mobileChat: document.getElementById('mobile-chat'),
       mobileDetails: document.getElementById('mobile-details'),
@@ -847,8 +924,10 @@ const crmHtml = `<!doctype html>
       state.businessId = businesses[0]?.id || null
       state.aiSettings = await getJson('/crm/ai-settings' + (state.businessId ? '?businessId=' + encodeURIComponent(state.businessId) : ''))
       state.professionals = await getJson('/professionals')
+      state.services = await getJson('/services')
       renderAiControls()
       renderProfessionals()
+      renderServices()
     }
 
     async function loadConversations(options = {}) {
@@ -1015,6 +1094,56 @@ const crmHtml = `<!doctype html>
         options.push('<option value="' + professional.id + '">' + escapeHtml(professional.name) + '</option>')
       }
       els.blockProfessional.innerHTML = options.join('')
+      els.professionalCount.textContent = String(state.professionals.length)
+      els.professionalList.innerHTML = state.professionals.length
+        ? state.professionals.map((professional) => {
+            return '<div class="item">' +
+              '<div class="row">' +
+                '<div class="item-title">' + escapeHtml(professional.name) + '</div>' +
+                '<div class="config-actions">' +
+                  '<button class="secondary" type="button" data-edit-professional="' + professional.id + '">Editar</button>' +
+                  '<button class="danger" type="button" data-delete-professional="' + professional.id + '">Eliminar</button>' +
+                '</div>' +
+              '</div>' +
+            '</div>'
+          }).join('')
+        : '<div class="empty">No hay profesionales cargados.</div>'
+
+      for (const button of els.professionalList.querySelectorAll('[data-edit-professional]')) {
+        button.addEventListener('click', () => editProfessional(button.dataset.editProfessional))
+      }
+
+      for (const button of els.professionalList.querySelectorAll('[data-delete-professional]')) {
+        button.addEventListener('click', () => deleteProfessional(button.dataset.deleteProfessional))
+      }
+    }
+
+    function renderServices() {
+      els.serviceCount.textContent = String(state.services.length)
+      els.serviceList.innerHTML = state.services.length
+        ? state.services.map((service) => {
+            const aliases = (service.aliases || []).map((alias) => alias.name).join(', ')
+            return '<div class="item">' +
+              '<div class="row">' +
+                '<div class="item-title">' + escapeHtml(service.name) + '</div>' +
+                '<div class="config-actions">' +
+                  '<button class="secondary" type="button" data-edit-service="' + service.id + '">Editar</button>' +
+                  '<button class="danger" type="button" data-delete-service="' + service.id + '">Eliminar</button>' +
+                '</div>' +
+              '</div>' +
+              '<p>' + escapeHtml(service.duration + ' min' + (service.category ? ' · ' + service.category : '')) + '</p>' +
+              (aliases ? '<p>Alias: ' + escapeHtml(aliases) + '</p>' : '') +
+            '</div>'
+          }).join('')
+        : '<div class="empty">No hay servicios cargados.</div>'
+
+      for (const button of els.serviceList.querySelectorAll('[data-edit-service]')) {
+        button.addEventListener('click', () => editService(button.dataset.editService))
+      }
+
+      for (const button of els.serviceList.querySelectorAll('[data-delete-service]')) {
+        button.addEventListener('click', () => deleteService(button.dataset.deleteService))
+      }
     }
 
     function renderAiControls() {
@@ -1146,6 +1275,148 @@ const crmHtml = `<!doctype html>
       }
     }
 
+    async function saveProfessional(event) {
+      event.preventDefault()
+      if (!state.businessId) {
+        els.professionalFeedback.textContent = 'No encontre un negocio cargado.'
+        return
+      }
+
+      const id = els.professionalId.value
+      const name = els.professionalName.value.trim()
+      if (!name) {
+        els.professionalFeedback.textContent = 'Escribi un nombre.'
+        return
+      }
+
+      try {
+        await getJson(id ? '/professionals/' + id : '/professionals', {
+          method: id ? 'PATCH' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name,
+            businessId: state.businessId
+          })
+        })
+        els.professionalFeedback.textContent = id ? 'Profesional actualizado.' : 'Profesional creado.'
+        resetProfessionalForm()
+        state.professionals = await getJson('/professionals')
+        renderProfessionals()
+      } catch (error) {
+        els.professionalFeedback.textContent = error.message
+      }
+    }
+
+    function editProfessional(id) {
+      const professional = state.professionals.find((item) => item.id === id)
+      if (!professional) return
+      els.professionalId.value = professional.id
+      els.professionalName.value = professional.name
+      els.professionalCancel.hidden = false
+      els.professionalFeedback.textContent = 'Editando profesional.'
+    }
+
+    async function deleteProfessional(id) {
+      const professional = state.professionals.find((item) => item.id === id)
+      if (!professional || !confirm('Eliminar profesional ' + professional.name + '?')) return
+
+      try {
+        await getJson('/professionals/' + id, {
+          method: 'DELETE'
+        })
+        els.professionalFeedback.textContent = 'Profesional eliminado.'
+        state.professionals = await getJson('/professionals')
+        renderProfessionals()
+      } catch (error) {
+        els.professionalFeedback.textContent = error.message
+      }
+    }
+
+    function resetProfessionalForm() {
+      els.professionalId.value = ''
+      els.professionalName.value = ''
+      els.professionalCancel.hidden = true
+    }
+
+    async function saveService(event) {
+      event.preventDefault()
+      if (!state.businessId) {
+        els.serviceFeedback.textContent = 'No encontre un negocio cargado.'
+        return
+      }
+
+      const id = els.serviceId.value
+      const name = els.serviceName.value.trim()
+      const duration = Number(els.serviceDuration.value)
+      const category = els.serviceCategory.value.trim()
+      const aliases = els.serviceAliases.value
+        .split(',')
+        .map((alias) => alias.trim())
+        .filter(Boolean)
+
+      if (!name || !Number.isFinite(duration) || duration <= 0) {
+        els.serviceFeedback.textContent = 'Completa nombre y duracion.'
+        return
+      }
+
+      try {
+        await getJson(id ? '/services/' + id : '/services', {
+          method: id ? 'PATCH' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name,
+            duration,
+            businessId: state.businessId,
+            category: category || undefined,
+            aliases
+          })
+        })
+        els.serviceFeedback.textContent = id ? 'Servicio actualizado.' : 'Servicio creado.'
+        resetServiceForm()
+        state.services = await getJson('/services')
+        renderServices()
+      } catch (error) {
+        els.serviceFeedback.textContent = error.message
+      }
+    }
+
+    function editService(id) {
+      const service = state.services.find((item) => item.id === id)
+      if (!service) return
+      els.serviceId.value = service.id
+      els.serviceName.value = service.name
+      els.serviceDuration.value = service.duration
+      els.serviceCategory.value = service.category || ''
+      els.serviceAliases.value = (service.aliases || []).map((alias) => alias.name).join(', ')
+      els.serviceCancel.hidden = false
+      els.serviceFeedback.textContent = 'Editando servicio.'
+    }
+
+    async function deleteService(id) {
+      const service = state.services.find((item) => item.id === id)
+      if (!service || !confirm('Eliminar servicio ' + service.name + '?')) return
+
+      try {
+        await getJson('/services/' + id, {
+          method: 'DELETE'
+        })
+        els.serviceFeedback.textContent = 'Servicio eliminado.'
+        state.services = await getJson('/services')
+        renderServices()
+      } catch (error) {
+        els.serviceFeedback.textContent = error.message
+      }
+    }
+
+    function resetServiceForm() {
+      els.serviceId.value = ''
+      els.serviceName.value = ''
+      els.serviceDuration.value = ''
+      els.serviceCategory.value = ''
+      els.serviceAliases.value = ''
+      els.serviceCancel.hidden = true
+    }
+
     function escapeHtml(value) {
       return String(value ?? '')
         .replace(/&/g, '&amp;')
@@ -1182,6 +1453,10 @@ const crmHtml = `<!doctype html>
 
     els.replyForm.addEventListener('submit', sendReply)
     els.blockForm.addEventListener('submit', createBlock)
+    els.professionalForm.addEventListener('submit', saveProfessional)
+    els.professionalCancel.addEventListener('click', resetProfessionalForm)
+    els.serviceForm.addEventListener('submit', saveService)
+    els.serviceCancel.addEventListener('click', resetServiceForm)
     els.globalAiToggle.addEventListener('click', toggleGlobalAi)
     els.conversationAiToggle.addEventListener('click', toggleConversationAi)
     els.resolveHandoff.addEventListener('click', resolveHandoff)
