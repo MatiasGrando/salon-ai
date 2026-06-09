@@ -56,11 +56,12 @@ export class BotCopyService {
     return 'Por ahora no tengo servicios cargados para reservar. Cuando estén listos, te ayudo por acá.'
   }
 
-  serviceNotFound() {
+  serviceNotFound(misunderstandingCount = 0) {
     return withRecoveryOptions(
       'No lo ubiqué bien. Decime el nombre del servicio y lo seguimos.',
       {
-        includeChangeService: false
+        includeChangeService: false,
+        misunderstandingCount
       }
     )
   }
@@ -93,8 +94,10 @@ export class BotCopyService {
     return 'Todavía no tengo profesionales disponibles para ese servicio.'
   }
 
-  professionalNotFound() {
-    return withRecoveryOptions('No lo encontré entre los profesionales disponibles. Decime el nombre y lo reviso.')
+  professionalNotFound(misunderstandingCount = 0) {
+    return withRecoveryOptions('No lo encontré entre los profesionales disponibles. Decime el nombre y lo reviso.', {
+      misunderstandingCount
+    })
   }
 
   askDate(professionalName: string) {
@@ -113,8 +116,10 @@ export class BotCopyService {
     ].filter(Boolean).join('\n')
   }
 
-  dateNotUnderstood() {
-    return withRecoveryOptions('Perdón, no me quedó claro el día 😅 ¿Me lo podés decir de otra forma? Puede ser hoy, mañana o una fecha como 25/6.')
+  dateNotUnderstood(misunderstandingCount = 0) {
+    return withRecoveryOptions('Perdón, no me quedó claro el día 😅 ¿Me lo podés decir de otra forma? Puede ser hoy, mañana o una fecha como 25/6.', {
+      misunderstandingCount
+    })
   }
 
   noAvailabilityForDate(input?: {
@@ -169,11 +174,12 @@ export class BotCopyService {
     return 'Perfecto 😊 ¿A nombre de quién lo dejamos?'
   }
 
-  askCustomerNameAgain() {
+  askCustomerNameAgain(misunderstandingCount = 0) {
     return withRecoveryOptions(
       'Perdón, no llegué a tomar tu nombre 😊 ¿Cómo te llamás? Así te lo dejo bien cargado.',
       {
-        includeChangeService: false
+        includeChangeService: false,
+        misunderstandingCount
       }
     )
   }
@@ -197,18 +203,21 @@ export class BotCopyService {
     ].join('\n')
   }
 
-  askConfirm() {
+  askConfirm(misunderstandingCount = 0) {
+    if (misunderstandingCount <= 0) {
+      return 'Mmm, creo que no te seguí 😅 ¿Querés confirmar el turno o cambiar algo?'
+    }
+
     return [
-      'No me quedó del todo claro 😊',
-      '¿Te referís a alguna de estas opciones?',
+      'Creo que nos estamos cruzando un poco 😅',
+      'Decime cuál se parece más a lo que necesitás:',
       '* confirmar',
       '* cambiar horario',
       '* cambiar profesional',
       '* cambiar fecha',
       '* cambiar servicio',
       '* cancelar',
-      '* volver',
-      '* hablar con una persona'
+      '* pasarte con una persona'
     ].join('\n')
   }
 
@@ -355,8 +364,29 @@ export function getFirstName(name: string) {
 
 function withRecoveryOptions(message: string, options?: {
   includeChangeService?: boolean
+  misunderstandingCount?: number
 }) {
   const includeChangeService = options?.includeChangeService ?? true
+  const misunderstandingCount = options?.misunderstandingCount ?? 0
+
+  if (misunderstandingCount <= 0) {
+    return message
+  }
+
+  if (misunderstandingCount >= 2) {
+    return [
+      'Creo que nos estamos cruzando un poco 😅',
+      message,
+      '',
+      'Decime cuál se parece más a lo que necesitás:',
+      '* reservar turno',
+      '* cambiar turno',
+      '* cancelar turno',
+      includeChangeService ? '* cambiar servicio' : null,
+      '* pasarte con una persona'
+    ].filter(Boolean).join('\n')
+  }
+
   const recoveryOptions = [
     includeChangeService ? '* cambiar servicio' : null,
     '* volver al paso anterior',

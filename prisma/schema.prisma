@@ -167,6 +167,7 @@ model Conversation {
 
   currentStep ConversationStep @default(START)
   aiEnabled Boolean @default(true)
+  misunderstandingCount Int @default(0)
 
   selectedServiceId String?
   selectedProfessionalId String?

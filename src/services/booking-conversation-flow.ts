@@ -20,6 +20,7 @@ type ConversationState = {
   selectedCustomerName: string | null
   lastAvailability: unknown
   lastMessage: string | null
+  misunderstandingCount: number
 }
 
 type HandleBookingInput = {
@@ -492,7 +493,7 @@ export class BookingConversationFlow {
     }
 
     if (!selectedService) {
-      return this.buildServicesReply(botCopyService.serviceNotFound(), input.businessId)
+      return this.buildServicesReply(botCopyService.serviceNotFound(input.conversation?.misunderstandingCount ?? 0), input.businessId)
     }
 
     const selectedDateFromMessage = await this.parseDateFromMessage(input.message)
@@ -668,7 +669,7 @@ export class BookingConversationFlow {
     const selectedProfessional = await this.findProfessionalByMessage(input.message, selectedService.businessId)
 
     if (!selectedProfessional) {
-      return this.buildProfessionalsReply(selectedService.businessId, botCopyService.professionalNotFound())
+      return this.buildProfessionalsReply(selectedService.businessId, botCopyService.professionalNotFound(input.conversation.misunderstandingCount))
     }
 
     const messageIntent = await this.extractIntentForSelectedService({
@@ -784,7 +785,7 @@ export class BookingConversationFlow {
       }
 
       return {
-        reply: botCopyService.dateNotUnderstood()
+        reply: botCopyService.dateNotUnderstood(input.conversation.misunderstandingCount)
       }
     }
 
@@ -1109,7 +1110,7 @@ export class BookingConversationFlow {
 
     if (!customerName || customerName.length < 2) {
       return {
-        reply: botCopyService.askCustomerNameAgain()
+        reply: botCopyService.askCustomerNameAgain(input.conversation.misunderstandingCount)
       }
     }
 
@@ -1343,7 +1344,7 @@ export class BookingConversationFlow {
 
     if (!wantsToConfirm) {
       return {
-        reply: botCopyService.askConfirm()
+        reply: botCopyService.askConfirm(input.conversation.misunderstandingCount)
       }
     }
 

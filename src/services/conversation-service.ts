@@ -24,6 +24,7 @@ type HandleMessageResult = {
 export class ConversationService {
   async handleMessage(input: HandleMessageInput): Promise<HandleMessageResult> {
     const result = await this.handleMessageCore(input)
+    await this.trackMisunderstanding(input.phone, result.reply)
 
     return this.humanizeResult({
       result,
@@ -58,6 +59,7 @@ export class ConversationService {
                 selectedDate: null,
                 selectedTime: null,
                 selectedCustomerName: null,
+                misunderstandingCount: 0,
                 lastAvailability: Prisma.JsonNull
               }
             : {
@@ -109,6 +111,7 @@ export class ConversationService {
         selectedDate: null,
         selectedTime: null,
         selectedCustomerName: null,
+        misunderstandingCount: 0,
         lastAvailability: null
       })
 
@@ -124,6 +127,7 @@ export class ConversationService {
         selectedProfessionalId: null,
         selectedDate: null,
         selectedTime: null,
+        misunderstandingCount: 0,
         lastAvailability: null
       })
 
@@ -136,6 +140,7 @@ export class ConversationService {
       await this.updateConversation(input.phone, {
         currentStep: 'HUMAN_HANDOFF',
         aiEnabled: false,
+        misunderstandingCount: 0,
         humanHandoffAt: new Date(),
         humanHandoffResolvedAt: null
       })
@@ -170,6 +175,7 @@ export class ConversationService {
         selectedProfessionalId: null,
         selectedDate: null,
         selectedTime: null,
+        misunderstandingCount: 0,
         lastAvailability: null
       })
 
@@ -200,6 +206,7 @@ export class ConversationService {
         selectedProfessionalId: null,
         selectedDate: null,
         selectedTime: null,
+        misunderstandingCount: 0,
         lastAvailability: null
       })
 
@@ -249,6 +256,32 @@ export class ConversationService {
     }
   }
 
+  private async trackMisunderstanding(phone: string, reply: string) {
+    if (isMisunderstandingReply(reply)) {
+      await prisma.conversation.update({
+        where: {
+          phone
+        },
+        data: {
+          misunderstandingCount: {
+            increment: 1
+          }
+        }
+      })
+
+      return
+    }
+
+    await prisma.conversation.update({
+      where: {
+        phone
+      },
+      data: {
+        misunderstandingCount: 0
+      }
+    })
+  }
+
   private async tryHandleOrchestratedIntent(input: {
     phone: string
     message: string
@@ -256,6 +289,7 @@ export class ConversationService {
     conversation: {
       currentStep: string
       selectedCustomerName: string | null
+      misunderstandingCount: number
     }
   }): Promise<HandleMessageResult | null> {
     if (!isMenuStep(input.conversation.currentStep)) {
@@ -288,6 +322,7 @@ export class ConversationService {
     conversation: {
       currentStep: string
       selectedCustomerName: string | null
+      misunderstandingCount: number
     }
   }): Promise<HandleMessageResult | null> {
     if (input.intent === 'my_appointments') {
@@ -338,6 +373,7 @@ export class ConversationService {
           selectedDate: null,
           selectedTime: null,
           lastAvailability: null,
+          misunderstandingCount: input.conversation.misunderstandingCount,
           lastMessage: input.message
         }
       })
@@ -518,6 +554,7 @@ export class ConversationService {
       selectedCustomerName?: string | null
       lastAvailability?: unknown
       aiEnabled?: boolean
+      misunderstandingCount?: number
       humanHandoffAt?: Date | null
       humanHandoffResolvedAt?: Date | null
     }
@@ -565,6 +602,20 @@ function isResetMessage(message: string) {
     'volver a empezar',
     'reset'
   ].includes(normalizedMessage)
+}
+
+function isMisunderstandingReply(reply: string) {
+  const normalizedReply = normalizeText(reply)
+
+  return [
+    'no lo ubique bien',
+    'no lo encontre',
+    'no me quedo claro',
+    'no llegue a tomar tu nombre',
+    'no te segui',
+    'nos estamos cruzando',
+    'entendi que habias elegido'
+  ].some((phrase) => normalizedReply.includes(phrase))
 }
 
 function isExpiredInProgressConversation(currentStep: string, updatedAt: Date) {

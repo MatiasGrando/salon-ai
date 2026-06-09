@@ -1,4 +1,4 @@
-import { prisma } from '../src/config/prisma.js'
+﻿import { prisma } from '../src/config/prisma.js'
 import { ConversationService } from '../src/services/conversation-service.js'
 
 type Check = {
@@ -789,10 +789,24 @@ async function main() {
           includes: ['gustar']
         },
         {
-          message: 'no elegÃ­ eso',
+          message: 'no elegi eso',
+          includes: ['25/6'],
+          excludes: ['pasarte con una persona', 'reservar turno']
+        },
+        {
+          message: 'tampoco eso',
           includes: [
             'volver al paso anterior',
             'cambiar servicio',
+            'pasarte con una persona'
+          ]
+        },
+        {
+          message: 'sigo sin entender',
+          includes: [
+            'reservar turno',
+            'cambiar turno',
+            'cancelar turno',
             'pasarte con una persona'
           ]
         },
@@ -813,7 +827,7 @@ async function main() {
         },
         {
           message: 'hablar con una persona',
-          includes: ['avisé', 'equipo'],
+          includes: ['avisÃ©', 'equipo'],
           currentStep: 'HUMAN_HANDOFF'
         },
         {
@@ -875,7 +889,7 @@ async function main() {
     process.exit(1)
   }
 
-  console.log('\nTodas las pruebas de conversación pasaron.')
+  console.log('\nTodas las pruebas de conversaciÃ³n pasaron.')
 }
 
 async function runScenario(scenario: Scenario) {
@@ -919,7 +933,7 @@ async function assertConversationStep(phone: string, step: Step) {
   })
 
   if (conversation?.currentStep !== step.currentStep) {
-    throw new Error(`Esperaba currentStep ${step.currentStep}, recibÃ­ ${conversation?.currentStep ?? 'sin conversaciÃ³n'}.`)
+    throw new Error(`Esperaba currentStep ${step.currentStep}, recibÃƒÂ­ ${conversation?.currentStep ?? 'sin conversaciÃƒÂ³n'}.`)
   }
 }
 
