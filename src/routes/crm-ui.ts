@@ -727,6 +727,7 @@ const crmHtml = `<!doctype html>
           <span class="hint">Derivados sin responder</span>
           <span class="counter" id="handoff-count">0</span>
         </div>
+        <button class="secondary" id="global-bot-toggle" type="button">Bot automatico activo</button>
         <button class="secondary" id="global-ai-toggle" type="button">IA general activa</button>
       </div>
       <div class="conversation-list" id="conversation-list">
@@ -899,6 +900,7 @@ const crmHtml = `<!doctype html>
       professionals: [],
       services: [],
       aiSettings: {
+        botEnabled: true,
         aiEnabled: true
       },
       businessId: null,
@@ -912,6 +914,7 @@ const crmHtml = `<!doctype html>
       searchButton: document.getElementById('search-button'),
       refresh: document.getElementById('refresh'),
       handoffCount: document.getElementById('handoff-count'),
+      globalBotToggle: document.getElementById('global-bot-toggle'),
       globalAiToggle: document.getElementById('global-ai-toggle'),
       messages: document.getElementById('messages'),
       chatAvatar: document.getElementById('chat-avatar'),
@@ -1241,6 +1244,8 @@ const crmHtml = `<!doctype html>
         return conversation.currentStep === 'HUMAN_HANDOFF' && !conversation.humanHandoffResolvedAt
       }).length
       els.handoffCount.textContent = String(pending)
+      els.globalBotToggle.textContent = state.aiSettings.botEnabled === false ? 'Bot automatico apagado' : 'Bot automatico activo'
+      els.globalBotToggle.className = state.aiSettings.botEnabled === false ? 'danger' : 'secondary'
       els.globalAiToggle.textContent = state.aiSettings.aiEnabled === false ? 'IA general apagada' : 'IA general activa'
       els.globalAiToggle.className = state.aiSettings.aiEnabled === false ? 'danger' : 'secondary'
     }
@@ -1280,6 +1285,23 @@ const crmHtml = `<!doctype html>
           body: JSON.stringify({
             businessId: state.businessId,
             aiEnabled: nextValue
+          })
+        })
+        renderAiControls()
+      } catch (error) {
+        alert(error.message)
+      }
+    }
+
+    async function toggleGlobalBot() {
+      const nextValue = state.aiSettings.botEnabled === false
+      try {
+        state.aiSettings = await getJson('/crm/ai-settings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            businessId: state.businessId,
+            botEnabled: nextValue
           })
         })
         renderAiControls()
@@ -1641,6 +1663,7 @@ const crmHtml = `<!doctype html>
     els.professionalCancel.addEventListener('click', resetProfessionalForm)
     els.serviceForm.addEventListener('submit', saveService)
     els.serviceCancel.addEventListener('click', resetServiceForm)
+    els.globalBotToggle.addEventListener('click', toggleGlobalBot)
     els.globalAiToggle.addEventListener('click', toggleGlobalAi)
     els.conversationAiToggle.addEventListener('click', toggleConversationAi)
     els.resolveHandoff.addEventListener('click', resolveHandoff)

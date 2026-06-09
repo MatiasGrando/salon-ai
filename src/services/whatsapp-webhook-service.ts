@@ -145,6 +145,27 @@ export class WhatsAppWebhookService {
         })
       }
 
+      const businessBotEnabled = conversation.business
+        ? conversation.business.botEnabled
+        : await this.isDefaultBusinessBotEnabled()
+
+      if (!businessBotEnabled) {
+        console.info('[whatsapp-webhook] skipped automatic reply because bot is disabled', {
+          from: message.from,
+          conversationId: conversation.id,
+          businessBotEnabled
+        })
+
+        results.push({
+          messageId: message.id,
+          from: message.from,
+          skipped: true,
+          reason: 'Bot desactivado'
+        })
+
+        continue
+      }
+
       const businessAiEnabled = conversation.business
         ? conversation.business.aiEnabled
         : await this.isDefaultBusinessAiEnabled()
@@ -288,6 +309,19 @@ export class WhatsAppWebhookService {
     })
 
     return business?.aiEnabled ?? true
+  }
+
+  private async isDefaultBusinessBotEnabled() {
+    const business = await prisma.business.findFirst({
+      orderBy: {
+        createdAt: 'asc'
+      },
+      select: {
+        botEnabled: true
+      }
+    })
+
+    return business?.botEnabled ?? true
   }
 }
 

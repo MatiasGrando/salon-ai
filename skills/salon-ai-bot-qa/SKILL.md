@@ -40,6 +40,15 @@ Allowed exception: if the user asks broadly for availability, such as "hay turno
 
 ## Do Not Repeat These Regressions
 
+### CRM Bot Toggle
+
+The business-level bot toggle is different from the AI toggle.
+
+- `botEnabled = false`: save inbound WhatsApp messages in the CRM, but do not send any automatic reply.
+- `aiEnabled = false`: the bot may still respond with the non-AI/basic flow.
+
+Do not hide the full bot toggle behind an "IA" label in the CRM.
+
 ### Confirmation
 
 In `CONFIRM`, detect confirmation before trying to interpret service/professional changes.

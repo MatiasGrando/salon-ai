@@ -53,6 +53,7 @@ enum ScheduleBlockReason {
 model Business {
   id            String         @id @default(cuid())
   name          String
+  botEnabled    Boolean        @default(true)
   aiEnabled     Boolean        @default(true)
 
   professionals Professional[]

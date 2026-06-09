@@ -132,6 +132,7 @@ export async function crmRoutes(app: FastifyInstance) {
 
     return {
       businessId: business?.id ?? null,
+      botEnabled: business?.botEnabled ?? true,
       aiEnabled: business?.aiEnabled ?? true
     }
   })
@@ -139,12 +140,13 @@ export async function crmRoutes(app: FastifyInstance) {
   app.patch('/crm/ai-settings', async (request, reply) => {
     const body = request.body as {
       businessId?: string
+      botEnabled?: boolean
       aiEnabled?: boolean
     }
 
-    if (typeof body.aiEnabled !== 'boolean') {
+    if (typeof body.botEnabled !== 'boolean' && typeof body.aiEnabled !== 'boolean') {
       return reply.status(400).send({
-        message: 'aiEnabled debe ser boolean'
+        message: 'botEnabled o aiEnabled debe ser boolean'
       })
     }
 
@@ -161,10 +163,12 @@ export async function crmRoutes(app: FastifyInstance) {
         id: business.id
       },
       data: {
-        aiEnabled: body.aiEnabled
+        ...(typeof body.botEnabled === 'boolean' ? { botEnabled: body.botEnabled } : {}),
+        ...(typeof body.aiEnabled === 'boolean' ? { aiEnabled: body.aiEnabled } : {})
       },
       select: {
         id: true,
+        botEnabled: true,
         aiEnabled: true
       }
     })

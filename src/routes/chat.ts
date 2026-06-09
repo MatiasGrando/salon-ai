@@ -57,9 +57,11 @@ export async function chatRoutes(app: FastifyInstance) {
             createdAt: 'asc'
           },
           select: {
+            botEnabled: true,
             aiEnabled: true
           }
         })
+    const businessBotEnabled = freshConversation?.business?.botEnabled ?? fallbackBusiness?.botEnabled ?? true
     const businessAiEnabled = freshConversation?.business?.aiEnabled ?? fallbackBusiness?.aiEnabled ?? true
 
     if (freshConversation?.currentStep === 'HUMAN_HANDOFF') {
@@ -71,6 +73,14 @@ export async function chatRoutes(app: FastifyInstance) {
           humanHandoffResolvedAt: null
         }
       })
+    }
+
+    if (!businessBotEnabled) {
+      return {
+        reply: null,
+        skipped: true,
+        reason: 'Bot desactivado'
+      }
     }
 
     if (!businessAiEnabled || freshConversation?.aiEnabled === false) {

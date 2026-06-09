@@ -1,0 +1,1 @@
+ALTER TABLE "Business" ADD COLUMN "botEnabled" BOOLEAN NOT NULL DEFAULT true;
