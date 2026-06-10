@@ -228,7 +228,7 @@ export async function crmRoutes(app: FastifyInstance) {
       })
     }
 
-    const isResolvingHumanHandoff = body.aiEnabled && conversation.currentStep === 'HUMAN_HANDOFF'
+    const isEnablingAi = body.aiEnabled
 
     return prisma.conversation.update({
       where: {
@@ -237,18 +237,14 @@ export async function crmRoutes(app: FastifyInstance) {
       data: body.aiEnabled
         ? {
             aiEnabled: true,
-            currentStep: isResolvingHumanHandoff ? 'START' : conversation.currentStep,
-            ...(isResolvingHumanHandoff
-              ? {
-                  selectedServiceId: null,
-                  selectedProfessionalId: null,
-                  selectedDate: null,
-                  selectedTime: null,
-                  lastAvailability: Prisma.JsonNull
-                }
-              : {}),
+            currentStep: 'START',
+            selectedServiceId: null,
+            selectedProfessionalId: null,
+            selectedDate: null,
+            selectedTime: null,
+            lastAvailability: Prisma.JsonNull,
             misunderstandingCount: 0,
-            humanHandoffResolvedAt: isResolvingHumanHandoff ? new Date() : conversation.humanHandoffResolvedAt
+            humanHandoffResolvedAt: isEnablingAi ? new Date() : conversation.humanHandoffResolvedAt
           }
         : {
             aiEnabled: false,

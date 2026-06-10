@@ -175,7 +175,7 @@ export class BookingConversationFlow {
         date: conversation.selectedDate
       })
 
-      if (!availability.ok) {
+      if ('message' in availability) {
         return {
           reply: availability.message
         }
@@ -1100,20 +1100,24 @@ export class BookingConversationFlow {
 
       const availability = await this.findAvailabilityOptions({
         professionalId: input.conversation.selectedProfessionalId,
-        serviceId: input.conversation.selectedServiceId,
-        date: input.conversation.selectedDate
+        serviceId: input.conversation.selectedServiceId!,
+        date: input.conversation.selectedDate!
       })
 
-      if (!availability.ok) {
+      if (availability.ok === false) {
+        const unavailable = availability as { ok: false; message: string }
+
         return {
-          reply: availability.message
+          reply: unavailable.message
         }
       }
 
+      const available = availability as { ok: true; options: AvailabilityOption[] }
+
       return {
         reply: botCopyService.availability({
-          slots: formatAvailabilitySlots(availability.options),
-          professionalName: getSharedProfessionalName(availability.options),
+          slots: formatAvailabilitySlots(available.options),
+          professionalName: getSharedProfessionalName(available.options),
           prefix: 'No encontré ese horario disponible. Te paso los horarios que veo libres.'
         })
       }
@@ -2402,6 +2406,7 @@ export class BookingConversationFlow {
       selectedDate?: string | null
       selectedTime?: string | null
       selectedCustomerName?: string | null
+      misunderstandingCount?: number
       lastAvailability?: LastAvailabilityState | null
     }
   ) {

@@ -849,5 +849,8 @@ function preservesRequiredLines(originalReply: string, styledReply: string) {
 }
 
 function preservesRequiredBotName(originalReply: string, styledReply: string) {
-  return !originalReply.includes('Cami') || styledReply.includes('Cami')
+  const originalHasBotName = originalReply.includes('Cami')
+  const styledHasBotName = styledReply.includes('Cami')
+
+  return originalHasBotName === styledHasBotName
 }

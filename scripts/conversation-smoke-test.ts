@@ -134,6 +134,21 @@ async function main() {
       ]
     },
     {
+      name: 'no se presenta dos veces si espera nombre y recibe saludo',
+      phone: `${testPhonePrefix}ask-name-greeting-no-repeat`,
+      steps: [
+        {
+          message: 'reset total',
+          includes: ['Cami', 'nombre']
+        },
+        {
+          message: 'hola que tal',
+          includes: ['nombre'],
+          excludes: ['Soy Cami', 'soy Cami']
+        }
+      ]
+    },
+    {
       name: 'flujo completo con lenguaje natural',
       phone: `${testPhonePrefix}full-flow`,
       fakeNow: workingDayMorning,
@@ -860,6 +875,35 @@ async function main() {
           message: 'hola quiero reservar un turno',
           includes: [service.name],
           excludes: ['Horarios disponibles', 'confirmo', 'Fecha:', 'Horario:']
+        }
+      ]
+    },
+    {
+      name: 'ia reactivada desde crm no queda en bucle de reset',
+      phone: `${testPhonePrefix}reactivated-ai-start-menu`,
+      setup: async () => {
+        await prisma.conversation.create({
+          data: {
+            phone: `${testPhonePrefix}reactivated-ai-start-menu`,
+            businessId: business.id,
+            currentStep: 'START',
+            aiEnabled: true,
+            selectedCustomerName: 'Mati QA',
+            selectedServiceId: service.id,
+            selectedProfessionalId: professional.id,
+            selectedDate: '2026-06-10',
+            selectedTime: '14:00',
+            lastMessage: 'reset total',
+            humanHandoffAt: new Date(),
+            humanHandoffResolvedAt: new Date()
+          }
+        })
+      },
+      steps: [
+        {
+          message: 'hola',
+          includes: ['Cami', 'Reservar turno'],
+          excludes: ['empezamos de nuevo', 'Horarios disponibles', 'confirmo', 'Fecha:', 'Horario:']
         }
       ]
     },
