@@ -1036,6 +1036,260 @@ const crmHtml = `<!doctype html>
       display: none;
     }
 
+    .app[data-section="agenda"] {
+      grid-template-columns: 92px minmax(0, 1fr);
+    }
+
+    .app[data-section="agenda"] .sidebar,
+    .app[data-section="agenda"] .chat,
+    .app[data-section="agenda"] .details {
+      display: none;
+    }
+
+    .agenda-view {
+      grid-column: 2;
+      min-width: 0;
+      min-height: 0;
+      display: none;
+      grid-template-columns: 286px minmax(0, 1fr);
+      gap: 14px;
+      padding: 14px;
+      background: #f6faf8;
+      overflow: hidden;
+    }
+
+    .app[data-section="agenda"] .agenda-view {
+      display: grid;
+    }
+
+    .agenda-sidebar,
+    .agenda-board {
+      min-height: 0;
+      border: 1px solid #e4ece8;
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 8px 24px rgba(16, 24, 40, 0.035);
+    }
+
+    .agenda-sidebar {
+      padding: 16px;
+      overflow: auto;
+    }
+
+    .agenda-sidebar h2,
+    .agenda-board h2 {
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.2;
+    }
+
+    .agenda-filters {
+      display: grid;
+      gap: 14px;
+    }
+
+    .agenda-filter {
+      display: grid;
+      gap: 7px;
+    }
+
+    .agenda-filter label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .month-card {
+      margin-top: 18px;
+      padding-top: 16px;
+      border-top: 1px solid #edf2ef;
+    }
+
+    .month-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .month-grid {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .month-weekday,
+    .month-day {
+      height: 32px;
+      display: grid;
+      place-items: center;
+      border-radius: 7px;
+      font-size: 12px;
+    }
+
+    .month-weekday {
+      color: var(--muted);
+      font-weight: 800;
+    }
+
+    .month-day {
+      color: var(--text);
+      background: transparent;
+    }
+
+    .month-day.outside {
+      color: #a4afaa;
+    }
+
+    .month-day.has-items {
+      box-shadow: inset 0 0 0 1px #b8dfd8;
+    }
+
+    .month-day.selected {
+      color: #fff;
+      background: var(--accent);
+      font-weight: 850;
+    }
+
+    .agenda-board {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      overflow: hidden;
+    }
+
+    .agenda-toolbar {
+      min-height: 72px;
+      padding: 14px 18px;
+      border-bottom: 1px solid #edf2ef;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .agenda-toolbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    .agenda-range {
+      text-align: center;
+      font-weight: 800;
+    }
+
+    .agenda-grid-wrap {
+      overflow: auto;
+      min-height: 0;
+    }
+
+    .agenda-grid {
+      display: grid;
+      grid-template-columns: 54px repeat(7, minmax(132px, 1fr));
+      min-width: 980px;
+      position: relative;
+    }
+
+    .agenda-corner,
+    .agenda-day-head,
+    .agenda-time,
+    .agenda-cell {
+      border-right: 1px solid #dde6e2;
+      border-bottom: 1px solid #dde6e2;
+    }
+
+    .agenda-corner,
+    .agenda-day-head {
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      height: 38px;
+      background: #fff;
+    }
+
+    .agenda-corner {
+      left: 0;
+      z-index: 4;
+    }
+
+    .agenda-day-head {
+      display: grid;
+      place-items: center;
+      color: #066b61;
+      font-weight: 850;
+      text-decoration: underline;
+    }
+
+    .agenda-time {
+      position: sticky;
+      left: 0;
+      z-index: 2;
+      height: 28px;
+      padding-right: 5px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: flex-end;
+      background: #fff;
+      color: #26332f;
+      font-size: 12px;
+    }
+
+    .agenda-cell {
+      position: relative;
+      height: 28px;
+      background: #fff;
+    }
+
+    .agenda-cell.today {
+      background: #fff8d8;
+    }
+
+    .agenda-cell.closed {
+      background:
+        repeating-linear-gradient(45deg, rgba(31, 42, 38, 0.2) 0 2px, rgba(31, 42, 38, 0.08) 2px 8px),
+        #7e8782;
+    }
+
+    .agenda-event {
+      position: absolute;
+      left: 5px;
+      right: 5px;
+      top: 2px;
+      z-index: 2;
+      min-height: 24px;
+      padding: 5px 7px;
+      border-radius: 5px;
+      color: #fff;
+      background: #0b6ff0;
+      border-left: 6px solid #0eb35f;
+      box-shadow: 0 4px 10px rgba(16, 24, 40, 0.16);
+      overflow: hidden;
+      font-size: 11px;
+      line-height: 1.25;
+    }
+
+    .agenda-event strong {
+      display: block;
+      font-size: 11px;
+      line-height: 1.2;
+    }
+
+    .agenda-event span {
+      display: block;
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .agenda-empty {
+      padding: 24px;
+      color: var(--muted);
+      text-align: center;
+    }
+
     @media (max-width: 1180px) {
       .crm-top {
         grid-template-columns: 220px repeat(2, minmax(120px, 1fr)) auto 42px;
@@ -1106,7 +1360,7 @@ const crmHtml = `<!doctype html>
     <div class="user-pill">JS</div>
   </header>
 
-  <main class="app">
+  <main class="app" id="app-shell" data-section="conversations">
     <nav class="workspace-nav" aria-label="Secciones CRM">
       <button class="active" type="button"><span>💬</span><strong>Conversaciones</strong></button>
       <button type="button"><span>📅</span><strong>Agenda</strong></button>
@@ -1299,6 +1553,60 @@ const crmHtml = `<!doctype html>
         </div>
       </details>
     </aside>
+
+    <section class="agenda-view" id="agenda-view">
+      <aside class="agenda-sidebar">
+        <div class="agenda-filters">
+          <div>
+            <h2>Agenda</h2>
+            <p class="hint">Turnos por dia y profesional</p>
+          </div>
+          <div class="agenda-filter">
+            <label for="agenda-professional">Profesional</label>
+            <select id="agenda-professional">
+              <option value="">Todos los profesionales</option>
+            </select>
+          </div>
+          <div class="agenda-filter">
+            <label for="agenda-service">Servicio</label>
+            <select id="agenda-service">
+              <option value="">Todos los servicios</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="month-card">
+          <div class="month-header">
+            <button class="icon-button" id="agenda-month-prev" type="button" title="Mes anterior">&lt;</button>
+            <strong id="agenda-month-title">Mes</strong>
+            <button class="icon-button" id="agenda-month-next" type="button" title="Mes siguiente">&gt;</button>
+          </div>
+          <div class="month-grid" id="agenda-month-grid"></div>
+        </div>
+      </aside>
+
+      <section class="agenda-board">
+        <div class="agenda-toolbar">
+          <div class="agenda-toolbar-actions">
+            <button class="secondary" id="agenda-today" type="button">Hoy</button>
+            <button class="icon-button" id="agenda-prev" type="button" title="Semana anterior">&lt;</button>
+            <button class="icon-button" id="agenda-next" type="button" title="Semana siguiente">&gt;</button>
+          </div>
+          <div class="agenda-range" id="agenda-range">Semana</div>
+          <div class="agenda-toolbar-actions">
+            <button class="icon-button" id="agenda-refresh" type="button" title="Actualizar">R</button>
+            <select id="agenda-step">
+              <option value="15">15 min</option>
+              <option value="30">30 min</option>
+              <option value="60">60 min</option>
+            </select>
+          </div>
+        </div>
+        <div class="agenda-grid-wrap" id="agenda-grid-wrap">
+          <div class="agenda-empty">Cargando agenda...</div>
+        </div>
+      </section>
+    </section>
   </main>
 
   <script>
@@ -1309,6 +1617,10 @@ const crmHtml = `<!doctype html>
       appointments: [],
       professionals: [],
       services: [],
+      agendaAppointments: [],
+      agendaBlocks: [],
+      agendaSelectedDate: new Date(),
+      agendaMonthDate: new Date(),
       aiSettings: {
         botEnabled: true,
         aiEnabled: true
@@ -1381,7 +1693,21 @@ const crmHtml = `<!doctype html>
       mobileInbox: document.getElementById('mobile-inbox'),
       mobileChat: document.getElementById('mobile-chat'),
       mobileDetails: document.getElementById('mobile-details'),
-      mobileBack: document.getElementById('mobile-back')
+      mobileBack: document.getElementById('mobile-back'),
+      appShell: document.getElementById('app-shell'),
+      agendaProfessional: document.getElementById('agenda-professional'),
+      agendaService: document.getElementById('agenda-service'),
+      agendaMonthPrev: document.getElementById('agenda-month-prev'),
+      agendaMonthNext: document.getElementById('agenda-month-next'),
+      agendaMonthTitle: document.getElementById('agenda-month-title'),
+      agendaMonthGrid: document.getElementById('agenda-month-grid'),
+      agendaToday: document.getElementById('agenda-today'),
+      agendaPrev: document.getElementById('agenda-prev'),
+      agendaNext: document.getElementById('agenda-next'),
+      agendaRefresh: document.getElementById('agenda-refresh'),
+      agendaStep: document.getElementById('agenda-step'),
+      agendaRange: document.getElementById('agenda-range'),
+      agendaGridWrap: document.getElementById('agenda-grid-wrap')
     }
 
     function initials(phone) {
@@ -1425,6 +1751,8 @@ const crmHtml = `<!doctype html>
       renderAiControls()
       renderProfessionals()
       renderServices()
+      renderAgendaFilters()
+      renderAgenda()
     }
 
     async function loadConversations(options = {}) {
@@ -1831,6 +2159,8 @@ const crmHtml = `<!doctype html>
         resetProfessionalForm(false)
         state.professionals = await getJson('/professionals')
         renderProfessionals()
+        renderAgendaFilters()
+        renderAgenda()
       } catch (error) {
         els.professionalFeedback.textContent = error.message
       }
@@ -1857,6 +2187,8 @@ const crmHtml = `<!doctype html>
         els.professionalFeedback.textContent = 'Profesional eliminado.'
         state.professionals = await getJson('/professionals')
         renderProfessionals()
+        renderAgendaFilters()
+        renderAgenda()
       } catch (error) {
         els.professionalFeedback.textContent = error.message
       }
@@ -1960,6 +2292,270 @@ const crmHtml = `<!doctype html>
       return ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab'][dayOfWeek] || 'Dia'
     }
 
+    function renderAgendaFilters() {
+      els.agendaProfessional.innerHTML = ['<option value="">Todos los profesionales</option>']
+        .concat(state.professionals.map((professional) => {
+          return '<option value="' + professional.id + '">' + escapeHtml(professional.name) + '</option>'
+        }))
+        .join('')
+
+      els.agendaService.innerHTML = ['<option value="">Todos los servicios</option>']
+        .concat(state.services.map((service) => {
+          return '<option value="' + service.id + '">' + escapeHtml(service.name) + '</option>'
+        }))
+        .join('')
+    }
+
+    async function loadAgenda() {
+      const weekStart = startOfWeek(state.agendaSelectedDate)
+      const weekEnd = addDays(weekStart, 7)
+      const params = new URLSearchParams({
+        from: weekStart.toISOString(),
+        to: weekEnd.toISOString()
+      })
+
+      if (state.businessId) {
+        params.set('businessId', state.businessId)
+      }
+
+      if (els.agendaProfessional.value) {
+        params.set('professionalId', els.agendaProfessional.value)
+      }
+
+      state.agendaAppointments = await getJson('/appointments')
+      state.agendaBlocks = await getJson('/schedule-blocks?' + params.toString())
+      renderAgenda()
+    }
+
+    function renderAgenda() {
+      renderAgendaMonth()
+      renderAgendaGrid()
+    }
+
+    function renderAgendaMonth() {
+      const monthDate = new Date(state.agendaMonthDate.getFullYear(), state.agendaMonthDate.getMonth(), 1)
+      els.agendaMonthTitle.textContent = new Intl.DateTimeFormat('es-AR', {
+        month: 'long',
+        year: 'numeric'
+      }).format(monthDate)
+
+      const first = startOfWeek(monthDate)
+      const selectedKey = dateKey(state.agendaSelectedDate)
+      const appointmentKeys = new Set(filteredAgendaAppointments().map((appointment) => dateKey(new Date(appointment.startAt))))
+      const cells = ['D', 'L', 'M', 'M', 'J', 'V', 'S'].map((day) => {
+        return '<div class="month-weekday">' + day + '</div>'
+      })
+
+      for (let index = 0; index < 42; index += 1) {
+        const day = addDays(first, index)
+        const key = dateKey(day)
+        const className = [
+          'month-day',
+          day.getMonth() !== monthDate.getMonth() ? 'outside' : '',
+          key === selectedKey ? 'selected' : '',
+          appointmentKeys.has(key) ? 'has-items' : ''
+        ].filter(Boolean).join(' ')
+
+        cells.push('<button class="' + className + '" type="button" data-agenda-date="' + key + '">' + day.getDate() + '</button>')
+      }
+
+      els.agendaMonthGrid.innerHTML = cells.join('')
+      for (const button of els.agendaMonthGrid.querySelectorAll('[data-agenda-date]')) {
+        button.addEventListener('click', async () => {
+          state.agendaSelectedDate = parseDateKey(button.dataset.agendaDate)
+          state.agendaMonthDate = new Date(state.agendaSelectedDate)
+          await loadAgenda()
+        })
+      }
+    }
+
+    function renderAgendaGrid() {
+      const step = Number(els.agendaStep.value || 15)
+      const weekStart = startOfWeek(state.agendaSelectedDate)
+      const days = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index))
+      const startMinute = 9 * 60
+      const endMinute = 19 * 60
+      const rowHeight = 28
+      const rows = []
+
+      els.agendaRange.textContent = formatAgendaRange(days[0], days[6])
+
+      rows.push('<div class="agenda-grid">')
+      rows.push('<div class="agenda-corner"></div>')
+
+      for (const day of days) {
+        rows.push('<button class="agenda-day-head" type="button" data-agenda-date="' + dateKey(day) + '">' + formatAgendaDayHeader(day) + '</button>')
+      }
+
+      for (let minute = startMinute; minute < endMinute; minute += step) {
+        rows.push('<div class="agenda-time">' + formatMinuteLabel(minute) + '</div>')
+        for (const day of days) {
+          const closed = isClosedAgendaSlot(day, minute)
+          const today = dateKey(day) === dateKey(new Date())
+          rows.push('<div class="agenda-cell' + (today ? ' today' : '') + (closed ? ' closed' : '') + '" data-cell-date="' + dateKey(day) + '" data-cell-minute="' + minute + '"></div>')
+        }
+      }
+
+      rows.push('</div>')
+      els.agendaGridWrap.innerHTML = rows.join('')
+
+      for (const button of els.agendaGridWrap.querySelectorAll('[data-agenda-date]')) {
+        button.addEventListener('click', async () => {
+          state.agendaSelectedDate = parseDateKey(button.dataset.agendaDate)
+          state.agendaMonthDate = new Date(state.agendaSelectedDate)
+          await loadAgenda()
+        })
+      }
+
+      renderAgendaEvents({
+        step,
+        rowHeight,
+        startMinute
+      })
+    }
+
+    function renderAgendaEvents(input) {
+      const appointments = filteredAgendaAppointments()
+      const cells = new Map()
+      for (const cell of els.agendaGridWrap.querySelectorAll('[data-cell-date][data-cell-minute]')) {
+        cells.set(cell.dataset.cellDate + ':' + cell.dataset.cellMinute, cell)
+      }
+
+      for (const appointment of appointments) {
+        const start = new Date(appointment.startAt)
+        const minute = start.getHours() * 60 + start.getMinutes()
+        const roundedMinute = minute - (minute % input.step)
+        const cell = cells.get(dateKey(start) + ':' + roundedMinute)
+        if (!cell) continue
+
+        const duration = appointment.service?.duration || input.step
+        const height = Math.max(24, Math.ceil(duration / input.step) * input.rowHeight - 4)
+        const top = Math.max(2, ((minute - roundedMinute) / input.step) * input.rowHeight + 2)
+        const customer = appointment.customer?.name || 'Cliente'
+        const professional = appointment.professional?.name || 'Profesional'
+        const service = appointment.service?.name || 'Servicio'
+
+        const event = document.createElement('article')
+        event.className = 'agenda-event'
+        event.style.height = height + 'px'
+        event.style.top = top + 'px'
+        event.title = customer + ' - ' + service + ' con ' + professional
+        event.innerHTML = '<strong>' + escapeHtml(formatTimeOnly(start) + ' - ' + formatTimeOnly(addMinutes(start, duration))) + '</strong>' +
+          '<span>' + escapeHtml(customer + ' · ' + service) + '</span>' +
+          '<span>' + escapeHtml(professional) + '</span>'
+        cell.appendChild(event)
+      }
+    }
+
+    function filteredAgendaAppointments() {
+      const weekStart = startOfWeek(state.agendaSelectedDate)
+      const weekEnd = addDays(weekStart, 7)
+      const professionalId = els.agendaProfessional?.value || ''
+      const serviceId = els.agendaService?.value || ''
+
+      return state.agendaAppointments
+        .filter((appointment) => appointment.status !== 'CANCELLED')
+        .filter((appointment) => {
+          const start = new Date(appointment.startAt)
+          return start >= weekStart && start < weekEnd
+        })
+        .filter((appointment) => !professionalId || appointment.professionalId === professionalId)
+        .filter((appointment) => !serviceId || appointment.serviceId === serviceId)
+        .sort((left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime())
+    }
+
+    function isClosedAgendaSlot(day, minute) {
+      const professionalId = els.agendaProfessional?.value || ''
+      const professionals = professionalId
+        ? state.professionals.filter((professional) => professional.id === professionalId)
+        : state.professionals
+
+      if (professionals.length === 0) {
+        return false
+      }
+
+      return !professionals.some((professional) => {
+        return (professional.workingHours || []).some((hour) => {
+          return hour.dayOfWeek === day.getDay() &&
+            minute >= timeToMinutes(hour.startTime) &&
+            minute < timeToMinutes(hour.endTime)
+        })
+      })
+    }
+
+    function setSection(section) {
+      els.appShell.dataset.section = section
+      const buttons = document.querySelectorAll('.workspace-nav button')
+      buttons.forEach((button, index) => {
+        button.classList.toggle('active', section === 'conversations' ? index === 0 : index === 1)
+      })
+
+      if (section === 'agenda') {
+        loadAgenda().catch((error) => {
+          els.agendaGridWrap.innerHTML = '<div class="error">' + escapeHtml(error.message) + '</div>'
+        })
+      }
+    }
+
+    function startOfWeek(date) {
+      const copy = startOfDay(date)
+      copy.setDate(copy.getDate() - copy.getDay())
+      return copy
+    }
+
+    function startOfDay(date) {
+      return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+    }
+
+    function addDays(date, days) {
+      const copy = new Date(date)
+      copy.setDate(copy.getDate() + days)
+      return copy
+    }
+
+    function addMinutes(date, minutes) {
+      return new Date(date.getTime() + minutes * 60 * 1000)
+    }
+
+    function dateKey(date) {
+      const year = date.getFullYear()
+      const month = String(date.getMonth() + 1).padStart(2, '0')
+      const day = String(date.getDate()).padStart(2, '0')
+      return year + '-' + month + '-' + day
+    }
+
+    function parseDateKey(value) {
+      const [year, month, day] = String(value).split('-').map(Number)
+      return new Date(year, month - 1, day)
+    }
+
+    function timeToMinutes(value) {
+      const [hours, minutes] = String(value || '00:00').split(':').map(Number)
+      return hours * 60 + minutes
+    }
+
+    function formatMinuteLabel(minute) {
+      const hours = Math.floor(minute / 60)
+      const minutes = minute % 60
+      return minutes === 0 ? String(hours) : String(hours) + ':' + String(minutes).padStart(2, '0')
+    }
+
+    function formatTimeOnly(date) {
+      return new Intl.DateTimeFormat('es-AR', {
+        hour: '2-digit',
+        minute: '2-digit'
+      }).format(date)
+    }
+
+    function formatAgendaRange(start, end) {
+      return new Intl.DateTimeFormat('es-AR').format(start) + ' a ' + new Intl.DateTimeFormat('es-AR').format(end)
+    }
+
+    function formatAgendaDayHeader(date) {
+      const weekday = ['dom', 'lun', 'mar', 'mie', 'jue', 'vie', 'sab'][date.getDay()]
+      return weekday + ' ' + date.getDate() + '/' + (date.getMonth() + 1)
+    }
+
     async function saveService(event) {
       event.preventDefault()
       if (!state.businessId) {
@@ -1997,6 +2593,8 @@ const crmHtml = `<!doctype html>
         resetServiceForm()
         state.services = await getJson('/services')
         renderServices()
+        renderAgendaFilters()
+        renderAgenda()
       } catch (error) {
         els.serviceFeedback.textContent = error.message
       }
@@ -2025,6 +2623,8 @@ const crmHtml = `<!doctype html>
         els.serviceFeedback.textContent = 'Servicio eliminado.'
         state.services = await getJson('/services')
         renderServices()
+        renderAgendaFilters()
+        renderAgenda()
       } catch (error) {
         els.serviceFeedback.textContent = error.message
       }
@@ -2092,6 +2692,35 @@ const crmHtml = `<!doctype html>
     els.mobileChat.addEventListener('click', () => setMobileView('chat'))
     els.mobileDetails.addEventListener('click', () => setMobileView('details'))
     els.mobileBack.addEventListener('click', () => setMobileView('inbox'))
+    document.querySelectorAll('.workspace-nav button')[0]?.addEventListener('click', () => setSection('conversations'))
+    document.querySelectorAll('.workspace-nav button')[1]?.addEventListener('click', () => setSection('agenda'))
+    els.agendaProfessional.addEventListener('change', loadAgenda)
+    els.agendaService.addEventListener('change', renderAgenda)
+    els.agendaStep.addEventListener('change', renderAgenda)
+    els.agendaToday.addEventListener('click', async () => {
+      state.agendaSelectedDate = new Date()
+      state.agendaMonthDate = new Date()
+      await loadAgenda()
+    })
+    els.agendaPrev.addEventListener('click', async () => {
+      state.agendaSelectedDate = addDays(state.agendaSelectedDate, -7)
+      state.agendaMonthDate = new Date(state.agendaSelectedDate)
+      await loadAgenda()
+    })
+    els.agendaNext.addEventListener('click', async () => {
+      state.agendaSelectedDate = addDays(state.agendaSelectedDate, 7)
+      state.agendaMonthDate = new Date(state.agendaSelectedDate)
+      await loadAgenda()
+    })
+    els.agendaMonthPrev.addEventListener('click', () => {
+      state.agendaMonthDate = new Date(state.agendaMonthDate.getFullYear(), state.agendaMonthDate.getMonth() - 1, 1)
+      renderAgendaMonth()
+    })
+    els.agendaMonthNext.addEventListener('click', () => {
+      state.agendaMonthDate = new Date(state.agendaMonthDate.getFullYear(), state.agendaMonthDate.getMonth() + 1, 1)
+      renderAgendaMonth()
+    })
+    els.agendaRefresh.addEventListener('click', loadAgenda)
 
     loadBasics()
       .then(loadConversations)
