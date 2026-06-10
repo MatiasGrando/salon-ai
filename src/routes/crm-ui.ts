@@ -700,6 +700,375 @@ const crmHtml = `<!doctype html>
         max-width: 92%;
       }
     }
+
+    .crm-top {
+      height: 82px;
+      padding: 12px 24px;
+      display: grid;
+      grid-template-columns: 250px 136px repeat(3, minmax(132px, 1fr)) auto 48px;
+      gap: 12px;
+      align-items: center;
+      border-bottom: 1px solid #e5ebe8;
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: 0 12px 28px rgba(16, 24, 40, 0.04);
+    }
+
+    .crm-brand,
+    .metric-card,
+    .user-pill {
+      min-width: 0;
+    }
+
+    .crm-brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-mark {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      background: linear-gradient(140deg, #007d70, #0fa394);
+      font-weight: 850;
+      box-shadow: 0 10px 24px rgba(0, 125, 112, 0.22);
+    }
+
+    .crm-brand strong {
+      display: block;
+      color: #087f73;
+      font-size: 18px;
+      line-height: 1.1;
+    }
+
+    .crm-brand span,
+    .metric-card span {
+      display: block;
+      color: #64746f;
+      font-size: 12px;
+      line-height: 1.25;
+    }
+
+    .metric-card {
+      height: 58px;
+      padding: 10px 14px;
+      border: 1px solid #e3ebe7;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .metric-card.active {
+      position: relative;
+      display: grid;
+      align-content: center;
+      gap: 2px;
+    }
+
+    .metric-card.active::after {
+      content: "";
+      position: absolute;
+      left: 18px;
+      right: 18px;
+      bottom: 0;
+      height: 3px;
+      border-radius: 999px 999px 0 0;
+      background: #087f73;
+    }
+
+    .metric-card strong {
+      display: block;
+      margin-top: 2px;
+      color: #16231f;
+      font-size: 22px;
+      line-height: 1;
+      font-weight: 850;
+    }
+
+    .metric-card.active strong {
+      font-size: 14px;
+    }
+
+    .top-action {
+      height: 46px;
+      padding: 0 16px;
+      border-radius: 8px;
+      box-shadow: 0 10px 22px rgba(8, 127, 115, 0.18);
+    }
+
+    .user-pill {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      color: #087f73;
+      background: #e4f4f1;
+      font-weight: 850;
+    }
+
+    .app {
+      grid-template-columns: 92px minmax(290px, 336px) minmax(420px, 1fr) minmax(310px, 360px);
+      height: calc(100dvh - 82px);
+      background: #f6faf8;
+    }
+
+    .workspace-nav {
+      min-height: 0;
+      padding: 20px 8px 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      background: linear-gradient(180deg, #007d70, #005d55);
+      color: #fff;
+      box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.14);
+    }
+
+    .workspace-nav button {
+      width: 76px;
+      min-height: 66px;
+      padding: 8px 6px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      gap: 4px;
+      color: rgba(255, 255, 255, 0.9);
+      background: transparent;
+    }
+
+    .workspace-nav button.active,
+    .workspace-nav button:hover {
+      color: #087f73;
+      background: #fff;
+      box-shadow: 0 12px 24px rgba(0, 49, 45, 0.18);
+    }
+
+    .workspace-nav span {
+      font-size: 20px;
+      line-height: 1;
+    }
+
+    .workspace-nav strong {
+      font-size: 11px;
+      line-height: 1.15;
+      font-weight: 780;
+    }
+
+    .nav-user {
+      margin-top: auto;
+      display: grid;
+      justify-items: center;
+      gap: 6px;
+      color: rgba(255, 255, 255, 0.86);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .mini-avatar {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      color: #087f73;
+      background: #fff;
+      font-weight: 850;
+    }
+
+    .sidebar,
+    .details,
+    .chat-header,
+    .composer {
+      background: rgba(255, 255, 255, 0.95);
+    }
+
+    .sidebar {
+      border-width: 0 1px 0 0;
+      border-color: #e5ebe8;
+    }
+
+    .sidebar .topbar,
+    .details .topbar {
+      min-height: 72px;
+      border-color: #edf2ef;
+    }
+
+    .search {
+      padding: 14px 18px;
+      gap: 10px;
+      background: #fff;
+    }
+
+    .search input,
+    .field,
+    textarea,
+    select {
+      border-color: #dfe7e3;
+      border-radius: 8px;
+    }
+
+    .ops-panel {
+      margin: 0 18px 12px;
+      padding: 12px;
+      border: 1px solid #e4ece8;
+      border-radius: 8px;
+      background: #fbfdfc;
+    }
+
+    .conversation {
+      width: calc(100% - 20px);
+      min-height: 88px;
+      margin: 0 10px 8px;
+      padding: 14px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 4px 16px rgba(16, 24, 40, 0.03);
+    }
+
+    .conversation:hover,
+    .conversation.active {
+      border-color: #cbe7e2;
+      background: linear-gradient(135deg, #e8f7f4, #f8fcfb);
+    }
+
+    .avatar {
+      background: radial-gradient(circle at 30% 25%, #0fa394, #006a60);
+      box-shadow: 0 8px 18px rgba(0, 125, 112, 0.18);
+    }
+
+    .chat {
+      background:
+        radial-gradient(circle at 20% 10%, rgba(8, 127, 115, 0.08), transparent 28%),
+        radial-gradient(circle at 80% 20%, rgba(18, 145, 128, 0.08), transparent 24%),
+        #f8fbfa;
+    }
+
+    .chat-header {
+      min-height: 76px;
+      border-color: #e6ece9;
+    }
+
+    .chat-actions .secondary,
+    .chat-actions .danger {
+      height: 34px;
+    }
+
+    .messages {
+      padding: 24px 32px 28px;
+      gap: 14px;
+    }
+
+    .message {
+      border: 1px solid #e9efec;
+      border-radius: 8px;
+      box-shadow: 0 12px 30px rgba(16, 24, 40, 0.04);
+    }
+
+    .message.outbound {
+      background: #def4ef;
+      border-color: #d4ece7;
+    }
+
+    .message.inbound {
+      background: #fff;
+    }
+
+    .composer {
+      margin: 0 24px 18px;
+      padding: 10px;
+      border: 1px solid #e1e9e5;
+      border-radius: 8px;
+      box-shadow: 0 16px 34px rgba(16, 24, 40, 0.06);
+    }
+
+    textarea {
+      min-height: 42px;
+      border-color: transparent;
+      background: #fff;
+    }
+
+    .details {
+      padding: 14px;
+      gap: 14px;
+      border-color: #e5ebe8;
+      background: #f8fbfa;
+    }
+
+    .details .topbar,
+    .details-section {
+      border: 1px solid #e4ece8;
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 8px 24px rgba(16, 24, 40, 0.035);
+    }
+
+    .details-section {
+      padding: 16px;
+    }
+
+    .data-grid {
+      gap: 14px;
+    }
+
+    .data-row {
+      grid-template-columns: 1fr;
+      gap: 4px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #eef3f1;
+    }
+
+    .data-row:last-child {
+      padding-bottom: 0;
+      border-bottom: 0;
+    }
+
+    .item {
+      border-color: #e4ece8;
+      border-radius: 8px;
+      background: #fbfdfc;
+    }
+
+    .details .config-panel {
+      display: none;
+    }
+
+    @media (max-width: 1180px) {
+      .crm-top {
+        grid-template-columns: 220px repeat(2, minmax(120px, 1fr)) auto 42px;
+      }
+
+      .metric-card:nth-of-type(n+4) {
+        display: none;
+      }
+
+      .app {
+        grid-template-columns: 84px minmax(270px, 320px) 1fr;
+      }
+
+      .details {
+        display: none;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .crm-top,
+      .workspace-nav {
+        display: none;
+      }
+
+      .app {
+        height: calc(100dvh - 52px);
+      }
+
+      .composer {
+        margin: 0;
+        border-radius: 0;
+      }
+    }
   </style>
 </head>
 <body data-mobile-view="inbox">
@@ -709,11 +1078,52 @@ const crmHtml = `<!doctype html>
     <button id="mobile-details" type="button">Cliente</button>
   </nav>
 
+  <header class="crm-top">
+    <div class="crm-brand">
+      <div class="brand-mark">S</div>
+      <div>
+        <strong>CRM Salon AI</strong>
+        <span>Atencion y reservas</span>
+      </div>
+    </div>
+    <div class="metric-card active">
+      <span>Resumen</span>
+      <strong>Chats</strong>
+    </div>
+    <div class="metric-card">
+      <span>Conversaciones</span>
+      <strong id="top-conversation-total">0</strong>
+    </div>
+    <div class="metric-card">
+      <span>Turnos del cliente</span>
+      <strong id="top-appointment-total">0</strong>
+    </div>
+    <div class="metric-card">
+      <span>Derivados</span>
+      <strong id="top-handoff-total">0</strong>
+    </div>
+    <button class="primary top-action" type="button">Nueva accion</button>
+    <div class="user-pill">JS</div>
+  </header>
+
   <main class="app">
+    <nav class="workspace-nav" aria-label="Secciones CRM">
+      <button class="active" type="button"><span>💬</span><strong>Conversaciones</strong></button>
+      <button type="button"><span>📅</span><strong>Agenda</strong></button>
+      <button type="button"><span>👥</span><strong>Clientes</strong></button>
+      <button type="button"><span>✂</span><strong>Servicios</strong></button>
+      <button type="button"><span>📣</span><strong>Campañas</strong></button>
+      <button type="button"><span>📊</span><strong>Reportes</strong></button>
+      <button type="button"><span>⚙</span><strong>Ajustes</strong></button>
+      <div class="nav-user">
+        <div class="mini-avatar">C</div>
+        <span>Online</span>
+      </div>
+    </nav>
     <aside class="sidebar">
       <div class="topbar">
         <div class="brand">
-          <h1>CRM Salon AI</h1>
+          <h1>Conversaciones</h1>
           <p id="conversation-count">Conversaciones</p>
         </div>
         <button class="icon-button" id="refresh" title="Actualizar">R</button>
@@ -769,8 +1179,8 @@ const crmHtml = `<!doctype html>
     <aside class="details">
       <div class="topbar">
         <div>
-          <div class="panel-title">Cliente</div>
-          <p class="hint">Turnos y bloqueos rapidos</p>
+          <div class="panel-title">Informacion del cliente</div>
+          <p class="hint">Datos de la conversacion</p>
         </div>
       </div>
 
@@ -914,6 +1324,9 @@ const crmHtml = `<!doctype html>
       searchButton: document.getElementById('search-button'),
       refresh: document.getElementById('refresh'),
       handoffCount: document.getElementById('handoff-count'),
+      topConversationTotal: document.getElementById('top-conversation-total'),
+      topAppointmentTotal: document.getElementById('top-appointment-total'),
+      topHandoffTotal: document.getElementById('top-handoff-total'),
       globalBotToggle: document.getElementById('global-bot-toggle'),
       globalAiToggle: document.getElementById('global-ai-toggle'),
       messages: document.getElementById('messages'),
@@ -1026,6 +1439,7 @@ const crmHtml = `<!doctype html>
       try {
         state.conversations = await getJson('/crm/conversations' + query)
         state.conversations.sort((left, right) => latestConversationActivityAt(right) - latestConversationActivityAt(left))
+        els.topConversationTotal.textContent = String(state.conversations.length)
         renderConversations()
         renderAiControls()
 
@@ -1154,6 +1568,7 @@ const crmHtml = `<!doctype html>
 
     function renderAppointments() {
       els.appointmentCount.textContent = String(state.appointments.length)
+      els.topAppointmentTotal.textContent = String(state.appointments.length)
       if (!state.selected) {
         els.appointments.innerHTML = '<div class="empty">Sin cliente seleccionado.</div>'
         return
@@ -1244,6 +1659,7 @@ const crmHtml = `<!doctype html>
         return conversation.currentStep === 'HUMAN_HANDOFF' && !conversation.humanHandoffResolvedAt
       }).length
       els.handoffCount.textContent = String(pending)
+      els.topHandoffTotal.textContent = String(pending)
       els.globalBotToggle.textContent = state.aiSettings.botEnabled === false ? 'Bot automatico apagado' : 'Bot automatico activo'
       els.globalBotToggle.className = state.aiSettings.botEnabled === false ? 'danger' : 'secondary'
       els.globalAiToggle.textContent = state.aiSettings.aiEnabled === false ? 'IA general apagada' : 'IA general activa'
