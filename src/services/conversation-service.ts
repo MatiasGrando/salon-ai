@@ -58,7 +58,6 @@ export class ConversationService {
                 selectedProfessionalId: null,
                 selectedDate: null,
                 selectedTime: null,
-                selectedCustomerName: null,
                 misunderstandingCount: 0,
                 lastAvailability: Prisma.JsonNull
               }
@@ -822,6 +821,10 @@ function canHumanizeSafely(reply: string) {
     /Servicio:/i,
     /confirmar/i,
     /reservar turno/i,
+    /avis/i,
+    /avis[eÃ©]/i,
+    /avisado/i,
+    /no hay problema/i,
     /cancel[eé] ese turno/i,
     /empezamos de nuevo/i,
     /hablar con una persona/i,

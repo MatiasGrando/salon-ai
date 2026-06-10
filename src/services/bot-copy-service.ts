@@ -66,6 +66,20 @@ export class BotCopyService {
     )
   }
 
+  outsideSalonService(misunderstandingCount = 0) {
+    return withRecoveryOptions(
+      'No me quedo claro si queres reservar un turno del salon. Por aca puedo ayudarte con servicios como corte o color.',
+      {
+        includeChangeService: false,
+        misunderstandingCount
+      }
+    )
+  }
+
+  bookingStopped() {
+    return 'Dale, no hay problema. Si despues queres reservar o consultar otro turno, escribime por aca.'
+  }
+
   bookingOnly() {
     return 'Te entiendo 😊 Por acá puedo ayudarte con turnos: reservar, ver tus turnos, cancelar o cambiar uno.'
   }
@@ -118,6 +132,13 @@ export class BotCopyService {
 
   dateNotUnderstood(misunderstandingCount = 0) {
     return withRecoveryOptions('Perdón, no me quedó claro el día 😅 ¿Me lo podés decir de otra forma? Puede ser hoy, mañana o una fecha como 25/6.', {
+      misunderstandingCount
+    })
+  }
+
+  timeNotUnderstood(misunderstandingCount = 0) {
+    return withRecoveryOptions('Perdon, no me quedo claro el horario. Decime una hora de la lista, por ejemplo 17:00 o el de las 5.', {
+      includeChangeService: false,
       misunderstandingCount
     })
   }

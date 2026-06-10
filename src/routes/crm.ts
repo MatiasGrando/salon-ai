@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
+import { Prisma } from '../generated/prisma/client.js'
 import { WhatsAppCloudApi } from '../integrations/whatsapp-cloud-api.js'
 
 const whatsappCloudApi = new WhatsAppCloudApi()
@@ -227,6 +228,8 @@ export async function crmRoutes(app: FastifyInstance) {
       })
     }
 
+    const isResolvingHumanHandoff = body.aiEnabled && conversation.currentStep === 'HUMAN_HANDOFF'
+
     return prisma.conversation.update({
       where: {
         id: params.id
@@ -234,9 +237,18 @@ export async function crmRoutes(app: FastifyInstance) {
       data: body.aiEnabled
         ? {
             aiEnabled: true,
-            currentStep: conversation.currentStep === 'HUMAN_HANDOFF' ? 'START' : conversation.currentStep,
+            currentStep: isResolvingHumanHandoff ? 'START' : conversation.currentStep,
+            ...(isResolvingHumanHandoff
+              ? {
+                  selectedServiceId: null,
+                  selectedProfessionalId: null,
+                  selectedDate: null,
+                  selectedTime: null,
+                  lastAvailability: Prisma.JsonNull
+                }
+              : {}),
             misunderstandingCount: 0,
-            humanHandoffResolvedAt: conversation.currentStep === 'HUMAN_HANDOFF' ? new Date() : conversation.humanHandoffResolvedAt
+            humanHandoffResolvedAt: isResolvingHumanHandoff ? new Date() : conversation.humanHandoffResolvedAt
           }
         : {
             aiEnabled: false,

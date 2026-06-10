@@ -83,6 +83,22 @@ export class BookingConversationFlow {
       return this.handleBackStep({ phone, businessId, conversation })
     }
 
+    if (isStopBookingMessage(message)) {
+      await this.updateConversation(phone, {
+        currentStep: 'START',
+        selectedServiceId: null,
+        selectedProfessionalId: null,
+        selectedDate: null,
+        selectedTime: null,
+        misunderstandingCount: 0,
+        lastAvailability: null
+      })
+
+      return {
+        reply: botCopyService.bookingStopped()
+      }
+    }
+
     if (isChangeServiceMessage(message)) {
       await this.updateConversation(phone, {
         currentStep: 'ASK_SERVICE',
@@ -297,7 +313,29 @@ export class BookingConversationFlow {
       conversation.selectedCustomerName &&
       isBookingStartMessage(message, conversation.currentStep)
     ) {
-      return this.handleServiceStep({ phone, message, businessId, conversation })
+      await this.updateConversation(phone, {
+        currentStep: 'ASK_SERVICE',
+        selectedServiceId: null,
+        selectedProfessionalId: null,
+        selectedDate: null,
+        selectedTime: null,
+        lastAvailability: null
+      })
+
+      return this.handleServiceStep({
+        phone,
+        message,
+        businessId,
+        conversation: {
+          ...conversation,
+          currentStep: 'ASK_SERVICE',
+          selectedServiceId: null,
+          selectedProfessionalId: null,
+          selectedDate: null,
+          selectedTime: null,
+          lastAvailability: null
+        }
+      })
     }
 
     if (conversation.currentStep === 'START' || isBookingStartMessage(message, conversation.currentStep)) {
@@ -476,6 +514,10 @@ export class BookingConversationFlow {
     businessId: string | null
     conversation?: ConversationState
   }) {
+    if (isClearlyOutsideSalonService(input.message)) {
+      return this.buildServicesReply(botCopyService.outsideSalonService(input.conversation?.misunderstandingCount ?? 0), input.businessId)
+    }
+
     let selectedService = await this.findServiceByMessage(input.message, input.businessId)
 
     if (!selectedService || shouldLetAiPlanBooking(input.message)) {
@@ -691,7 +733,9 @@ export class BookingConversationFlow {
         serviceId: selectedService.id,
         professionalId: selectedProfessional.id,
         date: selectedDate,
-        time: parseAfterTimeFromMessage(input.message) ? null : messageIntent?.time ?? null,
+          time: parseAfterTimeFromMessage(input.message)
+            ? null
+            : messageIntent?.time ?? input.conversation.selectedTime ?? null,
         timePreference: messageIntent?.timePreference ?? parseTimePreferenceFromMessage(input.message),
         afterTime: parseAfterTimeFromMessage(input.message),
         prefix: buildIntentAvailabilityPrefix({
@@ -1050,6 +1094,10 @@ export class BookingConversationFlow {
     })
 
     if (!selectedAvailability) {
+      return {
+        reply: botCopyService.timeNotUnderstood(input.conversation.misunderstandingCount)
+      }
+
       const availability = await this.findAvailabilityOptions({
         professionalId: input.conversation.selectedProfessionalId,
         serviceId: input.conversation.selectedServiceId,
@@ -1712,6 +1760,24 @@ export class BookingConversationFlow {
       )
     }
 
+    const intentTime = parseAfterTimeFromMessage(input.message) ? null : intent.time
+
+    if (!selectedProfessionalId && !anyProfessional && intentTime) {
+      await this.updateConversation(input.phone, {
+        currentStep: 'ASK_PROFESSIONAL',
+        selectedServiceId: selectedService.id,
+        selectedProfessionalId: null,
+        selectedDate: intentDate,
+        selectedTime: intentTime,
+        lastAvailability: null
+      })
+
+      return this.buildProfessionalsReply(
+        selectedService.businessId,
+        `Perfecto, elegiste ${selectedService.name} para ${formatDisplayDate(intentDate)} a las ${intentTime}.`
+      )
+    }
+
     const timePreference = normalizeTimePreferenceForMessage(
       input.message,
       intent.timePreference ?? parseTimePreferenceFromMessage(input.message)
@@ -1721,7 +1787,7 @@ export class BookingConversationFlow {
       serviceId: selectedService.id,
       professionalId: selectedProfessionalId,
       date: intentDate,
-      time: parseAfterTimeFromMessage(input.message) ? null : intent.time,
+      time: intentTime,
       timePreference,
       afterTime: parseAfterTimeFromMessage(input.message),
       prefix: buildIntentAvailabilityPrefix({
@@ -1872,6 +1938,30 @@ export class BookingConversationFlow {
     const timePreferenceOptions = hasTimePreference ? preferredOptions : availability.options
     const afterTimeOptions = filterAvailabilityAfterTime(timePreferenceOptions, input.afterTime)
     const options = filterAvailabilityBeforeTime(afterTimeOptions, input.beforeTime)
+
+    if (input.time && !input.professionalId) {
+      const service = await prisma.service.findUnique({
+        where: {
+          id: input.serviceId
+        }
+      })
+
+      if (service) {
+        await this.updateConversation(input.phone, {
+          currentStep: 'ASK_PROFESSIONAL',
+          selectedServiceId: input.serviceId,
+          selectedProfessionalId: null,
+          selectedDate: input.date,
+          selectedTime: input.time,
+          lastAvailability: null
+        })
+
+        return this.buildProfessionalsReply(
+          service.businessId,
+          `Dale, vemos ${service.name} para ${formatDisplayDate(input.date)} a las ${input.time}.`
+        )
+      }
+    }
 
     if (input.time) {
       const requestedTime = input.time
@@ -2368,7 +2458,26 @@ export function isMenuStep(currentStep: string) {
 function isChangeServiceMessage(message: string) {
   const normalizedMessage = normalizeText(message)
 
-  return normalizedMessage === 'cambiar servicio' || normalizedMessage === 'otro servicio'
+  return normalizedMessage === 'cambiar servicio' ||
+    normalizedMessage === 'otro servicio' ||
+    normalizedMessage.includes('no elegi ese servicio') ||
+    normalizedMessage.includes('no quiero ese servicio') ||
+    normalizedMessage.includes('cambiar de servicio')
+}
+
+function isStopBookingMessage(message: string) {
+  const normalizedMessage = normalizeText(message)
+
+  return [
+    'no quiero nada',
+    'nada gracias',
+    'no gracias',
+    'dejalo',
+    'dejalo asi',
+    'no necesito nada',
+    'no era nada'
+  ].includes(normalizedMessage) ||
+    normalizedMessage.includes('no quiero nada gracias')
 }
 
 function isChangeProfessionalMessage(message: string) {
@@ -2440,6 +2549,25 @@ function isClearlyOffBookingFlowMessage(message: string) {
   }
 
   return looksLikeRandomText(normalizedMessage)
+}
+
+function isClearlyOutsideSalonService(message: string) {
+  const normalizedMessage = normalizeText(message)
+
+  const outsideServiceWords = [
+    'cancha',
+    'futbol',
+    'futbol 5',
+    'padel',
+    'tenis',
+    'cena',
+    'comida',
+    'cambio',
+    'plata',
+    'efectivo'
+  ]
+
+  return outsideServiceWords.some((word) => normalizedMessage.includes(word))
 }
 
 function looksLikeRandomText(normalizedMessage: string) {

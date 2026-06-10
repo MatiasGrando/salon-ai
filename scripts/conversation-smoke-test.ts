@@ -827,13 +827,106 @@ async function main() {
         },
         {
           message: 'hablar con una persona',
-          includes: ['avisÃ©', 'equipo'],
+          includes: ['avisé', 'equipo'],
           currentStep: 'HUMAN_HANDOFF'
         },
         {
           message: 'hola?',
           includes: ['avisado', 'equipo'],
           currentStep: 'HUMAN_HANDOFF'
+        }
+      ]
+    },
+    {
+      name: 'estado resuelto de derivacion no arrastra datos viejos',
+      phone: `${testPhonePrefix}resolved-handoff-clean-state`,
+      setup: async () => {
+        await prisma.conversation.create({
+          data: {
+            phone: `${testPhonePrefix}resolved-handoff-clean-state`,
+            businessId: business.id,
+            currentStep: 'START',
+            selectedCustomerName: 'Mati QA',
+            selectedServiceId: service.id,
+            selectedProfessionalId: professional.id,
+            selectedDate: '2026-06-10',
+            selectedTime: '14:00',
+            lastMessage: 'resuelto'
+          }
+        })
+      },
+      steps: [
+        {
+          message: 'hola quiero reservar un turno',
+          includes: [service.name],
+          excludes: ['Horarios disponibles', 'confirmo', 'Fecha:', 'Horario:']
+        }
+      ]
+    },
+    {
+      name: 'no confirma si el usuario dio fecha y hora pero no profesional',
+      phone: `${testPhonePrefix}date-time-without-professional`,
+      fakeNow: workingDayMorning,
+      steps: [
+        {
+          message: 'reset total',
+          includes: ['Cami']
+        },
+        {
+          message: 'Emanuel',
+          includes: [service.name]
+        },
+        {
+          message: service.name,
+          includes: ['gustar']
+        },
+        {
+          message: 'Podria ser para el 10/7 a las 14:00 hs?',
+          includes: [professional.name, 'Cualquier profesional'],
+          excludes: ['confirmo', 'Fecha:', 'Horario:']
+        }
+      ]
+    },
+    {
+      name: 'mensaje fuera del rubro no elige servicio por error',
+      phone: `${testPhonePrefix}outside-salon-service`,
+      steps: [
+        {
+          message: 'reset total',
+          includes: ['Cami']
+        },
+        {
+          message: 'soy Lola',
+          includes: [service.name]
+        },
+        {
+          message: 'quiero una cancha para las 21 hs',
+          includes: ['No me quedo claro', service.name],
+          excludes: ['elegiste', 'Horarios disponibles']
+        },
+        {
+          message: 'tenes cambio?',
+          includes: ['No me quedo claro', service.name],
+          excludes: ['Horarios disponibles']
+        }
+      ]
+    },
+    {
+      name: 'corta la reserva si el usuario no quiere seguir',
+      phone: `${testPhonePrefix}stop-booking`,
+      steps: [
+        {
+          message: 'reset total',
+          includes: ['Cami']
+        },
+        {
+          message: 'soy Lola',
+          includes: [service.name]
+        },
+        {
+          message: 'no quiero nada gracias',
+          includes: ['no hay problema'],
+          currentStep: 'START'
         }
       ]
     },
