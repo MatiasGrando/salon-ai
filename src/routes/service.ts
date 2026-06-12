@@ -3,7 +3,7 @@ import { prisma } from '../config/prisma.js'
 
 export async function serviceRoutes(app: FastifyInstance) {
 
-  app.post('/services', async (request) => {
+  app.post('/services', async (request, reply) => {
 
     const body = request.body as {
       name: string
@@ -12,16 +12,41 @@ export async function serviceRoutes(app: FastifyInstance) {
       category?: string
       aliases?: string[]
     }
+    const name = body.name?.trim()
+    const duration = Number(body.duration)
+    const businessId = body.businessId?.trim()
+    const category = body.category?.trim()
+    const aliases = body.aliases
+      ?.map((alias) => alias.trim())
+      .filter(Boolean)
+
+    if (!businessId) {
+      return reply.status(400).send({
+        message: 'businessId es requerido'
+      })
+    }
+
+    if (!name) {
+      return reply.status(400).send({
+        message: 'name es requerido'
+      })
+    }
+
+    if (!Number.isFinite(duration) || duration <= 0) {
+      return reply.status(400).send({
+        message: 'duration debe ser mayor a 0'
+      })
+    }
 
     const data = {
-      name: body.name,
-      duration: body.duration,
-      businessId: body.businessId,
-      ...(body.category ? { category: body.category } : {}),
-      ...(body.aliases
+      name,
+      duration,
+      businessId,
+      ...(category ? { category } : {}),
+      ...(aliases?.length
         ? {
             aliases: {
-              create: body.aliases.map((alias) => ({
+              create: aliases.map((alias) => ({
                 name: alias
               }))
             }
@@ -30,7 +55,10 @@ export async function serviceRoutes(app: FastifyInstance) {
     }
 
     return prisma.service.create({
-      data
+      data,
+      include: {
+        aliases: true
+      }
     })
   })
 

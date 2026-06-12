@@ -74,6 +74,22 @@ export class ConversationService {
           }
         })
 
+    if (shouldResetExpiredFlow) {
+      if (!conversation.selectedCustomerName) {
+        await this.updateConversation(input.phone, {
+          currentStep: 'ASK_CUSTOMER_NAME'
+        })
+
+        return {
+          reply: botCopyService.askInitialName()
+        }
+      }
+
+      return {
+        reply: botCopyService.mainMenu(conversation.selectedCustomerName)
+      }
+    }
+
     if (conversation.currentStep === 'CANCEL_SELECT_APPOINTMENT') {
       return this.cancelAppointmentByMessage(input.phone, message)
     }

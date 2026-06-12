@@ -975,7 +975,7 @@ async function main() {
       ]
     },
     {
-      name: 'flujo abandonado por 24 horas se reinicia',
+      name: 'flujo abandonado por 24 horas se reinicia con nombre guardado',
       phone: `${testPhonePrefix}expired`,
       setup: async () => {
         await prisma.conversation.create({
@@ -1001,8 +1001,41 @@ async function main() {
       steps: [
         {
           message: 'hola',
-          includes: ['Cami'],
-          excludes: ['gustar']
+          includes: ['Mati', 'Cami', 'Reservar turno'],
+          excludes: ['gustar'],
+          currentStep: 'START'
+        }
+      ]
+    },
+    {
+      name: 'flujo abandonado por 24 horas pide nombre si no esta guardado',
+      phone: `${testPhonePrefix}expired-no-name`,
+      setup: async () => {
+        await prisma.conversation.create({
+          data: {
+            phone: `${testPhonePrefix}expired-no-name`,
+            businessId: business.id,
+            currentStep: 'ASK_DATE',
+            selectedServiceId: service.id,
+            lastMessage: 'manana'
+          }
+        })
+
+        await prisma.conversation.update({
+          where: {
+            phone: `${testPhonePrefix}expired-no-name`
+          },
+          data: {
+            updatedAt: new Date(Date.now() - 25 * 60 * 60 * 1000)
+          }
+        })
+      },
+      steps: [
+        {
+          message: 'hola',
+          includes: ['Cami', 'nombre'],
+          excludes: [service.name],
+          currentStep: 'ASK_CUSTOMER_NAME'
         }
       ]
     }

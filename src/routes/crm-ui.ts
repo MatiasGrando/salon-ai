@@ -1062,6 +1062,94 @@ const crmHtml = `<!doctype html>
       display: grid;
     }
 
+    .app[data-section="services"] {
+      grid-template-columns: 92px minmax(0, 1fr);
+    }
+
+    .app[data-section="services"] .sidebar,
+    .app[data-section="services"] .chat,
+    .app[data-section="services"] .details {
+      display: none;
+    }
+
+    .services-view {
+      grid-column: 2;
+      min-width: 0;
+      min-height: 0;
+      display: none;
+      padding: 14px;
+      background: #f6faf8;
+      overflow: auto;
+    }
+
+    .app[data-section="services"] .services-view {
+      display: block;
+    }
+
+    .services-shell {
+      max-width: 1080px;
+      margin: 0 auto;
+      display: grid;
+      gap: 14px;
+    }
+
+    .services-header,
+    .services-manager {
+      border: 1px solid #e4ece8;
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 8px 24px rgba(16, 24, 40, 0.035);
+    }
+
+    .services-header {
+      min-height: 96px;
+      padding: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .services-header h2,
+    .services-manager h3 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.2;
+    }
+
+    .services-header p,
+    .services-manager p {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .services-manager {
+      padding: 18px;
+      display: grid;
+      grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .services-form-panel {
+      padding: 14px;
+      border: 1px solid #e4ece8;
+      border-radius: 8px;
+      background: #fbfdfc;
+    }
+
+    .services-list-panel {
+      min-width: 0;
+    }
+
+    @media (max-width: 900px) {
+      .services-manager {
+        grid-template-columns: 1fr;
+      }
+    }
+
     .agenda-sidebar,
     .agenda-board {
       min-height: 0;
@@ -1270,6 +1358,11 @@ const crmHtml = `<!doctype html>
       line-height: 1.25;
     }
 
+    .agenda-event.is-overlap {
+      padding-inline: 5px;
+      border-left-width: 4px;
+    }
+
     .agenda-event strong {
       display: block;
       font-size: 11px;
@@ -1288,6 +1381,85 @@ const crmHtml = `<!doctype html>
       padding: 24px;
       color: var(--muted);
       text-align: center;
+    }
+
+    .dialog-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: grid;
+      place-items: center;
+      padding: 18px;
+      background: rgba(15, 23, 42, 0.34);
+    }
+
+    .dialog-backdrop[hidden] {
+      display: none;
+    }
+
+    .dialog {
+      width: min(560px, 100%);
+      max-height: min(720px, calc(100dvh - 36px));
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 22px 70px rgba(15, 23, 42, 0.28);
+      overflow: hidden;
+    }
+
+    .dialog-header {
+      min-height: 58px;
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: 1px solid #e6ece9;
+    }
+
+    .dialog-header h3 {
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.2;
+    }
+
+    .appointment-form {
+      padding: 16px;
+      display: grid;
+      gap: 12px;
+      overflow: auto;
+    }
+
+    .appointment-form .form-row {
+      display: grid;
+      gap: 7px;
+    }
+
+    .appointment-form label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .appointment-form .split-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .dialog-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      padding-top: 4px;
+    }
+
+    @media (max-width: 620px) {
+      .appointment-form .split-row {
+        grid-template-columns: 1fr;
+      }
     }
 
     @media (max-width: 1180px) {
@@ -1529,29 +1701,6 @@ const crmHtml = `<!doctype html>
         </div>
       </details>
 
-      <details class="config-panel">
-        <summary>
-          <div class="panel-title">Servicios</div>
-          <span class="chip" id="service-count">0</span>
-        </summary>
-        <div class="config-panel-body">
-          <form class="block-form" id="service-form">
-            <input id="service-id" type="hidden">
-            <input class="field" id="service-name" placeholder="Nombre del servicio">
-            <div class="config-grid">
-              <input class="field" id="service-duration" type="number" min="1" step="1" placeholder="Minutos">
-              <input class="field" id="service-category" placeholder="Categoria opcional">
-            </div>
-            <input class="field" id="service-aliases" placeholder="Alias separados por coma">
-            <div class="config-actions">
-              <button class="secondary" id="service-cancel" type="button" hidden>Cancelar</button>
-              <button class="primary" type="submit">Guardar</button>
-            </div>
-            <p class="hint" id="service-feedback"></p>
-          </form>
-          <div class="config-list" id="service-list"></div>
-        </div>
-      </details>
     </aside>
 
     <section class="agenda-view" id="agenda-view">
@@ -1594,6 +1743,7 @@ const crmHtml = `<!doctype html>
           </div>
           <div class="agenda-range" id="agenda-range">Semana</div>
           <div class="agenda-toolbar-actions">
+            <button class="primary" id="agenda-new-appointment" type="button">Nuevo turno</button>
             <button class="icon-button" id="agenda-refresh" type="button" title="Actualizar">R</button>
             <select id="agenda-step">
               <option value="15">15 min</option>
@@ -1607,6 +1757,95 @@ const crmHtml = `<!doctype html>
         </div>
       </section>
     </section>
+
+    <div class="dialog-backdrop" id="appointment-dialog" hidden>
+      <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="appointment-dialog-title">
+        <header class="dialog-header">
+          <h3 id="appointment-dialog-title">Nuevo turno</h3>
+          <button class="icon-button" id="appointment-close" type="button" title="Cerrar">X</button>
+        </header>
+        <form class="appointment-form" id="appointment-form">
+          <div class="form-row">
+            <label for="appointment-start">Fecha y hora</label>
+            <input class="field" id="appointment-start" type="datetime-local" required>
+          </div>
+          <div class="split-row">
+            <div class="form-row">
+              <label for="appointment-professional">Profesional</label>
+              <select id="appointment-professional" required></select>
+            </div>
+            <div class="form-row">
+              <label for="appointment-service">Servicio</label>
+              <select id="appointment-service" required></select>
+            </div>
+          </div>
+          <div class="form-row">
+            <label for="appointment-customer">Cliente existente</label>
+            <select id="appointment-customer">
+              <option value="">Crear cliente nuevo</option>
+            </select>
+          </div>
+          <div class="split-row">
+            <div class="form-row">
+              <label for="appointment-customer-name">Nombre</label>
+              <input class="field" id="appointment-customer-name" placeholder="Nombre del cliente">
+            </div>
+            <div class="form-row">
+              <label for="appointment-customer-phone">Telefono</label>
+              <input class="field" id="appointment-customer-phone" placeholder="Telefono">
+            </div>
+          </div>
+          <p class="hint" id="appointment-feedback"></p>
+          <div class="dialog-actions">
+            <button class="secondary" id="appointment-cancel" type="button">Cancelar</button>
+            <button class="primary" type="submit">Guardar turno</button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <section class="services-view" id="services-view">
+      <div class="services-shell">
+        <header class="services-header">
+          <div>
+            <h2>Servicios</h2>
+            <p>Gestiona los servicios que el bot puede ofrecer al tomar reservas.</p>
+          </div>
+          <span class="chip" id="service-count">0</span>
+        </header>
+
+        <section class="services-manager">
+          <div class="services-form-panel">
+            <h3>Nuevo servicio</h3>
+            <p>Completa los datos basicos para agregarlo a la agenda.</p>
+            <form class="block-form" id="service-form">
+              <input id="service-id" type="hidden">
+              <input class="field" id="service-name" placeholder="Nombre del servicio">
+              <div class="config-grid">
+                <input class="field" id="service-duration" type="number" min="1" step="1" placeholder="Duracion en minutos">
+                <input class="field" id="service-category" placeholder="Categoria opcional">
+              </div>
+              <input class="field" id="service-aliases" placeholder="Alias opcionales separados por coma">
+              <div class="config-actions">
+                <button class="secondary" id="service-cancel" type="button" hidden>Cancelar</button>
+                <button class="primary" id="service-submit" type="submit">Guardar servicio</button>
+              </div>
+              <p class="hint" id="service-feedback"></p>
+            </form>
+          </div>
+
+          <div class="services-list-panel">
+            <div class="row">
+              <div>
+                <h3>Servicios cargados</h3>
+                <p>Desde aca podes editar o eliminar cada servicio.</p>
+              </div>
+            </div>
+            <div class="config-list" id="service-list"></div>
+          </div>
+        </section>
+      </div>
+    </section>
   </main>
 
   <script>
@@ -1617,6 +1856,7 @@ const crmHtml = `<!doctype html>
       appointments: [],
       professionals: [],
       services: [],
+      customers: [],
       agendaAppointments: [],
       agendaBlocks: [],
       agendaSelectedDate: new Date(),
@@ -1707,7 +1947,19 @@ const crmHtml = `<!doctype html>
       agendaRefresh: document.getElementById('agenda-refresh'),
       agendaStep: document.getElementById('agenda-step'),
       agendaRange: document.getElementById('agenda-range'),
-      agendaGridWrap: document.getElementById('agenda-grid-wrap')
+      agendaGridWrap: document.getElementById('agenda-grid-wrap'),
+      agendaNewAppointment: document.getElementById('agenda-new-appointment'),
+      appointmentDialog: document.getElementById('appointment-dialog'),
+      appointmentForm: document.getElementById('appointment-form'),
+      appointmentClose: document.getElementById('appointment-close'),
+      appointmentCancel: document.getElementById('appointment-cancel'),
+      appointmentStart: document.getElementById('appointment-start'),
+      appointmentProfessional: document.getElementById('appointment-professional'),
+      appointmentService: document.getElementById('appointment-service'),
+      appointmentCustomer: document.getElementById('appointment-customer'),
+      appointmentCustomerName: document.getElementById('appointment-customer-name'),
+      appointmentCustomerPhone: document.getElementById('appointment-customer-phone'),
+      appointmentFeedback: document.getElementById('appointment-feedback')
     }
 
     function initials(phone) {
@@ -1748,10 +2000,12 @@ const crmHtml = `<!doctype html>
       state.aiSettings = await getJson('/crm/ai-settings' + (state.businessId ? '?businessId=' + encodeURIComponent(state.businessId) : ''))
       state.professionals = await getJson('/professionals')
       state.services = await getJson('/services')
+      state.customers = await getJson('/customers')
       renderAiControls()
       renderProfessionals()
       renderServices()
       renderAgendaFilters()
+      renderAppointmentFormOptions()
       renderAgenda()
     }
 
@@ -2160,6 +2414,7 @@ const crmHtml = `<!doctype html>
         state.professionals = await getJson('/professionals')
         renderProfessionals()
         renderAgendaFilters()
+        renderAppointmentFormOptions()
         renderAgenda()
       } catch (error) {
         els.professionalFeedback.textContent = error.message
@@ -2188,6 +2443,7 @@ const crmHtml = `<!doctype html>
         state.professionals = await getJson('/professionals')
         renderProfessionals()
         renderAgendaFilters()
+        renderAppointmentFormOptions()
         renderAgenda()
       } catch (error) {
         els.professionalFeedback.textContent = error.message
@@ -2306,6 +2562,22 @@ const crmHtml = `<!doctype html>
         .join('')
     }
 
+    function renderAppointmentFormOptions() {
+      els.appointmentProfessional.innerHTML = state.professionals.map((professional) => {
+        return '<option value="' + professional.id + '">' + escapeHtml(professional.name) + '</option>'
+      }).join('')
+
+      els.appointmentService.innerHTML = state.services.map((service) => {
+        return '<option value="' + service.id + '">' + escapeHtml(service.name) + ' · ' + service.duration + ' min</option>'
+      }).join('')
+
+      els.appointmentCustomer.innerHTML = ['<option value="">Crear cliente nuevo</option>']
+        .concat(state.customers.map((customer) => {
+          return '<option value="' + customer.id + '">' + escapeHtml(customer.name + ' · ' + customer.phone) + '</option>'
+        }))
+        .join('')
+    }
+
     async function loadAgenda() {
       const weekStart = startOfWeek(state.agendaSelectedDate)
       const weekEnd = addDays(weekStart, 7)
@@ -2407,6 +2679,16 @@ const crmHtml = `<!doctype html>
         })
       }
 
+      for (const cell of els.agendaGridWrap.querySelectorAll('[data-cell-date][data-cell-minute]')) {
+        cell.addEventListener('click', (event) => {
+          if (event.target.closest('.agenda-event')) return
+          openAppointmentDialog({
+            date: parseDateKey(cell.dataset.cellDate),
+            minute: Number(cell.dataset.cellMinute || startMinute)
+          })
+        })
+      }
+
       renderAgendaEvents({
         step,
         rowHeight,
@@ -2416,6 +2698,7 @@ const crmHtml = `<!doctype html>
 
     function renderAgendaEvents(input) {
       const appointments = filteredAgendaAppointments()
+      const layout = buildAgendaEventLayout(appointments)
       const cells = new Map()
       for (const cell of els.agendaGridWrap.querySelectorAll('[data-cell-date][data-cell-minute]')) {
         cells.set(cell.dataset.cellDate + ':' + cell.dataset.cellMinute, cell)
@@ -2434,16 +2717,85 @@ const crmHtml = `<!doctype html>
         const customer = appointment.customer?.name || 'Cliente'
         const professional = appointment.professional?.name || 'Profesional'
         const service = appointment.service?.name || 'Servicio'
+        const placement = layout.get(appointment.id) || { column: 0, columns: 1 }
+        const gap = 3
+        const leftOffset = 5 + (gap / 2)
+        const widthOffset = gap + (10 / placement.columns)
 
         const event = document.createElement('article')
-        event.className = 'agenda-event'
+        event.className = 'agenda-event' + (placement.columns > 1 ? ' is-overlap' : '')
         event.style.height = height + 'px'
         event.style.top = top + 'px'
+        event.style.left = 'calc(' + ((placement.column * 100) / placement.columns) + '% + ' + leftOffset + 'px)'
+        event.style.right = 'auto'
+        event.style.width = 'calc(' + (100 / placement.columns) + '% - ' + widthOffset + 'px)'
         event.title = customer + ' - ' + service + ' con ' + professional
         event.innerHTML = '<strong>' + escapeHtml(formatTimeOnly(start) + ' - ' + formatTimeOnly(addMinutes(start, duration))) + '</strong>' +
           '<span>' + escapeHtml(customer + ' · ' + service) + '</span>' +
           '<span>' + escapeHtml(professional) + '</span>'
         cell.appendChild(event)
+      }
+    }
+
+    function buildAgendaEventLayout(appointments) {
+      const byDay = new Map()
+      for (const appointment of appointments) {
+        const start = new Date(appointment.startAt)
+        const startMinute = start.getHours() * 60 + start.getMinutes()
+        const duration = appointment.service?.duration || Number(els.agendaStep.value || 15)
+        const item = {
+          id: appointment.id,
+          start: startMinute,
+          end: startMinute + duration,
+          column: 0
+        }
+        const key = dateKey(start)
+        byDay.set(key, (byDay.get(key) || []).concat(item))
+      }
+
+      const layout = new Map()
+      for (const items of byDay.values()) {
+        const sorted = items.sort((left, right) => left.start - right.start || left.end - right.end)
+        let cluster = []
+        let clusterEnd = 0
+
+        for (const item of sorted) {
+          if (cluster.length && item.start >= clusterEnd) {
+            assignAgendaClusterLayout(cluster, layout)
+            cluster = []
+          }
+
+          cluster.push(item)
+          clusterEnd = Math.max(clusterEnd, item.end)
+        }
+
+        if (cluster.length) {
+          assignAgendaClusterLayout(cluster, layout)
+        }
+      }
+
+      return layout
+    }
+
+    function assignAgendaClusterLayout(cluster, layout) {
+      const columns = []
+      for (const item of cluster) {
+        let column = columns.findIndex((end) => end <= item.start)
+        if (column === -1) {
+          column = columns.length
+          columns.push(item.end)
+        } else {
+          columns[column] = item.end
+        }
+        item.column = column
+      }
+
+      const columnCount = Math.max(1, columns.length)
+      for (const item of cluster) {
+        layout.set(item.id, {
+          column: item.column,
+          columns: columnCount
+        })
       }
     }
 
@@ -2483,11 +2835,102 @@ const crmHtml = `<!doctype html>
       })
     }
 
+    function openAppointmentDialog(input = {}) {
+      renderAppointmentFormOptions()
+      els.appointmentFeedback.textContent = ''
+      const date = input.date || state.agendaSelectedDate || new Date()
+      const minute = Number.isFinite(input.minute) ? input.minute : 9 * 60
+      els.appointmentStart.value = toDatetimeLocalValue(addMinutes(startOfDay(date), minute))
+
+      const selectedProfessionalId = els.agendaProfessional.value
+      const selectedServiceId = els.agendaService.value
+      els.appointmentProfessional.value = selectedProfessionalId || state.professionals[0]?.id || ''
+      els.appointmentService.value = selectedServiceId || state.services[0]?.id || ''
+      els.appointmentCustomer.value = ''
+      els.appointmentCustomerName.value = ''
+      els.appointmentCustomerPhone.value = ''
+      syncAppointmentCustomerFields()
+      els.appointmentDialog.hidden = false
+      els.appointmentStart.focus()
+    }
+
+    function closeAppointmentDialog() {
+      els.appointmentDialog.hidden = true
+      els.appointmentFeedback.textContent = ''
+    }
+
+    function syncAppointmentCustomerFields() {
+      const customer = state.customers.find((item) => item.id === els.appointmentCustomer.value)
+      if (customer) {
+        els.appointmentCustomerName.value = customer.name
+        els.appointmentCustomerPhone.value = customer.phone
+      } else {
+        els.appointmentCustomerName.value = ''
+        els.appointmentCustomerPhone.value = ''
+      }
+    }
+
+    async function saveManualAppointment(event) {
+      event.preventDefault()
+      els.appointmentFeedback.textContent = ''
+
+      const startAt = els.appointmentStart.value
+      const professionalId = els.appointmentProfessional.value
+      const serviceId = els.appointmentService.value
+      let customerId = els.appointmentCustomer.value
+
+      if (!startAt || !professionalId || !serviceId) {
+        els.appointmentFeedback.textContent = 'Completa fecha, profesional y servicio.'
+        return
+      }
+
+      try {
+        if (!customerId) {
+          const name = els.appointmentCustomerName.value.trim()
+          const phone = els.appointmentCustomerPhone.value.trim()
+          if (!name || !phone) {
+            els.appointmentFeedback.textContent = 'Elegi un cliente o carga nombre y telefono.'
+            return
+          }
+
+          const customer = await getJson('/customers', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, phone })
+          })
+          customerId = customer.id
+          state.customers = await getJson('/customers')
+          renderAppointmentFormOptions()
+        }
+
+        await getJson('/appointments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            customerId,
+            professionalId,
+            serviceId,
+            startAt: new Date(startAt).toISOString()
+          })
+        })
+
+        closeAppointmentDialog()
+        await loadAgenda()
+        if (state.selected) {
+          await loadAppointments()
+          renderAppointments()
+        }
+      } catch (error) {
+        els.appointmentFeedback.textContent = error.message
+      }
+    }
+
     function setSection(section) {
       els.appShell.dataset.section = section
       const buttons = document.querySelectorAll('.workspace-nav button')
       buttons.forEach((button, index) => {
-        button.classList.toggle('active', section === 'conversations' ? index === 0 : index === 1)
+        const sectionByIndex = ['conversations', 'agenda', 'customers', 'services', 'campaigns', 'reports', 'settings']
+        button.classList.toggle('active', sectionByIndex[index] === section)
       })
 
       if (section === 'agenda') {
@@ -2522,6 +2965,15 @@ const crmHtml = `<!doctype html>
       const month = String(date.getMonth() + 1).padStart(2, '0')
       const day = String(date.getDate()).padStart(2, '0')
       return year + '-' + month + '-' + day
+    }
+
+    function toDatetimeLocalValue(date) {
+      const year = date.getFullYear()
+      const month = String(date.getMonth() + 1).padStart(2, '0')
+      const day = String(date.getDate()).padStart(2, '0')
+      const hour = String(date.getHours()).padStart(2, '0')
+      const minute = String(date.getMinutes()).padStart(2, '0')
+      return year + '-' + month + '-' + day + 'T' + hour + ':' + minute
     }
 
     function parseDateKey(value) {
@@ -2589,11 +3041,13 @@ const crmHtml = `<!doctype html>
             aliases
           })
         })
-        els.serviceFeedback.textContent = id ? 'Servicio actualizado.' : 'Servicio creado.'
+        const successMessage = id ? 'Servicio actualizado.' : 'Servicio creado.'
         resetServiceForm()
+        els.serviceFeedback.textContent = successMessage
         state.services = await getJson('/services')
         renderServices()
         renderAgendaFilters()
+        renderAppointmentFormOptions()
         renderAgenda()
       } catch (error) {
         els.serviceFeedback.textContent = error.message
@@ -2610,6 +3064,9 @@ const crmHtml = `<!doctype html>
       els.serviceAliases.value = (service.aliases || []).map((alias) => alias.name).join(', ')
       els.serviceCancel.hidden = false
       els.serviceFeedback.textContent = 'Editando servicio.'
+      document.querySelector('.services-form-panel h3').textContent = 'Editar servicio'
+      document.getElementById('service-submit').textContent = 'Guardar cambios'
+      setSection('services')
     }
 
     async function deleteService(id) {
@@ -2624,6 +3081,7 @@ const crmHtml = `<!doctype html>
         state.services = await getJson('/services')
         renderServices()
         renderAgendaFilters()
+        renderAppointmentFormOptions()
         renderAgenda()
       } catch (error) {
         els.serviceFeedback.textContent = error.message
@@ -2637,6 +3095,9 @@ const crmHtml = `<!doctype html>
       els.serviceCategory.value = ''
       els.serviceAliases.value = ''
       els.serviceCancel.hidden = true
+      els.serviceFeedback.textContent = ''
+      document.querySelector('.services-form-panel h3').textContent = 'Nuevo servicio'
+      document.getElementById('service-submit').textContent = 'Guardar servicio'
     }
 
     function escapeHtml(value) {
@@ -2694,6 +3155,7 @@ const crmHtml = `<!doctype html>
     els.mobileBack.addEventListener('click', () => setMobileView('inbox'))
     document.querySelectorAll('.workspace-nav button')[0]?.addEventListener('click', () => setSection('conversations'))
     document.querySelectorAll('.workspace-nav button')[1]?.addEventListener('click', () => setSection('agenda'))
+    document.querySelectorAll('.workspace-nav button')[3]?.addEventListener('click', () => setSection('services'))
     els.agendaProfessional.addEventListener('change', loadAgenda)
     els.agendaService.addEventListener('change', renderAgenda)
     els.agendaStep.addEventListener('change', renderAgenda)
@@ -2721,6 +3183,16 @@ const crmHtml = `<!doctype html>
       renderAgendaMonth()
     })
     els.agendaRefresh.addEventListener('click', loadAgenda)
+    els.agendaNewAppointment.addEventListener('click', () => openAppointmentDialog())
+    els.appointmentForm.addEventListener('submit', saveManualAppointment)
+    els.appointmentClose.addEventListener('click', closeAppointmentDialog)
+    els.appointmentCancel.addEventListener('click', closeAppointmentDialog)
+    els.appointmentCustomer.addEventListener('change', syncAppointmentCustomerFields)
+    els.appointmentDialog.addEventListener('click', (event) => {
+      if (event.target === els.appointmentDialog) {
+        closeAppointmentDialog()
+      }
+    })
 
     loadBasics()
       .then(loadConversations)
