@@ -1,0 +1,3 @@
+ALTER TABLE "Professional"
+ADD COLUMN "isActive" BOOLEAN NOT NULL DEFAULT true,
+ADD COLUMN "deactivatedAt" TIMESTAMP(3);

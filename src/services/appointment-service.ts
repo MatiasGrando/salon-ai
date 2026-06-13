@@ -9,7 +9,7 @@ type CreateAppointmentInput = {
   startAt: string
 }
 
-type CreateAppointmentResult =
+type AppointmentMutationResult =
   | {
       ok: true
       appointment: Awaited<ReturnType<typeof prisma.appointment.create>>
@@ -19,6 +19,10 @@ type CreateAppointmentResult =
       statusCode: number
       message: string
     }
+
+type UpdateAppointmentInput = CreateAppointmentInput & {
+  id: string
+}
 
 type FindAvailabilityInput = {
   professionalId: string
@@ -38,7 +42,7 @@ type FindAvailabilityResult =
     }
 
 export class AppointmentService {
-  async create(input: CreateAppointmentInput): Promise<CreateAppointmentResult> {
+  async create(input: CreateAppointmentInput): Promise<AppointmentMutationResult> {
     const startAt = new Date(input.startAt)
 
     if (Number.isNaN(startAt.getTime())) {
@@ -67,6 +71,14 @@ export class AppointmentService {
         ok: false,
         statusCode: 404,
         message: 'No encontre ese profesional'
+      }
+    }
+
+    if (!professional.isActive) {
+      return {
+        ok: false,
+        statusCode: 409,
+        message: 'Ese profesional no esta activo'
       }
     }
 
@@ -159,6 +171,182 @@ export class AppointmentService {
     }
   }
 
+  async update(input: UpdateAppointmentInput): Promise<AppointmentMutationResult> {
+    const existing = await prisma.appointment.findUnique({
+      where: {
+        id: input.id
+      }
+    })
+
+    if (!existing) {
+      return {
+        ok: false,
+        statusCode: 404,
+        message: 'No encontre ese turno'
+      }
+    }
+
+    const startAt = new Date(input.startAt)
+
+    if (Number.isNaN(startAt.getTime())) {
+      return {
+        ok: false,
+        statusCode: 400,
+        message: 'La fecha de inicio no parece valida'
+      }
+    }
+
+    const [professional, service] = await Promise.all([
+      prisma.professional.findUnique({
+        where: {
+          id: input.professionalId
+        }
+      }),
+      prisma.service.findUnique({
+        where: {
+          id: input.serviceId
+        }
+      })
+    ])
+
+    if (!professional) {
+      return {
+        ok: false,
+        statusCode: 404,
+        message: 'No encontre ese profesional'
+      }
+    }
+
+    if (!professional.isActive) {
+      return {
+        ok: false,
+        statusCode: 409,
+        message: 'Ese profesional no esta activo'
+      }
+    }
+
+    if (!service) {
+      return {
+        ok: false,
+        statusCode: 404,
+        message: 'No encontre ese servicio'
+      }
+    }
+
+    if (professional.businessId !== service.businessId) {
+      return {
+        ok: false,
+        statusCode: 400,
+        message: 'Ese profesional no corresponde a ese servicio'
+      }
+    }
+
+    const endAt = addMinutes(startAt, service.duration)
+    const isInsideBusinessHours = await this.isInsideBusinessHours({
+      businessId: professional.businessId,
+      startAt,
+      endAt
+    })
+
+    if (!isInsideBusinessHours) {
+      return {
+        ok: false,
+        statusCode: 409,
+        message: 'Ese horario esta fuera del horario de atencion'
+      }
+    }
+
+    const isInsideProfessionalHours = await this.isInsideProfessionalHours({
+      professionalId: input.professionalId,
+      startAt,
+      endAt
+    })
+
+    if (!isInsideProfessionalHours) {
+      return {
+        ok: false,
+        statusCode: 409,
+        message: 'Ese profesional no trabaja en ese horario'
+      }
+    }
+
+    const hasScheduleBlock = await this.hasScheduleBlockOverlap({
+      businessId: professional.businessId,
+      professionalId: input.professionalId,
+      startAt,
+      endAt
+    })
+
+    if (hasScheduleBlock) {
+      return {
+        ok: false,
+        statusCode: 409,
+        message: 'Ese horario esta bloqueado en la agenda'
+      }
+    }
+
+    const hasOverlap = await this.hasAppointmentOverlap({
+      professionalId: input.professionalId,
+      startAt,
+      endAt,
+      excludeAppointmentId: input.id
+    })
+
+    if (hasOverlap) {
+      return {
+        ok: false,
+        statusCode: 409,
+        message: 'Ese horario ya no esta disponible'
+      }
+    }
+
+    const appointment = await prisma.appointment.update({
+      where: {
+        id: input.id
+      },
+      data: {
+        customerId: input.customerId,
+        professionalId: input.professionalId,
+        serviceId: input.serviceId,
+        startAt,
+        status: 'CONFIRMED'
+      }
+    })
+
+    return {
+      ok: true,
+      appointment
+    }
+  }
+
+  async cancel(appointmentId: string) {
+    const appointment = await prisma.appointment.findUnique({
+      where: {
+        id: appointmentId
+      }
+    })
+
+    if (!appointment) {
+      return {
+        ok: false as const,
+        statusCode: 404,
+        message: 'No encontre ese turno'
+      }
+    }
+
+    return {
+      ok: true as const,
+      appointment: await prisma.appointment.update({
+        where: {
+          id: appointmentId
+        },
+        data: {
+          status: 'CANCELLED'
+        }
+      })
+    }
+  }
+
   async findAll() {
     return prisma.appointment.findMany({
       include: {
@@ -198,6 +386,14 @@ export class AppointmentService {
         ok: false,
         statusCode: 404,
         message: 'No encontre ese profesional'
+      }
+    }
+
+    if (!professional.isActive) {
+      return {
+        ok: false,
+        statusCode: 409,
+        message: 'Ese profesional no esta activo'
       }
     }
 
@@ -349,9 +545,11 @@ export class AppointmentService {
     professionalId: string
     startAt: Date
     endAt: Date
+    excludeAppointmentId?: string
   }) {
     const appointments = await prisma.appointment.findMany({
       where: {
+        ...(input.excludeAppointmentId ? { id: { not: input.excludeAppointmentId } } : {}),
         professionalId: input.professionalId,
         startAt: {
           lt: input.endAt

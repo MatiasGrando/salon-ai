@@ -28,4 +28,46 @@ export async function appointmentRoutes(app: FastifyInstance) {
   app.get('/appointments', async () => {
     return service.findAll()
   })
+
+  app.patch('/appointments/:id', async (request, reply) => {
+    const params = request.params as {
+      id: string
+    }
+
+    const body = request.body as {
+      customerId: string
+      professionalId: string
+      serviceId: string
+      startAt: string
+    }
+
+    const result = await service.update({
+      id: params.id,
+      ...body
+    })
+
+    if (!result.ok) {
+      return reply.status(result.statusCode).send({
+        message: result.message
+      })
+    }
+
+    return result.appointment
+  })
+
+  app.delete('/appointments/:id', async (request, reply) => {
+    const params = request.params as {
+      id: string
+    }
+
+    const result = await service.cancel(params.id)
+
+    if (!result.ok) {
+      return reply.status(result.statusCode).send({
+        message: result.message
+      })
+    }
+
+    return result.appointment
+  })
 }

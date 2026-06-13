@@ -1062,17 +1062,22 @@ const crmHtml = `<!doctype html>
       display: grid;
     }
 
-    .app[data-section="services"] {
+    .app[data-section="services"],
+    .app[data-section="professionals"] {
       grid-template-columns: 92px minmax(0, 1fr);
     }
 
     .app[data-section="services"] .sidebar,
     .app[data-section="services"] .chat,
-    .app[data-section="services"] .details {
+    .app[data-section="services"] .details,
+    .app[data-section="professionals"] .sidebar,
+    .app[data-section="professionals"] .chat,
+    .app[data-section="professionals"] .details {
       display: none;
     }
 
-    .services-view {
+    .services-view,
+    .professionals-view {
       grid-column: 2;
       min-width: 0;
       min-height: 0;
@@ -1086,7 +1091,12 @@ const crmHtml = `<!doctype html>
       display: block;
     }
 
-    .services-shell {
+    .app[data-section="professionals"] .professionals-view {
+      display: block;
+    }
+
+    .services-shell,
+    .professionals-shell {
       max-width: 1080px;
       margin: 0 auto;
       display: grid;
@@ -1094,14 +1104,18 @@ const crmHtml = `<!doctype html>
     }
 
     .services-header,
-    .services-manager {
+    .services-manager,
+    .professionals-header,
+    .professionals-manager,
+    .impact-panel {
       border: 1px solid #e4ece8;
       border-radius: 8px;
       background: #fff;
       box-shadow: 0 8px 24px rgba(16, 24, 40, 0.035);
     }
 
-    .services-header {
+    .services-header,
+    .professionals-header {
       min-height: 96px;
       padding: 20px;
       display: flex;
@@ -1111,21 +1125,28 @@ const crmHtml = `<!doctype html>
     }
 
     .services-header h2,
-    .services-manager h3 {
+    .services-manager h3,
+    .professionals-header h2,
+    .professionals-manager h3,
+    .impact-panel h3 {
       margin: 0;
       font-size: 20px;
       line-height: 1.2;
     }
 
     .services-header p,
-    .services-manager p {
+    .services-manager p,
+    .professionals-header p,
+    .professionals-manager p,
+    .impact-panel p {
       margin: 5px 0 0;
       color: var(--muted);
       font-size: 13px;
       line-height: 1.4;
     }
 
-    .services-manager {
+    .services-manager,
+    .professionals-manager {
       padding: 18px;
       display: grid;
       grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
@@ -1133,19 +1154,56 @@ const crmHtml = `<!doctype html>
       align-items: start;
     }
 
-    .services-form-panel {
+    .services-form-panel,
+    .professionals-form-panel {
       padding: 14px;
       border: 1px solid #e4ece8;
       border-radius: 8px;
       background: #fbfdfc;
     }
 
-    .services-list-panel {
+    .services-list-panel,
+    .professionals-list-panel {
       min-width: 0;
     }
 
+    .impact-panel {
+      display: none;
+      padding: 16px;
+      border-color: #f5d39a;
+      background: #fffaf0;
+    }
+
+    .impact-panel.visible {
+      display: grid;
+      gap: 12px;
+    }
+
+    .impact-list {
+      display: grid;
+      gap: 8px;
+      max-height: 280px;
+      overflow: auto;
+    }
+
+    .impact-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .status-line {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-top: 6px;
+    }
+
     @media (max-width: 900px) {
-      .services-manager {
+      .services-manager,
+      .professionals-manager {
         grid-template-columns: 1fr;
       }
     }
@@ -1537,6 +1595,7 @@ const crmHtml = `<!doctype html>
       <button class="active" type="button"><span>💬</span><strong>Conversaciones</strong></button>
       <button type="button"><span>📅</span><strong>Agenda</strong></button>
       <button type="button"><span>👥</span><strong>Clientes</strong></button>
+      <button type="button"><span>PR</span><strong>Profesionales</strong></button>
       <button type="button"><span>✂</span><strong>Servicios</strong></button>
       <button type="button"><span>📣</span><strong>Campañas</strong></button>
       <button type="button"><span>📊</span><strong>Reportes</strong></button>
@@ -1667,40 +1726,6 @@ const crmHtml = `<!doctype html>
         </div>
       </details>
 
-      <details class="config-panel">
-        <summary>
-          <div class="panel-title">Profesionales</div>
-          <span class="chip" id="professional-count">0</span>
-        </summary>
-        <div class="config-panel-body">
-          <form class="block-form" id="professional-form">
-            <input id="professional-id" type="hidden">
-            <input class="field" id="professional-name" placeholder="Nombre del profesional">
-            <div class="schedule-row">
-              <label><input id="professional-weekdays-enabled" type="checkbox" checked> Lun a vie</label>
-              <input class="field" id="professional-weekdays-start" type="time" value="09:00">
-              <input class="field" id="professional-weekdays-end" type="time" value="18:00">
-            </div>
-            <div class="schedule-row">
-              <label><input id="professional-saturday-enabled" type="checkbox"> Sabado</label>
-              <input class="field" id="professional-saturday-start" type="time" value="09:00">
-              <input class="field" id="professional-saturday-end" type="time" value="13:00">
-            </div>
-            <div class="schedule-row">
-              <label><input id="professional-sunday-enabled" type="checkbox"> Domingo</label>
-              <input class="field" id="professional-sunday-start" type="time" value="09:00">
-              <input class="field" id="professional-sunday-end" type="time" value="13:00">
-            </div>
-            <div class="config-actions">
-              <button class="secondary" id="professional-cancel" type="button" hidden>Cancelar</button>
-              <button class="primary" type="submit">Guardar</button>
-            </div>
-            <p class="hint" id="professional-feedback"></p>
-          </form>
-          <div class="config-list" id="professional-list"></div>
-        </div>
-      </details>
-
     </aside>
 
     <section class="agenda-view" id="agenda-view">
@@ -1797,12 +1822,79 @@ const crmHtml = `<!doctype html>
           </div>
           <p class="hint" id="appointment-feedback"></p>
           <div class="dialog-actions">
+            <button class="danger" id="appointment-delete" type="button" hidden>Eliminar</button>
             <button class="secondary" id="appointment-cancel" type="button">Cancelar</button>
-            <button class="primary" type="submit">Guardar turno</button>
+            <button class="primary" id="appointment-submit" type="submit">Guardar turno</button>
           </div>
         </form>
       </section>
     </div>
+
+    <section class="professionals-view" id="professionals-view">
+      <div class="professionals-shell">
+        <header class="professionals-header">
+          <div>
+            <h2>Profesionales</h2>
+            <p>Gestiona quienes atienden turnos y sus horarios de disponibilidad.</p>
+          </div>
+          <span class="chip" id="professional-count">0</span>
+        </header>
+
+        <section class="impact-panel" id="professional-impact-panel">
+          <div>
+            <h3 id="professional-impact-title">Turnos afectados</h3>
+            <p id="professional-impact-copy">Revisa estos turnos antes de guardar el cambio.</p>
+          </div>
+          <div class="impact-list" id="professional-impact-list"></div>
+          <div class="impact-actions">
+            <button class="secondary" id="professional-impact-reprogram" type="button">Reprogramar</button>
+            <button class="danger" id="professional-impact-cancel" type="button">Cancelar turnos</button>
+            <button class="primary" id="professional-impact-keep" type="button">Mantener como excepcion</button>
+          </div>
+        </section>
+
+        <section class="professionals-manager">
+          <div class="professionals-form-panel">
+            <h3 id="professional-form-title">Nuevo profesional</h3>
+            <p>Carga el nombre y los rangos horarios que el bot puede ofrecer.</p>
+            <form class="block-form" id="professional-form">
+              <input id="professional-id" type="hidden">
+              <input class="field" id="professional-name" placeholder="Nombre del profesional">
+              <div class="schedule-row">
+                <label><input id="professional-weekdays-enabled" type="checkbox" checked> Lun a vie</label>
+                <input class="field" id="professional-weekdays-start" type="time" value="09:00">
+                <input class="field" id="professional-weekdays-end" type="time" value="18:00">
+              </div>
+              <div class="schedule-row">
+                <label><input id="professional-saturday-enabled" type="checkbox"> Sabado</label>
+                <input class="field" id="professional-saturday-start" type="time" value="09:00">
+                <input class="field" id="professional-saturday-end" type="time" value="13:00">
+              </div>
+              <div class="schedule-row">
+                <label><input id="professional-sunday-enabled" type="checkbox"> Domingo</label>
+                <input class="field" id="professional-sunday-start" type="time" value="09:00">
+                <input class="field" id="professional-sunday-end" type="time" value="13:00">
+              </div>
+              <div class="config-actions">
+                <button class="secondary" id="professional-cancel" type="button" hidden>Cancelar</button>
+                <button class="primary" id="professional-submit" type="submit">Guardar profesional</button>
+              </div>
+              <p class="hint" id="professional-feedback"></p>
+            </form>
+          </div>
+
+          <div class="professionals-list-panel">
+            <div class="row">
+              <div>
+                <h3>Profesionales cargados</h3>
+                <p>Los inactivos conservan historial y no aceptan nuevos turnos.</p>
+              </div>
+            </div>
+            <div class="config-list" id="professional-list"></div>
+          </div>
+        </section>
+      </div>
+    </section>
 
     <section class="services-view" id="services-view">
       <div class="services-shell">
@@ -1861,10 +1953,12 @@ const crmHtml = `<!doctype html>
       agendaBlocks: [],
       agendaSelectedDate: new Date(),
       agendaMonthDate: new Date(),
+      editingAppointmentId: null,
       aiSettings: {
         botEnabled: true,
         aiEnabled: true
       },
+      pendingProfessionalSave: null,
       businessId: null,
       isRefreshing: false
     }
@@ -1917,9 +2011,18 @@ const crmHtml = `<!doctype html>
       professionalSundayStart: document.getElementById('professional-sunday-start'),
       professionalSundayEnd: document.getElementById('professional-sunday-end'),
       professionalCancel: document.getElementById('professional-cancel'),
+      professionalSubmit: document.getElementById('professional-submit'),
+      professionalFormTitle: document.getElementById('professional-form-title'),
       professionalFeedback: document.getElementById('professional-feedback'),
       professionalList: document.getElementById('professional-list'),
       professionalCount: document.getElementById('professional-count'),
+      professionalImpactPanel: document.getElementById('professional-impact-panel'),
+      professionalImpactTitle: document.getElementById('professional-impact-title'),
+      professionalImpactCopy: document.getElementById('professional-impact-copy'),
+      professionalImpactList: document.getElementById('professional-impact-list'),
+      professionalImpactReprogram: document.getElementById('professional-impact-reprogram'),
+      professionalImpactCancel: document.getElementById('professional-impact-cancel'),
+      professionalImpactKeep: document.getElementById('professional-impact-keep'),
       serviceForm: document.getElementById('service-form'),
       serviceId: document.getElementById('service-id'),
       serviceName: document.getElementById('service-name'),
@@ -1951,8 +2054,11 @@ const crmHtml = `<!doctype html>
       agendaNewAppointment: document.getElementById('agenda-new-appointment'),
       appointmentDialog: document.getElementById('appointment-dialog'),
       appointmentForm: document.getElementById('appointment-form'),
+      appointmentTitle: document.getElementById('appointment-dialog-title'),
       appointmentClose: document.getElementById('appointment-close'),
       appointmentCancel: document.getElementById('appointment-cancel'),
+      appointmentDelete: document.getElementById('appointment-delete'),
+      appointmentSubmit: document.getElementById('appointment-submit'),
       appointmentStart: document.getElementById('appointment-start'),
       appointmentProfessional: document.getElementById('appointment-professional'),
       appointmentService: document.getElementById('appointment-service'),
@@ -1989,7 +2095,9 @@ const crmHtml = `<!doctype html>
       const response = await fetch(url, options)
       if (!response.ok) {
         const body = await response.json().catch(() => ({}))
-        throw new Error(body.message || 'Error de servidor')
+        const error = new Error(body.message || 'Error de servidor')
+        error.body = body
+        throw error
       }
       return response.json()
     }
@@ -2171,23 +2279,33 @@ const crmHtml = `<!doctype html>
 
     function renderProfessionals() {
       const options = ['<option value="">Todo el salon</option>']
-      for (const professional of state.professionals) {
+      for (const professional of activeProfessionals()) {
         options.push('<option value="' + professional.id + '">' + escapeHtml(professional.name) + '</option>')
       }
       els.blockProfessional.innerHTML = options.join('')
-      els.professionalCount.textContent = String(state.professionals.length)
+      els.professionalCount.textContent = String(activeProfessionals().length)
       els.professionalList.innerHTML = state.professionals.length
         ? state.professionals.map((professional) => {
+            const statusText = professional.isActive === false ? 'Inactivo' : 'Activo'
+            const statusClass = professional.isActive === false ? 'chip warn' : 'chip'
+            const appointmentCount = professional._count?.appointments || 0
             return '<details class="item">' +
               '<summary class="row">' +
                 '<div>' +
                   '<div class="item-title">' + escapeHtml(professional.name) + '</div>' +
                   '<p>' + escapeHtml(summarizeWorkingHours(professional.workingHours || [])) + '</p>' +
+                  '<div class="status-line">' +
+                    '<span class="' + statusClass + '">' + statusText + '</span>' +
+                    '<span class="hint">' + appointmentCount + ' turnos historicos</span>' +
+                  '</div>' +
                 '</div>' +
               '</summary>' +
               '<div>' +
                 '<div class="config-actions">' +
                   '<button class="secondary" type="button" data-edit-professional="' + professional.id + '">Editar</button>' +
+                  (professional.isActive === false
+                    ? '<button class="secondary" type="button" data-activate-professional="' + professional.id + '">Activar</button>'
+                    : '<button class="secondary" type="button" data-deactivate-professional="' + professional.id + '">Desactivar</button>') +
                   '<button class="danger" type="button" data-delete-professional="' + professional.id + '">Eliminar</button>' +
                 '</div>' +
               '</div>' +
@@ -2201,6 +2319,14 @@ const crmHtml = `<!doctype html>
 
       for (const button of els.professionalList.querySelectorAll('[data-delete-professional]')) {
         button.addEventListener('click', () => deleteProfessional(button.dataset.deleteProfessional))
+      }
+
+      for (const button of els.professionalList.querySelectorAll('[data-deactivate-professional]')) {
+        button.addEventListener('click', () => setProfessionalStatus(button.dataset.deactivateProfessional, false))
+      }
+
+      for (const button of els.professionalList.querySelectorAll('[data-activate-professional]')) {
+        button.addEventListener('click', () => setProfessionalStatus(button.dataset.activateProfessional, true))
       }
     }
 
@@ -2385,7 +2511,7 @@ const crmHtml = `<!doctype html>
       }
     }
 
-    async function saveProfessional(event) {
+    async function saveProfessional(event, options = {}) {
       event.preventDefault()
       if (!state.businessId) {
         els.professionalFeedback.textContent = 'No encontre un negocio cargado.'
@@ -2406,18 +2532,33 @@ const crmHtml = `<!doctype html>
           body: JSON.stringify({
             name,
             businessId: state.businessId,
-            workingHours: buildProfessionalWorkingHours()
+            workingHours: buildProfessionalWorkingHours(),
+            ...(options.conflictStrategy ? { conflictStrategy: options.conflictStrategy } : {})
           })
         })
         els.professionalFeedback.textContent = id ? 'Profesional actualizado.' : 'Profesional creado.'
         resetProfessionalForm(false)
+        hideProfessionalImpact()
         state.professionals = await getJson('/professionals')
         renderProfessionals()
         renderAgendaFilters()
         renderAppointmentFormOptions()
         renderAgenda()
       } catch (error) {
-        els.professionalFeedback.textContent = error.message
+        if (error.body?.code === 'WORKING_HOURS_CONFLICT') {
+          state.pendingProfessionalSave = {
+            id,
+            name,
+            workingHours: buildProfessionalWorkingHours()
+          }
+          showProfessionalImpact({
+            title: 'Turnos fuera del nuevo horario',
+            copy: 'Estos turnos ya estaban confirmados. Podes mantenerlos como excepcion, revisarlos para reprogramar o contactar clientes para cancelar.',
+            appointments: error.body.impact?.outsideWorkingHours || []
+          })
+        } else {
+          els.professionalFeedback.textContent = error.message
+        }
       }
     }
 
@@ -2428,18 +2569,36 @@ const crmHtml = `<!doctype html>
       els.professionalName.value = professional.name
       setProfessionalWorkingHours(professional.workingHours || [])
       els.professionalCancel.hidden = false
+      els.professionalFormTitle.textContent = 'Editar profesional'
+      els.professionalSubmit.textContent = 'Guardar cambios'
       els.professionalFeedback.textContent = 'Editando profesional.'
+      hideProfessionalImpact()
+      setSection('professionals')
     }
 
     async function deleteProfessional(id) {
       const professional = state.professionals.find((item) => item.id === id)
-      if (!professional || !confirm('Eliminar profesional ' + professional.name + '?')) return
+      if (!professional) return
+
+      const impact = await getProfessionalImpact(id)
+      if (impact.futureAppointments.length > 0) {
+        showProfessionalImpact({
+          title: 'No conviene eliminar todavia',
+          copy: 'Este profesional tiene turnos futuros. Podes desactivarlo para que no tome nuevos turnos, revisar la lista para reprogramar o contactar clientes para cancelar.',
+          appointments: impact.futureAppointments,
+          professionalId: id
+        })
+        els.professionalFeedback.textContent = 'Resolve los turnos futuros antes de eliminar definitivamente.'
+        return
+      }
+
+      if (!confirm('Eliminar profesional ' + professional.name + '?')) return
 
       try {
         await getJson('/professionals/' + id, {
           method: 'DELETE'
         })
-        els.professionalFeedback.textContent = 'Profesional eliminado.'
+        els.professionalFeedback.textContent = professional._count?.appointments ? 'Profesional desactivado y oculto de nuevas reservas.' : 'Profesional eliminado.'
         state.professionals = await getJson('/professionals')
         renderProfessionals()
         renderAgendaFilters()
@@ -2454,6 +2613,10 @@ const crmHtml = `<!doctype html>
       els.professionalId.value = ''
       els.professionalName.value = ''
       els.professionalCancel.hidden = true
+      els.professionalFormTitle.textContent = 'Nuevo profesional'
+      els.professionalSubmit.textContent = 'Guardar profesional'
+      state.pendingProfessionalSave = null
+      hideProfessionalImpact()
       setProfessionalWorkingHours([
         { dayOfWeek: 1, startTime: '09:00', endTime: '18:00' },
         { dayOfWeek: 2, startTime: '09:00', endTime: '18:00' },
@@ -2464,6 +2627,67 @@ const crmHtml = `<!doctype html>
       if (clearFeedback) {
         els.professionalFeedback.textContent = ''
       }
+    }
+
+    async function setProfessionalStatus(id, isActive) {
+      const professional = state.professionals.find((item) => item.id === id)
+      if (!professional) return
+
+      if (!isActive) {
+        const impact = await getProfessionalImpact(id)
+        if (impact.futureAppointments.length > 0) {
+          showProfessionalImpact({
+            title: 'Turnos futuros de ' + professional.name,
+            copy: 'Si lo desactivas, no se ofreceran nuevos turnos, pero estos turnos siguen vigentes hasta que los reprogrames o canceles.',
+            appointments: impact.futureAppointments,
+            professionalId: id
+          })
+        }
+      }
+
+      try {
+        await getJson('/professionals/' + id + '/status', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ isActive })
+        })
+        els.professionalFeedback.textContent = isActive ? 'Profesional activado.' : 'Profesional desactivado para nuevas reservas.'
+        state.professionals = await getJson('/professionals')
+        renderProfessionals()
+        renderAgendaFilters()
+        renderAppointmentFormOptions()
+        renderAgenda()
+      } catch (error) {
+        els.professionalFeedback.textContent = error.message
+      }
+    }
+
+    async function getProfessionalImpact(id) {
+      return getJson('/professionals/' + id + '/appointments-impact')
+    }
+
+    function showProfessionalImpact(input) {
+      els.professionalImpactTitle.textContent = input.title
+      els.professionalImpactCopy.textContent = input.copy
+      els.professionalImpactList.innerHTML = input.appointments.length
+        ? input.appointments.map((appointment) => {
+            const customer = appointment.customer?.name || 'Cliente'
+            const phone = appointment.customer?.phone || 'Sin telefono'
+            const service = appointment.service?.name || 'Servicio'
+            return '<div class="item">' +
+              '<div class="item-title">' + escapeHtml(customer + ' - ' + service) + '</div>' +
+              '<p>' + escapeHtml(formatAppointment(appointment.startAt) + ' · ' + phone) + '</p>' +
+            '</div>'
+          }).join('')
+        : '<div class="empty">No hay turnos futuros afectados.</div>'
+
+      els.professionalImpactPanel.classList.add('visible')
+      els.professionalImpactPanel.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+
+    function hideProfessionalImpact() {
+      els.professionalImpactPanel.classList.remove('visible')
+      els.professionalImpactList.innerHTML = ''
     }
 
     function buildProfessionalWorkingHours() {
@@ -2548,9 +2772,13 @@ const crmHtml = `<!doctype html>
       return ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab'][dayOfWeek] || 'Dia'
     }
 
+    function activeProfessionals() {
+      return state.professionals.filter((professional) => professional.isActive !== false)
+    }
+
     function renderAgendaFilters() {
       els.agendaProfessional.innerHTML = ['<option value="">Todos los profesionales</option>']
-        .concat(state.professionals.map((professional) => {
+        .concat(activeProfessionals().map((professional) => {
           return '<option value="' + professional.id + '">' + escapeHtml(professional.name) + '</option>'
         }))
         .join('')
@@ -2563,7 +2791,7 @@ const crmHtml = `<!doctype html>
     }
 
     function renderAppointmentFormOptions() {
-      els.appointmentProfessional.innerHTML = state.professionals.map((professional) => {
+      els.appointmentProfessional.innerHTML = activeProfessionals().map((professional) => {
         return '<option value="' + professional.id + '">' + escapeHtml(professional.name) + '</option>'
       }).join('')
 
@@ -2733,6 +2961,10 @@ const crmHtml = `<!doctype html>
         event.innerHTML = '<strong>' + escapeHtml(formatTimeOnly(start) + ' - ' + formatTimeOnly(addMinutes(start, duration))) + '</strong>' +
           '<span>' + escapeHtml(customer + ' · ' + service) + '</span>' +
           '<span>' + escapeHtml(professional) + '</span>'
+        event.addEventListener('click', (clickEvent) => {
+          clickEvent.stopPropagation()
+          openAppointmentDialog({ appointment })
+        })
         cell.appendChild(event)
       }
     }
@@ -2820,7 +3052,7 @@ const crmHtml = `<!doctype html>
       const professionalId = els.agendaProfessional?.value || ''
       const professionals = professionalId
         ? state.professionals.filter((professional) => professional.id === professionalId)
-        : state.professionals
+        : activeProfessionals()
 
       if (professionals.length === 0) {
         return false
@@ -2838,17 +3070,33 @@ const crmHtml = `<!doctype html>
     function openAppointmentDialog(input = {}) {
       renderAppointmentFormOptions()
       els.appointmentFeedback.textContent = ''
-      const date = input.date || state.agendaSelectedDate || new Date()
-      const minute = Number.isFinite(input.minute) ? input.minute : 9 * 60
-      els.appointmentStart.value = toDatetimeLocalValue(addMinutes(startOfDay(date), minute))
+      const appointment = input.appointment
+      state.editingAppointmentId = appointment?.id || null
+      els.appointmentTitle.textContent = appointment ? 'Editar turno' : 'Nuevo turno'
+      els.appointmentSubmit.textContent = appointment ? 'Guardar cambios' : 'Guardar turno'
+      els.appointmentDelete.hidden = !appointment
 
-      const selectedProfessionalId = els.agendaProfessional.value
-      const selectedServiceId = els.agendaService.value
-      els.appointmentProfessional.value = selectedProfessionalId || state.professionals[0]?.id || ''
-      els.appointmentService.value = selectedServiceId || state.services[0]?.id || ''
-      els.appointmentCustomer.value = ''
-      els.appointmentCustomerName.value = ''
-      els.appointmentCustomerPhone.value = ''
+      if (appointment) {
+        els.appointmentStart.value = toDatetimeLocalValue(new Date(appointment.startAt))
+        els.appointmentProfessional.value = appointment.professionalId || ''
+        els.appointmentService.value = appointment.serviceId || ''
+        els.appointmentCustomer.value = appointment.customerId || ''
+        els.appointmentCustomerName.value = appointment.customer?.name || ''
+        els.appointmentCustomerPhone.value = appointment.customer?.phone || ''
+      } else {
+        const date = input.date || state.agendaSelectedDate || new Date()
+        const minute = Number.isFinite(input.minute) ? input.minute : 9 * 60
+        els.appointmentStart.value = toDatetimeLocalValue(addMinutes(startOfDay(date), minute))
+
+        const selectedProfessionalId = els.agendaProfessional.value
+        const selectedServiceId = els.agendaService.value
+        els.appointmentProfessional.value = selectedProfessionalId || activeProfessionals()[0]?.id || ''
+        els.appointmentService.value = selectedServiceId || state.services[0]?.id || ''
+        els.appointmentCustomer.value = ''
+        els.appointmentCustomerName.value = ''
+        els.appointmentCustomerPhone.value = ''
+      }
+
       syncAppointmentCustomerFields()
       els.appointmentDialog.hidden = false
       els.appointmentStart.focus()
@@ -2857,6 +3105,8 @@ const crmHtml = `<!doctype html>
     function closeAppointmentDialog() {
       els.appointmentDialog.hidden = true
       els.appointmentFeedback.textContent = ''
+      state.editingAppointmentId = null
+      els.appointmentDelete.hidden = true
     }
 
     function syncAppointmentCustomerFields() {
@@ -2864,7 +3114,7 @@ const crmHtml = `<!doctype html>
       if (customer) {
         els.appointmentCustomerName.value = customer.name
         els.appointmentCustomerPhone.value = customer.phone
-      } else {
+      } else if (!els.appointmentCustomer.value) {
         els.appointmentCustomerName.value = ''
         els.appointmentCustomerPhone.value = ''
       }
@@ -2903,8 +3153,9 @@ const crmHtml = `<!doctype html>
           renderAppointmentFormOptions()
         }
 
-        await getJson('/appointments', {
-          method: 'POST',
+        const appointmentId = state.editingAppointmentId
+        await getJson(appointmentId ? '/appointments/' + appointmentId : '/appointments', {
+          method: appointmentId ? 'PATCH' : 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             customerId,
@@ -2925,11 +3176,31 @@ const crmHtml = `<!doctype html>
       }
     }
 
+    async function deleteManualAppointment() {
+      const appointmentId = state.editingAppointmentId
+      if (!appointmentId) return
+      if (!confirm('Eliminar este turno de la agenda?')) return
+
+      try {
+        await getJson('/appointments/' + appointmentId, {
+          method: 'DELETE'
+        })
+        closeAppointmentDialog()
+        await loadAgenda()
+        if (state.selected) {
+          await loadAppointments()
+          renderAppointments()
+        }
+      } catch (error) {
+        els.appointmentFeedback.textContent = error.message
+      }
+    }
+
     function setSection(section) {
       els.appShell.dataset.section = section
       const buttons = document.querySelectorAll('.workspace-nav button')
       buttons.forEach((button, index) => {
-        const sectionByIndex = ['conversations', 'agenda', 'customers', 'services', 'campaigns', 'reports', 'settings']
+        const sectionByIndex = ['conversations', 'agenda', 'customers', 'professionals', 'services', 'campaigns', 'reports', 'settings']
         button.classList.toggle('active', sectionByIndex[index] === section)
       })
 
@@ -3138,6 +3409,17 @@ const crmHtml = `<!doctype html>
     els.blockForm.addEventListener('submit', createBlock)
     els.professionalForm.addEventListener('submit', saveProfessional)
     els.professionalCancel.addEventListener('click', resetProfessionalForm)
+    els.professionalImpactKeep.addEventListener('click', () => {
+      if (!state.pendingProfessionalSave) return
+      saveProfessional(new Event('submit'), { conflictStrategy: 'KEEP_EXISTING' })
+    })
+    els.professionalImpactReprogram.addEventListener('click', () => {
+      els.professionalFeedback.textContent = 'Usa la lista de turnos afectados para contactar clientes y reprogramar desde Agenda.'
+      setSection('agenda')
+    })
+    els.professionalImpactCancel.addEventListener('click', () => {
+      els.professionalFeedback.textContent = 'Antes de cancelar, contacta a los clientes de la lista. La cancelacion automatica la dejamos para el siguiente paso.'
+    })
     els.serviceForm.addEventListener('submit', saveService)
     els.serviceCancel.addEventListener('click', resetServiceForm)
     els.globalBotToggle.addEventListener('click', toggleGlobalBot)
@@ -3155,7 +3437,8 @@ const crmHtml = `<!doctype html>
     els.mobileBack.addEventListener('click', () => setMobileView('inbox'))
     document.querySelectorAll('.workspace-nav button')[0]?.addEventListener('click', () => setSection('conversations'))
     document.querySelectorAll('.workspace-nav button')[1]?.addEventListener('click', () => setSection('agenda'))
-    document.querySelectorAll('.workspace-nav button')[3]?.addEventListener('click', () => setSection('services'))
+    document.querySelectorAll('.workspace-nav button')[3]?.addEventListener('click', () => setSection('professionals'))
+    document.querySelectorAll('.workspace-nav button')[4]?.addEventListener('click', () => setSection('services'))
     els.agendaProfessional.addEventListener('change', loadAgenda)
     els.agendaService.addEventListener('change', renderAgenda)
     els.agendaStep.addEventListener('change', renderAgenda)
@@ -3187,6 +3470,7 @@ const crmHtml = `<!doctype html>
     els.appointmentForm.addEventListener('submit', saveManualAppointment)
     els.appointmentClose.addEventListener('click', closeAppointmentDialog)
     els.appointmentCancel.addEventListener('click', closeAppointmentDialog)
+    els.appointmentDelete.addEventListener('click', deleteManualAppointment)
     els.appointmentCustomer.addEventListener('change', syncAppointmentCustomerFields)
     els.appointmentDialog.addEventListener('click', (event) => {
       if (event.target === els.appointmentDialog) {

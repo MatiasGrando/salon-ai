@@ -68,6 +68,8 @@ model Business {
 model Professional {
   id         String   @id @default(cuid())
   name       String
+  isActive   Boolean  @default(true)
+  deactivatedAt DateTime?
 
   businessId String
   business   Business @relation(fields: [businessId], references: [id])
