@@ -2132,6 +2132,13 @@ const crmHtml = `<!doctype html>
               <option value="90">Ultimos 90 dias</option>
               <option value="365">Ultimo ano</option>
             </select>
+            <select id="reports-inactive-days" title="Dias sin sacar turnos">
+              <option value="30">30 dias sin turno</option>
+              <option value="45">45 dias sin turno</option>
+              <option value="60" selected>60 dias sin turno</option>
+              <option value="90">90 dias sin turno</option>
+              <option value="120">120 dias sin turno</option>
+            </select>
             <button class="icon-button" id="reports-refresh" type="button" title="Actualizar">R</button>
           </div>
         </header>
@@ -2156,6 +2163,31 @@ const crmHtml = `<!doctype html>
             <span>Clientes atendidos</span>
             <strong id="report-active-customers">0</strong>
             <small id="report-customers-copy">Clientes con al menos un turno.</small>
+          </article>
+          <article class="report-kpi">
+            <span>Conversion chat a turno</span>
+            <strong id="report-chat-conversion">0%</strong>
+            <small id="report-chat-conversion-copy">0 de 0 conversaciones.</small>
+          </article>
+          <article class="report-kpi">
+            <span>Nuevos vs recurrentes</span>
+            <strong id="report-customer-mix">0 / 0</strong>
+            <small id="report-customer-mix-copy">Nuevos / recurrentes.</small>
+          </article>
+          <article class="report-kpi">
+            <span>Tiempo entre visitas</span>
+            <strong id="report-visit-gap">--</strong>
+            <small id="report-visit-gap-copy">Promedio de clientes que volvieron.</small>
+          </article>
+          <article class="report-kpi">
+            <span>Clientes inactivos</span>
+            <strong id="report-inactive-customers">0</strong>
+            <small id="report-inactive-copy">Sin turno hace 60 dias.</small>
+          </article>
+          <article class="report-kpi">
+            <span>Clientes en riesgo</span>
+            <strong id="report-risk-customers">0</strong>
+            <small id="report-risk-copy">Deberian haber vuelto.</small>
           </article>
         </section>
 
@@ -2192,6 +2224,24 @@ const crmHtml = `<!doctype html>
               <p>Turnos atendidos y cancelaciones por profesional.</p>
             </div>
             <div id="report-professionals-table"></div>
+          </article>
+        </section>
+
+        <section class="reports-panels">
+          <article class="reports-table-panel">
+            <div>
+              <h3>Clientes inactivos</h3>
+              <p>Clientes con turnos anteriores que no sacaron otro turno en la cantidad de dias elegida.</p>
+            </div>
+            <div id="report-inactive-table"></div>
+          </article>
+
+          <article class="reports-table-panel">
+            <div>
+              <h3>Clientes que deberian haber vuelto</h3>
+              <p>Clientes recurrentes cuyo patron de visitas indica riesgo de perdida.</p>
+            </div>
+            <div id="report-risk-table"></div>
           </article>
         </section>
       </div>
@@ -2293,6 +2343,7 @@ const crmHtml = `<!doctype html>
       serviceList: document.getElementById('service-list'),
       serviceCount: document.getElementById('service-count'),
       reportsRange: document.getElementById('reports-range'),
+      reportsInactiveDays: document.getElementById('reports-inactive-days'),
       reportsRefresh: document.getElementById('reports-refresh'),
       reportsSubtitle: document.getElementById('reports-subtitle'),
       reportTotalAppointments: document.getElementById('report-total-appointments'),
@@ -2303,9 +2354,21 @@ const crmHtml = `<!doctype html>
       reportCancelledCopy: document.getElementById('report-cancelled-copy'),
       reportActiveCustomers: document.getElementById('report-active-customers'),
       reportCustomersCopy: document.getElementById('report-customers-copy'),
+      reportChatConversion: document.getElementById('report-chat-conversion'),
+      reportChatConversionCopy: document.getElementById('report-chat-conversion-copy'),
+      reportCustomerMix: document.getElementById('report-customer-mix'),
+      reportCustomerMixCopy: document.getElementById('report-customer-mix-copy'),
+      reportVisitGap: document.getElementById('report-visit-gap'),
+      reportVisitGapCopy: document.getElementById('report-visit-gap-copy'),
+      reportInactiveCustomers: document.getElementById('report-inactive-customers'),
+      reportInactiveCopy: document.getElementById('report-inactive-copy'),
+      reportRiskCustomers: document.getElementById('report-risk-customers'),
+      reportRiskCopy: document.getElementById('report-risk-copy'),
       reportStatusBars: document.getElementById('report-status-bars'),
       reportServicesTable: document.getElementById('report-services-table'),
       reportProfessionalsTable: document.getElementById('report-professionals-table'),
+      reportInactiveTable: document.getElementById('report-inactive-table'),
+      reportRiskTable: document.getElementById('report-risk-table'),
       mobileInbox: document.getElementById('mobile-inbox'),
       mobileChat: document.getElementById('mobile-chat'),
       mobileDetails: document.getElementById('mobile-details'),
@@ -2344,6 +2407,10 @@ const crmHtml = `<!doctype html>
     function initials(phone) {
       const digits = String(phone || '').replace(/\\D/g, '')
       return digits.slice(-2) || '--'
+    }
+
+    function normalizePhone(phone) {
+      return String(phone || '').replace(/\\D/g, '')
     }
 
     function formatDateTime(value) {
@@ -2649,12 +2716,18 @@ const crmHtml = `<!doctype html>
 
     async function loadReports() {
       els.reportStatusBars.innerHTML = '<div class="empty">Cargando reportes...</div>'
-      state.reportAppointments = await getJson('/appointments')
+      const [appointments, conversations] = await Promise.all([
+        getJson('/appointments'),
+        getJson('/crm/conversations?take=500')
+      ])
+      state.reportAppointments = appointments
+      state.conversations = conversations
       renderReports()
     }
 
     function renderReports() {
       const days = Number(els.reportsRange.value || 30)
+      const inactiveDays = Number(els.reportsInactiveDays.value || 60)
       const periodEnd = new Date()
       const periodStart = addDays(startOfDay(periodEnd), -(days - 1))
       const appointments = state.reportAppointments.filter((appointment) => {
@@ -2669,6 +2742,30 @@ const crmHtml = `<!doctype html>
       const futureConfirmed = nonCancelled.filter((appointment) => new Date(appointment.startAt) >= periodEnd)
       const activeCustomerIds = new Set(nonCancelled.map((appointment) => appointment.customerId).filter(Boolean))
       const cancellationRate = appointments.length ? Math.round((cancelled.length / appointments.length) * 100) : 0
+      const chatConversion = calculateChatConversion({
+        periodStart,
+        periodEnd,
+        appointments: nonCancelled
+      })
+      const customerMix = calculateCustomerMix({
+        periodStart,
+        periodAppointments: nonCancelled,
+        allAppointments: state.reportAppointments
+      })
+      const visitGap = calculateAverageVisitGap({
+        periodStart,
+        periodEnd,
+        allAppointments: state.reportAppointments
+      })
+      const inactiveCustomers = calculateInactiveCustomers({
+        inactiveDays,
+        now: periodEnd,
+        allAppointments: state.reportAppointments
+      })
+      const riskCustomers = calculateRiskCustomers({
+        now: periodEnd,
+        allAppointments: state.reportAppointments
+      })
 
       els.reportsSubtitle.textContent = formatReportRange(periodStart, periodEnd)
       els.reportTotalAppointments.textContent = String(appointments.length)
@@ -2679,6 +2776,16 @@ const crmHtml = `<!doctype html>
       els.reportCancelledCopy.textContent = cancellationRate + '% del periodo.'
       els.reportActiveCustomers.textContent = String(activeCustomerIds.size)
       els.reportCustomersCopy.textContent = countNewCustomers(periodStart, periodEnd) + ' clientes nuevos cargados.'
+      els.reportChatConversion.textContent = chatConversion.rate + '%'
+      els.reportChatConversionCopy.textContent = chatConversion.converted + ' de ' + chatConversion.total + ' conversaciones.'
+      els.reportCustomerMix.textContent = customerMix.newCustomers + ' / ' + customerMix.returningCustomers
+      els.reportCustomerMixCopy.textContent = customerMix.newRate + '% nuevos, ' + customerMix.returningRate + '% recurrentes.'
+      els.reportVisitGap.textContent = visitGap.averageDays === null ? '--' : visitGap.averageDays + ' dias'
+      els.reportVisitGapCopy.textContent = visitGap.sampleSize + ' intervalos entre visitas.'
+      els.reportInactiveCustomers.textContent = String(inactiveCustomers.length)
+      els.reportInactiveCopy.textContent = 'Sin turno hace ' + inactiveDays + ' dias.'
+      els.reportRiskCustomers.textContent = String(riskCustomers.length)
+      els.reportRiskCopy.textContent = riskCustomers.length ? 'Ordenados por dias de atraso.' : 'Sin clientes en riesgo.'
 
       renderReportStatusBars({
         realizados: completed.length,
@@ -2687,6 +2794,151 @@ const crmHtml = `<!doctype html>
       })
       renderReportServices(nonCancelled)
       renderReportProfessionals(appointments)
+      renderInactiveCustomers(inactiveCustomers)
+      renderRiskCustomers(riskCustomers)
+    }
+
+    function calculateChatConversion(input) {
+      const periodConversations = state.conversations.filter((conversation) => {
+        const activityAt = new Date(latestConversationActivityValue(conversation))
+        return activityAt >= input.periodStart && activityAt <= input.periodEnd
+      })
+      const convertedPhones = new Set(input.appointments
+        .map((appointment) => normalizePhone(appointment.customer?.phone))
+        .filter(Boolean))
+      const converted = periodConversations.filter((conversation) => {
+        return convertedPhones.has(normalizePhone(conversation.phone))
+      }).length
+      const total = periodConversations.length
+
+      return {
+        total,
+        converted,
+        rate: total ? Math.round((converted / total) * 100) : 0
+      }
+    }
+
+    function calculateCustomerMix(input) {
+      const customerIds = Array.from(new Set(input.periodAppointments
+        .map((appointment) => appointment.customerId)
+        .filter(Boolean)))
+      let newCustomers = 0
+      let returningCustomers = 0
+
+      for (const customerId of customerIds) {
+        const firstAppointment = input.allAppointments
+          .filter((appointment) => appointment.customerId === customerId && appointment.status !== 'CANCELLED')
+          .sort((left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime())[0]
+
+        if (firstAppointment && new Date(firstAppointment.startAt) >= input.periodStart) {
+          newCustomers += 1
+        } else {
+          returningCustomers += 1
+        }
+      }
+
+      const total = newCustomers + returningCustomers
+      return {
+        newCustomers,
+        returningCustomers,
+        newRate: total ? Math.round((newCustomers / total) * 100) : 0,
+        returningRate: total ? Math.round((returningCustomers / total) * 100) : 0
+      }
+    }
+
+    function calculateAverageVisitGap(input) {
+      const visitsByCustomer = new Map()
+      for (const appointment of input.allAppointments) {
+        if (appointment.status === 'CANCELLED' || !appointment.customerId) continue
+        const start = new Date(appointment.startAt)
+        if (start > input.periodEnd) continue
+        visitsByCustomer.set(appointment.customerId, (visitsByCustomer.get(appointment.customerId) || []).concat(start))
+      }
+
+      const gaps = []
+      for (const visits of visitsByCustomer.values()) {
+        const sortedVisits = visits.sort((left, right) => left.getTime() - right.getTime())
+        for (let index = 1; index < sortedVisits.length; index += 1) {
+          const currentVisit = sortedVisits[index]
+          if (currentVisit < input.periodStart || currentVisit > input.periodEnd) continue
+          const previousVisit = sortedVisits[index - 1]
+          gaps.push(Math.round((currentVisit.getTime() - previousVisit.getTime()) / (24 * 60 * 60 * 1000)))
+        }
+      }
+
+      if (gaps.length === 0) {
+        return {
+          averageDays: null,
+          sampleSize: 0
+        }
+      }
+
+      return {
+        averageDays: Math.round(gaps.reduce((sum, gap) => sum + gap, 0) / gaps.length),
+        sampleSize: gaps.length
+      }
+    }
+
+    function calculateInactiveCustomers(input) {
+      const cutoff = addDays(startOfDay(input.now), -input.inactiveDays)
+      return buildCustomerVisitSummaries(input.allAppointments)
+        .filter((customer) => customer.lastVisit < cutoff)
+        .sort((left, right) => right.daysSinceLastVisit - left.daysSinceLastVisit)
+    }
+
+    function calculateRiskCustomers(input) {
+      return buildCustomerVisitSummaries(input.allAppointments)
+        .filter((customer) => customer.visitCount >= 2)
+        .map((customer) => {
+          const expectedReturnDays = Math.max(14, Math.round(customer.averageGapDays * 1.25))
+          const overdueDays = customer.daysSinceLastVisit - expectedReturnDays
+          return {
+            ...customer,
+            expectedReturnDays,
+            overdueDays
+          }
+        })
+        .filter((customer) => customer.overdueDays > 0)
+        .sort((left, right) => right.overdueDays - left.overdueDays)
+    }
+
+    function buildCustomerVisitSummaries(appointments) {
+      const byCustomer = new Map()
+      for (const appointment of appointments) {
+        if (appointment.status === 'CANCELLED' || !appointment.customerId) continue
+        const start = new Date(appointment.startAt)
+        if (start > new Date()) continue
+        const current = byCustomer.get(appointment.customerId) || {
+          customerId: appointment.customerId,
+          name: appointment.customer?.name || 'Cliente',
+          phone: appointment.customer?.phone || '',
+          visits: []
+        }
+        current.visits.push(start)
+        byCustomer.set(appointment.customerId, current)
+      }
+
+      return Array.from(byCustomer.values()).map((customer) => {
+        const visits = customer.visits.sort((left, right) => left.getTime() - right.getTime())
+        const gaps = []
+        for (let index = 1; index < visits.length; index += 1) {
+          gaps.push(Math.round((visits[index].getTime() - visits[index - 1].getTime()) / (24 * 60 * 60 * 1000)))
+        }
+        const lastVisit = visits[visits.length - 1]
+        const averageGapDays = gaps.length
+          ? Math.round(gaps.reduce((sum, gap) => sum + gap, 0) / gaps.length)
+          : null
+
+        return {
+          customerId: customer.customerId,
+          name: customer.name,
+          phone: customer.phone,
+          visitCount: visits.length,
+          lastVisit,
+          daysSinceLastVisit: Math.max(0, Math.round((new Date().getTime() - lastVisit.getTime()) / (24 * 60 * 60 * 1000))),
+          averageGapDays
+        }
+      })
     }
 
     function renderReportStatusBars(counts) {
@@ -2761,6 +3013,56 @@ const crmHtml = `<!doctype html>
           '</tr>'
         }).join('') + '</tbody>' +
       '</table>'
+    }
+
+    function renderInactiveCustomers(customers) {
+      const rows = customers.slice(0, 8)
+      if (rows.length === 0) {
+        els.reportInactiveTable.innerHTML = '<div class="report-empty-note">No hay clientes inactivos con este filtro.</div>'
+        return
+      }
+
+      els.reportInactiveTable.innerHTML = '<table class="report-table">' +
+        '<thead><tr><th>Cliente</th><th>Ultima visita</th><th>Dias</th></tr></thead>' +
+        '<tbody>' + rows.map((customer) => {
+          return '<tr>' +
+            '<td>' + escapeHtml(formatCustomerLabel(customer)) + '</td>' +
+            '<td>' + escapeHtml(formatShortDate(customer.lastVisit)) + '</td>' +
+            '<td>' + customer.daysSinceLastVisit + '</td>' +
+          '</tr>'
+        }).join('') + '</tbody>' +
+      '</table>'
+    }
+
+    function renderRiskCustomers(customers) {
+      const rows = customers.slice(0, 8)
+      if (rows.length === 0) {
+        els.reportRiskTable.innerHTML = '<div class="report-empty-note">Todavia no hay clientes con patron de riesgo.</div>'
+        return
+      }
+
+      els.reportRiskTable.innerHTML = '<table class="report-table">' +
+        '<thead><tr><th>Cliente</th><th>Esperado</th><th>Atraso</th></tr></thead>' +
+        '<tbody>' + rows.map((customer) => {
+          return '<tr>' +
+            '<td>' + escapeHtml(formatCustomerLabel(customer)) + '</td>' +
+            '<td>Cada ' + customer.expectedReturnDays + ' dias</td>' +
+            '<td>' + customer.overdueDays + ' dias</td>' +
+          '</tr>'
+        }).join('') + '</tbody>' +
+      '</table>'
+    }
+
+    function formatCustomerLabel(customer) {
+      return customer.name + (customer.phone ? ' · ' + customer.phone : '')
+    }
+
+    function formatShortDate(value) {
+      return new Intl.DateTimeFormat('es-AR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: '2-digit'
+      }).format(new Date(value))
     }
 
     function rankedCounts(items, getLabel) {
@@ -3864,6 +4166,7 @@ const crmHtml = `<!doctype html>
     document.querySelectorAll('.workspace-nav button')[4]?.addEventListener('click', () => setSection('services'))
     document.querySelectorAll('.workspace-nav button')[6]?.addEventListener('click', () => setSection('reports'))
     els.reportsRange.addEventListener('change', renderReports)
+    els.reportsInactiveDays.addEventListener('change', renderReports)
     els.reportsRefresh.addEventListener('click', loadReports)
     els.agendaProfessional.addEventListener('change', loadAgenda)
     els.agendaService.addEventListener('change', renderAgenda)
