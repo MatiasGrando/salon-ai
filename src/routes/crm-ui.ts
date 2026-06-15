@@ -1063,7 +1063,8 @@ const crmHtml = `<!doctype html>
     }
 
     .app[data-section="services"],
-    .app[data-section="professionals"] {
+    .app[data-section="professionals"],
+    .app[data-section="reports"] {
       grid-template-columns: 92px minmax(0, 1fr);
     }
 
@@ -1072,12 +1073,16 @@ const crmHtml = `<!doctype html>
     .app[data-section="services"] .details,
     .app[data-section="professionals"] .sidebar,
     .app[data-section="professionals"] .chat,
-    .app[data-section="professionals"] .details {
+    .app[data-section="professionals"] .details,
+    .app[data-section="reports"] .sidebar,
+    .app[data-section="reports"] .chat,
+    .app[data-section="reports"] .details {
       display: none;
     }
 
     .services-view,
-    .professionals-view {
+    .professionals-view,
+    .reports-view {
       grid-column: 2;
       min-width: 0;
       min-height: 0;
@@ -1095,8 +1100,13 @@ const crmHtml = `<!doctype html>
       display: block;
     }
 
+    .app[data-section="reports"] .reports-view {
+      display: block;
+    }
+
     .services-shell,
-    .professionals-shell {
+    .professionals-shell,
+    .reports-shell {
       max-width: 1080px;
       margin: 0 auto;
       display: grid;
@@ -1201,10 +1211,179 @@ const crmHtml = `<!doctype html>
       margin-top: 6px;
     }
 
+    .reports-header,
+    .reports-panel,
+    .reports-table-panel {
+      border: 1px solid #e4ece8;
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 8px 24px rgba(16, 24, 40, 0.035);
+    }
+
+    .reports-header {
+      min-height: 96px;
+      padding: 18px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .reports-header h2,
+    .reports-panel h3,
+    .reports-table-panel h3 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.2;
+    }
+
+    .reports-header p,
+    .reports-panel p,
+    .reports-table-panel p {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .reports-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .reports-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(150px, 1fr));
+      gap: 12px;
+    }
+
+    .report-kpi {
+      min-height: 112px;
+      padding: 14px;
+      border: 1px solid #e4ece8;
+      border-radius: 8px;
+      background: #fbfdfc;
+      display: grid;
+      align-content: space-between;
+      gap: 10px;
+    }
+
+    .report-kpi span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .report-kpi strong {
+      color: var(--text);
+      font-size: 28px;
+      line-height: 1;
+      font-weight: 850;
+    }
+
+    .report-kpi small {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .reports-panels {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+      gap: 14px;
+      align-items: stretch;
+    }
+
+    .reports-panel,
+    .reports-table-panel {
+      padding: 16px;
+      min-width: 0;
+    }
+
+    .report-bars {
+      display: grid;
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .report-bar-row {
+      display: grid;
+      grid-template-columns: 128px minmax(0, 1fr) 44px;
+      gap: 10px;
+      align-items: center;
+      font-size: 13px;
+    }
+
+    .report-bar-track {
+      height: 12px;
+      border-radius: 999px;
+      background: #edf3f0;
+      overflow: hidden;
+    }
+
+    .report-bar-fill {
+      height: 100%;
+      min-width: 2px;
+      border-radius: inherit;
+      background: #087f73;
+    }
+
+    .report-bar-fill.warn {
+      background: #d57920;
+    }
+
+    .report-bar-fill.soft {
+      background: #4b8fda;
+    }
+
+    .report-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+      font-size: 13px;
+    }
+
+    .report-table th,
+    .report-table td {
+      padding: 10px 8px;
+      border-bottom: 1px solid #edf2ef;
+      text-align: left;
+      vertical-align: middle;
+    }
+
+    .report-table th {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0;
+    }
+
+    .report-table td:last-child,
+    .report-table th:last-child {
+      text-align: right;
+    }
+
+    .report-empty-note {
+      padding: 18px;
+      color: var(--muted);
+      text-align: center;
+      border: 1px dashed #dce5e1;
+      border-radius: 8px;
+      background: #fbfdfc;
+    }
+
     @media (max-width: 900px) {
       .services-manager,
-      .professionals-manager {
+      .professionals-manager,
+      .reports-panels {
         grid-template-columns: 1fr;
+      }
+
+      .reports-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
       }
     }
 
@@ -1938,6 +2117,85 @@ const crmHtml = `<!doctype html>
         </section>
       </div>
     </section>
+
+    <section class="reports-view" id="reports-view">
+      <div class="reports-shell">
+        <header class="reports-header">
+          <div>
+            <h2>Reportes</h2>
+            <p id="reports-subtitle">Resumen operativo del salon.</p>
+          </div>
+          <div class="reports-actions">
+            <select id="reports-range">
+              <option value="7">Ultimos 7 dias</option>
+              <option value="30" selected>Ultimos 30 dias</option>
+              <option value="90">Ultimos 90 dias</option>
+              <option value="365">Ultimo ano</option>
+            </select>
+            <button class="icon-button" id="reports-refresh" type="button" title="Actualizar">R</button>
+          </div>
+        </header>
+
+        <section class="reports-grid">
+          <article class="report-kpi">
+            <span>Turnos agendados</span>
+            <strong id="report-total-appointments">0</strong>
+            <small id="report-total-copy">Sin datos del periodo.</small>
+          </article>
+          <article class="report-kpi">
+            <span>Turnos realizados</span>
+            <strong id="report-completed-appointments">0</strong>
+            <small id="report-completed-copy">Incluye turnos pasados no cancelados.</small>
+          </article>
+          <article class="report-kpi">
+            <span>Cancelaciones</span>
+            <strong id="report-cancelled-appointments">0</strong>
+            <small id="report-cancelled-copy">0% del periodo.</small>
+          </article>
+          <article class="report-kpi">
+            <span>Clientes atendidos</span>
+            <strong id="report-active-customers">0</strong>
+            <small id="report-customers-copy">Clientes con al menos un turno.</small>
+          </article>
+        </section>
+
+        <section class="reports-panels">
+          <article class="reports-panel">
+            <div>
+              <h3>Estado de turnos</h3>
+              <p>Distribucion de turnos confirmados, realizados y cancelados.</p>
+            </div>
+            <div class="report-bars" id="report-status-bars"></div>
+          </article>
+
+          <article class="reports-panel">
+            <div>
+              <h3>Ingresos</h3>
+              <p>Para calcular facturacion real falta cargar precio por servicio.</p>
+            </div>
+            <div class="report-empty-note" id="report-revenue-note">Listo para activar cuando agreguemos precios.</div>
+          </article>
+        </section>
+
+        <section class="reports-panels">
+          <article class="reports-table-panel">
+            <div>
+              <h3>Servicios mas vendidos</h3>
+              <p>Ranking por cantidad de turnos no cancelados.</p>
+            </div>
+            <div id="report-services-table"></div>
+          </article>
+
+          <article class="reports-table-panel">
+            <div>
+              <h3>Rendimiento por profesional</h3>
+              <p>Turnos atendidos y cancelaciones por profesional.</p>
+            </div>
+            <div id="report-professionals-table"></div>
+          </article>
+        </section>
+      </div>
+    </section>
   </main>
 
   <script>
@@ -1950,6 +2208,7 @@ const crmHtml = `<!doctype html>
       services: [],
       customers: [],
       agendaAppointments: [],
+      reportAppointments: [],
       agendaBlocks: [],
       agendaSelectedDate: new Date(),
       agendaMonthDate: new Date(),
@@ -2033,6 +2292,20 @@ const crmHtml = `<!doctype html>
       serviceFeedback: document.getElementById('service-feedback'),
       serviceList: document.getElementById('service-list'),
       serviceCount: document.getElementById('service-count'),
+      reportsRange: document.getElementById('reports-range'),
+      reportsRefresh: document.getElementById('reports-refresh'),
+      reportsSubtitle: document.getElementById('reports-subtitle'),
+      reportTotalAppointments: document.getElementById('report-total-appointments'),
+      reportTotalCopy: document.getElementById('report-total-copy'),
+      reportCompletedAppointments: document.getElementById('report-completed-appointments'),
+      reportCompletedCopy: document.getElementById('report-completed-copy'),
+      reportCancelledAppointments: document.getElementById('report-cancelled-appointments'),
+      reportCancelledCopy: document.getElementById('report-cancelled-copy'),
+      reportActiveCustomers: document.getElementById('report-active-customers'),
+      reportCustomersCopy: document.getElementById('report-customers-copy'),
+      reportStatusBars: document.getElementById('report-status-bars'),
+      reportServicesTable: document.getElementById('report-services-table'),
+      reportProfessionalsTable: document.getElementById('report-professionals-table'),
       mobileInbox: document.getElementById('mobile-inbox'),
       mobileChat: document.getElementById('mobile-chat'),
       mobileDetails: document.getElementById('mobile-details'),
@@ -2372,6 +2645,150 @@ const crmHtml = `<!doctype html>
       els.globalBotToggle.className = state.aiSettings.botEnabled === false ? 'danger' : 'secondary'
       els.globalAiToggle.textContent = state.aiSettings.aiEnabled === false ? 'IA general apagada' : 'IA general activa'
       els.globalAiToggle.className = state.aiSettings.aiEnabled === false ? 'danger' : 'secondary'
+    }
+
+    async function loadReports() {
+      els.reportStatusBars.innerHTML = '<div class="empty">Cargando reportes...</div>'
+      state.reportAppointments = await getJson('/appointments')
+      renderReports()
+    }
+
+    function renderReports() {
+      const days = Number(els.reportsRange.value || 30)
+      const periodEnd = new Date()
+      const periodStart = addDays(startOfDay(periodEnd), -(days - 1))
+      const appointments = state.reportAppointments.filter((appointment) => {
+        const start = new Date(appointment.startAt)
+        return start >= periodStart && start <= periodEnd
+      })
+      const nonCancelled = appointments.filter((appointment) => appointment.status !== 'CANCELLED')
+      const cancelled = appointments.filter((appointment) => appointment.status === 'CANCELLED')
+      const completed = nonCancelled.filter((appointment) => {
+        return appointment.status === 'COMPLETED' || new Date(appointment.startAt) < periodEnd
+      })
+      const futureConfirmed = nonCancelled.filter((appointment) => new Date(appointment.startAt) >= periodEnd)
+      const activeCustomerIds = new Set(nonCancelled.map((appointment) => appointment.customerId).filter(Boolean))
+      const cancellationRate = appointments.length ? Math.round((cancelled.length / appointments.length) * 100) : 0
+
+      els.reportsSubtitle.textContent = formatReportRange(periodStart, periodEnd)
+      els.reportTotalAppointments.textContent = String(appointments.length)
+      els.reportTotalCopy.textContent = nonCancelled.length + ' activos en el periodo.'
+      els.reportCompletedAppointments.textContent = String(completed.length)
+      els.reportCompletedCopy.textContent = futureConfirmed.length + ' turnos futuros confirmados.'
+      els.reportCancelledAppointments.textContent = String(cancelled.length)
+      els.reportCancelledCopy.textContent = cancellationRate + '% del periodo.'
+      els.reportActiveCustomers.textContent = String(activeCustomerIds.size)
+      els.reportCustomersCopy.textContent = countNewCustomers(periodStart, periodEnd) + ' clientes nuevos cargados.'
+
+      renderReportStatusBars({
+        realizados: completed.length,
+        futuros: futureConfirmed.length,
+        cancelados: cancelled.length
+      })
+      renderReportServices(nonCancelled)
+      renderReportProfessionals(appointments)
+    }
+
+    function renderReportStatusBars(counts) {
+      const rows = [
+        { label: 'Realizados', value: counts.realizados, className: '' },
+        { label: 'Confirmados futuros', value: counts.futuros, className: 'soft' },
+        { label: 'Cancelados', value: counts.cancelados, className: 'warn' }
+      ]
+      const max = Math.max(1, ...rows.map((row) => row.value))
+
+      els.reportStatusBars.innerHTML = rows.map((row) => {
+        const width = Math.round((row.value / max) * 100)
+        return '<div class="report-bar-row">' +
+          '<span>' + escapeHtml(row.label) + '</span>' +
+          '<div class="report-bar-track"><div class="report-bar-fill ' + row.className + '" style="width: ' + width + '%"></div></div>' +
+          '<strong>' + row.value + '</strong>' +
+        '</div>'
+      }).join('')
+    }
+
+    function renderReportServices(appointments) {
+      const rows = rankedCounts(appointments, (appointment) => appointment.service?.name || 'Servicio')
+        .slice(0, 6)
+
+      if (rows.length === 0) {
+        els.reportServicesTable.innerHTML = '<div class="report-empty-note">No hay turnos en este periodo.</div>'
+        return
+      }
+
+      const total = rows.reduce((sum, row) => sum + row.count, 0)
+      els.reportServicesTable.innerHTML = '<table class="report-table">' +
+        '<thead><tr><th>Servicio</th><th>Turnos</th><th>Participacion</th></tr></thead>' +
+        '<tbody>' + rows.map((row) => {
+          return '<tr>' +
+            '<td>' + escapeHtml(row.label) + '</td>' +
+            '<td>' + row.count + '</td>' +
+            '<td>' + Math.round((row.count / Math.max(1, total)) * 100) + '%</td>' +
+          '</tr>'
+        }).join('') + '</tbody>' +
+      '</table>'
+    }
+
+    function renderReportProfessionals(appointments) {
+      const rows = state.professionals.map((professional) => {
+        const ownAppointments = appointments.filter((appointment) => appointment.professionalId === professional.id)
+        const cancelled = ownAppointments.filter((appointment) => appointment.status === 'CANCELLED').length
+        const attended = ownAppointments.filter((appointment) => {
+          return appointment.status !== 'CANCELLED' && new Date(appointment.startAt) < new Date()
+        }).length
+        return {
+          name: professional.name,
+          attended,
+          cancelled,
+          total: ownAppointments.length
+        }
+      }).filter((row) => row.total > 0)
+        .sort((left, right) => right.attended - left.attended || right.total - left.total)
+        .slice(0, 6)
+
+      if (rows.length === 0) {
+        els.reportProfessionalsTable.innerHTML = '<div class="report-empty-note">No hay actividad por profesional en este periodo.</div>'
+        return
+      }
+
+      els.reportProfessionalsTable.innerHTML = '<table class="report-table">' +
+        '<thead><tr><th>Profesional</th><th>Realizados</th><th>Cancel.</th></tr></thead>' +
+        '<tbody>' + rows.map((row) => {
+          return '<tr>' +
+            '<td>' + escapeHtml(row.name) + '</td>' +
+            '<td>' + row.attended + '</td>' +
+            '<td>' + row.cancelled + '</td>' +
+          '</tr>'
+        }).join('') + '</tbody>' +
+      '</table>'
+    }
+
+    function rankedCounts(items, getLabel) {
+      const counts = new Map()
+      for (const item of items) {
+        const label = getLabel(item)
+        counts.set(label, (counts.get(label) || 0) + 1)
+      }
+
+      return Array.from(counts.entries())
+        .map(([label, count]) => ({ label, count }))
+        .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label))
+    }
+
+    function countNewCustomers(periodStart, periodEnd) {
+      return state.customers.filter((customer) => {
+        const createdAt = new Date(customer.createdAt)
+        return createdAt >= periodStart && createdAt <= periodEnd
+      }).length
+    }
+
+    function formatReportRange(start, end) {
+      const formatter = new Intl.DateTimeFormat('es-AR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      })
+      return formatter.format(start) + ' a ' + formatter.format(end)
     }
 
     async function sendReply(event) {
@@ -3209,6 +3626,12 @@ const crmHtml = `<!doctype html>
           els.agendaGridWrap.innerHTML = '<div class="error">' + escapeHtml(error.message) + '</div>'
         })
       }
+
+      if (section === 'reports') {
+        loadReports().catch((error) => {
+          els.reportStatusBars.innerHTML = '<div class="error">' + escapeHtml(error.message) + '</div>'
+        })
+      }
     }
 
     function startOfWeek(date) {
@@ -3439,6 +3862,9 @@ const crmHtml = `<!doctype html>
     document.querySelectorAll('.workspace-nav button')[1]?.addEventListener('click', () => setSection('agenda'))
     document.querySelectorAll('.workspace-nav button')[3]?.addEventListener('click', () => setSection('professionals'))
     document.querySelectorAll('.workspace-nav button')[4]?.addEventListener('click', () => setSection('services'))
+    document.querySelectorAll('.workspace-nav button')[6]?.addEventListener('click', () => setSection('reports'))
+    els.reportsRange.addEventListener('change', renderReports)
+    els.reportsRefresh.addEventListener('click', loadReports)
     els.agendaProfessional.addEventListener('change', loadAgenda)
     els.agendaService.addEventListener('change', renderAgenda)
     els.agendaStep.addEventListener('change', renderAgenda)
