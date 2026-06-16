@@ -1297,6 +1297,82 @@ const crmHtml = `<!doctype html>
       min-width: 0;
     }
 
+    .future-agenda-panel {
+      padding: 16px;
+      border: 1px solid #e4e6eb;
+      border-radius: 10px;
+      background: #fff;
+      display: grid;
+      gap: 14px;
+    }
+
+    .future-agenda-head,
+    .future-agenda-summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .future-agenda-head h3 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.2;
+    }
+
+    .future-agenda-head p {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .future-total {
+      min-width: 146px;
+      padding: 12px 14px;
+      border: 1px solid #e4e6eb;
+      border-radius: 10px;
+      background: #f9f9fb;
+    }
+
+    .future-total span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .future-total strong {
+      display: block;
+      margin-top: 4px;
+      font-size: 26px;
+      line-height: 1;
+    }
+
+    .future-professionals {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 10px;
+    }
+
+    .future-professional {
+      padding: 12px;
+      border: 1px solid #e4e6eb;
+      border-radius: 10px;
+      background: #f9f9fb;
+      display: grid;
+      gap: 8px;
+    }
+
+    .future-professional-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 13px;
+    }
+
     .report-bars {
       display: grid;
       gap: 12px;
@@ -2191,11 +2267,33 @@ const crmHtml = `<!doctype html>
           </article>
         </section>
 
+        <section class="future-agenda-panel">
+          <div class="future-agenda-head">
+            <div>
+              <h3>Agenda futura</h3>
+              <p>Turnos confirmados hacia adelante, separados por profesional.</p>
+            </div>
+            <select id="reports-future-days">
+              <option value="7">Proximos 7 dias</option>
+              <option value="15">Proximos 15 dias</option>
+              <option value="30" selected>Proximos 30 dias</option>
+              <option value="60">Proximos 60 dias</option>
+            </select>
+          </div>
+          <div class="future-agenda-summary">
+            <div class="future-total">
+              <span>Turnos futuros totales</span>
+              <strong id="report-future-total">0</strong>
+            </div>
+            <div class="future-professionals" id="report-future-professionals"></div>
+          </div>
+        </section>
+
         <section class="reports-panels">
           <article class="reports-panel">
             <div>
               <h3>Estado de turnos</h3>
-              <p>Distribucion de turnos confirmados, realizados y cancelados.</p>
+              <p>De los turnos confirmados del periodo, cuantos se realizaron, cancelaron o quedaron ausentes.</p>
             </div>
             <div class="report-bars" id="report-status-bars"></div>
           </article>
@@ -2344,6 +2442,7 @@ const crmHtml = `<!doctype html>
       serviceCount: document.getElementById('service-count'),
       reportsRange: document.getElementById('reports-range'),
       reportsInactiveDays: document.getElementById('reports-inactive-days'),
+      reportsFutureDays: document.getElementById('reports-future-days'),
       reportsRefresh: document.getElementById('reports-refresh'),
       reportsSubtitle: document.getElementById('reports-subtitle'),
       reportTotalAppointments: document.getElementById('report-total-appointments'),
@@ -2364,6 +2463,8 @@ const crmHtml = `<!doctype html>
       reportInactiveCopy: document.getElementById('report-inactive-copy'),
       reportRiskCustomers: document.getElementById('report-risk-customers'),
       reportRiskCopy: document.getElementById('report-risk-copy'),
+      reportFutureTotal: document.getElementById('report-future-total'),
+      reportFutureProfessionals: document.getElementById('report-future-professionals'),
       reportStatusBars: document.getElementById('report-status-bars'),
       reportServicesTable: document.getElementById('report-services-table'),
       reportProfessionalsTable: document.getElementById('report-professionals-table'),
@@ -2737,6 +2838,7 @@ const crmHtml = `<!doctype html>
     function renderReports() {
       const days = Number(els.reportsRange.value || 30)
       const inactiveDays = Number(els.reportsInactiveDays.value || 60)
+      const futureDays = Number(els.reportsFutureDays.value || 30)
       const periodEnd = new Date()
       const periodStart = addDays(startOfDay(periodEnd), -(days - 1))
       const appointments = state.reportAppointments.filter((appointment) => {
@@ -2749,8 +2851,10 @@ const crmHtml = `<!doctype html>
       const completed = nonCancelled.filter((appointment) => {
         return appointment.status === 'COMPLETED' || new Date(appointment.startAt) < periodEnd
       })
-      const futureConfirmed = state.reportAppointments.filter((appointment) => {
-        return isActiveAppointment(appointment) && new Date(appointment.startAt) >= periodEnd
+      const futureAgenda = calculateFutureAgenda({
+        days: futureDays,
+        now: periodEnd,
+        allAppointments: state.reportAppointments
       })
       const activeCustomerIds = new Set(nonCancelled.map((appointment) => appointment.customerId).filter(Boolean))
       const cancellationRate = appointments.length ? Math.round((cancelled.length / appointments.length) * 100) : 0
@@ -2783,7 +2887,7 @@ const crmHtml = `<!doctype html>
       els.reportTotalAppointments.textContent = String(appointments.length)
       els.reportTotalCopy.textContent = nonCancelled.length + ' activos en el periodo.'
       els.reportCompletedAppointments.textContent = String(completed.length)
-      els.reportCompletedCopy.textContent = futureConfirmed.length + ' turnos futuros en agenda.'
+      els.reportCompletedCopy.textContent = completed.length + ' realizados del periodo.'
       els.reportCancelledAppointments.textContent = String(cancelled.length)
       els.reportCancelledCopy.textContent = cancellationRate + '% del periodo.'
       els.reportActiveCustomers.textContent = String(activeCustomerIds.size)
@@ -2798,13 +2902,15 @@ const crmHtml = `<!doctype html>
       els.reportInactiveCopy.textContent = 'Sin turno hace ' + inactiveDays + ' dias.'
       els.reportRiskCustomers.textContent = String(riskCustomers.length)
       els.reportRiskCopy.textContent = riskCustomers.length ? 'Ordenados por dias de atraso.' : 'Sin clientes en riesgo.'
+      els.reportFutureTotal.textContent = String(futureAgenda.total)
 
       renderReportStatusBars({
+        confirmados: appointments.length,
         realizados: completed.length,
-        futuros: futureConfirmed.length,
         cancelados: cancelled.length,
         ausentes: noShow.length
       })
+      renderFutureAgenda(futureAgenda)
       renderReportServices(nonCancelled)
       renderReportProfessionals(appointments)
       renderInactiveCustomers(inactiveCustomers)
@@ -2892,6 +2998,20 @@ const crmHtml = `<!doctype html>
       }
     }
 
+    function calculateFutureAgenda(input) {
+      const futureEnd = addDays(input.now, input.days)
+      const appointments = input.allAppointments.filter((appointment) => {
+        const start = new Date(appointment.startAt)
+        return isActiveAppointment(appointment) && start >= input.now && start < futureEnd
+      })
+      const byProfessional = rankedCounts(appointments, (appointment) => appointment.professional?.name || 'Profesional')
+
+      return {
+        total: appointments.length,
+        byProfessional
+      }
+    }
+
     function calculateInactiveCustomers(input) {
       const cutoff = addDays(startOfDay(input.now), -input.inactiveDays)
       return buildCustomerVisitSummaries(input.allAppointments)
@@ -2956,8 +3076,8 @@ const crmHtml = `<!doctype html>
 
     function renderReportStatusBars(counts) {
       const rows = [
+        { label: 'Confirmados', value: counts.confirmados, className: 'soft' },
         { label: 'Realizados', value: counts.realizados, className: '' },
-        { label: 'Confirmados futuros', value: counts.futuros, className: 'soft' },
         { label: 'Cancelados', value: counts.cancelados, className: 'warn' },
         { label: 'Ausentes', value: counts.ausentes, className: 'warn' }
       ]
@@ -2970,6 +3090,29 @@ const crmHtml = `<!doctype html>
           '<div class="report-bar-track"><div class="report-bar-fill ' + row.className + '" style="width: ' + width + '%"></div></div>' +
           '<strong>' + row.value + '</strong>' +
         '</div>'
+      }).join('')
+    }
+
+    function renderFutureAgenda(input) {
+      if (input.byProfessional.length === 0) {
+        els.reportFutureProfessionals.innerHTML = '<div class="report-empty-note">No hay turnos futuros en este rango.</div>'
+        return
+      }
+
+      const max = Math.max(1, ...input.byProfessional.map((row) => row.count))
+      els.reportFutureProfessionals.innerHTML = input.byProfessional.map((row) => {
+        const width = Math.round((row.count / max) * 100)
+        const share = input.total ? Math.round((row.count / input.total) * 100) : 0
+        return '<article class="future-professional">' +
+          '<div class="future-professional-row">' +
+            '<strong>' + escapeHtml(row.label) + '</strong>' +
+            '<span>' + row.count + ' turnos</span>' +
+          '</div>' +
+          '<div class="report-bar-track"><div class="report-bar-fill" style="width: ' + width + '%"></div></div>' +
+          '<div class="future-professional-row">' +
+            '<span class="hint">' + share + '% de agenda futura</span>' +
+          '</div>' +
+        '</article>'
       }).join('')
     }
 
@@ -4219,6 +4362,7 @@ const crmHtml = `<!doctype html>
     document.querySelectorAll('.workspace-nav button')[6]?.addEventListener('click', () => setSection('reports'))
     els.reportsRange.addEventListener('change', renderReports)
     els.reportsInactiveDays.addEventListener('change', renderReports)
+    els.reportsFutureDays.addEventListener('change', renderReports)
     els.reportsRefresh.addEventListener('click', loadReports)
     els.agendaProfessional.addEventListener('change', loadAgenda)
     els.agendaService.addEventListener('change', renderAgenda)
