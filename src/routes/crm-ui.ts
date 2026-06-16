@@ -1747,6 +1747,35 @@ const crmHtml = `<!doctype html>
       font-weight: 650;
     }
 
+    .revenue-box {
+      margin-top: 14px;
+      padding: 16px;
+      border: 1px solid #e4e6eb;
+      border-radius: 9px;
+      background: #f9f9fb;
+      display: grid;
+      gap: 10px;
+    }
+
+    .revenue-box strong {
+      display: block;
+      color: var(--text);
+      font-size: 28px;
+      line-height: 1;
+    }
+
+    .revenue-box span,
+    .revenue-box p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .revenue-box .secondary {
+      width: fit-content;
+    }
+
     .report-empty-note {
       padding: 18px;
       color: var(--muted);
@@ -2489,6 +2518,7 @@ const crmHtml = `<!doctype html>
               <input class="field" id="service-name" placeholder="Nombre del servicio">
               <div class="config-grid">
                 <input class="field" id="service-duration" type="number" min="1" step="1" placeholder="Duracion en minutos">
+                <input class="field" id="service-price" type="number" min="0" step="1" placeholder="Precio">
                 <input class="field" id="service-category" placeholder="Categoria opcional">
               </div>
               <input class="field" id="service-aliases" placeholder="Alias opcionales separados por coma">
@@ -2652,9 +2682,9 @@ const crmHtml = `<!doctype html>
           <article class="reports-panel">
             <div>
               <h3>Ingresos</h3>
-              <p>Para calcular facturacion real falta cargar precio por servicio.</p>
+              <p>Facturacion estimada segun servicios con precio cargado.</p>
             </div>
-            <div class="report-empty-note" id="report-revenue-note">Listo para activar cuando agreguemos precios.</div>
+            <div id="report-revenue-note"></div>
           </article>
         </section>
 
@@ -2821,6 +2851,7 @@ const crmHtml = `<!doctype html>
       serviceId: document.getElementById('service-id'),
       serviceName: document.getElementById('service-name'),
       serviceDuration: document.getElementById('service-duration'),
+      servicePrice: document.getElementById('service-price'),
       serviceCategory: document.getElementById('service-category'),
       serviceAliases: document.getElementById('service-aliases'),
       serviceCancel: document.getElementById('service-cancel'),
@@ -2853,6 +2884,7 @@ const crmHtml = `<!doctype html>
       reportFutureProfessionals: document.getElementById('report-future-professionals'),
       reportInactiveCopy: document.getElementById('report-inactive-copy'),
       reportInactiveTable: document.getElementById('report-inactive-table'),
+      reportRevenueNote: document.getElementById('report-revenue-note'),
       reportStatusBars: document.getElementById('report-status-bars'),
       reportServicesTable: document.getElementById('report-services-table'),
       reportProfessionalsTable: document.getElementById('report-professionals-table'),
@@ -3172,11 +3204,13 @@ const crmHtml = `<!doctype html>
       els.serviceList.innerHTML = state.services.length
         ? state.services.map((service) => {
             const aliases = (service.aliases || []).map((alias) => alias.name).join(', ')
+            const priceLabel = hasServicePrice(service) ? formatCurrency(service.price) : 'Sin precio'
+            const summary = service.duration + ' min' + (service.category ? ' - ' + service.category : '') + ' - ' + priceLabel
             return '<details class="item">' +
               '<summary class="row">' +
                 '<div>' +
                   '<div class="item-title">' + escapeHtml(service.name) + '</div>' +
-                  '<p>' + escapeHtml(service.duration + ' min' + (service.category ? ' · ' + service.category : '')) + '</p>' +
+                  '<p>' + escapeHtml(summary) + '</p>' +
                 '</div>' +
               '</summary>' +
               '<div>' +
@@ -3269,6 +3303,7 @@ const crmHtml = `<!doctype html>
         now: periodEnd,
         allAppointments: state.reportAppointments
       })
+      const revenue = calculateRevenue(nonCancelled)
 
       els.reportsSubtitle.textContent = formatReportRange(periodStart, periodEnd)
       els.reportTotalAppointments.textContent = String(appointments.length)
@@ -3297,6 +3332,7 @@ const crmHtml = `<!doctype html>
         cancelados: cancelled.length,
         ausentes: noShow.length
       })
+      renderRevenue(revenue)
       renderFutureAgenda(futureAgenda)
       renderReportServices(nonCancelled)
       renderReportProfessionals(appointments)
@@ -3399,6 +3435,38 @@ const crmHtml = `<!doctype html>
       }
     }
 
+    function calculateRevenue(appointments) {
+      const missingServices = new Map()
+      let total = 0
+      let pricedAppointments = 0
+      let missingAppointments = 0
+
+      for (const appointment of appointments) {
+        const price = getAppointmentServicePrice(appointment)
+        if (price === null) {
+          missingAppointments += 1
+          if (appointment.serviceId) {
+            const service = getServiceForAppointment(appointment)
+            missingServices.set(appointment.serviceId, {
+              id: appointment.serviceId,
+              name: service?.name || appointment.service?.name || 'Servicio'
+            })
+          }
+          continue
+        }
+
+        total += price
+        pricedAppointments += 1
+      }
+
+      return {
+        total,
+        pricedAppointments,
+        missingAppointments,
+        missingServices: Array.from(missingServices.values())
+      }
+    }
+
     function calculateRiskCustomers(input) {
       return buildCustomerVisitSummaries(input.allAppointments)
         .filter((customer) => customer.visitCount >= 2)
@@ -3486,6 +3554,35 @@ const crmHtml = `<!doctype html>
           '<strong>' + row.value + '</strong>' +
         '</div>'
       }).join('')
+    }
+
+    function renderRevenue(revenue) {
+      const missingNames = revenue.missingServices.map((service) => service.name).slice(0, 3).join(', ')
+      const missingCopy = revenue.missingAppointments > 0
+        ? revenue.missingAppointments + ' turnos sin precio' + (missingNames ? ': ' + missingNames : '') + '.'
+        : 'Todos los turnos del periodo tienen precio.'
+
+      els.reportRevenueNote.innerHTML = '<div class="revenue-box">' +
+        '<div>' +
+          '<span>Facturado estimado</span>' +
+          '<strong>' + escapeHtml(formatCurrency(revenue.total)) + '</strong>' +
+        '</div>' +
+        '<p>' + escapeHtml(revenue.pricedAppointments + ' turnos valorados. ' + missingCopy) + '</p>' +
+        (revenue.missingServices.length > 0
+          ? '<button class="secondary" type="button" data-add-service-prices>Agregar precios</button>'
+          : '') +
+      '</div>'
+
+      const button = els.reportRevenueNote.querySelector('[data-add-service-prices]')
+      if (button) {
+        button.addEventListener('click', () => {
+          setSection('services')
+          els.serviceFeedback.textContent = 'Edita los servicios sin precio para completar la facturacion.'
+          if (revenue.missingServices.length === 1) {
+            editService(revenue.missingServices[0].id)
+          }
+        })
+      }
     }
 
     function renderFutureAgenda(input) {
@@ -3608,6 +3705,29 @@ const crmHtml = `<!doctype html>
           '<span class="risk-badge inactive-badge">' + customer.daysSinceLastVisit + ' dias</span>' +
         '</div>'
       }).join('')
+    }
+
+    function getServiceForAppointment(appointment) {
+      return state.services.find((service) => service.id === appointment.serviceId) || appointment.service || null
+    }
+
+    function getAppointmentServicePrice(appointment) {
+      const service = getServiceForAppointment(appointment)
+      return hasServicePrice(service) ? Number(service.price) : null
+    }
+
+    function hasServicePrice(service) {
+      if (!service) return false
+      const price = Number(service.price)
+      return service.price !== null && service.price !== undefined && Number.isFinite(price) && price >= 0
+    }
+
+    function formatCurrency(value) {
+      return new Intl.NumberFormat('es-AR', {
+        style: 'currency',
+        currency: 'ARS',
+        maximumFractionDigits: 0
+      }).format(Number(value) || 0)
     }
 
     function formatCustomerLabel(customer) {
@@ -4607,6 +4727,8 @@ const crmHtml = `<!doctype html>
       const id = els.serviceId.value
       const name = els.serviceName.value.trim()
       const duration = Number(els.serviceDuration.value)
+      const priceValue = els.servicePrice.value.trim()
+      const price = priceValue ? Number(priceValue) : null
       const category = els.serviceCategory.value.trim()
       const aliases = els.serviceAliases.value
         .split(',')
@@ -4618,6 +4740,11 @@ const crmHtml = `<!doctype html>
         return
       }
 
+      if (price !== null && (!Number.isFinite(price) || price < 0)) {
+        els.serviceFeedback.textContent = 'El precio debe ser mayor o igual a 0.'
+        return
+      }
+
       try {
         await getJson(id ? '/services/' + id : '/services', {
           method: id ? 'PATCH' : 'POST',
@@ -4626,6 +4753,7 @@ const crmHtml = `<!doctype html>
             name,
             duration,
             businessId: state.businessId,
+            price,
             category: category || undefined,
             aliases
           })
@@ -4649,6 +4777,7 @@ const crmHtml = `<!doctype html>
       els.serviceId.value = service.id
       els.serviceName.value = service.name
       els.serviceDuration.value = service.duration
+      els.servicePrice.value = hasServicePrice(service) ? service.price : ''
       els.serviceCategory.value = service.category || ''
       els.serviceAliases.value = (service.aliases || []).map((alias) => alias.name).join(', ')
       els.serviceCancel.hidden = false
@@ -4681,6 +4810,7 @@ const crmHtml = `<!doctype html>
       els.serviceId.value = ''
       els.serviceName.value = ''
       els.serviceDuration.value = ''
+      els.servicePrice.value = ''
       els.serviceCategory.value = ''
       els.serviceAliases.value = ''
       els.serviceCancel.hidden = true

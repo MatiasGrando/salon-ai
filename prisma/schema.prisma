@@ -88,6 +88,7 @@ model Service {
   name       String
   duration   Int
   category   String?
+  price      Int?
 
   businessId String
   business   Business @relation(fields: [businessId], references: [id])

@@ -10,12 +10,16 @@ export async function serviceRoutes(app: FastifyInstance) {
       duration: number
       businessId: string
       category?: string
+      price?: number | string | null
       aliases?: string[]
     }
     const name = body.name?.trim()
     const duration = Number(body.duration)
     const businessId = body.businessId?.trim()
     const category = body.category?.trim()
+    const price = body.price === null || body.price === undefined || body.price === ''
+      ? null
+      : Number(body.price)
     const aliases = body.aliases
       ?.map((alias) => alias.trim())
       .filter(Boolean)
@@ -38,10 +42,17 @@ export async function serviceRoutes(app: FastifyInstance) {
       })
     }
 
+    if (price !== null && (!Number.isFinite(price) || price < 0)) {
+      return reply.status(400).send({
+        message: 'price debe ser mayor o igual a 0'
+      })
+    }
+
     const data = {
       name,
       duration,
       businessId,
+      price,
       ...(category ? { category } : {}),
       ...(aliases?.length
         ? {
@@ -55,7 +66,7 @@ export async function serviceRoutes(app: FastifyInstance) {
     }
 
     return prisma.service.create({
-      data,
+      data: data as any,
       include: {
         aliases: true
       }
@@ -78,10 +89,14 @@ export async function serviceRoutes(app: FastifyInstance) {
       name?: string
       duration?: number
       category?: string | null
+      price?: number | string | null
       aliases?: string[]
     }
     const name = body.name?.trim()
     const duration = Number(body.duration)
+    const price = body.price === null || body.price === undefined || body.price === ''
+      ? null
+      : Number(body.price)
 
     if (!name) {
       return reply.status(400).send({
@@ -92,6 +107,12 @@ export async function serviceRoutes(app: FastifyInstance) {
     if (!Number.isFinite(duration) || duration <= 0) {
       return reply.status(400).send({
         message: 'duration debe ser mayor a 0'
+      })
+    }
+
+    if (price !== null && (!Number.isFinite(price) || price < 0)) {
+      return reply.status(400).send({
+        message: 'price debe ser mayor o igual a 0'
       })
     }
 
@@ -107,8 +128,9 @@ export async function serviceRoutes(app: FastifyInstance) {
         data: {
           name,
           duration,
-          category: body.category?.trim() || null
-        },
+          category: body.category?.trim() || null,
+          price
+        } as any,
         include: {
           aliases: true
         }
