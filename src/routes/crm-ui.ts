@@ -1108,7 +1108,8 @@ const crmHtml = `<!doctype html>
     }
 
     .reports-shell {
-      max-width: 760px;
+      width: 100%;
+      max-width: none;
       padding: 20px;
       border-radius: 12px;
       background: #f7f6f1;
@@ -1274,6 +1275,25 @@ const crmHtml = `<!doctype html>
       font-size: 14px;
       font-weight: 750;
       cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .ti {
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .reports-refresh-button .ti {
+      width: 16px;
+      height: 16px;
     }
 
     .reports-grid {
@@ -1290,7 +1310,13 @@ const crmHtml = `<!doctype html>
     .section-head {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 8px;
+    }
+
+    .section-head .ti {
+      width: 17px;
+      height: 17px;
+      color: var(--muted);
     }
 
     .report-metric-section h3,
@@ -1346,12 +1372,16 @@ const crmHtml = `<!doctype html>
       width: 30px;
       height: 30px;
       border-radius: 8px;
-      display: grid;
-      place-items: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       color: #2563eb;
       background: #eff6ff;
-      font-size: 14px;
-      font-weight: 850;
+    }
+
+    .kpi-icon .ti {
+      width: 16px;
+      height: 16px;
     }
 
     .kpi-icon.good {
@@ -1374,6 +1404,14 @@ const crmHtml = `<!doctype html>
       font-size: 12px;
       font-weight: 850;
       white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+    }
+
+    .kpi-trend .ti {
+      width: 13px;
+      height: 13px;
     }
 
     .kpi-trend.muted {
@@ -1390,7 +1428,7 @@ const crmHtml = `<!doctype html>
 
     .reports-triple {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 12px;
       align-items: stretch;
     }
@@ -1419,20 +1457,31 @@ const crmHtml = `<!doctype html>
       flex-wrap: wrap;
     }
 
-    .future-agenda-head h3 {
+    .report-card-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .future-agenda-head h3,
+    .report-card-head h3 {
       margin: 0;
       font-size: 20px;
       line-height: 1.2;
     }
 
-    .future-agenda-head p {
+    .future-agenda-head p,
+    .report-card-head p {
       margin: 5px 0 0;
       color: var(--muted);
       font-size: 13px;
       line-height: 1.4;
     }
 
-    .future-agenda-head select {
+    .future-agenda-head select,
+    .report-card-head select {
       width: min(130px, 100%);
     }
 
@@ -1680,6 +1729,11 @@ const crmHtml = `<!doctype html>
       background: #fffbeb;
       font-size: 11px;
       white-space: nowrap;
+    }
+
+    .inactive-badge {
+      color: #1d4ed8;
+      background: #eff6ff;
     }
 
     .reactivation-action {
@@ -2473,19 +2527,23 @@ const crmHtml = `<!doctype html>
               <option value="90">Ultimos 90 dias</option>
               <option value="365">Ultimo ano</option>
             </select>
-            <button class="reports-refresh-button" id="reports-refresh" type="button">Actualizar</button>
+            <button class="reports-refresh-button" id="reports-refresh" type="button">
+              <svg class="ti ti-refresh" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4"></path><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"></path></svg>
+              Actualizar
+            </button>
           </div>
         </header>
 
         <section class="report-metric-section">
           <div class="section-head">
+            <svg class="ti ti-calendar" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-12z"></path><path d="M16 3v4"></path><path d="M8 3v4"></path><path d="M4 11h16"></path></svg>
             <h3>Turnos</h3>
           </div>
           <div class="reports-grid">
             <article class="report-kpi">
               <div class="kpi-top">
-                <span class="kpi-icon">+</span>
-                <span class="kpi-trend">activos</span>
+                <span class="kpi-icon"><svg class="ti ti-calendar-check" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 21h-5a2 2 0 0 1 -2 -2v-12a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v6"></path><path d="M16 3v4"></path><path d="M8 3v4"></path><path d="M4 11h11"></path><path d="M15 19l2 2l4 -4"></path></svg></span>
+                <span class="kpi-trend"><svg class="ti ti-trending-up" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17l6 -6l4 4l8 -8"></path><path d="M14 7h7v7"></path></svg> activos</span>
               </div>
               <div>
                 <span>Agendados</span>
@@ -2495,8 +2553,8 @@ const crmHtml = `<!doctype html>
             </article>
             <article class="report-kpi">
               <div class="kpi-top">
-                <span class="kpi-icon good">v</span>
-                <span class="kpi-trend">ok</span>
+                <span class="kpi-icon good"><svg class="ti ti-circle-check" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path><path d="M9 12l2 2l4 -4"></path></svg></span>
+                <span class="kpi-trend"><svg class="ti ti-trending-up" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17l6 -6l4 4l8 -8"></path><path d="M14 7h7v7"></path></svg> ok</span>
               </div>
               <div>
                 <span>Realizados</span>
@@ -2506,7 +2564,7 @@ const crmHtml = `<!doctype html>
             </article>
             <article class="report-kpi">
               <div class="kpi-top">
-                <span class="kpi-icon warn">x</span>
+                <span class="kpi-icon warn"><svg class="ti ti-x" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6l-12 12"></path><path d="M6 6l12 12"></path></svg></span>
                 <span class="kpi-trend muted">periodo</span>
               </div>
               <div>
@@ -2517,7 +2575,7 @@ const crmHtml = `<!doctype html>
             </article>
             <article class="report-kpi">
               <div class="kpi-top">
-                <span class="kpi-icon neutral">!</span>
+                <span class="kpi-icon neutral"><svg class="ti ti-user-x" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0"></path><path d="M6 21v-2a4 4 0 0 1 4 -4h3"></path><path d="M22 22l-5 -5"></path><path d="M17 22l5 -5"></path></svg></span>
                 <span class="kpi-trend muted">marcados</span>
               </div>
               <div>
@@ -2531,13 +2589,14 @@ const crmHtml = `<!doctype html>
 
         <section class="report-metric-section">
           <div class="section-head">
+            <svg class="ti ti-users" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7a4 4 0 1 0 0.01 0"></path><path d="M3 21v-2a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v2"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path><path d="M21 21v-2a4 4 0 0 0 -3 -3.85"></path></svg>
             <h3>Clientes</h3>
           </div>
           <div class="reports-grid">
             <article class="report-kpi">
               <div class="kpi-top">
-                <span class="kpi-icon">@</span>
-                <span class="kpi-trend">clientes</span>
+                <span class="kpi-icon"><svg class="ti ti-user" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0"></path><path d="M6 21v-2a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v2"></path></svg></span>
+                <span class="kpi-trend"><svg class="ti ti-trending-up" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17l6 -6l4 4l8 -8"></path><path d="M14 7h7v7"></path></svg> clientes</span>
               </div>
               <div>
                 <span>Atendidos</span>
@@ -2547,7 +2606,7 @@ const crmHtml = `<!doctype html>
             </article>
             <article class="report-kpi">
               <div class="kpi-top">
-                <span class="kpi-icon good">+</span>
+                <span class="kpi-icon good"><svg class="ti ti-user-plus" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0"></path><path d="M6 21v-2a4 4 0 0 1 4 -4h3"></path><path d="M19 16v6"></path><path d="M16 19h6"></path></svg></span>
                 <span class="kpi-trend muted">mix</span>
               </div>
               <div>
@@ -2558,7 +2617,7 @@ const crmHtml = `<!doctype html>
             </article>
             <article class="report-kpi">
               <div class="kpi-top">
-                <span class="kpi-icon">i</span>
+                <span class="kpi-icon"><svg class="ti ti-clock" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0"></path><path d="M12 7v5l3 3"></path></svg></span>
                 <span class="kpi-trend muted">intervalos</span>
               </div>
               <div>
@@ -2569,8 +2628,8 @@ const crmHtml = `<!doctype html>
             </article>
             <article class="report-kpi">
               <div class="kpi-top">
-                <span class="kpi-icon good">%</span>
-                <span class="kpi-trend">bueno</span>
+                <span class="kpi-icon good"><svg class="ti ti-message-circle" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20l1.3 -3.9a8 8 0 1 1 3.6 3.6l-4.9 1.3"></path></svg></span>
+                <span class="kpi-trend"><svg class="ti ti-trending-up" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17l6 -6l4 4l8 -8"></path><path d="M14 7h7v7"></path></svg> bueno</span>
               </div>
               <div>
                 <span>Chats a turnos</span>
@@ -2644,6 +2703,22 @@ const crmHtml = `<!doctype html>
               <p>Conversaciones que todavia no agendaron.</p>
             </div>
             <div class="report-empty-note" id="report-unconverted-chats">Pendiente de conectar al historial de chats.</div>
+          </article>
+
+          <article class="reports-table-panel">
+            <div class="report-card-head">
+              <div>
+                <h3>Clientes inactivos</h3>
+                <p id="report-inactive-copy">Sin turno en los ultimos 60 dias.</p>
+              </div>
+              <select id="reports-inactive-days">
+                <option value="30">30 dias</option>
+                <option value="45">45 dias</option>
+                <option value="60" selected>60 dias</option>
+                <option value="90">90 dias</option>
+              </select>
+            </div>
+            <div id="report-inactive-table"></div>
           </article>
 
           <article class="reports-table-panel">
@@ -2754,6 +2829,7 @@ const crmHtml = `<!doctype html>
       serviceCount: document.getElementById('service-count'),
       reportsRange: document.getElementById('reports-range'),
       reportsFutureDays: document.getElementById('reports-future-days'),
+      reportsInactiveDays: document.getElementById('reports-inactive-days'),
       reportsRefresh: document.getElementById('reports-refresh'),
       reportsSubtitle: document.getElementById('reports-subtitle'),
       reportTotalAppointments: document.getElementById('report-total-appointments'),
@@ -2775,6 +2851,8 @@ const crmHtml = `<!doctype html>
       reportFutureTotal: document.getElementById('report-future-total'),
       reportFutureCopy: document.getElementById('report-future-copy'),
       reportFutureProfessionals: document.getElementById('report-future-professionals'),
+      reportInactiveCopy: document.getElementById('report-inactive-copy'),
+      reportInactiveTable: document.getElementById('report-inactive-table'),
       reportStatusBars: document.getElementById('report-status-bars'),
       reportServicesTable: document.getElementById('report-services-table'),
       reportProfessionalsTable: document.getElementById('report-professionals-table'),
@@ -3147,6 +3225,7 @@ const crmHtml = `<!doctype html>
     function renderReports() {
       const days = Number(els.reportsRange.value || 30)
       const futureDays = Number(els.reportsFutureDays.value || 30)
+      const inactiveDays = Number(els.reportsInactiveDays.value || 60)
       const periodEnd = new Date()
       const periodStart = addDays(startOfDay(periodEnd), -(days - 1))
       const appointments = state.reportAppointments.filter((appointment) => {
@@ -3185,6 +3264,11 @@ const crmHtml = `<!doctype html>
         now: periodEnd,
         allAppointments: state.reportAppointments
       })
+      const inactiveCustomers = calculateInactiveCustomers({
+        days: inactiveDays,
+        now: periodEnd,
+        allAppointments: state.reportAppointments
+      })
 
       els.reportsSubtitle.textContent = formatReportRange(periodStart, periodEnd)
       els.reportTotalAppointments.textContent = String(appointments.length)
@@ -3205,6 +3289,7 @@ const crmHtml = `<!doctype html>
       els.reportVisitGapCopy.textContent = visitGap.sampleSize + ' intervalos entre visitas.'
       els.reportFutureTotal.textContent = String(futureAgenda.total)
       els.reportFutureCopy.textContent = 'Proximos ' + futureDays + ' dias.'
+      els.reportInactiveCopy.textContent = 'Sin turno en los ultimos ' + inactiveDays + ' dias.'
 
       renderReportStatusBars({
         confirmados: appointments.length,
@@ -3215,6 +3300,7 @@ const crmHtml = `<!doctype html>
       renderFutureAgenda(futureAgenda)
       renderReportServices(nonCancelled)
       renderReportProfessionals(appointments)
+      renderInactiveCustomers(inactiveCustomers)
       renderRiskCustomers(riskCustomers)
     }
 
@@ -3327,6 +3413,21 @@ const crmHtml = `<!doctype html>
         })
         .filter((customer) => customer.overdueDays > 0)
         .sort((left, right) => right.overdueDays - left.overdueDays)
+    }
+
+    function calculateInactiveCustomers(input) {
+      const futureCustomerIds = new Set(input.allAppointments
+        .filter((appointment) => {
+          return appointment.customerId &&
+            isActiveAppointment(appointment) &&
+            new Date(appointment.startAt) >= input.now
+        })
+        .map((appointment) => appointment.customerId))
+
+      return buildCustomerVisitSummaries(input.allAppointments)
+        .filter((customer) => customer.daysSinceLastVisit >= input.days)
+        .filter((customer) => !futureCustomerIds.has(customer.customerId))
+        .sort((left, right) => right.daysSinceLastVisit - left.daysSinceLastVisit)
     }
 
     function buildCustomerVisitSummaries(appointments) {
@@ -3489,6 +3590,24 @@ const crmHtml = `<!doctype html>
         '</div>'
       }).join('') +
       '<div class="reactivation-action">Campana de reactivacion</div>'
+    }
+
+    function renderInactiveCustomers(customers) {
+      const rows = customers.slice(0, 8)
+      if (rows.length === 0) {
+        els.reportInactiveTable.innerHTML = '<div class="report-empty-note">No hay clientes inactivos con este filtro.</div>'
+        return
+      }
+
+      els.reportInactiveTable.innerHTML = rows.map((customer) => {
+        return '<div class="risk-row">' +
+          '<div class="risk-main">' +
+            '<div class="risk-name">' + escapeHtml(customer.name) + '</div>' +
+            '<div class="risk-meta">Ultima visita: ' + formatShortDate(customer.lastVisit) + '</div>' +
+          '</div>' +
+          '<span class="risk-badge inactive-badge">' + customer.daysSinceLastVisit + ' dias</span>' +
+        '</div>'
+      }).join('')
     }
 
     function formatCustomerLabel(customer) {
@@ -4641,6 +4760,7 @@ const crmHtml = `<!doctype html>
     document.querySelectorAll('.workspace-nav button')[6]?.addEventListener('click', () => setSection('reports'))
     els.reportsRange.addEventListener('change', renderReports)
     els.reportsFutureDays.addEventListener('change', renderReports)
+    els.reportsInactiveDays.addEventListener('change', renderReports)
     els.reportsRefresh.addEventListener('click', loadReports)
     els.agendaProfessional.addEventListener('change', loadAgenda)
     els.agendaService.addEventListener('change', renderAgenda)
