@@ -1254,6 +1254,21 @@ const crmHtml = `<!doctype html>
       gap: 12px;
     }
 
+    .report-metric-section {
+      padding: 16px;
+      border: 1px solid #e4e6eb;
+      border-radius: 10px;
+      background: #fff;
+      display: grid;
+      gap: 12px;
+    }
+
+    .report-metric-section h3 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.2;
+    }
+
     .report-kpi {
       min-height: 112px;
       padding: 14px;
@@ -2238,42 +2253,56 @@ const crmHtml = `<!doctype html>
           </div>
         </header>
 
-        <section class="reports-grid">
-          <article class="report-kpi">
-            <span>Turnos agendados</span>
-            <strong id="report-total-appointments">0</strong>
-            <small id="report-total-copy">Sin datos del periodo.</small>
-          </article>
-          <article class="report-kpi">
-            <span>Turnos realizados</span>
-            <strong id="report-completed-appointments">0</strong>
-            <small id="report-completed-copy">Incluye turnos pasados no cancelados.</small>
-          </article>
-          <article class="report-kpi">
-            <span>Cancelaciones</span>
-            <strong id="report-cancelled-appointments">0</strong>
-            <small id="report-cancelled-copy">0% del periodo.</small>
-          </article>
-          <article class="report-kpi">
-            <span>Clientes atendidos</span>
-            <strong id="report-active-customers">0</strong>
-            <small id="report-customers-copy">Clientes con al menos un turno.</small>
-          </article>
-          <article class="report-kpi">
-            <span>Conversion chat a turno</span>
-            <strong id="report-chat-conversion">0%</strong>
-            <small id="report-chat-conversion-copy">0 de 0 conversaciones.</small>
-          </article>
-          <article class="report-kpi">
-            <span>Nuevos vs recurrentes</span>
-            <strong id="report-customer-mix">0 / 0</strong>
-            <small id="report-customer-mix-copy">Nuevos / recurrentes.</small>
-          </article>
-          <article class="report-kpi">
-            <span>Tiempo entre visitas</span>
-            <strong id="report-visit-gap">--</strong>
-            <small id="report-visit-gap-copy">Promedio de clientes que volvieron.</small>
-          </article>
+        <section class="report-metric-section">
+          <h3>Turnos</h3>
+          <div class="reports-grid">
+            <article class="report-kpi">
+              <span>Agendados</span>
+              <strong id="report-total-appointments">0</strong>
+              <small id="report-total-copy">Sin datos del periodo.</small>
+            </article>
+            <article class="report-kpi">
+              <span>Realizados</span>
+              <strong id="report-completed-appointments">0</strong>
+              <small id="report-completed-copy">Incluye turnos pasados no cancelados.</small>
+            </article>
+            <article class="report-kpi">
+              <span>Cancelados</span>
+              <strong id="report-cancelled-appointments">0</strong>
+              <small id="report-cancelled-copy">0% del periodo.</small>
+            </article>
+            <article class="report-kpi">
+              <span>Ausentes</span>
+              <strong id="report-no-show-appointments">0</strong>
+              <small id="report-no-show-copy">No asistieron al turno.</small>
+            </article>
+          </div>
+        </section>
+
+        <section class="report-metric-section">
+          <h3>Clientes</h3>
+          <div class="reports-grid">
+            <article class="report-kpi">
+              <span>Atendidos</span>
+              <strong id="report-active-customers">0</strong>
+              <small id="report-customers-copy">Clientes con al menos un turno.</small>
+            </article>
+            <article class="report-kpi">
+              <span>Nuevos / recurrentes</span>
+              <strong id="report-customer-mix">0 / 0</strong>
+              <small id="report-customer-mix-copy">Nuevos / recurrentes.</small>
+            </article>
+            <article class="report-kpi">
+              <span>Frecuencia de visita</span>
+              <strong id="report-visit-gap">--</strong>
+              <small id="report-visit-gap-copy">Promedio de clientes que volvieron.</small>
+            </article>
+            <article class="report-kpi">
+              <span>Chats a turnos</span>
+              <strong id="report-chat-conversion">0%</strong>
+              <small id="report-chat-conversion-copy">0 de 0 conversaciones.</small>
+            </article>
+          </div>
         </section>
 
         <section class="reports-panels">
@@ -2469,6 +2498,8 @@ const crmHtml = `<!doctype html>
       reportCompletedCopy: document.getElementById('report-completed-copy'),
       reportCancelledAppointments: document.getElementById('report-cancelled-appointments'),
       reportCancelledCopy: document.getElementById('report-cancelled-copy'),
+      reportNoShowAppointments: document.getElementById('report-no-show-appointments'),
+      reportNoShowCopy: document.getElementById('report-no-show-copy'),
       reportActiveCustomers: document.getElementById('report-active-customers'),
       reportCustomersCopy: document.getElementById('report-customers-copy'),
       reportChatConversion: document.getElementById('report-chat-conversion'),
@@ -2904,6 +2935,8 @@ const crmHtml = `<!doctype html>
       els.reportCompletedCopy.textContent = completed.length + ' realizados del periodo.'
       els.reportCancelledAppointments.textContent = String(cancelled.length)
       els.reportCancelledCopy.textContent = cancellationRate + '% del periodo.'
+      els.reportNoShowAppointments.textContent = String(noShow.length)
+      els.reportNoShowCopy.textContent = noShow.length + ' marcados como ausentes.'
       els.reportActiveCustomers.textContent = String(activeCustomerIds.size)
       els.reportCustomersCopy.textContent = countNewCustomers(periodStart, periodEnd) + ' clientes nuevos cargados.'
       els.reportChatConversion.textContent = chatConversion.rate + '%'
