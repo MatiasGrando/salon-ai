@@ -2274,16 +2274,6 @@ const crmHtml = `<!doctype html>
             <strong id="report-visit-gap">--</strong>
             <small id="report-visit-gap-copy">Promedio de clientes que volvieron.</small>
           </article>
-          <article class="report-kpi">
-            <span>Clientes inactivos</span>
-            <strong id="report-inactive-customers">0</strong>
-            <small id="report-inactive-copy">Sin turno hace 60 dias.</small>
-          </article>
-          <article class="report-kpi">
-            <span>Clientes en riesgo</span>
-            <strong id="report-risk-customers">0</strong>
-            <small id="report-risk-copy">Deberian haber vuelto.</small>
-          </article>
         </section>
 
         <section class="reports-panels">
@@ -2487,10 +2477,6 @@ const crmHtml = `<!doctype html>
       reportCustomerMixCopy: document.getElementById('report-customer-mix-copy'),
       reportVisitGap: document.getElementById('report-visit-gap'),
       reportVisitGapCopy: document.getElementById('report-visit-gap-copy'),
-      reportInactiveCustomers: document.getElementById('report-inactive-customers'),
-      reportInactiveCopy: document.getElementById('report-inactive-copy'),
-      reportRiskCustomers: document.getElementById('report-risk-customers'),
-      reportRiskCopy: document.getElementById('report-risk-copy'),
       reportFutureTotal: document.getElementById('report-future-total'),
       reportFutureProfessionals: document.getElementById('report-future-professionals'),
       reportStatusBars: document.getElementById('report-status-bars'),
@@ -2926,10 +2912,6 @@ const crmHtml = `<!doctype html>
       els.reportCustomerMixCopy.textContent = customerMix.newRate + '% nuevos, ' + customerMix.returningRate + '% recurrentes.'
       els.reportVisitGap.textContent = visitGap.averageDays === null ? '--' : visitGap.averageDays + ' dias'
       els.reportVisitGapCopy.textContent = visitGap.sampleSize + ' intervalos entre visitas.'
-      els.reportInactiveCustomers.textContent = String(inactiveCustomers.length)
-      els.reportInactiveCopy.textContent = 'Sin turno hace ' + inactiveDays + ' dias.'
-      els.reportRiskCustomers.textContent = String(riskCustomers.length)
-      els.reportRiskCopy.textContent = riskCustomers.length ? 'Ordenados por dias de atraso.' : 'Sin clientes en riesgo.'
       els.reportFutureTotal.textContent = String(futureAgenda.total)
 
       renderReportStatusBars({
