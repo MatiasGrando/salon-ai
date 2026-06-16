@@ -189,7 +189,7 @@ export async function professionalRoutes(app: FastifyInstance) {
           gte: new Date()
         },
         status: {
-          not: 'CANCELLED'
+          notIn: ['CANCELLED', 'NO_SHOW']
         }
       }
     })
@@ -270,7 +270,7 @@ async function getProfessionalAppointmentImpact(professionalId: string, workingH
         gte: new Date()
       },
       status: {
-        not: 'CANCELLED'
+        notIn: ['CANCELLED', 'NO_SHOW']
       }
     },
     include: {

@@ -1600,6 +1600,11 @@ const crmHtml = `<!doctype html>
       border-left-width: 4px;
     }
 
+    .agenda-event.no-show {
+      background: #6b7280;
+      border-left-color: #d57920;
+    }
+
     .agenda-event strong {
       display: block;
       font-size: 11px;
@@ -2001,6 +2006,7 @@ const crmHtml = `<!doctype html>
           </div>
           <p class="hint" id="appointment-feedback"></p>
           <div class="dialog-actions">
+            <button class="danger" id="appointment-no-show" type="button" hidden>Marcar ausente</button>
             <button class="danger" id="appointment-delete" type="button" hidden>Eliminar</button>
             <button class="secondary" id="appointment-cancel" type="button">Cancelar</button>
             <button class="primary" id="appointment-submit" type="submit">Guardar turno</button>
@@ -2394,6 +2400,7 @@ const crmHtml = `<!doctype html>
       appointmentClose: document.getElementById('appointment-close'),
       appointmentCancel: document.getElementById('appointment-cancel'),
       appointmentDelete: document.getElementById('appointment-delete'),
+      appointmentNoShow: document.getElementById('appointment-no-show'),
       appointmentSubmit: document.getElementById('appointment-submit'),
       appointmentStart: document.getElementById('appointment-start'),
       appointmentProfessional: document.getElementById('appointment-professional'),
@@ -2411,6 +2418,14 @@ const crmHtml = `<!doctype html>
 
     function normalizePhone(phone) {
       return String(phone || '').replace(/\\D/g, '')
+    }
+
+    function isActiveAppointment(appointment) {
+      return appointment.status !== 'CANCELLED' && appointment.status !== 'NO_SHOW'
+    }
+
+    function isVisitAppointment(appointment) {
+      return isActiveAppointment(appointment)
     }
 
     function formatDateTime(value) {
@@ -2550,7 +2565,7 @@ const crmHtml = `<!doctype html>
       const now = Date.now()
       state.appointments = all
         .filter((appointment) => appointment.customer?.phone === state.selected.phone)
-        .filter((appointment) => appointment.status !== 'CANCELLED')
+        .filter(isActiveAppointment)
         .filter((appointment) => new Date(appointment.startAt).getTime() >= now)
         .sort((left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime())
     }
@@ -2734,8 +2749,9 @@ const crmHtml = `<!doctype html>
         const start = new Date(appointment.startAt)
         return start >= periodStart && start <= periodEnd
       })
-      const nonCancelled = appointments.filter((appointment) => appointment.status !== 'CANCELLED')
+      const nonCancelled = appointments.filter(isActiveAppointment)
       const cancelled = appointments.filter((appointment) => appointment.status === 'CANCELLED')
+      const noShow = appointments.filter((appointment) => appointment.status === 'NO_SHOW')
       const completed = nonCancelled.filter((appointment) => {
         return appointment.status === 'COMPLETED' || new Date(appointment.startAt) < periodEnd
       })
@@ -2790,7 +2806,8 @@ const crmHtml = `<!doctype html>
       renderReportStatusBars({
         realizados: completed.length,
         futuros: futureConfirmed.length,
-        cancelados: cancelled.length
+        cancelados: cancelled.length,
+        ausentes: noShow.length
       })
       renderReportServices(nonCancelled)
       renderReportProfessionals(appointments)
@@ -2827,7 +2844,7 @@ const crmHtml = `<!doctype html>
 
       for (const customerId of customerIds) {
         const firstAppointment = input.allAppointments
-          .filter((appointment) => appointment.customerId === customerId && appointment.status !== 'CANCELLED')
+          .filter((appointment) => appointment.customerId === customerId && isVisitAppointment(appointment))
           .sort((left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime())[0]
 
         if (firstAppointment && new Date(firstAppointment.startAt) >= input.periodStart) {
@@ -2849,7 +2866,7 @@ const crmHtml = `<!doctype html>
     function calculateAverageVisitGap(input) {
       const visitsByCustomer = new Map()
       for (const appointment of input.allAppointments) {
-        if (appointment.status === 'CANCELLED' || !appointment.customerId) continue
+        if (!isVisitAppointment(appointment) || !appointment.customerId) continue
         const start = new Date(appointment.startAt)
         if (start > input.periodEnd) continue
         visitsByCustomer.set(appointment.customerId, (visitsByCustomer.get(appointment.customerId) || []).concat(start))
@@ -2905,7 +2922,7 @@ const crmHtml = `<!doctype html>
     function buildCustomerVisitSummaries(appointments) {
       const byCustomer = new Map()
       for (const appointment of appointments) {
-        if (appointment.status === 'CANCELLED' || !appointment.customerId) continue
+        if (!isVisitAppointment(appointment) || !appointment.customerId) continue
         const start = new Date(appointment.startAt)
         if (start > new Date()) continue
         const current = byCustomer.get(appointment.customerId) || {
@@ -2945,7 +2962,8 @@ const crmHtml = `<!doctype html>
       const rows = [
         { label: 'Realizados', value: counts.realizados, className: '' },
         { label: 'Confirmados futuros', value: counts.futuros, className: 'soft' },
-        { label: 'Cancelados', value: counts.cancelados, className: 'warn' }
+        { label: 'Cancelados', value: counts.cancelados, className: 'warn' },
+        { label: 'Ausentes', value: counts.ausentes, className: 'warn' }
       ]
       const max = Math.max(1, ...rows.map((row) => row.value))
 
@@ -2985,13 +3003,15 @@ const crmHtml = `<!doctype html>
       const rows = state.professionals.map((professional) => {
         const ownAppointments = appointments.filter((appointment) => appointment.professionalId === professional.id)
         const cancelled = ownAppointments.filter((appointment) => appointment.status === 'CANCELLED').length
+        const noShow = ownAppointments.filter((appointment) => appointment.status === 'NO_SHOW').length
         const attended = ownAppointments.filter((appointment) => {
-          return appointment.status !== 'CANCELLED' && new Date(appointment.startAt) < new Date()
+          return isVisitAppointment(appointment) && new Date(appointment.startAt) < new Date()
         }).length
         return {
           name: professional.name,
           attended,
           cancelled,
+          noShow,
           total: ownAppointments.length
         }
       }).filter((row) => row.total > 0)
@@ -3004,12 +3024,12 @@ const crmHtml = `<!doctype html>
       }
 
       els.reportProfessionalsTable.innerHTML = '<table class="report-table">' +
-        '<thead><tr><th>Profesional</th><th>Realizados</th><th>Cancel.</th></tr></thead>' +
+        '<thead><tr><th>Profesional</th><th>Realizados</th><th>Aus.</th></tr></thead>' +
         '<tbody>' + rows.map((row) => {
           return '<tr>' +
             '<td>' + escapeHtml(row.name) + '</td>' +
             '<td>' + row.attended + '</td>' +
-            '<td>' + row.cancelled + '</td>' +
+            '<td>' + row.noShow + '</td>' +
           '</tr>'
         }).join('') + '</tbody>' +
       '</table>'
@@ -3668,18 +3688,19 @@ const crmHtml = `<!doctype html>
         const gap = 3
         const leftOffset = 5 + (gap / 2)
         const widthOffset = gap + (10 / placement.columns)
+        const noShow = appointment.status === 'NO_SHOW'
 
         const event = document.createElement('article')
-        event.className = 'agenda-event' + (placement.columns > 1 ? ' is-overlap' : '')
+        event.className = 'agenda-event' + (placement.columns > 1 ? ' is-overlap' : '') + (noShow ? ' no-show' : '')
         event.style.height = height + 'px'
         event.style.top = top + 'px'
         event.style.left = 'calc(' + ((placement.column * 100) / placement.columns) + '% + ' + leftOffset + 'px)'
         event.style.right = 'auto'
         event.style.width = 'calc(' + (100 / placement.columns) + '% - ' + widthOffset + 'px)'
-        event.title = customer + ' - ' + service + ' con ' + professional
+        event.title = customer + ' - ' + service + ' con ' + professional + (noShow ? ' - Ausente' : '')
         event.innerHTML = '<strong>' + escapeHtml(formatTimeOnly(start) + ' - ' + formatTimeOnly(addMinutes(start, duration))) + '</strong>' +
           '<span>' + escapeHtml(customer + ' · ' + service) + '</span>' +
-          '<span>' + escapeHtml(professional) + '</span>'
+          '<span>' + escapeHtml(professional + (noShow ? ' · Ausente' : '')) + '</span>'
         event.addEventListener('click', (clickEvent) => {
           clickEvent.stopPropagation()
           openAppointmentDialog({ appointment })
@@ -3794,6 +3815,7 @@ const crmHtml = `<!doctype html>
       els.appointmentTitle.textContent = appointment ? 'Editar turno' : 'Nuevo turno'
       els.appointmentSubmit.textContent = appointment ? 'Guardar cambios' : 'Guardar turno'
       els.appointmentDelete.hidden = !appointment
+      els.appointmentNoShow.hidden = !appointment || appointment.status === 'NO_SHOW' || appointment.status === 'CANCELLED'
 
       if (appointment) {
         els.appointmentStart.value = toDatetimeLocalValue(new Date(appointment.startAt))
@@ -3802,6 +3824,7 @@ const crmHtml = `<!doctype html>
         els.appointmentCustomer.value = appointment.customerId || ''
         els.appointmentCustomerName.value = appointment.customer?.name || ''
         els.appointmentCustomerPhone.value = appointment.customer?.phone || ''
+        els.appointmentFeedback.textContent = appointment.status === 'NO_SHOW' ? 'Este turno esta marcado como ausente.' : ''
       } else {
         const date = input.date || state.agendaSelectedDate || new Date()
         const minute = Number.isFinite(input.minute) ? input.minute : 9 * 60
@@ -3826,6 +3849,7 @@ const crmHtml = `<!doctype html>
       els.appointmentFeedback.textContent = ''
       state.editingAppointmentId = null
       els.appointmentDelete.hidden = true
+      els.appointmentNoShow.hidden = true
     }
 
     function syncAppointmentCustomerFields() {
@@ -3909,6 +3933,33 @@ const crmHtml = `<!doctype html>
         if (state.selected) {
           await loadAppointments()
           renderAppointments()
+        }
+      } catch (error) {
+        els.appointmentFeedback.textContent = error.message
+      }
+    }
+
+    async function markManualAppointmentNoShow() {
+      const appointmentId = state.editingAppointmentId
+      if (!appointmentId) return
+      if (!confirm('Marcar este turno como ausente?')) return
+
+      try {
+        await getJson('/appointments/' + appointmentId + '/status', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            status: 'NO_SHOW'
+          })
+        })
+        closeAppointmentDialog()
+        await loadAgenda()
+        if (state.selected) {
+          await loadAppointments()
+          renderAppointments()
+        }
+        if (els.appShell.dataset.section === 'reports') {
+          await loadReports()
         }
       } catch (error) {
         els.appointmentFeedback.textContent = error.message
@@ -4200,6 +4251,7 @@ const crmHtml = `<!doctype html>
     els.appointmentClose.addEventListener('click', closeAppointmentDialog)
     els.appointmentCancel.addEventListener('click', closeAppointmentDialog)
     els.appointmentDelete.addEventListener('click', deleteManualAppointment)
+    els.appointmentNoShow.addEventListener('click', markManualAppointmentNoShow)
     els.appointmentCustomer.addEventListener('change', syncAppointmentCustomerFields)
     els.appointmentDialog.addEventListener('click', (event) => {
       if (event.target === els.appointmentDialog) {

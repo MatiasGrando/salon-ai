@@ -24,6 +24,8 @@ type UpdateAppointmentInput = CreateAppointmentInput & {
   id: string
 }
 
+type AppointmentStatusInput = 'PENDING' | 'CONFIRMED' | 'CANCELLED' | 'COMPLETED' | 'NO_SHOW'
+
 type FindAvailabilityInput = {
   professionalId: string
   serviceId: string
@@ -347,6 +349,39 @@ export class AppointmentService {
     }
   }
 
+  async updateStatus(appointmentId: string, status: AppointmentStatusInput) {
+    const appointment = await prisma.appointment.findUnique({
+      where: {
+        id: appointmentId
+      }
+    })
+
+    if (!appointment) {
+      return {
+        ok: false as const,
+        statusCode: 404,
+        message: 'No encontre ese turno'
+      }
+    }
+
+    return {
+      ok: true as const,
+      appointment: await prisma.appointment.update({
+        where: {
+          id: appointmentId
+        },
+        data: {
+          status
+        },
+        include: {
+          customer: true,
+          professional: true,
+          service: true
+        }
+      })
+    }
+  }
+
   async findAll() {
     return prisma.appointment.findMany({
       include: {
@@ -555,7 +590,7 @@ export class AppointmentService {
           lt: input.endAt
         },
         status: {
-          not: 'CANCELLED'
+          notIn: ['CANCELLED', 'NO_SHOW']
         }
       },
       include: {

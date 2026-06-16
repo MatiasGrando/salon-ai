@@ -29,6 +29,34 @@ export async function appointmentRoutes(app: FastifyInstance) {
     return service.findAll()
   })
 
+  app.patch('/appointments/:id/status', async (request, reply) => {
+    const params = request.params as {
+      id: string
+    }
+
+    const body = request.body as {
+      status: 'PENDING' | 'CONFIRMED' | 'CANCELLED' | 'COMPLETED' | 'NO_SHOW'
+    }
+
+    const allowedStatuses = ['PENDING', 'CONFIRMED', 'CANCELLED', 'COMPLETED', 'NO_SHOW']
+
+    if (!allowedStatuses.includes(body.status)) {
+      return reply.status(400).send({
+        message: 'Estado de turno invalido'
+      })
+    }
+
+    const result = await service.updateStatus(params.id, body.status)
+
+    if (!result.ok) {
+      return reply.status(result.statusCode).send({
+        message: result.message
+      })
+    }
+
+    return result.appointment
+  })
+
   app.patch('/appointments/:id', async (request, reply) => {
     const params = request.params as {
       id: string

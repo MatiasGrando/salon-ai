@@ -521,7 +521,7 @@ export class ConversationService {
           phone
         },
         status: {
-          not: 'CANCELLED'
+          notIn: ['CANCELLED', 'NO_SHOW']
         },
         startAt: {
           gte: new Date()
