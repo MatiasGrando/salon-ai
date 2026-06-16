@@ -2749,7 +2749,9 @@ const crmHtml = `<!doctype html>
       const completed = nonCancelled.filter((appointment) => {
         return appointment.status === 'COMPLETED' || new Date(appointment.startAt) < periodEnd
       })
-      const futureConfirmed = nonCancelled.filter((appointment) => new Date(appointment.startAt) >= periodEnd)
+      const futureConfirmed = state.reportAppointments.filter((appointment) => {
+        return isActiveAppointment(appointment) && new Date(appointment.startAt) >= periodEnd
+      })
       const activeCustomerIds = new Set(nonCancelled.map((appointment) => appointment.customerId).filter(Boolean))
       const cancellationRate = appointments.length ? Math.round((cancelled.length / appointments.length) * 100) : 0
       const chatConversion = calculateChatConversion({
@@ -2781,7 +2783,7 @@ const crmHtml = `<!doctype html>
       els.reportTotalAppointments.textContent = String(appointments.length)
       els.reportTotalCopy.textContent = nonCancelled.length + ' activos en el periodo.'
       els.reportCompletedAppointments.textContent = String(completed.length)
-      els.reportCompletedCopy.textContent = futureConfirmed.length + ' turnos futuros confirmados.'
+      els.reportCompletedCopy.textContent = futureConfirmed.length + ' turnos futuros en agenda.'
       els.reportCancelledAppointments.textContent = String(cancelled.length)
       els.reportCancelledCopy.textContent = cancellationRate + '% del periodo.'
       els.reportActiveCustomers.textContent = String(activeCustomerIds.size)
@@ -3809,7 +3811,7 @@ const crmHtml = `<!doctype html>
       els.appointmentTitle.textContent = appointment ? 'Editar turno' : 'Nuevo turno'
       els.appointmentSubmit.textContent = appointment ? 'Guardar cambios' : 'Guardar turno'
       els.appointmentDelete.hidden = !appointment
-      els.appointmentNoShow.hidden = !appointment || appointment.status === 'NO_SHOW' || appointment.status === 'CANCELLED'
+      els.appointmentNoShow.hidden = !appointment || appointment.status === 'CANCELLED'
 
       if (appointment) {
         els.appointmentStart.value = toDatetimeLocalValue(new Date(appointment.startAt))
@@ -3818,6 +3820,8 @@ const crmHtml = `<!doctype html>
         els.appointmentCustomer.value = appointment.customerId || ''
         els.appointmentCustomerName.value = appointment.customer?.name || ''
         els.appointmentCustomerPhone.value = appointment.customer?.phone || ''
+        els.appointmentNoShow.textContent = appointment.status === 'NO_SHOW' ? 'Quitar ausente' : 'Marcar ausente'
+        els.appointmentNoShow.className = appointment.status === 'NO_SHOW' ? 'secondary' : 'danger'
         els.appointmentFeedback.textContent = appointment.status === 'NO_SHOW' ? 'Este turno esta marcado como ausente.' : ''
       } else {
         const date = input.date || state.agendaSelectedDate || new Date()
@@ -3933,17 +3937,20 @@ const crmHtml = `<!doctype html>
       }
     }
 
-    async function markManualAppointmentNoShow() {
+    async function toggleManualAppointmentNoShow() {
       const appointmentId = state.editingAppointmentId
       if (!appointmentId) return
-      if (!confirm('Marcar este turno como ausente?')) return
+      const appointment = state.agendaAppointments.find((item) => item.id === appointmentId)
+      const isNoShow = appointment?.status === 'NO_SHOW'
+      const nextStatus = isNoShow ? 'CONFIRMED' : 'NO_SHOW'
+      if (!confirm(isNoShow ? 'Quitar el estado ausente de este turno?' : 'Marcar este turno como ausente?')) return
 
       try {
         await getJson('/appointments/' + appointmentId + '/status', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            status: 'NO_SHOW'
+            status: nextStatus
           })
         })
         closeAppointmentDialog()
@@ -4245,7 +4252,7 @@ const crmHtml = `<!doctype html>
     els.appointmentClose.addEventListener('click', closeAppointmentDialog)
     els.appointmentCancel.addEventListener('click', closeAppointmentDialog)
     els.appointmentDelete.addEventListener('click', deleteManualAppointment)
-    els.appointmentNoShow.addEventListener('click', markManualAppointmentNoShow)
+    els.appointmentNoShow.addEventListener('click', toggleManualAppointmentNoShow)
     els.appointmentCustomer.addEventListener('change', syncAppointmentCustomerFields)
     els.appointmentDialog.addEventListener('click', (event) => {
       if (event.target === els.appointmentDialog) {
