@@ -2208,13 +2208,6 @@ const crmHtml = `<!doctype html>
               <option value="90">Ultimos 90 dias</option>
               <option value="365">Ultimo ano</option>
             </select>
-            <select id="reports-inactive-days" title="Dias sin sacar turnos">
-              <option value="30">30 dias sin turno</option>
-              <option value="45">45 dias sin turno</option>
-              <option value="60" selected>60 dias sin turno</option>
-              <option value="90">90 dias sin turno</option>
-              <option value="120">120 dias sin turno</option>
-            </select>
             <button class="icon-button" id="reports-refresh" type="button" title="Actualizar">R</button>
           </div>
         </header>
@@ -2267,28 +2260,6 @@ const crmHtml = `<!doctype html>
           </article>
         </section>
 
-        <section class="future-agenda-panel">
-          <div class="future-agenda-head">
-            <div>
-              <h3>Agenda futura</h3>
-              <p>Turnos confirmados hacia adelante, separados por profesional.</p>
-            </div>
-            <select id="reports-future-days">
-              <option value="7">Proximos 7 dias</option>
-              <option value="15">Proximos 15 dias</option>
-              <option value="30" selected>Proximos 30 dias</option>
-              <option value="60">Proximos 60 dias</option>
-            </select>
-          </div>
-          <div class="future-agenda-summary">
-            <div class="future-total">
-              <span>Turnos futuros totales</span>
-              <strong id="report-future-total">0</strong>
-            </div>
-            <div class="future-professionals" id="report-future-professionals"></div>
-          </div>
-        </section>
-
         <section class="reports-panels">
           <article class="reports-panel">
             <div>
@@ -2327,9 +2298,18 @@ const crmHtml = `<!doctype html>
 
         <section class="reports-panels">
           <article class="reports-table-panel">
-            <div>
-              <h3>Clientes inactivos</h3>
-              <p>Clientes con turnos anteriores que no sacaron otro turno en la cantidad de dias elegida.</p>
+            <div class="row">
+              <div>
+                <h3>Clientes inactivos</h3>
+                <p>Clientes con turnos anteriores que no sacaron otro turno en la cantidad de dias elegida.</p>
+              </div>
+              <select id="reports-inactive-days" title="Dias sin sacar turnos">
+                <option value="30">30 dias sin turno</option>
+                <option value="45">45 dias sin turno</option>
+                <option value="60" selected>60 dias sin turno</option>
+                <option value="90">90 dias sin turno</option>
+                <option value="120">120 dias sin turno</option>
+              </select>
             </div>
             <div id="report-inactive-table"></div>
           </article>
@@ -2341,6 +2321,28 @@ const crmHtml = `<!doctype html>
             </div>
             <div id="report-risk-table"></div>
           </article>
+        </section>
+
+        <section class="future-agenda-panel">
+          <div class="future-agenda-head">
+            <div>
+              <h3>Agenda futura</h3>
+              <p>Turnos confirmados hacia adelante, separados por profesional.</p>
+            </div>
+            <select id="reports-future-days">
+              <option value="7">Proximos 7 dias</option>
+              <option value="15">Proximos 15 dias</option>
+              <option value="30" selected>Proximos 30 dias</option>
+              <option value="60">Proximos 60 dias</option>
+            </select>
+          </div>
+          <div class="future-agenda-summary">
+            <div class="future-total">
+              <span>Turnos futuros totales</span>
+              <strong id="report-future-total">0</strong>
+            </div>
+            <div class="future-professionals" id="report-future-professionals"></div>
+          </div>
         </section>
       </div>
     </section>
