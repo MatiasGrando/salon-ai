@@ -1255,17 +1255,32 @@ const crmHtml = `<!doctype html>
     }
 
     .report-metric-section {
-      padding: 16px;
-      border: 1px solid #e4e6eb;
-      border-radius: 10px;
-      background: #fff;
       display: grid;
       gap: 12px;
     }
 
-    .report-metric-section h3 {
+    .section-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .section-icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 7px;
+      display: grid;
+      place-items: center;
+      color: #2563eb;
+      background: #eff6ff;
+      font-size: 12px;
+      font-weight: 850;
+    }
+
+    .report-metric-section h3,
+    .section-head h3 {
       margin: 0;
-      font-size: 20px;
+      font-size: 16px;
       line-height: 1.2;
     }
 
@@ -1302,6 +1317,13 @@ const crmHtml = `<!doctype html>
     .reports-panels {
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+      gap: 14px;
+      align-items: stretch;
+    }
+
+    .reports-triple {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 14px;
       align-items: stretch;
     }
@@ -1343,7 +1365,7 @@ const crmHtml = `<!doctype html>
     }
 
     .future-agenda-head select {
-      width: min(220px, 100%);
+      width: min(130px, 100%);
     }
 
     .future-agenda-summary {
@@ -1363,6 +1385,12 @@ const crmHtml = `<!doctype html>
       align-content: center;
     }
 
+    .future-total.compact {
+      margin-top: 12px;
+      margin-bottom: 12px;
+      padding: 10px 12px;
+    }
+
     .future-total span {
       display: block;
       color: var(--muted);
@@ -1373,25 +1401,30 @@ const crmHtml = `<!doctype html>
     .future-total strong {
       display: block;
       margin-top: 4px;
-      font-size: 26px;
+      font-size: 24px;
       line-height: 1;
     }
 
     .future-professionals {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap: 10px;
+      grid-template-columns: 1fr;
+      gap: 8px;
       min-width: 0;
     }
 
     .future-professional {
       min-width: 0;
-      padding: 10px 12px;
-      border: 1px solid #e4e6eb;
-      border-radius: 10px;
-      background: #f9f9fb;
+      padding: 9px 0;
+      border: 0;
+      border-bottom: 1px solid #f0f1f5;
+      border-radius: 0;
+      background: transparent;
       display: grid;
-      gap: 7px;
+      gap: 6px;
+    }
+
+    .future-professional:last-child {
+      border-bottom: 0;
     }
 
     .future-professional-row {
@@ -1473,6 +1506,125 @@ const crmHtml = `<!doctype html>
       text-align: right;
     }
 
+    .report-share {
+      min-width: 92px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    .report-share-track {
+      width: 74px;
+      height: 5px;
+      border-radius: 999px;
+      background: #f0f1f5;
+      overflow: hidden;
+    }
+
+    .report-share-fill {
+      height: 100%;
+      border-radius: inherit;
+      background: #2563eb;
+    }
+
+    .professional-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 0;
+      border-bottom: 1px solid #f0f1f5;
+    }
+
+    .professional-row:last-child {
+      border-bottom: 0;
+    }
+
+    .professional-avatar {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      color: #2563eb;
+      background: #eff6ff;
+      font-size: 12px;
+      font-weight: 850;
+      flex-shrink: 0;
+    }
+
+    .professional-name {
+      min-width: 0;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 13px;
+    }
+
+    .professional-stat {
+      text-align: right;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .professional-stat strong {
+      display: block;
+      color: var(--text);
+      font-size: 13px;
+    }
+
+    .risk-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 0;
+      border-bottom: 1px solid #f0f1f5;
+    }
+
+    .risk-row:last-child {
+      border-bottom: 0;
+    }
+
+    .risk-main {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .risk-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 13px;
+      color: var(--text);
+    }
+
+    .risk-meta {
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .risk-badge {
+      padding: 2px 8px;
+      border-radius: 999px;
+      color: #b45309;
+      background: #fffbeb;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .reactivation-action {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border: 1px solid #e4e6eb;
+      border-radius: 9px;
+      color: var(--muted);
+      background: #f9f9fb;
+      font-size: 12px;
+      font-weight: 650;
+    }
+
     .report-empty-note {
       padding: 18px;
       color: var(--muted);
@@ -1491,6 +1643,10 @@ const crmHtml = `<!doctype html>
 
       .reports-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .reports-triple {
+        grid-template-columns: 1fr;
       }
 
       .future-agenda-summary {
@@ -2254,7 +2410,10 @@ const crmHtml = `<!doctype html>
         </header>
 
         <section class="report-metric-section">
-          <h3>Turnos</h3>
+          <div class="section-head">
+            <span class="section-icon">C</span>
+            <h3>Turnos</h3>
+          </div>
           <div class="reports-grid">
             <article class="report-kpi">
               <span>Agendados</span>
@@ -2280,7 +2439,10 @@ const crmHtml = `<!doctype html>
         </section>
 
         <section class="report-metric-section">
-          <h3>Clientes</h3>
+          <div class="section-head">
+            <span class="section-icon">U</span>
+            <h3>Clientes</h3>
+          </div>
           <div class="reports-grid">
             <article class="report-kpi">
               <span>Atendidos</span>
@@ -2341,53 +2503,42 @@ const crmHtml = `<!doctype html>
           </article>
         </section>
 
-        <section class="reports-panels">
+        <section class="reports-triple">
           <article class="reports-table-panel">
-            <div class="row">
+            <div class="future-agenda-head">
               <div>
-                <h3>Clientes inactivos</h3>
-                <p>Clientes con turnos anteriores que no sacaron otro turno en la cantidad de dias elegida.</p>
+                <h3>Agenda futura</h3>
+                <p id="report-future-copy">Proximos 30 dias.</p>
               </div>
-              <select id="reports-inactive-days" title="Dias sin sacar turnos">
-                <option value="30">30 dias sin turno</option>
-                <option value="45">45 dias sin turno</option>
-                <option value="60" selected>60 dias sin turno</option>
-                <option value="90">90 dias sin turno</option>
-                <option value="120">120 dias sin turno</option>
+              <select id="reports-future-days">
+                <option value="7">7 dias</option>
+                <option value="15">15 dias</option>
+                <option value="30" selected>30 dias</option>
+                <option value="60">60 dias</option>
               </select>
             </div>
-            <div id="report-inactive-table"></div>
-          </article>
-
-          <article class="reports-table-panel">
-            <div>
-              <h3>Clientes que deberian haber vuelto</h3>
-              <p>Clientes recurrentes cuyo patron de visitas indica riesgo de perdida.</p>
-            </div>
-            <div id="report-risk-table"></div>
-          </article>
-        </section>
-
-        <section class="future-agenda-panel">
-          <div class="future-agenda-head">
-            <div>
-              <h3>Agenda futura</h3>
-              <p>Turnos confirmados hacia adelante, separados por profesional.</p>
-            </div>
-            <select id="reports-future-days">
-              <option value="7">Proximos 7 dias</option>
-              <option value="15">Proximos 15 dias</option>
-              <option value="30" selected>Proximos 30 dias</option>
-              <option value="60">Proximos 60 dias</option>
-            </select>
-          </div>
-          <div class="future-agenda-summary">
-            <div class="future-total">
+            <div class="future-total compact">
               <span>Turnos futuros totales</span>
               <strong id="report-future-total">0</strong>
             </div>
             <div class="future-professionals" id="report-future-professionals"></div>
-          </div>
+          </article>
+
+          <article class="reports-table-panel">
+            <div>
+              <h3>Chats sin turno</h3>
+              <p>Conversaciones que todavia no agendaron.</p>
+            </div>
+            <div class="report-empty-note" id="report-unconverted-chats">Pendiente de conectar al historial de chats.</div>
+          </article>
+
+          <article class="reports-table-panel">
+            <div>
+              <h3>Clientes en riesgo</h3>
+              <p>Clientes recurrentes cuyo patron de visitas indica riesgo de perdida.</p>
+            </div>
+            <div id="report-risk-table"></div>
+          </article>
         </section>
       </div>
     </section>
@@ -2488,7 +2639,6 @@ const crmHtml = `<!doctype html>
       serviceList: document.getElementById('service-list'),
       serviceCount: document.getElementById('service-count'),
       reportsRange: document.getElementById('reports-range'),
-      reportsInactiveDays: document.getElementById('reports-inactive-days'),
       reportsFutureDays: document.getElementById('reports-future-days'),
       reportsRefresh: document.getElementById('reports-refresh'),
       reportsSubtitle: document.getElementById('reports-subtitle'),
@@ -2509,11 +2659,11 @@ const crmHtml = `<!doctype html>
       reportVisitGap: document.getElementById('report-visit-gap'),
       reportVisitGapCopy: document.getElementById('report-visit-gap-copy'),
       reportFutureTotal: document.getElementById('report-future-total'),
+      reportFutureCopy: document.getElementById('report-future-copy'),
       reportFutureProfessionals: document.getElementById('report-future-professionals'),
       reportStatusBars: document.getElementById('report-status-bars'),
       reportServicesTable: document.getElementById('report-services-table'),
       reportProfessionalsTable: document.getElementById('report-professionals-table'),
-      reportInactiveTable: document.getElementById('report-inactive-table'),
       reportRiskTable: document.getElementById('report-risk-table'),
       mobileInbox: document.getElementById('mobile-inbox'),
       mobileChat: document.getElementById('mobile-chat'),
@@ -2882,7 +3032,6 @@ const crmHtml = `<!doctype html>
 
     function renderReports() {
       const days = Number(els.reportsRange.value || 30)
-      const inactiveDays = Number(els.reportsInactiveDays.value || 60)
       const futureDays = Number(els.reportsFutureDays.value || 30)
       const periodEnd = new Date()
       const periodStart = addDays(startOfDay(periodEnd), -(days - 1))
@@ -2918,11 +3067,6 @@ const crmHtml = `<!doctype html>
         periodEnd,
         allAppointments: state.reportAppointments
       })
-      const inactiveCustomers = calculateInactiveCustomers({
-        inactiveDays,
-        now: periodEnd,
-        allAppointments: state.reportAppointments
-      })
       const riskCustomers = calculateRiskCustomers({
         now: periodEnd,
         allAppointments: state.reportAppointments
@@ -2946,6 +3090,7 @@ const crmHtml = `<!doctype html>
       els.reportVisitGap.textContent = visitGap.averageDays === null ? '--' : visitGap.averageDays + ' dias'
       els.reportVisitGapCopy.textContent = visitGap.sampleSize + ' intervalos entre visitas.'
       els.reportFutureTotal.textContent = String(futureAgenda.total)
+      els.reportFutureCopy.textContent = 'Proximos ' + futureDays + ' dias.'
 
       renderReportStatusBars({
         confirmados: appointments.length,
@@ -2956,7 +3101,6 @@ const crmHtml = `<!doctype html>
       renderFutureAgenda(futureAgenda)
       renderReportServices(nonCancelled)
       renderReportProfessionals(appointments)
-      renderInactiveCustomers(inactiveCustomers)
       renderRiskCustomers(riskCustomers)
     }
 
@@ -3053,13 +3197,6 @@ const crmHtml = `<!doctype html>
         total: appointments.length,
         byProfessional
       }
-    }
-
-    function calculateInactiveCustomers(input) {
-      const cutoff = addDays(startOfDay(input.now), -input.inactiveDays)
-      return buildCustomerVisitSummaries(input.allAppointments)
-        .filter((customer) => customer.lastVisit < cutoff)
-        .sort((left, right) => right.daysSinceLastVisit - left.daysSinceLastVisit)
     }
 
     function calculateRiskCustomers(input) {
@@ -3172,10 +3309,14 @@ const crmHtml = `<!doctype html>
       els.reportServicesTable.innerHTML = '<table class="report-table">' +
         '<thead><tr><th>Servicio</th><th>Turnos</th><th>Participacion</th></tr></thead>' +
         '<tbody>' + rows.map((row) => {
+          const share = Math.round((row.count / Math.max(1, total)) * 100)
           return '<tr>' +
             '<td>' + escapeHtml(row.label) + '</td>' +
             '<td>' + row.count + '</td>' +
-            '<td>' + Math.round((row.count / Math.max(1, total)) * 100) + '%</td>' +
+            '<td><div class="report-share">' +
+              '<div class="report-share-track"><div class="report-share-fill" style="width: ' + share + '%"></div></div>' +
+              '<span>' + share + '%</span>' +
+            '</div></td>' +
           '</tr>'
         }).join('') + '</tbody>' +
       '</table>'
@@ -3205,35 +3346,16 @@ const crmHtml = `<!doctype html>
         return
       }
 
-      els.reportProfessionalsTable.innerHTML = '<table class="report-table">' +
-        '<thead><tr><th>Profesional</th><th>Realizados</th><th>Aus.</th></tr></thead>' +
-        '<tbody>' + rows.map((row) => {
-          return '<tr>' +
-            '<td>' + escapeHtml(row.name) + '</td>' +
-            '<td>' + row.attended + '</td>' +
-            '<td>' + row.noShow + '</td>' +
-          '</tr>'
-        }).join('') + '</tbody>' +
-      '</table>'
-    }
-
-    function renderInactiveCustomers(customers) {
-      const rows = customers.slice(0, 8)
-      if (rows.length === 0) {
-        els.reportInactiveTable.innerHTML = '<div class="report-empty-note">No hay clientes inactivos con este filtro.</div>'
-        return
-      }
-
-      els.reportInactiveTable.innerHTML = '<table class="report-table">' +
-        '<thead><tr><th>Cliente</th><th>Ultima visita</th><th>Dias</th></tr></thead>' +
-        '<tbody>' + rows.map((customer) => {
-          return '<tr>' +
-            '<td>' + escapeHtml(formatCustomerLabel(customer)) + '</td>' +
-            '<td>' + escapeHtml(formatShortDate(customer.lastVisit)) + '</td>' +
-            '<td>' + customer.daysSinceLastVisit + '</td>' +
-          '</tr>'
-        }).join('') + '</tbody>' +
-      '</table>'
+      els.reportProfessionalsTable.innerHTML = rows.map((row) => {
+        return '<div class="professional-row">' +
+          '<div class="professional-avatar">' + escapeHtml(row.name.slice(0, 1).toUpperCase()) + '</div>' +
+          '<div class="professional-name">' + escapeHtml(row.name) + '</div>' +
+          '<div class="professional-stat">' +
+            '<strong>' + row.attended + '</strong>' +
+            '<span>' + row.noShow + ' ausencias</span>' +
+          '</div>' +
+        '</div>'
+      }).join('')
     }
 
     function renderRiskCustomers(customers) {
@@ -3243,16 +3365,16 @@ const crmHtml = `<!doctype html>
         return
       }
 
-      els.reportRiskTable.innerHTML = '<table class="report-table">' +
-        '<thead><tr><th>Cliente</th><th>Esperado</th><th>Atraso</th></tr></thead>' +
-        '<tbody>' + rows.map((customer) => {
-          return '<tr>' +
-            '<td>' + escapeHtml(formatCustomerLabel(customer)) + '</td>' +
-            '<td>Cada ' + customer.expectedReturnDays + ' dias</td>' +
-            '<td>' + customer.overdueDays + ' dias</td>' +
-          '</tr>'
-        }).join('') + '</tbody>' +
-      '</table>'
+      els.reportRiskTable.innerHTML = rows.map((customer) => {
+        return '<div class="risk-row">' +
+          '<div class="risk-main">' +
+            '<div class="risk-name">' + escapeHtml(customer.name) + '</div>' +
+            '<div class="risk-meta">Esperado cada ' + customer.expectedReturnDays + ' dias</div>' +
+          '</div>' +
+          '<span class="risk-badge">' + customer.overdueDays + ' dias</span>' +
+        '</div>'
+      }).join('') +
+      '<div class="reactivation-action">Campana de reactivacion</div>'
     }
 
     function formatCustomerLabel(customer) {
@@ -4404,7 +4526,6 @@ const crmHtml = `<!doctype html>
     document.querySelectorAll('.workspace-nav button')[4]?.addEventListener('click', () => setSection('services'))
     document.querySelectorAll('.workspace-nav button')[6]?.addEventListener('click', () => setSection('reports'))
     els.reportsRange.addEventListener('change', renderReports)
-    els.reportsInactiveDays.addEventListener('change', renderReports)
     els.reportsFutureDays.addEventListener('change', renderReports)
     els.reportsRefresh.addEventListener('click', loadReports)
     els.agendaProfessional.addEventListener('change', loadAgenda)
