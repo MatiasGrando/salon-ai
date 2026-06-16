@@ -1107,6 +1107,14 @@ const crmHtml = `<!doctype html>
       gap: 14px;
     }
 
+    .reports-shell {
+      max-width: 760px;
+      padding: 20px;
+      border-radius: 12px;
+      background: #f7f6f1;
+      gap: 16px;
+    }
+
     .services-header,
     .services-manager,
     .professionals-header,
@@ -1215,8 +1223,10 @@ const crmHtml = `<!doctype html>
     }
 
     .reports-header {
-      min-height: 96px;
-      padding: 18px 20px;
+      min-height: auto;
+      padding: 0;
+      border: 0;
+      background: transparent;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -1245,13 +1255,31 @@ const crmHtml = `<!doctype html>
       align-items: center;
       justify-content: flex-end;
       gap: 8px;
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
+    }
+
+    .reports-actions select {
+      width: 160px;
+      min-width: 160px;
+      background: #fff;
+    }
+
+    .reports-actions .reports-refresh-button {
+      height: 36px;
+      padding: 0 14px;
+      border: 1px solid #d7dbe3;
+      border-radius: 8px;
+      background: #fff;
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 750;
+      cursor: pointer;
     }
 
     .reports-grid {
       display: grid;
-      grid-template-columns: repeat(4, minmax(150px, 1fr));
-      gap: 12px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
     }
 
     .report-metric-section {
@@ -1262,19 +1290,7 @@ const crmHtml = `<!doctype html>
     .section-head {
       display: flex;
       align-items: center;
-      gap: 8px;
-    }
-
-    .section-icon {
-      width: 24px;
-      height: 24px;
-      border-radius: 7px;
-      display: grid;
-      place-items: center;
-      color: #2563eb;
-      background: #eff6ff;
-      font-size: 12px;
-      font-weight: 850;
+      gap: 6px;
     }
 
     .report-metric-section h3,
@@ -1285,11 +1301,11 @@ const crmHtml = `<!doctype html>
     }
 
     .report-kpi {
-      min-height: 112px;
+      min-height: 126px;
       padding: 14px;
-      border: 1px solid #e4e6eb;
-      border-radius: 10px;
-      background: #f9f9fb;
+      border: 1px solid #dfe2e8;
+      border-radius: 9px;
+      background: #fff;
       display: grid;
       align-content: space-between;
       gap: 10px;
@@ -1314,23 +1330,75 @@ const crmHtml = `<!doctype html>
       line-height: 1.35;
     }
 
+    .report-kpi > div:last-child {
+      display: grid;
+      gap: 5px;
+    }
+
+    .kpi-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .kpi-icon {
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      color: #2563eb;
+      background: #eff6ff;
+      font-size: 14px;
+      font-weight: 850;
+    }
+
+    .kpi-icon.good {
+      color: #166534;
+      background: #e8f3dc;
+    }
+
+    .kpi-icon.warn {
+      color: #991b1b;
+      background: #feeceb;
+    }
+
+    .kpi-icon.neutral {
+      color: #8a5b12;
+      background: #fbefd9;
+    }
+
+    .kpi-trend {
+      color: #166534;
+      font-size: 12px;
+      font-weight: 850;
+      white-space: nowrap;
+    }
+
+    .kpi-trend.muted {
+      color: var(--muted);
+      font-weight: 750;
+    }
+
     .reports-panels {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
-      gap: 14px;
+      grid-template-columns: minmax(0, 1.55fr) minmax(220px, 1fr);
+      gap: 12px;
       align-items: stretch;
     }
 
     .reports-triple {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 14px;
+      gap: 12px;
       align-items: stretch;
     }
 
     .reports-panel,
     .reports-table-panel {
       padding: 16px;
+      border-radius: 10px;
       min-width: 0;
     }
 
@@ -2405,64 +2473,110 @@ const crmHtml = `<!doctype html>
               <option value="90">Ultimos 90 dias</option>
               <option value="365">Ultimo ano</option>
             </select>
-            <button class="icon-button" id="reports-refresh" type="button" title="Actualizar">R</button>
+            <button class="reports-refresh-button" id="reports-refresh" type="button">Actualizar</button>
           </div>
         </header>
 
         <section class="report-metric-section">
           <div class="section-head">
-            <span class="section-icon">C</span>
             <h3>Turnos</h3>
           </div>
           <div class="reports-grid">
             <article class="report-kpi">
-              <span>Agendados</span>
-              <strong id="report-total-appointments">0</strong>
-              <small id="report-total-copy">Sin datos del periodo.</small>
+              <div class="kpi-top">
+                <span class="kpi-icon">+</span>
+                <span class="kpi-trend">activos</span>
+              </div>
+              <div>
+                <span>Agendados</span>
+                <strong id="report-total-appointments">0</strong>
+                <small id="report-total-copy">Sin datos del periodo.</small>
+              </div>
             </article>
             <article class="report-kpi">
-              <span>Realizados</span>
-              <strong id="report-completed-appointments">0</strong>
-              <small id="report-completed-copy">Incluye turnos pasados no cancelados.</small>
+              <div class="kpi-top">
+                <span class="kpi-icon good">v</span>
+                <span class="kpi-trend">ok</span>
+              </div>
+              <div>
+                <span>Realizados</span>
+                <strong id="report-completed-appointments">0</strong>
+                <small id="report-completed-copy">Incluye turnos pasados no cancelados.</small>
+              </div>
             </article>
             <article class="report-kpi">
-              <span>Cancelados</span>
-              <strong id="report-cancelled-appointments">0</strong>
-              <small id="report-cancelled-copy">0% del periodo.</small>
+              <div class="kpi-top">
+                <span class="kpi-icon warn">x</span>
+                <span class="kpi-trend muted">periodo</span>
+              </div>
+              <div>
+                <span>Cancelados</span>
+                <strong id="report-cancelled-appointments">0</strong>
+                <small id="report-cancelled-copy">0% del periodo.</small>
+              </div>
             </article>
             <article class="report-kpi">
-              <span>Ausentes</span>
-              <strong id="report-no-show-appointments">0</strong>
-              <small id="report-no-show-copy">No asistieron al turno.</small>
+              <div class="kpi-top">
+                <span class="kpi-icon neutral">!</span>
+                <span class="kpi-trend muted">marcados</span>
+              </div>
+              <div>
+                <span>Ausentes</span>
+                <strong id="report-no-show-appointments">0</strong>
+                <small id="report-no-show-copy">No asistieron al turno.</small>
+              </div>
             </article>
           </div>
         </section>
 
         <section class="report-metric-section">
           <div class="section-head">
-            <span class="section-icon">U</span>
             <h3>Clientes</h3>
           </div>
           <div class="reports-grid">
             <article class="report-kpi">
-              <span>Atendidos</span>
-              <strong id="report-active-customers">0</strong>
-              <small id="report-customers-copy">Clientes con al menos un turno.</small>
+              <div class="kpi-top">
+                <span class="kpi-icon">@</span>
+                <span class="kpi-trend">clientes</span>
+              </div>
+              <div>
+                <span>Atendidos</span>
+                <strong id="report-active-customers">0</strong>
+                <small id="report-customers-copy">Clientes con al menos un turno.</small>
+              </div>
             </article>
             <article class="report-kpi">
-              <span>Nuevos / recurrentes</span>
-              <strong id="report-customer-mix">0 / 0</strong>
-              <small id="report-customer-mix-copy">Nuevos / recurrentes.</small>
+              <div class="kpi-top">
+                <span class="kpi-icon good">+</span>
+                <span class="kpi-trend muted">mix</span>
+              </div>
+              <div>
+                <span>Nuevos / recurrentes</span>
+                <strong id="report-customer-mix">0 / 0</strong>
+                <small id="report-customer-mix-copy">Nuevos / recurrentes.</small>
+              </div>
             </article>
             <article class="report-kpi">
-              <span>Frecuencia de visita</span>
-              <strong id="report-visit-gap">--</strong>
-              <small id="report-visit-gap-copy">Promedio de clientes que volvieron.</small>
+              <div class="kpi-top">
+                <span class="kpi-icon">i</span>
+                <span class="kpi-trend muted">intervalos</span>
+              </div>
+              <div>
+                <span>Frecuencia de visita</span>
+                <strong id="report-visit-gap">--</strong>
+                <small id="report-visit-gap-copy">Promedio de clientes que volvieron.</small>
+              </div>
             </article>
             <article class="report-kpi">
-              <span>Chats a turnos</span>
-              <strong id="report-chat-conversion">0%</strong>
-              <small id="report-chat-conversion-copy">0 de 0 conversaciones.</small>
+              <div class="kpi-top">
+                <span class="kpi-icon good">%</span>
+                <span class="kpi-trend">bueno</span>
+              </div>
+              <div>
+                <span>Chats a turnos</span>
+                <strong id="report-chat-conversion">0%</strong>
+                <small id="report-chat-conversion-copy">0 de 0 conversaciones.</small>
+              </div>
             </article>
           </div>
         </section>
