@@ -1303,11 +1303,10 @@ const crmHtml = `<!doctype html>
       border-radius: 10px;
       background: #fff;
       display: grid;
-      gap: 14px;
+      gap: 12px;
     }
 
-    .future-agenda-head,
-    .future-agenda-summary {
+    .future-agenda-head {
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -1328,12 +1327,25 @@ const crmHtml = `<!doctype html>
       line-height: 1.4;
     }
 
+    .future-agenda-head select {
+      width: min(220px, 100%);
+    }
+
+    .future-agenda-summary {
+      display: grid;
+      grid-template-columns: minmax(150px, 170px) minmax(0, 1fr);
+      gap: 10px;
+      align-items: stretch;
+    }
+
     .future-total {
-      min-width: 146px;
+      min-width: 0;
       padding: 12px 14px;
       border: 1px solid #e4e6eb;
       border-radius: 10px;
       background: #f9f9fb;
+      display: grid;
+      align-content: center;
     }
 
     .future-total span {
@@ -1352,17 +1364,19 @@ const crmHtml = `<!doctype html>
 
     .future-professionals {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
       gap: 10px;
+      min-width: 0;
     }
 
     .future-professional {
-      padding: 12px;
+      min-width: 0;
+      padding: 10px 12px;
       border: 1px solid #e4e6eb;
       border-radius: 10px;
       background: #f9f9fb;
       display: grid;
-      gap: 8px;
+      gap: 7px;
     }
 
     .future-professional-row {
@@ -1371,6 +1385,14 @@ const crmHtml = `<!doctype html>
       justify-content: space-between;
       gap: 8px;
       font-size: 13px;
+      min-width: 0;
+    }
+
+    .future-professional-row strong {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .report-bars {
@@ -1454,6 +1476,10 @@ const crmHtml = `<!doctype html>
 
       .reports-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .future-agenda-summary {
+        grid-template-columns: 1fr;
       }
     }
 
