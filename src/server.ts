@@ -16,7 +16,9 @@ import { whatsappWebhookRoutes } from './routes/whatsapp-webhook.js'
 
 process.env.TZ ??= 'America/Argentina/Buenos_Aires'
 
-const app = Fastify()
+const app = Fastify({
+  bodyLimit: 5 * 1024 * 1024
+})
 const port = Number(process.env.PORT ?? 3000)
 const host = process.env.HOST ?? '0.0.0.0'
 

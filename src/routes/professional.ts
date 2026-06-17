@@ -12,10 +12,14 @@ export async function professionalRoutes(app: FastifyInstance) {
     const body = request.body as {
       name: string
       businessId: string
+      avatarUrl?: string | null
+      isActive?: boolean
       workingHours?: WorkingHourInput[]
+      serviceIds?: string[]
     }
 
     const name = body.name?.trim()
+    const avatarUrl = normalizeAvatarUrl(body.avatarUrl)
     const businessId = body.businessId?.trim()
     const workingHours = body.workingHours
       ? normalizeWorkingHours(body.workingHours)
@@ -33,9 +37,19 @@ export async function professionalRoutes(app: FastifyInstance) {
       })
     }
 
-    return prisma.professional.create({
+    const serviceIdsResult = await resolveServiceIdsForBusiness(businessId, body.serviceIds)
+    if (!serviceIdsResult.ok) {
+      return reply.status(serviceIdsResult.statusCode).send({
+        message: serviceIdsResult.message
+      })
+    }
+
+    const professional = await prisma.professional.create({
       data: {
         name,
+        avatarUrl,
+        isActive: body.isActive === false ? false : true,
+        deactivatedAt: body.isActive === false ? new Date() : null,
         businessId,
         ...(workingHours.length > 0
           ? {
@@ -43,10 +57,21 @@ export async function professionalRoutes(app: FastifyInstance) {
                 create: workingHours
               }
             }
+          : {}),
+        ...(serviceIdsResult.serviceIds.length > 0
+          ? {
+              serviceLinks: {
+                create: serviceIdsResult.serviceIds.map((serviceId) => ({
+                  serviceId
+                }))
+              }
+            }
           : {})
       },
       include: professionalInclude
     })
+
+    return serializeProfessional(professional)
   })
 
   app.get('/professionals', async (request) => {
@@ -54,7 +79,7 @@ export async function professionalRoutes(app: FastifyInstance) {
       activeOnly?: string
     }
 
-    return prisma.professional.findMany({
+    const professionals = await prisma.professional.findMany({
       where: query.activeOnly === 'true'
         ? {
             isActive: true
@@ -65,6 +90,8 @@ export async function professionalRoutes(app: FastifyInstance) {
         createdAt: 'asc'
       }
     })
+
+    return professionals.map(serializeProfessional)
   })
 
   app.get('/professionals/:id/appointments-impact', async (request) => {
@@ -87,10 +114,14 @@ export async function professionalRoutes(app: FastifyInstance) {
     }
     const body = request.body as {
       name?: string
+      avatarUrl?: string | null
+      isActive?: boolean
       workingHours?: WorkingHourInput[]
+      serviceIds?: string[]
       conflictStrategy?: 'KEEP_EXISTING'
     }
     const name = body.name?.trim()
+    const avatarUrl = normalizeAvatarUrl(body.avatarUrl)
 
     if (!name) {
       return reply.status(400).send({
@@ -101,6 +132,28 @@ export async function professionalRoutes(app: FastifyInstance) {
     const workingHours = body.workingHours
       ? normalizeWorkingHours(body.workingHours)
       : undefined
+
+    const existing = await prisma.professional.findUnique({
+      where: {
+        id: params.id
+      }
+    })
+
+    if (!existing) {
+      return reply.status(404).send({
+        message: 'No encontre ese profesional'
+      })
+    }
+
+    const serviceIdsResult = body.serviceIds
+      ? await resolveServiceIdsForBusiness(existing.businessId, body.serviceIds)
+      : null
+
+    if (serviceIdsResult && !serviceIdsResult.ok) {
+      return reply.status(serviceIdsResult.statusCode).send({
+        message: serviceIdsResult.message
+      })
+    }
 
     if (workingHours) {
       const impact = await getProfessionalAppointmentImpact(params.id, workingHours)
@@ -120,8 +173,11 @@ export async function professionalRoutes(app: FastifyInstance) {
         },
         data: {
           name,
-          isActive: true,
-          deactivatedAt: null
+          avatarUrl,
+          isActive: typeof body.isActive === 'boolean' ? body.isActive : existing.isActive,
+          deactivatedAt: typeof body.isActive === 'boolean'
+            ? body.isActive ? null : new Date()
+            : existing.deactivatedAt
         }
       })
 
@@ -142,12 +198,32 @@ export async function professionalRoutes(app: FastifyInstance) {
         }
       }
 
-      return tx.professional.findUnique({
+      if (serviceIdsResult) {
+        await tx.professionalService.deleteMany({
+          where: {
+            professionalId: params.id
+          }
+        })
+
+        if (serviceIdsResult.serviceIds.length > 0) {
+          await tx.professionalService.createMany({
+            data: serviceIdsResult.serviceIds.map((serviceId) => ({
+              professionalId: params.id,
+              serviceId
+            })),
+            skipDuplicates: true
+          })
+        }
+      }
+
+      const professional = await tx.professional.findUnique({
         where: {
           id: params.id
         },
         include: professionalInclude
       })
+
+      return serializeProfessional(professional)
     })
   })
 
@@ -165,7 +241,7 @@ export async function professionalRoutes(app: FastifyInstance) {
       })
     }
 
-    return prisma.professional.update({
+    const professional = await prisma.professional.update({
       where: {
         id: params.id
       },
@@ -175,6 +251,8 @@ export async function professionalRoutes(app: FastifyInstance) {
       },
       include: professionalInclude
     })
+
+    return serializeProfessional(professional)
   })
 
   app.delete('/professionals/:id', async (request, reply) => {
@@ -255,10 +333,70 @@ const professionalInclude = {
       dayOfWeek: 'asc' as const
     }
   },
+  serviceLinks: {
+    include: {
+      service: true
+    },
+    orderBy: {
+      createdAt: 'asc' as const
+    }
+  },
   _count: {
     select: {
       appointments: true
     }
+  }
+}
+
+function serializeProfessional(professional: any) {
+  if (!professional) {
+    return professional
+  }
+
+  const { serviceLinks, ...rest } = professional
+
+  return {
+    ...rest,
+    services: (serviceLinks || []).map((link: { service: unknown }) => link.service)
+  }
+}
+
+function normalizeAvatarUrl(avatarUrl?: string | null) {
+  const normalizedAvatarUrl = avatarUrl?.trim()
+
+  return normalizedAvatarUrl || null
+}
+
+async function resolveServiceIdsForBusiness(businessId: string, serviceIds?: string[]) {
+  const normalizedServiceIds = serviceIds === undefined
+    ? null
+    : Array.from(new Set(
+        serviceIds
+          .map((serviceId) => serviceId?.trim())
+          .filter(Boolean)
+      ))
+
+  const services = await prisma.service.findMany({
+    where: {
+      businessId,
+      ...(normalizedServiceIds ? { id: { in: normalizedServiceIds } } : {})
+    },
+    select: {
+      id: true
+    }
+  })
+
+  if (normalizedServiceIds && services.length !== normalizedServiceIds.length) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      message: 'Uno o mas servicios no corresponden a ese negocio'
+    }
+  }
+
+  return {
+    ok: true as const,
+    serviceIds: normalizedServiceIds ?? services.map((service) => service.id)
   }
 }
 

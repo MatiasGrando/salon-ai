@@ -702,14 +702,7 @@ const crmHtml = `<!doctype html>
     }
 
     .crm-top {
-      height: 82px;
-      padding: 12px 24px;
-      display: grid;
-      grid-template-columns: 250px 136px repeat(3, minmax(132px, 1fr)) auto 48px;
-      gap: 12px;
-      align-items: center;
-      border-bottom: 1px solid #e4e6eb;
-      background: #ffffff;
+      display: none;
     }
 
     .crm-brand,
@@ -807,72 +800,204 @@ const crmHtml = `<!doctype html>
     }
 
     .app {
-      grid-template-columns: 92px minmax(290px, 336px) minmax(420px, 1fr) minmax(310px, 360px);
-      height: calc(100dvh - 82px);
-      background: #f5f6f8;
+      grid-template-columns: 244px minmax(290px, 336px) minmax(420px, 1fr) minmax(310px, 360px);
+      height: 100dvh;
+      background: #f8fbff;
     }
 
     .workspace-nav {
       min-height: 0;
-      padding: 20px 8px 16px;
+      padding: 28px 14px 26px;
       display: flex;
       flex-direction: column;
-      align-items: center;
+      align-items: stretch;
       gap: 10px;
       background: #ffffff;
-      color: #6b7280;
-      border-right: 1px solid #e4e6eb;
+      color: #46577a;
+      border-right: 1px solid #e8edf6;
+      border-radius: 0 18px 18px 0;
+      box-shadow: 18px 0 34px rgba(15, 23, 42, 0.06);
+    }
+
+    .workspace-nav .crm-brand {
+      min-height: 54px;
+      margin: 0 10px 22px;
+      gap: 12px;
+    }
+
+    .workspace-nav .brand-mark {
+      width: 42px;
+      height: 42px;
+      border-radius: 10px;
+      font-size: 18px;
+      box-shadow: 0 14px 28px rgba(37, 99, 235, 0.22);
+    }
+
+    .workspace-nav .crm-brand strong {
+      color: #071033;
+      font-size: 18px;
+      font-weight: 850;
+      letter-spacing: 0;
+    }
+
+    .workspace-nav .crm-brand span {
+      margin-top: 3px;
+      color: #52617f;
+      font-size: 13px;
     }
 
     .workspace-nav button {
-      width: 76px;
-      min-height: 66px;
-      padding: 8px 6px;
+      width: 100%;
+      min-height: 56px;
+      padding: 8px 11px;
       border-radius: 10px;
-      display: grid;
-      place-items: center;
-      gap: 4px;
-      color: #9ca3af;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 12px;
+      color: #46577a;
       background: transparent;
+      font-size: 14px;
+      position: relative;
     }
 
     .workspace-nav button.active,
     .workspace-nav button:hover {
       color: #2563eb;
-      background: #eff6ff;
+      background: #eef3ff;
       box-shadow: none;
     }
 
-    .workspace-nav span {
-      font-size: 20px;
+    .workspace-nav button > span {
+      width: 36px;
+      height: 36px;
+      border-radius: 9px;
+      display: grid;
+      place-items: center;
+      font-size: 13px;
       line-height: 1;
+      color: currentColor;
+      background: transparent;
+      font-weight: 800;
+      flex-shrink: 0;
     }
 
-    .workspace-nav strong {
-      font-size: 11px;
+    .workspace-nav button > span .ti {
+      width: 21px;
+      height: 21px;
+      stroke-width: 2.15;
+    }
+
+    .workspace-nav button.active > span {
+      background: #dfe8ff;
+    }
+
+    .workspace-nav button > strong {
+      font-size: 14px;
       line-height: 1.15;
-      font-weight: 780;
+      font-weight: 760;
+    }
+
+    .nav-badge {
+      min-width: 22px;
+      height: 22px;
+      margin-left: auto;
+      padding: 0 7px;
+      border-radius: 999px;
+      display: inline-grid;
+      place-items: center;
+      color: #ffffff;
+      background: #2563eb;
+      font-size: 12px;
+      line-height: 1;
+      font-weight: 850;
+      box-shadow: 0 8px 16px rgba(37, 99, 235, 0.24);
+    }
+
+    .nav-badge[hidden] {
+      display: none;
     }
 
     .nav-user {
       margin-top: auto;
+      min-height: 132px;
+      padding: 16px;
+      border: 1px solid #e1e7f0;
+      border-radius: 12px;
       display: grid;
-      justify-items: center;
-      gap: 6px;
-      color: #9ca3af;
-      font-size: 11px;
-      font-weight: 700;
+      grid-template-columns: 38px 1fr;
+      gap: 12px;
+      align-items: center;
+      color: #263958;
+      background: #fff;
+      box-shadow: 0 12px 28px rgba(15, 23, 42, 0.035);
     }
 
     .mini-avatar {
-      width: 34px;
-      height: 34px;
+      width: 38px;
+      height: 38px;
       border-radius: 50%;
       display: grid;
       place-items: center;
-      color: #2563eb;
-      background: #eff6ff;
+      color: #fff;
+      background: #2563eb;
       font-weight: 850;
+      font-size: 13px;
+      grid-row: 1;
+    }
+
+    .nav-user-info {
+      min-width: 0;
+    }
+
+    .nav-user-info strong {
+      display: block;
+      color: #071033;
+      font-size: 13px;
+      line-height: 1.2;
+      font-weight: 850;
+    }
+
+    .nav-user-info span {
+      display: block;
+      margin-top: 2px;
+      color: #405176;
+      font-size: 11px;
+      line-height: 1.2;
+      font-weight: 700;
+    }
+
+    .nav-user-status {
+      grid-column: 1 / -1;
+      min-height: 36px;
+      padding-top: 12px;
+      border-top: 1px solid #edf2f7;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #405176;
+      font-size: 13px;
+      font-weight: 750;
+    }
+
+    .nav-user-status-main {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .nav-online-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #22c55e;
+      flex-shrink: 0;
+    }
+
+    .nav-user-status .ti {
+      width: 16px;
+      height: 16px;
+      color: #405176;
     }
 
     .sidebar,
@@ -1031,7 +1156,7 @@ const crmHtml = `<!doctype html>
     }
 
     .app[data-section="agenda"] {
-      grid-template-columns: 92px minmax(0, 1fr);
+      grid-template-columns: 244px minmax(0, 1fr);
     }
 
     .app[data-section="agenda"] .sidebar,
@@ -1059,7 +1184,7 @@ const crmHtml = `<!doctype html>
     .app[data-section="services"],
     .app[data-section="professionals"],
     .app[data-section="reports"] {
-      grid-template-columns: 92px minmax(0, 1fr);
+      grid-template-columns: 244px minmax(0, 1fr);
     }
 
     .app[data-section="services"] .sidebar,
@@ -1091,7 +1216,7 @@ const crmHtml = `<!doctype html>
     }
 
     .app[data-section="professionals"] .professionals-view {
-      display: block;
+      display: grid;
     }
 
     .app[data-section="reports"] .reports-view {
@@ -1212,6 +1337,1079 @@ const crmHtml = `<!doctype html>
       flex-wrap: wrap;
       align-items: center;
       margin-top: 6px;
+    }
+
+    .app[data-section="services"] {
+      background: #f8fbff;
+    }
+
+    .services-view {
+      padding: 0;
+      background: #f8fbff;
+    }
+
+    .services-shell {
+      width: 100%;
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 28px 28px 34px;
+      display: grid;
+      gap: 22px;
+    }
+
+    .services-header {
+      min-height: 66px;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+    }
+
+    .services-title-group {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      min-width: 0;
+    }
+
+    .services-title-icon,
+    .service-count-icon,
+    .service-item-icon,
+    .service-tip-icon {
+      display: grid;
+      place-items: center;
+      color: #2563eb;
+      background: #eef3ff;
+    }
+
+    .services-title-icon {
+      width: 52px;
+      height: 52px;
+      border-radius: 12px;
+      flex-shrink: 0;
+    }
+
+    .services-header h2 {
+      margin: 0;
+      color: #081235;
+      font-size: 28px;
+      line-height: 1.1;
+      font-weight: 850;
+    }
+
+    .services-header p {
+      margin: 8px 0 0;
+      color: #52617f;
+      font-size: 14px;
+      line-height: 1.35;
+    }
+
+    .service-count-card {
+      min-width: 172px;
+      min-height: 62px;
+      padding: 12px 18px;
+      border: 1px solid #dfe6f1;
+      border-radius: 11px;
+      display: flex;
+      align-items: center;
+      gap: 13px;
+      background: #fff;
+      box-shadow: 0 12px 28px rgba(15, 23, 42, 0.035);
+    }
+
+    .service-count-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      flex-shrink: 0;
+    }
+
+    .service-count-card strong {
+      display: block;
+      color: #071033;
+      font-size: 18px;
+      line-height: 1;
+      font-weight: 850;
+    }
+
+    .service-count-card span {
+      display: block;
+      margin-top: 5px;
+      color: #52617f;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .services-manager {
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
+      display: grid;
+      grid-template-columns: minmax(340px, 0.82fr) minmax(420px, 1.18fr);
+      gap: 14px;
+      align-items: stretch;
+    }
+
+    .services-form-panel,
+    .services-list-panel {
+      min-width: 0;
+      padding: 22px;
+      border: 1px solid #dfe6f1;
+      border-radius: 10px;
+      background: #fff;
+      box-shadow: 0 16px 32px rgba(15, 23, 42, 0.035);
+    }
+
+    .services-form-panel h3,
+    .services-list-panel h3 {
+      margin: 0;
+      color: #101936;
+      font-size: 18px;
+      line-height: 1.2;
+      font-weight: 850;
+    }
+
+    .services-form-panel p,
+    .services-list-panel p {
+      margin: 9px 0 0;
+      color: #52617f;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .service-form {
+      margin-top: 28px;
+      display: grid;
+      gap: 22px;
+    }
+
+    .service-form-group {
+      display: grid;
+      gap: 9px;
+    }
+
+    .service-form-group label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: #405176;
+      font-size: 12px;
+      font-weight: 850;
+    }
+
+    .service-form-group label .ti {
+      width: 14px;
+      height: 14px;
+    }
+
+    .service-form .field,
+    .service-form select {
+      width: 100%;
+      height: 44px;
+      padding: 0 12px;
+      border: 1px solid #dfe6f1;
+      border-radius: 7px;
+      color: #263958;
+      background: #fff;
+    }
+
+    .service-form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+    }
+
+    .service-input-addon {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      border: 1px solid #dfe6f1;
+      border-radius: 7px;
+      background: #fff;
+      overflow: hidden;
+    }
+
+    .service-input-addon.prefix {
+      grid-template-columns: 42px 1fr;
+    }
+
+    .service-input-addon input {
+      height: 42px;
+      border: 0;
+      outline: 0;
+      color: #263958;
+      background: transparent;
+    }
+
+    .service-input-addon input:first-child {
+      padding-left: 12px;
+    }
+
+    .service-input-addon.prefix input {
+      padding-left: 0;
+    }
+
+    .service-input-addon .addon {
+      min-width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      color: #52617f;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .service-form-help {
+      margin-top: -2px;
+      color: #52617f;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .service-actions {
+      display: grid;
+      grid-template-columns: 0.82fr 1fr;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .service-actions button {
+      height: 44px;
+      border-radius: 7px;
+    }
+
+    .services-list-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+
+    .service-search {
+      width: min(230px, 42%);
+      height: 42px;
+      padding: 0 12px;
+      border: 1px solid #dfe6f1;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #52617f;
+      background: #fff;
+      flex-shrink: 0;
+    }
+
+    .service-search input {
+      width: 100%;
+      border: 0;
+      outline: 0;
+      color: #263958;
+      background: transparent;
+      font: inherit;
+    }
+
+    .service-card-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .service-card {
+      min-height: 86px;
+      padding: 16px 14px;
+      border: 1px solid #dfe6f1;
+      border-radius: 10px;
+      display: grid;
+      grid-template-columns: 58px 1fr auto;
+      gap: 16px;
+      align-items: center;
+      background: #fff;
+    }
+
+    .service-item-icon {
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      color: #2563eb;
+      background: #eaf0ff;
+    }
+
+    .service-card:nth-child(2n) .service-item-icon {
+      color: #7c3aed;
+      background: #f0e9ff;
+    }
+
+    .service-card-title {
+      color: #101936;
+      font-size: 15px;
+      line-height: 1.2;
+      font-weight: 850;
+    }
+
+    .service-card-meta {
+      margin-top: 10px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+      color: #52617f;
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .service-card-meta span {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .service-card-meta .ti {
+      width: 14px;
+      height: 14px;
+    }
+
+    .service-card-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .service-icon-button {
+      width: 38px;
+      height: 38px;
+      border: 1px solid #dfe6f1;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      color: #405176;
+      background: #fff;
+    }
+
+    .service-icon-button.danger {
+      color: #ef4444;
+      border-color: #fecaca;
+      background: #fff;
+    }
+
+    .service-icon-button .ti,
+    .services-title-icon .ti,
+    .service-count-icon .ti,
+    .service-item-icon .ti,
+    .service-tip-icon .ti {
+      width: 22px;
+      height: 22px;
+    }
+
+    .service-icon-button .ti {
+      width: 17px;
+      height: 17px;
+    }
+
+    .service-tip {
+      min-height: 78px;
+      padding: 18px;
+      border: 1px solid #bfdbfe;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      background: #f8fbff;
+    }
+
+    .service-tip-icon {
+      width: 42px;
+      height: 42px;
+      border-radius: 10px;
+      flex-shrink: 0;
+    }
+
+    .service-tip strong {
+      display: block;
+      color: #2563eb;
+      font-size: 14px;
+      line-height: 1.2;
+      font-weight: 850;
+    }
+
+    .service-tip p {
+      margin: 6px 0 0;
+      color: #52617f;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .app[data-section="professionals"] {
+      background: #f8fbff;
+    }
+
+    .professionals-view {
+      padding: 0;
+      overflow: hidden;
+      background: #f8fbff;
+    }
+
+    .professionals-shell {
+      max-width: none;
+      min-height: 100dvh;
+      margin: 0;
+      display: grid;
+      grid-template-columns: minmax(620px, 1fr);
+      gap: 0;
+    }
+
+    .professionals-view.form-open .professionals-shell {
+      grid-template-columns: minmax(620px, 1fr) 430px;
+    }
+
+    .professionals-main {
+      min-width: 0;
+      padding: 36px 28px 34px;
+      overflow: auto;
+    }
+
+    .professionals-header {
+      min-height: 64px;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 34px;
+    }
+
+    .professionals-title-group {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      min-width: 0;
+    }
+
+    .professionals-title-icon,
+    .professional-stat-icon,
+    .professional-form-photo,
+    .add-professional-icon {
+      display: grid;
+      place-items: center;
+      color: #2563eb;
+      background: #eef3ff;
+    }
+
+    .professionals-title-icon {
+      width: 52px;
+      height: 52px;
+      border-radius: 12px;
+      flex-shrink: 0;
+    }
+
+    .professionals-header h2 {
+      margin: 0;
+      color: #081235;
+      font-size: 30px;
+      line-height: 1.05;
+      font-weight: 850;
+    }
+
+    .professionals-header p {
+      margin: 9px 0 0;
+      color: #52617f;
+      font-size: 15px;
+      line-height: 1.35;
+    }
+
+    .professional-new-button {
+      height: 44px;
+      padding: 0 18px;
+      border-radius: 7px;
+      box-shadow: 0 10px 24px rgba(37, 99, 235, 0.22);
+    }
+
+    .professional-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+
+    .professional-metric-card {
+      min-height: 106px;
+      padding: 24px 22px;
+      border: 1px solid #e1e7f0;
+      border-radius: 10px;
+      background: #fff;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      box-shadow: 0 12px 28px rgba(15, 23, 42, 0.03);
+    }
+
+    .professional-stat-icon {
+      width: 50px;
+      height: 50px;
+      border-radius: 14px;
+      flex-shrink: 0;
+    }
+
+    .professional-stat-icon.purple {
+      color: #7c3aed;
+      background: #f0e9ff;
+    }
+
+    .professional-stat-icon.green {
+      color: #16a34a;
+      background: #e8f8ee;
+    }
+
+    .professional-metric-value {
+      color: #071033;
+      font-size: 30px;
+      line-height: 1;
+      font-weight: 850;
+      white-space: nowrap;
+    }
+
+    .professional-metric-label {
+      margin-left: 8px;
+      color: #263958;
+      font-size: 14px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .professional-metric-sub {
+      margin-top: 7px;
+      color: #65728f;
+      font-size: 13px;
+      line-height: 1.25;
+    }
+
+    .professional-metric-up {
+      color: #16a34a;
+      font-weight: 800;
+    }
+
+    .professional-metric-up.negative {
+      color: #dc2626;
+    }
+
+    .professional-metric-up.muted {
+      color: #65728f;
+    }
+
+    .professionals-tools {
+      display: grid;
+      grid-template-columns: minmax(230px, 280px) 1fr auto;
+      gap: 20px;
+      align-items: center;
+      margin: 0 12px 28px;
+    }
+
+    .professional-search {
+      height: 44px;
+      padding: 0 14px;
+      border: 1px solid #dfe6f1;
+      border-radius: 9px;
+      background: #fff;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #536381;
+    }
+
+    .professional-search input {
+      width: 100%;
+      border: 0;
+      outline: 0;
+      color: #17213b;
+      background: transparent;
+      font: inherit;
+    }
+
+    .professional-view-toggle {
+      justify-self: end;
+      height: 44px;
+      padding: 4px;
+      border: 1px solid #dfe6f1;
+      border-radius: 9px;
+      background: #fff;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .professional-view-toggle button,
+    .professional-status-filter {
+      height: 34px;
+      border-radius: 7px;
+      color: #27395a;
+      background: transparent;
+      font-size: 13px;
+      font-weight: 750;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .professional-view-toggle button {
+      padding: 0 12px;
+    }
+
+    .professional-view-toggle button.active {
+      color: #2563eb;
+      background: #eef3ff;
+    }
+
+    .professional-status-filter {
+      padding: 0 15px;
+      border: 1px solid #dfe6f1;
+      background: #fff;
+      height: 44px;
+    }
+
+    .professionals-manager {
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      display: block;
+      box-shadow: none;
+    }
+
+    .professionals-list-panel {
+      min-width: 0;
+    }
+
+    .professional-card-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(220px, 1fr));
+      gap: 16px;
+    }
+
+    .professional-card {
+      min-height: 388px;
+      padding: 22px;
+      border: 1px solid #e1e7f0;
+      border-radius: 12px;
+      background: #fff;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 22px;
+      box-shadow: 0 14px 30px rgba(15, 23, 42, 0.035);
+    }
+
+    .professional-card-top {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      min-width: 0;
+    }
+
+    .professional-card-avatar {
+      position: relative;
+      width: 78px;
+      height: 78px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      color: #2563eb;
+      background: linear-gradient(145deg, #e9efff, #dfe7ff);
+      font-size: 34px;
+      font-weight: 850;
+      flex-shrink: 0;
+    }
+
+    .professional-card-avatar.purple {
+      color: #7c3aed;
+      background: linear-gradient(145deg, #f1eaff, #e4d8ff);
+    }
+
+    .professional-card-avatar.green {
+      color: #16a34a;
+      background: linear-gradient(145deg, #e9faef, #d8f4e2);
+    }
+
+    .professional-card-avatar img {
+      width: 100%;
+      height: 100%;
+      border-radius: inherit;
+      object-fit: cover;
+    }
+
+    .professional-online-dot {
+      position: absolute;
+      right: 2px;
+      bottom: 11px;
+      width: 18px;
+      height: 18px;
+      border: 3px solid #fff;
+      border-radius: 50%;
+      background: #22c55e;
+    }
+
+    .professional-card-name {
+      min-width: 0;
+      color: #081235;
+      font-size: 20px;
+      line-height: 1.15;
+      font-weight: 850;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .professional-card-status {
+      width: fit-content;
+      margin-top: 10px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      color: #16a34a;
+      background: #dcfce7;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .professional-card-status.inactive {
+      color: #b45309;
+      background: #fff7ed;
+    }
+
+    .professional-card-body {
+      display: grid;
+      gap: 20px;
+      align-content: start;
+    }
+
+    .professional-info-row {
+      display: grid;
+      grid-template-columns: 18px 1fr;
+      gap: 14px;
+      color: #4b5a78;
+    }
+
+    .professional-info-row .ti {
+      width: 17px;
+      height: 17px;
+      color: #46577a;
+      margin-top: 2px;
+    }
+
+    .professional-info-title {
+      color: #33425f;
+      font-size: 14px;
+      font-weight: 750;
+    }
+
+    .professional-info-copy {
+      margin-top: 8px;
+      color: #52617f;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .professional-hours-pills {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    .professional-hours-pill {
+      padding: 4px 8px;
+      border-radius: 6px;
+      color: #2563eb;
+      background: #dbeafe;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .professional-card-actions {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) 38px;
+      gap: 8px;
+    }
+
+    .professional-card-actions button {
+      height: 38px;
+      border: 1px solid #dfe6f1;
+      border-radius: 7px;
+      color: #14213d;
+      background: #fff;
+      font-size: 12px;
+      font-weight: 800;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+    }
+
+    .professional-card-actions .danger {
+      color: #b42318;
+      background: #fff;
+    }
+
+    .professional-add-card {
+      min-height: 240px;
+      border: 1px dashed #cbd5e1;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.72);
+      display: grid;
+      place-items: center;
+      text-align: center;
+      color: #4b5a78;
+    }
+
+    .add-professional-icon {
+      width: 52px;
+      height: 52px;
+      margin: 0 auto 16px;
+      border-radius: 50%;
+      color: #081235;
+      background: #e9edf5;
+      font-size: 26px;
+    }
+
+    .professional-add-card strong {
+      display: block;
+      color: #405176;
+      font-size: 16px;
+      line-height: 1.2;
+    }
+
+    .professional-add-card p {
+      max-width: 220px;
+      margin: 10px auto 0;
+      color: #52617f;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .professionals-form-panel {
+      position: relative;
+      min-width: 0;
+      padding: 72px 32px 34px;
+      border: 0;
+      border-left: 1px solid #e8edf6;
+      border-radius: 0;
+      background: #fff;
+      box-shadow: -14px 0 34px rgba(15, 23, 42, 0.04);
+    }
+
+    .professionals-form-panel[hidden] {
+      display: none;
+    }
+
+    .professional-panel-close {
+      position: absolute;
+      top: 26px;
+      right: 28px;
+      color: #1f2d4a;
+      background: transparent;
+      font-size: 28px;
+      line-height: 1;
+    }
+
+    .professionals-form-panel h3 {
+      margin: 0;
+      color: #081235;
+      font-size: 24px;
+      line-height: 1.15;
+      font-weight: 850;
+    }
+
+    .professionals-form-panel p {
+      margin: 14px 0 0;
+      color: #52617f;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+
+    .professional-form-photo {
+      width: 100px;
+      height: 100px;
+      margin: 28px auto 34px;
+      border: 1px solid #dfe6f1;
+      border-radius: 50%;
+      background: linear-gradient(145deg, #f8fbff, #eef3ff);
+      cursor: pointer;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .professional-form-photo input {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+
+    .professional-form-photo img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: none;
+    }
+
+    .professional-form-photo.has-image img {
+      display: block;
+    }
+
+    .professional-form-photo.has-image .ti {
+      display: none;
+    }
+
+    .professional-form {
+      display: grid;
+      gap: 28px;
+    }
+
+    .professional-form-group {
+      display: grid;
+      gap: 12px;
+    }
+
+    .professional-form-group label,
+    .professional-schedule-title {
+      color: #405176;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .professional-form .field,
+    .professional-form select {
+      height: 44px;
+      border-radius: 7px;
+      border-color: #dfe6f1;
+      color: #263958;
+      background: #fff;
+    }
+
+    .professional-services-list {
+      max-height: 154px;
+      padding: 8px;
+      border: 1px solid #dfe6f1;
+      border-radius: 7px;
+      display: grid;
+      gap: 6px;
+      overflow: auto;
+      background: #fff;
+    }
+
+    .professional-service-option {
+      min-height: 34px;
+      padding: 7px 8px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #263958;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .professional-service-option:hover {
+      background: #eef3ff;
+    }
+
+    .professional-form-help {
+      margin: -4px 0 0;
+      color: #52617f;
+      font-size: 12px;
+    }
+
+    .professional-form .schedule-row {
+      grid-template-columns: minmax(132px, 1fr) 86px 16px 86px;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .professional-form .schedule-row label {
+      font-size: 13px;
+      font-weight: 800;
+      color: #17213b;
+    }
+
+    .professional-form .schedule-row input[type="time"] {
+      padding: 0 10px;
+    }
+
+    .schedule-separator {
+      text-align: center;
+      color: #7c8aa5;
+    }
+
+    .professional-form .config-actions {
+      display: grid;
+      grid-template-columns: 1fr 1.25fr;
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .professional-form .config-actions button {
+      height: 46px;
+      border-radius: 7px;
+    }
+
+    .professionals-view.list-mode .professional-card-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .professionals-view.list-mode .professional-card {
+      min-height: auto;
+      grid-template-columns: minmax(260px, 0.9fr) minmax(280px, 1fr) minmax(220px, auto);
+      grid-template-rows: none;
+      align-items: center;
+    }
+
+    .professionals-view.list-mode .professional-card-body {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    @media (max-width: 1280px) {
+      .professionals-view.form-open .professionals-shell {
+        grid-template-columns: minmax(520px, 1fr) 380px;
+      }
+
+      .professional-card-grid,
+      .professional-metrics {
+        grid-template-columns: repeat(2, minmax(220px, 1fr));
+      }
+    }
+
+    @media (max-width: 980px) {
+      .professionals-shell {
+        grid-template-columns: 1fr;
+        overflow: auto;
+      }
+
+      .professionals-main {
+        overflow: visible;
+      }
+
+      .professionals-form-panel {
+        border-left: 0;
+        border-top: 1px solid #e8edf6;
+      }
+
+      .professional-card-grid,
+      .professional-metrics,
+      .professionals-tools {
+        grid-template-columns: 1fr;
+      }
+
+      .professional-view-toggle {
+        justify-self: stretch;
+      }
     }
 
     .reports-header,
@@ -2164,36 +3362,15 @@ const crmHtml = `<!doctype html>
     <button id="mobile-details" type="button">Cliente</button>
   </nav>
 
-  <header class="crm-top">
-    <div class="crm-brand">
-      <div class="brand-mark">S</div>
-      <div>
-        <strong>CRM Salon AI</strong>
-        <span>Atencion y reservas</span>
-      </div>
-    </div>
-    <div class="metric-card active">
-      <span>Resumen</span>
-      <strong>Chats</strong>
-    </div>
-    <div class="metric-card">
-      <span>Conversaciones</span>
-      <strong id="top-conversation-total">0</strong>
-    </div>
-    <div class="metric-card">
-      <span>Turnos del cliente</span>
-      <strong id="top-appointment-total">0</strong>
-    </div>
-    <div class="metric-card">
-      <span>Derivados</span>
-      <strong id="top-handoff-total">0</strong>
-    </div>
-    <button class="primary top-action" type="button">Nueva accion</button>
-    <div class="user-pill">JS</div>
-  </header>
-
   <main class="app" id="app-shell" data-section="conversations">
     <nav class="workspace-nav" aria-label="Secciones CRM">
+      <div class="crm-brand">
+        <div class="brand-mark">S</div>
+        <div>
+          <strong>CRM Salon AI</strong>
+          <span>Atencion y reservas</span>
+        </div>
+      </div>
       <button class="active" type="button"><span>💬</span><strong>Conversaciones</strong></button>
       <button type="button"><span>📅</span><strong>Agenda</strong></button>
       <button type="button"><span>👥</span><strong>Clientes</strong></button>
@@ -2435,95 +3612,212 @@ const crmHtml = `<!doctype html>
 
     <section class="professionals-view" id="professionals-view">
       <div class="professionals-shell">
-        <header class="professionals-header">
-          <div>
-            <h2>Profesionales</h2>
-            <p>Gestiona quienes atienden turnos y sus horarios de disponibilidad.</p>
-          </div>
-          <span class="chip" id="professional-count">0</span>
-        </header>
+        <section class="professionals-main">
+          <header class="professionals-header">
+            <div class="professionals-title-group">
+              <div class="professionals-title-icon" data-icon="users"></div>
+              <div>
+                <h2>Profesionales</h2>
+                <p>Gestiona tu equipo y sus horarios de disponibilidad.</p>
+              </div>
+            </div>
+            <button class="primary professional-new-button" id="professional-new-button" type="button">
+              <span data-icon="plus"></span>
+              Nuevo profesional
+            </button>
+          </header>
 
-        <section class="impact-panel" id="professional-impact-panel">
-          <div>
-            <h3 id="professional-impact-title">Turnos afectados</h3>
-            <p id="professional-impact-copy">Revisa estos turnos antes de guardar el cambio.</p>
+          <section class="professional-metrics">
+            <article class="professional-metric-card">
+              <div class="professional-stat-icon purple" data-icon="user"></div>
+              <div>
+                <div>
+                  <span class="professional-metric-value" id="professional-count">0</span>
+                  <span class="professional-metric-label">Profesionales activos</span>
+                </div>
+                <div class="professional-metric-sub" id="professional-total-copy">De 0 en total</div>
+              </div>
+            </article>
+            <article class="professional-metric-card">
+              <div class="professional-stat-icon green" data-icon="calendar"></div>
+              <div>
+                <div>
+                  <span class="professional-metric-value" id="professional-month-count">0</span>
+                  <span class="professional-metric-label">Turnos este mes</span>
+                </div>
+                <div class="professional-metric-sub"><span class="professional-metric-up" id="professional-month-trend">0%</span> vs mes anterior</div>
+              </div>
+            </article>
+            <article class="professional-metric-card">
+              <div class="professional-stat-icon" data-icon="users"></div>
+              <div>
+                <div>
+                  <span class="professional-metric-value" id="professional-client-count">0</span>
+                  <span class="professional-metric-label">Clientes atendidos</span>
+                </div>
+                <div class="professional-metric-sub"><span class="professional-metric-up" id="professional-client-trend">0%</span> vs mes anterior</div>
+              </div>
+            </article>
+          </section>
+
+          <div class="professionals-tools">
+            <label class="professional-search">
+              <input id="professional-search" type="search" placeholder="Buscar profesional...">
+              <span data-icon="search"></span>
+            </label>
+            <div class="professional-view-toggle" aria-label="Vista">
+              <button class="active" id="professional-card-view" type="button"><span data-icon="grid"></span>Tarjetas</button>
+              <button id="professional-list-view" type="button"><span data-icon="list"></span>Lista</button>
+            </div>
+            <select class="professional-status-filter" id="professional-status-filter">
+              <option value="all">Estado: Todos</option>
+              <option value="active">Estado: Activos</option>
+              <option value="inactive">Estado: Inactivos</option>
+            </select>
           </div>
-          <div class="impact-list" id="professional-impact-list"></div>
-          <div class="impact-actions">
-            <button class="secondary" id="professional-impact-reprogram" type="button">Reprogramar</button>
-            <button class="danger" id="professional-impact-cancel" type="button">Cancelar turnos</button>
-            <button class="primary" id="professional-impact-keep" type="button">Mantener como excepcion</button>
+
+          <section class="impact-panel" id="professional-impact-panel">
+            <div>
+              <h3 id="professional-impact-title">Turnos afectados</h3>
+              <p id="professional-impact-copy">Revisa estos turnos antes de guardar el cambio.</p>
+            </div>
+            <div class="impact-list" id="professional-impact-list"></div>
+            <div class="impact-actions">
+              <button class="secondary" id="professional-impact-reprogram" type="button">Reprogramar</button>
+              <button class="danger" id="professional-impact-cancel" type="button">Cancelar turnos</button>
+              <button class="primary" id="professional-impact-keep" type="button">Mantener como excepcion</button>
+            </div>
+          </section>
+
+          <section class="professionals-manager">
+          <div class="professionals-list-panel">
+            <div class="config-list" id="professional-list"></div>
           </div>
+          </section>
         </section>
 
-        <section class="professionals-manager">
-          <div class="professionals-form-panel">
-            <h3 id="professional-form-title">Nuevo profesional</h3>
-            <p>Carga el nombre y los rangos horarios que el bot puede ofrecer.</p>
-            <form class="block-form" id="professional-form">
-              <input id="professional-id" type="hidden">
-              <input class="field" id="professional-name" placeholder="Nombre del profesional">
+        <aside class="professionals-form-panel" id="professional-panel" hidden>
+          <button class="professional-panel-close" id="professional-panel-close" type="button" aria-label="Cerrar">x</button>
+          <h3 id="professional-form-title">Nuevo profesional</h3>
+          <p>Completa los datos del profesional.</p>
+          <label class="professional-form-photo" id="professional-photo-picker">
+            <img id="professional-photo-preview" alt="">
+            <span data-icon="camera"></span>
+            <input id="professional-avatar" type="file" accept="image/*">
+          </label>
+          <form class="professional-form" id="professional-form">
+            <input id="professional-id" type="hidden">
+            <div class="professional-form-group">
+              <label for="professional-name">Nombre del profesional</label>
+              <input class="field" id="professional-name" placeholder="Ej: Carolina">
+            </div>
+            <div class="professional-form-group">
+              <label for="professional-services">Servicios que realiza</label>
+              <div class="professional-services-list" id="professional-services"></div>
+              <div class="professional-form-help">Podes seleccionar multiples servicios</div>
+            </div>
+            <div class="professional-form-group">
+              <div class="professional-schedule-title">Horarios de disponibilidad</div>
               <div class="schedule-row">
-                <label><input id="professional-weekdays-enabled" type="checkbox" checked> Lun a vie</label>
+                <label><input id="professional-weekdays-enabled" type="checkbox" checked> Lunes a viernes</label>
                 <input class="field" id="professional-weekdays-start" type="time" value="09:00">
+                <span class="schedule-separator">-</span>
                 <input class="field" id="professional-weekdays-end" type="time" value="18:00">
               </div>
               <div class="schedule-row">
                 <label><input id="professional-saturday-enabled" type="checkbox"> Sabado</label>
                 <input class="field" id="professional-saturday-start" type="time" value="09:00">
-                <input class="field" id="professional-saturday-end" type="time" value="13:00">
+                <span class="schedule-separator">-</span>
+                <input class="field" id="professional-saturday-end" type="time" value="14:00">
               </div>
               <div class="schedule-row">
                 <label><input id="professional-sunday-enabled" type="checkbox"> Domingo</label>
                 <input class="field" id="professional-sunday-start" type="time" value="09:00">
-                <input class="field" id="professional-sunday-end" type="time" value="13:00">
-              </div>
-              <div class="config-actions">
-                <button class="secondary" id="professional-cancel" type="button" hidden>Cancelar</button>
-                <button class="primary" id="professional-submit" type="submit">Guardar profesional</button>
-              </div>
-              <p class="hint" id="professional-feedback"></p>
-            </form>
-          </div>
-
-          <div class="professionals-list-panel">
-            <div class="row">
-              <div>
-                <h3>Profesionales cargados</h3>
-                <p>Los inactivos conservan historial y no aceptan nuevos turnos.</p>
+                <span class="schedule-separator">-</span>
+                <input class="field" id="professional-sunday-end" type="time" value="14:00">
               </div>
             </div>
-            <div class="config-list" id="professional-list"></div>
-          </div>
-        </section>
+            <div class="professional-form-group">
+              <label for="professional-status">Estado</label>
+              <select id="professional-status">
+                <option value="active">Activo</option>
+                <option value="inactive">Inactivo</option>
+              </select>
+            </div>
+            <div class="config-actions">
+              <button class="secondary" id="professional-cancel" type="button" hidden>Cancelar</button>
+              <button class="primary" id="professional-submit" type="submit">Guardar profesional</button>
+            </div>
+            <p class="hint" id="professional-feedback"></p>
+          </form>
+        </aside>
       </div>
     </section>
 
     <section class="services-view" id="services-view">
       <div class="services-shell">
         <header class="services-header">
-          <div>
-            <h2>Servicios</h2>
-            <p>Gestiona los servicios que el bot puede ofrecer al tomar reservas.</p>
+          <div class="services-title-group">
+            <div class="services-title-icon" data-icon="scissors"></div>
+            <div>
+              <h2>Servicios</h2>
+              <p>Gestion&aacute; los servicios que el bot puede ofrecer al tomar reservas.</p>
+            </div>
           </div>
-          <span class="chip" id="service-count">0</span>
+          <div class="service-count-card">
+            <div class="service-count-icon" data-icon="copy"></div>
+            <div>
+              <strong id="service-count">0</strong>
+              <span>Servicios activos</span>
+            </div>
+          </div>
         </header>
 
         <section class="services-manager">
           <div class="services-form-panel">
-            <h3>Nuevo servicio</h3>
-            <p>Completa los datos basicos para agregarlo a la agenda.</p>
-            <form class="block-form" id="service-form">
+            <h3 id="service-form-title">Nuevo servicio</h3>
+            <p>Complet&aacute; los datos para agregar un nuevo servicio.</p>
+            <form class="service-form" id="service-form">
               <input id="service-id" type="hidden">
-              <input class="field" id="service-name" placeholder="Nombre del servicio">
-              <div class="config-grid">
-                <input class="field" id="service-duration" type="number" min="1" step="1" placeholder="Duracion en minutos">
-                <input class="field" id="service-price" type="number" min="0" step="1" placeholder="Precio">
-                <input class="field" id="service-category" placeholder="Categoria opcional">
+              <div class="service-form-group">
+                <label for="service-name">Nombre del servicio</label>
+                <input class="field" id="service-name" placeholder="Ej: Corte Hombre">
               </div>
-              <input class="field" id="service-aliases" placeholder="Alias opcionales separados por coma">
-              <div class="config-actions">
-                <button class="secondary" id="service-cancel" type="button" hidden>Cancelar</button>
+              <div class="service-form-grid">
+                <div class="service-form-group">
+                  <label for="service-duration"><span data-icon="clock"></span>Duraci&oacute;n</label>
+                  <div class="service-input-addon">
+                    <input id="service-duration" type="number" min="1" step="1" placeholder="Ej: 30">
+                    <span class="addon">min</span>
+                  </div>
+                </div>
+                <div class="service-form-group">
+                  <label for="service-price"><span data-icon="tag"></span>Precio</label>
+                  <div class="service-input-addon prefix">
+                    <span class="addon">$</span>
+                    <input id="service-price" type="number" min="0" step="1" placeholder="Ej: 15000">
+                  </div>
+                </div>
+              </div>
+              <div class="service-form-group">
+                <label for="service-category">Categor&iacute;a (opcional)</label>
+                <select id="service-category">
+                  <option value="">Seleccionar categor&iacute;a</option>
+                  <option value="Corte">Corte</option>
+                  <option value="Color">Color</option>
+                  <option value="Barba">Barba</option>
+                  <option value="Manos y pies">Manos y pies</option>
+                  <option value="Tratamiento">Tratamiento</option>
+                  <option value="Otro">Otro</option>
+                </select>
+              </div>
+              <div class="service-form-group">
+                <label for="service-aliases">Alias (opcional)</label>
+                <div class="service-form-help">Alias opcionales separados por coma (ej: corte, corte hombre)</div>
+                <input class="field" id="service-aliases" placeholder="Ej: corte, corte hombre, haircut">
+              </div>
+              <div class="service-actions">
+                <button class="secondary" id="service-cancel" type="button">Cancelar</button>
                 <button class="primary" id="service-submit" type="submit">Guardar servicio</button>
               </div>
               <p class="hint" id="service-feedback"></p>
@@ -2531,15 +3825,27 @@ const crmHtml = `<!doctype html>
           </div>
 
           <div class="services-list-panel">
-            <div class="row">
+            <div class="services-list-head">
               <div>
                 <h3>Servicios cargados</h3>
-                <p>Desde aca podes editar o eliminar cada servicio.</p>
+                <p>Desde ac&aacute; pod&eacute;s editar o eliminar cada servicio.</p>
               </div>
+              <label class="service-search" for="service-search">
+                <input id="service-search" placeholder="Buscar servicio...">
+                <span data-icon="search"></span>
+              </label>
             </div>
-            <div class="config-list" id="service-list"></div>
+            <div class="service-card-list" id="service-list"></div>
           </div>
         </section>
+
+        <aside class="service-tip">
+          <div class="service-tip-icon" data-icon="lightbulb"></div>
+          <div>
+            <strong>Consejo</strong>
+            <p>Los servicios que crees ac&aacute; estar&aacute;n disponibles para que los clientes puedan reservar desde el bot.</p>
+          </div>
+        </aside>
       </div>
     </section>
 
@@ -2783,6 +4089,9 @@ const crmHtml = `<!doctype html>
         aiEnabled: true
       },
       pendingProfessionalSave: null,
+      professionalStatusFilter: 'all',
+      professionalViewMode: 'cards',
+      professionalAvatarUrl: null,
       businessId: null,
       isRefreshing: false
     }
@@ -2840,6 +4149,7 @@ const crmHtml = `<!doctype html>
       professionalFeedback: document.getElementById('professional-feedback'),
       professionalList: document.getElementById('professional-list'),
       professionalCount: document.getElementById('professional-count'),
+      professionalsView: document.getElementById('professionals-view'),
       professionalImpactPanel: document.getElementById('professional-impact-panel'),
       professionalImpactTitle: document.getElementById('professional-impact-title'),
       professionalImpactCopy: document.getElementById('professional-impact-copy'),
@@ -2847,7 +4157,25 @@ const crmHtml = `<!doctype html>
       professionalImpactReprogram: document.getElementById('professional-impact-reprogram'),
       professionalImpactCancel: document.getElementById('professional-impact-cancel'),
       professionalImpactKeep: document.getElementById('professional-impact-keep'),
+      professionalMonthCount: document.getElementById('professional-month-count'),
+      professionalClientCount: document.getElementById('professional-client-count'),
+      professionalMonthTrend: document.getElementById('professional-month-trend'),
+      professionalClientTrend: document.getElementById('professional-client-trend'),
+      professionalTotalCopy: document.getElementById('professional-total-copy'),
+      professionalSearch: document.getElementById('professional-search'),
+      professionalNewButton: document.getElementById('professional-new-button'),
+      professionalPanel: document.getElementById('professional-panel'),
+      professionalPanelClose: document.getElementById('professional-panel-close'),
+      professionalCardView: document.getElementById('professional-card-view'),
+      professionalListView: document.getElementById('professional-list-view'),
+      professionalStatusFilter: document.getElementById('professional-status-filter'),
+      professionalServices: document.getElementById('professional-services'),
+      professionalStatus: document.getElementById('professional-status'),
+      professionalAvatar: document.getElementById('professional-avatar'),
+      professionalPhotoPicker: document.getElementById('professional-photo-picker'),
+      professionalPhotoPreview: document.getElementById('professional-photo-preview'),
       serviceForm: document.getElementById('service-form'),
+      serviceFormTitle: document.getElementById('service-form-title'),
       serviceId: document.getElementById('service-id'),
       serviceName: document.getElementById('service-name'),
       serviceDuration: document.getElementById('service-duration'),
@@ -2856,6 +4184,7 @@ const crmHtml = `<!doctype html>
       serviceAliases: document.getElementById('service-aliases'),
       serviceCancel: document.getElementById('service-cancel'),
       serviceFeedback: document.getElementById('service-feedback'),
+      serviceSearch: document.getElementById('service-search'),
       serviceList: document.getElementById('service-list'),
       serviceCount: document.getElementById('service-count'),
       reportsRange: document.getElementById('reports-range'),
@@ -2942,6 +4271,11 @@ const crmHtml = `<!doctype html>
       return isActiveAppointment(appointment)
     }
 
+    function isAttendedAppointment(appointment) {
+      return isActiveAppointment(appointment) &&
+        (appointment.status === 'COMPLETED' || new Date(appointment.startAt) < new Date())
+    }
+
     function formatDateTime(value) {
       if (!value) return '--'
       return new Intl.DateTimeFormat('es-AR', {
@@ -2958,6 +4292,87 @@ const crmHtml = `<!doctype html>
         hour: '2-digit',
         minute: '2-digit'
       }).format(new Date(value))
+    }
+
+    const iconPaths = {
+      calendar: '<rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M16 2v4"></path><path d="M8 2v4"></path><path d="M3 10h18"></path>',
+      camera: '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path><circle cx="12" cy="13" r="3"></circle>',
+      chart: '<path d="M3 3v18h18"></path><path d="M7 16V9"></path><path d="M12 16V5"></path><path d="M17 16v-3"></path>',
+      chevron: '<path d="m6 9 6 6 6-6"></path>',
+      clock: '<circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path>',
+      copy: '<rect width="14" height="14" x="8" y="8" rx="2"></rect><rect width="14" height="14" x="2" y="2" rx="2"></rect>',
+      edit: '<path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"></path>',
+      grid: '<rect width="7" height="7" x="3" y="3" rx="1"></rect><rect width="7" height="7" x="14" y="3" rx="1"></rect><rect width="7" height="7" x="14" y="14" rx="1"></rect><rect width="7" height="7" x="3" y="14" rx="1"></rect>',
+      lightbulb: '<path d="M9 18h6"></path><path d="M10 22h4"></path><path d="M8.5 14.5a6 6 0 1 1 7 0c-.7.55-1.1 1.36-1.1 2.25V17H9.6v-.25c0-.89-.4-1.7-1.1-2.25z"></path>',
+      list: '<path d="M8 6h13"></path><path d="M8 12h13"></path><path d="M8 18h13"></path><path d="M3 6h.01"></path><path d="M3 12h.01"></path><path d="M3 18h.01"></path>',
+      megaphone: '<path d="m3 11 18-5v12L3 14v-3z"></path><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"></path>',
+      message: '<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"></path>',
+      more: '<circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle>',
+      plus: '<path d="M5 12h14"></path><path d="M12 5v14"></path>',
+      professional: '<path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path><circle cx="10" cy="7" r="4"></circle><path d="M20 8v6"></path><path d="M23 11h-6"></path>',
+      scissors: '<circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M20 4 8.12 15.88"></path><path d="M14.47 14.48 20 20"></path><path d="M8.12 8.12 12 12"></path>',
+      search: '<circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.35-4.35"></path>',
+      settings: '<path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5z"></path><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1 1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.56V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.2.6.76 1 1.4 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z"></path>',
+      tag: '<path d="M20.59 13.41 11 3.83A2.8 2.8 0 0 0 9 3H4a1 1 0 0 0-1 1v5c0 .75.3 1.47.83 2l9.58 9.59a2 2 0 0 0 2.83 0l4.35-4.35a2 2 0 0 0 0-2.83z"></path><circle cx="7.5" cy="7.5" r=".5"></circle>',
+      trash: '<path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path>',
+      user: '<path d="M20 21a8 8 0 0 0-16 0"></path><circle cx="12" cy="7" r="4"></circle>',
+      users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path>'
+    }
+
+    function icon(name) {
+      const paths = iconPaths[name] || ''
+      return '<svg class="ti" viewBox="0 0 24 24" aria-hidden="true">' + paths + '</svg>'
+    }
+
+    function hydrateIcons(root = document) {
+      for (const node of root.querySelectorAll('[data-icon]')) {
+        node.innerHTML = icon(node.dataset.icon)
+      }
+    }
+
+    function hydrateWorkspaceNav() {
+      const nav = document.querySelector('.workspace-nav')
+      if (!nav) return
+
+      const items = [
+        { label: 'Conversaciones', icon: 'message', active: true },
+        { label: 'Agenda', icon: 'calendar' },
+        { label: 'Clientes', icon: 'users' },
+        { label: 'Profesionales', icon: 'professional' },
+        { label: 'Servicios', icon: 'scissors' },
+        { label: 'Campa&ntilde;as', icon: 'megaphone' },
+        { label: 'Reportes', icon: 'chart' },
+        { label: 'Ajustes', icon: 'settings' }
+      ]
+
+      nav.innerHTML =
+        '<div class="crm-brand">' +
+          '<div class="brand-mark">S</div>' +
+          '<div>' +
+            '<strong>CRM Salon AI</strong>' +
+            '<span>Atenci&oacute;n y reservas</span>' +
+          '</div>' +
+        '</div>' +
+        items.map((item) => {
+          return '<button class="' + (item.active ? 'active' : '') + '" type="button">' +
+            '<span data-icon="' + item.icon + '"></span>' +
+            '<strong>' + item.label + '</strong>' +
+            (item.label === 'Conversaciones' ? '<em class="nav-badge" id="nav-handoff-badge" hidden>0</em>' : '') +
+          '</button>'
+        }).join('') +
+        '<div class="nav-user">' +
+          '<div class="mini-avatar">JS</div>' +
+          '<div class="nav-user-info">' +
+            '<strong>Juan Sal&oacute;n</strong>' +
+            '<span>Administrador</span>' +
+          '</div>' +
+          '<div class="nav-user-status">' +
+            '<span class="nav-user-status-main"><span class="nav-online-dot"></span>Online</span>' +
+            '<span data-icon="chevron"></span>' +
+          '</div>' +
+        '</div>'
+
+      hydrateIcons(nav)
     }
 
     async function getJson(url, options) {
@@ -2998,7 +4413,7 @@ const crmHtml = `<!doctype html>
       try {
         state.conversations = await getJson('/crm/conversations' + query)
         state.conversations.sort((left, right) => latestConversationActivityAt(right) - latestConversationActivityAt(left))
-        els.topConversationTotal.textContent = String(state.conversations.length)
+        if (els.topConversationTotal) els.topConversationTotal.textContent = String(state.conversations.length)
         renderConversations()
         renderAiControls()
 
@@ -3127,7 +4542,7 @@ const crmHtml = `<!doctype html>
 
     function renderAppointments() {
       els.appointmentCount.textContent = String(state.appointments.length)
-      els.topAppointmentTotal.textContent = String(state.appointments.length)
+      if (els.topAppointmentTotal) els.topAppointmentTotal.textContent = String(state.appointments.length)
       if (!state.selected) {
         els.appointments.innerHTML = '<div class="empty">Sin cliente seleccionado.</div>'
         return
@@ -3152,34 +4567,88 @@ const crmHtml = `<!doctype html>
         options.push('<option value="' + professional.id + '">' + escapeHtml(professional.name) + '</option>')
       }
       els.blockProfessional.innerHTML = options.join('')
-      els.professionalCount.textContent = String(activeProfessionals().length)
+      const activeCount = activeProfessionals().length
+      const professionalMetrics = getProfessionalMetrics()
+      els.professionalCount.textContent = String(activeCount)
+      if (els.professionalMonthCount) els.professionalMonthCount.textContent = formatCompactNumber(professionalMetrics.currentAppointments)
+      if (els.professionalClientCount) els.professionalClientCount.textContent = formatCompactNumber(professionalMetrics.currentClients)
+      if (els.professionalMonthTrend) renderMetricTrend(els.professionalMonthTrend, professionalMetrics.appointmentTrend)
+      if (els.professionalClientTrend) renderMetricTrend(els.professionalClientTrend, professionalMetrics.clientTrend)
+      if (els.professionalTotalCopy) els.professionalTotalCopy.textContent = 'De ' + state.professionals.length + ' en total'
+      renderProfessionalServiceOptions(getSelectedProfessionalServiceIds())
+
+      const searchValue = els.professionalSearch?.value?.trim().toLowerCase() || ''
+      const professionals = state.professionals.filter((professional) => {
+        const matchesSearch = !searchValue || professional.name.toLowerCase().includes(searchValue)
+        const matchesStatus =
+          state.professionalStatusFilter === 'all' ||
+          (state.professionalStatusFilter === 'active' && professional.isActive !== false) ||
+          (state.professionalStatusFilter === 'inactive' && professional.isActive === false)
+
+        return matchesSearch && matchesStatus
+      })
+
       els.professionalList.innerHTML = state.professionals.length
-        ? state.professionals.map((professional) => {
+        ? '<div class="professional-card-grid">' + professionals.map((professional, index) => {
             const statusText = professional.isActive === false ? 'Inactivo' : 'Activo'
-            const statusClass = professional.isActive === false ? 'chip warn' : 'chip'
+            const statusClass = professional.isActive === false ? 'professional-card-status inactive' : 'professional-card-status'
             const appointmentCount = professional._count?.appointments || 0
-            return '<details class="item">' +
-              '<summary class="row">' +
-                '<div>' +
-                  '<div class="item-title">' + escapeHtml(professional.name) + '</div>' +
-                  '<p>' + escapeHtml(summarizeWorkingHours(professional.workingHours || [])) + '</p>' +
-                  '<div class="status-line">' +
-                    '<span class="' + statusClass + '">' + statusText + '</span>' +
-                    '<span class="hint">' + appointmentCount + ' turnos historicos</span>' +
-                  '</div>' +
+            const avatarClass = ['professional-card-avatar', index % 3 === 1 ? 'purple' : '', index % 3 === 2 ? 'green' : ''].filter(Boolean).join(' ')
+            const services = summarizeProfessionalServices(professional)
+            const avatarContent = professional.avatarUrl
+              ? '<img src="' + escapeHtml(professional.avatarUrl) + '" alt="">'
+              : escapeHtml(professional.name.slice(0, 1).toUpperCase())
+            return '<article class="professional-card">' +
+              '<div class="professional-card-top">' +
+                '<div class="' + avatarClass + '">' +
+                  avatarContent +
+                  '<span class="professional-online-dot"></span>' +
                 '</div>' +
-              '</summary>' +
-              '<div>' +
-                '<div class="config-actions">' +
-                  '<button class="secondary" type="button" data-edit-professional="' + professional.id + '">Editar</button>' +
-                  (professional.isActive === false
-                    ? '<button class="secondary" type="button" data-activate-professional="' + professional.id + '">Activar</button>'
-                    : '<button class="secondary" type="button" data-deactivate-professional="' + professional.id + '">Desactivar</button>') +
-                  '<button class="danger" type="button" data-delete-professional="' + professional.id + '">Eliminar</button>' +
+                '<div>' +
+                  '<div class="professional-card-name">' + escapeHtml(professional.name) + '</div>' +
+                  '<div class="' + statusClass + '">' + statusText + '</div>' +
                 '</div>' +
               '</div>' +
-            '</details>'
-          }).join('')
+              '<div class="professional-card-body">' +
+                '<div class="professional-info-row">' +
+                  icon('scissors') +
+                  '<div>' +
+                    '<div class="professional-info-title">Servicios</div>' +
+                    '<div class="professional-info-copy">' + escapeHtml(services) + '</div>' +
+                  '</div>' +
+                '</div>' +
+                '<div class="professional-info-row">' +
+                  icon('clock') +
+                  '<div>' +
+                    '<div class="professional-info-title">Horarios</div>' +
+                    '<div class="professional-hours-pills">' + summarizeWorkingHourPills(professional.workingHours || []) + '</div>' +
+                  '</div>' +
+                '</div>' +
+                '<div class="professional-info-row">' +
+                  icon('clock') +
+                  '<div>' +
+                    '<div class="professional-info-title">Turnos historicos</div>' +
+                    '<div class="professional-info-copy">' + appointmentCount + ' turnos</div>' +
+                  '</div>' +
+                '</div>' +
+              '</div>' +
+              '<div class="professional-card-actions">' +
+                '<button type="button" data-edit-professional="' + professional.id + '">' + icon('edit') + 'Editar</button>' +
+                (professional.isActive === false
+                  ? '<button type="button" data-activate-professional="' + professional.id + '">' + icon('user') + 'Activar</button>'
+                  : '<button type="button" data-edit-hours-professional="' + professional.id + '">' + icon('calendar') + 'Horarios</button>') +
+                '<button class="danger" type="button" data-delete-professional="' + professional.id + '" title="Eliminar">' + icon('more') + '</button>' +
+              '</div>' +
+            '</article>'
+          }).join('') +
+          '<button class="professional-add-card" type="button" data-new-professional>' +
+            '<div>' +
+              '<div class="add-professional-icon">+</div>' +
+              '<strong>Agregar profesional</strong>' +
+              '<p>Suma a tu equipo y asigna horarios y servicios.</p>' +
+            '</div>' +
+          '</button>' +
+          '</div>'
         : '<div class="empty">No hay profesionales cargados.</div>'
 
       for (const button of els.professionalList.querySelectorAll('[data-edit-professional]')) {
@@ -3194,35 +4663,47 @@ const crmHtml = `<!doctype html>
         button.addEventListener('click', () => setProfessionalStatus(button.dataset.deactivateProfessional, false))
       }
 
+      for (const button of els.professionalList.querySelectorAll('[data-edit-hours-professional]')) {
+        button.addEventListener('click', () => editProfessional(button.dataset.editHoursProfessional, { focusHours: true }))
+      }
+
       for (const button of els.professionalList.querySelectorAll('[data-activate-professional]')) {
         button.addEventListener('click', () => setProfessionalStatus(button.dataset.activateProfessional, true))
+      }
+
+      for (const button of els.professionalList.querySelectorAll('[data-new-professional]')) {
+        button.addEventListener('click', openNewProfessionalForm)
       }
     }
 
     function renderServices() {
       els.serviceCount.textContent = String(state.services.length)
-      els.serviceList.innerHTML = state.services.length
-        ? state.services.map((service) => {
-            const aliases = (service.aliases || []).map((alias) => alias.name).join(', ')
+      const query = (els.serviceSearch?.value || '').trim().toLowerCase()
+      const services = state.services.filter((service) => {
+        const aliases = (service.aliases || []).map((alias) => alias.name).join(' ')
+        const haystack = [service.name, service.category, aliases].filter(Boolean).join(' ').toLowerCase()
+        return !query || haystack.includes(query)
+      })
+
+      els.serviceList.innerHTML = services.length
+        ? services.map((service) => {
             const priceLabel = hasServicePrice(service) ? formatCurrency(service.price) : 'Sin precio'
-            const summary = service.duration + ' min' + (service.category ? ' - ' + service.category : '') + ' - ' + priceLabel
-            return '<details class="item">' +
-              '<summary class="row">' +
-                '<div>' +
-                  '<div class="item-title">' + escapeHtml(service.name) + '</div>' +
-                  '<p>' + escapeHtml(summary) + '</p>' +
-                '</div>' +
-              '</summary>' +
+            return '<article class="service-card">' +
+              '<div class="service-item-icon">' + icon('scissors') + '</div>' +
               '<div>' +
-                (aliases ? '<p>Alias: ' + escapeHtml(aliases) + '</p>' : '<p>Sin alias cargados.</p>') +
-                '<div class="config-actions">' +
-                  '<button class="secondary" type="button" data-edit-service="' + service.id + '">Editar</button>' +
-                  '<button class="danger" type="button" data-delete-service="' + service.id + '">Eliminar</button>' +
+                '<div class="service-card-title">' + escapeHtml(service.name) + '</div>' +
+                '<div class="service-card-meta">' +
+                  '<span>' + icon('clock') + escapeHtml(service.duration + ' min') + '</span>' +
+                  '<span>' + icon('tag') + escapeHtml(priceLabel) + '</span>' +
                 '</div>' +
               '</div>' +
-            '</details>'
+              '<div class="service-card-actions">' +
+                '<button class="service-icon-button" type="button" title="Editar" aria-label="Editar ' + escapeHtml(service.name) + '" data-edit-service="' + service.id + '">' + icon('edit') + '</button>' +
+                '<button class="service-icon-button danger" type="button" title="Eliminar" aria-label="Eliminar ' + escapeHtml(service.name) + '" data-delete-service="' + service.id + '">' + icon('trash') + '</button>' +
+              '</div>' +
+            '</article>'
           }).join('')
-        : '<div class="empty">No hay servicios cargados.</div>'
+        : '<div class="empty">' + (query ? 'No hay servicios que coincidan con la busqueda.' : 'No hay servicios cargados.') + '</div>'
 
       for (const button of els.serviceList.querySelectorAll('[data-edit-service]')) {
         button.addEventListener('click', () => editService(button.dataset.editService))
@@ -3238,11 +4719,20 @@ const crmHtml = `<!doctype html>
         return conversation.currentStep === 'HUMAN_HANDOFF' && !conversation.humanHandoffResolvedAt
       }).length
       els.handoffCount.textContent = String(pending)
-      els.topHandoffTotal.textContent = String(pending)
+      renderNavHandoffBadge(pending)
+      if (els.topHandoffTotal) els.topHandoffTotal.textContent = String(pending)
       els.globalBotToggle.textContent = state.aiSettings.botEnabled === false ? 'Bot automatico apagado' : 'Bot automatico activo'
       els.globalBotToggle.className = state.aiSettings.botEnabled === false ? 'danger' : 'secondary'
       els.globalAiToggle.textContent = state.aiSettings.aiEnabled === false ? 'IA general apagada' : 'IA general activa'
       els.globalAiToggle.className = state.aiSettings.aiEnabled === false ? 'danger' : 'secondary'
+    }
+
+    function renderNavHandoffBadge(count) {
+      const badge = document.getElementById('nav-handoff-badge')
+      if (!badge) return
+
+      badge.hidden = count === 0
+      badge.textContent = count > 99 ? '99+' : String(count)
     }
 
     async function loadReports() {
@@ -3916,8 +5406,14 @@ const crmHtml = `<!doctype html>
 
       const id = els.professionalId.value
       const name = els.professionalName.value.trim()
+      const serviceIds = getSelectedProfessionalServiceIds()
       if (!name) {
         els.professionalFeedback.textContent = 'Escribi un nombre.'
+        return
+      }
+
+      if (state.services.length > 0 && serviceIds.length === 0) {
+        els.professionalFeedback.textContent = 'Selecciona al menos un servicio.'
         return
       }
 
@@ -3928,23 +5424,28 @@ const crmHtml = `<!doctype html>
           body: JSON.stringify({
             name,
             businessId: state.businessId,
+            avatarUrl: state.professionalAvatarUrl,
+            isActive: els.professionalStatus.value === 'active',
+            serviceIds,
             workingHours: buildProfessionalWorkingHours(),
             ...(options.conflictStrategy ? { conflictStrategy: options.conflictStrategy } : {})
           })
         })
         els.professionalFeedback.textContent = id ? 'Profesional actualizado.' : 'Profesional creado.'
-        resetProfessionalForm(false)
         hideProfessionalImpact()
         state.professionals = await getJson('/professionals')
         renderProfessionals()
         renderAgendaFilters()
         renderAppointmentFormOptions()
         renderAgenda()
+        resetProfessionalForm(false)
+        closeProfessionalPanel()
       } catch (error) {
         if (error.body?.code === 'WORKING_HOURS_CONFLICT') {
           state.pendingProfessionalSave = {
             id,
             name,
+            serviceIds,
             workingHours: buildProfessionalWorkingHours()
           }
           showProfessionalImpact({
@@ -3958,18 +5459,27 @@ const crmHtml = `<!doctype html>
       }
     }
 
-    function editProfessional(id) {
+    function editProfessional(id, options = {}) {
       const professional = state.professionals.find((item) => item.id === id)
       if (!professional) return
       els.professionalId.value = professional.id
       els.professionalName.value = professional.name
+      els.professionalStatus.value = professional.isActive === false ? 'inactive' : 'active'
+      setProfessionalAvatar(professional.avatarUrl || null)
       setProfessionalWorkingHours(professional.workingHours || [])
+      renderProfessionalServiceOptions((professional.services || []).map((service) => service.id))
       els.professionalCancel.hidden = false
       els.professionalFormTitle.textContent = 'Editar profesional'
       els.professionalSubmit.textContent = 'Guardar cambios'
       els.professionalFeedback.textContent = 'Editando profesional.'
       hideProfessionalImpact()
+      openProfessionalPanel()
       setSection('professionals')
+      if (options.focusHours) {
+        els.professionalWeekdaysStart.focus()
+      } else {
+        els.professionalName.focus()
+      }
     }
 
     async function deleteProfessional(id) {
@@ -4008,11 +5518,14 @@ const crmHtml = `<!doctype html>
     function resetProfessionalForm(clearFeedback = true) {
       els.professionalId.value = ''
       els.professionalName.value = ''
-      els.professionalCancel.hidden = true
+      els.professionalStatus.value = 'active'
+      setProfessionalAvatar(null)
+      els.professionalCancel.hidden = false
       els.professionalFormTitle.textContent = 'Nuevo profesional'
       els.professionalSubmit.textContent = 'Guardar profesional'
       state.pendingProfessionalSave = null
       hideProfessionalImpact()
+      renderProfessionalServiceOptions([])
       setProfessionalWorkingHours([
         { dayOfWeek: 1, startTime: '09:00', endTime: '18:00' },
         { dayOfWeek: 2, startTime: '09:00', endTime: '18:00' },
@@ -4023,6 +5536,23 @@ const crmHtml = `<!doctype html>
       if (clearFeedback) {
         els.professionalFeedback.textContent = ''
       }
+    }
+
+    function openNewProfessionalForm() {
+      resetProfessionalForm()
+      openProfessionalPanel()
+      els.professionalName.focus()
+    }
+
+    function openProfessionalPanel() {
+      els.professionalPanel.hidden = false
+      els.professionalsView.classList.add('form-open')
+    }
+
+    function closeProfessionalPanel() {
+      els.professionalPanel.hidden = true
+      els.professionalsView.classList.remove('form-open')
+      hideProfessionalImpact()
     }
 
     async function setProfessionalStatus(id, isActive) {
@@ -4172,6 +5702,165 @@ const crmHtml = `<!doctype html>
       return state.professionals.filter((professional) => professional.isActive !== false)
     }
 
+    function formatCompactNumber(value) {
+      if (value >= 1000) {
+        return new Intl.NumberFormat('es-AR', {
+          notation: 'compact',
+          maximumFractionDigits: 1
+        }).format(value)
+      }
+
+      return String(value)
+    }
+
+    function getProfessionalMetrics() {
+      const now = new Date()
+      const currentMonth = monthRange(now)
+      const previousMonth = monthRange(new Date(now.getFullYear(), now.getMonth() - 1, 1))
+      const currentAppointments = appointmentsInRange(currentMonth.start, currentMonth.end)
+      const previousAppointments = appointmentsInRange(previousMonth.start, previousMonth.end)
+      const currentAttendedAppointments = attendedAppointmentsInRange(currentMonth.start, currentMonth.end)
+      const previousAttendedAppointments = attendedAppointmentsInRange(previousMonth.start, previousMonth.end)
+
+      return {
+        currentAppointments: currentAppointments.length,
+        currentClients: uniqueAppointmentCustomers(currentAttendedAppointments),
+        appointmentTrend: percentageChange(currentAppointments.length, previousAppointments.length),
+        clientTrend: percentageChange(
+          uniqueAppointmentCustomers(currentAttendedAppointments),
+          uniqueAppointmentCustomers(previousAttendedAppointments)
+        )
+      }
+    }
+
+    function appointmentsInRange(start, end) {
+      return (state.agendaAppointments || [])
+        .filter(isActiveAppointment)
+        .filter((appointment) => {
+          const startAt = new Date(appointment.startAt)
+          return startAt >= start && startAt < end
+        })
+    }
+
+    function attendedAppointmentsInRange(start, end) {
+      return (state.agendaAppointments || [])
+        .filter(isAttendedAppointment)
+        .filter((appointment) => {
+          const startAt = new Date(appointment.startAt)
+          return startAt >= start && startAt < end
+        })
+    }
+
+    function uniqueAppointmentCustomers(appointments) {
+      return new Set(appointments.map((appointment) => appointment.customerId).filter(Boolean)).size
+    }
+
+    function monthRange(date) {
+      const start = new Date(date.getFullYear(), date.getMonth(), 1)
+      const end = new Date(date.getFullYear(), date.getMonth() + 1, 1)
+
+      return { start, end }
+    }
+
+    function percentageChange(current, previous) {
+      if (previous === 0) {
+        return current === 0 ? 0 : 100
+      }
+
+      return Math.round(((current - previous) / previous) * 100)
+    }
+
+    function renderMetricTrend(element, value) {
+      const sign = value > 0 ? '+' : ''
+      element.textContent = sign + value + '%'
+      element.classList.toggle('negative', value < 0)
+      element.classList.toggle('muted', value === 0)
+    }
+
+    function summarizeProfessionalServices(professional) {
+      const services = professional.services || []
+      if (services.length) {
+        return services.map((service) => service.name).join(', ')
+      }
+
+      if (!state.services.length) {
+        return 'Corte, Color, Peinados'
+      }
+
+      return 'Sin servicios asignados'
+    }
+
+    function getSelectedProfessionalServiceIds() {
+      if (!els.professionalServices) return []
+
+      return Array.from(els.professionalServices.querySelectorAll('input[type="checkbox"]:checked'))
+        .map((input) => input.value)
+        .filter(Boolean)
+    }
+
+    function setSelectedProfessionalServiceIds(serviceIds = []) {
+      if (!els.professionalServices) return
+      const selected = new Set(serviceIds)
+
+      for (const input of els.professionalServices.querySelectorAll('input[type="checkbox"]')) {
+        input.checked = selected.has(input.value)
+      }
+    }
+
+    function renderProfessionalServiceOptions(selectedIds = []) {
+      if (!els.professionalServices) return
+
+      const selected = new Set(selectedIds)
+      els.professionalServices.innerHTML = state.services.length
+        ? state.services.map((service) => {
+            return '<label class="professional-service-option">' +
+              '<input type="checkbox" value="' + service.id + '"' + (selected.has(service.id) ? ' checked' : '') + '>' +
+              '<span>' + escapeHtml(service.name) + '</span>' +
+            '</label>'
+          }).join('')
+        : '<div class="professional-form-help">No hay servicios cargados</div>'
+    }
+
+    function setProfessionalAvatar(avatarUrl) {
+      state.professionalAvatarUrl = avatarUrl
+      els.professionalPhotoPreview.src = avatarUrl || ''
+      els.professionalPhotoPicker.classList.toggle('has-image', Boolean(avatarUrl))
+      if (!avatarUrl) {
+        els.professionalAvatar.value = ''
+      }
+    }
+
+    function readProfessionalAvatar(event) {
+      const file = event.target.files?.[0]
+      if (!file) {
+        return
+      }
+
+      if (!file.type.startsWith('image/')) {
+        els.professionalFeedback.textContent = 'Elegí una imagen valida.'
+        setProfessionalAvatar(null)
+        return
+      }
+
+      const reader = new FileReader()
+      reader.addEventListener('load', () => {
+        setProfessionalAvatar(String(reader.result || ''))
+      })
+      reader.readAsDataURL(file)
+    }
+
+    function summarizeWorkingHourPills(hours) {
+      if (!hours.length) {
+        return '<span class="professional-hours-pill">Sin horarios</span>'
+      }
+
+      return summarizeWorkingHours(hours)
+        .split(' Â· ')
+        .slice(0, 2)
+        .map((value) => '<span class="professional-hours-pill">' + escapeHtml(value.replace(' a ', ' - ')) + '</span>')
+        .join('')
+    }
+
     function renderAgendaFilters() {
       els.agendaProfessional.innerHTML = ['<option value="">Todos los profesionales</option>']
         .concat(activeProfessionals().map((professional) => {
@@ -4220,6 +5909,7 @@ const crmHtml = `<!doctype html>
 
       state.agendaAppointments = await getJson('/appointments')
       state.agendaBlocks = await getJson('/schedule-blocks?' + params.toString())
+      renderProfessionals()
       renderAgenda()
     }
 
@@ -4782,7 +6472,7 @@ const crmHtml = `<!doctype html>
       els.serviceAliases.value = (service.aliases || []).map((alias) => alias.name).join(', ')
       els.serviceCancel.hidden = false
       els.serviceFeedback.textContent = 'Editando servicio.'
-      document.querySelector('.services-form-panel h3').textContent = 'Editar servicio'
+      els.serviceFormTitle.textContent = 'Editar servicio'
       document.getElementById('service-submit').textContent = 'Guardar cambios'
       setSection('services')
     }
@@ -4813,9 +6503,9 @@ const crmHtml = `<!doctype html>
       els.servicePrice.value = ''
       els.serviceCategory.value = ''
       els.serviceAliases.value = ''
-      els.serviceCancel.hidden = true
+      els.serviceCancel.hidden = false
       els.serviceFeedback.textContent = ''
-      document.querySelector('.services-form-panel h3').textContent = 'Nuevo servicio'
+      els.serviceFormTitle.textContent = 'Nuevo servicio'
       document.getElementById('service-submit').textContent = 'Guardar servicio'
     }
 
@@ -4846,6 +6536,18 @@ const crmHtml = `<!doctype html>
       return window.matchMedia('(max-width: 760px)').matches
     }
 
+    function setProfessionalViewMode(mode) {
+      state.professionalViewMode = mode
+      els.professionalsView.classList.toggle('list-mode', mode === 'list')
+      els.professionalCardView.classList.toggle('active', mode === 'cards')
+      els.professionalListView.classList.toggle('active', mode === 'list')
+    }
+
+    function updateProfessionalStatusFilter() {
+      state.professionalStatusFilter = els.professionalStatusFilter.value || 'all'
+      renderProfessionals()
+    }
+
     function setMobileView(view) {
       document.body.dataset.mobileView = view
       els.mobileInbox.classList.toggle('active', view === 'inbox')
@@ -4853,10 +6555,19 @@ const crmHtml = `<!doctype html>
       els.mobileDetails.classList.toggle('active', view === 'details')
     }
 
+    hydrateWorkspaceNav()
+
     els.replyForm.addEventListener('submit', sendReply)
     els.blockForm.addEventListener('submit', createBlock)
     els.professionalForm.addEventListener('submit', saveProfessional)
-    els.professionalCancel.addEventListener('click', resetProfessionalForm)
+    els.professionalCancel.addEventListener('click', closeProfessionalPanel)
+    els.professionalPanelClose?.addEventListener('click', closeProfessionalPanel)
+    els.professionalNewButton?.addEventListener('click', openNewProfessionalForm)
+    els.professionalSearch?.addEventListener('input', renderProfessionals)
+    els.professionalCardView?.addEventListener('click', () => setProfessionalViewMode('cards'))
+    els.professionalListView?.addEventListener('click', () => setProfessionalViewMode('list'))
+    els.professionalStatusFilter?.addEventListener('change', updateProfessionalStatusFilter)
+    els.professionalAvatar?.addEventListener('change', readProfessionalAvatar)
     els.professionalImpactKeep.addEventListener('click', () => {
       if (!state.pendingProfessionalSave) return
       saveProfessional(new Event('submit'), { conflictStrategy: 'KEEP_EXISTING' })
@@ -4870,6 +6581,7 @@ const crmHtml = `<!doctype html>
     })
     els.serviceForm.addEventListener('submit', saveService)
     els.serviceCancel.addEventListener('click', resetServiceForm)
+    els.serviceSearch?.addEventListener('input', renderServices)
     els.globalBotToggle.addEventListener('click', toggleGlobalBot)
     els.globalAiToggle.addEventListener('click', toggleGlobalAi)
     els.conversationAiToggle.addEventListener('click', toggleConversationAi)
@@ -4931,6 +6643,8 @@ const crmHtml = `<!doctype html>
         closeAppointmentDialog()
       }
     })
+
+    hydrateIcons()
 
     loadBasics()
       .then(loadConversations)

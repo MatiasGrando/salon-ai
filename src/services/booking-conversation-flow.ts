@@ -139,7 +139,7 @@ export class BookingConversationFlow {
         lastAvailability: null
       })
 
-      return this.buildProfessionalsReply(selectedService.businessId, 'Dale, cambiamos el profesional.')
+      return this.buildProfessionalsReply(selectedService.businessId, 'Dale, cambiamos el profesional.', selectedService.id)
     }
 
     if (isChangeDateMessage(message)) {
@@ -242,7 +242,7 @@ export class BookingConversationFlow {
           : null
 
         if (service) {
-          return this.buildProfessionalsReply(service.businessId, botCopyService.bookingOnly())
+          return this.buildProfessionalsReply(service.businessId, botCopyService.bookingOnly(), service.id)
         }
       }
 
@@ -711,7 +711,7 @@ export class BookingConversationFlow {
     const selectedProfessional = await this.findProfessionalByMessage(input.message, selectedService.businessId)
 
     if (!selectedProfessional) {
-      return this.buildProfessionalsReply(selectedService.businessId, botCopyService.professionalNotFound(input.conversation.misunderstandingCount))
+      return this.buildProfessionalsReply(selectedService.businessId, botCopyService.professionalNotFound(input.conversation.misunderstandingCount), selectedService.id)
     }
 
     const messageIntent = await this.extractIntentForSelectedService({
@@ -1496,7 +1496,7 @@ export class BookingConversationFlow {
           lastAvailability: null
         })
 
-        return this.buildProfessionalsReply(selectedService.businessId, 'Dale, volvemos al profesional.')
+        return this.buildProfessionalsReply(selectedService.businessId, 'Dale, volvemos al profesional.', selectedService.id)
       }
     }
 
@@ -1583,10 +1583,19 @@ export class BookingConversationFlow {
     return null
   }
 
-  private async buildProfessionalsReply(businessId: string, prefix?: string): Promise<HandleBookingResult> {
+  private async buildProfessionalsReply(businessId: string, prefix?: string, serviceId?: string): Promise<HandleBookingResult> {
     const professionals = await prisma.professional.findMany({
       where: {
-        businessId
+        businessId,
+        ...(serviceId
+          ? {
+              serviceLinks: {
+                some: {
+                  serviceId
+                }
+              }
+            }
+          : {})
       },
       orderBy: {
         name: 'asc'
@@ -2220,7 +2229,12 @@ export class BookingConversationFlow {
 
     const professionals = await prisma.professional.findMany({
       where: {
-        businessId: service.businessId
+        businessId: service.businessId,
+        serviceLinks: {
+          some: {
+            serviceId: input.serviceId
+          }
+        }
       },
       orderBy: {
         name: 'asc'

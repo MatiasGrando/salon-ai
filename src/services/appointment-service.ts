@@ -100,6 +100,14 @@ export class AppointmentService {
       }
     }
 
+    if (!(await this.professionalOffersService(input.professionalId, input.serviceId))) {
+      return {
+        ok: false,
+        statusCode: 409,
+        message: 'Ese profesional no realiza ese servicio'
+      }
+    }
+
     const endAt = addMinutes(startAt, service.duration)
     const isInsideBusinessHours = await this.isInsideBusinessHours({
       businessId: professional.businessId,
@@ -240,6 +248,14 @@ export class AppointmentService {
         ok: false,
         statusCode: 400,
         message: 'Ese profesional no corresponde a ese servicio'
+      }
+    }
+
+    if (!(await this.professionalOffersService(input.professionalId, input.serviceId))) {
+      return {
+        ok: false,
+        statusCode: 409,
+        message: 'Ese profesional no realiza ese servicio'
       }
     }
 
@@ -448,6 +464,14 @@ export class AppointmentService {
       }
     }
 
+    if (!(await this.professionalOffersService(input.professionalId, input.serviceId))) {
+      return {
+        ok: false,
+        statusCode: 409,
+        message: 'Ese profesional no realiza ese servicio'
+      }
+    }
+
     const dayOfWeek = dayStart.getDay()
     const dayEnd = addDays(dayStart, 1)
     const [businessHours, professionalHours, scheduleBlocks] = await Promise.all([
@@ -604,6 +628,17 @@ export class AppointmentService {
 
       return existingStart < input.endAt && existingEnd > input.startAt
     })
+  }
+
+  private async professionalOffersService(professionalId: string, serviceId: string) {
+    const serviceCount = await prisma.professionalService.count({
+      where: {
+        professionalId,
+        serviceId
+      }
+    })
+
+    return serviceCount > 0
   }
 
   private async hasScheduleBlockOverlap(input: {

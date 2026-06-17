@@ -69,6 +69,7 @@ model Business {
 model Professional {
   id         String   @id @default(cuid())
   name       String
+  avatarUrl  String?
   isActive   Boolean  @default(true)
   deactivatedAt DateTime?
 
@@ -78,6 +79,7 @@ model Professional {
   appointments Appointment[]
   workingHours ProfessionalHours[]
   scheduleBlocks ScheduleBlock[]
+  serviceLinks ProfessionalService[]
 
   createdAt  DateTime @default(now())
 }
@@ -95,8 +97,24 @@ model Service {
 
   appointments Appointment[]
   aliases      ServiceAlias[]
+  professionalLinks ProfessionalService[]
 
   createdAt  DateTime @default(now())
+}
+
+model ProfessionalService {
+  id String @id @default(cuid())
+
+  professionalId String
+  professional Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  serviceId String
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([professionalId, serviceId])
+  @@index([serviceId])
 }
 
 model ServiceAlias {
