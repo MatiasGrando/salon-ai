@@ -1180,12 +1180,16 @@ const crmHtml = `<!doctype html>
       grid-row: 1;
       min-width: 0;
       padding: 20px 24px 16px;
-      display: grid;
+      display: none;
       grid-template-columns: auto minmax(260px, 1fr);
       align-items: center;
       gap: 24px;
       background: #fff;
       border-bottom: 1px solid #e5eaf3;
+    }
+
+    .app[data-section="conversations"] .conversation-page-header {
+      display: grid;
     }
 
     .conversation-heading {
@@ -1609,23 +1613,8 @@ const crmHtml = `<!doctype html>
       height: 17px;
     }
 
-    .send-channel {
-      margin-left: auto;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      color: #52617f;
-      font-size: 10px;
-      font-weight: 650;
-    }
-
-    .send-channel input {
-      width: 14px;
-      height: 14px;
-      accent-color: #2563eb;
-    }
-
     .composer-tools .primary {
+      margin-left: auto;
       height: 34px;
       padding: 0 13px;
       border-radius: 7px;
@@ -1929,9 +1918,6 @@ const crmHtml = `<!doctype html>
         margin: 0 8px 8px;
       }
 
-      .send-channel {
-        display: none;
-      }
     }
 
     .app[data-section="agenda"] {
@@ -4656,10 +4642,6 @@ const crmHtml = `<!doctype html>
         <div class="composer-tools">
           <button class="composer-icon" type="button" title="Emoji" data-icon="smile"></button>
           <button class="composer-icon" type="button" title="Adjuntar archivo" data-icon="paperclip"></button>
-          <label class="send-channel" title="Enviar tambi&eacute;n por WhatsApp">
-            <input id="send-whatsapp" type="checkbox" checked>
-            WhatsApp
-          </label>
           <button class="primary" id="send-button" type="submit" disabled><span data-icon="send"></span>Enviar</button>
         </div>
       </form>
@@ -5454,7 +5436,6 @@ const crmHtml = `<!doctype html>
       replyForm: document.getElementById('reply-form'),
       replyText: document.getElementById('reply-text'),
       sendButton: document.getElementById('send-button'),
-      sendWhatsApp: document.getElementById('send-whatsapp'),
       detailAvatar: document.getElementById('detail-avatar'),
       detailName: document.getElementById('detail-name'),
       detailPhone: document.getElementById('detail-phone'),
@@ -6756,7 +6737,7 @@ const crmHtml = `<!doctype html>
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             text,
-            sendWhatsApp: els.sendWhatsApp.checked
+            sendWhatsApp: true
           })
         })
         els.replyText.value = ''
