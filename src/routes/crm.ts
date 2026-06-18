@@ -6,6 +6,60 @@ import { WhatsAppCloudApi } from '../integrations/whatsapp-cloud-api.js'
 const whatsappCloudApi = new WhatsAppCloudApi()
 
 export async function crmRoutes(app: FastifyInstance) {
+  app.post('/crm/maintenance/delete-qa-data', async (request, reply) => {
+    const body = request.body as { confirm?: string }
+    if (body.confirm !== 'delete-all-qa-cami-data') {
+      return reply.status(400).send({
+        message: 'confirm=delete-all-qa-cami-data es requerido'
+      })
+    }
+
+    const [customers, conversations] = await Promise.all([
+      prisma.customer.findMany({
+        where: { phone: { startsWith: 'qa-cami-' } },
+        select: { id: true, phone: true }
+      }),
+      prisma.conversation.findMany({
+        where: { phone: { startsWith: 'qa-cami-' } },
+        select: { id: true, phone: true }
+      })
+    ])
+    const customerIds = customers.map((customer) => customer.id)
+    const conversationIds = conversations.map((conversation) => conversation.id)
+
+    const result = await prisma.$transaction(async (transaction) => {
+      const deletedMessages = conversationIds.length
+        ? await transaction.message.deleteMany({ where: { conversationId: { in: conversationIds } } })
+        : { count: 0 }
+      const deletedConversations = conversationIds.length
+        ? await transaction.conversation.deleteMany({ where: { id: { in: conversationIds } } })
+        : { count: 0 }
+      const deletedAppointments = customerIds.length
+        ? await transaction.appointment.deleteMany({ where: { customerId: { in: customerIds } } })
+        : { count: 0 }
+      const deletedNotes = customerIds.length
+        ? await transaction.customerNote.deleteMany({ where: { customerId: { in: customerIds } } })
+        : { count: 0 }
+      const deletedCustomers = customerIds.length
+        ? await transaction.customer.deleteMany({ where: { id: { in: customerIds } } })
+        : { count: 0 }
+
+      return {
+        messages: deletedMessages.count,
+        conversations: deletedConversations.count,
+        appointments: deletedAppointments.count,
+        notes: deletedNotes.count,
+        customers: deletedCustomers.count
+      }
+    })
+
+    return {
+      deleted: result,
+      customerPhones: customers.map((customer) => customer.phone),
+      conversationPhones: conversations.map((conversation) => conversation.phone)
+    }
+  })
+
   app.get('/crm/maintenance/delete-qa-conversations', async (request, reply) => {
     const query = request.query as {
       date?: string

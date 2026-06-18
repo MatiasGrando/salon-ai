@@ -1166,6 +1166,8 @@ export class BookingConversationFlow {
       }
     }
 
+    await this.findOrCreateCustomer(input.phone, customerName)
+
     if (
       !input.conversation.selectedServiceId &&
       !input.conversation.selectedProfessionalId &&
@@ -2381,7 +2383,18 @@ export class BookingConversationFlow {
     })
 
     if (customer) {
-      return customer
+      if (customer.name === name) {
+        return customer
+      }
+
+      return prisma.customer.update({
+        where: {
+          id: customer.id
+        },
+        data: {
+          name
+        }
+      })
     }
 
     return prisma.customer.create({

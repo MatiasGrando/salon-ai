@@ -1,0 +1,59 @@
+
+> salon-ai@1.0.0 dev
+> tsx src/server.ts
+
+└── / (GET, HEAD)
+    ├── health (GET, HEAD)
+    ├── business
+    │   ├── es (POST, GET, HEAD)
+    │   │   └── /
+    │   │       └── :id (PATCH)
+    │   └── -hours (POST, GET, HEAD)
+    │       └── /setup (POST)
+    ├── professional
+    │   ├── s (POST, GET, HEAD)
+    │   │   └── /
+    │   │       └── :id (PATCH, DELETE)
+    │   │           └── /
+    │   │               ├── appointments-impact (GET, HEAD)
+    │   │               └── status (PATCH)
+    │   └── -hours (POST, GET, HEAD)
+    │       └── /setup (POST)
+    ├── s
+    │   ├── ervices (POST, GET, HEAD)
+    │   │   └── /
+    │   │       └── :id|:serviceId (PATCH, DELETE)
+    │   │           └── /aliases (POST)
+    │   └── chedule-blocks (POST, GET, HEAD)
+    │       └── /
+    │           └── :id (DELETE)
+    ├── c
+    │   ├── ustomers (POST, GET, HEAD)
+    │   │   └── /
+    │   │       ├── overview (GET, HEAD)
+    │   │       └── :id (PATCH)
+    │   │           └── /notes (GET, HEAD, POST)
+    │   ├── hat (POST)
+    │   └── rm (GET, HEAD)
+    │       └── /
+    │           ├── maintenance/delete-qa-conversations (GET, HEAD)
+    │           ├── conversations (GET, HEAD)
+    │           │   └── /
+    │           │       └── :id
+    │           │           └── /
+    │           │               ├── m
+    │           │               │   ├── essages (GET, HEAD)
+    │           │               │   └── anual-replies (POST)
+    │           │               └── a
+    │           │                   ├── rchive (PATCH)
+    │           │                   └── i (PATCH)
+    │           └── ai-settings (GET, HEAD, PATCH)
+    ├── a
+    │   ├── ppointments (POST, GET, HEAD)
+    │   │   └── /
+    │   │       └── :id (PATCH, DELETE)
+    │   │           └── /status (PATCH)
+    │   └── vailability (GET, HEAD)
+    └── webhooks/whatsapp (GET, HEAD, POST)
+
+Servidor iniciado en http://127.0.0.1:3001

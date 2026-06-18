@@ -6,6 +6,7 @@ type Check = {
   includesAny?: string[]
   excludes?: string[]
   currentStep?: string
+  customerName?: string
 }
 
 type Step = Check & {
@@ -129,7 +130,8 @@ async function main() {
         },
         {
           message: 'Hola soy Manola',
-          includes: ['Manola', service.name]
+          includes: ['Manola', service.name],
+          customerName: 'Manola'
         }
       ]
     },
@@ -1082,6 +1084,7 @@ async function runScenario(scenario: Scenario) {
 
       assertReply(result.reply, step)
       await assertConversationStep(scenario.phone, step)
+      await assertCustomerName(scenario.phone, step)
     }
   } finally {
     restoreDate?.()
@@ -1104,6 +1107,25 @@ async function assertConversationStep(phone: string, step: Step) {
 
   if (conversation?.currentStep !== step.currentStep) {
     throw new Error(`Esperaba currentStep ${step.currentStep}, recibÃƒÂ­ ${conversation?.currentStep ?? 'sin conversaciÃƒÂ³n'}.`)
+  }
+}
+
+async function assertCustomerName(phone: string, step: Step) {
+  if (!step.customerName) {
+    return
+  }
+
+  const customer = await prisma.customer.findFirst({
+    where: {
+      phone
+    },
+    select: {
+      name: true
+    }
+  })
+
+  if (customer?.name !== step.customerName) {
+    throw new Error(`Esperaba cliente ${step.customerName}, recibi ${customer?.name ?? 'sin cliente'}.`)
   }
 }
 

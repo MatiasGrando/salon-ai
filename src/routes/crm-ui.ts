@@ -803,71 +803,78 @@ const crmHtml = `<!doctype html>
 
     .workspace-nav {
       min-height: 0;
-      padding: 28px 14px 26px;
+      padding: 22px 10px 18px;
       display: flex;
       flex-direction: column;
       align-items: stretch;
-      gap: 10px;
-      background: #ffffff;
-      color: #46577a;
-      border-right: 1px solid #e8edf6;
-      border-radius: 0 18px 18px 0;
-      box-shadow: 18px 0 34px rgba(15, 23, 42, 0.06);
+      gap: 7px;
+      background: linear-gradient(180deg, #061a31 0%, #06213d 55%, #041a31 100%);
+      color: #d7e3f1;
+      border-right: 0;
+      border-radius: 0;
+      box-shadow: 10px 0 28px rgba(3, 17, 34, 0.14);
     }
 
     .workspace-nav .crm-brand {
       min-height: 54px;
-      margin: 0 10px 22px;
-      gap: 12px;
+      margin: 0 10px 24px;
+      gap: 11px;
     }
 
     .workspace-nav .brand-mark {
-      width: 42px;
-      height: 42px;
-      border-radius: 10px;
-      font-size: 18px;
-      box-shadow: 0 14px 28px rgba(37, 99, 235, 0.22);
+      width: 40px;
+      height: 40px;
+      border: 1px solid rgba(255, 255, 255, .2);
+      border-radius: 9px;
+      font-size: 17px;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, .2);
     }
 
     .workspace-nav .crm-brand strong {
-      color: #071033;
+      color: #ffffff;
       font-size: 18px;
-      font-weight: 850;
+      font-weight: 750;
       letter-spacing: 0;
     }
 
     .workspace-nav .crm-brand span {
       margin-top: 3px;
-      color: #52617f;
-      font-size: 13px;
+      color: #a8bad0;
+      font-size: 12px;
     }
 
     .workspace-nav button {
       width: 100%;
-      min-height: 56px;
-      padding: 8px 11px;
-      border-radius: 10px;
+      min-height: 52px;
+      padding: 8px 10px;
+      border-radius: 8px;
       display: flex;
       align-items: center;
       justify-content: flex-start;
-      gap: 12px;
-      color: #46577a;
+      gap: 9px;
+      color: #d5e0ed;
       background: transparent;
       font-size: 14px;
       position: relative;
     }
 
     .workspace-nav button.active,
+    .workspace-nav button.active:hover {
+      color: #ffffff;
+      background: #0d63f3;
+      box-shadow: 0 10px 22px rgba(13, 99, 243, .28);
+    }
+
     .workspace-nav button:hover {
-      color: #2563eb;
-      background: #eef3ff;
+      color: #ffffff;
+      background: rgba(255, 255, 255, .08);
       box-shadow: none;
     }
 
     .workspace-nav button > span {
-      width: 36px;
-      height: 36px;
-      border-radius: 9px;
+      width: 32px;
+      height: 32px;
+      border-radius: 7px;
       display: grid;
       place-items: center;
       font-size: 13px;
@@ -879,19 +886,19 @@ const crmHtml = `<!doctype html>
     }
 
     .workspace-nav button > span .ti {
-      width: 21px;
-      height: 21px;
-      stroke-width: 2.15;
+      width: 22px;
+      height: 22px;
+      stroke-width: 2;
     }
 
     .workspace-nav button.active > span {
-      background: #dfe8ff;
+      background: transparent;
     }
 
     .workspace-nav button > strong {
       font-size: 14px;
       line-height: 1.15;
-      font-weight: 760;
+      font-weight: 600;
     }
 
     .nav-badge {
@@ -902,12 +909,12 @@ const crmHtml = `<!doctype html>
       border-radius: 999px;
       display: inline-grid;
       place-items: center;
-      color: #ffffff;
-      background: #2563eb;
+      color: #0d63f3;
+      background: #ffffff;
       font-size: 12px;
       line-height: 1;
       font-weight: 850;
-      box-shadow: 0 8px 16px rgba(37, 99, 235, 0.24);
+      box-shadow: none;
     }
 
     .nav-badge[hidden] {
@@ -916,17 +923,17 @@ const crmHtml = `<!doctype html>
 
     .nav-user {
       margin-top: auto;
-      min-height: 132px;
-      padding: 16px;
-      border: 1px solid #e1e7f0;
-      border-radius: 12px;
+      min-height: 112px;
+      padding: 14px;
+      border: 1px solid rgba(255, 255, 255, .1);
+      border-radius: 8px;
       display: grid;
       grid-template-columns: 38px 1fr;
       gap: 12px;
       align-items: center;
-      color: #263958;
-      background: #fff;
-      box-shadow: 0 12px 28px rgba(15, 23, 42, 0.035);
+      color: #e7eef7;
+      background: rgba(255, 255, 255, .075);
+      box-shadow: none;
     }
 
     .mini-avatar {
@@ -936,7 +943,7 @@ const crmHtml = `<!doctype html>
       display: grid;
       place-items: center;
       color: #fff;
-      background: #2563eb;
+      background: #1d64d8;
       font-weight: 850;
       font-size: 13px;
       grid-row: 1;
@@ -948,52 +955,40 @@ const crmHtml = `<!doctype html>
 
     .nav-user-info strong {
       display: block;
-      color: #071033;
+      color: #ffffff;
       font-size: 13px;
       line-height: 1.2;
-      font-weight: 850;
+      font-weight: 700;
     }
 
     .nav-user-info span {
       display: block;
       margin-top: 2px;
-      color: #405176;
+      color: #b7c6d8;
       font-size: 11px;
       line-height: 1.2;
-      font-weight: 700;
+      font-weight: 550;
     }
 
     .nav-user-status {
       grid-column: 1 / -1;
-      min-height: 36px;
-      padding-top: 12px;
-      border-top: 1px solid #edf2f7;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      color: #405176;
-      font-size: 13px;
-      font-weight: 750;
-    }
-
-    .nav-user-status-main {
+      min-height: 28px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(255, 255, 255, .1);
       display: inline-flex;
       align-items: center;
       gap: 8px;
+      color: #c6d3e2;
+      font-size: 12px;
+      font-weight: 700;
     }
 
     .nav-online-dot {
-      width: 10px;
-      height: 10px;
+      width: 9px;
+      height: 9px;
       border-radius: 50%;
       background: #22c55e;
       flex-shrink: 0;
-    }
-
-    .nav-user-status .ti {
-      width: 16px;
-      height: 16px;
-      color: #405176;
     }
 
     .sidebar,
@@ -2355,6 +2350,807 @@ const crmHtml = `<!doctype html>
 
     .app[data-section="agenda"] .agenda-view {
       display: grid;
+    }
+
+    .app[data-section="customers"] {
+      grid-template-columns: 224px minmax(0, 1fr);
+    }
+
+    .app[data-section="customers"] .sidebar,
+    .app[data-section="customers"] .chat,
+    .app[data-section="customers"] .details {
+      display: none;
+    }
+
+    .customers-view {
+      grid-column: 2;
+      min-width: 0;
+      min-height: 0;
+      display: none;
+      padding: 18px;
+      background: #f7f9fc;
+      overflow: hidden;
+    }
+
+    .app[data-section="customers"] .customers-view {
+      display: grid;
+    }
+
+    .customers-shell {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      gap: 14px;
+    }
+
+    .customers-header {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+    }
+
+    .customers-header h2 {
+      margin: 0;
+      color: #101936;
+      font-size: 26px;
+      line-height: 1.1;
+    }
+
+    .customers-header p {
+      margin: 5px 0 0;
+      color: #64748b;
+      font-size: 13px;
+    }
+
+    .customers-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .customers-search {
+      width: min(360px, 36vw);
+      height: 42px;
+      padding: 0 12px;
+      border: 1px solid #dce3ed;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      background: #fff;
+    }
+
+    .customers-search .ti {
+      width: 18px;
+      height: 18px;
+      color: #64748b;
+    }
+
+    .customers-search input {
+      min-width: 0;
+      width: 100%;
+      border: 0;
+      outline: 0;
+      color: #17213c;
+      background: transparent;
+      font-size: 13px;
+    }
+
+    .customer-new-button {
+      height: 42px;
+      padding: 0 16px;
+    }
+
+    .customer-metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .customer-metric-card {
+      min-height: 88px;
+      padding: 16px;
+      border: 1px solid #e0e6ef;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      gap: 13px;
+      background: #fff;
+    }
+
+    .customer-metric-icon {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      color: #2563eb;
+      background: #edf4ff;
+    }
+
+    .customer-metric-card:nth-child(2) .customer-metric-icon {
+      color: #16835f;
+      background: #eaf8f1;
+    }
+
+    .customer-metric-card:nth-child(3) .customer-metric-icon {
+      color: #c45d12;
+      background: #fff4e8;
+    }
+
+    .customer-metric-card:nth-child(4) .customer-metric-icon {
+      color: #7047cf;
+      background: #f2edff;
+    }
+
+    .customer-metric-icon .ti {
+      width: 21px;
+      height: 21px;
+    }
+
+    .customer-metric-card strong {
+      display: block;
+      color: #101936;
+      font-size: 25px;
+      line-height: 1;
+    }
+
+    .customer-metric-card span {
+      display: block;
+      margin-top: 5px;
+      color: #64748b;
+      font-size: 12px;
+    }
+
+    .customers-workspace {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(590px, 1.42fr) minmax(410px, 1fr);
+      gap: 14px;
+    }
+
+    .customer-list-panel,
+    .customer-profile-panel {
+      min-width: 0;
+      min-height: 0;
+      border: 1px solid #e0e6ef;
+      border-radius: 10px;
+      background: #fff;
+      overflow: hidden;
+    }
+
+    .customer-list-panel {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+    }
+
+    .customer-list-toolbar {
+      min-height: 58px;
+      padding: 10px 12px;
+      border-bottom: 1px solid #edf0f4;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .customer-filter-tabs {
+      display: flex;
+      gap: 7px;
+    }
+
+    .customer-filter-tabs button {
+      height: 34px;
+      padding: 0 12px;
+      border: 1px solid #e1e6ee;
+      border-radius: 7px;
+      color: #52617a;
+      background: #fff;
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .customer-filter-tabs button.active {
+      border-color: #2563eb;
+      color: #1d4ed8;
+      background: #f4f8ff;
+    }
+
+    .customer-inactive-select {
+      width: auto;
+      min-width: 190px;
+      height: 34px;
+      padding: 0 10px;
+      border-radius: 7px;
+      color: #42516b;
+      background: #fff;
+      font-size: 12px;
+    }
+
+    .customer-table-wrap {
+      min-height: 0;
+      overflow: auto;
+    }
+
+    .customer-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 12px;
+    }
+
+    .customer-table th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      padding: 13px 11px;
+      border-bottom: 1px solid #e8edf4;
+      color: #64748b;
+      background: #fff;
+      text-align: left;
+      font-size: 11px;
+      font-weight: 750;
+    }
+
+    .customer-table th:first-child { width: 28%; }
+    .customer-table th:nth-child(2) { width: 15%; }
+    .customer-table th:nth-child(3) { width: 17%; }
+    .customer-table th:nth-child(4) { width: 14%; }
+    .customer-table th:nth-child(5) { width: 15%; }
+    .customer-table th:nth-child(6) { width: 11%; }
+
+    .customer-table td {
+      padding: 11px;
+      border-bottom: 1px solid #edf0f4;
+      color: #34425c;
+      vertical-align: middle;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .customer-table tbody tr {
+      cursor: pointer;
+    }
+
+    .customer-table tbody tr:hover {
+      background: #f8fbff;
+    }
+
+    .customer-table tbody tr.active {
+      outline: 1px solid #3b82f6;
+      outline-offset: -1px;
+      background: #f5f9ff;
+    }
+
+    .customer-cell {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+    }
+
+    .customer-list-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      color: #31527b;
+      background: #eaf2ff;
+      font-size: 12px;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+
+    .customer-cell-copy {
+      min-width: 0;
+    }
+
+    .customer-cell-copy strong,
+    .customer-cell-copy span {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .customer-cell-copy strong {
+      color: #17213c;
+      font-size: 13px;
+    }
+
+    .customer-cell-copy span {
+      margin-top: 2px;
+      color: #718096;
+      font-size: 11px;
+    }
+
+    .customer-list-avatar.tone-0,
+    .customer-profile-avatar.tone-0 { color: #2458a6; background: #e7f0ff; border-color: #bdd2f4; }
+    .customer-list-avatar.tone-1,
+    .customer-profile-avatar.tone-1 { color: #7440a8; background: #f2e9fb; border-color: #d9c1ef; }
+    .customer-list-avatar.tone-2,
+    .customer-profile-avatar.tone-2 { color: #18705b; background: #e4f5ef; border-color: #b9dfd2; }
+    .customer-list-avatar.tone-3,
+    .customer-profile-avatar.tone-3 { color: #9a5318; background: #fff0df; border-color: #f1d0aa; }
+    .customer-list-avatar.tone-4,
+    .customer-profile-avatar.tone-4 { color: #9a3d62; background: #fbe8f0; border-color: #edbfd2; }
+    .customer-list-avatar.tone-5,
+    .customer-profile-avatar.tone-5 { color: #426423; background: #edf5df; border-color: #cedfab; }
+    .customer-list-avatar.tone-6,
+    .customer-profile-avatar.tone-6 { color: #38667a; background: #e6f3f7; border-color: #bfdce5; }
+    .customer-list-avatar.tone-7,
+    .customer-profile-avatar.tone-7 { color: #6b4d31; background: #f4eadf; border-color: #dfc8ad; }
+
+    .customer-status {
+      padding: 4px 7px;
+      border-radius: 5px;
+      display: inline-flex;
+      color: #187a57;
+      background: #eaf8f1;
+      font-size: 11px;
+      font-weight: 750;
+    }
+
+    .customer-status.inactive {
+      color: #64748b;
+      background: #f0f2f5;
+    }
+
+    .customer-list-empty {
+      padding: 40px 20px;
+      color: #64748b;
+      text-align: center;
+      font-size: 13px;
+    }
+
+    .customer-pagination {
+      min-height: 50px;
+      padding: 8px 12px;
+      border-top: 1px solid #edf0f4;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      color: #64748b;
+      font-size: 11px;
+    }
+
+    .customer-page-actions {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .customer-page-actions button {
+      width: 32px;
+      height: 32px;
+      border: 1px solid #dfe5ed;
+      border-radius: 6px;
+      color: #3b4b66;
+      background: #fff;
+    }
+
+    .customer-page-actions button:disabled {
+      opacity: .4;
+      cursor: default;
+    }
+
+    .customer-profile-panel {
+      overflow: auto;
+    }
+
+    .customer-profile-empty {
+      min-height: 100%;
+      padding: 40px 24px;
+      display: grid;
+      place-items: center;
+      color: #64748b;
+      text-align: center;
+      font-size: 13px;
+    }
+
+    .customer-profile-content {
+      padding: 16px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .customer-profile-head {
+      display: grid;
+      grid-template-columns: 64px minmax(0, 1fr) auto;
+      gap: 14px;
+      align-items: center;
+    }
+
+    .customer-profile-avatar {
+      width: 64px;
+      height: 64px;
+      border: 1px solid #bcd2f1;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      color: #17213c;
+      background: #eaf2ff;
+      font-size: 24px;
+      font-weight: 800;
+    }
+
+    .customer-profile-head h3 {
+      margin: 0;
+      color: #101936;
+      font-size: 20px;
+    }
+
+    .customer-profile-head a {
+      display: inline-block;
+      margin-top: 4px;
+      color: #64748b;
+      font-size: 12px;
+      text-decoration: none;
+    }
+
+    .customer-profile-actions {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .customer-profile-actions .customer-contact-action {
+      width: 42px;
+      height: 42px;
+      border: 1px solid #dce5ee;
+      border-radius: 7px;
+      display: grid;
+      place-items: center;
+      background: #fff;
+      text-decoration: none;
+    }
+
+    .customer-profile-actions .customer-contact-action.whatsapp {
+      color: #0d9f5f;
+    }
+
+    .customer-profile-actions .customer-contact-action.conversation {
+      color: #2563eb;
+    }
+
+    .customer-profile-actions .customer-contact-action:disabled {
+      color: #9aa5b5;
+      background: #f5f6f8;
+      cursor: not-allowed;
+    }
+
+    .customer-profile-actions .customer-contact-action .ti {
+      width: 21px;
+      height: 21px;
+      stroke-width: 2.1;
+    }
+
+    .customer-profile-actions .primary {
+      height: 42px;
+      padding: 0 14px;
+      font-size: 12px;
+    }
+
+    .customer-profile-actions .primary .ti {
+      width: 19px;
+      height: 19px;
+      stroke-width: 2.15;
+    }
+
+    .customer-profile-menu {
+      position: relative;
+    }
+
+    .customer-profile-menu summary {
+      width: 38px;
+      height: 42px;
+      border: 1px solid #dce5ee;
+      border-radius: 7px;
+      display: grid;
+      place-items: center;
+      color: #52617a;
+      background: #fff;
+      cursor: pointer;
+      list-style: none;
+    }
+
+    .customer-profile-menu summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .customer-profile-menu summary .ti {
+      width: 20px;
+      height: 20px;
+    }
+
+    .customer-profile-menu-popover {
+      position: absolute;
+      z-index: 5;
+      top: calc(100% + 7px);
+      right: 0;
+      width: 178px;
+      padding: 6px;
+      border: 1px solid #dce3ed;
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 12px 28px rgba(15, 23, 42, .14);
+    }
+
+    .customer-profile-menu-popover button {
+      width: 100%;
+      min-height: 36px;
+      padding: 0 9px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #c62828;
+      background: transparent;
+      font-size: 12px;
+      font-weight: 700;
+      text-align: left;
+    }
+
+    .customer-profile-menu-popover button:hover {
+      background: #fff1f1;
+    }
+
+    .customer-profile-stats {
+      padding: 12px 4px;
+      border: 1px solid #e4e9f0;
+      border-radius: 8px;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .customer-profile-stat {
+      padding: 0 8px;
+      border-right: 1px solid #e4e9f0;
+      text-align: center;
+    }
+
+    .customer-profile-stat:last-child {
+      border-right: 0;
+    }
+
+    .customer-profile-stat strong,
+    .customer-profile-stat span {
+      display: block;
+    }
+
+    .customer-profile-stat strong {
+      color: #17213c;
+      font-size: 15px;
+    }
+
+    .customer-profile-stat span {
+      margin-top: 3px;
+      color: #64748b;
+      font-size: 10px;
+    }
+
+    .customer-next-card {
+      min-height: 68px;
+      padding: 12px 14px;
+      border: 1px solid #bcd4fa;
+      border-radius: 7px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: #263958;
+      background: #f7faff;
+      font-size: 12px;
+    }
+
+    .customer-next-card .customer-next-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 9px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      background: #2563eb;
+      flex-shrink: 0;
+    }
+
+    .customer-next-card .customer-next-icon .ti {
+      width: 21px;
+      height: 21px;
+      color: #fff;
+      stroke-width: 2.15;
+    }
+
+    .customer-next-card span,
+    .customer-next-card strong,
+    .customer-next-card small {
+      display: block;
+    }
+
+    .customer-next-card span {
+      color: #64748b;
+      font-size: 11px;
+    }
+
+    .customer-next-card strong {
+      margin-top: 4px;
+      color: #17213c;
+      font-size: 14px;
+      line-height: 1.35;
+    }
+
+    .customer-next-card small {
+      margin-top: 3px;
+      color: #52617a;
+      font-size: 11px;
+    }
+
+    .customer-frequent-grid {
+      border: 1px solid #e4e9f0;
+      border-radius: 7px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .customer-frequent-item {
+      padding: 12px 14px;
+      border-right: 1px solid #e4e9f0;
+    }
+
+    .customer-frequent-item:last-child {
+      border-right: 0;
+    }
+
+    .customer-frequent-item span,
+    .customer-frequent-item strong,
+    .customer-frequent-item small {
+      display: block;
+    }
+
+    .customer-frequent-item span {
+      color: #52617a;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 11px;
+      font-weight: 750;
+    }
+
+    .customer-frequent-item strong {
+      margin-top: 4px;
+      color: #17213c;
+      font-size: 14px;
+    }
+
+    .customer-frequent-item small {
+      margin-top: 3px;
+      color: #8490a3;
+      font-size: 10px;
+    }
+
+    .customer-frequent-item .ti,
+    .customer-section-title .ti {
+      width: 17px;
+      height: 17px;
+      color: #2563eb;
+      stroke-width: 2.1;
+    }
+
+    .customer-profile-section h4 {
+      margin: 0 0 7px;
+      color: #17213c;
+      font-size: 14px;
+    }
+
+    .customer-section-title {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .customer-open-conversation {
+      width: 100%;
+      min-height: 38px;
+      padding: 8px 10px;
+      border: 1px solid #8fb9fa;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      color: #1d4ed8;
+      background: #f4f8ff;
+      font-size: 12px;
+      text-align: left;
+    }
+
+    .customer-open-conversation strong {
+      font-size: 12px;
+    }
+
+    .customer-history,
+    .customer-profile-notes {
+      border: 1px solid #e4e9f0;
+      border-radius: 7px;
+      overflow: hidden;
+    }
+
+    .customer-history-row {
+      min-height: 48px;
+      padding: 9px 11px;
+      border-bottom: 1px solid #edf0f4;
+      display: grid;
+      grid-template-columns: 24px 96px minmax(0, 1fr) minmax(0, .8fr) auto;
+      gap: 9px;
+      align-items: center;
+      color: #52617a;
+      font-size: 11px;
+    }
+
+    .customer-history-icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      display: grid;
+      place-items: center;
+      color: #2563eb;
+      background: #edf4ff;
+    }
+
+    .customer-history-icon .ti {
+      width: 14px;
+      height: 14px;
+    }
+
+    .customer-history-row:last-child,
+    .customer-profile-note:last-child {
+      border-bottom: 0;
+    }
+
+    .customer-history-row strong {
+      color: #34425c;
+      font-weight: 650;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .customer-history-price {
+      color: #52617a;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .customer-profile-note {
+      padding: 11px 12px;
+      border-bottom: 1px solid #edf0f4;
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      color: #52617a;
+      font-size: 11px;
+    }
+
+    .customer-profile-note time {
+      color: #8490a3;
+      white-space: nowrap;
+    }
+
+    @media (max-width: 1280px) {
+      .customers-workspace {
+        grid-template-columns: minmax(560px, 1.45fr) minmax(340px, 1fr);
+      }
+
+      .customer-table th:nth-child(4),
+      .customer-table td:nth-child(4) {
+        display: none;
+      }
     }
 
     .app[data-section="services"],
@@ -4011,6 +4807,11 @@ const crmHtml = `<!doctype html>
       stroke-linejoin: round;
     }
 
+    .ti.ti-brand {
+      fill: currentColor;
+      stroke: none;
+    }
+
     .reports-refresh-button .ti {
       width: 16px;
       height: 16px;
@@ -5009,6 +5810,82 @@ const crmHtml = `<!doctype html>
       padding-top: 4px;
     }
 
+    .customer-dialog {
+      width: min(480px, 100%);
+    }
+
+    .customer-dialog-form {
+      padding: 20px;
+      display: grid;
+      gap: 17px;
+    }
+
+    .customer-dialog-copy {
+      margin: 0;
+      color: #64748b;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .customer-dialog-field {
+      display: grid;
+      gap: 8px;
+    }
+
+    .customer-dialog-field[hidden] {
+      display: none;
+    }
+
+    .customer-dialog-field label {
+      color: #263958;
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .customer-dialog-field input,
+    .customer-dialog-field textarea {
+      width: 100%;
+      border: 1px solid #dce4f0;
+      border-radius: 8px;
+      color: #17213c;
+      background: #fff;
+      font-size: 13px;
+      outline: 0;
+    }
+
+    .customer-dialog-field input {
+      height: 44px;
+      padding: 0 12px;
+    }
+
+    .customer-dialog-field textarea {
+      min-height: 118px;
+      padding: 11px 12px;
+      line-height: 1.5;
+      resize: vertical;
+    }
+
+    .customer-dialog-field input:focus,
+    .customer-dialog-field textarea:focus {
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, .1);
+    }
+
+    .customer-dialog-feedback {
+      min-height: 18px;
+      margin: -5px 0 0;
+      color: #dc2626;
+      font-size: 11px;
+    }
+
+    .customer-dialog-form .dialog-actions {
+      padding-top: 2px;
+    }
+
+    .customer-dialog-form .dialog-actions button {
+      min-width: 104px;
+    }
+
     @media (max-width: 620px) {
       .appointment-form .split-row {
         grid-template-columns: 1fr;
@@ -5076,7 +5953,7 @@ const crmHtml = `<!doctype html>
       <button type="button"><span>⚙</span><strong>Ajustes</strong></button>
       <div class="nav-user">
         <div class="mini-avatar">C</div>
-        <span>Online</span>
+        <div class="nav-user-status"><span class="nav-online-dot"></span>Online</div>
       </div>
     </nav>
     <header class="conversation-page-header">
@@ -5238,6 +6115,91 @@ const crmHtml = `<!doctype html>
 
     </aside>
 
+    <section class="customers-view" id="customers-view">
+      <div class="customers-shell">
+        <header class="customers-header">
+          <div>
+            <h2>Clientes</h2>
+            <p>Conoc&eacute;, cuid&aacute; y hac&eacute; volver a cada cliente</p>
+          </div>
+          <div class="customers-header-actions">
+            <label class="customers-search">
+              <span data-icon="search"></span>
+              <input id="customers-search" type="search" placeholder="Buscar por nombre o tel&eacute;fono" autocomplete="off">
+            </label>
+            <button class="primary customer-new-button" id="customer-new-button" type="button"><span data-icon="plus"></span>Nuevo cliente</button>
+          </div>
+        </header>
+
+        <section class="customer-metrics" aria-label="Resumen de clientes">
+          <article class="customer-metric-card">
+            <div class="customer-metric-icon" data-icon="users"></div>
+            <div><strong id="customers-total">0</strong><span>Clientes</span></div>
+          </article>
+          <article class="customer-metric-card">
+            <div class="customer-metric-icon" data-icon="chart"></div>
+            <div><strong id="customers-active">0</strong><span>Activos</span></div>
+          </article>
+          <article class="customer-metric-card">
+            <div class="customer-metric-icon" data-icon="user"></div>
+            <div><strong id="customers-inactive">0</strong><span>Inactivos</span></div>
+          </article>
+          <article class="customer-metric-card">
+            <div class="customer-metric-icon" data-icon="plus"></div>
+            <div><strong id="customers-new">0</strong><span>Nuevos este mes</span></div>
+          </article>
+        </section>
+
+        <section class="customers-workspace">
+          <article class="customer-list-panel">
+            <div class="customer-list-toolbar">
+              <div class="customer-filter-tabs" id="customer-filter-tabs">
+                <button class="active" type="button" data-customer-filter="all">Todos</button>
+                <button type="button" data-customer-filter="active">Activos</button>
+                <button type="button" data-customer-filter="inactive">Inactivos</button>
+                <button type="button" data-customer-filter="new">Nuevos</button>
+              </div>
+              <select class="customer-inactive-select" id="customer-inactive-days" aria-label="D&iacute;as para considerar un cliente inactivo">
+                <option value="30">Inactivo despu&eacute;s de: 30 d&iacute;as</option>
+                <option value="45">Inactivo despu&eacute;s de: 45 d&iacute;as</option>
+                <option value="60" selected>Inactivo despu&eacute;s de: 60 d&iacute;as</option>
+                <option value="90">Inactivo despu&eacute;s de: 90 d&iacute;as</option>
+              </select>
+            </div>
+            <div class="customer-table-wrap">
+              <table class="customer-table">
+                <thead>
+                  <tr>
+                    <th>Cliente</th>
+                    <th>&Uacute;ltima visita</th>
+                    <th>Pr&oacute;ximo turno</th>
+                    <th>Frecuencia</th>
+                    <th>Gasto estimado <span title="Calculado con los precios actuales">&#9432;</span></th>
+                    <th>Estado</th>
+                  </tr>
+                </thead>
+                <tbody id="customer-table-body">
+                  <tr><td colspan="6"><div class="customer-list-empty">Cargando clientes...</div></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <footer class="customer-pagination">
+              <span id="customer-pagination-copy">0 clientes</span>
+              <div class="customer-page-actions">
+                <button id="customer-page-prev" type="button" aria-label="P&aacute;gina anterior">&lsaquo;</button>
+                <strong id="customer-page-number">1</strong>
+                <button id="customer-page-next" type="button" aria-label="P&aacute;gina siguiente">&rsaquo;</button>
+              </div>
+            </footer>
+          </article>
+
+          <aside class="customer-profile-panel" id="customer-profile-panel">
+            <div class="customer-profile-empty">Eleg&iacute; un cliente para ver su resumen.</div>
+          </aside>
+        </section>
+      </div>
+    </section>
+
     <section class="agenda-view" id="agenda-view">
       <aside class="agenda-sidebar">
         <div class="agenda-filters">
@@ -5346,6 +6308,35 @@ const crmHtml = `<!doctype html>
             <button class="danger" id="appointment-delete" type="button" hidden>Eliminar</button>
             <button class="secondary" id="appointment-cancel" type="button">Cancelar</button>
             <button class="primary" id="appointment-submit" type="submit">Guardar turno</button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <div class="dialog-backdrop" id="customer-dialog" hidden>
+      <section class="dialog customer-dialog" role="dialog" aria-modal="true" aria-labelledby="customer-dialog-title">
+        <header class="dialog-header">
+          <h3 id="customer-dialog-title">Editar cliente</h3>
+          <button class="icon-button" id="customer-dialog-close" type="button" title="Cerrar">X</button>
+        </header>
+        <form class="customer-dialog-form" id="customer-dialog-form">
+          <p class="customer-dialog-copy" id="customer-dialog-copy"></p>
+          <div class="customer-dialog-field" id="customer-name-field">
+            <label for="customer-dialog-name">Nombre del cliente</label>
+            <input id="customer-dialog-name" autocomplete="name" maxlength="120" placeholder="Ej: Carolina">
+          </div>
+          <div class="customer-dialog-field" id="customer-phone-field" hidden>
+            <label for="customer-dialog-phone">Tel&eacute;fono</label>
+            <input id="customer-dialog-phone" autocomplete="tel" maxlength="40" placeholder="Ej: +54 9 11 4582-3106">
+          </div>
+          <div class="customer-dialog-field" id="customer-note-field" hidden>
+            <label for="customer-dialog-note">Nota</label>
+            <textarea id="customer-dialog-note" maxlength="1000" placeholder="Escribi informacion util para futuras atenciones"></textarea>
+          </div>
+          <p class="customer-dialog-feedback" id="customer-dialog-feedback"></p>
+          <div class="dialog-actions">
+            <button class="secondary" id="customer-dialog-cancel" type="button">Cancelar</button>
+            <button class="primary" id="customer-dialog-submit" type="submit">Guardar cambios</button>
           </div>
         </form>
       </section>
@@ -5910,6 +6901,13 @@ const crmHtml = `<!doctype html>
       professionals: [],
       services: [],
       customers: [],
+      customerOverview: [],
+      customerOverviewCounts: { total: 0, active: 0, inactive: 0, new: 0 },
+      customerOverviewPagination: { page: 1, take: 25, total: 0, totalPages: 1 },
+      selectedCustomerId: null,
+      customerFilter: 'all',
+      customerInactiveDays: 60,
+      customerSearch: '',
       customerNotes: [],
       agendaAppointments: [],
       reportAppointments: [],
@@ -5934,6 +6932,8 @@ const crmHtml = `<!doctype html>
       conversationFilter: 'all',
       conversationVisibleLimit: 12,
       readConversationIds: new Set(),
+      customerDialogMode: 'edit',
+      customerDialogCustomerId: null,
       isRefreshing: false
     }
 
@@ -5982,6 +6982,35 @@ const crmHtml = `<!doctype html>
       customerEdit: document.getElementById('customer-edit'),
       customerAddNote: document.getElementById('customer-add-note'),
       customerNotesList: document.getElementById('customer-notes-list'),
+      customerDialog: document.getElementById('customer-dialog'),
+      customerDialogForm: document.getElementById('customer-dialog-form'),
+      customerDialogTitle: document.getElementById('customer-dialog-title'),
+      customerDialogCopy: document.getElementById('customer-dialog-copy'),
+      customerDialogClose: document.getElementById('customer-dialog-close'),
+      customerDialogCancel: document.getElementById('customer-dialog-cancel'),
+      customerDialogSubmit: document.getElementById('customer-dialog-submit'),
+      customerDialogFeedback: document.getElementById('customer-dialog-feedback'),
+      customerNameField: document.getElementById('customer-name-field'),
+      customerPhoneField: document.getElementById('customer-phone-field'),
+      customerNoteField: document.getElementById('customer-note-field'),
+      customerDialogName: document.getElementById('customer-dialog-name'),
+      customerDialogPhone: document.getElementById('customer-dialog-phone'),
+      customerDialogNote: document.getElementById('customer-dialog-note'),
+      customersView: document.getElementById('customers-view'),
+      customersSearch: document.getElementById('customers-search'),
+      customerNewButton: document.getElementById('customer-new-button'),
+      customerFilterTabs: document.getElementById('customer-filter-tabs'),
+      customerInactiveDays: document.getElementById('customer-inactive-days'),
+      customerTableBody: document.getElementById('customer-table-body'),
+      customerProfilePanel: document.getElementById('customer-profile-panel'),
+      customersTotal: document.getElementById('customers-total'),
+      customersActive: document.getElementById('customers-active'),
+      customersInactive: document.getElementById('customers-inactive'),
+      customersNew: document.getElementById('customers-new'),
+      customerPaginationCopy: document.getElementById('customer-pagination-copy'),
+      customerPageNumber: document.getElementById('customer-page-number'),
+      customerPagePrev: document.getElementById('customer-page-prev'),
+      customerPageNext: document.getElementById('customer-page-next'),
       blockForm: document.getElementById('block-form'),
       blockReason: document.getElementById('block-reason'),
       blockProfessional: document.getElementById('block-professional'),
@@ -6185,12 +7214,13 @@ const crmHtml = `<!doctype html>
       grid: '<rect width="7" height="7" x="3" y="3" rx="1"></rect><rect width="7" height="7" x="14" y="3" rx="1"></rect><rect width="7" height="7" x="14" y="14" rx="1"></rect><rect width="7" height="7" x="3" y="14" rx="1"></rect>',
       lightbulb: '<path d="M9 18h6"></path><path d="M10 22h4"></path><path d="M8.5 14.5a6 6 0 1 1 7 0c-.7.55-1.1 1.36-1.1 2.25V17H9.6v-.25c0-.89-.4-1.7-1.1-2.25z"></path>',
       list: '<path d="M8 6h13"></path><path d="M8 12h13"></path><path d="M8 18h13"></path><path d="M3 6h.01"></path><path d="M3 12h.01"></path><path d="M3 18h.01"></path>',
+      mail: '<rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="m3 7 9 6 9-6"></path>',
       megaphone: '<path d="m3 11 18-5v12L3 14v-3z"></path><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"></path>',
       message: '<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"></path>',
       more: '<circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle>',
       bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path>',
       document: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path><path d="M8 13h8"></path><path d="M8 17h8"></path>',
-      whatsapp: '<path d="M21 11.5a8.4 8.4 0 0 1-12.4 7.4L3 20.5l1.6-5.4A8.5 8.5 0 1 1 21 11.5z"></path><path d="M8.2 8.1c.2-.5.4-.5.7-.5h.5c.2 0 .4.1.5.4l.8 1.9c.1.3 0 .5-.2.7l-.6.7c-.2.2-.1.4 0 .6.7 1.3 1.8 2.3 3.2 2.9.2.1.4.1.6-.1l.8-1c.2-.2.4-.3.7-.2l1.9.9c.3.1.4.3.4.5 0 .4-.2 1.4-.8 1.9-.6.5-1.5.8-2.4.6-1.2-.3-3.1-1-4.8-2.5-1.4-1.3-2.5-3-2.8-4.2-.3-1 .1-2 .5-2.6z"></path>',
+      whatsapp: '<path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479s1.065 2.875 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.262.489 1.693.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.29.173-1.414-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.981.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884a9.82 9.82 0 0 1 6.988 2.894 9.825 9.825 0 0 1 2.9 6.988c-.003 5.45-4.437 9.884-9.882 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.3-1.654a11.882 11.882 0 0 0 5.688 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z"></path>',
       paperclip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>',
       plus: '<path d="M5 12h14"></path><path d="M12 5v14"></path>',
       professional: '<path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path><circle cx="10" cy="7" r="4"></circle><path d="M20 8v6"></path><path d="M23 11h-6"></path>',
@@ -6208,7 +7238,8 @@ const crmHtml = `<!doctype html>
 
     function icon(name) {
       const paths = iconPaths[name] || ''
-      return '<svg class="ti" viewBox="0 0 24 24" aria-hidden="true">' + paths + '</svg>'
+      const className = name === 'whatsapp' ? 'ti ti-brand' : 'ti'
+      return '<svg class="' + className + '" viewBox="0 0 24 24" aria-hidden="true">' + paths + '</svg>'
     }
 
     function hydrateIcons(root = document) {
@@ -6254,8 +7285,7 @@ const crmHtml = `<!doctype html>
             '<span>Administrador</span>' +
           '</div>' +
           '<div class="nav-user-status">' +
-            '<span class="nav-user-status-main"><span class="nav-online-dot"></span>Online</span>' +
-            '<span data-icon="chevron"></span>' +
+            '<span class="nav-online-dot"></span>Online' +
           '</div>' +
         '</div>'
 
@@ -6294,6 +7324,217 @@ const crmHtml = `<!doctype html>
       renderAgenda()
     }
 
+    async function loadCustomerOverview(options = {}) {
+      const params = new URLSearchParams()
+      params.set('page', String(options.page || state.customerOverviewPagination.page || 1))
+      params.set('take', String(state.customerOverviewPagination.take || 25))
+      params.set('status', state.customerFilter)
+      params.set('inactiveDays', String(state.customerInactiveDays))
+      if (state.customerSearch) params.set('q', state.customerSearch)
+      els.customerTableBody.innerHTML = '<tr><td colspan="6"><div class="customer-list-empty">Cargando clientes...</div></td></tr>'
+
+      try {
+        const result = await getJson('/customers/overview?' + params.toString())
+        state.customerOverview = result.items || []
+        state.customerOverviewCounts = result.counts || state.customerOverviewCounts
+        state.customerOverviewPagination = result.pagination || state.customerOverviewPagination
+        if (!state.customerOverview.some((customer) => customer.id === state.selectedCustomerId)) {
+          state.selectedCustomerId = state.customerOverview[0]?.id || null
+        }
+        renderCustomerOverview()
+      } catch (error) {
+        els.customerTableBody.innerHTML = '<tr><td colspan="6"><div class="customer-list-empty">' + escapeHtml(error.message) + '</div></td></tr>'
+      }
+    }
+
+    function renderCustomerOverview() {
+      const counts = state.customerOverviewCounts
+      const pagination = state.customerOverviewPagination
+      els.customersTotal.textContent = String(counts.total || 0)
+      els.customersActive.textContent = String(counts.active || 0)
+      els.customersInactive.textContent = String(counts.inactive || 0)
+      els.customersNew.textContent = String(counts.new || 0)
+
+      for (const button of els.customerFilterTabs.querySelectorAll('[data-customer-filter]')) {
+        button.classList.toggle('active', button.dataset.customerFilter === state.customerFilter)
+      }
+
+      if (!state.customerOverview.length) {
+        els.customerTableBody.innerHTML = '<tr><td colspan="6"><div class="customer-list-empty">No hay clientes que coincidan con este filtro.</div></td></tr>'
+      } else {
+        els.customerTableBody.innerHTML = state.customerOverview.map((customer) => {
+          const nextAppointment = customer.nextAppointment
+          const isSelected = customer.id === state.selectedCustomerId
+          const avatarTone = customerAvatarTone(customer)
+          return '<tr class="' + (isSelected ? 'active' : '') + '" data-customer-id="' + customer.id + '">' +
+            '<td><div class="customer-cell">' +
+              '<div class="customer-list-avatar tone-' + avatarTone + '">' + escapeHtml(contactInitials(customer.name, customer.phone)) + '</div>' +
+              '<div class="customer-cell-copy"><strong>' + escapeHtml(customer.name) + '</strong><span>' + escapeHtml(formatCustomerPhone(customer.phone)) + '</span></div>' +
+            '</div></td>' +
+            '<td>' + escapeHtml(customer.lastVisit ? formatCustomerDate(customer.lastVisit) : '--') + '</td>' +
+            '<td>' + escapeHtml(nextAppointment ? formatCustomerDateTime(nextAppointment.startAt) : '--') + '</td>' +
+            '<td>' + escapeHtml(customer.averageFrequencyDays ? 'Cada ' + customer.averageFrequencyDays + ' dias' : '--') + '</td>' +
+            '<td title="Calculado con los precios actuales">' + escapeHtml(formatEstimatedSpend(customer)) + '</td>' +
+            '<td><span class="customer-status ' + (customer.status === 'inactive' ? 'inactive' : '') + '">' + (customer.status === 'inactive' ? 'Inactivo' : 'Activo') + '</span></td>' +
+          '</tr>'
+        }).join('')
+      }
+
+      const start = pagination.total ? (pagination.page - 1) * pagination.take + 1 : 0
+      const end = Math.min(pagination.page * pagination.take, pagination.total)
+      els.customerPaginationCopy.textContent = start + '–' + end + ' de ' + pagination.total + ' clientes'
+      els.customerPageNumber.textContent = pagination.page + ' / ' + pagination.totalPages
+      els.customerPagePrev.disabled = pagination.page <= 1
+      els.customerPageNext.disabled = pagination.page >= pagination.totalPages
+
+      for (const row of els.customerTableBody.querySelectorAll('[data-customer-id]')) {
+        row.addEventListener('click', () => {
+          state.selectedCustomerId = row.dataset.customerId
+          renderCustomerOverview()
+        })
+      }
+      renderCustomerProfile()
+    }
+
+    function renderCustomerProfile() {
+      const customer = selectedOverviewCustomer()
+      if (!customer) {
+        els.customerProfilePanel.innerHTML = '<div class="customer-profile-empty">Elegi un cliente para ver su resumen.</div>'
+        return
+      }
+
+      const next = customer.nextAppointment
+      const avatarTone = customerAvatarTone(customer)
+      const lastVisitDays = customer.lastVisit
+        ? Math.max(0, Math.round((Date.now() - new Date(customer.lastVisit).getTime()) / 86400000))
+        : null
+      const openConversation = customer.openConversation
+        ? '<button class="customer-open-conversation" type="button" data-open-customer-conversation>' +
+            '<strong>Conversacion abierta &middot; Aun no reservo</strong><span>Ver conversacion</span>' +
+          '</button>'
+        : ''
+      const history = customer.recentAppointments.length
+        ? customer.recentAppointments.map((appointment) => {
+            return '<div class="customer-history-row">' +
+              '<span class="customer-history-icon">' + icon('calendar') + '</span>' +
+              '<span>' + escapeHtml(formatCustomerDateTime(appointment.startAt)) + '</span>' +
+              '<strong>' + escapeHtml(appointment.service?.name || 'Servicio') + '</strong>' +
+              '<span>' + escapeHtml(appointment.professional?.name || 'Profesional') + '</span>' +
+              '<span class="customer-history-price" title="Precio actual">' + escapeHtml(formatAppointmentCurrentPrice(appointment)) + '</span>' +
+            '</div>'
+          }).join('')
+        : '<div class="customer-list-empty">Todavia no tiene visitas registradas.</div>'
+      const notes = customer.notes.length
+        ? customer.notes.map((note) => {
+            return '<div class="customer-profile-note"><span>' + escapeHtml(note.body) + '</span><time>' + escapeHtml(formatCustomerDate(note.createdAt)) + '</time></div>'
+          }).join('')
+        : '<div class="customer-profile-note"><span>Todavia no hay notas.</span></div>'
+
+      els.customerProfilePanel.innerHTML = '<div class="customer-profile-content">' +
+        '<header class="customer-profile-head">' +
+          '<div class="customer-profile-avatar tone-' + avatarTone + '">' + escapeHtml(contactInitials(customer.name, customer.phone)) + '</div>' +
+          '<div><h3>' + escapeHtml(customer.name) + '</h3><a href="tel:' + escapeHtml(customer.phone) + '">' + escapeHtml(formatCustomerPhone(customer.phone)) + '</a></div>' +
+          '<div class="customer-profile-actions">' +
+            '<a class="customer-whatsapp-action" href="https://wa.me/' + encodeURIComponent(normalizePhone(customer.phone)) + '" target="_blank" rel="noopener" title="Abrir WhatsApp">' + icon('whatsapp') + '</a>' +
+            '<button class="primary" type="button" data-schedule-customer>' + icon('calendar') + 'Agendar turno</button>' +
+          '</div>' +
+        '</header>' +
+        '<div class="customer-profile-stats">' +
+          '<div class="customer-profile-stat"><strong>' + customer.visitCount + '</strong><span>visitas</span></div>' +
+          '<div class="customer-profile-stat"><strong>' + escapeHtml(formatEstimatedSpend(customer)) + '</strong><span title="Calculado con precios actuales">gasto estimado &#9432;</span></div>' +
+          '<div class="customer-profile-stat"><strong>' + (lastVisitDays === null ? '--' : lastVisitDays + ' dias') + '</strong><span>desde ultima visita</span></div>' +
+        '</div>' +
+        (next
+          ? '<div class="customer-next-card"><span class="customer-next-icon">' + icon('calendar') + '</span><div><span>Proximo turno</span><strong>' + escapeHtml(formatCustomerDateTime(next.startAt)) + '</strong><small>' + escapeHtml(next.service.name) + ' &middot; ' + escapeHtml(next.professional.name) + '</small></div></div>'
+          : '<div class="customer-next-card"><span class="customer-next-icon">' + icon('calendar') + '</span><div><span>Proximo turno</span><strong>Sin turno agendado</strong></div></div>') +
+        '<div class="customer-frequent-grid">' +
+          '<div class="customer-frequent-item"><span>' + icon('professional') + 'Profesional frecuente</span><strong>' + escapeHtml(customer.frequentProfessional || '--') + '</strong><small>Inferido de las ultimas 8 visitas</small></div>' +
+          '<div class="customer-frequent-item"><span>' + icon('scissors') + 'Servicio frecuente</span><strong>' + escapeHtml(customer.frequentService || '--') + '</strong><small>Inferido de las ultimas 8 visitas</small></div>' +
+        '</div>' +
+        '<section class="customer-profile-section"><h4 class="customer-section-title">' + icon('calendar') + 'Actividad</h4>' + openConversation + '<div class="customer-history">' + history + '</div></section>' +
+        '<section class="customer-profile-section"><div class="row"><h4 class="customer-section-title">' + icon('document') + 'Notas</h4><button class="details-link" type="button" data-add-customer-note>+ Agregar nota</button></div><div class="customer-profile-notes">' + notes + '</div></section>' +
+      '</div>'
+
+      els.customerProfilePanel.querySelector('[data-schedule-customer]')?.addEventListener('click', () => openOverviewCustomerAppointment(customer))
+      els.customerProfilePanel.querySelector('[data-add-customer-note]')?.addEventListener('click', () => openCustomerDialog('note', customer))
+      els.customerProfilePanel.querySelector('[data-open-customer-conversation]')?.addEventListener('click', () => openOverviewCustomerConversation(customer))
+    }
+
+    function selectedOverviewCustomer() {
+      return state.customerOverview.find((customer) => customer.id === state.selectedCustomerId) || null
+    }
+
+    function customerAvatarTone(customer) {
+      const value = String(customer.id || customer.phone || customer.name || '')
+      let hash = 0
+      for (let index = 0; index < value.length; index += 1) {
+        hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0
+      }
+      return Math.abs(hash) % 8
+    }
+
+    function formatEstimatedSpend(customer) {
+      return customer.visitCount > 0 ? formatCurrency(customer.estimatedSpend) : '--'
+    }
+
+    function formatAppointmentCurrentPrice(appointment) {
+      const price = appointment.service?.price
+      return price === null || price === undefined ? '--' : formatCurrency(price)
+    }
+
+    function formatCustomerDate(value) {
+      return new Intl.DateTimeFormat('es-AR', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(value))
+    }
+
+    function formatCustomerPhone(value) {
+      const original = String(value || '').trim()
+      const digits = normalizePhone(original)
+      let national = ''
+
+      if (digits.length === 13 && digits.startsWith('549')) {
+        national = digits.slice(3)
+      } else if (digits.length === 12 && digits.startsWith('54')) {
+        national = digits.slice(2)
+        if (national.startsWith('9')) national = national.slice(1)
+      } else if (digits.length === 10) {
+        national = digits
+      }
+
+      if (national.length === 10 && national.startsWith('11')) {
+        return '+54 9 11 ' + national.slice(2, 6) + '-' + national.slice(6)
+      }
+
+      if (digits.length === 13 && digits.startsWith('549')) {
+        return '+54 9 ' + digits.slice(3, 5) + ' ' + digits.slice(5, 9) + '-' + digits.slice(9)
+      }
+
+      return original
+    }
+
+    function formatCustomerDateTime(value) {
+      const date = new Date(value)
+      const datePart = new Intl.DateTimeFormat('es-AR', { day: '2-digit', month: 'short' })
+        .format(date)
+        .replace('.', '')
+      const timePart = new Intl.DateTimeFormat('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }).format(date)
+      return datePart + ' · ' + timePart
+    }
+
+    function openOverviewCustomerAppointment(customer) {
+      openAppointmentDialog()
+      els.appointmentCustomer.value = customer.id
+      syncAppointmentCustomerFields()
+    }
+
+    async function openOverviewCustomerConversation(customer) {
+      if (!customer.openConversation) return
+      if (!state.conversations.some((conversation) => conversation.id === customer.openConversation.id)) {
+        state.conversations.unshift(customer.openConversation)
+      }
+      setSection('conversations')
+      await selectConversation(customer.openConversation.id)
+    }
+
     async function loadConversations(options = {}) {
       if (state.isRefreshing) return
       state.isRefreshing = true
@@ -6328,7 +7569,7 @@ const crmHtml = `<!doctype html>
           const fresh = state.conversations.find((item) => item.id === state.selected.id)
           if (fresh) {
             state.selected = fresh
-            await refreshSelectedConversation()
+            await refreshSelectedConversation({ preserveReadingPosition: options.silent === true })
           } else {
             state.selected = null
             if (state.conversations[0]) await selectConversation(state.conversations[0].id)
@@ -6411,11 +7652,17 @@ const crmHtml = `<!doctype html>
       }
     }
 
-    async function refreshSelectedConversation() {
+    async function refreshSelectedConversation(options = {}) {
       if (!state.selected) return
-      await loadConversationMessages()
+      const messageScroll = options.preserveReadingPosition
+        ? {
+            mode: els.messages.scrollHeight - els.messages.scrollTop - els.messages.clientHeight < 72 ? 'bottom' : 'preserve',
+            top: els.messages.scrollTop
+          }
+        : { mode: 'bottom', top: 0 }
+      await loadConversationMessages({ mergeExisting: options.preserveReadingPosition === true })
       await Promise.all([loadAppointments(), loadCustomerNotes()])
-      renderSelected()
+      renderSelected({ messageScroll })
       renderConversations()
     }
 
@@ -6424,8 +7671,15 @@ const crmHtml = `<!doctype html>
       const params = new URLSearchParams({ paginated: 'true', take: '100' })
       if (options.older && state.messageNextCursor) params.set('cursor', state.messageNextCursor)
       const page = await getJson('/crm/conversations/' + state.selected.id + '/messages?' + params.toString())
-      state.messageNextCursor = page.nextCursor || null
-      state.messages = options.older ? page.items.concat(state.messages) : page.items
+      if (options.mergeExisting) {
+        const messagesById = new Map(state.messages.map((message) => [message.id, message]))
+        for (const message of page.items) messagesById.set(message.id, message)
+        state.messages = Array.from(messagesById.values())
+          .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime())
+      } else {
+        state.messageNextCursor = page.nextCursor || null
+        state.messages = options.older ? page.items.concat(state.messages) : page.items
+      }
       if (options.older) renderMessages({ preserveScroll: true })
     }
 
@@ -6469,7 +7723,108 @@ const crmHtml = `<!doctype html>
       }).join('')
     }
 
-    function renderSelected() {
+    function openCustomerDialog(mode, explicitCustomer = null) {
+      const customer = explicitCustomer || (state.selected ? customerForPhone(state.selected.phone) : null)
+      if (mode !== 'create' && !customer) {
+        alert('Primero crea el cliente desde un turno para poder guardar informacion.')
+        return
+      }
+
+      state.customerDialogMode = mode
+      state.customerDialogCustomerId = customer?.id || null
+      const isNote = mode === 'note'
+      const isCreate = mode === 'create'
+      els.customerDialogTitle.textContent = isNote ? 'Agregar nota' : isCreate ? 'Nuevo cliente' : 'Editar cliente'
+      els.customerDialogCopy.textContent = isNote
+        ? 'Guarda informacion util para la proxima atencion de ' + customer.name + '.'
+        : isCreate ? 'Carga los datos basicos para agregarlo al salon.' : 'Actualiza los datos visibles de este cliente.'
+      els.customerNameField.hidden = isNote
+      els.customerPhoneField.hidden = !isCreate
+      els.customerNoteField.hidden = !isNote
+      els.customerDialogName.value = customer?.name || ''
+      els.customerDialogPhone.value = ''
+      els.customerDialogNote.value = ''
+      els.customerDialogFeedback.textContent = ''
+      els.customerDialogSubmit.textContent = isNote ? 'Guardar nota' : isCreate ? 'Crear cliente' : 'Guardar cambios'
+      els.customerDialogSubmit.disabled = false
+      els.customerDialog.hidden = false
+      requestAnimationFrame(() => {
+        if (isNote) els.customerDialogNote.focus()
+        else els.customerDialogName.focus()
+      })
+    }
+
+    function closeCustomerDialog() {
+      els.customerDialog.hidden = true
+      els.customerDialogFeedback.textContent = ''
+      els.customerDialogSubmit.disabled = false
+    }
+
+    async function saveCustomerDialog(event) {
+      event.preventDefault()
+      const isNote = state.customerDialogMode === 'note'
+      const isCreate = state.customerDialogMode === 'create'
+      const customer = state.customers.find((item) => item.id === state.customerDialogCustomerId) || selectedOverviewCustomer()
+      if (!isCreate && !customer) return
+      const value = (isNote ? els.customerDialogNote.value : els.customerDialogName.value).trim()
+      if (!value) {
+        els.customerDialogFeedback.textContent = isNote ? 'Escribi una nota antes de guardar.' : 'El nombre no puede quedar vacio.'
+        return
+      }
+
+      const phone = els.customerDialogPhone.value.trim()
+      if (isCreate && !phone) {
+        els.customerDialogFeedback.textContent = 'El telefono es requerido.'
+        return
+      }
+
+      if (!isNote && !isCreate && value === customer.name) {
+        closeCustomerDialog()
+        return
+      }
+
+      els.customerDialogSubmit.disabled = true
+      els.customerDialogFeedback.textContent = ''
+      try {
+        if (isCreate) {
+          const created = await getJson('/customers', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: value, phone })
+          })
+          state.customers = await getJson('/customers')
+          state.selectedCustomerId = created.id
+          await loadCustomerOverview({ page: 1 })
+          renderAppointmentFormOptions()
+        } else if (isNote) {
+          await getJson('/customers/' + customer.id + '/notes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ body: value })
+          })
+          if (els.appShell.dataset.section === 'customers') await loadCustomerOverview()
+          else await loadCustomerNotes()
+        } else {
+          const updated = await getJson('/customers/' + customer.id, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: value })
+          })
+          state.customers = state.customers.map((item) => item.id === updated.id ? updated : item)
+          if (els.appShell.dataset.section === 'customers') await loadCustomerOverview()
+          else {
+            renderSelected()
+            renderConversations()
+          }
+        }
+        closeCustomerDialog()
+      } catch (error) {
+        els.customerDialogFeedback.textContent = error.message
+        els.customerDialogSubmit.disabled = false
+      }
+    }
+
+    function renderSelected(options = {}) {
       const selected = state.selected
       if (!selected) return
 
@@ -6502,7 +7857,7 @@ const crmHtml = `<!doctype html>
       els.replyText.disabled = false
       els.sendButton.disabled = false
 
-      renderMessages()
+      renderMessages(options.messageScroll || {})
       renderAppointments()
     }
 
@@ -6537,6 +7892,8 @@ const crmHtml = `<!doctype html>
       olderButton?.addEventListener('click', () => loadConversationMessages({ older: true }))
       if (options.preserveScroll) {
         els.messages.scrollTop = previousTop + (els.messages.scrollHeight - previousHeight)
+      } else if (options.mode === 'preserve') {
+        els.messages.scrollTop = options.top
       } else {
         els.messages.scrollTop = els.messages.scrollHeight
       }
@@ -8841,6 +10198,10 @@ const crmHtml = `<!doctype html>
         })
       }
 
+      if (section === 'customers') {
+        loadCustomerOverview().catch(() => {})
+      }
+
       if (section === 'reports') {
         loadReports().catch((error) => {
           els.reportStatusBars.innerHTML = '<div class="error">' + escapeHtml(error.message) + '</div>'
@@ -9254,44 +10615,16 @@ const crmHtml = `<!doctype html>
       els.replyText.focus()
     })
     els.quickHistory.addEventListener('click', () => setSection('agenda'))
-    els.customerEdit.addEventListener('click', async () => {
-      if (!state.selected) return
-      const customer = customerForPhone(state.selected.phone)
-      if (!customer) return
-      const name = window.prompt('Nombre del cliente', customer.name)?.trim()
-      if (!name || name === customer.name) return
-      try {
-        const updated = await getJson('/customers/' + customer.id, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name })
-        })
-        state.customers = state.customers.map((item) => item.id === updated.id ? updated : item)
-        renderSelected()
-        renderConversations()
-      } catch (error) {
-        alert(error.message)
-      }
+    els.customerEdit.addEventListener('click', () => openCustomerDialog('edit'))
+    els.customerAddNote.addEventListener('click', () => openCustomerDialog('note'))
+    els.customerDialogForm.addEventListener('submit', saveCustomerDialog)
+    els.customerDialogClose.addEventListener('click', closeCustomerDialog)
+    els.customerDialogCancel.addEventListener('click', closeCustomerDialog)
+    els.customerDialog.addEventListener('click', (event) => {
+      if (event.target === els.customerDialog) closeCustomerDialog()
     })
-    els.customerAddNote.addEventListener('click', async () => {
-      if (!state.selected) return
-      const customer = customerForPhone(state.selected.phone)
-      if (!customer) {
-        alert('Primero crea el cliente desde un turno para poder guardar notas.')
-        return
-      }
-      const body = window.prompt('Escribi una nota sobre este cliente')?.trim()
-      if (!body) return
-      try {
-        await getJson('/customers/' + customer.id + '/notes', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ body })
-        })
-        await loadCustomerNotes()
-      } catch (error) {
-        alert(error.message)
-      }
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !els.customerDialog.hidden) closeCustomerDialog()
     })
     els.mobileInbox.addEventListener('click', () => setMobileView('inbox'))
     els.mobileChat.addEventListener('click', () => setMobileView('chat'))
@@ -9299,10 +10632,33 @@ const crmHtml = `<!doctype html>
     els.mobileBack.addEventListener('click', () => setMobileView('inbox'))
     document.querySelectorAll('.workspace-nav button')[0]?.addEventListener('click', () => setSection('conversations'))
     document.querySelectorAll('.workspace-nav button')[1]?.addEventListener('click', () => setSection('agenda'))
+    document.querySelectorAll('.workspace-nav button')[2]?.addEventListener('click', () => setSection('customers'))
     document.querySelectorAll('.workspace-nav button')[3]?.addEventListener('click', () => setSection('professionals'))
     document.querySelectorAll('.workspace-nav button')[4]?.addEventListener('click', () => setSection('services'))
     document.querySelectorAll('.workspace-nav button')[6]?.addEventListener('click', () => setSection('reports'))
     document.querySelectorAll('.workspace-nav button')[7]?.addEventListener('click', () => setSection('settings'))
+    els.customerNewButton.addEventListener('click', () => openCustomerDialog('create'))
+    els.customerFilterTabs.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-customer-filter]')
+      if (!button) return
+      state.customerFilter = button.dataset.customerFilter
+      loadCustomerOverview({ page: 1 })
+    })
+    els.customerInactiveDays.addEventListener('change', () => {
+      state.customerInactiveDays = Number(els.customerInactiveDays.value || 60)
+      loadCustomerOverview({ page: 1 })
+    })
+    els.customersSearch.addEventListener('input', () => {
+      state.customerSearch = els.customersSearch.value.trim()
+      clearTimeout(state.customerSearchTimer)
+      state.customerSearchTimer = setTimeout(() => loadCustomerOverview({ page: 1 }), 250)
+    })
+    els.customerPagePrev.addEventListener('click', () => {
+      loadCustomerOverview({ page: Math.max(1, state.customerOverviewPagination.page - 1) })
+    })
+    els.customerPageNext.addEventListener('click', () => {
+      loadCustomerOverview({ page: Math.min(state.customerOverviewPagination.totalPages, state.customerOverviewPagination.page + 1) })
+    })
     els.reportsRange.addEventListener('change', renderReports)
     els.reportsFutureDays.addEventListener('change', renderReports)
     els.reportsInactiveDays.addEventListener('change', renderReports)
