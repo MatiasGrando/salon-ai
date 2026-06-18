@@ -4,6 +4,7 @@ import { Prisma } from '../generated/prisma/client.js'
 import { WhatsAppCloudApi } from '../integrations/whatsapp-cloud-api.js'
 
 const whatsappCloudApi = new WhatsAppCloudApi()
+const WHATSAPP_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000
 
 export async function crmRoutes(app: FastifyInstance) {
   app.post('/crm/maintenance/delete-qa-data', async (request, reply) => {
@@ -187,9 +188,40 @@ export async function crmRoutes(app: FastifyInstance) {
     const items = conversations.slice(0, take).sort((left, right) => {
       return latestConversationActivityAt(right) - latestConversationActivityAt(left)
     })
+    const latestInboundByConversationId = new Map<string, Date | null>()
+    if (items.length > 0) {
+      const latestInboundMessages = await prisma.message.groupBy({
+        by: ['conversationId'],
+        where: {
+          conversationId: {
+            in: items.map((conversation) => conversation.id)
+          },
+          direction: 'INBOUND'
+        },
+        _max: {
+          createdAt: true
+        }
+      })
+      for (const item of latestInboundMessages) {
+        latestInboundByConversationId.set(item.conversationId, item._max.createdAt)
+      }
+    }
+    const itemsWithReplyWindow = items.map((conversation) => {
+      const lastInboundMessageAt = latestInboundByConversationId.get(conversation.id) ?? null
+      const whatsappReplyWindowExpiresAt = lastInboundMessageAt
+        ? new Date(lastInboundMessageAt.getTime() + WHATSAPP_REPLY_WINDOW_MS)
+        : null
+
+      return {
+        ...conversation,
+        lastInboundMessageAt,
+        whatsappReplyWindowExpiresAt,
+        canReplyOnWhatsApp: Boolean(whatsappReplyWindowExpiresAt && whatsappReplyWindowExpiresAt.getTime() > Date.now())
+      }
+    })
 
     if (query.paginated !== 'true') {
-      return items
+      return itemsWithReplyWindow
     }
 
     const countWhere: Prisma.ConversationWhereInput = query.businessId
@@ -209,8 +241,8 @@ export async function crmRoutes(app: FastifyInstance) {
     ])
 
     return {
-      items,
-      nextCursor: hasMore ? items[items.length - 1]?.id ?? null : null,
+      items: itemsWithReplyWindow,
+      nextCursor: hasMore ? itemsWithReplyWindow[itemsWithReplyWindow.length - 1]?.id ?? null : null,
       counts: { active, archived, handoff }
     }
   })
@@ -420,6 +452,32 @@ export async function crmRoutes(app: FastifyInstance) {
     }
 
     const shouldSendWhatsApp = body.sendWhatsApp !== false
+    if (shouldSendWhatsApp) {
+      const latestInbound = await prisma.message.findFirst({
+        where: {
+          conversationId: conversation.id,
+          direction: 'INBOUND'
+        },
+        orderBy: {
+          createdAt: 'desc'
+        },
+        select: {
+          createdAt: true
+        }
+      })
+      const replyWindowExpiresAt = latestInbound
+        ? new Date(latestInbound.createdAt.getTime() + WHATSAPP_REPLY_WINDOW_MS)
+        : null
+
+      if (!replyWindowExpiresAt || replyWindowExpiresAt.getTime() <= Date.now()) {
+        return reply.status(409).send({
+          message: 'La ventana de WhatsApp de 24 hs ya vencio. Para volver a escribir, espera que el cliente envie un mensaje o usa una plantilla aprobada.',
+          reason: 'whatsapp_reply_window_expired',
+          lastInboundMessageAt: latestInbound?.createdAt ?? null,
+          replyWindowExpiresAt
+        })
+      }
+    }
     const deliveryResult = shouldSendWhatsApp
       ? await whatsappCloudApi.sendTextMessage({
           to: conversation.phone,

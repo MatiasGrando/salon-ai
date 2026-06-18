@@ -1567,12 +1567,60 @@ const crmHtml = `<!doctype html>
       background: #fff;
     }
 
+    .app[data-section="conversations"] .composer.is-locked {
+      border-color: #fed7aa;
+      background: #fff7ed;
+    }
+
     .app[data-section="conversations"] .composer textarea {
       min-height: 38px;
       max-height: 100px;
       padding: 7px 3px;
       resize: none;
       font-size: 12px;
+    }
+
+    .app[data-section="conversations"] .composer.is-locked textarea {
+      color: #9a3412;
+      background: #fff7ed;
+    }
+
+    .composer-window-notice {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 10px;
+      border: 1px solid #fed7aa;
+      border-radius: 8px;
+      color: #9a3412;
+      background: #fffbeb;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .composer-window-notice[hidden] {
+      display: none;
+    }
+
+    .composer-window-notice span {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .composer-window-notice .ti {
+      width: 17px;
+      height: 17px;
+      flex: 0 0 17px;
+      stroke-width: 2.2;
+    }
+
+    .composer-window-notice a {
+      color: #2563eb;
+      font-weight: 750;
+      text-decoration: none;
+      white-space: nowrap;
     }
 
     .composer-tools {
@@ -2798,18 +2846,41 @@ const crmHtml = `<!doctype html>
     .customer-profile-actions {
       display: flex;
       align-items: center;
-      gap: 7px;
+      justify-content: flex-end;
+      gap: 8px;
     }
 
-    .customer-profile-actions .customer-contact-action {
-      width: 42px;
-      height: 42px;
+    .customer-profile-contact-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: 38px;
+    }
+
+    .customer-profile-actions a.customer-contact-action,
+    .customer-profile-actions button.customer-contact-action {
+      appearance: none;
+      -webkit-appearance: none;
+      box-sizing: border-box;
+      width: 38px;
+      min-width: 38px;
+      max-width: 38px;
+      height: 38px;
+      min-height: 38px;
+      max-height: 38px;
       border: 1px solid #dce5ee;
-      border-radius: 7px;
-      display: grid;
-      place-items: center;
+      border-radius: 9px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       background: #fff;
       text-decoration: none;
+      padding: 0;
+      margin: 0;
+      line-height: 0;
+      flex: 0 0 38px;
+      overflow: hidden;
+      vertical-align: middle;
     }
 
     .customer-profile-actions .customer-contact-action.whatsapp {
@@ -2820,16 +2891,19 @@ const crmHtml = `<!doctype html>
       color: #2563eb;
     }
 
-    .customer-profile-actions .customer-contact-action:disabled {
+    .customer-profile-actions button.customer-contact-action:disabled {
       color: #9aa5b5;
       background: #f5f6f8;
       cursor: not-allowed;
     }
 
     .customer-profile-actions .customer-contact-action .ti {
-      width: 21px;
-      height: 21px;
-      stroke-width: 2.1;
+      display: block;
+      width: 22px;
+      height: 22px;
+      flex: 0 0 22px;
+      margin: 0;
+      stroke-width: 2.2;
     }
 
     .customer-profile-actions .primary {
@@ -2859,6 +2933,7 @@ const crmHtml = `<!doctype html>
       background: #fff;
       cursor: pointer;
       list-style: none;
+      box-sizing: border-box;
     }
 
     .customer-profile-menu summary::-webkit-details-marker {
@@ -5886,6 +5961,100 @@ const crmHtml = `<!doctype html>
       min-width: 104px;
     }
 
+    .customer-delete-dialog {
+      width: min(460px, 100%);
+    }
+
+    .customer-delete-body {
+      padding: 20px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .customer-delete-hero {
+      display: grid;
+      grid-template-columns: 44px 1fr;
+      gap: 12px;
+      align-items: start;
+    }
+
+    .customer-delete-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 14px;
+      display: grid;
+      place-items: center;
+      color: #dc2626;
+      background: #fee2e2;
+    }
+
+    .customer-delete-icon .ti {
+      width: 22px;
+      height: 22px;
+      stroke-width: 2.25;
+    }
+
+    .customer-delete-hero strong {
+      display: block;
+      color: #101936;
+      font-size: 16px;
+      line-height: 1.3;
+    }
+
+    .customer-delete-hero p {
+      margin: 5px 0 0;
+      color: #64748b;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .customer-delete-warning {
+      padding: 12px 13px;
+      border: 1px solid #fecaca;
+      border-radius: 10px;
+      color: #7f1d1d;
+      background: #fff7f7;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .customer-delete-warning strong {
+      display: block;
+      margin-bottom: 6px;
+      color: #991b1b;
+    }
+
+    .customer-delete-warning ul {
+      margin: 0;
+      padding-left: 18px;
+    }
+
+    .customer-delete-warning small {
+      display: block;
+      margin-top: 8px;
+      color: #64748b;
+    }
+
+    .customer-delete-feedback {
+      min-height: 18px;
+      margin: -6px 0 0;
+      color: #dc2626;
+      font-size: 12px;
+    }
+
+    .customer-delete-dialog .dialog-actions button {
+      min-width: 122px;
+    }
+
+    .customer-delete-confirm {
+      color: #fff;
+      background: #dc2626;
+    }
+
+    .customer-delete-confirm:hover {
+      background: #b91c1c;
+    }
+
     @media (max-width: 620px) {
       .appointment-form .split-row {
         grid-template-columns: 1fr;
@@ -6019,6 +6188,10 @@ const crmHtml = `<!doctype html>
         <div class="empty">Elegi un chat para ver los mensajes.</div>
       </div>
       <form class="composer" id="reply-form">
+        <div class="composer-window-notice" id="composer-window-notice" hidden>
+          <span><span data-icon="clock"></span><span id="composer-window-text">La ventana de WhatsApp vencio.</span></span>
+          <a id="composer-window-whatsapp" href="#" target="_blank" rel="noopener">Abrir WhatsApp</a>
+        </div>
         <textarea id="reply-text" placeholder="Escribir mensaje..." disabled></textarea>
         <div class="composer-tools">
           <button class="composer-icon" type="button" title="Emoji" data-icon="smile"></button>
@@ -6339,6 +6512,37 @@ const crmHtml = `<!doctype html>
             <button class="primary" id="customer-dialog-submit" type="submit">Guardar cambios</button>
           </div>
         </form>
+      </section>
+    </div>
+
+    <div class="dialog-backdrop" id="customer-delete-dialog" hidden>
+      <section class="dialog customer-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="customer-delete-title">
+        <header class="dialog-header">
+          <h3 id="customer-delete-title">Eliminar cliente</h3>
+          <button class="icon-button" id="customer-delete-close" type="button" title="Cerrar">X</button>
+        </header>
+        <div class="customer-delete-body">
+          <div class="customer-delete-hero">
+            <span class="customer-delete-icon" data-icon="trash"></span>
+            <div>
+              <strong id="customer-delete-name">Eliminar cliente</strong>
+              <p>Esta accion quita al cliente de la base de datos del salon.</p>
+            </div>
+          </div>
+          <div class="customer-delete-warning">
+            <strong>Antes de eliminarlo:</strong>
+            <ul>
+              <li>Se eliminaran sus turnos asociados.</li>
+              <li>Se eliminaran las notas guardadas en su perfil.</li>
+            </ul>
+            <small>La conversacion y sus mensajes se conservan para referencia.</small>
+          </div>
+          <p class="customer-delete-feedback" id="customer-delete-feedback"></p>
+          <div class="dialog-actions">
+            <button class="secondary" id="customer-delete-cancel" type="button">Cancelar</button>
+            <button class="danger customer-delete-confirm" id="customer-delete-confirm" type="button">Eliminar cliente</button>
+          </div>
+        </div>
       </section>
     </div>
 
@@ -6889,6 +7093,8 @@ const crmHtml = `<!doctype html>
   </main>
 
   <script>
+    const WHATSAPP_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000
+
     const state = {
       conversations: [],
       conversationNextCursor: null,
@@ -6934,6 +7140,7 @@ const crmHtml = `<!doctype html>
       readConversationIds: new Set(),
       customerDialogMode: 'edit',
       customerDialogCustomerId: null,
+      customerDeleteCustomerId: null,
       isRefreshing: false
     }
 
@@ -6966,6 +7173,9 @@ const crmHtml = `<!doctype html>
       replyForm: document.getElementById('reply-form'),
       replyText: document.getElementById('reply-text'),
       sendButton: document.getElementById('send-button'),
+      composerWindowNotice: document.getElementById('composer-window-notice'),
+      composerWindowText: document.getElementById('composer-window-text'),
+      composerWindowWhatsapp: document.getElementById('composer-window-whatsapp'),
       detailAvatar: document.getElementById('detail-avatar'),
       detailName: document.getElementById('detail-name'),
       detailPhone: document.getElementById('detail-phone'),
@@ -6996,6 +7206,12 @@ const crmHtml = `<!doctype html>
       customerDialogName: document.getElementById('customer-dialog-name'),
       customerDialogPhone: document.getElementById('customer-dialog-phone'),
       customerDialogNote: document.getElementById('customer-dialog-note'),
+      customerDeleteDialog: document.getElementById('customer-delete-dialog'),
+      customerDeleteName: document.getElementById('customer-delete-name'),
+      customerDeleteClose: document.getElementById('customer-delete-close'),
+      customerDeleteCancel: document.getElementById('customer-delete-cancel'),
+      customerDeleteConfirm: document.getElementById('customer-delete-confirm'),
+      customerDeleteFeedback: document.getElementById('customer-delete-feedback'),
       customersView: document.getElementById('customers-view'),
       customersSearch: document.getElementById('customers-search'),
       customerNewButton: document.getElementById('customer-new-button'),
@@ -7435,8 +7651,15 @@ const crmHtml = `<!doctype html>
           '<div class="customer-profile-avatar tone-' + avatarTone + '">' + escapeHtml(contactInitials(customer.name, customer.phone)) + '</div>' +
           '<div><h3>' + escapeHtml(customer.name) + '</h3><a href="tel:' + escapeHtml(customer.phone) + '">' + escapeHtml(formatCustomerPhone(customer.phone)) + '</a></div>' +
           '<div class="customer-profile-actions">' +
-            '<a class="customer-whatsapp-action" href="https://wa.me/' + encodeURIComponent(normalizePhone(customer.phone)) + '" target="_blank" rel="noopener" title="Abrir WhatsApp">' + icon('whatsapp') + '</a>' +
+            '<div class="customer-profile-contact-row">' +
+              '<a class="customer-contact-action whatsapp" href="https://wa.me/' + encodeURIComponent(normalizePhone(customer.phone)) + '" target="_blank" rel="noopener" title="Abrir WhatsApp" aria-label="Abrir WhatsApp">' + icon('whatsapp') + '</a>' +
+              '<button class="customer-contact-action conversation" type="button" data-open-customer-conversation title="' + (customer.conversation ? 'Abrir conversacion en el CRM' : 'Este cliente no tiene una conversacion') + '" aria-label="Abrir conversacion en el CRM" ' + (customer.conversation ? '' : 'disabled') + '>' + icon('mail') + '</button>' +
+            '</div>' +
             '<button class="primary" type="button" data-schedule-customer>' + icon('calendar') + 'Agendar turno</button>' +
+            '<details class="customer-profile-menu">' +
+              '<summary title="Mas opciones" aria-label="Mas opciones">' + icon('more') + '</summary>' +
+              '<div class="customer-profile-menu-popover"><button type="button" data-delete-customer>' + icon('trash') + 'Eliminar cliente</button></div>' +
+            '</details>' +
           '</div>' +
         '</header>' +
         '<div class="customer-profile-stats">' +
@@ -7457,7 +7680,10 @@ const crmHtml = `<!doctype html>
 
       els.customerProfilePanel.querySelector('[data-schedule-customer]')?.addEventListener('click', () => openOverviewCustomerAppointment(customer))
       els.customerProfilePanel.querySelector('[data-add-customer-note]')?.addEventListener('click', () => openCustomerDialog('note', customer))
-      els.customerProfilePanel.querySelector('[data-open-customer-conversation]')?.addEventListener('click', () => openOverviewCustomerConversation(customer))
+      for (const button of els.customerProfilePanel.querySelectorAll('[data-open-customer-conversation]')) {
+        button.addEventListener('click', () => openOverviewCustomerConversation(customer))
+      }
+      els.customerProfilePanel.querySelector('[data-delete-customer]')?.addEventListener('click', () => deleteOverviewCustomer(customer))
     }
 
     function selectedOverviewCustomer() {
@@ -7527,12 +7753,58 @@ const crmHtml = `<!doctype html>
     }
 
     async function openOverviewCustomerConversation(customer) {
-      if (!customer.openConversation) return
-      if (!state.conversations.some((conversation) => conversation.id === customer.openConversation.id)) {
-        state.conversations.unshift(customer.openConversation)
+      if (!customer.conversation) return
+      if (!state.conversations.some((conversation) => conversation.id === customer.conversation.id)) {
+        state.conversations.unshift(customer.conversation)
       }
       setSection('conversations')
-      await selectConversation(customer.openConversation.id)
+      await selectConversation(customer.conversation.id)
+    }
+
+    function deleteOverviewCustomer(customer) {
+      openCustomerDeleteDialog(customer)
+    }
+
+    function openCustomerDeleteDialog(customer) {
+      state.customerDeleteCustomerId = customer.id
+      els.customerDeleteName.textContent = 'Eliminar a ' + customer.name
+      els.customerDeleteFeedback.textContent = ''
+      els.customerDeleteConfirm.disabled = false
+      els.customerDeleteConfirm.textContent = 'Eliminar cliente'
+      els.customerDeleteDialog.hidden = false
+      requestAnimationFrame(() => els.customerDeleteCancel.focus())
+    }
+
+    function closeCustomerDeleteDialog() {
+      els.customerDeleteDialog.hidden = true
+      state.customerDeleteCustomerId = null
+      els.customerDeleteFeedback.textContent = ''
+      els.customerDeleteConfirm.disabled = false
+      els.customerDeleteConfirm.textContent = 'Eliminar cliente'
+    }
+
+    async function confirmCustomerDelete() {
+      const customer = state.customerOverview.find((item) => item.id === state.customerDeleteCustomerId)
+      if (!customer) {
+        closeCustomerDeleteDialog()
+        return
+      }
+
+      try {
+        els.customerDeleteConfirm.disabled = true
+        els.customerDeleteConfirm.textContent = 'Eliminando...'
+        els.customerDeleteFeedback.textContent = ''
+        await getJson('/customers/' + customer.id, { method: 'DELETE' })
+        state.customers = state.customers.filter((item) => item.id !== customer.id)
+        state.selectedCustomerId = null
+        closeCustomerDeleteDialog()
+        renderAppointmentFormOptions()
+        await loadCustomerOverview()
+      } catch (error) {
+        els.customerDeleteFeedback.textContent = error.message
+        els.customerDeleteConfirm.disabled = false
+        els.customerDeleteConfirm.textContent = 'Eliminar cliente'
+      }
     }
 
     async function loadConversations(options = {}) {
@@ -7854,11 +8126,70 @@ const crmHtml = `<!doctype html>
       els.customerEdit.disabled = !customer
       els.archiveConversation.disabled = canResolveHandoff && !selected.archivedAt
       els.archiveConversation.textContent = selected.archivedAt ? 'Restaurar chat' : 'Archivar chat'
-      els.replyText.disabled = false
-      els.sendButton.disabled = false
 
       renderMessages(options.messageScroll || {})
+      updateComposerAvailability()
       renderAppointments()
+    }
+
+    function whatsappReplyWindowState(conversation = state.selected) {
+      if (!conversation) {
+        return { canReply: false, expiresAt: null }
+      }
+
+      let expiresAt = conversation.whatsappReplyWindowExpiresAt
+        ? new Date(conversation.whatsappReplyWindowExpiresAt)
+        : null
+
+      if (!expiresAt || Number.isNaN(expiresAt.getTime())) {
+        const latestInbound = [...state.messages].reverse().find((message) => message.direction === 'INBOUND')
+        expiresAt = latestInbound
+          ? new Date(new Date(latestInbound.createdAt).getTime() + WHATSAPP_REPLY_WINDOW_MS)
+          : null
+      }
+
+      return {
+        canReply: Boolean(expiresAt && expiresAt.getTime() > Date.now()),
+        expiresAt
+      }
+    }
+
+    function formatReplyWindowRemaining(expiresAt) {
+      const remainingMs = Math.max(0, expiresAt.getTime() - Date.now())
+      const totalMinutes = Math.ceil(remainingMs / 60000)
+      if (totalMinutes >= 60) {
+        const hours = Math.floor(totalMinutes / 60)
+        const minutes = totalMinutes % 60
+        return hours + ' h' + (minutes ? ' ' + minutes + ' min' : '')
+      }
+      return totalMinutes + ' min'
+    }
+
+    function updateComposerAvailability() {
+      const windowState = whatsappReplyWindowState()
+      const isLocked = !windowState.canReply
+      els.replyForm.classList.toggle('is-locked', isLocked)
+      els.replyText.disabled = isLocked
+      els.sendButton.disabled = isLocked
+      els.composerWindowNotice.hidden = !isLocked
+      els.composerWindowWhatsapp.href = state.selected
+        ? 'https://wa.me/' + normalizePhone(state.selected.phone)
+        : '#'
+
+      for (const button of els.replyForm.querySelectorAll('.composer-icon')) {
+        button.disabled = isLocked
+      }
+
+      if (isLocked) {
+        els.replyText.value = ''
+        els.replyText.placeholder = 'Respuesta deshabilitada: pasaron mas de 24 hs.'
+        els.composerWindowText.textContent = 'Pasaron mas de 24 hs desde el ultimo mensaje del cliente. Espera que vuelva a escribir para responder desde el CRM.'
+      } else {
+        els.replyText.placeholder = 'Escribir mensaje...'
+        els.composerWindowText.textContent = windowState.expiresAt
+          ? 'Podes responder durante ' + formatReplyWindowRemaining(windowState.expiresAt) + '.'
+          : ''
+      }
     }
 
     function renderMessages(options = {}) {
@@ -8635,6 +8966,10 @@ const crmHtml = `<!doctype html>
     async function sendReply(event) {
       event.preventDefault()
       if (!state.selected) return
+      if (!whatsappReplyWindowState().canReply) {
+        updateComposerAvailability()
+        return
+      }
       const text = els.replyText.value.trim()
       if (!text) return
 
@@ -8655,9 +8990,15 @@ const crmHtml = `<!doctype html>
           alert('WhatsApp no pudo enviar el mensaje: ' + (result.delivery.errorMessage || result.delivery.reason || 'revisa la configuracion o la ventana de 24 hs.'))
         }
       } catch (error) {
-        alert(error.message)
+        if (error.body?.reason === 'whatsapp_reply_window_expired') {
+          state.selected.canReplyOnWhatsApp = false
+          state.selected.whatsappReplyWindowExpiresAt = error.body.replyWindowExpiresAt
+          updateComposerAvailability()
+        } else {
+          alert(error.message)
+        }
       } finally {
-        els.sendButton.disabled = false
+        updateComposerAvailability()
       }
     }
 
@@ -10623,8 +10964,15 @@ const crmHtml = `<!doctype html>
     els.customerDialog.addEventListener('click', (event) => {
       if (event.target === els.customerDialog) closeCustomerDialog()
     })
+    els.customerDeleteClose.addEventListener('click', closeCustomerDeleteDialog)
+    els.customerDeleteCancel.addEventListener('click', closeCustomerDeleteDialog)
+    els.customerDeleteConfirm.addEventListener('click', confirmCustomerDelete)
+    els.customerDeleteDialog.addEventListener('click', (event) => {
+      if (event.target === els.customerDeleteDialog) closeCustomerDeleteDialog()
+    })
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape' && !els.customerDialog.hidden) closeCustomerDialog()
+      if (event.key === 'Escape' && !els.customerDeleteDialog.hidden) closeCustomerDeleteDialog()
     })
     els.mobileInbox.addEventListener('click', () => setMobileView('inbox'))
     els.mobileChat.addEventListener('click', () => setMobileView('chat'))
