@@ -1,5 +1,6 @@
 import { openAiConfig } from '../config/openai.js'
 import { getOpenAiClient } from '../integrations/openai-client.js'
+import { isAiExecutionEnabled } from './ai-execution-context.js'
 
 type MatchableOption = {
   id: string
@@ -67,7 +68,7 @@ const minimumClarificationConfidence = 0.35
 
 export class AiMessageUnderstandingService {
   isEnabled() {
-    return Boolean(getOpenAiClient())
+    return isAiExecutionEnabled() && Boolean(getOpenAiClient())
   }
 
   async humanizeReply(input: {
@@ -641,6 +642,10 @@ export class AiMessageUnderstandingService {
     schemaName: string
     schema: Record<string, unknown>
   }): Promise<T | null> {
+    if (!isAiExecutionEnabled()) {
+      return null
+    }
+
     const client = getOpenAiClient()
 
     if (!client) {

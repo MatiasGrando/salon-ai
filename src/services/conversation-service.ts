@@ -5,6 +5,7 @@ import { AiMessageUnderstandingService, type AiConversationIntent } from './ai-m
 import { BookingConversationFlow, isBookingStartMessage, isMenuStep } from './booking-conversation-flow.js'
 import { BotCopyService } from './bot-copy-service.js'
 import { normalizeText } from './message-understanding-service.js'
+import { runWithAiEnabled } from './ai-execution-context.js'
 
 const bookingConversationFlow = new BookingConversationFlow()
 const bookingProvider = new InternalBookingProvider()
@@ -15,6 +16,7 @@ type HandleMessageInput = {
   phone: string
   message: string
   businessId?: string
+  useAi?: boolean
 }
 
 type HandleMessageResult = {
@@ -23,12 +25,14 @@ type HandleMessageResult = {
 
 export class ConversationService {
   async handleMessage(input: HandleMessageInput): Promise<HandleMessageResult> {
-    const result = await this.handleMessageCore(input)
-    await this.trackMisunderstanding(input.phone, result.reply)
+    return runWithAiEnabled(input.useAi !== false, async () => {
+      const result = await this.handleMessageCore(input)
+      await this.trackMisunderstanding(input.phone, result.reply)
 
-    return this.humanizeResult({
-      result,
-      message: input.message.trim()
+      return this.humanizeResult({
+        result,
+        message: input.message.trim()
+      })
     })
   }
 

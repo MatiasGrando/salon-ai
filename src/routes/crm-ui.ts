@@ -139,19 +139,6 @@ const crmHtml = `<!doctype html>
       flex-shrink: 0;
     }
 
-    .ops-panel {
-      padding: 10px 12px;
-      border-bottom: 1px solid var(--line);
-      display: grid;
-      gap: 8px;
-      background: var(--surface);
-      flex-shrink: 0;
-    }
-
-    .ops-panel .row {
-      align-items: center;
-    }
-
     .counter {
       min-width: 28px;
       height: 24px;
@@ -809,7 +796,7 @@ const crmHtml = `<!doctype html>
     }
 
     .app {
-      grid-template-columns: 244px minmax(290px, 336px) minmax(420px, 1fr) minmax(310px, 360px);
+      grid-template-columns: 224px minmax(290px, 336px) minmax(420px, 1fr) minmax(310px, 360px);
       height: 100dvh;
       background: #f8fbff;
     }
@@ -1041,14 +1028,6 @@ const crmHtml = `<!doctype html>
       border-radius: 8px;
     }
 
-    .ops-panel {
-      margin: 0 18px 12px;
-      padding: 12px;
-      border: 1px solid #e4e6eb;
-      border-radius: 8px;
-      background: #f9f9fb;
-    }
-
     .conversation {
       width: calc(100% - 20px);
       min-height: 88px;
@@ -1165,7 +1144,7 @@ const crmHtml = `<!doctype html>
     }
 
     .app[data-section="conversations"] {
-      grid-template-columns: 244px minmax(280px, 320px) minmax(420px, 1fr) minmax(300px, 340px);
+      grid-template-columns: 224px minmax(280px, 320px) minmax(420px, 1fr) minmax(300px, 340px);
       grid-template-rows: 104px minmax(0, 1fr);
       background: #f8fbff;
     }
@@ -1276,7 +1255,6 @@ const crmHtml = `<!doctype html>
       border-right: 1px solid #e5eaf3;
     }
 
-    .conversation-sidebar .ops-panel[hidden],
     .app[data-section="conversations"] .chat-header .mobile-only,
     .app[data-section="conversations"] .chat-actions > #step-chip {
       display: none !important;
@@ -1515,6 +1493,10 @@ const crmHtml = `<!doctype html>
       justify-content: flex-start;
     }
 
+    .chat-more-popover button[hidden] {
+      display: none;
+    }
+
     .app[data-section="conversations"] .messages {
       padding: 20px 18px 24px;
       gap: 12px;
@@ -1558,6 +1540,11 @@ const crmHtml = `<!doctype html>
       background: #eef4ff;
     }
 
+    .message.outbound.failed {
+      border-color: #fecaca;
+      background: #fff1f2;
+    }
+
     .message-time {
       margin-top: 5px;
       font-size: 9px;
@@ -1566,6 +1553,12 @@ const crmHtml = `<!doctype html>
     .message-checks {
       margin-left: 4px;
       color: #2563eb;
+      font-weight: 800;
+    }
+
+    .message-status-failed {
+      margin-left: 6px;
+      color: #dc2626;
       font-weight: 800;
     }
 
@@ -1875,6 +1868,423 @@ const crmHtml = `<!doctype html>
       text-transform: uppercase;
     }
 
+    /* Conversation workspace polish */
+    .app[data-section="conversations"] {
+      grid-template-columns: 224px minmax(300px, 340px) minmax(400px, 1fr) minmax(300px, 350px);
+      grid-template-rows: 100px minmax(0, 1fr);
+    }
+
+    .app[data-section="conversations"] .conversation-page-header {
+      padding: 18px 28px;
+    }
+
+    .conversation-heading h1 {
+      font-weight: 700;
+    }
+
+    .conversation-heading p {
+      font-size: 13.5px;
+    }
+
+    .conversation-tabs {
+      min-height: 62px;
+      padding: 0 12px;
+    }
+
+    .conversation-tabs button {
+      font-size: 11.5px;
+      font-weight: 650;
+    }
+
+    .conversation-list {
+      padding: 12px 10px 6px;
+      scrollbar-width: thin;
+      scrollbar-color: transparent transparent;
+    }
+
+    .conversation-list:hover {
+      scrollbar-color: #cbd5e1 transparent;
+    }
+
+    .conversation-list::-webkit-scrollbar,
+    .app[data-section="conversations"] .messages::-webkit-scrollbar,
+    .app[data-section="conversations"] .details::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .conversation-list::-webkit-scrollbar-thumb,
+    .app[data-section="conversations"] .messages::-webkit-scrollbar-thumb,
+    .app[data-section="conversations"] .details::-webkit-scrollbar-thumb {
+      border-radius: 999px;
+      background: transparent;
+    }
+
+    .conversation-list:hover::-webkit-scrollbar-thumb,
+    .app[data-section="conversations"] .messages:hover::-webkit-scrollbar-thumb,
+    .app[data-section="conversations"] .details:hover::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+    }
+
+    .conversation {
+      min-height: 102px;
+      margin-bottom: 8px;
+      padding: 15px 14px;
+      grid-template-columns: 44px minmax(0, 1fr);
+      gap: 12px;
+    }
+
+    .conversation-avatar-wrap,
+    .conversation-avatar-wrap .avatar {
+      width: 44px;
+      height: 44px;
+    }
+
+    .conversation-name {
+      font-size: 13.5px;
+      font-weight: 700;
+    }
+
+    .conversation-time {
+      font-size: 10.5px;
+      font-weight: 600;
+    }
+
+    .conversation .preview {
+      margin: 5px 0 8px;
+      font-size: 11.5px;
+    }
+
+    .app[data-section="conversations"] .chat-header {
+      min-height: 76px;
+      padding: 12px 20px;
+    }
+
+    .app[data-section="conversations"] .messages {
+      padding: 22px 24px 26px;
+      gap: 14px;
+      scrollbar-width: thin;
+      scrollbar-color: transparent transparent;
+    }
+
+    .app[data-section="conversations"] .message {
+      max-width: min(480px, 70%);
+      padding: 12px 14px 9px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .app[data-section="conversations"] .message-time {
+      margin-top: 6px;
+      font-size: 9.5px;
+    }
+
+    .app[data-section="conversations"] .composer {
+      margin: 0 18px 18px;
+      padding: 10px 12px;
+      gap: 6px;
+    }
+
+    .app[data-section="conversations"] .composer textarea {
+      min-height: 42px;
+      font-size: 13px;
+    }
+
+    .app[data-section="conversations"] .composer-tools .primary {
+      height: 36px;
+      padding: 0 15px;
+      font-size: 12px;
+    }
+
+    .app[data-section="conversations"] .details {
+      padding: 12px;
+      gap: 12px;
+      scrollbar-width: thin;
+      scrollbar-color: transparent transparent;
+    }
+
+    .app[data-section="conversations"] .details-section {
+      padding: 15px;
+    }
+
+    .customer-summary-copy {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .customer-whatsapp {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      color: #16a34a;
+      background: #ecfdf3;
+      flex-shrink: 0;
+    }
+
+    .customer-whatsapp .ti {
+      width: 17px;
+      height: 17px;
+    }
+
+    .customer-summary-main strong {
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .customer-summary-main a:not(.customer-whatsapp) {
+      font-size: 11.5px;
+    }
+
+    .customer-last-message > span,
+    .customer-bot-status > span:first-child {
+      font-size: 10.5px;
+    }
+
+    .customer-last-message strong {
+      font-size: 11.5px;
+    }
+
+    .customer-bot-status .chip {
+      width: auto;
+      justify-self: start;
+    }
+
+    .appointment-card {
+      display: grid;
+      grid-template-columns: 54px minmax(0, 1fr);
+      gap: 12px;
+      align-items: start;
+    }
+
+    .appointment-date-tile {
+      width: 54px;
+      height: 58px;
+      border-radius: 8px;
+      display: grid;
+      place-content: center;
+      text-align: center;
+      color: #17213c;
+      background: #eef3ff;
+    }
+
+    .appointment-date-tile strong {
+      font-size: 19px;
+      line-height: 1;
+      font-weight: 700;
+    }
+
+    .appointment-date-tile span {
+      margin-top: 4px;
+      color: #2563eb;
+      font-size: 9px;
+      font-weight: 750;
+    }
+
+    .appointment-card-copy {
+      min-width: 0;
+    }
+
+    .appointment-card-copy .item-title {
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .appointment-card-copy p {
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .appointment-card-copy .chip {
+      margin-top: 8px;
+    }
+
+    .quick-actions-grid button {
+      min-height: 40px;
+      padding: 7px 9px;
+      font-size: 10px;
+      font-weight: 600;
+    }
+
+    /* Right customer panel refinement */
+    .app[data-section="conversations"] .details {
+      gap: 13px;
+      background: #f7faff;
+    }
+
+    .app[data-section="conversations"] .details .topbar,
+    .app[data-section="conversations"] .details-section {
+      border-color: #e6ebf3;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, .025);
+    }
+
+    .app[data-section="conversations"] .details .topbar {
+      min-height: 52px;
+      padding: 11px 15px;
+    }
+
+    .app[data-section="conversations"] .details .panel-title {
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .details-edit,
+    .details-link {
+      font-size: 10.5px;
+      font-weight: 650;
+    }
+
+    .customer-summary {
+      gap: 18px;
+    }
+
+    .customer-avatar {
+      width: 50px;
+      height: 50px;
+      font-size: 18px;
+    }
+
+    .customer-summary-main strong {
+      font-size: 13.5px;
+    }
+
+    .customer-type {
+      font-size: 9.5px;
+    }
+
+    .customer-summary-main a:not(.customer-whatsapp) {
+      margin-top: 6px;
+      font-size: 12px;
+    }
+
+    .customer-summary-main .customer-whatsapp {
+      width: 36px;
+      height: 36px;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      place-items: center;
+      color: #16a34a;
+      background: #eafaf0;
+      line-height: 0;
+    }
+
+    .customer-summary-main .customer-whatsapp .ti {
+      width: 21px;
+      height: 21px;
+      display: block;
+    }
+
+    .customer-summary-main strong {
+      font-size: 14.5px;
+    }
+
+    .customer-summary-main a:not(.customer-whatsapp) {
+      font-size: 13px;
+    }
+
+    .customer-last-message > span,
+    .customer-bot-status > span:first-child {
+      color: #64748b;
+      font-size: 11.5px;
+    }
+
+    .customer-last-message strong {
+      font-size: 12.5px;
+      font-weight: 650;
+    }
+
+    .customer-bot-status .chip {
+      height: 23px;
+      padding: 0 9px;
+      font-size: 10.5px;
+    }
+
+    .app[data-section="conversations"] .details .stack {
+      gap: 12px;
+    }
+
+    .app[data-section="conversations"] .details .item {
+      padding: 13px;
+      border-color: #e8edf5;
+      background: #fff;
+    }
+
+    .appointment-card {
+      grid-template-columns: 58px minmax(0, 1fr);
+      gap: 14px;
+    }
+
+    .appointment-date-tile {
+      width: 58px;
+      height: 62px;
+      background: #edf3ff;
+    }
+
+    .appointment-date-tile strong {
+      font-size: 20px;
+    }
+
+    .appointment-date-tile span {
+      font-size: 9.5px;
+    }
+
+    .appointment-card-copy .item-title {
+      font-size: 14.5px;
+    }
+
+    .appointment-card-copy p {
+      margin-top: 5px;
+      color: #65728a;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .appointment-card-copy .chip {
+      height: 22px;
+      margin-top: 9px;
+      font-size: 10px;
+    }
+
+    .details-wide-action {
+      height: 36px;
+      margin-top: 11px;
+      font-size: 10.5px;
+    }
+
+    .customer-note-empty {
+      min-height: 54px;
+      padding: 14px;
+      border-style: dashed;
+      border-color: #dce4f0;
+      display: flex;
+      align-items: center;
+      color: #64748b;
+      background: #f8faff;
+      font-size: 10.5px;
+    }
+
+    .quick-actions .panel-title {
+      margin-bottom: 12px;
+    }
+
+    .quick-actions-grid {
+      gap: 7px;
+    }
+
+    .quick-actions-grid button {
+      min-height: 48px;
+      margin: 0;
+      padding: 7px 8px;
+      border-color: #e2e8f1;
+      font-size: 11.5px;
+    }
+
+    .quick-actions-grid .ti {
+      width: 17px;
+      height: 17px;
+    }
+
     @media (max-width: 1180px) {
       .app[data-section="conversations"] {
         grid-template-columns: 220px minmax(270px, 310px) minmax(420px, 1fr);
@@ -1921,7 +2331,7 @@ const crmHtml = `<!doctype html>
     }
 
     .app[data-section="agenda"] {
-      grid-template-columns: 244px minmax(0, 1fr);
+      grid-template-columns: 224px minmax(0, 1fr);
     }
 
     .app[data-section="agenda"] .sidebar,
@@ -1951,7 +2361,7 @@ const crmHtml = `<!doctype html>
     .app[data-section="professionals"],
     .app[data-section="reports"],
     .app[data-section="settings"] {
-      grid-template-columns: 244px minmax(0, 1fr);
+      grid-template-columns: 224px minmax(0, 1fr);
     }
 
     .app[data-section="services"] .sidebar,
@@ -2731,6 +3141,106 @@ const crmHtml = `<!doctype html>
       color: #b42318;
       border-color: #fecaca;
       background: #fff1f2;
+    }
+
+    .settings-automation-list {
+      margin-top: 20px;
+      border-top: 1px solid #e5eaf3;
+      display: grid;
+    }
+
+    .automation-control {
+      min-height: 86px;
+      padding: 18px 0;
+      border-bottom: 1px solid #e5eaf3;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      cursor: pointer;
+    }
+
+    .automation-control:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .automation-copy {
+      min-width: 0;
+      flex: 1;
+      display: grid;
+      gap: 5px;
+    }
+
+    .automation-copy strong {
+      color: #101936;
+      font-size: 14px;
+    }
+
+    .automation-copy span {
+      color: #52617f;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .automation-copy small {
+      width: max-content;
+      padding: 3px 8px;
+      border-radius: 999px;
+      color: #166534;
+      background: #dcfce7;
+      font-size: 10px;
+      font-weight: 800;
+    }
+
+    .automation-copy small.paused {
+      color: #991b1b;
+      background: #fee2e2;
+    }
+
+    .automation-copy small.basic {
+      color: #92400e;
+      background: #fef3c7;
+    }
+
+    .automation-control input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .automation-switch {
+      position: relative;
+      width: 44px;
+      height: 24px;
+      border-radius: 999px;
+      background: #cbd5e1;
+      transition: background .18s ease;
+      flex-shrink: 0;
+    }
+
+    .automation-switch::after {
+      content: "";
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 1px 4px rgba(15, 23, 42, .2);
+      transition: transform .18s ease;
+    }
+
+    .automation-control input:checked + .automation-switch {
+      background: #2563eb;
+    }
+
+    .automation-control input:checked + .automation-switch::after {
+      transform: translateX(20px);
+    }
+
+    .automation-control input:focus-visible + .automation-switch {
+      box-shadow: 0 0 0 3px #dbeafe;
     }
 
     .exceptional-option {
@@ -4600,10 +5110,6 @@ const crmHtml = `<!doctype html>
           Archivados <span id="conversation-archived-count">0</span>
         </button>
       </div>
-      <div class="ops-panel" hidden>
-        <button class="secondary" id="global-bot-toggle" type="button">Bot autom&aacute;tico activo</button>
-        <button class="secondary" id="global-ai-toggle" type="button">IA general activa</button>
-      </div>
       <div class="conversation-list" id="conversation-list">
         <div class="empty">Cargando conversaciones...</div>
       </div>
@@ -4625,11 +5131,9 @@ const crmHtml = `<!doctype html>
           <details class="chat-more-menu">
             <summary class="icon-button" title="Opciones" data-icon="more"></summary>
             <div class="chat-more-popover">
-              <button class="secondary" id="resolve-handoff" type="button" disabled hidden>Resolver derivaci&oacute;n</button>
-              <button class="secondary" id="conversation-ai-toggle" type="button" disabled>Desactivar IA</button>
-              <button class="secondary" id="global-bot-toggle-menu" type="button">Bot autom&aacute;tico</button>
-              <button class="secondary" id="global-ai-toggle-menu" type="button">IA general</button>
-              <button class="secondary" id="archive-conversation" type="button" disabled>Archivar conversaci&oacute;n</button>
+              <button class="secondary" id="resolve-handoff" type="button" disabled hidden>Marcar como resuelto</button>
+              <button class="secondary" id="conversation-ai-toggle" type="button" disabled>Atender manualmente</button>
+              <button class="secondary" id="archive-conversation" type="button" disabled>Archivar chat</button>
             </div>
           </details>
         </div>
@@ -4656,11 +5160,12 @@ const crmHtml = `<!doctype html>
       <div class="details-section customer-summary">
         <div class="customer-summary-main">
           <div class="customer-avatar" id="detail-avatar">--</div>
-          <div>
+          <div class="customer-summary-copy">
             <strong id="detail-name">Seleccion&aacute; un cliente</strong>
             <span class="customer-type">Cliente</span>
             <a id="detail-phone" href="#">--</a>
           </div>
+          <a class="customer-whatsapp" id="detail-whatsapp" href="#" target="_blank" rel="noopener" title="Abrir en WhatsApp" aria-label="Abrir en WhatsApp" data-icon="whatsapp"></a>
         </div>
         <div class="customer-last-message">
           <span>&Uacute;ltimo mensaje</span>
@@ -5091,7 +5596,7 @@ const crmHtml = `<!doctype html>
           <div class="settings-header-icon" data-icon="settings"></div>
           <div>
             <h2>Ajustes</h2>
-            <p>Datos generales y horarios de atenci&oacute;n del local.</p>
+            <p>Datos generales, horarios y automatizaci&oacute;n del local.</p>
           </div>
         </header>
 
@@ -5143,6 +5648,31 @@ const crmHtml = `<!doctype html>
             </div>
             <p class="settings-feedback" id="business-settings-feedback" role="status" aria-live="polite"></p>
           </form>
+        </section>
+
+        <section class="settings-panel">
+          <h3>Automatizaci&oacute;n</h3>
+          <p>Control&aacute; c&oacute;mo responde el asistente en todos los chats del local.</p>
+          <div class="settings-automation-list">
+            <label class="automation-control">
+              <div class="automation-copy">
+                <strong>Bot autom&aacute;tico</strong>
+                <span>Cuando est&aacute; pausado, ning&uacute;n chat recibe respuestas autom&aacute;ticas.</span>
+                <small id="global-bot-status">Activo</small>
+              </div>
+              <input id="global-bot-toggle" type="checkbox" checked>
+              <span class="automation-switch" aria-hidden="true"></span>
+            </label>
+            <label class="automation-control">
+              <div class="automation-copy">
+                <strong>Agente IA</strong>
+                <span>Mejora la interpretaci&oacute;n y el tono. Si lo apag&aacute;s, el bot sigue funcionando con el flujo b&aacute;sico.</span>
+                <small id="global-ai-status">Activo</small>
+              </div>
+              <input id="global-ai-toggle" type="checkbox" checked>
+              <span class="automation-switch" aria-hidden="true"></span>
+            </label>
+          </div>
         </section>
       </div>
     </section>
@@ -5423,8 +5953,8 @@ const crmHtml = `<!doctype html>
       topHandoffTotal: document.getElementById('top-handoff-total'),
       globalBotToggle: document.getElementById('global-bot-toggle'),
       globalAiToggle: document.getElementById('global-ai-toggle'),
-      globalBotToggleMenu: document.getElementById('global-bot-toggle-menu'),
-      globalAiToggleMenu: document.getElementById('global-ai-toggle-menu'),
+      globalBotStatus: document.getElementById('global-bot-status'),
+      globalAiStatus: document.getElementById('global-ai-status'),
       messages: document.getElementById('messages'),
       chatAvatar: document.getElementById('chat-avatar'),
       chatPhone: document.getElementById('chat-phone'),
@@ -5439,6 +5969,7 @@ const crmHtml = `<!doctype html>
       detailAvatar: document.getElementById('detail-avatar'),
       detailName: document.getElementById('detail-name'),
       detailPhone: document.getElementById('detail-phone'),
+      detailWhatsapp: document.getElementById('detail-whatsapp'),
       detailStep: document.getElementById('detail-step'),
       detailUpdated: document.getElementById('detail-updated'),
       appointments: document.getElementById('appointments'),
@@ -5659,6 +6190,7 @@ const crmHtml = `<!doctype html>
       more: '<circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle>',
       bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path>',
       document: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path><path d="M8 13h8"></path><path d="M8 17h8"></path>',
+      whatsapp: '<path d="M21 11.5a8.4 8.4 0 0 1-12.4 7.4L3 20.5l1.6-5.4A8.5 8.5 0 1 1 21 11.5z"></path><path d="M8.2 8.1c.2-.5.4-.5.7-.5h.5c.2 0 .4.1.5.4l.8 1.9c.1.3 0 .5-.2.7l-.6.7c-.2.2-.1.4 0 .6.7 1.3 1.8 2.3 3.2 2.9.2.1.4.1.6-.1l.8-1c.2-.2.4-.3.7-.2l1.9.9c.3.1.4.3.4.5 0 .4-.2 1.4-.8 1.9-.6.5-1.5.8-2.4.6-1.2-.3-3.1-1-4.8-2.5-1.4-1.3-2.5-3-2.8-4.2-.3-1 .1-2 .5-2.6z"></path>',
       paperclip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>',
       plus: '<path d="M5 12h14"></path><path d="M12 5v14"></path>',
       professional: '<path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path><circle cx="10" cy="7" r="4"></circle><path d="M20 8v6"></path><path d="M23 11h-6"></path>',
@@ -5952,19 +6484,21 @@ const crmHtml = `<!doctype html>
       const canResolveHandoff = selected.currentStep === 'HUMAN_HANDOFF' || selected.aiEnabled === false
       els.resolveHandoff.hidden = !canResolveHandoff
       els.resolveHandoff.disabled = !canResolveHandoff
-      els.conversationAiToggle.disabled = false
-      els.conversationAiToggle.textContent = selected.aiEnabled === false ? 'Activar IA' : 'Desactivar IA'
-      els.conversationAiToggle.className = selected.aiEnabled === false ? 'secondary' : 'danger'
+      els.conversationAiToggle.hidden = canResolveHandoff
+      els.conversationAiToggle.disabled = canResolveHandoff
+      els.conversationAiToggle.textContent = 'Atender manualmente'
+      els.conversationAiToggle.className = 'secondary'
       els.detailAvatar.textContent = avatar
       els.detailName.textContent = name
       els.detailPhone.textContent = selected.phone
       els.detailPhone.href = 'tel:' + selected.phone
+      els.detailWhatsapp.href = 'https://wa.me/' + normalizePhone(selected.phone)
       els.detailStep.textContent = conversationStepLabel(selected.currentStep, selected.aiEnabled)
       els.detailStep.className = conversationStepChipClass(selected.currentStep, selected.aiEnabled)
       els.detailUpdated.textContent = formatDateTime(latestConversationActivityValue(selected))
       els.customerEdit.disabled = !customer
-      els.archiveConversation.disabled = false
-      els.archiveConversation.textContent = selected.archivedAt ? 'Restaurar conversacion' : 'Archivar conversacion'
+      els.archiveConversation.disabled = canResolveHandoff && !selected.archivedAt
+      els.archiveConversation.textContent = selected.archivedAt ? 'Restaurar chat' : 'Archivar chat'
       els.replyText.disabled = false
       els.sendButton.disabled = false
 
@@ -5983,13 +6517,19 @@ const crmHtml = `<!doctype html>
       let lastDay = ''
       const messageHtml = state.messages.map((message) => {
         const direction = message.direction === 'OUTBOUND' ? 'outbound' : 'inbound'
+        const failed = direction === 'outbound' && message.status === 'failed'
+        const deliveryStatus = failed
+          ? '<span class="message-status-failed" title="' + escapeHtml(messageFailureText(message)) + '">No enviado</span>'
+          : direction === 'outbound'
+            ? '<span class="message-checks">&#10003;&#10003;</span>'
+            : ''
         const createdAt = new Date(message.createdAt)
         const dayKey = createdAt.toDateString()
         const dayDivider = dayKey === lastDay ? '' : '<div class="message-day">' + escapeHtml(formatMessageDay(createdAt)) + '</div>'
         lastDay = dayKey
-        return dayDivider + '<article class="message ' + direction + '">' +
+        return dayDivider + '<article class="message ' + direction + (failed ? ' failed' : '') + '">' +
           escapeHtml(message.body) +
-          '<div class="message-time">' + escapeHtml(formatMessageTime(createdAt)) + (direction === 'outbound' ? '<span class="message-checks">&#10003;&#10003;</span>' : '') + '</div>' +
+          '<div class="message-time">' + escapeHtml(formatMessageTime(createdAt)) + deliveryStatus + '</div>' +
         '</article>'
       }).join('')
       els.messages.innerHTML = (state.messageNextCursor ? '<button class="message-load-older" id="message-load-older" type="button">Cargar mensajes anteriores</button>' : '') + messageHtml
@@ -6000,6 +6540,10 @@ const crmHtml = `<!doctype html>
       } else {
         els.messages.scrollTop = els.messages.scrollHeight
       }
+    }
+
+    function messageFailureText(message) {
+      return message.providerErrorMessage || message.providerErrorCode || 'WhatsApp rechazo el envio.'
     }
 
     function renderAppointments() {
@@ -6016,11 +6560,18 @@ const crmHtml = `<!doctype html>
       }
 
       els.appointments.innerHTML = state.appointments.map((appointment) => {
-        return '<div class="item">' +
-          '<div class="item-title">' + escapeHtml(appointment.service?.name || 'Servicio') + '</div>' +
-          '<p>Profesional: ' + escapeHtml(appointment.professional?.name || 'Profesional') + '</p>' +
-          '<p>' + escapeHtml(formatAppointment(appointment.startAt)) + '</p>' +
-          '<span class="chip step-completed">Confirmado</span>' +
+        const startAt = new Date(appointment.startAt)
+        const day = new Intl.DateTimeFormat('es-AR', { day: '2-digit' }).format(startAt)
+        const month = new Intl.DateTimeFormat('es-AR', { month: 'short' }).format(startAt).replace('.', '').toUpperCase()
+        const time = new Intl.DateTimeFormat('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }).format(startAt) + ' hs'
+        return '<div class="item appointment-card">' +
+          '<div class="appointment-date-tile"><strong>' + escapeHtml(day) + '</strong><span>' + escapeHtml(month) + '</span></div>' +
+          '<div class="appointment-card-copy">' +
+            '<div class="item-title">' + escapeHtml(appointment.service?.name || 'Servicio') + '</div>' +
+            '<p>Profesional: ' + escapeHtml(appointment.professional?.name || 'Profesional') + '</p>' +
+            '<p>' + escapeHtml(time) + '</p>' +
+            '<span class="chip step-completed">Confirmado</span>' +
+          '</div>' +
         '</div>'
       }).join('')
     }
@@ -6183,12 +6734,12 @@ const crmHtml = `<!doctype html>
       els.handoffCount.textContent = String(pending)
       renderNavHandoffBadge(pending)
       if (els.topHandoffTotal) els.topHandoffTotal.textContent = String(pending)
-      els.globalBotToggle.textContent = state.aiSettings.botEnabled === false ? 'Bot automatico apagado' : 'Bot automatico activo'
-      els.globalBotToggle.className = state.aiSettings.botEnabled === false ? 'danger' : 'secondary'
-      els.globalAiToggle.textContent = state.aiSettings.aiEnabled === false ? 'IA general apagada' : 'IA general activa'
-      els.globalAiToggle.className = state.aiSettings.aiEnabled === false ? 'danger' : 'secondary'
-      els.globalBotToggleMenu.textContent = state.aiSettings.botEnabled === false ? 'Activar bot automatico' : 'Desactivar bot automatico'
-      els.globalAiToggleMenu.textContent = state.aiSettings.aiEnabled === false ? 'Activar IA general' : 'Desactivar IA general'
+      els.globalBotToggle.checked = state.aiSettings.botEnabled !== false
+      els.globalAiToggle.checked = state.aiSettings.aiEnabled !== false
+      els.globalBotStatus.textContent = state.aiSettings.botEnabled === false ? 'Pausado' : 'Activo'
+      els.globalBotStatus.className = state.aiSettings.botEnabled === false ? 'paused' : ''
+      els.globalAiStatus.textContent = state.aiSettings.aiEnabled === false ? 'Flujo basico' : 'Activo'
+      els.globalAiStatus.className = state.aiSettings.aiEnabled === false ? 'basic' : ''
     }
 
     function renderNavHandoffBadge(count) {
@@ -6732,7 +7283,7 @@ const crmHtml = `<!doctype html>
 
       els.sendButton.disabled = true
       try {
-        await getJson('/crm/conversations/' + state.selected.id + '/manual-replies', {
+        const result = await getJson('/crm/conversations/' + state.selected.id + '/manual-replies', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -6743,6 +7294,9 @@ const crmHtml = `<!doctype html>
         els.replyText.value = ''
         await selectConversation(state.selected.id)
         await loadConversations()
+        if (result.delivery && result.delivery.sent === false) {
+          alert('WhatsApp no pudo enviar el mensaje: ' + (result.delivery.errorMessage || result.delivery.reason || 'revisa la configuracion o la ventana de 24 hs.'))
+        }
       } catch (error) {
         alert(error.message)
       } finally {
@@ -6751,7 +7305,7 @@ const crmHtml = `<!doctype html>
     }
 
     async function toggleGlobalAi() {
-      const nextValue = state.aiSettings.aiEnabled === false
+      const nextValue = els.globalAiToggle.checked
       try {
         state.aiSettings = await getJson('/crm/ai-settings', {
           method: 'PATCH',
@@ -6763,12 +7317,18 @@ const crmHtml = `<!doctype html>
         })
         renderAiControls()
       } catch (error) {
+        renderAiControls()
         alert(error.message)
       }
     }
 
     async function toggleGlobalBot() {
-      const nextValue = state.aiSettings.botEnabled === false
+      const nextValue = els.globalBotToggle.checked
+      if (!nextValue && !confirm('Pausar el bot automatico en todo el salon? Ningun chat recibira respuestas automaticas hasta que lo actives nuevamente.')) {
+        renderAiControls()
+        return
+      }
+
       try {
         state.aiSettings = await getJson('/crm/ai-settings', {
           method: 'PATCH',
@@ -6780,20 +7340,20 @@ const crmHtml = `<!doctype html>
         })
         renderAiControls()
       } catch (error) {
+        renderAiControls()
         alert(error.message)
       }
     }
 
     async function toggleConversationAi() {
       if (!state.selected) return
-      const nextValue = state.selected.aiEnabled === false
       els.conversationAiToggle.disabled = true
       try {
         const updated = await getJson('/crm/conversations/' + state.selected.id + '/ai', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            aiEnabled: nextValue
+            aiEnabled: false
           })
         })
         state.selected = updated
@@ -8606,6 +9166,12 @@ const crmHtml = `<!doctype html>
     hydrateWorkspaceNav()
 
     els.replyForm.addEventListener('submit', sendReply)
+    els.replyText.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return
+      event.preventDefault()
+      if (!els.replyText.value.trim() || els.sendButton.disabled) return
+      els.replyForm.requestSubmit()
+    })
     els.blockForm.addEventListener('submit', createBlock)
     els.professionalForm.addEventListener('submit', saveProfessional)
     els.professionalCancel.addEventListener('click', closeProfessionalPanel)
@@ -8636,10 +9202,8 @@ const crmHtml = `<!doctype html>
       clearBusinessSettingsFeedback()
       setBusinessLogo(null)
     })
-    els.globalBotToggle.addEventListener('click', toggleGlobalBot)
-    els.globalAiToggle.addEventListener('click', toggleGlobalAi)
-    els.globalBotToggleMenu.addEventListener('click', toggleGlobalBot)
-    els.globalAiToggleMenu.addEventListener('click', toggleGlobalAi)
+    els.globalBotToggle.addEventListener('change', toggleGlobalBot)
+    els.globalAiToggle.addEventListener('change', toggleGlobalAi)
     els.conversationAiToggle.addEventListener('click', toggleConversationAi)
     els.resolveHandoff.addEventListener('click', resolveHandoff)
     els.refresh.addEventListener('click', loadConversations)

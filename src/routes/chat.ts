@@ -83,18 +83,19 @@ export async function chatRoutes(app: FastifyInstance) {
       }
     }
 
-    if (!businessAiEnabled || freshConversation?.aiEnabled === false) {
+    if (freshConversation?.aiEnabled === false) {
       return {
         reply: null,
         skipped: true,
-        reason: 'IA desactivada'
+        reason: 'Atencion manual'
       }
     }
 
     const result = await service.handleMessage({
       phone: body.phone,
       message: body.message,
-      ...(body.businessId ? { businessId: body.businessId } : {})
+      ...(body.businessId ? { businessId: body.businessId } : {}),
+      useAi: businessAiEnabled
     })
 
     await prisma.message.create({

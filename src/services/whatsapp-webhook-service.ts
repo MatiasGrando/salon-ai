@@ -170,11 +170,10 @@ export class WhatsAppWebhookService {
         ? conversation.business.aiEnabled
         : await this.isDefaultBusinessAiEnabled()
 
-      if (!businessAiEnabled || !conversation.aiEnabled) {
-        console.info('[whatsapp-webhook] skipped automatic reply because AI is disabled', {
+      if (!conversation.aiEnabled) {
+        console.info('[whatsapp-webhook] skipped automatic reply because conversation is in manual mode', {
           from: message.from,
           conversationId: conversation.id,
-          businessAiEnabled,
           conversationAiEnabled: conversation.aiEnabled
         })
 
@@ -182,7 +181,7 @@ export class WhatsAppWebhookService {
           messageId: message.id,
           from: message.from,
           skipped: true,
-          reason: 'IA desactivada'
+          reason: 'Atencion manual'
         })
 
         continue
@@ -190,7 +189,8 @@ export class WhatsAppWebhookService {
 
       const conversationResult = await conversationService.handleMessage({
         phone: message.from,
-        message: message.text
+        message: message.text,
+        useAi: businessAiEnabled
       })
 
       const deliveryResult = await whatsappCloudApi.sendTextMessage({
