@@ -97,14 +97,23 @@ export async function crmRoutes(app: FastifyInstance) {
       businessId?: string
       phone?: string
       take?: string
+      cursor?: string
+      archive?: 'active' | 'archived' | 'all'
+      paginated?: string
     }
-    const take = Math.min(Number(query.take ?? 50) || 50, 100)
+    const take = Math.min(Math.max(Number(query.take ?? 30) || 30, 1), 100)
+    const archiveView = query.archive ?? 'all'
+    await archiveOldCompletedConversations(query.businessId)
+
+    const where: Prisma.ConversationWhereInput = {
+      ...(query.businessId ? { businessId: query.businessId } : {}),
+      ...(query.phone ? { phone: { contains: query.phone } } : {}),
+      ...(archiveView === 'active' ? { archivedAt: null } : {}),
+      ...(archiveView === 'archived' ? { archivedAt: { not: null } } : {})
+    }
 
     const conversations = await prisma.conversation.findMany({
-      where: {
-        ...(query.businessId ? { businessId: query.businessId } : {}),
-        ...(query.phone ? { phone: { contains: query.phone } } : {})
-      },
+      where,
       include: {
         messages: {
           orderBy: {
@@ -116,12 +125,40 @@ export async function crmRoutes(app: FastifyInstance) {
       orderBy: {
         updatedAt: 'desc'
       },
-      take
+      take: take + 1,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {})
     })
 
-    return conversations.sort((left, right) => {
+    const hasMore = conversations.length > take
+    const items = conversations.slice(0, take).sort((left, right) => {
       return latestConversationActivityAt(right) - latestConversationActivityAt(left)
     })
+
+    if (query.paginated !== 'true') {
+      return items
+    }
+
+    const countWhere: Prisma.ConversationWhereInput = query.businessId
+      ? { businessId: query.businessId }
+      : {}
+    const [active, archived, handoff] = await Promise.all([
+      prisma.conversation.count({ where: { ...countWhere, archivedAt: null } }),
+      prisma.conversation.count({ where: { ...countWhere, archivedAt: { not: null } } }),
+      prisma.conversation.count({
+        where: {
+          ...countWhere,
+          archivedAt: null,
+          currentStep: 'HUMAN_HANDOFF',
+          humanHandoffResolvedAt: null
+        }
+      })
+    ])
+
+    return {
+      items,
+      nextCursor: hasMore ? items[items.length - 1]?.id ?? null : null,
+      counts: { active, archived, handoff }
+    }
   })
 
   app.get('/crm/ai-settings', async (request) => {
@@ -179,6 +216,11 @@ export async function crmRoutes(app: FastifyInstance) {
     const params = request.params as {
       id: string
     }
+    const query = request.query as {
+      take?: string
+      cursor?: string
+      paginated?: string
+    }
 
     const conversation = await prisma.conversation.findUnique({
       where: {
@@ -192,13 +234,51 @@ export async function crmRoutes(app: FastifyInstance) {
       })
     }
 
-    return prisma.message.findMany({
+    const take = Math.min(Math.max(Number(query.take ?? 100) || 100, 1), 200)
+    const messages = await prisma.message.findMany({
       where: {
         conversationId: params.id
       },
       orderBy: {
-        createdAt: 'asc'
-      }
+        createdAt: 'desc'
+      },
+      take: take + 1,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {})
+    })
+
+    const hasMore = messages.length > take
+    const page = messages.slice(0, take)
+    const oldestCursor = page[page.length - 1]?.id ?? null
+    const items = page.reverse()
+
+    if (query.paginated !== 'true') {
+      return items
+    }
+
+    return {
+      items,
+      nextCursor: hasMore ? oldestCursor : null
+    }
+  })
+
+  app.patch('/crm/conversations/:id/archive', async (request, reply) => {
+    const params = request.params as { id: string }
+    const body = request.body as { archived?: boolean }
+    if (typeof body.archived !== 'boolean') {
+      return reply.status(400).send({ message: 'archived debe ser boolean' })
+    }
+
+    const conversation = await prisma.conversation.findUnique({ where: { id: params.id } })
+    if (!conversation) {
+      return reply.status(404).send({ message: 'No encontre esa conversacion' })
+    }
+    if (body.archived && conversation.currentStep === 'HUMAN_HANDOFF' && !conversation.humanHandoffResolvedAt) {
+      return reply.status(409).send({ message: 'Resolve la derivacion antes de archivar la conversacion' })
+    }
+
+    return prisma.conversation.update({
+      where: { id: params.id },
+      data: { archivedAt: body.archived ? new Date() : null }
     })
   })
 
@@ -334,6 +414,7 @@ export async function crmRoutes(app: FastifyInstance) {
       },
       data: {
         lastMessage: text,
+        archivedAt: null,
         humanHandoffResolvedAt: conversation.currentStep === 'HUMAN_HANDOFF'
           ? new Date()
           : conversation.humanHandoffResolvedAt
@@ -343,6 +424,23 @@ export async function crmRoutes(app: FastifyInstance) {
     return {
       message,
       delivery: deliveryResult
+    }
+  })
+}
+
+async function archiveOldCompletedConversations(businessId?: string) {
+  const cutoff = new Date()
+  cutoff.setDate(cutoff.getDate() - 30)
+
+  await prisma.conversation.updateMany({
+    where: {
+      ...(businessId ? { businessId } : {}),
+      archivedAt: null,
+      currentStep: 'COMPLETED',
+      updatedAt: { lt: cutoff }
+    },
+    data: {
+      archivedAt: new Date()
     }
   })
 }

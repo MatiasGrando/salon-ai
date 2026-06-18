@@ -54,6 +54,7 @@ enum ScheduleBlockReason {
 model Business {
   id            String         @id @default(cuid())
   name          String
+  logoUrl       String?
   botEnabled    Boolean        @default(true)
   aiEnabled     Boolean        @default(true)
 
@@ -132,8 +133,19 @@ model Customer {
   phone     String
 
   appointments Appointment[]
+  notes        CustomerNote[]
 
   createdAt DateTime @default(now())
+}
+
+model CustomerNote {
+  id         String   @id @default(cuid())
+  body       String
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@index([customerId, createdAt])
 }
 
 model Appointment {
@@ -202,11 +214,15 @@ model Conversation {
   lastMessage String?
   humanHandoffAt DateTime?
   humanHandoffResolvedAt DateTime?
+  archivedAt DateTime?
 
   messages Message[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([businessId, archivedAt, updatedAt])
+  @@index([currentStep, archivedAt, updatedAt])
 }
 
 model Message {

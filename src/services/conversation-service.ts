@@ -53,6 +53,7 @@ export class ConversationService {
             ? {
                 lastMessage: message,
                 businessId,
+                archivedAt: null,
                 currentStep: 'START',
                 selectedServiceId: null,
                 selectedProfessionalId: null,
@@ -63,7 +64,8 @@ export class ConversationService {
               }
             : {
                 lastMessage: message,
-                businessId
+                businessId,
+                archivedAt: null
               }
         })
       : await prisma.conversation.create({

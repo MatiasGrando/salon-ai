@@ -726,6 +726,15 @@ const crmHtml = `<!doctype html>
       color: #fff;
       background: #2563eb;
       font-weight: 850;
+      overflow: hidden;
+    }
+
+    .brand-mark img,
+    .mini-avatar img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
     }
 
     .crm-brand strong {
@@ -1155,6 +1164,776 @@ const crmHtml = `<!doctype html>
       display: none;
     }
 
+    .app[data-section="conversations"] {
+      grid-template-columns: 244px minmax(280px, 320px) minmax(420px, 1fr) minmax(300px, 340px);
+      grid-template-rows: 104px minmax(0, 1fr);
+      background: #f8fbff;
+    }
+
+    .app[data-section="conversations"] .workspace-nav {
+      grid-column: 1;
+      grid-row: 1 / 3;
+    }
+
+    .conversation-page-header {
+      grid-column: 2 / 5;
+      grid-row: 1;
+      min-width: 0;
+      padding: 20px 24px 16px;
+      display: grid;
+      grid-template-columns: auto minmax(260px, 1fr);
+      align-items: center;
+      gap: 24px;
+      background: #fff;
+      border-bottom: 1px solid #e5eaf3;
+    }
+
+    .conversation-heading {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      white-space: nowrap;
+    }
+
+    .conversation-heading-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      color: #2563eb;
+      background: #eef3ff;
+    }
+
+    .conversation-heading-icon .ti {
+      width: 23px;
+      height: 23px;
+    }
+
+    .conversation-heading h1 {
+      margin: 0;
+      color: #071033;
+      font-size: 24px;
+      line-height: 1.15;
+      font-weight: 750;
+    }
+
+    .conversation-heading p {
+      margin: 5px 0 0;
+      color: #52617f;
+      font-size: 13px;
+    }
+
+    .conversation-global-search {
+      height: 46px;
+      min-width: 0;
+      padding: 0 12px;
+      border: 1px solid #dfe6f1;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      background: #fff;
+    }
+
+    .conversation-global-search > .ti {
+      width: 18px;
+      height: 18px;
+      color: #6f7f9f;
+      flex-shrink: 0;
+    }
+
+    .conversation-global-search input {
+      width: 100%;
+      min-width: 0;
+      border: 0;
+      outline: 0;
+      color: #15213f;
+      background: transparent;
+      font-size: 13px;
+    }
+
+    .conversation-global-search .icon-button {
+      display: none;
+    }
+
+    .conversation-refresh {
+      display: none !important;
+    }
+
+    .conversation-sidebar {
+      grid-column: 2;
+      grid-row: 2;
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      background: #fff;
+      border-right: 1px solid #e5eaf3;
+    }
+
+    .conversation-sidebar .ops-panel[hidden],
+    .app[data-section="conversations"] .chat-header .mobile-only,
+    .app[data-section="conversations"] .chat-actions > #step-chip {
+      display: none !important;
+    }
+
+    .conversation-tabs {
+      min-height: 58px;
+      padding: 0 10px;
+      border-bottom: 1px solid #e5eaf3;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      align-items: stretch;
+      flex-shrink: 0;
+    }
+
+    .conversation-tabs button {
+      position: relative;
+      min-width: 0;
+      padding: 0 5px;
+      border-radius: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      color: #52617f;
+      background: transparent;
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .conversation-tabs button::after {
+      content: "";
+      position: absolute;
+      right: 10px;
+      bottom: 0;
+      left: 10px;
+      height: 2px;
+      border-radius: 2px 2px 0 0;
+      background: transparent;
+    }
+
+    .conversation-tabs button.active {
+      color: #175cf5;
+    }
+
+    .conversation-tabs button.active::after {
+      background: #2563eb;
+    }
+
+    .conversation-tabs span {
+      min-width: 20px;
+      height: 20px;
+      padding: 0 5px;
+      border-radius: 999px;
+      display: inline-grid;
+      place-items: center;
+      color: #2563eb;
+      background: #eef3ff;
+      font-size: 10px;
+    }
+
+    .conversation-list {
+      padding: 10px 8px 4px;
+    }
+
+    .conversation {
+      width: 100%;
+      min-height: 94px;
+      margin: 0 0 6px;
+      padding: 13px 12px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      grid-template-columns: 42px minmax(0, 1fr);
+      background: #fff;
+      box-shadow: none;
+    }
+
+    .conversation:hover,
+    .conversation.active {
+      border-color: #dbe7ff;
+      background: #f0f5ff;
+    }
+
+    .conversation-avatar-wrap {
+      position: relative;
+      width: 42px;
+      height: 42px;
+    }
+
+    .conversation-avatar-wrap .avatar {
+      width: 42px;
+      height: 42px;
+      color: #175cf5;
+      background: #eaf0ff;
+      font-size: 16px;
+    }
+
+    .conversation-online-dot {
+      position: absolute;
+      right: -1px;
+      bottom: 0;
+      width: 11px;
+      height: 11px;
+      border: 2px solid #fff;
+      border-radius: 50%;
+      background: #16b364;
+    }
+
+    .conversation-name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #101936;
+      font-size: 13px;
+      font-weight: 750;
+    }
+
+    .conversation-time {
+      color: #3369dd;
+      font-size: 10px;
+      font-weight: 650;
+      white-space: nowrap;
+    }
+
+    .conversation .preview {
+      margin: 4px 0 6px;
+      -webkit-line-clamp: 1;
+      color: #52617f;
+      font-size: 11px;
+    }
+
+    .conversation-status-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .conversation-unread-dot {
+      min-width: 18px;
+      height: 18px;
+      padding: 0 5px;
+      border-radius: 999px;
+      display: inline-grid;
+      place-items: center;
+      color: #fff;
+      background: #2563eb;
+      font-size: 10px;
+      font-weight: 750;
+    }
+
+    .conversation-more {
+      height: 48px;
+      margin: 2px 8px 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: #175cf5;
+      background: transparent;
+      font-size: 12px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .conversation-more .ti {
+      width: 14px;
+      height: 14px;
+    }
+
+    .app[data-section="conversations"] .chat {
+      grid-column: 3;
+      grid-row: 2;
+      border-right: 1px solid #e5eaf3;
+      background: #fbfcff;
+    }
+
+    .app[data-section="conversations"] .chat-header {
+      min-height: 74px;
+      padding: 12px 18px;
+      border-color: #e5eaf3;
+    }
+
+    .chat-contact-name {
+      margin-top: 3px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .whatsapp-chip {
+      height: 20px;
+      padding: 0 8px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      color: #16883e;
+      background: #dcfce7;
+      font-size: 10px;
+      font-weight: 750;
+    }
+
+    .chat-more-menu {
+      position: relative;
+    }
+
+    .chat-more-menu > summary {
+      list-style: none;
+      cursor: pointer;
+    }
+
+    .chat-more-menu > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .chat-more-popover {
+      position: absolute;
+      z-index: 20;
+      top: calc(100% + 8px);
+      right: 0;
+      width: 210px;
+      padding: 8px;
+      border: 1px solid #dfe6f1;
+      border-radius: 8px;
+      display: grid;
+      gap: 6px;
+      background: #fff;
+      box-shadow: 0 18px 34px rgba(15, 23, 42, .14);
+    }
+
+    .chat-more-popover button {
+      width: 100%;
+      min-height: 36px;
+      justify-content: flex-start;
+    }
+
+    .app[data-section="conversations"] .messages {
+      padding: 20px 18px 24px;
+      gap: 12px;
+      background: #fbfcff;
+    }
+
+    .message-day {
+      align-self: center;
+      margin: 2px 0 8px;
+      padding: 5px 12px;
+      border-radius: 999px;
+      color: #52617f;
+      background: #eef1f6;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .message-load-older {
+      align-self: center;
+      min-height: 30px;
+      padding: 0 12px;
+      border: 1px solid #dbe3ef;
+      border-radius: 999px;
+      color: #175cf5;
+      background: #fff;
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .message {
+      max-width: min(500px, 78%);
+      padding: 11px 13px 8px;
+      border-color: #e4e9f2;
+      border-radius: 9px;
+      color: #17213c;
+      font-size: 12px;
+    }
+
+    .message.outbound {
+      border-color: #cbdcff;
+      background: #eef4ff;
+    }
+
+    .message-time {
+      margin-top: 5px;
+      font-size: 9px;
+    }
+
+    .message-checks {
+      margin-left: 4px;
+      color: #2563eb;
+      font-weight: 800;
+    }
+
+    .app[data-section="conversations"] .composer {
+      margin: 0 14px 14px;
+      padding: 10px 12px 9px;
+      border-color: #dfe6f1;
+      border-radius: 8px;
+      grid-template-columns: 1fr;
+      gap: 4px;
+      background: #fff;
+    }
+
+    .app[data-section="conversations"] .composer textarea {
+      min-height: 38px;
+      max-height: 100px;
+      padding: 7px 3px;
+      resize: none;
+      font-size: 12px;
+    }
+
+    .composer-tools {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .composer-icon {
+      width: 30px;
+      height: 30px;
+      border-radius: 7px;
+      display: grid;
+      place-items: center;
+      color: #52617f;
+      background: transparent;
+    }
+
+    .composer-icon:hover {
+      color: #2563eb;
+      background: #eef3ff;
+    }
+
+    .composer-icon .ti {
+      width: 17px;
+      height: 17px;
+    }
+
+    .send-channel {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #52617f;
+      font-size: 10px;
+      font-weight: 650;
+    }
+
+    .send-channel input {
+      width: 14px;
+      height: 14px;
+      accent-color: #2563eb;
+    }
+
+    .composer-tools .primary {
+      height: 34px;
+      padding: 0 13px;
+      border-radius: 7px;
+      font-size: 11px;
+    }
+
+    .composer-tools .primary .ti {
+      width: 14px;
+      height: 14px;
+    }
+
+    .app[data-section="conversations"] .details {
+      grid-column: 4;
+      grid-row: 2;
+      padding: 10px;
+      gap: 10px;
+      overflow: auto;
+      background: #f8fbff;
+    }
+
+    .app[data-section="conversations"] .details .topbar,
+    .app[data-section="conversations"] .details-section {
+      border-color: #e2e8f2;
+      border-radius: 8px;
+    }
+
+    .app[data-section="conversations"] .details .topbar {
+      min-height: 50px;
+      padding: 10px 13px;
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .details-edit,
+    .details-link {
+      padding: 0;
+      color: #175cf5;
+      background: transparent;
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .customer-summary {
+      display: grid;
+      gap: 16px;
+    }
+
+    .customer-summary-main {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+    }
+
+    .customer-avatar {
+      width: 46px;
+      height: 46px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      color: #175cf5;
+      background: #eee8ff;
+      font-size: 17px;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+
+    .customer-summary-main strong {
+      display: inline;
+      color: #101936;
+      font-size: 12px;
+    }
+
+    .customer-type {
+      margin-left: 5px;
+      padding: 3px 6px;
+      border-radius: 999px;
+      color: #175cf5;
+      background: #eef3ff;
+      font-size: 9px;
+      font-weight: 700;
+    }
+
+    .customer-summary-main a {
+      display: block;
+      margin-top: 5px;
+      color: #175cf5;
+      font-size: 11px;
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .customer-last-message,
+    .customer-bot-status {
+      display: grid;
+      gap: 5px;
+    }
+
+    .customer-last-message > span,
+    .customer-bot-status > span:first-child {
+      color: #66738e;
+      font-size: 10px;
+    }
+
+    .customer-last-message strong {
+      color: #17213c;
+      font-size: 11px;
+      font-weight: 650;
+    }
+
+    .app[data-section="conversations"] .details-section {
+      padding: 13px;
+    }
+
+    .app[data-section="conversations"] .details .item {
+      padding: 11px;
+      background: #fbfcff;
+    }
+
+    .details-wide-action {
+      width: 100%;
+      height: 34px;
+      margin-top: 10px;
+      border: 1px solid #dfe6f1;
+      border-radius: 7px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      color: #175cf5;
+      background: #fff;
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .details-wide-action .ti {
+      width: 14px;
+      height: 14px;
+    }
+
+    .customer-note-empty {
+      margin-top: 10px;
+      padding: 12px;
+      border: 1px solid #e4e9f2;
+      border-radius: 7px;
+      color: #6b7892;
+      background: #fbfcff;
+      font-size: 10px;
+      line-height: 1.45;
+    }
+
+    .customer-note-list {
+      max-height: 160px;
+      margin-top: 10px;
+      display: grid;
+      gap: 7px;
+      overflow: auto;
+    }
+
+    .customer-note-item {
+      padding: 10px;
+      border: 1px solid #e4e9f2;
+      border-radius: 7px;
+      background: #fbfcff;
+    }
+
+    .customer-note-item p {
+      margin: 0;
+      color: #263958;
+      font-size: 10px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+    }
+
+    .customer-note-item span {
+      display: block;
+      margin-top: 6px;
+      color: #7a869e;
+      font-size: 9px;
+    }
+
+    .quick-actions .panel-title {
+      margin-bottom: 10px;
+    }
+
+    .quick-actions-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px;
+    }
+
+    .quick-actions-grid button {
+      min-height: 38px;
+      padding: 6px 8px;
+      border: 1px solid #dfe6f1;
+      border-radius: 7px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 6px;
+      color: #263958;
+      background: #fff;
+      font-size: 9px;
+      font-weight: 650;
+      text-align: left;
+    }
+
+    .quick-actions-grid button:hover {
+      color: #175cf5;
+      border-color: #bcd0f8;
+      background: #f5f8ff;
+    }
+
+    .quick-actions-grid .ti {
+      width: 14px;
+      height: 14px;
+      color: #2563eb;
+      flex-shrink: 0;
+    }
+
+    .chip.step-start {
+      color: #52617f;
+      background: #eef1f6;
+    }
+
+    .chip.step-progress {
+      color: #175cd3;
+      background: #eaf2ff;
+    }
+
+    .chip.step-confirm {
+      color: #a15c07;
+      background: #fff4d6;
+    }
+
+    .chip.step-completed {
+      color: #16883e;
+      background: #dcfce7;
+    }
+
+    .chip.step-change {
+      color: #6941c6;
+      background: #f0eaff;
+    }
+
+    .chip.step-handoff {
+      color: #c4320a;
+      background: #ffead5;
+    }
+
+    .conversation .chip {
+      max-width: 100%;
+      height: 18px;
+      padding: 0 7px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 8px;
+      text-transform: uppercase;
+    }
+
+    @media (max-width: 1180px) {
+      .app[data-section="conversations"] {
+        grid-template-columns: 220px minmax(270px, 310px) minmax(420px, 1fr);
+      }
+
+      .conversation-page-header {
+        grid-column: 2 / 4;
+      }
+
+      .app[data-section="conversations"] .details {
+        display: none;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .app[data-section="conversations"] {
+        display: block;
+      }
+
+      .conversation-page-header,
+      .app[data-section="conversations"] .workspace-nav {
+        display: none;
+      }
+
+      .conversation-sidebar,
+      .app[data-section="conversations"] .chat,
+      .app[data-section="conversations"] .details {
+        width: 100%;
+        height: 100%;
+      }
+
+      .conversation-tabs {
+        min-height: 54px;
+      }
+
+      .app[data-section="conversations"] .chat-header .mobile-only {
+        display: inline-flex !important;
+      }
+
+      .app[data-section="conversations"] .composer {
+        margin: 0 8px 8px;
+      }
+
+      .send-channel {
+        display: none;
+      }
+    }
+
     .app[data-section="agenda"] {
       grid-template-columns: 244px minmax(0, 1fr);
     }
@@ -1166,14 +1945,15 @@ const crmHtml = `<!doctype html>
     }
 
     .agenda-view {
+      font-family: "Segoe UI Variable Text", "Segoe UI", Inter, ui-sans-serif, system-ui, sans-serif;
       grid-column: 2;
       min-width: 0;
       min-height: 0;
       display: none;
-      grid-template-columns: 286px minmax(0, 1fr);
+      grid-template-columns: 208px minmax(0, 1fr);
       gap: 14px;
-      padding: 14px;
-      background: #f5f6f8;
+      padding: 22px 18px 28px;
+      background: #f8fbff;
       overflow: hidden;
     }
 
@@ -1183,7 +1963,8 @@ const crmHtml = `<!doctype html>
 
     .app[data-section="services"],
     .app[data-section="professionals"],
-    .app[data-section="reports"] {
+    .app[data-section="reports"],
+    .app[data-section="settings"] {
       grid-template-columns: 244px minmax(0, 1fr);
     }
 
@@ -1195,13 +1976,17 @@ const crmHtml = `<!doctype html>
     .app[data-section="professionals"] .details,
     .app[data-section="reports"] .sidebar,
     .app[data-section="reports"] .chat,
-    .app[data-section="reports"] .details {
+    .app[data-section="reports"] .details,
+    .app[data-section="settings"] .sidebar,
+    .app[data-section="settings"] .chat,
+    .app[data-section="settings"] .details {
       display: none;
     }
 
     .services-view,
     .professionals-view,
-    .reports-view {
+    .reports-view,
+    .settings-view {
       grid-column: 2;
       min-width: 0;
       min-height: 0;
@@ -1220,6 +2005,10 @@ const crmHtml = `<!doctype html>
     }
 
     .app[data-section="reports"] .reports-view {
+      display: block;
+    }
+
+    .app[data-section="settings"] .settings-view {
       display: block;
     }
 
@@ -1743,6 +2532,243 @@ const crmHtml = `<!doctype html>
       color: #52617f;
       font-size: 13px;
       line-height: 1.35;
+    }
+
+    .settings-view {
+      padding: 0;
+      background: #f8fbff;
+      overflow: auto;
+    }
+
+    .settings-shell {
+      width: min(820px, 100%);
+      margin: 0 auto;
+      padding: 34px 28px;
+      display: grid;
+      gap: 22px;
+    }
+
+    .settings-header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .settings-header-icon {
+      width: 52px;
+      height: 52px;
+      border-radius: 12px;
+      display: grid;
+      place-items: center;
+      color: #2563eb;
+      background: #eef3ff;
+    }
+
+    .settings-header h2 {
+      margin: 0;
+      color: #081235;
+      font-size: 28px;
+      font-weight: 700;
+    }
+
+    .settings-header p,
+    .settings-panel > p {
+      margin: 7px 0 0;
+      color: #52617f;
+      font-size: 14px;
+    }
+
+    .settings-panel {
+      padding: 24px;
+      border: 1px solid #dfe6f1;
+      border-radius: 10px;
+      background: #fff;
+      box-shadow: 0 16px 32px rgba(15, 23, 42, 0.035);
+    }
+
+    .settings-panel h3 {
+      margin: 0;
+      color: #101936;
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .settings-form {
+      margin-top: 24px;
+      display: grid;
+      gap: 20px;
+    }
+
+    .settings-field {
+      display: grid;
+      gap: 8px;
+    }
+
+    .settings-field > label,
+    .business-hours-title {
+      color: #405176;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .settings-field input {
+      height: 44px;
+    }
+
+    .business-logo-field {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .business-logo-picker {
+      width: 76px;
+      height: 76px;
+      border: 1px dashed #b8c5da;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      color: #2563eb;
+      background: #f6f8ff;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .business-logo-picker:hover {
+      border-color: #2563eb;
+      background: #eef3ff;
+    }
+
+    .business-logo-picker input,
+    .business-logo-picker img {
+      display: none;
+    }
+
+    .business-logo-picker.has-image img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+    }
+
+    .business-logo-picker.has-image .ti {
+      display: none;
+    }
+
+    .business-logo-copy {
+      display: grid;
+      gap: 7px;
+    }
+
+    .business-logo-copy strong {
+      color: #405176;
+      font-size: 12px;
+    }
+
+    .business-logo-copy span {
+      color: #6b7892;
+      font-size: 12px;
+    }
+
+    .business-logo-remove {
+      width: max-content;
+      padding: 0;
+      color: #b42318;
+      background: transparent;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .business-hours-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .business-hours-row {
+      min-height: 48px;
+      display: grid;
+      grid-template-columns: 150px 1fr 18px 1fr;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .business-hours-row label {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      color: #101936;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .business-hours-row input[type="time"] {
+      height: 42px;
+    }
+
+    .settings-actions {
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    .settings-actions button {
+      min-width: 180px;
+      height: 44px;
+    }
+
+    .settings-actions button:disabled {
+      cursor: wait;
+      opacity: .72;
+    }
+
+    .settings-feedback {
+      display: none;
+      margin: -4px 0 0;
+      padding: 11px 13px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .settings-feedback.visible {
+      display: block;
+    }
+
+    .settings-feedback.success {
+      color: #166534;
+      border-color: #bbf7d0;
+      background: #f0fdf4;
+    }
+
+    .settings-feedback.error {
+      color: #b42318;
+      border-color: #fecaca;
+      background: #fff1f2;
+    }
+
+    .exceptional-option {
+      padding: 12px;
+      border: 1px solid #fed7aa;
+      border-radius: 8px;
+      display: grid;
+      gap: 5px;
+      background: #fff7ed;
+    }
+
+    .exceptional-option label {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      color: #9a3412;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .exceptional-option small {
+      color: #9a3412;
+      font-size: 12px;
+      line-height: 1.4;
     }
 
     .app[data-section="professionals"] {
@@ -3006,14 +4032,14 @@ const crmHtml = `<!doctype html>
     .agenda-sidebar,
     .agenda-board {
       min-height: 0;
-      border: 1px solid #e4e6eb;
+      border: 1px solid #dfe6f1;
       border-radius: 10px;
       background: #fff;
-      box-shadow: none;
+      box-shadow: 0 16px 32px rgba(15, 23, 42, 0.035);
     }
 
     .agenda-sidebar {
-      padding: 16px;
+      padding: 18px 12px 16px;
       overflow: auto;
     }
 
@@ -3022,11 +4048,12 @@ const crmHtml = `<!doctype html>
       margin: 0;
       font-size: 16px;
       line-height: 1.2;
+      font-weight: 700;
     }
 
     .agenda-filters {
       display: grid;
-      gap: 14px;
+      gap: 16px;
     }
 
     .agenda-filter {
@@ -3035,15 +4062,26 @@ const crmHtml = `<!doctype html>
     }
 
     .agenda-filter label {
-      color: var(--muted);
+      color: #405176;
       font-size: 12px;
-      font-weight: 700;
+      font-weight: 600;
+    }
+
+    .agenda-filter select,
+    #agenda-step {
+      height: 38px;
+      border-color: #dfe6f1;
+      border-radius: 8px;
+      color: #101936;
+      font-size: 13px;
+      font-weight: 600;
+      background: #fff;
     }
 
     .month-card {
       margin-top: 18px;
-      padding-top: 16px;
-      border-top: 1px solid #e4e6eb;
+      padding: 14px 0 0;
+      border-top: 1px solid #eef2f7;
     }
 
     .month-header {
@@ -3054,6 +4092,23 @@ const crmHtml = `<!doctype html>
       margin-bottom: 12px;
     }
 
+    .month-header strong {
+      color: #101936;
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: capitalize;
+    }
+
+    .month-header .icon-button,
+    .agenda-week-button {
+      width: 34px;
+      height: 34px;
+      border-color: #dfe6f1;
+      border-radius: 8px;
+      color: #101936;
+      background: #fff;
+    }
+
     .month-grid {
       display: grid;
       grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -3062,21 +4117,22 @@ const crmHtml = `<!doctype html>
 
     .month-weekday,
     .month-day {
-      height: 32px;
+      height: 28px;
       display: grid;
       place-items: center;
-      border-radius: 7px;
-      font-size: 12px;
+      border-radius: 8px;
+      font-size: 11px;
     }
 
     .month-weekday {
-      color: var(--muted);
-      font-weight: 800;
+      color: #405176;
+      font-weight: 600;
     }
 
     .month-day {
-      color: var(--text);
+      color: #101936;
       background: transparent;
+      font-weight: 500;
     }
 
     .month-day.outside {
@@ -3084,13 +4140,46 @@ const crmHtml = `<!doctype html>
     }
 
     .month-day.has-items {
-      box-shadow: inset 0 0 0 1px #bfdbfe;
+      color: #2563eb;
     }
 
     .month-day.selected {
       color: #fff;
       background: #2563eb;
-      font-weight: 850;
+      font-weight: 700;
+    }
+
+    .agenda-legend {
+      margin-top: 18px;
+      padding: 16px 10px 10px;
+      border: 1px solid #eef2f7;
+      border-radius: 10px;
+      display: grid;
+      gap: 12px;
+      background: #fff;
+    }
+
+    .agenda-legend strong {
+      color: #101936;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .agenda-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      color: #405176;
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .agenda-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--agenda-color, #2563eb);
+      flex-shrink: 0;
     }
 
     .agenda-board {
@@ -3100,13 +4189,14 @@ const crmHtml = `<!doctype html>
     }
 
     .agenda-toolbar {
-      min-height: 72px;
-      padding: 14px 18px;
-      border-bottom: 1px solid #e4e6eb;
+      min-height: 118px;
+      padding: 18px 18px 12px;
+      border-bottom: 1px solid #e8edf6;
       display: grid;
       grid-template-columns: auto 1fr auto;
+      grid-template-rows: auto auto;
       align-items: center;
-      gap: 12px;
+      gap: 14px;
     }
 
     .agenda-toolbar-actions {
@@ -3118,7 +4208,56 @@ const crmHtml = `<!doctype html>
 
     .agenda-range {
       text-align: center;
-      font-weight: 800;
+      color: #101936;
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .agenda-today-button {
+      min-width: 52px;
+      height: 34px;
+      padding: 0 14px;
+      border: 1px solid #dfe6f1;
+      border-radius: 8px;
+      color: #101936;
+      background: #fff;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .agenda-professional-tabs {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      overflow-x: auto;
+      padding-bottom: 2px;
+    }
+
+    .agenda-pro-tab {
+      height: 36px;
+      padding: 0 14px;
+      border: 1px solid #dfe6f1;
+      border-radius: 8px;
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      color: #101936;
+      background: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .agenda-pro-tab.active {
+      color: #2563eb;
+      border-color: #bfdbfe;
+      box-shadow: inset 0 -2px 0 #2563eb;
+    }
+
+    #agenda-refresh,
+    #agenda-new-appointment {
+      display: none;
     }
 
     .agenda-grid-wrap {
@@ -3131,14 +4270,15 @@ const crmHtml = `<!doctype html>
       grid-template-columns: 54px repeat(7, minmax(132px, 1fr));
       min-width: 980px;
       position: relative;
+      background: #fff;
     }
 
     .agenda-corner,
     .agenda-day-head,
     .agenda-time,
     .agenda-cell {
-      border-right: 1px solid #e4e6eb;
-      border-bottom: 1px solid #e4e6eb;
+      border-right: 1px solid #e8edf6;
+      border-bottom: 1px solid #e8edf6;
     }
 
     .agenda-corner,
@@ -3158,39 +4298,44 @@ const crmHtml = `<!doctype html>
     .agenda-day-head {
       display: grid;
       place-items: center;
+      color: #101936;
+      font-weight: 600;
+      text-decoration: none;
+      font-size: 12px;
+    }
+
+    .agenda-day-head.today {
       color: #2563eb;
-      font-weight: 850;
-      text-decoration: underline;
     }
 
     .agenda-time {
       position: sticky;
       left: 0;
       z-index: 2;
-      height: 28px;
+      height: var(--agenda-row-height, 28px);
       padding-right: 5px;
       display: flex;
       align-items: flex-start;
       justify-content: flex-end;
       background: #fff;
-      color: #6b7280;
+      color: #52617f;
       font-size: 12px;
     }
 
     .agenda-cell {
       position: relative;
-      height: 28px;
+      height: var(--agenda-row-height, 28px);
       background: #fff;
     }
 
     .agenda-cell.today {
-      background: #fff8d8;
+      background: #fff8e2;
     }
 
     .agenda-cell.closed {
       background:
-        repeating-linear-gradient(45deg, rgba(31, 42, 38, 0.2) 0 2px, rgba(31, 42, 38, 0.08) 2px 8px),
-        #7e8782;
+        repeating-linear-gradient(135deg, rgba(148, 163, 184, 0.12) 0 2px, transparent 2px 7px),
+        #f8fafc;
     }
 
     .agenda-event {
@@ -3202,13 +4347,34 @@ const crmHtml = `<!doctype html>
       min-height: 24px;
       padding: 5px 7px;
       border-radius: 6px;
-      color: #fff;
-      background: #2563eb;
-      border-left: 5px solid #1d4ed8;
+      color: #101936;
+      background: color-mix(in srgb, var(--agenda-event-color, #2563eb) 16%, #ffffff);
+      border-left: 4px solid var(--agenda-event-color, #2563eb);
       box-shadow: none;
       overflow: hidden;
       font-size: 11px;
       line-height: 1.25;
+      cursor: grab;
+      user-select: none;
+    }
+
+    .agenda-event:active {
+      cursor: grabbing;
+    }
+
+    .agenda-event.dragging {
+      opacity: .45;
+      cursor: grabbing;
+    }
+
+    .agenda-cell.drag-target:not(.closed) {
+      background: #eaf2ff;
+      box-shadow: inset 0 0 0 2px #2563eb;
+    }
+
+    .agenda-cell.drag-invalid {
+      background: #fff1f2;
+      box-shadow: inset 0 0 0 2px #ef4444;
     }
 
     .agenda-event.is-overlap {
@@ -3217,14 +4383,15 @@ const crmHtml = `<!doctype html>
     }
 
     .agenda-event.no-show {
-      background: #6b7280;
-      border-left-color: #d57920;
+      background: #f1f5f9;
+      border-left-color: #94a3b8;
     }
 
     .agenda-event strong {
       display: block;
       font-size: 11px;
       line-height: 1.2;
+      font-weight: 700;
     }
 
     .agenda-event span {
@@ -3233,6 +4400,38 @@ const crmHtml = `<!doctype html>
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+
+    .agenda-now-line {
+      position: absolute;
+      left: 54px;
+      right: 0;
+      z-index: 5;
+      height: 1px;
+      background: #ef4444;
+      pointer-events: none;
+    }
+
+    .agenda-now-line::before {
+      content: attr(data-time);
+      position: absolute;
+      left: -47px;
+      top: -8px;
+      color: #ef4444;
+      background: #fff;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .agenda-now-line::after {
+      content: "";
+      position: absolute;
+      left: -3px;
+      top: -3px;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #ef4444;
     }
 
     .agenda-empty {
@@ -3384,29 +4583,45 @@ const crmHtml = `<!doctype html>
         <span>Online</span>
       </div>
     </nav>
-    <aside class="sidebar">
-      <div class="topbar">
-        <div class="brand">
+    <header class="conversation-page-header">
+      <div class="conversation-heading">
+        <span class="conversation-heading-icon" data-icon="message"></span>
+        <div>
           <h1>Conversaciones</h1>
-          <p id="conversation-count">Conversaciones</p>
+          <p>Gestion&aacute; tus chats y respond&eacute; m&aacute;s r&aacute;pido</p>
         </div>
-        <button class="icon-button" id="refresh" title="Actualizar">R</button>
       </div>
-      <div class="search">
-        <input id="search" type="search" placeholder="Buscar telefono">
-        <button class="secondary" id="search-button">Buscar</button>
+      <div class="conversation-global-search">
+        <span data-icon="search"></span>
+        <input id="search" type="search" placeholder="Buscar conversaci&oacute;n..." autocomplete="off">
+        <button class="icon-button" id="search-button" type="button" title="Buscar" data-icon="search"></button>
       </div>
-      <div class="ops-panel">
-        <div class="row">
-          <span class="hint">Derivados sin responder</span>
-          <span class="counter" id="handoff-count">0</span>
-        </div>
-        <button class="secondary" id="global-bot-toggle" type="button">Bot automatico activo</button>
+      <button class="icon-button conversation-refresh" id="refresh" type="button" title="Actualizar" data-icon="refresh"></button>
+    </header>
+
+    <aside class="sidebar conversation-sidebar">
+      <div class="conversation-tabs" role="tablist" aria-label="Filtros de conversaciones">
+        <button class="active" id="conversation-tab-all" type="button" data-conversation-filter="all">
+          Todos <span id="conversation-count">0</span>
+        </button>
+        <button id="conversation-tab-unread" type="button" data-conversation-filter="unread">
+          No le&iacute;dos <span id="conversation-unread-count">0</span>
+        </button>
+        <button id="conversation-tab-handoff" type="button" data-conversation-filter="handoff">
+          Derivados <span id="handoff-count">0</span>
+        </button>
+        <button id="conversation-tab-archived" type="button" data-conversation-filter="archived">
+          Archivados <span id="conversation-archived-count">0</span>
+        </button>
+      </div>
+      <div class="ops-panel" hidden>
+        <button class="secondary" id="global-bot-toggle" type="button">Bot autom&aacute;tico activo</button>
         <button class="secondary" id="global-ai-toggle" type="button">IA general activa</button>
       </div>
       <div class="conversation-list" id="conversation-list">
         <div class="empty">Cargando conversaciones...</div>
       </div>
+      <button class="conversation-more" id="conversation-more" type="button">Ver m&aacute;s conversaciones <span data-icon="chevron"></span></button>
     </aside>
 
     <section class="chat">
@@ -3415,53 +4630,63 @@ const crmHtml = `<!doctype html>
           <button class="icon-button mobile-only" id="mobile-back" type="button" title="Volver a chats">&lt;</button>
           <div class="avatar" id="chat-avatar">--</div>
           <div>
-            <div class="panel-title" id="chat-phone">Selecciona una conversacion</div>
+            <div class="panel-title chat-contact-name"><span id="chat-phone">Selecciona una conversacion</span><span class="whatsapp-chip">WhatsApp</span></div>
             <div class="hint" id="chat-status">Historial y respuesta manual</div>
           </div>
         </div>
         <div class="chat-actions">
-          <button class="secondary" id="resolve-handoff" type="button" disabled hidden>Resolver y activar IA</button>
-          <button class="secondary" id="conversation-ai-toggle" type="button" disabled>Desactivar IA</button>
-          <span class="chip" id="step-chip">CRM</span>
+          <span class="chip" id="step-chip">Inicio</span>
+          <details class="chat-more-menu">
+            <summary class="icon-button" title="Opciones" data-icon="more"></summary>
+            <div class="chat-more-popover">
+              <button class="secondary" id="resolve-handoff" type="button" disabled hidden>Resolver derivaci&oacute;n</button>
+              <button class="secondary" id="conversation-ai-toggle" type="button" disabled>Desactivar IA</button>
+              <button class="secondary" id="global-bot-toggle-menu" type="button">Bot autom&aacute;tico</button>
+              <button class="secondary" id="global-ai-toggle-menu" type="button">IA general</button>
+              <button class="secondary" id="archive-conversation" type="button" disabled>Archivar conversaci&oacute;n</button>
+            </div>
+          </details>
         </div>
       </header>
       <div class="messages" id="messages">
         <div class="empty">Elegi un chat para ver los mensajes.</div>
       </div>
       <form class="composer" id="reply-form">
-        <textarea id="reply-text" placeholder="Escribir respuesta manual" disabled></textarea>
-        <div class="send-options">
-          <label class="toggle">
+        <textarea id="reply-text" placeholder="Escribir mensaje..." disabled></textarea>
+        <div class="composer-tools">
+          <button class="composer-icon" type="button" title="Emoji" data-icon="smile"></button>
+          <button class="composer-icon" type="button" title="Adjuntar archivo" data-icon="paperclip"></button>
+          <label class="send-channel" title="Enviar tambi&eacute;n por WhatsApp">
             <input id="send-whatsapp" type="checkbox" checked>
-            Enviar WhatsApp
+            WhatsApp
           </label>
-          <button class="primary" id="send-button" type="submit" disabled>Enviar</button>
+          <button class="primary" id="send-button" type="submit" disabled><span data-icon="send"></span>Enviar</button>
         </div>
       </form>
     </section>
 
     <aside class="details">
       <div class="topbar">
-        <div>
-          <div class="panel-title">Informacion del cliente</div>
-          <p class="hint">Datos de la conversacion</p>
-        </div>
+        <div class="panel-title">Informaci&oacute;n del cliente</div>
+        <button class="details-edit" id="customer-edit" type="button">Editar</button>
       </div>
 
-      <div class="details-section">
-        <div class="data-grid">
-          <div class="data-row">
-            <div class="label">Telefono</div>
-            <div class="value" id="detail-phone">--</div>
+      <div class="details-section customer-summary">
+        <div class="customer-summary-main">
+          <div class="customer-avatar" id="detail-avatar">--</div>
+          <div>
+            <strong id="detail-name">Seleccion&aacute; un cliente</strong>
+            <span class="customer-type">Cliente</span>
+            <a id="detail-phone" href="#">--</a>
           </div>
-          <div class="data-row">
-            <div class="label">Estado bot</div>
-            <div class="value" id="detail-step">--</div>
-          </div>
-          <div class="data-row">
-            <div class="label">Ultimo msg</div>
-            <div class="value" id="detail-updated">--</div>
-          </div>
+        </div>
+        <div class="customer-last-message">
+          <span>&Uacute;ltimo mensaje</span>
+          <strong id="detail-updated">--</strong>
+        </div>
+        <div class="customer-bot-status">
+          <span>Estado del bot</span>
+          <span class="chip" id="detail-step">--</span>
         </div>
       </div>
 
@@ -3472,6 +4697,25 @@ const crmHtml = `<!doctype html>
         </div>
         <div class="stack" id="appointments">
           <div class="empty">Sin cliente seleccionado.</div>
+        </div>
+        <button class="details-wide-action" id="view-agenda" type="button"><span data-icon="calendar"></span>Ver en agenda</button>
+      </div>
+
+      <div class="details-section customer-notes">
+        <div class="row">
+          <div class="panel-title">Notas del cliente</div>
+          <button class="details-link" id="customer-add-note" type="button">+ Agregar nota</button>
+        </div>
+        <div class="customer-note-empty" id="customer-notes-list">Todav&iacute;a no hay notas para este cliente.</div>
+      </div>
+
+      <div class="details-section quick-actions">
+        <div class="panel-title">Acciones r&aacute;pidas</div>
+        <div class="quick-actions-grid">
+          <button id="quick-schedule" type="button"><span data-icon="calendar"></span>Agendar turno</button>
+          <button id="quick-change" type="button"><span data-icon="refresh"></span>Cambiar turno</button>
+          <button id="quick-reminder" type="button"><span data-icon="bell"></span>Enviar recordatorio</button>
+          <button id="quick-history" type="button"><span data-icon="document"></span>Ver historial</button>
         </div>
       </div>
 
@@ -3530,20 +4774,22 @@ const crmHtml = `<!doctype html>
 
         <div class="month-card">
           <div class="month-header">
-            <button class="icon-button" id="agenda-month-prev" type="button" title="Mes anterior">&lt;</button>
+            <button class="icon-button" id="agenda-month-prev" type="button" title="Mes anterior" data-icon="arrow-left"></button>
             <strong id="agenda-month-title">Mes</strong>
-            <button class="icon-button" id="agenda-month-next" type="button" title="Mes siguiente">&gt;</button>
+            <button class="icon-button" id="agenda-month-next" type="button" title="Mes siguiente" data-icon="arrow-right"></button>
           </div>
           <div class="month-grid" id="agenda-month-grid"></div>
         </div>
+
+        <div class="agenda-legend" id="agenda-legend"></div>
       </aside>
 
       <section class="agenda-board">
         <div class="agenda-toolbar">
           <div class="agenda-toolbar-actions">
-            <button class="secondary" id="agenda-today" type="button">Hoy</button>
-            <button class="icon-button" id="agenda-prev" type="button" title="Semana anterior">&lt;</button>
-            <button class="icon-button" id="agenda-next" type="button" title="Semana siguiente">&gt;</button>
+            <button class="agenda-week-button" id="agenda-prev" type="button" title="Semana anterior" data-icon="arrow-left"></button>
+            <button class="agenda-today-button" id="agenda-today" type="button">Hoy</button>
+            <button class="agenda-week-button" id="agenda-next" type="button" title="Semana siguiente" data-icon="arrow-right"></button>
           </div>
           <div class="agenda-range" id="agenda-range">Semana</div>
           <div class="agenda-toolbar-actions">
@@ -3555,6 +4801,7 @@ const crmHtml = `<!doctype html>
               <option value="60">60 min</option>
             </select>
           </div>
+          <div class="agenda-professional-tabs" id="agenda-professional-tabs"></div>
         </div>
         <div class="agenda-grid-wrap" id="agenda-grid-wrap">
           <div class="agenda-empty">Cargando agenda...</div>
@@ -3598,6 +4845,13 @@ const crmHtml = `<!doctype html>
               <label for="appointment-customer-phone">Telefono</label>
               <input class="field" id="appointment-customer-phone" placeholder="Telefono">
             </div>
+          </div>
+          <div class="exceptional-option">
+            <label>
+              <input id="appointment-force" type="checkbox">
+              Turno excepcional
+            </label>
+            <small>Permite guardar fuera del horario habitual o superpuesto. Solo afecta este turno y nunca se ofrece desde el bot.</small>
           </div>
           <p class="hint" id="appointment-feedback"></p>
           <div class="dialog-actions">
@@ -3849,6 +5103,68 @@ const crmHtml = `<!doctype html>
       </div>
     </section>
 
+    <section class="settings-view" id="settings-view">
+      <div class="settings-shell">
+        <header class="settings-header">
+          <div class="settings-header-icon" data-icon="settings"></div>
+          <div>
+            <h2>Ajustes</h2>
+            <p>Datos generales y horarios de atenci&oacute;n del local.</p>
+          </div>
+        </header>
+
+        <section class="settings-panel">
+          <h3>Datos del local</h3>
+          <p>Estos datos definen la disponibilidad general del negocio.</p>
+          <form class="settings-form" id="business-settings-form">
+            <div class="business-logo-field">
+              <label class="business-logo-picker" id="business-logo-picker" title="Cambiar logo del sal&oacute;n">
+                <img id="business-logo-preview" alt="Logo del sal&oacute;n">
+                <span data-icon="camera"></span>
+                <input id="business-logo" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
+              </label>
+              <div class="business-logo-copy">
+                <strong>Imagen del sal&oacute;n</strong>
+                <span>PNG, JPG, WEBP o GIF. M&aacute;ximo 2 MB.</span>
+                <button class="business-logo-remove" id="business-logo-remove" type="button">Quitar imagen</button>
+              </div>
+            </div>
+            <div class="settings-field">
+              <label for="business-name">Nombre del local</label>
+              <input class="field" id="business-name" placeholder="Ej: CRM Salon AI" required>
+            </div>
+
+            <div class="business-hours-grid">
+              <div class="business-hours-title">Horarios de atenci&oacute;n</div>
+              <div class="business-hours-row">
+                <label><input id="business-weekdays-enabled" type="checkbox"> Lunes a viernes</label>
+                <input class="field" id="business-weekdays-start" type="time" value="09:00">
+                <span>-</span>
+                <input class="field" id="business-weekdays-end" type="time" value="19:00">
+              </div>
+              <div class="business-hours-row">
+                <label><input id="business-saturday-enabled" type="checkbox"> S&aacute;bado</label>
+                <input class="field" id="business-saturday-start" type="time" value="09:00">
+                <span>-</span>
+                <input class="field" id="business-saturday-end" type="time" value="14:00">
+              </div>
+              <div class="business-hours-row">
+                <label><input id="business-sunday-enabled" type="checkbox"> Domingo</label>
+                <input class="field" id="business-sunday-start" type="time" value="09:00">
+                <span>-</span>
+                <input class="field" id="business-sunday-end" type="time" value="14:00">
+              </div>
+            </div>
+
+            <div class="settings-actions">
+              <button class="primary" id="business-settings-submit" type="submit">Guardar ajustes</button>
+            </div>
+            <p class="settings-feedback" id="business-settings-feedback" role="status" aria-live="polite"></p>
+          </form>
+        </section>
+      </div>
+    </section>
+
     <section class="reports-view" id="reports-view">
       <div class="reports-shell">
         <header class="reports-header">
@@ -4072,17 +5388,24 @@ const crmHtml = `<!doctype html>
   <script>
     const state = {
       conversations: [],
+      conversationNextCursor: null,
+      conversationCounts: { active: 0, archived: 0, handoff: 0 },
+      loadedArchiveView: 'active',
       selected: null,
       messages: [],
+      messageNextCursor: null,
       appointments: [],
       professionals: [],
       services: [],
       customers: [],
+      customerNotes: [],
       agendaAppointments: [],
       reportAppointments: [],
       agendaBlocks: [],
       agendaSelectedDate: new Date(),
       agendaMonthDate: new Date(),
+      agendaDraggingAppointmentId: null,
+      agendaDidDrag: false,
       editingAppointmentId: null,
       aiSettings: {
         botEnabled: true,
@@ -4092,13 +5415,23 @@ const crmHtml = `<!doctype html>
       professionalStatusFilter: 'all',
       professionalViewMode: 'cards',
       professionalAvatarUrl: null,
+      businessLogoUrl: null,
       businessId: null,
+      business: null,
+      businessHours: [],
+      conversationFilter: 'all',
+      conversationVisibleLimit: 12,
+      readConversationIds: new Set(),
       isRefreshing: false
     }
 
     const els = {
       list: document.getElementById('conversation-list'),
       count: document.getElementById('conversation-count'),
+      unreadCount: document.getElementById('conversation-unread-count'),
+      archivedCount: document.getElementById('conversation-archived-count'),
+      conversationTabs: document.querySelector('.conversation-tabs'),
+      conversationMore: document.getElementById('conversation-more'),
       search: document.getElementById('search'),
       searchButton: document.getElementById('search-button'),
       refresh: document.getElementById('refresh'),
@@ -4108,6 +5441,8 @@ const crmHtml = `<!doctype html>
       topHandoffTotal: document.getElementById('top-handoff-total'),
       globalBotToggle: document.getElementById('global-bot-toggle'),
       globalAiToggle: document.getElementById('global-ai-toggle'),
+      globalBotToggleMenu: document.getElementById('global-bot-toggle-menu'),
+      globalAiToggleMenu: document.getElementById('global-ai-toggle-menu'),
       messages: document.getElementById('messages'),
       chatAvatar: document.getElementById('chat-avatar'),
       chatPhone: document.getElementById('chat-phone'),
@@ -4115,15 +5450,26 @@ const crmHtml = `<!doctype html>
       stepChip: document.getElementById('step-chip'),
       resolveHandoff: document.getElementById('resolve-handoff'),
       conversationAiToggle: document.getElementById('conversation-ai-toggle'),
+      archiveConversation: document.getElementById('archive-conversation'),
       replyForm: document.getElementById('reply-form'),
       replyText: document.getElementById('reply-text'),
       sendButton: document.getElementById('send-button'),
       sendWhatsApp: document.getElementById('send-whatsapp'),
+      detailAvatar: document.getElementById('detail-avatar'),
+      detailName: document.getElementById('detail-name'),
       detailPhone: document.getElementById('detail-phone'),
       detailStep: document.getElementById('detail-step'),
       detailUpdated: document.getElementById('detail-updated'),
       appointments: document.getElementById('appointments'),
       appointmentCount: document.getElementById('appointment-count'),
+      viewAgenda: document.getElementById('view-agenda'),
+      quickSchedule: document.getElementById('quick-schedule'),
+      quickChange: document.getElementById('quick-change'),
+      quickReminder: document.getElementById('quick-reminder'),
+      quickHistory: document.getElementById('quick-history'),
+      customerEdit: document.getElementById('customer-edit'),
+      customerAddNote: document.getElementById('customer-add-note'),
+      customerNotesList: document.getElementById('customer-notes-list'),
       blockForm: document.getElementById('block-form'),
       blockReason: document.getElementById('block-reason'),
       blockProfessional: document.getElementById('block-professional'),
@@ -4229,6 +5575,8 @@ const crmHtml = `<!doctype html>
       agendaMonthNext: document.getElementById('agenda-month-next'),
       agendaMonthTitle: document.getElementById('agenda-month-title'),
       agendaMonthGrid: document.getElementById('agenda-month-grid'),
+      agendaLegend: document.getElementById('agenda-legend'),
+      agendaProfessionalTabs: document.getElementById('agenda-professional-tabs'),
       agendaToday: document.getElementById('agenda-today'),
       agendaPrev: document.getElementById('agenda-prev'),
       agendaNext: document.getElementById('agenda-next'),
@@ -4251,7 +5599,25 @@ const crmHtml = `<!doctype html>
       appointmentCustomer: document.getElementById('appointment-customer'),
       appointmentCustomerName: document.getElementById('appointment-customer-name'),
       appointmentCustomerPhone: document.getElementById('appointment-customer-phone'),
-      appointmentFeedback: document.getElementById('appointment-feedback')
+      appointmentForce: document.getElementById('appointment-force'),
+      appointmentFeedback: document.getElementById('appointment-feedback'),
+      businessSettingsForm: document.getElementById('business-settings-form'),
+      businessLogo: document.getElementById('business-logo'),
+      businessLogoPicker: document.getElementById('business-logo-picker'),
+      businessLogoPreview: document.getElementById('business-logo-preview'),
+      businessLogoRemove: document.getElementById('business-logo-remove'),
+      businessName: document.getElementById('business-name'),
+      businessWeekdaysEnabled: document.getElementById('business-weekdays-enabled'),
+      businessWeekdaysStart: document.getElementById('business-weekdays-start'),
+      businessWeekdaysEnd: document.getElementById('business-weekdays-end'),
+      businessSaturdayEnabled: document.getElementById('business-saturday-enabled'),
+      businessSaturdayStart: document.getElementById('business-saturday-start'),
+      businessSaturdayEnd: document.getElementById('business-saturday-end'),
+      businessSundayEnabled: document.getElementById('business-sunday-enabled'),
+      businessSundayStart: document.getElementById('business-sunday-start'),
+      businessSundayEnd: document.getElementById('business-sunday-end'),
+      businessSettingsSubmit: document.getElementById('business-settings-submit'),
+      businessSettingsFeedback: document.getElementById('business-settings-feedback')
     }
 
     function initials(phone) {
@@ -4295,6 +5661,8 @@ const crmHtml = `<!doctype html>
     }
 
     const iconPaths = {
+      'arrow-left': '<path d="M19 12H5"></path><path d="m12 19-7-7 7-7"></path>',
+      'arrow-right': '<path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path>',
       calendar: '<rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M16 2v4"></path><path d="M8 2v4"></path><path d="M3 10h18"></path>',
       camera: '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path><circle cx="12" cy="13" r="3"></circle>',
       chart: '<path d="M3 3v18h18"></path><path d="M7 16V9"></path><path d="M12 16V5"></path><path d="M17 16v-3"></path>',
@@ -4308,10 +5676,16 @@ const crmHtml = `<!doctype html>
       megaphone: '<path d="m3 11 18-5v12L3 14v-3z"></path><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"></path>',
       message: '<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"></path>',
       more: '<circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle>',
+      bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path>',
+      document: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path><path d="M8 13h8"></path><path d="M8 17h8"></path>',
+      paperclip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>',
       plus: '<path d="M5 12h14"></path><path d="M12 5v14"></path>',
       professional: '<path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path><circle cx="10" cy="7" r="4"></circle><path d="M20 8v6"></path><path d="M23 11h-6"></path>',
       scissors: '<circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M20 4 8.12 15.88"></path><path d="M14.47 14.48 20 20"></path><path d="M8.12 8.12 12 12"></path>',
       search: '<circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.35-4.35"></path>',
+      refresh: '<path d="M20 11a8.1 8.1 0 1 0 .5 4"></path><path d="M20 4v7h-7"></path>',
+      send: '<path d="m22 2-7 20-4-9-9-4Z"></path><path d="M22 2 11 13"></path>',
+      smile: '<circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><path d="M9 9h.01"></path><path d="M15 9h.01"></path>',
       settings: '<path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5z"></path><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1 1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.56V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.2.6.76 1 1.4 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z"></path>',
       tag: '<path d="M20.59 13.41 11 3.83A2.8 2.8 0 0 0 9 3H4a1 1 0 0 0-1 1v5c0 .75.3 1.47.83 2l9.58 9.59a2 2 0 0 0 2.83 0l4.35-4.35a2 2 0 0 0 0-2.83z"></path><circle cx="7.5" cy="7.5" r=".5"></circle>',
       trash: '<path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path>',
@@ -4388,11 +5762,17 @@ const crmHtml = `<!doctype html>
 
     async function loadBasics() {
       const businesses = await getJson('/businesses')
-      state.businessId = businesses[0]?.id || null
+      state.business = businesses[0] || null
+      state.businessId = state.business?.id || null
+      state.businessHours = state.businessId
+        ? await getJson('/business-hours?businessId=' + encodeURIComponent(state.businessId))
+        : []
       state.aiSettings = await getJson('/crm/ai-settings' + (state.businessId ? '?businessId=' + encodeURIComponent(state.businessId) : ''))
       state.professionals = await getJson('/professionals')
       state.services = await getJson('/services')
       state.customers = await getJson('/customers')
+      renderBusinessSettings()
+      applyProfessionalBusinessHourLimits()
       renderAiControls()
       renderProfessionals()
       renderServices()
@@ -4404,34 +5784,46 @@ const crmHtml = `<!doctype html>
     async function loadConversations(options = {}) {
       if (state.isRefreshing) return
       state.isRefreshing = true
+      const archiveView = state.conversationFilter === 'archived' ? 'archived' : 'active'
       const params = new URLSearchParams()
-      const phone = els.search.value.trim()
-      if (phone) params.set('phone', phone)
-      params.set('take', '100')
+      params.set('take', '30')
+      params.set('paginated', 'true')
+      params.set('archive', archiveView)
+      if (state.businessId) params.set('businessId', state.businessId)
+      if (options.append && state.conversationNextCursor) params.set('cursor', state.conversationNextCursor)
       const query = params.toString() ? '?' + params.toString() : ''
 
       try {
-        state.conversations = await getJson('/crm/conversations' + query)
+        const page = await getJson('/crm/conversations' + query)
+        state.loadedArchiveView = archiveView
+        state.conversationNextCursor = page.nextCursor || null
+        state.conversationCounts = page.counts || state.conversationCounts
+        if (options.append) {
+          const known = new Set(state.conversations.map((conversation) => conversation.id))
+          state.conversations = state.conversations.concat(page.items.filter((conversation) => !known.has(conversation.id)))
+        } else {
+          state.conversations = page.items
+        }
         state.conversations.sort((left, right) => latestConversationActivityAt(right) - latestConversationActivityAt(left))
-        if (els.topConversationTotal) els.topConversationTotal.textContent = String(state.conversations.length)
+        if (els.topConversationTotal) els.topConversationTotal.textContent = String(state.conversationCounts.active)
         renderConversations()
         renderAiControls()
 
-        if (!state.selected && state.conversations[0]) {
+        if (!options.append && !state.selected && state.conversations[0]) {
           await selectConversation(state.conversations[0].id)
-        } else if (state.selected) {
+        } else if (!options.append && state.selected) {
           const fresh = state.conversations.find((item) => item.id === state.selected.id)
           if (fresh) {
             state.selected = fresh
             await refreshSelectedConversation()
+          } else {
+            state.selected = null
+            if (state.conversations[0]) await selectConversation(state.conversations[0].id)
           }
           renderConversations()
         }
 
-        els.count.textContent = state.conversations.length + ' conversaciones · actualizado ' + new Date().toLocaleTimeString('es-AR', {
-          hour: '2-digit',
-          minute: '2-digit'
-        })
+        els.count.textContent = String(state.conversationCounts.active)
       } catch (error) {
         if (!options.silent) {
           els.list.innerHTML = '<div class="error">' + escapeHtml(error.message) + '</div>'
@@ -4442,24 +5834,50 @@ const crmHtml = `<!doctype html>
     }
 
     function renderConversations() {
-      els.count.textContent = state.conversations.length + ' conversaciones'
-      if (state.conversations.length === 0) {
-        els.list.innerHTML = '<div class="empty">No hay conversaciones.</div>'
+      const unreadCount = state.conversations.filter(isConversationUnread).length
+      const conversations = filteredConversations()
+      els.count.textContent = String(state.conversationCounts.active)
+      els.unreadCount.textContent = String(unreadCount)
+      els.handoffCount.textContent = String(state.conversationCounts.handoff)
+      els.archivedCount.textContent = String(state.conversationCounts.archived)
+      els.conversationMore.hidden = !state.conversationNextCursor
+
+      for (const tab of els.conversationTabs.querySelectorAll('[data-conversation-filter]')) {
+        tab.classList.toggle('active', tab.dataset.conversationFilter === state.conversationFilter)
+      }
+
+      if (conversations.length === 0) {
+        const emptyCopy = state.conversationFilter === 'handoff'
+          ? 'No hay conversaciones derivadas pendientes.'
+          : state.conversationFilter === 'unread'
+            ? 'No hay conversaciones sin leer.'
+            : state.conversationFilter === 'archived'
+              ? 'No hay conversaciones archivadas.'
+            : 'No hay conversaciones que coincidan con la busqueda.'
+        els.list.innerHTML = '<div class="empty">' + emptyCopy + '</div>'
         return
       }
 
-      els.list.innerHTML = state.conversations.map((conversation) => {
+      els.list.innerHTML = conversations.map((conversation) => {
         const last = conversation.messages?.[0]
         const active = state.selected?.id === conversation.id ? ' active' : ''
+        const name = conversationDisplayName(conversation)
+        const unread = isConversationUnread(conversation)
         return '<button class="conversation' + active + '" data-id="' + conversation.id + '">' +
-          '<div class="avatar">' + initials(conversation.phone) + '</div>' +
+          '<div class="conversation-avatar-wrap">' +
+            '<div class="avatar">' + escapeHtml(contactInitials(name, conversation.phone)) + '</div>' +
+            '<span class="conversation-online-dot"></span>' +
+          '</div>' +
           '<div class="conversation-main">' +
             '<div class="row">' +
-              '<div class="phone">' + escapeHtml(conversation.phone) + '</div>' +
-              '<span class="' + conversationStepChipClass(conversation.currentStep, conversation.aiEnabled) + '">' + escapeHtml(conversation.aiEnabled === false ? 'IA OFF' : conversation.currentStep) + '</span>' +
+              '<div class="conversation-name">' + escapeHtml(name) + '</div>' +
+              '<span class="conversation-time">' + escapeHtml(formatConversationTime(latestConversationActivityValue(conversation))) + '</span>' +
             '</div>' +
             '<p class="preview">' + escapeHtml(last?.body || conversation.lastMessage || 'Sin mensajes') + '</p>' +
-            '<p class="meta">' + formatDateTime(latestConversationActivityValue(conversation)) + '</p>' +
+            '<div class="conversation-status-line">' +
+              '<span class="' + conversationStepChipClass(conversation.currentStep, conversation.aiEnabled) + '">' + escapeHtml(conversationStepLabel(conversation.currentStep, conversation.aiEnabled)) + '</span>' +
+              (unread ? '<span class="conversation-unread-dot">1</span>' : '') +
+            '</div>' +
           '</div>' +
         '</button>'
       }).join('')
@@ -4472,6 +5890,7 @@ const crmHtml = `<!doctype html>
     async function selectConversation(id) {
       const conversation = state.conversations.find((item) => item.id === id)
       if (!conversation) return
+      state.readConversationIds.add(id)
       state.selected = conversation
       await refreshSelectedConversation()
       if (isMobile()) {
@@ -4481,10 +5900,20 @@ const crmHtml = `<!doctype html>
 
     async function refreshSelectedConversation() {
       if (!state.selected) return
-      state.messages = await getJson('/crm/conversations/' + state.selected.id + '/messages')
-      await loadAppointments()
+      await loadConversationMessages()
+      await Promise.all([loadAppointments(), loadCustomerNotes()])
       renderSelected()
       renderConversations()
+    }
+
+    async function loadConversationMessages(options = {}) {
+      if (!state.selected) return
+      const params = new URLSearchParams({ paginated: 'true', take: '100' })
+      if (options.older && state.messageNextCursor) params.set('cursor', state.messageNextCursor)
+      const page = await getJson('/crm/conversations/' + state.selected.id + '/messages?' + params.toString())
+      state.messageNextCursor = page.nextCursor || null
+      state.messages = options.older ? page.items.concat(state.messages) : page.items
+      if (options.older) renderMessages({ preserveScroll: true })
     }
 
     async function loadAppointments() {
@@ -4499,14 +5928,45 @@ const crmHtml = `<!doctype html>
         .sort((left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime())
     }
 
+    async function loadCustomerNotes() {
+      state.customerNotes = []
+      if (!state.selected) return
+      const customer = customerForPhone(state.selected.phone)
+      if (!customer) {
+        renderCustomerNotes()
+        return
+      }
+      state.customerNotes = await getJson('/customers/' + customer.id + '/notes')
+      renderCustomerNotes()
+    }
+
+    function renderCustomerNotes() {
+      if (!state.customerNotes.length) {
+        els.customerNotesList.className = 'customer-note-empty'
+        els.customerNotesList.textContent = 'Todavia no hay notas para este cliente.'
+        return
+      }
+
+      els.customerNotesList.className = 'customer-note-list'
+      els.customerNotesList.innerHTML = state.customerNotes.map((note) => {
+        return '<article class="customer-note-item">' +
+          '<p>' + escapeHtml(note.body) + '</p>' +
+          '<span>' + escapeHtml(formatDateTime(note.createdAt)) + '</span>' +
+        '</article>'
+      }).join('')
+    }
+
     function renderSelected() {
       const selected = state.selected
       if (!selected) return
 
-      els.chatAvatar.textContent = initials(selected.phone)
-      els.chatPhone.textContent = selected.phone
-      els.chatStatus.textContent = 'Actualizado ' + formatDateTime(latestConversationActivityValue(selected))
-      els.stepChip.textContent = selected.currentStep
+      const name = conversationDisplayName(selected)
+      const customer = customerForPhone(selected.phone)
+      const avatar = contactInitials(name, selected.phone)
+      els.chatAvatar.textContent = avatar
+      els.chatPhone.textContent = name
+      els.chatStatus.textContent = selected.phone
+      els.stepChip.textContent = conversationStepLabel(selected.currentStep, selected.aiEnabled)
       els.stepChip.className = conversationStepChipClass(selected.currentStep, selected.aiEnabled)
       const canResolveHandoff = selected.currentStep === 'HUMAN_HANDOFF' || selected.aiEnabled === false
       els.resolveHandoff.hidden = !canResolveHandoff
@@ -4514,9 +5974,16 @@ const crmHtml = `<!doctype html>
       els.conversationAiToggle.disabled = false
       els.conversationAiToggle.textContent = selected.aiEnabled === false ? 'Activar IA' : 'Desactivar IA'
       els.conversationAiToggle.className = selected.aiEnabled === false ? 'secondary' : 'danger'
+      els.detailAvatar.textContent = avatar
+      els.detailName.textContent = name
       els.detailPhone.textContent = selected.phone
-      els.detailStep.textContent = selected.currentStep
+      els.detailPhone.href = 'tel:' + selected.phone
+      els.detailStep.textContent = conversationStepLabel(selected.currentStep, selected.aiEnabled)
+      els.detailStep.className = conversationStepChipClass(selected.currentStep, selected.aiEnabled)
       els.detailUpdated.textContent = formatDateTime(latestConversationActivityValue(selected))
+      els.customerEdit.disabled = !customer
+      els.archiveConversation.disabled = false
+      els.archiveConversation.textContent = selected.archivedAt ? 'Restaurar conversacion' : 'Archivar conversacion'
       els.replyText.disabled = false
       els.sendButton.disabled = false
 
@@ -4524,20 +5991,34 @@ const crmHtml = `<!doctype html>
       renderAppointments()
     }
 
-    function renderMessages() {
+    function renderMessages(options = {}) {
       if (!state.messages.length) {
         els.messages.innerHTML = '<div class="empty">Esta conversacion no tiene mensajes guardados.</div>'
         return
       }
 
-      els.messages.innerHTML = state.messages.map((message) => {
+      const previousHeight = els.messages.scrollHeight
+      const previousTop = els.messages.scrollTop
+      let lastDay = ''
+      const messageHtml = state.messages.map((message) => {
         const direction = message.direction === 'OUTBOUND' ? 'outbound' : 'inbound'
-        return '<article class="message ' + direction + '">' +
+        const createdAt = new Date(message.createdAt)
+        const dayKey = createdAt.toDateString()
+        const dayDivider = dayKey === lastDay ? '' : '<div class="message-day">' + escapeHtml(formatMessageDay(createdAt)) + '</div>'
+        lastDay = dayKey
+        return dayDivider + '<article class="message ' + direction + '">' +
           escapeHtml(message.body) +
-          '<div class="message-time">' + formatDateTime(message.createdAt) + '</div>' +
+          '<div class="message-time">' + escapeHtml(formatMessageTime(createdAt)) + (direction === 'outbound' ? '<span class="message-checks">&#10003;&#10003;</span>' : '') + '</div>' +
         '</article>'
       }).join('')
-      els.messages.scrollTop = els.messages.scrollHeight
+      els.messages.innerHTML = (state.messageNextCursor ? '<button class="message-load-older" id="message-load-older" type="button">Cargar mensajes anteriores</button>' : '') + messageHtml
+      const olderButton = document.getElementById('message-load-older')
+      olderButton?.addEventListener('click', () => loadConversationMessages({ older: true }))
+      if (options.preserveScroll) {
+        els.messages.scrollTop = previousTop + (els.messages.scrollHeight - previousHeight)
+      } else {
+        els.messages.scrollTop = els.messages.scrollHeight
+      }
     }
 
     function renderAppointments() {
@@ -4556,7 +6037,9 @@ const crmHtml = `<!doctype html>
       els.appointments.innerHTML = state.appointments.map((appointment) => {
         return '<div class="item">' +
           '<div class="item-title">' + escapeHtml(appointment.service?.name || 'Servicio') + '</div>' +
-          '<p>' + escapeHtml(appointment.professional?.name || 'Profesional') + ' · ' + formatAppointment(appointment.startAt) + '</p>' +
+          '<p>Profesional: ' + escapeHtml(appointment.professional?.name || 'Profesional') + '</p>' +
+          '<p>' + escapeHtml(formatAppointment(appointment.startAt)) + '</p>' +
+          '<span class="chip step-completed">Confirmado</span>' +
         '</div>'
       }).join('')
     }
@@ -4715,9 +6198,7 @@ const crmHtml = `<!doctype html>
     }
 
     function renderAiControls() {
-      const pending = state.conversations.filter((conversation) => {
-        return conversation.currentStep === 'HUMAN_HANDOFF' && !conversation.humanHandoffResolvedAt
-      }).length
+      const pending = state.conversationCounts.handoff || state.conversations.filter(isPendingHandoff).length
       els.handoffCount.textContent = String(pending)
       renderNavHandoffBadge(pending)
       if (els.topHandoffTotal) els.topHandoffTotal.textContent = String(pending)
@@ -4725,6 +6206,8 @@ const crmHtml = `<!doctype html>
       els.globalBotToggle.className = state.aiSettings.botEnabled === false ? 'danger' : 'secondary'
       els.globalAiToggle.textContent = state.aiSettings.aiEnabled === false ? 'IA general apagada' : 'IA general activa'
       els.globalAiToggle.className = state.aiSettings.aiEnabled === false ? 'danger' : 'secondary'
+      els.globalBotToggleMenu.textContent = state.aiSettings.botEnabled === false ? 'Activar bot automatico' : 'Desactivar bot automatico'
+      els.globalAiToggleMenu.textContent = state.aiSettings.aiEnabled === false ? 'Activar IA general' : 'Desactivar IA general'
     }
 
     function renderNavHandoffBadge(count) {
@@ -5363,6 +6846,26 @@ const crmHtml = `<!doctype html>
       }
     }
 
+    async function toggleArchiveConversation() {
+      if (!state.selected) return
+      const archived = !state.selected.archivedAt
+      els.archiveConversation.disabled = true
+      try {
+        await getJson('/crm/conversations/' + state.selected.id + '/archive', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ archived })
+        })
+        state.selected = null
+        state.conversationNextCursor = null
+        await loadConversations()
+      } catch (error) {
+        alert(error.message)
+      } finally {
+        els.archiveConversation.disabled = false
+      }
+    }
+
     async function createBlock(event) {
       event.preventDefault()
       if (!state.businessId) {
@@ -5407,6 +6910,7 @@ const crmHtml = `<!doctype html>
       const id = els.professionalId.value
       const name = els.professionalName.value.trim()
       const serviceIds = getSelectedProfessionalServiceIds()
+      const workingHours = buildProfessionalWorkingHours()
       if (!name) {
         els.professionalFeedback.textContent = 'Escribi un nombre.'
         return
@@ -5414,6 +6918,12 @@ const crmHtml = `<!doctype html>
 
       if (state.services.length > 0 && serviceIds.length === 0) {
         els.professionalFeedback.textContent = 'Selecciona al menos un servicio.'
+        return
+      }
+
+      const businessHoursError = validateProfessionalHoursAgainstBusiness(workingHours)
+      if (businessHoursError) {
+        els.professionalFeedback.textContent = businessHoursError
         return
       }
 
@@ -5427,7 +6937,7 @@ const crmHtml = `<!doctype html>
             avatarUrl: state.professionalAvatarUrl,
             isActive: els.professionalStatus.value === 'active',
             serviceIds,
-            workingHours: buildProfessionalWorkingHours(),
+            workingHours,
             ...(options.conflictStrategy ? { conflictStrategy: options.conflictStrategy } : {})
           })
         })
@@ -5446,7 +6956,7 @@ const crmHtml = `<!doctype html>
             id,
             name,
             serviceIds,
-            workingHours: buildProfessionalWorkingHours()
+            workingHours
           }
           showProfessionalImpact({
             title: 'Turnos fuera del nuevo horario',
@@ -5648,6 +7158,288 @@ const crmHtml = `<!doctype html>
       return hours
     }
 
+    function businessHoursForDay(dayOfWeek) {
+      return state.businessHours.filter((hour) => hour.dayOfWeek === dayOfWeek)
+    }
+
+    function isInsideConfiguredBusinessHours(hour) {
+      return businessHoursForDay(hour.dayOfWeek).some((businessHour) => {
+        return hour.startTime >= businessHour.startTime &&
+          hour.endTime <= businessHour.endTime
+      })
+    }
+
+    function validateProfessionalHoursAgainstBusiness(hours) {
+      const invalidHour = hours.find((hour) => !isInsideConfiguredBusinessHours(hour))
+      if (!invalidHour) return ''
+
+      const ranges = businessHoursForDay(invalidHour.dayOfWeek)
+      const localRange = ranges.length
+        ? ranges.map((hour) => hour.startTime + ' a ' + hour.endTime).join(', ')
+        : 'cerrado'
+
+      return 'El horario de ' + dayName(invalidHour.dayOfWeek) + ' debe estar dentro del horario del local (' + localRange + ').'
+    }
+
+    function applyProfessionalBusinessHourLimits() {
+      const weekdayHours = [1, 2, 3, 4, 5].flatMap(businessHoursForDay)
+      applyTimeRangeLimits({
+        enabled: els.professionalWeekdaysEnabled,
+        start: els.professionalWeekdaysStart,
+        end: els.professionalWeekdaysEnd,
+        hours: weekdayHours,
+        requireEveryDay: [1, 2, 3, 4, 5].every((day) => businessHoursForDay(day).length > 0)
+      })
+      applyTimeRangeLimits({
+        enabled: els.professionalSaturdayEnabled,
+        start: els.professionalSaturdayStart,
+        end: els.professionalSaturdayEnd,
+        hours: businessHoursForDay(6),
+        requireEveryDay: businessHoursForDay(6).length > 0
+      })
+      applyTimeRangeLimits({
+        enabled: els.professionalSundayEnabled,
+        start: els.professionalSundayStart,
+        end: els.professionalSundayEnd,
+        hours: businessHoursForDay(0),
+        requireEveryDay: businessHoursForDay(0).length > 0
+      })
+    }
+
+    function applyTimeRangeLimits(input) {
+      const starts = input.hours.map((hour) => hour.startTime)
+      const ends = input.hours.map((hour) => hour.endTime)
+      const sortedStarts = starts.sort()
+      const minStart = sortedStarts.length ? sortedStarts[sortedStarts.length - 1] : ''
+      const maxEnd = ends.length ? ends.sort()[0] : ''
+
+      input.enabled.disabled = !input.requireEveryDay
+      if (!input.requireEveryDay) {
+        input.enabled.checked = false
+      }
+
+      input.start.min = minStart
+      input.start.max = maxEnd
+      input.end.min = minStart
+      input.end.max = maxEnd
+    }
+
+    function renderBusinessSettings() {
+      els.businessName.value = state.business?.name || ''
+      setBusinessLogo(state.business?.logoUrl || null)
+      updateBusinessBrand()
+      const byDay = new Map(state.businessHours.map((hour) => [hour.dayOfWeek, hour]))
+      const weekdays = [1, 2, 3, 4, 5].map((day) => byDay.get(day)).filter(Boolean)
+      const weekday = weekdays[0]
+      const saturday = byDay.get(6)
+      const sunday = byDay.get(0)
+
+      els.businessWeekdaysEnabled.checked = weekdays.length === 5
+      els.businessWeekdaysStart.value = weekday?.startTime || '09:00'
+      els.businessWeekdaysEnd.value = weekday?.endTime || '19:00'
+      els.businessSaturdayEnabled.checked = Boolean(saturday)
+      els.businessSaturdayStart.value = saturday?.startTime || '09:00'
+      els.businessSaturdayEnd.value = saturday?.endTime || '14:00'
+      els.businessSundayEnabled.checked = Boolean(sunday)
+      els.businessSundayStart.value = sunday?.startTime || '09:00'
+      els.businessSundayEnd.value = sunday?.endTime || '14:00'
+    }
+
+    function businessInitials(name) {
+      const words = String(name || 'S').trim().split(/\s+/).filter(Boolean)
+      return words.slice(0, 2).map((word) => word[0]).join('').toUpperCase() || 'S'
+    }
+
+    function updateBusinessBrand() {
+      const name = state.business?.name || 'CRM Salon AI'
+      const logoUrl = state.business?.logoUrl || null
+      const brandName = document.querySelector('.workspace-nav .crm-brand strong')
+      const brandMark = document.querySelector('.workspace-nav .brand-mark')
+      const adminName = document.querySelector('.workspace-nav .nav-user-info strong')
+      const adminAvatar = document.querySelector('.workspace-nav .mini-avatar')
+
+      if (brandName) brandName.textContent = name
+      if (adminName) adminName.textContent = name
+      if (brandMark) {
+        brandMark.innerHTML = logoUrl
+          ? '<img src="' + escapeHtml(logoUrl) + '" alt="">'
+          : escapeHtml(businessInitials(name))
+      }
+      if (adminAvatar) {
+        adminAvatar.innerHTML = logoUrl
+          ? '<img src="' + escapeHtml(logoUrl) + '" alt="">'
+          : escapeHtml(businessInitials(name))
+      }
+    }
+
+    function setBusinessLogo(logoUrl) {
+      state.businessLogoUrl = logoUrl
+      els.businessLogoPreview.src = logoUrl || ''
+      els.businessLogoPicker.classList.toggle('has-image', Boolean(logoUrl))
+      els.businessLogoRemove.hidden = !logoUrl
+      if (!logoUrl) {
+        els.businessLogo.value = ''
+      }
+    }
+
+    function readBusinessLogo(event) {
+      const file = event.target.files?.[0]
+      if (!file) return
+
+      const supportedTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
+      if (!supportedTypes.includes(file.type)) {
+        showBusinessSettingsFeedback('Elegí una imagen PNG, JPG, WEBP o GIF.', 'error')
+        setBusinessLogo(state.business?.logoUrl || null)
+        return
+      }
+
+      if (file.size > 2 * 1024 * 1024) {
+        showBusinessSettingsFeedback('La imagen no puede superar los 2 MB.', 'error')
+        setBusinessLogo(state.business?.logoUrl || null)
+        return
+      }
+
+      clearBusinessSettingsFeedback()
+      const reader = new FileReader()
+      reader.addEventListener('load', () => {
+        setBusinessLogo(String(reader.result || ''))
+      })
+      reader.readAsDataURL(file)
+    }
+
+    function showBusinessSettingsFeedback(message, type) {
+      els.businessSettingsFeedback.textContent = message
+      els.businessSettingsFeedback.className = 'settings-feedback visible ' + type
+    }
+
+    function clearBusinessSettingsFeedback() {
+      els.businessSettingsFeedback.textContent = ''
+      els.businessSettingsFeedback.className = 'settings-feedback'
+    }
+
+    function businessHoursKey(hours) {
+      return hours
+        .map((hour) => hour.dayOfWeek + ':' + hour.startTime + '-' + hour.endTime)
+        .sort()
+        .join('|')
+    }
+
+    async function saveBusinessSettings(event) {
+      event.preventDefault()
+      clearBusinessSettingsFeedback()
+      const name = els.businessName.value.trim()
+      if (!state.businessId || !name) {
+        showBusinessSettingsFeedback('Completa el nombre del local.', 'error')
+        return
+      }
+
+      const schedules = [
+        {
+          label: 'lunes a viernes',
+          enabled: els.businessWeekdaysEnabled.checked,
+          startTime: els.businessWeekdaysStart.value,
+          endTime: els.businessWeekdaysEnd.value
+        },
+        {
+          label: 'sabado',
+          enabled: els.businessSaturdayEnabled.checked,
+          startTime: els.businessSaturdayStart.value,
+          endTime: els.businessSaturdayEnd.value
+        },
+        {
+          label: 'domingo',
+          enabled: els.businessSundayEnabled.checked,
+          startTime: els.businessSundayStart.value,
+          endTime: els.businessSundayEnd.value
+        }
+      ]
+      const invalid = schedules.find((schedule) => schedule.enabled && (!schedule.startTime || !schedule.endTime || schedule.startTime >= schedule.endTime))
+      if (invalid) {
+        showBusinessSettingsFeedback('Revisa el horario de ' + invalid.label + '.', 'error')
+        return
+      }
+
+      const requestedHours = []
+      if (els.businessWeekdaysEnabled.checked) {
+        for (const dayOfWeek of [1, 2, 3, 4, 5]) {
+          requestedHours.push({
+            dayOfWeek,
+            startTime: els.businessWeekdaysStart.value,
+            endTime: els.businessWeekdaysEnd.value
+          })
+        }
+      }
+      if (els.businessSaturdayEnabled.checked) {
+        requestedHours.push({
+          dayOfWeek: 6,
+          startTime: els.businessSaturdayStart.value,
+          endTime: els.businessSaturdayEnd.value
+        })
+      }
+      if (els.businessSundayEnabled.checked) {
+        requestedHours.push({
+          dayOfWeek: 0,
+          startTime: els.businessSundayStart.value,
+          endTime: els.businessSundayEnd.value
+        })
+      }
+
+      const hoursChanged = businessHoursKey(requestedHours) !== businessHoursKey(state.businessHours)
+      const nameChanged = name !== state.business?.name
+      const logoChanged = state.businessLogoUrl !== (state.business?.logoUrl || null)
+      els.businessSettingsSubmit.disabled = true
+      els.businessSettingsSubmit.textContent = 'Guardando...'
+
+      try {
+        if (hoursChanged) {
+          state.businessHours = await getJson('/business-hours/setup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              businessId: state.businessId,
+              weekdays: {
+                days: els.businessWeekdaysEnabled.checked ? [1, 2, 3, 4, 5] : [],
+                startTime: els.businessWeekdaysStart.value || '09:00',
+                endTime: els.businessWeekdaysEnd.value || '19:00'
+              },
+              saturday: {
+                days: els.businessSaturdayEnabled.checked ? [6] : [],
+                startTime: els.businessSaturdayStart.value || '09:00',
+                endTime: els.businessSaturdayEnd.value || '14:00'
+              },
+              sunday: {
+                days: els.businessSundayEnabled.checked ? [0] : [],
+                startTime: els.businessSundayStart.value || '09:00',
+                endTime: els.businessSundayEnd.value || '14:00'
+              }
+            })
+          })
+        }
+        if (nameChanged || logoChanged) {
+          state.business = await getJson('/businesses/' + state.businessId, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ...(nameChanged ? { name } : {}),
+              ...(logoChanged ? { logoUrl: state.businessLogoUrl } : {})
+            })
+          })
+        }
+        renderBusinessSettings()
+        applyProfessionalBusinessHourLimits()
+        renderAgenda()
+        showBusinessSettingsFeedback(
+          nameChanged || logoChanged || hoursChanged ? 'Ajustes guardados correctamente.' : 'No hay cambios para guardar.',
+          'success'
+        )
+      } catch (error) {
+        showBusinessSettingsFeedback(error.message, 'error')
+      } finally {
+        els.businessSettingsSubmit.disabled = false
+        els.businessSettingsSubmit.textContent = 'Guardar ajustes'
+      }
+    }
+
     function setProfessionalWorkingHours(hours) {
       const byDay = new Map((hours || []).map((hour) => [hour.dayOfWeek, hour]))
       const weekdays = [1, 2, 3, 4, 5].map((day) => byDay.get(day)).filter(Boolean)
@@ -5700,6 +7492,13 @@ const crmHtml = `<!doctype html>
 
     function activeProfessionals() {
       return state.professionals.filter((professional) => professional.isActive !== false)
+    }
+
+    function agendaProfessionalColor(professionalId, index = 0) {
+      const palette = ['#2563eb', '#8b5cf6', '#10b981', '#f97316', '#ef4444', '#14b8a6']
+      const professionals = activeProfessionals()
+      const resolvedIndex = index >= 0 ? index : professionals.findIndex((professional) => professional.id === professionalId)
+      return palette[Math.max(0, resolvedIndex) % palette.length]
     }
 
     function formatCompactNumber(value) {
@@ -5862,17 +7661,56 @@ const crmHtml = `<!doctype html>
     }
 
     function renderAgendaFilters() {
+      const selectedProfessional = els.agendaProfessional.value || ''
+      const selectedService = els.agendaService.value || ''
       els.agendaProfessional.innerHTML = ['<option value="">Todos los profesionales</option>']
         .concat(activeProfessionals().map((professional) => {
           return '<option value="' + professional.id + '">' + escapeHtml(professional.name) + '</option>'
         }))
         .join('')
+      els.agendaProfessional.value = activeProfessionals().some((professional) => professional.id === selectedProfessional) ? selectedProfessional : ''
 
       els.agendaService.innerHTML = ['<option value="">Todos los servicios</option>']
         .concat(state.services.map((service) => {
           return '<option value="' + service.id + '">' + escapeHtml(service.name) + '</option>'
         }))
         .join('')
+      els.agendaService.value = state.services.some((service) => service.id === selectedService) ? selectedService : ''
+      renderAgendaProfessionalControls()
+    }
+
+    function renderAgendaProfessionalControls() {
+      const professionals = activeProfessionals()
+      const selected = els.agendaProfessional.value || ''
+      const tabs = [
+        '<button class="agenda-pro-tab' + (!selected ? ' active' : '') + '" type="button" data-agenda-pro-tab="">' +
+          'Todos' +
+        '</button>'
+      ].concat(professionals.map((professional, index) => {
+        const color = agendaProfessionalColor(professional.id, index)
+        return '<button class="agenda-pro-tab' + (selected === professional.id ? ' active' : '') + '" type="button" data-agenda-pro-tab="' + professional.id + '">' +
+          '<span class="agenda-dot" style="--agenda-color:' + color + '"></span>' +
+          escapeHtml(professional.name) +
+        '</button>'
+      }))
+
+      els.agendaProfessionalTabs.innerHTML = tabs.join('')
+      for (const button of els.agendaProfessionalTabs.querySelectorAll('[data-agenda-pro-tab]')) {
+        button.addEventListener('click', async () => {
+          els.agendaProfessional.value = button.dataset.agendaProTab || ''
+          renderAgendaProfessionalControls()
+          await loadAgenda()
+        })
+      }
+
+      els.agendaLegend.innerHTML = '<strong>Profesionales</strong>' + professionals.map((professional, index) => {
+        const color = agendaProfessionalColor(professional.id, index)
+        return '<div class="agenda-legend-item">' +
+          '<span class="agenda-dot" style="--agenda-color:' + color + '"></span>' +
+          '<span>' + escapeHtml(professional.name) + '</span>' +
+        '</div>'
+      }).join('') +
+        '<div class="agenda-legend-item"><span class="agenda-dot" style="--agenda-color:#cbd5e1"></span><span>No disponible</span></div>'
     }
 
     function renderAppointmentFormOptions() {
@@ -5959,18 +7797,22 @@ const crmHtml = `<!doctype html>
       const step = Number(els.agendaStep.value || 15)
       const weekStart = startOfWeek(state.agendaSelectedDate)
       const days = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index))
-      const startMinute = 9 * 60
-      const endMinute = 19 * 60
-      const rowHeight = 28
+      const displayRange = getAgendaDisplayRange()
+      const startMinute = displayRange.start
+      const endMinute = displayRange.end
+      const pixelsPerMinute = 28 / 15
+      const rowHeight = step * pixelsPerMinute
       const rows = []
 
       els.agendaRange.textContent = formatAgendaRange(days[0], days[6])
+      els.agendaToday.textContent = isDateInRange(new Date(), days[0], addDays(days[6], 1)) ? 'Hoy' : 'Ir a hoy'
 
-      rows.push('<div class="agenda-grid">')
+      rows.push('<div class="agenda-grid" style="--agenda-row-height:' + rowHeight + 'px">')
       rows.push('<div class="agenda-corner"></div>')
 
       for (const day of days) {
-        rows.push('<button class="agenda-day-head" type="button" data-agenda-date="' + dateKey(day) + '">' + formatAgendaDayHeader(day) + '</button>')
+        const todayClass = dateKey(day) === dateKey(new Date()) ? ' today' : ''
+        rows.push('<button class="agenda-day-head' + todayClass + '" type="button" data-agenda-date="' + dateKey(day) + '">' + formatAgendaDayHeader(day) + '</button>')
       }
 
       for (let minute = startMinute; minute < endMinute; minute += step) {
@@ -5980,6 +7822,13 @@ const crmHtml = `<!doctype html>
           const today = dateKey(day) === dateKey(new Date())
           rows.push('<div class="agenda-cell' + (today ? ' today' : '') + (closed ? ' closed' : '') + '" data-cell-date="' + dateKey(day) + '" data-cell-minute="' + minute + '"></div>')
         }
+      }
+
+      const now = new Date()
+      const nowMinute = now.getHours() * 60 + now.getMinutes()
+      if (isDateInRange(now, days[0], addDays(days[6], 1)) && nowMinute >= startMinute && nowMinute < endMinute) {
+        const top = 38 + (nowMinute - startMinute) * pixelsPerMinute
+        rows.push('<div class="agenda-now-line" data-time="' + escapeHtml(formatTimeOnly(now)) + '" style="top:' + top + 'px"></div>')
       }
 
       rows.push('</div>')
@@ -6006,8 +7855,22 @@ const crmHtml = `<!doctype html>
       renderAgendaEvents({
         step,
         rowHeight,
+        pixelsPerMinute,
         startMinute
       })
+      enableAgendaDragAndDrop()
+    }
+
+    function getAgendaDisplayRange() {
+      const starts = state.businessHours.map((hour) => timeToMinutes(hour.startTime))
+      const ends = state.businessHours.map((hour) => timeToMinutes(hour.endTime))
+      const start = starts.length ? Math.min(...starts) : 9 * 60
+      const end = ends.length ? Math.max(...ends) : 19 * 60
+
+      return {
+        start: Math.floor(start / 60) * 60,
+        end: Math.ceil(end / 60) * 60
+      }
     }
 
     function renderAgendaEvents(input) {
@@ -6026,11 +7889,13 @@ const crmHtml = `<!doctype html>
         if (!cell) continue
 
         const duration = appointment.service?.duration || input.step
-        const height = Math.max(24, Math.ceil(duration / input.step) * input.rowHeight - 4)
-        const top = Math.max(2, ((minute - roundedMinute) / input.step) * input.rowHeight + 2)
+        const height = Math.max(24, duration * input.pixelsPerMinute - 4)
+        const top = Math.max(2, (minute - roundedMinute) * input.pixelsPerMinute + 2)
         const customer = appointment.customer?.name || 'Cliente'
         const professional = appointment.professional?.name || 'Profesional'
         const service = appointment.service?.name || 'Servicio'
+        const professionalIndex = activeProfessionals().findIndex((item) => item.id === appointment.professionalId)
+        const eventColor = agendaProfessionalColor(appointment.professionalId, professionalIndex)
         const placement = layout.get(appointment.id) || { column: 0, columns: 1 }
         const gap = 3
         const leftOffset = 5 + (gap / 2)
@@ -6044,15 +7909,108 @@ const crmHtml = `<!doctype html>
         event.style.left = 'calc(' + ((placement.column * 100) / placement.columns) + '% + ' + leftOffset + 'px)'
         event.style.right = 'auto'
         event.style.width = 'calc(' + (100 / placement.columns) + '% - ' + widthOffset + 'px)'
+        event.style.setProperty('--agenda-event-color', eventColor)
         event.title = customer + ' - ' + service + ' con ' + professional + (noShow ? ' - Ausente' : '')
         event.innerHTML = '<strong>' + escapeHtml(formatTimeOnly(start) + ' - ' + formatTimeOnly(addMinutes(start, duration))) + '</strong>' +
-          '<span>' + escapeHtml(customer + ' · ' + service) + '</span>' +
-          '<span>' + escapeHtml(professional + (noShow ? ' · Ausente' : '')) + '</span>'
+          '<span>' + escapeHtml(service) + '</span>' +
+          '<span>' + escapeHtml(customer + (noShow ? ' - Ausente' : '')) + '</span>'
+        event.dataset.appointmentId = appointment.id
+        event.draggable = true
         event.addEventListener('click', (clickEvent) => {
           clickEvent.stopPropagation()
+          if (state.agendaDidDrag) {
+            state.agendaDidDrag = false
+            return
+          }
           openAppointmentDialog({ appointment })
         })
         cell.appendChild(event)
+      }
+    }
+
+    function enableAgendaDragAndDrop() {
+      for (const event of els.agendaGridWrap.querySelectorAll('.agenda-event[data-appointment-id]')) {
+        event.addEventListener('dragstart', (dragEvent) => {
+          state.agendaDraggingAppointmentId = event.dataset.appointmentId
+          state.agendaDidDrag = true
+          event.classList.add('dragging')
+          dragEvent.dataTransfer.effectAllowed = 'move'
+          dragEvent.dataTransfer.setData('text/plain', event.dataset.appointmentId)
+        })
+        event.addEventListener('dragend', () => {
+          event.classList.remove('dragging')
+          state.agendaDraggingAppointmentId = null
+          clearAgendaDragTargets()
+          setTimeout(() => {
+            state.agendaDidDrag = false
+          }, 200)
+        })
+      }
+
+      for (const cell of els.agendaGridWrap.querySelectorAll('[data-cell-date][data-cell-minute]')) {
+        cell.addEventListener('dragover', (dragEvent) => {
+          if (!state.agendaDraggingAppointmentId) return
+          dragEvent.preventDefault()
+          dragEvent.dataTransfer.dropEffect = 'move'
+          cell.classList.toggle('drag-invalid', cell.classList.contains('closed'))
+          cell.classList.toggle('drag-target', !cell.classList.contains('closed'))
+        })
+        cell.addEventListener('dragleave', () => {
+          cell.classList.remove('drag-target', 'drag-invalid')
+        })
+        cell.addEventListener('drop', async (dropEvent) => {
+          dropEvent.preventDefault()
+          const appointmentId = state.agendaDraggingAppointmentId || dropEvent.dataTransfer.getData('text/plain')
+          clearAgendaDragTargets()
+          if (!appointmentId || cell.classList.contains('closed')) {
+            if (cell.classList.contains('closed')) alert('Ese horario esta fuera del horario de atencion.')
+            return
+          }
+          await moveAgendaAppointment(
+            appointmentId,
+            cell.dataset.cellDate,
+            Number(cell.dataset.cellMinute)
+          )
+        })
+      }
+    }
+
+    function clearAgendaDragTargets() {
+      for (const cell of els.agendaGridWrap.querySelectorAll('.drag-target, .drag-invalid')) {
+        cell.classList.remove('drag-target', 'drag-invalid')
+      }
+    }
+
+    async function moveAgendaAppointment(appointmentId, targetDateKey, targetMinute) {
+      const appointment = state.agendaAppointments.find((item) => item.id === appointmentId)
+      if (!appointment) return
+
+      const target = parseDateKey(targetDateKey)
+      target.setHours(Math.floor(targetMinute / 60), targetMinute % 60, 0, 0)
+      if (new Date(appointment.startAt).getTime() === target.getTime()) return
+
+      const event = els.agendaGridWrap.querySelector('[data-appointment-id="' + appointmentId + '"]')
+      event?.classList.add('dragging')
+      try {
+        await getJson('/appointments/' + appointmentId, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            customerId: appointment.customerId,
+            professionalId: appointment.professionalId,
+            serviceId: appointment.serviceId,
+            startAt: target.toISOString()
+          })
+        })
+        state.agendaSelectedDate = target
+        state.agendaMonthDate = new Date(target)
+        await loadAgenda()
+      } catch (error) {
+        event?.classList.remove('dragging')
+        alert(error.message)
+        renderAgenda()
+      } finally {
+        state.agendaDraggingAppointmentId = null
       }
     }
 
@@ -6159,6 +8117,7 @@ const crmHtml = `<!doctype html>
       els.appointmentFeedback.textContent = ''
       const appointment = input.appointment
       state.editingAppointmentId = appointment?.id || null
+      els.appointmentForce.checked = false
       els.appointmentTitle.textContent = appointment ? 'Editar turno' : 'Nuevo turno'
       els.appointmentSubmit.textContent = appointment ? 'Guardar cambios' : 'Guardar turno'
       els.appointmentDelete.hidden = !appointment
@@ -6219,10 +8178,15 @@ const crmHtml = `<!doctype html>
       const startAt = els.appointmentStart.value
       const professionalId = els.appointmentProfessional.value
       const serviceId = els.appointmentService.value
+      const force = els.appointmentForce.checked
       let customerId = els.appointmentCustomer.value
 
       if (!startAt || !professionalId || !serviceId) {
         els.appointmentFeedback.textContent = 'Completa fecha, profesional y servicio.'
+        return
+      }
+
+      if (force && !confirm('Guardar este turno como excepcion? Puede quedar fuera de horario o superpuesto con otro turno.')) {
         return
       }
 
@@ -6253,7 +8217,8 @@ const crmHtml = `<!doctype html>
             customerId,
             professionalId,
             serviceId,
-            startAt: new Date(startAt).toISOString()
+            startAt: new Date(startAt).toISOString(),
+            force
           })
         })
 
@@ -6264,7 +8229,10 @@ const crmHtml = `<!doctype html>
           renderAppointments()
         }
       } catch (error) {
-        els.appointmentFeedback.textContent = error.message
+        const suggestion = error.message.includes('horario') || error.message.includes('disponible') || error.message.includes('bloqueado')
+          ? ' Podes marcar Turno excepcional si decidiste forzarlo manualmente.'
+          : ''
+        els.appointmentFeedback.textContent = error.message + suggestion
       }
     }
 
@@ -6359,6 +8327,11 @@ const crmHtml = `<!doctype html>
       return new Date(date.getTime() + minutes * 60 * 1000)
     }
 
+    function isDateInRange(date, start, end) {
+      const value = startOfDay(date).getTime()
+      return value >= startOfDay(start).getTime() && value < startOfDay(end).getTime()
+    }
+
     function dateKey(date) {
       const year = date.getFullYear()
       const month = String(date.getMonth() + 1).padStart(2, '0')
@@ -6388,7 +8361,7 @@ const crmHtml = `<!doctype html>
     function formatMinuteLabel(minute) {
       const hours = Math.floor(minute / 60)
       const minutes = minute % 60
-      return minutes === 0 ? String(hours) : String(hours) + ':' + String(minutes).padStart(2, '0')
+      return String(hours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0')
     }
 
     function formatTimeOnly(date) {
@@ -6399,11 +8372,22 @@ const crmHtml = `<!doctype html>
     }
 
     function formatAgendaRange(start, end) {
-      return new Intl.DateTimeFormat('es-AR').format(start) + ' a ' + new Intl.DateTimeFormat('es-AR').format(end)
+      const monthFormatter = new Intl.DateTimeFormat('es-AR', { month: 'long' })
+      const startMonth = monthFormatter.format(start)
+      const endMonth = monthFormatter.format(end)
+      if (start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()) {
+        return start.getDate() + ' al ' + end.getDate() + ' de ' + endMonth + ' de ' + end.getFullYear()
+      }
+
+      if (start.getFullYear() === end.getFullYear()) {
+        return start.getDate() + ' de ' + startMonth + ' al ' + end.getDate() + ' de ' + endMonth + ' de ' + end.getFullYear()
+      }
+
+      return start.getDate() + ' de ' + startMonth + ' de ' + start.getFullYear() + ' al ' + end.getDate() + ' de ' + endMonth + ' de ' + end.getFullYear()
     }
 
     function formatAgendaDayHeader(date) {
-      const weekday = ['dom', 'lun', 'mar', 'mie', 'jue', 'vie', 'sab'][date.getDay()]
+      const weekday = ['Dom', 'Lun', 'Mar', 'Mi&eacute;', 'Jue', 'Vie', 'S&aacute;b'][date.getDay()]
       return weekday + ' ' + date.getDate() + '/' + (date.getMonth() + 1)
     }
 
@@ -6527,9 +8511,92 @@ const crmHtml = `<!doctype html>
       return value ? new Date(value).getTime() : 0
     }
 
+    function customerForPhone(phone) {
+      const normalized = normalizePhone(phone)
+      return state.customers.find((customer) => normalizePhone(customer.phone) === normalized) || null
+    }
+
+    function conversationDisplayName(conversation) {
+      return customerForPhone(conversation.phone)?.name || conversation.phone || 'Cliente'
+    }
+
+    function contactInitials(name, phone) {
+      const words = String(name || '').trim().split(/\s+/).filter(Boolean)
+      if (words.length && name !== phone) {
+        return words.slice(0, 2).map((word) => word[0]).join('').toUpperCase()
+      }
+      return initials(phone)
+    }
+
+    function isPendingHandoff(conversation) {
+      return conversation.currentStep === 'HUMAN_HANDOFF' && !conversation.humanHandoffResolvedAt
+    }
+
+    function isConversationUnread(conversation) {
+      return conversation.messages?.[0]?.direction === 'INBOUND' && !state.readConversationIds.has(conversation.id)
+    }
+
+    function filteredConversations() {
+      const query = els.search.value.trim().toLowerCase()
+      return state.conversations.filter((conversation) => {
+        if (state.conversationFilter === 'unread' && !isConversationUnread(conversation)) return false
+        if (state.conversationFilter === 'handoff' && !isPendingHandoff(conversation)) return false
+        if (!query) return true
+
+        const name = conversationDisplayName(conversation).toLowerCase()
+        const phone = String(conversation.phone || '').toLowerCase()
+        const message = String(conversation.messages?.[0]?.body || '').toLowerCase()
+        return name.includes(query) || phone.includes(query) || message.includes(query)
+      })
+    }
+
+    function formatConversationTime(value) {
+      const date = new Date(value)
+      const today = new Date()
+      if (date.toDateString() === today.toDateString()) {
+        return new Intl.DateTimeFormat('es-AR', { hour: '2-digit', minute: '2-digit' }).format(date)
+      }
+      return new Intl.DateTimeFormat('es-AR', { day: '2-digit', month: '2-digit' }).format(date)
+    }
+
+    function formatMessageTime(date) {
+      return new Intl.DateTimeFormat('es-AR', { hour: '2-digit', minute: '2-digit' }).format(date)
+    }
+
+    function formatMessageDay(date) {
+      const today = new Date()
+      const yesterday = new Date(today)
+      yesterday.setDate(today.getDate() - 1)
+      if (date.toDateString() === today.toDateString()) return 'Hoy'
+      if (date.toDateString() === yesterday.toDateString()) return 'Ayer'
+      return new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'long' }).format(date)
+    }
+
+    function conversationStepLabel(step, aiEnabled) {
+      if (aiEnabled === false && step !== 'HUMAN_HANDOFF') return 'Atencion manual'
+      const labels = {
+        START: 'Inicio',
+        ASK_SERVICE: 'Eligiendo servicio',
+        ASK_PROFESSIONAL: 'Eligiendo profesional',
+        ASK_DATE: 'Preguntando fecha',
+        ASK_TIME: 'Preguntando horario',
+        ASK_CUSTOMER_NAME: 'Solicitando nombre',
+        CONFIRM: 'Confirmando turno',
+        COMPLETED: 'Completado',
+        CANCEL_SELECT_APPOINTMENT: 'Cancelando turno',
+        EDIT_SELECT_APPOINTMENT: 'Cambiando turno',
+        HUMAN_HANDOFF: 'Requiere atencion'
+      }
+      return labels[step] || 'En conversacion'
+    }
+
     function conversationStepChipClass(step, aiEnabled) {
-      if (aiEnabled === false) return 'chip manual'
-      return step === 'HUMAN_HANDOFF' ? 'chip handoff' : 'chip'
+      if (aiEnabled === false || step === 'HUMAN_HANDOFF') return 'chip step-handoff'
+      if (step === 'COMPLETED') return 'chip step-completed'
+      if (step === 'CONFIRM') return 'chip step-confirm'
+      if (step === 'CANCEL_SELECT_APPOINTMENT' || step === 'EDIT_SELECT_APPOINTMENT') return 'chip step-change'
+      if (step === 'START') return 'chip step-start'
+      return 'chip step-progress'
     }
 
     function isMobile() {
@@ -6582,14 +8649,104 @@ const crmHtml = `<!doctype html>
     els.serviceForm.addEventListener('submit', saveService)
     els.serviceCancel.addEventListener('click', resetServiceForm)
     els.serviceSearch?.addEventListener('input', renderServices)
+    els.businessSettingsForm.addEventListener('submit', saveBusinessSettings)
+    els.businessLogo.addEventListener('change', readBusinessLogo)
+    els.businessLogoRemove.addEventListener('click', () => {
+      clearBusinessSettingsFeedback()
+      setBusinessLogo(null)
+    })
     els.globalBotToggle.addEventListener('click', toggleGlobalBot)
     els.globalAiToggle.addEventListener('click', toggleGlobalAi)
+    els.globalBotToggleMenu.addEventListener('click', toggleGlobalBot)
+    els.globalAiToggleMenu.addEventListener('click', toggleGlobalAi)
     els.conversationAiToggle.addEventListener('click', toggleConversationAi)
     els.resolveHandoff.addEventListener('click', resolveHandoff)
     els.refresh.addEventListener('click', loadConversations)
-    els.searchButton.addEventListener('click', loadConversations)
+    els.searchButton.addEventListener('click', renderConversations)
+    els.search.addEventListener('input', renderConversations)
     els.search.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') loadConversations()
+      if (event.key === 'Enter') renderConversations()
+    })
+    els.conversationTabs.addEventListener('click', async (event) => {
+      const tab = event.target.closest('[data-conversation-filter]')
+      if (!tab) return
+      state.conversationFilter = tab.dataset.conversationFilter
+      const archiveView = state.conversationFilter === 'archived' ? 'archived' : 'active'
+      if (archiveView !== state.loadedArchiveView) {
+        state.selected = null
+        state.conversationNextCursor = null
+        await loadConversations()
+      } else {
+        renderConversations()
+      }
+    })
+    els.conversationMore.addEventListener('click', () => loadConversations({ append: true }))
+    els.archiveConversation.addEventListener('click', toggleArchiveConversation)
+    els.viewAgenda.addEventListener('click', () => setSection('agenda'))
+    els.quickSchedule.addEventListener('click', () => {
+      const customer = state.selected ? customerForPhone(state.selected.phone) : null
+      openAppointmentDialog()
+      if (customer) {
+        els.appointmentCustomer.value = customer.id
+        syncAppointmentCustomerFields()
+      } else if (state.selected) {
+        els.appointmentCustomerPhone.value = state.selected.phone
+      }
+    })
+    els.quickChange.addEventListener('click', () => {
+      if (state.appointments[0]) {
+        openAppointmentDialog({ appointment: state.appointments[0] })
+      } else {
+        els.quickSchedule.click()
+      }
+    })
+    els.quickReminder.addEventListener('click', () => {
+      if (!state.selected) return
+      const appointment = state.appointments[0]
+      els.replyText.value = appointment
+        ? 'Hola ' + conversationDisplayName(state.selected) + ', te recordamos tu turno de ' + (appointment.service?.name || 'servicio') + ' para ' + formatAppointment(appointment.startAt) + '.'
+        : 'Hola ' + conversationDisplayName(state.selected) + ', te escribimos desde ' + (state.business?.name || 'el salon') + '.'
+      els.replyText.focus()
+    })
+    els.quickHistory.addEventListener('click', () => setSection('agenda'))
+    els.customerEdit.addEventListener('click', async () => {
+      if (!state.selected) return
+      const customer = customerForPhone(state.selected.phone)
+      if (!customer) return
+      const name = window.prompt('Nombre del cliente', customer.name)?.trim()
+      if (!name || name === customer.name) return
+      try {
+        const updated = await getJson('/customers/' + customer.id, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name })
+        })
+        state.customers = state.customers.map((item) => item.id === updated.id ? updated : item)
+        renderSelected()
+        renderConversations()
+      } catch (error) {
+        alert(error.message)
+      }
+    })
+    els.customerAddNote.addEventListener('click', async () => {
+      if (!state.selected) return
+      const customer = customerForPhone(state.selected.phone)
+      if (!customer) {
+        alert('Primero crea el cliente desde un turno para poder guardar notas.')
+        return
+      }
+      const body = window.prompt('Escribi una nota sobre este cliente')?.trim()
+      if (!body) return
+      try {
+        await getJson('/customers/' + customer.id + '/notes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ body })
+        })
+        await loadCustomerNotes()
+      } catch (error) {
+        alert(error.message)
+      }
     })
     els.mobileInbox.addEventListener('click', () => setMobileView('inbox'))
     els.mobileChat.addEventListener('click', () => setMobileView('chat'))
@@ -6600,11 +8757,15 @@ const crmHtml = `<!doctype html>
     document.querySelectorAll('.workspace-nav button')[3]?.addEventListener('click', () => setSection('professionals'))
     document.querySelectorAll('.workspace-nav button')[4]?.addEventListener('click', () => setSection('services'))
     document.querySelectorAll('.workspace-nav button')[6]?.addEventListener('click', () => setSection('reports'))
+    document.querySelectorAll('.workspace-nav button')[7]?.addEventListener('click', () => setSection('settings'))
     els.reportsRange.addEventListener('change', renderReports)
     els.reportsFutureDays.addEventListener('change', renderReports)
     els.reportsInactiveDays.addEventListener('change', renderReports)
     els.reportsRefresh.addEventListener('click', loadReports)
-    els.agendaProfessional.addEventListener('change', loadAgenda)
+    els.agendaProfessional.addEventListener('change', async () => {
+      renderAgendaProfessionalControls()
+      await loadAgenda()
+    })
     els.agendaService.addEventListener('change', renderAgenda)
     els.agendaStep.addEventListener('change', renderAgenda)
     els.agendaToday.addEventListener('click', async () => {

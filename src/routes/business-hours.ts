@@ -22,7 +22,7 @@ export async function businessHoursRoutes(app: FastifyInstance) {
     })
   })
 
-  app.post('/business-hours/setup', async (request) => {
+  app.post('/business-hours/setup', async (request, reply) => {
 
     const body = request.body as {
       businessId: string
@@ -49,6 +49,23 @@ export async function businessHoursRoutes(app: FastifyInstance) {
       body.sunday
     ].filter((schedule) => schedule !== undefined)
 
+    if (!body.businessId) {
+      return reply.status(400).send({
+        message: 'businessId es requerido'
+      })
+    }
+
+    const invalidSchedule = schedules.some((schedule) => {
+      return !schedule.days.every((day) => Number.isInteger(day) && day >= 0 && day <= 6) ||
+        !isValidTimeRange(schedule.startTime, schedule.endTime)
+    })
+
+    if (invalidSchedule) {
+      return reply.status(400).send({
+        message: 'Hay un horario del local invalido'
+      })
+    }
+
     const hours = schedules.flatMap((schedule) => {
       return schedule.days.map((dayOfWeek) => ({
         businessId: body.businessId,
@@ -57,6 +74,33 @@ export async function businessHoursRoutes(app: FastifyInstance) {
         endTime: schedule.endTime
       }))
     })
+
+    const professionals = await prisma.professional.findMany({
+      where: {
+        businessId: body.businessId,
+        isActive: true
+      },
+      include: {
+        workingHours: true
+      }
+    })
+
+    const invalidProfessional = professionals.find((professional) => {
+      return professional.workingHours.some((professionalHour) => {
+        return !hours.some((businessHour) => {
+          return businessHour.dayOfWeek === professionalHour.dayOfWeek &&
+            professionalHour.startTime >= businessHour.startTime &&
+            professionalHour.endTime <= businessHour.endTime
+        })
+      })
+    })
+
+    if (invalidProfessional) {
+      return reply.status(409).send({
+        code: 'PROFESSIONAL_OUTSIDE_BUSINESS_HOURS',
+        message: `El horario de ${invalidProfessional.name} queda fuera del nuevo horario del local. Ajusta primero ese profesional.`
+      })
+    }
 
     await prisma.$transaction([
       prisma.businessHours.deleteMany({
@@ -107,4 +151,10 @@ export async function businessHoursRoutes(app: FastifyInstance) {
     })
   })
 
+}
+
+function isValidTimeRange(startTime: string, endTime: string) {
+  return /^\d{2}:\d{2}$/.test(startTime) &&
+    /^\d{2}:\d{2}$/.test(endTime) &&
+    startTime < endTime
 }

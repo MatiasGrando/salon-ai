@@ -7,6 +7,7 @@ type CreateAppointmentInput = {
   professionalId: string
   serviceId: string
   startAt: string
+  force?: boolean
 }
 
 type AppointmentMutationResult =
@@ -115,7 +116,7 @@ export class AppointmentService {
       endAt
     })
 
-    if (!isInsideBusinessHours) {
+    if (!isInsideBusinessHours && !input.force) {
       return {
         ok: false,
         statusCode: 409,
@@ -129,7 +130,7 @@ export class AppointmentService {
       endAt
     })
 
-    if (!isInsideProfessionalHours) {
+    if (!isInsideProfessionalHours && !input.force) {
       return {
         ok: false,
         statusCode: 409,
@@ -144,7 +145,7 @@ export class AppointmentService {
       endAt
     })
 
-    if (hasScheduleBlock) {
+    if (hasScheduleBlock && !input.force) {
       return {
         ok: false,
         statusCode: 409,
@@ -158,7 +159,7 @@ export class AppointmentService {
       endAt
     })
 
-    if (hasOverlap) {
+    if (hasOverlap && !input.force) {
       return {
         ok: false,
         statusCode: 409,
@@ -266,7 +267,7 @@ export class AppointmentService {
       endAt
     })
 
-    if (!isInsideBusinessHours) {
+    if (!isInsideBusinessHours && !input.force) {
       return {
         ok: false,
         statusCode: 409,
@@ -280,7 +281,7 @@ export class AppointmentService {
       endAt
     })
 
-    if (!isInsideProfessionalHours) {
+    if (!isInsideProfessionalHours && !input.force) {
       return {
         ok: false,
         statusCode: 409,
@@ -295,7 +296,7 @@ export class AppointmentService {
       endAt
     })
 
-    if (hasScheduleBlock) {
+    if (hasScheduleBlock && !input.force) {
       return {
         ok: false,
         statusCode: 409,
@@ -310,7 +311,7 @@ export class AppointmentService {
       excludeAppointmentId: input.id
     })
 
-    if (hasOverlap) {
+    if (hasOverlap && !input.force) {
       return {
         ok: false,
         statusCode: 409,

@@ -44,6 +44,14 @@ export async function professionalRoutes(app: FastifyInstance) {
       })
     }
 
+    const businessHoursValidation = await validateWorkingHoursWithinBusinessHours(businessId, workingHours)
+    if (!businessHoursValidation.ok) {
+      return reply.status(409).send({
+        code: 'OUTSIDE_BUSINESS_HOURS',
+        message: businessHoursValidation.message
+      })
+    }
+
     const professional = await prisma.professional.create({
       data: {
         name,
@@ -153,6 +161,16 @@ export async function professionalRoutes(app: FastifyInstance) {
       return reply.status(serviceIdsResult.statusCode).send({
         message: serviceIdsResult.message
       })
+    }
+
+    if (workingHours) {
+      const businessHoursValidation = await validateWorkingHoursWithinBusinessHours(existing.businessId, workingHours)
+      if (!businessHoursValidation.ok) {
+        return reply.status(409).send({
+          code: 'OUTSIDE_BUSINESS_HOURS',
+          message: businessHoursValidation.message
+        })
+      }
     }
 
     if (workingHours) {
@@ -469,6 +487,55 @@ function normalizeWorkingHours(hours: WorkingHourInput[]) {
   return Array.from(
     new Map(validHours.map((hour) => [hour.dayOfWeek, hour])).values()
   )
+}
+
+async function validateWorkingHoursWithinBusinessHours(businessId: string, workingHours: WorkingHourInput[]) {
+  if (workingHours.length === 0) {
+    return {
+      ok: true as const
+    }
+  }
+
+  const businessHours = await prisma.businessHours.findMany({
+    where: {
+      businessId
+    }
+  })
+
+  const hoursByDay = new Map<number, Array<{ startTime: string; endTime: string }>>()
+  for (const hour of businessHours) {
+    const dayHours = hoursByDay.get(hour.dayOfWeek) || []
+    dayHours.push(hour)
+    hoursByDay.set(hour.dayOfWeek, dayHours)
+  }
+
+  const invalidHour = workingHours.find((workingHour) => {
+    const localHours = hoursByDay.get(workingHour.dayOfWeek) || []
+    return !localHours.some((localHour) => {
+      return workingHour.startTime >= localHour.startTime &&
+        workingHour.endTime <= localHour.endTime
+    })
+  })
+
+  if (!invalidHour) {
+    return {
+      ok: true as const
+    }
+  }
+
+  const localHours = hoursByDay.get(invalidHour.dayOfWeek) || []
+  const localRange = localHours.length
+    ? localHours.map((hour) => `${hour.startTime} a ${hour.endTime}`).join(', ')
+    : 'cerrado'
+
+  return {
+    ok: false as const,
+    message: `El horario de ${dayLabel(invalidHour.dayOfWeek)} debe estar dentro del horario del local (${localRange}).`
+  }
+}
+
+function dayLabel(dayOfWeek: number) {
+  return ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'][dayOfWeek] || 'ese dia'
 }
 
 function minutesSinceMidnight(date: Date) {

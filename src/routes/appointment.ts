@@ -12,6 +12,7 @@ export async function appointmentRoutes(app: FastifyInstance) {
       professionalId: string
       serviceId: string
       startAt: string
+      force?: boolean
     }
 
     const result = await service.create(body)
@@ -67,6 +68,7 @@ export async function appointmentRoutes(app: FastifyInstance) {
       professionalId: string
       serviceId: string
       startAt: string
+      force?: boolean
     }
 
     const result = await service.update({
