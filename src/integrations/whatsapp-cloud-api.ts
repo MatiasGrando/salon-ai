@@ -9,6 +9,7 @@ type SendTemplateMessageInput = {
   to: string
   templateName: string
   languageCode?: string
+  bodyParameters?: string[]
 }
 
 type CreateMessageTemplateInput = {
@@ -217,7 +218,17 @@ export class WhatsAppCloudApi {
             name: input.templateName,
             language: {
               code: input.languageCode ?? 'en_US'
-            }
+            },
+            ...(input.bodyParameters?.length
+              ? {
+                  components: [
+                    {
+                      type: 'body',
+                      parameters: input.bodyParameters.map((text) => ({ type: 'text', text }))
+                    }
+                  ]
+                }
+              : {})
           }
         })
       }

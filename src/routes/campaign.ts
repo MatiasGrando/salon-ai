@@ -82,9 +82,23 @@ export async function campaignRoutes(app: FastifyInstance) {
     if (messageBody.length > 1024) return reply.status(400).send({ message: 'El mensaje no puede superar 1024 caracteres' })
     if (variables.some((variable) => !examples[variable])) return reply.status(400).send({ message: 'Completa un ejemplo para cada variable de la plantilla' })
     if (!/^[a-z]{2}(_[A-Z]{2})?$/.test(language)) return reply.status(400).send({ message: 'Idioma invalido' })
-    return prisma.whatsAppTemplate.create({
-      data: { businessId, internalName, metaName, category, language, body: messageBody, exampleJson: JSON.stringify(examples) }
+    const existing = await prisma.whatsAppTemplate.findFirst({
+      where: { businessId, metaName, language },
+      select: { id: true }
     })
+    if (existing) {
+      return reply.status(409).send({ message: 'Ya existe una plantilla con ese Nombre en Meta e idioma. Elegí otro nombre.' })
+    }
+    try {
+      return await prisma.whatsAppTemplate.create({
+        data: { businessId, internalName, metaName, category, language, body: messageBody, exampleJson: JSON.stringify(examples) }
+      })
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        return reply.status(409).send({ message: 'Ya existe una plantilla con ese Nombre en Meta e idioma. Elegí otro nombre.' })
+      }
+      throw error
+    }
   })
 
   app.patch('/whatsapp-templates/:id', async (request, reply) => {
@@ -106,10 +120,24 @@ export async function campaignRoutes(app: FastifyInstance) {
     if (!category) return reply.status(400).send({ message: 'La categoria debe ser Marketing o Recordatorio' })
     if (messageBody.length > 1024) return reply.status(400).send({ message: 'El mensaje no puede superar 1024 caracteres' })
     if (variables.some((variable) => !examples[variable])) return reply.status(400).send({ message: 'Completa un ejemplo para cada variable de la plantilla' })
-    return prisma.whatsAppTemplate.update({
-      where: { id: current.id },
-      data: { internalName, metaName, category, language, body: messageBody, exampleJson: JSON.stringify(examples), status: 'DRAFT', rejectionReason: null }
+    const existing = await prisma.whatsAppTemplate.findFirst({
+      where: { businessId: current.businessId, metaName, language, id: { not: current.id } },
+      select: { id: true }
     })
+    if (existing) {
+      return reply.status(409).send({ message: 'Ya existe una plantilla con ese Nombre en Meta e idioma. Elegí otro nombre.' })
+    }
+    try {
+      return await prisma.whatsAppTemplate.update({
+        where: { id: current.id },
+        data: { internalName, metaName, category, language, body: messageBody, exampleJson: JSON.stringify(examples), status: 'DRAFT', rejectionReason: null }
+      })
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        return reply.status(409).send({ message: 'Ya existe una plantilla con ese Nombre en Meta e idioma. Elegí otro nombre.' })
+      }
+      throw error
+    }
   })
 
   app.post('/whatsapp-templates/:id/submit', async (request, reply) => {
@@ -158,10 +186,35 @@ export async function campaignRoutes(app: FastifyInstance) {
       data: {
         metaId: result.template.id ?? template.metaId,
         status: normalizeTemplateStatus(result.template.status),
-        rejectionReason: result.template.rejected_reason || null,
+        rejectionReason: normalizeTemplateRejectionReason(result.template.rejected_reason),
         lastSyncedAt: new Date()
       }
     })
+  })
+
+  app.post('/whatsapp-templates/:id/test-send', async (request, reply) => {
+    const params = request.params as { id: string }
+    const body = request.body as { phone?: string; confirmed?: boolean }
+    const phone = String(body.phone || '').replace(/\D/g, '')
+    if (!body.confirmed) return reply.status(400).send({ message: 'Confirma que el numero de destino es tuyo' })
+    if (phone.length < 8 || phone.length > 15) return reply.status(400).send({ message: 'Ingresa el numero completo con codigo de pais' })
+    const template = await prisma.whatsAppTemplate.findUnique({ where: { id: params.id } })
+    if (!template) return reply.status(404).send({ message: 'No encontre esa plantilla' })
+    if (template.status !== 'APPROVED') return reply.status(409).send({ message: 'Meta debe aprobar la plantilla antes de probarla' })
+    const examples = parseTemplateExamples(template.exampleJson)
+    const variables = extractNamedTemplateVariables(template.body)
+    const missingExamples = variables.filter((variable) => !examples[variable])
+    if (missingExamples.length) return reply.status(400).send({ message: 'Faltan ejemplos para: ' + missingExamples.join(', ') })
+    const result = await whatsappCloudApi.sendTemplateMessage({
+      to: phone,
+      templateName: template.metaName,
+      languageCode: template.language,
+      bodyParameters: variables.map((variable) => examples[variable])
+    })
+    if (!result.sent) {
+      return reply.status(502).send({ message: result.errorMessage || result.reason || 'No pude enviar la prueba por WhatsApp', errorCode: result.errorCode })
+    }
+    return { sent: true, to: result.to }
   })
 
   app.post('/whatsapp/message-templates', async (request, reply) => {
@@ -234,7 +287,7 @@ export async function campaignRoutes(app: FastifyInstance) {
       data: {
         templateId: result.template.id ?? campaign.templateId,
         templateStatus: normalizeTemplateStatus(result.template.status),
-        templateRejectionReason: result.template.rejected_reason || null,
+        templateRejectionReason: normalizeTemplateRejectionReason(result.template.rejected_reason),
         templateLastSyncedAt: new Date()
       },
       include: { manualRecipients: { select: { customerId: true, customer: { select: { id: true, name: true, phone: true } } } } }
@@ -895,6 +948,16 @@ function buildMetaTemplateBody(body: string, examples: Record<string, string>) {
     bodyText,
     bodyExamples: variables.map((variable) => examples[variable]).filter(Boolean)
   }
+}
+
+function isUniqueConstraintError(error: unknown) {
+  return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'P2002')
+}
+
+function normalizeTemplateRejectionReason(reason?: string | null) {
+  const normalized = reason?.trim()
+  if (!normalized || normalized.toUpperCase() === 'NONE') return null
+  return normalized
 }
 
 function uniqueCopyName(name: string) {

@@ -2599,6 +2599,17 @@ const crmHtml = `<!doctype html>
     .template-detail-meta strong { color: #17213c; text-align: right; }
     .template-detail-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
     .template-rejection { margin-top: 14px; padding: 11px; border: 1px solid #fecaca; border-radius: 8px; color: #991b1b; background: #fff7f7; font-size: 12px; }
+    .template-review-note { margin-top: 14px; padding: 11px 13px; display: grid; gap: 3px; border: 1px solid #fde68a; border-radius: 10px; color: #92400e; background: #fffbeb; font-size: 12px; }
+    .template-review-note span { color: #a16207; }
+    .template-test-card { margin-top: 18px; padding: 14px; border: 1px solid #bfdbfe; border-radius: 12px; background: #f8fbff; }
+    .template-test-card strong { display: block; margin-bottom: 5px; color: #15233e; font-size: 13px; }
+    .template-test-card > p { margin: 0 0 12px; color: #64748b; font-size: 12px; line-height: 1.45; }
+    .template-test-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+    .template-test-confirm { margin-top: 10px; display: flex; align-items: flex-start; gap: 8px; color: #52617d; font-size: 12px; line-height: 1.4; }
+    .template-test-confirm input { width: auto; margin-top: 2px; }
+    .template-test-feedback { min-height: 18px; margin: 9px 0 0; color: #52617d; font-size: 12px; }
+    .template-test-feedback.error { color: #b42318; }
+    .template-test-feedback.success { color: #047857; }
     .template-category-badge.utility { background: #dbeafe; color: #1d4ed8; }
     .template-dialog { width: min(1080px, calc(100vw - 42px)); max-height: min(880px, calc(100vh - 36px)); }
     .template-builder-grid { display: grid; grid-template-columns: minmax(520px, 1.2fr) minmax(340px, .8fr); gap: 20px; align-items: start; }
@@ -13127,8 +13138,12 @@ const crmHtml = `<!doctype html>
       const previewBody = item.body.replace(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g, (_match, variable) => examples[variable] || '{{' + variable + '}}')
       els.templateDetailPanel.innerHTML = '<div class="template-detail-head"><div>' + templateStatusBadge(item.status) + '<h3>' + escapeHtml(item.internalName) + '</h3><p class="template-meta-line">Nombre en Meta: ' + escapeHtml(item.metaName) + '</p></div></div>' +
         '<div class="template-preview"><div class="template-preview-message">' + escapeHtml(previewBody) + '</div></div>' +
-        (item.rejectionReason ? '<div class="template-rejection"><strong>Motivo del rechazo:</strong><br>' + escapeHtml(item.rejectionReason) + '</div>' : '') +
+        (['PENDING', 'IN_APPEAL'].includes(item.status) ? '<div class="template-review-note"><strong>Aún en revisión por Meta.</strong><span>Podés volver a actualizar el estado dentro de unos minutos.</span></div>' : '') +
+        (item.rejectionReason && String(item.rejectionReason).toUpperCase() !== 'NONE' ? '<div class="template-rejection"><strong>Motivo del rechazo:</strong><br>' + escapeHtml(item.rejectionReason) + '</div>' : '') +
         '<div class="template-detail-meta"><div><span>Categoría</span><strong>' + escapeHtml(templateCategoryLabel(item.category)) + '</strong></div><div><span>Idioma</span><strong>' + escapeHtml(item.language) + '</strong></div><div><span>Variables</span><strong>' + variables.length + '</strong></div><div><span>Campañas que la usan</span><strong>' + (item._count?.campaigns || 0) + '</strong></div><div><span>ID en Meta</span><strong>' + escapeHtml(item.metaId || 'Todavía no asignado') + '</strong></div></div>' +
+        (item.status === 'APPROVED'
+          ? '<div class="template-test-card"><strong>Prueba controlada</strong><p>Envía una sola prueba usando los ejemplos cargados en esta plantilla. No activa campañas.</p><div class="template-test-row"><input data-template-test-phone inputmode="tel" placeholder="5491112345678"><button class="campaign-outline-button" type="button" data-template-action="test-send">Enviar a mi número</button></div><label class="template-test-confirm"><input type="checkbox" data-template-test-confirm>Confirmo que este número es mío y autorizo este único envío.</label><p class="template-test-feedback" data-template-test-feedback></p></div>'
+          : '') +
         '<div class="template-detail-actions">' + (editable ? '<button class="campaign-outline-button" type="button" data-template-action="edit">Editar borrador</button><button class="campaigns-new" type="button" data-template-action="submit">Enviar a revisión</button>' : '') + (item.status !== 'DRAFT' ? '<button class="campaign-outline-button" type="button" data-template-action="sync">Actualizar estado</button>' : '') + '</div>'
     }
 
@@ -14317,6 +14332,25 @@ const crmHtml = `<!doctype html>
         if (button.dataset.templateAction === 'edit') openTemplateDialog(template)
         if (button.dataset.templateAction === 'submit') await getJson('/whatsapp-templates/' + template.id + '/submit', { method: 'POST' })
         if (button.dataset.templateAction === 'sync') await getJson('/whatsapp-templates/' + template.id + '/sync', { method: 'POST' })
+        if (button.dataset.templateAction === 'test-send') {
+          const phone = els.templateDetailPanel.querySelector('[data-template-test-phone]')
+          const confirmed = els.templateDetailPanel.querySelector('[data-template-test-confirm]')
+          const feedback = els.templateDetailPanel.querySelector('[data-template-test-feedback]')
+          feedback.textContent = 'Enviando una prueba...'
+          feedback.className = 'template-test-feedback'
+          button.disabled = true
+          try {
+            await getJson('/whatsapp-templates/' + template.id + '/test-send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: phone.value, confirmed: confirmed.checked }) })
+            feedback.textContent = 'Prueba enviada. Revisá WhatsApp en ese número.'
+            feedback.className = 'template-test-feedback success'
+          } catch (error) {
+            feedback.textContent = error.message
+            feedback.className = 'template-test-feedback error'
+          } finally {
+            button.disabled = false
+          }
+          return
+        }
         if (button.dataset.templateAction !== 'edit') await loadWhatsappTemplates()
       } catch (error) {
         els.templateDetailPanel.insertAdjacentHTML('afterbegin', '<div class="template-rejection">' + escapeHtml(error.message) + '</div>')
