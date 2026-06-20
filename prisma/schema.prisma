@@ -64,6 +64,7 @@ model Business {
   scheduleBlocks ScheduleBlock[]
   conversations Conversation[]
   campaigns     Campaign[]
+  whatsappTemplates WhatsAppTemplate[]
   marketingPreferences CustomerMarketingPreference[]
   campaignDeliveries CampaignDelivery[]
   campaignRuns CampaignRun[]
@@ -296,6 +297,14 @@ model Campaign {
   restartAfterVisit Boolean @default(true)
   message String
   imageUrl String?
+  templateName String?
+  templateLanguage String @default("es_AR")
+  templateId String?
+  templateStatus String @default("NOT_CREATED")
+  templateRejectionReason String?
+  templateLastSyncedAt DateTime?
+  whatsappTemplateId String?
+  whatsappTemplate WhatsAppTemplate? @relation(fields: [whatsappTemplateId], references: [id], onDelete: SetNull)
   scheduleMode String @default("IMMEDIATE")
   scheduledAt DateTime?
   budgetLimit Int?
@@ -307,6 +316,33 @@ model Campaign {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([businessId, status, updatedAt])
+  @@index([whatsappTemplateId])
+}
+
+model WhatsAppTemplate {
+  id String @id @default(cuid())
+
+  businessId String
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  internalName String
+  metaName String
+  category String @default("MARKETING")
+  language String @default("es_AR")
+  body String
+  exampleJson String?
+  status String @default("DRAFT")
+  metaId String?
+  rejectionReason String?
+  submittedAt DateTime?
+  lastSyncedAt DateTime?
+  campaigns Campaign[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([businessId, metaName, language])
   @@index([businessId, status, updatedAt])
 }
 

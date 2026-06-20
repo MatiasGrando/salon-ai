@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import { prisma } from '../config/prisma.js'
+import { WhatsAppCloudApi } from '../integrations/whatsapp-cloud-api.js'
 
 const CAMPAIGN_TYPES = ['ONE_TIME', 'AUTOMATED'] as const
 const CAMPAIGN_CHANNELS = ['WHATSAPP', 'EMAIL', 'BOTH'] as const
@@ -17,6 +18,7 @@ const CAMPAIGN_SEGMENTS = [
   'FREQUENT',
   'NO_FUTURE_APPOINTMENT'
 ] as const
+const whatsappCloudApi = new WhatsAppCloudApi()
 
 type CampaignInput = {
   businessId?: string
@@ -38,12 +40,207 @@ type CampaignInput = {
   manualCustomerIds?: string[]
   message?: string
   imageUrl?: string | null
+  templateName?: string | null
+  templateLanguage?: string | null
+  templateId?: string | null
+  templateStatus?: string | null
+  templateRejectionReason?: string | null
+  templateLastSyncedAt?: string | Date | null
+  whatsappTemplateId?: string | null
   scheduleMode?: string
   scheduledAt?: string | Date | null
   budgetLimit?: number | string | null
 }
 
 export async function campaignRoutes(app: FastifyInstance) {
+  app.get('/whatsapp-templates', async (request, reply) => {
+    const query = request.query as { businessId?: string }
+    const businessId = query.businessId?.trim()
+    if (!businessId) return reply.status(400).send({ message: 'businessId es requerido' })
+    return prisma.whatsAppTemplate.findMany({
+      where: { businessId },
+      include: { _count: { select: { campaigns: true } } },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }]
+    })
+  })
+
+  app.post('/whatsapp-templates', async (request, reply) => {
+    const body = request.body as { businessId?: string; internalName?: string; metaName?: string; category?: string; language?: string; body?: string; examples?: Record<string, string> }
+    const businessId = body.businessId?.trim()
+    const internalName = body.internalName?.trim()
+    const metaName = normalizeTemplateName(body.metaName)
+    const category = normalizeWhatsAppTemplateCategory(body.category)
+    const language = body.language?.trim() || 'es_AR'
+    const messageBody = body.body?.trim()
+    const variables = extractNamedTemplateVariables(messageBody || '')
+    const examples = normalizeTemplateExamples(body.examples, variables)
+    if (!businessId) return reply.status(400).send({ message: 'businessId es requerido' })
+    if (!internalName) return reply.status(400).send({ message: 'El nombre interno es requerido' })
+    if (!metaName) return reply.status(400).send({ message: 'El nombre en Meta debe usar minusculas, numeros y guiones bajos' })
+    if (!category) return reply.status(400).send({ message: 'La categoria debe ser Marketing o Recordatorio' })
+    if (!messageBody) return reply.status(400).send({ message: 'El mensaje es requerido' })
+    if (messageBody.length > 1024) return reply.status(400).send({ message: 'El mensaje no puede superar 1024 caracteres' })
+    if (variables.some((variable) => !examples[variable])) return reply.status(400).send({ message: 'Completa un ejemplo para cada variable de la plantilla' })
+    if (!/^[a-z]{2}(_[A-Z]{2})?$/.test(language)) return reply.status(400).send({ message: 'Idioma invalido' })
+    return prisma.whatsAppTemplate.create({
+      data: { businessId, internalName, metaName, category, language, body: messageBody, exampleJson: JSON.stringify(examples) }
+    })
+  })
+
+  app.patch('/whatsapp-templates/:id', async (request, reply) => {
+    const params = request.params as { id: string }
+    const current = await prisma.whatsAppTemplate.findUnique({ where: { id: params.id } })
+    if (!current) return reply.status(404).send({ message: 'No encontre esa plantilla' })
+    if (!['DRAFT', 'REJECTED'].includes(current.status)) {
+      return reply.status(409).send({ message: 'Una plantilla enviada a Meta no puede editarse. Duplica la plantilla para crear otra version.' })
+    }
+    const body = request.body as { internalName?: string; metaName?: string; category?: string; language?: string; body?: string; examples?: Record<string, string> }
+    const internalName = body.internalName?.trim() || current.internalName
+    const metaName = body.metaName === undefined ? current.metaName : normalizeTemplateName(body.metaName)
+    const category = body.category === undefined ? current.category : normalizeWhatsAppTemplateCategory(body.category)
+    const language = body.language?.trim() || current.language
+    const messageBody = body.body?.trim() || current.body
+    const variables = extractNamedTemplateVariables(messageBody)
+    const examples = normalizeTemplateExamples(body.examples ?? parseTemplateExamples(current.exampleJson), variables)
+    if (!metaName) return reply.status(400).send({ message: 'Nombre en Meta invalido' })
+    if (!category) return reply.status(400).send({ message: 'La categoria debe ser Marketing o Recordatorio' })
+    if (messageBody.length > 1024) return reply.status(400).send({ message: 'El mensaje no puede superar 1024 caracteres' })
+    if (variables.some((variable) => !examples[variable])) return reply.status(400).send({ message: 'Completa un ejemplo para cada variable de la plantilla' })
+    return prisma.whatsAppTemplate.update({
+      where: { id: current.id },
+      data: { internalName, metaName, category, language, body: messageBody, exampleJson: JSON.stringify(examples), status: 'DRAFT', rejectionReason: null }
+    })
+  })
+
+  app.post('/whatsapp-templates/:id/submit', async (request, reply) => {
+    const params = request.params as { id: string }
+    const template = await prisma.whatsAppTemplate.findUnique({ where: { id: params.id } })
+    if (!template) return reply.status(404).send({ message: 'No encontre esa plantilla' })
+    if (!['DRAFT', 'REJECTED'].includes(template.status)) return reply.status(409).send({ message: 'La plantilla ya fue enviada a Meta' })
+    const examples = parseTemplateExamples(template.exampleJson)
+    const variables = extractNamedTemplateVariables(template.body)
+    const missingExamples = variables.filter((variable) => !examples[variable])
+    if (missingExamples.length) return reply.status(400).send({ message: 'Completa los ejemplos de Meta para: ' + missingExamples.join(', ') })
+    const metaTemplate = buildMetaTemplateBody(template.body, examples)
+    const result = await whatsappCloudApi.createMessageTemplate({
+      name: template.metaName,
+      languageCode: template.language,
+      category: normalizeWhatsAppTemplateCategory(template.category) ?? 'MARKETING',
+      bodyText: metaTemplate.bodyText,
+      bodyExamples: metaTemplate.bodyExamples
+    })
+    if (!result.created) {
+      return reply.status(502).send({ message: result.errorMessage || result.reason || 'Meta rechazo la solicitud', errorCode: result.errorCode })
+    }
+    return prisma.whatsAppTemplate.update({
+      where: { id: template.id },
+      data: {
+        metaId: result.response?.id ?? null,
+        status: normalizeTemplateStatus(result.response?.status || 'PENDING'),
+        rejectionReason: null,
+        submittedAt: new Date(),
+        lastSyncedAt: new Date()
+      }
+    })
+  })
+
+  app.post('/whatsapp-templates/:id/sync', async (request, reply) => {
+    const params = request.params as { id: string }
+    const template = await prisma.whatsAppTemplate.findUnique({ where: { id: params.id } })
+    if (!template) return reply.status(404).send({ message: 'No encontre esa plantilla' })
+    if (template.status === 'DRAFT') return reply.status(409).send({ message: 'Primero envia la plantilla a revision' })
+    const result = await whatsappCloudApi.findMessageTemplate({ id: template.metaId, name: template.metaName, languageCode: template.language })
+    if (!result.found || !result.template) {
+      return reply.status(result.status === 404 ? 404 : 502).send({ message: result.errorMessage || result.reason || 'No pude consultar Meta' })
+    }
+    return prisma.whatsAppTemplate.update({
+      where: { id: template.id },
+      data: {
+        metaId: result.template.id ?? template.metaId,
+        status: normalizeTemplateStatus(result.template.status),
+        rejectionReason: result.template.rejected_reason || null,
+        lastSyncedAt: new Date()
+      }
+    })
+  })
+
+  app.post('/whatsapp/message-templates', async (request, reply) => {
+    const body = request.body as {
+      name?: string
+      languageCode?: string
+      category?: string
+      bodyText?: string
+    }
+    const name = normalizeTemplateName(body.name)
+    const languageCode = body.languageCode?.trim() || 'es_AR'
+    const category = body.category?.trim().toUpperCase() || 'MARKETING'
+    const bodyText = body.bodyText?.trim()
+
+    if (!name) return reply.status(400).send({ message: 'Indica un nombre valido para la plantilla' })
+    if (!bodyText) return reply.status(400).send({ message: 'Escribi el texto de la plantilla' })
+    if (bodyText.length > 1024) return reply.status(400).send({ message: 'La plantilla no puede superar 1024 caracteres' })
+    if (!/^[a-z]{2}(_[A-Z]{2})?$/.test(languageCode)) {
+      return reply.status(400).send({ message: 'El idioma debe tener formato es_AR o en_US' })
+    }
+    if (!['MARKETING', 'UTILITY'].includes(category)) {
+      return reply.status(400).send({ message: 'La categoria debe ser Marketing o Utilidad' })
+    }
+
+    const result = await whatsappCloudApi.createMessageTemplate({
+      name,
+      languageCode,
+      category: category as 'MARKETING' | 'UTILITY',
+      bodyText
+    })
+
+    if (!result.created) {
+      return reply.status(502).send({
+        message: result.errorMessage || result.reason || 'Meta rechazo la plantilla',
+        errorCode: result.errorCode,
+        status: result.status
+      })
+    }
+
+    return {
+      created: true,
+      name,
+      languageCode,
+      category,
+      status: result.response?.status ?? 'PENDING',
+      id: result.response?.id ?? null
+    }
+  })
+
+  app.post('/campaigns/:id/template/sync', async (request, reply) => {
+    const params = request.params as { id: string }
+    const campaign = await prisma.campaign.findUnique({ where: { id: params.id } })
+    if (!campaign) return reply.status(404).send({ message: 'No encontre esa campana' })
+    if (!campaign.templateName) return reply.status(400).send({ message: 'La campana no tiene una plantilla asociada' })
+
+    const result = await whatsappCloudApi.findMessageTemplate({
+      id: campaign.templateId,
+      name: campaign.templateName,
+      languageCode: campaign.templateLanguage
+    })
+    if (!result.found || !result.template) {
+      return reply.status(result.status === 404 ? 404 : 502).send({
+        message: result.errorMessage || result.reason || 'No pude consultar el estado en Meta',
+        errorCode: result.errorCode
+      })
+    }
+
+    return prisma.campaign.update({
+      where: { id: campaign.id },
+      data: {
+        templateId: result.template.id ?? campaign.templateId,
+        templateStatus: normalizeTemplateStatus(result.template.status),
+        templateRejectionReason: result.template.rejected_reason || null,
+        templateLastSyncedAt: new Date()
+      },
+      include: { manualRecipients: { select: { customerId: true, customer: { select: { id: true, name: true, phone: true } } } } }
+    })
+  })
+
   app.get('/campaigns', async (request, reply) => {
     const query = request.query as { businessId?: string }
     const businessId = query.businessId?.trim()
@@ -63,6 +260,17 @@ export async function campaignRoutes(app: FastifyInstance) {
 
     const business = await prisma.business.findUnique({ where: { id: normalized.businessId } })
     if (!business) return reply.status(404).send({ message: 'No encontre ese comercio' })
+    if (normalized.whatsappTemplateId) {
+      const template = await prisma.whatsAppTemplate.findFirst({ where: { id: normalized.whatsappTemplateId, businessId: normalized.businessId, status: 'APPROVED' } })
+      if (!template) return reply.status(400).send({ message: 'Selecciona una plantilla aprobada de este comercio' })
+      normalized.message = template.body
+      normalized.templateName = template.metaName
+      normalized.templateLanguage = template.language
+      normalized.templateId = template.metaId
+      normalized.templateStatus = template.status
+      normalized.templateRejectionReason = template.rejectionReason
+      normalized.templateLastSyncedAt = template.lastSyncedAt
+    }
 
     const campaign = await prisma.campaign.create({ data: normalized })
     await replaceManualRecipients(campaign.id, body.manualCustomerIds)
@@ -80,6 +288,17 @@ export async function campaignRoutes(app: FastifyInstance) {
     const body = request.body as CampaignInput
     const normalized = normalizeCampaignInput({ ...current, ...body }, reply, true)
     if (!normalized) return
+    if (normalized.whatsappTemplateId) {
+      const template = await prisma.whatsAppTemplate.findFirst({ where: { id: normalized.whatsappTemplateId, businessId: normalized.businessId, status: 'APPROVED' } })
+      if (!template) return reply.status(400).send({ message: 'Selecciona una plantilla aprobada de este comercio' })
+      normalized.message = template.body
+      normalized.templateName = template.metaName
+      normalized.templateLanguage = template.language
+      normalized.templateId = template.metaId
+      normalized.templateStatus = template.status
+      normalized.templateRejectionReason = template.rejectionReason
+      normalized.templateLastSyncedAt = template.lastSyncedAt
+    }
 
     const { businessId: _businessId, ...data } = normalized
     await prisma.campaign.update({ where: { id: params.id }, data })
@@ -115,6 +334,13 @@ export async function campaignRoutes(app: FastifyInstance) {
         restartAfterVisit: true,
         message: current.message,
         imageUrl: current.imageUrl,
+        templateName: current.templateName,
+        templateLanguage: current.templateLanguage,
+        templateId: current.templateId,
+        templateStatus: current.templateStatus,
+        templateRejectionReason: current.templateRejectionReason,
+        templateLastSyncedAt: current.templateLastSyncedAt,
+        whatsappTemplateId: current.whatsappTemplateId,
         scheduleMode: current.scheduleMode,
         scheduledAt: null,
         budgetLimit: current.budgetLimit
@@ -251,7 +477,11 @@ export async function campaignRoutes(app: FastifyInstance) {
             respectCooldown: campaign.respectCooldown,
             budgetLimit: campaign.budgetLimit,
             scheduleMode: campaign.scheduleMode,
-            scheduledAt: campaign.scheduledAt?.toISOString() ?? null
+            scheduledAt: campaign.scheduledAt?.toISOString() ?? null,
+            templateName: campaign.templateName,
+            templateLanguage: campaign.templateLanguage,
+            templateId: campaign.templateId,
+            templateStatus: campaign.templateStatus
           },
           completedAt: now
         }
@@ -448,6 +678,13 @@ function normalizeCampaignInput(body: CampaignInput, reply: FastifyReply, requir
   const name = body.name?.trim()
   const message = body.message?.trim()
   const imageUrl = normalizeCampaignImage(body.imageUrl)
+  const templateName = normalizeTemplateName(body.templateName)
+  const templateLanguage = body.templateLanguage?.trim() || 'es_AR'
+  const templateId = body.templateId?.trim() || null
+  const templateStatus = normalizeTemplateStatus(body.templateStatus)
+  const templateRejectionReason = body.templateRejectionReason?.trim() || null
+  const templateLastSyncedAt = body.templateLastSyncedAt ? new Date(body.templateLastSyncedAt) : null
+  const whatsappTemplateId = body.whatsappTemplateId?.trim() || null
   const type = body.type?.trim().toUpperCase() || 'ONE_TIME'
   const channel = body.channel?.trim().toUpperCase() || 'WHATSAPP'
   const status = body.status?.trim().toUpperCase() || 'DRAFT'
@@ -474,6 +711,18 @@ function normalizeCampaignInput(body: CampaignInput, reply: FastifyReply, requir
   }
   if (!message) {
     reply.status(400).send({ message: 'El mensaje es requerido' })
+    return null
+  }
+  if (templateName === undefined) {
+    reply.status(400).send({ message: 'El nombre de la plantilla debe usar minusculas, numeros y guiones bajos' })
+    return null
+  }
+  if (!/^[a-z]{2}(_[A-Z]{2})?$/.test(templateLanguage)) {
+    reply.status(400).send({ message: 'El idioma de la plantilla debe tener formato es_AR o en_US' })
+    return null
+  }
+  if (body.templateLastSyncedAt && Number.isNaN(templateLastSyncedAt?.getTime())) {
+    reply.status(400).send({ message: 'Fecha de sincronizacion de plantilla invalida' })
     return null
   }
   if (body.imageUrl !== undefined && imageUrl === undefined) {
@@ -560,6 +809,13 @@ function normalizeCampaignInput(body: CampaignInput, reply: FastifyReply, requir
     stopOnBooking: true,
     stopOnReply: true,
     restartAfterVisit: true,
+    templateName,
+    templateLanguage,
+    templateId,
+    templateStatus: templateName ? templateStatus : 'NOT_CREATED',
+    templateRejectionReason: templateName ? templateRejectionReason : null,
+    templateLastSyncedAt: templateName ? templateLastSyncedAt : null,
+    whatsappTemplateId,
     scheduleMode,
     scheduledAt,
     budgetLimit
@@ -584,6 +840,61 @@ function normalizeCampaignImage(imageUrl?: string | null) {
   const normalized = imageUrl.trim()
   const isSupportedImage = /^data:image\/(png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(normalized)
   return isSupportedImage && normalized.length <= 2_800_000 ? normalized : undefined
+}
+
+function normalizeTemplateName(templateName?: string | null) {
+  if (templateName === undefined || templateName === null || templateName.trim() === '') return null
+  const normalized = templateName.trim()
+  return /^[a-z0-9_]{1,512}$/.test(normalized) ? normalized : undefined
+}
+
+function normalizeTemplateStatus(status?: string | null) {
+  const normalized = status?.trim().toUpperCase() || 'NOT_CREATED'
+  return /^[A-Z_]{2,40}$/.test(normalized) ? normalized : 'NOT_CREATED'
+}
+
+function normalizeWhatsAppTemplateCategory(category?: string | null): 'MARKETING' | 'UTILITY' | undefined {
+  const normalized = category?.trim().toUpperCase()
+  if (normalized === 'MARKETING') return 'MARKETING'
+  if (normalized === 'UTILITY' || normalized === 'REMINDER' || normalized === 'RECORDATORIO') return 'UTILITY'
+  return undefined
+}
+
+function extractNamedTemplateVariables(text: string) {
+  const variables = new Set<string>()
+  for (const match of text.matchAll(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g)) variables.add(match[1])
+  return Array.from(variables)
+}
+
+function normalizeTemplateExamples(examples: Record<string, string> | undefined, variables: string[]) {
+  const normalized: Record<string, string> = {}
+  for (const variable of variables) {
+    const value = examples?.[variable]?.trim()
+    if (value) normalized[variable] = value.slice(0, 120)
+  }
+  return normalized
+}
+
+function parseTemplateExamples(exampleJson?: string | null) {
+  if (!exampleJson) return {}
+  try {
+    const parsed = JSON.parse(exampleJson) as Record<string, unknown>
+    return Object.fromEntries(Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
+  } catch {
+    return {}
+  }
+}
+
+function buildMetaTemplateBody(body: string, examples: Record<string, string>) {
+  const variables = extractNamedTemplateVariables(body)
+  const indexByVariable = new Map(variables.map((variable, index) => [variable, String(index + 1)]))
+  const bodyText = body.replace(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g, (_match, variable: string) => {
+    return '{{' + (indexByVariable.get(variable) || variable) + '}}'
+  })
+  return {
+    bodyText,
+    bodyExamples: variables.map((variable) => examples[variable]).filter(Boolean)
+  }
 }
 
 function uniqueCopyName(name: string) {
