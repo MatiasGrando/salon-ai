@@ -10,6 +10,7 @@ export async function customerRoutes(app: FastifyInstance) {
       inactiveDays?: string
       page?: string
       take?: string
+      businessId?: string
     }
     const now = new Date()
     const inactiveDays = [30, 45, 60, 90].includes(Number(query.inactiveDays))
@@ -40,6 +41,11 @@ export async function customerRoutes(app: FastifyInstance) {
             createdAt: 'desc'
           },
           take: 2
+        },
+        marketingPreferences: {
+          where: query.businessId ? { businessId: query.businessId } : undefined,
+          orderBy: { updatedAt: 'desc' },
+          take: 1
         }
       }
     })
@@ -81,6 +87,8 @@ export async function customerRoutes(app: FastifyInstance) {
         id: customer.id,
         name: customer.name,
         phone: customer.phone,
+        marketingStatus: customer.marketingPreferences[0]?.status ?? 'NOT_AUTHORIZED',
+        marketingSource: customer.marketingPreferences[0]?.source ?? 'DEFAULT',
         createdAt: customer.createdAt,
         status: isActive ? 'active' : 'inactive',
         isNew,

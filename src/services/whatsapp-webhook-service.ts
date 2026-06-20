@@ -128,6 +128,36 @@ export class WhatsAppWebhookService {
         data: inboundMessageData
       })
 
+      const marketingOptOutApplied = await this.applyMarketingOptOut({
+        businessId: conversation.businessId,
+        phone: message.from,
+        text: message.text
+      })
+      if (marketingOptOutApplied) {
+        const replyText = 'Listo. No vas a recibir más promociones. Los mensajes relacionados con tus turnos seguirán funcionando.'
+        const deliveryResult = await whatsappCloudApi.sendTextMessage({ to: message.from, text: replyText })
+        const providerMessageId = getOutgoingProviderMessageId(deliveryResult)
+        await prisma.message.create({
+          data: {
+            conversationId: conversation.id,
+            phone: message.from,
+            direction: 'OUTBOUND',
+            body: replyText,
+            status: deliveryResult.sent ? 'sent' : 'failed',
+            ...(providerMessageId ? { providerMessageId } : {}),
+            metadata: deliveryResult
+          }
+        })
+        results.push({
+          messageId: message.id,
+          from: message.from,
+          reply: replyText,
+          marketingOptOut: true,
+          delivery: deliveryResult
+        })
+        continue
+      }
+
       console.info('[whatsapp-webhook] saved inbound message', {
         messageId: message.id,
         from: message.from,
@@ -298,6 +328,53 @@ export class WhatsAppWebhookService {
     return messages
   }
 
+  private async applyMarketingOptOut(input: { businessId: string | null; phone: string; text: string }) {
+    if (!isMarketingOptOutMessage(input.text)) return false
+    const customers = await prisma.customer.findMany({
+      select: {
+        id: true,
+        phone: true,
+        appointments: {
+          select: { professional: { select: { businessId: true } } },
+          orderBy: { startAt: 'desc' },
+          take: 5
+        }
+      }
+    })
+    const customer = customers.find((item) => normalizeMarketingPhone(item.phone) === normalizeMarketingPhone(input.phone))
+    if (!customer) return false
+    const customerBusinessIds = customer.appointments.map((appointment) => appointment.professional.businessId)
+    const businessId = input.businessId && customerBusinessIds.includes(input.businessId)
+      ? input.businessId
+      : customerBusinessIds[0] ?? input.businessId ?? await this.defaultBusinessId()
+    if (!businessId) return false
+
+    await prisma.customerMarketingPreference.upsert({
+      where: { businessId_customerId: { businessId, customerId: customer.id } },
+      create: {
+        businessId,
+        customerId: customer.id,
+        status: 'OPTED_OUT',
+        source: 'WHATSAPP',
+        optedOutAt: new Date()
+      },
+      update: {
+        status: 'OPTED_OUT',
+        source: 'WHATSAPP',
+        optedOutAt: new Date()
+      }
+    })
+    return true
+  }
+
+  private async defaultBusinessId() {
+    const business = await prisma.business.findFirst({
+      orderBy: { createdAt: 'asc' },
+      select: { id: true }
+    })
+    return business?.id ?? null
+  }
+
   private async isDefaultBusinessAiEnabled() {
     const business = await prisma.business.findFirst({
       orderBy: {
@@ -323,6 +400,23 @@ export class WhatsAppWebhookService {
 
     return business?.botEnabled ?? true
   }
+}
+
+function isMarketingOptOutMessage(text: string) {
+  const normalized = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('es')
+    .replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
+  return [
+    'baja',
+    'stop',
+    'no quiero recibir promociones',
+    'no recibir promociones',
+    'dejar de recibir promociones',
+    'cancelar promociones'
+  ].includes(normalized)
+}
+
+function normalizeMarketingPhone(phone: string) {
+  return phone.replace(/\D/g, '')
 }
 
 function getOutgoingProviderMessageId(deliveryResult: Awaited<ReturnType<WhatsAppCloudApi['sendTextMessage']>>) {

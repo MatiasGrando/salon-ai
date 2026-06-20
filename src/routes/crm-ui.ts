@@ -315,6 +315,11 @@ const crmHtml = `<!doctype html>
       background: var(--warn-soft);
     }
 
+    .chip.success {
+      color: #087a3d;
+      background: #e8f8ee;
+    }
+
     .chip.handoff {
       color: var(--danger);
       background: var(--danger-soft);
@@ -2328,6 +2333,1337 @@ const crmHtml = `<!doctype html>
       height: 17px;
     }
 
+    /* Campaigns mock */
+    .app[data-section="campaigns"] {
+      grid-template-columns: 224px minmax(0, 1fr);
+      background: #f8faff;
+    }
+
+    .app[data-section="campaigns"] .sidebar,
+    .app[data-section="campaigns"] .chat,
+    .app[data-section="campaigns"] .details {
+      display: none;
+    }
+
+    .campaigns-view {
+      grid-column: 2;
+      min-width: 0;
+      min-height: 0;
+      display: none;
+      overflow: auto;
+      background: #f8faff;
+    }
+
+    .app[data-section="campaigns"] .campaigns-view {
+      display: block;
+    }
+
+    .campaigns-shell {
+      width: 100%;
+      max-width: 1540px;
+      min-height: 100%;
+      margin: 0 auto;
+      padding: 24px 26px 28px;
+      color: #101b36;
+    }
+
+    .campaigns-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    .campaigns-title h2 {
+      margin: 0 0 4px;
+      color: #101b36;
+      font-size: 26px;
+      line-height: 1.2;
+      letter-spacing: -.45px;
+    }
+
+    .campaigns-title p {
+      margin: 0;
+      color: #60708f;
+      font-size: 15px;
+    }
+
+    .campaigns-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .campaigns-search {
+      width: min(300px, 25vw);
+      height: 44px;
+      padding: 0 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border: 1px solid #d7deea;
+      border-radius: 8px;
+      background: #fff;
+      color: #73809a;
+    }
+
+    .campaigns-search span {
+      font-size: 19px;
+    }
+
+    .campaigns-search input {
+      width: 100%;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: #17223b;
+      font: inherit;
+      font-size: 14px;
+    }
+
+    .campaigns-new {
+      height: 44px;
+      padding: 0 19px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 0;
+      border-radius: 8px;
+      background: #0866ed;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 750;
+      line-height: 1;
+      box-shadow: 0 7px 16px rgba(8, 102, 237, .18);
+    }
+
+    .campaign-new-plus {
+      position: relative;
+      display: inline-block;
+      width: 18px;
+      margin-right: 8px;
+      height: 18px;
+      flex: 0 0 18px;
+      color: transparent;
+      font-size: 0;
+    }
+
+    .campaign-new-plus::before,
+    .campaign-new-plus::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      border-radius: 999px;
+      background: currentColor;
+      background: #fff;
+      transform: translate(-50%, -50%);
+    }
+
+    .campaign-new-plus::before {
+      width: 16px;
+      height: 2px;
+    }
+
+    .campaign-new-plus::after {
+      width: 2px;
+      height: 16px;
+    }
+
+    .campaigns-main-tabs {
+      height: 51px;
+      margin-top: 8px;
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      border-bottom: 1px solid #dce3ef;
+    }
+
+    .campaigns-main-tabs button {
+      height: 42px;
+      padding: 0 11px;
+      border: 0;
+      border-bottom: 3px solid transparent;
+      background: transparent;
+      color: #42516e;
+      font-size: 14px;
+      font-weight: 650;
+    }
+
+    .campaigns-main-tabs button.active {
+      border-color: #0866ed;
+      color: #0866ed;
+    }
+
+    .campaign-metrics {
+      margin: 20px 0;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .campaign-metric {
+      min-height: 96px;
+      padding: 18px 20px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      border: 1px solid #dfe5ef;
+      border-radius: 10px;
+      background: #fff;
+      box-shadow: 0 1px 2px rgba(16, 27, 54, .025);
+    }
+
+    .campaign-metric-icon,
+    .campaign-row-icon,
+    .campaign-detail-icon,
+    .campaign-message-icon {
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      font-weight: 800;
+    }
+
+    .campaign-metric-icon {
+      width: 48px;
+      height: 48px;
+      font-size: 21px;
+    }
+
+    .campaign-metric-icon.green { background: #e4f8ec; color: #05a84f; }
+    .campaign-metric-icon.orange { background: #fff1df; color: #f28a16; }
+    .campaign-metric-icon.violet { background: #f0eaff; color: #6938ef; }
+    .campaign-metric-icon.blue { background: #e9f2ff; color: #0866ed; }
+
+    .campaign-metric strong {
+      display: block;
+      margin-bottom: 5px;
+      color: #111c37;
+      font-size: 25px;
+      line-height: 1;
+    }
+
+    .campaign-metric span {
+      color: #52617d;
+      font-size: 14px;
+    }
+
+    .campaigns-workspace {
+      display: grid;
+      grid-template-columns: minmax(650px, 1.25fr) minmax(480px, 1fr);
+      gap: 18px;
+      align-items: stretch;
+    }
+
+    .campaign-list-panel,
+    .campaign-detail-panel {
+      min-width: 0;
+      border: 1px solid #dfe5ef;
+      border-radius: 10px;
+      background: #fff;
+      box-shadow: 0 1px 2px rgba(16, 27, 54, .025);
+    }
+
+    .campaign-list-panel {
+      overflow: hidden;
+    }
+
+    .campaign-list-toolbar {
+      min-height: 66px;
+      padding: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      border-bottom: 1px solid #edf0f5;
+    }
+
+    .campaign-filter-tabs {
+      display: flex;
+      gap: 8px;
+    }
+
+    .campaign-filter-tabs button,
+    .campaign-filter-button,
+    .campaign-outline-button {
+      height: 34px;
+      padding: 0 13px;
+      border: 1px solid #dce3ed;
+      border-radius: 7px;
+      background: #fff;
+      color: #43516b;
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .campaign-filter-tabs button.active {
+      border-color: #0866ed;
+      color: #0866ed;
+      background: #f5f9ff;
+      box-shadow: inset 0 0 0 1px rgba(8, 102, 237, .08);
+    }
+
+    .campaign-filter-button {
+      white-space: nowrap;
+    }
+
+    .campaign-table-wrap {
+      overflow-x: auto;
+    }
+
+    .campaign-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 12.5px;
+    }
+
+    .campaign-table th {
+      height: 46px;
+      padding: 0 10px;
+      color: #53617a;
+      text-align: left;
+      font-size: 11px;
+      font-weight: 750;
+      white-space: nowrap;
+    }
+
+    .campaign-table td {
+      height: 61px;
+      padding: 7px 10px;
+      border-top: 1px solid #edf0f5;
+      color: #3f4d66;
+      vertical-align: middle;
+    }
+
+    .campaign-table tr.selected td {
+      border-top-color: #0866ed;
+      border-bottom: 1px solid #0866ed;
+      background: #f8fbff;
+    }
+
+    .campaign-table tr.selected td:first-child {
+      border-left: 1px solid #0866ed;
+      border-radius: 8px 0 0 8px;
+    }
+
+    .campaign-table tr.selected td:last-child {
+      border-right: 1px solid #0866ed;
+      border-radius: 0 8px 8px 0;
+    }
+
+    .campaign-name-cell {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #17213a;
+      font-weight: 750;
+      line-height: 1.25;
+    }
+
+    .campaign-row-icon {
+      width: 31px;
+      height: 31px;
+      background: #e7f8ed;
+      color: #08a950;
+      font-size: 13px;
+    }
+
+    .campaign-row-icon.email { background: #fff0df; color: #f47e0a; }
+    .campaign-row-icon.calendar { background: #f0eaff; color: #6a38ef; }
+    .campaign-row-icon.tag { background: #e9f2ff; color: #0866ed; }
+
+    .campaign-badge {
+      min-height: 23px;
+      padding: 4px 8px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      font-size: 10.5px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .campaign-badge.automatic { background: #f0eaff; color: #6636de; }
+    .campaign-badge.single { background: #eaf3ff; color: #0866ed; }
+    .campaign-badge.whatsapp { border-color: #b9e9c9; background: #e8f8ed; color: #07883e; }
+    .campaign-badge.email { border-color: #ffd7ae; background: #fff4e8; color: #d56c05; }
+    .campaign-badge.both { border-color: #c9d9ec; background: #f4f7fb; color: #45546e; }
+    .campaign-badge.active { background: #e3f7e9; color: #07853c; }
+    .campaign-badge.scheduled { background: #e8f2ff; color: #0866ed; }
+    .campaign-badge.paused { background: #fff0df; color: #d96b05; }
+    .campaign-badge.draft { background: #eef1f5; color: #53617a; }
+
+    .campaign-list-footer {
+      min-height: 66px;
+      padding: 0 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border-top: 1px solid #edf0f5;
+      color: #66748d;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .campaign-pagination {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+    }
+
+    .campaign-pagination button {
+      width: 38px;
+      height: 38px;
+      border: 1px solid #dfe5ef;
+      border-radius: 6px;
+      background: #fff;
+      color: #42516e;
+      font-size: 14px;
+      font-weight: 750;
+    }
+
+    .campaign-pagination button.active {
+      border-color: #0866ed;
+      background: #0866ed;
+      color: #fff;
+    }
+
+    .campaign-detail-panel {
+      padding: 15px;
+    }
+
+    .campaign-detail-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .campaign-detail-heading {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .campaign-detail-icon {
+      width: 44px;
+      height: 44px;
+      background: #e4f8ec;
+      color: #05a84f;
+      font-size: 20px;
+    }
+
+    .campaign-detail-heading h3 {
+      margin: 0 0 5px;
+      color: #111c36;
+      font-size: 20px;
+      line-height: 1.2;
+    }
+
+    .campaign-detail-badges,
+    .campaign-detail-actions {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .campaign-detail-actions {
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      width: 100%;
+      max-width: none;
+      padding-left: 56px;
+    }
+
+    .campaign-outline-button {
+      border-color: #0866ed;
+      color: #0866ed;
+    }
+
+    .campaign-duplicate-button {
+      height: 35px;
+      padding: 0 13px;
+      border: 0;
+      border-radius: 7px;
+      background: #0866ed;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .campaign-more-button {
+      width: 35px;
+      height: 35px;
+      border: 1px solid #dce3ed;
+      border-radius: 7px;
+      background: #fff;
+      color: #34435f;
+      font-weight: 900;
+    }
+
+    .campaign-detail-stats {
+      min-height: 76px;
+      margin-top: 15px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      border: 1px solid #e1e6ef;
+      border-radius: 8px;
+    }
+
+    .campaign-detail-stat {
+      align-self: center;
+      text-align: center;
+      border-right: 1px solid #e8ecf3;
+    }
+
+    .campaign-detail-stat:last-child { border-right: 0; }
+    .campaign-detail-stat strong { display: block; margin-bottom: 3px; color: #17213a; font-size: 20px; }
+    .campaign-detail-stat span { color: #67758d; font-size: 13px; }
+
+    .campaign-detail-tabs {
+      height: 54px;
+      margin-top: 8px;
+      display: flex;
+      align-items: flex-end;
+      gap: 28px;
+      border-bottom: 1px solid #dfe5ef;
+    }
+
+    .campaign-detail-tabs button {
+      height: 44px;
+      padding: 0 2px;
+      border: 0;
+      border-bottom: 3px solid transparent;
+      background: transparent;
+      color: #50607b;
+      font-size: 14px;
+    }
+
+    .campaign-detail-tabs button.active {
+      border-color: #0866ed;
+      color: #0866ed;
+      font-weight: 750;
+    }
+
+    .campaign-message-label {
+      margin: 13px 0 8px;
+      color: #26324a;
+      font-size: 14px;
+      font-weight: 750;
+    }
+
+    .campaign-message-preview {
+      display: flex;
+      align-items: flex-start;
+      gap: 9px;
+    }
+
+    .campaign-message-icon {
+      width: 38px;
+      height: 38px;
+      background: #e6f8ec;
+      color: #09a84e;
+      font-size: 16px;
+    }
+
+    .campaign-message-bubble {
+      max-width: 370px;
+      padding: 13px 15px 10px;
+      border: 1px solid #bfe8c9;
+      border-radius: 9px;
+      background: #e8f8e9;
+      color: #17223a;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .campaign-message-bubble time {
+      display: block;
+      margin-top: 4px;
+      color: #6b7b73;
+      text-align: right;
+      font-size: 12px;
+    }
+
+    .campaign-detail-lower {
+      margin-top: 13px;
+      display: grid;
+      grid-template-columns: 1fr 1.08fr;
+      gap: 12px;
+    }
+
+    .campaign-result-card,
+    .campaign-budget-card {
+      min-height: 178px;
+      padding: 13px;
+      border: 1px solid #e1e6ef;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .campaign-result-card h4,
+    .campaign-budget-card h4 {
+      margin: 0 0 13px;
+      color: #1c2840;
+      font-size: 15px;
+    }
+
+    .campaign-result-list,
+    .campaign-budget-list {
+      display: grid;
+      gap: 11px;
+    }
+
+    .campaign-result-item,
+    .campaign-budget-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      color: #53617a;
+      font-size: 14px;
+      line-height: 1.35;
+    }
+
+    .campaign-result-item strong,
+    .campaign-budget-item strong {
+      color: #17223b;
+    }
+
+    .campaign-budget-track {
+      height: 7px;
+      margin: 11px 0 8px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #e9edf3;
+    }
+
+    .campaign-budget-track span {
+      width: 75%;
+      height: 100%;
+      display: block;
+      border-radius: inherit;
+      background: #0866ed;
+    }
+
+    .campaign-budget-link {
+      border: 0;
+      padding: 0;
+      background: transparent;
+      color: #0866ed;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .campaign-rule-note {
+      min-height: 44px;
+      margin-top: 12px;
+      padding: 8px 11px;
+      display: flex;
+      align-items: center;
+      border: 1px solid #e2e7ef;
+      border-radius: 7px;
+      background: #f8fafc;
+      color: #61708a;
+      font-size: 13.5px;
+      font-weight: 600;
+      line-height: 1.4;
+    }
+
+    .campaign-recipient-view {
+      padding: 18px 0 4px;
+    }
+
+    .campaign-recipient-head {
+      margin-bottom: 12px;
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .campaign-recipient-head h4,
+    .campaign-recipient-head p {
+      margin: 0;
+    }
+
+    .campaign-recipient-head p {
+      margin-top: 4px;
+      color: #687790;
+      font-size: 13px;
+    }
+
+    .campaign-recipient-list {
+      max-height: 420px;
+      overflow: auto;
+      border: 1px solid #e0e6ef;
+      border-radius: 10px;
+      background: #fff;
+    }
+
+    .campaign-recipient-row {
+      min-height: 62px;
+      padding: 10px 13px;
+      display: grid;
+      grid-template-columns: 38px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 11px;
+      border-bottom: 1px solid #edf1f6;
+    }
+
+    .campaign-recipient-row:last-child {
+      border-bottom: 0;
+    }
+
+    .campaign-recipient-avatar {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: #e7f8ee;
+      color: #079447;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .campaign-recipient-copy {
+      min-width: 0;
+      display: grid;
+      gap: 3px;
+    }
+
+    .campaign-recipient-copy strong {
+      color: #17223b;
+      font-size: 14px;
+    }
+
+    .campaign-recipient-copy span {
+      color: #687790;
+      font-size: 12.5px;
+    }
+
+    .campaign-recipient-status {
+      padding: 5px 8px;
+      border-radius: 999px;
+      background: #eaf8ef;
+      color: #087a3d;
+      font-size: 11px;
+      font-weight: 750;
+    }
+
+    .dialog.campaign-dialog {
+      width: min(820px, calc(100vw - 32px));
+      height: min(900px, calc(100vh - 48px));
+      max-height: calc(100vh - 48px);
+      grid-template-rows: auto minmax(0, 1fr);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+
+    .campaign-dialog .dialog-header {
+      min-height: 78px;
+      padding: 18px 24px;
+      align-items: flex-start;
+      background: #fff;
+    }
+
+    .campaign-dialog .dialog-header h3 {
+      font-size: 20px;
+      line-height: 1.25;
+    }
+
+    .campaign-dialog .dialog-header .hint {
+      margin: 5px 0 0;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .campaign-dialog .dialog-header .icon-button {
+      width: 38px;
+      height: 38px;
+      flex: 0 0 38px;
+      font-size: 19px;
+    }
+
+    .campaign-form {
+      min-height: 0;
+      padding: 0;
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) auto auto;
+      gap: 0;
+      overflow: hidden;
+    }
+
+    .campaign-form-grid {
+      min-height: 0;
+      padding: 20px 24px 18px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      column-gap: 18px;
+      row-gap: 16px;
+      align-content: start;
+      overflow-y: auto;
+      scrollbar-gutter: stable;
+    }
+
+    .campaign-form-field {
+      display: grid;
+      gap: 7px;
+    }
+
+    .campaign-form-field[hidden] {
+      display: none;
+    }
+
+    .campaign-form-field.full {
+      grid-column: 1 / -1;
+    }
+
+    .campaign-form-field label {
+      color: #26344f;
+      font-size: 14px;
+      font-weight: 750;
+    }
+
+    .campaign-form-field input,
+    .campaign-form-field select,
+    .campaign-form-field textarea {
+      width: 100%;
+      min-height: 46px;
+      padding: 11px 13px;
+      border: 1px solid #d7deea;
+      border-radius: 8px;
+      outline: 0;
+      background: #fff;
+      color: #17223b;
+      font: inherit;
+      font-size: 14px;
+    }
+
+    .campaign-form-field textarea {
+      min-height: 118px;
+      resize: vertical;
+      line-height: 1.5;
+    }
+
+    .campaign-automation-settings {
+      grid-column: 1 / -1;
+      padding: 16px;
+      display: grid;
+      gap: 14px;
+      border: 1px solid #dce5f2;
+      border-radius: 12px;
+      background: #f8fbff;
+    }
+
+    .campaign-automation-settings[hidden] {
+      display: none;
+    }
+
+    .campaign-punctual-settings {
+      grid-column: 1 / -1;
+      padding: 14px 16px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 190px;
+      gap: 16px;
+      align-items: end;
+      border: 1px solid #dce5f2;
+      border-radius: 12px;
+      background: #f8fbff;
+    }
+
+    .campaign-punctual-settings[hidden] {
+      display: none;
+    }
+
+    .campaign-punctual-copy {
+      display: grid;
+      gap: 6px;
+      align-self: center;
+    }
+
+    .campaign-punctual-copy p {
+      margin: 0 0 0 25px;
+      color: #61708a;
+      font-size: 12.5px;
+      line-height: 1.4;
+    }
+
+    .campaign-manual-settings {
+      grid-column: 1 / -1;
+      padding: 14px 16px;
+      display: grid;
+      gap: 11px;
+      border: 1px solid #dce5f2;
+      border-radius: 12px;
+      background: #f8fbff;
+    }
+
+    .campaign-manual-settings[hidden] {
+      display: none;
+    }
+
+    .campaign-manual-settings h4,
+    .campaign-manual-settings p {
+      margin: 0;
+    }
+
+    .campaign-manual-toolbar {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .campaign-manual-search {
+      width: 100%;
+      min-height: 42px;
+      padding: 9px 12px;
+      border: 1px solid #d7deea;
+      border-radius: 8px;
+      outline: 0;
+      background: #fff;
+      font: inherit;
+      font-size: 13px;
+    }
+
+    .campaign-manual-count {
+      color: #0866ed;
+      font-size: 12.5px;
+      font-weight: 750;
+      white-space: nowrap;
+    }
+
+    .campaign-manual-more {
+      min-height: 38px;
+      border: 1px solid #cfd9e8;
+      border-radius: 8px;
+      background: #fff;
+      color: #315077;
+      font-size: 12.5px;
+      font-weight: 700;
+    }
+
+    .campaign-manual-settings p {
+      margin-top: 3px;
+      color: #687790;
+      font-size: 12.5px;
+    }
+
+    .campaign-manual-list {
+      max-height: 275px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      overflow: auto;
+    }
+
+    .campaign-manual-option {
+      min-width: 0;
+      padding: 9px 10px;
+      display: grid;
+      grid-template-columns: 17px minmax(0, 1fr);
+      gap: 8px;
+      align-items: center;
+      border: 1px solid #dce5ef;
+      border-radius: 8px;
+      background: #fff;
+      cursor: pointer;
+    }
+
+    .campaign-manual-option input {
+      width: 17px;
+      height: 17px;
+      margin: 0;
+      accent-color: #0866ed;
+    }
+
+    .campaign-manual-option span {
+      min-width: 0;
+      display: grid;
+      gap: 2px;
+    }
+
+    .campaign-manual-option strong,
+    .campaign-manual-option small {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .campaign-manual-option strong { font-size: 13px; }
+    .campaign-manual-option small { color: #687790; font-size: 11.5px; }
+
+    .campaign-automation-heading h4 {
+      margin: 0;
+      color: #17223b;
+      font-size: 15px;
+    }
+
+    .campaign-automation-heading p {
+      margin: 4px 0 0;
+      color: #61708a;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .campaign-automation-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .campaign-stop-rules {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 18px;
+    }
+
+    .campaign-stop-rules[hidden] {
+      display: none;
+    }
+
+    .campaign-stop-rule {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: #34435f;
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .campaign-stop-rule input {
+      width: 17px;
+      height: 17px;
+      margin: 0;
+      accent-color: #0866ed;
+    }
+
+    .campaign-message-tools {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+    }
+
+    .campaign-message-tool,
+    .campaign-image-picker {
+      min-height: 38px;
+      padding: 0 12px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      border: 1px solid #d7deea;
+      border-radius: 8px;
+      background: #fff;
+      color: #34435f;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .campaign-message-tool:hover,
+    .campaign-image-picker:hover {
+      border-color: #9db8e4;
+      background: #f7faff;
+    }
+
+    .campaign-image-picker input {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .campaign-emoji-picker {
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+      border: 1px solid #dfe5ef;
+      border-radius: 10px;
+      background: #fff;
+      box-shadow: 0 10px 28px rgba(15, 23, 42, .1);
+    }
+
+    .campaign-emoji-picker[hidden] {
+      display: none;
+    }
+
+    .campaign-emoji-search {
+      width: 100%;
+      min-height: 40px !important;
+      padding: 8px 12px !important;
+      border: 1px solid #d7deea !important;
+      border-radius: 8px !important;
+      background: #f8fafc !important;
+      font-size: 13px !important;
+    }
+
+    .campaign-emoji-categories {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 4px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #e7ebf2;
+    }
+
+    .campaign-emoji-categories button {
+      width: 34px;
+      height: 34px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: #697790;
+      font-size: 17px;
+      cursor: pointer;
+    }
+
+    .campaign-emoji-categories button:hover,
+    .campaign-emoji-categories button.active {
+      background: #eaf2ff;
+      color: #0866ed;
+    }
+
+    .campaign-emoji-grid {
+      max-height: 230px;
+      display: grid;
+      grid-template-columns: repeat(10, minmax(34px, 1fr));
+      gap: 4px;
+      overflow-y: auto;
+      scrollbar-width: thin;
+    }
+
+    .campaign-emoji-grid button {
+      min-width: 34px;
+      height: 38px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: transparent;
+      font-size: 22px;
+      cursor: pointer;
+    }
+
+    .campaign-emoji-grid button:hover {
+      border-color: #d5e2f5;
+      background: #f2f6fc;
+      transform: scale(1.08);
+    }
+
+    .campaign-emoji-empty {
+      grid-column: 1 / -1;
+      padding: 28px 12px;
+      color: #697790;
+      text-align: center;
+      font-size: 13px;
+    }
+
+    .campaign-image-preview {
+      padding: 10px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border: 1px solid #dfe5ef;
+      border-radius: 10px;
+      background: #f8fafc;
+    }
+
+    .campaign-image-preview[hidden] {
+      display: none;
+    }
+
+    .campaign-image-preview img {
+      width: 96px;
+      height: 64px;
+      border-radius: 8px;
+      object-fit: cover;
+      background: #edf1f6;
+    }
+
+    .campaign-image-preview div {
+      display: grid;
+      gap: 5px;
+    }
+
+    .campaign-image-preview strong {
+      color: #26344f;
+      font-size: 13px;
+    }
+
+    .campaign-image-remove {
+      width: fit-content;
+      border: 0;
+      padding: 0;
+      background: transparent;
+      color: #dc2626;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .campaign-message-media {
+      width: calc(100% + 30px);
+      max-height: 220px;
+      margin: -13px -15px 12px;
+      display: block;
+      border-radius: 9px 9px 0 0;
+      object-fit: cover;
+      background: #dbe8df;
+    }
+
+    .campaign-form-field input:focus,
+    .campaign-form-field select:focus,
+    .campaign-form-field textarea:focus {
+      border-color: #0866ed;
+      box-shadow: 0 0 0 3px rgba(8, 102, 237, .1);
+    }
+
+    .campaign-form-help {
+      margin: 0;
+      color: #687790;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .campaign-form-feedback {
+      min-height: 0;
+      margin: 0;
+      padding: 10px 24px 0;
+      color: #c2410c;
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .campaign-form-feedback:empty {
+      display: none;
+    }
+
+    .campaign-form .dialog-actions {
+      position: relative;
+      z-index: 4;
+      margin: 0;
+      padding: 14px 24px 16px;
+      border-top: 1px solid #e7ebf2;
+      background: #fff;
+      box-shadow: 0 -8px 18px rgba(15, 35, 64, .04);
+    }
+
+    .campaign-form .dialog-actions button {
+      min-width: 126px;
+      min-height: 42px;
+      font-size: 13px;
+    }
+
+    .campaign-empty-row td {
+      height: 220px;
+      color: #687790;
+      text-align: center;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .campaign-detail-empty {
+      min-height: 420px;
+      display: grid;
+      place-items: center;
+      padding: 30px;
+      color: #687790;
+      text-align: center;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    @media (max-width: 1350px) {
+      .campaigns-workspace {
+        grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+      }
+
+      .campaign-filter-tabs button {
+        padding: 0 9px;
+      }
+
+      .campaign-detail-actions {
+        padding-left: 56px;
+      }
+
+      .campaign-table th:nth-child(5),
+      .campaign-table td:nth-child(5) {
+        display: none;
+      }
+    }
+
+    @media (max-width: 1080px) {
+      .campaign-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .campaigns-workspace {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .campaigns-view {
+        grid-column: 1;
+      }
+
+      .campaigns-shell {
+        padding: 18px 14px;
+      }
+
+      .campaigns-header,
+      .campaigns-header-actions {
+        display: grid;
+      }
+
+      .campaigns-header-actions,
+      .campaigns-search {
+        width: 100%;
+      }
+
+      .campaign-metrics {
+        grid-template-columns: 1fr;
+      }
+
+      .campaign-list-toolbar,
+      .campaign-filter-tabs {
+        align-items: stretch;
+        flex-wrap: wrap;
+      }
+
+      .campaign-detail-header {
+        display: grid;
+      }
+
+      .campaign-detail-lower {
+        grid-template-columns: 1fr;
+      }
+
+      .campaign-form-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .campaign-automation-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .campaign-punctual-settings {
+        grid-template-columns: 1fr;
+      }
+
+      .campaign-emoji-grid {
+        grid-template-columns: repeat(7, minmax(34px, 1fr));
+      }
+    }
+
     @media (max-width: 1180px) {
       .app[data-section="conversations"] {
         grid-template-columns: 220px minmax(270px, 310px) minmax(420px, 1fr);
@@ -2343,6 +3679,10 @@ const crmHtml = `<!doctype html>
     }
 
     @media (max-width: 760px) {
+      .campaign-automation-grid {
+        grid-template-columns: 1fr;
+      }
+
       .app[data-section="conversations"] {
         display: block;
       }
@@ -6046,6 +7386,29 @@ const crmHtml = `<!doctype html>
       min-width: 122px;
     }
 
+    .customer-marketing-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .customer-marketing-actions button {
+      min-height: 38px;
+      white-space: nowrap;
+    }
+
+    .marketing-confirm-dialog .customer-delete-icon {
+      background: #e8f1ff;
+      color: #0866ed;
+    }
+
+    .marketing-confirm-dialog .customer-delete-warning {
+      border-color: #cfe0fb;
+      background: #f4f8ff;
+      color: #334765;
+    }
+
     .customer-delete-confirm {
       color: #fff;
       background: #dc2626;
@@ -6224,6 +7587,10 @@ const crmHtml = `<!doctype html>
         <div class="customer-bot-status">
           <span>Estado del bot</span>
           <span class="chip" id="detail-step">--</span>
+        </div>
+        <div class="customer-bot-status">
+          <span>Promociones</span>
+          <span class="chip" id="detail-marketing-status">--</span>
         </div>
       </div>
 
@@ -6546,6 +7913,30 @@ const crmHtml = `<!doctype html>
       </section>
     </div>
 
+    <div class="dialog-backdrop" id="marketing-confirm-dialog" hidden>
+      <section class="dialog customer-delete-dialog marketing-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="marketing-confirm-title">
+        <header class="dialog-header">
+          <h3 id="marketing-confirm-title">Preferencias de promociones</h3>
+          <button class="icon-button" id="marketing-confirm-close" type="button" title="Cerrar">X</button>
+        </header>
+        <div class="customer-delete-body">
+          <div class="customer-delete-hero">
+            <span class="customer-delete-icon" data-icon="mail"></span>
+            <div>
+              <strong id="marketing-confirm-name">Actualizar promociones</strong>
+              <p id="marketing-confirm-copy"></p>
+            </div>
+          </div>
+          <div class="customer-delete-warning" id="marketing-confirm-warning"></div>
+          <p class="customer-delete-feedback" id="marketing-confirm-feedback"></p>
+          <div class="dialog-actions">
+            <button class="secondary" id="marketing-confirm-cancel" type="button">Cancelar</button>
+            <button class="primary" id="marketing-confirm-submit" type="button">Confirmar</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
     <section class="professionals-view" id="professionals-view">
       <div class="professionals-shell">
         <section class="professionals-main">
@@ -6782,6 +8173,214 @@ const crmHtml = `<!doctype html>
             <p>Los servicios que crees ac&aacute; estar&aacute;n disponibles para que los clientes puedan reservar desde el bot.</p>
           </div>
         </aside>
+      </div>
+    </section>
+
+    <section class="campaigns-view" id="campaigns-view">
+      <div class="campaigns-shell">
+        <header class="campaigns-header">
+          <div class="campaigns-title">
+            <h2>Campa&ntilde;as</h2>
+            <p>Segment&aacute; clientes, envi&aacute; mensajes y gener&aacute; m&aacute;s reservas.</p>
+          </div>
+          <div class="campaigns-header-actions">
+            <label class="campaigns-search">
+              <span aria-hidden="true">&#128269;</span>
+              <input id="campaign-search" type="search" placeholder="Buscar campa&ntilde;a" aria-label="Buscar campa&ntilde;a">
+            </label>
+            <button class="campaigns-new" id="campaign-new" type="button"><span class="campaign-new-plus">+</span>Nueva campa&ntilde;a</button>
+          </div>
+        </header>
+
+        <nav class="campaigns-main-tabs" aria-label="Tipos de comunicaci&oacute;n">
+          <button class="active" type="button">Campa&ntilde;as</button>
+          <button type="button">Recordatorios autom&aacute;ticos</button>
+        </nav>
+
+        <section class="campaign-metrics" aria-label="Resumen de campa&ntilde;as">
+          <article class="campaign-metric">
+            <div class="campaign-metric-icon green">&#10148;</div>
+            <div><strong id="campaign-total">0</strong><span>Campa&ntilde;as totales</span></div>
+          </article>
+          <article class="campaign-metric">
+            <div class="campaign-metric-icon orange">&#128172;</div>
+            <div><strong id="campaign-active-count">0</strong><span>Campa&ntilde;as activas</span></div>
+          </article>
+          <article class="campaign-metric">
+            <div class="campaign-metric-icon violet">&#128197;</div>
+            <div><strong id="campaign-scheduled-count">0</strong><span>Programadas</span></div>
+          </article>
+          <article class="campaign-metric">
+            <div class="campaign-metric-icon blue">&#9998;</div>
+            <div><strong id="campaign-draft-count">0</strong><span>Borradores</span></div>
+          </article>
+        </section>
+
+        <div class="campaigns-workspace">
+          <section class="campaign-list-panel">
+            <div class="campaign-list-toolbar">
+              <div class="campaign-filter-tabs" id="campaign-filter-tabs">
+                <button class="active" type="button" data-campaign-filter="ALL">Todas</button>
+                <button type="button" data-campaign-filter="ACTIVE">Activas</button>
+                <button type="button" data-campaign-filter="SCHEDULED">Programadas</button>
+                <button type="button" data-campaign-filter="DRAFT">Borradores</button>
+                <button type="button" data-campaign-filter="FINISHED">Finalizadas</button>
+              </div>
+              <button class="campaign-filter-button" type="button">&#9661;&nbsp; Filtros &nbsp;&#8964;</button>
+            </div>
+
+            <div class="campaign-table-wrap">
+              <table class="campaign-table">
+                <colgroup>
+                  <col style="width:26%"><col style="width:14%"><col style="width:20%"><col style="width:15%"><col style="width:14%"><col style="width:11%">
+                </colgroup>
+                <thead>
+                  <tr><th>Campa&ntilde;a</th><th>Tipo</th><th>Segmento</th><th>Canal</th><th>Pr&oacute;ximo env&iacute;o</th><th>Estado</th></tr>
+                </thead>
+                <tbody id="campaign-table-body">
+                  <tr class="selected">
+                    <td><div class="campaign-name-cell"><span class="campaign-row-icon">W</span><span>Recuperaci&oacute;n<br>de clientes</span></div></td>
+                    <td><span class="campaign-badge automatic">Autom&aacute;tica</span></td>
+                    <td>Sin reserva +90 d&iacute;as</td>
+                    <td><span class="campaign-badge whatsapp">&#9679; WhatsApp</span></td>
+                    <td>Hoy, 18:00</td>
+                    <td><span class="campaign-badge active">Activa</span></td>
+                  </tr>
+                  <tr>
+                    <td><div class="campaign-name-cell"><span class="campaign-row-icon email">&#9993;</span><span>Ofertas de color</span></div></td>
+                    <td><span class="campaign-badge single">Puntual</span></td>
+                    <td>Interesados en color</td>
+                    <td><span class="campaign-badge email">&#9993; Email</span></td>
+                    <td>Ma&ntilde;ana, 10:00</td>
+                    <td><span class="campaign-badge scheduled">Programada</span></td>
+                  </tr>
+                  <tr>
+                    <td><div class="campaign-name-cell"><span class="campaign-row-icon calendar">&#128197;</span><span>Recordatorio turno</span></div></td>
+                    <td><span class="campaign-badge automatic">Autom&aacute;tica</span></td>
+                    <td>Turno confirmado</td>
+                    <td><span class="campaign-badge whatsapp">&#9679; WhatsApp</span></td>
+                    <td>—</td>
+                    <td><span class="campaign-badge active">Activa</span></td>
+                  </tr>
+                  <tr>
+                    <td><div class="campaign-name-cell"><span class="campaign-row-icon calendar">&#127874;</span><span>Cumplea&ntilde;os</span></div></td>
+                    <td><span class="campaign-badge automatic">Autom&aacute;tica</span></td>
+                    <td>Cumplea&ntilde;os del mes</td>
+                    <td><span class="campaign-badge both">&#9679; Ambos</span></td>
+                    <td>20 Jun, 09:00</td>
+                    <td><span class="campaign-badge active">Activa</span></td>
+                  </tr>
+                  <tr>
+                    <td><div class="campaign-name-cell"><span class="campaign-row-icon tag">&#9670;</span><span>Promo balayage</span></div></td>
+                    <td><span class="campaign-badge single">Puntual</span></td>
+                    <td>Interesadas en balayage</td>
+                    <td><span class="campaign-badge both">&#9679; Ambos</span></td>
+                    <td>21 Jun, 11:00</td>
+                    <td><span class="campaign-badge scheduled">Programada</span></td>
+                  </tr>
+                  <tr>
+                    <td><div class="campaign-name-cell"><span class="campaign-row-icon">W</span><span>Reactivaci&oacute;n 60 d&iacute;as</span></div></td>
+                    <td><span class="campaign-badge automatic">Autom&aacute;tica</span></td>
+                    <td>Sin visita 60 d&iacute;as</td>
+                    <td><span class="campaign-badge whatsapp">&#9679; WhatsApp</span></td>
+                    <td>—</td>
+                    <td><span class="campaign-badge paused">Pausada</span></td>
+                  </tr>
+                  <tr>
+                    <td><div class="campaign-name-cell"><span class="campaign-row-icon email">&#9993;</span><span>Novedades del sal&oacute;n</span></div></td>
+                    <td><span class="campaign-badge single">Puntual</span></td>
+                    <td>Todos los clientes</td>
+                    <td><span class="campaign-badge email">&#9993; Email</span></td>
+                    <td>—</td>
+                    <td><span class="campaign-badge draft">Borrador</span></td>
+                  </tr>
+                  <tr>
+                    <td><div class="campaign-name-cell"><span class="campaign-row-icon">W</span><span>Evaluaci&oacute;n de servicio</span></div></td>
+                    <td><span class="campaign-badge automatic">Autom&aacute;tica</span></td>
+                    <td>Post servicio</td>
+                    <td><span class="campaign-badge whatsapp">&#9679; WhatsApp</span></td>
+                    <td>—</td>
+                    <td><span class="campaign-badge draft">Borrador</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <footer class="campaign-list-footer">
+              <span id="campaign-pagination-copy">Mostrando 1 a 8 de 8 campa&ntilde;as</span>
+              <div class="campaign-pagination"><button id="campaign-page-prev" type="button">&#8249;</button><button class="active" id="campaign-page-number" type="button">1</button><button id="campaign-page-next" type="button">&#8250;</button></div>
+              <span>10 por p&aacute;gina &nbsp;&#8964;</span>
+            </footer>
+          </section>
+
+          <aside class="campaign-detail-panel" id="campaign-detail-panel">
+            <header class="campaign-detail-header">
+              <div class="campaign-detail-heading">
+                <div class="campaign-detail-icon">W</div>
+                <div>
+                  <h3>Recuperaci&oacute;n de clientes</h3>
+                  <div class="campaign-detail-badges">
+                    <span class="campaign-badge automatic">Autom&aacute;tica</span>
+                    <span class="campaign-badge whatsapp">&#9679; WhatsApp</span>
+                    <span class="campaign-badge active">Activa</span>
+                  </div>
+                </div>
+              </div>
+              <div class="campaign-detail-actions">
+                <button class="campaign-outline-button" type="button">Pausar</button>
+                <button class="campaign-duplicate-button" type="button">Duplicar campa&ntilde;a</button>
+                <button class="campaign-more-button" type="button">&#8942;</button>
+              </div>
+            </header>
+
+            <section class="campaign-detail-stats">
+              <div class="campaign-detail-stat"><strong>42</strong><span>enviados</span></div>
+              <div class="campaign-detail-stat"><strong>11</strong><span>respuestas</span></div>
+              <div class="campaign-detail-stat"><strong>5</strong><span>turnos</span></div>
+            </section>
+
+            <nav class="campaign-detail-tabs" aria-label="Detalle de campa&ntilde;a">
+              <button class="active" type="button">Resumen</button>
+              <button type="button">Destinatarios</button>
+              <button type="button">Historial</button>
+              <button type="button">Configuraci&oacute;n</button>
+            </nav>
+
+            <p class="campaign-message-label">Mensaje enviado</p>
+            <div class="campaign-message-preview">
+              <div class="campaign-message-icon">W</div>
+              <div class="campaign-message-bubble">
+                Hola, Camila &#128075; Hace un tiempo que no te vemos. Esta semana tenemos un beneficio especial para tu pr&oacute;ximo turno. &iquest;Quer&eacute;s que te muestre los horarios disponibles?
+                <time>10:00 &nbsp;&#10003;&#10003;</time>
+              </div>
+            </div>
+
+            <div class="campaign-detail-lower">
+              <section class="campaign-result-card">
+                <h4>Resultados</h4>
+                <div class="campaign-result-list">
+                  <div class="campaign-result-item"><span>&#10148;&nbsp; Entregados</span><strong>40</strong></div>
+                  <div class="campaign-result-item"><span>&#9673;&nbsp; Le&iacute;dos</span><strong>18</strong></div>
+                  <div class="campaign-result-item"><span>&#128172;&nbsp; Respuestas</span><strong>11</strong></div>
+                  <div class="campaign-result-item"><span>&#128197;&nbsp; Turnos agendados</span><strong>5</strong></div>
+                  <div class="campaign-result-item"><span>Conversi&oacute;n</span><strong>11,9%</strong></div>
+                </div>
+              </section>
+              <section class="campaign-budget-card">
+                <h4>Costos y presupuesto</h4>
+                <div class="campaign-budget-list">
+                  <div class="campaign-budget-item"><span>Gastado este mes</span><strong>$6.480</strong></div>
+                  <div class="campaign-budget-item"><span>Proyecci&oacute;n mensual</span><strong>$18.900</strong></div>
+                  <div class="campaign-budget-item"><span>L&iacute;mite mensual</span><strong>$25.000</strong></div>
+                </div>
+                <div class="campaign-budget-track"><span></span></div>
+                <button class="campaign-budget-link" type="button">Editar presupuesto</button>
+              </section>
+            </div>
+
+            <div class="campaign-rule-note">&#9432;&nbsp; Se activa al cumplir 90 d&iacute;as sin reservas &nbsp;&middot;&nbsp; M&aacute;ximo 1 env&iacute;o cada 60 d&iacute;as</div>
+          </aside>
+        </div>
       </div>
     </section>
 
@@ -7092,6 +8691,187 @@ const crmHtml = `<!doctype html>
     </section>
   </main>
 
+  <div class="dialog-backdrop" id="campaign-dialog" hidden>
+    <section class="dialog campaign-dialog" role="dialog" aria-modal="true" aria-labelledby="campaign-dialog-title">
+      <header class="dialog-header">
+        <div>
+          <h3 id="campaign-dialog-title">Nueva campa&ntilde;a</h3>
+          <p class="hint">Guardaremos la configuraci&oacute;n sin enviar mensajes.</p>
+        </div>
+        <button class="icon-button" id="campaign-dialog-close" type="button" aria-label="Cerrar">&times;</button>
+      </header>
+      <form class="campaign-form" id="campaign-form">
+        <input id="campaign-id" type="hidden">
+        <div class="campaign-form-grid">
+          <div class="campaign-form-field full">
+            <label for="campaign-name">Nombre de la campa&ntilde;a</label>
+            <input id="campaign-name" maxlength="100" placeholder="Ej: Recuperaci&oacute;n de clientes" required>
+          </div>
+          <div class="campaign-form-field">
+            <label for="campaign-type">Tipo</label>
+            <select id="campaign-type">
+              <option value="ONE_TIME">Puntual</option>
+              <option value="AUTOMATED">Autom&aacute;tica</option>
+            </select>
+          </div>
+          <div class="campaign-form-field">
+            <label for="campaign-channel">Canal</label>
+            <select id="campaign-channel">
+              <option value="WHATSAPP">WhatsApp</option>
+              <option value="EMAIL">Email</option>
+              <option value="BOTH">WhatsApp + Email</option>
+            </select>
+          </div>
+          <div class="campaign-form-field">
+            <label for="campaign-segment">Segmento</label>
+            <select id="campaign-segment">
+              <option value="ALL">Todos los autorizados</option>
+              <option value="AT_RISK">Clientes en riesgo</option>
+              <option value="INACTIVE">Inactivos por cantidad de d&iacute;as</option>
+              <option value="ONE_TIME_VISITOR">Visit&oacute; una sola vez</option>
+              <option value="NEW_CUSTOMER">Clientes nuevos</option>
+              <option value="MANUAL">Selecci&oacute;n manual</option>
+            </select>
+          </div>
+          <section class="campaign-manual-settings" id="campaign-manual-settings" hidden>
+            <div><h4>Elegir destinatarios</h4><p>Seleccion&aacute; los clientes que quer&eacute;s incluir en esta campa&ntilde;a.</p></div>
+            <div class="campaign-manual-toolbar"><input class="campaign-manual-search" id="campaign-manual-search" type="search" placeholder="Buscar por nombre o tel&eacute;fono"><span class="campaign-manual-count" id="campaign-manual-count">0 seleccionados</span></div>
+            <div class="campaign-manual-list" id="campaign-manual-list"></div>
+            <button class="campaign-manual-more" id="campaign-manual-more" type="button" hidden>Mostrar m&aacute;s clientes</button>
+          </section>
+          <div class="campaign-form-field">
+            <label for="campaign-schedule-mode" id="campaign-schedule-mode-label">Cu&aacute;ndo enviar</label>
+            <select id="campaign-schedule-mode">
+              <option value="IMMEDIATE">Al activar</option>
+              <option value="SCHEDULED">Programar fecha</option>
+            </select>
+          </div>
+          <div class="campaign-form-field">
+            <label for="campaign-scheduled-at" id="campaign-scheduled-at-label">Fecha y hora</label>
+            <input id="campaign-scheduled-at" type="datetime-local">
+          </div>
+          <div class="campaign-form-field">
+            <label for="campaign-budget">L&iacute;mite de presupuesto</label>
+            <input id="campaign-budget" type="number" min="0" step="1" placeholder="Opcional">
+          </div>
+          <div class="campaign-form-field">
+            <label for="campaign-status">Estado</label>
+            <select id="campaign-status">
+              <option value="DRAFT">Borrador</option>
+              <option value="SCHEDULED">Programada</option>
+              <option value="ACTIVE">Activa</option>
+              <option value="PAUSED">Pausada</option>
+              <option value="FINISHED">Finalizada</option>
+            </select>
+          </div>
+          <section class="campaign-automation-settings" id="campaign-automation-settings" hidden>
+            <div class="campaign-automation-heading">
+              <h4>Reglas de automatizaci&oacute;n</h4>
+              <p>Defin&iacute; cu&aacute;ndo entra un cliente, cu&aacute;ntas veces contactarlo y c&oacute;mo evitar mensajes superpuestos.</p>
+            </div>
+            <div class="campaign-punctual-copy">
+              <label class="campaign-stop-rule"><input id="campaign-automation-respect-cooldown" type="checkbox" checked> Respetar descanso desde otras promociones</label>
+              <p>Si est&aacute; desactivado, esta campa&ntilde;a puede contactar aunque el cliente haya recibido otra promoci&oacute;n recientemente.</p>
+            </div>
+            <div class="campaign-automation-grid">
+              <div class="campaign-form-field" id="campaign-segment-days-field">
+                <label for="campaign-segment-days">D&iacute;as para ingresar</label>
+                <input id="campaign-segment-days" type="number" min="1" max="730" list="campaign-day-options" value="45">
+                <datalist id="campaign-day-options"><option value="15"><option value="30"><option value="45"><option value="90"></datalist>
+              </div>
+              <div class="campaign-form-field">
+                <label for="campaign-priority">Prioridad ante coincidencias</label>
+                <select id="campaign-priority">
+                  <option value="3">Alta</option>
+                  <option value="2" selected>Media</option>
+                  <option value="1">Baja</option>
+                </select>
+              </div>
+              <div class="campaign-form-field">
+                <label for="campaign-max-attempts">M&aacute;ximo de contactos</label>
+                <input id="campaign-max-attempts" type="number" min="1" max="10" value="2">
+              </div>
+              <div class="campaign-form-field">
+                <label for="campaign-retry-days">D&iacute;as entre contactos de esta campa&ntilde;a</label>
+                <input id="campaign-retry-days" type="number" min="1" max="365" value="30">
+              </div>
+              <div class="campaign-form-field">
+                <label for="campaign-cooldown-days">D&iacute;as desde otra promoci&oacute;n</label>
+                <input id="campaign-cooldown-days" type="number" min="0" max="365" value="30">
+              </div>
+            </div>
+            <div class="campaign-stop-rules" hidden>
+              <label class="campaign-stop-rule"><input id="campaign-stop-on-booking" type="checkbox" checked> Detener si reserva</label>
+              <label class="campaign-stop-rule"><input id="campaign-stop-on-reply" type="checkbox" checked> Detener si responde</label>
+              <label class="campaign-stop-rule"><input id="campaign-restart-after-visit" type="checkbox" checked> Reiniciar despu&eacute;s de una nueva visita realizada</label>
+            </div>
+          </section>
+          <section class="campaign-punctual-settings" id="campaign-punctual-settings">
+            <div class="campaign-punctual-copy">
+              <label class="campaign-stop-rule"><input id="campaign-punctual-respect-cooldown" type="checkbox" checked> Respetar descanso desde otras promociones</label>
+              <p>Excluye a quienes recibieron otra campa&ntilde;a recientemente.</p>
+            </div>
+            <div class="campaign-form-field">
+              <label for="campaign-punctual-cooldown-days">D&iacute;as desde la &uacute;ltima promoci&oacute;n</label>
+              <input id="campaign-punctual-cooldown-days" type="number" min="1" max="365" list="campaign-punctual-day-options" value="30">
+              <datalist id="campaign-punctual-day-options"><option value="15"><option value="30"><option value="45"><option value="60"></datalist>
+            </div>
+          </section>
+          <div class="campaign-form-field full">
+            <label for="campaign-message">Mensaje</label>
+            <div class="campaign-message-tools">
+              <button class="campaign-message-tool" id="campaign-emoji-toggle" type="button">&#128578; Agregar emoji</button>
+              <label class="campaign-image-picker">&#128247; Agregar imagen
+                <input id="campaign-image" type="file" accept="image/png,image/jpeg,image/webp">
+              </label>
+            </div>
+            <div class="campaign-emoji-picker" id="campaign-emoji-picker" hidden>
+              <input class="campaign-emoji-search" id="campaign-emoji-search" type="search" placeholder="Buscar emojis por categor&iacute;a">
+              <nav class="campaign-emoji-categories" id="campaign-emoji-categories" aria-label="Categor&iacute;as de emojis">
+                <button class="active" type="button" data-emoji-category="recent" title="Recientes">&#128338;</button>
+                <button type="button" data-emoji-category="smileys" title="Caras y personas">&#128578;</button>
+                <button type="button" data-emoji-category="animals" title="Animales y naturaleza">&#128054;</button>
+                <button type="button" data-emoji-category="food" title="Comida y bebida">&#127828;</button>
+                <button type="button" data-emoji-category="activities" title="Actividades">&#9917;</button>
+                <button type="button" data-emoji-category="travel" title="Viajes y lugares">&#128663;</button>
+                <button type="button" data-emoji-category="objects" title="Objetos">&#128161;</button>
+                <button type="button" data-emoji-category="symbols" title="S&iacute;mbolos">&#10084;</button>
+                <button type="button" data-emoji-category="flags" title="Banderas">&#127462;&#127479;</button>
+              </nav>
+              <div class="campaign-emoji-grid" id="campaign-emoji-grid"></div>
+            </div>
+            <div class="campaign-image-preview" id="campaign-image-preview" hidden>
+              <img id="campaign-image-preview-img" alt="Vista previa de la imagen">
+              <div><strong>Imagen adjunta</strong><button class="campaign-image-remove" id="campaign-image-remove" type="button">Quitar imagen</button></div>
+            </div>
+            <textarea id="campaign-message" maxlength="1200" placeholder="Escrib&iacute; el mensaje que recibir&iacute;an los clientes" required></textarea>
+            <p class="campaign-form-help">Pod&eacute;s agregar emojis y una imagen PNG, JPG o WEBP de hasta 2 MB. En esta etapa solo se guarda como vista previa.</p>
+          </div>
+        </div>
+        <p class="campaign-form-feedback" id="campaign-form-feedback" role="status" aria-live="polite"></p>
+        <div class="dialog-actions">
+          <button class="secondary" id="campaign-dialog-cancel" type="button">Cancelar</button>
+          <button class="primary" id="campaign-submit" type="submit">Guardar campa&ntilde;a</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <div class="dialog-backdrop" id="campaign-delete-dialog" hidden>
+    <section class="dialog customer-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="campaign-delete-title">
+      <header class="dialog-header">
+        <h3 id="campaign-delete-title">Eliminar campa&ntilde;a</h3>
+        <button class="icon-button" id="campaign-delete-close" type="button" title="Cerrar">X</button>
+      </header>
+      <div class="customer-delete-body">
+        <div class="customer-delete-hero"><span class="customer-delete-icon" data-icon="trash"></span><div><strong id="campaign-delete-name">Eliminar campa&ntilde;a</strong><p>Esta acci&oacute;n no se puede deshacer.</p></div></div>
+        <div class="customer-delete-warning"><strong>Se eliminar&aacute;n:</strong><ul><li>La configuraci&oacute;n y selecci&oacute;n manual.</li><li>El historial asociado a esta campa&ntilde;a.</li></ul></div>
+        <p class="customer-delete-feedback" id="campaign-delete-feedback"></p>
+        <div class="dialog-actions"><button class="secondary" id="campaign-delete-cancel" type="button">Cancelar</button><button class="danger customer-delete-confirm" id="campaign-delete-confirm" type="button">Eliminar campa&ntilde;a</button></div>
+      </div>
+    </section>
+  </div>
+
   <script>
     const WHATSAPP_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000
 
@@ -7141,6 +8921,27 @@ const crmHtml = `<!doctype html>
       customerDialogMode: 'edit',
       customerDialogCustomerId: null,
       customerDeleteCustomerId: null,
+      pendingMarketingChange: null,
+      pendingCampaignDeleteId: null,
+      campaigns: [],
+      campaignAudiences: {},
+      campaignDeliveries: {},
+      campaignSimulations: {},
+      campaignSimulationLoading: {},
+      campaignsLoaded: false,
+      selectedCampaignId: null,
+      campaignFilter: 'ALL',
+      campaignSearch: '',
+      campaignPage: 1,
+      campaignTake: 8,
+      campaignImageUrl: null,
+      campaignEmojiCategory: 'recent',
+      campaignDetailTab: 'summary',
+      campaignManualSelected: new Map(),
+      campaignManualItems: [],
+      campaignManualPage: 1,
+      campaignManualTotalPages: 1,
+      campaignManualSearchTimer: null,
       isRefreshing: false
     }
 
@@ -7181,6 +8982,7 @@ const crmHtml = `<!doctype html>
       detailPhone: document.getElementById('detail-phone'),
       detailWhatsapp: document.getElementById('detail-whatsapp'),
       detailStep: document.getElementById('detail-step'),
+      detailMarketingStatus: document.getElementById('detail-marketing-status'),
       detailUpdated: document.getElementById('detail-updated'),
       appointments: document.getElementById('appointments'),
       appointmentCount: document.getElementById('appointment-count'),
@@ -7212,6 +9014,14 @@ const crmHtml = `<!doctype html>
       customerDeleteCancel: document.getElementById('customer-delete-cancel'),
       customerDeleteConfirm: document.getElementById('customer-delete-confirm'),
       customerDeleteFeedback: document.getElementById('customer-delete-feedback'),
+      marketingConfirmDialog: document.getElementById('marketing-confirm-dialog'),
+      marketingConfirmClose: document.getElementById('marketing-confirm-close'),
+      marketingConfirmCancel: document.getElementById('marketing-confirm-cancel'),
+      marketingConfirmSubmit: document.getElementById('marketing-confirm-submit'),
+      marketingConfirmName: document.getElementById('marketing-confirm-name'),
+      marketingConfirmCopy: document.getElementById('marketing-confirm-copy'),
+      marketingConfirmWarning: document.getElementById('marketing-confirm-warning'),
+      marketingConfirmFeedback: document.getElementById('marketing-confirm-feedback'),
       customersView: document.getElementById('customers-view'),
       customersSearch: document.getElementById('customers-search'),
       customerNewButton: document.getElementById('customer-new-button'),
@@ -7290,6 +9100,72 @@ const crmHtml = `<!doctype html>
       serviceSearch: document.getElementById('service-search'),
       serviceList: document.getElementById('service-list'),
       serviceCount: document.getElementById('service-count'),
+      campaignSearch: document.getElementById('campaign-search'),
+      campaignNew: document.getElementById('campaign-new'),
+      campaignFilterTabs: document.getElementById('campaign-filter-tabs'),
+      campaignTableBody: document.getElementById('campaign-table-body'),
+      campaignDetailPanel: document.getElementById('campaign-detail-panel'),
+      campaignTotal: document.getElementById('campaign-total'),
+      campaignActiveCount: document.getElementById('campaign-active-count'),
+      campaignScheduledCount: document.getElementById('campaign-scheduled-count'),
+      campaignDraftCount: document.getElementById('campaign-draft-count'),
+      campaignPaginationCopy: document.getElementById('campaign-pagination-copy'),
+      campaignPageNumber: document.getElementById('campaign-page-number'),
+      campaignPagePrev: document.getElementById('campaign-page-prev'),
+      campaignPageNext: document.getElementById('campaign-page-next'),
+      campaignDialog: document.getElementById('campaign-dialog'),
+      campaignDialogTitle: document.getElementById('campaign-dialog-title'),
+      campaignDialogClose: document.getElementById('campaign-dialog-close'),
+      campaignDialogCancel: document.getElementById('campaign-dialog-cancel'),
+      campaignForm: document.getElementById('campaign-form'),
+      campaignId: document.getElementById('campaign-id'),
+      campaignName: document.getElementById('campaign-name'),
+      campaignType: document.getElementById('campaign-type'),
+      campaignChannel: document.getElementById('campaign-channel'),
+      campaignSegment: document.getElementById('campaign-segment'),
+      campaignManualSettings: document.getElementById('campaign-manual-settings'),
+      campaignManualList: document.getElementById('campaign-manual-list'),
+      campaignManualSearch: document.getElementById('campaign-manual-search'),
+      campaignManualCount: document.getElementById('campaign-manual-count'),
+      campaignManualMore: document.getElementById('campaign-manual-more'),
+      campaignAutomationSettings: document.getElementById('campaign-automation-settings'),
+      campaignAutomationRespectCooldown: document.getElementById('campaign-automation-respect-cooldown'),
+      campaignPunctualSettings: document.getElementById('campaign-punctual-settings'),
+      campaignPunctualRespectCooldown: document.getElementById('campaign-punctual-respect-cooldown'),
+      campaignPunctualCooldownDays: document.getElementById('campaign-punctual-cooldown-days'),
+      campaignSegmentDaysField: document.getElementById('campaign-segment-days-field'),
+      campaignSegmentDays: document.getElementById('campaign-segment-days'),
+      campaignPriority: document.getElementById('campaign-priority'),
+      campaignMaxAttempts: document.getElementById('campaign-max-attempts'),
+      campaignRetryDays: document.getElementById('campaign-retry-days'),
+      campaignCooldownDays: document.getElementById('campaign-cooldown-days'),
+      campaignStopOnBooking: document.getElementById('campaign-stop-on-booking'),
+      campaignStopOnReply: document.getElementById('campaign-stop-on-reply'),
+      campaignRestartAfterVisit: document.getElementById('campaign-restart-after-visit'),
+      campaignScheduleMode: document.getElementById('campaign-schedule-mode'),
+      campaignScheduleModeLabel: document.getElementById('campaign-schedule-mode-label'),
+      campaignScheduledAtLabel: document.getElementById('campaign-scheduled-at-label'),
+      campaignScheduledAt: document.getElementById('campaign-scheduled-at'),
+      campaignBudget: document.getElementById('campaign-budget'),
+      campaignStatus: document.getElementById('campaign-status'),
+      campaignMessage: document.getElementById('campaign-message'),
+      campaignEmojiToggle: document.getElementById('campaign-emoji-toggle'),
+      campaignEmojiPicker: document.getElementById('campaign-emoji-picker'),
+      campaignEmojiSearch: document.getElementById('campaign-emoji-search'),
+      campaignEmojiCategories: document.getElementById('campaign-emoji-categories'),
+      campaignEmojiGrid: document.getElementById('campaign-emoji-grid'),
+      campaignImage: document.getElementById('campaign-image'),
+      campaignImagePreview: document.getElementById('campaign-image-preview'),
+      campaignImagePreviewImg: document.getElementById('campaign-image-preview-img'),
+      campaignImageRemove: document.getElementById('campaign-image-remove'),
+      campaignFormFeedback: document.getElementById('campaign-form-feedback'),
+      campaignSubmit: document.getElementById('campaign-submit'),
+      campaignDeleteDialog: document.getElementById('campaign-delete-dialog'),
+      campaignDeleteClose: document.getElementById('campaign-delete-close'),
+      campaignDeleteCancel: document.getElementById('campaign-delete-cancel'),
+      campaignDeleteConfirm: document.getElementById('campaign-delete-confirm'),
+      campaignDeleteName: document.getElementById('campaign-delete-name'),
+      campaignDeleteFeedback: document.getElementById('campaign-delete-feedback'),
       reportsRange: document.getElementById('reports-range'),
       reportsFutureDays: document.getElementById('reports-future-days'),
       reportsInactiveDays: document.getElementById('reports-inactive-days'),
@@ -7546,6 +9422,7 @@ const crmHtml = `<!doctype html>
       params.set('take', String(state.customerOverviewPagination.take || 25))
       params.set('status', state.customerFilter)
       params.set('inactiveDays', String(state.customerInactiveDays))
+      if (state.businessId) params.set('businessId', state.businessId)
       if (state.customerSearch) params.set('q', state.customerSearch)
       els.customerTableBody.innerHTML = '<tr><td colspan="6"><div class="customer-list-empty">Cargando clientes...</div></td></tr>'
 
@@ -7645,6 +9522,27 @@ const crmHtml = `<!doctype html>
             return '<div class="customer-profile-note"><span>' + escapeHtml(note.body) + '</span><time>' + escapeHtml(formatCustomerDate(note.createdAt)) + '</time></div>'
           }).join('')
         : '<div class="customer-profile-note"><span>Todavia no hay notas.</span></div>'
+      const marketingEnabled = customer.marketingStatus === 'ACTIVE'
+      const marketingStatusCopy = marketingEnabled
+        ? 'Autorizado para recibir campa&ntilde;as.'
+        : customer.marketingStatus === 'OPTED_OUT'
+          ? 'El cliente solicit&oacute; la baja de promociones.'
+          : customer.marketingStatus === 'DECLINED'
+            ? 'Se consult&oacute; y el cliente rechaz&oacute; recibir promociones.'
+          : 'Todav&iacute;a no autoriz&oacute; el env&iacute;o de promociones.'
+      const marketingActions = marketingEnabled
+        ? '<button class="secondary" type="button" data-marketing-status="OPTED_OUT">Revocar autorizaci&oacute;n</button>'
+        : '<div class="customer-marketing-actions">' +
+            '<button class="primary" type="button" data-marketing-status="ACTIVE">Autorizar promociones</button>' +
+            (customer.marketingStatus === 'NOT_AUTHORIZED'
+              ? '<button class="secondary" type="button" data-marketing-status="DECLINED">Registrar rechazo</button>'
+              : '') +
+          '</div>'
+      const marketingCard = '<section class="customer-profile-section"><div class="row">' +
+        '<div><h4 class="customer-section-title">' + icon('mail') + 'Promociones</h4>' +
+          '<p class="hint">' + marketingStatusCopy + '</p></div>' +
+        marketingActions +
+      '</div></section>'
 
       els.customerProfilePanel.innerHTML = '<div class="customer-profile-content">' +
         '<header class="customer-profile-head">' +
@@ -7674,12 +9572,16 @@ const crmHtml = `<!doctype html>
           '<div class="customer-frequent-item"><span>' + icon('professional') + 'Profesional frecuente</span><strong>' + escapeHtml(customer.frequentProfessional || '--') + '</strong><small>Inferido de las ultimas 8 visitas</small></div>' +
           '<div class="customer-frequent-item"><span>' + icon('scissors') + 'Servicio frecuente</span><strong>' + escapeHtml(customer.frequentService || '--') + '</strong><small>Inferido de las ultimas 8 visitas</small></div>' +
         '</div>' +
+        marketingCard +
         '<section class="customer-profile-section"><h4 class="customer-section-title">' + icon('calendar') + 'Actividad</h4>' + openConversation + '<div class="customer-history">' + history + '</div></section>' +
         '<section class="customer-profile-section"><div class="row"><h4 class="customer-section-title">' + icon('document') + 'Notas</h4><button class="details-link" type="button" data-add-customer-note>+ Agregar nota</button></div><div class="customer-profile-notes">' + notes + '</div></section>' +
       '</div>'
 
       els.customerProfilePanel.querySelector('[data-schedule-customer]')?.addEventListener('click', () => openOverviewCustomerAppointment(customer))
       els.customerProfilePanel.querySelector('[data-add-customer-note]')?.addEventListener('click', () => openCustomerDialog('note', customer))
+      for (const button of els.customerProfilePanel.querySelectorAll('[data-marketing-status]')) {
+        button.addEventListener('click', () => openMarketingConfirmDialog(customer, button.dataset.marketingStatus))
+      }
       for (const button of els.customerProfilePanel.querySelectorAll('[data-open-customer-conversation]')) {
         button.addEventListener('click', () => openOverviewCustomerConversation(customer))
       }
@@ -7781,6 +9683,59 @@ const crmHtml = `<!doctype html>
       els.customerDeleteFeedback.textContent = ''
       els.customerDeleteConfirm.disabled = false
       els.customerDeleteConfirm.textContent = 'Eliminar cliente'
+    }
+
+    function openMarketingConfirmDialog(customer, targetStatus) {
+      state.pendingMarketingChange = { customerId: customer.id, targetStatus }
+      els.marketingConfirmName.textContent = customer.name
+      els.marketingConfirmCopy.textContent = targetStatus === 'ACTIVE'
+        ? 'Quedará autorizado para recibir campañas promocionales del comercio.'
+        : targetStatus === 'DECLINED'
+          ? 'Se registrará que el cliente rechazó recibir promociones.'
+          : 'Dejará de recibir todas las campañas promocionales del comercio.'
+      els.marketingConfirmWarning.innerHTML = targetStatus === 'ACTIVE'
+        ? '<strong>Al confirmar:</strong><ul><li>Se registrar&aacute; una autorizaci&oacute;n manual.</li><li>Podr&aacute; aparecer en los segmentos compatibles.</li></ul>'
+        : targetStatus === 'DECLINED'
+          ? '<strong>Al confirmar:</strong><ul><li>Quedar&aacute; excluido de todas las campa&ntilde;as.</li><li>Se guardar&aacute; el rechazo como decisi&oacute;n presencial.</li></ul><small>Los recordatorios de turnos no se modifican.</small>'
+          : '<strong>Al confirmar:</strong><ul><li>Se revocar&aacute; la autorizaci&oacute;n anterior.</li><li>Quedar&aacute; excluido de campa&ntilde;as autom&aacute;ticas y puntuales.</li></ul><small>Los recordatorios de turnos no se modifican.</small>'
+      els.marketingConfirmSubmit.textContent = targetStatus === 'ACTIVE'
+        ? 'Autorizar promociones'
+        : targetStatus === 'DECLINED' ? 'Registrar rechazo' : 'Revocar autorizaci&oacute;n'
+      els.marketingConfirmSubmit.className = targetStatus === 'ACTIVE' ? 'primary' : 'danger customer-delete-confirm'
+      els.marketingConfirmFeedback.textContent = ''
+      els.marketingConfirmDialog.hidden = false
+      requestAnimationFrame(() => els.marketingConfirmCancel.focus())
+    }
+
+    function closeMarketingConfirmDialog() {
+      els.marketingConfirmDialog.hidden = true
+      state.pendingMarketingChange = null
+      els.marketingConfirmFeedback.textContent = ''
+      els.marketingConfirmSubmit.disabled = false
+    }
+
+    async function saveMarketingPreference() {
+      const pending = state.pendingMarketingChange
+      if (!pending) return closeMarketingConfirmDialog()
+      try {
+        els.marketingConfirmSubmit.disabled = true
+        els.marketingConfirmFeedback.textContent = ''
+        await getJson('/customers/' + pending.customerId + '/marketing-preference', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            businessId: state.businessId,
+            status: pending.targetStatus,
+            source: 'MANUAL'
+          })
+        })
+        closeMarketingConfirmDialog()
+        await loadCustomerOverview()
+        if (state.campaignsLoaded) await loadCampaigns()
+      } catch (error) {
+        els.marketingConfirmFeedback.textContent = error.message
+        els.marketingConfirmSubmit.disabled = false
+      }
     }
 
     async function confirmCustomerDelete() {
@@ -8122,14 +10077,36 @@ const crmHtml = `<!doctype html>
       els.detailWhatsapp.href = 'https://wa.me/' + normalizePhone(selected.phone)
       els.detailStep.textContent = conversationStepLabel(selected.currentStep, selected.aiEnabled)
       els.detailStep.className = conversationStepChipClass(selected.currentStep, selected.aiEnabled)
+      els.detailMarketingStatus.textContent = customer ? 'Consultando...' : 'Sin cliente'
+      els.detailMarketingStatus.className = 'chip'
       els.detailUpdated.textContent = formatDateTime(latestConversationActivityValue(selected))
       els.customerEdit.disabled = !customer
       els.archiveConversation.disabled = canResolveHandoff && !selected.archivedAt
       els.archiveConversation.textContent = selected.archivedAt ? 'Restaurar chat' : 'Archivar chat'
+      if (customer) loadConversationMarketingStatus(customer, selected.id)
 
       renderMessages(options.messageScroll || {})
       updateComposerAvailability()
       renderAppointments()
+    }
+
+    async function loadConversationMarketingStatus(customer, conversationId) {
+      if (!state.businessId) return
+      try {
+        const preference = await getJson('/customers/' + customer.id + '/marketing-preference?businessId=' + encodeURIComponent(state.businessId))
+        if (state.selected?.id !== conversationId) return
+        const authorized = preference.status === 'ACTIVE'
+        els.detailMarketingStatus.textContent = authorized
+          ? 'Promociones autorizadas'
+          : preference.status === 'OPTED_OUT'
+            ? 'Baja de promociones'
+            : preference.status === 'DECLINED' ? 'Promociones rechazadas' : 'Sin autorización'
+        els.detailMarketingStatus.className = 'chip ' + (authorized ? 'success' : 'warn')
+      } catch {
+        if (state.selected?.id !== conversationId) return
+        els.detailMarketingStatus.textContent = 'No disponible'
+        els.detailMarketingStatus.className = 'chip warn'
+      }
     }
 
     function whatsappReplyWindowState(conversation = state.selected) {
@@ -10525,6 +12502,721 @@ const crmHtml = `<!doctype html>
       }
     }
 
+    const campaignTypeLabels = { ONE_TIME: 'Puntual', AUTOMATED: 'Autom&aacute;tica' }
+    const campaignChannelLabels = { WHATSAPP: 'WhatsApp', EMAIL: 'Email', BOTH: 'Ambos' }
+    const campaignStatusLabels = { DRAFT: 'Borrador', SCHEDULED: 'Programada', ACTIVE: 'Activa', PAUSED: 'Pausada', FINISHED: 'Finalizada' }
+    const campaignSegmentLabels = {
+      ALL: 'Todos los autorizados',
+      AT_RISK: 'Clientes en riesgo',
+      INACTIVE: 'Inactivos',
+      ONE_TIME_VISITOR: 'Visit&oacute; una sola vez',
+      NEW_CUSTOMER: 'Clientes nuevos',
+      INACTIVE_90: 'Sin reservas por 90 d&iacute;as',
+      BIRTHDAY: 'Cumplea&ntilde;os del mes',
+      FREQUENT: 'Clientes frecuentes',
+      NO_FUTURE_APPOINTMENT: 'Sin pr&oacute;ximo turno',
+      MANUAL: 'Selecci&oacute;n manual'
+    }
+    const campaignPriorityLabels = { 1: 'Baja', 2: 'Media', 3: 'Alta' }
+    const campaignEmojiCatalog = {
+      smileys: {
+        label: 'caras personas gestos gente',
+        emojis: '😀 😃 😄 😁 😆 😅 😂 🤣 😊 😇 🙂 🙃 😉 😌 😍 🥰 😘 😗 😙 😚 😋 😛 😝 😜 🤪 🤨 🧐 🤓 😎 🤩 🥳 😏 😒 😞 😔 😟 😕 🙁 ☹️ 😣 😖 😫 😩 🥺 😢 😭 😤 😠 😡 🤬 🤯 😳 🥵 🥶 😱 😨 😰 😥 😓 🤗 🤔 🫣 🤭 🫢 🤫 🤥 😶 😐 😑 😬 🙄 😯 😦 😧 😮 😲 🥱 😴 🤤 😪 😵 🤐 🥴 🤢 🤮 🤧 😷 🤒 🤕 🤑 🤠 😈 👿 👻 💀 ☠️ 👽 🤖 🎃 😺 😸 😹 😻 😼 😽 🙀 😿 😾 👋 🤚 🖐️ ✋ 🖖 👌 🤌 🤏 ✌️ 🤞 🫰 🤟 🤘 🤙 👈 👉 👆 👇 ☝️ 👍 👎 ✊ 👊 🤛 🤜 👏 🙌 🫶 👐 🤲 🤝 🙏 ✍️ 💅 🤳 💪 🦾 🦿 🦵 🦶 👂 👃 🧠 🫀 🫁 🦷 👀 👁️ 👅 👄 🧑 👨 👩 👧 👦 👶 👵 👴 💇 💆'.split(' ')
+      },
+      animals: {
+        label: 'animales naturaleza plantas flores clima',
+        emojis: '🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐻‍❄️ 🐨 🐯 🦁 🐮 🐷 🐽 🐸 🐵 🙈 🙉 🙊 🐒 🐔 🐧 🐦 🐤 🐣 🐥 🦆 🦅 🦉 🦇 🐺 🐗 🐴 🦄 🐝 🪱 🐛 🦋 🐌 🐞 🐜 🪰 🪲 🪳 🦟 🦗 🕷️ 🦂 🐢 🐍 🦎 🐙 🦑 🦐 🦞 🦀 🐠 🐟 🐡 🐬 🐳 🐋 🦈 🐊 🐅 🐆 🦓 🦍 🦧 🐘 🦛 🦏 🐪 🐫 🦒 🦘 🦬 🐃 🐂 🐄 🐎 🐖 🐏 🐑 🦙 🐐 🦌 🐕 🐩 🦮 🐈 🪶 🐓 🦃 🦚 🦜 🦢 🦩 🕊️ 🐇 🦝 🦨 🦡 🦫 🦦 🦥 🐁 🐀 🐿️ 🦔 🐾 🌵 🎄 🌲 🌳 🌴 🪵 🌱 🌿 ☘️ 🍀 🎍 🪴 🎋 🍃 🍂 🍁 🍄 🐚 🪨 🌾 💐 🌷 🌹 🥀 🌺 🌸 🌼 🌻 🌞 🌝 🌚 🌙 ⭐ 🌟 ✨ ⚡ 🔥 🌈 ☀️ 🌤️ ⛅ 🌧️ ⛈️ ❄️ ☃️ 💧 🌊'.split(' ')
+      },
+      food: {
+        label: 'comida bebida frutas restaurante café dulce',
+        emojis: '🍏 🍎 🍐 🍊 🍋 🍌 🍉 🍇 🍓 🫐 🍈 🍒 🍑 🥭 🍍 🥥 🥝 🍅 🍆 🥑 🥦 🥬 🥒 🌶️ 🫑 🌽 🥕 🫒 🧄 🧅 🥔 🍠 🫘 🥐 🥯 🍞 🥖 🥨 🧀 🥚 🍳 🧈 🥞 🧇 🥓 🥩 🍗 🍖 🌭 🍔 🍟 🍕 🫓 🥪 🥙 🧆 🌮 🌯 🫔 🥗 🥘 🫕 🥫 🍝 🍜 🍲 🍛 🍣 🍱 🥟 🦪 🍤 🍙 🍚 🍘 🍥 🥠 🥮 🍢 🍡 🍧 🍨 🍦 🥧 🧁 🍰 🎂 🍮 🍭 🍬 🍫 🍿 🍩 🍪 🌰 🥜 🍯 🥛 🍼 ☕ 🫖 🍵 🧃 🥤 🧋 🍶 🍺 🍻 🥂 🍷 🥃 🍸 🍹 🧉 🍾 🧊 🥄 🍴 🍽️'.split(' ')
+      },
+      activities: {
+        label: 'actividades deporte fiesta música juego premio',
+        emojis: '⚽ 🏀 🏈 ⚾ 🥎 🎾 🏐 🏉 🥏 🎱 🪀 🏓 🏸 🏒 🏑 🥍 🏏 🪃 🥅 ⛳ 🪁 🏹 🎣 🤿 🥊 🥋 🎽 🛹 🛼 🛷 ⛸️ 🥌 🎿 ⛷️ 🏂 🪂 🏋️ 🤼 🤸 ⛹️ 🤺 🤾 🏌️ 🏇 🧘 🏄 🏊 🤽 🚣 🧗 🚵 🚴 🏆 🥇 🥈 🥉 🏅 🎖️ 🏵️ 🎗️ 🎫 🎟️ 🎪 🤹 🎭 🩰 🎨 🎬 🎤 🎧 🎼 🎹 🥁 🎷 🎺 🪗 🎸 🎻 🎲 ♟️ 🎯 🎳 🎮 🎰 🧩 🎉 🎊 🎈 🎁 🎀 🪅 🪩'.split(' ')
+      },
+      travel: {
+        label: 'viajes lugares transporte vacaciones ciudad',
+        emojis: '🚗 🚕 🚙 🚌 🚎 🏎️ 🚓 🚑 🚒 🚐 🛻 🚚 🚛 🚜 🦯 🦽 🦼 🛴 🚲 🛵 🏍️ 🛺 🚨 🚔 🚍 🚘 🚖 ✈️ 🛫 🛬 🛩️ 💺 🛰️ 🚀 🛸 🚁 🛶 ⛵ 🚤 🛥️ 🛳️ ⛴️ 🚢 ⚓ 🛟 ⛽ 🚧 🚦 🚥 🗺️ 🗿 🗽 🗼 🏰 🏯 🏟️ 🎡 🎢 🎠 ⛲ ⛱️ 🏖️ 🏝️ 🏜️ 🌋 ⛰️ 🏕️ ⛺ 🛖 🏠 🏡 🏢 🏥 🏦 🏨 🏪 🏫 🏬 🏭 🏗️ 💒 🏛️ ⛪ 🕌 🕍 🛕 🕋 ⛩️ 🛤️ 🛣️ 🗾 🎑 🏞️ 🌅 🌄 🌠 🎇 🎆 🌇 🌆 🏙️ 🌃 🌌 🌉 🌁'.split(' ')
+      },
+      objects: {
+        label: 'objetos belleza trabajo tecnología ropa herramientas',
+        emojis: '⌚ 📱 📲 💻 ⌨️ 🖥️ 🖨️ 🖱️ 🖲️ 🕹️ 🗜️ 💽 💾 💿 📀 📼 📷 📸 📹 🎥 📽️ 🎞️ 📞 ☎️ 📟 📠 📺 📻 🎙️ 🎚️ ⏱️ ⏰ 🕰️ ⌛ ⏳ 📡 🔋 🪫 🔌 💡 🔦 🕯️ 🧯 🛢️ 💸 💵 💴 💶 💷 🪙 💳 🧾 💎 ⚖️ 🪜 🧰 🪛 🔧 🔨 ⚒️ 🛠️ ⛏️ 🪚 🔩 ⚙️ ⛓️ 🧲 🔫 💣 🧨 🪓 🔪 🗡️ ⚔️ 🛡️ 🚬 ⚰️ 🪦 ⚱️ 🔮 📿 🧿 💈 ⚗️ 🔭 🔬 🩹 🩺 💊 💉 🩸 🧬 🦠 🧫 🧪 🌡️ 🧹 🪠 🧺 🧻 🚽 🚿 🛁 🧼 🪥 🪒 🧽 🪣 🧴 🛎️ 🔑 🗝️ 🚪 🪑 🛋️ 🛏️ 🧸 🖼️ 🛍️ 🛒 🎁 👓 🕶️ 🥽 🥼 🦺 👔 👕 👖 🧣 🧤 🧥 🧦 👗 👘 🩱 🩲 🩳 👙 👚 👛 👜 👝 🎒 👞 👟 🥾 🥿 👠 👡 🩰 👢 👑 👒 🎩 🎓 🧢 💄 💍'.split(' ')
+      },
+      symbols: {
+        label: 'símbolos corazones números señales formas',
+        emojis: '❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❤️‍🔥 ❤️‍🩹 ❣️ 💕 💞 💓 💗 💖 💘 💝 💟 ☮️ ✝️ ☪️ 🕉️ ☸️ ✡️ 🔯 🕎 ☯️ ☦️ 🛐 ⛎ ♈ ♉ ♊ ♋ ♌ ♍ ♎ ♏ ♐ ♑ ♒ ♓ 🆔 ⚛️ ☢️ ☣️ 📴 📳 🈶 🈚 🈸 🈺 🈷️ ✴️ 🆚 💮 🉐 ㊙️ ㊗️ 🈴 🈵 🈹 🈲 🅰️ 🅱️ 🆎 🆑 🅾️ 🆘 ❌ ⭕ 🛑 ⛔ 📛 🚫 💯 💢 ♨️ 🚷 🚯 🚳 🚱 🔞 📵 🚭 ❗ ❕ ❓ ❔ ‼️ ⁉️ 🔅 🔆 〽️ ⚠️ 🚸 🔱 ⚜️ 🔰 ♻️ ✅ 🈯 💹 ❇️ ✳️ ❎ 🌐 💠 Ⓜ️ 🌀 💤 🏧 🚾 ♿ 🅿️ 🛗 🈳 🈂️ 🛂 🛃 🛄 🛅 🚹 🚺 🚼 ⚧️ 🚻 🚮 🎦 📶 🈁 🔣 ℹ️ 🔤 🔡 🔠 🆖 🆗 🆙 🆒 🆕 🆓 0️⃣ 1️⃣ 2️⃣ 3️⃣ 4️⃣ 5️⃣ 6️⃣ 7️⃣ 8️⃣ 9️⃣ 🔟 🔢 ▶️ ⏸️ ⏯️ ⏹️ ⏺️ ⏭️ ⏮️ ⏩ ⏪ 🔀 🔁 🔂 ➕ ➖ ➗ ✖️ 🟰 ♾️ ✔️ ☑️ 🔘 🔴 🟠 🟡 🟢 🔵 🟣 🟤 ⚫ ⚪ 🟥 🟧 🟨 🟩 🟦 🟪 🟫 ⬛ ⬜'.split(' ')
+      },
+      flags: {
+        label: 'banderas países argentina mundo',
+        emojis: '🏁 🚩 🎌 🏴 🏳️ 🏳️‍🌈 🏳️‍⚧️ 🇦🇷 🇺🇾 🇧🇷 🇨🇱 🇵🇾 🇧🇴 🇵🇪 🇨🇴 🇻🇪 🇪🇨 🇲🇽 🇺🇸 🇨🇦 🇪🇸 🇮🇹 🇫🇷 🇩🇪 🇬🇧 🇵🇹 🇳🇱 🇧🇪 🇨🇭 🇦🇹 🇬🇷 🇮🇪 🇩🇰 🇸🇪 🇳🇴 🇫🇮 🇵🇱 🇨🇿 🇭🇺 🇷🇴 🇺🇦 🇷🇺 🇹🇷 🇮🇱 🇸🇦 🇦🇪 🇪🇬 🇲🇦 🇿🇦 🇳🇬 🇰🇪 🇮🇳 🇨🇳 🇯🇵 🇰🇷 🇹🇭 🇻🇳 🇮🇩 🇵🇭 🇦🇺 🇳🇿'.split(' ')
+      }
+    }
+    const defaultCampaignEmojis = '😊 ✨ 🎉 🎁 ❤️ 🙌 👋 🔥 📅 ⏰ 💇 💅 👍 🥰 😍 🎂 🌟 💖 ✅'.split(' ')
+
+    async function loadCampaigns() {
+      if (!state.businessId) {
+        state.campaigns = []
+        state.campaignsLoaded = true
+        renderCampaigns()
+        if (state.selectedCampaignId) loadCampaignAudience(state.selectedCampaignId)
+        return
+      }
+
+      try {
+        state.campaigns = await getJson('/campaigns?businessId=' + encodeURIComponent(state.businessId))
+        state.campaignsLoaded = true
+        if (!state.selectedCampaignId || !state.campaigns.some((campaign) => campaign.id === state.selectedCampaignId)) {
+          state.selectedCampaignId = state.campaigns[0]?.id || null
+        }
+        renderCampaigns()
+      } catch (error) {
+        state.campaignsLoaded = false
+        els.campaignTableBody.innerHTML = '<tr class="campaign-empty-row"><td colspan="6">' + escapeHtml(error.message) + '</td></tr>'
+        els.campaignDetailPanel.innerHTML = '<div class="campaign-detail-empty">No pudimos cargar las campa&ntilde;as.</div>'
+      }
+    }
+
+    function filteredCampaigns() {
+      const search = state.campaignSearch.toLocaleLowerCase('es')
+      return state.campaigns.filter((campaign) => {
+        if (state.campaignFilter !== 'ALL' && campaign.status !== state.campaignFilter) return false
+        if (!search) return true
+        return [campaign.name, campaign.segmentLabel, campaign.message]
+          .some((value) => String(value || '').toLocaleLowerCase('es').includes(search))
+      })
+    }
+
+    async function loadCampaignAudience(campaignId) {
+      state.campaignAudiences[campaignId] = { loading: true }
+      if (state.selectedCampaignId === campaignId) renderCampaignDetail()
+      try {
+        const results = await Promise.all([
+          getJson('/campaigns/' + campaignId + '/audience-preview'),
+          getJson('/campaigns/' + campaignId + '/deliveries'),
+          getJson('/campaigns/' + campaignId + '/simulations/latest')
+        ])
+        state.campaignAudiences[campaignId] = results[0]
+        state.campaignDeliveries[campaignId] = results[1]
+        state.campaignSimulations[campaignId] = results[2]?.run || null
+      } catch (error) {
+        state.campaignAudiences[campaignId] = { error: error.message }
+      }
+      if (state.selectedCampaignId === campaignId) renderCampaignDetail()
+    }
+
+    function campaignBadgeClass(kind, value) {
+      if (kind === 'type') return value === 'AUTOMATED' ? 'automatic' : 'single'
+      if (kind === 'channel') return value === 'WHATSAPP' ? 'whatsapp' : value === 'EMAIL' ? 'email' : 'both'
+      return { ACTIVE: 'active', SCHEDULED: 'scheduled', PAUSED: 'paused', DRAFT: 'draft', FINISHED: 'draft' }[value] || 'draft'
+    }
+
+    function campaignChannelSymbol(channel) {
+      return channel === 'EMAIL' ? '&#9993;' : channel === 'BOTH' ? '&#9679;' : 'W'
+    }
+
+    function campaignNextSend(campaign) {
+      if (!campaign.scheduledAt) return campaign.status === 'ACTIVE' && campaign.type === 'AUTOMATED' ? 'Seg&uacute;n condici&oacute;n' : 'Al activar'
+      return escapeHtml(new Intl.DateTimeFormat('es-AR', {
+        day: '2-digit',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit'
+      }).format(new Date(campaign.scheduledAt)))
+    }
+
+    function campaignSegmentNeedsDays(segment) {
+      return ['INACTIVE', 'ONE_TIME_VISITOR', 'NEW_CUSTOMER'].includes(segment)
+    }
+
+    function syncCampaignAutomationFields(applySuggestedPriority = false) {
+      const automated = els.campaignType.value === 'AUTOMATED'
+      const segment = els.campaignSegment.value
+      els.campaignAutomationSettings.hidden = !automated
+      els.campaignPunctualSettings.hidden = automated
+      els.campaignSegmentDaysField.hidden = !campaignSegmentNeedsDays(segment)
+      els.campaignSegmentDays.required = automated && campaignSegmentNeedsDays(segment)
+      els.campaignManualSettings.hidden = segment !== 'MANUAL'
+      els.campaignPunctualCooldownDays.disabled = automated || !els.campaignPunctualRespectCooldown.checked
+      els.campaignCooldownDays.disabled = !automated || !els.campaignAutomationRespectCooldown.checked
+      els.campaignScheduleModeLabel.textContent = automated ? 'Cuándo comenzar' : 'Cuándo enviar'
+      els.campaignScheduleMode.options[0].textContent = automated ? 'Al activar' : 'Enviar al activar'
+      const scheduled = els.campaignScheduleMode.value === 'SCHEDULED'
+      els.campaignScheduledAt.parentElement.hidden = !scheduled
+      els.campaignScheduledAt.required = scheduled
+      els.campaignScheduledAt.disabled = !scheduled
+      els.campaignScheduledAtLabel.textContent = automated ? 'Comenzar desde' : 'Fecha y hora de envío'
+
+      if (applySuggestedPriority) {
+        const suggested = { ONE_TIME_VISITOR: 3, AT_RISK: 2, NEW_CUSTOMER: 2, INACTIVE: 1 }
+        els.campaignPriority.value = String(suggested[segment] || 2)
+      }
+    }
+
+    function renderCampaignManualCustomers() {
+      els.campaignManualList.innerHTML = state.campaignManualItems.length
+        ? state.campaignManualItems.map((customer) => {
+            return '<label class="campaign-manual-option">' +
+              '<input type="checkbox" value="' + escapeHtml(customer.id) + '" ' + (state.campaignManualSelected.has(customer.id) ? 'checked' : '') + '>' +
+              '<span><strong>' + escapeHtml(customer.name) + '</strong><small>' + escapeHtml(formatCustomerPhone(customer.phone)) + '</small></span>' +
+            '</label>'
+          }).join('')
+        : '<div class="customer-list-empty">No encontramos clientes.</div>'
+      els.campaignManualCount.textContent = state.campaignManualSelected.size + (state.campaignManualSelected.size === 1 ? ' seleccionado' : ' seleccionados')
+      els.campaignManualMore.hidden = state.campaignManualPage >= state.campaignManualTotalPages
+    }
+
+    async function loadCampaignManualCustomers(reset = true) {
+      if (!state.businessId) return
+      if (reset) {
+        state.campaignManualPage = 1
+        state.campaignManualItems = []
+        els.campaignManualList.innerHTML = '<div class="customer-list-empty">Buscando clientes...</div>'
+      }
+      const params = new URLSearchParams({
+        businessId: state.businessId,
+        q: els.campaignManualSearch.value.trim(),
+        page: String(state.campaignManualPage),
+        take: '24'
+      })
+      try {
+        const result = await getJson('/campaign-customer-options?' + params.toString())
+        const known = new Set(state.campaignManualItems.map((customer) => customer.id))
+        state.campaignManualItems = state.campaignManualItems.concat((result.items || []).filter((customer) => !known.has(customer.id)))
+        state.campaignManualTotalPages = result.pagination?.totalPages || 1
+        renderCampaignManualCustomers()
+      } catch (error) {
+        els.campaignManualList.innerHTML = '<div class="customer-list-empty">' + escapeHtml(error.message) + '</div>'
+      }
+    }
+
+    function campaignConfiguredSegmentLabel(campaign) {
+      const base = campaignSegmentLabels[campaign.segment] || escapeHtml(campaign.segmentLabel || campaign.segment)
+      return campaign.segmentDays && campaignSegmentNeedsDays(campaign.segment)
+        ? base + ' · ' + campaign.segmentDays + ' d&iacute;as'
+        : base
+    }
+
+    function renderCampaigns() {
+      const all = state.campaigns
+      els.campaignTotal.textContent = String(all.length)
+      els.campaignActiveCount.textContent = String(all.filter((campaign) => campaign.status === 'ACTIVE').length)
+      els.campaignScheduledCount.textContent = String(all.filter((campaign) => campaign.status === 'SCHEDULED').length)
+      els.campaignDraftCount.textContent = String(all.filter((campaign) => campaign.status === 'DRAFT').length)
+
+      const filtered = filteredCampaigns()
+      const totalPages = Math.max(1, Math.ceil(filtered.length / state.campaignTake))
+      state.campaignPage = Math.min(Math.max(1, state.campaignPage), totalPages)
+      const start = (state.campaignPage - 1) * state.campaignTake
+      const visible = filtered.slice(start, start + state.campaignTake)
+
+      els.campaignTableBody.innerHTML = visible.length
+        ? visible.map((campaign) => {
+            const selected = campaign.id === state.selectedCampaignId ? ' class="selected"' : ''
+            const iconClass = campaign.channel === 'EMAIL' ? ' email' : campaign.type === 'ONE_TIME' ? ' tag' : ''
+            return '<tr' + selected + ' data-campaign-id="' + escapeHtml(campaign.id) + '">' +
+              '<td><div class="campaign-name-cell"><span class="campaign-row-icon' + iconClass + '">' + campaignChannelSymbol(campaign.channel) + '</span><span>' + escapeHtml(campaign.name) + '</span></div></td>' +
+              '<td><span class="campaign-badge ' + campaignBadgeClass('type', campaign.type) + '">' + (campaignTypeLabels[campaign.type] || campaign.type) + '</span></td>' +
+              '<td>' + campaignConfiguredSegmentLabel(campaign) + '</td>' +
+              '<td><span class="campaign-badge ' + campaignBadgeClass('channel', campaign.channel) + '">' + (campaignChannelLabels[campaign.channel] || campaign.channel) + '</span></td>' +
+              '<td>' + campaignNextSend(campaign) + '</td>' +
+              '<td><span class="campaign-badge ' + campaignBadgeClass('status', campaign.status) + '">' + (campaignStatusLabels[campaign.status] || campaign.status) + '</span></td>' +
+            '</tr>'
+          }).join('')
+        : '<tr class="campaign-empty-row"><td colspan="6">' +
+            (state.campaigns.length ? 'No hay campa&ntilde;as que coincidan con el filtro.' : 'Todav&iacute;a no hay campa&ntilde;as.<br>Cre&aacute; la primera desde Nueva campa&ntilde;a.') +
+          '</td></tr>'
+
+      const shownFrom = filtered.length ? start + 1 : 0
+      const shownTo = Math.min(start + visible.length, filtered.length)
+      els.campaignPaginationCopy.textContent = 'Mostrando ' + shownFrom + ' a ' + shownTo + ' de ' + filtered.length + ' campañas'
+      els.campaignPageNumber.textContent = String(state.campaignPage)
+      els.campaignPagePrev.disabled = state.campaignPage <= 1
+      els.campaignPageNext.disabled = state.campaignPage >= totalPages
+      renderCampaignDetail()
+    }
+
+    function renderCampaignDetail() {
+      const campaign = state.campaigns.find((item) => item.id === state.selectedCampaignId)
+      if (!campaign) {
+        els.campaignDetailPanel.innerHTML = '<div class="campaign-detail-empty"><div><strong>Seleccion&aacute; una campa&ntilde;a</strong><br>Ac&aacute; vas a ver su configuraci&oacute;n y podr&aacute;s editarla.</div></div>'
+        return
+      }
+
+      const toggleLabel = campaign.status === 'ACTIVE' ? 'Pausar' : 'Activar'
+      const audience = state.campaignAudiences[campaign.id]
+      const deliveries = state.campaignDeliveries[campaign.id] || []
+      const simulation = state.campaignSimulations[campaign.id]
+      const simulationLoading = Boolean(state.campaignSimulationLoading[campaign.id])
+      const deliveredCount = deliveries.filter((delivery) => delivery.deliveredAt || ['DELIVERED', 'READ', 'RESPONDED', 'BOOKED'].includes(delivery.status)).length
+      const readCount = deliveries.filter((delivery) => delivery.readAt || ['READ', 'RESPONDED', 'BOOKED'].includes(delivery.status)).length
+      const responseCount = deliveries.filter((delivery) => delivery.respondedAt || delivery.status === 'RESPONDED').length
+      const bookingCount = deliveries.filter((delivery) => delivery.bookedAt || delivery.status === 'BOOKED').length
+      const conversionRate = deliveries.length ? Math.round((bookingCount / deliveries.length) * 100) : 0
+      const audienceTotal = audience?.loading ? '...' : audience?.error ? '--' : String(audience?.total ?? 0)
+      const exclusionLabels = {
+        missingPhone: 'tel&eacute;fono inv&aacute;lido',
+        withFutureAppointment: 'con pr&oacute;ximo turno',
+        marketingNotAuthorized: 'sin autorizaci&oacute;n de marketing',
+        higherPriorityCampaign: 'otra campa&ntilde;a prioritaria',
+        promotionCooldown: 'descanso desde otra promoci&oacute;n',
+        retryWindow: 'espera entre intentos',
+        attemptLimit: 'l&iacute;mite de intentos',
+        replied: 'ya respondieron',
+        booked: 'ya reservaron'
+      }
+      const audienceExclusions = audience?.excluded
+        ? Object.entries(audience.excluded).filter((entry) => Number(entry[1]) > 0)
+        : []
+      const audienceExcludedTotal = audienceExclusions.reduce((total, entry) => total + Number(entry[1]), 0)
+      const audienceExclusionCopy = audienceExclusions.map((entry) => entry[1] + ' por ' + (exclusionLabels[entry[0]] || entry[0])).join(' &middot; ')
+      const simulationExclusions = simulation?.exclusionSummary
+        ? Object.entries(simulation.exclusionSummary).filter((entry) => Number(entry[1]) > 0)
+        : []
+      const simulationExclusionCopy = simulationExclusions.length
+        ? simulationExclusions.map((entry) => entry[1] + ' por ' + (exclusionLabels[entry[0]] || entry[0])).join(' &middot; ')
+        : 'Sin exclusiones en esta simulaci&oacute;n.'
+      const simulationCard = simulation
+        ? '<section class="campaign-budget-card"><h4>&Uacute;ltima simulaci&oacute;n</h4><div class="campaign-budget-list">' +
+            '<div class="campaign-budget-item"><span>Candidatos del segmento</span><strong>' + simulation.candidateCount + '</strong></div>' +
+            '<div class="campaign-budget-item"><span>Listos para la cola</span><strong>' + simulation.eligibleCount + '</strong></div>' +
+            '<div class="campaign-budget-item"><span>Excluidos</span><strong>' + simulation.excludedCount + '</strong></div>' +
+            '<div class="campaign-budget-item"><span>Generada</span><strong>' + escapeHtml(formatDateTime(simulation.createdAt)) + '</strong></div>' +
+          '</div><div class="campaign-rule-note">' + simulationExclusionCopy + '</div></section>'
+        : '<section class="campaign-budget-card"><h4>Simulador local</h4><p class="hint">Todav&iacute;a no se ejecut&oacute; una simulaci&oacute;n. No se enviar&aacute; ning&uacute;n mensaje.</p></section>'
+      const budget = campaign.budgetLimit === null || campaign.budgetLimit === undefined
+        ? 'Sin l&iacute;mite definido'
+        : formatCurrency(campaign.budgetLimit)
+      const rule = campaign.type === 'AUTOMATED'
+        ? 'Se evaluar&aacute; autom&aacute;ticamente. Prioridad ' + (campaignPriorityLabels[campaign.priority] || 'Media').toLowerCase() +
+          ', hasta ' + (campaign.maxAttempts || 2) + ' contactos cada ' + (campaign.retryIntervalDays || 30) +
+          ' d&iacute;as' + ((campaign.respectCooldown ?? true) ? ' y ' + (campaign.cooldownDays ?? 30) + ' d&iacute;as desde otra promoci&oacute;n.' : ', sin descanso desde otras promociones.')
+        : (campaign.respectCooldown ?? true)
+          ? 'Campa&ntilde;a puntual. Excluir&aacute; clientes que recibieron promociones durante los &uacute;ltimos ' + (campaign.cooldownDays ?? 30) + ' d&iacute;as.'
+          : 'Campa&ntilde;a puntual sin descanso entre promociones. Las bajas de marketing se aplicar&aacute;n obligatoriamente al conectar los env&iacute;os.'
+      const mediaPreview = campaign.imageUrl
+        ? '<img class="campaign-message-media" src="' + escapeHtml(campaign.imageUrl) + '" alt="Imagen de la campa&ntilde;a">'
+        : ''
+      const recipientRows = audience?.loading
+        ? '<div class="customer-list-empty">Calculando destinatarios...</div>'
+        : audience?.error
+          ? '<div class="customer-list-empty">No pudimos cargar los destinatarios.</div>'
+          : audience?.included?.length
+            ? audience.included.map((customer) => {
+                return '<div class="campaign-recipient-row">' +
+                  '<div class="campaign-recipient-avatar">' + escapeHtml(contactInitials(customer.name, customer.phone)) + '</div>' +
+                  '<div class="campaign-recipient-copy"><strong>' + escapeHtml(customer.name) + '</strong><span>' + escapeHtml(formatCustomerPhone(customer.phone)) + '</span></div>' +
+                  '<span class="campaign-recipient-status">Incluido</span>' +
+                '</div>'
+              }).join('')
+            : '<div class="customer-list-empty">No hay clientes disponibles para esta campa&ntilde;a.</div>'
+      const simulatedQueueRows = simulation?.jobs?.length
+        ? simulation.jobs.map((job, index) => {
+            return '<div class="campaign-recipient-row">' +
+              '<div class="campaign-recipient-avatar">' + (index + 1) + '</div>' +
+              '<div class="campaign-recipient-copy"><strong>' + escapeHtml(job.customer?.name || 'Cliente') + '</strong><span>' + escapeHtml(formatCustomerPhone(job.customer?.phone || '')) + ' &middot; Intento ' + job.attemptNumber + '</span></div>' +
+              '<span class="campaign-recipient-status">Lista</span>' +
+            '</div>'
+          }).join('')
+        : '<div class="customer-list-empty">Ejecut&aacute; la simulaci&oacute;n para generar la cola.</div>'
+      const recipientView = '<div class="campaign-recipient-view" data-campaign-panel="recipients"' + (state.campaignDetailTab === 'recipients' ? '' : ' hidden') + '>' +
+        '<div class="campaign-recipient-head"><div><h4>Destinatarios estimados</h4><p>Se recalculan seg&uacute;n reservas, descansos y preferencias de marketing.</p></div><strong>' + audienceTotal + '</strong></div>' +
+        '<div class="campaign-recipient-list">' + recipientRows + '</div>' +
+        (audienceExclusionCopy ? '<div class="campaign-rule-note">Excluidos:&nbsp; ' + audienceExclusionCopy + '.</div>' : '') +
+        '<div class="campaign-recipient-head"><div><h4>Orden de la cola simulada</h4><p>' + (simulation?.eligibleCount > 100 ? 'Se muestran los primeros 100 de ' + simulation.eligibleCount + ' destinatarios.' : 'Vista previa sin env&iacute;os reales.') + '</p></div><strong>' + (simulation?.eligibleCount ?? 0) + '</strong></div>' +
+        '<div class="campaign-recipient-list">' + simulatedQueueRows + '</div>' +
+      '</div>'
+      const deliveryStatusLabels = { SENT: 'Enviado', DELIVERED: 'Entregado', READ: 'Le&iacute;do', RESPONDED: 'Respondi&oacute;', BOOKED: 'Reserv&oacute;', FAILED: 'Fallido', CANCELLED: 'Cancelado' }
+      const historyRows = deliveries.length
+        ? deliveries.map((delivery) => {
+            return '<div class="campaign-recipient-row">' +
+              '<div class="campaign-recipient-avatar">' + escapeHtml(contactInitials(delivery.customer?.name, delivery.customer?.phone)) + '</div>' +
+              '<div class="campaign-recipient-copy"><strong>' + escapeHtml(delivery.customer?.name || 'Cliente') + '</strong><span>' + escapeHtml(formatDateTime(delivery.sentAt)) + ' &middot; Intento ' + delivery.attemptNumber + '</span></div>' +
+              '<span class="campaign-recipient-status">' + (deliveryStatusLabels[delivery.status] || escapeHtml(delivery.status)) + '</span>' +
+            '</div>'
+          }).join('')
+        : '<div class="customer-list-empty">Todav&iacute;a no hay env&iacute;os registrados.</div>'
+      const historyView = '<div class="campaign-recipient-view" data-campaign-panel="history"' + (state.campaignDetailTab === 'history' ? '' : ' hidden') + '>' +
+        '<div class="campaign-recipient-head"><div><h4>Historial de la campa&ntilde;a</h4><p>Env&iacute;os y resultados registrados por cliente.</p></div><strong>' + deliveries.length + '</strong></div>' +
+        '<div class="campaign-recipient-list">' + historyRows + '</div></div>'
+      const configurationView = '<div class="campaign-recipient-view" data-campaign-panel="configuration"' + (state.campaignDetailTab === 'configuration' ? '' : ' hidden') + '>' +
+        '<div class="campaign-recipient-head"><div><h4>Configuraci&oacute;n</h4><p>Reglas utilizadas para decidir qui&eacute;n puede recibir la campa&ntilde;a.</p></div></div>' +
+        '<div class="campaign-detail-lower"><section class="campaign-budget-card"><div class="campaign-budget-list">' +
+          '<div class="campaign-budget-item"><span>Tipo</span><strong>' + campaignTypeLabels[campaign.type] + '</strong></div>' +
+          '<div class="campaign-budget-item"><span>Segmento</span><strong>' + campaignConfiguredSegmentLabel(campaign) + '</strong></div>' +
+          '<div class="campaign-budget-item"><span>Canal</span><strong>' + campaignChannelLabels[campaign.channel] + '</strong></div>' +
+          '<div class="campaign-budget-item"><span>Estado</span><strong>' + campaignStatusLabels[campaign.status] + '</strong></div>' +
+        '</div></section><section class="campaign-budget-card"><div class="campaign-budget-list">' +
+          (campaign.type === 'AUTOMATED'
+            ? '<div class="campaign-budget-item"><span>Prioridad</span><strong>' + (campaignPriorityLabels[campaign.priority] || 'Media') + '</strong></div>' +
+              '<div class="campaign-budget-item"><span>M&aacute;ximo de contactos</span><strong>' + (campaign.maxAttempts || 2) + '</strong></div>' +
+              '<div class="campaign-budget-item"><span>Entre contactos</span><strong>' + (campaign.retryIntervalDays || 30) + ' d&iacute;as</strong></div>'
+            : '<div class="campaign-budget-item"><span>Respeta descanso</span><strong>' + ((campaign.respectCooldown ?? true) ? 'S&iacute;' : 'No') + '</strong></div>') +
+          '<div class="campaign-budget-item"><span>Desde otra promoci&oacute;n</span><strong>' + ((campaign.respectCooldown ?? true) ? (campaign.cooldownDays ?? 30) + ' d&iacute;as' : 'Desactivado') + '</strong></div>' +
+          '<div class="campaign-budget-item"><span>Presupuesto</span><strong>' + budget + '</strong></div>' +
+        '</div></section></div><div class="campaign-rule-note">&#9432;&nbsp; ' + rule + '</div></div>'
+
+      els.campaignDetailPanel.innerHTML =
+        '<header class="campaign-detail-header">' +
+          '<div class="campaign-detail-heading">' +
+            '<div class="campaign-detail-icon">' + campaignChannelSymbol(campaign.channel) + '</div>' +
+            '<div><h3>' + escapeHtml(campaign.name) + '</h3><div class="campaign-detail-badges">' +
+              '<span class="campaign-badge ' + campaignBadgeClass('type', campaign.type) + '">' + campaignTypeLabels[campaign.type] + '</span>' +
+              '<span class="campaign-badge ' + campaignBadgeClass('channel', campaign.channel) + '">' + campaignChannelLabels[campaign.channel] + '</span>' +
+              '<span class="campaign-badge ' + campaignBadgeClass('status', campaign.status) + '">' + campaignStatusLabels[campaign.status] + '</span>' +
+            '</div></div>' +
+          '</div>' +
+          '<div class="campaign-detail-actions">' +
+            '<button class="campaign-outline-button" type="button" data-campaign-action="simulate"' + (simulationLoading ? ' disabled' : '') + '>' + (simulationLoading ? 'Simulando...' : 'Simular') + '</button>' +
+            '<button class="campaign-outline-button" type="button" data-campaign-action="edit">Editar</button>' +
+            (campaign.status !== 'FINISHED' ? '<button class="campaign-outline-button" type="button" data-campaign-action="toggle">' + toggleLabel + '</button>' : '') +
+            '<button class="campaign-duplicate-button" type="button" data-campaign-action="duplicate">Duplicar</button>' +
+            '<button class="campaign-more-button" type="button" data-campaign-action="delete" title="Eliminar campa&ntilde;a" aria-label="Eliminar campa&ntilde;a">&times;</button>' +
+          '</div>' +
+        '</header>' +
+        '<section class="campaign-detail-stats">' +
+          '<div class="campaign-detail-stat"><strong>' + audienceTotal + '</strong><span>destinatarios estimados</span></div>' +
+          '<div class="campaign-detail-stat"><strong>' + responseCount + '</strong><span>respuestas</span></div>' +
+          '<div class="campaign-detail-stat"><strong>' + bookingCount + '</strong><span>turnos</span></div>' +
+        '</section>' +
+        '<nav class="campaign-detail-tabs" aria-label="Detalle de campa&ntilde;a">' +
+          '<button class="' + (state.campaignDetailTab === 'summary' ? 'active' : '') + '" type="button" data-campaign-tab="summary">Resumen</button>' +
+          '<button class="' + (state.campaignDetailTab === 'recipients' ? 'active' : '') + '" type="button" data-campaign-tab="recipients">Destinatarios</button>' +
+          '<button class="' + (state.campaignDetailTab === 'history' ? 'active' : '') + '" type="button" data-campaign-tab="history">Historial</button>' +
+          '<button class="' + (state.campaignDetailTab === 'configuration' ? 'active' : '') + '" type="button" data-campaign-tab="configuration">Configuraci&oacute;n</button>' +
+        '</nav>' +
+        '<div data-campaign-panel="summary"' + (state.campaignDetailTab === 'summary' ? '' : ' hidden') + '>' +
+        '<p class="campaign-message-label">Vista previa del mensaje</p>' +
+        '<div class="campaign-message-preview"><div class="campaign-message-icon">' + campaignChannelSymbol(campaign.channel) + '</div><div class="campaign-message-bubble">' + mediaPreview + escapeHtml(campaign.message) + '<time>Sin enviar</time></div></div>' +
+        '<div class="campaign-detail-lower">' +
+          '<section class="campaign-result-card"><h4>Resultados</h4><div class="campaign-result-list">' +
+            '<div class="campaign-result-item"><span>Destinatarios estimados</span><strong>' + audienceTotal + '</strong></div>' +
+            '<div class="campaign-result-item"><span>Excluidos por reglas</span><strong>' + audienceExcludedTotal + '</strong></div>' +
+            '<div class="campaign-result-item"><span>Enviados</span><strong>' + deliveries.length + '</strong></div>' +
+            '<div class="campaign-result-item"><span>Entregados</span><strong>' + deliveredCount + '</strong></div>' +
+            '<div class="campaign-result-item"><span>Le&iacute;dos</span><strong>' + readCount + '</strong></div>' +
+            '<div class="campaign-result-item"><span>Respuestas</span><strong>' + responseCount + '</strong></div>' +
+            '<div class="campaign-result-item"><span>Turnos agendados</span><strong>' + bookingCount + '</strong></div>' +
+            '<div class="campaign-result-item"><span>Conversi&oacute;n</span><strong>' + conversionRate + '%</strong></div>' +
+          '</div></section>' +
+          '<section class="campaign-budget-card"><h4>Configuraci&oacute;n</h4><div class="campaign-budget-list">' +
+            '<div class="campaign-budget-item"><span>Segmento</span><strong>' + campaignConfiguredSegmentLabel(campaign) + '</strong></div>' +
+            (campaign.type === 'AUTOMATED' ?
+              '<div class="campaign-budget-item"><span>Prioridad</span><strong>' + (campaignPriorityLabels[campaign.priority] || 'Media') + '</strong></div>' +
+              '<div class="campaign-budget-item"><span>M&aacute;ximo de contactos</span><strong>' + (campaign.maxAttempts || 2) + '</strong></div>' : '') +
+            '<div class="campaign-budget-item"><span>Presupuesto</span><strong>' + budget + '</strong></div>' +
+            '<div class="campaign-budget-item"><span>Pr&oacute;ximo env&iacute;o</span><strong>' + campaignNextSend(campaign) + '</strong></div>' +
+          '</div></section>' +
+        '</div>' +
+        '<div class="campaign-detail-lower">' + simulationCard +
+          '<section class="campaign-budget-card"><h4>Cola simulada</h4><div class="campaign-budget-list">' +
+            '<div class="campaign-budget-item"><span>Estado</span><strong>' + (simulation ? 'Lista' : 'Sin generar') + '</strong></div>' +
+            '<div class="campaign-budget-item"><span>Mensajes reales</span><strong>0</strong></div>' +
+            '<div class="campaign-budget-item"><span>Reintentos por error</span><strong>' + (simulation?.jobs?.[0]?.maxRetries ?? 3) + '</strong></div>' +
+          '</div></section></div>' +
+        '<div class="campaign-rule-note">&#9432;&nbsp; ' + rule + '</div>' +
+        (audienceExclusionCopy ? '<div class="campaign-rule-note">Exclusiones actuales:&nbsp; ' + audienceExclusionCopy + '.</div>' : '') +
+        '</div>' + recipientView + historyView + configurationView
+    }
+
+    function setCampaignImage(imageUrl) {
+      state.campaignImageUrl = imageUrl || null
+      els.campaignImagePreviewImg.src = imageUrl || ''
+      els.campaignImagePreview.hidden = !imageUrl
+      if (!imageUrl) els.campaignImage.value = ''
+    }
+
+    function readCampaignImage(event) {
+      const file = event.target.files?.[0]
+      if (!file) return
+      const allowedTypes = ['image/png', 'image/jpeg', 'image/webp']
+      if (!allowedTypes.includes(file.type)) {
+        els.campaignFormFeedback.textContent = 'Eleg&iacute; una imagen PNG, JPG o WEBP.'
+        els.campaignImage.value = ''
+        return
+      }
+      if (file.size > 2 * 1024 * 1024) {
+        els.campaignFormFeedback.textContent = 'La imagen no puede superar los 2 MB.'
+        els.campaignImage.value = ''
+        return
+      }
+
+      els.campaignFormFeedback.textContent = ''
+      const reader = new FileReader()
+      reader.addEventListener('load', () => setCampaignImage(String(reader.result || '')))
+      reader.readAsDataURL(file)
+    }
+
+    function insertCampaignEmoji(emoji) {
+      const input = els.campaignMessage
+      const start = input.selectionStart ?? input.value.length
+      const end = input.selectionEnd ?? start
+      input.value = input.value.slice(0, start) + emoji + input.value.slice(end)
+      const nextPosition = start + emoji.length
+      input.focus()
+      input.setSelectionRange(nextPosition, nextPosition)
+      const recent = campaignRecentEmojis().filter((item) => item !== emoji)
+      recent.unshift(emoji)
+      try {
+        localStorage.setItem('salon-ai-campaign-emojis', JSON.stringify(recent.slice(0, 40)))
+      } catch {}
+      if (state.campaignEmojiCategory === 'recent') renderCampaignEmojiPicker()
+    }
+
+    function campaignRecentEmojis() {
+      try {
+        const saved = JSON.parse(localStorage.getItem('salon-ai-campaign-emojis') || '[]')
+        return Array.isArray(saved) && saved.length ? saved.slice(0, 40) : defaultCampaignEmojis
+      } catch {
+        return defaultCampaignEmojis
+      }
+    }
+
+    function renderCampaignEmojiPicker() {
+      const query = els.campaignEmojiSearch.value.trim().toLocaleLowerCase('es')
+      let emojis = []
+      if (query) {
+        for (const category of Object.values(campaignEmojiCatalog)) {
+          if (category.label.includes(query)) emojis.push(...category.emojis)
+        }
+        if (!emojis.length) {
+          emojis = Object.values(campaignEmojiCatalog).flatMap((category) => category.emojis).filter((emoji) => emoji.includes(query))
+        }
+      } else if (state.campaignEmojiCategory === 'recent') {
+        emojis = campaignRecentEmojis()
+      } else {
+        emojis = campaignEmojiCatalog[state.campaignEmojiCategory]?.emojis || []
+      }
+
+      els.campaignEmojiGrid.innerHTML = emojis.length
+        ? [...new Set(emojis)].map((emoji) => '<button type="button" data-campaign-emoji="' + emoji + '" title="Agregar ' + emoji + '">' + emoji + '</button>').join('')
+        : '<div class="campaign-emoji-empty">No encontramos emojis en esa categor&iacute;a.</div>'
+
+      for (const button of els.campaignEmojiCategories.querySelectorAll('[data-emoji-category]')) {
+        button.classList.toggle('active', !query && button.dataset.emojiCategory === state.campaignEmojiCategory)
+      }
+    }
+
+    function openCampaignDialog(campaign = null) {
+      els.campaignId.value = campaign?.id || ''
+      els.campaignName.value = campaign?.name || ''
+      els.campaignType.value = campaign?.type || 'ONE_TIME'
+      els.campaignChannel.value = campaign?.channel || 'WHATSAPP'
+      if (campaign?.segment && !Array.from(els.campaignSegment.options).some((option) => option.value === campaign.segment)) {
+        els.campaignSegment.add(new Option(campaign.segmentLabel || campaign.segment, campaign.segment))
+      }
+      els.campaignSegment.value = campaign?.segment || 'ALL'
+      state.campaignManualSelected = new Map((campaign?.manualRecipients || []).map((recipient) => {
+        const customer = recipient.customer || state.customers.find((item) => item.id === recipient.customerId) || { id: recipient.customerId, name: 'Cliente', phone: '' }
+        return [recipient.customerId, customer]
+      }))
+      state.campaignManualItems = []
+      state.campaignManualPage = 1
+      state.campaignManualTotalPages = 1
+      els.campaignManualSearch.value = ''
+      renderCampaignManualCustomers()
+      els.campaignSegmentDays.value = campaign?.segmentDays ?? 45
+      els.campaignPriority.value = String(campaign?.priority ?? 2)
+      els.campaignMaxAttempts.value = campaign?.maxAttempts ?? 2
+      els.campaignRetryDays.value = campaign?.retryIntervalDays ?? 30
+      els.campaignCooldownDays.value = campaign?.cooldownDays ?? 30
+      els.campaignAutomationRespectCooldown.checked = campaign?.respectCooldown ?? true
+      els.campaignPunctualRespectCooldown.checked = campaign?.respectCooldown ?? true
+      els.campaignPunctualCooldownDays.value = campaign?.cooldownDays ?? 30
+      els.campaignStopOnBooking.checked = campaign?.stopOnBooking ?? true
+      els.campaignStopOnReply.checked = campaign?.stopOnReply ?? true
+      els.campaignRestartAfterVisit.checked = campaign?.restartAfterVisit ?? true
+      els.campaignScheduleMode.value = campaign?.scheduleMode || (campaign?.scheduledAt ? 'SCHEDULED' : 'IMMEDIATE')
+      els.campaignScheduledAt.value = campaign?.scheduledAt ? toDatetimeLocalValue(new Date(campaign.scheduledAt)) : ''
+      els.campaignBudget.value = campaign?.budgetLimit ?? ''
+      els.campaignStatus.value = campaign?.status || 'DRAFT'
+      els.campaignMessage.value = campaign?.message || ''
+      setCampaignImage(campaign?.imageUrl || null)
+      els.campaignEmojiPicker.hidden = true
+      els.campaignEmojiSearch.value = ''
+      renderCampaignEmojiPicker()
+      syncCampaignAutomationFields(false)
+      els.campaignDialogTitle.textContent = campaign ? 'Editar campaña' : 'Nueva campaña'
+      els.campaignSubmit.textContent = campaign ? 'Guardar cambios' : 'Guardar campaña'
+      els.campaignFormFeedback.textContent = ''
+      els.campaignDialog.hidden = false
+      if (els.campaignSegment.value === 'MANUAL') loadCampaignManualCustomers(true)
+      els.campaignName.focus()
+    }
+
+    function closeCampaignDialog() {
+      els.campaignDialog.hidden = true
+      els.campaignForm.reset()
+      els.campaignId.value = ''
+      setCampaignImage(null)
+      els.campaignEmojiPicker.hidden = true
+      state.campaignManualSelected = new Map()
+      state.campaignManualItems = []
+      els.campaignFormFeedback.textContent = ''
+    }
+
+    async function saveCampaign(event) {
+      event.preventDefault()
+      if (!state.businessId) {
+        els.campaignFormFeedback.textContent = 'No encontr&eacute; un comercio configurado.'
+        return
+      }
+
+      const id = els.campaignId.value
+      const selectedSegment = els.campaignSegment.options[els.campaignSegment.selectedIndex]
+      const segmentDays = campaignSegmentNeedsDays(els.campaignSegment.value)
+        ? els.campaignSegmentDays.value
+        : null
+      const segmentBaseLabel = selectedSegment?.textContent || campaignSegmentLabels[els.campaignSegment.value]
+      const payload = {
+        businessId: state.businessId,
+        name: els.campaignName.value.trim(),
+        type: els.campaignType.value,
+        channel: els.campaignChannel.value,
+        segment: els.campaignSegment.value,
+        segmentLabel: segmentBaseLabel,
+        manualCustomerIds: Array.from(state.campaignManualSelected.keys()),
+        segmentDays,
+        priority: els.campaignPriority.value,
+        maxAttempts: els.campaignMaxAttempts.value,
+        retryIntervalDays: els.campaignRetryDays.value,
+        cooldownDays: els.campaignType.value === 'AUTOMATED'
+          ? els.campaignCooldownDays.value
+          : els.campaignPunctualCooldownDays.value,
+        respectCooldown: els.campaignType.value === 'AUTOMATED'
+          ? els.campaignAutomationRespectCooldown.checked
+          : els.campaignPunctualRespectCooldown.checked,
+        stopOnBooking: true,
+        stopOnReply: true,
+        restartAfterVisit: true,
+        scheduleMode: els.campaignScheduleMode.value,
+        scheduledAt: els.campaignScheduleMode.value === 'SCHEDULED' ? (els.campaignScheduledAt.value || null) : null,
+        budgetLimit: els.campaignBudget.value || null,
+        status: els.campaignStatus.value,
+        message: els.campaignMessage.value.trim(),
+        imageUrl: state.campaignImageUrl
+      }
+
+      if (!payload.name || !payload.message) {
+        els.campaignFormFeedback.textContent = 'Complet&aacute; el nombre y el mensaje.'
+        return
+      }
+      if (payload.segment === 'MANUAL' && !payload.manualCustomerIds.length) {
+        els.campaignFormFeedback.textContent = 'Seleccion&aacute; al menos un destinatario.'
+        return
+      }
+      if (payload.scheduleMode === 'SCHEDULED' && !payload.scheduledAt) {
+        els.campaignFormFeedback.textContent = 'Seleccion&aacute; la fecha y hora.'
+        return
+      }
+
+      els.campaignSubmit.disabled = true
+      try {
+        const saved = await getJson(id ? '/campaigns/' + id : '/campaigns', {
+          method: id ? 'PATCH' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        })
+        state.selectedCampaignId = saved.id
+        closeCampaignDialog()
+        await loadCampaigns()
+      } catch (error) {
+        els.campaignFormFeedback.textContent = error.message
+      } finally {
+        els.campaignSubmit.disabled = false
+      }
+    }
+
+    async function updateCampaignStatus(campaign) {
+      const status = campaign.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE'
+      await getJson('/campaigns/' + campaign.id, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...campaign, status })
+      })
+      await loadCampaigns()
+    }
+
+    async function duplicateCampaign(campaign) {
+      const duplicate = await getJson('/campaigns/' + campaign.id + '/duplicate', { method: 'POST' })
+      state.selectedCampaignId = duplicate.id
+      state.campaignFilter = 'ALL'
+      state.campaignPage = 1
+      await loadCampaigns()
+    }
+
+    function deleteCampaign(campaign) {
+      state.pendingCampaignDeleteId = campaign.id
+      els.campaignDeleteName.textContent = campaign.name
+      els.campaignDeleteFeedback.textContent = ''
+      els.campaignDeleteDialog.hidden = false
+      requestAnimationFrame(() => els.campaignDeleteCancel.focus())
+    }
+
+    function closeCampaignDeleteDialog() {
+      els.campaignDeleteDialog.hidden = true
+      state.pendingCampaignDeleteId = null
+      els.campaignDeleteFeedback.textContent = ''
+      els.campaignDeleteConfirm.disabled = false
+      els.campaignDeleteConfirm.textContent = 'Eliminar campaña'
+    }
+
+    async function confirmCampaignDelete() {
+      const campaign = state.campaigns.find((item) => item.id === state.pendingCampaignDeleteId)
+      if (!campaign) return closeCampaignDeleteDialog()
+      try {
+        els.campaignDeleteConfirm.disabled = true
+        els.campaignDeleteConfirm.textContent = 'Eliminando...'
+        await getJson('/campaigns/' + campaign.id, { method: 'DELETE' })
+        closeCampaignDeleteDialog()
+        state.selectedCampaignId = null
+        state.campaignDetailTab = 'summary'
+        await loadCampaigns()
+      } catch (error) {
+        els.campaignDeleteFeedback.textContent = error.message
+        els.campaignDeleteConfirm.disabled = false
+        els.campaignDeleteConfirm.textContent = 'Eliminar campaña'
+      }
+    }
+
+    async function simulateCampaign(campaign) {
+      state.campaignSimulationLoading[campaign.id] = true
+      renderCampaignDetail()
+      try {
+        const run = await getJson('/campaigns/' + campaign.id + '/simulate', { method: 'POST' })
+        state.campaignSimulations[campaign.id] = run
+        await loadCampaignAudience(campaign.id)
+      } finally {
+        state.campaignSimulationLoading[campaign.id] = false
+        if (state.selectedCampaignId === campaign.id) renderCampaignDetail()
+      }
+    }
+
+    async function handleCampaignDetailAction(event) {
+      const tab = event.target.closest('[data-campaign-tab]')
+      if (tab) {
+        state.campaignDetailTab = tab.dataset.campaignTab
+        renderCampaignDetail()
+        return
+      }
+      const button = event.target.closest('[data-campaign-action]')
+      if (!button) return
+      const campaign = state.campaigns.find((item) => item.id === state.selectedCampaignId)
+      if (!campaign) return
+
+      try {
+        if (button.dataset.campaignAction === 'simulate') await simulateCampaign(campaign)
+        if (button.dataset.campaignAction === 'edit') openCampaignDialog(campaign)
+        if (button.dataset.campaignAction === 'toggle') await updateCampaignStatus(campaign)
+        if (button.dataset.campaignAction === 'duplicate') await duplicateCampaign(campaign)
+        if (button.dataset.campaignAction === 'delete') deleteCampaign(campaign)
+      } catch (error) {
+        const existing = els.campaignDetailPanel.querySelector('[data-campaign-inline-error]')
+        if (existing) existing.remove()
+        els.campaignDetailPanel.querySelector('.campaign-detail-header')?.insertAdjacentHTML('afterend', '<div class="campaign-rule-note" data-campaign-inline-error>' + escapeHtml(error.message) + '</div>')
+      }
+    }
+
     function setSection(section) {
       els.appShell.dataset.section = section
       const buttons = document.querySelectorAll('.workspace-nav button')
@@ -10547,6 +13239,10 @@ const crmHtml = `<!doctype html>
         loadReports().catch((error) => {
           els.reportStatusBars.innerHTML = '<div class="error">' + escapeHtml(error.message) + '</div>'
         })
+      }
+
+      if (section === 'campaigns' && !state.campaignsLoaded) {
+        loadCampaigns()
       }
     }
 
@@ -10898,6 +13594,94 @@ const crmHtml = `<!doctype html>
     els.serviceForm.addEventListener('submit', saveService)
     els.serviceCancel.addEventListener('click', resetServiceForm)
     els.serviceSearch?.addEventListener('input', renderServices)
+    els.campaignNew.addEventListener('click', () => openCampaignDialog())
+    els.campaignForm.addEventListener('submit', saveCampaign)
+    els.campaignType.addEventListener('change', () => syncCampaignAutomationFields(false))
+    els.campaignSegment.addEventListener('change', () => {
+      syncCampaignAutomationFields(true)
+      if (els.campaignSegment.value === 'MANUAL') loadCampaignManualCustomers(true)
+    })
+    els.campaignScheduleMode.addEventListener('change', () => syncCampaignAutomationFields(false))
+    els.campaignManualList.addEventListener('change', (event) => {
+      const checkbox = event.target.closest('input[type="checkbox"]')
+      if (!checkbox) return
+      const customer = state.campaignManualItems.find((item) => item.id === checkbox.value)
+      if (checkbox.checked && customer) state.campaignManualSelected.set(customer.id, customer)
+      if (!checkbox.checked) state.campaignManualSelected.delete(checkbox.value)
+      els.campaignManualCount.textContent = state.campaignManualSelected.size + (state.campaignManualSelected.size === 1 ? ' seleccionado' : ' seleccionados')
+    })
+    els.campaignManualSearch.addEventListener('input', () => {
+      clearTimeout(state.campaignManualSearchTimer)
+      state.campaignManualSearchTimer = setTimeout(() => loadCampaignManualCustomers(true), 250)
+    })
+    els.campaignManualMore.addEventListener('click', () => {
+      if (state.campaignManualPage >= state.campaignManualTotalPages) return
+      state.campaignManualPage += 1
+      loadCampaignManualCustomers(false)
+    })
+    els.campaignPunctualRespectCooldown.addEventListener('change', () => syncCampaignAutomationFields(false))
+    els.campaignAutomationRespectCooldown.addEventListener('change', () => syncCampaignAutomationFields(false))
+    els.campaignDialogClose.addEventListener('click', closeCampaignDialog)
+    els.campaignDialogCancel.addEventListener('click', closeCampaignDialog)
+    els.campaignEmojiToggle.addEventListener('click', () => {
+      els.campaignEmojiPicker.hidden = !els.campaignEmojiPicker.hidden
+      if (!els.campaignEmojiPicker.hidden) renderCampaignEmojiPicker()
+    })
+    els.campaignEmojiSearch.addEventListener('input', renderCampaignEmojiPicker)
+    els.campaignEmojiCategories.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-emoji-category]')
+      if (!button) return
+      state.campaignEmojiCategory = button.dataset.emojiCategory
+      els.campaignEmojiSearch.value = ''
+      renderCampaignEmojiPicker()
+    })
+    els.campaignEmojiPicker.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-campaign-emoji]')
+      if (!button) return
+      insertCampaignEmoji(button.dataset.campaignEmoji)
+    })
+    els.campaignImage.addEventListener('change', readCampaignImage)
+    els.campaignImageRemove.addEventListener('click', () => setCampaignImage(null))
+    els.campaignDialog.addEventListener('click', (event) => {
+      if (event.target === els.campaignDialog) closeCampaignDialog()
+    })
+    els.campaignDeleteClose.addEventListener('click', closeCampaignDeleteDialog)
+    els.campaignDeleteCancel.addEventListener('click', closeCampaignDeleteDialog)
+    els.campaignDeleteConfirm.addEventListener('click', confirmCampaignDelete)
+    els.campaignDeleteDialog.addEventListener('click', (event) => {
+      if (event.target === els.campaignDeleteDialog) closeCampaignDeleteDialog()
+    })
+    els.campaignSearch.addEventListener('input', () => {
+      state.campaignSearch = els.campaignSearch.value.trim()
+      state.campaignPage = 1
+      renderCampaigns()
+    })
+    els.campaignFilterTabs.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-campaign-filter]')
+      if (!button) return
+      state.campaignFilter = button.dataset.campaignFilter
+      state.campaignPage = 1
+      for (const filterButton of els.campaignFilterTabs.querySelectorAll('[data-campaign-filter]')) {
+        filterButton.classList.toggle('active', filterButton === button)
+      }
+      renderCampaigns()
+    })
+    els.campaignTableBody.addEventListener('click', (event) => {
+      const row = event.target.closest('[data-campaign-id]')
+      if (!row) return
+      state.selectedCampaignId = row.dataset.campaignId
+      renderCampaigns()
+      loadCampaignAudience(state.selectedCampaignId)
+    })
+    els.campaignDetailPanel.addEventListener('click', handleCampaignDetailAction)
+    els.campaignPagePrev.addEventListener('click', () => {
+      state.campaignPage = Math.max(1, state.campaignPage - 1)
+      renderCampaigns()
+    })
+    els.campaignPageNext.addEventListener('click', () => {
+      state.campaignPage += 1
+      renderCampaigns()
+    })
     els.businessSettingsForm.addEventListener('submit', saveBusinessSettings)
     els.businessLogo.addEventListener('change', readBusinessLogo)
     els.businessLogoRemove.addEventListener('click', () => {
@@ -10970,9 +13754,18 @@ const crmHtml = `<!doctype html>
     els.customerDeleteDialog.addEventListener('click', (event) => {
       if (event.target === els.customerDeleteDialog) closeCustomerDeleteDialog()
     })
+    els.marketingConfirmClose.addEventListener('click', closeMarketingConfirmDialog)
+    els.marketingConfirmCancel.addEventListener('click', closeMarketingConfirmDialog)
+    els.marketingConfirmSubmit.addEventListener('click', saveMarketingPreference)
+    els.marketingConfirmDialog.addEventListener('click', (event) => {
+      if (event.target === els.marketingConfirmDialog) closeMarketingConfirmDialog()
+    })
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape' && !els.customerDialog.hidden) closeCustomerDialog()
       if (event.key === 'Escape' && !els.customerDeleteDialog.hidden) closeCustomerDeleteDialog()
+      if (event.key === 'Escape' && !els.marketingConfirmDialog.hidden) closeMarketingConfirmDialog()
+      if (event.key === 'Escape' && !els.campaignDialog.hidden) closeCampaignDialog()
+      if (event.key === 'Escape' && !els.campaignDeleteDialog.hidden) closeCampaignDeleteDialog()
     })
     els.mobileInbox.addEventListener('click', () => setMobileView('inbox'))
     els.mobileChat.addEventListener('click', () => setMobileView('chat'))
@@ -10983,6 +13776,7 @@ const crmHtml = `<!doctype html>
     document.querySelectorAll('.workspace-nav button')[2]?.addEventListener('click', () => setSection('customers'))
     document.querySelectorAll('.workspace-nav button')[3]?.addEventListener('click', () => setSection('professionals'))
     document.querySelectorAll('.workspace-nav button')[4]?.addEventListener('click', () => setSection('services'))
+    document.querySelectorAll('.workspace-nav button')[5]?.addEventListener('click', () => setSection('campaigns'))
     document.querySelectorAll('.workspace-nav button')[6]?.addEventListener('click', () => setSection('reports'))
     document.querySelectorAll('.workspace-nav button')[7]?.addEventListener('click', () => setSection('settings'))
     els.customerNewButton.addEventListener('click', () => openCustomerDialog('create'))

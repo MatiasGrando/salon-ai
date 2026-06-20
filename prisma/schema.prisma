@@ -63,6 +63,11 @@ model Business {
   businessHours BusinessHours[]
   scheduleBlocks ScheduleBlock[]
   conversations Conversation[]
+  campaigns     Campaign[]
+  marketingPreferences CustomerMarketingPreference[]
+  campaignDeliveries CampaignDelivery[]
+  campaignRuns CampaignRun[]
+  campaignJobs CampaignJob[]
 
   createdAt     DateTime       @default(now())
 }
@@ -134,6 +139,10 @@ model Customer {
 
   appointments Appointment[]
   notes        CustomerNote[]
+  marketingPreferences CustomerMarketingPreference[]
+  campaignDeliveries CampaignDelivery[]
+  manualCampaignRecipients CampaignManualRecipient[]
+  campaignJobs CampaignJob[]
 
   createdAt DateTime @default(now())
 }
@@ -262,4 +271,160 @@ model ScheduleBlock {
   endAt DateTime
 
   createdAt DateTime @default(now())
+}
+
+model Campaign {
+  id String @id @default(cuid())
+
+  businessId String
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  name String
+  type String @default("ONE_TIME")
+  channel String @default("WHATSAPP")
+  status String @default("DRAFT")
+  segment String @default("ALL")
+  segmentLabel String @default("Todos los clientes")
+  segmentDays Int?
+  priority Int @default(2)
+  maxAttempts Int @default(2)
+  retryIntervalDays Int @default(30)
+  cooldownDays Int @default(30)
+  respectCooldown Boolean @default(true)
+  stopOnBooking Boolean @default(true)
+  stopOnReply Boolean @default(true)
+  restartAfterVisit Boolean @default(true)
+  message String
+  imageUrl String?
+  scheduleMode String @default("IMMEDIATE")
+  scheduledAt DateTime?
+  budgetLimit Int?
+  deliveries CampaignDelivery[]
+  manualRecipients CampaignManualRecipient[]
+  runs CampaignRun[]
+  jobs CampaignJob[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([businessId, status, updatedAt])
+}
+
+model CampaignManualRecipient {
+  id String @id @default(cuid())
+
+  campaignId String
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  customerId String
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([campaignId, customerId])
+  @@index([customerId])
+}
+
+model CustomerMarketingPreference {
+  id String @id @default(cuid())
+
+  businessId String
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  customerId String
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  status String @default("NOT_AUTHORIZED")
+  source String @default("DEFAULT")
+  optedInAt DateTime?
+  declinedAt DateTime?
+  optedOutAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([businessId, customerId])
+  @@index([businessId, status])
+}
+
+model CampaignDelivery {
+  id String @id @default(cuid())
+
+  businessId String
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  campaignId String
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  customerId String
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  status String @default("SENT")
+  attemptNumber Int @default(1)
+  providerMessageId String?
+  sentAt DateTime @default(now())
+  deliveredAt DateTime?
+  readAt DateTime?
+  respondedAt DateTime?
+  bookedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([businessId, customerId, sentAt])
+  @@index([campaignId, customerId, sentAt])
+}
+
+model CampaignRun {
+  id String @id @default(cuid())
+
+  businessId String
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  campaignId String
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  mode String @default("SIMULATION")
+  status String @default("COMPLETED")
+  candidateCount Int @default(0)
+  eligibleCount Int @default(0)
+  excludedCount Int @default(0)
+  exclusionSummary Json
+  configurationSnapshot Json
+  createdAt DateTime @default(now())
+  completedAt DateTime?
+
+  jobs CampaignJob[]
+
+  @@index([campaignId, createdAt])
+  @@index([businessId, createdAt])
+}
+
+model CampaignJob {
+  id String @id @default(cuid())
+
+  businessId String
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  campaignId String
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  runId String
+  run CampaignRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  customerId String
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  status String @default("READY")
+  attemptNumber Int @default(1)
+  retryCount Int @default(0)
+  maxRetries Int @default(3)
+  nextAttemptAt DateTime @default(now())
+  lockedAt DateTime?
+  lockToken String?
+  idempotencyKey String @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([runId, customerId])
+  @@index([status, nextAttemptAt])
+  @@index([campaignId, customerId])
+  @@index([businessId, status])
 }

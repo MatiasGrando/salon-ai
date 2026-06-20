@@ -1,0 +1,2 @@
+ALTER TABLE "Campaign"
+ADD COLUMN "respectCooldown" BOOLEAN NOT NULL DEFAULT true;
