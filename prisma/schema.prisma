@@ -69,7 +69,7 @@ model Business {
   campaignDeliveries CampaignDelivery[]
   campaignRuns CampaignRun[]
   campaignJobs CampaignJob[]
-  whatsappReminderAutomation WhatsAppReminderAutomation?
+  reminderAutomations ReminderAutomation[]
 
   createdAt     DateTime       @default(now())
 }
@@ -348,12 +348,14 @@ model WhatsAppTemplate {
   @@index([businessId, status, updatedAt])
 }
 
-model WhatsAppReminderAutomation {
+model ReminderAutomation {
   id String @id @default(cuid())
 
-  businessId String @unique
+  businessId String
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
+  name String
+  channel String @default("WHATSAPP")
   templateId String?
   enabled Boolean @default(false)
   sendBeforeMinutes Int @default(1440)
@@ -361,7 +363,8 @@ model WhatsAppReminderAutomation {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([templateId])
+  @@index([businessId, enabled])
+  @@index([businessId, sendBeforeMinutes])
 }
 
 model CampaignManualRecipient {

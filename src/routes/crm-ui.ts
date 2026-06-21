@@ -2612,6 +2612,10 @@ const crmHtml = `<!doctype html>
     .template-test-feedback.error { color: #b42318; }
     .template-test-feedback.success { color: #047857; }
     .template-category-badge.utility { background: #dbeafe; color: #1d4ed8; }
+    .reminder-list-button { width: 100%; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+    .reminder-list-button.selected { background: #eff6ff; box-shadow: inset 3px 0 0 #0d63f3; }
+    .reminder-list-button .campaign-recipient-row { grid-template-columns: 38px minmax(0, 1fr) auto; }
+    .reminder-channel-chip { display: inline-flex; align-items: center; padding: 5px 8px; border-radius: 999px; background: #eef4ff; color: #1d4ed8; font-size: 11px; font-weight: 800; }
     .template-dialog { width: min(1080px, calc(100vw - 42px)); max-height: min(880px, calc(100vh - 36px)); }
     .template-builder-grid { display: grid; grid-template-columns: minmax(520px, 1.2fr) minmax(340px, .8fr); gap: 20px; align-items: start; }
     .template-builder-main { display: grid; gap: 18px; }
@@ -8636,8 +8640,20 @@ const crmHtml = `<!doctype html>
           </section>
           <div class="campaigns-workspace template-workspace">
             <section class="campaign-list-panel">
-              <div class="campaign-list-toolbar"><div><strong>Configuraci&oacute;n de recordatorios</strong><p class="hint">Solo usa plantillas aprobadas de Recordatorio. Por ahora no env&iacute;a WhatsApp real.</p></div></div>
+              <div class="campaign-list-toolbar"><div><strong>Recordatorios configurados</strong><p class="hint">Pod&eacute;s tener varios recordatorios por turno. WhatsApp exige plantilla aprobada.</p></div></div>
+              <div class="campaign-recipient-list" id="reminder-list"></div>
               <div class="template-builder-card">
+                <div class="campaign-form-field full">
+                  <label for="reminder-name">Nombre interno</label>
+                  <input id="reminder-name" placeholder="Ej: Recordatorio 24 hs antes">
+                </div>
+                <div class="campaign-form-field full">
+                  <label for="reminder-channel">Canal</label>
+                  <select id="reminder-channel">
+                    <option value="WHATSAPP">WhatsApp</option>
+                    <option value="EMAIL">Email - pr&oacute;ximamente</option>
+                  </select>
+                </div>
                 <div class="campaign-form-field full">
                   <label for="reminder-template">Plantilla aprobada de Recordatorio</label>
                   <select id="reminder-template"><option value="">Seleccionar plantilla aprobada</option></select>
@@ -8662,7 +8678,7 @@ const crmHtml = `<!doctype html>
                   <span class="automation-switch" aria-hidden="true"></span>
                 </label>
                 <p class="campaign-form-feedback" id="reminder-feedback" role="status" aria-live="polite"></p>
-                <div class="dialog-actions"><button class="primary" id="reminder-save" type="button">Guardar recordatorio</button></div>
+                <div class="dialog-actions"><button class="secondary" id="reminder-delete" type="button">Eliminar</button><button class="primary" id="reminder-save" type="button">Guardar recordatorio</button></div>
               </div>
             </section>
             <aside class="campaign-detail-panel template-detail-panel" id="reminder-detail-panel">
@@ -9335,7 +9351,10 @@ const crmHtml = `<!doctype html>
       marketingView: 'templates',
       whatsappTemplates: [],
       templatesLoaded: false,
-      reminderSettings: null,
+      reminderAutomations: [],
+      selectedReminderId: null,
+      reminderDraft: { name: '', channel: 'WHATSAPP', templateId: null, enabled: false, sendBeforeMinutes: 1440 },
+      pendingReminderDeleteConfirm: false,
       reminderLoaded: false,
       selectedTemplateId: null,
       templateFilter: 'ALL',
@@ -9515,9 +9534,13 @@ const crmHtml = `<!doctype html>
       templatePendingCount: document.getElementById('template-pending-count'),
       templateDraftCount: document.getElementById('template-draft-count'),
       templateRejectedCount: document.getElementById('template-rejected-count'),
+      reminderList: document.getElementById('reminder-list'),
+      reminderName: document.getElementById('reminder-name'),
+      reminderChannel: document.getElementById('reminder-channel'),
       reminderTemplate: document.getElementById('reminder-template'),
       reminderBefore: document.getElementById('reminder-before'),
       reminderEnabled: document.getElementById('reminder-enabled'),
+      reminderDelete: document.getElementById('reminder-delete'),
       reminderSave: document.getElementById('reminder-save'),
       reminderFeedback: document.getElementById('reminder-feedback'),
       reminderStatusLabel: document.getElementById('reminder-status-label'),
@@ -13151,13 +13174,13 @@ const crmHtml = `<!doctype html>
       document.querySelector('.campaigns-title p').textContent = view === 'templates' ? 'Creá y administrá plantillas de Marketing y Recordatorios para revisión de Meta.' : 'Segmentá clientes, enviá mensajes y generá más reservas.'
       els.campaignSearch.placeholder = view === 'templates' ? 'Buscar plantilla' : 'Buscar campaña'
       els.campaignSearch.value = view === 'templates' ? state.templateSearch : state.campaignSearch
-      els.campaignNew.innerHTML = '<span class="campaign-new-plus">+</span>' + (view === 'templates' ? 'Nueva plantilla' : 'Nueva campaña')
+      els.campaignNew.innerHTML = '<span class="campaign-new-plus">+</span>' + (view === 'templates' ? 'Nueva plantilla' : view === 'reminders' ? 'Nuevo recordatorio' : 'Nueva campaña')
       if (view === 'templates' && !state.templatesLoaded) loadWhatsappTemplates()
       if (view === 'reminders') {
         document.querySelector('.campaigns-title h2').textContent = 'Recordatorios automáticos'
         document.querySelector('.campaigns-title p').textContent = 'Configurá recordatorios de turnos con plantillas aprobadas por Meta.'
         els.campaignSearch.placeholder = 'Buscar recordatorio'
-        els.campaignNew.hidden = true
+        els.campaignNew.hidden = false
         loadReminderSettings()
       } else {
         els.campaignNew.hidden = false
@@ -13199,8 +13222,9 @@ const crmHtml = `<!doctype html>
       if (!state.businessId) return
       if (!state.templatesLoaded) await loadWhatsappTemplates()
       try {
-        state.reminderSettings = await getJson('/whatsapp-reminder-automation?businessId=' + encodeURIComponent(state.businessId))
+        state.reminderAutomations = await getJson('/reminder-automations?businessId=' + encodeURIComponent(state.businessId))
         state.reminderLoaded = true
+        if (state.selectedReminderId && !state.reminderAutomations.some((item) => item.id === state.selectedReminderId)) state.selectedReminderId = null
         renderReminderSettings()
       } catch (error) {
         els.reminderFeedback.textContent = error.message
@@ -13219,32 +13243,83 @@ const crmHtml = `<!doctype html>
       return state.whatsappTemplates.filter((item) => item.status === 'APPROVED' && item.category === 'UTILITY')
     }
 
+    function reminderChannelLabel(channel) {
+      return channel === 'EMAIL' ? 'Email' : 'WhatsApp'
+    }
+
+    function currentReminderDraft() {
+      return state.selectedReminderId
+        ? (state.reminderAutomations.find((item) => item.id === state.selectedReminderId) || state.reminderDraft)
+        : state.reminderDraft
+    }
+
+    function resetReminderDraft() {
+      state.selectedReminderId = null
+      state.pendingReminderDeleteConfirm = false
+      state.reminderDraft = { name: '', channel: 'WHATSAPP', templateId: null, enabled: false, sendBeforeMinutes: 1440 }
+      els.reminderFeedback.textContent = ''
+      els.reminderFeedback.className = 'campaign-form-feedback'
+      renderReminderSettings()
+      els.reminderName?.focus()
+    }
+
     function renderReminderSettings() {
       if (!els.reminderTemplate) return
       const templates = approvedReminderTemplates()
-      const settings = state.reminderSettings || { templateId: '', enabled: false, sendBeforeMinutes: 1440 }
+      const settings = currentReminderDraft()
+      const query = state.campaignSearch.trim().toLowerCase()
+      const filteredReminders = state.reminderAutomations.filter((item) => {
+        const template = state.whatsappTemplates.find((templateItem) => templateItem.id === item.templateId)
+        return !query || [item.name, template?.internalName, reminderChannelLabel(item.channel)].some((value) => String(value || '').toLowerCase().includes(query))
+      })
+      els.reminderList.innerHTML = filteredReminders.length
+        ? filteredReminders.map((item) => {
+            const template = state.whatsappTemplates.find((templateItem) => templateItem.id === item.templateId)
+            return '<button class="reminder-list-button' + (item.id === state.selectedReminderId ? ' selected' : '') + '" type="button" data-reminder-id="' + escapeHtml(item.id) + '"><div class="campaign-recipient-row"><div class="campaign-recipient-avatar">' + (item.channel === 'EMAIL' ? '&#9993;' : '&#128276;') + '</div><div class="campaign-recipient-copy"><strong>' + escapeHtml(item.name) + '</strong><span>' + escapeHtml(template?.internalName || 'Sin plantilla') + ' · ' + escapeHtml(reminderTimeLabel(item.sendBeforeMinutes)) + ' antes</span></div><span class="reminder-channel-chip">' + escapeHtml(reminderChannelLabel(item.channel)) + '</span></div></button>'
+          }).join('')
+        : '<div class="template-variable-empty">Todavía no hay recordatorios. Creá uno para turnos por WhatsApp; Email queda preparado para más adelante.</div>'
       els.reminderTemplate.innerHTML = '<option value="">Seleccionar plantilla aprobada</option>' + templates.map((item) => '<option value="' + escapeHtml(item.id) + '">' + escapeHtml(item.internalName) + ' (' + escapeHtml(item.language) + ')</option>').join('')
+      els.reminderName.value = settings.name || ''
+      els.reminderChannel.value = settings.channel || 'WHATSAPP'
       els.reminderTemplate.value = settings.templateId || ''
       els.reminderBefore.value = String(settings.sendBeforeMinutes || 1440)
       els.reminderEnabled.checked = Boolean(settings.enabled)
-      els.reminderStatusLabel.textContent = settings.enabled ? 'Activo' : 'Pausado'
+      const activeCount = state.reminderAutomations.filter((item) => item.enabled).length
+      els.reminderStatusLabel.textContent = activeCount ? activeCount + ' activos' : 'Pausado'
       els.reminderEnabledCopy.textContent = settings.enabled ? 'Activo' : 'Pausado'
       els.reminderTimeLabel.textContent = reminderTimeLabel(settings.sendBeforeMinutes || 1440)
       const template = templates.find((item) => item.id === settings.templateId)
-      els.reminderTemplateLabel.textContent = template ? template.internalName : 'Sin plantilla'
-      els.reminderDetailPanel.innerHTML = template
+      els.reminderTemplateLabel.textContent = state.reminderAutomations.length ? state.reminderAutomations.length + ' configurados' : 'Sin recordatorios'
+      els.reminderDelete.hidden = !state.selectedReminderId
+      els.reminderDelete.textContent = state.pendingReminderDeleteConfirm ? 'Confirmar eliminar' : 'Eliminar'
+      els.reminderTemplate.disabled = settings.channel === 'EMAIL'
+      els.reminderEnabled.disabled = settings.channel === 'EMAIL'
+      els.reminderSave.textContent = state.selectedReminderId ? 'Guardar cambios' : 'Crear recordatorio'
+      els.reminderDetailPanel.innerHTML = settings.channel === 'EMAIL'
+        ? '<div class="campaign-detail-empty"><div><strong>Email preparado para más adelante</strong><br>Este canal queda modelado, pero todavía no se activa ni envía mensajes.</div></div>'
+        : template
         ? '<div class="template-detail-head"><div>' + templateStatusBadge(template.status) + '<h3>' + escapeHtml(template.internalName) + '</h3><p class="template-meta-line">Nombre en Meta: ' + escapeHtml(template.metaName) + '</p></div></div><div class="template-preview">' + (template.imageUrl ? '<img class="template-detail-preview-image" src="' + escapeHtml(template.imageUrl) + '" alt="Imagen de la plantilla">' : '') + '<div class="template-preview-message">' + escapeHtml(template.body) + '</div></div><div class="template-review-note"><strong>Preparado para recordatorios.</strong><span>El envío real se conectará en el siguiente paso.</span></div>'
         : '<div class="campaign-detail-empty"><div><strong>Recordatorio automático</strong><br>Elegí una plantilla aprobada de Recordatorio para ver la vista previa.</div></div>'
     }
 
     function updateReminderDraftFromForm() {
-      state.reminderSettings = {
-        ...(state.reminderSettings || {}),
+      const next = {
+        ...currentReminderDraft(),
         businessId: state.businessId,
-        templateId: els.reminderTemplate.value || null,
-        enabled: els.reminderEnabled.checked,
+        name: els.reminderName.value.trim(),
+        channel: els.reminderChannel.value,
+        templateId: els.reminderChannel.value === 'EMAIL' ? null : (els.reminderTemplate.value || null),
+        enabled: els.reminderChannel.value === 'EMAIL' ? false : els.reminderEnabled.checked,
         sendBeforeMinutes: Number(els.reminderBefore.value || 1440)
       }
+      if (state.selectedReminderId) {
+        state.reminderAutomations = state.reminderAutomations.map((item) => item.id === state.selectedReminderId ? { ...item, ...next } : item)
+      } else {
+        state.reminderDraft = next
+      }
+      state.pendingReminderDeleteConfirm = false
+      els.reminderFeedback.textContent = ''
+      els.reminderFeedback.className = 'campaign-form-feedback'
       renderReminderSettings()
     }
 
@@ -13252,24 +13327,54 @@ const crmHtml = `<!doctype html>
       els.reminderFeedback.textContent = ''
       els.reminderSave.disabled = true
       try {
-        state.reminderSettings = await getJson('/whatsapp-reminder-automation', {
-          method: 'PATCH',
+        const payload = {
+          businessId: state.businessId,
+          name: els.reminderName.value.trim(),
+          channel: els.reminderChannel.value,
+          templateId: els.reminderChannel.value === 'EMAIL' ? null : (els.reminderTemplate.value || null),
+          enabled: els.reminderChannel.value === 'EMAIL' ? false : els.reminderEnabled.checked,
+          sendBeforeMinutes: els.reminderBefore.value
+        }
+        const saved = await getJson(state.selectedReminderId ? '/reminder-automations/' + state.selectedReminderId : '/reminder-automations', {
+          method: state.selectedReminderId ? 'PATCH' : 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            businessId: state.businessId,
-            templateId: els.reminderTemplate.value || null,
-            enabled: els.reminderEnabled.checked,
-            sendBeforeMinutes: els.reminderBefore.value
-          })
+          body: JSON.stringify(payload)
         })
+        state.selectedReminderId = saved.id
+        state.reminderDraft = { name: '', channel: 'WHATSAPP', templateId: null, enabled: false, sendBeforeMinutes: 1440 }
+        await loadReminderSettings()
         els.reminderFeedback.textContent = 'Recordatorio guardado.'
         els.reminderFeedback.className = 'campaign-form-feedback success'
-        renderReminderSettings()
       } catch (error) {
         els.reminderFeedback.textContent = error.message
         els.reminderFeedback.className = 'campaign-form-feedback error'
       } finally {
         els.reminderSave.disabled = false
+      }
+    }
+
+    async function deleteSelectedReminder() {
+      if (!state.selectedReminderId) return
+      if (!state.pendingReminderDeleteConfirm) {
+        state.pendingReminderDeleteConfirm = true
+        els.reminderFeedback.textContent = 'Tocá Confirmar eliminar para borrar este recordatorio.'
+        els.reminderFeedback.className = 'campaign-form-feedback error'
+        renderReminderSettings()
+        return
+      }
+      els.reminderDelete.disabled = true
+      try {
+        await getJson('/reminder-automations/' + state.selectedReminderId, { method: 'DELETE' })
+        state.selectedReminderId = null
+        state.pendingReminderDeleteConfirm = false
+        await loadReminderSettings()
+        els.reminderFeedback.textContent = 'Recordatorio eliminado.'
+        els.reminderFeedback.className = 'campaign-form-feedback success'
+      } catch (error) {
+        els.reminderFeedback.textContent = error.message
+        els.reminderFeedback.className = 'campaign-form-feedback error'
+      } finally {
+        els.reminderDelete.disabled = false
       }
     }
 
@@ -14786,7 +14891,7 @@ const crmHtml = `<!doctype html>
     els.serviceForm.addEventListener('submit', saveService)
     els.serviceCancel.addEventListener('click', resetServiceForm)
     els.serviceSearch?.addEventListener('input', renderServices)
-    els.campaignNew.addEventListener('click', () => state.marketingView === 'templates' ? openTemplateDialog() : openCampaignDialog())
+    els.campaignNew.addEventListener('click', () => state.marketingView === 'templates' ? openTemplateDialog() : state.marketingView === 'reminders' ? resetReminderDraft() : openCampaignDialog())
     els.marketingMainTabs.addEventListener('click', (event) => {
       const button = event.target.closest('[data-marketing-view]')
       if (button) setMarketingView(button.dataset.marketingView)
@@ -14805,10 +14910,22 @@ const crmHtml = `<!doctype html>
       renderWhatsappTemplates()
     })
     els.templateSyncAll.addEventListener('click', syncAllWhatsappTemplates)
+    els.reminderList.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-reminder-id]')
+      if (!button) return
+      state.selectedReminderId = button.dataset.reminderId
+      state.pendingReminderDeleteConfirm = false
+      els.reminderFeedback.textContent = ''
+      els.reminderFeedback.className = 'campaign-form-feedback'
+      renderReminderSettings()
+    })
+    els.reminderName.addEventListener('input', updateReminderDraftFromForm)
+    els.reminderChannel.addEventListener('change', updateReminderDraftFromForm)
     els.reminderTemplate.addEventListener('change', updateReminderDraftFromForm)
     els.reminderBefore.addEventListener('change', updateReminderDraftFromForm)
     els.reminderEnabled.addEventListener('change', updateReminderDraftFromForm)
     els.reminderSave.addEventListener('click', saveReminderSettings)
+    els.reminderDelete.addEventListener('click', deleteSelectedReminder)
     els.templateDetailPanel.addEventListener('click', async (event) => {
       const button = event.target.closest('[data-template-action]')
       if (!button) return
@@ -14954,6 +15071,9 @@ const crmHtml = `<!doctype html>
       if (state.marketingView === 'templates') {
         state.templateSearch = els.campaignSearch.value.trim()
         renderWhatsappTemplates()
+      } else if (state.marketingView === 'reminders') {
+        state.campaignSearch = els.campaignSearch.value.trim()
+        renderReminderSettings()
       } else {
         state.campaignSearch = els.campaignSearch.value.trim()
         state.campaignPage = 1

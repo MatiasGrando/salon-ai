@@ -266,40 +266,95 @@ export async function campaignRoutes(app: FastifyInstance) {
     return resolved
   })
 
-  app.get('/whatsapp-reminder-automation', async (request, reply) => {
+  app.get('/reminder-automations', async (request, reply) => {
     const query = request.query as { businessId?: string }
     const businessId = query.businessId?.trim()
     if (!businessId) return reply.status(400).send({ message: 'businessId es requerido' })
-    const current = await prisma.whatsAppReminderAutomation.findUnique({ where: { businessId } })
-    if (current) return current
-    return prisma.whatsAppReminderAutomation.create({ data: { businessId } })
+    return prisma.reminderAutomation.findMany({ where: { businessId }, orderBy: [{ sendBeforeMinutes: 'desc' }, { createdAt: 'desc' }] })
   })
 
-  app.patch('/whatsapp-reminder-automation', async (request, reply) => {
-    const body = request.body as { businessId?: string; templateId?: string | null; enabled?: boolean; sendBeforeMinutes?: number | string }
+  app.post('/reminder-automations', async (request, reply) => {
+    const body = request.body as { businessId?: string; name?: string; channel?: string; templateId?: string | null; enabled?: boolean; sendBeforeMinutes?: number | string }
     const businessId = body.businessId?.trim()
+    const normalized = await normalizeReminderAutomationInput(body, reply, businessId)
+    if (!normalized) return
+    return prisma.reminderAutomation.create({ data: normalized })
+  })
+
+  app.patch('/reminder-automations/:id', async (request, reply) => {
+    const params = request.params as { id: string }
+    const current = await prisma.reminderAutomation.findUnique({ where: { id: params.id } })
+    if (!current) return reply.status(404).send({ message: 'No encontre ese recordatorio' })
+    const body = request.body as { name?: string; channel?: string; templateId?: string | null; enabled?: boolean; sendBeforeMinutes?: number | string }
+    const normalized = await normalizeReminderAutomationInput({ ...current, ...body, businessId: current.businessId }, reply, current.businessId)
+    if (!normalized) return
+    const { businessId: _businessId, ...data } = normalized
+    return prisma.reminderAutomation.update({ where: { id: current.id }, data })
+  })
+
+  app.delete('/reminder-automations/:id', async (request, reply) => {
+    const params = request.params as { id: string }
+    const current = await prisma.reminderAutomation.findUnique({ where: { id: params.id } })
+    if (!current) return reply.status(404).send({ message: 'No encontre ese recordatorio' })
+    await prisma.reminderAutomation.delete({ where: { id: current.id } })
+    return { deleted: true }
+  })
+
+  async function normalizeReminderAutomationInput(
+    body: { businessId?: string; name?: string; channel?: string; templateId?: string | null; enabled?: boolean; sendBeforeMinutes?: number | string },
+    reply: FastifyReply,
+    fallbackBusinessId?: string
+  ) {
+    const businessId = body.businessId?.trim() || fallbackBusinessId
+    const name = body.name?.trim()
+    const channel = body.channel?.trim().toUpperCase() || 'WHATSAPP'
     const templateId = body.templateId?.trim() || null
     const sendBeforeMinutes = Number(body.sendBeforeMinutes ?? 1440)
-    if (!businessId) return reply.status(400).send({ message: 'businessId es requerido' })
+    if (!businessId) {
+      reply.status(400).send({ message: 'businessId es requerido' })
+      return null
+    }
+    if (!name) {
+      reply.status(400).send({ message: 'El nombre del recordatorio es requerido' })
+      return null
+    }
+    if (!['WHATSAPP', 'EMAIL'].includes(channel)) {
+      reply.status(400).send({ message: 'Canal de recordatorio invalido' })
+      return null
+    }
     if (![60, 120, 1440, 2880].includes(sendBeforeMinutes)) {
-      return reply.status(400).send({ message: 'Elegí un tiempo de recordatorio válido' })
+      reply.status(400).send({ message: 'Elegi un tiempo de recordatorio valido' })
+      return null
     }
-    if (templateId) {
-      const template = await prisma.whatsAppTemplate.findFirst({ where: { id: templateId, businessId, status: 'APPROVED' } })
-      if (!template) return reply.status(400).send({ message: 'Seleccioná una plantilla de recordatorio aprobada' })
-      if (normalizeWhatsAppTemplateCategory(template.category) !== 'UTILITY') {
-        return reply.status(400).send({ message: 'Los recordatorios solo pueden usar plantillas aprobadas de Recordatorio' })
+    if (channel === 'WHATSAPP') {
+      if (templateId) {
+        const template = await prisma.whatsAppTemplate.findFirst({ where: { id: templateId, businessId, status: 'APPROVED' } })
+        if (!template) {
+          reply.status(400).send({ message: 'Selecciona una plantilla de recordatorio aprobada' })
+          return null
+        }
+        if (normalizeWhatsAppTemplateCategory(template.category) !== 'UTILITY') {
+          reply.status(400).send({ message: 'Los recordatorios solo pueden usar plantillas aprobadas de Recordatorio' })
+          return null
+        }
       }
+      if (body.enabled && !templateId) {
+        reply.status(400).send({ message: 'Selecciona una plantilla aprobada antes de activar recordatorios' })
+        return null
+      }
+    } else if (body.enabled) {
+      reply.status(400).send({ message: 'Recordatorios por email quedan preparados para mas adelante' })
+      return null
     }
-    if (body.enabled && !templateId) {
-      return reply.status(400).send({ message: 'Seleccioná una plantilla aprobada antes de activar recordatorios' })
+    return {
+      businessId,
+      name,
+      channel,
+      templateId,
+      enabled: Boolean(body.enabled),
+      sendBeforeMinutes
     }
-    return prisma.whatsAppReminderAutomation.upsert({
-      where: { businessId },
-      create: { businessId, templateId, enabled: Boolean(body.enabled), sendBeforeMinutes },
-      update: { templateId, enabled: Boolean(body.enabled), sendBeforeMinutes }
-    })
-  })
+  }
 
   app.post('/whatsapp/message-templates', async (request, reply) => {
     const body = request.body as {
