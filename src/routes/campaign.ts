@@ -18,6 +18,8 @@ const CAMPAIGN_SEGMENTS = [
   'FREQUENT',
   'NO_FUTURE_APPOINTMENT'
 ] as const
+const MARKETING_TEMPLATE_VARIABLES = ['nombre_cliente', 'fecha_ultima_visita'] as const
+const REMINDER_TEMPLATE_VARIABLES = ['nombre_cliente', 'fecha_turno', 'hora_turno', 'servicio', 'profesional'] as const
 const whatsappCloudApi = new WhatsAppCloudApi()
 
 type CampaignInput = {
@@ -65,7 +67,7 @@ export async function campaignRoutes(app: FastifyInstance) {
   })
 
   app.post('/whatsapp-templates', async (request, reply) => {
-    const body = request.body as { businessId?: string; internalName?: string; metaName?: string; category?: string; language?: string; body?: string; examples?: Record<string, string> }
+    const body = request.body as { businessId?: string; internalName?: string; metaName?: string; category?: string; language?: string; body?: string; examples?: Record<string, string>; imageUrl?: string | null }
     const businessId = body.businessId?.trim()
     const internalName = body.internalName?.trim()
     const metaName = normalizeTemplateName(body.metaName)
@@ -74,14 +76,18 @@ export async function campaignRoutes(app: FastifyInstance) {
     const messageBody = body.body?.trim()
     const variables = extractNamedTemplateVariables(messageBody || '')
     const examples = normalizeTemplateExamples(body.examples, variables)
+    const imageUrl = normalizeCampaignImage(body.imageUrl)
     if (!businessId) return reply.status(400).send({ message: 'businessId es requerido' })
     if (!internalName) return reply.status(400).send({ message: 'El nombre interno es requerido' })
     if (!metaName) return reply.status(400).send({ message: 'El nombre en Meta debe usar minusculas, numeros y guiones bajos' })
     if (!category) return reply.status(400).send({ message: 'La categoria debe ser Marketing o Recordatorio' })
     if (!messageBody) return reply.status(400).send({ message: 'El mensaje es requerido' })
     if (messageBody.length > 1024) return reply.status(400).send({ message: 'El mensaje no puede superar 1024 caracteres' })
+    const unsupportedVariables = unsupportedTemplateVariables(category, variables)
+    if (unsupportedVariables.length) return reply.status(400).send({ message: unsupportedTemplateVariablesMessage(category, unsupportedVariables) })
     if (variables.some((variable) => !examples[variable])) return reply.status(400).send({ message: 'Completa un ejemplo para cada variable de la plantilla' })
     if (!/^[a-z]{2}(_[A-Z]{2})?$/.test(language)) return reply.status(400).send({ message: 'Idioma invalido' })
+    if (body.imageUrl !== undefined && imageUrl === undefined) return reply.status(400).send({ message: 'La imagen debe ser PNG, JPG o WEBP y no superar 2 MB' })
     const existing = await prisma.whatsAppTemplate.findFirst({
       where: { businessId, metaName, language },
       select: { id: true }
@@ -91,7 +97,7 @@ export async function campaignRoutes(app: FastifyInstance) {
     }
     try {
       return await prisma.whatsAppTemplate.create({
-        data: { businessId, internalName, metaName, category, language, body: messageBody, exampleJson: JSON.stringify(examples) }
+        data: { businessId, internalName, metaName, category, language, body: messageBody, exampleJson: JSON.stringify(examples), imageUrl }
       })
     } catch (error) {
       if (isUniqueConstraintError(error)) {
@@ -108,7 +114,7 @@ export async function campaignRoutes(app: FastifyInstance) {
     if (!['DRAFT', 'REJECTED'].includes(current.status)) {
       return reply.status(409).send({ message: 'Una plantilla enviada a Meta no puede editarse. Duplica la plantilla para crear otra version.' })
     }
-    const body = request.body as { internalName?: string; metaName?: string; category?: string; language?: string; body?: string; examples?: Record<string, string> }
+    const body = request.body as { internalName?: string; metaName?: string; category?: string; language?: string; body?: string; examples?: Record<string, string>; imageUrl?: string | null }
     const internalName = body.internalName?.trim() || current.internalName
     const metaName = body.metaName === undefined ? current.metaName : normalizeTemplateName(body.metaName)
     const category = body.category === undefined ? current.category : normalizeWhatsAppTemplateCategory(body.category)
@@ -116,10 +122,14 @@ export async function campaignRoutes(app: FastifyInstance) {
     const messageBody = body.body?.trim() || current.body
     const variables = extractNamedTemplateVariables(messageBody)
     const examples = normalizeTemplateExamples(body.examples ?? parseTemplateExamples(current.exampleJson), variables)
+    const imageUrl = body.imageUrl === undefined ? current.imageUrl : normalizeCampaignImage(body.imageUrl)
     if (!metaName) return reply.status(400).send({ message: 'Nombre en Meta invalido' })
     if (!category) return reply.status(400).send({ message: 'La categoria debe ser Marketing o Recordatorio' })
     if (messageBody.length > 1024) return reply.status(400).send({ message: 'El mensaje no puede superar 1024 caracteres' })
+    const unsupportedVariables = unsupportedTemplateVariables(category, variables)
+    if (unsupportedVariables.length) return reply.status(400).send({ message: unsupportedTemplateVariablesMessage(category, unsupportedVariables) })
     if (variables.some((variable) => !examples[variable])) return reply.status(400).send({ message: 'Completa un ejemplo para cada variable de la plantilla' })
+    if (body.imageUrl !== undefined && imageUrl === undefined) return reply.status(400).send({ message: 'La imagen debe ser PNG, JPG o WEBP y no superar 2 MB' })
     const existing = await prisma.whatsAppTemplate.findFirst({
       where: { businessId: current.businessId, metaName, language, id: { not: current.id } },
       select: { id: true }
@@ -130,7 +140,7 @@ export async function campaignRoutes(app: FastifyInstance) {
     try {
       return await prisma.whatsAppTemplate.update({
         where: { id: current.id },
-        data: { internalName, metaName, category, language, body: messageBody, exampleJson: JSON.stringify(examples), status: 'DRAFT', rejectionReason: null }
+        data: { internalName, metaName, category, language, body: messageBody, exampleJson: JSON.stringify(examples), imageUrl, status: 'DRAFT', rejectionReason: null }
       })
     } catch (error) {
       if (isUniqueConstraintError(error)) {
@@ -140,6 +150,20 @@ export async function campaignRoutes(app: FastifyInstance) {
     }
   })
 
+  app.delete('/whatsapp-templates/:id', async (request, reply) => {
+    const params = request.params as { id: string }
+    const template = await prisma.whatsAppTemplate.findUnique({
+      where: { id: params.id },
+      include: { _count: { select: { campaigns: true } } }
+    })
+    if (!template) return reply.status(404).send({ message: 'No encontre esa plantilla' })
+    if (template._count.campaigns > 0) {
+      return reply.status(409).send({ message: 'No se puede eliminar porque esta plantilla esta usada por una o mas campanas' })
+    }
+    await prisma.whatsAppTemplate.delete({ where: { id: template.id } })
+    return { deleted: true }
+  })
+
   app.post('/whatsapp-templates/:id/submit', async (request, reply) => {
     const params = request.params as { id: string }
     const template = await prisma.whatsAppTemplate.findUnique({ where: { id: params.id } })
@@ -147,6 +171,8 @@ export async function campaignRoutes(app: FastifyInstance) {
     if (!['DRAFT', 'REJECTED'].includes(template.status)) return reply.status(409).send({ message: 'La plantilla ya fue enviada a Meta' })
     const examples = parseTemplateExamples(template.exampleJson)
     const variables = extractNamedTemplateVariables(template.body)
+    const unsupportedVariables = unsupportedTemplateVariables(normalizeWhatsAppTemplateCategory(template.category) ?? 'MARKETING', variables)
+    if (unsupportedVariables.length) return reply.status(400).send({ message: unsupportedTemplateVariablesMessage(template.category, unsupportedVariables) })
     const missingExamples = variables.filter((variable) => !examples[variable])
     if (missingExamples.length) return reply.status(400).send({ message: 'Completa los ejemplos de Meta para: ' + missingExamples.join(', ') })
     const metaTemplate = buildMetaTemplateBody(template.body, examples)
@@ -155,7 +181,8 @@ export async function campaignRoutes(app: FastifyInstance) {
       languageCode: template.language,
       category: normalizeWhatsAppTemplateCategory(template.category) ?? 'MARKETING',
       bodyText: metaTemplate.bodyText,
-      bodyExamples: metaTemplate.bodyExamples
+      bodyExamples: metaTemplate.bodyExamples,
+      headerImageDataUrl: template.imageUrl
     })
     if (!result.created) {
       return reply.status(502).send({ message: result.errorMessage || result.reason || 'Meta rechazo la solicitud', errorCode: result.errorCode })
@@ -209,12 +236,69 @@ export async function campaignRoutes(app: FastifyInstance) {
       to: phone,
       templateName: template.metaName,
       languageCode: template.language,
-      bodyParameters: variables.map((variable) => examples[variable])
+      bodyParameters: variables.map((variable) => examples[variable]),
+      headerImageDataUrl: template.imageUrl
     })
     if (!result.sent) {
       return reply.status(502).send({ message: result.errorMessage || result.reason || 'No pude enviar la prueba por WhatsApp', errorCode: result.errorCode })
     }
     return { sent: true, to: result.to }
+  })
+
+  app.post('/whatsapp-templates/:id/variable-preview', async (request, reply) => {
+    const params = request.params as { id: string }
+    const body = request.body as { customerId?: string; appointmentId?: string }
+    const template = await prisma.whatsAppTemplate.findUnique({ where: { id: params.id } })
+    if (!template) return reply.status(404).send({ message: 'No encontre esa plantilla' })
+    if (template.status !== 'APPROVED') return reply.status(409).send({ message: 'La plantilla debe estar aprobada para usar datos reales' })
+
+    const context = await buildTemplateVariableContext({
+      businessId: template.businessId,
+      customerId: body.customerId,
+      appointmentId: body.appointmentId
+    })
+    const resolved = resolveWhatsAppTemplateVariables({
+      body: template.body,
+      category: template.category,
+      context
+    })
+    if (resolved.unsupported.length) return reply.status(400).send({ message: unsupportedTemplateVariablesMessage(template.category, resolved.unsupported) })
+    return resolved
+  })
+
+  app.get('/whatsapp-reminder-automation', async (request, reply) => {
+    const query = request.query as { businessId?: string }
+    const businessId = query.businessId?.trim()
+    if (!businessId) return reply.status(400).send({ message: 'businessId es requerido' })
+    const current = await prisma.whatsAppReminderAutomation.findUnique({ where: { businessId } })
+    if (current) return current
+    return prisma.whatsAppReminderAutomation.create({ data: { businessId } })
+  })
+
+  app.patch('/whatsapp-reminder-automation', async (request, reply) => {
+    const body = request.body as { businessId?: string; templateId?: string | null; enabled?: boolean; sendBeforeMinutes?: number | string }
+    const businessId = body.businessId?.trim()
+    const templateId = body.templateId?.trim() || null
+    const sendBeforeMinutes = Number(body.sendBeforeMinutes ?? 1440)
+    if (!businessId) return reply.status(400).send({ message: 'businessId es requerido' })
+    if (![60, 120, 1440, 2880].includes(sendBeforeMinutes)) {
+      return reply.status(400).send({ message: 'Elegí un tiempo de recordatorio válido' })
+    }
+    if (templateId) {
+      const template = await prisma.whatsAppTemplate.findFirst({ where: { id: templateId, businessId, status: 'APPROVED' } })
+      if (!template) return reply.status(400).send({ message: 'Seleccioná una plantilla de recordatorio aprobada' })
+      if (normalizeWhatsAppTemplateCategory(template.category) !== 'UTILITY') {
+        return reply.status(400).send({ message: 'Los recordatorios solo pueden usar plantillas aprobadas de Recordatorio' })
+      }
+    }
+    if (body.enabled && !templateId) {
+      return reply.status(400).send({ message: 'Seleccioná una plantilla aprobada antes de activar recordatorios' })
+    }
+    return prisma.whatsAppReminderAutomation.upsert({
+      where: { businessId },
+      create: { businessId, templateId, enabled: Boolean(body.enabled), sendBeforeMinutes },
+      update: { templateId, enabled: Boolean(body.enabled), sendBeforeMinutes }
+    })
   })
 
   app.post('/whatsapp/message-templates', async (request, reply) => {
@@ -316,6 +400,9 @@ export async function campaignRoutes(app: FastifyInstance) {
     if (normalized.whatsappTemplateId) {
       const template = await prisma.whatsAppTemplate.findFirst({ where: { id: normalized.whatsappTemplateId, businessId: normalized.businessId, status: 'APPROVED' } })
       if (!template) return reply.status(400).send({ message: 'Selecciona una plantilla aprobada de este comercio' })
+      if (normalizeWhatsAppTemplateCategory(template.category) !== 'MARKETING') return reply.status(400).send({ message: 'Las campanas de marketing solo pueden usar plantillas de Marketing aprobadas' })
+      const unsupportedVariables = unsupportedTemplateVariables('MARKETING', extractNamedTemplateVariables(template.body))
+      if (unsupportedVariables.length) return reply.status(400).send({ message: unsupportedTemplateVariablesMessage('MARKETING', unsupportedVariables) })
       normalized.message = template.body
       normalized.templateName = template.metaName
       normalized.templateLanguage = template.language
@@ -323,6 +410,7 @@ export async function campaignRoutes(app: FastifyInstance) {
       normalized.templateStatus = template.status
       normalized.templateRejectionReason = template.rejectionReason
       normalized.templateLastSyncedAt = template.lastSyncedAt
+      normalized.imageUrl = template.imageUrl
     }
 
     const campaign = await prisma.campaign.create({ data: normalized })
@@ -344,6 +432,9 @@ export async function campaignRoutes(app: FastifyInstance) {
     if (normalized.whatsappTemplateId) {
       const template = await prisma.whatsAppTemplate.findFirst({ where: { id: normalized.whatsappTemplateId, businessId: normalized.businessId, status: 'APPROVED' } })
       if (!template) return reply.status(400).send({ message: 'Selecciona una plantilla aprobada de este comercio' })
+      if (normalizeWhatsAppTemplateCategory(template.category) !== 'MARKETING') return reply.status(400).send({ message: 'Las campanas de marketing solo pueden usar plantillas de Marketing aprobadas' })
+      const unsupportedVariables = unsupportedTemplateVariables('MARKETING', extractNamedTemplateVariables(template.body))
+      if (unsupportedVariables.length) return reply.status(400).send({ message: unsupportedTemplateVariablesMessage('MARKETING', unsupportedVariables) })
       normalized.message = template.body
       normalized.templateName = template.metaName
       normalized.templateLanguage = template.language
@@ -351,6 +442,7 @@ export async function campaignRoutes(app: FastifyInstance) {
       normalized.templateStatus = template.status
       normalized.templateRejectionReason = template.rejectionReason
       normalized.templateLastSyncedAt = template.lastSyncedAt
+      normalized.imageUrl = template.imageUrl
     }
 
     const { businessId: _businessId, ...data } = normalized
@@ -913,6 +1005,22 @@ function normalizeWhatsAppTemplateCategory(category?: string | null): 'MARKETING
   return undefined
 }
 
+function supportedTemplateVariables(category?: string | null) {
+  return normalizeWhatsAppTemplateCategory(category) === 'UTILITY'
+    ? REMINDER_TEMPLATE_VARIABLES
+    : MARKETING_TEMPLATE_VARIABLES
+}
+
+function unsupportedTemplateVariables(category: string | null | undefined, variables: string[]) {
+  const allowed = new Set<string>(supportedTemplateVariables(category))
+  return variables.filter((variable) => !allowed.has(variable))
+}
+
+function unsupportedTemplateVariablesMessage(category: string | null | undefined, variables: string[]) {
+  const label = normalizeWhatsAppTemplateCategory(category) === 'UTILITY' ? 'Recordatorio' : 'Marketing'
+  return 'Variables no compatibles para ' + label + ': ' + variables.map((variable) => '{{' + variable + '}}').join(', ')
+}
+
 function extractNamedTemplateVariables(text: string) {
   const variables = new Set<string>()
   for (const match of text.matchAll(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g)) variables.add(match[1])
@@ -948,6 +1056,94 @@ function buildMetaTemplateBody(body: string, examples: Record<string, string>) {
     bodyText,
     bodyExamples: variables.map((variable) => examples[variable]).filter(Boolean)
   }
+}
+
+type TemplateVariableContext = {
+  customer?: { id: string; name: string; phone: string } | null
+  lastVisitAt?: Date | null
+  appointment?: {
+    id: string
+    startAt: Date
+    customer: { id: string; name: string; phone: string }
+    service: { name: string }
+    professional: { name: string }
+  } | null
+}
+
+async function buildTemplateVariableContext(input: { businessId: string; customerId?: string; appointmentId?: string }): Promise<TemplateVariableContext> {
+  const appointment = input.appointmentId
+    ? await prisma.appointment.findFirst({
+        where: { id: input.appointmentId, professional: { businessId: input.businessId } },
+        select: {
+          id: true,
+          startAt: true,
+          customer: { select: { id: true, name: true, phone: true } },
+          service: { select: { name: true } },
+          professional: { select: { name: true } }
+        }
+      })
+    : null
+  const customerId = input.customerId || appointment?.customer.id
+  const customer = customerId
+    ? await prisma.customer.findUnique({
+        where: { id: customerId },
+        select: { id: true, name: true, phone: true }
+      })
+    : null
+  const lastVisit = customer
+    ? await prisma.appointment.findFirst({
+        where: {
+          customerId: customer.id,
+          professional: { businessId: input.businessId },
+          status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+          startAt: { lte: new Date() }
+        },
+        select: { startAt: true },
+        orderBy: { startAt: 'desc' }
+      })
+    : null
+  return { customer: customer || appointment?.customer || null, lastVisitAt: lastVisit?.startAt ?? null, appointment }
+}
+
+function resolveWhatsAppTemplateVariables(input: { body: string; category?: string | null; context: TemplateVariableContext }) {
+  const variables = extractNamedTemplateVariables(input.body)
+  const unsupported = unsupportedTemplateVariables(input.category, variables)
+  const values: Record<string, string> = {}
+  const missing: string[] = []
+  for (const variable of variables) {
+    const value = resolveTemplateVariableValue(variable, input.context)
+    if (value) values[variable] = value
+    else if (!unsupported.includes(variable)) missing.push(variable)
+  }
+  const previewText = input.body.replace(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g, (_match, variable: string) => {
+    return values[variable] || '{{' + variable + '}}'
+  })
+  return {
+    variables,
+    values,
+    missing,
+    unsupported,
+    previewText,
+    bodyParameters: variables.map((variable) => values[variable] || '')
+  }
+}
+
+function resolveTemplateVariableValue(variable: string, context: TemplateVariableContext) {
+  if (variable === 'nombre_cliente') return context.customer?.name?.trim() || null
+  if (variable === 'fecha_ultima_visita') return context.lastVisitAt ? formatTemplateDate(context.lastVisitAt) : null
+  if (variable === 'fecha_turno') return context.appointment?.startAt ? formatTemplateDate(context.appointment.startAt) : null
+  if (variable === 'hora_turno') return context.appointment?.startAt ? formatTemplateTime(context.appointment.startAt) : null
+  if (variable === 'servicio') return context.appointment?.service.name?.trim() || null
+  if (variable === 'profesional') return context.appointment?.professional.name?.trim() || null
+  return null
+}
+
+function formatTemplateDate(date: Date) {
+  return new Intl.DateTimeFormat('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'America/Argentina/Buenos_Aires' }).format(date)
+}
+
+function formatTemplateTime(date: Date) {
+  return new Intl.DateTimeFormat('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Argentina/Buenos_Aires' }).format(date)
 }
 
 function isUniqueConstraintError(error: unknown) {

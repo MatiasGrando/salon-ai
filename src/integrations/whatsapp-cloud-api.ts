@@ -10,6 +10,7 @@ type SendTemplateMessageInput = {
   templateName: string
   languageCode?: string
   bodyParameters?: string[]
+  headerImageDataUrl?: string | null
 }
 
 type CreateMessageTemplateInput = {
@@ -18,6 +19,7 @@ type CreateMessageTemplateInput = {
   category: 'MARKETING' | 'UTILITY'
   bodyText: string
   bodyExamples?: string[]
+  headerImageDataUrl?: string | null
 }
 
 type FindMessageTemplateInput = {
@@ -93,6 +95,16 @@ export class WhatsAppCloudApi {
       }
     }
 
+    let headerHandle: string | null = null
+    if (input.headerImageDataUrl) {
+      if (!whatsappConfig.appId) {
+        return { created: false, reason: 'META_APP_ID no configurado para subir la imagen de la plantilla' }
+      }
+      const upload = await uploadTemplateImage(input.headerImageDataUrl)
+      if (!upload.uploaded) return { created: false, reason: upload.errorMessage || 'No pude subir la imagen a Meta' }
+      headerHandle = upload.handle
+    }
+
     const response = await fetch(
       `https://graph.facebook.com/${whatsappConfig.apiVersion}/${whatsappConfig.businessAccountId}/message_templates`,
       {
@@ -106,6 +118,9 @@ export class WhatsAppCloudApi {
           language: input.languageCode,
           category: input.category,
           components: [
+            ...(headerHandle
+              ? [{ type: 'HEADER', format: 'IMAGE', example: { header_handle: [headerHandle] } }]
+              : []),
             {
               type: 'BODY',
               text: input.bodyText,
@@ -202,6 +217,20 @@ export class WhatsAppCloudApi {
       }
     }
 
+    let headerMediaId: string | null = null
+    if (input.headerImageDataUrl) {
+      const upload = await uploadWhatsAppMedia(input.headerImageDataUrl)
+      if (!upload.uploaded) return { sent: false, to: recipientPhone, reason: upload.errorMessage || 'No pude subir la imagen a WhatsApp' }
+      headerMediaId = upload.id
+    }
+
+    const components = [
+      ...(headerMediaId ? [{ type: 'header', parameters: [{ type: 'image', image: { id: headerMediaId } }] }] : []),
+      ...(input.bodyParameters?.length
+        ? [{ type: 'body', parameters: input.bodyParameters.map((text) => ({ type: 'text', text })) }]
+        : [])
+    ]
+
     const response = await fetch(
       `https://graph.facebook.com/${whatsappConfig.apiVersion}/${whatsappConfig.phoneNumberId}/messages`,
       {
@@ -219,15 +248,8 @@ export class WhatsAppCloudApi {
             language: {
               code: input.languageCode ?? 'en_US'
             },
-            ...(input.bodyParameters?.length
-              ? {
-                  components: [
-                    {
-                      type: 'body',
-                      parameters: input.bodyParameters.map((text) => ({ type: 'text', text }))
-                    }
-                  ]
-                }
+            ...(components.length
+              ? { components }
               : {})
           }
         })
@@ -256,6 +278,53 @@ export class WhatsAppCloudApi {
       response: await response.json()
     }
   }
+}
+
+async function uploadTemplateImage(dataUrl: string): Promise<{ uploaded: true; handle: string } | { uploaded: false; errorMessage?: string }> {
+  const match = /^data:(image\/(?:png|jpeg|webp));base64,([a-z0-9+/=]+)$/i.exec(dataUrl)
+  if (!match || !whatsappConfig.accessToken || !whatsappConfig.appId) return { uploaded: false, errorMessage: 'Imagen de plantilla inválida' }
+  const bytes = Buffer.from(match[2], 'base64')
+  const sessionResponse = await fetch(`https://graph.facebook.com/${whatsappConfig.apiVersion}/${whatsappConfig.appId}/uploads?file_length=${bytes.length}&file_type=${encodeURIComponent(match[1])}&file_name=template-image`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${whatsappConfig.accessToken}` }
+  })
+  if (!sessionResponse.ok) {
+    const parsed = parseWhatsAppError(await sessionResponse.text())
+    return { uploaded: false, errorMessage: parsed.message }
+  }
+  const session = await sessionResponse.json() as { id?: string }
+  if (!session.id) return { uploaded: false, errorMessage: 'Meta no devolvió una sesión para la imagen' }
+  const uploadResponse = await fetch(`https://graph.facebook.com/${whatsappConfig.apiVersion}/${session.id}`, {
+    method: 'POST',
+    headers: { Authorization: `OAuth ${whatsappConfig.accessToken}`, file_offset: '0', 'Content-Type': 'application/octet-stream' },
+    body: bytes
+  })
+  if (!uploadResponse.ok) {
+    const parsed = parseWhatsAppError(await uploadResponse.text())
+    return { uploaded: false, errorMessage: parsed.message }
+  }
+  const uploaded = await uploadResponse.json() as { h?: string }
+  return uploaded.h ? { uploaded: true, handle: uploaded.h } : { uploaded: false, errorMessage: 'Meta no devolvió el identificador de la imagen' }
+}
+
+async function uploadWhatsAppMedia(dataUrl: string): Promise<{ uploaded: true; id: string } | { uploaded: false; errorMessage?: string }> {
+  const match = /^data:(image\/(?:png|jpeg|webp));base64,([a-z0-9+/=]+)$/i.exec(dataUrl)
+  if (!match || !whatsappConfig.accessToken || !whatsappConfig.phoneNumberId) return { uploaded: false, errorMessage: 'Imagen de plantilla inválida' }
+  const bytes = Buffer.from(match[2], 'base64')
+  const form = new FormData()
+  form.append('messaging_product', 'whatsapp')
+  form.append('file', new Blob([bytes], { type: match[1] }), 'template-image')
+  const response = await fetch(`https://graph.facebook.com/${whatsappConfig.apiVersion}/${whatsappConfig.phoneNumberId}/media`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${whatsappConfig.accessToken}` },
+    body: form
+  })
+  if (!response.ok) {
+    const parsed = parseWhatsAppError(await response.text())
+    return { uploaded: false, errorMessage: parsed.message }
+  }
+  const uploaded = await response.json() as { id?: string }
+  return uploaded.id ? { uploaded: true, id: uploaded.id } : { uploaded: false, errorMessage: 'WhatsApp no devolvió el identificador de la imagen' }
 }
 
 function parseWhatsAppError(errorBody: string) {

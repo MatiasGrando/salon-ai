@@ -2599,6 +2599,7 @@ const crmHtml = `<!doctype html>
     .template-detail-meta strong { color: #17213c; text-align: right; }
     .template-detail-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
     .template-rejection { margin-top: 14px; padding: 11px; border: 1px solid #fecaca; border-radius: 8px; color: #991b1b; background: #fff7f7; font-size: 12px; }
+    .template-detail-preview-image { width: 100%; max-height: 260px; display: block; object-fit: cover; border-radius: 10px 10px 0 0; }
     .template-review-note { margin-top: 14px; padding: 11px 13px; display: grid; gap: 3px; border: 1px solid #fde68a; border-radius: 10px; color: #92400e; background: #fffbeb; font-size: 12px; }
     .template-review-note span { color: #a16207; }
     .template-test-card { margin-top: 18px; padding: 14px; border: 1px solid #bfdbfe; border-radius: 12px; background: #f8fbff; }
@@ -2630,13 +2631,23 @@ const crmHtml = `<!doctype html>
     .template-variable-panel { display: grid; gap: 10px; }
     .template-variable-empty { padding: 12px; border-radius: 10px; background: #f8fafc; color: #687790; font-size: 12px; }
     .template-variable-row { display: grid; grid-template-columns: minmax(150px, .75fr) minmax(220px, 1fr); gap: 10px; align-items: center; padding: 10px; border: 1px solid #e5eaf2; border-radius: 11px; background: #fbfdff; }
+    .template-variable-row.unsupported { border-color: #fecaca; background: #fff7f7; }
     .template-variable-chip { display: inline-flex; align-items: center; gap: 7px; color: #4f46e5; font-size: 12px; font-weight: 800; }
+    .template-variable-row.unsupported .template-variable-chip { color: #dc2626; }
     .template-variable-chip::before { content: attr(data-index); width: 22px; height: 22px; display: grid; place-items: center; border-radius: 999px; color: #fff; background: #8b5cf6; font-size: 11px; }
+    .template-variable-row.unsupported .template-variable-chip::before { background: #dc2626; }
+    .template-variable-help { margin: 4px 0 0; color: #6b7890; font-size: 11px; line-height: 1.35; }
+    .template-variable-row.unsupported .template-variable-help { color: #b42318; }
     .template-helper-callout { padding: 12px 14px; border: 1px solid #bfdbfe; border-radius: 12px; background: #eff6ff; color: #1d4ed8; font-size: 12px; line-height: 1.45; }
     .template-preview-panel { position: sticky; top: 14px; padding: 18px; border: 1px solid #dfe5ef; border-radius: 16px; background: #fff; box-shadow: 0 16px 34px rgba(16, 27, 54, .08); }
     .template-preview-panel h4 { margin: 0 0 12px; font-size: 15px; color: #15233e; }
     .template-phone-preview { padding: 18px; min-height: 230px; border-radius: 16px; background: linear-gradient(135deg, #efe9df, #f7f2ea); }
     .template-phone-bubble { max-width: 92%; margin-left: auto; padding: 14px 14px 20px; border-radius: 12px 12px 4px 12px; background: #fff; color: #1f2e48; font-size: 13px; line-height: 1.5; white-space: pre-wrap; box-shadow: 0 2px 8px rgba(15,23,42,.10); position: relative; }
+    .template-live-image { width: calc(100% + 20px); max-height: 210px; margin: -10px -10px 10px; display: block; object-fit: cover; border-radius: 9px; }
+    .template-live-image[hidden] { display: none; }
+    .template-emoji-picker { margin: 10px 0; padding: 10px; display: flex; flex-wrap: wrap; gap: 6px; border: 1px solid #dbe3ef; border-radius: 10px; background: #fff; }
+    .template-emoji-picker[hidden] { display: none; }
+    emoji-picker.template-emoji-picker { width: 100%; height: 360px; padding: 0; --border-color: transparent; --border-radius: 10px; --category-emoji-size: 1.15rem; --emoji-size: 1.45rem; --num-columns: 9; }
     .template-phone-bubble::after { content: "11:30"; position: absolute; right: 12px; bottom: 5px; color: #99a3b5; font-size: 10px; }
     .template-checklist { margin-top: 14px; display: grid; gap: 9px; }
     .template-checklist div { display: flex; align-items: center; gap: 8px; color: #52617d; font-size: 12px; }
@@ -2881,6 +2892,12 @@ const crmHtml = `<!doctype html>
     .campaign-outline-button {
       border-color: #0866ed;
       color: #0866ed;
+    }
+
+    .campaign-outline-button.danger {
+      border-color: #fecaca;
+      color: #dc2626;
+      background: #fff7f7;
     }
 
     .campaign-duplicate-button {
@@ -3448,6 +3465,8 @@ const crmHtml = `<!doctype html>
       align-items: center;
       gap: 9px;
     }
+
+    .campaign-message-tools[hidden] { display: none; }
 
     .campaign-message-tool,
     .campaign-image-picker {
@@ -8593,6 +8612,7 @@ const crmHtml = `<!doctype html>
                   <button type="button" data-template-filter="DRAFT">Borradores</button>
                   <button type="button" data-template-filter="REJECTED">Rechazadas</button>
                 </div>
+                <button class="campaign-filter-button" id="template-sync-all" type="button">Actualizar todas</button>
               </div>
               <div class="campaign-table-wrap">
                 <table class="campaign-table template-table">
@@ -8604,6 +8624,49 @@ const crmHtml = `<!doctype html>
             </section>
             <aside class="campaign-detail-panel template-detail-panel" id="template-detail-panel">
               <div class="campaign-detail-empty"><div><strong>Seleccion&aacute; una plantilla</strong><br>Ac&aacute; vas a ver su estado y contenido.</div></div>
+            </aside>
+          </div>
+        </div>
+
+        <div class="template-manager reminder-manager" id="reminder-manager" hidden>
+          <section class="campaign-metrics" aria-label="Resumen de recordatorios">
+            <article class="campaign-metric"><div class="campaign-metric-icon green">&#128276;</div><div><strong id="reminder-status-label">Pausado</strong><span>Estado</span><small>Sin env&iacute;os reales todav&iacute;a</small></div></article>
+            <article class="campaign-metric"><div class="campaign-metric-icon violet">&#128197;</div><div><strong id="reminder-template-label">Sin plantilla</strong><span>Plantilla</span><small>Debe estar aprobada por Meta</small></div></article>
+            <article class="campaign-metric"><div class="campaign-metric-icon orange">&#9200;</div><div><strong id="reminder-time-label">24 hs</strong><span>Anticipaci&oacute;n</span><small>Antes del turno</small></div></article>
+          </section>
+          <div class="campaigns-workspace template-workspace">
+            <section class="campaign-list-panel">
+              <div class="campaign-list-toolbar"><div><strong>Configuraci&oacute;n de recordatorios</strong><p class="hint">Solo usa plantillas aprobadas de Recordatorio. Por ahora no env&iacute;a WhatsApp real.</p></div></div>
+              <div class="template-builder-card">
+                <div class="campaign-form-field full">
+                  <label for="reminder-template">Plantilla aprobada de Recordatorio</label>
+                  <select id="reminder-template"><option value="">Seleccionar plantilla aprobada</option></select>
+                  <p class="campaign-form-help">Solo aparecen plantillas aprobadas con tipo Recordatorio.</p>
+                </div>
+                <div class="campaign-form-field full">
+                  <label for="reminder-before">Enviar recordatorio</label>
+                  <select id="reminder-before">
+                    <option value="60">1 hora antes</option>
+                    <option value="120">2 horas antes</option>
+                    <option value="1440" selected>24 horas antes</option>
+                    <option value="2880">48 horas antes</option>
+                  </select>
+                </div>
+                <label class="automation-control">
+                  <div class="automation-copy">
+                    <strong>Recordatorios autom&aacute;ticos</strong>
+                    <span>Activa la configuraci&oacute;n. El env&iacute;o real se conectar&aacute; en el siguiente paso.</span>
+                    <small id="reminder-enabled-copy">Pausado</small>
+                  </div>
+                  <input id="reminder-enabled" type="checkbox">
+                  <span class="automation-switch" aria-hidden="true"></span>
+                </label>
+                <p class="campaign-form-feedback" id="reminder-feedback" role="status" aria-live="polite"></p>
+                <div class="dialog-actions"><button class="primary" id="reminder-save" type="button">Guardar recordatorio</button></div>
+              </div>
+            </section>
+            <aside class="campaign-detail-panel template-detail-panel" id="reminder-detail-panel">
+              <div class="campaign-detail-empty"><div><strong>Recordatorio autom&aacute;tico</strong><br>Eleg&iacute; una plantilla aprobada para ver la vista previa.</div></div>
             </aside>
           </div>
         </div>
@@ -9046,14 +9109,14 @@ const crmHtml = `<!doctype html>
           </section>
           <div class="campaign-form-field full">
             <label for="campaign-whatsapp-template">Plantilla aprobada de Meta</label>
-            <select id="campaign-whatsapp-template"><option value="">Sin plantilla por ahora</option></select>
+            <select id="campaign-whatsapp-template" required><option value="">Seleccionar plantilla aprobada</option></select>
             <p class="campaign-form-help">Las plantillas se crean y administran desde la pesta&ntilde;a Plantillas de Meta. Solo aparecen aqu&iacute; cuando est&aacute;n aprobadas.</p>
             <input id="campaign-template-name" type="hidden"><select id="campaign-template-language" hidden><option value="es_AR">es_AR</option><option value="es">es</option><option value="en_US">en_US</option></select>
             <button id="campaign-template-create" type="button" hidden></button><button id="campaign-template-sync" type="button" hidden></button><div id="campaign-template-state" hidden></div><p id="campaign-template-feedback" hidden></p>
           </div>
           <div class="campaign-form-field full">
             <label for="campaign-message">Mensaje</label>
-            <div class="campaign-message-tools">
+            <div class="campaign-message-tools" hidden>
               <button class="campaign-message-tool" id="campaign-emoji-toggle" type="button">&#128578; Agregar emoji</button>
               <label class="campaign-image-picker">&#128247; Agregar imagen
                 <input id="campaign-image" type="file" accept="image/png,image/jpeg,image/webp">
@@ -9076,10 +9139,10 @@ const crmHtml = `<!doctype html>
             </div>
             <div class="campaign-image-preview" id="campaign-image-preview" hidden>
               <img id="campaign-image-preview-img" alt="Vista previa de la imagen">
-              <div><strong>Imagen adjunta</strong><button class="campaign-image-remove" id="campaign-image-remove" type="button">Quitar imagen</button></div>
+              <div><strong>Imagen heredada de una campaña anterior</strong><button class="campaign-image-remove" id="campaign-image-remove" type="button" hidden>Quitar imagen</button></div>
             </div>
-            <textarea id="campaign-message" maxlength="1200" placeholder="Escrib&iacute; el mensaje que recibir&iacute;an los clientes" required></textarea>
-            <p class="campaign-form-help">Pod&eacute;s agregar emojis y una imagen PNG, JPG o WEBP de hasta 2 MB. En esta etapa solo se guarda como vista previa.</p>
+            <textarea id="campaign-message" maxlength="1200" placeholder="Seleccion&aacute; una plantilla aprobada" readonly required></textarea>
+            <p class="campaign-form-help">El contenido pertenece a la plantilla aprobada y no puede modificarse desde la campa&ntilde;a.</p>
           </div>
         </div>
         <p class="campaign-form-feedback" id="campaign-form-feedback" role="status" aria-live="polite"></p>
@@ -9102,6 +9165,36 @@ const crmHtml = `<!doctype html>
         <div class="customer-delete-warning"><strong>Se eliminar&aacute;n:</strong><ul><li>La configuraci&oacute;n y selecci&oacute;n manual.</li><li>El historial asociado a esta campa&ntilde;a.</li></ul></div>
         <p class="customer-delete-feedback" id="campaign-delete-feedback"></p>
         <div class="dialog-actions"><button class="secondary" id="campaign-delete-cancel" type="button">Cancelar</button><button class="danger customer-delete-confirm" id="campaign-delete-confirm" type="button">Eliminar campa&ntilde;a</button></div>
+      </div>
+    </section>
+  </div>
+
+  <div class="dialog-backdrop" id="campaign-activation-dialog" hidden>
+    <section class="dialog customer-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="campaign-activation-title">
+      <header class="dialog-header">
+        <h3 id="campaign-activation-title">Activar campa&ntilde;a</h3>
+        <button class="icon-button" id="campaign-activation-close" type="button" title="Cerrar">X</button>
+      </header>
+      <div class="customer-delete-body">
+        <div class="customer-delete-hero"><span class="customer-delete-icon" data-icon="mail"></span><div><strong id="campaign-activation-name">Activar campa&ntilde;a</strong><p id="campaign-activation-copy">Revis&aacute; el resumen antes de activar.</p></div></div>
+        <div class="customer-delete-warning" id="campaign-activation-summary"></div>
+        <p class="customer-delete-feedback" id="campaign-activation-feedback"></p>
+        <div class="dialog-actions"><button class="secondary" id="campaign-activation-cancel" type="button">Cancelar</button><button class="primary" id="campaign-activation-confirm" type="button">Confirmar activaci&oacute;n</button></div>
+      </div>
+    </section>
+  </div>
+
+  <div class="dialog-backdrop" id="template-delete-dialog" hidden>
+    <section class="dialog customer-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="template-delete-title">
+      <header class="dialog-header">
+        <h3 id="template-delete-title">Eliminar plantilla</h3>
+        <button class="icon-button" id="template-delete-close" type="button" title="Cerrar">X</button>
+      </header>
+      <div class="customer-delete-body">
+        <div class="customer-delete-hero"><span class="customer-delete-icon" data-icon="trash"></span><div><strong id="template-delete-name">Eliminar plantilla</strong><p>Esta acci&oacute;n elimina la plantilla del CRM.</p></div></div>
+        <div class="customer-delete-warning" id="template-delete-warning"><strong>Antes de eliminar:</strong><ul><li>Si ya fue enviada a Meta, seguir&aacute; existiendo en WhatsApp Manager.</li><li>No se puede eliminar si alguna campa&ntilde;a la est&aacute; usando.</li></ul></div>
+        <p class="customer-delete-feedback" id="template-delete-feedback"></p>
+        <div class="dialog-actions"><button class="secondary" id="template-delete-cancel" type="button">Cancelar</button><button class="danger customer-delete-confirm" id="template-delete-confirm" type="button">Eliminar plantilla</button></div>
       </div>
     </section>
   </div>
@@ -9136,6 +9229,14 @@ const crmHtml = `<!doctype html>
               <section class="template-builder-card">
                 <h4>Mensaje</h4>
                 <p>Us&aacute; variables entre llaves dobles cuando el dato cambie para cada cliente.</p>
+                <div class="campaign-message-tools">
+                  <button class="campaign-message-tool" id="template-emoji-toggle" type="button">&#128578; Agregar emoji</button>
+                  <label class="campaign-image-picker">&#128247; Agregar imagen
+                    <input id="template-image" type="file" accept="image/png,image/jpeg,image/webp">
+                  </label>
+                </div>
+                <emoji-picker class="template-emoji-picker light" id="template-emoji-picker" locale="es" hidden></emoji-picker>
+                <div class="campaign-image-preview" id="template-image-preview" hidden><img id="template-image-preview-img" alt="Vista previa de la imagen"><div><strong>Encabezado con imagen</strong><button class="campaign-image-remove" id="template-image-remove" type="button">Quitar imagen</button></div></div>
                 <div class="campaign-form-field full"><label for="template-body">Texto de la plantilla</label><textarea id="template-body" maxlength="1024" placeholder="Hola {{nombre_cliente}} 👋 tenemos una promo para vos: {{promo}}." required></textarea></div>
               </section>
               <section class="template-builder-card">
@@ -9146,7 +9247,7 @@ const crmHtml = `<!doctype html>
             </div>
             <aside class="template-preview-panel">
               <div class="template-detail-head"><div><span class="campaign-badge draft" id="template-preview-status">Borrador</span><h4>Vista previa</h4></div></div>
-              <div class="template-phone-preview"><div class="template-phone-bubble" id="template-live-preview">Escrib&iacute; el mensaje para ver la vista previa.</div></div>
+              <div class="template-phone-preview"><div class="template-phone-bubble"><img class="template-live-image" id="template-live-image" alt="Imagen de la plantilla" hidden><span id="template-live-preview">Escrib&iacute; el mensaje para ver la vista previa.</span></div></div>
               <div class="template-checklist" id="template-checklist"></div>
             </aside>
           </div>
@@ -9157,6 +9258,7 @@ const crmHtml = `<!doctype html>
     </section>
   </div>
 
+  <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@1/index.js"></script>
   <script>
     const WHATSAPP_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000
 
@@ -9208,6 +9310,8 @@ const crmHtml = `<!doctype html>
       customerDeleteCustomerId: null,
       pendingMarketingChange: null,
       pendingCampaignDeleteId: null,
+      pendingTemplateDeleteId: null,
+      pendingCampaignActivationId: null,
       campaigns: [],
       campaignAudiences: {},
       campaignDeliveries: {},
@@ -9231,10 +9335,13 @@ const crmHtml = `<!doctype html>
       marketingView: 'templates',
       whatsappTemplates: [],
       templatesLoaded: false,
+      reminderSettings: null,
+      reminderLoaded: false,
       selectedTemplateId: null,
       templateFilter: 'ALL',
       templateSearch: '',
       templateDraftExamples: {},
+      templateImageUrl: null,
       isRefreshing: false
     }
 
@@ -9398,14 +9505,26 @@ const crmHtml = `<!doctype html>
       marketingMainTabs: document.getElementById('marketing-main-tabs'),
       campaignsContent: document.getElementById('campaigns-content'),
       templateManager: document.getElementById('template-manager'),
+      reminderManager: document.getElementById('reminder-manager'),
       templateFilterTabs: document.getElementById('template-filter-tabs'),
       templateTableBody: document.getElementById('template-table-body'),
       templateDetailPanel: document.getElementById('template-detail-panel'),
       templateListCopy: document.getElementById('template-list-copy'),
+      templateSyncAll: document.getElementById('template-sync-all'),
       templateApprovedCount: document.getElementById('template-approved-count'),
       templatePendingCount: document.getElementById('template-pending-count'),
       templateDraftCount: document.getElementById('template-draft-count'),
       templateRejectedCount: document.getElementById('template-rejected-count'),
+      reminderTemplate: document.getElementById('reminder-template'),
+      reminderBefore: document.getElementById('reminder-before'),
+      reminderEnabled: document.getElementById('reminder-enabled'),
+      reminderSave: document.getElementById('reminder-save'),
+      reminderFeedback: document.getElementById('reminder-feedback'),
+      reminderStatusLabel: document.getElementById('reminder-status-label'),
+      reminderTemplateLabel: document.getElementById('reminder-template-label'),
+      reminderTimeLabel: document.getElementById('reminder-time-label'),
+      reminderEnabledCopy: document.getElementById('reminder-enabled-copy'),
+      reminderDetailPanel: document.getElementById('reminder-detail-panel'),
       campaignFilterTabs: document.getElementById('campaign-filter-tabs'),
       campaignTableBody: document.getElementById('campaign-table-body'),
       campaignDetailPanel: document.getElementById('campaign-detail-panel'),
@@ -9477,6 +9596,14 @@ const crmHtml = `<!doctype html>
       campaignDeleteConfirm: document.getElementById('campaign-delete-confirm'),
       campaignDeleteName: document.getElementById('campaign-delete-name'),
       campaignDeleteFeedback: document.getElementById('campaign-delete-feedback'),
+      campaignActivationDialog: document.getElementById('campaign-activation-dialog'),
+      campaignActivationClose: document.getElementById('campaign-activation-close'),
+      campaignActivationCancel: document.getElementById('campaign-activation-cancel'),
+      campaignActivationConfirm: document.getElementById('campaign-activation-confirm'),
+      campaignActivationName: document.getElementById('campaign-activation-name'),
+      campaignActivationCopy: document.getElementById('campaign-activation-copy'),
+      campaignActivationSummary: document.getElementById('campaign-activation-summary'),
+      campaignActivationFeedback: document.getElementById('campaign-activation-feedback'),
       templateDialog: document.getElementById('template-dialog'),
       templateDialogTitle: document.getElementById('template-dialog-title'),
       templateDialogClose: document.getElementById('template-dialog-close'),
@@ -9490,12 +9617,25 @@ const crmHtml = `<!doctype html>
       templateCategoryLabel: document.getElementById('template-category-label'),
       templateLanguage: document.getElementById('template-language'),
       templateBody: document.getElementById('template-body'),
+      templateEmojiToggle: document.getElementById('template-emoji-toggle'),
+      templateEmojiPicker: document.getElementById('template-emoji-picker'),
+      templateImage: document.getElementById('template-image'),
+      templateImagePreview: document.getElementById('template-image-preview'),
+      templateImagePreviewImg: document.getElementById('template-image-preview-img'),
+      templateImageRemove: document.getElementById('template-image-remove'),
       templateVariablePanel: document.getElementById('template-variable-panel'),
       templateLivePreview: document.getElementById('template-live-preview'),
+      templateLiveImage: document.getElementById('template-live-image'),
       templateChecklist: document.getElementById('template-checklist'),
       templatePreviewStatus: document.getElementById('template-preview-status'),
       templateFormFeedback: document.getElementById('template-form-feedback'),
       templateSaveSubmit: document.getElementById('template-save-submit'),
+      templateDeleteDialog: document.getElementById('template-delete-dialog'),
+      templateDeleteClose: document.getElementById('template-delete-close'),
+      templateDeleteCancel: document.getElementById('template-delete-cancel'),
+      templateDeleteConfirm: document.getElementById('template-delete-confirm'),
+      templateDeleteName: document.getElementById('template-delete-name'),
+      templateDeleteFeedback: document.getElementById('template-delete-feedback'),
       reportsRange: document.getElementById('reports-range'),
       reportsFutureDays: document.getElementById('reports-future-days'),
       reportsInactiveDays: document.getElementById('reports-inactive-days'),
@@ -13001,10 +13141,10 @@ const crmHtml = `<!doctype html>
     const defaultCampaignEmojis = '😊 ✨ 🎉 🎁 ❤️ 🙌 👋 🔥 📅 ⏰ 💇 💅 👍 🥰 😍 🎂 🌟 💖 ✅'.split(' ')
 
     function setMarketingView(view) {
-      if (view === 'reminders') return
       state.marketingView = view
       els.campaignsContent.hidden = view !== 'campaigns'
       els.templateManager.hidden = view !== 'templates'
+      els.reminderManager.hidden = view !== 'reminders'
       for (const button of els.marketingMainTabs.querySelectorAll('[data-marketing-view]')) button.classList.toggle('active', button.dataset.marketingView === view)
       for (const button of document.querySelectorAll('.workspace-nav .nav-subitems [data-marketing-nav]')) button.classList.toggle('active', els.appShell.dataset.section === 'campaigns' && button.dataset.marketingNav === view)
       document.querySelector('.campaigns-title h2').textContent = view === 'templates' ? 'Plantillas de WhatsApp' : 'Campañas'
@@ -13013,6 +13153,15 @@ const crmHtml = `<!doctype html>
       els.campaignSearch.value = view === 'templates' ? state.templateSearch : state.campaignSearch
       els.campaignNew.innerHTML = '<span class="campaign-new-plus">+</span>' + (view === 'templates' ? 'Nueva plantilla' : 'Nueva campaña')
       if (view === 'templates' && !state.templatesLoaded) loadWhatsappTemplates()
+      if (view === 'reminders') {
+        document.querySelector('.campaigns-title h2').textContent = 'Recordatorios automáticos'
+        document.querySelector('.campaigns-title p').textContent = 'Configurá recordatorios de turnos con plantillas aprobadas por Meta.'
+        els.campaignSearch.placeholder = 'Buscar recordatorio'
+        els.campaignNew.hidden = true
+        loadReminderSettings()
+      } else {
+        els.campaignNew.hidden = false
+      }
     }
 
     async function loadWhatsappTemplates() {
@@ -13022,8 +13171,105 @@ const crmHtml = `<!doctype html>
         state.templatesLoaded = true
         if (!state.selectedTemplateId || !state.whatsappTemplates.some((item) => item.id === state.selectedTemplateId)) state.selectedTemplateId = state.whatsappTemplates[0]?.id || null
         renderWhatsappTemplates()
+        renderReminderSettings()
       } catch (error) {
         els.templateTableBody.innerHTML = '<tr class="campaign-empty-row"><td colspan="6">' + escapeHtml(error.message) + '</td></tr>'
+      }
+    }
+
+    async function syncAllWhatsappTemplates() {
+      const syncable = state.whatsappTemplates.filter((item) => item.status !== 'DRAFT')
+      if (!syncable.length) return
+      els.templateSyncAll.disabled = true
+      els.templateSyncAll.textContent = 'Actualizando...'
+      try {
+        for (const template of syncable) {
+          await getJson('/whatsapp-templates/' + template.id + '/sync', { method: 'POST' })
+        }
+        await loadWhatsappTemplates()
+      } catch (error) {
+        els.templateDetailPanel.insertAdjacentHTML('afterbegin', '<div class="template-rejection">' + escapeHtml(error.message) + '</div>')
+      } finally {
+        els.templateSyncAll.disabled = false
+        els.templateSyncAll.textContent = 'Actualizar todas'
+      }
+    }
+
+    async function loadReminderSettings() {
+      if (!state.businessId) return
+      if (!state.templatesLoaded) await loadWhatsappTemplates()
+      try {
+        state.reminderSettings = await getJson('/whatsapp-reminder-automation?businessId=' + encodeURIComponent(state.businessId))
+        state.reminderLoaded = true
+        renderReminderSettings()
+      } catch (error) {
+        els.reminderFeedback.textContent = error.message
+        els.reminderFeedback.className = 'campaign-form-feedback error'
+      }
+    }
+
+    function reminderTimeLabel(minutes) {
+      if (Number(minutes) === 60) return '1 hora'
+      if (Number(minutes) === 120) return '2 horas'
+      if (Number(minutes) === 2880) return '48 hs'
+      return '24 hs'
+    }
+
+    function approvedReminderTemplates() {
+      return state.whatsappTemplates.filter((item) => item.status === 'APPROVED' && item.category === 'UTILITY')
+    }
+
+    function renderReminderSettings() {
+      if (!els.reminderTemplate) return
+      const templates = approvedReminderTemplates()
+      const settings = state.reminderSettings || { templateId: '', enabled: false, sendBeforeMinutes: 1440 }
+      els.reminderTemplate.innerHTML = '<option value="">Seleccionar plantilla aprobada</option>' + templates.map((item) => '<option value="' + escapeHtml(item.id) + '">' + escapeHtml(item.internalName) + ' (' + escapeHtml(item.language) + ')</option>').join('')
+      els.reminderTemplate.value = settings.templateId || ''
+      els.reminderBefore.value = String(settings.sendBeforeMinutes || 1440)
+      els.reminderEnabled.checked = Boolean(settings.enabled)
+      els.reminderStatusLabel.textContent = settings.enabled ? 'Activo' : 'Pausado'
+      els.reminderEnabledCopy.textContent = settings.enabled ? 'Activo' : 'Pausado'
+      els.reminderTimeLabel.textContent = reminderTimeLabel(settings.sendBeforeMinutes || 1440)
+      const template = templates.find((item) => item.id === settings.templateId)
+      els.reminderTemplateLabel.textContent = template ? template.internalName : 'Sin plantilla'
+      els.reminderDetailPanel.innerHTML = template
+        ? '<div class="template-detail-head"><div>' + templateStatusBadge(template.status) + '<h3>' + escapeHtml(template.internalName) + '</h3><p class="template-meta-line">Nombre en Meta: ' + escapeHtml(template.metaName) + '</p></div></div><div class="template-preview">' + (template.imageUrl ? '<img class="template-detail-preview-image" src="' + escapeHtml(template.imageUrl) + '" alt="Imagen de la plantilla">' : '') + '<div class="template-preview-message">' + escapeHtml(template.body) + '</div></div><div class="template-review-note"><strong>Preparado para recordatorios.</strong><span>El envío real se conectará en el siguiente paso.</span></div>'
+        : '<div class="campaign-detail-empty"><div><strong>Recordatorio automático</strong><br>Elegí una plantilla aprobada de Recordatorio para ver la vista previa.</div></div>'
+    }
+
+    function updateReminderDraftFromForm() {
+      state.reminderSettings = {
+        ...(state.reminderSettings || {}),
+        businessId: state.businessId,
+        templateId: els.reminderTemplate.value || null,
+        enabled: els.reminderEnabled.checked,
+        sendBeforeMinutes: Number(els.reminderBefore.value || 1440)
+      }
+      renderReminderSettings()
+    }
+
+    async function saveReminderSettings() {
+      els.reminderFeedback.textContent = ''
+      els.reminderSave.disabled = true
+      try {
+        state.reminderSettings = await getJson('/whatsapp-reminder-automation', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            businessId: state.businessId,
+            templateId: els.reminderTemplate.value || null,
+            enabled: els.reminderEnabled.checked,
+            sendBeforeMinutes: els.reminderBefore.value
+          })
+        })
+        els.reminderFeedback.textContent = 'Recordatorio guardado.'
+        els.reminderFeedback.className = 'campaign-form-feedback success'
+        renderReminderSettings()
+      } catch (error) {
+        els.reminderFeedback.textContent = error.message
+        els.reminderFeedback.className = 'campaign-form-feedback error'
+      } finally {
+        els.reminderSave.disabled = false
       }
     }
 
@@ -13066,6 +13312,33 @@ const crmHtml = `<!doctype html>
       return variables
     }
 
+    function supportedTemplateVariables(category = selectedTemplateCategory()) {
+      return category === 'UTILITY'
+        ? ['nombre_cliente', 'fecha_turno', 'hora_turno', 'servicio', 'profesional']
+        : ['nombre_cliente', 'fecha_ultima_visita']
+    }
+
+    function templateVariableDescription(variable, category = selectedTemplateCategory()) {
+      const descriptions = category === 'UTILITY'
+        ? {
+            nombre_cliente: 'Automático: nombre del cliente.',
+            fecha_turno: 'Automático: fecha del turno.',
+            hora_turno: 'Automático: hora del turno.',
+            servicio: 'Automático: servicio reservado.',
+            profesional: 'Automático: profesional asignado.'
+          }
+        : {
+            nombre_cliente: 'Automático: nombre del cliente.',
+            fecha_ultima_visita: 'Automático: última visita registrada del cliente.'
+          }
+      return descriptions[variable] || 'No compatible para ' + templateCategoryLabel(category) + '. Escribí ese dato fijo en el texto o cambiá el tipo de plantilla.'
+    }
+
+    function unsupportedTemplateVariables(variables, category = selectedTemplateCategory()) {
+      const allowed = new Set(supportedTemplateVariables(category))
+      return variables.filter((variable) => !allowed.has(variable))
+    }
+
     function selectedTemplateCategory() {
       return els.templateCategoryUtility.checked ? 'UTILITY' : 'MARKETING'
     }
@@ -13074,6 +13347,7 @@ const crmHtml = `<!doctype html>
       els.templateCategoryUtility.checked = category === 'UTILITY'
       els.templateCategoryMarketing.checked = category !== 'UTILITY'
       els.templateCategoryLabel.textContent = templateCategoryLabel(category)
+      renderTemplateVariables()
       updateTemplateBuilderPreview()
     }
 
@@ -13087,14 +13361,57 @@ const crmHtml = `<!doctype html>
 
     function renderTemplateVariables() {
       const variables = extractTemplateVariables(els.templateBody.value)
+      const unsupported = new Set(unsupportedTemplateVariables(variables))
       const nextExamples = {}
       for (const variable of variables) nextExamples[variable] = state.templateDraftExamples[variable] || ''
       state.templateDraftExamples = nextExamples
       els.templateVariablePanel.innerHTML = variables.length
         ? variables.map((variable, index) => {
-            return '<label class="template-variable-row"><span class="template-variable-chip" data-index="' + (index + 1) + '">{{' + escapeHtml(variable) + '}}</span><input data-template-example="' + escapeHtml(variable) + '" placeholder="Ejemplo para Meta" value="' + escapeHtml(state.templateDraftExamples[variable] || '') + '"></label>'
+            const isUnsupported = unsupported.has(variable)
+            return '<label class="template-variable-row' + (isUnsupported ? ' unsupported' : '') + '"><span><span class="template-variable-chip" data-index="' + (index + 1) + '">{{' + escapeHtml(variable) + '}}</span><p class="template-variable-help">' + escapeHtml(templateVariableDescription(variable)) + '</p></span><input data-template-example="' + escapeHtml(variable) + '" placeholder="Ejemplo para Meta" value="' + escapeHtml(state.templateDraftExamples[variable] || '') + '"' + (isUnsupported ? ' disabled' : '') + '></label>'
           }).join('')
         : '<div class="template-variable-empty">No hay variables todavía. Si escribís algo como <strong>{{nombre_cliente}}</strong>, aparecerá acá para cargar el ejemplo.</div>'
+      if (!variables.length) els.templateVariablePanel.innerHTML = '<div class="template-variable-empty">Variables compatibles para ' + escapeHtml(templateCategoryLabel(selectedTemplateCategory())) + ': <strong>' + supportedTemplateVariables().map((variable) => '{{' + variable + '}}').join('</strong>, <strong>') + '</strong>.</div>'
+    }
+
+    function setTemplateImage(imageUrl) {
+      state.templateImageUrl = imageUrl || null
+      els.templateImagePreviewImg.src = imageUrl || ''
+      els.templateImagePreview.hidden = !imageUrl
+      els.templateLiveImage.src = imageUrl || ''
+      els.templateLiveImage.hidden = !imageUrl
+      if (!imageUrl) els.templateImage.value = ''
+      updateTemplateBuilderPreview()
+    }
+
+    function readTemplateImage(event) {
+      const file = event.target.files?.[0]
+      if (!file) return
+      if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 2 * 1024 * 1024) {
+        els.templateFormFeedback.textContent = 'Elegí una imagen PNG, JPG o WEBP de hasta 2 MB.'
+        els.templateFormFeedback.className = 'campaign-form-feedback template-form-feedback error'
+        els.templateImage.value = ''
+        return
+      }
+      const reader = new FileReader()
+      reader.addEventListener('load', () => setTemplateImage(String(reader.result || '')))
+      reader.readAsDataURL(file)
+    }
+
+    function renderTemplateEmojiPicker() {
+      els.templateEmojiPicker.innerHTML = defaultCampaignEmojis.map((emoji) => '<button type="button" data-template-emoji="' + escapeHtml(emoji) + '">' + escapeHtml(emoji) + '</button>').join('')
+    }
+
+    function insertTemplateEmoji(emoji) {
+      const input = els.templateBody
+      const start = input.selectionStart ?? input.value.length
+      const end = input.selectionEnd ?? start
+      input.value = input.value.slice(0, start) + emoji + input.value.slice(end)
+      const nextPosition = start + emoji.length
+      input.focus()
+      input.setSelectionRange(nextPosition, nextPosition)
+      renderTemplateVariables()
+      updateTemplateBuilderPreview()
     }
 
     function updateTemplateBuilderPreview() {
@@ -13102,11 +13419,16 @@ const crmHtml = `<!doctype html>
       els.templateCategoryLabel.textContent = templateCategoryLabel(selectedTemplateCategory())
       const variables = extractTemplateVariables(els.templateBody.value)
       const missingExamples = variables.filter((variable) => !state.templateDraftExamples[variable]?.trim())
+      const unsupported = unsupportedTemplateVariables(variables)
       els.templateLivePreview.textContent = templatePreviewText()
+      els.templateLiveImage.src = state.templateImageUrl || ''
+      els.templateLiveImage.hidden = !state.templateImageUrl
       els.templateChecklist.innerHTML =
         '<div><span>✓</span>Nombre en Meta ' + (els.templateMetaName.value.trim() ? 'cargado' : 'pendiente') + '</div>' +
         '<div class="' + (missingExamples.length ? 'warn' : '') + '"><span>' + (missingExamples.length ? '!' : '✓') + '</span>' + variables.length + ' variables detectadas' + (missingExamples.length ? ', faltan ejemplos' : ' con ejemplo') + '</div>' +
-        '<div><span>✓</span>Categoría: ' + escapeHtml(templateCategoryLabel(selectedTemplateCategory())) + '</div>'
+        '<div><span>✓</span>Categoría: ' + escapeHtml(templateCategoryLabel(selectedTemplateCategory())) + '</div>' +
+        (state.templateImageUrl ? '<div><span>✓</span>Encabezado con imagen</div>' : '')
+      if (unsupported.length) els.templateChecklist.insertAdjacentHTML('beforeend', '<div class="warn"><span>!</span>Variables no compatibles: ' + unsupported.map((variable) => '{{' + escapeHtml(variable) + '}}').join(', ') + '</div>')
     }
 
     function renderWhatsappTemplates() {
@@ -13137,7 +13459,7 @@ const crmHtml = `<!doctype html>
       const variables = extractTemplateVariables(item.body)
       const previewBody = item.body.replace(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g, (_match, variable) => examples[variable] || '{{' + variable + '}}')
       els.templateDetailPanel.innerHTML = '<div class="template-detail-head"><div>' + templateStatusBadge(item.status) + '<h3>' + escapeHtml(item.internalName) + '</h3><p class="template-meta-line">Nombre en Meta: ' + escapeHtml(item.metaName) + '</p></div></div>' +
-        '<div class="template-preview"><div class="template-preview-message">' + escapeHtml(previewBody) + '</div></div>' +
+        '<div class="template-preview">' + (item.imageUrl ? '<img class="template-detail-preview-image" src="' + escapeHtml(item.imageUrl) + '" alt="Imagen de la plantilla">' : '') + '<div class="template-preview-message">' + escapeHtml(previewBody) + '</div></div>' +
         (['PENDING', 'IN_APPEAL'].includes(item.status) ? '<div class="template-review-note"><strong>Aún en revisión por Meta.</strong><span>Podés volver a actualizar el estado dentro de unos minutos.</span></div>' : '') +
         (item.rejectionReason && String(item.rejectionReason).toUpperCase() !== 'NONE' ? '<div class="template-rejection"><strong>Motivo del rechazo:</strong><br>' + escapeHtml(item.rejectionReason) + '</div>' : '') +
         '<div class="template-detail-meta"><div><span>Categoría</span><strong>' + escapeHtml(templateCategoryLabel(item.category)) + '</strong></div><div><span>Idioma</span><strong>' + escapeHtml(item.language) + '</strong></div><div><span>Variables</span><strong>' + variables.length + '</strong></div><div><span>Campañas que la usan</span><strong>' + (item._count?.campaigns || 0) + '</strong></div><div><span>ID en Meta</span><strong>' + escapeHtml(item.metaId || 'Todavía no asignado') + '</strong></div></div>' +
@@ -13145,19 +13467,20 @@ const crmHtml = `<!doctype html>
           ? '<div class="template-test-card"><strong>Prueba controlada</strong><p>Envía una sola prueba usando los ejemplos cargados en esta plantilla. No activa campañas.</p><div class="template-test-row"><input data-template-test-phone inputmode="tel" placeholder="5491112345678"><button class="campaign-outline-button" type="button" data-template-action="test-send">Enviar a mi número</button></div><label class="template-test-confirm"><input type="checkbox" data-template-test-confirm>Confirmo que este número es mío y autorizo este único envío.</label><p class="template-test-feedback" data-template-test-feedback></p></div>'
           : '') +
         '<div class="template-detail-actions">' + (editable ? '<button class="campaign-outline-button" type="button" data-template-action="edit">Editar borrador</button><button class="campaigns-new" type="button" data-template-action="submit">Enviar a revisión</button>' : '') + (item.status !== 'DRAFT' ? '<button class="campaign-outline-button" type="button" data-template-action="sync">Actualizar estado</button>' : '') + '</div>'
+      els.templateDetailPanel.querySelector('.template-detail-actions')?.insertAdjacentHTML('beforeend', '<button class="campaign-outline-button danger" type="button" data-template-action="delete">Eliminar plantilla</button>')
     }
 
     function renderCampaignTemplateOptions(selectedId) {
       const currentId = selectedId || els.campaignWhatsappTemplate.value
-      const approved = state.whatsappTemplates.filter((item) => item.status === 'APPROVED')
-      els.campaignWhatsappTemplate.innerHTML = '<option value="">Sin plantilla por ahora</option>' + approved.map((item) => '<option value="' + escapeHtml(item.id) + '">' + escapeHtml(item.internalName) + ' (' + escapeHtml(item.language) + ')</option>').join('')
+      const approved = state.whatsappTemplates.filter((item) => item.status === 'APPROVED' && item.category !== 'UTILITY')
+      els.campaignWhatsappTemplate.innerHTML = '<option value="">Seleccionar plantilla aprobada</option>' + approved.map((item) => '<option value="' + escapeHtml(item.id) + '">' + escapeHtml(item.internalName) + ' (' + escapeHtml(item.language) + ')</option>').join('')
       if (currentId) els.campaignWhatsappTemplate.value = currentId
     }
 
     function syncCampaignTemplateSelection() {
       const template = state.whatsappTemplates.find((item) => item.id === els.campaignWhatsappTemplate.value)
-      els.campaignMessage.readOnly = Boolean(template)
-      if (template) els.campaignMessage.value = template.body
+      els.campaignMessage.readOnly = true
+      els.campaignMessage.value = template?.body || ''
     }
 
     function openTemplateDialog(template = null) {
@@ -13165,6 +13488,7 @@ const crmHtml = `<!doctype html>
       els.templateInternalName.value = template?.internalName || ''
       els.templateMetaName.value = template?.metaName || ''
       state.templateDraftExamples = parseTemplateExampleJson(template?.exampleJson)
+      setTemplateImage(template?.imageUrl || null)
       setTemplateCategory(template?.category || 'MARKETING')
       els.templateLanguage.value = template?.language || 'es_AR'
       els.templateBody.value = template?.body || ''
@@ -13184,15 +13508,23 @@ const crmHtml = `<!doctype html>
       els.templateFormFeedback.textContent = ''
       els.templateFormFeedback.className = 'campaign-form-feedback template-form-feedback'
       state.templateDraftExamples = {}
+      setTemplateImage(null)
+      els.templateEmojiPicker.hidden = true
       setTemplateCategory('MARKETING')
     }
 
     async function saveTemplate(sendToMeta) {
       const variables = extractTemplateVariables(els.templateBody.value)
       const missingExamples = variables.filter((variable) => !state.templateDraftExamples[variable]?.trim())
-      const payload = { businessId: state.businessId, internalName: els.templateInternalName.value.trim(), metaName: els.templateMetaName.value.trim(), category: selectedTemplateCategory(), language: els.templateLanguage.value, body: els.templateBody.value.trim(), examples: state.templateDraftExamples }
+      const unsupported = unsupportedTemplateVariables(variables)
+      const payload = { businessId: state.businessId, internalName: els.templateInternalName.value.trim(), metaName: els.templateMetaName.value.trim(), category: selectedTemplateCategory(), language: els.templateLanguage.value, body: els.templateBody.value.trim(), examples: state.templateDraftExamples, imageUrl: state.templateImageUrl }
       if (!payload.internalName || !payload.metaName || !payload.body) {
         els.templateFormFeedback.textContent = 'Completá los nombres y el mensaje.'
+        els.templateFormFeedback.className = 'campaign-form-feedback template-form-feedback error'
+        return
+      }
+      if (unsupported.length) {
+        els.templateFormFeedback.textContent = 'Variables no compatibles para ' + templateCategoryLabel(selectedTemplateCategory()) + ': ' + unsupported.map((variable) => '{{' + variable + '}}').join(', ') + '.'
         els.templateFormFeedback.className = 'campaign-form-feedback template-form-feedback error'
         return
       }
@@ -13784,11 +14116,15 @@ const crmHtml = `<!doctype html>
         templateRejectionReason: selectedWhatsappTemplate?.rejectionReason || null,
         templateLastSyncedAt: selectedWhatsappTemplate?.lastSyncedAt || null,
         message: els.campaignMessage.value.trim(),
-        imageUrl: state.campaignImageUrl
+        imageUrl: selectedWhatsappTemplate?.imageUrl || null
       }
 
       if (!payload.name || !payload.message) {
-        els.campaignFormFeedback.textContent = 'Complet&aacute; el nombre y el mensaje.'
+        els.campaignFormFeedback.textContent = 'Completá el nombre y seleccioná una plantilla aprobada.'
+        return
+      }
+      if (!payload.whatsappTemplateId) {
+        els.campaignFormFeedback.textContent = 'Seleccioná una plantilla aprobada para crear la campaña.'
         return
       }
       if (payload.templateName && !/^[a-z0-9_]{1,512}$/.test(payload.templateName)) {
@@ -13822,13 +14158,123 @@ const crmHtml = `<!doctype html>
     }
 
     async function updateCampaignStatus(campaign) {
-      const status = campaign.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE'
+      if (campaign.status !== 'ACTIVE') {
+        openCampaignActivationDialog(campaign)
+        return
+      }
+      const status = 'PAUSED'
       await getJson('/campaigns/' + campaign.id, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...campaign, status })
       })
       await loadCampaigns()
+    }
+
+    function campaignActivationSummaryHtml(campaign) {
+      const audience = state.campaignAudiences[campaign.id]
+      const variables = extractTemplateVariables(campaign.message || '')
+      const excludedEntries = audience?.excluded
+        ? Object.entries(audience.excluded).filter((entry) => Number(entry[1]) > 0)
+        : []
+      const exclusionLabels = {
+        missingPhone: 'teléfono inválido',
+        withFutureAppointment: 'con próximo turno',
+        marketingNotAuthorized: 'sin autorización de marketing',
+        higherPriorityCampaign: 'otra campaña prioritaria',
+        promotionCooldown: 'descanso desde otra promoción',
+        retryWindow: 'espera entre intentos',
+        attemptLimit: 'límite de contactos',
+        replied: 'ya respondieron',
+        booked: 'ya reservaron'
+      }
+      const excludedCopy = excludedEntries.length
+        ? excludedEntries.map((entry) => entry[1] + ' ' + (exclusionLabels[entry[0]] || entry[0])).join(' · ')
+        : 'Sin exclusiones detectadas.'
+      const included = audience?.included || []
+      const includedPreview = included.slice(0, 3).map((customer) => escapeHtml(customer.name || customer.phone || 'Cliente')).join(', ')
+      const messagePreview = campaignActivationMessagePreview(campaign, included[0])
+      const realSendNote = campaign.type === 'ONE_TIME'
+        ? 'En esta etapa, confirmar activa la campaña pero no dispara WhatsApp real todavía.'
+        : 'Las automáticas quedan habilitadas para reglas; los envíos reales masivos siguen bloqueados.'
+      if (audience?.loading) return '<strong>Calculando destinatarios...</strong><p>Estamos preparando el resumen de seguridad.</p>'
+      if (audience?.error) return '<strong>No se pudo calcular destinatarios.</strong><p>' + escapeHtml(audience.error) + '</p>'
+      return '<strong>Resumen antes de activar:</strong><ul>' +
+        '<li>Tipo: <strong>' + (campaignTypeLabels[campaign.type] || campaign.type) + '</strong></li>' +
+        '<li>Plantilla: <strong>' + escapeHtml(campaign.templateName || 'Sin plantilla') + '</strong> · ' + escapeHtml(campaignTemplateStatusLabels[campaign.templateStatus || 'NOT_CREATED'] || campaign.templateStatus || 'Sin estado') + '</li>' +
+        '<li>Variables: <strong>' + (variables.length ? variables.map((variable) => '{{' + escapeHtml(variable) + '}}').join(', ') : 'sin variables') + '</strong></li>' +
+        '<li>Incluidos estimados: <strong>' + (audience?.total ?? 0) + '</strong>' + (includedPreview ? ' · ' + includedPreview + (included.length > 3 ? '...' : '') : '') + '</li>' +
+        '<li>Excluidos: <strong>' + excludedCopy + '</strong></li>' +
+        '</ul>' + (messagePreview ? '<p><strong>Vista previa:</strong><br>' + escapeHtml(messagePreview) + '</p>' : '') + '<small>' + realSendNote + '</small>'
+    }
+
+    function campaignActivationMessagePreview(campaign, customer) {
+      if (!customer || !campaign.message) return ''
+      return campaign.message.replace(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g, (_match, variable) => {
+        if (variable === 'nombre_cliente') return customer.name || ''
+        if (variable === 'fecha_ultima_visita') return customer.lastVisitAt ? formatShortDate(customer.lastVisitAt) : '{{' + variable + '}}'
+        return '{{' + variable + '}}'
+      })
+    }
+
+    function renderCampaignActivationDialog() {
+      const campaign = state.campaigns.find((item) => item.id === state.pendingCampaignActivationId)
+      if (!campaign) return closeCampaignActivationDialog()
+      const audience = state.campaignAudiences[campaign.id]
+      els.campaignActivationName.textContent = campaign.name
+      els.campaignActivationCopy.textContent = campaign.type === 'ONE_TIME'
+        ? 'Revisá destinatarios y plantilla antes de activar la campaña puntual.'
+        : 'Revisá reglas, segmento y plantilla antes de activar la campaña automática.'
+      els.campaignActivationSummary.innerHTML = campaignActivationSummaryHtml(campaign)
+      els.campaignActivationConfirm.disabled = Boolean(audience?.loading || audience?.error)
+      els.campaignActivationFeedback.textContent = ''
+    }
+
+    function openCampaignActivationDialog(campaign) {
+      state.pendingCampaignActivationId = campaign.id
+      els.campaignActivationFeedback.textContent = ''
+      els.campaignActivationConfirm.disabled = false
+      els.campaignActivationConfirm.textContent = 'Confirmar activación'
+      const shouldLoadAudience = !state.campaignAudiences[campaign.id] || state.campaignAudiences[campaign.id]?.error
+      if (shouldLoadAudience) state.campaignAudiences[campaign.id] = { loading: true }
+      els.campaignActivationDialog.hidden = false
+      renderCampaignActivationDialog()
+      requestAnimationFrame(() => els.campaignActivationCancel.focus())
+      if (shouldLoadAudience) {
+        loadCampaignAudience(campaign.id).then(() => {
+          if (!els.campaignActivationDialog.hidden && state.pendingCampaignActivationId === campaign.id) renderCampaignActivationDialog()
+        }).catch(() => {
+          if (!els.campaignActivationDialog.hidden && state.pendingCampaignActivationId === campaign.id) renderCampaignActivationDialog()
+        })
+      }
+    }
+
+    function closeCampaignActivationDialog() {
+      els.campaignActivationDialog.hidden = true
+      state.pendingCampaignActivationId = null
+      els.campaignActivationFeedback.textContent = ''
+      els.campaignActivationConfirm.disabled = false
+      els.campaignActivationConfirm.textContent = 'Confirmar activación'
+    }
+
+    async function confirmCampaignActivation() {
+      const campaign = state.campaigns.find((item) => item.id === state.pendingCampaignActivationId)
+      if (!campaign) return closeCampaignActivationDialog()
+      try {
+        els.campaignActivationConfirm.disabled = true
+        els.campaignActivationConfirm.textContent = 'Activando...'
+        await getJson('/campaigns/' + campaign.id, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...campaign, status: 'ACTIVE' })
+        })
+        closeCampaignActivationDialog()
+        await loadCampaigns()
+      } catch (error) {
+        els.campaignActivationFeedback.textContent = error.message
+        els.campaignActivationConfirm.disabled = false
+        els.campaignActivationConfirm.textContent = 'Confirmar activación'
+      }
     }
 
     async function duplicateCampaign(campaign) {
@@ -13870,6 +14316,41 @@ const crmHtml = `<!doctype html>
         els.campaignDeleteFeedback.textContent = error.message
         els.campaignDeleteConfirm.disabled = false
         els.campaignDeleteConfirm.textContent = 'Eliminar campaña'
+      }
+    }
+
+    function deleteTemplate(template) {
+      state.pendingTemplateDeleteId = template.id
+      els.templateDeleteName.textContent = template.internalName
+      els.templateDeleteFeedback.textContent = ''
+      els.templateDeleteConfirm.disabled = false
+      els.templateDeleteConfirm.textContent = 'Eliminar plantilla'
+      els.templateDeleteDialog.hidden = false
+      requestAnimationFrame(() => els.templateDeleteCancel.focus())
+    }
+
+    function closeTemplateDeleteDialog() {
+      els.templateDeleteDialog.hidden = true
+      state.pendingTemplateDeleteId = null
+      els.templateDeleteFeedback.textContent = ''
+      els.templateDeleteConfirm.disabled = false
+      els.templateDeleteConfirm.textContent = 'Eliminar plantilla'
+    }
+
+    async function confirmTemplateDelete() {
+      const template = state.whatsappTemplates.find((item) => item.id === state.pendingTemplateDeleteId)
+      if (!template) return closeTemplateDeleteDialog()
+      try {
+        els.templateDeleteConfirm.disabled = true
+        els.templateDeleteConfirm.textContent = 'Eliminando...'
+        await getJson('/whatsapp-templates/' + template.id, { method: 'DELETE' })
+        closeTemplateDeleteDialog()
+        state.selectedTemplateId = null
+        await loadWhatsappTemplates()
+      } catch (error) {
+        els.templateDeleteFeedback.textContent = error.message
+        els.templateDeleteConfirm.disabled = false
+        els.templateDeleteConfirm.textContent = 'Eliminar plantilla'
       }
     }
 
@@ -14323,11 +14804,20 @@ const crmHtml = `<!doctype html>
       for (const item of els.templateFilterTabs.querySelectorAll('[data-template-filter]')) item.classList.toggle('active', item === button)
       renderWhatsappTemplates()
     })
+    els.templateSyncAll.addEventListener('click', syncAllWhatsappTemplates)
+    els.reminderTemplate.addEventListener('change', updateReminderDraftFromForm)
+    els.reminderBefore.addEventListener('change', updateReminderDraftFromForm)
+    els.reminderEnabled.addEventListener('change', updateReminderDraftFromForm)
+    els.reminderSave.addEventListener('click', saveReminderSettings)
     els.templateDetailPanel.addEventListener('click', async (event) => {
       const button = event.target.closest('[data-template-action]')
       if (!button) return
       const template = state.whatsappTemplates.find((item) => item.id === state.selectedTemplateId)
       if (!template) return
+      if (button.dataset.templateAction === 'delete') {
+        deleteTemplate(template)
+        return
+      }
       try {
         if (button.dataset.templateAction === 'edit') openTemplateDialog(template)
         if (button.dataset.templateAction === 'submit') await getJson('/whatsapp-templates/' + template.id + '/submit', { method: 'POST' })
@@ -14359,6 +14849,14 @@ const crmHtml = `<!doctype html>
     els.templateForm.addEventListener('submit', (event) => { event.preventDefault(); saveTemplate(false) })
     els.templateSaveSubmit.addEventListener('click', () => saveTemplate(true))
     els.templateBody.addEventListener('input', () => { renderTemplateVariables(); updateTemplateBuilderPreview() })
+    els.templateEmojiToggle.addEventListener('click', () => {
+      els.templateEmojiPicker.hidden = !els.templateEmojiPicker.hidden
+    })
+    els.templateEmojiPicker.addEventListener('emoji-click', (event) => {
+      if (event.detail?.unicode) insertTemplateEmoji(event.detail.unicode)
+    })
+    els.templateImage.addEventListener('change', readTemplateImage)
+    els.templateImageRemove.addEventListener('click', () => setTemplateImage(null))
     els.templateMetaName.addEventListener('input', updateTemplateBuilderPreview)
     els.templateCategoryMarketing.addEventListener('change', () => setTemplateCategory('MARKETING'))
     els.templateCategoryUtility.addEventListener('change', () => setTemplateCategory('UTILITY'))
@@ -14439,6 +14937,18 @@ const crmHtml = `<!doctype html>
     els.campaignDeleteConfirm.addEventListener('click', confirmCampaignDelete)
     els.campaignDeleteDialog.addEventListener('click', (event) => {
       if (event.target === els.campaignDeleteDialog) closeCampaignDeleteDialog()
+    })
+    els.campaignActivationClose.addEventListener('click', closeCampaignActivationDialog)
+    els.campaignActivationCancel.addEventListener('click', closeCampaignActivationDialog)
+    els.campaignActivationConfirm.addEventListener('click', confirmCampaignActivation)
+    els.campaignActivationDialog.addEventListener('click', (event) => {
+      if (event.target === els.campaignActivationDialog) closeCampaignActivationDialog()
+    })
+    els.templateDeleteClose.addEventListener('click', closeTemplateDeleteDialog)
+    els.templateDeleteCancel.addEventListener('click', closeTemplateDeleteDialog)
+    els.templateDeleteConfirm.addEventListener('click', confirmTemplateDelete)
+    els.templateDeleteDialog.addEventListener('click', (event) => {
+      if (event.target === els.templateDeleteDialog) closeTemplateDeleteDialog()
     })
     els.campaignSearch.addEventListener('input', () => {
       if (state.marketingView === 'templates') {
@@ -14560,6 +15070,8 @@ const crmHtml = `<!doctype html>
       if (event.key === 'Escape' && !els.marketingConfirmDialog.hidden) closeMarketingConfirmDialog()
       if (event.key === 'Escape' && !els.campaignDialog.hidden) closeCampaignDialog()
       if (event.key === 'Escape' && !els.campaignDeleteDialog.hidden) closeCampaignDeleteDialog()
+      if (event.key === 'Escape' && !els.campaignActivationDialog.hidden) closeCampaignActivationDialog()
+      if (event.key === 'Escape' && !els.templateDeleteDialog.hidden) closeTemplateDeleteDialog()
     })
     els.mobileInbox.addEventListener('click', () => setMobileView('inbox'))
     els.mobileChat.addEventListener('click', () => setMobileView('chat'))
