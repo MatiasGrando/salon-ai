@@ -12515,6 +12515,14 @@ const crmHtml = `<!doctype html>
     function listenForWhatsappEmbeddedSignup() {
       if (state.whatsappEmbeddedSignupListenerReady) return
       window.addEventListener('message', (event) => {
+        if (event.origin === window.location.origin && event.data?.type === 'SALON_AI_META_OAUTH') {
+          if (event.data.error) {
+            showWhatsappSettingsFeedback(event.data.error, 'error')
+            return
+          }
+          void handleWhatsappSignupResponse({ authResponse: { code: event.data.code } }, event.data.redirectUri)
+          return
+        }
         if (!String(event.origin || '').endsWith('facebook.com')) return
         let data = event.data
         if (typeof data === 'string') {
@@ -12533,6 +12541,21 @@ const crmHtml = `<!doctype html>
         }
       })
       state.whatsappEmbeddedSignupListenerReady = true
+    }
+
+    function notifyOpenerFromMetaOAuthRedirect() {
+      const params = new URLSearchParams(window.location.search)
+      const code = params.get('code')
+      const error = params.get('error_description') || params.get('error')
+      if (!window.opener || (!code && !error)) return false
+      window.opener.postMessage({
+        type: 'SALON_AI_META_OAUTH',
+        code,
+        error,
+        redirectUri: window.location.origin + window.location.pathname
+      }, window.location.origin)
+      window.close()
+      return true
     }
 
     async function handleWhatsappSignupResponse(response, redirectUri) {
@@ -12566,24 +12589,21 @@ const crmHtml = `<!doctype html>
       els.whatsappConnectButton.textContent = 'Abriendo Meta...'
       try {
         const config = await getJson('/businesses/' + state.businessId + '/whatsapp-embedded-signup-config')
-        const FB = await loadFacebookSdk(config.apiVersion)
-        const redirectUri = window.location.origin + '/'
+        const redirectUri = window.location.origin + window.location.pathname
         listenForWhatsappEmbeddedSignup()
-        FB.init({
-          appId: config.appId,
-          autoLogAppEvents: true,
-          xfbml: false,
-          version: config.apiVersion
-        })
-        FB.login(function (response) {
-          void handleWhatsappSignupResponse(response, redirectUri)
-        }, {
-          config_id: config.configId,
-          response_type: 'code',
-          override_default_response_type: true,
-          redirect_uri: redirectUri,
-          extras: JSON.stringify(config.extras || {})
-        })
+        const oauthUrl = new URL('https://www.facebook.com/' + config.apiVersion + '/dialog/oauth')
+        oauthUrl.searchParams.set('client_id', config.appId)
+        oauthUrl.searchParams.set('app_id', config.appId)
+        oauthUrl.searchParams.set('config_id', config.configId)
+        oauthUrl.searchParams.set('display', 'popup')
+        oauthUrl.searchParams.set('redirect_uri', redirectUri)
+        oauthUrl.searchParams.set('response_type', 'code')
+        oauthUrl.searchParams.set('override_default_response_type', 'true')
+        oauthUrl.searchParams.set('extras', JSON.stringify(config.extras || {}))
+        const popup = window.open(oauthUrl.toString(), 'salon_ai_whatsapp_signup', 'width=760,height=760')
+        if (!popup) {
+          showWhatsappSettingsFeedback('El navegador bloqueo la ventana de Meta. Habilita popups para continuar.', 'error')
+        }
       } catch (error) {
         showWhatsappSettingsFeedback(error.message, 'error')
       } finally {
@@ -15606,6 +15626,11 @@ const crmHtml = `<!doctype html>
       els.mobileInbox.classList.toggle('active', view === 'inbox')
       els.mobileChat.classList.toggle('active', view === 'chat')
       els.mobileDetails.classList.toggle('active', view === 'details')
+    }
+
+    const metaOAuthRedirectNotified = notifyOpenerFromMetaOAuthRedirect()
+    if (metaOAuthRedirectNotified) {
+      document.body.innerHTML = '<main class="crm-shell"><section class="settings-card"><h1>Conectando WhatsApp...</h1><p>Ya podes volver a la ventana principal.</p></section></main>'
     }
 
     hydrateWorkspaceNav()
