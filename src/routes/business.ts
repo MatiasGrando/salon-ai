@@ -262,7 +262,7 @@ async function exchangeEmbeddedSignupCode(code?: string, redirectUri?: string) {
     return { accessToken: null, tokenExpiresAt: undefined, error: 'Falta META_APP_SECRET para intercambiar el codigo de Meta por token.' }
   }
 
-  const candidateRedirectUri = redirectUri?.trim() || whatsappConfig.oauthRedirectUri
+  const candidateRedirectUri = redirectUri?.trim() || 'https://www.facebook.com/connect/login_success.html'
   const url = new URL(`https://graph.facebook.com/${whatsappConfig.apiVersion}/oauth/access_token`)
   url.searchParams.set('client_id', whatsappConfig.appId)
   url.searchParams.set('client_secret', whatsappConfig.appSecret)
