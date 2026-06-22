@@ -262,11 +262,11 @@ async function exchangeEmbeddedSignupCode(code?: string, redirectUri?: string) {
     return { accessToken: null, tokenExpiresAt: undefined, error: 'Falta META_APP_SECRET para intercambiar el codigo de Meta por token.' }
   }
 
-  const candidateRedirectUri = redirectUri?.trim() || 'https://www.facebook.com/connect/login_success.html'
+  const candidateRedirectUri = redirectUri?.trim()
   const url = new URL(`https://graph.facebook.com/${whatsappConfig.apiVersion}/oauth/access_token`)
   url.searchParams.set('client_id', whatsappConfig.appId)
   url.searchParams.set('client_secret', whatsappConfig.appSecret)
-  url.searchParams.set('redirect_uri', candidateRedirectUri)
+  if (candidateRedirectUri) url.searchParams.set('redirect_uri', candidateRedirectUri)
   url.searchParams.set('code', normalizedCode)
 
   const response = await fetch(url)
@@ -276,7 +276,7 @@ async function exchangeEmbeddedSignupCode(code?: string, redirectUri?: string) {
     return {
       accessToken: null,
       tokenExpiresAt: undefined,
-      error: `${metaError} Redirect usado: ${candidateRedirectUri}`
+      error: `${metaError} Redirect usado: ${candidateRedirectUri || 'sin redirect_uri'}`
     }
   }
 
