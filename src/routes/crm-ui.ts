@@ -12601,6 +12601,7 @@ const crmHtml = `<!doctype html>
         oauthUrl.searchParams.set('redirect_uri', redirectUri)
         oauthUrl.searchParams.set('response_type', 'code')
         oauthUrl.searchParams.set('override_default_response_type', 'true')
+        oauthUrl.searchParams.set('scope', 'business_management,whatsapp_business_management,whatsapp_business_messaging')
         oauthUrl.searchParams.set('extras', JSON.stringify(config.extras || {}))
         const popup = window.open(oauthUrl.toString(), 'salon_ai_whatsapp_signup', 'width=760,height=760')
         if (!popup) {
