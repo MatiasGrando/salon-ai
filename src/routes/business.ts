@@ -219,11 +219,22 @@ export async function businessRoutes(app: FastifyInstance) {
     const tokenResult = body.accessToken
       ? { accessToken: body.accessToken, tokenExpiresAt: body.tokenExpiresAt ? new Date(body.tokenExpiresAt) : undefined, error: null }
       : await exchangeEmbeddedSignupCode(body.code, body.redirectUri)
-    const connected = Boolean(tokenResult.accessToken && body.wabaId && body.phoneNumberId)
+    let resolvedWabaId = body.wabaId?.trim() || undefined
+    let resolvedPhoneNumberId = body.phoneNumberId?.trim() || undefined
+    let resolvedDisplayPhoneNumber = body.displayPhoneNumber?.trim() || undefined
+    let assetLookupError: string | null = null
+    if (tokenResult.accessToken && (!resolvedWabaId || !resolvedPhoneNumberId)) {
+      const resolvedAssets = await resolveWhatsAppAssetsFromToken(tokenResult.accessToken)
+      resolvedWabaId = resolvedWabaId || resolvedAssets.wabaId
+      resolvedPhoneNumberId = resolvedPhoneNumberId || resolvedAssets.phoneNumberId
+      resolvedDisplayPhoneNumber = resolvedDisplayPhoneNumber || resolvedAssets.displayPhoneNumber
+      assetLookupError = resolvedAssets.error
+    }
+    const connected = Boolean(tokenResult.accessToken && resolvedWabaId && resolvedPhoneNumberId)
     const missingConnectionParts = [
       tokenResult.accessToken ? null : 'token',
-      body.wabaId ? null : 'WABA ID',
-      body.phoneNumberId ? null : 'Phone Number ID'
+      resolvedWabaId ? null : 'WABA ID',
+      resolvedPhoneNumberId ? null : 'Phone Number ID'
     ].filter(Boolean).join(', ')
 
     await prisma.businessWhatsAppConfig.update({
@@ -231,14 +242,14 @@ export async function businessRoutes(app: FastifyInstance) {
       data: {
         connectionStatus: connected ? 'CONNECTED' : 'CONNECTING',
         mode: 'CLIENT_OWNED',
-        wabaId: body.wabaId?.trim() || undefined,
-        phoneNumberId: body.phoneNumberId?.trim() || undefined,
-        displayPhoneNumber: body.displayPhoneNumber?.trim() || undefined,
+        wabaId: resolvedWabaId,
+        phoneNumberId: resolvedPhoneNumberId,
+        displayPhoneNumber: resolvedDisplayPhoneNumber,
         metaAppId: whatsappConfig.appId,
         accessToken: tokenResult.accessToken?.trim() || undefined,
         tokenExpiresAt: tokenResult.tokenExpiresAt,
         connectedAt: connected ? new Date() : undefined,
-        lastError: tokenResult.error || (body.code && !connected ? `Embedded Signup devolvio datos incompletos. Falta: ${missingConnectionParts}.` : null)
+        lastError: tokenResult.error || (body.code && !connected ? `Embedded Signup devolvio datos incompletos. Falta: ${missingConnectionParts}.${assetLookupError ? ` Meta no permitio resolverlos automaticamente: ${assetLookupError}` : ''}` : null)
       }
     })
     if (connected) {
@@ -306,6 +317,58 @@ async function exchangeEmbeddedSignupCode(code?: string, redirectUri?: string) {
     tokenExpiresAt: body.expires_in ? new Date(Date.now() + body.expires_in * 1000) : undefined,
     error: null
   }
+}
+
+async function resolveWhatsAppAssetsFromToken(accessToken: string) {
+  type GraphPhoneNumber = {
+    display_phone_number?: string
+    id?: string
+  }
+  type GraphWaba = {
+    id?: string
+    phone_numbers?: { data?: GraphPhoneNumber[] }
+  }
+  type GraphBusiness = {
+    client_whatsapp_business_accounts?: { data?: GraphWaba[] }
+    owned_whatsapp_business_accounts?: { data?: GraphWaba[] }
+  }
+  type GraphBusinessesResponse = {
+    data?: GraphBusiness[]
+    error?: { message?: string }
+  }
+
+  const url = new URL(`https://graph.facebook.com/${whatsappConfig.apiVersion}/me/businesses`)
+  url.searchParams.set('access_token', accessToken)
+  url.searchParams.set('fields', [
+    'owned_whatsapp_business_accounts{id,phone_numbers{id,display_phone_number}}',
+    'client_whatsapp_business_accounts{id,phone_numbers{id,display_phone_number}}'
+  ].join(','))
+
+  const response = await fetch(url)
+  const body = await response.json().catch(() => ({})) as GraphBusinessesResponse
+  if (!response.ok) {
+    return { wabaId: undefined, phoneNumberId: undefined, displayPhoneNumber: undefined, error: body.error?.message || 'No pude consultar activos de WhatsApp.' }
+  }
+
+  for (const business of body.data || []) {
+    const wabas = [
+      ...(business.owned_whatsapp_business_accounts?.data || []),
+      ...(business.client_whatsapp_business_accounts?.data || [])
+    ]
+    for (const waba of wabas) {
+      const phoneNumber = waba.phone_numbers?.data?.find((item) => item.id)
+      if (waba.id && phoneNumber?.id) {
+        return {
+          wabaId: waba.id,
+          phoneNumberId: phoneNumber.id,
+          displayPhoneNumber: phoneNumber.display_phone_number,
+          error: null
+        }
+      }
+    }
+  }
+
+  return { wabaId: undefined, phoneNumberId: undefined, displayPhoneNumber: undefined, error: 'Graph API no devolvio cuentas o numeros de WhatsApp para este token.' }
 }
 
 async function ensureBusinessSettings(businessId: string) {
