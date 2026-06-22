@@ -37,6 +37,39 @@ const crmHtml = `<!doctype html>
       box-sizing: border-box;
     }
 
+    .crm-toast {
+      position: fixed;
+      right: 22px;
+      bottom: 22px;
+      z-index: 60;
+      max-width: min(420px, calc(100vw - 32px));
+      padding: 13px 15px;
+      display: none;
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      color: #1d4ed8;
+      background: #eff6ff;
+      box-shadow: 0 16px 34px rgba(15, 23, 42, .14);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .crm-toast.visible {
+      display: block;
+    }
+
+    .crm-toast.error {
+      color: #b42318;
+      border-color: #fecaca;
+      background: #fff1f2;
+    }
+
+    .crm-toast.success {
+      color: #166534;
+      border-color: #bbf7d0;
+      background: #f0fdf4;
+    }
+
     html,
     body {
       height: 100%;
@@ -5459,6 +5492,58 @@ const crmHtml = `<!doctype html>
       font-weight: 700;
     }
 
+    .whatsapp-settings-grid {
+      margin-top: 20px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .whatsapp-status-card {
+      padding: 16px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 14px;
+      align-items: center;
+      border: 1px solid #dfe6f1;
+      border-radius: 8px;
+      background: #f8fbff;
+    }
+
+    .whatsapp-status-card strong {
+      display: block;
+      color: #101936;
+      font-size: 14px;
+    }
+
+    .whatsapp-status-card span {
+      display: block;
+      margin-top: 4px;
+      color: #52617f;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .whatsapp-status-badge {
+      min-width: 118px;
+      padding: 8px 10px;
+      border-radius: 999px;
+      text-align: center;
+      color: #92400e;
+      background: #fffbeb;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .whatsapp-status-badge.connected {
+      color: #166534;
+      background: #dcfce7;
+    }
+
+    .whatsapp-control-list {
+      display: grid;
+      gap: 10px;
+    }
+
     .settings-form {
       margin-top: 24px;
       display: grid;
@@ -7844,6 +7929,7 @@ const crmHtml = `<!doctype html>
   </nav>
 
   <main class="app" id="app-shell" data-section="conversations">
+    <div class="crm-toast" id="crm-toast" role="status" aria-live="polite"></div>
     <nav class="workspace-nav" aria-label="Secciones CRM">
       <div class="crm-brand">
         <div class="brand-mark">S</div>
@@ -8941,6 +9027,46 @@ const crmHtml = `<!doctype html>
           </div>
         </section>
 
+        <section class="settings-panel">
+          <h3>WhatsApp del comercio</h3>
+          <p>Conect&aacute; la cuenta Meta del cliente y control&aacute; qu&eacute; env&iacute;os reales quedan habilitados.</p>
+          <div class="whatsapp-settings-grid">
+            <div class="whatsapp-status-card">
+              <div>
+                <strong id="whatsapp-settings-title">WhatsApp no conectado</strong>
+                <span id="whatsapp-settings-copy">Las campa&ntilde;as y recordatorios reales quedan bloqueados hasta completar la conexi&oacute;n.</span>
+              </div>
+              <div class="whatsapp-status-badge" id="whatsapp-settings-badge">Bloqueado</div>
+            </div>
+            <div class="settings-actions">
+              <button class="primary" id="whatsapp-connect-button" type="button">Conectar WhatsApp</button>
+            </div>
+            <div class="whatsapp-control-list">
+              <label class="automation-control">
+                <div class="automation-copy"><strong>Env&iacute;o real por WhatsApp</strong><span>Bloquea cualquier mensaje real si est&aacute; pausado.</span><small id="real-whatsapp-status">Bloqueado</small></div>
+                <input id="real-whatsapp-toggle" type="checkbox">
+                <span class="automation-switch" aria-hidden="true"></span>
+              </label>
+              <label class="automation-control">
+                <div class="automation-copy"><strong>Campa&ntilde;as</strong><span>Solo se habilitan con cuenta del cliente y facturaci&oacute;n propia.</span><small id="campaign-sending-status">Bloqueadas</small></div>
+                <input id="campaign-sending-toggle" type="checkbox">
+                <span class="automation-switch" aria-hidden="true"></span>
+              </label>
+              <label class="automation-control">
+                <div class="automation-copy"><strong>Recordatorios</strong><span>Usan plantillas Utility aprobadas del comercio.</span><small id="reminder-sending-status">Bloqueados</small></div>
+                <input id="reminder-sending-toggle" type="checkbox">
+                <span class="automation-switch" aria-hidden="true"></span>
+              </label>
+              <label class="automation-control">
+                <div class="automation-copy"><strong>Facturaci&oacute;n cliente</strong><span>Si paga Salon AI, las campa&ntilde;as masivas quedan bloqueadas.</span><small id="billing-owner-status">Cliente</small></div>
+                <input id="billing-owner-toggle" type="checkbox" checked>
+                <span class="automation-switch" aria-hidden="true"></span>
+              </label>
+            </div>
+            <p class="settings-feedback" id="whatsapp-settings-feedback" role="status" aria-live="polite"></p>
+          </div>
+        </section>
+
       </div>
     </section>
 
@@ -9490,6 +9616,7 @@ const crmHtml = `<!doctype html>
       businessId: null,
       business: null,
       businessHours: [],
+      whatsappSettings: null,
       conversationFilter: 'all',
       conversationVisibleLimit: 12,
       readConversationIds: new Set(),
@@ -9535,11 +9662,14 @@ const crmHtml = `<!doctype html>
       templateSearch: '',
       templateDraftExamples: {},
       templateImageUrl: null,
+      pendingUiConfirmation: null,
+      crmToastTimer: null,
       isRefreshing: false
     }
 
     const els = {
       list: document.getElementById('conversation-list'),
+      crmToast: document.getElementById('crm-toast'),
       count: document.getElementById('conversation-count'),
       unreadCount: document.getElementById('conversation-unread-count'),
       archivedCount: document.getElementById('conversation-archived-count'),
@@ -9556,6 +9686,19 @@ const crmHtml = `<!doctype html>
       globalAiToggle: document.getElementById('global-ai-toggle'),
       globalBotStatus: document.getElementById('global-bot-status'),
       globalAiStatus: document.getElementById('global-ai-status'),
+      whatsappSettingsTitle: document.getElementById('whatsapp-settings-title'),
+      whatsappSettingsCopy: document.getElementById('whatsapp-settings-copy'),
+      whatsappSettingsBadge: document.getElementById('whatsapp-settings-badge'),
+      whatsappConnectButton: document.getElementById('whatsapp-connect-button'),
+      realWhatsappToggle: document.getElementById('real-whatsapp-toggle'),
+      campaignSendingToggle: document.getElementById('campaign-sending-toggle'),
+      reminderSendingToggle: document.getElementById('reminder-sending-toggle'),
+      billingOwnerToggle: document.getElementById('billing-owner-toggle'),
+      realWhatsappStatus: document.getElementById('real-whatsapp-status'),
+      campaignSendingStatus: document.getElementById('campaign-sending-status'),
+      reminderSendingStatus: document.getElementById('reminder-sending-status'),
+      billingOwnerStatus: document.getElementById('billing-owner-status'),
+      whatsappSettingsFeedback: document.getElementById('whatsapp-settings-feedback'),
       messages: document.getElementById('messages'),
       chatAvatar: document.getElementById('chat-avatar'),
       chatPhone: document.getElementById('chat-phone'),
@@ -10070,6 +10213,27 @@ const crmHtml = `<!doctype html>
       return response.json()
     }
 
+    function showCrmToast(message, type = 'info') {
+      if (!els.crmToast) return
+      window.clearTimeout(state.crmToastTimer)
+      els.crmToast.textContent = message
+      els.crmToast.className = 'crm-toast visible ' + type
+      state.crmToastTimer = window.setTimeout(() => {
+        els.crmToast.className = 'crm-toast'
+      }, 5200)
+    }
+
+    function requestCrmConfirmation(key, message) {
+      const now = Date.now()
+      if (state.pendingUiConfirmation?.key === key && state.pendingUiConfirmation.expiresAt > now) {
+        state.pendingUiConfirmation = null
+        return true
+      }
+      state.pendingUiConfirmation = { key, expiresAt: now + 7000 }
+      showCrmToast(message + ' Volve a tocar la accion para confirmar.', 'error')
+      return false
+    }
+
     async function loadBasics() {
       const businesses = await getJson('/businesses')
       state.business = businesses[0] || null
@@ -10077,11 +10241,15 @@ const crmHtml = `<!doctype html>
       state.businessHours = state.businessId
         ? await getJson('/business-hours?businessId=' + encodeURIComponent(state.businessId))
         : []
+      state.whatsappSettings = state.businessId
+        ? await getJson('/businesses/' + state.businessId + '/whatsapp-settings')
+        : null
       state.aiSettings = await getJson('/crm/ai-settings' + (state.businessId ? '?businessId=' + encodeURIComponent(state.businessId) : ''))
       state.professionals = await getJson('/professionals')
       state.services = await getJson('/services')
       state.customers = await getJson('/customers')
       renderBusinessSettings()
+      renderWhatsappSettings()
       applyProfessionalBusinessHourLimits()
       renderAiControls()
       renderProfessionals()
@@ -10628,7 +10796,7 @@ const crmHtml = `<!doctype html>
     function openCustomerDialog(mode, explicitCustomer = null) {
       const customer = explicitCustomer || (state.selected ? customerForPhone(state.selected.phone) : null)
       if (mode !== 'create' && !customer) {
-        alert('Primero crea el cliente desde un turno para poder guardar informacion.')
+        showCrmToast('Primero crea el cliente desde un turno para poder guardar informacion.', 'error')
         return
       }
 
@@ -11658,7 +11826,7 @@ const crmHtml = `<!doctype html>
         await selectConversation(state.selected.id)
         await loadConversations()
         if (result.delivery && result.delivery.sent === false) {
-          alert('WhatsApp no pudo enviar el mensaje: ' + (result.delivery.errorMessage || result.delivery.reason || 'revisa la configuracion o la ventana de 24 hs.'))
+          showCrmToast('WhatsApp no pudo enviar el mensaje: ' + (result.delivery.errorMessage || result.delivery.reason || 'revisa la configuracion o la ventana de 24 hs.'), 'error')
         }
       } catch (error) {
         if (error.body?.reason === 'whatsapp_reply_window_expired') {
@@ -11666,7 +11834,7 @@ const crmHtml = `<!doctype html>
           state.selected.whatsappReplyWindowExpiresAt = error.body.replyWindowExpiresAt
           updateComposerAvailability()
         } else {
-          alert(error.message)
+          showCrmToast(error.message, 'error')
         }
       } finally {
         updateComposerAvailability()
@@ -11687,17 +11855,12 @@ const crmHtml = `<!doctype html>
         renderAiControls()
       } catch (error) {
         renderAiControls()
-        alert(error.message)
+        showBusinessSettingsFeedback(error.message, 'error')
       }
     }
 
     async function toggleGlobalBot() {
       const nextValue = els.globalBotToggle.checked
-      if (!nextValue && !confirm('Pausar el bot automatico en todo el salon? Ningun chat recibira respuestas automaticas hasta que lo actives nuevamente.')) {
-        renderAiControls()
-        return
-      }
-
       try {
         state.aiSettings = await getJson('/crm/ai-settings', {
           method: 'PATCH',
@@ -11708,9 +11871,10 @@ const crmHtml = `<!doctype html>
           })
         })
         renderAiControls()
+        showBusinessSettingsFeedback(nextValue ? 'Bot automatico activo.' : 'Bot automatico pausado para todo el salon.', 'success')
       } catch (error) {
         renderAiControls()
-        alert(error.message)
+        showBusinessSettingsFeedback(error.message, 'error')
       }
     }
 
@@ -11729,7 +11893,7 @@ const crmHtml = `<!doctype html>
         await loadConversations()
         renderSelected()
       } catch (error) {
-        alert(error.message)
+        showCrmToast(error.message, 'error')
       } finally {
         els.conversationAiToggle.disabled = false
       }
@@ -11750,7 +11914,7 @@ const crmHtml = `<!doctype html>
         await loadConversations()
         renderSelected()
       } catch (error) {
-        alert(error.message)
+        showCrmToast(error.message, 'error')
       } finally {
         els.resolveHandoff.disabled = false
       }
@@ -11770,7 +11934,7 @@ const crmHtml = `<!doctype html>
         state.conversationNextCursor = null
         await loadConversations()
       } catch (error) {
-        alert(error.message)
+        showCrmToast(error.message, 'error')
       } finally {
         els.archiveConversation.disabled = false
       }
@@ -11918,7 +12082,7 @@ const crmHtml = `<!doctype html>
         return
       }
 
-      if (!confirm('Eliminar profesional ' + professional.name + '?')) return
+      if (!requestCrmConfirmation('delete-professional:' + id, 'Eliminar profesional ' + professional.name + '?')) return
 
       try {
         await getJson('/professionals/' + id, {
@@ -12153,6 +12317,75 @@ const crmHtml = `<!doctype html>
       els.businessSundayEnabled.checked = Boolean(sunday)
       els.businessSundayStart.value = sunday?.startTime || '09:00'
       els.businessSundayEnd.value = sunday?.endTime || '14:00'
+    }
+
+    function renderWhatsappSettings() {
+      const settings = state.whatsappSettings
+      const connection = settings?.connection || {}
+      const features = settings?.settings || {}
+      const connected = connection.status === 'CONNECTED'
+      const campaignReady = Boolean(settings?.gates?.canSendCampaigns)
+      const reminderReady = Boolean(settings?.gates?.canSendReminders)
+      const title = connected
+        ? 'WhatsApp conectado' + (connection.displayPhoneNumber ? ' · ' + connection.displayPhoneNumber : '')
+        : whatsappConnectionLabel(connection.status)
+      const firstReason = settings?.reasons?.campaigns?.[0] || settings?.reasons?.base?.[0] || 'Las campanas reales quedan bloqueadas hasta completar la conexion.'
+
+      els.whatsappSettingsTitle.textContent = title
+      els.whatsappSettingsCopy.textContent = connected
+        ? (campaignReady ? 'Cuenta lista para campanas y recordatorios reales.' : firstReason)
+        : firstReason
+      els.whatsappSettingsBadge.textContent = campaignReady ? 'Listo' : 'Bloqueado'
+      els.whatsappSettingsBadge.classList.toggle('connected', campaignReady)
+      els.realWhatsappToggle.checked = Boolean(features.realWhatsappEnabled)
+      els.campaignSendingToggle.checked = campaignReady
+      els.reminderSendingToggle.checked = reminderReady
+      els.billingOwnerToggle.checked = features.billingOwner !== 'SALON_AI'
+      els.realWhatsappStatus.textContent = features.realWhatsappEnabled ? 'Activo' : 'Bloqueado'
+      els.campaignSendingStatus.textContent = campaignReady ? 'Activas' : 'Bloqueadas'
+      els.reminderSendingStatus.textContent = reminderReady ? 'Activos' : 'Bloqueados'
+      els.billingOwnerStatus.textContent = features.billingOwner === 'SALON_AI' ? 'Salon AI' : 'Cliente'
+      els.campaignSendingToggle.disabled = connection.mode === 'INTERNAL_TEST' || features.billingOwner === 'SALON_AI'
+    }
+
+    function whatsappConnectionLabel(status) {
+      if (status === 'CONNECTED') return 'WhatsApp conectado'
+      if (status === 'CONNECTING') return 'Conectando WhatsApp'
+      if (status === 'NEEDS_PAYMENT') return 'Falta medio de pago'
+      if (status === 'NEEDS_REVIEW') return 'Falta revision de Meta'
+      if (status === 'ERROR') return 'Conexion con error'
+      return 'WhatsApp no conectado'
+    }
+
+    function showWhatsappSettingsFeedback(message, type) {
+      els.whatsappSettingsFeedback.textContent = message
+      els.whatsappSettingsFeedback.className = 'settings-feedback visible ' + type
+    }
+
+    function clearWhatsappSettingsFeedback() {
+      els.whatsappSettingsFeedback.textContent = ''
+      els.whatsappSettingsFeedback.className = 'settings-feedback'
+    }
+
+    async function saveWhatsappSettingsPatch(patch, successMessage) {
+      if (!state.businessId) return
+      clearWhatsappSettingsFeedback()
+      try {
+        state.whatsappSettings = await getJson('/businesses/' + state.businessId + '/whatsapp-settings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(patch)
+        })
+        renderWhatsappSettings()
+        showWhatsappSettingsFeedback(successMessage, 'success')
+      } catch (error) {
+        renderWhatsappSettings()
+        showWhatsappSettingsFeedback(error.message, 'error')
+      }
+    }
+
+    function openWhatsappSignupPlaceholder() {
+      showWhatsappSettingsFeedback('Embedded Signup queda preparado. Cuando Meta devuelva codigo, WABA ID y phone number ID, este panel va a pasar a conectado.', 'success')
     }
 
     function businessInitials(name) {
@@ -12983,7 +13216,7 @@ const crmHtml = `<!doctype html>
           const appointmentId = state.agendaDraggingAppointmentId || dropEvent.dataTransfer.getData('text/plain')
           clearAgendaDragTargets()
           if (!appointmentId || cell.classList.contains('closed')) {
-            if (cell.classList.contains('closed')) alert('Ese horario esta fuera del horario de atencion.')
+            if (cell.classList.contains('closed')) showCrmToast('Ese horario esta fuera del horario de atencion.', 'error')
             return
           }
           await moveAgendaAppointment(
@@ -13027,7 +13260,7 @@ const crmHtml = `<!doctype html>
         await loadAgenda()
       } catch (error) {
         event?.classList.remove('dragging')
-        alert(error.message)
+        showCrmToast(error.message, 'error')
         renderAgenda()
       } finally {
         state.agendaDraggingAppointmentId = null
@@ -13206,7 +13439,7 @@ const crmHtml = `<!doctype html>
         return
       }
 
-      if (force && !confirm('Guardar este turno como excepcion? Puede quedar fuera de horario o superpuesto con otro turno.')) {
+      if (force && !requestCrmConfirmation('appointment-force:' + (state.editingAppointmentId || startAt), 'Guardar este turno como excepcion? Puede quedar fuera de horario o superpuesto con otro turno.')) {
         return
       }
 
@@ -13259,7 +13492,7 @@ const crmHtml = `<!doctype html>
     async function deleteManualAppointment() {
       const appointmentId = state.editingAppointmentId
       if (!appointmentId) return
-      if (!confirm('Eliminar este turno de la agenda?')) return
+      if (!requestCrmConfirmation('delete-appointment:' + appointmentId, 'Eliminar este turno de la agenda?')) return
 
       try {
         await getJson('/appointments/' + appointmentId, {
@@ -13282,7 +13515,7 @@ const crmHtml = `<!doctype html>
       const appointment = state.agendaAppointments.find((item) => item.id === appointmentId)
       const isNoShow = appointment?.status === 'NO_SHOW'
       const nextStatus = isNoShow ? 'CONFIRMED' : 'NO_SHOW'
-      if (!confirm(isNoShow ? 'Quitar el estado ausente de este turno?' : 'Marcar este turno como ausente?')) return
+      if (!requestCrmConfirmation('appointment-status:' + appointmentId + ':' + nextStatus, isNoShow ? 'Quitar el estado ausente de este turno?' : 'Marcar este turno como ausente?')) return
 
       try {
         await getJson('/appointments/' + appointmentId + '/status', {
@@ -15012,7 +15245,7 @@ const crmHtml = `<!doctype html>
 
     async function deleteService(id) {
       const service = state.services.find((item) => item.id === id)
-      if (!service || !confirm('Eliminar servicio ' + service.name + '?')) return
+      if (!service || !requestCrmConfirmation('delete-service:' + id, 'Eliminar servicio ' + service.name + '?')) return
 
       try {
         await getJson('/services/' + id, {
@@ -15446,6 +15679,32 @@ const crmHtml = `<!doctype html>
     els.businessLogoRemove.addEventListener('click', () => {
       clearBusinessSettingsFeedback()
       setBusinessLogo(null)
+    })
+    els.whatsappConnectButton.addEventListener('click', openWhatsappSignupPlaceholder)
+    els.realWhatsappToggle.addEventListener('change', () => {
+      saveWhatsappSettingsPatch({
+        realWhatsappEnabled: els.realWhatsappToggle.checked,
+        campaignSendingLocked: !els.realWhatsappToggle.checked,
+        reminderSendingLocked: !els.realWhatsappToggle.checked
+      }, els.realWhatsappToggle.checked ? 'Envio real habilitado.' : 'Envio real bloqueado.')
+    })
+    els.campaignSendingToggle.addEventListener('change', () => {
+      saveWhatsappSettingsPatch({
+        campaignsEnabled: els.campaignSendingToggle.checked,
+        campaignSendingLocked: !els.campaignSendingToggle.checked
+      }, els.campaignSendingToggle.checked ? 'Campanas habilitadas.' : 'Campanas bloqueadas.')
+    })
+    els.reminderSendingToggle.addEventListener('change', () => {
+      saveWhatsappSettingsPatch({
+        remindersEnabled: els.reminderSendingToggle.checked,
+        reminderSendingLocked: !els.reminderSendingToggle.checked
+      }, els.reminderSendingToggle.checked ? 'Recordatorios habilitados.' : 'Recordatorios bloqueados.')
+    })
+    els.billingOwnerToggle.addEventListener('change', () => {
+      saveWhatsappSettingsPatch({
+        billingOwner: els.billingOwnerToggle.checked ? 'CLIENT' : 'SALON_AI',
+        campaignSendingLocked: !els.billingOwnerToggle.checked
+      }, els.billingOwnerToggle.checked ? 'Facturacion a cargo del cliente.' : 'Campanas masivas bloqueadas para facturacion Salon AI.')
     })
     els.globalBotToggle.addEventListener('change', toggleGlobalBot)
     els.globalAiToggle.addEventListener('change', toggleGlobalAi)

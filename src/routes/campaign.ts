@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify'
 import { prisma } from '../config/prisma.js'
 import { whatsappPricingRates } from '../config/whatsapp-pricing.js'
 import { WhatsAppCloudApi } from '../integrations/whatsapp-cloud-api.js'
+import { assertBusinessCanSendWhatsApp } from '../services/business-whatsapp-settings.js'
 
 const CAMPAIGN_TYPES = ['ONE_TIME', 'AUTOMATED'] as const
 const CAMPAIGN_CHANNELS = ['WHATSAPP', 'EMAIL', 'BOTH'] as const
@@ -184,8 +185,11 @@ export async function campaignRoutes(app: FastifyInstance) {
     if (unsupportedVariables.length) return reply.status(400).send({ message: unsupportedTemplateVariablesMessage(template.category, unsupportedVariables) })
     const missingExamples = variables.filter((variable) => !examples[variable])
     if (missingExamples.length) return reply.status(400).send({ message: 'Completa los ejemplos de Meta para: ' + missingExamples.join(', ') })
+    const gate = await assertBusinessCanSendWhatsApp(template.businessId, 'TEMPLATE')
+    if (!gate.allowed) return reply.status(409).send({ message: gate.message })
     const metaTemplate = buildMetaTemplateBody(template.body, examples)
     const result = await whatsappCloudApi.createMessageTemplate({
+      businessId: template.businessId,
       name: template.metaName,
       languageCode: template.language,
       category: normalizeWhatsAppTemplateCategory(template.category) ?? 'MARKETING',
@@ -213,11 +217,11 @@ export async function campaignRoutes(app: FastifyInstance) {
     const template = await prisma.whatsAppTemplate.findUnique({ where: { id: params.id } })
     if (!template) return reply.status(404).send({ message: 'No encontre esa plantilla' })
     if (template.status === 'DRAFT') return reply.status(409).send({ message: 'Primero envia la plantilla a revision' })
-    const result = await whatsappCloudApi.findMessageTemplate({ id: template.metaId, name: template.metaName, languageCode: template.language })
+    const result = await whatsappCloudApi.findMessageTemplate({ businessId: template.businessId, id: template.metaId, name: template.metaName, languageCode: template.language })
     if (!result.found || !result.template) {
       return reply.status(result.status === 404 ? 404 : 502).send({ message: result.errorMessage || result.reason || 'No pude consultar Meta' })
     }
-    const listed = await whatsappCloudApi.listMessageTemplates({ name: template.metaName })
+    const listed = await whatsappCloudApi.listMessageTemplates({ businessId: template.businessId, name: template.metaName })
     const preferred = listed.listed ? preferredMetaTemplate(listed.templates, template.language) : null
     const selectedTemplate = preferred && isApprovedMetaTemplate(preferred.status) ? preferred : result.template
     return prisma.whatsAppTemplate.update({
@@ -239,7 +243,7 @@ export async function campaignRoutes(app: FastifyInstance) {
     const template = await prisma.whatsAppTemplate.findUnique({ where: { id: params.id } })
     if (!template) return reply.status(404).send({ message: 'No encontre esa plantilla' })
 
-    const listed = await whatsappCloudApi.listMessageTemplates({ name: template.metaName })
+    const listed = await whatsappCloudApi.listMessageTemplates({ businessId: template.businessId, name: template.metaName })
     if (!listed.listed) {
       return reply.status(listed.status === 404 ? 404 : 502).send({ message: listed.errorMessage || listed.reason || 'No pude consultar Meta' })
     }
@@ -282,17 +286,19 @@ export async function campaignRoutes(app: FastifyInstance) {
     const template = await prisma.whatsAppTemplate.findUnique({ where: { id: params.id } })
     if (!template) return reply.status(404).send({ message: 'No encontre esa plantilla' })
     if (template.status !== 'APPROVED') return reply.status(409).send({ message: 'Meta debe aprobar la plantilla antes de probarla' })
+    const gate = await assertBusinessCanSendWhatsApp(template.businessId, 'TEST')
+    if (!gate.allowed) return reply.status(409).send({ message: gate.message })
     const examples = parseTemplateExamples(template.exampleJson)
     const variables = extractNamedTemplateVariables(template.body)
     const missingExamples = variables.filter((variable) => !examples[variable])
     if (missingExamples.length) return reply.status(400).send({ message: 'Faltan ejemplos para: ' + missingExamples.join(', ') })
     let metaTemplate = template.metaId
-      ? await whatsappCloudApi.findMessageTemplate({ id: template.metaId, name: template.metaName, languageCode: template.language })
+      ? await whatsappCloudApi.findMessageTemplate({ businessId: template.businessId, id: template.metaId, name: template.metaName, languageCode: template.language })
       : null
     if (!metaTemplate?.found) {
-      metaTemplate = await whatsappCloudApi.findMessageTemplate({ id: null, name: template.metaName })
+      metaTemplate = await whatsappCloudApi.findMessageTemplate({ businessId: template.businessId, id: null, name: template.metaName })
     }
-    const listed = await whatsappCloudApi.listMessageTemplates({ name: template.metaName })
+    const listed = await whatsappCloudApi.listMessageTemplates({ businessId: template.businessId, name: template.metaName })
     const preferred = listed.listed ? preferredMetaTemplate(listed.templates, template.language) : null
     const selectedMetaTemplate = preferred && isApprovedMetaTemplate(preferred.status) ? preferred : metaTemplate?.template
     const templateName = selectedMetaTemplate?.name || template.metaName
@@ -311,6 +317,7 @@ export async function campaignRoutes(app: FastifyInstance) {
       })
     }
     const result = await whatsappCloudApi.sendTemplateMessage({
+      businessId: template.businessId,
       to: phone,
       templateName,
       languageCode,
@@ -494,6 +501,7 @@ export async function campaignRoutes(app: FastifyInstance) {
     if (!campaign.templateName) return reply.status(400).send({ message: 'La campana no tiene una plantilla asociada' })
 
     const result = await whatsappCloudApi.findMessageTemplate({
+      businessId: campaign.businessId,
       id: campaign.templateId,
       name: campaign.templateName,
       languageCode: campaign.templateLanguage
@@ -710,6 +718,8 @@ export async function campaignRoutes(app: FastifyInstance) {
     }
     if (!campaign.whatsappTemplateId || !campaign.whatsappTemplate) return reply.status(400).send({ message: 'Selecciona una plantilla aprobada antes de enviar' })
     if (campaign.whatsappTemplate.status !== 'APPROVED') return reply.status(400).send({ message: 'La plantilla debe estar aprobada por Meta' })
+    const gate = await assertBusinessCanSendWhatsApp(campaign.businessId, 'CAMPAIGN')
+    if (!gate.allowed) return reply.status(409).send({ message: gate.message })
 
     const previousRealDeliveries = await prisma.campaignDelivery.count({
       where: { campaignId: campaign.id, status: { notIn: ['FAILED', 'CANCELLED'] } }
@@ -756,6 +766,7 @@ export async function campaignRoutes(app: FastifyInstance) {
       }
 
       const result = await whatsappCloudApi.sendTemplateMessage({
+        businessId: campaign.businessId,
         to: customer.phone,
         templateName: campaign.whatsappTemplate.metaName,
         languageCode: campaign.whatsappTemplate.language,
@@ -817,6 +828,8 @@ export async function campaignRoutes(app: FastifyInstance) {
     }
     if (!campaign.whatsappTemplateId || !campaign.whatsappTemplate) return reply.status(400).send({ message: 'Selecciona una plantilla aprobada antes de enviar' })
     if (campaign.whatsappTemplate.status !== 'APPROVED') return reply.status(400).send({ message: 'La plantilla debe estar aprobada por Meta' })
+    const gate = await assertBusinessCanSendWhatsApp(campaign.businessId, 'CAMPAIGN')
+    if (!gate.allowed) return reply.status(409).send({ message: gate.message })
 
     const audience = await calculateCampaignAudience(campaign)
     if (!audience.included.length) return { status: 'COMPLETED', sent: 0, failed: 0, total: 0, message: 'No hay destinatarios listos' }
@@ -881,6 +894,11 @@ export async function campaignRoutes(app: FastifyInstance) {
     let failed = 0
     for (const job of jobs) {
       if (job.retryCount >= job.maxRetries || !job.campaign.whatsappTemplate) continue
+      const gate = await assertBusinessCanSendWhatsApp(job.businessId, 'CAMPAIGN')
+      if (!gate.allowed) {
+        failed += 1
+        continue
+      }
       const template = job.campaign.whatsappTemplate
       const context = await buildTemplateVariableContext({ businessId: job.businessId, customerId: job.customerId })
       const resolved = resolveWhatsAppTemplateVariables({ body: template.body, category: template.category, context })
@@ -888,6 +906,7 @@ export async function campaignRoutes(app: FastifyInstance) {
       const result = invalid.length
         ? { sent: false as const, reason: 'Faltan variables: ' + invalid.join(', '), to: job.customer.phone }
         : await whatsappCloudApi.sendTemplateMessage({
+            businessId: job.businessId,
             to: job.customer.phone,
             templateName: template.metaName,
             languageCode: template.language,
@@ -928,6 +947,8 @@ export async function campaignRoutes(app: FastifyInstance) {
     const businessId = body.businessId?.trim()
     const limit = Math.max(1, Math.min(100, Number(body.limit ?? 25) || 25))
     if (!businessId) return reply.status(400).send({ message: 'businessId es requerido' })
+    const gate = await assertBusinessCanSendWhatsApp(businessId, 'REMINDER')
+    if (!gate.allowed) return reply.status(409).send({ message: gate.message })
 
     const automations = await prisma.reminderAutomation.findMany({ where: { businessId, enabled: true, channel: 'WHATSAPP' } })
     const now = new Date()
@@ -985,6 +1006,7 @@ export async function campaignRoutes(app: FastifyInstance) {
         const result = invalid.length
           ? { sent: false as const, reason: 'Faltan variables: ' + invalid.join(', '), to: appointment.customer.phone }
           : await whatsappCloudApi.sendTemplateMessage({
+              businessId,
               to: appointment.customer.phone,
               templateName: template.metaName,
               languageCode: template.language,
@@ -1541,6 +1563,7 @@ async function sendCampaignRecipients(input: {
     const result = invalid.length
       ? { sent: false as const, to: customer.phone, reason: 'Faltan variables: ' + invalid.join(', ') }
       : await whatsappCloudApi.sendTemplateMessage({
+          businessId: input.campaign.businessId,
           to: customer.phone,
           templateName: input.template.metaName,
           languageCode: input.template.language,

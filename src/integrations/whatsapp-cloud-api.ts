@@ -1,11 +1,13 @@
-import { whatsappConfig } from '../config/whatsapp.js'
+import { resolveBusinessWhatsAppCredentials, type WhatsAppCloudCredentials } from '../services/business-whatsapp-settings.js'
 
 type SendTextMessageInput = {
+  businessId?: string | null
   to: string
   text: string
 }
 
 type SendTemplateMessageInput = {
+  businessId?: string | null
   to: string
   templateName: string
   languageCode?: string
@@ -14,6 +16,7 @@ type SendTemplateMessageInput = {
 }
 
 type CreateMessageTemplateInput = {
+  businessId?: string | null
   name: string
   languageCode: string
   category: 'MARKETING' | 'UTILITY'
@@ -23,6 +26,7 @@ type CreateMessageTemplateInput = {
 }
 
 type FindMessageTemplateInput = {
+  businessId?: string | null
   id?: string | null
   name: string
   languageCode?: string
@@ -72,14 +76,15 @@ function messageTemplateStatusRank(status?: string) {
 }
 
 export class WhatsAppCloudApi {
-  async listMessageTemplates(input: { name: string }): Promise<ListMessageTemplatesResult> {
-    if (!whatsappConfig.accessToken || !whatsappConfig.businessAccountId) {
+  async listMessageTemplates(input: { businessId?: string | null; name: string }): Promise<ListMessageTemplatesResult> {
+    const config = await resolveBusinessWhatsAppCredentials(input.businessId)
+    if (!config.accessToken || !config.businessAccountId) {
       return { listed: false, templates: [], reason: 'WHATSAPP_ACCESS_TOKEN o WHATSAPP_BUSINESS_ACCOUNT_ID no configurado' }
     }
 
     const fields = 'id,name,status,language,category,rejected_reason'
-    const url = `https://graph.facebook.com/${whatsappConfig.apiVersion}/${whatsappConfig.businessAccountId}/message_templates?fields=${encodeURIComponent(fields)}&name=${encodeURIComponent(input.name)}&limit=100`
-    const response = await fetch(url, { headers: { Authorization: `Bearer ${whatsappConfig.accessToken}` } })
+    const url = `https://graph.facebook.com/${config.apiVersion}/${config.businessAccountId}/message_templates?fields=${encodeURIComponent(fields)}&name=${encodeURIComponent(input.name)}&limit=100`
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${config.accessToken}` } })
 
     if (!response.ok) {
       const parsedError = parseWhatsAppError(await response.text())
@@ -91,15 +96,16 @@ export class WhatsAppCloudApi {
   }
 
   async findMessageTemplate(input: FindMessageTemplateInput): Promise<FindMessageTemplateResult> {
-    if (!whatsappConfig.accessToken || !whatsappConfig.businessAccountId) {
+    const config = await resolveBusinessWhatsAppCredentials(input.businessId)
+    if (!config.accessToken || !config.businessAccountId) {
       return { found: false, template: null, reason: 'WHATSAPP_ACCESS_TOKEN o WHATSAPP_BUSINESS_ACCOUNT_ID no configurado' }
     }
 
     const fields = 'id,name,status,language,category,rejected_reason'
     const url = input.id
-      ? `https://graph.facebook.com/${whatsappConfig.apiVersion}/${input.id}?fields=${encodeURIComponent(fields)}`
-      : `https://graph.facebook.com/${whatsappConfig.apiVersion}/${whatsappConfig.businessAccountId}/message_templates?fields=${encodeURIComponent(fields)}&name=${encodeURIComponent(input.name)}&limit=100`
-    const response = await fetch(url, { headers: { Authorization: `Bearer ${whatsappConfig.accessToken}` } })
+      ? `https://graph.facebook.com/${config.apiVersion}/${input.id}?fields=${encodeURIComponent(fields)}`
+      : `https://graph.facebook.com/${config.apiVersion}/${config.businessAccountId}/message_templates?fields=${encodeURIComponent(fields)}&name=${encodeURIComponent(input.name)}&limit=100`
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${config.accessToken}` } })
 
     if (!response.ok) {
       const parsedError = parseWhatsAppError(await response.text())
@@ -123,7 +129,8 @@ export class WhatsAppCloudApi {
   }
 
   async createMessageTemplate(input: CreateMessageTemplateInput) {
-    if (!whatsappConfig.accessToken || !whatsappConfig.businessAccountId) {
+    const config = await resolveBusinessWhatsAppCredentials(input.businessId)
+    if (!config.accessToken || !config.businessAccountId) {
       return {
         created: false,
         reason: 'WHATSAPP_ACCESS_TOKEN o WHATSAPP_BUSINESS_ACCOUNT_ID no configurado'
@@ -132,20 +139,20 @@ export class WhatsAppCloudApi {
 
     let headerHandle: string | null = null
     if (input.headerImageDataUrl) {
-      if (!whatsappConfig.appId) {
+      if (!config.appId) {
         return { created: false, reason: 'META_APP_ID no configurado para subir la imagen de la plantilla' }
       }
-      const upload = await uploadTemplateImage(input.headerImageDataUrl)
+      const upload = await uploadTemplateImage(input.headerImageDataUrl, config)
       if (!upload.uploaded) return { created: false, reason: upload.errorMessage || 'No pude subir la imagen a Meta' }
       headerHandle = upload.handle
     }
 
     const response = await fetch(
-      `https://graph.facebook.com/${whatsappConfig.apiVersion}/${whatsappConfig.businessAccountId}/message_templates`,
+      `https://graph.facebook.com/${config.apiVersion}/${config.businessAccountId}/message_templates`,
       {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${whatsappConfig.accessToken}`,
+          Authorization: `Bearer ${config.accessToken}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -188,9 +195,10 @@ export class WhatsAppCloudApi {
   }
 
   async sendTextMessage(input: SendTextMessageInput) {
-    const recipientPhone = formatRecipientPhone(input.to)
+    const config = await resolveBusinessWhatsAppCredentials(input.businessId)
+    const recipientPhone = formatRecipientPhone(input.to, config)
 
-    if (!whatsappConfig.accessToken || !whatsappConfig.phoneNumberId) {
+    if (!config.accessToken || !config.phoneNumberId) {
       return {
         sent: false,
         to: recipientPhone,
@@ -199,11 +207,11 @@ export class WhatsAppCloudApi {
     }
 
     const response = await fetch(
-      `https://graph.facebook.com/${whatsappConfig.apiVersion}/${whatsappConfig.phoneNumberId}/messages`,
+      `https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/messages`,
       {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${whatsappConfig.accessToken}`,
+          Authorization: `Bearer ${config.accessToken}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -242,9 +250,10 @@ export class WhatsAppCloudApi {
   }
 
   async sendTemplateMessage(input: SendTemplateMessageInput) {
-    const recipientPhone = formatRecipientPhone(input.to)
+    const config = await resolveBusinessWhatsAppCredentials(input.businessId)
+    const recipientPhone = formatRecipientPhone(input.to, config)
 
-    if (!whatsappConfig.accessToken || !whatsappConfig.phoneNumberId) {
+    if (!config.accessToken || !config.phoneNumberId) {
       return {
         sent: false,
         to: recipientPhone,
@@ -254,7 +263,7 @@ export class WhatsAppCloudApi {
 
     let headerMediaId: string | null = null
     if (input.headerImageDataUrl) {
-      const upload = await uploadWhatsAppMedia(input.headerImageDataUrl)
+      const upload = await uploadWhatsAppMedia(input.headerImageDataUrl, config)
       if (!upload.uploaded) return { sent: false, to: recipientPhone, reason: upload.errorMessage || 'No pude subir la imagen a WhatsApp' }
       headerMediaId = upload.id
     }
@@ -267,11 +276,11 @@ export class WhatsAppCloudApi {
     ]
 
     const response = await fetch(
-      `https://graph.facebook.com/${whatsappConfig.apiVersion}/${whatsappConfig.phoneNumberId}/messages`,
+      `https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/messages`,
       {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${whatsappConfig.accessToken}`,
+          Authorization: `Bearer ${config.accessToken}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -315,13 +324,13 @@ export class WhatsAppCloudApi {
   }
 }
 
-async function uploadTemplateImage(dataUrl: string): Promise<{ uploaded: true; handle: string } | { uploaded: false; errorMessage?: string }> {
+async function uploadTemplateImage(dataUrl: string, config: WhatsAppCloudCredentials): Promise<{ uploaded: true; handle: string } | { uploaded: false; errorMessage?: string }> {
   const match = /^data:(image\/(?:png|jpeg|webp));base64,([a-z0-9+/=]+)$/i.exec(dataUrl)
-  if (!match || !whatsappConfig.accessToken || !whatsappConfig.appId) return { uploaded: false, errorMessage: 'Imagen de plantilla inválida' }
+  if (!match || !config.accessToken || !config.appId) return { uploaded: false, errorMessage: 'Imagen de plantilla inválida' }
   const bytes = Buffer.from(match[2], 'base64')
-  const sessionResponse = await fetch(`https://graph.facebook.com/${whatsappConfig.apiVersion}/${whatsappConfig.appId}/uploads?file_length=${bytes.length}&file_type=${encodeURIComponent(match[1])}&file_name=template-image`, {
+  const sessionResponse = await fetch(`https://graph.facebook.com/${config.apiVersion}/${config.appId}/uploads?file_length=${bytes.length}&file_type=${encodeURIComponent(match[1])}&file_name=template-image`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${whatsappConfig.accessToken}` }
+    headers: { Authorization: `Bearer ${config.accessToken}` }
   })
   if (!sessionResponse.ok) {
     const parsed = parseWhatsAppError(await sessionResponse.text())
@@ -329,9 +338,9 @@ async function uploadTemplateImage(dataUrl: string): Promise<{ uploaded: true; h
   }
   const session = await sessionResponse.json() as { id?: string }
   if (!session.id) return { uploaded: false, errorMessage: 'Meta no devolvió una sesión para la imagen' }
-  const uploadResponse = await fetch(`https://graph.facebook.com/${whatsappConfig.apiVersion}/${session.id}`, {
+  const uploadResponse = await fetch(`https://graph.facebook.com/${config.apiVersion}/${session.id}`, {
     method: 'POST',
-    headers: { Authorization: `OAuth ${whatsappConfig.accessToken}`, file_offset: '0', 'Content-Type': 'application/octet-stream' },
+    headers: { Authorization: `OAuth ${config.accessToken}`, file_offset: '0', 'Content-Type': 'application/octet-stream' },
     body: bytes
   })
   if (!uploadResponse.ok) {
@@ -342,16 +351,16 @@ async function uploadTemplateImage(dataUrl: string): Promise<{ uploaded: true; h
   return uploaded.h ? { uploaded: true, handle: uploaded.h } : { uploaded: false, errorMessage: 'Meta no devolvió el identificador de la imagen' }
 }
 
-async function uploadWhatsAppMedia(dataUrl: string): Promise<{ uploaded: true; id: string } | { uploaded: false; errorMessage?: string }> {
+async function uploadWhatsAppMedia(dataUrl: string, config: WhatsAppCloudCredentials): Promise<{ uploaded: true; id: string } | { uploaded: false; errorMessage?: string }> {
   const match = /^data:(image\/(?:png|jpeg|webp));base64,([a-z0-9+/=]+)$/i.exec(dataUrl)
-  if (!match || !whatsappConfig.accessToken || !whatsappConfig.phoneNumberId) return { uploaded: false, errorMessage: 'Imagen de plantilla inválida' }
+  if (!match || !config.accessToken || !config.phoneNumberId) return { uploaded: false, errorMessage: 'Imagen de plantilla inválida' }
   const bytes = Buffer.from(match[2], 'base64')
   const form = new FormData()
   form.append('messaging_product', 'whatsapp')
   form.append('file', new Blob([bytes], { type: match[1] }), 'template-image')
-  const response = await fetch(`https://graph.facebook.com/${whatsappConfig.apiVersion}/${whatsappConfig.phoneNumberId}/media`, {
+  const response = await fetch(`https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/media`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${whatsappConfig.accessToken}` },
+    headers: { Authorization: `Bearer ${config.accessToken}` },
     body: form
   })
   if (!response.ok) {
@@ -384,10 +393,10 @@ function parseWhatsAppError(errorBody: string) {
   }
 }
 
-function formatRecipientPhone(phone: string) {
+function formatRecipientPhone(phone: string, config: WhatsAppCloudCredentials) {
   const digits = phone.replace(/\D/g, '')
 
-  if (whatsappConfig.phoneNumberMode === 'legacy_argentina_without_mobile_9' && digits.startsWith('549')) {
+  if (config.phoneNumberMode === 'legacy_argentina_without_mobile_9' && digits.startsWith('549')) {
     return `54${digits.slice(3)}`
   }
 

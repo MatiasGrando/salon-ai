@@ -1,6 +1,7 @@
 import { whatsappConfig } from '../config/whatsapp.js'
 import { prisma } from '../config/prisma.js'
 import { WhatsAppCloudApi } from '../integrations/whatsapp-cloud-api.js'
+import { assertBusinessCanSendWhatsApp } from './business-whatsapp-settings.js'
 import { ConversationService } from './conversation-service.js'
 
 type VerifyWebhookInput = {
@@ -135,7 +136,10 @@ export class WhatsAppWebhookService {
       })
       if (marketingOptOutApplied) {
         const replyText = 'Listo. No vas a recibir más promociones. Los mensajes relacionados con tus turnos seguirán funcionando.'
-        const deliveryResult = await whatsappCloudApi.sendTextMessage({ to: message.from, text: replyText })
+        const gate = conversation.businessId ? await assertBusinessCanSendWhatsApp(conversation.businessId, 'BOT') : null
+        const deliveryResult = gate?.allowed
+          ? await whatsappCloudApi.sendTextMessage({ businessId: conversation.businessId, to: message.from, text: replyText })
+          : { sent: false as const, to: message.from, reason: gate?.message || 'La conversacion no tiene comercio asociado para resolver WhatsApp.' }
         const providerMessageId = getOutgoingProviderMessageId(deliveryResult)
         await prisma.message.create({
           data: {
@@ -223,10 +227,14 @@ export class WhatsAppWebhookService {
         useAi: businessAiEnabled
       })
 
-      const deliveryResult = await whatsappCloudApi.sendTextMessage({
-        to: message.from,
-        text: conversationResult.reply
-      })
+      const gate = conversation.businessId ? await assertBusinessCanSendWhatsApp(conversation.businessId, 'BOT') : null
+      const deliveryResult = gate?.allowed
+        ? await whatsappCloudApi.sendTextMessage({
+            businessId: conversation.businessId,
+            to: message.from,
+            text: conversationResult.reply
+          })
+        : { sent: false as const, to: message.from, reason: gate?.message || 'La conversacion no tiene comercio asociado para resolver WhatsApp.' }
 
       const outgoingProviderMessageId = getOutgoingProviderMessageId(deliveryResult)
       const outboundMessageData: {

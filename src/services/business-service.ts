@@ -4,7 +4,13 @@ export class BusinessService {
   async create(name: string) {
     return prisma.business.create({
       data: {
-        name
+        name,
+        whatsappConfig: {
+          create: {}
+        },
+        featureSettings: {
+          create: {}
+        }
       }
     })
   }

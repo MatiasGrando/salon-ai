@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
 import { Prisma } from '../generated/prisma/client.js'
 import { WhatsAppCloudApi } from '../integrations/whatsapp-cloud-api.js'
+import { assertBusinessCanSendWhatsApp } from '../services/business-whatsapp-settings.js'
 
 const whatsappCloudApi = new WhatsAppCloudApi()
 const WHATSAPP_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000
@@ -478,8 +479,14 @@ export async function crmRoutes(app: FastifyInstance) {
         })
       }
     }
+    if (shouldSendWhatsApp) {
+      if (!conversation.businessId) return reply.status(409).send({ message: 'La conversacion no tiene comercio asociado para resolver WhatsApp.' })
+      const gate = await assertBusinessCanSendWhatsApp(conversation.businessId, 'BOT')
+      if (!gate.allowed) return reply.status(409).send({ message: gate.message })
+    }
     const deliveryResult = shouldSendWhatsApp
       ? await whatsappCloudApi.sendTextMessage({
+          businessId: conversation.businessId,
           to: conversation.phone,
           text
         })

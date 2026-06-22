@@ -51,12 +51,33 @@ enum ScheduleBlockReason {
   OTHER
 }
 
+enum WhatsAppConnectionStatus {
+  NOT_CONNECTED
+  CONNECTING
+  CONNECTED
+  NEEDS_PAYMENT
+  NEEDS_REVIEW
+  ERROR
+}
+
+enum WhatsAppConnectionMode {
+  CLIENT_OWNED
+  INTERNAL_TEST
+}
+
+enum BillingOwner {
+  CLIENT
+  SALON_AI
+}
+
 model Business {
   id            String         @id @default(cuid())
   name          String
   logoUrl       String?
   botEnabled    Boolean        @default(true)
   aiEnabled     Boolean        @default(true)
+  whatsappConfig BusinessWhatsAppConfig?
+  featureSettings BusinessFeatureSettings?
 
   professionals Professional[]
   services      Service[]
@@ -73,6 +94,47 @@ model Business {
   reminderDeliveries ReminderDelivery[]
 
   createdAt     DateTime       @default(now())
+}
+
+model BusinessWhatsAppConfig {
+  id String @id @default(cuid())
+
+  businessId String @unique
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  connectionStatus WhatsAppConnectionStatus @default(NOT_CONNECTED)
+  mode WhatsAppConnectionMode @default(CLIENT_OWNED)
+  wabaId String?
+  phoneNumberId String?
+  displayPhoneNumber String?
+  metaAppId String?
+  accessToken String?
+  tokenExpiresAt DateTime?
+  connectedAt DateTime?
+  disconnectedAt DateTime?
+  lastError String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model BusinessFeatureSettings {
+  id String @id @default(cuid())
+
+  businessId String @unique
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  botEnabled Boolean @default(true)
+  aiEnabled Boolean @default(true)
+  campaignsEnabled Boolean @default(false)
+  remindersEnabled Boolean @default(false)
+  realWhatsappEnabled Boolean @default(false)
+  billingOwner BillingOwner @default(CLIENT)
+  campaignSendingLocked Boolean @default(true)
+  reminderSendingLocked Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Professional {
