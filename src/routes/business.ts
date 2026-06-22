@@ -270,13 +270,29 @@ async function exchangeEmbeddedSignupCode(code?: string, redirectUri?: string) {
   url.searchParams.set('code', normalizedCode)
 
   const response = await fetch(url)
-  const body = await response.json().catch(() => ({})) as { access_token?: string; expires_in?: number; error?: { message?: string } }
+  const body = await response.json().catch(() => ({})) as {
+    access_token?: string
+    expires_in?: number
+    error?: {
+      code?: number
+      error_subcode?: number
+      fbtrace_id?: string
+      message?: string
+      type?: string
+    }
+  }
   if (!response.ok || !body.access_token) {
     const metaError = body.error?.message || 'No pude intercambiar el codigo de Meta por token.'
+    const metaDetails = [
+      body.error?.type ? `tipo ${body.error.type}` : null,
+      body.error?.code ? `codigo ${body.error.code}` : null,
+      body.error?.error_subcode ? `subcodigo ${body.error.error_subcode}` : null,
+      body.error?.fbtrace_id ? `trace ${body.error.fbtrace_id}` : null
+    ].filter(Boolean).join(' · ')
     return {
       accessToken: null,
       tokenExpiresAt: undefined,
-      error: `${metaError} Redirect usado: ${candidateRedirectUri || 'sin redirect_uri'}`
+      error: `${metaError} Redirect usado: ${candidateRedirectUri || 'sin redirect_uri'}${metaDetails ? ` · Meta: ${metaDetails}` : ''}`
     }
   }
 
