@@ -12533,11 +12533,13 @@ const crmHtml = `<!doctype html>
           }
         }
         if (!data || data.type !== 'WA_EMBEDDED_SIGNUP') return
-        const payload = data.data || {}
+        const payload = data.data || data
+        const phoneNumber = payload.phone_number_id || payload.phoneNumberId || payload.phone_number?.id || payload.phoneNumber?.id
+        const displayPhone = payload.display_phone_number || payload.displayPhoneNumber || payload.phone_number?.display_phone_number || payload.phoneNumber?.displayPhoneNumber
         state.whatsappEmbeddedSignupSession = {
-          wabaId: payload.waba_id || payload.wabaId || state.whatsappEmbeddedSignupSession?.wabaId,
-          phoneNumberId: payload.phone_number_id || payload.phoneNumberId || state.whatsappEmbeddedSignupSession?.phoneNumberId,
-          displayPhoneNumber: payload.display_phone_number || payload.displayPhoneNumber || state.whatsappEmbeddedSignupSession?.displayPhoneNumber
+          wabaId: payload.waba_id || payload.wabaId || payload.whatsapp_business_account_id || payload.whatsappBusinessAccountId || payload.waba?.id || state.whatsappEmbeddedSignupSession?.wabaId,
+          phoneNumberId: phoneNumber || state.whatsappEmbeddedSignupSession?.phoneNumberId,
+          displayPhoneNumber: displayPhone || state.whatsappEmbeddedSignupSession?.displayPhoneNumber
         }
       })
       state.whatsappEmbeddedSignupListenerReady = true

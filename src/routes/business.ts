@@ -220,6 +220,11 @@ export async function businessRoutes(app: FastifyInstance) {
       ? { accessToken: body.accessToken, tokenExpiresAt: body.tokenExpiresAt ? new Date(body.tokenExpiresAt) : undefined, error: null }
       : await exchangeEmbeddedSignupCode(body.code, body.redirectUri)
     const connected = Boolean(tokenResult.accessToken && body.wabaId && body.phoneNumberId)
+    const missingConnectionParts = [
+      tokenResult.accessToken ? null : 'token',
+      body.wabaId ? null : 'WABA ID',
+      body.phoneNumberId ? null : 'Phone Number ID'
+    ].filter(Boolean).join(', ')
 
     await prisma.businessWhatsAppConfig.update({
       where: { businessId: params.id },
@@ -233,7 +238,7 @@ export async function businessRoutes(app: FastifyInstance) {
         accessToken: tokenResult.accessToken?.trim() || undefined,
         tokenExpiresAt: tokenResult.tokenExpiresAt,
         connectedAt: connected ? new Date() : undefined,
-        lastError: tokenResult.error || (body.code && !connected ? 'Embedded Signup devolvio datos incompletos.' : null)
+        lastError: tokenResult.error || (body.code && !connected ? `Embedded Signup devolvio datos incompletos. Falta: ${missingConnectionParts}.` : null)
       }
     })
     if (connected) {
