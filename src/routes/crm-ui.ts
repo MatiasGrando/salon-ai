@@ -9627,6 +9627,26 @@ const crmHtml = `<!doctype html>
   <script>
     const WHATSAPP_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000
 
+    function notifyOpenerFromMetaOAuthRedirect() {
+      const params = new URLSearchParams(window.location.search)
+      const code = params.get('code')
+      const error = params.get('error_description') || params.get('error')
+      if (!window.opener || (!code && !error)) return false
+      window.opener.postMessage({
+        type: 'SALON_AI_META_OAUTH',
+        code,
+        error,
+        redirectUri: window.location.origin + window.location.pathname
+      }, window.location.origin)
+      window.close()
+      return true
+    }
+
+    const metaOAuthRedirectNotified = notifyOpenerFromMetaOAuthRedirect()
+    if (metaOAuthRedirectNotified) {
+      document.body.innerHTML = '<main class="crm-shell"><section class="settings-card"><h1>Conectando WhatsApp...</h1><p>Ya podes volver a la ventana principal.</p></section></main>'
+    } else {
+
     const state = {
       conversations: [],
       conversationNextCursor: null,
@@ -12543,21 +12563,6 @@ const crmHtml = `<!doctype html>
         }
       })
       state.whatsappEmbeddedSignupListenerReady = true
-    }
-
-    function notifyOpenerFromMetaOAuthRedirect() {
-      const params = new URLSearchParams(window.location.search)
-      const code = params.get('code')
-      const error = params.get('error_description') || params.get('error')
-      if (!window.opener || (!code && !error)) return false
-      window.opener.postMessage({
-        type: 'SALON_AI_META_OAUTH',
-        code,
-        error,
-        redirectUri: window.location.origin + window.location.pathname
-      }, window.location.origin)
-      window.close()
-      return true
     }
 
     async function handleWhatsappSignupResponse(response, redirectUri) {
@@ -15633,11 +15638,6 @@ const crmHtml = `<!doctype html>
       els.mobileDetails.classList.toggle('active', view === 'details')
     }
 
-    const metaOAuthRedirectNotified = notifyOpenerFromMetaOAuthRedirect()
-    if (metaOAuthRedirectNotified) {
-      document.body.innerHTML = '<main class="crm-shell"><section class="settings-card"><h1>Conectando WhatsApp...</h1><p>Ya podes volver a la ventana principal.</p></section></main>'
-    }
-
     hydrateWorkspaceNav()
     document.querySelectorAll('.workspace-nav button[data-nav-section]').forEach((button) => {
       button.addEventListener('click', () => {
@@ -16106,6 +16106,7 @@ const crmHtml = `<!doctype html>
     setInterval(() => {
       loadConversations({ silent: true })
     }, 5000)
+    }
   </script>
 </body>
 </html>`
