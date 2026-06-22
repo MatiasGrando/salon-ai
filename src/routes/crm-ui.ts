@@ -5544,6 +5544,29 @@ const crmHtml = `<!doctype html>
       gap: 10px;
     }
 
+    .whatsapp-technical-form {
+      padding-top: 14px;
+      border-top: 1px solid #e5eaf3;
+      display: grid;
+      gap: 12px;
+    }
+
+    .whatsapp-technical-form h4 {
+      margin: 0;
+      color: #101936;
+      font-size: 14px;
+    }
+
+    .whatsapp-technical-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .whatsapp-technical-grid .settings-field.full {
+      grid-column: 1 / -1;
+    }
+
     .settings-form {
       margin-top: 24px;
       display: grid;
@@ -9063,6 +9086,34 @@ const crmHtml = `<!doctype html>
                 <span class="automation-switch" aria-hidden="true"></span>
               </label>
             </div>
+            <form class="whatsapp-technical-form" id="whatsapp-technical-form">
+              <h4>Conexi&oacute;n t&eacute;cnica</h4>
+              <div class="whatsapp-technical-grid">
+                <div class="settings-field">
+                  <label for="whatsapp-waba-id">WABA ID</label>
+                  <input class="field" id="whatsapp-waba-id" autocomplete="off">
+                </div>
+                <div class="settings-field">
+                  <label for="whatsapp-phone-number-id">Phone Number ID</label>
+                  <input class="field" id="whatsapp-phone-number-id" autocomplete="off">
+                </div>
+                <div class="settings-field">
+                  <label for="whatsapp-display-phone">N&uacute;mero visible</label>
+                  <input class="field" id="whatsapp-display-phone" autocomplete="off">
+                </div>
+                <div class="settings-field">
+                  <label for="whatsapp-token-expires">Vencimiento del token</label>
+                  <input class="field" id="whatsapp-token-expires" type="datetime-local">
+                </div>
+                <div class="settings-field full">
+                  <label for="whatsapp-access-token">Token del comercio</label>
+                  <input class="field" id="whatsapp-access-token" type="password" autocomplete="off" placeholder="Pegar solo si se quiere actualizar">
+                </div>
+              </div>
+              <div class="settings-actions">
+                <button class="secondary" id="whatsapp-technical-submit" type="submit">Guardar conexi&oacute;n</button>
+              </div>
+            </form>
             <p class="settings-feedback" id="whatsapp-settings-feedback" role="status" aria-live="polite"></p>
           </div>
         </section>
@@ -9617,6 +9668,7 @@ const crmHtml = `<!doctype html>
       business: null,
       businessHours: [],
       whatsappSettings: null,
+      whatsappEmbeddedSignupSession: {},
       conversationFilter: 'all',
       conversationVisibleLimit: 12,
       readConversationIds: new Set(),
@@ -9699,6 +9751,13 @@ const crmHtml = `<!doctype html>
       reminderSendingStatus: document.getElementById('reminder-sending-status'),
       billingOwnerStatus: document.getElementById('billing-owner-status'),
       whatsappSettingsFeedback: document.getElementById('whatsapp-settings-feedback'),
+      whatsappTechnicalForm: document.getElementById('whatsapp-technical-form'),
+      whatsappWabaId: document.getElementById('whatsapp-waba-id'),
+      whatsappPhoneNumberId: document.getElementById('whatsapp-phone-number-id'),
+      whatsappDisplayPhone: document.getElementById('whatsapp-display-phone'),
+      whatsappTokenExpires: document.getElementById('whatsapp-token-expires'),
+      whatsappAccessToken: document.getElementById('whatsapp-access-token'),
+      whatsappTechnicalSubmit: document.getElementById('whatsapp-technical-submit'),
       messages: document.getElementById('messages'),
       chatAvatar: document.getElementById('chat-avatar'),
       chatPhone: document.getElementById('chat-phone'),
@@ -12346,6 +12405,11 @@ const crmHtml = `<!doctype html>
       els.reminderSendingStatus.textContent = reminderReady ? 'Activos' : 'Bloqueados'
       els.billingOwnerStatus.textContent = features.billingOwner === 'SALON_AI' ? 'Salon AI' : 'Cliente'
       els.campaignSendingToggle.disabled = connection.mode === 'INTERNAL_TEST' || features.billingOwner === 'SALON_AI'
+      els.whatsappWabaId.value = connection.wabaId || ''
+      els.whatsappPhoneNumberId.value = connection.phoneNumberId || ''
+      els.whatsappDisplayPhone.value = connection.displayPhoneNumber || ''
+      els.whatsappTokenExpires.value = connection.tokenExpiresAt ? toDatetimeLocalValue(connection.tokenExpiresAt) : ''
+      els.whatsappAccessToken.value = ''
     }
 
     function whatsappConnectionLabel(status) {
@@ -12367,6 +12431,13 @@ const crmHtml = `<!doctype html>
       els.whatsappSettingsFeedback.className = 'settings-feedback'
     }
 
+    function toDatetimeLocalValue(value) {
+      const date = new Date(value)
+      if (Number.isNaN(date.getTime())) return ''
+      const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+      return offsetDate.toISOString().slice(0, 16)
+    }
+
     async function saveWhatsappSettingsPatch(patch, successMessage) {
       if (!state.businessId) return
       clearWhatsappSettingsFeedback()
@@ -12384,8 +12455,141 @@ const crmHtml = `<!doctype html>
       }
     }
 
-    function openWhatsappSignupPlaceholder() {
-      showWhatsappSettingsFeedback('Embedded Signup queda preparado. Cuando Meta devuelva codigo, WABA ID y phone number ID, este panel va a pasar a conectado.', 'success')
+    async function saveWhatsappTechnicalSettings(event) {
+      event.preventDefault()
+      if (!state.businessId) return
+      const payload = {
+        wabaId: els.whatsappWabaId.value.trim(),
+        phoneNumberId: els.whatsappPhoneNumberId.value.trim(),
+        displayPhoneNumber: els.whatsappDisplayPhone.value.trim(),
+        tokenExpiresAt: els.whatsappTokenExpires.value ? new Date(els.whatsappTokenExpires.value).toISOString() : null
+      }
+      const token = els.whatsappAccessToken.value.trim()
+      if (token) payload.accessToken = token
+      if (!payload.wabaId || !payload.phoneNumberId) {
+        showWhatsappSettingsFeedback('Completá WABA ID y Phone Number ID.', 'error')
+        return
+      }
+
+      els.whatsappTechnicalSubmit.disabled = true
+      els.whatsappTechnicalSubmit.textContent = 'Guardando...'
+      await saveWhatsappSettingsPatch(payload, 'Conexion tecnica guardada.')
+      els.whatsappTechnicalSubmit.disabled = false
+      els.whatsappTechnicalSubmit.textContent = 'Guardar conexion'
+    }
+
+    async function loadFacebookSdk(apiVersion) {
+      if (window.FB) return window.FB
+      return new Promise((resolve, reject) => {
+        window.fbAsyncInit = function () {
+          resolve(window.FB)
+        }
+        const existing = document.getElementById('facebook-jssdk')
+        if (existing) {
+          const startedAt = Date.now()
+          const waitForSdk = window.setInterval(() => {
+            if (window.FB) {
+              window.clearInterval(waitForSdk)
+              resolve(window.FB)
+            } else if (Date.now() - startedAt > 8000) {
+              window.clearInterval(waitForSdk)
+              reject(new Error('Meta tardo demasiado en cargar el SDK. Volve a intentar.'))
+            }
+          }, 150)
+          return
+        }
+        const script = document.createElement('script')
+        script.id = 'facebook-jssdk'
+        script.async = true
+        script.defer = true
+        script.crossOrigin = 'anonymous'
+        script.src = 'https://connect.facebook.net/es_LA/sdk.js'
+        script.onerror = () => reject(new Error('No pude cargar el SDK de Meta. Revisa la conexion e intenta de nuevo.'))
+        document.body.appendChild(script)
+      }).then((FB) => {
+        if (!FB) throw new Error('Meta no devolvio el SDK de Facebook.')
+        return FB
+      })
+    }
+
+    function listenForWhatsappEmbeddedSignup() {
+      if (state.whatsappEmbeddedSignupListenerReady) return
+      window.addEventListener('message', (event) => {
+        if (!String(event.origin || '').endsWith('facebook.com')) return
+        let data = event.data
+        if (typeof data === 'string') {
+          try {
+            data = JSON.parse(data)
+          } catch {
+            return
+          }
+        }
+        if (!data || data.type !== 'WA_EMBEDDED_SIGNUP') return
+        const payload = data.data || {}
+        state.whatsappEmbeddedSignupSession = {
+          wabaId: payload.waba_id || payload.wabaId || state.whatsappEmbeddedSignupSession?.wabaId,
+          phoneNumberId: payload.phone_number_id || payload.phoneNumberId || state.whatsappEmbeddedSignupSession?.phoneNumberId,
+          displayPhoneNumber: payload.display_phone_number || payload.displayPhoneNumber || state.whatsappEmbeddedSignupSession?.displayPhoneNumber
+        }
+      })
+      state.whatsappEmbeddedSignupListenerReady = true
+    }
+
+    async function handleWhatsappSignupResponse(response, redirectUri) {
+      try {
+        const code = response?.authResponse?.code
+        if (!code) {
+          showWhatsappSettingsFeedback('Meta no devolvio codigo de autorizacion. Volve a intentar la conexion.', 'error')
+          return
+        }
+        state.whatsappSettings = await getJson('/businesses/' + state.businessId + '/whatsapp/embedded-signup-callback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            code,
+            redirectUri,
+            ...state.whatsappEmbeddedSignupSession
+          })
+        })
+        renderWhatsappSettings()
+        const lastError = state.whatsappSettings?.connection?.lastError
+        showWhatsappSettingsFeedback(lastError || 'WhatsApp conectado para este comercio.', lastError ? 'error' : 'success')
+      } catch (error) {
+        showWhatsappSettingsFeedback(error.message, 'error')
+      }
+    }
+
+    async function openWhatsappSignupPlaceholder() {
+      if (!state.businessId) return
+      clearWhatsappSettingsFeedback()
+      els.whatsappConnectButton.disabled = true
+      els.whatsappConnectButton.textContent = 'Abriendo Meta...'
+      try {
+        const config = await getJson('/businesses/' + state.businessId + '/whatsapp-embedded-signup-config')
+        const FB = await loadFacebookSdk(config.apiVersion)
+        const redirectUri = window.location.origin + window.location.pathname
+        listenForWhatsappEmbeddedSignup()
+        FB.init({
+          appId: config.appId,
+          autoLogAppEvents: true,
+          xfbml: false,
+          version: config.apiVersion
+        })
+        FB.login(function (response) {
+          void handleWhatsappSignupResponse(response, redirectUri)
+        }, {
+          config_id: config.configId,
+          response_type: 'code',
+          override_default_response_type: true,
+          redirect_uri: redirectUri,
+          extras: JSON.stringify(config.extras || {})
+        })
+      } catch (error) {
+        showWhatsappSettingsFeedback(error.message, 'error')
+      } finally {
+        els.whatsappConnectButton.disabled = false
+        els.whatsappConnectButton.textContent = 'Conectar WhatsApp'
+      }
     }
 
     function businessInitials(name) {
@@ -15680,6 +15884,7 @@ const crmHtml = `<!doctype html>
       clearBusinessSettingsFeedback()
       setBusinessLogo(null)
     })
+    els.whatsappTechnicalForm.addEventListener('submit', saveWhatsappTechnicalSettings)
     els.whatsappConnectButton.addEventListener('click', openWhatsappSignupPlaceholder)
     els.realWhatsappToggle.addEventListener('change', () => {
       saveWhatsappSettingsPatch({

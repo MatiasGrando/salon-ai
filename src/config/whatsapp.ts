@@ -6,6 +6,9 @@ export const whatsappConfig = {
   phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
   businessAccountId: process.env.WHATSAPP_BUSINESS_ACCOUNT_ID,
   appId: process.env.META_APP_ID,
+  appSecret: process.env.META_APP_SECRET,
+  embeddedSignupConfigId: process.env.META_EMBEDDED_SIGNUP_CONFIG_ID,
+  oauthRedirectUri: process.env.META_OAUTH_REDIRECT_URI ?? 'http://localhost:3000/crm',
   apiVersion: process.env.WHATSAPP_API_VERSION ?? 'v25.0',
   phoneNumberMode: process.env.WHATSAPP_PHONE_NUMBER_MODE ?? 'production_argentina'
 }

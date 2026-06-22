@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
+import { whatsappConfig } from '../config/whatsapp.js'
 import { getBusinessWhatsAppState } from '../services/business-whatsapp-settings.js'
 import { BusinessService } from '../services/business-service.js'
 
@@ -71,6 +72,28 @@ export async function businessRoutes(app: FastifyInstance) {
     return getBusinessWhatsAppState(params.id)
   })
 
+  app.get('/businesses/:id/whatsapp-embedded-signup-config', async (request, reply) => {
+    const params = request.params as { id: string }
+    const business = await prisma.business.findUnique({ where: { id: params.id }, select: { id: true } })
+    if (!business) return reply.status(404).send({ message: 'No encontre ese local' })
+    if (!whatsappConfig.appId || !whatsappConfig.embeddedSignupConfigId) {
+      return reply.status(409).send({
+        message: 'Falta configurar META_APP_ID y META_EMBEDDED_SIGNUP_CONFIG_ID para abrir Embedded Signup.'
+      })
+    }
+    return {
+      appId: whatsappConfig.appId,
+      configId: whatsappConfig.embeddedSignupConfigId,
+      apiVersion: whatsappConfig.apiVersion,
+      redirectUri: whatsappConfig.oauthRedirectUri,
+      extras: {
+        setup: {
+          external_business_id: params.id
+        }
+      }
+    }
+  })
+
   app.patch('/businesses/:id/whatsapp-settings', async (request, reply) => {
     const params = request.params as { id: string }
     const body = request.body as {
@@ -83,6 +106,12 @@ export async function businessRoutes(app: FastifyInstance) {
       billingOwner?: string
       botEnabled?: boolean
       aiEnabled?: boolean
+      wabaId?: string
+      phoneNumberId?: string
+      displayPhoneNumber?: string
+      accessToken?: string
+      tokenExpiresAt?: string
+      redirectUri?: string
     }
     const business = await prisma.business.findUnique({ where: { id: params.id }, select: { id: true } })
     if (!business) return reply.status(404).send({ message: 'No encontre ese local' })
@@ -100,6 +129,48 @@ export async function businessRoutes(app: FastifyInstance) {
           disconnectedAt: body.connectionStatus === 'NOT_CONNECTED' ? new Date() : undefined
         }
       })
+    }
+
+    const technicalWhatsAppData = {
+      wabaId: normalizeOptionalText(body.wabaId),
+      phoneNumberId: normalizeOptionalText(body.phoneNumberId),
+      displayPhoneNumber: normalizeOptionalText(body.displayPhoneNumber),
+      accessToken: normalizeOptionalText(body.accessToken),
+      tokenExpiresAt: body.tokenExpiresAt ? new Date(body.tokenExpiresAt) : undefined
+    }
+    const hasTechnicalWhatsAppData = Object.values(technicalWhatsAppData).some((value) => value !== undefined)
+    if (hasTechnicalWhatsAppData) {
+      const current = await prisma.businessWhatsAppConfig.findUnique({ where: { businessId: params.id } })
+      const nextWabaId = technicalWhatsAppData.wabaId ?? current?.wabaId ?? null
+      const nextPhoneNumberId = technicalWhatsAppData.phoneNumberId ?? current?.phoneNumberId ?? null
+      const nextAccessToken = technicalWhatsAppData.accessToken ?? current?.accessToken ?? null
+      const connected = Boolean(nextWabaId && nextPhoneNumberId && nextAccessToken)
+      await prisma.businessWhatsAppConfig.update({
+        where: { businessId: params.id },
+        data: {
+          ...(technicalWhatsAppData.wabaId !== undefined ? { wabaId: technicalWhatsAppData.wabaId } : {}),
+          ...(technicalWhatsAppData.phoneNumberId !== undefined ? { phoneNumberId: technicalWhatsAppData.phoneNumberId } : {}),
+          ...(technicalWhatsAppData.displayPhoneNumber !== undefined ? { displayPhoneNumber: technicalWhatsAppData.displayPhoneNumber } : {}),
+          ...(technicalWhatsAppData.accessToken !== undefined ? { accessToken: technicalWhatsAppData.accessToken } : {}),
+          ...(technicalWhatsAppData.tokenExpiresAt !== undefined ? { tokenExpiresAt: technicalWhatsAppData.tokenExpiresAt } : {}),
+          metaAppId: whatsappConfig.appId,
+          mode: 'CLIENT_OWNED',
+          connectionStatus: connected ? 'CONNECTED' : 'CONNECTING',
+          connectedAt: connected ? new Date() : undefined,
+          lastError: connected ? null : 'Faltan WABA ID, Phone Number ID o token para completar la conexion.'
+        }
+      })
+      if (connected) {
+        await prisma.businessFeatureSettings.update({
+          where: { businessId: params.id },
+          data: {
+            realWhatsappEnabled: true,
+            remindersEnabled: true,
+            reminderSendingLocked: false,
+            billingOwner: 'CLIENT'
+          }
+        })
+      }
     }
 
     if (body.billingOwner !== undefined && !['CLIENT', 'SALON_AI'].includes(body.billingOwner)) {
@@ -145,24 +216,79 @@ export async function businessRoutes(app: FastifyInstance) {
     if (!business) return reply.status(404).send({ message: 'No encontre ese local' })
     await ensureBusinessSettings(params.id)
 
+    const tokenResult = body.accessToken
+      ? { accessToken: body.accessToken, tokenExpiresAt: body.tokenExpiresAt ? new Date(body.tokenExpiresAt) : undefined, error: null }
+      : await exchangeEmbeddedSignupCode(body.code, body.redirectUri)
+    const connected = Boolean(tokenResult.accessToken && body.wabaId && body.phoneNumberId)
+
     await prisma.businessWhatsAppConfig.update({
       where: { businessId: params.id },
       data: {
-        connectionStatus: body.accessToken && body.wabaId && body.phoneNumberId ? 'CONNECTED' : 'CONNECTING',
+        connectionStatus: connected ? 'CONNECTED' : 'CONNECTING',
         mode: 'CLIENT_OWNED',
         wabaId: body.wabaId?.trim() || undefined,
         phoneNumberId: body.phoneNumberId?.trim() || undefined,
         displayPhoneNumber: body.displayPhoneNumber?.trim() || undefined,
-        accessToken: body.accessToken?.trim() || undefined,
-        tokenExpiresAt: body.tokenExpiresAt ? new Date(body.tokenExpiresAt) : undefined,
-        connectedAt: body.accessToken && body.wabaId && body.phoneNumberId ? new Date() : undefined,
-        lastError: body.code && !body.accessToken ? 'Embedded Signup devolvio codigo; falta intercambiarlo por token.' : null
+        metaAppId: whatsappConfig.appId,
+        accessToken: tokenResult.accessToken?.trim() || undefined,
+        tokenExpiresAt: tokenResult.tokenExpiresAt,
+        connectedAt: connected ? new Date() : undefined,
+        lastError: tokenResult.error || (body.code && !connected ? 'Embedded Signup devolvio datos incompletos.' : null)
       }
     })
+    if (connected) {
+      await prisma.businessFeatureSettings.update({
+        where: { businessId: params.id },
+        data: {
+          realWhatsappEnabled: true,
+          remindersEnabled: true,
+          reminderSendingLocked: false,
+          campaignsEnabled: false,
+          campaignSendingLocked: true,
+          billingOwner: 'CLIENT'
+        }
+      })
+    }
 
     return getBusinessWhatsAppState(params.id)
   })
 
+}
+
+async function exchangeEmbeddedSignupCode(code?: string, redirectUri?: string) {
+  const normalizedCode = code?.trim()
+  if (!normalizedCode) return { accessToken: null, tokenExpiresAt: undefined, error: 'Meta no devolvio codigo de autorizacion.' }
+  if (!whatsappConfig.appId || !whatsappConfig.appSecret) {
+    return { accessToken: null, tokenExpiresAt: undefined, error: 'Falta META_APP_SECRET para intercambiar el codigo de Meta por token.' }
+  }
+
+  const redirectUris = Array.from(new Set([
+    redirectUri?.trim(),
+    whatsappConfig.oauthRedirectUri,
+    'https://www.facebook.com/connect/login_success.html'
+  ].filter(Boolean)))
+  let lastError = 'No pude intercambiar el codigo de Meta por token.'
+
+  for (const candidateRedirectUri of redirectUris) {
+    const url = new URL(`https://graph.facebook.com/${whatsappConfig.apiVersion}/oauth/access_token`)
+    url.searchParams.set('client_id', whatsappConfig.appId)
+    url.searchParams.set('client_secret', whatsappConfig.appSecret)
+    url.searchParams.set('redirect_uri', candidateRedirectUri)
+    url.searchParams.set('code', normalizedCode)
+
+    const response = await fetch(url)
+    const body = await response.json().catch(() => ({})) as { access_token?: string; expires_in?: number; error?: { message?: string } }
+    if (response.ok && body.access_token) {
+      return {
+        accessToken: body.access_token,
+        tokenExpiresAt: body.expires_in ? new Date(Date.now() + body.expires_in * 1000) : undefined,
+        error: null
+      }
+    }
+    lastError = body.error?.message || lastError
+  }
+
+  return { accessToken: null, tokenExpiresAt: undefined, error: lastError }
 }
 
 async function ensureBusinessSettings(businessId: string) {
@@ -193,4 +319,10 @@ function normalizeLogoUrl(logoUrl?: string | null) {
   const isImageDataUrl = /^data:image\/(png|jpeg|webp|gif);base64,[a-z0-9+/=]+$/i.test(normalized)
 
   return isImageDataUrl && normalized.length <= 2_800_000 ? normalized : undefined
+}
+
+function normalizeOptionalText(value?: string | null) {
+  if (value === undefined) return undefined
+  const normalized = value?.trim()
+  return normalized || null
 }
