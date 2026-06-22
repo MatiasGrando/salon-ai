@@ -12567,7 +12567,7 @@ const crmHtml = `<!doctype html>
       try {
         const config = await getJson('/businesses/' + state.businessId + '/whatsapp-embedded-signup-config')
         const FB = await loadFacebookSdk(config.apiVersion)
-        const redirectUri = window.location.origin + window.location.pathname
+        const redirectUri = 'https://www.facebook.com/connect/login_success.html'
         listenForWhatsappEmbeddedSignup()
         FB.init({
           appId: config.appId,
@@ -12581,7 +12581,6 @@ const crmHtml = `<!doctype html>
           config_id: config.configId,
           response_type: 'code',
           override_default_response_type: true,
-          redirect_uri: redirectUri,
           extras: JSON.stringify(config.extras || {})
         })
       } catch (error) {
