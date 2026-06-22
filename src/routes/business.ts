@@ -263,10 +263,10 @@ async function exchangeEmbeddedSignupCode(code?: string, redirectUri?: string) {
   }
 
   const redirectUris = Array.from(new Set([
-    null,
     redirectUri?.trim(),
     whatsappConfig.oauthRedirectUri,
-    'https://www.facebook.com/connect/login_success.html'
+    'https://www.facebook.com/connect/login_success.html',
+    null
   ]))
   let lastError = 'No pude intercambiar el codigo de Meta por token.'
 
