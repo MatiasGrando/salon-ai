@@ -70,6 +70,7 @@ model Business {
   campaignRuns CampaignRun[]
   campaignJobs CampaignJob[]
   reminderAutomations ReminderAutomation[]
+  reminderDeliveries ReminderDelivery[]
 
   createdAt     DateTime       @default(now())
 }
@@ -145,6 +146,7 @@ model Customer {
   campaignDeliveries CampaignDelivery[]
   manualCampaignRecipients CampaignManualRecipient[]
   campaignJobs CampaignJob[]
+  reminderDeliveries ReminderDelivery[]
 
   createdAt DateTime @default(now())
 }
@@ -174,6 +176,7 @@ model Appointment {
   startAt DateTime
 
   status AppointmentStatus @default(CONFIRMED)
+  reminderDeliveries ReminderDelivery[]
 
   createdAt DateTime @default(now())
 }
@@ -362,9 +365,41 @@ model ReminderAutomation {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  deliveries ReminderDelivery[]
 
   @@index([businessId, enabled])
   @@index([businessId, sendBeforeMinutes])
+}
+
+model ReminderDelivery {
+  id String @id @default(cuid())
+
+  businessId String
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  reminderAutomationId String
+  reminderAutomation ReminderAutomation @relation(fields: [reminderAutomationId], references: [id], onDelete: Cascade)
+
+  appointmentId String
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  customerId String
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  status String @default("SENT")
+  providerMessageId String?
+  attemptNumber Int @default(1)
+  lastError String?
+  scheduledFor DateTime
+  sentAt DateTime @default(now())
+  deliveredAt DateTime?
+  readAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@unique([reminderAutomationId, appointmentId])
+  @@index([businessId, status, sentAt])
+  @@index([appointmentId])
+  @@index([customerId, sentAt])
 }
 
 model CampaignManualRecipient {

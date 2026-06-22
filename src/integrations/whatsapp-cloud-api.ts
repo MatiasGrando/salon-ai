@@ -25,7 +25,7 @@ type CreateMessageTemplateInput = {
 type FindMessageTemplateInput = {
   id?: string | null
   name: string
-  languageCode: string
+  languageCode?: string
 }
 
 type MessageTemplateData = {
@@ -41,6 +41,10 @@ type FindMessageTemplateResult =
   | { found: true; template: MessageTemplateData }
   | { found: false; template: null; reason?: string; status?: number; errorCode?: number | string; errorMessage?: string }
 
+type ListMessageTemplatesResult =
+  | { listed: true; templates: MessageTemplateData[] }
+  | { listed: false; templates: []; reason?: string; status?: number; errorCode?: number | string; errorMessage?: string }
+
 type WhatsAppErrorBody = {
   error?: {
     code?: number | string
@@ -54,7 +58,38 @@ type WhatsAppErrorBody = {
   }
 }
 
+function preferredMessageTemplate(templates: MessageTemplateData[]) {
+  return [...templates].sort((a, b) => messageTemplateStatusRank(a.status) - messageTemplateStatusRank(b.status))[0]
+}
+
+function messageTemplateStatusRank(status?: string) {
+  const normalized = status?.toUpperCase()
+  if (normalized === 'APPROVED' || normalized === 'ACTIVE') return 0
+  if (normalized === 'PAUSED') return 1
+  if (normalized === 'PENDING' || normalized === 'IN_APPEAL') return 2
+  if (normalized === 'REJECTED' || normalized === 'DISABLED') return 3
+  return 4
+}
+
 export class WhatsAppCloudApi {
+  async listMessageTemplates(input: { name: string }): Promise<ListMessageTemplatesResult> {
+    if (!whatsappConfig.accessToken || !whatsappConfig.businessAccountId) {
+      return { listed: false, templates: [], reason: 'WHATSAPP_ACCESS_TOKEN o WHATSAPP_BUSINESS_ACCOUNT_ID no configurado' }
+    }
+
+    const fields = 'id,name,status,language,category,rejected_reason'
+    const url = `https://graph.facebook.com/${whatsappConfig.apiVersion}/${whatsappConfig.businessAccountId}/message_templates?fields=${encodeURIComponent(fields)}&name=${encodeURIComponent(input.name)}&limit=100`
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${whatsappConfig.accessToken}` } })
+
+    if (!response.ok) {
+      const parsedError = parseWhatsAppError(await response.text())
+      return { listed: false, templates: [], status: response.status, errorCode: parsedError.code, errorMessage: parsedError.message }
+    }
+
+    const body = await response.json() as { data?: MessageTemplateData[] }
+    return { listed: true, templates: (body.data || []).filter((item) => item.name === input.name) }
+  }
+
   async findMessageTemplate(input: FindMessageTemplateInput): Promise<FindMessageTemplateResult> {
     if (!whatsappConfig.accessToken || !whatsappConfig.businessAccountId) {
       return { found: false, template: null, reason: 'WHATSAPP_ACCESS_TOKEN o WHATSAPP_BUSINESS_ACCOUNT_ID no configurado' }
@@ -82,7 +117,7 @@ export class WhatsAppCloudApi {
     }
     const template = input.id
       ? body
-      : body.data?.find((item) => item.name === input.name && item.language === input.languageCode)
+      : preferredMessageTemplate((body.data || []).filter((item) => item.name === input.name && (!input.languageCode || item.language === input.languageCode)))
 
     return template ? { found: true, template } : { found: false, template: null, reason: 'No encontre esa plantilla en Meta' }
   }

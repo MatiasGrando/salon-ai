@@ -3271,6 +3271,62 @@ const crmHtml = `<!doctype html>
       line-height: 1.5;
     }
 
+    .money-input-shell {
+      min-height: 46px;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      border: 1px solid #d7deea;
+      border-radius: 10px;
+      background: #fff;
+      overflow: hidden;
+      transition: .16s ease;
+    }
+
+    .money-input-shell:focus-within {
+      border-color: #0d63f3;
+      box-shadow: 0 0 0 3px rgba(13, 99, 243, .12);
+    }
+
+    .money-input-prefix,
+    .money-input-currency {
+      height: 100%;
+      display: grid;
+      place-items: center;
+      padding: 0 12px;
+      color: #64748b;
+      background: #f8fafc;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .money-input-currency {
+      border-left: 1px solid #edf1f6;
+      letter-spacing: .02em;
+    }
+
+    .money-input-shell input {
+      min-height: 44px;
+      border: 0;
+      border-radius: 0;
+      padding: 11px 12px;
+      box-shadow: none;
+    }
+
+    .money-input-shell input:focus {
+      box-shadow: none;
+    }
+
+    .money-preview {
+      margin: 0;
+      color: #64748b;
+      font-size: 12px;
+    }
+
+    .money-preview strong {
+      color: #17213c;
+    }
+
     .campaign-automation-settings {
       grid-column: 1 / -1;
       padding: 16px;
@@ -7578,6 +7634,117 @@ const crmHtml = `<!doctype html>
       color: #64748b;
     }
 
+    .campaign-activation-summary {
+      display: grid;
+      gap: 12px;
+      padding: 0;
+      border: 0;
+      color: #17213c;
+      background: transparent;
+    }
+
+    .campaign-activation-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .campaign-activation-card {
+      padding: 12px;
+      border: 1px solid #e0e7f2;
+      border-radius: 13px;
+      background: #fff;
+    }
+
+    .campaign-activation-card span {
+      display: block;
+      margin-bottom: 5px;
+      color: #64748b;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: .03em;
+    }
+
+    .campaign-activation-card strong {
+      margin: 0;
+      color: #111b34;
+      font-size: 16px;
+    }
+
+    .campaign-activation-cost {
+      border-color: #bfdbfe;
+      background: linear-gradient(135deg, #eff6ff, #fff);
+    }
+
+    .campaign-activation-cost strong {
+      color: #0d63f3;
+      font-size: 22px;
+    }
+
+    .campaign-activation-card small {
+      display: block;
+      margin-top: 5px;
+      color: #64748b;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .campaign-activation-preview {
+      padding: 14px;
+      border: 1px solid #e6dccb;
+      border-radius: 14px;
+      background: #efe9df;
+    }
+
+    .campaign-activation-preview strong {
+      margin-bottom: 10px;
+      color: #17213c;
+    }
+
+    .campaign-activation-bubble {
+      padding: 12px 14px;
+      border-radius: 11px 11px 4px 11px;
+      background: #dcf8c6;
+      color: #17301d;
+      font-size: 13px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      box-shadow: 0 1px 4px rgba(15,23,42,.08);
+    }
+
+    .campaign-activation-note {
+      padding: 11px 13px;
+      border: 1px solid #fde68a;
+      border-radius: 12px;
+      background: #fffbeb;
+      color: #92400e;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    #campaign-activation-dialog {
+      align-items: flex-start;
+      padding-top: 28px;
+      overflow: auto;
+    }
+
+    #campaign-activation-dialog .dialog {
+      width: min(640px, calc(100vw - 36px));
+      max-height: calc(100vh - 56px);
+      overflow: auto;
+    }
+
+    #campaign-activation-dialog .dialog-actions {
+      position: sticky;
+      bottom: 0;
+      margin: 0 -20px -20px;
+      padding: 14px 20px;
+      border-top: 1px solid #eef2f7;
+      background: rgba(255,255,255,.96);
+      backdrop-filter: blur(8px);
+    }
+
     .customer-delete-feedback {
       min-height: 18px;
       margin: -6px 0 0;
@@ -8402,6 +8569,7 @@ const crmHtml = `<!doctype html>
               <span aria-hidden="true">&#128269;</span>
               <input id="campaign-search" type="search" placeholder="Buscar campa&ntilde;a" aria-label="Buscar campa&ntilde;a">
             </label>
+            <button class="campaign-filter-button" id="template-sync-all" type="button" hidden>Actualizar todas</button>
             <button class="campaigns-new" id="campaign-new" type="button"><span class="campaign-new-plus">+</span>Nueva campa&ntilde;a</button>
           </div>
         </header>
@@ -8616,7 +8784,6 @@ const crmHtml = `<!doctype html>
                   <button type="button" data-template-filter="DRAFT">Borradores</button>
                   <button type="button" data-template-filter="REJECTED">Rechazadas</button>
                 </div>
-                <button class="campaign-filter-button" id="template-sync-all" type="button">Actualizar todas</button>
               </div>
               <div class="campaign-table-wrap">
                 <table class="campaign-table template-table">
@@ -8671,14 +8838,14 @@ const crmHtml = `<!doctype html>
                 <label class="automation-control">
                   <div class="automation-copy">
                     <strong>Recordatorios autom&aacute;ticos</strong>
-                    <span>Activa la configuraci&oacute;n. El env&iacute;o real se conectar&aacute; en el siguiente paso.</span>
+                    <span>Activa la configuraci&oacute;n y proces&aacute; los turnos pendientes cuando quieras enviar.</span>
                     <small id="reminder-enabled-copy">Pausado</small>
                   </div>
                   <input id="reminder-enabled" type="checkbox">
                   <span class="automation-switch" aria-hidden="true"></span>
                 </label>
                 <p class="campaign-form-feedback" id="reminder-feedback" role="status" aria-live="polite"></p>
-                <div class="dialog-actions"><button class="secondary" id="reminder-delete" type="button">Eliminar</button><button class="primary" id="reminder-save" type="button">Guardar recordatorio</button></div>
+                <div class="dialog-actions"><button class="secondary" id="reminder-delete" type="button">Eliminar</button><button class="secondary" id="reminder-process" type="button">Procesar pendientes</button><button class="primary" id="reminder-save" type="button">Guardar recordatorio</button></div>
               </div>
             </section>
             <aside class="campaign-detail-panel template-detail-panel" id="reminder-detail-panel">
@@ -9058,7 +9225,12 @@ const crmHtml = `<!doctype html>
           </div>
           <div class="campaign-form-field">
             <label for="campaign-budget">L&iacute;mite de presupuesto</label>
-            <input id="campaign-budget" type="number" min="0" step="1" placeholder="Opcional">
+            <div class="money-input-shell">
+              <span class="money-input-prefix">$</span>
+              <input id="campaign-budget" type="text" inputmode="numeric" placeholder="Opcional">
+              <span class="money-input-currency">ARS</span>
+            </div>
+            <p class="money-preview" id="campaign-budget-preview">Sin l&iacute;mite definido</p>
           </div>
           <div class="campaign-form-field">
             <label for="campaign-status">Estado</label>
@@ -9328,6 +9500,8 @@ const crmHtml = `<!doctype html>
       pendingCampaignDeleteId: null,
       pendingTemplateDeleteId: null,
       pendingCampaignActivationId: null,
+      whatsappPricing: { rates: [], defaultCountry: 'AR', disclaimer: '' },
+      whatsappPricingLoaded: false,
       campaigns: [],
       campaignAudiences: {},
       campaignDeliveries: {},
@@ -9541,6 +9715,7 @@ const crmHtml = `<!doctype html>
       reminderBefore: document.getElementById('reminder-before'),
       reminderEnabled: document.getElementById('reminder-enabled'),
       reminderDelete: document.getElementById('reminder-delete'),
+      reminderProcess: document.getElementById('reminder-process'),
       reminderSave: document.getElementById('reminder-save'),
       reminderFeedback: document.getElementById('reminder-feedback'),
       reminderStatusLabel: document.getElementById('reminder-status-label'),
@@ -9593,6 +9768,7 @@ const crmHtml = `<!doctype html>
       campaignScheduledAtLabel: document.getElementById('campaign-scheduled-at-label'),
       campaignScheduledAt: document.getElementById('campaign-scheduled-at'),
       campaignBudget: document.getElementById('campaign-budget'),
+      campaignBudgetPreview: document.getElementById('campaign-budget-preview'),
       campaignStatus: document.getElementById('campaign-status'),
       campaignTemplateName: document.getElementById('campaign-template-name'),
       campaignTemplateLanguage: document.getElementById('campaign-template-language'),
@@ -11399,6 +11575,25 @@ const crmHtml = `<!doctype html>
       }).format(Number(value) || 0)
     }
 
+    function normalizeMoneyInput(value) {
+      const digits = String(value || '').replace(/\D/g, '')
+      return digits ? String(Number(digits)) : ''
+    }
+
+    function formatMoneyInput(value) {
+      const normalized = normalizeMoneyInput(value)
+      if (!normalized) return ''
+      return new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 }).format(Number(normalized))
+    }
+
+    function updateCampaignBudgetPreview() {
+      const normalized = normalizeMoneyInput(els.campaignBudget.value)
+      els.campaignBudget.value = formatMoneyInput(normalized)
+      els.campaignBudgetPreview.innerHTML = normalized
+        ? 'Se guardar&aacute; como <strong>' + escapeHtml(new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 }).format(Number(normalized))) + ' ARS</strong>'
+        : 'Sin l&iacute;mite definido'
+    }
+
     function formatCustomerLabel(customer) {
       return customer.name + (customer.phone ? ' · ' + customer.phone : '')
     }
@@ -13175,6 +13370,7 @@ const crmHtml = `<!doctype html>
       els.campaignSearch.placeholder = view === 'templates' ? 'Buscar plantilla' : 'Buscar campaña'
       els.campaignSearch.value = view === 'templates' ? state.templateSearch : state.campaignSearch
       els.campaignNew.innerHTML = '<span class="campaign-new-plus">+</span>' + (view === 'templates' ? 'Nueva plantilla' : view === 'reminders' ? 'Nuevo recordatorio' : 'Nueva campaña')
+      els.templateSyncAll.hidden = view !== 'templates'
       if (view === 'templates' && !state.templatesLoaded) loadWhatsappTemplates()
       if (view === 'reminders') {
         document.querySelector('.campaigns-title h2').textContent = 'Recordatorios automáticos'
@@ -13294,6 +13490,7 @@ const crmHtml = `<!doctype html>
       els.reminderDelete.textContent = state.pendingReminderDeleteConfirm ? 'Confirmar eliminar' : 'Eliminar'
       els.reminderTemplate.disabled = settings.channel === 'EMAIL'
       els.reminderEnabled.disabled = settings.channel === 'EMAIL'
+      els.reminderProcess.disabled = !state.reminderAutomations.some((item) => item.enabled && item.channel === 'WHATSAPP')
       els.reminderSave.textContent = state.selectedReminderId ? 'Guardar cambios' : 'Crear recordatorio'
       els.reminderDetailPanel.innerHTML = settings.channel === 'EMAIL'
         ? '<div class="campaign-detail-empty"><div><strong>Email preparado para más adelante</strong><br>Este canal queda modelado, pero todavía no se activa ni envía mensajes.</div></div>'
@@ -13350,6 +13547,31 @@ const crmHtml = `<!doctype html>
         els.reminderFeedback.className = 'campaign-form-feedback error'
       } finally {
         els.reminderSave.disabled = false
+      }
+    }
+
+    async function processDueReminders() {
+      els.reminderFeedback.textContent = ''
+      els.reminderFeedback.className = 'campaign-form-feedback'
+      els.reminderProcess.disabled = true
+      els.reminderProcess.textContent = 'Procesando...'
+      try {
+        const result = await getJson('/reminder-automations/process-due', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ businessId: state.businessId, limit: 100 })
+        })
+        els.reminderFeedback.textContent = result.total
+          ? 'Procesado: ' + result.sent + ' enviados · ' + result.failed + ' fallidos.'
+          : 'No hay recordatorios pendientes en este momento.'
+        els.reminderFeedback.className = result.failed ? 'campaign-form-feedback error' : 'campaign-form-feedback success'
+        await loadReminderSettings()
+      } catch (error) {
+        els.reminderFeedback.textContent = error.message
+        els.reminderFeedback.className = 'campaign-form-feedback error'
+      } finally {
+        els.reminderProcess.textContent = 'Procesar pendientes'
+        els.reminderProcess.disabled = !state.reminderAutomations.some((item) => item.enabled && item.channel === 'WHATSAPP')
       }
     }
 
@@ -13419,14 +13641,15 @@ const crmHtml = `<!doctype html>
 
     function supportedTemplateVariables(category = selectedTemplateCategory()) {
       return category === 'UTILITY'
-        ? ['nombre_cliente', 'fecha_turno', 'hora_turno', 'servicio', 'profesional']
-        : ['nombre_cliente', 'fecha_ultima_visita']
+        ? ['nombre_cliente', 'usuario', 'fecha_turno', 'hora_turno', 'servicio', 'profesional']
+        : ['nombre_cliente', 'usuario', 'fecha_ultima_visita']
     }
 
     function templateVariableDescription(variable, category = selectedTemplateCategory()) {
       const descriptions = category === 'UTILITY'
         ? {
             nombre_cliente: 'Automático: nombre del cliente.',
+            usuario: 'Alias temporal: usa el nombre del cliente.',
             fecha_turno: 'Automático: fecha del turno.',
             hora_turno: 'Automático: hora del turno.',
             servicio: 'Automático: servicio reservado.',
@@ -13434,6 +13657,7 @@ const crmHtml = `<!doctype html>
           }
         : {
             nombre_cliente: 'Automático: nombre del cliente.',
+            usuario: 'Alias temporal: usa el nombre del cliente.',
             fecha_ultima_visita: 'Automático: última visita registrada del cliente.'
           }
       return descriptions[variable] || 'No compatible para ' + templateCategoryLabel(category) + '. Escribí ese dato fijo en el texto o cambiá el tipo de plantilla.'
@@ -13571,8 +13795,22 @@ const crmHtml = `<!doctype html>
         (item.status === 'APPROVED'
           ? '<div class="template-test-card"><strong>Prueba controlada</strong><p>Envía una sola prueba usando los ejemplos cargados en esta plantilla. No activa campañas.</p><div class="template-test-row"><input data-template-test-phone inputmode="tel" placeholder="5491112345678"><button class="campaign-outline-button" type="button" data-template-action="test-send">Enviar a mi número</button></div><label class="template-test-confirm"><input type="checkbox" data-template-test-confirm>Confirmo que este número es mío y autorizo este único envío.</label><p class="template-test-feedback" data-template-test-feedback></p></div>'
           : '') +
-        '<div class="template-detail-actions">' + (editable ? '<button class="campaign-outline-button" type="button" data-template-action="edit">Editar borrador</button><button class="campaigns-new" type="button" data-template-action="submit">Enviar a revisión</button>' : '') + (item.status !== 'DRAFT' ? '<button class="campaign-outline-button" type="button" data-template-action="sync">Actualizar estado</button>' : '') + '</div>'
+        '<div class="template-detail-actions">' + (editable ? '<button class="campaign-outline-button" type="button" data-template-action="edit">Editar borrador</button><button class="campaigns-new" type="button" data-template-action="submit">Enviar a revisión</button>' : '') + (item.status !== 'DRAFT' ? '<button class="campaign-outline-button" type="button" data-template-action="sync">Actualizar estado</button><button class="campaign-outline-button" type="button" data-template-action="diagnose">Diagnosticar en Meta</button>' : '') + '</div>'
       els.templateDetailPanel.querySelector('.template-detail-actions')?.insertAdjacentHTML('beforeend', '<button class="campaign-outline-button danger" type="button" data-template-action="delete">Eliminar plantilla</button>')
+    }
+
+    function renderTemplateMetaDiagnosis(diagnosis) {
+      const local = diagnosis.local || {}
+      const rows = (diagnosis.meta || []).map((item) => {
+        const isRecommended = diagnosis.recommended?.id && diagnosis.recommended.id === item.id
+        return '<tr><td>' + escapeHtml(item.name || '-') + '</td><td>' + escapeHtml(item.language || '-') + '</td><td>' + escapeHtml(item.status || '-') + '</td><td>' + escapeHtml(item.id || '-') + '</td><td>' + (isRecommended ? '<span class="campaign-badge active">Usar</span>' : '') + '</td></tr>'
+      }).join('')
+      return '<div class="template-test-card" data-template-diagnosis><strong>Diagnóstico de Meta</strong>' +
+        '<p>Compara lo guardado en el CRM con las versiones que devuelve la API de Meta para este nombre.</p>' +
+        '<div class="template-detail-meta"><div><span>CRM nombre</span><strong>' + escapeHtml(local.metaName || '-') + '</strong></div><div><span>CRM idioma</span><strong>' + escapeHtml(local.language || '-') + '</strong></div><div><span>CRM ID Meta</span><strong>' + escapeHtml(local.metaId || 'Sin ID') + '</strong></div><div><span>CRM estado</span><strong>' + escapeHtml(local.status || '-') + '</strong></div></div>' +
+        (diagnosis.recommended ? '<div class="template-review-note"><strong>Recomendado por API:</strong><span>' + escapeHtml(diagnosis.recommended.name || '-') + ' · ' + escapeHtml(diagnosis.recommended.language || '-') + ' · ' + escapeHtml(diagnosis.recommended.status || '-') + '<br>' + escapeHtml(diagnosis.recommended.reason || '') + '</span></div>' : '<div class="template-rejection">Meta no devolvió ninguna plantilla con ese nombre.</div>') +
+        '<div class="campaign-table-wrap"><table class="campaign-table template-table"><thead><tr><th>Nombre</th><th>Idioma</th><th>Estado</th><th>ID</th><th></th></tr></thead><tbody>' + (rows || '<tr class="campaign-empty-row"><td colspan="5">Sin resultados en Meta.</td></tr>') + '</tbody></table></div>' +
+        '</div>'
     }
 
     function renderCampaignTemplateOptions(selectedId) {
@@ -13661,6 +13899,7 @@ const crmHtml = `<!doctype html>
       }
 
       try {
+        if (!state.whatsappPricingLoaded) loadWhatsappPricing()
         state.campaigns = await getJson('/campaigns?businessId=' + encodeURIComponent(state.businessId))
         state.campaignsLoaded = true
         if (!state.selectedCampaignId || !state.campaigns.some((campaign) => campaign.id === state.selectedCampaignId)) {
@@ -13671,6 +13910,15 @@ const crmHtml = `<!doctype html>
         state.campaignsLoaded = false
         els.campaignTableBody.innerHTML = '<tr class="campaign-empty-row"><td colspan="6">' + escapeHtml(error.message) + '</td></tr>'
         els.campaignDetailPanel.innerHTML = '<div class="campaign-detail-empty">No pudimos cargar las campa&ntilde;as.</div>'
+      }
+    }
+
+    async function loadWhatsappPricing() {
+      try {
+        state.whatsappPricing = await getJson('/whatsapp-pricing')
+        state.whatsappPricingLoaded = true
+      } catch {
+        state.whatsappPricingLoaded = false
       }
     }
 
@@ -13973,6 +14221,7 @@ const crmHtml = `<!doctype html>
           '</div>' +
           '<div class="campaign-detail-actions">' +
             '<button class="campaign-outline-button" type="button" data-campaign-action="simulate"' + (simulationLoading ? ' disabled' : '') + '>' + (simulationLoading ? 'Simulando...' : 'Simular') + '</button>' +
+            (campaign.type === 'AUTOMATED' && campaign.status === 'ACTIVE' ? '<button class="campaign-outline-button" type="button" data-campaign-action="process-automated">Procesar ahora</button>' : '') +
             (campaign.templateName ? '<button class="campaign-outline-button" type="button" data-campaign-action="template-sync">Actualizar plantilla</button>' : '') +
             '<button class="campaign-outline-button" type="button" data-campaign-action="edit">Editar</button>' +
             (campaign.status !== 'FINISHED' ? '<button class="campaign-outline-button" type="button" data-campaign-action="toggle">' + toggleLabel + '</button>' : '') +
@@ -14135,7 +14384,8 @@ const crmHtml = `<!doctype html>
       els.campaignRestartAfterVisit.checked = campaign?.restartAfterVisit ?? true
       els.campaignScheduleMode.value = campaign?.scheduleMode || (campaign?.scheduledAt ? 'SCHEDULED' : 'IMMEDIATE')
       els.campaignScheduledAt.value = campaign?.scheduledAt ? toDatetimeLocalValue(new Date(campaign.scheduledAt)) : ''
-      els.campaignBudget.value = campaign?.budgetLimit ?? ''
+      els.campaignBudget.value = campaign?.budgetLimit ? formatMoneyInput(campaign.budgetLimit) : ''
+      updateCampaignBudgetPreview()
       els.campaignStatus.value = campaign?.status || 'DRAFT'
       els.campaignTemplateName.value = campaign?.templateName || ''
       els.campaignTemplateLanguage.value = campaign?.templateLanguage || 'es_AR'
@@ -14211,7 +14461,7 @@ const crmHtml = `<!doctype html>
         restartAfterVisit: true,
         scheduleMode: els.campaignScheduleMode.value,
         scheduledAt: els.campaignScheduleMode.value === 'SCHEDULED' ? (els.campaignScheduledAt.value || null) : null,
-        budgetLimit: els.campaignBudget.value || null,
+        budgetLimit: normalizeMoneyInput(els.campaignBudget.value) || null,
         status: els.campaignStatus.value,
         whatsappTemplateId: selectedWhatsappTemplate?.id || null,
         templateName: selectedWhatsappTemplate?.metaName || null,
@@ -14276,6 +14526,32 @@ const crmHtml = `<!doctype html>
       await loadCampaigns()
     }
 
+    function campaignPricingCategory(campaign) {
+      return campaign.templateCategory === 'UTILITY' ? 'UTILITY' : 'MARKETING'
+    }
+
+    function campaignEstimatedCost(campaign, quantity) {
+      const country = state.whatsappPricing?.defaultCountry || 'AR'
+      const category = campaignPricingCategory(campaign)
+      const rate = (state.whatsappPricing?.rates || []).find((item) => item.country === country && item.category === category)
+      if (!rate) return null
+      return {
+        ...rate,
+        quantity,
+        total: Number(rate.estimatedUnitPrice || 0) * Number(quantity || 0)
+      }
+    }
+
+    function formatEstimatedCurrency(value, currency) {
+      return new Intl.NumberFormat('es-AR', { style: 'currency', currency: currency || 'ARS', maximumFractionDigits: 2 }).format(Number(value || 0))
+    }
+
+    function campaignEstimatedCostHtml(campaign, quantity) {
+      const estimate = campaignEstimatedCost(campaign, quantity)
+      if (!estimate) return '<div class="campaign-activation-card campaign-activation-cost"><span>Costo estimado</span><strong>No disponible</strong></div>'
+      return '<div class="campaign-activation-card campaign-activation-cost"><span>Costo estimado</span><strong>' + escapeHtml(formatEstimatedCurrency(estimate.total, estimate.currency)) + '</strong><small>' + quantity + ' × ' + escapeHtml(formatEstimatedCurrency(estimate.estimatedUnitPrice, estimate.currency)) + ' · ' + escapeHtml(estimate.countryLabel) + ' · ' + escapeHtml(estimate.category) + '</small></div>'
+    }
+
     function campaignActivationSummaryHtml(campaign) {
       const audience = state.campaignAudiences[campaign.id]
       const variables = extractTemplateVariables(campaign.message || '')
@@ -14300,23 +14576,29 @@ const crmHtml = `<!doctype html>
       const includedPreview = included.slice(0, 3).map((customer) => escapeHtml(customer.name || customer.phone || 'Cliente')).join(', ')
       const messagePreview = campaignActivationMessagePreview(campaign, included[0])
       const realSendNote = campaign.type === 'ONE_TIME'
-        ? 'En esta etapa, confirmar activa la campaña pero no dispara WhatsApp real todavía.'
+        ? 'Al confirmar se enviará WhatsApp real una sola vez y la campaña quedará Finalizada.'
         : 'Las automáticas quedan habilitadas para reglas; los envíos reales masivos siguen bloqueados.'
       if (audience?.loading) return '<strong>Calculando destinatarios...</strong><p>Estamos preparando el resumen de seguridad.</p>'
       if (audience?.error) return '<strong>No se pudo calcular destinatarios.</strong><p>' + escapeHtml(audience.error) + '</p>'
-      return '<strong>Resumen antes de activar:</strong><ul>' +
-        '<li>Tipo: <strong>' + (campaignTypeLabels[campaign.type] || campaign.type) + '</strong></li>' +
-        '<li>Plantilla: <strong>' + escapeHtml(campaign.templateName || 'Sin plantilla') + '</strong> · ' + escapeHtml(campaignTemplateStatusLabels[campaign.templateStatus || 'NOT_CREATED'] || campaign.templateStatus || 'Sin estado') + '</li>' +
-        '<li>Variables: <strong>' + (variables.length ? variables.map((variable) => '{{' + escapeHtml(variable) + '}}').join(', ') : 'sin variables') + '</strong></li>' +
-        '<li>Incluidos estimados: <strong>' + (audience?.total ?? 0) + '</strong>' + (includedPreview ? ' · ' + includedPreview + (included.length > 3 ? '...' : '') : '') + '</li>' +
-        '<li>Excluidos: <strong>' + excludedCopy + '</strong></li>' +
-        '</ul>' + (messagePreview ? '<p><strong>Vista previa:</strong><br>' + escapeHtml(messagePreview) + '</p>' : '') + '<small>' + realSendNote + '</small>'
+      return '<div class="campaign-activation-summary">' +
+        '<div class="campaign-activation-grid">' +
+          '<div class="campaign-activation-card"><span>Tipo</span><strong>' + escapeHtml(campaignTypeLabels[campaign.type] || campaign.type) + '</strong></div>' +
+          '<div class="campaign-activation-card"><span>Plantilla</span><strong>' + escapeHtml(campaign.templateName || 'Sin plantilla') + '</strong><small>' + escapeHtml(campaignTemplateStatusLabels[campaign.templateStatus || 'NOT_CREATED'] || campaign.templateStatus || 'Sin estado') + '</small></div>' +
+          '<div class="campaign-activation-card"><span>Destinatarios</span><strong>' + (audience?.total ?? 0) + '</strong><small>' + escapeHtml(includedPreview ? includedPreview + (included.length > 3 ? '...' : '') : 'Sin destinatarios incluidos') + '</small></div>' +
+          campaignEstimatedCostHtml(campaign, audience?.total ?? 0) +
+        '</div>' +
+        '<div class="campaign-activation-card"><span>Exclusiones</span><strong>' + escapeHtml(excludedCopy) + '</strong></div>' +
+        '<div class="campaign-activation-card"><span>Variables</span><strong>' + (variables.length ? variables.map((variable) => '{{' + escapeHtml(variable) + '}}').join(', ') : 'sin variables') + '</strong></div>' +
+        (messagePreview ? '<div class="campaign-activation-preview"><strong>Vista previa</strong><div class="campaign-activation-bubble">' + escapeHtml(messagePreview) + '</div></div>' : '') +
+        '<div class="campaign-activation-note">' + escapeHtml(realSendNote) + '</div>' +
+        '</div>'
     }
 
     function campaignActivationMessagePreview(campaign, customer) {
       if (!customer || !campaign.message) return ''
       return campaign.message.replace(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g, (_match, variable) => {
         if (variable === 'nombre_cliente') return customer.name || ''
+        if (variable === 'usuario') return customer.name || ''
         if (variable === 'fecha_ultima_visita') return customer.lastVisitAt ? formatShortDate(customer.lastVisitAt) : '{{' + variable + '}}'
         return '{{' + variable + '}}'
       })
@@ -14328,8 +14610,11 @@ const crmHtml = `<!doctype html>
       const audience = state.campaignAudiences[campaign.id]
       els.campaignActivationName.textContent = campaign.name
       els.campaignActivationCopy.textContent = campaign.type === 'ONE_TIME'
-        ? 'Revisá destinatarios y plantilla antes de activar la campaña puntual.'
+        ? 'Revisá destinatarios, plantilla y costo antes de enviar esta campaña puntual.'
         : 'Revisá reglas, segmento y plantilla antes de activar la campaña automática.'
+      els.campaignActivationConfirm.textContent = campaign.type === 'ONE_TIME'
+        ? (campaign.scheduleMode === 'SCHEDULED' ? 'Programar campaña' : 'Enviar y finalizar')
+        : 'Confirmar activación'
       els.campaignActivationSummary.innerHTML = campaignActivationSummaryHtml(campaign)
       els.campaignActivationConfirm.disabled = Boolean(audience?.loading || audience?.error)
       els.campaignActivationFeedback.textContent = ''
@@ -14339,7 +14624,12 @@ const crmHtml = `<!doctype html>
       state.pendingCampaignActivationId = campaign.id
       els.campaignActivationFeedback.textContent = ''
       els.campaignActivationConfirm.disabled = false
-      els.campaignActivationConfirm.textContent = 'Confirmar activación'
+      els.campaignActivationConfirm.textContent = campaign.type === 'ONE_TIME'
+        ? (campaign.scheduleMode === 'SCHEDULED' ? 'Programar campaña' : 'Enviar y finalizar')
+        : 'Confirmar activación'
+      if (!state.whatsappPricingLoaded) loadWhatsappPricing().then(() => {
+        if (!els.campaignActivationDialog.hidden && state.pendingCampaignActivationId === campaign.id) renderCampaignActivationDialog()
+      })
       const shouldLoadAudience = !state.campaignAudiences[campaign.id] || state.campaignAudiences[campaign.id]?.error
       if (shouldLoadAudience) state.campaignAudiences[campaign.id] = { loading: true }
       els.campaignActivationDialog.hidden = false
@@ -14367,18 +14657,37 @@ const crmHtml = `<!doctype html>
       if (!campaign) return closeCampaignActivationDialog()
       try {
         els.campaignActivationConfirm.disabled = true
-        els.campaignActivationConfirm.textContent = 'Activando...'
-        await getJson('/campaigns/' + campaign.id, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...campaign, status: 'ACTIVE' })
-        })
+        els.campaignActivationConfirm.textContent = campaign.type === 'ONE_TIME'
+          ? (campaign.scheduleMode === 'SCHEDULED' ? 'Programando...' : 'Enviando...')
+          : 'Activando...'
+        if (campaign.type === 'ONE_TIME' && campaign.scheduleMode === 'SCHEDULED') {
+          await getJson('/campaigns/' + campaign.id, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...campaign, status: 'SCHEDULED' })
+          })
+        } else if (campaign.type === 'ONE_TIME') {
+          const result = await getJson('/campaigns/' + campaign.id + '/execute-one-time', { method: 'POST' })
+          els.campaignActivationFeedback.textContent = 'Enviados: ' + result.sent + ' · Fallidos: ' + result.failed + '. Campaña finalizada.'
+        } else {
+          await getJson('/campaigns/' + campaign.id, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...campaign, status: 'ACTIVE' })
+          })
+          if (campaign.scheduleMode !== 'SCHEDULED') {
+            const result = await getJson('/campaigns/' + campaign.id + '/process-automated', { method: 'POST' })
+            els.campaignActivationFeedback.textContent = 'Enviados: ' + result.sent + ' · Fallidos: ' + result.failed + '. Campaña automática activa.'
+          }
+        }
         closeCampaignActivationDialog()
         await loadCampaigns()
       } catch (error) {
         els.campaignActivationFeedback.textContent = error.message
         els.campaignActivationConfirm.disabled = false
-        els.campaignActivationConfirm.textContent = 'Confirmar activación'
+        els.campaignActivationConfirm.textContent = campaign.type === 'ONE_TIME'
+          ? (campaign.scheduleMode === 'SCHEDULED' ? 'Programar campaña' : 'Enviar y finalizar')
+          : 'Confirmar activación'
       }
     }
 
@@ -14493,6 +14802,16 @@ const crmHtml = `<!doctype html>
 
       try {
         if (button.dataset.campaignAction === 'simulate') await simulateCampaign(campaign)
+        if (button.dataset.campaignAction === 'process-automated') {
+          button.disabled = true
+          button.textContent = 'Procesando...'
+          const result = await getJson('/campaigns/' + campaign.id + '/process-automated', { method: 'POST' })
+          await loadCampaignDeliveries(campaign.id)
+          await loadCampaignSimulation(campaign.id)
+          await loadCampaigns()
+          els.campaignDetailPanel.querySelector('.campaign-detail-header')?.insertAdjacentHTML('afterend', '<div class="campaign-rule-note" data-campaign-inline-error>Procesado: ' + result.sent + ' enviados · ' + result.failed + ' fallidos.</div>')
+          return
+        }
         if (button.dataset.campaignAction === 'template-sync') await syncCampaignTemplate(campaign)
         if (button.dataset.campaignAction === 'edit') openCampaignDialog(campaign)
         if (button.dataset.campaignAction === 'toggle') await updateCampaignStatus(campaign)
@@ -14926,6 +15245,7 @@ const crmHtml = `<!doctype html>
     els.reminderEnabled.addEventListener('change', updateReminderDraftFromForm)
     els.reminderSave.addEventListener('click', saveReminderSettings)
     els.reminderDelete.addEventListener('click', deleteSelectedReminder)
+    els.reminderProcess.addEventListener('click', processDueReminders)
     els.templateDetailPanel.addEventListener('click', async (event) => {
       const button = event.target.closest('[data-template-action]')
       if (!button) return
@@ -14939,6 +15259,19 @@ const crmHtml = `<!doctype html>
         if (button.dataset.templateAction === 'edit') openTemplateDialog(template)
         if (button.dataset.templateAction === 'submit') await getJson('/whatsapp-templates/' + template.id + '/submit', { method: 'POST' })
         if (button.dataset.templateAction === 'sync') await getJson('/whatsapp-templates/' + template.id + '/sync', { method: 'POST' })
+        if (button.dataset.templateAction === 'diagnose') {
+          button.disabled = true
+          button.textContent = 'Diagnosticando...'
+          try {
+            const diagnosis = await getJson('/whatsapp-templates/' + template.id + '/meta-diagnosis')
+            els.templateDetailPanel.querySelector('[data-template-diagnosis]')?.remove()
+            els.templateDetailPanel.querySelector('.template-detail-actions')?.insertAdjacentHTML('beforebegin', renderTemplateMetaDiagnosis(diagnosis))
+          } finally {
+            button.disabled = false
+            button.textContent = 'Diagnosticar en Meta'
+          }
+          return
+        }
         if (button.dataset.templateAction === 'test-send') {
           const phone = els.templateDetailPanel.querySelector('[data-template-test-phone]')
           const confirmed = els.templateDetailPanel.querySelector('[data-template-test-confirm]')
@@ -15006,6 +15339,8 @@ const crmHtml = `<!doctype html>
       if (els.campaignSegment.value === 'MANUAL') loadCampaignManualCustomers(true)
     })
     els.campaignScheduleMode.addEventListener('change', () => syncCampaignAutomationFields(false))
+    els.campaignBudget.addEventListener('input', updateCampaignBudgetPreview)
+    els.campaignBudget.addEventListener('blur', updateCampaignBudgetPreview)
     els.campaignManualList.addEventListener('change', (event) => {
       const checkbox = event.target.closest('input[type="checkbox"]')
       if (!checkbox) return

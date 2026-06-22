@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import { prisma } from '../config/prisma.js'
+import { whatsappPricingRates } from '../config/whatsapp-pricing.js'
 import { WhatsAppCloudApi } from '../integrations/whatsapp-cloud-api.js'
 
 const CAMPAIGN_TYPES = ['ONE_TIME', 'AUTOMATED'] as const
@@ -18,8 +19,8 @@ const CAMPAIGN_SEGMENTS = [
   'FREQUENT',
   'NO_FUTURE_APPOINTMENT'
 ] as const
-const MARKETING_TEMPLATE_VARIABLES = ['nombre_cliente', 'fecha_ultima_visita'] as const
-const REMINDER_TEMPLATE_VARIABLES = ['nombre_cliente', 'fecha_turno', 'hora_turno', 'servicio', 'profesional'] as const
+const MARKETING_TEMPLATE_VARIABLES = ['nombre_cliente', 'usuario', 'fecha_ultima_visita'] as const
+const REMINDER_TEMPLATE_VARIABLES = ['nombre_cliente', 'usuario', 'fecha_turno', 'hora_turno', 'servicio', 'profesional'] as const
 const whatsappCloudApi = new WhatsAppCloudApi()
 
 type CampaignInput = {
@@ -55,6 +56,14 @@ type CampaignInput = {
 }
 
 export async function campaignRoutes(app: FastifyInstance) {
+  app.get('/whatsapp-pricing', async () => {
+    return {
+      rates: whatsappPricingRates,
+      defaultCountry: 'AR',
+      disclaimer: 'Costos estimados por mensaje de plantilla. El costo final depende de la tarifa vigente de Meta, pais, categoria y posibles cambios comerciales.'
+    }
+  })
+
   app.get('/whatsapp-templates', async (request, reply) => {
     const query = request.query as { businessId?: string }
     const businessId = query.businessId?.trim()
@@ -208,15 +217,60 @@ export async function campaignRoutes(app: FastifyInstance) {
     if (!result.found || !result.template) {
       return reply.status(result.status === 404 ? 404 : 502).send({ message: result.errorMessage || result.reason || 'No pude consultar Meta' })
     }
+    const listed = await whatsappCloudApi.listMessageTemplates({ name: template.metaName })
+    const preferred = listed.listed ? preferredMetaTemplate(listed.templates, template.language) : null
+    const selectedTemplate = preferred && isApprovedMetaTemplate(preferred.status) ? preferred : result.template
     return prisma.whatsAppTemplate.update({
       where: { id: template.id },
       data: {
-        metaId: result.template.id ?? template.metaId,
-        status: normalizeTemplateStatus(result.template.status),
-        rejectionReason: normalizeTemplateRejectionReason(result.template.rejected_reason),
+        metaId: selectedTemplate.id ?? template.metaId,
+        metaName: selectedTemplate.name ?? template.metaName,
+        category: normalizeWhatsAppTemplateCategory(selectedTemplate.category) ?? template.category,
+        language: selectedTemplate.language ?? template.language,
+        status: normalizeTemplateStatus(selectedTemplate.status),
+        rejectionReason: normalizeTemplateRejectionReason(selectedTemplate.rejected_reason),
         lastSyncedAt: new Date()
       }
     })
+  })
+
+  app.get('/whatsapp-templates/:id/meta-diagnosis', async (request, reply) => {
+    const params = request.params as { id: string }
+    const template = await prisma.whatsAppTemplate.findUnique({ where: { id: params.id } })
+    if (!template) return reply.status(404).send({ message: 'No encontre esa plantilla' })
+
+    const listed = await whatsappCloudApi.listMessageTemplates({ name: template.metaName })
+    if (!listed.listed) {
+      return reply.status(listed.status === 404 ? 404 : 502).send({ message: listed.errorMessage || listed.reason || 'No pude consultar Meta' })
+    }
+    const recommended = preferredMetaTemplate(listed.templates, template.language)
+    return {
+      local: {
+        id: template.id,
+        internalName: template.internalName,
+        metaName: template.metaName,
+        metaId: template.metaId,
+        language: template.language,
+        category: template.category,
+        status: template.status
+      },
+      meta: listed.templates.map((item) => ({
+        id: item.id,
+        name: item.name,
+        language: item.language,
+        category: item.category,
+        status: item.status,
+        rejectedReason: item.rejected_reason
+      })),
+      recommended: recommended ? {
+        id: recommended.id,
+        name: recommended.name,
+        language: recommended.language,
+        category: recommended.category,
+        status: recommended.status,
+        reason: isApprovedMetaTemplate(recommended.status) ? 'Es la version aprobada/activa que conviene usar para enviar.' : 'No encontre una version aprobada/activa; esta es la mejor coincidencia disponible.'
+      } : null
+    }
   })
 
   app.post('/whatsapp-templates/:id/test-send', async (request, reply) => {
@@ -232,14 +286,44 @@ export async function campaignRoutes(app: FastifyInstance) {
     const variables = extractNamedTemplateVariables(template.body)
     const missingExamples = variables.filter((variable) => !examples[variable])
     if (missingExamples.length) return reply.status(400).send({ message: 'Faltan ejemplos para: ' + missingExamples.join(', ') })
+    let metaTemplate = template.metaId
+      ? await whatsappCloudApi.findMessageTemplate({ id: template.metaId, name: template.metaName, languageCode: template.language })
+      : null
+    if (!metaTemplate?.found) {
+      metaTemplate = await whatsappCloudApi.findMessageTemplate({ id: null, name: template.metaName })
+    }
+    const listed = await whatsappCloudApi.listMessageTemplates({ name: template.metaName })
+    const preferred = listed.listed ? preferredMetaTemplate(listed.templates, template.language) : null
+    const selectedMetaTemplate = preferred && isApprovedMetaTemplate(preferred.status) ? preferred : metaTemplate?.template
+    const templateName = selectedMetaTemplate?.name || template.metaName
+    const languageCode = selectedMetaTemplate?.language || template.language
+    if (selectedMetaTemplate && (templateName !== template.metaName || languageCode !== template.language || selectedMetaTemplate.id !== template.metaId)) {
+      await prisma.whatsAppTemplate.update({
+        where: { id: template.id },
+        data: {
+          metaName: templateName,
+          language: languageCode,
+          metaId: selectedMetaTemplate.id ?? template.metaId,
+          category: normalizeWhatsAppTemplateCategory(selectedMetaTemplate.category) ?? template.category,
+          status: normalizeTemplateStatus(selectedMetaTemplate.status),
+          lastSyncedAt: new Date()
+        }
+      })
+    }
     const result = await whatsappCloudApi.sendTemplateMessage({
       to: phone,
-      templateName: template.metaName,
-      languageCode: template.language,
+      templateName,
+      languageCode,
       bodyParameters: variables.map((variable) => examples[variable]),
       headerImageDataUrl: template.imageUrl
     })
     if (!result.sent) {
+      if (String(result.errorCode) === '132001') {
+        return reply.status(502).send({
+          message: 'Meta no encuentra esta plantilla para el numero configurado. Revisa que WHATSAPP_PHONE_NUMBER_ID pertenezca a la misma cuenta de WhatsApp que aprobo la plantilla.',
+          errorCode: result.errorCode
+        })
+      }
       return reply.status(502).send({ message: result.errorMessage || result.reason || 'No pude enviar la prueba por WhatsApp', errorCode: result.errorCode })
     }
     return { sent: true, to: result.to }
@@ -606,6 +690,345 @@ export async function campaignRoutes(app: FastifyInstance) {
     if (!campaign) return reply.status(404).send({ message: 'No encontre esa campana' })
 
     return calculateCampaignAudience(campaign)
+  })
+
+  app.post('/campaigns/:id/execute-one-time', async (request, reply) => {
+    const params = request.params as { id: string }
+    const campaign = await prisma.campaign.findUnique({
+      where: { id: params.id },
+      include: {
+        whatsappTemplate: true,
+        manualRecipients: {
+          include: { customer: { select: { id: true, name: true, phone: true } } }
+        }
+      }
+    })
+    if (!campaign) return reply.status(404).send({ message: 'No encontre esa campana' })
+    if (campaign.type !== 'ONE_TIME') return reply.status(400).send({ message: 'Solo las campanas puntuales pueden ejecutarse una sola vez' })
+    if (campaign.scheduleMode === 'SCHEDULED' && campaign.scheduledAt && campaign.scheduledAt > new Date()) {
+      return reply.status(409).send({ message: 'La campana todavia no alcanzo su fecha programada' })
+    }
+    if (!campaign.whatsappTemplateId || !campaign.whatsappTemplate) return reply.status(400).send({ message: 'Selecciona una plantilla aprobada antes de enviar' })
+    if (campaign.whatsappTemplate.status !== 'APPROVED') return reply.status(400).send({ message: 'La plantilla debe estar aprobada por Meta' })
+
+    const previousRealDeliveries = await prisma.campaignDelivery.count({
+      where: { campaignId: campaign.id, status: { notIn: ['FAILED', 'CANCELLED'] } }
+    })
+    if (previousRealDeliveries > 0 || campaign.status === 'FINISHED') {
+      return reply.status(409).send({ message: 'Esta campana puntual ya fue ejecutada' })
+    }
+
+    const audience = await calculateCampaignAudience(campaign)
+    if (!audience.included.length) return reply.status(400).send({ message: 'No hay destinatarios habilitados para enviar' })
+    const budgetLimit = budgetLimitedQuantity(campaign.budgetLimit, campaign.whatsappTemplate.category, audience.included.length)
+    if (budgetLimit === 0) return reply.status(400).send({ message: 'El presupuesto no alcanza para enviar ni un mensaje' })
+    const recipients = audience.included.slice(0, budgetLimit ?? audience.included.length)
+    if (audience.included.length > recipients.length) {
+      return reply.status(400).send({ message: 'El presupuesto solo alcanza para ' + recipients.length + ' de ' + audience.included.length + ' destinatarios. Ajusta el presupuesto antes de enviar.' })
+    }
+
+    const now = new Date()
+    let sent = 0
+    let failed = 0
+    const results: Array<{ customerId: string; name: string; phone: string; status: 'SENT' | 'FAILED'; message?: string }> = []
+
+    for (const customer of recipients) {
+      const context = await buildTemplateVariableContext({ businessId: campaign.businessId, customerId: customer.id })
+      const resolved = resolveWhatsAppTemplateVariables({
+        body: campaign.whatsappTemplate.body,
+        category: campaign.whatsappTemplate.category,
+        context
+      })
+      if (resolved.unsupported.length || resolved.missing.length) {
+        failed += 1
+        await prisma.campaignDelivery.create({
+          data: {
+            businessId: campaign.businessId,
+            campaignId: campaign.id,
+            customerId: customer.id,
+            status: 'FAILED',
+            attemptNumber: 1,
+            sentAt: now
+          }
+        })
+        results.push({ customerId: customer.id, name: customer.name, phone: customer.phone, status: 'FAILED', message: 'Faltan variables: ' + [...resolved.unsupported, ...resolved.missing].join(', ') })
+        continue
+      }
+
+      const result = await whatsappCloudApi.sendTemplateMessage({
+        to: customer.phone,
+        templateName: campaign.whatsappTemplate.metaName,
+        languageCode: campaign.whatsappTemplate.language,
+        bodyParameters: resolved.bodyParameters,
+        headerImageDataUrl: campaign.whatsappTemplate.imageUrl
+      })
+      const providerMessageId = result.sent ? extractProviderMessageId(result.response) : null
+      await prisma.campaignDelivery.create({
+        data: {
+          businessId: campaign.businessId,
+          campaignId: campaign.id,
+          customerId: customer.id,
+          status: result.sent ? 'SENT' : 'FAILED',
+          attemptNumber: 1,
+          providerMessageId,
+          sentAt: now
+        }
+      })
+      if (result.sent) sent += 1
+      else failed += 1
+      const failureMessage = !result.sent
+        ? ('errorMessage' in result ? result.errorMessage : undefined) || ('reason' in result ? result.reason : undefined) || 'No se pudo enviar'
+        : undefined
+      results.push({
+        customerId: customer.id,
+        name: customer.name,
+        phone: customer.phone,
+        status: result.sent ? 'SENT' : 'FAILED',
+        message: failureMessage
+      })
+    }
+
+    await prisma.campaign.update({
+      where: { id: campaign.id },
+      data: { status: 'FINISHED' }
+    })
+
+    return { status: 'FINISHED', sent, failed, total: recipients.length, results }
+  })
+
+  app.post('/campaigns/:id/process-automated', async (request, reply) => {
+    const params = request.params as { id: string }
+    const body = (request.body ?? {}) as { limit?: number | string }
+    const requestedLimit = Math.max(1, Math.min(100, Number(body.limit ?? 25) || 25))
+    const campaign = await prisma.campaign.findUnique({
+      where: { id: params.id },
+      include: {
+        whatsappTemplate: true,
+        manualRecipients: {
+          include: { customer: { select: { id: true, name: true, phone: true } } }
+        }
+      }
+    })
+    if (!campaign) return reply.status(404).send({ message: 'No encontre esa campana' })
+    if (campaign.type !== 'AUTOMATED') return reply.status(400).send({ message: 'Solo las campanas automaticas usan este procesador' })
+    if (campaign.status !== 'ACTIVE') return reply.status(400).send({ message: 'La campana automatica debe estar activa' })
+    if (campaign.scheduleMode === 'SCHEDULED' && campaign.scheduledAt && campaign.scheduledAt > new Date()) {
+      return reply.status(409).send({ message: 'La campana todavia no alcanzo su fecha programada' })
+    }
+    if (!campaign.whatsappTemplateId || !campaign.whatsappTemplate) return reply.status(400).send({ message: 'Selecciona una plantilla aprobada antes de enviar' })
+    if (campaign.whatsappTemplate.status !== 'APPROVED') return reply.status(400).send({ message: 'La plantilla debe estar aprobada por Meta' })
+
+    const audience = await calculateCampaignAudience(campaign)
+    if (!audience.included.length) return { status: 'COMPLETED', sent: 0, failed: 0, total: 0, message: 'No hay destinatarios listos' }
+    const budgetLimit = budgetLimitedQuantity(campaign.budgetLimit, campaign.whatsappTemplate.category, audience.included.length)
+    if (budgetLimit === 0) return reply.status(400).send({ message: 'El presupuesto no alcanza para enviar ni un mensaje' })
+    const recipients = audience.included.slice(0, Math.min(requestedLimit, budgetLimit ?? audience.included.length))
+    const excludedCount = Object.values(audience.excluded).reduce((total, count) => total + Number(count || 0), 0)
+    const now = new Date()
+
+    const run = await prisma.campaignRun.create({
+      data: {
+        businessId: campaign.businessId,
+        campaignId: campaign.id,
+        mode: 'REAL',
+        status: 'RUNNING',
+        candidateCount: audience.total + excludedCount,
+        eligibleCount: recipients.length,
+        excludedCount,
+        exclusionSummary: audience.excluded,
+        configurationSnapshot: {
+          type: campaign.type,
+          channel: campaign.channel,
+          segment: campaign.segment,
+          segmentDays: campaign.segmentDays,
+          priority: campaign.priority,
+          maxAttempts: campaign.maxAttempts,
+          retryIntervalDays: campaign.retryIntervalDays,
+          cooldownDays: campaign.cooldownDays,
+          respectCooldown: campaign.respectCooldown,
+          budgetLimit: campaign.budgetLimit,
+          templateName: campaign.whatsappTemplate.metaName,
+          templateLanguage: campaign.whatsappTemplate.language,
+          templateId: campaign.whatsappTemplate.metaId
+        }
+      }
+    })
+
+    const summary = await sendCampaignRecipients({ campaign, template: campaign.whatsappTemplate, recipients, runId: run.id, now })
+    await prisma.campaignRun.update({ where: { id: run.id }, data: { status: 'COMPLETED', completedAt: new Date() } })
+    return { status: 'COMPLETED', runId: run.id, ...summary }
+  })
+
+  app.post('/campaign-jobs/process-retries', async (request) => {
+    const body = (request.body ?? {}) as { limit?: number | string }
+    const limit = Math.max(1, Math.min(100, Number(body.limit ?? 100) || 100))
+    const now = new Date()
+    const jobs = await prisma.campaignJob.findMany({
+      where: {
+        status: 'FAILED',
+        retryCount: { lt: 3 },
+        nextAttemptAt: { lte: now },
+        campaign: { type: 'AUTOMATED', status: 'ACTIVE', whatsappTemplate: { status: 'APPROVED' } }
+      },
+      include: {
+        customer: { select: { id: true, name: true, phone: true } },
+        campaign: { include: { whatsappTemplate: true } }
+      },
+      orderBy: [{ nextAttemptAt: 'asc' }, { createdAt: 'asc' }],
+      take: limit
+    })
+    let sent = 0
+    let failed = 0
+    for (const job of jobs) {
+      if (job.retryCount >= job.maxRetries || !job.campaign.whatsappTemplate) continue
+      const template = job.campaign.whatsappTemplate
+      const context = await buildTemplateVariableContext({ businessId: job.businessId, customerId: job.customerId })
+      const resolved = resolveWhatsAppTemplateVariables({ body: template.body, category: template.category, context })
+      const invalid = [...resolved.unsupported, ...resolved.missing]
+      const result = invalid.length
+        ? { sent: false as const, reason: 'Faltan variables: ' + invalid.join(', '), to: job.customer.phone }
+        : await whatsappCloudApi.sendTemplateMessage({
+            to: job.customer.phone,
+            templateName: template.metaName,
+            languageCode: template.language,
+            bodyParameters: resolved.bodyParameters,
+            headerImageDataUrl: template.imageUrl
+          })
+      const nextRetryCount = job.retryCount + 1
+      const status = result.sent ? 'SENT' : 'FAILED'
+      await prisma.$transaction([
+        prisma.campaignJob.update({
+          where: { id: job.id },
+          data: {
+            status,
+            retryCount: nextRetryCount,
+            nextAttemptAt: result.sent ? now : new Date(now.getTime() + retryDelayMinutes(nextRetryCount) * 60_000)
+          }
+        }),
+        prisma.campaignDelivery.create({
+          data: {
+            businessId: job.businessId,
+            campaignId: job.campaignId,
+            customerId: job.customerId,
+            status,
+            attemptNumber: job.attemptNumber,
+            providerMessageId: result.sent ? extractProviderMessageId(result.response) : null,
+            sentAt: now
+          }
+        })
+      ])
+      if (result.sent) sent += 1
+      else failed += 1
+    }
+    return { sent, failed, total: sent + failed }
+  })
+
+  app.post('/reminder-automations/process-due', async (request, reply) => {
+    const body = request.body as { businessId?: string; limit?: number | string }
+    const businessId = body.businessId?.trim()
+    const limit = Math.max(1, Math.min(100, Number(body.limit ?? 25) || 25))
+    if (!businessId) return reply.status(400).send({ message: 'businessId es requerido' })
+
+    const automations = await prisma.reminderAutomation.findMany({ where: { businessId, enabled: true, channel: 'WHATSAPP' } })
+    const now = new Date()
+    let sent = 0
+    let failed = 0
+    const results: Array<{ reminderId: string; appointmentId: string; customerId: string; status: 'SENT' | 'FAILED'; message?: string }> = []
+
+    for (const automation of automations) {
+      if (sent + failed >= limit) break
+      if (!automation.templateId) continue
+      const template = await prisma.whatsAppTemplate.findFirst({ where: { id: automation.templateId, businessId, status: 'APPROVED' } })
+      if (!template || normalizeWhatsAppTemplateCategory(template.category) !== 'UTILITY') continue
+      const maxStartAt = new Date(now.getTime() + automation.sendBeforeMinutes * 60_000)
+      const appointments = await prisma.appointment.findMany({
+        where: {
+          startAt: { gt: now, lte: maxStartAt },
+          status: { in: ['CONFIRMED'] },
+          professional: { businessId },
+          reminderDeliveries: {
+            none: {
+              reminderAutomationId: automation.id,
+              OR: [
+                { status: { in: ['SENT', 'DELIVERED', 'READ'] } },
+                { attemptNumber: { gte: 3 } }
+              ]
+            }
+          }
+        },
+        include: {
+          customer: { select: { id: true, name: true, phone: true } },
+          service: { select: { name: true } },
+          professional: { select: { name: true } }
+        },
+        orderBy: { startAt: 'asc' },
+        take: Math.max(0, limit - sent - failed)
+      })
+      for (const appointment of appointments) {
+        const scheduledFor = new Date(appointment.startAt.getTime() - automation.sendBeforeMinutes * 60_000)
+        if (scheduledFor > now) continue
+        const resolved = resolveWhatsAppTemplateVariables({
+          body: template.body,
+          category: template.category,
+          context: {
+            customer: appointment.customer,
+            appointment: {
+              id: appointment.id,
+              startAt: appointment.startAt,
+              customer: appointment.customer,
+              service: appointment.service,
+              professional: appointment.professional
+            }
+          }
+        })
+        const invalid = [...resolved.unsupported, ...resolved.missing]
+        const result = invalid.length
+          ? { sent: false as const, reason: 'Faltan variables: ' + invalid.join(', '), to: appointment.customer.phone }
+          : await whatsappCloudApi.sendTemplateMessage({
+              to: appointment.customer.phone,
+              templateName: template.metaName,
+              languageCode: template.language,
+              bodyParameters: resolved.bodyParameters,
+              headerImageDataUrl: template.imageUrl
+            })
+        const failureMessage = !result.sent
+          ? ('errorMessage' in result ? result.errorMessage : undefined) || ('reason' in result ? result.reason : undefined) || 'No se pudo enviar'
+          : null
+        await prisma.reminderDelivery.upsert({
+          where: {
+            reminderAutomationId_appointmentId: {
+              reminderAutomationId: automation.id,
+              appointmentId: appointment.id
+            }
+          },
+          create: {
+            businessId,
+            reminderAutomationId: automation.id,
+            appointmentId: appointment.id,
+            customerId: appointment.customer.id,
+            status: result.sent ? 'SENT' : 'FAILED',
+            providerMessageId: result.sent ? extractProviderMessageId(result.response) : null,
+            attemptNumber: 1,
+            lastError: failureMessage,
+            scheduledFor,
+            sentAt: now
+          },
+          update: {
+            status: result.sent ? 'SENT' : 'FAILED',
+            providerMessageId: result.sent ? extractProviderMessageId(result.response) : null,
+            attemptNumber: { increment: 1 },
+            lastError: failureMessage,
+            sentAt: now
+          }
+        })
+        if (result.sent) sent += 1
+        else failed += 1
+        const message = failureMessage || undefined
+        results.push({ reminderId: automation.id, appointmentId: appointment.id, customerId: appointment.customer.id, status: result.sent ? 'SENT' : 'FAILED', message })
+      }
+    }
+
+    return { sent, failed, total: sent + failed, results }
   })
 
   app.get('/campaigns/:id/simulations/latest', async (request, reply) => {
@@ -1053,6 +1476,142 @@ function normalizeTemplateStatus(status?: string | null) {
   return /^[A-Z_]{2,40}$/.test(normalized) ? normalized : 'NOT_CREATED'
 }
 
+function extractProviderMessageId(response: unknown) {
+  if (!response || typeof response !== 'object') return null
+  const messages = (response as { messages?: Array<{ id?: unknown }> }).messages
+  const id = Array.isArray(messages) ? messages[0]?.id : null
+  return typeof id === 'string' ? id : null
+}
+
+function retryDelayMinutes(retryNumber: number) {
+  return [15, 30, 60][Math.max(0, Math.min(2, retryNumber - 1))]
+}
+
+function budgetLimitedQuantity(budgetLimit: number | null | undefined, category: string | null | undefined, requestedQuantity: number) {
+  if (budgetLimit === null || budgetLimit === undefined || budgetLimit <= 0) return null
+  const normalizedCategory = normalizeWhatsAppTemplateCategory(category) === 'UTILITY' ? 'UTILITY' : 'MARKETING'
+  const rate = whatsappPricingRates.find((item) => item.country === 'AR' && item.category === normalizedCategory)
+  const unitPrice = Number(rate?.estimatedUnitPrice || 0)
+  if (unitPrice <= 0) return requestedQuantity
+  return Math.min(requestedQuantity, Math.floor(budgetLimit / unitPrice))
+}
+
+async function sendCampaignRecipients(input: {
+  campaign: {
+    id: string
+    businessId: string
+    whatsappTemplateId: string | null
+    restartAfterVisit: boolean
+  }
+  template: {
+    id: string
+    metaName: string
+    language: string
+    body: string
+    category: string
+    imageUrl: string | null
+  }
+  recipients: Array<{ id: string; name: string; phone: string }>
+  runId?: string
+  now?: Date
+}) {
+  const now = input.now ?? new Date()
+  let sent = 0
+  let failed = 0
+  const results: Array<{ customerId: string; name: string; phone: string; status: 'SENT' | 'FAILED'; message?: string }> = []
+  const previousDeliveries = input.recipients.length
+    ? await prisma.campaignDelivery.findMany({
+        where: { campaignId: input.campaign.id, customerId: { in: input.recipients.map((customer) => customer.id) } },
+        orderBy: { sentAt: 'desc' }
+      })
+    : []
+  const attemptsByCustomer = new Map<string, number>()
+  for (const delivery of previousDeliveries) {
+    if (!attemptsByCustomer.has(delivery.customerId)) attemptsByCustomer.set(delivery.customerId, delivery.attemptNumber)
+  }
+
+  for (const customer of input.recipients) {
+    const context = await buildTemplateVariableContext({ businessId: input.campaign.businessId, customerId: customer.id })
+    const resolved = resolveWhatsAppTemplateVariables({
+      body: input.template.body,
+      category: input.template.category,
+      context
+    })
+    const invalid = [...resolved.unsupported, ...resolved.missing]
+    const result = invalid.length
+      ? { sent: false as const, to: customer.phone, reason: 'Faltan variables: ' + invalid.join(', ') }
+      : await whatsappCloudApi.sendTemplateMessage({
+          to: customer.phone,
+          templateName: input.template.metaName,
+          languageCode: input.template.language,
+          bodyParameters: resolved.bodyParameters,
+          headerImageDataUrl: input.template.imageUrl
+        })
+    const status = result.sent ? 'SENT' : 'FAILED'
+    const providerMessageId = result.sent ? extractProviderMessageId(result.response) : null
+    const attemptNumber = (attemptsByCustomer.get(customer.id) ?? 0) + 1
+    await prisma.campaignDelivery.create({
+      data: {
+        businessId: input.campaign.businessId,
+        campaignId: input.campaign.id,
+        customerId: customer.id,
+        status,
+        attemptNumber,
+        providerMessageId,
+        sentAt: now
+      }
+    })
+    if (input.runId) {
+      await prisma.campaignJob.create({
+        data: {
+          businessId: input.campaign.businessId,
+          campaignId: input.campaign.id,
+          runId: input.runId,
+          customerId: customer.id,
+          status,
+          attemptNumber,
+          retryCount: 0,
+          maxRetries: 3,
+          nextAttemptAt: status === 'FAILED' ? new Date(now.getTime() + retryDelayMinutes(1) * 60_000) : now,
+          idempotencyKey: 'real:' + input.runId + ':' + customer.id
+        }
+      })
+    }
+    if (result.sent) sent += 1
+    else failed += 1
+    const message = !result.sent
+      ? ('errorMessage' in result ? result.errorMessage : undefined) || ('reason' in result ? result.reason : undefined) || 'No se pudo enviar'
+      : undefined
+    results.push({ customerId: customer.id, name: customer.name, phone: customer.phone, status, message })
+  }
+
+  return { sent, failed, total: input.recipients.length, results }
+}
+
+function isApprovedMetaTemplate(status?: string | null) {
+  const normalized = normalizeTemplateStatus(status)
+  return normalized === 'APPROVED' || normalized === 'ACTIVE'
+}
+
+function preferredMetaTemplate<T extends { status?: string | null; language?: string | null }>(templates: T[], preferredLanguage?: string | null) {
+  return [...templates].sort((a, b) => {
+    const statusDiff = metaTemplateStatusRank(a.status) - metaTemplateStatusRank(b.status)
+    if (statusDiff !== 0) return statusDiff
+    const aLanguageMatch = preferredLanguage && a.language === preferredLanguage ? 0 : 1
+    const bLanguageMatch = preferredLanguage && b.language === preferredLanguage ? 0 : 1
+    return aLanguageMatch - bLanguageMatch
+  })[0]
+}
+
+function metaTemplateStatusRank(status?: string | null) {
+  const normalized = normalizeTemplateStatus(status)
+  if (normalized === 'APPROVED' || normalized === 'ACTIVE') return 0
+  if (normalized === 'PAUSED') return 1
+  if (normalized === 'PENDING' || normalized === 'IN_APPEAL') return 2
+  if (normalized === 'REJECTED' || normalized === 'DISABLED') return 3
+  return 4
+}
+
 function normalizeWhatsAppTemplateCategory(category?: string | null): 'MARKETING' | 'UTILITY' | undefined {
   const normalized = category?.trim().toUpperCase()
   if (normalized === 'MARKETING') return 'MARKETING'
@@ -1184,7 +1743,7 @@ function resolveWhatsAppTemplateVariables(input: { body: string; category?: stri
 }
 
 function resolveTemplateVariableValue(variable: string, context: TemplateVariableContext) {
-  if (variable === 'nombre_cliente') return context.customer?.name?.trim() || null
+  if (variable === 'nombre_cliente' || variable === 'usuario') return context.customer?.name?.trim() || null
   if (variable === 'fecha_ultima_visita') return context.lastVisitAt ? formatTemplateDate(context.lastVisitAt) : null
   if (variable === 'fecha_turno') return context.appointment?.startAt ? formatTemplateDate(context.appointment.startAt) : null
   if (variable === 'hora_turno') return context.appointment?.startAt ? formatTemplateTime(context.appointment.startAt) : null

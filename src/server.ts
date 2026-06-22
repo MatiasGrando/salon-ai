@@ -14,6 +14,7 @@ import { crmUiRoutes } from './routes/crm-ui.js'
 import { scheduleBlockRoutes } from './routes/schedule-block.js'
 import { whatsappWebhookRoutes } from './routes/whatsapp-webhook.js'
 import { campaignRoutes } from './routes/campaign.js'
+import { startMarketingScheduler } from './services/marketing-scheduler.js'
 
 process.env.TZ ??= 'America/Argentina/Buenos_Aires'
 
@@ -38,6 +39,7 @@ await app.register(crmUiRoutes)
 await app.register(crmRoutes)
 await app.register(whatsappWebhookRoutes)
 await app.register(campaignRoutes)
+startMarketingScheduler(app)
 
 if (process.env.NODE_ENV !== 'production') {
   console.log(app.printRoutes())
