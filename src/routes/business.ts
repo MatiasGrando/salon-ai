@@ -262,34 +262,29 @@ async function exchangeEmbeddedSignupCode(code?: string, redirectUri?: string) {
     return { accessToken: null, tokenExpiresAt: undefined, error: 'Falta META_APP_SECRET para intercambiar el codigo de Meta por token.' }
   }
 
-  const redirectUris = Array.from(new Set([
-    redirectUri?.trim(),
-    whatsappConfig.oauthRedirectUri,
-    'https://www.facebook.com/connect/login_success.html',
-    null
-  ]))
-  let lastError = 'No pude intercambiar el codigo de Meta por token.'
+  const candidateRedirectUri = redirectUri?.trim() || whatsappConfig.oauthRedirectUri
+  const url = new URL(`https://graph.facebook.com/${whatsappConfig.apiVersion}/oauth/access_token`)
+  url.searchParams.set('client_id', whatsappConfig.appId)
+  url.searchParams.set('client_secret', whatsappConfig.appSecret)
+  url.searchParams.set('redirect_uri', candidateRedirectUri)
+  url.searchParams.set('code', normalizedCode)
 
-  for (const candidateRedirectUri of redirectUris) {
-    const url = new URL(`https://graph.facebook.com/${whatsappConfig.apiVersion}/oauth/access_token`)
-    url.searchParams.set('client_id', whatsappConfig.appId)
-    url.searchParams.set('client_secret', whatsappConfig.appSecret)
-    if (candidateRedirectUri) url.searchParams.set('redirect_uri', candidateRedirectUri)
-    url.searchParams.set('code', normalizedCode)
-
-    const response = await fetch(url)
-    const body = await response.json().catch(() => ({})) as { access_token?: string; expires_in?: number; error?: { message?: string } }
-    if (response.ok && body.access_token) {
-      return {
-        accessToken: body.access_token,
-        tokenExpiresAt: body.expires_in ? new Date(Date.now() + body.expires_in * 1000) : undefined,
-        error: null
-      }
+  const response = await fetch(url)
+  const body = await response.json().catch(() => ({})) as { access_token?: string; expires_in?: number; error?: { message?: string } }
+  if (!response.ok || !body.access_token) {
+    const metaError = body.error?.message || 'No pude intercambiar el codigo de Meta por token.'
+    return {
+      accessToken: null,
+      tokenExpiresAt: undefined,
+      error: `${metaError} Redirect usado: ${candidateRedirectUri}`
     }
-    lastError = body.error?.message || lastError
   }
 
-  return { accessToken: null, tokenExpiresAt: undefined, error: lastError }
+  return {
+    accessToken: body.access_token,
+    tokenExpiresAt: body.expires_in ? new Date(Date.now() + body.expires_in * 1000) : undefined,
+    error: null
+  }
 }
 
 async function ensureBusinessSettings(businessId: string) {
