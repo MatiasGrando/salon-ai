@@ -90,7 +90,7 @@ export async function businessRoutes(app: FastifyInstance) {
         setup: {
           external_business_id: params.id
         },
-        sessionInfoVersion: '3'
+        sessionInfoVersion: 3
       }
     }
   })
@@ -215,6 +215,7 @@ export async function businessRoutes(app: FastifyInstance) {
       redirectUri?: string
       embeddedSignupReceived?: boolean
       embeddedSignupPayloadKeys?: string[]
+      metaMessagesSeen?: string[]
     }
     const business = await prisma.business.findUnique({ where: { id: params.id }, select: { id: true } })
     if (!business) return reply.status(404).send({ message: 'No encontre ese local' })
@@ -245,6 +246,7 @@ export async function businessRoutes(app: FastifyInstance) {
           `Embedded Signup devolvio datos incompletos. Falta: ${missingConnectionParts}.`,
           body.embeddedSignupReceived === false ? 'No llego el mensaje final del popup de Meta al CRM. Revisa que la configuracion de Embedded Signup este desplegada y que el SDK reciba sessionInfoVersion.' : null,
           body.embeddedSignupPayloadKeys?.length ? `Campos recibidos: ${body.embeddedSignupPayloadKeys.join(', ')}.` : null,
+          body.metaMessagesSeen?.length ? `Mensajes Meta vistos: ${body.metaMessagesSeen.join(' | ')}.` : null,
           assetLookupError ? `Meta no permitio resolverlos automaticamente: ${assetLookupError}` : null
         ].filter(Boolean).join(' ')
       : null

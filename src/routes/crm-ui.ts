@@ -9693,6 +9693,7 @@ const crmHtml = `<!doctype html>
       whatsappSettings: null,
       whatsappEmbeddedSignupSession: {},
       whatsappEmbeddedSignupPayloadKeys: [],
+      whatsappMetaMessagesSeen: [],
       whatsappPendingSignupResponse: null,
       whatsappSignupSaveInFlight: false,
       conversationFilter: 'all',
@@ -12549,16 +12550,17 @@ const crmHtml = `<!doctype html>
           void handleWhatsappSignupResponse({ authResponse: { code: event.data.code } }, event.data.redirectUri)
           return
         }
-        const metaMessageOrigins = ['https://www.facebook.com', 'https://web.facebook.com']
-        if (!metaMessageOrigins.includes(String(event.origin || ''))) return
+        if (!isFacebookMessageOrigin(event.origin)) return
         let data = event.data
         if (typeof data === 'string') {
           try {
             data = JSON.parse(data)
           } catch {
+            recordWhatsappMetaMessage(event.origin, ['non_json_string'])
             return
           }
         }
+        recordWhatsappMetaMessage(event.origin, collectObjectKeys(data))
         if (!data || data.type !== 'WA_EMBEDDED_SIGNUP') return
         if (data.event && data.event !== 'FINISH') {
           state.whatsappEmbeddedSignupPayloadKeys = collectObjectKeys(data.data || data)
@@ -12606,6 +12608,21 @@ const crmHtml = `<!doctype html>
       state.whatsappEmbeddedSignupListenerReady = true
     }
 
+    function isFacebookMessageOrigin(origin) {
+      try {
+        const hostname = new URL(origin).hostname
+        return hostname === 'facebook.com' || hostname.endsWith('.facebook.com')
+      } catch {
+        return false
+      }
+    }
+
+    function recordWhatsappMetaMessage(origin, keys) {
+      const summary = String(origin || 'unknown') + ' [' + (keys || []).slice(0, 8).join(', ') + ']'
+      if (state.whatsappMetaMessagesSeen.includes(summary)) return
+      state.whatsappMetaMessagesSeen = [...state.whatsappMetaMessagesSeen, summary].slice(-8)
+    }
+
     function collectObjectKeys(value, prefix = '', result = []) {
       if (!value || typeof value !== 'object') return result
       for (const key of Object.keys(value)) {
@@ -12651,6 +12668,7 @@ const crmHtml = `<!doctype html>
             redirectUri,
             embeddedSignupReceived: state.whatsappEmbeddedSignupPayloadKeys.length > 0,
             embeddedSignupPayloadKeys: state.whatsappEmbeddedSignupPayloadKeys,
+            metaMessagesSeen: state.whatsappMetaMessagesSeen,
             ...state.whatsappEmbeddedSignupSession
           })
         })
@@ -12679,6 +12697,7 @@ const crmHtml = `<!doctype html>
       clearWhatsappSettingsFeedback()
       state.whatsappEmbeddedSignupSession = {}
       state.whatsappEmbeddedSignupPayloadKeys = []
+      state.whatsappMetaMessagesSeen = []
       state.whatsappPendingSignupResponse = null
       els.whatsappConnectButton.disabled = true
       els.whatsappConnectButton.textContent = 'Abriendo Meta...'
