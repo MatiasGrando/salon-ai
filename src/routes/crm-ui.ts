@@ -12698,7 +12698,7 @@ const crmHtml = `<!doctype html>
           config_id: config.configId,
           response_type: 'token',
           scope: 'whatsapp_business_management,whatsapp_business_messaging',
-          extras: JSON.stringify(config.extras || {})
+          extras: config.extras || {}
         })
       } catch (error) {
         showWhatsappSettingsFeedback(error.message, 'error')

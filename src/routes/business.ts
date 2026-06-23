@@ -243,7 +243,7 @@ export async function businessRoutes(app: FastifyInstance) {
     const incompleteSignupError = !connected
       ? [
           `Embedded Signup devolvio datos incompletos. Falta: ${missingConnectionParts}.`,
-          body.embeddedSignupReceived === false ? 'No llego el mensaje final del popup de Meta al CRM.' : null,
+          body.embeddedSignupReceived === false ? 'No llego el mensaje final del popup de Meta al CRM. Revisa que la configuracion de Embedded Signup este desplegada y que el SDK reciba sessionInfoVersion.' : null,
           body.embeddedSignupPayloadKeys?.length ? `Campos recibidos: ${body.embeddedSignupPayloadKeys.join(', ')}.` : null,
           assetLookupError ? `Meta no permitio resolverlos automaticamente: ${assetLookupError}` : null
         ].filter(Boolean).join(' ')
