@@ -90,7 +90,8 @@ export async function businessRoutes(app: FastifyInstance) {
         setup: {
           external_business_id: params.id
         },
-        sessionInfoVersion: 3
+        featureType: 'whatsapp_business_app_onboarding',
+        sessionInfoVersion: '3'
       }
     }
   })

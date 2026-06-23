@@ -12556,7 +12556,7 @@ const crmHtml = `<!doctype html>
           try {
             data = JSON.parse(data)
           } catch {
-            recordWhatsappMetaMessage(event.origin, ['non_json_string'])
+            recordWhatsappMetaMessage(event.origin, ['non_json_string', 'sample:' + data.slice(0, 48)])
             return
           }
         }
