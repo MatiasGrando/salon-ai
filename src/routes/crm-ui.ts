@@ -12698,6 +12698,7 @@ const crmHtml = `<!doctype html>
           config_id: config.configId,
           response_type: 'code',
           override_default_response_type: true,
+          redirect_uri: config.redirectUri,
           scope: 'whatsapp_business_management,whatsapp_business_messaging',
           extras: config.extras || {}
         })
