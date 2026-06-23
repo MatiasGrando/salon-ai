@@ -12693,7 +12693,7 @@ const crmHtml = `<!doctype html>
           version: config.apiVersion
         })
         FB.login(function (response) {
-          void handleWhatsappSignupResponse(response)
+          void handleWhatsappSignupResponse(response, config.redirectUri)
         }, {
           config_id: config.configId,
           response_type: 'code',
