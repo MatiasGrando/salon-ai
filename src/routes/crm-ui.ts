@@ -12693,12 +12693,10 @@ const crmHtml = `<!doctype html>
           version: config.apiVersion
         })
         FB.login(function (response) {
-          void handleWhatsappSignupResponse(response, config.redirectUri)
+          void handleWhatsappSignupResponse(response)
         }, {
           config_id: config.configId,
-          response_type: 'code',
-          override_default_response_type: true,
-          redirect_uri: config.redirectUri,
+          response_type: 'token',
           scope: 'whatsapp_business_management,whatsapp_business_messaging',
           extras: config.extras || {}
         })
