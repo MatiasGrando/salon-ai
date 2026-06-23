@@ -10,5 +10,6 @@ export const whatsappConfig = {
   embeddedSignupConfigId: process.env.META_EMBEDDED_SIGNUP_CONFIG_ID,
   oauthRedirectUri: process.env.META_OAUTH_REDIRECT_URI ?? 'http://localhost:3000/crm',
   apiVersion: process.env.WHATSAPP_API_VERSION ?? 'v25.0',
-  phoneNumberMode: process.env.WHATSAPP_PHONE_NUMBER_MODE ?? 'production_argentina'
+  phoneNumberMode: process.env.WHATSAPP_PHONE_NUMBER_MODE ?? 'production_argentina',
+  allowInternalFallback: process.env.WHATSAPP_ALLOW_INTERNAL_FALLBACK === 'true'
 }

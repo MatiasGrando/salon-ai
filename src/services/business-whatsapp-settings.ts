@@ -21,15 +21,22 @@ export async function getBusinessWhatsAppState(businessId: string) {
 
   const hasBusinessCredentials = Boolean(config?.accessToken && config.phoneNumberId && config.wabaId)
   const hasEnvCredentials = Boolean(whatsappConfig.accessToken && whatsappConfig.phoneNumberId && whatsappConfig.businessAccountId)
-  const usingInternalFallback = !hasBusinessCredentials && hasEnvCredentials
-  const connectionStatus = usingInternalFallback ? 'CONNECTED' : (config?.connectionStatus ?? 'NOT_CONNECTED')
+  const usingInternalFallback = whatsappConfig.allowInternalFallback && !hasBusinessCredentials && hasEnvCredentials
+  const storedConnectionStatus = config?.connectionStatus ?? 'NOT_CONNECTED'
+  const connectionStatus = usingInternalFallback
+    ? 'CONNECTED'
+    : hasBusinessCredentials
+    ? storedConnectionStatus
+    : storedConnectionStatus === 'CONNECTED'
+    ? 'CONNECTING'
+    : storedConnectionStatus
   const mode = usingInternalFallback ? 'INTERNAL_TEST' : (config?.mode ?? 'CLIENT_OWNED')
   const billingOwner = usingInternalFallback ? 'SALON_AI' : (settings?.billingOwner ?? 'CLIENT')
   const realWhatsappEnabled = usingInternalFallback ? true : Boolean(settings?.realWhatsappEnabled)
 
   const baseReasons: string[] = []
   if (!business) baseReasons.push('No encontre el comercio.')
-  if (!hasBusinessCredentials && !hasEnvCredentials) baseReasons.push('WhatsApp todavia no esta conectado.')
+  if (!hasBusinessCredentials && !usingInternalFallback) baseReasons.push('WhatsApp todavia no esta conectado.')
   if (connectionStatus !== 'CONNECTED') baseReasons.push(connectionStatusReason(connectionStatus))
   if (!realWhatsappEnabled) baseReasons.push('Los envios reales de WhatsApp estan desactivados para este comercio.')
   if (config?.lastError) baseReasons.push(config.lastError)
@@ -85,7 +92,7 @@ export async function getBusinessWhatsAppState(businessId: string) {
 }
 
 export async function resolveBusinessWhatsAppCredentials(businessId?: string | null): Promise<WhatsAppCloudCredentials> {
-  if (!businessId) return envCredentials()
+  if (!businessId) return whatsappConfig.allowInternalFallback ? envCredentials() : emptyCredentials()
   const config = await prisma.businessWhatsAppConfig.findUnique({ where: { businessId } })
   if (config?.accessToken && config.phoneNumberId) {
     return {
@@ -97,7 +104,7 @@ export async function resolveBusinessWhatsAppCredentials(businessId?: string | n
       phoneNumberMode: whatsappConfig.phoneNumberMode
     }
   }
-  return envCredentials()
+  return whatsappConfig.allowInternalFallback ? envCredentials() : emptyCredentials()
 }
 
 export async function assertBusinessCanSendWhatsApp(businessId: string, purpose: SendPurpose) {
@@ -128,6 +135,13 @@ function envCredentials(): WhatsAppCloudCredentials {
     phoneNumberId: whatsappConfig.phoneNumberId,
     businessAccountId: whatsappConfig.businessAccountId,
     appId: whatsappConfig.appId,
+    apiVersion: whatsappConfig.apiVersion,
+    phoneNumberMode: whatsappConfig.phoneNumberMode
+  }
+}
+
+function emptyCredentials(): WhatsAppCloudCredentials {
+  return {
     apiVersion: whatsappConfig.apiVersion,
     phoneNumberMode: whatsappConfig.phoneNumberMode
   }
