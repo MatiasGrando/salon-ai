@@ -12568,15 +12568,20 @@ const crmHtml = `<!doctype html>
     async function handleWhatsappSignupResponse(response, redirectUri) {
       try {
         const code = response?.authResponse?.code
-        if (!code) {
-          showWhatsappSettingsFeedback('Meta no devolvio codigo de autorizacion. Volve a intentar la conexion.', 'error')
+        const accessToken = response?.authResponse?.accessToken
+        const expiresIn = Number(response?.authResponse?.expiresIn)
+        if (!code && !accessToken) {
+          showWhatsappSettingsFeedback('Meta no devolvio autorizacion. Volve a intentar la conexion.', 'error')
           return
         }
+        await waitForWhatsappEmbeddedSignupSession()
         state.whatsappSettings = await getJson('/businesses/' + state.businessId + '/whatsapp/embedded-signup-callback', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             code,
+            accessToken,
+            tokenExpiresAt: Number.isFinite(expiresIn) ? new Date(Date.now() + expiresIn * 1000).toISOString() : undefined,
             redirectUri,
             ...state.whatsappEmbeddedSignupSession
           })
@@ -12589,6 +12594,15 @@ const crmHtml = `<!doctype html>
       }
     }
 
+    async function waitForWhatsappEmbeddedSignupSession() {
+      if (state.whatsappEmbeddedSignupSession?.wabaId && state.whatsappEmbeddedSignupSession?.phoneNumberId) return
+      const startedAt = Date.now()
+      while (Date.now() - startedAt < 2500) {
+        await new Promise((resolve) => window.setTimeout(resolve, 150))
+        if (state.whatsappEmbeddedSignupSession?.wabaId && state.whatsappEmbeddedSignupSession?.phoneNumberId) return
+      }
+    }
+
     async function openWhatsappSignupPlaceholder() {
       if (!state.businessId) return
       clearWhatsappSettingsFeedback()
@@ -12596,22 +12610,22 @@ const crmHtml = `<!doctype html>
       els.whatsappConnectButton.textContent = 'Abriendo Meta...'
       try {
         const config = await getJson('/businesses/' + state.businessId + '/whatsapp-embedded-signup-config')
-        const redirectUri = window.location.origin + window.location.pathname
+        const FB = await loadFacebookSdk(config.apiVersion)
         listenForWhatsappEmbeddedSignup()
-        const oauthUrl = new URL('https://www.facebook.com/' + config.apiVersion + '/dialog/oauth')
-        oauthUrl.searchParams.set('client_id', config.appId)
-        oauthUrl.searchParams.set('app_id', config.appId)
-        oauthUrl.searchParams.set('config_id', config.configId)
-        oauthUrl.searchParams.set('display', 'popup')
-        oauthUrl.searchParams.set('redirect_uri', redirectUri)
-        oauthUrl.searchParams.set('response_type', 'code')
-        oauthUrl.searchParams.set('override_default_response_type', 'true')
-        oauthUrl.searchParams.set('scope', 'whatsapp_business_management,whatsapp_business_messaging')
-        oauthUrl.searchParams.set('extras', JSON.stringify(config.extras || {}))
-        const popup = window.open(oauthUrl.toString(), 'salon_ai_whatsapp_signup', 'width=760,height=760')
-        if (!popup) {
-          showWhatsappSettingsFeedback('El navegador bloqueo la ventana de Meta. Habilita popups para continuar.', 'error')
-        }
+        FB.init({
+          appId: config.appId,
+          autoLogAppEvents: true,
+          xfbml: false,
+          version: config.apiVersion
+        })
+        FB.login(function (response) {
+          void handleWhatsappSignupResponse(response)
+        }, {
+          config_id: config.configId,
+          response_type: 'token',
+          scope: 'whatsapp_business_management,whatsapp_business_messaging',
+          extras: JSON.stringify(config.extras || {})
+        })
       } catch (error) {
         showWhatsappSettingsFeedback(error.message, 'error')
       } finally {

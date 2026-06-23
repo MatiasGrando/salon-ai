@@ -32,8 +32,21 @@
 - [Hecho] Configuracion por comercio para WABA ID, Phone Number ID, token y numero visible.
 - [Hecho] Bloqueos para campanas, recordatorios, pruebas, bot y respuestas manuales.
 - [Hecho] Fallback `.env` solo para desarrollo/pruebas controladas.
-- [Hecho] Boton `Conectar WhatsApp` preparado para Meta Embedded Signup.
+- [En curso] Boton `Conectar WhatsApp` con login Meta y token real.
 - [Hecho] Conexion tecnica manual para piloto/desarrollo.
-- [Pendiente] Configurar `META_APP_ID`, `META_APP_SECRET` y `META_EMBEDDED_SIGNUP_CONFIG_ID`.
-- [Pendiente] Validar popup real de Meta en dominio autorizado.
+- [Hecho] Configurar `META_APP_ID`, `META_APP_SECRET` y `META_EMBEDDED_SIGNUP_CONFIG_ID`.
+- [Hecho] Validar popup real de Meta en dominio autorizado.
+- [Pendiente] Capturar automaticamente WABA ID, Phone Number ID y numero visible desde Embedded Signup.
+- [Pendiente] Definir flujo de onboarding para comercios nuevos: login con Facebook, seleccion/creacion de negocio, creacion de cuenta WhatsApp Business y verificacion de telefono.
+- [Pendiente] Agregar pantalla o guia interna para asistir al comercio cuando Meta no devuelve WABA/Phone Number automaticamente.
+- [Pendiente] Resolver renovacion de token: reconectar manualmente en MVP y aviso antes del vencimiento.
 - [Pendiente] Definir manejo productivo de tokens con cifrado o secret manager.
+
+## Onboarding Meta para comercios
+
+- [Pendiente] Disenar el flujo visible desde el CRM para un comercio sin Meta configurado.
+- [Pendiente] Explicar dentro del CRM que el comercio debe iniciar sesion con Facebook personal y autorizar su negocio.
+- [Pendiente] Validar si Embedded Signup oficial puede crear/seleccionar Business Manager, WhatsApp Business Account y telefono sin asistencia manual.
+- [Pendiente] Si Meta no entrega IDs en el callback, implementar recuperacion automatica por Graph API con permisos aprobados o guiar carga manual.
+- [Pendiente] Documentar requisitos previos del comercio: acceso admin al Business Manager, numero verificable, metodo de pago para campanas.
+- [Pendiente] Separar estados: conectado tecnicamente, numero verificado, facturacion Meta lista, token proximo a vencer.

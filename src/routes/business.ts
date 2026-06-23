@@ -217,7 +217,7 @@ export async function businessRoutes(app: FastifyInstance) {
     await ensureBusinessSettings(params.id)
 
     const tokenResult = body.accessToken
-      ? { accessToken: body.accessToken, tokenExpiresAt: body.tokenExpiresAt ? new Date(body.tokenExpiresAt) : undefined, error: null }
+      ? await exchangeSdkAccessToken(body.accessToken, body.tokenExpiresAt)
       : await exchangeEmbeddedSignupCode(body.code, body.redirectUri)
     let resolvedWabaId = body.wabaId?.trim() || undefined
     let resolvedPhoneNumberId = body.phoneNumberId?.trim() || undefined
@@ -315,6 +315,32 @@ async function exchangeEmbeddedSignupCode(code?: string, redirectUri?: string) {
   return {
     accessToken: body.access_token,
     tokenExpiresAt: body.expires_in ? new Date(Date.now() + body.expires_in * 1000) : undefined,
+    error: null
+  }
+}
+
+async function exchangeSdkAccessToken(accessToken: string, tokenExpiresAt?: string) {
+  const normalizedToken = accessToken.trim()
+  const fallback = {
+    accessToken: normalizedToken,
+    tokenExpiresAt: tokenExpiresAt ? new Date(tokenExpiresAt) : undefined,
+    error: null
+  }
+  if (!normalizedToken || !whatsappConfig.appId || !whatsappConfig.appSecret) return fallback
+
+  const url = new URL(`https://graph.facebook.com/${whatsappConfig.apiVersion}/oauth/access_token`)
+  url.searchParams.set('grant_type', 'fb_exchange_token')
+  url.searchParams.set('client_id', whatsappConfig.appId)
+  url.searchParams.set('client_secret', whatsappConfig.appSecret)
+  url.searchParams.set('fb_exchange_token', normalizedToken)
+
+  const response = await fetch(url)
+  const body = await response.json().catch(() => ({})) as { access_token?: string; expires_in?: number }
+  if (!response.ok || !body.access_token) return fallback
+
+  return {
+    accessToken: body.access_token,
+    tokenExpiresAt: body.expires_in ? new Date(Date.now() + body.expires_in * 1000) : fallback.tokenExpiresAt,
     error: null
   }
 }
