@@ -12549,7 +12549,8 @@ const crmHtml = `<!doctype html>
           void handleWhatsappSignupResponse({ authResponse: { code: event.data.code } }, event.data.redirectUri)
           return
         }
-        if (!String(event.origin || '').endsWith('facebook.com')) return
+        const metaMessageOrigins = ['https://www.facebook.com', 'https://web.facebook.com']
+        if (!metaMessageOrigins.includes(String(event.origin || ''))) return
         let data = event.data
         if (typeof data === 'string') {
           try {
@@ -12559,6 +12560,10 @@ const crmHtml = `<!doctype html>
           }
         }
         if (!data || data.type !== 'WA_EMBEDDED_SIGNUP') return
+        if (data.event && data.event !== 'FINISH') {
+          state.whatsappEmbeddedSignupPayloadKeys = collectObjectKeys(data.data || data)
+          return
+        }
         const payload = data.data || data
         const payloadKeys = collectObjectKeys(payload)
         const phoneNumber = findFirstNestedValue(payload, [

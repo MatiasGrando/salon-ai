@@ -89,7 +89,8 @@ export async function businessRoutes(app: FastifyInstance) {
       extras: {
         setup: {
           external_business_id: params.id
-        }
+        },
+        sessionInfoVersion: '3'
       }
     }
   })
