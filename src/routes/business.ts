@@ -125,8 +125,8 @@ export async function businessRoutes(app: FastifyInstance) {
         where: { businessId: params.id },
         data: {
           connectionStatus: body.connectionStatus as never,
-          connectedAt: body.connectionStatus === 'CONNECTED' ? new Date() : undefined,
-          disconnectedAt: body.connectionStatus === 'NOT_CONNECTED' ? new Date() : undefined
+          ...(body.connectionStatus === 'CONNECTED' ? { connectedAt: new Date(), disconnectedAt: null } : {}),
+          ...(body.connectionStatus === 'NOT_CONNECTED' ? { connectedAt: null, disconnectedAt: new Date() } : {})
         }
       })
     }
@@ -153,10 +153,10 @@ export async function businessRoutes(app: FastifyInstance) {
           ...(technicalWhatsAppData.displayPhoneNumber !== undefined ? { displayPhoneNumber: technicalWhatsAppData.displayPhoneNumber } : {}),
           ...(technicalWhatsAppData.accessToken !== undefined ? { accessToken: technicalWhatsAppData.accessToken } : {}),
           ...(technicalWhatsAppData.tokenExpiresAt !== undefined ? { tokenExpiresAt: technicalWhatsAppData.tokenExpiresAt } : {}),
-          metaAppId: whatsappConfig.appId,
+          metaAppId: whatsappConfig.appId ?? null,
           mode: 'CLIENT_OWNED',
           connectionStatus: connected ? 'CONNECTED' : 'CONNECTING',
-          connectedAt: connected ? new Date() : undefined,
+          connectedAt: connected ? new Date() : null,
           lastError: connected ? null : 'Faltan WABA ID, Phone Number ID o token para completar la conexion.'
         }
       })
@@ -211,6 +211,9 @@ export async function businessRoutes(app: FastifyInstance) {
       displayPhoneNumber?: string
       accessToken?: string
       tokenExpiresAt?: string
+      redirectUri?: string
+      embeddedSignupReceived?: boolean
+      embeddedSignupPayloadKeys?: string[]
     }
     const business = await prisma.business.findUnique({ where: { id: params.id }, select: { id: true } })
     if (!business) return reply.status(404).send({ message: 'No encontre ese local' })
@@ -236,20 +239,29 @@ export async function businessRoutes(app: FastifyInstance) {
       resolvedWabaId ? null : 'WABA ID',
       resolvedPhoneNumberId ? null : 'Phone Number ID'
     ].filter(Boolean).join(', ')
+    const incompleteSignupError = !connected
+      ? [
+          `Embedded Signup devolvio datos incompletos. Falta: ${missingConnectionParts}.`,
+          body.embeddedSignupReceived === false ? 'No llego el mensaje final del popup de Meta al CRM.' : null,
+          body.embeddedSignupPayloadKeys?.length ? `Campos recibidos: ${body.embeddedSignupPayloadKeys.join(', ')}.` : null,
+          assetLookupError ? `Meta no permitio resolverlos automaticamente: ${assetLookupError}` : null
+        ].filter(Boolean).join(' ')
+      : null
 
     await prisma.businessWhatsAppConfig.update({
       where: { businessId: params.id },
       data: {
         connectionStatus: connected ? 'CONNECTED' : 'CONNECTING',
         mode: 'CLIENT_OWNED',
-        wabaId: resolvedWabaId,
-        phoneNumberId: resolvedPhoneNumberId,
-        displayPhoneNumber: resolvedDisplayPhoneNumber,
-        metaAppId: whatsappConfig.appId,
-        accessToken: tokenResult.accessToken?.trim() || undefined,
-        tokenExpiresAt: tokenResult.tokenExpiresAt,
-        connectedAt: connected ? new Date() : undefined,
-        lastError: tokenResult.error || (body.code && !connected ? `Embedded Signup devolvio datos incompletos. Falta: ${missingConnectionParts}.${assetLookupError ? ` Meta no permitio resolverlos automaticamente: ${assetLookupError}` : ''}` : null)
+        wabaId: resolvedWabaId ?? null,
+        phoneNumberId: resolvedPhoneNumberId ?? null,
+        displayPhoneNumber: resolvedDisplayPhoneNumber ?? null,
+        metaAppId: whatsappConfig.appId ?? null,
+        accessToken: tokenResult.accessToken?.trim() || null,
+        tokenExpiresAt: tokenResult.tokenExpiresAt ?? null,
+        connectedAt: connected ? new Date() : null,
+        disconnectedAt: connected ? null : new Date(),
+        lastError: tokenResult.error || incompleteSignupError
       }
     })
     if (connected) {

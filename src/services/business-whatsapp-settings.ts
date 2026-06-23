@@ -95,13 +95,14 @@ export async function resolveBusinessWhatsAppCredentials(businessId?: string | n
   if (!businessId) return whatsappConfig.allowInternalFallback ? envCredentials() : emptyCredentials()
   const config = await prisma.businessWhatsAppConfig.findUnique({ where: { businessId } })
   if (config?.accessToken && config.phoneNumberId) {
+    const appId = config.metaAppId ?? whatsappConfig.appId
     return {
       accessToken: config.accessToken,
       phoneNumberId: config.phoneNumberId,
-      businessAccountId: config.wabaId ?? undefined,
-      appId: config.metaAppId ?? whatsappConfig.appId,
       apiVersion: whatsappConfig.apiVersion,
-      phoneNumberMode: whatsappConfig.phoneNumberMode
+      phoneNumberMode: whatsappConfig.phoneNumberMode,
+      ...(config.wabaId ? { businessAccountId: config.wabaId } : {}),
+      ...(appId ? { appId } : {})
     }
   }
   return whatsappConfig.allowInternalFallback ? envCredentials() : emptyCredentials()
@@ -131,12 +132,12 @@ export async function assertBusinessCanSendWhatsApp(businessId: string, purpose:
 
 function envCredentials(): WhatsAppCloudCredentials {
   return {
-    accessToken: whatsappConfig.accessToken,
-    phoneNumberId: whatsappConfig.phoneNumberId,
-    businessAccountId: whatsappConfig.businessAccountId,
-    appId: whatsappConfig.appId,
     apiVersion: whatsappConfig.apiVersion,
-    phoneNumberMode: whatsappConfig.phoneNumberMode
+    phoneNumberMode: whatsappConfig.phoneNumberMode,
+    ...(whatsappConfig.accessToken ? { accessToken: whatsappConfig.accessToken } : {}),
+    ...(whatsappConfig.phoneNumberId ? { phoneNumberId: whatsappConfig.phoneNumberId } : {}),
+    ...(whatsappConfig.businessAccountId ? { businessAccountId: whatsappConfig.businessAccountId } : {}),
+    ...(whatsappConfig.appId ? { appId: whatsappConfig.appId } : {})
   }
 }
 

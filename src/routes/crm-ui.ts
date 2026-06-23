@@ -5437,12 +5437,15 @@ const crmHtml = `<!doctype html>
       padding: 0;
       background: #f8fbff;
       overflow: auto;
+      height: 100%;
+      box-sizing: border-box;
+      overscroll-behavior: contain;
     }
 
     .settings-shell {
       width: min(820px, 100%);
       margin: 0 auto;
-      padding: 34px 28px;
+      padding: 34px 28px 96px;
       display: grid;
       gap: 22px;
     }
@@ -9689,6 +9692,9 @@ const crmHtml = `<!doctype html>
       businessHours: [],
       whatsappSettings: null,
       whatsappEmbeddedSignupSession: {},
+      whatsappEmbeddedSignupPayloadKeys: [],
+      whatsappPendingSignupResponse: null,
+      whatsappSignupSaveInFlight: false,
       conversationFilter: 'all',
       conversationVisibleLimit: 12,
       readConversationIds: new Set(),
@@ -12554,19 +12560,70 @@ const crmHtml = `<!doctype html>
         }
         if (!data || data.type !== 'WA_EMBEDDED_SIGNUP') return
         const payload = data.data || data
-        const phoneNumber = payload.phone_number_id || payload.phoneNumberId || payload.phone_number?.id || payload.phoneNumber?.id
-        const displayPhone = payload.display_phone_number || payload.displayPhoneNumber || payload.phone_number?.display_phone_number || payload.phoneNumber?.displayPhoneNumber
+        const payloadKeys = collectObjectKeys(payload)
+        const phoneNumber = findFirstNestedValue(payload, [
+          'phone_number_id',
+          'phoneNumberId',
+          'phone_number.id',
+          'phoneNumber.id',
+          'phone.id',
+          'phoneNumberID',
+          'phone_number.id'
+        ])
+        const displayPhone = findFirstNestedValue(payload, [
+          'display_phone_number',
+          'displayPhoneNumber',
+          'phone_number.display_phone_number',
+          'phoneNumber.displayPhoneNumber',
+          'phone.display_phone_number'
+        ])
+        const wabaId = findFirstNestedValue(payload, [
+          'waba_id',
+          'wabaId',
+          'whatsapp_business_account_id',
+          'whatsappBusinessAccountId',
+          'whatsapp_business_account.id',
+          'whatsappBusinessAccount.id',
+          'waba.id'
+        ])
         state.whatsappEmbeddedSignupSession = {
-          wabaId: payload.waba_id || payload.wabaId || payload.whatsapp_business_account_id || payload.whatsappBusinessAccountId || payload.waba?.id || state.whatsappEmbeddedSignupSession?.wabaId,
+          wabaId: wabaId || state.whatsappEmbeddedSignupSession?.wabaId,
           phoneNumberId: phoneNumber || state.whatsappEmbeddedSignupSession?.phoneNumberId,
           displayPhoneNumber: displayPhone || state.whatsappEmbeddedSignupSession?.displayPhoneNumber
+        }
+        state.whatsappEmbeddedSignupPayloadKeys = payloadKeys
+        if (state.whatsappPendingSignupResponse && !state.whatsappSignupSaveInFlight && state.whatsappEmbeddedSignupSession.wabaId && state.whatsappEmbeddedSignupSession.phoneNumberId) {
+          const pending = state.whatsappPendingSignupResponse
+          state.whatsappPendingSignupResponse = null
+          void handleWhatsappSignupResponse(pending.response, pending.redirectUri)
         }
       })
       state.whatsappEmbeddedSignupListenerReady = true
     }
 
+    function collectObjectKeys(value, prefix = '', result = []) {
+      if (!value || typeof value !== 'object') return result
+      for (const key of Object.keys(value)) {
+        const path = prefix ? prefix + '.' + key : key
+        result.push(path)
+        if (value[key] && typeof value[key] === 'object' && result.length < 40) {
+          collectObjectKeys(value[key], path, result)
+        }
+      }
+      return result.slice(0, 40)
+    }
+
+    function findFirstNestedValue(source, paths) {
+      for (const path of paths) {
+        const value = path.split('.').reduce((current, key) => current && current[key], source)
+        if (typeof value === 'string' && value.trim()) return value.trim()
+      }
+      return ''
+    }
+
     async function handleWhatsappSignupResponse(response, redirectUri) {
       try {
+        state.whatsappSignupSaveInFlight = true
         const code = response?.authResponse?.code
         const accessToken = response?.authResponse?.accessToken
         const expiresIn = Number(response?.authResponse?.expiresIn)
@@ -12575,6 +12632,10 @@ const crmHtml = `<!doctype html>
           return
         }
         await waitForWhatsappEmbeddedSignupSession()
+        const hasEmbeddedSignupAssets = Boolean(state.whatsappEmbeddedSignupSession?.wabaId && state.whatsappEmbeddedSignupSession?.phoneNumberId)
+        if (!hasEmbeddedSignupAssets && !state.whatsappPendingSignupResponse) {
+          state.whatsappPendingSignupResponse = { response, redirectUri }
+        }
         state.whatsappSettings = await getJson('/businesses/' + state.businessId + '/whatsapp/embedded-signup-callback', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -12583,21 +12644,26 @@ const crmHtml = `<!doctype html>
             accessToken,
             tokenExpiresAt: Number.isFinite(expiresIn) ? new Date(Date.now() + expiresIn * 1000).toISOString() : undefined,
             redirectUri,
+            embeddedSignupReceived: state.whatsappEmbeddedSignupPayloadKeys.length > 0,
+            embeddedSignupPayloadKeys: state.whatsappEmbeddedSignupPayloadKeys,
             ...state.whatsappEmbeddedSignupSession
           })
         })
         renderWhatsappSettings()
         const lastError = state.whatsappSettings?.connection?.lastError
-        showWhatsappSettingsFeedback(lastError || 'WhatsApp conectado para este comercio.', lastError ? 'error' : 'success')
+        const isConnected = state.whatsappSettings?.connection?.status === 'CONNECTED' && state.whatsappSettings?.connection?.wabaId && state.whatsappSettings?.connection?.phoneNumberId
+        showWhatsappSettingsFeedback(lastError || (isConnected ? 'WhatsApp conectado para este comercio.' : 'Falta completar WABA ID y Phone Number ID para terminar la conexion.'), lastError || !isConnected ? 'error' : 'success')
       } catch (error) {
         showWhatsappSettingsFeedback(error.message, 'error')
+      } finally {
+        state.whatsappSignupSaveInFlight = false
       }
     }
 
     async function waitForWhatsappEmbeddedSignupSession() {
       if (state.whatsappEmbeddedSignupSession?.wabaId && state.whatsappEmbeddedSignupSession?.phoneNumberId) return
       const startedAt = Date.now()
-      while (Date.now() - startedAt < 2500) {
+      while (Date.now() - startedAt < 10000) {
         await new Promise((resolve) => window.setTimeout(resolve, 150))
         if (state.whatsappEmbeddedSignupSession?.wabaId && state.whatsappEmbeddedSignupSession?.phoneNumberId) return
       }
@@ -12606,6 +12672,9 @@ const crmHtml = `<!doctype html>
     async function openWhatsappSignupPlaceholder() {
       if (!state.businessId) return
       clearWhatsappSettingsFeedback()
+      state.whatsappEmbeddedSignupSession = {}
+      state.whatsappEmbeddedSignupPayloadKeys = []
+      state.whatsappPendingSignupResponse = null
       els.whatsappConnectButton.disabled = true
       els.whatsappConnectButton.textContent = 'Abriendo Meta...'
       try {
