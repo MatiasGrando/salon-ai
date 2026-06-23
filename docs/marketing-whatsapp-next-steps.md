@@ -38,6 +38,7 @@
 - [Hecho] Validar popup real de Meta en dominio autorizado.
 - [En curso] Capturar automaticamente WABA ID, Phone Number ID y numero visible desde Embedded Signup.
 - [En curso] Diagnosticar si Meta no envia WABA/Phone, si llegan con otro formato o si el CRM los descarta.
+- [Pendiente] Evaluar conversion de la app Meta a Technology Provider/BSP para habilitar Embedded Signup completo.
 - [Pendiente] Validar que el CRM conserve el comercio activo durante el retorno del popup de Meta.
 - [Pendiente] Definir flujo de onboarding para comercios nuevos: login con Facebook, seleccion/creacion de negocio, creacion de cuenta WhatsApp Business y verificacion de telefono.
 - [Pendiente] Agregar pantalla o guia interna para asistir al comercio cuando Meta no devuelve WABA/Phone Number automaticamente.
@@ -50,5 +51,6 @@
 - [Pendiente] Explicar dentro del CRM que el comercio debe iniciar sesion con Facebook personal y autorizar su negocio.
 - [En curso] Validar que Embedded Signup oficial puede devolver Business Manager, WhatsApp Business Account y telefono sin carga manual cuando el popup se completa correctamente.
 - [Pendiente] Si Meta no entrega IDs en el callback, implementar recuperacion automatica por Graph API con permisos aprobados o guiar carga manual.
+- [Pendiente] Mantener carga manual asistida de WABA ID y Phone Number ID como fallback mientras la app no sea Technology Provider/BSP.
 - [Pendiente] Documentar requisitos previos del comercio: acceso admin al Business Manager, numero verificable, metodo de pago para campanas.
 - [Pendiente] Separar estados: conectado tecnicamente, numero verificado, facturacion Meta lista, token proximo a vencer.

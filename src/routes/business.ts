@@ -90,7 +90,6 @@ export async function businessRoutes(app: FastifyInstance) {
         setup: {
           external_business_id: params.id
         },
-        feature: 'whatsapp_embedded_signup',
         sessionInfoVersion: '3'
       }
     }
@@ -245,7 +244,7 @@ export async function businessRoutes(app: FastifyInstance) {
     const incompleteSignupError = !connected
       ? [
           `Embedded Signup devolvio datos incompletos. Falta: ${missingConnectionParts}.`,
-          body.embeddedSignupReceived === false ? 'No llego el mensaje final del popup de Meta al CRM. Revisa que el SDK reciba feature whatsapp_embedded_signup y sessionInfoVersion.' : null,
+          body.embeddedSignupReceived === false ? 'No llego el mensaje final del popup de Meta al CRM. Meta puede limitar Embedded Signup completo a apps BSP o Technology Provider.' : null,
           body.embeddedSignupPayloadKeys?.length ? `Campos recibidos: ${body.embeddedSignupPayloadKeys.join(', ')}.` : null,
           body.metaMessagesSeen?.length ? `Mensajes Meta vistos: ${body.metaMessagesSeen.join(' | ')}.` : null,
           assetLookupError ? `Meta no permitio resolverlos automaticamente: ${assetLookupError}` : null
