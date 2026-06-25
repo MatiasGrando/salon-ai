@@ -9837,6 +9837,8 @@ const crmHtml = `<!doctype html>
       document.body.innerHTML = '<main class="crm-shell"><section class="settings-card"><h1>Conectando WhatsApp...</h1><p>Ya podes volver a la ventana principal.</p></section></main>'
     } else {
 
+    const CRM_AUTO_REFRESH_MS = 15000
+
     const state = {
       conversations: [],
       conversationNextCursor: null,
@@ -9932,7 +9934,9 @@ const crmHtml = `<!doctype html>
       templateImageUrl: null,
       pendingUiConfirmation: null,
       crmToastTimer: null,
-      isRefreshing: false
+      isRefreshing: false,
+      autoRefreshTimer: null,
+      lastConversationSyncAt: null
     }
 
     const els = {
@@ -11021,6 +11025,7 @@ const crmHtml = `<!doctype html>
         state.loadedArchiveView = archiveView
         state.conversationNextCursor = page.nextCursor || null
         state.conversationCounts = page.counts || state.conversationCounts
+        state.lastConversationSyncAt = page.latestActivityAt || state.lastConversationSyncAt
         if (options.append) {
           const known = new Set(state.conversations.map((conversation) => conversation.id))
           state.conversations = state.conversations.concat(page.items.filter((conversation) => !known.has(conversation.id)))
@@ -11037,8 +11042,14 @@ const crmHtml = `<!doctype html>
         } else if (!options.append && state.selected) {
           const fresh = state.conversations.find((item) => item.id === state.selected.id)
           if (fresh) {
+            const selectedActivity = latestConversationActivityAt(state.selected)
+            const freshActivity = latestConversationActivityAt(fresh)
             state.selected = fresh
-            await refreshSelectedConversation({ preserveReadingPosition: options.silent === true })
+            if (!options.silent || freshActivity > selectedActivity) {
+              await refreshSelectedConversation({ preserveReadingPosition: options.silent === true })
+            } else {
+              renderSelected()
+            }
           } else {
             state.selected = null
             if (state.conversations[0]) await selectConversation(state.conversations[0].id)
@@ -11054,6 +11065,79 @@ const crmHtml = `<!doctype html>
       } finally {
         state.isRefreshing = false
       }
+    }
+
+    async function refreshConversationSummary() {
+      const params = new URLSearchParams()
+      if (state.businessId) params.set('businessId', state.businessId)
+      const query = params.toString() ? '?' + params.toString() : ''
+      const summary = await getJson('/crm/conversations/summary' + query)
+      const latestKnown = state.lastConversationSyncAt ? new Date(state.lastConversationSyncAt).getTime() : 0
+      const latestRemote = summary.latestActivityAt ? new Date(summary.latestActivityAt).getTime() : 0
+      state.conversationCounts = summary.counts || state.conversationCounts
+      renderConversations()
+      renderAiControls()
+      if (els.topConversationTotal) els.topConversationTotal.textContent = String(state.conversationCounts.active)
+      els.count.textContent = String(state.conversationCounts.active)
+
+      if (!state.lastConversationSyncAt || latestRemote > latestKnown) {
+        await loadConversationUpdates(summary.latestActivityAt)
+      }
+    }
+
+    async function loadConversationUpdates(latestActivityAt) {
+      if (state.isRefreshing || !state.lastConversationSyncAt) return
+      state.isRefreshing = true
+      const params = new URLSearchParams()
+      params.set('take', '100')
+      params.set('paginated', 'true')
+      params.set('archive', 'all')
+      params.set('since', state.lastConversationSyncAt)
+      if (state.businessId) params.set('businessId', state.businessId)
+
+      try {
+        const page = await getJson('/crm/conversations?' + params.toString())
+        state.conversationCounts = page.counts || state.conversationCounts
+        mergeConversationUpdates(page.items || [])
+        state.lastConversationSyncAt = page.latestActivityAt || latestActivityAt || state.lastConversationSyncAt
+        state.conversations.sort((left, right) => latestConversationActivityAt(right) - latestConversationActivityAt(left))
+
+        if (state.selected) {
+          const fresh = state.conversations.find((item) => item.id === state.selected.id)
+          if (fresh) {
+            const selectedActivity = latestConversationActivityAt(state.selected)
+            const freshActivity = latestConversationActivityAt(fresh)
+            state.selected = fresh
+            if (freshActivity > selectedActivity) {
+              await refreshSelectedConversation({ preserveReadingPosition: true })
+            } else {
+              renderSelected()
+            }
+          }
+        }
+
+        renderConversations()
+        renderAiControls()
+      } catch (error) {
+        console.error(error)
+      } finally {
+        state.isRefreshing = false
+      }
+    }
+
+    function mergeConversationUpdates(items) {
+      const byId = new Map(state.conversations.map((conversation) => [conversation.id, conversation]))
+      for (const item of items) {
+        const belongsToLoadedView = state.loadedArchiveView === 'archived'
+          ? Boolean(item.archivedAt)
+          : !item.archivedAt
+        if (belongsToLoadedView) {
+          byId.set(item.id, item)
+        } else {
+          byId.delete(item.id)
+        }
+      }
+      state.conversations = Array.from(byId.values())
     }
 
     function renderConversations() {
@@ -11155,7 +11239,12 @@ const crmHtml = `<!doctype html>
     async function loadAppointments() {
       state.appointments = []
       if (!state.selected) return
-      const all = await getJson('/appointments')
+      const params = new URLSearchParams({
+        customerPhone: state.selected.phone,
+        from: new Date().toISOString()
+      })
+      if (state.businessId) params.set('businessId', state.businessId)
+      const all = await getJson('/appointments?' + params.toString())
       const now = Date.now()
       state.appointments = all
         .filter((appointment) => appointment.customer?.phone === state.selected.phone)
@@ -13663,7 +13752,7 @@ const crmHtml = `<!doctype html>
         params.set('professionalId', els.agendaProfessional.value)
       }
 
-      state.agendaAppointments = await getJson('/appointments')
+      state.agendaAppointments = await getJson('/appointments?' + params.toString())
       state.agendaBlocks = await getJson('/schedule-blocks?' + params.toString())
       renderProfessionals()
       renderAgenda()
@@ -16539,9 +16628,10 @@ const crmHtml = `<!doctype html>
         els.list.innerHTML = '<div class="error">' + escapeHtml(error.message) + '</div>'
       })
 
-    setInterval(() => {
-      if (document.body.dataset.auth === 'ready') loadConversations({ silent: true })
-    }, 5000)
+    state.autoRefreshTimer = setInterval(() => {
+      if (document.body.dataset.auth !== 'ready' || document.hidden) return
+      refreshConversationSummary().catch(() => null)
+    }, CRM_AUTO_REFRESH_MS)
     }
   </script>
 </body>

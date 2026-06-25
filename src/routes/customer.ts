@@ -1,6 +1,31 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
 
+type CustomerOverviewAppointment = {
+  status: string
+  startAt: Date
+  professional: {
+    name: string
+  }
+  service: {
+    name: string
+    price: number | null
+  }
+}
+
+type CustomerOverviewItem = {
+  id: string
+  name: string
+  phone: string
+  createdAt: Date
+  appointments: CustomerOverviewAppointment[]
+  notes: unknown[]
+  marketingPreferences: Array<{
+    status: string
+    source: string
+  }>
+}
+
 export async function customerRoutes(app: FastifyInstance) {
 
   app.get('/customers/overview', async (request) => {
@@ -25,9 +50,37 @@ export async function customerRoutes(app: FastifyInstance) {
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
     const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1)
 
+    const scopedCustomerIds = query.businessId
+      ? await prisma.appointment.findMany({
+          where: {
+            professional: {
+              businessId: query.businessId
+            }
+          },
+          distinct: ['customerId'],
+          select: {
+            customerId: true
+          }
+        })
+      : []
+
     const customers = await prisma.customer.findMany({
+      where: query.businessId
+        ? {
+            id: {
+              in: scopedCustomerIds.map((appointment) => appointment.customerId)
+            }
+          }
+        : {},
       include: {
         appointments: {
+          where: query.businessId
+            ? {
+                professional: {
+                  businessId: query.businessId
+                }
+              }
+            : {},
           include: {
             professional: true,
             service: true
@@ -48,9 +101,14 @@ export async function customerRoutes(app: FastifyInstance) {
           take: 1
         }
       }
-    })
+    } as any) as CustomerOverviewItem[]
 
     const conversations = await prisma.conversation.findMany({
+      where: query.businessId
+        ? {
+            businessId: query.businessId
+          }
+        : {},
       orderBy: {
         updatedAt: 'desc'
       }
@@ -162,8 +220,33 @@ export async function customerRoutes(app: FastifyInstance) {
     })
   })
 
-  app.get('/customers', async () => {
-    return prisma.customer.findMany()
+  app.get('/customers', async (request) => {
+    const query = request.query as {
+      businessId?: string
+    }
+    const scopedCustomerIds = query.businessId
+      ? await prisma.appointment.findMany({
+          where: {
+            professional: {
+              businessId: query.businessId
+            }
+          },
+          distinct: ['customerId'],
+          select: {
+            customerId: true
+          }
+        })
+      : []
+
+    return prisma.customer.findMany({
+      where: query.businessId
+        ? {
+            id: {
+              in: scopedCustomerIds.map((appointment) => appointment.customerId)
+            }
+          }
+        : {}
+    })
   })
 
   app.patch('/customers/:id', async (request, reply) => {

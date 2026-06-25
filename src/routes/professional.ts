@@ -85,14 +85,14 @@ export async function professionalRoutes(app: FastifyInstance) {
   app.get('/professionals', async (request) => {
     const query = request.query as {
       activeOnly?: string
+      businessId?: string
     }
 
     const professionals = await prisma.professional.findMany({
-      where: query.activeOnly === 'true'
-        ? {
-            isActive: true
-          }
-        : {},
+      where: {
+        ...(query.businessId ? { businessId: query.businessId } : {}),
+        ...(query.activeOnly === 'true' ? { isActive: true } : {})
+      },
       include: professionalInclude,
       orderBy: {
         createdAt: 'asc'

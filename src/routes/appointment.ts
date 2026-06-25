@@ -26,8 +26,21 @@ export async function appointmentRoutes(app: FastifyInstance) {
     return result.appointment
   })
 
-  app.get('/appointments', async () => {
-    return service.findAll()
+  app.get('/appointments', async (request) => {
+    const query = request.query as {
+      businessId?: string
+      customerPhone?: string
+      from?: string
+      to?: string
+      professionalId?: string
+    }
+    return service.findAll({
+      ...(query.businessId ? { businessId: query.businessId } : {}),
+      ...(query.customerPhone ? { customerPhone: query.customerPhone } : {}),
+      ...(query.from ? { from: query.from } : {}),
+      ...(query.to ? { to: query.to } : {}),
+      ...(query.professionalId ? { professionalId: query.professionalId } : {})
+    })
   })
 
   app.patch('/appointments/:id/status', async (request, reply) => {

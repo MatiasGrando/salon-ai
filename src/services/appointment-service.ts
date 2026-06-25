@@ -33,6 +33,14 @@ type FindAvailabilityInput = {
   date: string
 }
 
+type FindAppointmentsInput = {
+  businessId?: string
+  customerPhone?: string
+  from?: string
+  to?: string
+  professionalId?: string
+}
+
 type FindAvailabilityResult =
   | {
       ok: true
@@ -399,12 +407,37 @@ export class AppointmentService {
     }
   }
 
-  async findAll() {
+  async findAll(input: FindAppointmentsInput = {}) {
+    const from = parseOptionalDate(input.from)
+    const to = parseOptionalDate(input.to)
+
     return prisma.appointment.findMany({
+      where: {
+        ...(input.businessId || input.professionalId
+          ? {
+              professional: {
+                ...(input.businessId ? { businessId: input.businessId } : {}),
+                ...(input.professionalId ? { id: input.professionalId } : {})
+              }
+            }
+          : {}),
+        ...(input.customerPhone ? { customer: { phone: input.customerPhone } } : {}),
+        ...(from || to
+          ? {
+              startAt: {
+                ...(from ? { gte: from } : {}),
+                ...(to ? { lt: to } : {})
+              }
+            }
+          : {})
+      },
       include: {
         customer: true,
         professional: true,
         service: true
+      },
+      orderBy: {
+        startAt: 'asc'
       }
     })
   }
@@ -698,6 +731,12 @@ function parseDate(date: string) {
   }
 
   return parsedDate
+}
+
+function parseOptionalDate(value?: string) {
+  if (!value) return null
+  const parsedDate = new Date(value)
+  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate
 }
 
 function setMinutesSinceMidnight(date: Date, minutes: number) {

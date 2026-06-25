@@ -154,6 +154,7 @@ export async function crmRoutes(app: FastifyInstance) {
       phone?: string
       take?: string
       cursor?: string
+      since?: string
       archive?: 'active' | 'archived' | 'all'
       paginated?: string
     }
@@ -161,11 +162,14 @@ export async function crmRoutes(app: FastifyInstance) {
     const archiveView = query.archive ?? 'all'
     await archiveOldCompletedConversations(query.businessId)
 
+    const since = parseOptionalDate(query.since)
     const where: Prisma.ConversationWhereInput = {
-      ...(query.businessId ? { businessId: query.businessId } : {}),
-      ...(query.phone ? { phone: { contains: query.phone } } : {}),
-      ...(archiveView === 'active' ? { archivedAt: null } : {}),
-      ...(archiveView === 'archived' ? { archivedAt: { not: null } } : {})
+      ...conversationListWhere({
+        ...(query.businessId ? { businessId: query.businessId } : {}),
+        ...(query.phone ? { phone: query.phone } : {}),
+        archiveView
+      }),
+      ...(since ? { updatedAt: { gt: since } } : {})
     }
 
     const conversations = await prisma.conversation.findMany({
@@ -189,62 +193,37 @@ export async function crmRoutes(app: FastifyInstance) {
     const items = conversations.slice(0, take).sort((left, right) => {
       return latestConversationActivityAt(right) - latestConversationActivityAt(left)
     })
-    const latestInboundByConversationId = new Map<string, Date | null>()
-    if (items.length > 0) {
-      const latestInboundMessages = await prisma.message.groupBy({
-        by: ['conversationId'],
-        where: {
-          conversationId: {
-            in: items.map((conversation) => conversation.id)
-          },
-          direction: 'INBOUND'
-        },
-        _max: {
-          createdAt: true
-        }
-      })
-      for (const item of latestInboundMessages) {
-        latestInboundByConversationId.set(item.conversationId, item._max.createdAt)
-      }
-    }
-    const itemsWithReplyWindow = items.map((conversation) => {
-      const lastInboundMessageAt = latestInboundByConversationId.get(conversation.id) ?? null
-      const whatsappReplyWindowExpiresAt = lastInboundMessageAt
-        ? new Date(lastInboundMessageAt.getTime() + WHATSAPP_REPLY_WINDOW_MS)
-        : null
-
-      return {
-        ...conversation,
-        lastInboundMessageAt,
-        whatsappReplyWindowExpiresAt,
-        canReplyOnWhatsApp: Boolean(whatsappReplyWindowExpiresAt && whatsappReplyWindowExpiresAt.getTime() > Date.now())
-      }
-    })
+    const itemsWithReplyWindow = await attachConversationReplyWindow(items)
 
     if (query.paginated !== 'true') {
       return itemsWithReplyWindow
     }
 
-    const countWhere: Prisma.ConversationWhereInput = query.businessId
-      ? { businessId: query.businessId }
-      : {}
-    const [active, archived, handoff] = await Promise.all([
-      prisma.conversation.count({ where: { ...countWhere, archivedAt: null } }),
-      prisma.conversation.count({ where: { ...countWhere, archivedAt: { not: null } } }),
-      prisma.conversation.count({
-        where: {
-          ...countWhere,
-          archivedAt: null,
-          currentStep: 'HUMAN_HANDOFF',
-          humanHandoffResolvedAt: null
-        }
-      })
+    const [counts, latestActivityAt] = await Promise.all([
+      conversationCounts(query.businessId),
+      latestConversationActivityAtForBusiness(query.businessId)
     ])
 
     return {
       items: itemsWithReplyWindow,
-      nextCursor: hasMore ? itemsWithReplyWindow[itemsWithReplyWindow.length - 1]?.id ?? null : null,
-      counts: { active, archived, handoff }
+      nextCursor: since ? null : hasMore ? itemsWithReplyWindow[itemsWithReplyWindow.length - 1]?.id ?? null : null,
+      counts,
+      latestActivityAt
+    }
+  })
+
+  app.get('/crm/conversations/summary', async (request) => {
+    const query = request.query as {
+      businessId?: string
+    }
+    const [counts, latestActivityAt] = await Promise.all([
+      conversationCounts(query.businessId),
+      latestConversationActivityAtForBusiness(query.businessId)
+    ])
+
+    return {
+      counts,
+      latestActivityAt
     }
   })
 
@@ -578,6 +557,92 @@ async function findCrmBusiness(businessId?: string) {
       createdAt: 'asc'
     }
   })
+}
+
+function conversationListWhere(input: {
+  businessId?: string
+  phone?: string
+  archiveView: 'active' | 'archived' | 'all'
+}) {
+  return {
+    ...(input.businessId ? { businessId: input.businessId } : {}),
+    ...(input.phone ? { phone: { contains: input.phone } } : {}),
+    ...(input.archiveView === 'active' ? { archivedAt: null } : {}),
+    ...(input.archiveView === 'archived' ? { archivedAt: { not: null } } : {})
+  } satisfies Prisma.ConversationWhereInput
+}
+
+async function conversationCounts(businessId?: string) {
+  const countWhere: Prisma.ConversationWhereInput = businessId
+    ? { businessId }
+    : {}
+  const [active, archived, handoff] = await Promise.all([
+    prisma.conversation.count({ where: { ...countWhere, archivedAt: null } }),
+    prisma.conversation.count({ where: { ...countWhere, archivedAt: { not: null } } }),
+    prisma.conversation.count({
+      where: {
+        ...countWhere,
+        archivedAt: null,
+        currentStep: 'HUMAN_HANDOFF',
+        humanHandoffResolvedAt: null
+      }
+    })
+  ])
+
+  return { active, archived, handoff }
+}
+
+async function latestConversationActivityAtForBusiness(businessId?: string) {
+  const latestConversation = await prisma.conversation.findFirst({
+    where: businessId ? { businessId } : {},
+    orderBy: { updatedAt: 'desc' },
+    select: { updatedAt: true }
+  })
+
+  return latestConversation?.updatedAt ?? null
+}
+
+async function attachConversationReplyWindow<T extends {
+  id: string
+}>(items: T[]) {
+  const latestInboundByConversationId = new Map<string, Date | null>()
+  if (items.length > 0) {
+    const latestInboundMessages = await prisma.message.groupBy({
+      by: ['conversationId'],
+      where: {
+        conversationId: {
+          in: items.map((conversation) => conversation.id)
+        },
+        direction: 'INBOUND'
+      },
+      _max: {
+        createdAt: true
+      }
+    })
+    for (const item of latestInboundMessages) {
+      latestInboundByConversationId.set(item.conversationId, item._max.createdAt)
+    }
+  }
+
+  return items.map((conversation) => {
+    const lastInboundMessageAt = latestInboundByConversationId.get(conversation.id) ?? null
+    const whatsappReplyWindowExpiresAt = lastInboundMessageAt
+      ? new Date(lastInboundMessageAt.getTime() + WHATSAPP_REPLY_WINDOW_MS)
+      : null
+
+    return {
+      ...conversation,
+      lastInboundMessageAt,
+      whatsappReplyWindowExpiresAt,
+      canReplyOnWhatsApp: Boolean(whatsappReplyWindowExpiresAt && whatsappReplyWindowExpiresAt.getTime() > Date.now())
+    }
+  })
+}
+
+function parseOptionalDate(value?: string) {
+  if (!value) return null
+  const parsedDate = new Date(value)
+  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate
 }
 
 function latestConversationActivityAt(conversation: {

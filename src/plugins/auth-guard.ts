@@ -9,6 +9,8 @@ declare module 'fastify' {
 
 export async function authGuard(app: FastifyInstance) {
   app.addHook('preHandler', async (request, reply) => {
+    if (isPublicRoute(request)) return
+
     const auth = await getAuthFromRequest(request)
     if (!auth) return reply.status(401).send({ message: 'Necesitas iniciar sesion' })
     request.auth = auth
@@ -55,4 +57,13 @@ function collectBusinessId(source: unknown, result: Set<string>) {
   if (!source || typeof source !== 'object') return
   const value = (source as { businessId?: unknown }).businessId
   if (typeof value === 'string' && value.trim()) result.add(value.trim())
+}
+
+function isPublicRoute(request: FastifyRequest) {
+  const path = request.url.split('?')[0] ?? ''
+  return path === '/'
+    || path === '/health'
+    || path === '/crm'
+    || path.startsWith('/auth/')
+    || path.startsWith('/webhooks/whatsapp')
 }

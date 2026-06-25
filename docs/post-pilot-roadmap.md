@@ -32,6 +32,8 @@ Objetivo: que cada local pueda configurar como atiende su asistente.
 - Servicios destacados.
 - Politicas: cancelaciones, tolerancia de llegada tarde, senas, etc.
 - Horarios y profesionales desde una interfaz simple.
+- Settings del bot por comercio: servicios disponibles, vocabulario esperado, preguntas frecuentes, estilo de conversacion y reglas para derivar a humano.
+- Evitar prompts o flujos globales rigidos: cada comercio puede vender servicios distintos y necesitar una conversacion diferente.
 
 Resultado esperado:
 
@@ -52,6 +54,12 @@ Objetivo: que el negocio pueda ver conversaciones y tomar control cuando haga fa
 - Intervenir manualmente si Cami no puede resolver.
 - Ver turnos asociados al cliente.
 - Ver errores de WhatsApp o mensajes fallidos.
+
+Nota de escalabilidad:
+
+- Mantener el polling liviano de novedades como base para los primeros comercios.
+- Agregar Supabase Realtime como mejora importante para pulir el producto: avisos instantaneos de mensajes nuevos, derivaciones humanas y cambios de estado sin depender de consultas periodicas.
+- Usar Realtime solo como capa de notificaciones; las respuestas de WhatsApp deben seguir pasando por el backend y WhatsApp Cloud API.
 
 Resultado esperado:
 

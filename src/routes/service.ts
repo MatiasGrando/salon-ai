@@ -73,8 +73,17 @@ export async function serviceRoutes(app: FastifyInstance) {
     })
   })
 
-  app.get('/services', async () => {
+  app.get('/services', async (request) => {
+    const query = request.query as {
+      businessId?: string
+    }
+
     return prisma.service.findMany({
+      where: query.businessId
+        ? {
+            businessId: query.businessId
+          }
+        : {},
       include: {
         aliases: true
       }
