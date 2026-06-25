@@ -14,6 +14,9 @@ import { crmUiRoutes } from './routes/crm-ui.js'
 import { scheduleBlockRoutes } from './routes/schedule-block.js'
 import { whatsappWebhookRoutes } from './routes/whatsapp-webhook.js'
 import { campaignRoutes } from './routes/campaign.js'
+import { authRoutes } from './routes/auth.js'
+import { authGuard } from './plugins/auth-guard.js'
+import { ensureBootstrapSuperAdmin } from './services/auth-service.js'
 import { startMarketingScheduler } from './services/marketing-scheduler.js'
 
 process.env.TZ ??= 'America/Argentina/Buenos_Aires'
@@ -25,6 +28,10 @@ const port = Number(process.env.PORT ?? 3000)
 const host = process.env.HOST ?? '0.0.0.0'
 
 await app.register(healthRoutes)
+await app.register(authRoutes)
+await app.register(crmUiRoutes)
+await app.register(whatsappWebhookRoutes)
+await authGuard(app)
 await app.register(businessRoutes)
 await app.register(professionalRoutes)
 await app.register(serviceRoutes)
@@ -35,10 +42,9 @@ await app.register(professionalHoursRoutes)
 await app.register(scheduleBlockRoutes)
 await app.register(availabilityRoutes)
 await app.register(chatRoutes)
-await app.register(crmUiRoutes)
 await app.register(crmRoutes)
-await app.register(whatsappWebhookRoutes)
 await app.register(campaignRoutes)
+await ensureBootstrapSuperAdmin()
 startMarketingScheduler(app)
 
 if (process.env.NODE_ENV !== 'production') {

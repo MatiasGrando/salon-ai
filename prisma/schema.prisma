@@ -70,6 +70,12 @@ enum BillingOwner {
   SALON_AI
 }
 
+enum UserRole {
+  SUPER_ADMIN
+  BUSINESS_ADMIN
+  STAFF
+}
+
 model Business {
   id            String         @id @default(cuid())
   name          String
@@ -92,8 +98,43 @@ model Business {
   campaignJobs CampaignJob[]
   reminderAutomations ReminderAutomation[]
   reminderDeliveries ReminderDelivery[]
+  users User[]
 
   createdAt     DateTime       @default(now())
+}
+
+model User {
+  id String @id @default(cuid())
+
+  email String @unique
+  name String
+  passwordHash String
+  role UserRole @default(BUSINESS_ADMIN)
+  isActive Boolean @default(true)
+
+  businessId String?
+  business Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  sessions UserSession[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([businessId])
+  @@index([role])
+}
+
+model UserSession {
+  id String @id @default(cuid())
+
+  tokenHash String @unique
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model BusinessWhatsAppConfig {

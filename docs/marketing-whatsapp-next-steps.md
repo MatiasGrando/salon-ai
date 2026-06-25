@@ -4,7 +4,7 @@
 
 1. [Hecho] Completar el enlace entre plantillas aprobadas de Meta y campanas.
 2. [Hecho] Hacer un envio controlado al numero del administrador.
-3. [En curso] Conectar WhatsApp por comercio desde Ajustes.
+3. [Hecho] Conectar WhatsApp por comercio desde Ajustes con carga manual asistida.
 4. [Pendiente] Probar recordatorios con plantilla `UTILITY` aprobada.
 5. [Pendiente] Probar con 1 cliente propio con autorizacion de marketing `ACTIVE`.
 6. [Pendiente] Probar con 2 o 3 clientes con autorizacion de marketing `ACTIVE`.
@@ -32,25 +32,23 @@
 - [Hecho] Configuracion por comercio para WABA ID, Phone Number ID, token y numero visible.
 - [Hecho] Bloqueos para campanas, recordatorios, pruebas, bot y respuestas manuales.
 - [Hecho] Fallback `.env` solo para desarrollo/pruebas controladas.
-- [Hecho] Boton `Conectar WhatsApp` con login Meta y token real.
+- [Hecho] Boton de ayuda para cargar manualmente los datos de WhatsApp del comercio.
 - [Hecho] Conexion tecnica manual para piloto/desarrollo.
 - [Hecho] Configurar `META_APP_ID`, `META_APP_SECRET` y `META_EMBEDDED_SIGNUP_CONFIG_ID`.
 - [Hecho] Validar popup real de Meta en dominio autorizado.
-- [En curso] Capturar automaticamente WABA ID, Phone Number ID y numero visible desde Embedded Signup.
-- [En curso] Diagnosticar si Meta no envia WABA/Phone, si llegan con otro formato o si el CRM los descarta.
-- [Pendiente] Evaluar conversion de la app Meta a Technology Provider/BSP para habilitar Embedded Signup completo.
-- [Pendiente] Validar que el CRM conserve el comercio activo durante el retorno del popup de Meta.
-- [Pendiente] Definir flujo de onboarding para comercios nuevos: login con Facebook, seleccion/creacion de negocio, creacion de cuenta WhatsApp Business y verificacion de telefono.
-- [Pendiente] Agregar pantalla o guia interna para asistir al comercio cuando Meta no devuelve WABA/Phone Number automaticamente.
+- [Hecho] Diagnosticar que Meta limita el Embedded Signup completo a apps Technology Provider/BSP.
+- [Hecho] Dejar la carga manual como flujo principal del MVP.
+- [Hecho] Agregar guia interna para asistir al comercio cuando Meta no devuelve WABA/Phone Number automaticamente.
+- [Pendiente] Evaluar conversion de la app Meta a Technology Provider/BSP despues del MVP.
+- [Pendiente] Definir flujo de onboarding para comercios nuevos: cuenta personal de Facebook, Business Manager, WhatsApp Business Account, telefono verificable y metodo de pago.
 - [Pendiente] Resolver renovacion de token: reconectar manualmente en MVP y aviso antes del vencimiento.
 - [Pendiente] Definir manejo productivo de tokens con cifrado o secret manager.
 
 ## Onboarding Meta para comercios
 
-- [Pendiente] Disenar el flujo visible desde el CRM para un comercio sin Meta configurado.
-- [Pendiente] Explicar dentro del CRM que el comercio debe iniciar sesion con Facebook personal y autorizar su negocio.
-- [En curso] Validar que Embedded Signup oficial puede devolver Business Manager, WhatsApp Business Account y telefono sin carga manual cuando el popup se completa correctamente.
-- [Pendiente] Si Meta no entrega IDs en el callback, implementar recuperacion automatica por Graph API con permisos aprobados o guiar carga manual.
-- [Pendiente] Mantener carga manual asistida de WABA ID y Phone Number ID como fallback mientras la app no sea Technology Provider/BSP.
+- [Hecho] Disenar el flujo visible desde el CRM para cargar WABA ID, Phone Number ID, numero visible, token y vencimiento.
+- [Pendiente] Explicar dentro del CRM que el comercio debe tener acceso admin a su Business Manager y WhatsApp Business Account.
+- [Hecho] Validar que Embedded Signup oficial no entrega WABA/Phone de forma confiable sin app Technology Provider/BSP.
+- [Hecho] Mantener carga manual asistida de WABA ID y Phone Number ID como camino principal mientras la app no sea Technology Provider/BSP.
 - [Pendiente] Documentar requisitos previos del comercio: acceso admin al Business Manager, numero verificable, metodo de pago para campanas.
 - [Pendiente] Separar estados: conectado tecnicamente, numero verificado, facturacion Meta lista, token proximo a vencer.

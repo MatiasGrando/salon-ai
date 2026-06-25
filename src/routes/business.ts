@@ -3,12 +3,16 @@ import { prisma } from '../config/prisma.js'
 import { whatsappConfig } from '../config/whatsapp.js'
 import { getBusinessWhatsAppState } from '../services/business-whatsapp-settings.js'
 import { BusinessService } from '../services/business-service.js'
+import type { AuthContext } from '../services/auth-service.js'
 
 const service = new BusinessService()
 
 export async function businessRoutes(app: FastifyInstance) {
 
-  app.post('/businesses', async (request) => {
+  app.post('/businesses', async (request, reply) => {
+    if (!request.auth || request.auth.user.role !== 'SUPER_ADMIN') {
+      return reply.status(403).send({ message: 'Solo el super admin puede crear comercios' })
+    }
 
     const body = request.body as {
       name: string
@@ -17,13 +21,23 @@ export async function businessRoutes(app: FastifyInstance) {
     return service.create(body.name)
   })
 
-  app.get('/businesses', async () => {
-    return service.findAll()
+  app.get('/businesses', async (request, reply) => {
+    if (!request.auth) return reply.status(401).send({ message: 'Necesitas iniciar sesion' })
+    if (request.auth.user.role === 'SUPER_ADMIN') return service.findAll()
+    if (!request.auth.user.businessId) return []
+    const business = await prisma.business.findUnique({ where: { id: request.auth.user.businessId } })
+    return business ? [business] : []
   })
 
   app.patch('/businesses/:id', async (request, reply) => {
+    if (request.auth?.user.role === 'STAFF') {
+      return reply.status(403).send({ message: 'No tenes permiso para modificar el local' })
+    }
     const params = request.params as {
       id: string
+    }
+    if (!canAccessBusiness(request.auth, params.id)) {
+      return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
     }
     const body = request.body as {
       name?: string
@@ -66,6 +80,9 @@ export async function businessRoutes(app: FastifyInstance) {
 
   app.get('/businesses/:id/whatsapp-settings', async (request, reply) => {
     const params = request.params as { id: string }
+    if (!canAccessBusiness(request.auth, params.id)) {
+      return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
+    }
     const business = await prisma.business.findUnique({ where: { id: params.id }, select: { id: true } })
     if (!business) return reply.status(404).send({ message: 'No encontre ese local' })
     await ensureBusinessSettings(params.id)
@@ -74,6 +91,9 @@ export async function businessRoutes(app: FastifyInstance) {
 
   app.get('/businesses/:id/whatsapp-embedded-signup-config', async (request, reply) => {
     const params = request.params as { id: string }
+    if (!canAccessBusiness(request.auth, params.id)) {
+      return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
+    }
     const business = await prisma.business.findUnique({ where: { id: params.id }, select: { id: true } })
     if (!business) return reply.status(404).send({ message: 'No encontre ese local' })
     if (!whatsappConfig.appId || !whatsappConfig.embeddedSignupConfigId) {
@@ -97,6 +117,9 @@ export async function businessRoutes(app: FastifyInstance) {
 
   app.patch('/businesses/:id/whatsapp-settings', async (request, reply) => {
     const params = request.params as { id: string }
+    if (!canAccessBusiness(request.auth, params.id)) {
+      return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
+    }
     const body = request.body as {
       connectionStatus?: string
       campaignsEnabled?: boolean
@@ -205,6 +228,9 @@ export async function businessRoutes(app: FastifyInstance) {
 
   app.post('/businesses/:id/whatsapp/embedded-signup-callback', async (request, reply) => {
     const params = request.params as { id: string }
+    if (!canAccessBusiness(request.auth, params.id)) {
+      return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
+    }
     const body = request.body as {
       code?: string
       wabaId?: string
@@ -446,4 +472,10 @@ function normalizeOptionalText(value?: string | null) {
   if (value === undefined) return undefined
   const normalized = value?.trim()
   return normalized || null
+}
+
+function canAccessBusiness(auth: AuthContext | undefined, businessId: string) {
+  if (!auth) return false
+  if (auth.user.role === 'SUPER_ADMIN') return true
+  return auth.user.businessId === businessId
 }

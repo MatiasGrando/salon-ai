@@ -83,6 +83,93 @@ const crmHtml = `<!doctype html>
       color: var(--text);
     }
 
+    body[data-auth="checking"] .app,
+    body[data-auth="checking"] .mobile-nav,
+    body[data-auth="login"] .app,
+    body[data-auth="login"] .mobile-nav {
+      display: none;
+    }
+
+    body[data-auth="ready"] .login-view {
+      display: none;
+    }
+
+    .login-view {
+      min-height: 100vh;
+      padding: 24px;
+      display: grid;
+      place-items: center;
+      background: #f5f8fc;
+    }
+
+    .login-card {
+      width: min(430px, 100%);
+      padding: 28px;
+      border: 1px solid #dfe6f1;
+      border-radius: 10px;
+      background: #fff;
+      box-shadow: 0 20px 45px rgba(15, 23, 42, .08);
+    }
+
+    .login-card h1 {
+      margin: 0;
+      color: #081235;
+      font-size: 26px;
+    }
+
+    .login-card p {
+      margin: 8px 0 22px;
+      color: #52617f;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .login-form {
+      display: grid;
+      gap: 14px;
+    }
+
+    .login-form label {
+      display: grid;
+      gap: 7px;
+      color: #405176;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .login-form input {
+      height: 44px;
+      padding: 0 12px;
+      border: 1px solid #d7dfec;
+      border-radius: 8px;
+      color: #101936;
+      background: #fff;
+      font: inherit;
+    }
+
+    .login-form button {
+      height: 44px;
+      margin-top: 4px;
+      border-radius: 8px;
+      background: #2563eb;
+      color: #fff;
+      font-weight: 800;
+    }
+
+    .login-feedback {
+      display: none;
+      padding: 10px 12px;
+      border: 1px solid #fecaca;
+      border-radius: 8px;
+      color: #b42318;
+      background: #fff1f2;
+      font-size: 13px;
+    }
+
+    .login-feedback.visible {
+      display: block;
+    }
+
     button,
     input,
     textarea,
@@ -1042,6 +1129,17 @@ const crmHtml = `<!doctype html>
       color: #c6d3e2;
       font-size: 12px;
       font-weight: 700;
+    }
+
+    .nav-logout {
+      grid-column: 1 / -1;
+      min-height: 34px;
+      border: 1px solid rgba(216, 230, 255, .22);
+      border-radius: 8px;
+      color: #d8e6ff;
+      background: rgba(255, 255, 255, .06);
+      font-size: 12px;
+      font-weight: 800;
     }
 
     .nav-online-dot {
@@ -5495,6 +5593,27 @@ const crmHtml = `<!doctype html>
       font-weight: 700;
     }
 
+    .admin-create-form {
+      margin-top: 20px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .admin-create-form .full {
+      grid-column: 1 / -1;
+    }
+
+    .admin-create-form button {
+      justify-self: end;
+      min-width: 180px;
+      height: 44px;
+      border-radius: 8px;
+      color: #fff;
+      background: #2563eb;
+      font-weight: 800;
+    }
+
     .whatsapp-settings-grid {
       margin-top: 20px;
       display: grid;
@@ -5540,6 +5659,27 @@ const crmHtml = `<!doctype html>
     .whatsapp-status-badge.connected {
       color: #166534;
       background: #dcfce7;
+    }
+
+    .whatsapp-manual-guide {
+      padding: 13px 14px;
+      display: grid;
+      gap: 6px;
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      color: #1e3a8a;
+      background: #eff6ff;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .whatsapp-manual-guide[hidden] {
+      display: none;
+    }
+
+    .whatsapp-manual-guide strong {
+      color: #102a63;
+      font-size: 13px;
     }
 
     .whatsapp-control-list {
@@ -7947,7 +8087,23 @@ const crmHtml = `<!doctype html>
     }
   </style>
 </head>
-<body data-mobile-view="inbox">
+<body data-mobile-view="inbox" data-auth="checking">
+  <section class="login-view" id="login-view">
+    <form class="login-card login-form" id="login-form">
+      <div>
+        <h1>CRM Salon AI</h1>
+        <p>Ingresa con tu usuario para abrir el comercio que corresponde.</p>
+      </div>
+      <label>Email
+        <input id="login-email" type="email" autocomplete="email" required>
+      </label>
+      <label>Contrasena
+        <input id="login-password" type="password" autocomplete="current-password" required>
+      </label>
+      <p class="login-feedback" id="login-feedback" role="status" aria-live="polite"></p>
+      <button id="login-submit" type="submit">Entrar al CRM</button>
+    </form>
+  </section>
   <nav class="mobile-nav" aria-label="Vistas CRM">
     <button class="active" id="mobile-inbox" type="button">Chats</button>
     <button id="mobile-chat" type="button">Conversacion</button>
@@ -7979,6 +8135,7 @@ const crmHtml = `<!doctype html>
       <div class="nav-user">
         <div class="mini-avatar">C</div>
         <div class="nav-user-status"><span class="nav-online-dot"></span>Online</div>
+        <button class="nav-logout" id="logout-button" type="button">Salir</button>
       </div>
     </nav>
     <header class="conversation-page-header">
@@ -9028,6 +9185,31 @@ const crmHtml = `<!doctype html>
           </form>
         </section>
 
+        <section class="settings-panel" id="super-admin-panel" hidden>
+          <h3>Alta de comercio</h3>
+          <p>Cre&aacute; un comercio y su usuario administrador. Despu&eacute;s el negocio completa horarios, profesionales, servicios y WhatsApp.</p>
+          <form class="admin-create-form" id="admin-create-business-form">
+            <div class="settings-field">
+              <label for="admin-business-name">Nombre del comercio</label>
+              <input class="field" id="admin-business-name" autocomplete="organization">
+            </div>
+            <div class="settings-field">
+              <label for="admin-user-name">Nombre del administrador</label>
+              <input class="field" id="admin-user-name" autocomplete="name">
+            </div>
+            <div class="settings-field">
+              <label for="admin-user-email">Email de acceso</label>
+              <input class="field" id="admin-user-email" type="email" autocomplete="email">
+            </div>
+            <div class="settings-field">
+              <label for="admin-user-password">Contrase&ntilde;a inicial</label>
+              <input class="field" id="admin-user-password" type="password" autocomplete="new-password">
+            </div>
+            <button class="full" id="admin-create-business-submit" type="submit">Crear comercio</button>
+          </form>
+          <p class="settings-feedback" id="admin-create-business-feedback" role="status" aria-live="polite"></p>
+        </section>
+
         <section class="settings-panel">
           <h3>Automatizaci&oacute;n</h3>
           <p>Control&aacute; c&oacute;mo responde el asistente en todos los chats del local.</p>
@@ -9055,7 +9237,7 @@ const crmHtml = `<!doctype html>
 
         <section class="settings-panel">
           <h3>WhatsApp del comercio</h3>
-          <p>Conect&aacute; la cuenta Meta del cliente y control&aacute; qu&eacute; env&iacute;os reales quedan habilitados.</p>
+          <p>Carg&aacute; los datos de WhatsApp Cloud del comercio y control&aacute; qu&eacute; env&iacute;os reales quedan habilitados.</p>
           <div class="whatsapp-settings-grid">
             <div class="whatsapp-status-card">
               <div>
@@ -9065,7 +9247,12 @@ const crmHtml = `<!doctype html>
               <div class="whatsapp-status-badge" id="whatsapp-settings-badge">Bloqueado</div>
             </div>
             <div class="settings-actions">
-              <button class="primary" id="whatsapp-connect-button" type="button">Conectar WhatsApp</button>
+              <button class="primary" id="whatsapp-connect-button" type="button">Ver datos a cargar</button>
+            </div>
+            <div class="whatsapp-manual-guide" id="whatsapp-manual-guide" hidden>
+              <strong>Carga manual asistida</strong>
+              <span>Pedile al comercio acceso a Meta Business Suite y copi&aacute; estos datos desde Cuentas de WhatsApp: WABA ID, Phone Number ID, n&uacute;mero visible y token del comercio.</span>
+              <span>El popup autom&aacute;tico de Meta queda reservado para cuando Salon AI tenga revisi&oacute;n de Technology Provider/BSP.</span>
             </div>
             <div class="whatsapp-control-list">
               <label class="automation-control">
@@ -9090,7 +9277,7 @@ const crmHtml = `<!doctype html>
               </label>
             </div>
             <form class="whatsapp-technical-form" id="whatsapp-technical-form">
-              <h4>Conexi&oacute;n t&eacute;cnica</h4>
+              <h4>Datos manuales de conexi&oacute;n</h4>
               <div class="whatsapp-technical-grid">
                 <div class="settings-field">
                   <label for="whatsapp-waba-id">WABA ID</label>
@@ -9663,6 +9850,8 @@ const crmHtml = `<!doctype html>
       services: [],
       customers: [],
       customerOverview: [],
+      currentUser: null,
+      currentSessionBusiness: null,
       customerOverviewCounts: { total: 0, active: 0, inactive: 0, new: 0 },
       customerOverviewPagination: { page: 1, take: 25, total: 0, totalPages: 1 },
       selectedCustomerId: null,
@@ -9756,6 +9945,12 @@ const crmHtml = `<!doctype html>
       conversationMore: document.getElementById('conversation-more'),
       search: document.getElementById('search'),
       searchButton: document.getElementById('search-button'),
+      loginForm: document.getElementById('login-form'),
+      loginEmail: document.getElementById('login-email'),
+      loginPassword: document.getElementById('login-password'),
+      loginSubmit: document.getElementById('login-submit'),
+      loginFeedback: document.getElementById('login-feedback'),
+      logoutButton: document.getElementById('logout-button'),
       refresh: document.getElementById('refresh'),
       handoffCount: document.getElementById('handoff-count'),
       topConversationTotal: document.getElementById('top-conversation-total'),
@@ -9769,6 +9964,7 @@ const crmHtml = `<!doctype html>
       whatsappSettingsCopy: document.getElementById('whatsapp-settings-copy'),
       whatsappSettingsBadge: document.getElementById('whatsapp-settings-badge'),
       whatsappConnectButton: document.getElementById('whatsapp-connect-button'),
+      whatsappManualGuide: document.getElementById('whatsapp-manual-guide'),
       realWhatsappToggle: document.getElementById('real-whatsapp-toggle'),
       campaignSendingToggle: document.getElementById('campaign-sending-toggle'),
       reminderSendingToggle: document.getElementById('reminder-sending-toggle'),
@@ -10148,7 +10344,15 @@ const crmHtml = `<!doctype html>
       businessSundayStart: document.getElementById('business-sunday-start'),
       businessSundayEnd: document.getElementById('business-sunday-end'),
       businessSettingsSubmit: document.getElementById('business-settings-submit'),
-      businessSettingsFeedback: document.getElementById('business-settings-feedback')
+      businessSettingsFeedback: document.getElementById('business-settings-feedback'),
+      superAdminPanel: document.getElementById('super-admin-panel'),
+      adminCreateBusinessForm: document.getElementById('admin-create-business-form'),
+      adminBusinessName: document.getElementById('admin-business-name'),
+      adminUserName: document.getElementById('admin-user-name'),
+      adminUserEmail: document.getElementById('admin-user-email'),
+      adminUserPassword: document.getElementById('admin-user-password'),
+      adminCreateBusinessSubmit: document.getElementById('admin-create-business-submit'),
+      adminCreateBusinessFeedback: document.getElementById('admin-create-business-feedback')
     }
 
     function initials(phone) {
@@ -10283,20 +10487,123 @@ const crmHtml = `<!doctype html>
           '<div class="nav-user-status">' +
             '<span class="nav-online-dot"></span>Online' +
           '</div>' +
+          '<button class="nav-logout" id="logout-button" type="button">Salir</button>' +
         '</div>'
 
       hydrateIcons(nav)
+      els.logoutButton = document.getElementById('logout-button')
+      bindLogoutButton()
     }
 
     async function getJson(url, options) {
       const response = await fetch(url, options)
       if (!response.ok) {
         const body = await response.json().catch(() => ({}))
+        if (response.status === 401 && !url.startsWith('/auth/')) showLogin()
         const error = new Error(body.message || 'Error de servidor')
         error.body = body
         throw error
       }
       return response.json()
+    }
+
+    function showLogin(message) {
+      document.body.dataset.auth = 'login'
+      if (message) {
+        els.loginFeedback.textContent = message
+        els.loginFeedback.className = 'login-feedback visible'
+      }
+      els.loginSubmit.disabled = false
+      els.loginSubmit.textContent = 'Entrar al CRM'
+    }
+
+    function showApp() {
+      document.body.dataset.auth = 'ready'
+      els.loginFeedback.className = 'login-feedback'
+      els.loginFeedback.textContent = ''
+    }
+
+    async function loadSession() {
+      try {
+        const session = await getJson('/auth/me')
+        state.currentUser = session.user
+        state.currentSessionBusiness = session.business
+        showApp()
+        return true
+      } catch {
+        showLogin()
+        return false
+      }
+    }
+
+    async function loginToCrm(event) {
+      event.preventDefault()
+      els.loginFeedback.className = 'login-feedback'
+      els.loginSubmit.disabled = true
+      els.loginSubmit.textContent = 'Entrando...'
+      try {
+        const session = await getJson('/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: els.loginEmail.value.trim(),
+            password: els.loginPassword.value
+          })
+        })
+        state.currentUser = session.user
+        state.currentSessionBusiness = session.business
+        els.loginPassword.value = ''
+        showApp()
+        await startCrm()
+      } catch (error) {
+        showLogin(error.message)
+      }
+    }
+
+    async function logoutFromCrm() {
+      await getJson('/auth/logout', { method: 'POST' }).catch(() => null)
+      window.location.reload()
+    }
+
+    function bindLogoutButton() {
+      if (!els.logoutButton) return
+      els.logoutButton.addEventListener('click', logoutFromCrm)
+    }
+
+    function renderAuthUi() {
+      if (els.superAdminPanel) {
+        els.superAdminPanel.hidden = state.currentUser?.role !== 'SUPER_ADMIN'
+      }
+      updateBusinessBrand()
+    }
+
+    async function createAdminBusiness(event) {
+      event.preventDefault()
+      els.adminCreateBusinessFeedback.className = 'settings-feedback'
+      els.adminCreateBusinessSubmit.disabled = true
+      els.adminCreateBusinessSubmit.textContent = 'Creando...'
+      try {
+        const result = await getJson('/admin/businesses', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            businessName: els.adminBusinessName.value.trim(),
+            adminName: els.adminUserName.value.trim(),
+            adminEmail: els.adminUserEmail.value.trim(),
+            adminPassword: els.adminUserPassword.value
+          })
+        })
+        els.adminCreateBusinessForm.reset()
+        els.adminCreateBusinessFeedback.textContent = 'Comercio creado: ' + result.business.name + '. Usuario: ' + result.user.email
+        els.adminCreateBusinessFeedback.className = 'settings-feedback visible success'
+        await loadBasics()
+      } catch (error) {
+        els.adminCreateBusinessFeedback.textContent = error.message
+        els.adminCreateBusinessFeedback.className = 'settings-feedback visible error'
+      } finally {
+        els.adminCreateBusinessSubmit.disabled = false
+        els.adminCreateBusinessSubmit.textContent = 'Crear comercio'
+      }
     }
 
     function showCrmToast(message, type = 'info') {
@@ -10322,7 +10629,7 @@ const crmHtml = `<!doctype html>
 
     async function loadBasics() {
       const businesses = await getJson('/businesses')
-      state.business = businesses[0] || null
+      state.business = state.currentSessionBusiness || businesses[0] || null
       state.businessId = state.business?.id || null
       state.businessHours = state.businessId
         ? await getJson('/business-hours?businessId=' + encodeURIComponent(state.businessId))
@@ -10336,6 +10643,7 @@ const crmHtml = `<!doctype html>
       state.customers = await getJson('/customers')
       renderBusinessSettings()
       renderWhatsappSettings()
+      renderAuthUi()
       applyProfessionalBusinessHourLimits()
       renderAiControls()
       renderProfessionals()
@@ -10343,6 +10651,11 @@ const crmHtml = `<!doctype html>
       renderAgendaFilters()
       renderAppointmentFormOptions()
       renderAgenda()
+    }
+
+    async function startCrm() {
+      await loadBasics()
+      await loadConversations()
     }
 
     async function loadCustomerOverview(options = {}) {
@@ -12409,7 +12722,8 @@ const crmHtml = `<!doctype html>
       const settings = state.whatsappSettings
       const connection = settings?.connection || {}
       const features = settings?.settings || {}
-      const connected = connection.status === 'CONNECTED'
+      const hasConnectionIds = Boolean(connection.wabaId && connection.phoneNumberId)
+      const connected = connection.status === 'CONNECTED' && hasConnectionIds
       const campaignReady = Boolean(settings?.gates?.canSendCampaigns)
       const reminderReady = Boolean(settings?.gates?.canSendReminders)
       const title = connected
@@ -12437,6 +12751,7 @@ const crmHtml = `<!doctype html>
       els.whatsappDisplayPhone.value = connection.displayPhoneNumber || ''
       els.whatsappTokenExpires.value = connection.tokenExpiresAt ? toDatetimeLocalValue(connection.tokenExpiresAt) : ''
       els.whatsappAccessToken.value = ''
+      els.whatsappConnectButton.textContent = hasConnectionIds ? 'Ver datos de conexion' : 'Ver datos a cargar'
     }
 
     function whatsappConnectionLabel(status) {
@@ -12692,6 +13007,15 @@ const crmHtml = `<!doctype html>
       }
     }
 
+    function showWhatsappManualConnectionGuide() {
+      els.whatsappManualGuide.hidden = false
+      els.whatsappTechnicalForm.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      showWhatsappSettingsFeedback('Completa WABA ID, Phone Number ID, numero visible y token desde Meta Business Suite. El guardado termina de habilitar los envios segun las reglas del comercio.', 'success')
+      window.setTimeout(() => {
+        els.whatsappWabaId.focus()
+      }, 250)
+    }
+
     async function openWhatsappSignupPlaceholder() {
       if (!state.businessId) return
       clearWhatsappSettingsFeedback()
@@ -12738,10 +13062,12 @@ const crmHtml = `<!doctype html>
       const brandName = document.querySelector('.workspace-nav .crm-brand strong')
       const brandMark = document.querySelector('.workspace-nav .brand-mark')
       const adminName = document.querySelector('.workspace-nav .nav-user-info strong')
+      const adminRole = document.querySelector('.workspace-nav .nav-user-info span')
       const adminAvatar = document.querySelector('.workspace-nav .mini-avatar')
 
       if (brandName) brandName.textContent = name
-      if (adminName) adminName.textContent = name
+      if (adminName) adminName.textContent = state.currentUser?.name || name
+      if (adminRole) adminRole.textContent = state.currentUser?.role === 'SUPER_ADMIN' ? 'Super admin' : 'Administrador'
       if (brandMark) {
         brandMark.innerHTML = logoUrl
           ? '<img src="' + escapeHtml(logoUrl) + '" alt="">'
@@ -12750,7 +13076,7 @@ const crmHtml = `<!doctype html>
       if (adminAvatar) {
         adminAvatar.innerHTML = logoUrl
           ? '<img src="' + escapeHtml(logoUrl) + '" alt="">'
-          : escapeHtml(businessInitials(name))
+          : escapeHtml(businessInitials(state.currentUser?.name || name))
       }
     }
 
@@ -16016,13 +16342,16 @@ const crmHtml = `<!doctype html>
       renderCampaigns()
     })
     els.businessSettingsForm.addEventListener('submit', saveBusinessSettings)
+    els.loginForm.addEventListener('submit', loginToCrm)
+    bindLogoutButton()
+    els.adminCreateBusinessForm.addEventListener('submit', createAdminBusiness)
     els.businessLogo.addEventListener('change', readBusinessLogo)
     els.businessLogoRemove.addEventListener('click', () => {
       clearBusinessSettingsFeedback()
       setBusinessLogo(null)
     })
     els.whatsappTechnicalForm.addEventListener('submit', saveWhatsappTechnicalSettings)
-    els.whatsappConnectButton.addEventListener('click', openWhatsappSignupPlaceholder)
+    els.whatsappConnectButton.addEventListener('click', showWhatsappManualConnectionGuide)
     els.realWhatsappToggle.addEventListener('change', () => {
       saveWhatsappSettingsPatch({
         realWhatsappEnabled: els.realWhatsappToggle.checked,
@@ -16204,14 +16533,14 @@ const crmHtml = `<!doctype html>
 
     hydrateIcons()
 
-    loadBasics()
-      .then(loadConversations)
+    loadSession()
+      .then((hasSession) => hasSession ? startCrm() : null)
       .catch((error) => {
         els.list.innerHTML = '<div class="error">' + escapeHtml(error.message) + '</div>'
       })
 
     setInterval(() => {
-      loadConversations({ silent: true })
+      if (document.body.dataset.auth === 'ready') loadConversations({ silent: true })
     }, 5000)
     }
   </script>
