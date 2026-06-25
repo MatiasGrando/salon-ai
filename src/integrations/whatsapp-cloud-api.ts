@@ -88,7 +88,13 @@ export class WhatsAppCloudApi {
 
     if (!response.ok) {
       const parsedError = parseWhatsAppError(await response.text())
-      return { listed: false, templates: [], status: response.status, errorCode: parsedError.code, errorMessage: parsedError.message }
+      return {
+        listed: false,
+        templates: [],
+        status: response.status,
+        ...definedString('errorCode', parsedError.code),
+        ...definedString('errorMessage', parsedError.message)
+      }
     }
 
     const body = await response.json() as { data?: MessageTemplateData[] }
@@ -109,7 +115,13 @@ export class WhatsAppCloudApi {
 
     if (!response.ok) {
       const parsedError = parseWhatsAppError(await response.text())
-      return { found: false, template: null, status: response.status, errorCode: parsedError.code, errorMessage: parsedError.message }
+      return {
+        found: false,
+        template: null,
+        status: response.status,
+        ...definedString('errorCode', parsedError.code),
+        ...definedString('errorMessage', parsedError.message)
+      }
     }
 
     const body = await response.json() as {
@@ -327,25 +339,28 @@ export class WhatsAppCloudApi {
 async function uploadTemplateImage(dataUrl: string, config: WhatsAppCloudCredentials): Promise<{ uploaded: true; handle: string } | { uploaded: false; errorMessage?: string }> {
   const match = /^data:(image\/(?:png|jpeg|webp));base64,([a-z0-9+/=]+)$/i.exec(dataUrl)
   if (!match || !config.accessToken || !config.appId) return { uploaded: false, errorMessage: 'Imagen de plantilla inválida' }
-  const bytes = Buffer.from(match[2], 'base64')
-  const sessionResponse = await fetch(`https://graph.facebook.com/${config.apiVersion}/${config.appId}/uploads?file_length=${bytes.length}&file_type=${encodeURIComponent(match[1])}&file_name=template-image`, {
+  const mimeType = match[1]
+  const base64Data = match[2]
+  if (!mimeType || !base64Data) return { uploaded: false, errorMessage: 'Imagen de plantilla invalida' }
+  const bytes = Buffer.from(base64Data, 'base64')
+  const sessionResponse = await fetch(`https://graph.facebook.com/${config.apiVersion}/${config.appId}/uploads?file_length=${bytes.length}&file_type=${encodeURIComponent(mimeType)}&file_name=template-image`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${config.accessToken}` }
   })
   if (!sessionResponse.ok) {
     const parsed = parseWhatsAppError(await sessionResponse.text())
-    return { uploaded: false, errorMessage: parsed.message }
+    return { uploaded: false, ...definedString('errorMessage', parsed.message) }
   }
   const session = await sessionResponse.json() as { id?: string }
   if (!session.id) return { uploaded: false, errorMessage: 'Meta no devolvió una sesión para la imagen' }
   const uploadResponse = await fetch(`https://graph.facebook.com/${config.apiVersion}/${session.id}`, {
     method: 'POST',
     headers: { Authorization: `OAuth ${config.accessToken}`, file_offset: '0', 'Content-Type': 'application/octet-stream' },
-    body: bytes
+    body: new Uint8Array(bytes)
   })
   if (!uploadResponse.ok) {
     const parsed = parseWhatsAppError(await uploadResponse.text())
-    return { uploaded: false, errorMessage: parsed.message }
+    return { uploaded: false, ...definedString('errorMessage', parsed.message) }
   }
   const uploaded = await uploadResponse.json() as { h?: string }
   return uploaded.h ? { uploaded: true, handle: uploaded.h } : { uploaded: false, errorMessage: 'Meta no devolvió el identificador de la imagen' }
@@ -354,10 +369,13 @@ async function uploadTemplateImage(dataUrl: string, config: WhatsAppCloudCredent
 async function uploadWhatsAppMedia(dataUrl: string, config: WhatsAppCloudCredentials): Promise<{ uploaded: true; id: string } | { uploaded: false; errorMessage?: string }> {
   const match = /^data:(image\/(?:png|jpeg|webp));base64,([a-z0-9+/=]+)$/i.exec(dataUrl)
   if (!match || !config.accessToken || !config.phoneNumberId) return { uploaded: false, errorMessage: 'Imagen de plantilla inválida' }
-  const bytes = Buffer.from(match[2], 'base64')
+  const mimeType = match[1]
+  const base64Data = match[2]
+  if (!mimeType || !base64Data) return { uploaded: false, errorMessage: 'Imagen de plantilla invalida' }
+  const bytes = Buffer.from(base64Data, 'base64')
   const form = new FormData()
   form.append('messaging_product', 'whatsapp')
-  form.append('file', new Blob([bytes], { type: match[1] }), 'template-image')
+  form.append('file', new Blob([new Uint8Array(bytes)], { type: mimeType }), 'template-image')
   const response = await fetch(`https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/media`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${config.accessToken}` },
@@ -365,7 +383,7 @@ async function uploadWhatsAppMedia(dataUrl: string, config: WhatsAppCloudCredent
   })
   if (!response.ok) {
     const parsed = parseWhatsAppError(await response.text())
-    return { uploaded: false, errorMessage: parsed.message }
+    return { uploaded: false, ...definedString('errorMessage', parsed.message) }
   }
   const uploaded = await response.json() as { id?: string }
   return uploaded.id ? { uploaded: true, id: uploaded.id } : { uploaded: false, errorMessage: 'WhatsApp no devolvió el identificador de la imagen' }
@@ -391,6 +409,10 @@ function parseWhatsAppError(errorBody: string) {
       message: errorBody
     }
   }
+}
+
+function definedString<T extends string>(key: T, value?: string) {
+  return value === undefined ? {} : { [key]: value } as Record<T, string>
 }
 
 function formatRecipientPhone(phone: string, config: WhatsAppCloudCredentials) {

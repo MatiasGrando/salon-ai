@@ -9522,7 +9522,7 @@ const crmHtml = `<!doctype html>
           <article class="reports-table-panel">
             <div>
               <h3>Clientes en riesgo</h3>
-              <p>Clientes recurrentes cuyo patron de visitas indica riesgo de perdida.</p>
+              <p id="report-risk-copy">Clientes recurrentes cuyo patron de visitas indica riesgo de perdida.</p>
             </div>
             <div id="report-risk-table"></div>
           </article>
@@ -9862,7 +9862,7 @@ const crmHtml = `<!doctype html>
       customerSearch: '',
       customerNotes: [],
       agendaAppointments: [],
-      reportAppointments: [],
+      reportOverview: null,
       agendaBlocks: [],
       agendaSelectedDate: new Date(),
       agendaMonthDate: new Date(),
@@ -10295,6 +10295,7 @@ const crmHtml = `<!doctype html>
       reportServicesTable: document.getElementById('report-services-table'),
       reportProfessionalsTable: document.getElementById('report-professionals-table'),
       reportRiskTable: document.getElementById('report-risk-table'),
+      reportRiskCopy: document.getElementById('report-risk-copy'),
       mobileInbox: document.getElementById('mobile-inbox'),
       mobileChat: document.getElementById('mobile-chat'),
       mobileDetails: document.getElementById('mobile-details'),
@@ -11748,294 +11749,59 @@ const crmHtml = `<!doctype html>
 
     async function loadReports() {
       els.reportStatusBars.innerHTML = '<div class="empty">Cargando reportes...</div>'
-      const [appointments, conversations] = await Promise.all([
-        getJson('/appointments'),
-        getJson('/crm/conversations?take=500')
-      ])
-      state.reportAppointments = appointments
-      state.conversations = conversations
+      if (!state.businessId) throw new Error('Selecciona un comercio para ver sus reportes')
+      const params = new URLSearchParams({
+        businessId: state.businessId,
+        days: String(Number(els.reportsRange.value || 30)),
+        futureDays: String(Number(els.reportsFutureDays.value || 30)),
+        inactiveDays: String(Number(els.reportsInactiveDays.value || 60))
+      })
+      state.reportOverview = await getJson('/reports/overview?' + params.toString())
       renderReports()
     }
 
     function renderReports() {
-      const days = Number(els.reportsRange.value || 30)
+      const report = state.reportOverview
+      if (!report) return
+      const periodStart = new Date(report.period.start)
+      const periodEnd = new Date(report.period.end)
       const futureDays = Number(els.reportsFutureDays.value || 30)
       const inactiveDays = Number(els.reportsInactiveDays.value || 60)
-      const periodEnd = new Date()
-      const periodStart = addDays(startOfDay(periodEnd), -(days - 1))
-      const appointments = state.reportAppointments.filter((appointment) => {
-        const start = new Date(appointment.startAt)
-        return start >= periodStart && start <= periodEnd
-      })
-      const nonCancelled = appointments.filter(isActiveAppointment)
-      const cancelled = appointments.filter((appointment) => appointment.status === 'CANCELLED')
-      const noShow = appointments.filter((appointment) => appointment.status === 'NO_SHOW')
-      const completed = nonCancelled.filter((appointment) => {
-        return appointment.status === 'COMPLETED' || new Date(appointment.startAt) < periodEnd
-      })
-      const futureAgenda = calculateFutureAgenda({
-        days: futureDays,
-        now: periodEnd,
-        allAppointments: state.reportAppointments
-      })
-      const activeCustomerIds = new Set(nonCancelled.map((appointment) => appointment.customerId).filter(Boolean))
-      const cancellationRate = appointments.length ? Math.round((cancelled.length / appointments.length) * 100) : 0
-      const chatConversion = calculateChatConversion({
-        periodStart,
-        periodEnd,
-        appointments: nonCancelled
-      })
-      const customerMix = calculateCustomerMix({
-        periodStart,
-        periodAppointments: nonCancelled,
-        allAppointments: state.reportAppointments
-      })
-      const visitGap = calculateAverageVisitGap({
-        periodStart,
-        periodEnd,
-        allAppointments: state.reportAppointments
-      })
-      const riskCustomers = calculateRiskCustomers({
-        now: periodEnd,
-        allAppointments: state.reportAppointments
-      })
-      const inactiveCustomers = calculateInactiveCustomers({
-        days: inactiveDays,
-        now: periodEnd,
-        allAppointments: state.reportAppointments
-      })
-      const revenue = calculateRevenue(nonCancelled)
 
       els.reportsSubtitle.textContent = formatReportRange(periodStart, periodEnd)
-      els.reportTotalAppointments.textContent = String(appointments.length)
-      els.reportTotalCopy.textContent = nonCancelled.length + ' activos en el periodo.'
-      els.reportCompletedAppointments.textContent = String(completed.length)
-      els.reportCompletedCopy.textContent = completed.length + ' realizados del periodo.'
-      els.reportCancelledAppointments.textContent = String(cancelled.length)
-      els.reportCancelledCopy.textContent = cancellationRate + '% del periodo.'
-      els.reportNoShowAppointments.textContent = String(noShow.length)
-      els.reportNoShowCopy.textContent = noShow.length + ' marcados como ausentes.'
-      els.reportActiveCustomers.textContent = String(activeCustomerIds.size)
-      els.reportCustomersCopy.textContent = countNewCustomers(periodStart, periodEnd) + ' clientes nuevos cargados.'
-      els.reportChatConversion.textContent = chatConversion.rate + '%'
-      els.reportChatConversionCopy.textContent = chatConversion.converted + ' de ' + chatConversion.total + ' conversaciones.'
-      els.reportCustomerMix.textContent = customerMix.newCustomers + ' / ' + customerMix.returningCustomers
-      els.reportCustomerMixCopy.textContent = customerMix.newRate + '% nuevos, ' + customerMix.returningRate + '% recurrentes.'
-      els.reportVisitGap.textContent = visitGap.averageDays === null ? '--' : visitGap.averageDays + ' dias'
-      els.reportVisitGapCopy.textContent = visitGap.sampleSize + ' intervalos entre visitas.'
-      els.reportFutureTotal.textContent = String(futureAgenda.total)
+      els.reportTotalAppointments.textContent = String(report.appointments.total)
+      els.reportTotalCopy.textContent = report.appointments.active + ' activos en el periodo.'
+      els.reportCompletedAppointments.textContent = String(report.appointments.completed)
+      els.reportCompletedCopy.textContent = report.appointments.completed + ' realizados del periodo.'
+      els.reportCancelledAppointments.textContent = String(report.appointments.cancelled)
+      els.reportCancelledCopy.textContent = report.appointments.cancellationRate + '% del periodo.'
+      els.reportNoShowAppointments.textContent = String(report.appointments.noShow)
+      els.reportNoShowCopy.textContent = report.appointments.noShow + ' marcados como ausentes.'
+      els.reportActiveCustomers.textContent = String(report.customers.active)
+      els.reportCustomersCopy.textContent = report.customers.new + ' clientes nuevos cargados.'
+      els.reportChatConversion.textContent = report.chatConversion.rate + '%'
+      els.reportChatConversionCopy.textContent = report.chatConversion.converted + ' de ' + report.chatConversion.total + ' conversaciones.'
+      els.reportCustomerMix.textContent = report.customerMix.newCustomers + ' / ' + report.customerMix.returningCustomers
+      els.reportCustomerMixCopy.textContent = report.customerMix.newRate + '% nuevos, ' + report.customerMix.returningRate + '% recurrentes.'
+      els.reportVisitGap.textContent = report.visitGap.averageDays === null ? '--' : report.visitGap.averageDays + ' dias'
+      els.reportVisitGapCopy.textContent = report.visitGap.sampleSize + ' intervalos entre visitas.'
+      els.reportFutureTotal.textContent = String(report.futureAgenda.total)
       els.reportFutureCopy.textContent = 'Proximos ' + futureDays + ' dias.'
-      els.reportInactiveCopy.textContent = 'Sin turno en los ultimos ' + inactiveDays + ' dias.'
+      els.reportInactiveCopy.textContent = report.inactiveCustomers.total + ' clientes sin turno en los ultimos ' + inactiveDays + ' dias.'
+      els.reportRiskCopy.textContent = report.riskCustomers.total + ' clientes recurrentes en riesgo de perdida.'
 
       renderReportStatusBars({
-        confirmados: appointments.length,
-        realizados: completed.length,
-        cancelados: cancelled.length,
-        ausentes: noShow.length
+        confirmados: report.appointments.total,
+        realizados: report.appointments.completed,
+        cancelados: report.appointments.cancelled,
+        ausentes: report.appointments.noShow
       })
-      renderRevenue(revenue)
-      renderFutureAgenda(futureAgenda)
-      renderReportServices(nonCancelled)
-      renderReportProfessionals(appointments)
-      renderInactiveCustomers(inactiveCustomers)
-      renderRiskCustomers(riskCustomers)
-    }
-
-    function calculateChatConversion(input) {
-      const periodConversations = state.conversations.filter((conversation) => {
-        const activityAt = new Date(latestConversationActivityValue(conversation))
-        return activityAt >= input.periodStart && activityAt <= input.periodEnd
-      })
-      const convertedPhones = new Set(input.appointments
-        .map((appointment) => normalizePhone(appointment.customer?.phone))
-        .filter(Boolean))
-      const converted = periodConversations.filter((conversation) => {
-        return convertedPhones.has(normalizePhone(conversation.phone))
-      }).length
-      const total = periodConversations.length
-
-      return {
-        total,
-        converted,
-        rate: total ? Math.round((converted / total) * 100) : 0
-      }
-    }
-
-    function calculateCustomerMix(input) {
-      const customerIds = Array.from(new Set(input.periodAppointments
-        .map((appointment) => appointment.customerId)
-        .filter(Boolean)))
-      let newCustomers = 0
-      let returningCustomers = 0
-
-      for (const customerId of customerIds) {
-        const firstAppointment = input.allAppointments
-          .filter((appointment) => appointment.customerId === customerId && isVisitAppointment(appointment))
-          .sort((left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime())[0]
-
-        if (firstAppointment && new Date(firstAppointment.startAt) >= input.periodStart) {
-          newCustomers += 1
-        } else {
-          returningCustomers += 1
-        }
-      }
-
-      const total = newCustomers + returningCustomers
-      return {
-        newCustomers,
-        returningCustomers,
-        newRate: total ? Math.round((newCustomers / total) * 100) : 0,
-        returningRate: total ? Math.round((returningCustomers / total) * 100) : 0
-      }
-    }
-
-    function calculateAverageVisitGap(input) {
-      const visitsByCustomer = new Map()
-      for (const appointment of input.allAppointments) {
-        if (!isVisitAppointment(appointment) || !appointment.customerId) continue
-        const start = new Date(appointment.startAt)
-        if (start > input.periodEnd) continue
-        visitsByCustomer.set(appointment.customerId, (visitsByCustomer.get(appointment.customerId) || []).concat(start))
-      }
-
-      const gaps = []
-      for (const visits of visitsByCustomer.values()) {
-        const sortedVisits = visits.sort((left, right) => left.getTime() - right.getTime())
-        for (let index = 1; index < sortedVisits.length; index += 1) {
-          const currentVisit = sortedVisits[index]
-          if (currentVisit < input.periodStart || currentVisit > input.periodEnd) continue
-          const previousVisit = sortedVisits[index - 1]
-          gaps.push(Math.round((currentVisit.getTime() - previousVisit.getTime()) / (24 * 60 * 60 * 1000)))
-        }
-      }
-
-      if (gaps.length === 0) {
-        return {
-          averageDays: null,
-          sampleSize: 0
-        }
-      }
-
-      return {
-        averageDays: Math.round(gaps.reduce((sum, gap) => sum + gap, 0) / gaps.length),
-        sampleSize: gaps.length
-      }
-    }
-
-    function calculateFutureAgenda(input) {
-      const futureEnd = addDays(input.now, input.days)
-      const appointments = input.allAppointments.filter((appointment) => {
-        const start = new Date(appointment.startAt)
-        return isActiveAppointment(appointment) && start >= input.now && start < futureEnd
-      })
-      const byProfessional = rankedCounts(appointments, (appointment) => appointment.professional?.name || 'Profesional')
-
-      return {
-        total: appointments.length,
-        byProfessional
-      }
-    }
-
-    function calculateRevenue(appointments) {
-      const missingServices = new Map()
-      let total = 0
-      let pricedAppointments = 0
-      let missingAppointments = 0
-
-      for (const appointment of appointments) {
-        const price = getAppointmentServicePrice(appointment)
-        if (price === null) {
-          missingAppointments += 1
-          if (appointment.serviceId) {
-            const service = getServiceForAppointment(appointment)
-            missingServices.set(appointment.serviceId, {
-              id: appointment.serviceId,
-              name: service?.name || appointment.service?.name || 'Servicio'
-            })
-          }
-          continue
-        }
-
-        total += price
-        pricedAppointments += 1
-      }
-
-      return {
-        total,
-        pricedAppointments,
-        missingAppointments,
-        missingServices: Array.from(missingServices.values())
-      }
-    }
-
-    function calculateRiskCustomers(input) {
-      return buildCustomerVisitSummaries(input.allAppointments)
-        .filter((customer) => customer.visitCount >= 2)
-        .map((customer) => {
-          const expectedReturnDays = Math.max(14, Math.round(customer.averageGapDays * 1.25))
-          const overdueDays = customer.daysSinceLastVisit - expectedReturnDays
-          return {
-            ...customer,
-            expectedReturnDays,
-            overdueDays
-          }
-        })
-        .filter((customer) => customer.overdueDays > 0)
-        .sort((left, right) => right.overdueDays - left.overdueDays)
-    }
-
-    function calculateInactiveCustomers(input) {
-      const futureCustomerIds = new Set(input.allAppointments
-        .filter((appointment) => {
-          return appointment.customerId &&
-            isActiveAppointment(appointment) &&
-            new Date(appointment.startAt) >= input.now
-        })
-        .map((appointment) => appointment.customerId))
-
-      return buildCustomerVisitSummaries(input.allAppointments)
-        .filter((customer) => customer.daysSinceLastVisit >= input.days)
-        .filter((customer) => !futureCustomerIds.has(customer.customerId))
-        .sort((left, right) => right.daysSinceLastVisit - left.daysSinceLastVisit)
-    }
-
-    function buildCustomerVisitSummaries(appointments) {
-      const byCustomer = new Map()
-      for (const appointment of appointments) {
-        if (!isVisitAppointment(appointment) || !appointment.customerId) continue
-        const start = new Date(appointment.startAt)
-        if (start > new Date()) continue
-        const current = byCustomer.get(appointment.customerId) || {
-          customerId: appointment.customerId,
-          name: appointment.customer?.name || 'Cliente',
-          phone: appointment.customer?.phone || '',
-          visits: []
-        }
-        current.visits.push(start)
-        byCustomer.set(appointment.customerId, current)
-      }
-
-      return Array.from(byCustomer.values()).map((customer) => {
-        const visits = customer.visits.sort((left, right) => left.getTime() - right.getTime())
-        const gaps = []
-        for (let index = 1; index < visits.length; index += 1) {
-          gaps.push(Math.round((visits[index].getTime() - visits[index - 1].getTime()) / (24 * 60 * 60 * 1000)))
-        }
-        const lastVisit = visits[visits.length - 1]
-        const averageGapDays = gaps.length
-          ? Math.round(gaps.reduce((sum, gap) => sum + gap, 0) / gaps.length)
-          : null
-
-        return {
-          customerId: customer.customerId,
-          name: customer.name,
-          phone: customer.phone,
-          visitCount: visits.length,
-          lastVisit,
-          daysSinceLastVisit: Math.max(0, Math.round((new Date().getTime() - lastVisit.getTime()) / (24 * 60 * 60 * 1000))),
-          averageGapDays
-        }
-      })
+      renderRevenue(report.revenue)
+      renderFutureAgenda(report.futureAgenda)
+      renderReportServices(report.services)
+      renderReportProfessionals(report.professionals)
+      renderInactiveCustomers(report.inactiveCustomers.items)
+      renderRiskCustomers(report.riskCustomers.items)
     }
 
     function renderReportStatusBars(counts) {
@@ -12109,10 +11875,7 @@ const crmHtml = `<!doctype html>
       }).join('')
     }
 
-    function renderReportServices(appointments) {
-      const rows = rankedCounts(appointments, (appointment) => appointment.service?.name || 'Servicio')
-        .slice(0, 6)
-
+    function renderReportServices(rows) {
       if (rows.length === 0) {
         els.reportServicesTable.innerHTML = '<div class="report-empty-note">No hay turnos en este periodo.</div>'
         return
@@ -12135,25 +11898,7 @@ const crmHtml = `<!doctype html>
       '</table>'
     }
 
-    function renderReportProfessionals(appointments) {
-      const rows = state.professionals.map((professional) => {
-        const ownAppointments = appointments.filter((appointment) => appointment.professionalId === professional.id)
-        const cancelled = ownAppointments.filter((appointment) => appointment.status === 'CANCELLED').length
-        const noShow = ownAppointments.filter((appointment) => appointment.status === 'NO_SHOW').length
-        const attended = ownAppointments.filter((appointment) => {
-          return isVisitAppointment(appointment) && new Date(appointment.startAt) < new Date()
-        }).length
-        return {
-          name: professional.name,
-          attended,
-          cancelled,
-          noShow,
-          total: ownAppointments.length
-        }
-      }).filter((row) => row.total > 0)
-        .sort((left, right) => right.attended - left.attended || right.total - left.total)
-        .slice(0, 6)
-
+    function renderReportProfessionals(rows) {
       if (rows.length === 0) {
         els.reportProfessionalsTable.innerHTML = '<div class="report-empty-note">No hay actividad por profesional en este periodo.</div>'
         return
@@ -12260,25 +12005,6 @@ const crmHtml = `<!doctype html>
         month: '2-digit',
         year: '2-digit'
       }).format(new Date(value))
-    }
-
-    function rankedCounts(items, getLabel) {
-      const counts = new Map()
-      for (const item of items) {
-        const label = getLabel(item)
-        counts.set(label, (counts.get(label) || 0) + 1)
-      }
-
-      return Array.from(counts.entries())
-        .map(([label, count]) => ({ label, count }))
-        .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label))
-    }
-
-    function countNewCustomers(periodStart, periodEnd) {
-      return state.customers.filter((customer) => {
-        const createdAt = new Date(customer.createdAt)
-        return createdAt >= periodStart && createdAt <= periodEnd
-      }).length
     }
 
     function formatReportRange(start, end) {
@@ -16573,9 +16299,9 @@ const crmHtml = `<!doctype html>
     els.customerPageNext.addEventListener('click', () => {
       loadCustomerOverview({ page: Math.min(state.customerOverviewPagination.totalPages, state.customerOverviewPagination.page + 1) })
     })
-    els.reportsRange.addEventListener('change', renderReports)
-    els.reportsFutureDays.addEventListener('change', renderReports)
-    els.reportsInactiveDays.addEventListener('change', renderReports)
+    els.reportsRange.addEventListener('change', loadReports)
+    els.reportsFutureDays.addEventListener('change', loadReports)
+    els.reportsInactiveDays.addEventListener('change', loadReports)
     els.reportsRefresh.addEventListener('click', loadReports)
     els.agendaProfessional.addEventListener('change', async () => {
       renderAgendaProfessionalControls()

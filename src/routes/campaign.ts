@@ -107,7 +107,16 @@ export async function campaignRoutes(app: FastifyInstance) {
     }
     try {
       return await prisma.whatsAppTemplate.create({
-        data: { businessId, internalName, metaName, category, language, body: messageBody, exampleJson: JSON.stringify(examples), imageUrl }
+        data: {
+          businessId,
+          internalName,
+          metaName,
+          category,
+          language,
+          body: messageBody,
+          exampleJson: JSON.stringify(examples),
+          ...(imageUrl !== undefined ? { imageUrl } : {})
+        }
       })
     } catch (error) {
       if (isUniqueConstraintError(error)) {
@@ -150,7 +159,17 @@ export async function campaignRoutes(app: FastifyInstance) {
     try {
       return await prisma.whatsAppTemplate.update({
         where: { id: current.id },
-        data: { internalName, metaName, category, language, body: messageBody, exampleJson: JSON.stringify(examples), imageUrl, status: 'DRAFT', rejectionReason: null }
+        data: {
+          internalName,
+          metaName,
+          category,
+          language,
+          body: messageBody,
+          exampleJson: JSON.stringify(examples),
+          ...(imageUrl !== undefined ? { imageUrl } : {}),
+          status: 'DRAFT',
+          rejectionReason: null
+        }
       })
     } catch (error) {
       if (isUniqueConstraintError(error)) {
@@ -321,7 +340,7 @@ export async function campaignRoutes(app: FastifyInstance) {
       to: phone,
       templateName,
       languageCode,
-      bodyParameters: variables.map((variable) => examples[variable]),
+      bodyParameters: variables.map((variable) => examples[variable] ?? ''),
       headerImageDataUrl: template.imageUrl
     })
     if (!result.sent) {
@@ -345,8 +364,8 @@ export async function campaignRoutes(app: FastifyInstance) {
 
     const context = await buildTemplateVariableContext({
       businessId: template.businessId,
-      customerId: body.customerId,
-      appointmentId: body.appointmentId
+      ...(body.customerId !== undefined ? { customerId: body.customerId } : {}),
+      ...(body.appointmentId !== undefined ? { appointmentId: body.appointmentId } : {})
     })
     const resolved = resolveWhatsAppTemplateVariables({
       body: template.body,
@@ -795,7 +814,7 @@ export async function campaignRoutes(app: FastifyInstance) {
         name: customer.name,
         phone: customer.phone,
         status: result.sent ? 'SENT' : 'FAILED',
-        message: failureMessage
+        ...(failureMessage !== undefined ? { message: failureMessage } : {})
       })
     }
 
@@ -1046,7 +1065,13 @@ export async function campaignRoutes(app: FastifyInstance) {
         if (result.sent) sent += 1
         else failed += 1
         const message = failureMessage || undefined
-        results.push({ reminderId: automation.id, appointmentId: appointment.id, customerId: appointment.customer.id, status: result.sent ? 'SENT' : 'FAILED', message })
+        results.push({
+          reminderId: automation.id,
+          appointmentId: appointment.id,
+          customerId: appointment.customer.id,
+          status: result.sent ? 'SENT' : 'FAILED',
+          ...(message !== undefined ? { message } : {})
+        })
       }
     }
 
@@ -1439,7 +1464,7 @@ function normalizeCampaignInput(body: CampaignInput, reply: FastifyReply, requir
     businessId: businessId!,
     name,
     message,
-    imageUrl,
+    ...(imageUrl !== undefined ? { imageUrl } : {}),
     type,
     channel,
     status,
@@ -1506,7 +1531,7 @@ function extractProviderMessageId(response: unknown) {
 }
 
 function retryDelayMinutes(retryNumber: number) {
-  return [15, 30, 60][Math.max(0, Math.min(2, retryNumber - 1))]
+  return [15, 30, 60][Math.max(0, Math.min(2, retryNumber - 1))] ?? 60
 }
 
 function budgetLimitedQuantity(budgetLimit: number | null | undefined, category: string | null | undefined, requestedQuantity: number) {
@@ -1605,7 +1630,13 @@ async function sendCampaignRecipients(input: {
     const message = !result.sent
       ? ('errorMessage' in result ? result.errorMessage : undefined) || ('reason' in result ? result.reason : undefined) || 'No se pudo enviar'
       : undefined
-    results.push({ customerId: customer.id, name: customer.name, phone: customer.phone, status, message })
+    results.push({
+      customerId: customer.id,
+      name: customer.name,
+      phone: customer.phone,
+      status,
+      ...(message !== undefined ? { message } : {})
+    })
   }
 
   return { sent, failed, total: input.recipients.length, results }
@@ -1660,7 +1691,10 @@ function unsupportedTemplateVariablesMessage(category: string | null | undefined
 
 function extractNamedTemplateVariables(text: string) {
   const variables = new Set<string>()
-  for (const match of text.matchAll(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g)) variables.add(match[1])
+  for (const match of text.matchAll(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g)) {
+    const variable = match[1]
+    if (variable) variables.add(variable)
+  }
   return Array.from(variables)
 }
 
@@ -1691,7 +1725,9 @@ function buildMetaTemplateBody(body: string, examples: Record<string, string>) {
   })
   return {
     bodyText,
-    bodyExamples: variables.map((variable) => examples[variable]).filter(Boolean)
+    bodyExamples: variables
+      .map((variable) => examples[variable])
+      .filter((example): example is string => Boolean(example))
   }
 }
 

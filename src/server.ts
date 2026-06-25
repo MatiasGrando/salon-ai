@@ -14,6 +14,7 @@ import { crmUiRoutes } from './routes/crm-ui.js'
 import { scheduleBlockRoutes } from './routes/schedule-block.js'
 import { whatsappWebhookRoutes } from './routes/whatsapp-webhook.js'
 import { campaignRoutes } from './routes/campaign.js'
+import { reportRoutes } from './routes/report.js'
 import { authRoutes } from './routes/auth.js'
 import { authGuard } from './plugins/auth-guard.js'
 import { ensureBootstrapSuperAdmin } from './services/auth-service.js'
@@ -44,6 +45,7 @@ await app.register(availabilityRoutes)
 await app.register(chatRoutes)
 await app.register(crmRoutes)
 await app.register(campaignRoutes)
+await app.register(reportRoutes)
 await ensureBootstrapSuperAdmin()
 startMarketingScheduler(app)
 

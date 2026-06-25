@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
 
 type CustomerOverviewAppointment = {
+  customerId: string
   status: string
   startAt: Date
   professional: {
@@ -13,17 +14,38 @@ type CustomerOverviewAppointment = {
   }
 }
 
-type CustomerOverviewItem = {
+type CustomerOverviewSummary = {
   id: string
   name: string
   phone: string
+  marketingStatus: string
+  marketingSource: string
   createdAt: Date
-  appointments: CustomerOverviewAppointment[]
-  notes: unknown[]
-  marketingPreferences: Array<{
-    status: string
-    source: string
-  }>
+  status: 'active' | 'inactive'
+  isNew: boolean
+  visitCount: number
+  lastVisit: Date | null
+  nextAppointment: CustomerOverviewAppointment | null
+  averageFrequencyDays: number | null
+  estimatedSpend: number
+  frequentProfessional: string | null
+  frequentService: string | null
+  recentAppointments: CustomerOverviewAppointment[]
+  notes: Array<{ id: string; body: string; createdAt: Date }>
+  conversation: CustomerOverviewConversation | null
+  openConversation: CustomerOverviewConversation | null
+}
+
+type CustomerOverviewConversation = {
+  id: string
+  phone: string
+  businessId: string | null
+  currentStep: string
+  aiEnabled: boolean
+  lastMessage: string | null
+  archivedAt: Date | null
+  createdAt: Date
+  updatedAt: Date
 }
 
 export async function customerRoutes(app: FastifyInstance) {
@@ -72,36 +94,57 @@ export async function customerRoutes(app: FastifyInstance) {
             }
           }
         : {},
-      include: {
-        appointments: {
-          where: query.businessId
-            ? {
-                professional: {
-                  businessId: query.businessId
-                }
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        createdAt: true
+      }
+    })
+
+    const appointments = await prisma.appointment.findMany({
+      where: {
+        ...(query.businessId
+          ? {
+              professional: {
+                businessId: query.businessId
               }
-            : {},
-          include: {
-            professional: true,
-            service: true
-          },
-          orderBy: {
-            startAt: 'desc'
+            }
+          : {}),
+        ...(query.businessId
+          ? {
+              customerId: {
+                in: customers.map((customer) => customer.id)
+              }
+            }
+          : {})
+      },
+      select: {
+        customerId: true,
+        status: true,
+        startAt: true,
+        professional: {
+          select: {
+            name: true
           }
         },
-        notes: {
-          orderBy: {
-            createdAt: 'desc'
-          },
-          take: 2
-        },
-        marketingPreferences: {
-          where: query.businessId ? { businessId: query.businessId } : undefined,
-          orderBy: { updatedAt: 'desc' },
-          take: 1
+        service: {
+          select: {
+            name: true,
+            price: true
+          }
         }
+      },
+      orderBy: {
+        startAt: 'desc'
       }
-    } as any) as CustomerOverviewItem[]
+    })
+    const appointmentsByCustomerId = new Map<string, CustomerOverviewAppointment[]>()
+    for (const appointment of appointments) {
+      const items = appointmentsByCustomerId.get(appointment.customerId) ?? []
+      items.push(appointment)
+      appointmentsByCustomerId.set(appointment.customerId, items)
+    }
 
     const conversations = await prisma.conversation.findMany({
       where: query.businessId
@@ -109,6 +152,17 @@ export async function customerRoutes(app: FastifyInstance) {
             businessId: query.businessId
           }
         : {},
+      select: {
+        id: true,
+        phone: true,
+        businessId: true,
+        currentStep: true,
+        aiEnabled: true,
+        lastMessage: true,
+        archivedAt: true,
+        createdAt: true,
+        updatedAt: true
+      },
       orderBy: {
         updatedAt: 'desc'
       }
@@ -119,11 +173,12 @@ export async function customerRoutes(app: FastifyInstance) {
       if (!conversationsByPhone.has(phone)) conversationsByPhone.set(phone, conversation)
     }
 
-    const summaries = customers.map((customer) => {
-      const attended = customer.appointments
+    const summaries: CustomerOverviewSummary[] = customers.map((customer) => {
+      const customerAppointments = appointmentsByCustomerId.get(customer.id) ?? []
+      const attended = customerAppointments
         .filter((appointment) => isAttendedVisit(appointment, now))
         .sort((left, right) => right.startAt.getTime() - left.startAt.getTime())
-      const future = customer.appointments
+      const future = customerAppointments
         .filter((appointment) => isActiveAppointment(appointment) && appointment.startAt >= now)
         .sort((left, right) => left.startAt.getTime() - right.startAt.getTime())
       const recentVisits = attended.slice(0, 8)
@@ -145,8 +200,8 @@ export async function customerRoutes(app: FastifyInstance) {
         id: customer.id,
         name: customer.name,
         phone: customer.phone,
-        marketingStatus: customer.marketingPreferences[0]?.status ?? 'NOT_AUTHORIZED',
-        marketingSource: customer.marketingPreferences[0]?.source ?? 'DEFAULT',
+        marketingStatus: 'NOT_AUTHORIZED',
+        marketingSource: 'DEFAULT',
         createdAt: customer.createdAt,
         status: isActive ? 'active' : 'inactive',
         isNew,
@@ -158,7 +213,7 @@ export async function customerRoutes(app: FastifyInstance) {
         frequentProfessional: mostFrequent(recentVisits, (appointment) => appointment.professional.name),
         frequentService: mostFrequent(recentVisits, (appointment) => appointment.service.name),
         recentAppointments: attended.slice(0, 8),
-        notes: customer.notes,
+        notes: [],
         conversation,
         openConversation: conversation && !conversation.archivedAt && conversation.currentStep !== 'COMPLETED'
           ? conversation
@@ -191,9 +246,77 @@ export async function customerRoutes(app: FastifyInstance) {
     const totalPages = Math.max(1, Math.ceil(total / take))
     const safePage = Math.min(page, totalPages)
     const start = (safePage - 1) * take
+    const pageItems = filtered.slice(start, start + take)
+    const pageCustomerIds = pageItems.map((customer) => customer.id)
+    const [pageNotes, pageMarketingPreferences] = pageCustomerIds.length
+      ? await Promise.all([
+          prisma.customerNote.findMany({
+            where: {
+              customerId: {
+                in: pageCustomerIds
+              }
+            },
+            select: {
+              id: true,
+              customerId: true,
+              body: true,
+              createdAt: true
+            },
+            orderBy: {
+              createdAt: 'desc'
+            }
+          }),
+          prisma.customerMarketingPreference.findMany({
+            where: {
+              customerId: {
+                in: pageCustomerIds
+              },
+              ...(query.businessId ? { businessId: query.businessId } : {})
+            },
+            select: {
+              customerId: true,
+              status: true,
+              source: true
+            },
+            orderBy: {
+              updatedAt: 'desc'
+            }
+          })
+        ])
+      : [[], []]
+    const notesByCustomerId = new Map<string, Array<{ id: string; body: string; createdAt: Date }>>()
+    for (const note of pageNotes) {
+      const items = notesByCustomerId.get(note.customerId) ?? []
+      if (items.length < 2) {
+        items.push({
+          id: note.id,
+          body: note.body,
+          createdAt: note.createdAt
+        })
+        notesByCustomerId.set(note.customerId, items)
+      }
+    }
+    const marketingByCustomerId = new Map<string, { status: string; source: string }>()
+    for (const preference of pageMarketingPreferences) {
+      if (!marketingByCustomerId.has(preference.customerId)) {
+        marketingByCustomerId.set(preference.customerId, {
+          status: preference.status,
+          source: preference.source
+        })
+      }
+    }
+    const items = pageItems.map((customer) => {
+      const marketing = marketingByCustomerId.get(customer.id)
+      return {
+        ...customer,
+        marketingStatus: marketing?.status ?? customer.marketingStatus,
+        marketingSource: marketing?.source ?? customer.marketingSource,
+        notes: notesByCustomerId.get(customer.id) ?? []
+      }
+    })
 
     return {
-      items: filtered.slice(start, start + take),
+      items,
       counts,
       pagination: {
         page: safePage,
