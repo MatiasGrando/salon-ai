@@ -14,6 +14,10 @@ type WhatsAppWebhookPayload = {
   entry?: Array<{
     changes?: Array<{
       value?: {
+        metadata?: {
+          display_phone_number?: string
+          phone_number_id?: string
+        }
         messages?: Array<{
           id?: string
           from?: string
@@ -58,9 +62,23 @@ export class WhatsAppWebhookService {
     })
 
     for (const message of messages) {
+      const targetBusiness = message.phoneNumberId
+        ? await prisma.businessWhatsAppConfig.findFirst({
+            where: {
+              phoneNumberId: message.phoneNumberId
+            },
+            select: {
+              businessId: true
+            }
+          })
+        : null
+      const targetBusinessId = targetBusiness?.businessId ?? null
+
       console.info('[whatsapp-webhook] processing text message', {
         messageId: message.id,
-        from: message.from
+        from: message.from,
+        phoneNumberId: message.phoneNumberId,
+        businessId: targetBusinessId
       })
 
       if (message.id) {
@@ -91,9 +109,14 @@ export class WhatsAppWebhookService {
         where: {
           phone: message.from
         },
-        update: {},
+        update: targetBusinessId
+          ? {
+              businessId: targetBusinessId
+            }
+          : {},
         create: {
-          phone: message.from
+          phone: message.from,
+          ...(targetBusinessId ? { businessId: targetBusinessId } : {})
         },
         include: {
           business: true
@@ -109,6 +132,8 @@ export class WhatsAppWebhookService {
         status: string
         metadata: {
           provider: string
+          phoneNumberId?: string
+          displayPhoneNumber?: string
         }
       } = {
         conversationId: conversation.id,
@@ -117,7 +142,9 @@ export class WhatsAppWebhookService {
         body: message.text,
         status: 'received',
         metadata: {
-          provider: 'whatsapp'
+          provider: 'whatsapp',
+          ...(message.phoneNumberId ? { phoneNumberId: message.phoneNumberId } : {}),
+          ...(message.displayPhoneNumber ? { displayPhoneNumber: message.displayPhoneNumber } : {})
         }
       }
 
@@ -224,6 +251,7 @@ export class WhatsAppWebhookService {
       const conversationResult = await conversationService.handleMessage({
         phone: message.from,
         message: message.text,
+        ...(conversation.businessId ? { businessId: conversation.businessId } : {}),
         useAi: businessAiEnabled
       })
 
@@ -306,10 +334,13 @@ export class WhatsAppWebhookService {
       id?: string
       from: string
       text: string
+      phoneNumberId?: string
+      displayPhoneNumber?: string
     }> = []
 
     for (const entry of payload.entry ?? []) {
       for (const change of entry.changes ?? []) {
+        const metadata = change.value?.metadata
         for (const message of change.value?.messages ?? []) {
           if (message.type !== 'text' || !message.from || !message.text?.body) {
             continue
@@ -319,9 +350,13 @@ export class WhatsAppWebhookService {
             id?: string
             from: string
             text: string
+            phoneNumberId?: string
+            displayPhoneNumber?: string
           } = {
             from: message.from,
-            text: message.text.body
+            text: message.text.body,
+            ...(metadata?.phone_number_id ? { phoneNumberId: metadata.phone_number_id } : {}),
+            ...(metadata?.display_phone_number ? { displayPhoneNumber: metadata.display_phone_number } : {})
           }
 
           if (message.id) {
