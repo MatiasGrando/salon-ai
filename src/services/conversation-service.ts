@@ -6,11 +6,15 @@ import { BookingConversationFlow, isBookingStartMessage, isMenuStep } from './bo
 import { BotCopyService } from './bot-copy-service.js'
 import { normalizeText } from './message-understanding-service.js'
 import { runWithAiEnabled } from './ai-execution-context.js'
+import { BookingV2Engine } from './booking-v2-engine.js'
+import type { BookingV2MessagePlan } from './booking-v2-dialogue.js'
+import type { BookingField } from './booking-v2-state.js'
 
 const bookingConversationFlow = new BookingConversationFlow()
 const bookingProvider = new InternalBookingProvider()
 const botCopyService = new BotCopyService()
 const aiMessageUnderstandingService = new AiMessageUnderstandingService()
+const bookingV2Engine = new BookingV2Engine()
 
 type HandleMessageInput = {
   phone: string
@@ -21,13 +25,21 @@ type HandleMessageInput = {
 
 type HandleMessageResult = {
   reply: string
+  skipMisunderstandingTracking?: boolean
+  skipHumanize?: boolean
 }
 
 export class ConversationService {
   async handleMessage(input: HandleMessageInput): Promise<HandleMessageResult> {
     return runWithAiEnabled(input.useAi !== false, async () => {
       const result = await this.handleMessageCore(input)
-      await this.trackMisunderstanding(input.phone, result.reply)
+      if (!result.skipMisunderstandingTracking) {
+        await this.trackMisunderstanding(input.phone, result.reply)
+      }
+
+      if (result.skipHumanize) {
+        return { reply: result.reply }
+      }
 
       return this.humanizeResult({
         result,
@@ -64,7 +76,8 @@ export class ConversationService {
                 selectedDate: null,
                 selectedTime: null,
                 misunderstandingCount: 0,
-                lastAvailability: Prisma.JsonNull
+                lastAvailability: Prisma.JsonNull,
+                bookingV2State: Prisma.JsonNull
               }
             : {
                 lastMessage: message,
@@ -133,7 +146,8 @@ export class ConversationService {
         selectedTime: null,
         selectedCustomerName: null,
         misunderstandingCount: 0,
-        lastAvailability: null
+        lastAvailability: null,
+        bookingV2State: null
       })
 
       return {
@@ -149,7 +163,8 @@ export class ConversationService {
         selectedDate: null,
         selectedTime: null,
         misunderstandingCount: 0,
-        lastAvailability: null
+        lastAvailability: null,
+        bookingV2State: null
       })
 
       return {
@@ -163,7 +178,8 @@ export class ConversationService {
         aiEnabled: false,
         misunderstandingCount: 0,
         humanHandoffAt: new Date(),
-        humanHandoffResolvedAt: null
+        humanHandoffResolvedAt: null,
+        bookingV2State: null
       })
 
       return {
@@ -197,7 +213,8 @@ export class ConversationService {
         selectedDate: null,
         selectedTime: null,
         misunderstandingCount: 0,
-        lastAvailability: null
+        lastAvailability: null,
+        bookingV2State: null
       })
 
       return {
@@ -214,6 +231,15 @@ export class ConversationService {
 
     if (orchestratedReply) {
       return orchestratedReply
+    }
+
+    if (businessId && await this.isBookingV2Enabled(businessId)) {
+      return this.handleBookingV2({
+        phone: input.phone,
+        message,
+        businessId,
+        conversation
+      })
     }
 
     if (
@@ -248,6 +274,119 @@ export class ConversationService {
       businessId,
       conversation
     })
+  }
+
+  private async handleBookingV2(input: {
+    phone: string
+    message: string
+    businessId: string
+    conversation: {
+      currentStep: string
+      selectedCustomerName: string | null
+      selectedServiceId: string | null
+      selectedProfessionalId: string | null
+      selectedDate: string | null
+      selectedTime: string | null
+      misunderstandingCount: number
+      bookingV2State?: unknown
+    }
+  }): Promise<HandleMessageResult> {
+    if (
+      input.conversation.currentStep === 'CONFIRM' &&
+      isPositiveConfirmation(input.message) &&
+      input.conversation.selectedCustomerName &&
+      input.conversation.selectedServiceId &&
+      input.conversation.selectedProfessionalId &&
+      input.conversation.selectedDate &&
+      input.conversation.selectedTime
+    ) {
+      return this.confirmBookingV2Appointment({
+        phone: input.phone,
+        conversation: {
+          selectedCustomerName: input.conversation.selectedCustomerName,
+          selectedServiceId: input.conversation.selectedServiceId,
+          selectedProfessionalId: input.conversation.selectedProfessionalId,
+          selectedDate: input.conversation.selectedDate,
+          selectedTime: input.conversation.selectedTime
+        }
+      })
+    }
+
+    const result = await bookingV2Engine.process({
+      businessId: input.businessId,
+      conversation: input.conversation,
+      message: input.message
+    })
+
+    await this.updateConversation(input.phone, {
+      currentStep: conversationStepFromBookingV2Plan(result.plan),
+      ...result.conversationPatch,
+      lastAvailability: result.availabilityOptions.length
+        ? {
+            serviceId: result.state.draft.service,
+            professionalId: result.state.draft.professional,
+            date: result.state.draft.date,
+            options: result.availabilityOptions
+          }
+        : null
+    })
+
+    return {
+      reply: result.reply,
+      skipMisunderstandingTracking: true,
+      skipHumanize: true
+    }
+  }
+
+  private async confirmBookingV2Appointment(input: {
+    phone: string
+    conversation: {
+      selectedCustomerName: string
+      selectedServiceId: string
+      selectedProfessionalId: string
+      selectedDate: string
+      selectedTime: string
+    }
+  }): Promise<HandleMessageResult> {
+    const customer = await this.findOrCreateCustomer(input.phone, input.conversation.selectedCustomerName)
+    const appointment = await bookingProvider.createAppointment({
+      customerId: customer.id,
+      professionalId: input.conversation.selectedProfessionalId,
+      serviceId: input.conversation.selectedServiceId,
+      startAt: `${input.conversation.selectedDate}T${input.conversation.selectedTime}:00`
+    })
+
+    if (!appointment.ok) {
+      await this.updateConversation(input.phone, {
+        currentStep: 'ASK_DATE',
+        selectedDate: null,
+        selectedTime: null,
+        lastAvailability: null,
+        bookingV2State: null
+      })
+
+      return {
+        reply: `No pude confirmar el turno: ${appointment.message}. Probemos con otro día u horario.`,
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+
+    await this.updateConversation(input.phone, {
+      currentStep: 'COMPLETED',
+      bookingV2State: null,
+      lastAvailability: null
+    })
+
+    return {
+      reply: botCopyService.appointmentConfirmed({
+        customerName: input.conversation.selectedCustomerName,
+        date: formatDateForBookingV2(input.conversation.selectedDate),
+        time: input.conversation.selectedTime
+      }),
+      skipMisunderstandingTracking: true,
+      skipHumanize: true
+    }
   }
 
   private async humanizeResult(input: {
@@ -544,6 +683,45 @@ export class ConversationService {
     })
   }
 
+  private async findOrCreateCustomer(phone: string, name: string) {
+    const customer = await prisma.customer.findFirst({
+      where: {
+        phone
+      }
+    })
+
+    if (customer) {
+      return prisma.customer.update({
+        where: {
+          id: customer.id
+        },
+        data: {
+          name
+        }
+      })
+    }
+
+    return prisma.customer.create({
+      data: {
+        phone,
+        name
+      }
+    })
+  }
+
+  private async isBookingV2Enabled(businessId: string) {
+    const settings = await prisma.businessFeatureSettings.findUnique({
+      where: {
+        businessId
+      },
+      select: {
+        bookingV2Enabled: true
+      }
+    })
+
+    return Boolean(settings?.bookingV2Enabled)
+  }
+
   private async resolveBusinessId(businessId?: string) {
     if (businessId) {
       return businessId
@@ -563,6 +741,11 @@ export class ConversationService {
     data: {
       currentStep:
         | 'START'
+        | 'ASK_SERVICE'
+        | 'ASK_PROFESSIONAL'
+        | 'ASK_DATE'
+        | 'ASK_TIME'
+        | 'CONFIRM'
         | 'ASK_CUSTOMER_NAME'
         | 'CANCEL_SELECT_APPOINTMENT'
         | 'EDIT_SELECT_APPOINTMENT'
@@ -574,21 +757,31 @@ export class ConversationService {
       selectedTime?: string | null
       selectedCustomerName?: string | null
       lastAvailability?: unknown
+      bookingV2State?: unknown
       aiEnabled?: boolean
       misunderstandingCount?: number
       humanHandoffAt?: Date | null
       humanHandoffResolvedAt?: Date | null
     }
   ) {
-    const { lastAvailability, ...rest } = data
-    const dataToUpdate = lastAvailability === undefined
-      ? rest
-      : {
-          ...rest,
-          lastAvailability: lastAvailability === null
-            ? Prisma.JsonNull
-            : lastAvailability as Prisma.InputJsonValue
-        }
+    const { lastAvailability, bookingV2State, ...rest } = data
+    const dataToUpdate = {
+      ...rest,
+      ...(lastAvailability === undefined
+        ? {}
+        : {
+            lastAvailability: lastAvailability === null
+              ? Prisma.JsonNull
+              : lastAvailability as Prisma.InputJsonValue
+          }),
+      ...(bookingV2State === undefined
+        ? {}
+        : {
+            bookingV2State: bookingV2State === null
+              ? Prisma.JsonNull
+              : bookingV2State as Prisma.InputJsonValue
+          })
+    }
 
     return prisma.conversation.update({
       where: {
@@ -623,6 +816,44 @@ function isResetMessage(message: string) {
     'volver a empezar',
     'reset'
   ].includes(normalizedMessage)
+}
+
+function conversationStepFromBookingV2Plan(plan: BookingV2MessagePlan) {
+  if (plan.type === 'handoff') return 'HUMAN_HANDOFF'
+  if (plan.type === 'confirm_booking') return 'CONFIRM'
+  if (plan.type === 'confirm_field' || plan.type === 'confirm_correction') {
+    return stepForBookingV2Field(plan.field)
+  }
+  return stepForBookingV2Field(plan.field)
+}
+
+function stepForBookingV2Field(field: BookingField) {
+  if (field === 'name') return 'ASK_CUSTOMER_NAME'
+  if (field === 'service') return 'ASK_SERVICE'
+  if (field === 'professional') return 'ASK_PROFESSIONAL'
+  if (field === 'date') return 'ASK_DATE'
+  return 'ASK_TIME'
+}
+
+function isPositiveConfirmation(message: string) {
+  return [
+    'si',
+    'sí',
+    'dale',
+    'ok',
+    'okay',
+    'correcto',
+    'confirmo',
+    'esta bien',
+    'está bien',
+    'exacto'
+  ].includes(normalizeText(message))
+}
+
+function formatDateForBookingV2(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (!match) return value
+  return `${match[3]}/${match[2]}/${match[1]}`
 }
 
 function isMisunderstandingReply(reply: string) {

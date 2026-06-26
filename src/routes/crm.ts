@@ -237,7 +237,13 @@ export async function crmRoutes(app: FastifyInstance) {
     return {
       businessId: business?.id ?? null,
       botEnabled: business?.botEnabled ?? true,
-      aiEnabled: business?.aiEnabled ?? true
+      aiEnabled: business?.aiEnabled ?? true,
+      bookingV2Enabled: business
+        ? Boolean(await prisma.businessFeatureSettings.findUnique({
+            where: { businessId: business.id },
+            select: { bookingV2Enabled: true }
+          }).then((settings) => settings?.bookingV2Enabled))
+        : false
     }
   })
 
@@ -246,11 +252,16 @@ export async function crmRoutes(app: FastifyInstance) {
       businessId?: string
       botEnabled?: boolean
       aiEnabled?: boolean
+      bookingV2Enabled?: boolean
     }
 
-    if (typeof body.botEnabled !== 'boolean' && typeof body.aiEnabled !== 'boolean') {
+    if (
+      typeof body.botEnabled !== 'boolean' &&
+      typeof body.aiEnabled !== 'boolean' &&
+      typeof body.bookingV2Enabled !== 'boolean'
+    ) {
       return reply.status(400).send({
-        message: 'botEnabled o aiEnabled debe ser boolean'
+        message: 'botEnabled, aiEnabled o bookingV2Enabled debe ser boolean'
       })
     }
 
@@ -262,7 +273,7 @@ export async function crmRoutes(app: FastifyInstance) {
       })
     }
 
-    return prisma.business.update({
+    const updatedBusiness = await prisma.business.update({
       where: {
         id: business.id
       },
@@ -276,6 +287,29 @@ export async function crmRoutes(app: FastifyInstance) {
         aiEnabled: true
       }
     })
+
+    if (typeof body.bookingV2Enabled === 'boolean') {
+      await prisma.businessFeatureSettings.upsert({
+        where: { businessId: business.id },
+        create: {
+          businessId: business.id,
+          bookingV2Enabled: body.bookingV2Enabled
+        },
+        update: {
+          bookingV2Enabled: body.bookingV2Enabled
+        }
+      })
+    }
+
+    const featureSettings = await prisma.businessFeatureSettings.findUnique({
+      where: { businessId: business.id },
+      select: { bookingV2Enabled: true }
+    })
+
+    return {
+      ...updatedBusiness,
+      bookingV2Enabled: Boolean(featureSettings?.bookingV2Enabled)
+    }
   })
 
   app.get('/crm/conversations/:id/messages', async (request, reply) => {

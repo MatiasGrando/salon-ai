@@ -170,6 +170,7 @@ model BusinessFeatureSettings {
   campaignsEnabled Boolean @default(false)
   remindersEnabled Boolean @default(false)
   realWhatsappEnabled Boolean @default(false)
+  bookingV2Enabled Boolean @default(false)
   billingOwner BillingOwner @default(CLIENT)
   campaignSendingLocked Boolean @default(true)
   reminderSendingLocked Boolean @default(true)
@@ -327,6 +328,7 @@ model Conversation {
   selectedTime String?
   selectedCustomerName String?
   lastAvailability Json?
+  bookingV2State Json?
 
   lastMessage String?
   humanHandoffAt DateTime?

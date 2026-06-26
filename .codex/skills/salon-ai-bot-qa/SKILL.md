@@ -1,85 +1,40 @@
----
+﻿---
 name: salon-ai-bot-qa
-description: [TODO: Complete and informative explanation of what the skill does and when to use it. Include WHEN to use this skill - specific scenarios, file types, or tasks that trigger it.]
+description: Disenar, implementar y revisar pruebas de regresion del bot de Salon AI. Usar al modificar el flujo de reservas, interpretacion con IA, niveles de confianza, correcciones, textos, derivacion humana o configuracion por comercio; al investigar una conversacion fallida; o antes de habilitar un comercio o Booking V2.
 ---
 
-# Salon Ai Bot Qa
+# Salon AI Bot QA
 
-## Overview
+## Procedimiento
 
-[TODO: 1-2 sentences explaining what this skill enables]
+1. Leer [references/booking-contract.md](references/booking-contract.md).
+2. Identificar las reglas afectadas.
+3. Elegir escenarios de [references/test-matrix.md](references/test-matrix.md).
+4. Agregar primero una prueba reproducible.
+5. Implementar el cambio sin delegar estado ni acciones a la IA.
+6. Ejecutar TypeScript y las pruebas relevantes.
+7. Informar resultados, fallos preexistentes y riesgos pendientes.
 
-## Structuring This Skill
+## Reglas obligatorias
 
-[TODO: Choose the structure that best fits this skill's purpose. Common patterns:
+- Mantener el orden `nombre -> servicio -> profesional -> fecha -> horario -> confirmacion`.
+- Extraer varios datos juntos, pero preguntar siempre por el primer campo faltante.
+- Aplicar confianza por cada campo, no una confianza global del mensaje.
+- No guardar valores de confianza media hasta confirmacion explicita.
+- No guardar valores de confianza baja.
+- Reconocer correcciones sobre datos elegidos y confirmar el cambio antes de invalidarlos.
+- Validar todas las opciones contra los datos del comercio.
+- No permitir que la IA cree, cancele o modifique turnos directamente.
+- Mantener fallback determinista cuando OpenAI falle.
+- Probar el estado y los datos, no depender de una frase exacta.
 
-**1. Workflow-Based** (best for sequential processes)
-- Works well when there are clear step-by-step procedures
-- Example: DOCX skill with "Workflow Decision Tree" -> "Reading" -> "Creating" -> "Editing"
-- Structure: ## Overview -> ## Workflow Decision Tree -> ## Step 1 -> ## Step 2...
+## Suites
 
-**2. Task-Based** (best for tool collections)
-- Works well when the skill offers different operations/capabilities
-- Example: PDF skill with "Quick Start" -> "Merge PDFs" -> "Split PDFs" -> "Extract Text"
-- Structure: ## Overview -> ## Quick Start -> ## Task Category 1 -> ## Task Category 2...
+- Mantener `conversation-smoke-test` para proteger el bot actual.
+- Crear `booking-v2-contract-test` para el contrato nuevo.
+- Separar pruebas del extractor, motor de estado e integracion con agenda.
+- Ejecutar Booking V2 con IA activa y con fallback antes de habilitarlo.
 
-**3. Reference/Guidelines** (best for standards or specifications)
-- Works well for brand guidelines, coding standards, or requirements
-- Example: Brand styling with "Brand Guidelines" -> "Colors" -> "Typography" -> "Features"
-- Structure: ## Overview -> ## Guidelines -> ## Specifications -> ## Usage...
+## Criterio de aprobacion
 
-**4. Capabilities-Based** (best for integrated systems)
-- Works well when the skill provides multiple interrelated features
-- Example: Product Management with "Core Capabilities" -> numbered capability list
-- Structure: ## Overview -> ## Core Capabilities -> ### 1. Feature -> ### 2. Feature...
-
-Patterns can be mixed and matched as needed. Most skills combine patterns (e.g., start with task-based, add workflow for complex operations).
-
-Delete this entire "Structuring This Skill" section when done - it's just guidance.]
-
-## [TODO: Replace with the first main section based on chosen structure]
-
-[TODO: Add content here. See examples in existing skills:
-- Code samples for technical skills
-- Decision trees for complex workflows
-- Concrete examples with realistic user requests
-- References to scripts/templates/references as needed]
-
-## Resources (optional)
-
-Create only the resource directories this skill actually needs. Delete this section if no resources are required.
-
-### scripts/
-Executable code (Python/Bash/etc.) that can be run directly to perform specific operations.
-
-**Examples from other skills:**
-- PDF skill: `fill_fillable_fields.py`, `extract_form_field_info.py` - utilities for PDF manipulation
-- DOCX skill: `document.py`, `utilities.py` - Python modules for document processing
-
-**Appropriate for:** Python scripts, shell scripts, or any executable code that performs automation, data processing, or specific operations.
-
-**Note:** Scripts may be executed without loading into context, but can still be read by Codex for patching or environment adjustments.
-
-### references/
-Documentation and reference material intended to be loaded into context to inform Codex's process and thinking.
-
-**Examples from other skills:**
-- Product management: `communication.md`, `context_building.md` - detailed workflow guides
-- BigQuery: API reference documentation and query examples
-- Finance: Schema documentation, company policies
-
-**Appropriate for:** In-depth documentation, API references, database schemas, comprehensive guides, or any detailed information that Codex should reference while working.
-
-### assets/
-Files not intended to be loaded into context, but rather used within the output Codex produces.
-
-**Examples from other skills:**
-- Brand styling: PowerPoint template files (.pptx), logo files
-- Frontend builder: HTML/React boilerplate project directories
-- Typography: Font files (.ttf, .woff2)
-
-**Appropriate for:** Templates, boilerplate code, document templates, images, icons, fonts, or any files meant to be copied or used in the final output.
-
----
-
-**Not every skill requires all three types of resources.**
+No aprobar si el bot pierde datos validos, pregunta por datos confirmados, salta el primer campo faltante, guarda una interpretacion dudosa, modifica datos ante una correccion ambigua, inventa opciones, reserva sin confirmacion o falla sin OpenAI.

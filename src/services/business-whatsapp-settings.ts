@@ -52,6 +52,7 @@ export async function getBusinessWhatsAppState(businessId: string) {
       campaignsEnabled: Boolean(settings?.campaignsEnabled),
       remindersEnabled: Boolean(settings?.remindersEnabled),
       realWhatsappEnabled,
+      bookingV2Enabled: Boolean(settings?.bookingV2Enabled),
       billingOwner,
       campaignSendingLocked: campaignsLocked,
       reminderSendingLocked: remindersLocked

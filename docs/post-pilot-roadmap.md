@@ -20,19 +20,32 @@ Numero WhatsApp B -> Business B
 Numero WhatsApp C -> Business C
 ```
 
-## 2. Configuracion del negocio y personalidad de Cami
+## 2. Configuracion del bot por comercio
 
-Objetivo: que cada local pueda configurar como atiende su asistente.
+Objetivo: que cada local pueda configurar como atiende su asistente sin tocar codigo.
+
+Alcance inicial acordado:
+
+- Para los primeros clientes el foco comercial sera peluquerias/barberias.
+- La plantilla de rubro peluqueria queda cubierta con el flujo actual de Booking V2: nombre, servicio, profesional, dia, horario y confirmacion.
+- No hace falta crear bots separados por rubro en esta etapa. Primero se estabiliza peluquerias.
+
+Pendiente antes de escalar mas alla del piloto:
 
 - Nombre del bot.
 - Tono de atencion: formal, cercano, juvenil, premium, etc.
+- Uso de emojis.
 - Nivel de IA por negocio: sin IA, IA simple o agente/orquestador.
 - Mensaje de bienvenida.
+- Frase de derivacion a humano.
 - Reglas del local.
 - Servicios destacados.
 - Politicas: cancelaciones, tolerancia de llegada tarde, senas, etc.
-- Horarios y profesionales desde una interfaz simple.
-- Settings del bot por comercio: servicios disponibles, vocabulario esperado, preguntas frecuentes, estilo de conversacion y reglas para derivar a humano.
+- Pantalla de Configuracion del bot dentro del CRM.
+- Activacion visual de Booking V2 por comercio, sin tocar base/API manualmente.
+- Pantalla Probar bot: escribir como cliente y ver respuesta, datos detectados y estado guardado.
+- Alias de servicios y profesionales mas comodos desde CRM.
+- Checklist previo a activar WhatsApp real: servicios, profesionales, horarios, alias, prueba del bot y derivacion humana.
 - Evitar prompts o flujos globales rigidos: cada comercio puede vender servicios distintos y necesitar una conversacion diferente.
 
 Resultado esperado:
@@ -42,6 +55,12 @@ Salon A -> "Cami", tono cercano
 Salon B -> "Lara", tono premium
 Salon C -> "Recepcion", tono formal
 ```
+
+Despues del piloto de peluquerias:
+
+- Crear plantillas por rubro solo cuando haya demanda real.
+- Ejemplos: estetica, medicos, clases/turnos.
+- Mantener un motor comun y variar campos/reglas por rubro, no reescribir un bot entero por cada vertical.
 
 ## 3. CRM simple de conversaciones
 
@@ -74,6 +93,6 @@ Un humano puede intervenir si hace falta
 ## Orden recomendado
 
 1. Multi-negocio WhatsApp.
-2. Configuracion del negocio y personalidad.
+2. Configuracion del bot por comercio.
 3. CRM simple.
 4. IA mas natural sobre una base multi-tenant ya ordenada.

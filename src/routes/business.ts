@@ -125,6 +125,7 @@ export async function businessRoutes(app: FastifyInstance) {
       campaignsEnabled?: boolean
       remindersEnabled?: boolean
       realWhatsappEnabled?: boolean
+      bookingV2Enabled?: boolean
       campaignSendingLocked?: boolean
       reminderSendingLocked?: boolean
       billingOwner?: string
@@ -209,6 +210,7 @@ export async function businessRoutes(app: FastifyInstance) {
         ...(body.campaignsEnabled !== undefined ? { campaignsEnabled: Boolean(body.campaignsEnabled) } : {}),
         ...(body.remindersEnabled !== undefined ? { remindersEnabled: Boolean(body.remindersEnabled) } : {}),
         ...(body.realWhatsappEnabled !== undefined ? { realWhatsappEnabled: Boolean(body.realWhatsappEnabled) } : {}),
+        ...(body.bookingV2Enabled !== undefined ? { bookingV2Enabled: Boolean(body.bookingV2Enabled) } : {}),
         ...(body.campaignSendingLocked !== undefined ? { campaignSendingLocked: Boolean(body.campaignSendingLocked) } : {}),
         ...(body.reminderSendingLocked !== undefined ? { reminderSendingLocked: Boolean(body.reminderSendingLocked) } : {}),
         ...(body.billingOwner !== undefined ? { billingOwner: body.billingOwner as never } : {})
