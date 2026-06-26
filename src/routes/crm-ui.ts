@@ -9232,6 +9232,15 @@ const crmHtml = `<!doctype html>
               <input id="global-ai-toggle" type="checkbox" checked>
               <span class="automation-switch" aria-hidden="true"></span>
             </label>
+            <label class="automation-control">
+              <div class="automation-copy">
+                <strong>Nuevo flujo de reservas</strong>
+                <span>Usa Booking V2 para pedir nombre, servicio, profesional, d&iacute;a, horario y confirmaci&oacute;n.</span>
+                <small id="booking-v2-status">Bot actual</small>
+              </div>
+              <input id="booking-v2-toggle" type="checkbox">
+              <span class="automation-switch" aria-hidden="true"></span>
+            </label>
           </div>
         </section>
 
@@ -9871,7 +9880,8 @@ const crmHtml = `<!doctype html>
       editingAppointmentId: null,
       aiSettings: {
         botEnabled: true,
-        aiEnabled: true
+        aiEnabled: true,
+        bookingV2Enabled: false
       },
       pendingProfessionalSave: null,
       professionalStatusFilter: 'all',
@@ -9962,8 +9972,10 @@ const crmHtml = `<!doctype html>
       topHandoffTotal: document.getElementById('top-handoff-total'),
       globalBotToggle: document.getElementById('global-bot-toggle'),
       globalAiToggle: document.getElementById('global-ai-toggle'),
+      bookingV2Toggle: document.getElementById('booking-v2-toggle'),
       globalBotStatus: document.getElementById('global-bot-status'),
       globalAiStatus: document.getElementById('global-ai-status'),
+      bookingV2Status: document.getElementById('booking-v2-status'),
       whatsappSettingsTitle: document.getElementById('whatsapp-settings-title'),
       whatsappSettingsCopy: document.getElementById('whatsapp-settings-copy'),
       whatsappSettingsBadge: document.getElementById('whatsapp-settings-badge'),
