@@ -5870,6 +5870,61 @@ const crmHtml = `<!doctype html>
       display: grid;
     }
 
+    .staff-account-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .staff-account-grid .settings-field.full {
+      grid-column: 1 / -1;
+    }
+
+    .staff-account-list {
+      display: grid;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .staff-account-item {
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      background: #fff;
+    }
+
+    .staff-account-item strong,
+    .staff-account-item span,
+    .staff-account-item small {
+      display: block;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .staff-account-item span {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .staff-account-item small {
+      margin-top: 5px;
+      color: #2563eb;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .staff-account-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
     .automation-control {
       min-height: 86px;
       padding: 18px 0;
@@ -7234,6 +7289,7 @@ const crmHtml = `<!doctype html>
     @media (max-width: 900px) {
       .services-manager,
       .professionals-manager,
+      .staff-account-grid,
       .reports-panels {
         grid-template-columns: 1fr;
       }
@@ -9210,6 +9266,45 @@ const crmHtml = `<!doctype html>
           <p class="settings-feedback" id="admin-create-business-feedback" role="status" aria-live="polite"></p>
         </section>
 
+        <section class="settings-panel" id="staff-accounts-panel">
+          <h3>Cuentas staff</h3>
+          <p>Cre&aacute; accesos para profesionales del local y asign&aacute; cada cuenta a su agenda.</p>
+          <form class="settings-form" id="staff-user-form">
+            <input id="staff-user-id" type="hidden">
+            <div class="staff-account-grid">
+              <div class="settings-field">
+                <label for="staff-user-name">Nombre</label>
+                <input class="field" id="staff-user-name" autocomplete="name" placeholder="Ej: Carolina">
+              </div>
+              <div class="settings-field">
+                <label for="staff-user-email">Usuario / email</label>
+                <input class="field" id="staff-user-email" type="email" autocomplete="email" placeholder="caro@salon.com">
+              </div>
+              <div class="settings-field">
+                <label for="staff-user-password">Contrase&ntilde;a</label>
+                <input class="field" id="staff-user-password" type="password" autocomplete="new-password" placeholder="M&iacute;nimo 8 caracteres">
+              </div>
+              <div class="settings-field">
+                <label for="staff-user-professional">Profesional asignado</label>
+                <select class="field" id="staff-user-professional"></select>
+              </div>
+              <div class="settings-field">
+                <label for="staff-user-status">Estado</label>
+                <select class="field" id="staff-user-status">
+                  <option value="active">Activo</option>
+                  <option value="inactive">Inactivo</option>
+                </select>
+              </div>
+            </div>
+            <div class="settings-actions">
+              <button class="secondary" id="staff-user-cancel" type="button" hidden>Cancelar</button>
+              <button class="primary" id="staff-user-submit" type="submit">Crear cuenta staff</button>
+            </div>
+            <p class="settings-feedback" id="staff-user-feedback" role="status" aria-live="polite"></p>
+          </form>
+          <div class="staff-account-list" id="staff-user-list"></div>
+        </section>
+
         <section class="settings-panel">
           <h3>Automatizaci&oacute;n</h3>
           <p>Control&aacute; c&oacute;mo responde el asistente en todos los chats del local.</p>
@@ -9858,6 +9953,7 @@ const crmHtml = `<!doctype html>
       messageNextCursor: null,
       appointments: [],
       professionals: [],
+      staffUsers: [],
       services: [],
       customers: [],
       customerOverview: [],
@@ -9997,6 +10093,18 @@ const crmHtml = `<!doctype html>
       whatsappTokenExpires: document.getElementById('whatsapp-token-expires'),
       whatsappAccessToken: document.getElementById('whatsapp-access-token'),
       whatsappTechnicalSubmit: document.getElementById('whatsapp-technical-submit'),
+      staffAccountsPanel: document.getElementById('staff-accounts-panel'),
+      staffUserForm: document.getElementById('staff-user-form'),
+      staffUserId: document.getElementById('staff-user-id'),
+      staffUserName: document.getElementById('staff-user-name'),
+      staffUserEmail: document.getElementById('staff-user-email'),
+      staffUserPassword: document.getElementById('staff-user-password'),
+      staffUserProfessional: document.getElementById('staff-user-professional'),
+      staffUserStatus: document.getElementById('staff-user-status'),
+      staffUserCancel: document.getElementById('staff-user-cancel'),
+      staffUserSubmit: document.getElementById('staff-user-submit'),
+      staffUserFeedback: document.getElementById('staff-user-feedback'),
+      staffUserList: document.getElementById('staff-user-list'),
       messages: document.getElementById('messages'),
       chatAvatar: document.getElementById('chat-avatar'),
       chatPhone: document.getElementById('chat-phone'),
@@ -10591,7 +10699,14 @@ const crmHtml = `<!doctype html>
       if (els.superAdminPanel) {
         els.superAdminPanel.hidden = state.currentUser?.role !== 'SUPER_ADMIN'
       }
+      if (els.staffAccountsPanel) {
+        els.staffAccountsPanel.hidden = !canManageStaffUsers()
+      }
       updateBusinessBrand()
+    }
+
+    function canManageStaffUsers() {
+      return state.currentUser?.role === 'SUPER_ADMIN' || state.currentUser?.role === 'BUSINESS_ADMIN'
     }
 
     async function createAdminBusiness(event) {
@@ -10620,6 +10735,164 @@ const crmHtml = `<!doctype html>
       } finally {
         els.adminCreateBusinessSubmit.disabled = false
         els.adminCreateBusinessSubmit.textContent = 'Crear comercio'
+      }
+    }
+
+    function clearStaffUserFeedback() {
+      els.staffUserFeedback.textContent = ''
+      els.staffUserFeedback.className = 'settings-feedback'
+    }
+
+    function showStaffUserFeedback(message, type) {
+      els.staffUserFeedback.textContent = message
+      els.staffUserFeedback.className = 'settings-feedback visible ' + type
+    }
+
+    function resetStaffUserForm() {
+      els.staffUserId.value = ''
+      els.staffUserName.value = ''
+      els.staffUserEmail.value = ''
+      els.staffUserPassword.value = ''
+      els.staffUserPassword.placeholder = 'Minimo 8 caracteres'
+      els.staffUserStatus.value = 'active'
+      els.staffUserProfessional.value = activeProfessionals()[0]?.id || ''
+      els.staffUserSubmit.textContent = 'Crear cuenta staff'
+      els.staffUserCancel.hidden = true
+      clearStaffUserFeedback()
+    }
+
+    function renderStaffProfessionalOptions() {
+      if (!els.staffUserProfessional) return
+      const current = els.staffUserProfessional.value
+      const professionals = activeProfessionals()
+      els.staffUserProfessional.innerHTML = professionals.length
+        ? professionals.map((professional) => {
+            return '<option value="' + professional.id + '">' + escapeHtml(professional.name) + '</option>'
+          }).join('')
+        : '<option value="">Cargá un profesional primero</option>'
+      els.staffUserProfessional.value = professionals.some((professional) => professional.id === current)
+        ? current
+        : professionals[0]?.id || ''
+    }
+
+    function renderStaffUsers() {
+      if (!els.staffUserList) return
+      renderStaffProfessionalOptions()
+
+      if (!canManageStaffUsers()) {
+        els.staffUserList.innerHTML = ''
+        return
+      }
+
+      if (!state.staffUsers.length) {
+        els.staffUserList.innerHTML = '<div class="item"><strong>Sin cuentas staff</strong><p>Cuando crees una cuenta, va a aparecer aca.</p></div>'
+        return
+      }
+
+      els.staffUserList.innerHTML = state.staffUsers.map((user) => {
+        const professionalName = user.professional?.name || 'Sin profesional'
+        const status = user.isActive === false ? 'Inactivo' : 'Activo'
+        return '<article class="staff-account-item">' +
+          '<div>' +
+            '<strong>' + escapeHtml(user.name) + '</strong>' +
+            '<span>' + escapeHtml(user.email) + '</span>' +
+            '<small>' + escapeHtml(professionalName) + ' · ' + status + '</small>' +
+          '</div>' +
+          '<div class="staff-account-actions">' +
+            '<button class="secondary" type="button" data-edit-staff-user="' + user.id + '">' + icon('edit') + 'Editar</button>' +
+            '<button class="danger" type="button" data-delete-staff-user="' + user.id + '">' + icon('trash') + '</button>' +
+          '</div>' +
+        '</article>'
+      }).join('')
+    }
+
+    async function loadStaffUsers() {
+      if (!canManageStaffUsers() || !state.businessId) {
+        state.staffUsers = []
+        renderStaffUsers()
+        return
+      }
+      state.staffUsers = await getJson('/staff-users?businessId=' + encodeURIComponent(state.businessId))
+      renderStaffUsers()
+    }
+
+    async function saveStaffUser(event) {
+      event.preventDefault()
+      clearStaffUserFeedback()
+      if (!state.businessId) {
+        showStaffUserFeedback('No encontre un comercio cargado.', 'error')
+        return
+      }
+
+      const id = els.staffUserId.value
+      const name = els.staffUserName.value.trim()
+      const email = els.staffUserEmail.value.trim()
+      const password = els.staffUserPassword.value
+      const professionalId = els.staffUserProfessional.value
+
+      if (!name || !email || !professionalId) {
+        showStaffUserFeedback('Completa nombre, usuario y profesional.', 'error')
+        return
+      }
+      if (!id && !password.trim()) {
+        showStaffUserFeedback('Completa la contrasena inicial.', 'error')
+        return
+      }
+
+      els.staffUserSubmit.disabled = true
+      els.staffUserSubmit.textContent = id ? 'Guardando...' : 'Creando...'
+      try {
+        state.staffUsers = await getJson(id ? '/staff-users/' + id : '/staff-users', {
+          method: id ? 'PATCH' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            businessId: state.businessId,
+            name,
+            email,
+            ...(password.trim() ? { password } : {}),
+            professionalId,
+            isActive: els.staffUserStatus.value === 'active'
+          })
+        })
+        renderStaffUsers()
+        resetStaffUserForm()
+        showStaffUserFeedback(id ? 'Cuenta staff actualizada.' : 'Cuenta staff creada. Compartile el usuario y contrasena inicial al profesional.', 'success')
+      } catch (error) {
+        showStaffUserFeedback(error.message, 'error')
+      } finally {
+        els.staffUserSubmit.disabled = false
+        els.staffUserSubmit.textContent = els.staffUserId.value ? 'Guardar cambios' : 'Crear cuenta staff'
+      }
+    }
+
+    function editStaffUser(id) {
+      const user = state.staffUsers.find((item) => item.id === id)
+      if (!user) return
+      clearStaffUserFeedback()
+      els.staffUserId.value = user.id
+      els.staffUserName.value = user.name || ''
+      els.staffUserEmail.value = user.email || ''
+      els.staffUserPassword.value = ''
+      els.staffUserPassword.placeholder = 'Dejar vacio para no cambiar'
+      els.staffUserProfessional.value = user.professionalId || ''
+      els.staffUserStatus.value = user.isActive === false ? 'inactive' : 'active'
+      els.staffUserSubmit.textContent = 'Guardar cambios'
+      els.staffUserCancel.hidden = false
+      els.staffUserName.focus()
+    }
+
+    async function deleteStaffUser(id) {
+      const user = state.staffUsers.find((item) => item.id === id)
+      if (!user) return
+      if (!requestCrmConfirmation('delete-staff-user:' + id, 'Eliminar la cuenta staff de ' + user.name + '?')) return
+
+      try {
+        state.staffUsers = await getJson('/staff-users/' + id, { method: 'DELETE' })
+        renderStaffUsers()
+        resetStaffUserForm()
+        showStaffUserFeedback('Cuenta staff eliminada.', 'success')
+      } catch (error) {
+        showStaffUserFeedback(error.message, 'error')
       }
     }
 
@@ -10656,6 +10929,7 @@ const crmHtml = `<!doctype html>
         : null
       state.aiSettings = await getJson('/crm/ai-settings' + (state.businessId ? '?businessId=' + encodeURIComponent(state.businessId) : ''))
       state.professionals = await getJson('/professionals')
+      await loadStaffUsers()
       state.services = await getJson('/services')
       state.customers = await getJson('/customers')
       renderBusinessSettings()
@@ -10664,6 +10938,7 @@ const crmHtml = `<!doctype html>
       applyProfessionalBusinessHourLimits()
       renderAiControls()
       renderProfessionals()
+      renderStaffUsers()
       renderServices()
       renderAgendaFilters()
       renderAppointmentFormOptions()
@@ -12245,6 +12520,7 @@ const crmHtml = `<!doctype html>
         hideProfessionalImpact()
         state.professionals = await getJson('/professionals')
         renderProfessionals()
+        renderStaffUsers()
         renderAgendaFilters()
         renderAppointmentFormOptions()
         renderAgenda()
@@ -12317,6 +12593,7 @@ const crmHtml = `<!doctype html>
         els.professionalFeedback.textContent = professional._count?.appointments ? 'Profesional desactivado y oculto de nuevas reservas.' : 'Profesional eliminado.'
         state.professionals = await getJson('/professionals')
         renderProfessionals()
+        renderStaffUsers()
         renderAgendaFilters()
         renderAppointmentFormOptions()
         renderAgenda()
@@ -12390,6 +12667,7 @@ const crmHtml = `<!doctype html>
         els.professionalFeedback.textContent = isActive ? 'Profesional activado.' : 'Profesional desactivado para nuevas reservas.'
         state.professionals = await getJson('/professionals')
         renderProfessionals()
+        renderStaffUsers()
         renderAgendaFilters()
         renderAppointmentFormOptions()
         renderAgenda()
@@ -16169,6 +16447,17 @@ const crmHtml = `<!doctype html>
       renderCampaigns()
     })
     els.businessSettingsForm.addEventListener('submit', saveBusinessSettings)
+    els.staffUserForm?.addEventListener('submit', saveStaffUser)
+    els.staffUserCancel?.addEventListener('click', resetStaffUserForm)
+    els.staffUserList?.addEventListener('click', (event) => {
+      const editButton = event.target.closest('[data-edit-staff-user]')
+      if (editButton) {
+        editStaffUser(editButton.dataset.editStaffUser)
+        return
+      }
+      const deleteButton = event.target.closest('[data-delete-staff-user]')
+      if (deleteButton) deleteStaffUser(deleteButton.dataset.deleteStaffUser)
+    })
     els.loginForm.addEventListener('submit', loginToCrm)
     bindLogoutButton()
     els.adminCreateBusinessForm.addEventListener('submit', createAdminBusiness)

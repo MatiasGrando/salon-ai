@@ -25,7 +25,7 @@ export async function authRoutes(app: FastifyInstance) {
 
     const user = await prisma.user.findUnique({
       where: { email },
-      include: { business: true }
+      include: { business: true, professional: true }
     })
 
     if (!user || !user.isActive || !await verifyPassword(password, user.passwordHash)) {
@@ -52,7 +52,7 @@ export async function authRoutes(app: FastifyInstance) {
     if (!auth) return reply.status(401).send({ message: 'Necesitas iniciar sesion' })
     const user = await prisma.user.findUnique({
       where: { id: auth.user.id },
-      include: { business: true }
+      include: { business: true, professional: true }
     })
     if (!user || !user.isActive) return reply.status(401).send({ message: 'Necesitas iniciar sesion' })
     return {
@@ -111,12 +111,16 @@ function publicUser(user: {
   name: string
   role: 'SUPER_ADMIN' | 'BUSINESS_ADMIN' | 'STAFF'
   businessId: string | null
+  professionalId?: string | null
+  professional?: { id: string; name: string } | null
 }) {
   return {
     id: user.id,
     email: user.email,
     name: user.name,
     role: user.role,
-    businessId: user.businessId
+    businessId: user.businessId,
+    professionalId: user.professionalId ?? null,
+    professional: user.professional ?? null
   }
 }

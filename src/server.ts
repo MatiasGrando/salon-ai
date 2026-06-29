@@ -16,6 +16,7 @@ import { whatsappWebhookRoutes } from './routes/whatsapp-webhook.js'
 import { campaignRoutes } from './routes/campaign.js'
 import { reportRoutes } from './routes/report.js'
 import { authRoutes } from './routes/auth.js'
+import { staffUserRoutes } from './routes/staff-user.js'
 import { authGuard } from './plugins/auth-guard.js'
 import { ensureBootstrapSuperAdmin } from './services/auth-service.js'
 import { startMarketingScheduler } from './services/marketing-scheduler.js'
@@ -46,6 +47,7 @@ await app.register(chatRoutes)
 await app.register(crmRoutes)
 await app.register(campaignRoutes)
 await app.register(reportRoutes)
+await app.register(staffUserRoutes)
 await ensureBootstrapSuperAdmin()
 startMarketingScheduler(app)
 

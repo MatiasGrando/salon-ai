@@ -13,6 +13,7 @@ export type AuthUser = {
   name: string
   role: 'SUPER_ADMIN' | 'BUSINESS_ADMIN' | 'STAFF'
   businessId: string | null
+  professionalId: string | null
 }
 
 export type AuthContext = {
@@ -74,7 +75,8 @@ export async function getAuthFromRequest(request: FastifyRequest): Promise<AuthC
       email: session.user.email,
       name: session.user.name,
       role: session.user.role,
-      businessId: session.user.businessId
+      businessId: session.user.businessId,
+      professionalId: session.user.professionalId
     }
   }
 }

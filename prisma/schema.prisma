@@ -114,12 +114,15 @@ model User {
 
   businessId String?
   business Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  professionalId String?
+  professional Professional? @relation(fields: [professionalId], references: [id], onDelete: SetNull)
   sessions UserSession[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([businessId])
+  @@index([professionalId])
   @@index([role])
 }
 
@@ -193,6 +196,7 @@ model Professional {
   workingHours ProfessionalHours[]
   scheduleBlocks ScheduleBlock[]
   serviceLinks ProfessionalService[]
+  users User[]
 
   createdAt  DateTime @default(now())
 }
