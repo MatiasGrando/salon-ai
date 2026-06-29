@@ -5926,6 +5926,7 @@ const crmHtml = `<!doctype html>
     }
 
     .automation-control {
+      position: relative;
       min-height: 86px;
       padding: 18px 0;
       border-bottom: 1px solid #e5eaf3;
@@ -9337,6 +9338,7 @@ const crmHtml = `<!doctype html>
               <span class="automation-switch" aria-hidden="true"></span>
             </label>
           </div>
+          <p class="settings-feedback" id="automation-settings-feedback" role="status" aria-live="polite"></p>
         </section>
 
         <section class="settings-panel">
@@ -10072,6 +10074,7 @@ const crmHtml = `<!doctype html>
       globalBotStatus: document.getElementById('global-bot-status'),
       globalAiStatus: document.getElementById('global-ai-status'),
       bookingV2Status: document.getElementById('booking-v2-status'),
+      automationSettingsFeedback: document.getElementById('automation-settings-feedback'),
       whatsappSettingsTitle: document.getElementById('whatsapp-settings-title'),
       whatsappSettingsCopy: document.getElementById('whatsapp-settings-copy'),
       whatsappSettingsBadge: document.getElementById('whatsapp-settings-badge'),
@@ -12020,10 +12023,13 @@ const crmHtml = `<!doctype html>
       if (els.topHandoffTotal) els.topHandoffTotal.textContent = String(pending)
       els.globalBotToggle.checked = state.aiSettings.botEnabled !== false
       els.globalAiToggle.checked = state.aiSettings.aiEnabled !== false
+      els.bookingV2Toggle.checked = state.aiSettings.bookingV2Enabled === true
       els.globalBotStatus.textContent = state.aiSettings.botEnabled === false ? 'Pausado' : 'Activo'
       els.globalBotStatus.className = state.aiSettings.botEnabled === false ? 'paused' : ''
       els.globalAiStatus.textContent = state.aiSettings.aiEnabled === false ? 'Flujo basico' : 'Activo'
       els.globalAiStatus.className = state.aiSettings.aiEnabled === false ? 'basic' : ''
+      els.bookingV2Status.textContent = state.aiSettings.bookingV2Enabled === true ? 'Booking V2' : 'Bot actual'
+      els.bookingV2Status.className = state.aiSettings.bookingV2Enabled === true ? '' : 'basic'
     }
 
     function renderNavHandoffBadge(count) {
@@ -12344,6 +12350,8 @@ const crmHtml = `<!doctype html>
 
     async function toggleGlobalAi() {
       const nextValue = els.globalAiToggle.checked
+      clearAutomationSettingsFeedback()
+      els.globalAiToggle.disabled = true
       try {
         state.aiSettings = await getJson('/crm/ai-settings', {
           method: 'PATCH',
@@ -12354,14 +12362,19 @@ const crmHtml = `<!doctype html>
           })
         })
         renderAiControls()
+        showAutomationSettingsFeedback(nextValue ? 'Agente IA activo.' : 'Agente IA pausado. El bot sigue con flujo basico.', 'success')
       } catch (error) {
         renderAiControls()
-        showBusinessSettingsFeedback(error.message, 'error')
+        showAutomationSettingsFeedback(error.message, 'error')
+      } finally {
+        els.globalAiToggle.disabled = false
       }
     }
 
     async function toggleGlobalBot() {
       const nextValue = els.globalBotToggle.checked
+      clearAutomationSettingsFeedback()
+      els.globalBotToggle.disabled = true
       try {
         state.aiSettings = await getJson('/crm/ai-settings', {
           method: 'PATCH',
@@ -12372,10 +12385,35 @@ const crmHtml = `<!doctype html>
           })
         })
         renderAiControls()
-        showBusinessSettingsFeedback(nextValue ? 'Bot automatico activo.' : 'Bot automatico pausado para todo el salon.', 'success')
+        showAutomationSettingsFeedback(nextValue ? 'Bot automatico activo.' : 'Bot automatico pausado para todo el salon.', 'success')
       } catch (error) {
         renderAiControls()
-        showBusinessSettingsFeedback(error.message, 'error')
+        showAutomationSettingsFeedback(error.message, 'error')
+      } finally {
+        els.globalBotToggle.disabled = false
+      }
+    }
+
+    async function toggleBookingV2() {
+      const nextValue = els.bookingV2Toggle.checked
+      clearAutomationSettingsFeedback()
+      els.bookingV2Toggle.disabled = true
+      try {
+        state.aiSettings = await getJson('/crm/ai-settings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            businessId: state.businessId,
+            bookingV2Enabled: nextValue
+          })
+        })
+        renderAiControls()
+        showAutomationSettingsFeedback(nextValue ? 'Nuevo flujo de reservas activo.' : 'Nuevo flujo de reservas desactivado.', 'success')
+      } catch (error) {
+        renderAiControls()
+        showAutomationSettingsFeedback(error.message, 'error')
+      } finally {
+        els.bookingV2Toggle.disabled = false
       }
     }
 
@@ -13228,6 +13266,16 @@ const crmHtml = `<!doctype html>
     function clearBusinessSettingsFeedback() {
       els.businessSettingsFeedback.textContent = ''
       els.businessSettingsFeedback.className = 'settings-feedback'
+    }
+
+    function showAutomationSettingsFeedback(message, type) {
+      els.automationSettingsFeedback.textContent = message
+      els.automationSettingsFeedback.className = 'settings-feedback visible ' + type
+    }
+
+    function clearAutomationSettingsFeedback() {
+      els.automationSettingsFeedback.textContent = ''
+      els.automationSettingsFeedback.className = 'settings-feedback'
     }
 
     function showCampaignTemplateFeedback(message, type) {
@@ -16495,6 +16543,7 @@ const crmHtml = `<!doctype html>
     })
     els.globalBotToggle.addEventListener('change', toggleGlobalBot)
     els.globalAiToggle.addEventListener('change', toggleGlobalAi)
+    els.bookingV2Toggle.addEventListener('change', toggleBookingV2)
     els.conversationAiToggle.addEventListener('click', toggleConversationAi)
     els.resolveHandoff.addEventListener('click', resolveHandoff)
     els.refresh.addEventListener('click', loadConversations)
