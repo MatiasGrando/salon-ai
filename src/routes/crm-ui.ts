@@ -7678,8 +7678,9 @@ const crmHtml = `<!doctype html>
 
     .agenda-cell.closed {
       background:
-        repeating-linear-gradient(135deg, rgba(148, 163, 184, 0.12) 0 2px, transparent 2px 7px),
-        #f8fafc;
+        repeating-linear-gradient(135deg, rgba(100, 116, 139, 0.28) 0 2px, transparent 2px 8px),
+        #eef3f9;
+      box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.22);
     }
 
     .agenda-event {
@@ -14095,7 +14096,7 @@ const crmHtml = `<!doctype html>
           '<span>' + escapeHtml(professional.name) + '</span>' +
         '</div>'
       }).join('') +
-        '<div class="agenda-legend-item"><span class="agenda-dot" style="--agenda-color:#cbd5e1"></span><span>No disponible</span></div>'
+        '<div class="agenda-legend-item"><span class="agenda-dot" style="--agenda-color:#64748b"></span><span>No disponible</span></div>'
     }
 
     function renderAppointmentFormOptions() {
