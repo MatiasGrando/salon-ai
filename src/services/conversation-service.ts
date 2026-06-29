@@ -465,6 +465,10 @@ export class ConversationService {
       return null
     }
 
+    if (result.intent === 'reset_conversation' && !isExplicitResetRequest(input.message)) {
+      return null
+    }
+
     return this.handleOrchestratedIntent({
       intent: result.intent,
       phone: input.phone,
@@ -818,6 +822,32 @@ function isResetMessage(message: string) {
   ].includes(normalizedMessage)
 }
 
+export function isExplicitResetRequest(message: string) {
+  const normalizedMessage = normalizeText(message)
+
+  if (isHardResetMessage(message) || isResetMessage(message)) {
+    return true
+  }
+
+  return [
+    'reiniciar conversacion',
+    'reinicia la conversacion',
+    'reiniciar la conversacion',
+    'reiniciar chat',
+    'reinicia el chat',
+    'reiniciar el chat',
+    'resetear conversacion',
+    'resetear la conversacion',
+    'resetear chat',
+    'resetear el chat',
+    'arrancar de nuevo',
+    'arranquemos de nuevo',
+    'empecemos de nuevo',
+    'empezar otra vez',
+    'empecemos otra vez'
+  ].some((phrase) => normalizedMessage === phrase || normalizedMessage.includes(phrase))
+}
+
 function conversationStepFromBookingV2Plan(plan: BookingV2MessagePlan) {
   if (plan.type === 'handoff') return 'HUMAN_HANDOFF'
   if (plan.type === 'confirm_booking') return 'CONFIRM'
@@ -1074,6 +1104,10 @@ function canHumanizeSafely(reply: string) {
     /Servicio:/i,
     /confirmar/i,
     /reservar turno/i,
+    /compartir tu nombre/i,
+    /tomar tu nombre/i,
+    /c[oó]mo te llam/i,
+    /a nombre de qui[eé]n/i,
     /avis/i,
     /avis[eÃ©]/i,
     /avisado/i,

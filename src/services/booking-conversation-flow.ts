@@ -3421,7 +3421,7 @@ function parseMisaddressedBotGreeting(message: string) {
 
   const addressedName = normalizeText(match[1])
 
-  if (['cami', 'camila', 'soy', 'me', 'mi'].includes(addressedName)) {
+  if (['cami', 'camila', 'soy', 'me', 'mi', 'que', 'como', 'tal', 'todo'].includes(addressedName)) {
     return null
   }
 

@@ -1,5 +1,5 @@
 ﻿import { prisma } from '../src/config/prisma.js'
-import { ConversationService } from '../src/services/conversation-service.js'
+import { ConversationService, isExplicitResetRequest } from '../src/services/conversation-service.js'
 
 type Check = {
   includes?: string[]
@@ -27,6 +27,8 @@ const workingDayMorning = new Date('2026-07-06T08:00:00')
 const workingDayLateNight = new Date('2026-07-06T23:00:00')
 
 async function main() {
+  assertResetIntentGuard()
+
   const business = await prisma.business.findFirst({
     include: {
       services: {
@@ -1256,6 +1258,37 @@ function dateWithOffset(days: number, hour = 10) {
 
 function shortName(name: string) {
   return name.trim().slice(0, Math.max(3, Math.min(5, name.trim().length)))
+}
+
+function assertResetIntentGuard() {
+  const nonResetMessages = [
+    'hola',
+    'hola como estas',
+    'ok',
+    'oki',
+    'okey',
+    'dale',
+    'listo'
+  ]
+  const resetMessages = [
+    'reset',
+    'volver a empezar',
+    'empecemos de nuevo',
+    'reiniciar la conversacion',
+    'resetear el chat'
+  ]
+
+  for (const message of nonResetMessages) {
+    if (isExplicitResetRequest(message)) {
+      throw new Error(`No esperaba que "${message}" cuente como reinicio.`)
+    }
+  }
+
+  for (const message of resetMessages) {
+    if (!isExplicitResetRequest(message)) {
+      throw new Error(`Esperaba que "${message}" cuente como reinicio.`)
+    }
+  }
 }
 
 main().catch(async (error) => {
