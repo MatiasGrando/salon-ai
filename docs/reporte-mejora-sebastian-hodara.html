@@ -1,0 +1,664 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reporte de mejora digital - Sebastian Hodara</title>
+  <style>
+    :root {
+      --ink: #17211d;
+      --muted: #62706a;
+      --line: #d9e1dc;
+      --paper: #fbfcfa;
+      --panel: #ffffff;
+      --green: #2f7d5d;
+      --green-2: #e6f3ed;
+      --blue: #315f86;
+      --blue-2: #e7f0f7;
+      --gold: #ad7a24;
+      --gold-2: #fbf0dc;
+      --rose: #a85058;
+      --rose-2: #fae9eb;
+      --shadow: 0 18px 50px rgba(23, 33, 29, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(180deg, rgba(231, 240, 247, 0.76), rgba(251, 252, 250, 0.3) 38rem),
+        var(--paper);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+    }
+
+    a {
+      color: var(--blue);
+      text-decoration: none;
+      font-weight: 700;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .page {
+      width: min(1160px, calc(100% - 32px));
+      margin: 0 auto;
+    }
+
+    header {
+      padding: 54px 0 36px;
+    }
+
+    .kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 18px;
+      color: var(--green);
+      font-size: 0.82rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .kicker::before {
+      content: "";
+      width: 30px;
+      height: 3px;
+      background: var(--green);
+      border-radius: 99px;
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 0;
+      letter-spacing: 0;
+      line-height: 1.08;
+    }
+
+    h1 {
+      max-width: 900px;
+      font-size: clamp(2.15rem, 5vw, 4.8rem);
+      font-weight: 850;
+    }
+
+    h2 {
+      margin-bottom: 18px;
+      font-size: clamp(1.55rem, 3vw, 2.45rem);
+    }
+
+    h3 {
+      margin-bottom: 9px;
+      font-size: 1.05rem;
+    }
+
+    .lead {
+      max-width: 780px;
+      margin: 22px 0 0;
+      color: var(--muted);
+      font-size: clamp(1.05rem, 2vw, 1.28rem);
+    }
+
+    .source-strip {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 30px;
+    }
+
+    .source-link,
+    .card,
+    .metric,
+    .step,
+    .note {
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.84);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+
+    .source-link {
+      padding: 16px 18px;
+    }
+
+    .source-link span {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    section {
+      padding: 36px 0;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 18px;
+    }
+
+    .section-head p {
+      max-width: 510px;
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .grid.two {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .card {
+      padding: 20px;
+    }
+
+    .card p,
+    .card ul,
+    .step p,
+    .note p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    ul {
+      padding-left: 1.1rem;
+    }
+
+    li {
+      margin: 7px 0;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      margin-bottom: 14px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    .tag.green {
+      color: var(--green);
+      background: var(--green-2);
+    }
+
+    .tag.blue {
+      color: var(--blue);
+      background: var(--blue-2);
+    }
+
+    .tag.gold {
+      color: var(--gold);
+      background: var(--gold-2);
+    }
+
+    .tag.rose {
+      color: var(--rose);
+      background: var(--rose-2);
+    }
+
+    .scoreboard {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 16px;
+      align-items: stretch;
+    }
+
+    .metric {
+      padding: 22px;
+    }
+
+    .metric strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: clamp(2rem, 4vw, 3.3rem);
+      line-height: 1;
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .priority {
+      display: grid;
+      grid-template-columns: 42px 1fr;
+      gap: 14px;
+      align-items: start;
+      padding: 16px 0;
+      border-top: 1px solid var(--line);
+    }
+
+    .priority:first-child {
+      border-top: 0;
+      padding-top: 0;
+    }
+
+    .number {
+      display: grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      color: #fff;
+      background: var(--green);
+      border-radius: 50%;
+      font-weight: 850;
+    }
+
+    .timeline {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .step {
+      padding: 18px;
+      min-height: 170px;
+    }
+
+    .step b {
+      display: block;
+      margin-bottom: 10px;
+      color: var(--green);
+    }
+
+    .content-table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: var(--shadow);
+    }
+
+    .content-table th,
+    .content-table td {
+      padding: 15px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .content-table th {
+      color: var(--ink);
+      background: #edf4f0;
+      font-size: 0.82rem;
+      text-transform: uppercase;
+    }
+
+    .content-table tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .note {
+      padding: 18px 20px;
+      border-left: 5px solid var(--gold);
+      background: #fffaf0;
+    }
+
+    .footer {
+      padding: 30px 0 48px;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    @media (max-width: 840px) {
+      .source-strip,
+      .grid,
+      .grid.two,
+      .scoreboard,
+      .timeline {
+        grid-template-columns: 1fr;
+      }
+
+      .section-head {
+        display: block;
+      }
+
+      .section-head p {
+        margin-top: 10px;
+      }
+
+      .content-table {
+        display: block;
+        overflow-x: auto;
+      }
+    }
+
+    @media print {
+      body {
+        background: #fff;
+      }
+
+      header,
+      section {
+        padding: 22px 0;
+      }
+
+      .card,
+      .metric,
+      .step,
+      .source-link,
+      .content-table,
+      .note {
+        box-shadow: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <div class="kicker">Auditoria express de presencia digital</div>
+      <h1>Reporte de mejora para Sebastian Hodara</h1>
+      <p class="lead">
+        Diagnostico y plan de accion para fortalecer la presencia de un negocio de quiropraxia
+        que hoy concentra su comunicacion en Instagram y Facebook.
+      </p>
+      <div class="source-strip" aria-label="Fuentes revisadas">
+        <div class="source-link">
+          <span>Instagram</span>
+          <a href="https://www.instagram.com/quiropraxia_straight_spinology/" target="_blank" rel="noreferrer">quiropraxia_straight_spinology</a>
+        </div>
+        <div class="source-link">
+          <span>Facebook</span>
+          <a href="https://www.facebook.com/sehodara/?locale=es_LA" target="_blank" rel="noreferrer">Perfil de Sebastian Hodara</a>
+        </div>
+      </div>
+    </header>
+
+    <section>
+      <div class="scoreboard">
+        <div class="card">
+          <span class="tag gold">Contexto observado</span>
+          <h2>Hay presencia, pero falta convertir esa presencia en confianza y turnos.</h2>
+          <p>
+            Las dos redes funcionan como punto de contacto, pero una estrategia comercial para quiropraxia
+            necesita responder tres preguntas en segundos: que problema ayuda a resolver, por que confiar
+            en el profesional y como pedir un turno sin friccion.
+          </p>
+        </div>
+        <div class="metric">
+          <strong>30 dias</strong>
+          <span>Horizonte recomendado para ordenar perfil, contenido y llamados a la accion sin rehacer todo desde cero.</span>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>Limitacion de auditoria</h2>
+        <p>Las plataformas pueden ocultar publicaciones, metricas y datos completos cuando no hay sesion iniciada.</p>
+      </div>
+      <div class="note">
+        <p>
+          Este reporte no afirma cantidad de seguidores, frecuencia real de publicaciones ni rendimiento de piezas
+          especificas. Las recomendaciones se basan en los enlaces provistos, en patrones publicos de optimizacion
+          para servicios locales de salud/bienestar y en buenas practicas para mejorar captacion de pacientes.
+        </p>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>Oportunidades principales</h2>
+        <p>Prioridades pensadas para mejorar claridad, credibilidad y conversion a consulta.</p>
+      </div>
+      <div class="grid">
+        <article class="card">
+          <span class="tag green">Perfil</span>
+          <h3>Bio con promesa clara</h3>
+          <p>
+            La descripcion debe decir en una linea a quien ayuda, con que enfoque y en que zona atiende.
+            Ejemplo: "Quiropraxia y cuidado de columna en [zona]. Turnos por WhatsApp."
+          </p>
+        </article>
+        <article class="card">
+          <span class="tag blue">Conversion</span>
+          <h3>Camino directo al turno</h3>
+          <p>
+            Un enlace unico debe llevar a WhatsApp, ubicacion, horarios y preguntas frecuentes. El objetivo
+            no es solo conseguir vistas, sino reducir dudas antes de escribir.
+          </p>
+        </article>
+        <article class="card">
+          <span class="tag gold">Confianza</span>
+          <h3>Prueba social verificable</h3>
+          <p>
+            Mostrar testimonios con consentimiento, casos explicados sin prometer curas y contenido educativo
+            que demuestre criterio profesional.
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>Diagnostico por canal</h2>
+        <p>Como deberia trabajar cada red segun su rol dentro del negocio.</p>
+      </div>
+      <div class="grid two">
+        <article class="card">
+          <span class="tag green">Instagram</span>
+          <h3>Rol recomendado: descubrimiento y confianza rapida</h3>
+          <ul>
+            <li>Optimizar nombre visible con palabra clave: "Quiropraxia | Sebastian Hodara".</li>
+            <li>Fijar 3 publicaciones: presentacion, como es una primera consulta, y como pedir turno.</li>
+            <li>Usar historias destacadas: Turnos, Ubicacion, Primera visita, Testimonios, Preguntas.</li>
+            <li>Crear reels cortos con ejercicios simples, habitos posturales y mitos frecuentes.</li>
+          </ul>
+        </article>
+        <article class="card">
+          <span class="tag blue">Facebook</span>
+          <h3>Rol recomendado: respaldo local y derivacion</h3>
+          <ul>
+            <li>Convertir el perfil en pagina profesional o complementar con una pagina del consultorio.</li>
+            <li>Completar horarios, direccion, telefono, boton de WhatsApp y categoria del servicio.</li>
+            <li>Publicar testimonios, recordatorios de turnos y contenido para publico adulto/local.</li>
+            <li>Usar publicaciones compartibles: dolor de cuello, dolor lumbar, ergonomia y consultas frecuentes.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>Prioridades de mejora</h2>
+        <p>Orden sugerido para lograr impacto sin dispersarse.</p>
+      </div>
+      <div class="card">
+        <div class="priority">
+          <div class="number">1</div>
+          <div>
+            <h3>Ordenar identidad y contacto</h3>
+            <p>Nombre claro, foto profesional, bio enfocada, enlace a WhatsApp, ubicacion y horarios visibles.</p>
+          </div>
+        </div>
+        <div class="priority">
+          <div class="number">2</div>
+          <div>
+            <h3>Crear una ruta de confianza</h3>
+            <p>Explicar quien es Sebastian, que es la quiropraxia, como es la primera consulta y que puede esperar una persona nueva.</p>
+          </div>
+        </div>
+        <div class="priority">
+          <div class="number">3</div>
+          <div>
+            <h3>Instalar un calendario simple</h3>
+            <p>Publicar con constancia: educacion, autoridad, prueba social y llamados a turno.</p>
+          </div>
+        </div>
+        <div class="priority">
+          <div class="number">4</div>
+          <div>
+            <h3>Medir consultas, no likes</h3>
+            <p>Registrar mensajes recibidos, turnos pedidos, preguntas frecuentes y origen del contacto.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>Pilares de contenido</h2>
+        <p>Una mezcla equilibrada evita que la cuenta sea solo promocional o solo educativa.</p>
+      </div>
+      <table class="content-table">
+        <thead>
+          <tr>
+            <th>Pilar</th>
+            <th>Objetivo</th>
+            <th>Ideas de publicaciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Educacion</strong></td>
+            <td>Ayudar antes de vender.</td>
+            <td>Habitos de escritorio, movilidad suave, senales para consultar, mitos sobre "acomodar" la columna.</td>
+          </tr>
+          <tr>
+            <td><strong>Autoridad</strong></td>
+            <td>Mostrar criterio profesional.</td>
+            <td>Explicacion de la primera evaluacion, enfoque de trabajo, formacion, limites y derivaciones cuando corresponde.</td>
+          </tr>
+          <tr>
+            <td><strong>Confianza</strong></td>
+            <td>Reducir miedo y dudas.</td>
+            <td>Testimonios autorizados, recorrido del consultorio, respuestas a preguntas frecuentes, que esperar de una sesion.</td>
+          </tr>
+          <tr>
+            <td><strong>Conversion</strong></td>
+            <td>Generar consultas.</td>
+            <td>Agenda semanal, cupos disponibles, boton a WhatsApp, recordatorio de ubicacion, invitacion a evaluacion inicial.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>Plan de accion de 30 dias</h2>
+        <p>Una secuencia corta para pasar de presencia basica a sistema de captacion.</p>
+      </div>
+      <div class="timeline">
+        <article class="step">
+          <b>Semana 1</b>
+          <h3>Perfil y contacto</h3>
+          <p>Actualizar bio, foto, enlaces, destacados y publicaciones fijadas. Dejar listo el camino a WhatsApp.</p>
+        </article>
+        <article class="step">
+          <b>Semana 2</b>
+          <h3>Confianza</h3>
+          <p>Publicar presentacion profesional, primera consulta, preguntas frecuentes y recorrido del espacio.</p>
+        </article>
+        <article class="step">
+          <b>Semana 3</b>
+          <h3>Educacion</h3>
+          <p>Crear 4 reels simples: cuello, espalda baja, postura laboral y cuando consultar.</p>
+        </article>
+        <article class="step">
+          <b>Semana 4</b>
+          <h3>Medicion</h3>
+          <p>Revisar mensajes, consultas, temas que mas se repiten y ajustar el calendario del mes siguiente.</p>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>Quick wins para presentar</h2>
+        <p>Cambios de bajo esfuerzo que pueden mejorar percepcion y respuesta rapidamente.</p>
+      </div>
+      <div class="grid">
+        <article class="card">
+          <span class="tag rose">Hoy</span>
+          <h3>Boton de accion visible</h3>
+          <p>Usar un enlace unico con WhatsApp directo y texto prearmado: "Hola Sebastian, quiero consultar por un turno."</p>
+        </article>
+        <article class="card">
+          <span class="tag green">Esta semana</span>
+          <h3>Destacadas ordenadas</h3>
+          <p>Crear portadas simples y nombres cortos: Turnos, Ubicacion, Inicio, Preguntas, Opiniones.</p>
+        </article>
+        <article class="card">
+          <span class="tag blue">Este mes</span>
+          <h3>Contenido fijo de bienvenida</h3>
+          <p>Grabar un video de 30 a 45 segundos explicando quien es, a quien atiende y como reservar.</p>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>Riesgos a cuidar</h2>
+        <p>Importante para comunicar servicios de salud/bienestar sin generar desconfianza.</p>
+      </div>
+      <div class="grid two">
+        <article class="card">
+          <span class="tag rose">Comunicacion</span>
+          <h3>No prometer resultados medicos</h3>
+          <p>
+            Evitar frases absolutas como "cura", "soluciona para siempre" o promesas sobre enfermedades.
+            Conviene hablar de evaluacion, acompanamiento, alivio percibido y mejora de habitos cuando sea apropiado.
+          </p>
+        </article>
+        <article class="card">
+          <span class="tag gold">Reputacion</span>
+          <h3>Consentimiento en testimonios</h3>
+          <p>
+            Usar testimonios solo con autorizacion y sin exponer informacion sensible. La confianza aumenta
+            cuando el contenido es claro, profesional y respetuoso.
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>Indicadores sugeridos</h2>
+        <p>Medir lo que acerca al negocio a mas consultas reales.</p>
+      </div>
+      <div class="grid">
+        <article class="metric">
+          <strong>Mensajes</strong>
+          <span>Cantidad de conversaciones iniciadas por Instagram/Facebook.</span>
+        </article>
+        <article class="metric">
+          <strong>Turnos</strong>
+          <span>Consultas que pasan de mensaje a reserva efectiva.</span>
+        </article>
+        <article class="metric">
+          <strong>Preguntas</strong>
+          <span>Dudas repetidas para convertirlas en contenido y respuestas rapidas.</span>
+        </article>
+      </div>
+    </section>
+
+    <footer class="footer">
+      Preparado como reporte de mejora inicial. Fuentes revisadas: enlaces publicos de Instagram y Facebook provistos por el cliente.
+    </footer>
+  </main>
+</body>
+</html>

@@ -212,6 +212,8 @@ const crmHtml = `<!doctype html>
     }
 
     .mobile-nav,
+    .mobile-section-nav,
+    .mobile-view-nav,
     .mobile-only {
       display: none;
     }
@@ -726,12 +728,18 @@ const crmHtml = `<!doctype html>
 
       .mobile-nav {
         height: 52px;
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
+        display: block;
         gap: 6px;
         padding: 6px;
         border-bottom: 1px solid var(--line);
         background: var(--surface);
+      }
+
+      .mobile-view-nav {
+        height: 40px;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 6px;
       }
 
       .mobile-nav button {
@@ -810,6 +818,63 @@ const crmHtml = `<!doctype html>
 
       .message {
         max-width: 92%;
+      }
+    }
+
+    @media (max-width: 430px) {
+      .mobile-nav {
+        height: 104px;
+        padding: 8px;
+        display: grid;
+        grid-template-rows: 42px 42px;
+        gap: 6px;
+      }
+
+      .mobile-section-nav {
+        display: flex;
+        gap: 6px;
+        min-width: 0;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .mobile-section-nav::-webkit-scrollbar {
+        display: none;
+      }
+
+      .mobile-section-nav button,
+      .mobile-view-nav button {
+        height: 42px;
+        flex: 0 0 auto;
+        padding: 0 12px;
+        white-space: nowrap;
+        font-size: 12px;
+      }
+
+      .mobile-view-nav {
+        height: 42px;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+      }
+
+      body:not([data-current-section="conversations"]) .mobile-view-nav {
+        display: none;
+      }
+
+      body:not([data-current-section="conversations"]) .mobile-nav {
+        height: 58px;
+        grid-template-rows: 42px;
+      }
+
+      .app {
+        height: calc(100dvh - 104px);
+      }
+
+      body:not([data-current-section="conversations"]) .app {
+        height: calc(100dvh - 58px);
       }
     }
 
@@ -8142,9 +8207,60 @@ const crmHtml = `<!doctype html>
         border-radius: 0;
       }
     }
+
+    @media (max-width: 430px) {
+      .mobile-nav {
+        height: 104px;
+      }
+
+      body:not([data-current-section="conversations"]) .mobile-nav {
+        height: 58px;
+      }
+
+      .app {
+        height: calc(100dvh - 104px);
+      }
+
+      body:not([data-current-section="conversations"]) .app {
+        height: calc(100dvh - 58px);
+      }
+
+      .agenda-view,
+      .customers-view,
+      .campaigns-view,
+      .services-view,
+      .professionals-view,
+      .reports-view,
+      .settings-view {
+        width: 100%;
+        height: 100%;
+        padding: 12px;
+        overflow: auto;
+      }
+
+      .agenda-view {
+        grid-template-columns: 1fr;
+      }
+
+      .agenda-sidebar,
+      .agenda-board,
+      .customer-list-panel,
+      .customer-profile-panel,
+      .campaign-list-panel,
+      .campaign-detail-panel,
+      .services-form-panel,
+      .services-list-panel,
+      .professionals-form-panel,
+      .professionals-list-panel,
+      .reports-panel,
+      .reports-table-panel,
+      .settings-panel {
+        max-width: 100%;
+      }
+    }
   </style>
 </head>
-<body data-mobile-view="inbox" data-auth="checking">
+<body data-mobile-view="inbox" data-current-section="conversations" data-auth="checking">
   <section class="login-view" id="login-view">
     <form class="login-card login-form" id="login-form">
       <div>
@@ -8161,10 +8277,22 @@ const crmHtml = `<!doctype html>
       <button id="login-submit" type="submit">Entrar al CRM</button>
     </form>
   </section>
-  <nav class="mobile-nav" aria-label="Vistas CRM">
-    <button class="active" id="mobile-inbox" type="button">Chats</button>
-    <button id="mobile-chat" type="button">Conversacion</button>
-    <button id="mobile-details" type="button">Cliente</button>
+  <nav class="mobile-nav" aria-label="Navegacion CRM">
+    <div class="mobile-section-nav" aria-label="Secciones CRM">
+      <button class="active" type="button" data-mobile-section="conversations">Chats</button>
+      <button type="button" data-mobile-section="agenda">Agenda</button>
+      <button type="button" data-mobile-section="customers">Clientes</button>
+      <button type="button" data-mobile-section="professionals">Profesionales</button>
+      <button type="button" data-mobile-section="services">Servicios</button>
+      <button type="button" data-mobile-section="campaigns" data-marketing-nav="templates">Marketing</button>
+      <button type="button" data-mobile-section="reports">Reportes</button>
+      <button type="button" data-mobile-section="settings">Ajustes</button>
+    </div>
+    <div class="mobile-view-nav" aria-label="Vistas de conversacion">
+      <button class="active" id="mobile-inbox" type="button">Chats</button>
+      <button id="mobile-chat" type="button">Conversacion</button>
+      <button id="mobile-details" type="button">Cliente</button>
+    </div>
   </nav>
 
   <main class="app" id="app-shell" data-section="conversations">
@@ -15877,11 +16005,15 @@ const crmHtml = `<!doctype html>
 
     function setSection(section) {
       els.appShell.dataset.section = section
+      document.body.dataset.currentSection = section
       const buttons = document.querySelectorAll('.workspace-nav button[data-nav-section]')
       buttons.forEach((button) => {
         const isSection = button.dataset.navSection === section
         const isMarketingSubitem = section === 'campaigns' && button.closest('.nav-subitems') && button.dataset.marketingNav !== state.marketingView
         button.classList.toggle('active', isSection && !isMarketingSubitem)
+      })
+      document.querySelectorAll('[data-mobile-section]').forEach((button) => {
+        button.classList.toggle('active', button.dataset.mobileSection === section)
       })
 
       if (section === 'agenda') {
@@ -16229,6 +16361,12 @@ const crmHtml = `<!doctype html>
       button.addEventListener('click', () => {
         if (button.dataset.marketingNav) setMarketingView(button.dataset.marketingNav)
         setSection(button.dataset.navSection)
+      })
+    })
+    document.querySelectorAll('[data-mobile-section]').forEach((button) => {
+      button.addEventListener('click', () => {
+        if (button.dataset.marketingNav) setMarketingView(button.dataset.marketingNav)
+        setSection(button.dataset.mobileSection)
       })
     })
 
