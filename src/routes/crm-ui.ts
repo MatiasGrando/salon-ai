@@ -8258,6 +8258,192 @@ const crmHtml = `<!doctype html>
         max-width: 100%;
       }
     }
+
+    @media (max-width: 760px) {
+      html,
+      body {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: hidden;
+      }
+
+      body[data-current-section="conversations"] .mobile-nav {
+        height: 104px;
+        padding: 8px;
+        display: grid;
+        grid-template-rows: 42px 42px;
+        gap: 6px;
+      }
+
+      body[data-current-section="conversations"] .mobile-section-nav {
+        display: flex;
+        gap: 6px;
+        min-width: 0;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      body[data-current-section="conversations"] .mobile-section-nav::-webkit-scrollbar {
+        display: none;
+      }
+
+      body[data-current-section="conversations"] .mobile-section-nav button,
+      body[data-current-section="conversations"] .mobile-view-nav button {
+        height: 42px;
+        min-width: 0;
+        padding: 0 10px;
+        white-space: nowrap;
+        font-size: 12px;
+      }
+
+      body[data-current-section="conversations"] .mobile-view-nav {
+        height: 42px;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+      }
+
+      body[data-current-section="conversations"] .app {
+        display: block;
+        width: 100%;
+        height: calc(100dvh - 104px);
+        min-width: 0;
+        overflow: hidden;
+      }
+
+      body[data-current-section="conversations"] .conversation-page-header,
+      body[data-current-section="conversations"] .workspace-nav {
+        display: none !important;
+      }
+
+      body[data-current-section="conversations"] .conversation-sidebar,
+      body[data-current-section="conversations"] .chat,
+      body[data-current-section="conversations"] .details {
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
+        height: 100%;
+        min-height: 0;
+        border-width: 0;
+      }
+
+      body[data-current-section="conversations"][data-mobile-view="inbox"] .conversation-sidebar,
+      body[data-current-section="conversations"][data-mobile-view="chat"] .chat,
+      body[data-current-section="conversations"][data-mobile-view="details"] .details {
+        display: flex;
+      }
+
+      body[data-current-section="conversations"][data-mobile-view="inbox"] .chat,
+      body[data-current-section="conversations"][data-mobile-view="inbox"] .details,
+      body[data-current-section="conversations"][data-mobile-view="chat"] .conversation-sidebar,
+      body[data-current-section="conversations"][data-mobile-view="chat"] .details,
+      body[data-current-section="conversations"][data-mobile-view="details"] .conversation-sidebar,
+      body[data-current-section="conversations"][data-mobile-view="details"] .chat {
+        display: none !important;
+      }
+
+      body[data-current-section="conversations"] .conversation-tabs {
+        min-height: 50px;
+        padding: 0 6px;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      body[data-current-section="conversations"] .conversation-tabs button {
+        gap: 3px;
+        padding: 0 3px;
+        font-size: clamp(9px, 2.55vw, 11px);
+        white-space: normal;
+        line-height: 1.1;
+      }
+
+      body[data-current-section="conversations"] .conversation-tabs span {
+        min-width: 17px;
+        height: 17px;
+        padding: 0 4px;
+        font-size: 9px;
+      }
+
+      body[data-current-section="conversations"] .conversation-list {
+        flex: 1;
+        min-height: 0;
+        padding: 10px 10px 76px;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      body[data-current-section="conversations"] .conversation {
+        min-height: 92px;
+        padding: 13px 12px;
+        grid-template-columns: 42px minmax(0, 1fr);
+        gap: 11px;
+      }
+
+      body[data-current-section="conversations"] .conversation-name,
+      body[data-current-section="conversations"] .conversation .preview {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      body[data-current-section="conversations"] .chat-header {
+        min-height: 60px;
+        padding: 9px 10px;
+      }
+
+      body[data-current-section="conversations"] .chat-title {
+        min-width: 0;
+      }
+
+      body[data-current-section="conversations"] .chat-contact-name {
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      body[data-current-section="conversations"] .chat-actions {
+        flex-shrink: 0;
+      }
+
+      body[data-current-section="conversations"] .messages {
+        padding: 14px 10px 16px;
+      }
+
+      body[data-current-section="conversations"] .message {
+        max-width: 88%;
+      }
+
+      body[data-current-section="conversations"] .composer {
+        margin: 0;
+        padding: 9px 10px calc(9px + env(safe-area-inset-bottom));
+        border-radius: 0;
+        grid-template-columns: minmax(0, 1fr) auto;
+      }
+
+      body[data-current-section="conversations"] .composer textarea {
+        min-width: 0;
+      }
+
+      body[data-current-section="conversations"] .details {
+        padding: 10px;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      body[data-current-section="conversations"] .details .topbar,
+      body[data-current-section="conversations"] .details-section {
+        width: 100%;
+      }
+
+      body[data-auth="checking"] .app,
+      body[data-auth="checking"] .mobile-nav,
+      body[data-auth="login"] .app,
+      body[data-auth="login"] .mobile-nav {
+        display: none !important;
+      }
+    }
   </style>
 </head>
 <body data-mobile-view="inbox" data-current-section="conversations" data-auth="checking">
