@@ -9095,11 +9095,11 @@ const crmHtml = `<!doctype html>
         position: sticky;
         top: 0;
         z-index: 8;
-        min-height: 78px;
-        padding: 18px 16px 8px;
+        min-height: 58px;
+        padding: 8px 14px 4px;
         display: grid;
-        grid-template-columns: 44px minmax(0, 1fr) 44px;
-        gap: 14px;
+        grid-template-columns: 40px minmax(0, 1fr) 40px;
+        gap: 10px;
         align-items: center;
         background: #211511;
       }
@@ -9126,7 +9126,7 @@ const crmHtml = `<!doctype html>
         min-width: 0;
         padding: 0 4px;
         gap: 6px;
-        font-size: 28px;
+        font-size: 24px;
         line-height: 1;
         font-weight: 500;
         text-align: left;
@@ -9257,7 +9257,7 @@ const crmHtml = `<!doctype html>
         min-width: 100%;
         min-height: 0;
         scroll-snap-align: start;
-        scroll-snap-stop: always;
+        scroll-snap-stop: normal;
         display: grid;
         grid-template-rows: auto minmax(0, 1fr);
         overflow: hidden;
@@ -9265,11 +9265,11 @@ const crmHtml = `<!doctype html>
 
       .agenda-gcal-days-head {
         position: sticky;
-        top: 78px;
+        top: 58px;
         z-index: 7;
         display: grid;
-        grid-template-columns: 74px repeat(3, minmax(0, 1fr));
-        min-height: 78px;
+        grid-template-columns: 62px repeat(3, minmax(0, 1fr));
+        min-height: 64px;
         background: #211511;
         border-bottom: 1px solid #34221d;
       }
@@ -9291,12 +9291,12 @@ const crmHtml = `<!doctype html>
       }
 
       .agenda-gcal-day-head span {
-        width: 48px;
-        height: 48px;
+        width: 44px;
+        height: 44px;
         border-radius: 999px;
         display: grid;
         place-items: center;
-        font-size: 28px;
+        font-size: 26px;
         line-height: 1;
       }
 
@@ -9317,7 +9317,7 @@ const crmHtml = `<!doctype html>
 
       .agenda-gcal-grid {
         display: grid;
-        grid-template-columns: 74px repeat(3, minmax(0, 1fr));
+        grid-template-columns: 62px repeat(3, minmax(0, 1fr));
         min-height: calc(24 * var(--agenda-hour-height, 88px));
         position: relative;
       }
@@ -9329,7 +9329,7 @@ const crmHtml = `<!doctype html>
 
       .agenda-gcal-hour-label {
         position: absolute;
-        right: 12px;
+        right: 8px;
         height: 24px;
         transform: translateY(-10px);
         color: #f1dcd6;
@@ -9402,7 +9402,7 @@ const crmHtml = `<!doctype html>
 
       .agenda-gcal-now-line {
         position: absolute;
-        left: 74px;
+        left: 62px;
         right: 0;
         z-index: 5;
         height: 1px;
@@ -11440,7 +11440,10 @@ const crmHtml = `<!doctype html>
       agendaMobileTouchStartScrollLeft: 0,
       agendaMobileHorizontalDrag: false,
       agendaMobilePageTimer: null,
+      agendaMobilePaging: false,
       agendaMobileScrollTop: null,
+      agendaLoadedRangeStart: null,
+      agendaLoadedRangeEnd: null,
       agendaDraggingAppointmentId: null,
       agendaDidDrag: false,
       editingAppointmentId: null,
@@ -15280,8 +15283,8 @@ const crmHtml = `<!doctype html>
       const monthStart = new Date(state.agendaMonthDate.getFullYear(), state.agendaMonthDate.getMonth(), 1)
       const rangeStart = mobileMonthRange
         ? startOfMondayWeek(monthStart)
-        : isMobile() ? addDays(startOfDay(state.agendaSelectedDate), -3) : startOfWeek(state.agendaSelectedDate)
-      const rangeEnd = addDays(rangeStart, mobileMonthRange ? 42 : isMobile() ? 9 : 7)
+        : isMobile() ? addDays(startOfDay(state.agendaSelectedDate), -4) : startOfWeek(state.agendaSelectedDate)
+      const rangeEnd = addDays(rangeStart, mobileMonthRange ? 42 : isMobile() ? 14 : 7)
       const params = new URLSearchParams({
         from: rangeStart.toISOString(),
         to: rangeEnd.toISOString()
@@ -15297,6 +15300,8 @@ const crmHtml = `<!doctype html>
 
       state.agendaAppointments = await getJson('/appointments?' + params.toString())
       state.agendaBlocks = await getJson('/schedule-blocks?' + params.toString())
+      state.agendaLoadedRangeStart = new Date(rangeStart)
+      state.agendaLoadedRangeEnd = new Date(rangeEnd)
       renderProfessionals()
       renderAgenda()
     }
@@ -15424,7 +15429,8 @@ const crmHtml = `<!doctype html>
       const today = new Date()
       const currentDays = Array.from({ length: 3 }, (_, index) => addDays(startDate, index))
       const visibleToday = currentDays.some((day) => dateKey(day) === dateKey(today))
-      const pageOffsets = [-3, 0, 3]
+      const pageOffsets = [-3, -2, -1, 0, 1, 2, 3]
+      const centerPage = pageOffsets.indexOf(0)
 
       els.agendaRange.textContent = formatAgendaRange(currentDays[0], currentDays[2])
       els.agendaToday.textContent = visibleToday ? 'Hoy' : 'Ir a hoy'
@@ -15436,7 +15442,7 @@ const crmHtml = `<!doctype html>
             '<button class="agenda-gcal-icon agenda-gcal-today" type="button" data-agenda-mobile-today aria-label="Hoy">' + today.getDate() + '</button>' +
           '</header>' +
           monthPanel +
-          '<div class="agenda-gcal-pages" data-agenda-mobile-pages>' +
+          '<div class="agenda-gcal-pages" data-agenda-mobile-pages data-agenda-center-page="' + centerPage + '">' +
             pageOffsets.map((offset) => renderAgendaMobilePage(addDays(startDate, offset), offset, hourHeight)).join('') +
           '</div>' +
           '<button class="agenda-gcal-fab" type="button" data-agenda-mobile-new aria-label="Nuevo turno">+</button>' +
@@ -15606,18 +15612,41 @@ const crmHtml = `<!doctype html>
 
       const pages = els.agendaGridWrap.querySelector('[data-agenda-mobile-pages]')
       if (pages) {
+        const centerPage = Number(pages.dataset.agendaCenterPage || 0)
         requestAnimationFrame(() => {
-          pages.scrollLeft = pages.clientWidth
+          pages.style.scrollBehavior = 'auto'
+          pages.scrollLeft = pages.clientWidth * centerPage
+          requestAnimationFrame(() => {
+            pages.style.scrollBehavior = ''
+          })
         })
         pages.addEventListener('scroll', () => {
           clearTimeout(state.agendaMobilePageTimer)
           state.agendaMobilePageTimer = setTimeout(async () => {
             const pageWidth = pages.clientWidth || 1
             const pageIndex = Math.round(pages.scrollLeft / pageWidth)
-            if (pageIndex === 1) return
-            state.agendaSelectedDate = addDays(state.agendaSelectedDate, pageIndex < 1 ? -3 : 3)
+            const dayOffset = pageIndex - centerPage
+            if (!dayOffset || state.agendaMobilePaging) return
+            state.agendaMobilePaging = true
+            state.agendaMobileScrollTop = els.agendaGridWrap.querySelector('[data-agenda-page-scroll="0"]')?.scrollTop ?? state.agendaMobileScrollTop
+            const nextSelectedDate = addDays(state.agendaSelectedDate, dayOffset)
+            const nextRenderStart = addDays(startOfDay(nextSelectedDate), -3)
+            const nextRenderEnd = addDays(startOfDay(nextSelectedDate), 6)
+            const hasBufferedRange = state.agendaLoadedRangeStart &&
+              state.agendaLoadedRangeEnd &&
+              nextRenderStart >= state.agendaLoadedRangeStart &&
+              nextRenderEnd <= state.agendaLoadedRangeEnd
+            state.agendaSelectedDate = nextSelectedDate
             state.agendaMonthDate = new Date(state.agendaSelectedDate)
-            await loadAgenda()
+            try {
+              if (hasBufferedRange) {
+                renderAgenda()
+              } else {
+                await loadAgenda()
+              }
+            } finally {
+              state.agendaMobilePaging = false
+            }
           }, 110)
         }, { passive: true })
       }
@@ -15660,7 +15689,8 @@ const crmHtml = `<!doctype html>
             return
           }
           const pageWidth = pages.clientWidth || 1
-          const pageIndex = Math.max(0, Math.min(2, Math.round(pages.scrollLeft / pageWidth)))
+          const lastPage = Math.max(0, pages.children.length - 1)
+          const pageIndex = Math.max(0, Math.min(lastPage, Math.round(pages.scrollLeft / pageWidth)))
           pages.scrollTo({ left: pageIndex * pageWidth, behavior: 'smooth' })
           state.agendaMobileTouchStartX = null
           state.agendaMobileTouchStartY = null
