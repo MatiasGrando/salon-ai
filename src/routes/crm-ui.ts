@@ -9050,231 +9050,410 @@ const crmHtml = `<!doctype html>
       }
 
       body[data-current-section="agenda"] .agenda-view {
-        padding: 14px;
-        align-content: start;
+        padding: 0;
+        background: #211511;
       }
 
       body[data-current-section="agenda"] .agenda-sidebar {
-        padding: 14px;
+        padding: 10px 12px;
+        border: 0;
+        border-radius: 0;
+        display: block;
+        background: #211511;
+        box-shadow: none;
         overflow: visible;
       }
 
       body[data-current-section="agenda"] .agenda-filters {
-        gap: 12px;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
       }
 
-      body[data-current-section="agenda"] .month-card {
-        margin-top: 14px;
+      body[data-current-section="agenda"] .agenda-filters > div:first-child,
+      body[data-current-section="agenda"] .month-card,
+      body[data-current-section="agenda"] .agenda-legend,
+      body[data-current-section="agenda"] .agenda-toolbar {
+        display: none !important;
       }
 
-      body[data-current-section="agenda"] .month-day,
-      body[data-current-section="agenda"] .month-weekday {
-        height: 34px;
+      body[data-current-section="agenda"] .agenda-filter label {
+        color: #d8c6c0;
         font-size: 12px;
       }
 
-      body[data-current-section="agenda"] .agenda-legend {
-        display: none;
+      body[data-current-section="agenda"] .agenda-filter select {
+        min-height: 42px;
+        border-color: #3a2823;
+        color: #f5e6e1;
+        background: #2a1a16;
       }
 
       body[data-current-section="agenda"] .agenda-board {
-        overflow: visible;
-      }
-
-      body[data-current-section="agenda"] .agenda-toolbar {
-        min-height: 0;
-        padding: 14px;
-        display: grid !important;
-        grid-template-columns: 1fr !important;
-        gap: 12px;
-      }
-
-      body[data-current-section="agenda"] .agenda-toolbar-actions {
-        display: grid;
-        grid-template-columns: 44px 1fr 44px;
-        gap: 8px;
-        justify-content: stretch;
-      }
-
-      body[data-current-section="agenda"] .agenda-toolbar-actions:last-of-type {
-        grid-template-columns: 1fr 44px;
-      }
-
-      body[data-current-section="agenda"] #agenda-new-appointment {
-        display: inline-flex;
-      }
-
-      body[data-current-section="agenda"] #agenda-refresh {
-        display: inline-flex;
-      }
-
-      body[data-current-section="agenda"] #agenda-step {
-        display: none;
-      }
-
-      body[data-current-section="agenda"] .agenda-range {
-        text-align: left;
-        font-size: 18px;
-      }
-
-      body[data-current-section="agenda"] .agenda-professional-tabs {
-        margin: 0 -2px;
-        padding-bottom: 4px;
+        border: 0;
+        border-radius: 0;
+        background: #211511;
+        box-shadow: none;
+        overflow: hidden;
       }
 
       body[data-current-section="agenda"] .agenda-grid-wrap {
         overflow: visible;
       }
 
-      .agenda-mobile-list {
+      .agenda-gcal {
+        height: 100%;
+        min-height: 0;
         display: grid;
-        gap: 12px;
-        padding: 12px;
-        background: #f8fbff;
+        grid-template-rows: auto minmax(0, 1fr);
+        color: #f6e7e2;
+        background: #211511;
       }
 
-      .agenda-mobile-day {
-        border: 1px solid #dfe6f1;
-        border-radius: 8px;
-        background: #fff;
-        overflow: hidden;
-      }
-
-      .agenda-mobile-day.today {
-        border-color: #bfdbfe;
-        box-shadow: 0 0 0 1px #bfdbfe;
-      }
-
-      .agenda-mobile-day > header {
-        min-height: 48px;
-        padding: 10px 12px;
-        border-bottom: 1px solid #edf0f4;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-      }
-
-      .agenda-mobile-day > header button {
-        min-height: 32px;
-        padding: 0;
-        color: #101936;
-        background: transparent;
-        font-size: 16px;
-        font-weight: 800;
-        text-align: left;
-        text-transform: capitalize;
-      }
-
-      .agenda-mobile-day > header span {
-        min-width: 28px;
-        height: 28px;
-        border-radius: 999px;
+      .agenda-gcal-top {
+        position: sticky;
+        top: 0;
+        z-index: 8;
+        min-height: 58px;
+        padding: 8px 12px;
         display: grid;
-        place-items: center;
-        color: #1d4ed8;
-        background: #eff6ff;
-        font-size: 13px;
-        font-weight: 800;
-      }
-
-      .agenda-mobile-items {
-        display: grid;
+        grid-template-columns: 44px minmax(0, 1fr) repeat(4, 40px);
         gap: 8px;
-        padding: 10px;
+        align-items: center;
+        background: #211511;
       }
 
-      .agenda-mobile-item {
-        width: 100%;
-        min-height: 76px;
-        padding: 10px;
-        border: 1px solid #e6ebf3;
-        border-left: 4px solid var(--agenda-event-color, #2563eb);
-        border-radius: 8px;
-        display: grid;
-        grid-template-columns: 64px minmax(0, 1fr) auto;
-        gap: 10px;
+      .agenda-gcal-icon,
+      .agenda-gcal-title {
+        min-height: 40px;
+        border: 0;
+        border-radius: 999px;
+        display: inline-flex;
         align-items: center;
-        color: #101936;
-        background: color-mix(in srgb, var(--agenda-event-color, #2563eb) 10%, #ffffff);
+        justify-content: center;
+        color: #f5deda;
+        background: transparent;
+      }
+
+      .agenda-gcal-icon {
+        font-size: 24px;
+        font-weight: 600;
+      }
+
+      .agenda-gcal-title {
+        justify-content: flex-start;
+        min-width: 0;
+        padding: 0 4px;
+        gap: 6px;
+        font-size: 28px;
+        line-height: 1;
+        font-weight: 500;
         text-align: left;
       }
 
-      .agenda-mobile-item.blocked {
-        --agenda-event-color: #64748b;
-        background: #f8fafc;
-      }
-
-      .agenda-mobile-item.no-show {
-        --agenda-event-color: #94a3b8;
-        background: #f1f5f9;
-      }
-
-      .agenda-mobile-time {
-        display: grid;
-        gap: 2px;
-        color: #1d4ed8;
-        font-size: 16px;
-        font-weight: 850;
-      }
-
-      .agenda-mobile-time small {
-        color: #64748b;
-        font-size: 12px;
-        font-weight: 700;
-      }
-
-      .agenda-mobile-copy {
-        min-width: 0;
-        display: grid;
-        gap: 4px;
-      }
-
-      .agenda-mobile-copy strong,
-      .agenda-mobile-copy span {
+      .agenda-gcal-title span {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
 
-      .agenda-mobile-copy strong {
-        font-size: 15px;
-      }
-
-      .agenda-mobile-copy span {
-        color: #52617f;
-        font-size: 13px;
-      }
-
-      .agenda-mobile-status {
-        padding: 5px 8px;
-        border-radius: 999px;
-        color: #1d4ed8;
-        background: #eff6ff;
-        font-size: 11px;
+      .agenda-gcal-today {
+        border: 2px solid #f5deda;
+        border-radius: 8px;
+        color: #f5deda;
+        font-size: 14px;
         font-weight: 800;
       }
 
-      .agenda-mobile-empty {
-        padding: 16px;
-        border: 1px dashed #dfe6f1;
-        border-radius: 8px;
-        color: #64748b;
-        background: #f8fafc;
+      .agenda-gcal-month-panel {
+        padding: 2px 18px 14px;
+        background: #211511;
+      }
+
+      .agenda-gcal-month-grid {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+        gap: 10px 12px;
+      }
+
+      .agenda-gcal-month-weekday,
+      .agenda-gcal-month-day {
+        min-height: 34px;
+        display: grid;
+        place-items: center;
+        color: #f1dcd6;
+        background: transparent;
+        font-size: 16px;
+      }
+
+      .agenda-gcal-month-weekday {
+        color: #b89690;
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .agenda-gcal-month-day {
+        position: relative;
+        border-radius: 999px;
+      }
+
+      .agenda-gcal-month-day.outside {
+        color: #6f5650;
+      }
+
+      .agenda-gcal-month-day.selected {
+        color: #1f160f;
+        background: #9ecbff;
+      }
+
+      .agenda-gcal-month-day.has-items::after {
+        content: "";
+        position: absolute;
+        bottom: 2px;
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: #2dd4bf;
+      }
+
+      .agenda-gcal-month-strip {
+        margin: 14px -18px 0;
+        padding: 0 18px;
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        scrollbar-width: none;
+      }
+
+      .agenda-gcal-month-strip::-webkit-scrollbar {
+        display: none;
+      }
+
+      .agenda-gcal-month-strip button {
+        min-width: 86px;
+        min-height: 44px;
+        border-radius: 10px;
+        color: #f1dcd6;
+        background: #170d0b;
+        font-size: 15px;
+        font-weight: 700;
+      }
+
+      .agenda-gcal-month-strip button.active {
+        background: #79521f;
+      }
+
+      .agenda-gcal-main {
+        min-height: 0;
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        overflow: hidden;
+      }
+
+      .agenda-gcal-days-head {
+        position: sticky;
+        top: 58px;
+        z-index: 7;
+        display: grid;
+        grid-template-columns: 74px repeat(3, minmax(0, 1fr));
+        min-height: 78px;
+        background: #211511;
+        border-bottom: 1px solid #34221d;
+      }
+
+      .agenda-gcal-day-head {
+        display: grid;
+        place-items: center;
+        gap: 3px;
+        color: #f5deda;
+        background: transparent;
         text-align: center;
+      }
+
+      .agenda-gcal-day-head strong {
+        display: block;
+        color: #b89690;
+        font-size: 14px;
+        font-weight: 800;
+      }
+
+      .agenda-gcal-day-head span {
+        width: 54px;
+        height: 54px;
+        border-radius: 999px;
+        display: grid;
+        place-items: center;
+        font-size: 30px;
+        line-height: 1;
+      }
+
+      .agenda-gcal-day-head.today span,
+      .agenda-gcal-day-head.selected span {
+        color: #1a120e;
+        background: #9ecbff;
+      }
+
+      .agenda-gcal-scroll {
+        min-height: 0;
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
+        background: #211511;
+      }
+
+      .agenda-gcal-grid {
+        display: grid;
+        grid-template-columns: 74px repeat(3, minmax(0, 1fr));
+        min-height: calc(24 * var(--agenda-hour-height, 88px));
+        position: relative;
+      }
+
+      .agenda-gcal-time-axis {
+        position: relative;
+        min-height: calc(24 * var(--agenda-hour-height, 88px));
+      }
+
+      .agenda-gcal-hour-label {
+        position: absolute;
+        right: 12px;
+        height: 24px;
+        transform: translateY(-10px);
+        color: #f1dcd6;
         font-size: 14px;
       }
 
+      .agenda-gcal-day-column {
+        position: relative;
+        min-height: calc(24 * var(--agenda-hour-height, 88px));
+        border-left: 1px solid #34221d;
+      }
+
+      .agenda-gcal-hour-cell {
+        height: var(--agenda-hour-height, 88px);
+        border-bottom: 1px solid #3b2722;
+        background: #180d0b;
+      }
+
+      .agenda-gcal-hour-cell.closed {
+        background:
+          repeating-linear-gradient(135deg, rgba(95, 70, 64, .42) 0 2px, transparent 2px 8px),
+          #241511;
+      }
+
+      .agenda-gcal-event,
+      .agenda-gcal-block {
+        position: absolute;
+        left: 6px;
+        right: 6px;
+        z-index: 4;
+        min-height: 28px;
+        padding: 7px 8px;
+        border-radius: 9px;
+        border-left: 4px solid var(--agenda-event-color, #9ecbff);
+        overflow: hidden;
+        color: #0f172a;
+        background: #9ecbff;
+        text-align: left;
+        box-shadow: 0 8px 18px rgba(0,0,0,.25);
+      }
+
+      .agenda-gcal-block {
+        color: #f1dcd6;
+        background: #4a342f;
+        border-left-color: #8b716a;
+      }
+
+      .agenda-gcal-event.no-show {
+        color: #f1dcd6;
+        background: #4b5563;
+        border-left-color: #94a3b8;
+      }
+
+      .agenda-gcal-event strong,
+      .agenda-gcal-block strong {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 12px;
+      }
+
+      .agenda-gcal-event span,
+      .agenda-gcal-block span {
+        display: block;
+        margin-top: 2px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 11px;
+      }
+
+      .agenda-gcal-now-line {
+        position: absolute;
+        left: 74px;
+        right: 0;
+        z-index: 5;
+        height: 1px;
+        background: #f3d7d0;
+        pointer-events: none;
+      }
+
+      .agenda-gcal-now-line::before {
+        content: "";
+        position: absolute;
+        left: -8px;
+        top: -5px;
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+        background: #f3d7d0;
+      }
+
+      .agenda-gcal-fab {
+        position: fixed;
+        right: 24px;
+        bottom: calc(78px + env(safe-area-inset-bottom));
+        z-index: 74;
+        width: 72px;
+        height: 72px;
+        border-radius: 18px;
+        display: grid;
+        place-items: center;
+        color: #fff;
+        background: #0b5a99;
+        font-size: 40px;
+        font-weight: 300;
+        box-shadow: 0 16px 34px rgba(0,0,0,.34);
+      }
+
+      .agenda-gcal-swipe-hint {
+        position: absolute;
+        left: 50%;
+        bottom: 10px;
+        transform: translateX(-50%);
+        color: #b89690;
+        font-size: 12px;
+        pointer-events: none;
+      }
+
+      .agenda-gcal-empty {
+        position: absolute;
+        top: 18px;
+        left: 90px;
+        right: 16px;
+        padding: 12px;
+        border: 1px dashed #4a342f;
+        border-radius: 10px;
+        color: #b89690;
+        text-align: center;
+      }
+
+      .agenda-mobile-list,
+      .agenda-mobile-day,
+      .agenda-mobile-items,
+      .agenda-mobile-item,
+      .agenda-mobile-empty,
       .agenda-mobile-add {
-        width: calc(100% - 20px);
-        min-height: 44px;
-        margin: 0 10px 10px;
-        border: 1px solid #bfdbfe;
-        border-radius: 8px;
-        color: #1d4ed8;
-        background: #eff6ff;
-        font-size: 15px;
-        font-weight: 800;
+        overflow: hidden;
+        display: none;
       }
 
       body[data-current-section="conversations"] .conversation-sidebar,
@@ -11241,6 +11420,8 @@ const crmHtml = `<!doctype html>
       agendaBlocks: [],
       agendaSelectedDate: new Date(),
       agendaMonthDate: new Date(),
+      agendaMobileMonthOpen: false,
+      agendaMobileTouchStartX: null,
       agendaDraggingAppointmentId: null,
       agendaDidDrag: false,
       editingAppointmentId: null,
@@ -15075,12 +15256,16 @@ const crmHtml = `<!doctype html>
         .join('')
     }
 
-    async function loadAgenda() {
-      const weekStart = startOfWeek(state.agendaSelectedDate)
-      const weekEnd = addDays(weekStart, 7)
+    async function loadAgenda(options = {}) {
+      const mobileMonthRange = isMobile() && options.monthView
+      const monthStart = new Date(state.agendaMonthDate.getFullYear(), state.agendaMonthDate.getMonth(), 1)
+      const rangeStart = mobileMonthRange
+        ? startOfMondayWeek(monthStart)
+        : isMobile() ? startOfDay(state.agendaSelectedDate) : startOfWeek(state.agendaSelectedDate)
+      const rangeEnd = addDays(rangeStart, mobileMonthRange ? 42 : isMobile() ? 3 : 7)
       const params = new URLSearchParams({
-        from: weekStart.toISOString(),
-        to: weekEnd.toISOString()
+        from: rangeStart.toISOString(),
+        to: rangeEnd.toISOString()
       })
 
       if (state.businessId) {
@@ -15141,7 +15326,7 @@ const crmHtml = `<!doctype html>
 
     function renderAgendaGrid() {
       if (isMobile()) {
-        renderAgendaMobileList()
+        renderAgendaMobileThreeDay()
         return
       }
 
@@ -15210,6 +15395,224 @@ const crmHtml = `<!doctype html>
         startMinute
       })
       enableAgendaDragAndDrop()
+    }
+
+    function renderAgendaMobileThreeDay() {
+      const hourHeight = 88
+      const startDate = startOfDay(state.agendaSelectedDate)
+      const days = Array.from({ length: 3 }, (_, index) => addDays(startDate, index))
+      const appointments = filteredAgendaAppointmentsForRange(startDate, addDays(startDate, 3))
+      const blocks = filteredAgendaBlocksForRange(startDate, addDays(startDate, 3))
+      const monthPanel = state.agendaMobileMonthOpen ? renderAgendaMobileMonthPanel() : ''
+      const monthTitle = formatAgendaMobileTitle(state.agendaSelectedDate)
+      const today = new Date()
+      const todayKey = dateKey(today)
+      const visibleToday = days.some((day) => dateKey(day) === todayKey)
+      const nowTop = ((today.getHours() * 60 + today.getMinutes()) / 60) * hourHeight
+      const hourLabels = Array.from({ length: 24 }, (_, hour) => {
+        return '<span class="agenda-gcal-hour-label" style="top:' + (hour * hourHeight) + 'px">' + String(hour).padStart(2, '0') + ':00</span>'
+      }).join('')
+
+      const dayHeaders = days.map((day) => {
+        const key = dateKey(day)
+        const weekday = new Intl.DateTimeFormat('es-AR', { weekday: 'short' }).format(day)
+        return '<button class="agenda-gcal-day-head' + (key === todayKey ? ' today' : '') + (key === dateKey(state.agendaSelectedDate) ? ' selected' : '') + '" type="button" data-agenda-date="' + key + '">' +
+          '<strong>' + escapeHtml(weekday) + '</strong>' +
+          '<span>' + day.getDate() + '</span>' +
+        '</button>'
+      }).join('')
+
+      const dayColumns = days.map((day) => {
+        const key = dateKey(day)
+        const cells = Array.from({ length: 24 }, (_, hour) => {
+          const closed = isClosedAgendaSlot(day, hour * 60)
+          return '<div class="agenda-gcal-hour-cell' + (closed ? ' closed' : '') + '" data-cell-date="' + key + '" data-cell-minute="' + (hour * 60) + '"></div>'
+        }).join('')
+        const events = appointments
+          .filter((appointment) => dateKey(new Date(appointment.startAt)) === key)
+          .map((appointment) => renderAgendaMobileEvent(appointment, hourHeight))
+          .join('')
+        const dayBlocks = blocks
+          .filter((block) => dateKey(new Date(block.startAt)) === key)
+          .map((block) => renderAgendaMobileBlock(block, hourHeight))
+          .join('')
+        return '<div class="agenda-gcal-day-column" data-gcal-day="' + key + '">' + cells + events + dayBlocks + '</div>'
+      }).join('')
+
+      els.agendaRange.textContent = formatAgendaRange(days[0], days[2])
+      els.agendaToday.textContent = visibleToday ? 'Hoy' : 'Ir a hoy'
+      els.agendaGridWrap.innerHTML =
+        '<div class="agenda-gcal">' +
+          '<header class="agenda-gcal-top">' +
+            '<button class="agenda-gcal-icon" type="button" data-agenda-mobile-menu aria-label="Menu">=</button>' +
+            '<button class="agenda-gcal-title" type="button" data-agenda-mobile-month-toggle aria-expanded="' + String(state.agendaMobileMonthOpen) + '"><span>' + escapeHtml(monthTitle) + '</span><small>' + (state.agendaMobileMonthOpen ? '^' : 'v') + '</small></button>' +
+            '<button class="agenda-gcal-icon" type="button" data-agenda-mobile-prev aria-label="Tres dias anteriores">&lt;</button>' +
+            '<button class="agenda-gcal-icon agenda-gcal-today" type="button" data-agenda-mobile-today aria-label="Hoy">' + today.getDate() + '</button>' +
+            '<button class="agenda-gcal-icon" type="button" data-agenda-mobile-next aria-label="Tres dias siguientes">&gt;</button>' +
+            '<button class="agenda-gcal-icon" type="button" data-agenda-mobile-refresh aria-label="Actualizar">R</button>' +
+          '</header>' +
+          monthPanel +
+          '<section class="agenda-gcal-main">' +
+            '<div class="agenda-gcal-days-head"><div></div>' + dayHeaders + '</div>' +
+            '<div class="agenda-gcal-scroll">' +
+              '<div class="agenda-gcal-grid" style="--agenda-hour-height:' + hourHeight + 'px">' +
+                '<div class="agenda-gcal-time-axis">' + hourLabels + '</div>' +
+                dayColumns +
+                (visibleToday ? '<div class="agenda-gcal-now-line" style="top:' + nowTop + 'px"></div>' : '') +
+              '</div>' +
+            '</div>' +
+          '</section>' +
+          '<button class="agenda-gcal-fab" type="button" data-agenda-mobile-new aria-label="Nuevo turno">+</button>' +
+        '</div>'
+
+      bindAgendaMobileControls()
+      scrollAgendaMobileToWorkingTime(hourHeight)
+    }
+
+    function renderAgendaMobileEvent(appointment, hourHeight) {
+      const start = new Date(appointment.startAt)
+      const duration = appointment.service?.duration || 30
+      const startMinute = start.getHours() * 60 + start.getMinutes()
+      const top = (startMinute / 60) * hourHeight + 2
+      const height = Math.max(34, (duration / 60) * hourHeight - 4)
+      const professionalIndex = activeProfessionals().findIndex((item) => item.id === appointment.professionalId)
+      const color = agendaProfessionalColor(appointment.professionalId, professionalIndex)
+      const noShow = appointment.status === 'NO_SHOW'
+      return '<button class="agenda-gcal-event' + (noShow ? ' no-show' : '') + '" type="button" data-appointment-id="' + appointment.id + '" style="top:' + top + 'px;height:' + height + 'px;--agenda-event-color:' + color + '">' +
+        '<strong>' + escapeHtml(appointment.customer?.name || 'Cliente') + '</strong>' +
+        '<span>' + escapeHtml(formatTimeOnly(start) + ' - ' + (appointment.service?.name || 'Servicio')) + '</span>' +
+      '</button>'
+    }
+
+    function renderAgendaMobileBlock(block, hourHeight) {
+      const start = new Date(block.startAt)
+      const end = new Date(block.endAt)
+      const startMinute = start.getHours() * 60 + start.getMinutes()
+      const duration = Math.max(15, Math.round((end.getTime() - start.getTime()) / 60000))
+      const top = (startMinute / 60) * hourHeight + 2
+      const height = Math.max(34, (duration / 60) * hourHeight - 4)
+      return '<article class="agenda-gcal-block" style="top:' + top + 'px;height:' + height + 'px">' +
+        '<strong>' + escapeHtml(block.title || scheduleBlockReasonLabel(block.reason)) + '</strong>' +
+        '<span>' + escapeHtml(formatTimeOnly(start) + ' - ' + formatTimeOnly(end)) + '</span>' +
+      '</article>'
+    }
+
+    function renderAgendaMobileMonthPanel() {
+      const monthDate = new Date(state.agendaMonthDate.getFullYear(), state.agendaMonthDate.getMonth(), 1)
+      const first = startOfMondayWeek(monthDate)
+      const selectedKey = dateKey(state.agendaSelectedDate)
+      const appointmentKeys = new Set(filteredAgendaAppointmentsForRange(first, addDays(first, 42)).map((appointment) => dateKey(new Date(appointment.startAt))))
+      const cells = ['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((day) => '<div class="agenda-gcal-month-weekday">' + day + '</div>')
+      for (let index = 0; index < 42; index += 1) {
+        const day = addDays(first, index)
+        const key = dateKey(day)
+        const className = [
+          'agenda-gcal-month-day',
+          day.getMonth() !== monthDate.getMonth() ? 'outside' : '',
+          key === selectedKey ? 'selected' : '',
+          appointmentKeys.has(key) ? 'has-items' : ''
+        ].filter(Boolean).join(' ')
+        cells.push('<button class="' + className + '" type="button" data-agenda-mobile-date="' + key + '">' + day.getDate() + '</button>')
+      }
+
+      const monthButtons = Array.from({ length: 7 }, (_, index) => {
+        const date = new Date(monthDate.getFullYear(), monthDate.getMonth() - 3 + index, 1)
+        const active = date.getMonth() === monthDate.getMonth() && date.getFullYear() === monthDate.getFullYear()
+        return '<button class="' + (active ? 'active' : '') + '" type="button" data-agenda-mobile-month="' + dateKey(date) + '">' + escapeHtml(new Intl.DateTimeFormat('es-AR', { month: 'short' }).format(date)) + '</button>'
+      }).join('')
+
+      return '<section class="agenda-gcal-month-panel">' +
+        '<div class="agenda-gcal-month-grid">' + cells.join('') + '</div>' +
+        '<div class="agenda-gcal-month-strip">' + monthButtons + '</div>' +
+      '</section>'
+    }
+
+    function bindAgendaMobileControls() {
+      els.agendaGridWrap.querySelector('[data-agenda-mobile-menu]')?.addEventListener('click', openMobileDrawer)
+      els.agendaGridWrap.querySelector('[data-agenda-mobile-month-toggle]')?.addEventListener('click', async () => {
+        state.agendaMobileMonthOpen = !state.agendaMobileMonthOpen
+        if (state.agendaMobileMonthOpen) {
+          await loadAgenda({ monthView: true })
+        } else {
+          renderAgenda()
+        }
+      })
+      els.agendaGridWrap.querySelector('[data-agenda-mobile-prev]')?.addEventListener('click', async () => {
+        state.agendaSelectedDate = addDays(state.agendaSelectedDate, -3)
+        state.agendaMonthDate = new Date(state.agendaSelectedDate)
+        await loadAgenda()
+      })
+      els.agendaGridWrap.querySelector('[data-agenda-mobile-next]')?.addEventListener('click', async () => {
+        state.agendaSelectedDate = addDays(state.agendaSelectedDate, 3)
+        state.agendaMonthDate = new Date(state.agendaSelectedDate)
+        await loadAgenda()
+      })
+      els.agendaGridWrap.querySelector('[data-agenda-mobile-today]')?.addEventListener('click', async () => {
+        state.agendaSelectedDate = new Date()
+        state.agendaMonthDate = new Date()
+        await loadAgenda()
+      })
+      els.agendaGridWrap.querySelector('[data-agenda-mobile-refresh]')?.addEventListener('click', loadAgenda)
+      els.agendaGridWrap.querySelector('[data-agenda-mobile-new]')?.addEventListener('click', () => openAppointmentDialog({ date: state.agendaSelectedDate }))
+
+      for (const button of els.agendaGridWrap.querySelectorAll('[data-agenda-date], [data-agenda-mobile-date]')) {
+        button.addEventListener('click', async () => {
+          state.agendaSelectedDate = parseDateKey(button.dataset.agendaDate || button.dataset.agendaMobileDate)
+          state.agendaMonthDate = new Date(state.agendaSelectedDate)
+          state.agendaMobileMonthOpen = false
+          await loadAgenda()
+        })
+      }
+
+      for (const button of els.agendaGridWrap.querySelectorAll('[data-agenda-mobile-month]')) {
+        button.addEventListener('click', async () => {
+          state.agendaMonthDate = parseDateKey(button.dataset.agendaMobileMonth)
+          await loadAgenda({ monthView: true })
+        })
+      }
+
+      for (const cell of els.agendaGridWrap.querySelectorAll('[data-cell-date][data-cell-minute]')) {
+        cell.addEventListener('click', () => {
+          openAppointmentDialog({
+            date: parseDateKey(cell.dataset.cellDate),
+            minute: Number(cell.dataset.cellMinute || 9 * 60)
+          })
+        })
+      }
+
+      for (const button of els.agendaGridWrap.querySelectorAll('[data-appointment-id]')) {
+        button.addEventListener('click', (event) => {
+          event.stopPropagation()
+          const appointment = state.agendaAppointments.find((item) => item.id === button.dataset.appointmentId)
+          if (appointment) openAppointmentDialog({ appointment })
+        })
+      }
+
+      const scroll = els.agendaGridWrap.querySelector('.agenda-gcal-scroll')
+      if (scroll) {
+        scroll.addEventListener('touchstart', (event) => {
+          state.agendaMobileTouchStartX = event.touches[0]?.clientX ?? null
+        }, { passive: true })
+        scroll.addEventListener('touchend', async (event) => {
+          if (state.agendaMobileTouchStartX === null) return
+          const endX = event.changedTouches[0]?.clientX ?? state.agendaMobileTouchStartX
+          const delta = endX - state.agendaMobileTouchStartX
+          state.agendaMobileTouchStartX = null
+          if (Math.abs(delta) < 70) return
+          state.agendaSelectedDate = addDays(state.agendaSelectedDate, delta < 0 ? 3 : -3)
+          state.agendaMonthDate = new Date(state.agendaSelectedDate)
+          await loadAgenda()
+        }, { passive: true })
+      }
+    }
+
+    function scrollAgendaMobileToWorkingTime(hourHeight) {
+      const scroll = els.agendaGridWrap.querySelector('.agenda-gcal-scroll')
+      if (!scroll) return
+      const now = new Date()
+      const visibleToday = [0, 1, 2].some((index) => dateKey(addDays(startOfDay(state.agendaSelectedDate), index)) === dateKey(now))
+      const targetHour = visibleToday ? Math.max(0, now.getHours() - 2) : Math.max(0, Math.floor(getAgendaDisplayRange().start / 60) - 1)
+      scroll.scrollTop = targetHour * hourHeight
     }
 
     function renderAgendaMobileList() {
@@ -15507,6 +15910,10 @@ const crmHtml = `<!doctype html>
     function filteredAgendaAppointments() {
       const weekStart = startOfWeek(state.agendaSelectedDate)
       const weekEnd = addDays(weekStart, 7)
+      return filteredAgendaAppointmentsForRange(weekStart, weekEnd)
+    }
+
+    function filteredAgendaAppointmentsForRange(from, to) {
       const professionalId = els.agendaProfessional?.value || ''
       const serviceId = els.agendaService?.value || ''
 
@@ -15514,7 +15921,7 @@ const crmHtml = `<!doctype html>
         .filter((appointment) => appointment.status !== 'CANCELLED')
         .filter((appointment) => {
           const start = new Date(appointment.startAt)
-          return start >= weekStart && start < weekEnd
+          return start >= from && start < to
         })
         .filter((appointment) => !professionalId || appointment.professionalId === professionalId)
         .filter((appointment) => !serviceId || appointment.serviceId === serviceId)
@@ -15524,13 +15931,17 @@ const crmHtml = `<!doctype html>
     function filteredAgendaBlocks() {
       const weekStart = startOfWeek(state.agendaSelectedDate)
       const weekEnd = addDays(weekStart, 7)
+      return filteredAgendaBlocksForRange(weekStart, weekEnd)
+    }
+
+    function filteredAgendaBlocksForRange(from, to) {
       const professionalId = els.agendaProfessional?.value || ''
 
       return state.agendaBlocks
         .filter((block) => {
           const start = new Date(block.startAt)
           const end = new Date(block.endAt)
-          return end > weekStart && start < weekEnd
+          return end > from && start < to
         })
         .filter((block) => !professionalId || !block.professionalId || block.professionalId === professionalId)
         .sort((left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime())
@@ -17316,6 +17727,13 @@ const crmHtml = `<!doctype html>
       return copy
     }
 
+    function startOfMondayWeek(date) {
+      const copy = startOfDay(date)
+      const offset = (copy.getDay() + 6) % 7
+      copy.setDate(copy.getDate() - offset)
+      return copy
+    }
+
     function startOfDay(date) {
       return new Date(date.getFullYear(), date.getMonth(), date.getDate())
     }
@@ -17402,6 +17820,13 @@ const crmHtml = `<!doctype html>
         day: 'numeric',
         month: 'short'
       }).format(date)
+    }
+
+    function formatAgendaMobileTitle(date) {
+      const options = date.getFullYear() === new Date().getFullYear()
+        ? { month: 'long' }
+        : { month: 'short', year: 'numeric' }
+      return new Intl.DateTimeFormat('es-AR', options).format(date)
     }
 
     async function saveService(event) {
