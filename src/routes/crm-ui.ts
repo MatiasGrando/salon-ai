@@ -8445,6 +8445,514 @@ const crmHtml = `<!doctype html>
         display: none !important;
       }
     }
+
+    @media (max-width: 1023px) {
+      .crm-top {
+        display: none !important;
+      }
+
+      .app {
+        grid-template-columns: 84px minmax(0, 1fr);
+      }
+
+      .workspace-nav {
+        width: 84px;
+        padding: 16px 8px;
+      }
+
+      .workspace-nav .crm-brand,
+      .workspace-nav .nav-user-info,
+      .workspace-nav button > strong,
+      .workspace-nav .nav-subitems {
+        display: none;
+      }
+
+      .workspace-nav button {
+        min-height: 50px;
+        justify-content: center;
+        padding: 8px;
+      }
+    }
+
+    @media (max-width: 767px) {
+      :root {
+        --mobile-nav-height: 56px;
+        --mobile-view-tabs-height: 52px;
+      }
+
+      html,
+      body {
+        width: 100%;
+        max-width: 100%;
+        min-height: 100dvh;
+        overflow: hidden;
+      }
+
+      body {
+        font-size: 16px;
+      }
+
+      body.mobile-drawer-open {
+        overflow: hidden;
+      }
+
+      .mobile-nav {
+        position: sticky;
+        top: 0;
+        z-index: 80;
+        height: var(--mobile-nav-height) !important;
+        padding: 8px 12px !important;
+        display: flex !important;
+        align-items: center;
+        border-bottom: 1px solid #dbe3ee;
+        background: #ffffff;
+        box-shadow: 0 8px 20px rgba(15, 23, 42, .08);
+      }
+
+      .mobile-top-row {
+        width: 100%;
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .mobile-menu-toggle {
+        width: 44px;
+        height: 44px;
+        flex: 0 0 44px;
+        border: 1px solid #d7dfec;
+        border-radius: 8px;
+        display: grid;
+        place-items: center;
+        color: #101936;
+        background: #fff;
+        font-size: 22px;
+        line-height: 1;
+      }
+
+      .mobile-current-title {
+        min-width: 0;
+        display: grid;
+        gap: 2px;
+      }
+
+      .mobile-current-title strong {
+        overflow: hidden;
+        color: #101936;
+        font-size: 18px;
+        line-height: 1.15;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .mobile-current-title span {
+        color: #64748b;
+        font-size: 14px;
+        line-height: 1.2;
+      }
+
+      .mobile-nav-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 81;
+        width: 100%;
+        height: 100%;
+        border: 0;
+        display: none;
+        background: rgba(15, 23, 42, .48);
+      }
+
+      body.mobile-drawer-open .mobile-nav-overlay {
+        display: block;
+      }
+
+      .mobile-section-nav {
+        position: fixed;
+        top: 0;
+        left: 0;
+        z-index: 82;
+        width: min(86vw, 340px);
+        height: 100dvh;
+        padding: 18px 12px calc(18px + env(safe-area-inset-bottom));
+        display: flex !important;
+        flex-direction: column;
+        gap: 8px;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        background: #071b34;
+        box-shadow: 18px 0 34px rgba(15, 23, 42, .22);
+        transform: translateX(-105%);
+        transition: transform .22s ease;
+      }
+
+      body.mobile-drawer-open .mobile-section-nav {
+        transform: translateX(0);
+      }
+
+      .mobile-drawer-head {
+        min-height: 64px;
+        margin: 0 2px 12px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        color: #fff;
+      }
+
+      .mobile-drawer-head strong,
+      .mobile-drawer-head span {
+        display: block;
+      }
+
+      .mobile-drawer-head strong {
+        font-size: 18px;
+        line-height: 1.15;
+      }
+
+      .mobile-drawer-head span {
+        margin-top: 3px;
+        color: #a8bad0;
+        font-size: 14px;
+      }
+
+      .mobile-section-nav button {
+        width: 100%;
+        min-height: 48px;
+        height: auto !important;
+        padding: 12px 14px !important;
+        border-radius: 8px !important;
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        color: #d7e3f1 !important;
+        background: transparent !important;
+        font-size: 16px !important;
+        font-weight: 750;
+        text-align: left;
+      }
+
+      .mobile-section-nav button.active {
+        color: #ffffff !important;
+        background: rgba(255, 255, 255, .13) !important;
+      }
+
+      .mobile-view-nav {
+        position: fixed;
+        left: 10px;
+        right: 10px;
+        bottom: calc(8px + env(safe-area-inset-bottom));
+        z-index: 70;
+        height: var(--mobile-view-tabs-height) !important;
+        padding: 5px;
+        border: 1px solid #dbe3ee;
+        border-radius: 12px;
+        display: none;
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+        gap: 5px;
+        background: rgba(255, 255, 255, .96);
+        box-shadow: 0 14px 28px rgba(15, 23, 42, .14);
+      }
+
+      body[data-current-section="conversations"] .mobile-view-nav {
+        display: grid !important;
+      }
+
+      .mobile-view-nav button {
+        min-width: 0;
+        height: 40px !important;
+        padding: 0 8px !important;
+        border-radius: 8px !important;
+        font-size: 14px !important;
+        white-space: nowrap;
+      }
+
+      .app,
+      body[data-current-section="conversations"] .app,
+      body:not([data-current-section="conversations"]) .app {
+        width: 100%;
+        height: calc(100dvh - var(--mobile-nav-height)) !important;
+        min-width: 0;
+        display: block;
+        overflow: hidden;
+      }
+
+      .workspace-nav,
+      .conversation-page-header {
+        display: none !important;
+      }
+
+      .agenda-view,
+      .customers-view,
+      .campaigns-view,
+      .services-view,
+      .professionals-view,
+      .reports-view,
+      .settings-view {
+        grid-column: 1 !important;
+        width: 100%;
+        height: 100%;
+        min-width: 0;
+        padding: 16px;
+        overflow-y: auto;
+        overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .agenda-view,
+      .customers-shell,
+      .campaigns-shell,
+      .services-shell,
+      .professionals-shell,
+      .reports-shell,
+      .settings-shell {
+        grid-template-columns: 1fr !important;
+        gap: 16px;
+      }
+
+      .customers-header,
+      .campaigns-header,
+      .services-header,
+      .professionals-header,
+      .reports-header,
+      .settings-header,
+      .agenda-toolbar,
+      .campaign-list-toolbar {
+        display: grid !important;
+        grid-template-columns: 1fr !important;
+        align-items: stretch !important;
+        gap: 12px !important;
+      }
+
+      .customers-header h2,
+      .campaigns-header h2,
+      .services-header h2,
+      .professionals-header h2,
+      .reports-header h2,
+      .settings-header h2 {
+        font-size: 28px;
+        line-height: 1.12;
+      }
+
+      .customers-header-actions,
+      .campaigns-header-actions,
+      .services-header-actions,
+      .professionals-header-actions,
+      .reports-actions {
+        width: 100%;
+        display: grid !important;
+        grid-template-columns: 1fr !important;
+        gap: 10px;
+      }
+
+      .customers-search,
+      .campaigns-search,
+      .services-search,
+      .professionals-search,
+      .reports-filter,
+      .agenda-filter,
+      .field,
+      select,
+      input,
+      textarea {
+        width: 100% !important;
+        max-width: 100%;
+      }
+
+      .search input,
+      .field,
+      select,
+      input[type="text"],
+      input[type="email"],
+      input[type="password"],
+      input[type="tel"],
+      input[type="search"],
+      input[type="date"],
+      input[type="time"],
+      input[type="number"] {
+        min-height: 44px;
+        font-size: 16px;
+      }
+
+      button,
+      .primary,
+      .secondary,
+      .danger,
+      .icon-button,
+      .customer-new-button,
+      .campaigns-new,
+      .details-wide-action,
+      .conversation-more {
+        min-height: 44px;
+      }
+
+      .customer-metrics,
+      .campaign-metrics,
+      .reports-kpis,
+      .settings-grid,
+      .services-grid,
+      .professionals-grid,
+      .quick-actions-grid,
+      .block-grid,
+      .config-grid,
+      .campaign-form-grid,
+      .campaign-automation-grid,
+      .campaign-punctual-settings,
+      .template-builder-grid,
+      .template-meta-grid,
+      .template-type-grid,
+      .appointment-form .split-row {
+        grid-template-columns: 1fr !important;
+      }
+
+      .customer-metric-card,
+      .metric-card,
+      .campaign-metric-card,
+      .reports-card,
+      .settings-panel,
+      .services-form-panel,
+      .services-list-panel,
+      .professionals-form-panel,
+      .professionals-list-panel,
+      .customer-list-panel,
+      .customer-profile-panel,
+      .campaign-list-panel,
+      .campaign-detail-panel,
+      .reports-table-panel,
+      .agenda-sidebar,
+      .agenda-board {
+        width: 100%;
+        max-width: 100%;
+        border-radius: 8px;
+      }
+
+      .customer-table-wrap,
+      .campaign-table-wrap,
+      .reports-table-panel,
+      .report-table {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .customer-table,
+      .campaign-table,
+      .template-table,
+      .report-table {
+        min-width: 640px;
+      }
+
+      .campaign-table th:nth-child(n+5),
+      .campaign-table td:nth-child(n+5),
+      .customer-table th:nth-child(4),
+      .customer-table td:nth-child(4) {
+        display: none;
+      }
+
+      body[data-current-section="conversations"] .conversation-sidebar,
+      body[data-current-section="conversations"] .chat,
+      body[data-current-section="conversations"] .details {
+        height: 100%;
+        max-height: 100%;
+      }
+
+      body[data-current-section="conversations"] .conversation-list {
+        padding-bottom: calc(var(--mobile-view-tabs-height) + 26px);
+      }
+
+      body[data-current-section="conversations"] .chat {
+        padding-bottom: calc(var(--mobile-view-tabs-height) + 18px);
+      }
+
+      body[data-current-section="conversations"] .details {
+        padding-bottom: calc(var(--mobile-view-tabs-height) + 24px);
+      }
+
+      body[data-current-section="conversations"] .composer {
+        grid-template-columns: 1fr !important;
+        gap: 10px;
+      }
+
+      .composer-tools,
+      .chat-actions,
+      .dialog-actions,
+      .campaign-form .dialog-actions,
+      .template-dialog .dialog-actions {
+        display: grid !important;
+        grid-template-columns: 1fr !important;
+        gap: 10px;
+        align-items: stretch;
+      }
+
+      .composer-tools .primary,
+      .dialog-actions button,
+      .campaign-form .dialog-actions button,
+      .template-dialog .dialog-actions button {
+        width: 100%;
+      }
+
+      .dialog-backdrop {
+        padding: 10px;
+        align-items: stretch;
+      }
+
+      .dialog,
+      .dialog.campaign-dialog,
+      .dialog.campaign-dialog.template-dialog,
+      .customer-dialog,
+      .customer-delete-dialog {
+        width: 100% !important;
+        max-width: 100% !important;
+        max-height: calc(100dvh - 20px) !important;
+        margin: auto 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        border-radius: 12px;
+      }
+
+      .dialog-header {
+        flex-shrink: 0;
+        padding: 16px;
+      }
+
+      .dialog-header h3 {
+        font-size: 22px;
+      }
+
+      .appointment-form,
+      .customer-dialog-form,
+      .campaign-form,
+      .campaign-form-body,
+      .template-dialog .campaign-form-body {
+        min-height: 0;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .dialog-actions,
+      .campaign-form .dialog-actions,
+      .template-dialog .dialog-actions {
+        position: sticky;
+        bottom: 0;
+        flex-shrink: 0;
+        padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+        border-top: 1px solid #e4e8f0;
+        background: #fff;
+      }
+
+      .crm-toast {
+        left: 12px;
+        right: 12px;
+        bottom: calc(12px + env(safe-area-inset-bottom));
+        max-width: none;
+        font-size: 14px;
+      }
+
+      * {
+        min-width: 0;
+      }
+    }
   </style>
 </head>
 <body data-mobile-view="inbox" data-current-section="conversations" data-auth="checking">
@@ -8465,7 +8973,22 @@ const crmHtml = `<!doctype html>
     </form>
   </section>
   <nav class="mobile-nav" aria-label="Navegacion CRM">
-    <div class="mobile-section-nav" aria-label="Secciones CRM">
+    <div class="mobile-top-row">
+      <button class="mobile-menu-toggle" id="mobile-menu-toggle" type="button" aria-label="Abrir menu" aria-expanded="false" aria-controls="mobile-section-nav">☰</button>
+      <div class="mobile-current-title">
+        <strong id="mobile-current-section-title">Conversaciones</strong>
+        <span>CRM Salon AI</span>
+      </div>
+    </div>
+    <button class="mobile-nav-overlay" id="mobile-nav-overlay" type="button" aria-label="Cerrar menu" hidden></button>
+    <div class="mobile-section-nav" id="mobile-section-nav" aria-label="Secciones CRM">
+      <div class="mobile-drawer-head">
+        <div class="brand-mark">S</div>
+        <div>
+          <strong>CRM Salon AI</strong>
+          <span>Atencion y reservas</span>
+        </div>
+      </div>
       <button class="active" type="button" data-mobile-section="conversations">Chats</button>
       <button type="button" data-mobile-section="agenda">Agenda</button>
       <button type="button" data-mobile-section="customers">Clientes</button>
@@ -16193,6 +16716,20 @@ const crmHtml = `<!doctype html>
     function setSection(section) {
       els.appShell.dataset.section = section
       document.body.dataset.currentSection = section
+      const mobileTitle = document.getElementById('mobile-current-section-title')
+      if (mobileTitle) {
+        const labels = {
+          conversations: 'Conversaciones',
+          agenda: 'Agenda',
+          customers: 'Clientes',
+          professionals: 'Profesionales',
+          services: 'Servicios',
+          campaigns: 'Marketing',
+          reports: 'Reportes',
+          settings: 'Ajustes'
+        }
+        mobileTitle.textContent = labels[section] || 'CRM Salon AI'
+      }
       const buttons = document.querySelectorAll('.workspace-nav button[data-nav-section]')
       buttons.forEach((button) => {
         const isSection = button.dataset.navSection === section
@@ -16224,6 +16761,7 @@ const crmHtml = `<!doctype html>
       }
       if (section === 'campaigns') setMarketingView(state.marketingView)
       if (section === 'campaigns' && !state.templatesLoaded) loadWhatsappTemplates()
+      closeMobileDrawer()
     }
 
     function startOfWeek(date) {
@@ -16524,6 +17062,22 @@ const crmHtml = `<!doctype html>
       return window.matchMedia('(max-width: 760px)').matches
     }
 
+    function closeMobileDrawer() {
+      document.body.classList.remove('mobile-drawer-open')
+      const toggle = document.getElementById('mobile-menu-toggle')
+      const overlay = document.getElementById('mobile-nav-overlay')
+      if (toggle) toggle.setAttribute('aria-expanded', 'false')
+      if (overlay) overlay.hidden = true
+    }
+
+    function openMobileDrawer() {
+      document.body.classList.add('mobile-drawer-open')
+      const toggle = document.getElementById('mobile-menu-toggle')
+      const overlay = document.getElementById('mobile-nav-overlay')
+      if (toggle) toggle.setAttribute('aria-expanded', 'true')
+      if (overlay) overlay.hidden = false
+    }
+
     function setProfessionalViewMode(mode) {
       state.professionalViewMode = mode
       els.professionalsView.classList.toggle('list-mode', mode === 'list')
@@ -16544,6 +17098,14 @@ const crmHtml = `<!doctype html>
     }
 
     hydrateWorkspaceNav()
+    document.getElementById('mobile-menu-toggle')?.addEventListener('click', () => {
+      if (document.body.classList.contains('mobile-drawer-open')) {
+        closeMobileDrawer()
+      } else {
+        openMobileDrawer()
+      }
+    })
+    document.getElementById('mobile-nav-overlay')?.addEventListener('click', closeMobileDrawer)
     document.querySelectorAll('.workspace-nav button[data-nav-section]').forEach((button) => {
       button.addEventListener('click', () => {
         if (button.dataset.marketingNav) setMarketingView(button.dataset.marketingNav)
