@@ -9235,6 +9235,34 @@ const crmHtml = `<!doctype html>
         overflow: hidden;
       }
 
+      .agenda-gcal-pages {
+        min-width: 0;
+        min-height: 0;
+        display: flex;
+        overflow-x: auto;
+        overflow-y: hidden;
+        scroll-snap-type: x mandatory;
+        scroll-behavior: smooth;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior-x: contain;
+      }
+
+      .agenda-gcal-pages::-webkit-scrollbar {
+        display: none;
+      }
+
+      .agenda-gcal-page {
+        flex: 0 0 100%;
+        min-width: 100%;
+        min-height: 0;
+        scroll-snap-align: start;
+        scroll-snap-stop: always;
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        overflow: hidden;
+      }
+
       .agenda-gcal-days-head {
         position: sticky;
         top: 78px;
@@ -9284,7 +9312,7 @@ const crmHtml = `<!doctype html>
         -webkit-overflow-scrolling: touch;
         background: #211511;
         overscroll-behavior: contain;
-        touch-action: pan-y;
+        touch-action: pan-x pan-y;
       }
 
       .agenda-gcal-grid {
@@ -11409,6 +11437,8 @@ const crmHtml = `<!doctype html>
       agendaMobileMonthOpen: false,
       agendaMobileTouchStartX: null,
       agendaMobileTouchStartY: null,
+      agendaMobilePageTimer: null,
+      agendaMobileScrollTop: null,
       agendaDraggingAppointmentId: null,
       agendaDidDrag: false,
       editingAppointmentId: null,
@@ -15248,8 +15278,8 @@ const crmHtml = `<!doctype html>
       const monthStart = new Date(state.agendaMonthDate.getFullYear(), state.agendaMonthDate.getMonth(), 1)
       const rangeStart = mobileMonthRange
         ? startOfMondayWeek(monthStart)
-        : isMobile() ? startOfDay(state.agendaSelectedDate) : startOfWeek(state.agendaSelectedDate)
-      const rangeEnd = addDays(rangeStart, mobileMonthRange ? 42 : isMobile() ? 3 : 7)
+        : isMobile() ? addDays(startOfDay(state.agendaSelectedDate), -3) : startOfWeek(state.agendaSelectedDate)
+      const rangeEnd = addDays(rangeStart, mobileMonthRange ? 42 : isMobile() ? 9 : 7)
       const params = new URLSearchParams({
         from: rangeStart.toISOString(),
         to: rangeEnd.toISOString()
@@ -15387,11 +15417,37 @@ const crmHtml = `<!doctype html>
     function renderAgendaMobileThreeDay() {
       const hourHeight = 88
       const startDate = startOfDay(state.agendaSelectedDate)
-      const days = Array.from({ length: 3 }, (_, index) => addDays(startDate, index))
-      const appointments = filteredAgendaAppointmentsForRange(startDate, addDays(startDate, 3))
-      const blocks = filteredAgendaBlocksForRange(startDate, addDays(startDate, 3))
       const monthPanel = state.agendaMobileMonthOpen ? renderAgendaMobileMonthPanel() : ''
       const monthTitle = formatAgendaMobileTitle(state.agendaSelectedDate)
+      const today = new Date()
+      const currentDays = Array.from({ length: 3 }, (_, index) => addDays(startDate, index))
+      const visibleToday = currentDays.some((day) => dateKey(day) === dateKey(today))
+      const pageOffsets = [-3, 0, 3]
+
+      els.agendaRange.textContent = formatAgendaRange(currentDays[0], currentDays[2])
+      els.agendaToday.textContent = visibleToday ? 'Hoy' : 'Ir a hoy'
+      els.agendaGridWrap.innerHTML =
+        '<div class="agenda-gcal">' +
+          '<header class="agenda-gcal-top">' +
+            '<button class="agenda-gcal-icon" type="button" data-agenda-mobile-menu aria-label="Menu">☰</button>' +
+            '<button class="agenda-gcal-title" type="button" data-agenda-mobile-month-toggle aria-expanded="' + String(state.agendaMobileMonthOpen) + '"><span>' + escapeHtml(monthTitle) + '</span><small>' + (state.agendaMobileMonthOpen ? '^' : 'v') + '</small></button>' +
+            '<button class="agenda-gcal-icon agenda-gcal-today" type="button" data-agenda-mobile-today aria-label="Hoy">' + today.getDate() + '</button>' +
+          '</header>' +
+          monthPanel +
+          '<div class="agenda-gcal-pages" data-agenda-mobile-pages>' +
+            pageOffsets.map((offset) => renderAgendaMobilePage(addDays(startDate, offset), offset, hourHeight)).join('') +
+          '</div>' +
+          '<button class="agenda-gcal-fab" type="button" data-agenda-mobile-new aria-label="Nuevo turno">+</button>' +
+        '</div>'
+
+      bindAgendaMobileControls()
+      scrollAgendaMobileToWorkingTime(hourHeight)
+    }
+
+    function renderAgendaMobilePage(pageStart, offset, hourHeight) {
+      const days = Array.from({ length: 3 }, (_, index) => addDays(pageStart, index))
+      const appointments = filteredAgendaAppointmentsForRange(pageStart, addDays(pageStart, 3))
+      const blocks = filteredAgendaBlocksForRange(pageStart, addDays(pageStart, 3))
       const today = new Date()
       const todayKey = dateKey(today)
       const visibleToday = days.some((day) => dateKey(day) === todayKey)
@@ -15426,31 +15482,16 @@ const crmHtml = `<!doctype html>
         return '<div class="agenda-gcal-day-column" data-gcal-day="' + key + '">' + cells + events + dayBlocks + '</div>'
       }).join('')
 
-      els.agendaRange.textContent = formatAgendaRange(days[0], days[2])
-      els.agendaToday.textContent = visibleToday ? 'Hoy' : 'Ir a hoy'
-      els.agendaGridWrap.innerHTML =
-        '<div class="agenda-gcal">' +
-          '<header class="agenda-gcal-top">' +
-            '<button class="agenda-gcal-icon" type="button" data-agenda-mobile-menu aria-label="Menu">☰</button>' +
-            '<button class="agenda-gcal-title" type="button" data-agenda-mobile-month-toggle aria-expanded="' + String(state.agendaMobileMonthOpen) + '"><span>' + escapeHtml(monthTitle) + '</span><small>' + (state.agendaMobileMonthOpen ? '^' : 'v') + '</small></button>' +
-            '<button class="agenda-gcal-icon agenda-gcal-today" type="button" data-agenda-mobile-today aria-label="Hoy">' + today.getDate() + '</button>' +
-          '</header>' +
-          monthPanel +
-          '<section class="agenda-gcal-main">' +
-            '<div class="agenda-gcal-days-head"><div></div>' + dayHeaders + '</div>' +
-            '<div class="agenda-gcal-scroll">' +
-              '<div class="agenda-gcal-grid" style="--agenda-hour-height:' + hourHeight + 'px">' +
-                '<div class="agenda-gcal-time-axis">' + hourLabels + '</div>' +
-                dayColumns +
-                (visibleToday ? '<div class="agenda-gcal-now-line" style="top:' + nowTop + 'px"></div>' : '') +
-              '</div>' +
-            '</div>' +
-          '</section>' +
-          '<button class="agenda-gcal-fab" type="button" data-agenda-mobile-new aria-label="Nuevo turno">+</button>' +
-        '</div>'
-
-      bindAgendaMobileControls()
-      scrollAgendaMobileToWorkingTime(hourHeight)
+      return '<section class="agenda-gcal-page" data-agenda-page-offset="' + offset + '">' +
+        '<div class="agenda-gcal-days-head"><div></div>' + dayHeaders + '</div>' +
+        '<div class="agenda-gcal-scroll" data-agenda-page-scroll="' + offset + '">' +
+          '<div class="agenda-gcal-grid" style="--agenda-hour-height:' + hourHeight + 'px">' +
+            '<div class="agenda-gcal-time-axis">' + hourLabels + '</div>' +
+            dayColumns +
+            (visibleToday ? '<div class="agenda-gcal-now-line" style="top:' + nowTop + 'px"></div>' : '') +
+          '</div>' +
+        '</div>' +
+      '</section>'
     }
 
     function renderAgendaMobileEvent(appointment, hourHeight) {
@@ -15561,31 +15602,39 @@ const crmHtml = `<!doctype html>
         })
       }
 
-      const scroll = els.agendaGridWrap.querySelector('.agenda-gcal-scroll')
-      if (scroll) {
-        scroll.addEventListener('touchstart', (event) => {
-          state.agendaMobileTouchStartX = event.touches[0]?.clientX ?? null
-          state.agendaMobileTouchStartY = event.touches[0]?.clientY ?? null
+      const pages = els.agendaGridWrap.querySelector('[data-agenda-mobile-pages]')
+      if (pages) {
+        requestAnimationFrame(() => {
+          pages.scrollLeft = pages.clientWidth
+        })
+        pages.addEventListener('scroll', () => {
+          clearTimeout(state.agendaMobilePageTimer)
+          state.agendaMobilePageTimer = setTimeout(async () => {
+            const pageWidth = pages.clientWidth || 1
+            const pageIndex = Math.round(pages.scrollLeft / pageWidth)
+            if (pageIndex === 1) return
+            state.agendaSelectedDate = addDays(state.agendaSelectedDate, pageIndex < 1 ? -3 : 3)
+            state.agendaMonthDate = new Date(state.agendaSelectedDate)
+            await loadAgenda()
+          }, 110)
         }, { passive: true })
-        scroll.addEventListener('touchend', async (event) => {
-          if (state.agendaMobileTouchStartX === null || state.agendaMobileTouchStartY === null) return
-          const endX = event.changedTouches[0]?.clientX ?? state.agendaMobileTouchStartX
-          const endY = event.changedTouches[0]?.clientY ?? state.agendaMobileTouchStartY
-          const delta = endX - state.agendaMobileTouchStartX
-          const verticalDelta = endY - state.agendaMobileTouchStartY
-          state.agendaMobileTouchStartX = null
-          state.agendaMobileTouchStartY = null
-          if (Math.abs(delta) < 42 || Math.abs(delta) < Math.abs(verticalDelta) * 1.25) return
-          state.agendaSelectedDate = addDays(state.agendaSelectedDate, delta < 0 ? 3 : -3)
-          state.agendaMonthDate = new Date(state.agendaSelectedDate)
-          await loadAgenda()
+      }
+
+      const currentScroll = els.agendaGridWrap.querySelector('[data-agenda-page-scroll="0"]')
+      if (currentScroll) {
+        currentScroll.addEventListener('scroll', () => {
+          state.agendaMobileScrollTop = currentScroll.scrollTop
         }, { passive: true })
       }
     }
 
     function scrollAgendaMobileToWorkingTime(hourHeight) {
-      const scroll = els.agendaGridWrap.querySelector('.agenda-gcal-scroll')
+      const scroll = els.agendaGridWrap.querySelector('[data-agenda-page-scroll="0"]')
       if (!scroll) return
+      if (state.agendaMobileScrollTop !== null) {
+        scroll.scrollTop = state.agendaMobileScrollTop
+        return
+      }
       const now = new Date()
       const visibleToday = [0, 1, 2].some((index) => dateKey(addDays(startOfDay(state.agendaSelectedDate), index)) === dateKey(now))
       const targetHour = visibleToday ? Math.max(0, now.getHours() - 2) : Math.max(0, Math.floor(getAgendaDisplayRange().start / 60) - 1)
