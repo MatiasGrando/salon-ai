@@ -9312,7 +9312,7 @@ const crmHtml = `<!doctype html>
         -webkit-overflow-scrolling: touch;
         background: #211511;
         overscroll-behavior: contain;
-        touch-action: pan-x pan-y;
+        touch-action: pan-y;
       }
 
       .agenda-gcal-grid {
@@ -11437,6 +11437,8 @@ const crmHtml = `<!doctype html>
       agendaMobileMonthOpen: false,
       agendaMobileTouchStartX: null,
       agendaMobileTouchStartY: null,
+      agendaMobileTouchStartScrollLeft: 0,
+      agendaMobileHorizontalDrag: false,
       agendaMobilePageTimer: null,
       agendaMobileScrollTop: null,
       agendaDraggingAppointmentId: null,
@@ -15624,6 +15626,45 @@ const crmHtml = `<!doctype html>
       if (currentScroll) {
         currentScroll.addEventListener('scroll', () => {
           state.agendaMobileScrollTop = currentScroll.scrollTop
+        }, { passive: true })
+      }
+
+      for (const scroll of els.agendaGridWrap.querySelectorAll('[data-agenda-page-scroll]')) {
+        scroll.addEventListener('touchstart', (event) => {
+          state.agendaMobileTouchStartX = event.touches[0]?.clientX ?? null
+          state.agendaMobileTouchStartY = event.touches[0]?.clientY ?? null
+          state.agendaMobileTouchStartScrollLeft = pages?.scrollLeft || 0
+          state.agendaMobileHorizontalDrag = false
+        }, { passive: true })
+
+        scroll.addEventListener('touchmove', (event) => {
+          if (!pages || state.agendaMobileTouchStartX === null || state.agendaMobileTouchStartY === null) return
+          const touch = event.touches[0]
+          if (!touch) return
+          const deltaX = touch.clientX - state.agendaMobileTouchStartX
+          const deltaY = touch.clientY - state.agendaMobileTouchStartY
+          if (!state.agendaMobileHorizontalDrag) {
+            if (Math.abs(deltaX) < 10) return
+            if (Math.abs(deltaX) <= Math.abs(deltaY) * 1.15) return
+            state.agendaMobileHorizontalDrag = true
+          }
+          event.preventDefault()
+          pages.scrollLeft = state.agendaMobileTouchStartScrollLeft - deltaX
+        }, { passive: false })
+
+        scroll.addEventListener('touchend', () => {
+          if (!pages || !state.agendaMobileHorizontalDrag) {
+            state.agendaMobileTouchStartX = null
+            state.agendaMobileTouchStartY = null
+            state.agendaMobileHorizontalDrag = false
+            return
+          }
+          const pageWidth = pages.clientWidth || 1
+          const pageIndex = Math.max(0, Math.min(2, Math.round(pages.scrollLeft / pageWidth)))
+          pages.scrollTo({ left: pageIndex * pageWidth, behavior: 'smooth' })
+          state.agendaMobileTouchStartX = null
+          state.agendaMobileTouchStartY = null
+          state.agendaMobileHorizontalDrag = false
         }, { passive: true })
       }
     }
