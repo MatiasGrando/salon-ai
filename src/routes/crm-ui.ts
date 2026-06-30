@@ -8861,6 +8861,422 @@ const crmHtml = `<!doctype html>
         display: none;
       }
 
+      body[data-current-section="customers"] .customers-view {
+        padding: 14px;
+      }
+
+      body[data-current-section="customers"] .customers-shell {
+        display: grid;
+        grid-template-rows: auto auto auto;
+      }
+
+      body[data-current-section="customers"] .customer-metrics {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 10px;
+      }
+
+      body[data-current-section="customers"] .customer-metric-card {
+        min-height: 76px;
+        padding: 12px;
+      }
+
+      body[data-current-section="customers"] .customers-workspace,
+      body[data-current-section="customers"] .customer-list-panel {
+        display: grid;
+        grid-template-columns: 1fr !important;
+        gap: 14px;
+        overflow: visible;
+      }
+
+      body[data-current-section="customers"] .customer-list-toolbar {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 10px;
+        padding: 12px;
+      }
+
+      body[data-current-section="customers"] .customer-filter-tabs {
+        overflow-x: auto;
+        padding-bottom: 2px;
+        scrollbar-width: none;
+      }
+
+      body[data-current-section="customers"] .customer-filter-tabs::-webkit-scrollbar {
+        display: none;
+      }
+
+      body[data-current-section="customers"] .customer-filter-tabs button {
+        min-width: max-content;
+        min-height: 40px;
+      }
+
+      body[data-current-section="customers"] .customer-inactive-select {
+        width: 100%;
+        min-width: 0;
+        min-height: 44px;
+      }
+
+      body[data-current-section="customers"] .customer-table-wrap {
+        overflow: visible;
+      }
+
+      body[data-current-section="customers"] .customer-table {
+        min-width: 0 !important;
+        display: block;
+        border-collapse: separate;
+        font-size: 14px;
+      }
+
+      body[data-current-section="customers"] .customer-table thead {
+        display: none;
+      }
+
+      body[data-current-section="customers"] .customer-table tbody {
+        display: grid;
+        gap: 10px;
+        padding: 10px;
+      }
+
+      body[data-current-section="customers"] .customer-table tr {
+        display: grid;
+        gap: 8px;
+        padding: 12px;
+        border: 1px solid #e0e6ef;
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      body[data-current-section="customers"] .customer-table tbody tr.active {
+        outline: 2px solid #3b82f6;
+        background: #f5f9ff;
+      }
+
+      body[data-current-section="customers"] .customer-table td,
+      body[data-current-section="customers"] .customer-table td:nth-child(4) {
+        min-height: 26px;
+        padding: 0;
+        border: 0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        white-space: normal;
+        overflow: visible;
+        color: #34425c;
+      }
+
+      body[data-current-section="customers"] .customer-table td:first-child {
+        display: block;
+        padding-bottom: 8px;
+        border-bottom: 1px solid #edf0f4;
+      }
+
+      body[data-current-section="customers"] .customer-table td:not(:first-child)::before {
+        color: #64748b;
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      body[data-current-section="customers"] .customer-table td:nth-child(2)::before { content: "Ultima visita"; }
+      body[data-current-section="customers"] .customer-table td:nth-child(3)::before { content: "Proximo turno"; }
+      body[data-current-section="customers"] .customer-table td:nth-child(4)::before { content: "Frecuencia"; }
+      body[data-current-section="customers"] .customer-table td:nth-child(5)::before { content: "Gasto estimado"; }
+      body[data-current-section="customers"] .customer-table td:nth-child(6)::before { content: "Estado"; }
+
+      body[data-current-section="customers"] .customer-cell-copy strong {
+        font-size: 16px;
+      }
+
+      body[data-current-section="customers"] .customer-cell-copy span {
+        font-size: 14px;
+      }
+
+      body[data-current-section="customers"] .customer-pagination {
+        padding: 12px;
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 10px;
+      }
+
+      body[data-current-section="customers"] .customer-page-actions {
+        justify-content: stretch;
+        display: grid;
+        grid-template-columns: 44px 1fr 44px;
+        align-items: center;
+      }
+
+      body[data-current-section="customers"] .customer-profile-panel {
+        overflow: visible;
+      }
+
+      body[data-current-section="customers"] .customer-profile-content {
+        padding: 14px;
+      }
+
+      body[data-current-section="customers"] .customer-profile-head,
+      body[data-current-section="customers"] .customer-profile-stats,
+      body[data-current-section="customers"] .customer-frequent-grid {
+        grid-template-columns: 1fr !important;
+      }
+
+      body[data-current-section="customers"] .customer-profile-avatar {
+        width: 56px;
+        height: 56px;
+        font-size: 20px;
+      }
+
+      body[data-current-section="customers"] .customer-profile-actions,
+      body[data-current-section="customers"] .customer-marketing-actions {
+        width: 100%;
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 8px;
+        justify-content: stretch;
+      }
+
+      body[data-current-section="customers"] .customer-profile-contact-row {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      body[data-current-section="customers"] .customer-history-row {
+        grid-template-columns: 28px 1fr;
+        gap: 8px 10px;
+      }
+
+      body[data-current-section="customers"] .customer-history-price {
+        grid-column: 2;
+      }
+
+      body[data-current-section="agenda"] .agenda-view {
+        padding: 14px;
+        align-content: start;
+      }
+
+      body[data-current-section="agenda"] .agenda-sidebar {
+        padding: 14px;
+        overflow: visible;
+      }
+
+      body[data-current-section="agenda"] .agenda-filters {
+        gap: 12px;
+      }
+
+      body[data-current-section="agenda"] .month-card {
+        margin-top: 14px;
+      }
+
+      body[data-current-section="agenda"] .month-day,
+      body[data-current-section="agenda"] .month-weekday {
+        height: 34px;
+        font-size: 12px;
+      }
+
+      body[data-current-section="agenda"] .agenda-legend {
+        display: none;
+      }
+
+      body[data-current-section="agenda"] .agenda-board {
+        overflow: visible;
+      }
+
+      body[data-current-section="agenda"] .agenda-toolbar {
+        min-height: 0;
+        padding: 14px;
+        display: grid !important;
+        grid-template-columns: 1fr !important;
+        gap: 12px;
+      }
+
+      body[data-current-section="agenda"] .agenda-toolbar-actions {
+        display: grid;
+        grid-template-columns: 44px 1fr 44px;
+        gap: 8px;
+        justify-content: stretch;
+      }
+
+      body[data-current-section="agenda"] .agenda-toolbar-actions:last-of-type {
+        grid-template-columns: 1fr 44px;
+      }
+
+      body[data-current-section="agenda"] #agenda-new-appointment {
+        display: inline-flex;
+      }
+
+      body[data-current-section="agenda"] #agenda-refresh {
+        display: inline-flex;
+      }
+
+      body[data-current-section="agenda"] #agenda-step {
+        display: none;
+      }
+
+      body[data-current-section="agenda"] .agenda-range {
+        text-align: left;
+        font-size: 18px;
+      }
+
+      body[data-current-section="agenda"] .agenda-professional-tabs {
+        margin: 0 -2px;
+        padding-bottom: 4px;
+      }
+
+      body[data-current-section="agenda"] .agenda-grid-wrap {
+        overflow: visible;
+      }
+
+      .agenda-mobile-list {
+        display: grid;
+        gap: 12px;
+        padding: 12px;
+        background: #f8fbff;
+      }
+
+      .agenda-mobile-day {
+        border: 1px solid #dfe6f1;
+        border-radius: 8px;
+        background: #fff;
+        overflow: hidden;
+      }
+
+      .agenda-mobile-day.today {
+        border-color: #bfdbfe;
+        box-shadow: 0 0 0 1px #bfdbfe;
+      }
+
+      .agenda-mobile-day > header {
+        min-height: 48px;
+        padding: 10px 12px;
+        border-bottom: 1px solid #edf0f4;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .agenda-mobile-day > header button {
+        min-height: 32px;
+        padding: 0;
+        color: #101936;
+        background: transparent;
+        font-size: 16px;
+        font-weight: 800;
+        text-align: left;
+        text-transform: capitalize;
+      }
+
+      .agenda-mobile-day > header span {
+        min-width: 28px;
+        height: 28px;
+        border-radius: 999px;
+        display: grid;
+        place-items: center;
+        color: #1d4ed8;
+        background: #eff6ff;
+        font-size: 13px;
+        font-weight: 800;
+      }
+
+      .agenda-mobile-items {
+        display: grid;
+        gap: 8px;
+        padding: 10px;
+      }
+
+      .agenda-mobile-item {
+        width: 100%;
+        min-height: 76px;
+        padding: 10px;
+        border: 1px solid #e6ebf3;
+        border-left: 4px solid var(--agenda-event-color, #2563eb);
+        border-radius: 8px;
+        display: grid;
+        grid-template-columns: 64px minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: center;
+        color: #101936;
+        background: color-mix(in srgb, var(--agenda-event-color, #2563eb) 10%, #ffffff);
+        text-align: left;
+      }
+
+      .agenda-mobile-item.blocked {
+        --agenda-event-color: #64748b;
+        background: #f8fafc;
+      }
+
+      .agenda-mobile-item.no-show {
+        --agenda-event-color: #94a3b8;
+        background: #f1f5f9;
+      }
+
+      .agenda-mobile-time {
+        display: grid;
+        gap: 2px;
+        color: #1d4ed8;
+        font-size: 16px;
+        font-weight: 850;
+      }
+
+      .agenda-mobile-time small {
+        color: #64748b;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .agenda-mobile-copy {
+        min-width: 0;
+        display: grid;
+        gap: 4px;
+      }
+
+      .agenda-mobile-copy strong,
+      .agenda-mobile-copy span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .agenda-mobile-copy strong {
+        font-size: 15px;
+      }
+
+      .agenda-mobile-copy span {
+        color: #52617f;
+        font-size: 13px;
+      }
+
+      .agenda-mobile-status {
+        padding: 5px 8px;
+        border-radius: 999px;
+        color: #1d4ed8;
+        background: #eff6ff;
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .agenda-mobile-empty {
+        padding: 16px;
+        border: 1px dashed #dfe6f1;
+        border-radius: 8px;
+        color: #64748b;
+        background: #f8fafc;
+        text-align: center;
+        font-size: 14px;
+      }
+
+      .agenda-mobile-add {
+        width: calc(100% - 20px);
+        min-height: 44px;
+        margin: 0 10px 10px;
+        border: 1px solid #bfdbfe;
+        border-radius: 8px;
+        color: #1d4ed8;
+        background: #eff6ff;
+        font-size: 15px;
+        font-weight: 800;
+      }
+
       body[data-current-section="conversations"] .conversation-sidebar,
       body[data-current-section="conversations"] .chat,
       body[data-current-section="conversations"] .details {
@@ -14724,6 +15140,11 @@ const crmHtml = `<!doctype html>
     }
 
     function renderAgendaGrid() {
+      if (isMobile()) {
+        renderAgendaMobileList()
+        return
+      }
+
       const step = Number(els.agendaStep.value || 15)
       const weekStart = startOfWeek(state.agendaSelectedDate)
       const days = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index))
@@ -14789,6 +15210,83 @@ const crmHtml = `<!doctype html>
         startMinute
       })
       enableAgendaDragAndDrop()
+    }
+
+    function renderAgendaMobileList() {
+      const weekStart = startOfWeek(state.agendaSelectedDate)
+      const days = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index))
+      const appointments = filteredAgendaAppointments()
+      const blocks = filteredAgendaBlocks()
+      const todayKey = dateKey(new Date())
+
+      els.agendaRange.textContent = formatAgendaRange(days[0], days[6])
+      els.agendaToday.textContent = isDateInRange(new Date(), days[0], addDays(days[6], 1)) ? 'Hoy' : 'Ir a hoy'
+
+      const sections = days.map((day) => {
+        const key = dateKey(day)
+        const dayAppointments = appointments.filter((appointment) => dateKey(new Date(appointment.startAt)) === key)
+        const dayBlocks = blocks.filter((block) => dateKey(new Date(block.startAt)) === key)
+        const items = dayAppointments.map((appointment) => {
+          const start = new Date(appointment.startAt)
+          const duration = appointment.service?.duration || 30
+          const professionalIndex = activeProfessionals().findIndex((item) => item.id === appointment.professionalId)
+          const color = agendaProfessionalColor(appointment.professionalId, professionalIndex)
+          const noShow = appointment.status === 'NO_SHOW'
+          return '<button class="agenda-mobile-item' + (noShow ? ' no-show' : '') + '" type="button" data-appointment-id="' + appointment.id + '" style="--agenda-event-color:' + color + '">' +
+            '<span class="agenda-mobile-time">' + escapeHtml(formatTimeOnly(start)) + '<small>' + escapeHtml(formatTimeOnly(addMinutes(start, duration))) + '</small></span>' +
+            '<span class="agenda-mobile-copy"><strong>' + escapeHtml(appointment.customer?.name || 'Cliente') + '</strong><span>' + escapeHtml((appointment.service?.name || 'Servicio') + ' · ' + (appointment.professional?.name || 'Profesional')) + '</span></span>' +
+            '<span class="agenda-mobile-status">' + (noShow ? 'Ausente' : 'Turno') + '</span>' +
+          '</button>'
+        })
+
+        for (const block of dayBlocks) {
+          const start = new Date(block.startAt)
+          const end = new Date(block.endAt)
+          items.push('<article class="agenda-mobile-item blocked">' +
+            '<span class="agenda-mobile-time">' + escapeHtml(formatTimeOnly(start)) + '<small>' + escapeHtml(formatTimeOnly(end)) + '</small></span>' +
+            '<span class="agenda-mobile-copy"><strong>' + escapeHtml(block.title || scheduleBlockReasonLabel(block.reason)) + '</strong><span>' + escapeHtml(block.professional?.name || 'Todos los profesionales') + '</span></span>' +
+            '<span class="agenda-mobile-status">Bloqueo</span>' +
+          '</article>')
+        }
+
+        items.sort((left, right) => {
+          const leftTime = left.match(/agenda-mobile-time">([^<]+)/)?.[1] || ''
+          const rightTime = right.match(/agenda-mobile-time">([^<]+)/)?.[1] || ''
+          return leftTime.localeCompare(rightTime)
+        })
+
+        return '<section class="agenda-mobile-day' + (key === todayKey ? ' today' : '') + '">' +
+          '<header>' +
+            '<button type="button" data-agenda-date="' + key + '">' + escapeHtml(formatAgendaMobileDay(day)) + '</button>' +
+            '<span>' + (dayAppointments.length + dayBlocks.length) + '</span>' +
+          '</header>' +
+          '<div class="agenda-mobile-items">' + (items.length ? items.join('') : '<div class="agenda-mobile-empty">Sin turnos para este dia.</div>') + '</div>' +
+          '<button class="agenda-mobile-add" type="button" data-agenda-new-date="' + key + '">Agregar turno</button>' +
+        '</section>'
+      })
+
+      els.agendaGridWrap.innerHTML = '<div class="agenda-mobile-list">' + sections.join('') + '</div>'
+
+      for (const button of els.agendaGridWrap.querySelectorAll('[data-agenda-date]')) {
+        button.addEventListener('click', async () => {
+          state.agendaSelectedDate = parseDateKey(button.dataset.agendaDate)
+          state.agendaMonthDate = new Date(state.agendaSelectedDate)
+          await loadAgenda()
+        })
+      }
+
+      for (const button of els.agendaGridWrap.querySelectorAll('[data-agenda-new-date]')) {
+        button.addEventListener('click', () => {
+          openAppointmentDialog({ date: parseDateKey(button.dataset.agendaNewDate) })
+        })
+      }
+
+      for (const button of els.agendaGridWrap.querySelectorAll('[data-appointment-id]')) {
+        button.addEventListener('click', () => {
+          const appointment = state.agendaAppointments.find((item) => item.id === button.dataset.appointmentId)
+          if (appointment) openAppointmentDialog({ appointment })
+        })
+      }
     }
 
     function getAgendaDisplayRange() {
@@ -15021,6 +15519,32 @@ const crmHtml = `<!doctype html>
         .filter((appointment) => !professionalId || appointment.professionalId === professionalId)
         .filter((appointment) => !serviceId || appointment.serviceId === serviceId)
         .sort((left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime())
+    }
+
+    function filteredAgendaBlocks() {
+      const weekStart = startOfWeek(state.agendaSelectedDate)
+      const weekEnd = addDays(weekStart, 7)
+      const professionalId = els.agendaProfessional?.value || ''
+
+      return state.agendaBlocks
+        .filter((block) => {
+          const start = new Date(block.startAt)
+          const end = new Date(block.endAt)
+          return end > weekStart && start < weekEnd
+        })
+        .filter((block) => !professionalId || !block.professionalId || block.professionalId === professionalId)
+        .sort((left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime())
+    }
+
+    function scheduleBlockReasonLabel(reason) {
+      const labels = {
+        BREAK: 'Descanso',
+        VACATION: 'Vacaciones',
+        SICK_LEAVE: 'Licencia',
+        TRAINING: 'Capacitacion',
+        OTHER: 'Bloqueo'
+      }
+      return labels[reason] || 'Bloqueo'
     }
 
     function isClosedAgendaSlot(day, minute) {
@@ -16870,6 +17394,14 @@ const crmHtml = `<!doctype html>
     function formatAgendaDayHeader(date) {
       const weekday = ['Dom', 'Lun', 'Mar', 'Mi&eacute;', 'Jue', 'Vie', 'S&aacute;b'][date.getDay()]
       return weekday + ' ' + date.getDate() + '/' + (date.getMonth() + 1)
+    }
+
+    function formatAgendaMobileDay(date) {
+      return new Intl.DateTimeFormat('es-AR', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'short'
+      }).format(date)
     }
 
     async function saveService(event) {
