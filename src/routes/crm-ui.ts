@@ -9054,38 +9054,20 @@ const crmHtml = `<!doctype html>
         background: #211511;
       }
 
-      body[data-current-section="agenda"] .agenda-sidebar {
-        padding: 10px 12px;
-        border: 0;
-        border-radius: 0;
-        display: block;
-        background: #211511;
-        box-shadow: none;
-        overflow: visible;
-      }
-
-      body[data-current-section="agenda"] .agenda-filters {
-        grid-template-columns: 1fr 1fr;
-        gap: 10px;
-      }
-
-      body[data-current-section="agenda"] .agenda-filters > div:first-child,
-      body[data-current-section="agenda"] .month-card,
-      body[data-current-section="agenda"] .agenda-legend,
-      body[data-current-section="agenda"] .agenda-toolbar {
+      body[data-current-section="agenda"] .mobile-nav {
         display: none !important;
       }
 
-      body[data-current-section="agenda"] .agenda-filter label {
-        color: #d8c6c0;
-        font-size: 12px;
+      body[data-current-section="agenda"] .app {
+        height: 100dvh !important;
       }
 
-      body[data-current-section="agenda"] .agenda-filter select {
-        min-height: 42px;
-        border-color: #3a2823;
-        color: #f5e6e1;
-        background: #2a1a16;
+      body[data-current-section="agenda"] .agenda-sidebar {
+        display: none !important;
+      }
+
+      body[data-current-section="agenda"] .agenda-toolbar {
+        display: none !important;
       }
 
       body[data-current-section="agenda"] .agenda-board {
@@ -9113,11 +9095,11 @@ const crmHtml = `<!doctype html>
         position: sticky;
         top: 0;
         z-index: 8;
-        min-height: 58px;
-        padding: 8px 12px;
+        min-height: 78px;
+        padding: 18px 16px 8px;
         display: grid;
-        grid-template-columns: 44px minmax(0, 1fr) repeat(4, 40px);
-        gap: 8px;
+        grid-template-columns: 44px minmax(0, 1fr) 44px;
+        gap: 14px;
         align-items: center;
         background: #211511;
       }
@@ -9162,6 +9144,10 @@ const crmHtml = `<!doctype html>
         color: #f5deda;
         font-size: 14px;
         font-weight: 800;
+      }
+
+      .agenda-gcal-hidden-control {
+        display: none !important;
       }
 
       .agenda-gcal-month-panel {
@@ -9251,7 +9237,7 @@ const crmHtml = `<!doctype html>
 
       .agenda-gcal-days-head {
         position: sticky;
-        top: 58px;
+        top: 78px;
         z-index: 7;
         display: grid;
         grid-template-columns: 74px repeat(3, minmax(0, 1fr));
@@ -9277,12 +9263,12 @@ const crmHtml = `<!doctype html>
       }
 
       .agenda-gcal-day-head span {
-        width: 54px;
-        height: 54px;
+        width: 48px;
+        height: 48px;
         border-radius: 999px;
         display: grid;
         place-items: center;
-        font-size: 30px;
+        font-size: 28px;
         line-height: 1;
       }
 
@@ -9297,6 +9283,8 @@ const crmHtml = `<!doctype html>
         overflow: auto;
         -webkit-overflow-scrolling: touch;
         background: #211511;
+        overscroll-behavior: contain;
+        touch-action: pan-y;
       }
 
       .agenda-gcal-grid {
@@ -9333,9 +9321,7 @@ const crmHtml = `<!doctype html>
       }
 
       .agenda-gcal-hour-cell.closed {
-        background:
-          repeating-linear-gradient(135deg, rgba(95, 70, 64, .42) 0 2px, transparent 2px 8px),
-          #241511;
+        background: #180d0b;
       }
 
       .agenda-gcal-event,
@@ -11422,6 +11408,7 @@ const crmHtml = `<!doctype html>
       agendaMonthDate: new Date(),
       agendaMobileMonthOpen: false,
       agendaMobileTouchStartX: null,
+      agendaMobileTouchStartY: null,
       agendaDraggingAppointmentId: null,
       agendaDidDrag: false,
       editingAppointmentId: null,
@@ -15444,12 +15431,9 @@ const crmHtml = `<!doctype html>
       els.agendaGridWrap.innerHTML =
         '<div class="agenda-gcal">' +
           '<header class="agenda-gcal-top">' +
-            '<button class="agenda-gcal-icon" type="button" data-agenda-mobile-menu aria-label="Menu">=</button>' +
+            '<button class="agenda-gcal-icon" type="button" data-agenda-mobile-menu aria-label="Menu">☰</button>' +
             '<button class="agenda-gcal-title" type="button" data-agenda-mobile-month-toggle aria-expanded="' + String(state.agendaMobileMonthOpen) + '"><span>' + escapeHtml(monthTitle) + '</span><small>' + (state.agendaMobileMonthOpen ? '^' : 'v') + '</small></button>' +
-            '<button class="agenda-gcal-icon" type="button" data-agenda-mobile-prev aria-label="Tres dias anteriores">&lt;</button>' +
             '<button class="agenda-gcal-icon agenda-gcal-today" type="button" data-agenda-mobile-today aria-label="Hoy">' + today.getDate() + '</button>' +
-            '<button class="agenda-gcal-icon" type="button" data-agenda-mobile-next aria-label="Tres dias siguientes">&gt;</button>' +
-            '<button class="agenda-gcal-icon" type="button" data-agenda-mobile-refresh aria-label="Actualizar">R</button>' +
           '</header>' +
           monthPanel +
           '<section class="agenda-gcal-main">' +
@@ -15537,22 +15521,11 @@ const crmHtml = `<!doctype html>
           renderAgenda()
         }
       })
-      els.agendaGridWrap.querySelector('[data-agenda-mobile-prev]')?.addEventListener('click', async () => {
-        state.agendaSelectedDate = addDays(state.agendaSelectedDate, -3)
-        state.agendaMonthDate = new Date(state.agendaSelectedDate)
-        await loadAgenda()
-      })
-      els.agendaGridWrap.querySelector('[data-agenda-mobile-next]')?.addEventListener('click', async () => {
-        state.agendaSelectedDate = addDays(state.agendaSelectedDate, 3)
-        state.agendaMonthDate = new Date(state.agendaSelectedDate)
-        await loadAgenda()
-      })
       els.agendaGridWrap.querySelector('[data-agenda-mobile-today]')?.addEventListener('click', async () => {
         state.agendaSelectedDate = new Date()
         state.agendaMonthDate = new Date()
         await loadAgenda()
       })
-      els.agendaGridWrap.querySelector('[data-agenda-mobile-refresh]')?.addEventListener('click', loadAgenda)
       els.agendaGridWrap.querySelector('[data-agenda-mobile-new]')?.addEventListener('click', () => openAppointmentDialog({ date: state.agendaSelectedDate }))
 
       for (const button of els.agendaGridWrap.querySelectorAll('[data-agenda-date], [data-agenda-mobile-date]')) {
@@ -15592,13 +15565,17 @@ const crmHtml = `<!doctype html>
       if (scroll) {
         scroll.addEventListener('touchstart', (event) => {
           state.agendaMobileTouchStartX = event.touches[0]?.clientX ?? null
+          state.agendaMobileTouchStartY = event.touches[0]?.clientY ?? null
         }, { passive: true })
         scroll.addEventListener('touchend', async (event) => {
-          if (state.agendaMobileTouchStartX === null) return
+          if (state.agendaMobileTouchStartX === null || state.agendaMobileTouchStartY === null) return
           const endX = event.changedTouches[0]?.clientX ?? state.agendaMobileTouchStartX
+          const endY = event.changedTouches[0]?.clientY ?? state.agendaMobileTouchStartY
           const delta = endX - state.agendaMobileTouchStartX
+          const verticalDelta = endY - state.agendaMobileTouchStartY
           state.agendaMobileTouchStartX = null
-          if (Math.abs(delta) < 70) return
+          state.agendaMobileTouchStartY = null
+          if (Math.abs(delta) < 42 || Math.abs(delta) < Math.abs(verticalDelta) * 1.25) return
           state.agendaSelectedDate = addDays(state.agendaSelectedDate, delta < 0 ? 3 : -3)
           state.agendaMonthDate = new Date(state.agendaSelectedDate)
           await loadAgenda()
