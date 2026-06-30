@@ -1429,6 +1429,7 @@ const crmHtml = `<!doctype html>
     .conversation-global-search {
       height: 46px;
       min-width: 0;
+      margin: 10px 10px 0;
       padding: 0 12px;
       border: 1px solid #dfe6f1;
       border-radius: 8px;
@@ -1436,6 +1437,7 @@ const crmHtml = `<!doctype html>
       align-items: center;
       gap: 9px;
       background: #fff;
+      flex-shrink: 0;
     }
 
     .conversation-global-search > .ti {
@@ -8369,9 +8371,19 @@ const crmHtml = `<!doctype html>
       body[data-current-section="conversations"] .conversation-list {
         flex: 1;
         min-height: 0;
-        padding: 10px 10px 76px;
+        padding: 8px 10px 76px;
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
+      }
+
+      body[data-current-section="conversations"] .conversation-global-search {
+        height: 48px;
+        margin: 8px 10px 0;
+        border-radius: 10px;
+      }
+
+      body[data-current-section="conversations"] .conversation-global-search input {
+        font-size: 16px;
       }
 
       body[data-current-section="conversations"] .conversation {
@@ -9041,11 +9053,6 @@ const crmHtml = `<!doctype html>
           <p>Gestion&aacute; tus chats y respond&eacute; m&aacute;s r&aacute;pido</p>
         </div>
       </div>
-      <div class="conversation-global-search">
-        <span data-icon="search"></span>
-        <input id="search" type="search" placeholder="Buscar conversaci&oacute;n..." autocomplete="off">
-        <button class="icon-button" id="search-button" type="button" title="Buscar" data-icon="search"></button>
-      </div>
       <button class="icon-button conversation-refresh" id="refresh" type="button" title="Actualizar" data-icon="refresh"></button>
     </header>
 
@@ -9063,6 +9070,11 @@ const crmHtml = `<!doctype html>
         <button id="conversation-tab-archived" type="button" data-conversation-filter="archived">
           Archivados <span id="conversation-archived-count">0</span>
         </button>
+      </div>
+      <div class="conversation-global-search">
+        <span data-icon="search"></span>
+        <input id="search" type="search" placeholder="Buscar conversaci&oacute;n..." autocomplete="off">
+        <button class="icon-button" id="search-button" type="button" title="Buscar" data-icon="search"></button>
       </div>
       <div class="conversation-list" id="conversation-list">
         <div class="empty">Cargando conversaciones...</div>
@@ -10786,6 +10798,8 @@ const crmHtml = `<!doctype html>
     const state = {
       conversations: [],
       conversationNextCursor: null,
+      conversationSearchTimer: null,
+      conversationSearchLoading: false,
       conversationCounts: { active: 0, archived: 0, handoff: 0 },
       loadedArchiveView: 'active',
       selected: null,
@@ -11789,6 +11803,7 @@ const crmHtml = `<!doctype html>
     async function startCrm() {
       await loadBasics()
       await loadConversations()
+      if (isMobile()) setMobileView('inbox')
     }
 
     async function loadCustomerOverview(options = {}) {
@@ -12167,7 +12182,7 @@ const crmHtml = `<!doctype html>
         renderAiControls()
 
         if (!options.append && !state.selected && state.conversations[0]) {
-          await selectConversation(state.conversations[0].id)
+          await selectConversation(state.conversations[0].id, { openChat: false })
         } else if (!options.append && state.selected) {
           const fresh = state.conversations.find((item) => item.id === state.selected.id)
           if (fresh) {
@@ -12283,7 +12298,9 @@ const crmHtml = `<!doctype html>
       }
 
       if (conversations.length === 0) {
-        const emptyCopy = state.conversationFilter === 'handoff'
+        const emptyCopy = state.conversationSearchLoading
+          ? 'Buscando en mas conversaciones...'
+          : state.conversationFilter === 'handoff'
           ? 'No hay conversaciones derivadas pendientes.'
           : state.conversationFilter === 'unread'
             ? 'No hay conversaciones sin leer.'
@@ -12321,15 +12338,19 @@ const crmHtml = `<!doctype html>
       for (const button of els.list.querySelectorAll('.conversation')) {
         button.addEventListener('click', () => selectConversation(button.dataset.id))
       }
+
+      if (state.conversationSearchLoading) {
+        els.list.insertAdjacentHTML('beforeend', '<div class="empty">Buscando en mas conversaciones...</div>')
+      }
     }
 
-    async function selectConversation(id) {
+    async function selectConversation(id, options = {}) {
       const conversation = state.conversations.find((item) => item.id === id)
       if (!conversation) return
       state.readConversationIds.add(id)
       state.selected = conversation
       await refreshSelectedConversation()
-      if (isMobile()) {
+      if (isMobile() && options.openChat !== false) {
         setMobileView('chat')
       }
     }
@@ -16761,6 +16782,7 @@ const crmHtml = `<!doctype html>
       }
       if (section === 'campaigns') setMarketingView(state.marketingView)
       if (section === 'campaigns' && !state.templatesLoaded) loadWhatsappTemplates()
+      if (section === 'conversations' && isMobile()) setMobileView('inbox')
       closeMobileDrawer()
     }
 
@@ -17007,6 +17029,41 @@ const crmHtml = `<!doctype html>
         const message = String(conversation.messages?.[0]?.body || '').toLowerCase()
         return name.includes(query) || phone.includes(query) || message.includes(query)
       })
+    }
+
+    async function loadMoreConversationsFromScroll() {
+      if (!state.conversationNextCursor || state.isRefreshing || state.conversationSearchLoading) return
+      await loadConversations({ append: true })
+    }
+
+    function isConversationListNearBottom() {
+      return els.list.scrollTop + els.list.clientHeight >= els.list.scrollHeight - 80
+    }
+
+    async function expandConversationSearch() {
+      const query = els.search.value.trim()
+      if (!query || state.conversationSearchLoading) return
+      state.conversationSearchLoading = true
+      renderConversations()
+      try {
+        let loadedPages = 0
+        while (els.search.value.trim() === query && state.conversationNextCursor && filteredConversations().length === 0 && loadedPages < 12) {
+          await loadConversations({ append: true })
+          loadedPages += 1
+        }
+      } finally {
+        state.conversationSearchLoading = false
+        renderConversations()
+      }
+    }
+
+    function scheduleConversationSearchExpansion() {
+      clearTimeout(state.conversationSearchTimer)
+      renderConversations()
+      if (!els.search.value.trim()) return
+      state.conversationSearchTimer = setTimeout(() => {
+        expandConversationSearch().catch((error) => showCrmToast(error.message, 'error'))
+      }, 260)
     }
 
     function formatConversationTime(value) {
@@ -17434,10 +17491,18 @@ const crmHtml = `<!doctype html>
     els.conversationAiToggle.addEventListener('click', toggleConversationAi)
     els.resolveHandoff.addEventListener('click', resolveHandoff)
     els.refresh.addEventListener('click', loadConversations)
-    els.searchButton.addEventListener('click', renderConversations)
-    els.search.addEventListener('input', renderConversations)
+    els.searchButton.addEventListener('click', () => expandConversationSearch().catch((error) => showCrmToast(error.message, 'error')))
+    els.search.addEventListener('input', scheduleConversationSearchExpansion)
     els.search.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') renderConversations()
+      if (event.key === 'Enter') {
+        event.preventDefault()
+        expandConversationSearch().catch((error) => showCrmToast(error.message, 'error'))
+      }
+    })
+    els.list.addEventListener('scroll', () => {
+      if (isConversationListNearBottom()) {
+        loadMoreConversationsFromScroll().catch((error) => showCrmToast(error.message, 'error'))
+      }
     })
     els.conversationTabs.addEventListener('click', async (event) => {
       const tab = event.target.closest('[data-conversation-filter]')
