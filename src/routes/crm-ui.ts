@@ -4554,6 +4554,23 @@ const crmHtml = `<!doctype html>
       font-size: 13px;
     }
 
+    .customer-mobile-detail {
+      display: none;
+    }
+
+    body.customer-mobile-layout[data-current-section="customers"] .customer-profile-panel {
+      display: none !important;
+    }
+
+    body.customer-mobile-layout[data-current-section="customers"] .customers-workspace,
+    body.customer-mobile-layout[data-current-section="customers"] .customer-list-panel {
+      display: block !important;
+      grid-template-columns: 1fr !important;
+      width: 100%;
+      min-width: 0;
+      overflow: visible;
+    }
+
     .customer-pagination {
       min-height: 50px;
       padding: 8px 12px;
@@ -9087,6 +9104,393 @@ const crmHtml = `<!doctype html>
         grid-column: 2;
       }
 
+      body[data-current-section="customers"] .app {
+        height: 100dvh;
+        overflow: hidden;
+      }
+
+      body[data-current-section="customers"] .customers-view {
+        height: calc(100dvh - var(--mobile-nav-height));
+        padding: 12px;
+        background: #f8fafc;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      body[data-current-section="customers"] .customers-shell {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        min-height: auto;
+      }
+
+      body[data-current-section="customers"] .customers-header {
+        display: grid;
+        gap: 12px;
+      }
+
+      body[data-current-section="customers"] .customers-header h2 {
+        font-size: 24px;
+      }
+
+      body[data-current-section="customers"] .customers-header p {
+        font-size: 14px;
+      }
+
+      body[data-current-section="customers"] .customers-header-actions {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 10px;
+      }
+
+      body[data-current-section="customers"] .customers-search {
+        width: 100%;
+        height: 48px;
+        border-radius: 12px;
+      }
+
+      body[data-current-section="customers"] .customers-search input {
+        font-size: 16px;
+      }
+
+      body[data-current-section="customers"] .customer-new-button {
+        width: 100%;
+        min-height: 48px;
+      }
+
+      body[data-current-section="customers"] .customer-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+      }
+
+      body[data-current-section="customers"] .customer-metric-card {
+        min-height: 86px;
+        padding: 14px;
+        border-radius: 12px;
+        box-shadow: 0 8px 22px rgba(15, 23, 42, .06);
+      }
+
+      body[data-current-section="customers"] .customer-metric-icon {
+        width: 44px;
+        height: 44px;
+      }
+
+      body[data-current-section="customers"] .customer-metric-card strong {
+        font-size: 26px;
+      }
+
+      body[data-current-section="customers"] .customer-metric-card span {
+        font-size: 14px;
+      }
+
+      body[data-current-section="customers"] .customers-workspace,
+      body[data-current-section="customers"] .customer-list-panel {
+        display: block;
+        width: 100%;
+        min-height: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        overflow: visible;
+      }
+
+      body[data-current-section="customers"] .customer-list-toolbar {
+        margin: 0 0 10px;
+        padding: 0;
+        border: 0;
+        background: transparent;
+      }
+
+      body[data-current-section="customers"] .customer-filter-tabs {
+        display: flex;
+        gap: 8px;
+        margin: 0 -12px;
+        padding: 0 12px 2px;
+        overflow-x: auto;
+        scroll-snap-type: x proximity;
+      }
+
+      body[data-current-section="customers"] .customer-filter-tabs button {
+        min-height: 44px;
+        padding: 0 16px;
+        border-radius: 999px;
+        flex: 0 0 auto;
+        scroll-snap-align: start;
+        font-size: 15px;
+      }
+
+      body[data-current-section="customers"] .customer-inactive-select {
+        margin-top: 10px;
+        min-height: 46px;
+        border-radius: 12px;
+        font-size: 15px;
+      }
+
+      body[data-current-section="customers"] .customer-table-wrap {
+        width: 100%;
+        overflow: visible;
+      }
+
+      body[data-current-section="customers"] .customer-table,
+      body[data-current-section="customers"] .customer-table tbody {
+        width: 100%;
+      }
+
+      body[data-current-section="customers"] .customer-table tbody {
+        gap: 12px;
+        padding: 0;
+      }
+
+      body[data-current-section="customers"] .customer-table tr {
+        gap: 10px;
+        padding: 16px;
+        border: 1px solid #e2e8f0;
+        border-radius: 14px;
+        background: #fff;
+        box-shadow: 0 10px 26px rgba(15, 23, 42, .07);
+      }
+
+      body[data-current-section="customers"] .customer-table tbody tr.active {
+        outline: 0;
+        border-color: #93c5fd;
+        background: #f8fbff;
+        box-shadow: 0 12px 28px rgba(37, 99, 235, .12);
+      }
+
+      body[data-current-section="customers"] .customer-table td,
+      body[data-current-section="customers"] .customer-table td:nth-child(4) {
+        min-height: 30px;
+        font-size: 15px;
+      }
+
+      body[data-current-section="customers"] .customer-table td:first-child {
+        padding-bottom: 12px;
+      }
+
+      body[data-current-section="customers"] .customer-cell {
+        align-items: center;
+        gap: 12px;
+      }
+
+      body[data-current-section="customers"] .customer-list-avatar {
+        width: 50px;
+        height: 50px;
+        font-size: 17px;
+      }
+
+      body[data-current-section="customers"] .customer-cell-copy strong {
+        font-size: 20px;
+        line-height: 1.15;
+      }
+
+      body[data-current-section="customers"] .customer-cell-copy span {
+        margin-top: 4px;
+        font-size: 15px;
+        white-space: normal;
+      }
+
+      body[data-current-section="customers"] .customer-status {
+        padding: 6px 10px;
+        border-radius: 9px;
+        font-size: 14px;
+      }
+
+      body[data-current-section="customers"] .customer-pagination {
+        position: static;
+        margin-top: 12px;
+        padding: 0 2px 8px;
+        border: 0;
+        color: #64748b;
+        background: transparent;
+        font-size: 14px;
+      }
+
+      body[data-current-section="customers"] .customer-page-actions button {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        background: #fff;
+      }
+
+      body[data-current-section="customers"] .customer-profile-panel {
+        display: none !important;
+      }
+
+      body[data-current-section="customers"] .customer-mobile-detail {
+        display: grid !important;
+        gap: 12px;
+        margin-top: 4px;
+        padding-top: 14px !important;
+        border-top: 1px solid #dbe7f6 !important;
+      }
+
+      body[data-current-section="customers"] .customer-mobile-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      body[data-current-section="customers"] .customer-mobile-actions a,
+      body[data-current-section="customers"] .customer-mobile-actions button {
+        min-height: 46px;
+        border-radius: 12px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        font-size: 15px;
+        font-weight: 750;
+        text-decoration: none;
+      }
+
+      body[data-current-section="customers"] .customer-mobile-actions .primary {
+        grid-column: 1 / -1;
+      }
+
+      body[data-current-section="customers"] .customer-mobile-actions .customer-contact-action {
+        border: 1px solid #dbe7f6;
+        color: #2563eb;
+        background: #fff;
+      }
+
+      body[data-current-section="customers"] .customer-mobile-actions .customer-contact-action.whatsapp {
+        color: #0d9f5f;
+      }
+
+      body[data-current-section="customers"] .customer-mobile-panel {
+        padding: 12px;
+        border: 1px solid #dbe7f6;
+        border-radius: 12px;
+        display: grid;
+        gap: 10px;
+        background: #fff;
+      }
+
+      body[data-current-section="customers"] .customer-mobile-panel-title {
+        margin: 0;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: #17213c;
+        font-size: 16px;
+        font-weight: 800;
+      }
+
+      body[data-current-section="customers"] .customer-mobile-panel-title .ti,
+      body[data-current-section="customers"] .customer-mobile-actions .ti {
+        width: 20px;
+        height: 20px;
+      }
+
+      body[data-current-section="customers"] .customer-mobile-next-card {
+        min-height: 76px;
+        padding: 12px;
+        border: 1px solid #bfdbfe;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        background: #eff6ff;
+      }
+
+      body[data-current-section="customers"] .customer-mobile-next-card .customer-next-icon {
+        width: 46px;
+        height: 46px;
+        border-radius: 12px;
+        display: grid;
+        place-items: center;
+        color: #fff;
+        background: #2563eb;
+        flex: 0 0 auto;
+      }
+
+      body[data-current-section="customers"] .customer-mobile-next-card span,
+      body[data-current-section="customers"] .customer-mobile-next-card strong,
+      body[data-current-section="customers"] .customer-mobile-next-card small,
+      body[data-current-section="customers"] .customer-mobile-info span,
+      body[data-current-section="customers"] .customer-mobile-info strong,
+      body[data-current-section="customers"] .customer-mobile-info small {
+        display: block;
+      }
+
+      body[data-current-section="customers"] .customer-mobile-next-card span,
+      body[data-current-section="customers"] .customer-mobile-info span {
+        color: #64748b;
+        font-size: 13px;
+      }
+
+      body[data-current-section="customers"] .customer-mobile-next-card strong,
+      body[data-current-section="customers"] .customer-mobile-info strong {
+        margin-top: 3px;
+        color: #17213c;
+        font-size: 16px;
+      }
+
+      body[data-current-section="customers"] .customer-mobile-next-card small,
+      body[data-current-section="customers"] .customer-mobile-info small {
+        margin-top: 3px;
+        color: #52617a;
+        font-size: 13px;
+      }
+
+      body[data-current-section="customers"] .customer-mobile-info-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 10px;
+      }
+
+      body[data-current-section="customers"] .customer-mobile-info {
+        padding: 12px;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        background: #fff;
+      }
+
+      body[data-current-section="customers"] .customer-mobile-marketing {
+        display: grid;
+        gap: 10px;
+      }
+
+      body[data-current-section="customers"] .customer-mobile-marketing p {
+        margin: 0;
+        color: #64748b;
+        font-size: 14px;
+        line-height: 1.4;
+      }
+
+      body[data-current-section="customers"] .customer-mobile-marketing-actions {
+        display: grid;
+        gap: 8px;
+      }
+
+      body[data-current-section="customers"] .customer-mobile-marketing-actions button,
+      body[data-current-section="customers"] .customer-mobile-note-action,
+      body[data-current-section="customers"] .customer-mobile-conversation {
+        min-height: 44px;
+        border-radius: 12px;
+        font-size: 15px;
+      }
+
+      body[data-current-section="customers"] .customer-mobile-conversation {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid #93c5fd;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        color: #1d4ed8;
+        background: #eff6ff;
+        font-weight: 750;
+      }
+
+      body[data-current-section="customers"] .customer-mobile-note-action {
+        width: 100%;
+        border: 1px solid #dbe7f6;
+        color: #2563eb;
+        background: #fff;
+        font-weight: 750;
+      }
+
       body[data-current-section="agenda"] .agenda-view {
         padding: 0;
         background: #f8fafc;
@@ -12567,7 +12971,7 @@ const crmHtml = `<!doctype html>
         state.customerOverviewCounts = result.counts || state.customerOverviewCounts
         state.customerOverviewPagination = result.pagination || state.customerOverviewPagination
         if (!state.customerOverview.some((customer) => customer.id === state.selectedCustomerId)) {
-          state.selectedCustomerId = state.customerOverview[0]?.id || null
+          state.selectedCustomerId = isCustomerMobileLayout() ? null : state.customerOverview[0]?.id || null
         }
         renderCustomerOverview()
       } catch (error) {
@@ -12576,8 +12980,10 @@ const crmHtml = `<!doctype html>
     }
 
     function renderCustomerOverview() {
+      const customerMobileLayout = isCustomerMobileLayout()
       const counts = state.customerOverviewCounts
       const pagination = state.customerOverviewPagination
+      syncCustomerMobileLayout(customerMobileLayout)
       els.customersTotal.textContent = String(counts.total || 0)
       els.customersActive.textContent = String(counts.active || 0)
       els.customersInactive.textContent = String(counts.inactive || 0)
@@ -12604,6 +13010,7 @@ const crmHtml = `<!doctype html>
             '<td>' + escapeHtml(customer.averageFrequencyDays ? 'Cada ' + customer.averageFrequencyDays + ' dias' : '--') + '</td>' +
             '<td title="Calculado con los precios actuales">' + escapeHtml(formatEstimatedSpend(customer)) + '</td>' +
             '<td><span class="customer-status ' + (customer.status === 'inactive' ? 'inactive' : '') + '">' + (customer.status === 'inactive' ? 'Inactivo' : 'Activo') + '</span></td>' +
+            renderCustomerMobileDetail(customer, customerMobileLayout && isSelected) +
           '</tr>'
         }).join('')
       }
@@ -12616,12 +13023,109 @@ const crmHtml = `<!doctype html>
       els.customerPageNext.disabled = pagination.page >= pagination.totalPages
 
       for (const row of els.customerTableBody.querySelectorAll('[data-customer-id]')) {
-        row.addEventListener('click', () => {
+        row.addEventListener('click', (event) => {
+          if (event.target.closest('a, button, details, summary')) return
           state.selectedCustomerId = row.dataset.customerId
+          syncCustomerMobileLayout(isCustomerMobileLayout())
           renderCustomerOverview()
         })
       }
+      for (const button of els.customerTableBody.querySelectorAll('[data-mobile-schedule-customer]')) {
+        button.addEventListener('click', (event) => {
+          event.stopPropagation()
+          const customer = findOverviewCustomer(button.dataset.mobileScheduleCustomer)
+          if (customer) openOverviewCustomerAppointment(customer)
+        })
+      }
+      for (const button of els.customerTableBody.querySelectorAll('[data-mobile-open-customer-conversation]')) {
+        button.addEventListener('click', (event) => {
+          event.stopPropagation()
+          const customer = findOverviewCustomer(button.dataset.mobileOpenCustomerConversation)
+          if (customer) openOverviewCustomerConversation(customer)
+        })
+      }
+      for (const button of els.customerTableBody.querySelectorAll('[data-mobile-marketing-status]')) {
+        button.addEventListener('click', (event) => {
+          event.stopPropagation()
+          const customer = findOverviewCustomer(button.dataset.mobileCustomerId)
+          if (customer) openMarketingConfirmDialog(customer, button.dataset.mobileMarketingStatus)
+        })
+      }
+      for (const button of els.customerTableBody.querySelectorAll('[data-mobile-add-customer-note]')) {
+        button.addEventListener('click', (event) => {
+          event.stopPropagation()
+          const customer = findOverviewCustomer(button.dataset.mobileAddCustomerNote)
+          if (customer) openCustomerDialog('note', customer)
+        })
+      }
+      if (customerMobileLayout) return
       renderCustomerProfile()
+    }
+
+    function isCustomerMobileLayout() {
+      const viewWidth = els.customersView?.getBoundingClientRect?.().width || 0
+      return isMobile() || document.documentElement.clientWidth <= 767 || (viewWidth > 0 && viewWidth <= 767)
+    }
+
+    function syncCustomerMobileLayout(isMobileLayout = isCustomerMobileLayout()) {
+      document.body.classList.toggle('customer-mobile-layout', isMobileLayout)
+      if (!els.customerProfilePanel) return
+      els.customerProfilePanel.hidden = isMobileLayout
+      els.customerProfilePanel.style.display = isMobileLayout ? 'none' : ''
+      if (isMobileLayout) els.customerProfilePanel.innerHTML = ''
+    }
+
+    function renderCustomerMobileDetail(customer, isSelected) {
+      if (!isSelected) return ''
+
+      const next = customer.nextAppointment
+      const lastVisitDays = customer.lastVisit
+        ? Math.max(0, Math.round((Date.now() - new Date(customer.lastVisit).getTime()) / 86400000))
+        : null
+      const marketingEnabled = customer.marketingStatus === 'ACTIVE'
+      const marketingStatusCopy = marketingEnabled
+        ? 'Autorizado para recibir campanas.'
+        : customer.marketingStatus === 'OPTED_OUT'
+          ? 'El cliente solicito la baja de promociones.'
+          : customer.marketingStatus === 'DECLINED'
+            ? 'Se consulto y rechazo recibir promociones.'
+            : 'Todavia no autorizo el envio de promociones.'
+      const marketingActions = marketingEnabled
+        ? '<button class="secondary" type="button" data-mobile-customer-id="' + customer.id + '" data-mobile-marketing-status="OPTED_OUT">Revocar autorizacion</button>'
+        : '<div class="customer-mobile-marketing-actions">' +
+            '<button class="primary" type="button" data-mobile-customer-id="' + customer.id + '" data-mobile-marketing-status="ACTIVE">Autorizar promociones</button>' +
+            (customer.marketingStatus === 'NOT_AUTHORIZED'
+              ? '<button class="secondary" type="button" data-mobile-customer-id="' + customer.id + '" data-mobile-marketing-status="DECLINED">Registrar rechazo</button>'
+              : '') +
+          '</div>'
+      const conversationButton = customer.openConversation
+        ? '<button class="customer-mobile-conversation" type="button" data-mobile-open-customer-conversation="' + customer.id + '"><span>Conversacion abierta</span><span>Ver</span></button>'
+        : ''
+
+      return '<td class="customer-mobile-detail" colspan="6">' +
+        '<div class="customer-mobile-actions">' +
+          '<a class="customer-contact-action whatsapp" href="https://wa.me/' + encodeURIComponent(normalizePhone(customer.phone)) + '" target="_blank" rel="noopener">' + icon('whatsapp') + 'WhatsApp</a>' +
+          '<button class="customer-contact-action" type="button" data-mobile-open-customer-conversation="' + customer.id + '" ' + (customer.conversation ? '' : 'disabled') + '>' + icon('mail') + 'CRM</button>' +
+          '<button class="primary" type="button" data-mobile-schedule-customer="' + customer.id + '">' + icon('calendar') + 'Agendar turno</button>' +
+        '</div>' +
+        (next
+          ? '<div class="customer-mobile-next-card"><span class="customer-next-icon">' + icon('calendar') + '</span><div><span>Proximo turno</span><strong>' + escapeHtml(formatCustomerDateTime(next.startAt)) + '</strong><small>' + escapeHtml(next.service.name) + ' - ' + escapeHtml(next.professional.name) + '</small></div></div>'
+          : '<div class="customer-mobile-next-card"><span class="customer-next-icon">' + icon('calendar') + '</span><div><span>Proximo turno</span><strong>Sin turno agendado</strong></div></div>') +
+        '<div class="customer-mobile-info-grid">' +
+          '<div class="customer-mobile-info"><span>Frecuencia</span><strong>' + escapeHtml(customer.averageFrequencyDays ? 'Cada ' + customer.averageFrequencyDays + ' dias' : '--') + '</strong><small>Inferido de sus ultimas visitas</small></div>' +
+          '<div class="customer-mobile-info"><span>Gasto estimado</span><strong>' + escapeHtml(formatEstimatedSpend(customer)) + '</strong><small>Calculado con precios actuales</small></div>' +
+          '<div class="customer-mobile-info"><span>Ultima visita</span><strong>' + escapeHtml(lastVisitDays === null ? '--' : lastVisitDays + ' dias') + '</strong><small>Desde la ultima visita</small></div>' +
+        '</div>' +
+        '<div class="customer-mobile-panel"><h4 class="customer-mobile-panel-title">' + icon('professional') + 'Preferencias</h4>' +
+          '<div class="customer-mobile-info-grid">' +
+            '<div class="customer-mobile-info"><span>Profesional frecuente</span><strong>' + escapeHtml(customer.frequentProfessional || '--') + '</strong></div>' +
+            '<div class="customer-mobile-info"><span>Servicio frecuente</span><strong>' + escapeHtml(customer.frequentService || '--') + '</strong></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="customer-mobile-panel customer-mobile-marketing"><h4 class="customer-mobile-panel-title">' + icon('mail') + 'Promociones</h4><p>' + marketingStatusCopy + '</p>' + marketingActions + '</div>' +
+        conversationButton +
+        '<button class="customer-mobile-note-action" type="button" data-mobile-add-customer-note="' + customer.id + '">+ Agregar nota</button>' +
+      '</td>'
     }
 
     function renderCustomerProfile() {
@@ -12725,6 +13229,10 @@ const crmHtml = `<!doctype html>
 
     function selectedOverviewCustomer() {
       return state.customerOverview.find((customer) => customer.id === state.selectedCustomerId) || null
+    }
+
+    function findOverviewCustomer(customerId) {
+      return state.customerOverview.find((customer) => customer.id === customerId) || null
     }
 
     function customerAvatarTone(customer) {
