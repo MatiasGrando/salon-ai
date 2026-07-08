@@ -1684,6 +1684,35 @@ const crmHtml = `<!doctype html>
       position: relative;
     }
 
+    @media (min-width: 761px) {
+      .app[data-section="conversations"] .chat-more-menu {
+        position: static;
+      }
+
+      .app[data-section="conversations"] .chat-more-menu > summary {
+        display: none;
+      }
+
+      .app[data-section="conversations"] .chat-more-popover {
+        position: static;
+        width: auto;
+        padding: 0;
+        border: 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: transparent;
+        box-shadow: none;
+      }
+
+      .app[data-section="conversations"] .chat-more-popover button {
+        width: auto;
+        min-height: 36px;
+        justify-content: center;
+        white-space: nowrap;
+      }
+    }
+
     .chat-more-menu > summary {
       list-style: none;
       cursor: pointer;
@@ -7907,6 +7936,51 @@ const crmHtml = `<!doctype html>
       gap: 10px;
     }
 
+    .appointment-contact-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      background: #f9fafb;
+    }
+
+    .appointment-contact-actions[hidden] {
+      display: none;
+    }
+
+    .appointment-contact-actions a,
+    .appointment-contact-actions button {
+      width: 38px;
+      height: 38px;
+      border: 1px solid #dce5ee;
+      border-radius: 9px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: #fff;
+      color: #2563eb;
+      text-decoration: none;
+      line-height: 0;
+    }
+
+    .appointment-contact-actions a.whatsapp {
+      color: #0d9f5f;
+    }
+
+    .appointment-contact-actions button:disabled {
+      color: #9aa5b5;
+      background: #f3f4f6;
+      cursor: not-allowed;
+    }
+
+    .appointment-contact-actions .ti {
+      width: 22px;
+      height: 22px;
+      stroke-width: 2.2;
+    }
+
     .dialog-actions {
       display: flex;
       align-items: center;
@@ -10525,6 +10599,10 @@ const crmHtml = `<!doctype html>
               <input class="field" id="appointment-customer-phone" placeholder="Telefono">
             </div>
           </div>
+          <div class="appointment-contact-actions" id="appointment-contact-actions" hidden>
+            <a class="whatsapp" id="appointment-whatsapp" href="#" title="Abrir WhatsApp Desktop" aria-label="Abrir WhatsApp Desktop" data-icon="whatsapp"></a>
+            <button id="appointment-open-chat" type="button" title="Abrir chat del cliente" aria-label="Abrir chat del cliente" data-icon="mail"></button>
+          </div>
           <div class="exceptional-option">
             <label>
               <input id="appointment-force" type="checkbox">
@@ -12117,6 +12195,7 @@ const crmHtml = `<!doctype html>
       resolveHandoff: document.getElementById('resolve-handoff'),
       conversationAiToggle: document.getElementById('conversation-ai-toggle'),
       archiveConversation: document.getElementById('archive-conversation'),
+      chatMoreMenu: document.querySelector('.chat-more-menu'),
       replyForm: document.getElementById('reply-form'),
       replyText: document.getElementById('reply-text'),
       sendButton: document.getElementById('send-button'),
@@ -12455,6 +12534,9 @@ const crmHtml = `<!doctype html>
       appointmentCustomer: document.getElementById('appointment-customer'),
       appointmentCustomerName: document.getElementById('appointment-customer-name'),
       appointmentCustomerPhone: document.getElementById('appointment-customer-phone'),
+      appointmentContactActions: document.getElementById('appointment-contact-actions'),
+      appointmentWhatsapp: document.getElementById('appointment-whatsapp'),
+      appointmentOpenChat: document.getElementById('appointment-open-chat'),
       appointmentForce: document.getElementById('appointment-force'),
       appointmentFeedback: document.getElementById('appointment-feedback'),
       businessSettingsForm: document.getElementById('business-settings-form'),
@@ -12493,6 +12575,12 @@ const crmHtml = `<!doctype html>
       return String(phone || '').replace(/\\D/g, '')
     }
 
+    function whatsappAppUrl(phone, text = '') {
+      const digits = normalizePhone(phone)
+      if (!digits) return '#'
+      return 'whatsapp://send?phone=' + encodeURIComponent(digits) + (text ? '&text=' + encodeURIComponent(text) : '')
+    }
+
     function isActiveAppointment(appointment) {
       return appointment.status !== 'CANCELLED' && appointment.status !== 'NO_SHOW'
     }
@@ -12522,6 +12610,31 @@ const crmHtml = `<!doctype html>
         hour: '2-digit',
         minute: '2-digit'
       }).format(new Date(value))
+    }
+
+    function formatAppointmentReminderDate(value) {
+      return new Intl.DateTimeFormat('es-AR', {
+        weekday: 'long',
+        day: '2-digit',
+        month: 'long'
+      }).format(new Date(value))
+    }
+
+    function formatAppointmentReminderTime(value) {
+      return new Intl.DateTimeFormat('es-AR', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      }).format(new Date(value))
+    }
+
+    function buildAppointmentReminderMessage(appointment, fallbackName = 'cliente') {
+      const name = appointment?.customer?.name || fallbackName || 'cliente'
+      const service = appointment?.service?.name || 'servicio'
+      const startAt = appointment?.startAt || els.appointmentStart?.value
+      const date = startAt ? formatAppointmentReminderDate(startAt) : 'la fecha acordada'
+      const time = startAt ? formatAppointmentReminderTime(startAt) : 'el horario acordado'
+      return 'Hola ' + name + ', te recordamos tu turno de ' + service + ' para el ' + date + ' a las ' + time + '.'
     }
 
     const iconPaths = {
@@ -13104,7 +13217,7 @@ const crmHtml = `<!doctype html>
 
       return '<td class="customer-mobile-detail" colspan="6">' +
         '<div class="customer-mobile-actions">' +
-          '<a class="customer-contact-action whatsapp" href="https://wa.me/' + encodeURIComponent(normalizePhone(customer.phone)) + '" target="_blank" rel="noopener">' + icon('whatsapp') + 'WhatsApp</a>' +
+          '<a class="customer-contact-action whatsapp" href="' + whatsappAppUrl(customer.phone) + '">' + icon('whatsapp') + 'WhatsApp</a>' +
           '<button class="customer-contact-action" type="button" data-mobile-open-customer-conversation="' + customer.id + '" ' + (customer.conversation ? '' : 'disabled') + '>' + icon('mail') + 'CRM</button>' +
           '<button class="primary" type="button" data-mobile-schedule-customer="' + customer.id + '">' + icon('calendar') + 'Agendar turno</button>' +
         '</div>' +
@@ -13189,7 +13302,7 @@ const crmHtml = `<!doctype html>
           '<div><h3>' + escapeHtml(customer.name) + '</h3><a href="tel:' + escapeHtml(customer.phone) + '">' + escapeHtml(formatCustomerPhone(customer.phone)) + '</a></div>' +
           '<div class="customer-profile-actions">' +
             '<div class="customer-profile-contact-row">' +
-              '<a class="customer-contact-action whatsapp" href="https://wa.me/' + encodeURIComponent(normalizePhone(customer.phone)) + '" target="_blank" rel="noopener" title="Abrir WhatsApp" aria-label="Abrir WhatsApp">' + icon('whatsapp') + '</a>' +
+              '<a class="customer-contact-action whatsapp" href="' + whatsappAppUrl(customer.phone) + '" title="Abrir WhatsApp" aria-label="Abrir WhatsApp">' + icon('whatsapp') + '</a>' +
               '<button class="customer-contact-action conversation" type="button" data-open-customer-conversation title="' + (customer.conversation ? 'Abrir conversacion en el CRM' : 'Este cliente no tiene una conversacion') + '" aria-label="Abrir conversacion en el CRM" ' + (customer.conversation ? '' : 'disabled') + '>' + icon('mail') + '</button>' +
             '</div>' +
             '<button class="primary" type="button" data-schedule-customer>' + icon('calendar') + 'Agendar turno</button>' +
@@ -13808,7 +13921,7 @@ const crmHtml = `<!doctype html>
       els.detailName.textContent = name
       els.detailPhone.textContent = selected.phone
       els.detailPhone.href = 'tel:' + selected.phone
-      els.detailWhatsapp.href = 'https://wa.me/' + normalizePhone(selected.phone)
+      els.detailWhatsapp.href = whatsappAppUrl(selected.phone)
       els.detailStep.textContent = conversationStepLabel(selected.currentStep, selected.aiEnabled)
       els.detailStep.className = conversationStepChipClass(selected.currentStep, selected.aiEnabled)
       els.detailMarketingStatus.textContent = customer ? 'Consultando...' : 'Sin cliente'
@@ -13884,7 +13997,7 @@ const crmHtml = `<!doctype html>
       els.sendButton.disabled = isLocked
       els.composerWindowNotice.hidden = !isLocked
       els.composerWindowWhatsapp.href = state.selected
-        ? 'https://wa.me/' + normalizePhone(state.selected.phone)
+        ? whatsappAppUrl(state.selected.phone)
         : '#'
 
       for (const button of els.replyForm.querySelectorAll('.composer-icon')) {
@@ -16847,6 +16960,7 @@ const crmHtml = `<!doctype html>
       }
 
       syncAppointmentCustomerFields()
+      updateAppointmentContactActions(appointment)
       els.appointmentDialog.hidden = false
       els.appointmentStart.focus()
     }
@@ -16857,6 +16971,11 @@ const crmHtml = `<!doctype html>
       state.editingAppointmentId = null
       els.appointmentDelete.hidden = true
       els.appointmentNoShow.hidden = true
+      updateAppointmentContactActions(null)
+    }
+
+    function editingAgendaAppointment() {
+      return state.agendaAppointments.find((item) => item.id === state.editingAppointmentId) || null
     }
 
     function syncAppointmentCustomerFields() {
@@ -16867,6 +16986,89 @@ const crmHtml = `<!doctype html>
       } else if (!els.appointmentCustomer.value) {
         els.appointmentCustomerName.value = ''
         els.appointmentCustomerPhone.value = ''
+      }
+      updateAppointmentContactActions(editingAgendaAppointment())
+    }
+
+    function updateAppointmentContactActions(appointment) {
+      const phone = els.appointmentCustomerPhone.value || appointment?.customer?.phone || ''
+      const digits = normalizePhone(phone)
+      const visible = Boolean(state.editingAppointmentId && digits)
+      const reminderAppointment = appointment
+        ? {
+            ...appointment,
+            startAt: els.appointmentStart.value || appointment.startAt,
+            customer: {
+              ...(appointment.customer || {}),
+              name: els.appointmentCustomerName.value || appointment.customer?.name,
+              phone
+            },
+            service: state.services.find((item) => item.id === els.appointmentService.value) || appointment.service
+          }
+        : null
+      const reminderMessage = reminderAppointment
+        ? buildAppointmentReminderMessage(reminderAppointment, els.appointmentCustomerName.value || 'cliente')
+        : ''
+
+      els.appointmentContactActions.hidden = !visible
+      els.appointmentWhatsapp.href = visible
+        ? whatsappAppUrl(digits, reminderMessage)
+        : '#'
+      els.appointmentOpenChat.disabled = !visible
+      els.appointmentOpenChat.dataset.phone = visible ? phone : ''
+      els.appointmentOpenChat.dataset.reminderMessage = visible ? reminderMessage : ''
+    }
+
+    function openAppointmentWhatsapp(event) {
+      event.preventDefault()
+      if (!els.appointmentWhatsapp.href || els.appointmentWhatsapp.href.endsWith('#')) return
+      window.location.href = els.appointmentWhatsapp.href
+      showCrmToast('Abriendo WhatsApp Desktop con el recordatorio precargado. Si no se abre, revisa que WhatsApp Desktop este instalado.', 'success')
+    }
+
+    async function openAppointmentCustomerChat() {
+      const phone = els.appointmentOpenChat.dataset.phone || els.appointmentCustomerPhone.value
+      const normalized = normalizePhone(phone)
+      if (!normalized) {
+        els.appointmentFeedback.textContent = 'Este turno no tiene telefono cargado.'
+        return
+      }
+
+      let conversation = state.conversations.find((item) => normalizePhone(item.phone) === normalized)
+      if (!conversation) {
+        const phonesToTry = Array.from(new Set([phone, normalized].filter(Boolean)))
+        const conversations = []
+        for (const phoneToTry of phonesToTry) {
+          const params = new URLSearchParams({
+            phone: phoneToTry,
+            take: '1',
+            archive: 'all'
+          })
+          if (state.businessId) params.set('businessId', state.businessId)
+          conversations.push(...await getJson('/crm/conversations?' + params.toString()))
+          if (conversations.some((item) => normalizePhone(item.phone) === normalized)) break
+        }
+        conversation = conversations.find((item) => normalizePhone(item.phone) === normalized) || conversations[0]
+      }
+
+      if (!conversation) {
+        els.appointmentFeedback.textContent = 'No encontre un chat para este cliente todavia.'
+        return
+      }
+
+      if (!state.conversations.some((item) => item.id === conversation.id)) {
+        state.conversations.unshift(conversation)
+      }
+      const reminderMessage = els.appointmentOpenChat.dataset.reminderMessage || buildAppointmentReminderMessage(editingAgendaAppointment(), conversationDisplayName(conversation))
+      closeAppointmentDialog()
+      setSection('conversations')
+      await selectConversation(conversation.id)
+      if (whatsappReplyWindowState().canReply) {
+        els.replyText.value = reminderMessage
+        els.replyText.focus()
+      } else {
+        updateComposerAvailability()
+        showCrmToast('El chat interno no permite responder porque pasaron mas de 24 hs desde el ultimo mensaje del cliente.', 'error')
       }
     }
 
@@ -18910,6 +19112,11 @@ const crmHtml = `<!doctype html>
       return window.matchMedia('(max-width: 760px)').matches
     }
 
+    function syncConversationActionLayout() {
+      if (!els.chatMoreMenu) return
+      els.chatMoreMenu.open = !isMobile()
+    }
+
     function closeMobileDrawer() {
       document.body.classList.remove('mobile-drawer-open')
       const toggle = document.getElementById('mobile-menu-toggle')
@@ -18946,6 +19153,8 @@ const crmHtml = `<!doctype html>
     }
 
     hydrateWorkspaceNav()
+    syncConversationActionLayout()
+    window.addEventListener('resize', syncConversationActionLayout)
     document.getElementById('mobile-menu-toggle')?.addEventListener('click', () => {
       if (document.body.classList.contains('mobile-drawer-open')) {
         closeMobileDrawer()
@@ -19332,7 +19541,7 @@ const crmHtml = `<!doctype html>
       if (!state.selected) return
       const appointment = state.appointments[0]
       els.replyText.value = appointment
-        ? 'Hola ' + conversationDisplayName(state.selected) + ', te recordamos tu turno de ' + (appointment.service?.name || 'servicio') + ' para ' + formatAppointment(appointment.startAt) + '.'
+        ? buildAppointmentReminderMessage(appointment, conversationDisplayName(state.selected))
         : 'Hola ' + conversationDisplayName(state.selected) + ', te escribimos desde ' + (state.business?.name || 'el salon') + '.'
       els.replyText.focus()
     })
@@ -19433,6 +19642,12 @@ const crmHtml = `<!doctype html>
     els.appointmentDelete.addEventListener('click', deleteManualAppointment)
     els.appointmentNoShow.addEventListener('click', toggleManualAppointmentNoShow)
     els.appointmentCustomer.addEventListener('change', syncAppointmentCustomerFields)
+    els.appointmentWhatsapp.addEventListener('click', openAppointmentWhatsapp)
+    els.appointmentOpenChat.addEventListener('click', openAppointmentCustomerChat)
+    els.appointmentStart.addEventListener('change', () => updateAppointmentContactActions(editingAgendaAppointment()))
+    els.appointmentService.addEventListener('change', () => updateAppointmentContactActions(editingAgendaAppointment()))
+    els.appointmentCustomerName.addEventListener('input', () => updateAppointmentContactActions(editingAgendaAppointment()))
+    els.appointmentCustomerPhone.addEventListener('input', () => updateAppointmentContactActions(editingAgendaAppointment()))
     els.appointmentDialog.addEventListener('click', (event) => {
       if (event.target === els.appointmentDialog) {
         closeAppointmentDialog()

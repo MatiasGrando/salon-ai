@@ -1,0 +1,167 @@
+Resumen de funcionalidades de Salon AI
+
+Salon AI es un CRM para salones, peluquerias y barberias que centraliza turnos, atencion por WhatsApp, clientes, marketing y reportes en una sola plataforma.
+
+La idea principal es que el negocio pueda responder consultas, tomar reservas y hacer seguimiento comercial sin depender de procesos manuales dispersos.
+
+1. Conversaciones por WhatsApp
+
+El sistema tiene una bandeja tipo WhatsApp/CRM donde el equipo puede ver y responder conversaciones con clientes.
+
+Permite:
+- Ver chats activos y archivados.
+- Leer el historial de mensajes.
+- Responder manualmente desde el CRM.
+- Detectar conversaciones que necesitan atencion humana.
+- Activar o desactivar la IA en una conversacion puntual.
+- Archivar conversaciones resueltas.
+- Ver datos del cliente asociados al chat.
+- Crear o modificar turnos desde la conversacion.
+
+2. Asistente automatico con IA
+
+El programa incluye un asistente pensado para atender clientes por WhatsApp.
+
+Puede ayudar a:
+- Entender que servicio quiere reservar el cliente.
+- Preguntar profesional, dia y horario.
+- Consultar disponibilidad.
+- Confirmar turnos.
+- Derivar a una persona cuando no puede resolver.
+- Mantener una conversacion natural durante el proceso de reserva.
+
+Tambien se puede prender o apagar el bot y la IA por comercio.
+
+3. Agenda de turnos
+
+El CRM tiene una agenda visual para administrar reservas.
+
+Permite:
+- Crear turnos manualmente.
+- Editar turnos existentes.
+- Cancelar turnos.
+- Marcar ausentes/no show.
+- Filtrar por profesional, servicio y fecha.
+- Ver la agenda por dias o semanas.
+- Gestionar bloqueos de agenda, como vacaciones, ausencias, feriados, capacitaciones, mantenimiento o motivos personales.
+
+4. Gestion de clientes
+
+Incluye una seccion de clientes con informacion util para atencion y seguimiento comercial.
+
+Permite:
+- Crear, editar y eliminar clientes.
+- Buscar por nombre o telefono.
+- Ver clientes activos, inactivos o nuevos.
+- Ver historial de turnos.
+- Ver proximo turno.
+- Ver gasto estimado.
+- Ver profesional y servicio mas frecuentes.
+- Agregar notas internas.
+- Ver si el cliente tiene una conversacion abierta.
+- Gestionar autorizacion para recibir promociones.
+
+5. Servicios
+
+Permite administrar los servicios ofrecidos por el salon.
+
+Incluye:
+- Nombre del servicio.
+- Duracion.
+- Categoria.
+- Precio.
+- Alias o formas alternativas de nombrar el servicio, para que el bot entienda mejor como hablan los clientes.
+
+6. Profesionales
+
+Permite gestionar el equipo de trabajo.
+
+Incluye:
+- Alta, edicion y baja de profesionales.
+- Estado activo/inactivo.
+- Servicios que realiza cada profesional.
+- Horarios de trabajo por profesional.
+- Impacto de desactivar o eliminar un profesional sobre turnos existentes.
+
+7. Marketing por WhatsApp
+
+El sistema tiene un modulo de marketing para campanas y plantillas de WhatsApp.
+
+Permite:
+- Crear plantillas de WhatsApp para Meta.
+- Usar variables como nombre del cliente, ultima visita, fecha del turno, hora, servicio o profesional.
+- Enviar plantillas a revision de Meta.
+- Sincronizar el estado de aprobacion.
+- Probar mensajes antes de enviar.
+- Crear campanas puntuales o automatizadas.
+- Segmentar clientes.
+- Estimar audiencia antes de enviar.
+- Evitar enviar a clientes sin autorizacion de marketing.
+- Pausar, activar o eliminar campanas.
+
+Segmentos posibles:
+- Todos los clientes.
+- Clientes inactivos.
+- Clientes en riesgo de no volver.
+- Clientes nuevos.
+- Clientes que vinieron una sola vez.
+- Seleccion manual.
+
+8. Recordatorios automaticos
+
+El sistema contempla recordatorios por WhatsApp para turnos.
+
+Permite:
+- Crear automatizaciones de recordatorio.
+- Configurar cuanto tiempo antes del turno se envia.
+- Usar plantillas aprobadas de tipo recordatorio.
+- Personalizar variables como cliente, fecha, hora, servicio y profesional.
+- Evitar envios duplicados.
+
+9. Configuracion de WhatsApp por comercio
+
+Cada negocio puede tener su propia configuracion de WhatsApp.
+
+Incluye:
+- WABA ID.
+- Phone Number ID.
+- Numero visible.
+- Token de acceso.
+- Estado de conexion.
+- Habilitacion o bloqueo de envios reales.
+- Control de campanas, recordatorios, bot y respuestas manuales.
+- Flujo de carga manual asistida para conectar WhatsApp Cloud API.
+
+10. Reportes y metricas
+
+El CRM incluye reportes para entender el rendimiento del negocio.
+
+Mide:
+- Total de turnos.
+- Turnos activos, completados, cancelados y ausentes.
+- Tasa de cancelacion.
+- Clientes activos.
+- Clientes nuevos.
+- Conversaciones iniciadas.
+- Conversaciones que terminaron en reserva.
+- Servicios mas pedidos.
+- Profesionales con mas actividad.
+- Facturacion estimada segun precios cargados.
+- Agenda futura.
+- Clientes inactivos.
+- Clientes en riesgo de no volver.
+- Promedio de dias entre visitas.
+
+11. Usuarios y accesos
+
+El sistema contempla usuarios internos para operar el CRM.
+
+Incluye:
+- Login.
+- Roles como administrador del negocio, staff y super administrador.
+- Usuarios asociados a un comercio o a un profesional.
+- Gestion de cuentas del equipo.
+
+En una frase:
+
+Salon AI es un CRM para salones que centraliza atencion por WhatsApp, reservas, agenda, clientes, campanas, recordatorios y reportes, con un asistente automatico que ayuda a tomar turnos y un panel para que el negocio mantenga control humano cuando lo necesita.
