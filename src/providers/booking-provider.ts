@@ -8,6 +8,7 @@ export type BookingAvailabilityResult =
   | {
       ok: true
       slots: string[]
+      unavailableReason?: string | null
     }
   | {
       ok: false

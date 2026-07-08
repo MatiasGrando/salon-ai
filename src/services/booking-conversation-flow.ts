@@ -1760,6 +1760,44 @@ export class BookingConversationFlow {
     }
 
     if (!selectedProfessionalId && !anyProfessional) {
+      const dayAvailability = await this.findAvailabilityOptions({
+        professionalId: null,
+        serviceId: selectedService.id,
+        date: intentDate
+      })
+
+      if (!dayAvailability.ok) {
+        await this.updateConversation(input.phone, {
+          currentStep: 'ASK_DATE',
+          selectedServiceId: selectedService.id,
+          selectedProfessionalId: null,
+          selectedDate: null,
+          selectedTime: null,
+          lastAvailability: null
+        })
+
+        return {
+          reply: dayAvailability.message
+        }
+      }
+
+      if (dayAvailability.options.length === 0) {
+        await this.updateConversation(input.phone, {
+          currentStep: 'ASK_DATE',
+          selectedServiceId: selectedService.id,
+          selectedProfessionalId: null,
+          selectedDate: null,
+          selectedTime: null,
+          lastAvailability: null
+        })
+
+        return {
+          reply: botCopyService.noAvailabilityForDate({
+            date: formatDisplayDate(intentDate)
+          })
+        }
+      }
+
       await this.updateConversation(input.phone, {
         currentStep: 'ASK_PROFESSIONAL',
         selectedServiceId: selectedService.id,
@@ -2206,6 +2244,13 @@ export class BookingConversationFlow {
         }
       }
 
+      if (availability.slots.length === 0 && availability.unavailableReason) {
+        return {
+          ok: false,
+          message: availability.unavailableReason
+        }
+      }
+
       return {
         ok: true,
         options: availability.slots.map((time) => ({
@@ -2244,6 +2289,7 @@ export class BookingConversationFlow {
     })
 
     const options: AvailabilityOption[] = []
+    const unavailableReasons: string[] = []
 
     for (const professional of professionals) {
       const availability = await bookingProvider.getAvailability({
@@ -2256,11 +2302,22 @@ export class BookingConversationFlow {
         continue
       }
 
+      if (availability.slots.length === 0 && availability.unavailableReason) {
+        unavailableReasons.push(availability.unavailableReason)
+      }
+
       options.push(...availability.slots.map((time) => ({
         time,
         professionalId: professional.id,
         professionalName: professional.name
       })))
+    }
+
+    if (options.length === 0 && unavailableReasons.length > 0) {
+      return {
+        ok: false,
+        message: unavailableReasons[0] ?? botCopyService.noAvailabilityForDate()
+      }
     }
 
     return {
@@ -2477,7 +2534,10 @@ export function isBookingStartMessage(message: string, currentStep: string) {
     (isMenuStep(currentStep) && normalizedMessage === '1') ||
     normalizedMessage === 'reservar' ||
     normalizedMessage === 'reservar turno' ||
+    normalizedMessage === 'nuevo turno' ||
+    normalizedMessage === 'otro turno' ||
     normalizedMessage === 'quiero un turno' ||
+    normalizedMessage === 'quiero otro turno' ||
     normalizedMessage === 'sacar turno' ||
     bookingKeywords.some((keyword) => normalizedMessage.includes(keyword))
   )
@@ -3440,6 +3500,9 @@ function isGenericBookingRequest(message: string) {
     'quiero un turno',
     'reservar',
     'reservar turno',
+    'nuevo turno',
+    'otro turno',
+    'quiero otro turno',
     'quiero reservar',
     'sacar turno'
   ].includes(normalizedMessage)

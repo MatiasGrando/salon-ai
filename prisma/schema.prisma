@@ -117,6 +117,10 @@ model User {
   professionalId String?
   professional Professional? @relation(fields: [professionalId], references: [id], onDelete: SetNull)
   sessions UserSession[]
+  canCreateAppointments Boolean @default(true)
+  canEditAppointments Boolean @default(true)
+  canCancelAppointments Boolean @default(true)
+  canManageScheduleBlocks Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

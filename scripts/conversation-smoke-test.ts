@@ -415,6 +415,73 @@ async function main() {
       ]
     },
     {
+      name: 'feriado del salon corta la reserva antes de elegir profesional',
+      phone: `${testPhonePrefix}holiday-closed`,
+      fakeNow: workingDayMorning,
+      setup: async () => {
+        await seedScheduleBlock({
+          businessId: business.id,
+          startAt: dateWithOffset(1, 0),
+          endAt: dateWithOffset(2, 0),
+          reason: 'HOLIDAY',
+          title: 'Feriado QA'
+        })
+      },
+      steps: [
+        {
+          message: 'reset total',
+          includes: ['Cami']
+        },
+        {
+          message: `hola soy Feriado QA quiero ${service.name} manana`,
+          includes: ['cerrado', 'feriado'],
+          excludes: [professional.name, 'Horarios disponibles']
+        }
+      ]
+    },
+    {
+      name: 'vacaciones del profesional corta la reserva con mensaje especifico',
+      phone: `${testPhonePrefix}professional-vacation`,
+      fakeNow: workingDayMorning,
+      setup: async () => {
+        await seedScheduleBlock({
+          businessId: business.id,
+          professionalId: professional.id,
+          startAt: dateWithOffset(1, 0),
+          endAt: dateWithOffset(4, 0),
+          reason: 'VACATION',
+          title: 'Vacaciones QA'
+        })
+      },
+      steps: [
+        {
+          message: 'reset total',
+          includes: ['Cami']
+        },
+        {
+          message: `hola soy Vacaciones QA quiero ${service.name} manana con ${professional.name}`,
+          includes: [professional.name, 'vacaciones', 'vuelve'],
+          excludes: ['Horarios disponibles']
+        }
+      ]
+    },
+    {
+      name: 'no permite reservar en fecha pasada',
+      phone: `${testPhonePrefix}past-date`,
+      fakeNow: workingDayMorning,
+      steps: [
+        {
+          message: 'reset total',
+          includes: ['Cami']
+        },
+        {
+          message: `hola soy Pasado QA quiero ${service.name} el 1/1/2020`,
+          includes: ['Para cuando', '25/6'],
+          excludes: ['Horarios disponibles', 'confirm']
+        }
+      ]
+    },
+    {
       name: 'buscar horarios hoy con todos no pide profesional si no hay disponibilidad',
       phone: `${testPhonePrefix}today-all-professionals-late`,
       fakeNow: workingDayLateNight,
@@ -857,6 +924,58 @@ async function main() {
       ]
     },
     {
+      name: 'aviso de llegada a tiempo no deriva a manual',
+      phone: `${testPhonePrefix}arrival-on-time`,
+      fakeNow: workingDayMorning,
+      setup: async () => {
+        await seedAppointment({
+          phone: `${testPhonePrefix}arrival-on-time`,
+          customerName: 'Mati QA',
+          serviceId: service.id,
+          professionalId: professional.id,
+          startAt: dateMinutesFromNow(40)
+        })
+      },
+      steps: [
+        {
+          message: 'llego en 20 min',
+          includes: ['Gracias por avisar', 'Te esperamos'],
+          currentStep: 'START'
+        }
+      ]
+    },
+    {
+      name: 'aviso de llegada tarde deriva a atencion manual',
+      phone: `${testPhonePrefix}arrival-late-handoff`,
+      fakeNow: workingDayMorning,
+      setup: async () => {
+        await seedAppointment({
+          phone: `${testPhonePrefix}arrival-late-handoff`,
+          customerName: 'Mati QA',
+          serviceId: service.id,
+          professionalId: professional.id,
+          startAt: dateMinutesFromNow(10)
+        })
+      },
+      steps: [
+        {
+          message: 'estoy en camino llego en 20min',
+          includes: ['Gracias por avisar', '15 minutos', 'reacomodar'],
+          currentStep: 'HUMAN_HANDOFF'
+        }
+      ]
+    },
+    {
+      name: 'aviso de llegada sin turno activo muestra opciones simples',
+      phone: `${testPhonePrefix}arrival-no-appointment`,
+      steps: [
+        {
+          message: 'estoy llegando',
+          includes: ['No encontre un turno activo', 'reservar turno', 'cancelar turno', 'cambiar turno']
+        }
+      ]
+    },
+    {
       name: 'estado resuelto de derivacion no arrastra datos viejos',
       phone: `${testPhonePrefix}resolved-handoff-clean-state`,
       setup: async () => {
@@ -1071,6 +1190,7 @@ async function runScenario(scenario: Scenario) {
 
   try {
     await cleanupPhone(scenario.phone)
+    await cleanupTestScheduleBlocks()
     await scenario.setup?.()
 
     console.log(`\nEscenario: ${scenario.name}`)
@@ -1089,6 +1209,7 @@ async function runScenario(scenario: Scenario) {
       await assertCustomerName(scenario.phone, step)
     }
   } finally {
+    await cleanupTestScheduleBlocks()
     restoreDate?.()
   }
 }
@@ -1155,6 +1276,33 @@ async function seedAppointment(input: {
   })
 }
 
+async function seedScheduleBlock(input: {
+  businessId: string
+  professionalId?: string
+  reason: 'ABSENCE' | 'VACATION' | 'LATE_ARRIVAL' | 'SICK_LEAVE' | 'PERSONAL' | 'TRAINING' | 'MAINTENANCE' | 'HOLIDAY' | 'OTHER'
+  title: string
+  startAt: Date
+  endAt: Date
+}) {
+  await prisma.scheduleBlock.deleteMany({
+    where: {
+      businessId: input.businessId,
+      title: input.title
+    }
+  })
+
+  await prisma.scheduleBlock.create({
+    data: {
+      businessId: input.businessId,
+      ...(input.professionalId ? { professionalId: input.professionalId } : {}),
+      reason: input.reason,
+      title: input.title,
+      startAt: input.startAt,
+      endAt: input.endAt
+    }
+  })
+}
+
 async function cleanupPhone(phone: string) {
   const customers = await prisma.customer.findMany({
     where: {
@@ -1190,6 +1338,16 @@ async function cleanupPhone(phone: string) {
   await prisma.conversation.deleteMany({
     where: {
       phone
+    }
+  })
+}
+
+async function cleanupTestScheduleBlocks() {
+  await prisma.scheduleBlock.deleteMany({
+    where: {
+      title: {
+        in: ['Feriado QA', 'Vacaciones QA']
+      }
     }
   })
 }
@@ -1246,6 +1404,13 @@ function installFakeNow(fakeNow: Date) {
 
 function nextFutureAppointmentDate() {
   return dateWithOffset(30)
+}
+
+function dateMinutesFromNow(minutes: number) {
+  const date = new Date()
+  date.setMinutes(date.getMinutes() + minutes, 0, 0)
+
+  return date
 }
 
 function dateWithOffset(days: number, hour = 10) {

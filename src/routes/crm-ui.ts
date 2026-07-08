@@ -621,7 +621,23 @@ const crmHtml = `<!doctype html>
       margin-top: 12px;
     }
 
-    .block-grid,
+    .block-grid {
+      display: grid;
+      gap: 8px;
+    }
+
+    .block-grid label {
+      min-width: 0;
+      display: grid;
+      gap: 4px;
+    }
+
+    .block-grid span {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
     .config-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -4200,7 +4216,7 @@ const crmHtml = `<!doctype html>
     }
 
     .app[data-section="agenda"] {
-      grid-template-columns: 224px minmax(0, 1fr);
+      grid-template-columns: 246px minmax(0, 1fr);
     }
 
     .app[data-section="agenda"] .sidebar,
@@ -4215,7 +4231,7 @@ const crmHtml = `<!doctype html>
       min-width: 0;
       min-height: 0;
       display: none;
-      grid-template-columns: 208px minmax(0, 1fr);
+      grid-template-columns: 230px minmax(0, 1fr);
       gap: 14px;
       padding: 22px 18px 28px;
       background: #f8fbff;
@@ -5993,6 +6009,45 @@ const crmHtml = `<!doctype html>
       grid-column: 1 / -1;
     }
 
+    .staff-permissions {
+      grid-column: 1 / -1;
+      padding: 12px;
+      border: 1px solid #e4e8f0;
+      border-radius: 8px;
+      display: grid;
+      gap: 10px;
+      background: #f8fafc;
+    }
+
+    .staff-permissions > strong {
+      color: #17213c;
+      font-size: 13px;
+    }
+
+    .staff-permission-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .staff-permission-grid label {
+      min-height: 36px;
+      padding: 7px 9px;
+      border: 1px solid #dbe3ef;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #344054;
+      background: #fff;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .staff-permission-grid input {
+      width: auto;
+    }
+
     .staff-account-list {
       display: grid;
       gap: 10px;
@@ -6029,6 +6084,22 @@ const crmHtml = `<!doctype html>
       color: #2563eb;
       font-size: 12px;
       font-weight: 700;
+    }
+
+    .staff-account-permissions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin-top: 7px;
+    }
+
+    .staff-account-permissions span {
+      padding: 3px 7px;
+      border-radius: 999px;
+      color: #405176;
+      background: #eef2f7;
+      font-size: 10px;
+      font-weight: 750;
     }
 
     .staff-account-actions {
@@ -7612,6 +7683,97 @@ const crmHtml = `<!doctype html>
       flex-shrink: 0;
     }
 
+    .agenda-block-panel {
+      margin-top: 18px;
+      padding: 14px 10px;
+      border: 1px solid #eef2f7;
+      border-radius: 10px;
+      display: grid;
+      gap: 12px;
+      background: #fff;
+    }
+
+    .agenda-block-panel-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .agenda-block-panel h3 {
+      margin: 0;
+      color: #101936;
+      font-size: 13px;
+      line-height: 1.2;
+    }
+
+    .agenda-block-panel p {
+      margin: 3px 0 0;
+      color: #667085;
+      font-size: 11px;
+      line-height: 1.3;
+    }
+
+    .agenda-block-panel .block-form {
+      margin-top: 0;
+    }
+
+    .agenda-block-panel .block-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .agenda-block-panel .field,
+    .agenda-block-panel select,
+    .agenda-block-panel button {
+      width: 100%;
+      min-width: 0;
+    }
+
+    .agenda-block-panel button[type="submit"] {
+      min-height: 38px;
+    }
+
+    .agenda-block-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .agenda-block-list:empty {
+      display: none;
+    }
+
+    .agenda-block-list-item {
+      padding: 9px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      display: grid;
+      gap: 6px;
+      background: #f8fafc;
+    }
+
+    .agenda-block-list-item strong {
+      color: #17213c;
+      font-size: 12px;
+    }
+
+    .agenda-block-list-item span {
+      color: #667085;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .agenda-block-list-item button {
+      width: fit-content;
+      min-height: 28px;
+      padding: 0 9px;
+      border: 1px solid #fecaca;
+      border-radius: 7px;
+      color: #b91c1c;
+      background: #fff1f2;
+      font-size: 11px;
+      font-weight: 750;
+    }
+
     .agenda-board {
       display: grid;
       grid-template-rows: auto minmax(0, 1fr);
@@ -7787,6 +7949,45 @@ const crmHtml = `<!doctype html>
       line-height: 1.25;
       cursor: grab;
       user-select: none;
+    }
+
+    .agenda-block {
+      position: absolute;
+      left: 5px;
+      right: 5px;
+      top: 2px;
+      z-index: 3;
+      min-height: 24px;
+      padding: 5px 7px;
+      border: 1px solid #cbd5e1;
+      border-left: 4px solid #64748b;
+      border-radius: 6px;
+      overflow: hidden;
+      color: #334155;
+      background: rgba(226, 232, 240, .94);
+      font-size: 11px;
+      line-height: 1.25;
+      text-align: left;
+    }
+
+    .agenda-block strong,
+    .agenda-block span {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .agenda-block strong {
+      font-size: 11px;
+      line-height: 1.2;
+      font-weight: 700;
+    }
+
+    .agenda-block span {
+      margin-top: 2px;
+      font-size: 10px;
+      line-height: 1.2;
     }
 
     .agenda-event:active {
@@ -10317,7 +10518,7 @@ const crmHtml = `<!doctype html>
       <form class="composer" id="reply-form">
         <div class="composer-window-notice" id="composer-window-notice" hidden>
           <span><span data-icon="clock"></span><span id="composer-window-text">La ventana de WhatsApp vencio.</span></span>
-          <a id="composer-window-whatsapp" href="#" target="_blank" rel="noopener">Abrir WhatsApp</a>
+          <a id="composer-window-whatsapp" href="#">Abrir WhatsApp</a>
         </div>
         <textarea id="reply-text" placeholder="Escribir mensaje..." disabled></textarea>
         <div class="composer-tools">
@@ -10342,7 +10543,7 @@ const crmHtml = `<!doctype html>
             <span class="customer-type">Cliente</span>
             <a id="detail-phone" href="#">--</a>
           </div>
-          <a class="customer-whatsapp" id="detail-whatsapp" href="#" target="_blank" rel="noopener" title="Abrir en WhatsApp" aria-label="Abrir en WhatsApp" data-icon="whatsapp"></a>
+          <a class="customer-whatsapp" id="detail-whatsapp" href="#" title="Abrir en WhatsApp" aria-label="Abrir en WhatsApp" data-icon="whatsapp"></a>
         </div>
         <div class="customer-last-message">
           <span>&Uacute;ltimo mensaje</span>
@@ -10386,36 +10587,6 @@ const crmHtml = `<!doctype html>
           <button id="quick-history" type="button"><span data-icon="document"></span>Ver historial</button>
         </div>
       </div>
-
-      <details class="config-panel">
-        <summary>
-          <div class="panel-title">Bloquear agenda</div>
-          <span class="chip warn">Manual</span>
-        </summary>
-        <div class="config-panel-body">
-          <form class="block-form" id="block-form">
-            <select id="block-reason">
-              <option value="ABSENCE">Falta</option>
-              <option value="VACATION">Vacaciones</option>
-              <option value="LATE_ARRIVAL">Llegada tarde</option>
-              <option value="SICK_LEAVE">Enfermedad</option>
-              <option value="PERSONAL">Personal</option>
-              <option value="HOLIDAY">Feriado</option>
-              <option value="OTHER">Otro</option>
-            </select>
-            <select id="block-professional">
-              <option value="">Todo el salon</option>
-            </select>
-            <div class="block-grid">
-              <input class="field" id="block-start" type="datetime-local">
-              <input class="field" id="block-end" type="datetime-local">
-            </div>
-            <input class="field" id="block-title" placeholder="Titulo opcional">
-            <button class="secondary" type="submit">Crear bloqueo</button>
-            <p class="hint" id="block-feedback"></p>
-          </form>
-        </div>
-      </details>
 
     </aside>
 
@@ -10535,6 +10706,45 @@ const crmHtml = `<!doctype html>
         </div>
 
         <div class="agenda-legend" id="agenda-legend"></div>
+        <section class="agenda-block-panel">
+          <div class="agenda-block-panel-head">
+            <div>
+              <h3>Bloquear agenda</h3>
+              <p>Feriados, vacaciones o ausencias</p>
+            </div>
+            <span class="chip warn">Manual</span>
+          </div>
+          <form class="block-form" id="block-form">
+            <select id="block-reason">
+              <option value="ABSENCE">Falta</option>
+              <option value="VACATION">Vacaciones</option>
+              <option value="LATE_ARRIVAL">Llegada tarde</option>
+              <option value="SICK_LEAVE">Enfermedad</option>
+              <option value="PERSONAL">Personal</option>
+              <option value="TRAINING">Capacitaci&oacute;n</option>
+              <option value="MAINTENANCE">Mantenimiento</option>
+              <option value="HOLIDAY">Feriado</option>
+              <option value="OTHER">Otro</option>
+            </select>
+            <select id="block-professional">
+              <option value="">Todo el salon</option>
+            </select>
+            <div class="block-grid">
+              <label>
+                <span>Desde</span>
+                <input class="field" id="block-start" type="datetime-local">
+              </label>
+              <label>
+                <span>Hasta</span>
+                <input class="field" id="block-end" type="datetime-local">
+              </label>
+            </div>
+            <input class="field" id="block-title" placeholder="Titulo opcional">
+            <button class="secondary" type="submit">Crear bloqueo</button>
+            <p class="hint" id="block-feedback"></p>
+          </form>
+          <div class="agenda-block-list" id="agenda-block-list"></div>
+        </section>
       </aside>
 
       <section class="agenda-board">
@@ -11357,6 +11567,15 @@ const crmHtml = `<!doctype html>
                   <option value="inactive">Inactivo</option>
                 </select>
               </div>
+              <div class="staff-permissions">
+                <strong>Permisos de agenda</strong>
+                <div class="staff-permission-grid">
+                  <label><input id="staff-can-create-appointments" type="checkbox" checked> Cargar turnos</label>
+                  <label><input id="staff-can-edit-appointments" type="checkbox" checked> Editar turnos</label>
+                  <label><input id="staff-can-cancel-appointments" type="checkbox" checked> Cancelar turnos</label>
+                  <label><input id="staff-can-manage-blocks" type="checkbox" checked> Bloquear agenda</label>
+                </div>
+              </div>
             </div>
             <div class="settings-actions">
               <button class="secondary" id="staff-user-cancel" type="button" hidden>Cancelar</button>
@@ -12013,6 +12232,7 @@ const crmHtml = `<!doctype html>
       conversationSearchLoading: false,
       conversationCounts: { active: 0, archived: 0, handoff: 0 },
       loadedArchiveView: 'active',
+      loadedConversationFilter: 'all',
       selected: null,
       messages: [],
       messageNextCursor: null,
@@ -12027,6 +12247,7 @@ const crmHtml = `<!doctype html>
       customerOverviewCounts: { total: 0, active: 0, inactive: 0, new: 0 },
       customerOverviewPagination: { page: 1, take: 25, total: 0, totalPages: 1 },
       selectedCustomerId: null,
+      pendingImpactContext: null,
       customerFilter: 'all',
       customerInactiveDays: 60,
       customerSearch: '',
@@ -12183,6 +12404,10 @@ const crmHtml = `<!doctype html>
       staffUserPassword: document.getElementById('staff-user-password'),
       staffUserProfessional: document.getElementById('staff-user-professional'),
       staffUserStatus: document.getElementById('staff-user-status'),
+      staffCanCreateAppointments: document.getElementById('staff-can-create-appointments'),
+      staffCanEditAppointments: document.getElementById('staff-can-edit-appointments'),
+      staffCanCancelAppointments: document.getElementById('staff-can-cancel-appointments'),
+      staffCanManageBlocks: document.getElementById('staff-can-manage-blocks'),
       staffUserCancel: document.getElementById('staff-user-cancel'),
       staffUserSubmit: document.getElementById('staff-user-submit'),
       staffUserFeedback: document.getElementById('staff-user-feedback'),
@@ -12269,6 +12494,7 @@ const crmHtml = `<!doctype html>
       blockEnd: document.getElementById('block-end'),
       blockTitle: document.getElementById('block-title'),
       blockFeedback: document.getElementById('block-feedback'),
+      agendaBlockList: document.getElementById('agenda-block-list'),
       professionalForm: document.getElementById('professional-form'),
       professionalId: document.getElementById('professional-id'),
       professionalName: document.getElementById('professional-name'),
@@ -12581,6 +12807,18 @@ const crmHtml = `<!doctype html>
       return 'whatsapp://send?phone=' + encodeURIComponent(digits) + (text ? '&text=' + encodeURIComponent(text) : '')
     }
 
+    function openWhatsappAppLink(event) {
+      const link = event.currentTarget
+      const href = link?.getAttribute('href') || ''
+      if (!href || href === '#') {
+        event.preventDefault()
+        return
+      }
+      event.preventDefault()
+      window.location.href = href
+      showCrmToast('Abriendo WhatsApp. Si no se abre, revisa que la app este instalada.', 'success')
+    }
+
     function isActiveAppointment(appointment) {
       return appointment.status !== 'CANCELLED' && appointment.status !== 'NO_SHOW'
     }
@@ -12819,11 +13057,47 @@ const crmHtml = `<!doctype html>
       if (els.staffAccountsPanel) {
         els.staffAccountsPanel.hidden = !canManageStaffUsers()
       }
+      applyAgendaPermissions()
       updateBusinessBrand()
     }
 
     function canManageStaffUsers() {
       return state.currentUser?.role === 'SUPER_ADMIN' || state.currentUser?.role === 'BUSINESS_ADMIN'
+    }
+
+    function hasAgendaPermission(permission) {
+      if (state.currentUser?.role !== 'STAFF') return true
+      return state.currentUser?.[permission] !== false
+    }
+
+    function canCreateAppointments() {
+      return hasAgendaPermission('canCreateAppointments')
+    }
+
+    function canEditAppointments() {
+      return hasAgendaPermission('canEditAppointments')
+    }
+
+    function canCancelAppointments() {
+      return hasAgendaPermission('canCancelAppointments')
+    }
+
+    function canManageScheduleBlocks() {
+      return hasAgendaPermission('canManageScheduleBlocks')
+    }
+
+    function applyAgendaPermissions() {
+      if (els.agendaNewAppointment) els.agendaNewAppointment.disabled = !canCreateAppointments()
+      if (els.quickSchedule) els.quickSchedule.disabled = !canCreateAppointments()
+      if (els.quickChange) els.quickChange.disabled = !canEditAppointments()
+      if (els.appointmentSubmit) els.appointmentSubmit.disabled = state.editingAppointmentId ? !canEditAppointments() : !canCreateAppointments()
+      if (els.appointmentDelete) els.appointmentDelete.disabled = !canCancelAppointments()
+      if (els.appointmentNoShow) els.appointmentNoShow.disabled = !canCancelAppointments()
+      if (els.blockForm) {
+        for (const control of els.blockForm.querySelectorAll('input, select, button')) {
+          control.disabled = !canManageScheduleBlocks()
+        }
+      }
     }
 
     async function createAdminBusiness(event) {
@@ -12873,6 +13147,10 @@ const crmHtml = `<!doctype html>
       els.staffUserPassword.placeholder = 'Minimo 8 caracteres'
       els.staffUserStatus.value = 'active'
       els.staffUserProfessional.value = activeProfessionals()[0]?.id || ''
+      els.staffCanCreateAppointments.checked = true
+      els.staffCanEditAppointments.checked = true
+      els.staffCanCancelAppointments.checked = true
+      els.staffCanManageBlocks.checked = true
       els.staffUserSubmit.textContent = 'Crear cuenta staff'
       els.staffUserCancel.hidden = true
       clearStaffUserFeedback()
@@ -12909,11 +13187,13 @@ const crmHtml = `<!doctype html>
       els.staffUserList.innerHTML = state.staffUsers.map((user) => {
         const professionalName = user.professional?.name || 'Sin profesional'
         const status = user.isActive === false ? 'Inactivo' : 'Activo'
+        const permissions = staffPermissionLabels(user)
         return '<article class="staff-account-item">' +
           '<div>' +
             '<strong>' + escapeHtml(user.name) + '</strong>' +
             '<span>' + escapeHtml(user.email) + '</span>' +
             '<small>' + escapeHtml(professionalName) + ' · ' + status + '</small>' +
+            '<div class="staff-account-permissions">' + permissions.map((label) => '<span>' + escapeHtml(label) + '</span>').join('') + '</div>' +
           '</div>' +
           '<div class="staff-account-actions">' +
             '<button class="secondary" type="button" data-edit-staff-user="' + user.id + '">' + icon('edit') + 'Editar</button>' +
@@ -12921,6 +13201,15 @@ const crmHtml = `<!doctype html>
           '</div>' +
         '</article>'
       }).join('')
+    }
+
+    function staffPermissionLabels(user) {
+      const labels = []
+      if (user.canCreateAppointments !== false) labels.push('Carga turnos')
+      if (user.canEditAppointments !== false) labels.push('Edita turnos')
+      if (user.canCancelAppointments !== false) labels.push('Cancela turnos')
+      if (user.canManageScheduleBlocks !== false) labels.push('Bloquea agenda')
+      return labels.length ? labels : ['Solo consulta']
     }
 
     async function loadStaffUsers() {
@@ -12968,7 +13257,11 @@ const crmHtml = `<!doctype html>
             email,
             ...(password.trim() ? { password } : {}),
             professionalId,
-            isActive: els.staffUserStatus.value === 'active'
+            isActive: els.staffUserStatus.value === 'active',
+            canCreateAppointments: els.staffCanCreateAppointments.checked,
+            canEditAppointments: els.staffCanEditAppointments.checked,
+            canCancelAppointments: els.staffCanCancelAppointments.checked,
+            canManageScheduleBlocks: els.staffCanManageBlocks.checked
           })
         })
         renderStaffUsers()
@@ -12993,6 +13286,10 @@ const crmHtml = `<!doctype html>
       els.staffUserPassword.placeholder = 'Dejar vacio para no cambiar'
       els.staffUserProfessional.value = user.professionalId || ''
       els.staffUserStatus.value = user.isActive === false ? 'inactive' : 'active'
+      els.staffCanCreateAppointments.checked = user.canCreateAppointments !== false
+      els.staffCanEditAppointments.checked = user.canEditAppointments !== false
+      els.staffCanCancelAppointments.checked = user.canCancelAppointments !== false
+      els.staffCanManageBlocks.checked = user.canManageScheduleBlocks !== false
       els.staffUserSubmit.textContent = 'Guardar cambios'
       els.staffUserCancel.hidden = false
       els.staffUserName.focus()
@@ -13522,10 +13819,12 @@ const crmHtml = `<!doctype html>
       if (state.isRefreshing) return
       state.isRefreshing = true
       const archiveView = state.conversationFilter === 'archived' ? 'archived' : 'active'
+      const serverFilter = conversationServerFilterForCurrentTab()
       const params = new URLSearchParams()
       params.set('take', '30')
       params.set('paginated', 'true')
       params.set('archive', archiveView)
+      if (serverFilter === 'handoff') params.set('filter', 'handoff')
       if (state.businessId) params.set('businessId', state.businessId)
       if (options.append && state.conversationNextCursor) params.set('cursor', state.conversationNextCursor)
       const query = params.toString() ? '?' + params.toString() : ''
@@ -13533,6 +13832,7 @@ const crmHtml = `<!doctype html>
       try {
         const page = await getJson('/crm/conversations' + query)
         state.loadedArchiveView = archiveView
+        state.loadedConversationFilter = serverFilter
         state.conversationNextCursor = page.nextCursor || null
         state.conversationCounts = page.counts || state.conversationCounts
         state.lastConversationSyncAt = page.latestActivityAt || state.lastConversationSyncAt
@@ -13575,6 +13875,43 @@ const crmHtml = `<!doctype html>
       } finally {
         state.isRefreshing = false
       }
+
+      if (!options.skipEnsureVisible) {
+        await ensureVisibleConversationsForCurrentFilter()
+      }
+    }
+
+    function conversationServerFilterForCurrentTab() {
+      return state.conversationFilter === 'handoff' ? 'handoff' : 'all'
+    }
+
+    async function ensureVisibleConversationsForCurrentFilter() {
+      if (state.isRefreshing || state.conversationSearchLoading || !state.conversationNextCursor) return
+      if (!shouldAutoloadForCurrentConversationFilter()) return
+      state.conversationSearchLoading = true
+      renderConversations()
+      try {
+        let loadedPages = 0
+        while (
+          shouldAutoloadForCurrentConversationFilter() &&
+          state.conversationNextCursor &&
+          filteredConversations().length === 0 &&
+          loadedPages < 12
+        ) {
+          await loadConversations({ append: true, skipEnsureVisible: true })
+          loadedPages += 1
+        }
+      } finally {
+        state.conversationSearchLoading = false
+        renderConversations()
+      }
+    }
+
+    function shouldAutoloadForCurrentConversationFilter() {
+      if (els.search.value.trim()) return true
+      if (state.conversationFilter === 'unread') return true
+      if (state.conversationFilter === 'handoff') return state.conversationCounts.handoff > 0
+      return false
     }
 
     async function refreshConversationSummary() {
@@ -14738,6 +15075,10 @@ const crmHtml = `<!doctype html>
 
     async function createBlock(event) {
       event.preventDefault()
+      if (!canManageScheduleBlocks()) {
+        els.blockFeedback.textContent = 'No tenes permiso para bloquear agenda.'
+        return
+      }
       if (!state.businessId) {
         els.blockFeedback.textContent = 'No encontre un negocio cargado.'
         return
@@ -14751,7 +15092,7 @@ const crmHtml = `<!doctype html>
       }
 
       try {
-        await getJson('/schedule-blocks', {
+        const createdBlock = await getJson('/schedule-blocks', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -14763,10 +15104,45 @@ const crmHtml = `<!doctype html>
             endAt: new Date(endAt).toISOString()
           })
         })
-        els.blockFeedback.textContent = 'Bloqueo creado.'
+        const affectedAppointments = createdBlock.impact?.affectedAppointments || []
+        els.blockFeedback.textContent = affectedAppointments.length
+          ? 'Bloqueo creado. Hay turnos afectados para reprogramar.'
+          : 'Bloqueo creado.'
         els.blockTitle.value = ''
+        await loadAgenda()
+        if (affectedAppointments.length > 0) {
+          state.pendingImpactContext = 'schedule-block'
+          setSection('professionals')
+          showProfessionalImpact({
+            title: 'Turnos afectados por el bloqueo',
+            copy: createdBlock.professional
+              ? 'Estos turnos son del profesional bloqueado. Reprogramalos desde Agenda o contacta al cliente antes de moverlos.'
+              : 'Estos turnos son de profesionales afectados por el cierre del local. Reprogramalos desde Agenda o contacta al cliente antes de moverlos.',
+            appointments: affectedAppointments
+          })
+        }
       } catch (error) {
         els.blockFeedback.textContent = error.message
+      }
+    }
+
+    async function deleteScheduleBlock(blockId) {
+      if (!blockId) return
+      if (!canManageScheduleBlocks()) {
+        showCrmToast('No tenes permiso para eliminar bloqueos de agenda.', 'error')
+        return
+      }
+      const block = state.agendaBlocks.find((item) => item.id === blockId)
+      const label = block ? (block.title || scheduleBlockReasonLabel(block.reason)) : 'este bloqueo'
+      if (!requestCrmConfirmation('delete-schedule-block:' + blockId, 'Eliminar ' + label + ' de la agenda?')) return
+
+      try {
+        await getJson('/schedule-blocks/' + blockId, { method: 'DELETE' })
+        state.agendaBlocks = state.agendaBlocks.filter((item) => item.id !== blockId)
+        renderAgenda()
+        showCrmToast('Bloqueo eliminado.', 'success')
+      } catch (error) {
+        showCrmToast(error.message, 'error')
       }
     }
 
@@ -14997,6 +15373,7 @@ const crmHtml = `<!doctype html>
     function hideProfessionalImpact() {
       els.professionalImpactPanel.classList.remove('visible')
       els.professionalImpactList.innerHTML = ''
+      state.pendingImpactContext = null
     }
 
     function buildProfessionalWorkingHours() {
@@ -16087,7 +16464,9 @@ const crmHtml = `<!doctype html>
 
     function renderAgenda() {
       renderAgendaMonth()
+      renderAgendaBlockList()
       renderAgendaGrid()
+      applyAgendaPermissions()
     }
 
     function renderAgendaMonth() {
@@ -16100,6 +16479,13 @@ const crmHtml = `<!doctype html>
       const first = startOfWeek(monthDate)
       const selectedKey = dateKey(state.agendaSelectedDate)
       const appointmentKeys = new Set(filteredAgendaAppointments().map((appointment) => dateKey(new Date(appointment.startAt))))
+      for (const block of filteredAgendaBlocksForRange(first, addDays(first, 42))) {
+        const blockStart = startOfDay(new Date(block.startAt))
+        const blockEnd = startOfDay(new Date(new Date(block.endAt).getTime() - 1))
+        for (let day = new Date(blockStart); day <= blockEnd; day = addDays(day, 1)) {
+          appointmentKeys.add(dateKey(day))
+        }
+      }
       const cells = ['D', 'L', 'M', 'M', 'J', 'V', 'S'].map((day) => {
         return '<div class="month-weekday">' + day + '</div>'
       })
@@ -16124,6 +16510,33 @@ const crmHtml = `<!doctype html>
           state.agendaMonthDate = new Date(state.agendaSelectedDate)
           await loadAgenda()
         })
+      }
+    }
+
+    function renderAgendaBlockList() {
+      if (!els.agendaBlockList) return
+      const rangeStart = state.agendaLoadedRangeStart || startOfWeek(state.agendaSelectedDate)
+      const rangeEnd = state.agendaLoadedRangeEnd || addDays(rangeStart, 7)
+      const blocks = filteredAgendaBlocksForRange(rangeStart, rangeEnd)
+      if (!blocks.length) {
+        els.agendaBlockList.innerHTML = ''
+        return
+      }
+
+      els.agendaBlockList.innerHTML = blocks.slice(0, 8).map((block) => {
+        const start = new Date(block.startAt)
+        const end = new Date(block.endAt)
+        const title = block.title || scheduleBlockReasonLabel(block.reason)
+        const scope = block.professional?.name || 'Todo el salon'
+        return '<article class="agenda-block-list-item">' +
+          '<strong>' + escapeHtml(title) + '</strong>' +
+          '<span>' + escapeHtml(scope + ' · ' + formatDateTime(start) + ' - ' + formatDateTime(end)) + '</span>' +
+          '<button type="button" data-delete-block="' + block.id + '">Eliminar</button>' +
+        '</article>'
+      }).join('')
+
+      for (const button of els.agendaBlockList.querySelectorAll('[data-delete-block]')) {
+        button.addEventListener('click', () => deleteScheduleBlock(button.dataset.deleteBlock))
       }
     }
 
@@ -16184,6 +16597,10 @@ const crmHtml = `<!doctype html>
       for (const cell of els.agendaGridWrap.querySelectorAll('[data-cell-date][data-cell-minute]')) {
         cell.addEventListener('click', (event) => {
           if (event.target.closest('.agenda-event')) return
+          if (!canCreateAppointments()) {
+            showCrmToast('No tenes permiso para cargar turnos.', 'error')
+            return
+          }
           openAppointmentDialog({
             date: parseDateKey(cell.dataset.cellDate),
             minute: Number(cell.dataset.cellMinute || startMinute)
@@ -16191,12 +16608,14 @@ const crmHtml = `<!doctype html>
         })
       }
 
-      renderAgendaEvents({
+      const renderInput = {
         step,
         rowHeight,
         pixelsPerMinute,
         startMinute
-      })
+      }
+      renderAgendaBlocks(renderInput)
+      renderAgendaEvents(renderInput)
       enableAgendaDragAndDrop()
     }
 
@@ -16307,10 +16726,10 @@ const crmHtml = `<!doctype html>
       const duration = Math.max(15, Math.round((end.getTime() - start.getTime()) / 60000))
       const top = (startMinute / 60) * hourHeight + 2
       const height = Math.max(34, (duration / 60) * hourHeight - 4)
-      return '<article class="agenda-gcal-block" style="top:' + top + 'px;height:' + height + 'px">' +
+      return '<button class="agenda-gcal-block" type="button" data-block-id="' + block.id + '" style="top:' + top + 'px;height:' + height + 'px">' +
         '<strong>' + escapeHtml(block.title || scheduleBlockReasonLabel(block.reason)) + '</strong>' +
         '<span>' + escapeHtml(formatTimeOnly(start) + ' - ' + formatTimeOnly(end)) + '</span>' +
-      '</article>'
+      '</button>'
     }
 
     function renderAgendaMobileMonthPanel() {
@@ -16418,6 +16837,10 @@ const crmHtml = `<!doctype html>
       for (const cell of els.agendaGridWrap.querySelectorAll('[data-cell-date][data-cell-minute]')) {
         cell.addEventListener('click', () => {
           if (state.agendaDidDrag) return
+          if (!canCreateAppointments()) {
+            showCrmToast('No tenes permiso para cargar turnos.', 'error')
+            return
+          }
           openAppointmentDialog({
             date: parseDateKey(cell.dataset.cellDate),
             minute: Number(cell.dataset.cellMinute || 9 * 60)
@@ -16431,6 +16854,13 @@ const crmHtml = `<!doctype html>
           if (state.agendaDidDrag) return
           const appointment = state.agendaAppointments.find((item) => item.id === button.dataset.appointmentId)
           if (appointment) openAppointmentDialog({ appointment })
+        })
+      }
+
+      for (const button of els.agendaGridWrap.querySelectorAll('[data-block-id]')) {
+        button.addEventListener('click', (event) => {
+          event.stopPropagation()
+          deleteScheduleBlock(button.dataset.blockId)
         })
       }
 
@@ -16639,6 +17069,61 @@ const crmHtml = `<!doctype html>
       }
     }
 
+    function renderAgendaBlocks(input) {
+      const weekStart = startOfWeek(state.agendaSelectedDate)
+      const days = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index))
+      const blocks = filteredAgendaBlocksForRange(days[0], addDays(days[6], 1))
+      const cells = new Map()
+
+      for (const cell of els.agendaGridWrap.querySelectorAll('[data-cell-date][data-cell-minute]')) {
+        cells.set(cell.dataset.cellDate + ':' + cell.dataset.cellMinute, cell)
+      }
+
+      for (const block of blocks) {
+        const blockStart = new Date(block.startAt)
+        const blockEnd = new Date(block.endAt)
+        for (const day of days) {
+          const dayStart = startOfDay(day)
+          const dayEnd = addDays(dayStart, 1)
+          const segmentStart = new Date(Math.max(blockStart.getTime(), dayStart.getTime()))
+          const segmentEnd = new Date(Math.min(blockEnd.getTime(), dayEnd.getTime()))
+          if (segmentEnd <= segmentStart) continue
+
+          const segmentStartMinute = segmentStart.getHours() * 60 + segmentStart.getMinutes()
+          const segmentEndMinute = dateKey(segmentEnd) !== dateKey(segmentStart)
+            ? 24 * 60
+            : segmentEnd.getHours() * 60 + segmentEnd.getMinutes()
+          const visibleStart = Math.max(input.startMinute, segmentStartMinute)
+          const visibleEnd = Math.min(getAgendaDisplayRange().end, segmentEndMinute)
+          if (visibleEnd <= visibleStart) continue
+
+          const roundedMinute = visibleStart - (visibleStart % input.step)
+          const cell = cells.get(dateKey(day) + ':' + roundedMinute)
+          if (!cell) continue
+
+          const top = Math.max(2, (visibleStart - roundedMinute) * input.pixelsPerMinute + 2)
+          const height = Math.max(24, (visibleEnd - visibleStart) * input.pixelsPerMinute - 4)
+          const title = block.title || scheduleBlockReasonLabel(block.reason)
+          const scope = block.professional?.name || 'Todo el salon'
+          const blockNode = document.createElement('button')
+          blockNode.type = 'button'
+          blockNode.className = 'agenda-block'
+          blockNode.style.height = height + 'px'
+          blockNode.style.top = top + 'px'
+          blockNode.dataset.blockId = block.id
+          blockNode.title = title + ' - ' + scope
+          blockNode.innerHTML = '<strong>' + escapeHtml(title) + '</strong>' +
+            '<span>' + escapeHtml(formatTimeOnly(segmentStart) + ' - ' + formatTimeOnly(segmentEnd)) + '</span>' +
+            '<span>' + escapeHtml(scope) + '</span>'
+          blockNode.addEventListener('click', (event) => {
+            event.stopPropagation()
+            deleteScheduleBlock(block.id)
+          })
+          cell.appendChild(blockNode)
+        }
+      }
+    }
+
     function getAgendaDisplayRange() {
       const starts = state.businessHours.map((hour) => timeToMinutes(hour.startTime))
       const ends = state.businessHours.map((hour) => timeToMinutes(hour.endTime))
@@ -16693,7 +17178,7 @@ const crmHtml = `<!doctype html>
           '<span>' + escapeHtml(service) + '</span>' +
           '<span>' + escapeHtml(customer + (noShow ? ' - Ausente' : '')) + '</span>'
         event.dataset.appointmentId = appointment.id
-        event.draggable = true
+        event.draggable = canEditAppointments()
         event.addEventListener('click', (clickEvent) => {
           clickEvent.stopPropagation()
           if (state.agendaDidDrag) {
@@ -16709,6 +17194,11 @@ const crmHtml = `<!doctype html>
     function enableAgendaDragAndDrop() {
       for (const event of els.agendaGridWrap.querySelectorAll('.agenda-event[data-appointment-id]')) {
         event.addEventListener('dragstart', (dragEvent) => {
+          if (!canEditAppointments()) {
+            dragEvent.preventDefault()
+            showCrmToast('No tenes permiso para editar turnos.', 'error')
+            return
+          }
           state.agendaDraggingAppointmentId = event.dataset.appointmentId
           state.agendaDidDrag = true
           event.classList.add('dragging')
@@ -16896,10 +17386,14 @@ const crmHtml = `<!doctype html>
 
     function scheduleBlockReasonLabel(reason) {
       const labels = {
-        BREAK: 'Descanso',
+        ABSENCE: 'Falta',
         VACATION: 'Vacaciones',
-        SICK_LEAVE: 'Licencia',
+        LATE_ARRIVAL: 'Llegada tarde',
+        SICK_LEAVE: 'Enfermedad',
+        PERSONAL: 'Personal',
         TRAINING: 'Capacitacion',
+        MAINTENANCE: 'Mantenimiento',
+        HOLIDAY: 'Feriado',
         OTHER: 'Bloqueo'
       }
       return labels[reason] || 'Bloqueo'
@@ -16961,6 +17455,7 @@ const crmHtml = `<!doctype html>
 
       syncAppointmentCustomerFields()
       updateAppointmentContactActions(appointment)
+      applyAgendaPermissions()
       els.appointmentDialog.hidden = false
       els.appointmentStart.focus()
     }
@@ -17076,6 +17571,13 @@ const crmHtml = `<!doctype html>
       event.preventDefault()
       els.appointmentFeedback.textContent = ''
 
+      if (state.editingAppointmentId ? !canEditAppointments() : !canCreateAppointments()) {
+        els.appointmentFeedback.textContent = state.editingAppointmentId
+          ? 'No tenes permiso para editar turnos.'
+          : 'No tenes permiso para cargar turnos.'
+        return
+      }
+
       const startAt = els.appointmentStart.value
       const professionalId = els.appointmentProfessional.value
       const serviceId = els.appointmentService.value
@@ -17140,6 +17642,10 @@ const crmHtml = `<!doctype html>
     async function deleteManualAppointment() {
       const appointmentId = state.editingAppointmentId
       if (!appointmentId) return
+      if (!canCancelAppointments()) {
+        els.appointmentFeedback.textContent = 'No tenes permiso para cancelar turnos.'
+        return
+      }
       if (!requestCrmConfirmation('delete-appointment:' + appointmentId, 'Eliminar este turno de la agenda?')) return
 
       try {
@@ -17160,6 +17666,10 @@ const crmHtml = `<!doctype html>
     async function toggleManualAppointmentNoShow() {
       const appointmentId = state.editingAppointmentId
       if (!appointmentId) return
+      if (!canCancelAppointments()) {
+        els.appointmentFeedback.textContent = 'No tenes permiso para cambiar el estado del turno.'
+        return
+      }
       const appointment = state.agendaAppointments.find((item) => item.id === appointmentId)
       const isNoShow = appointment?.status === 'NO_SHOW'
       const nextStatus = isNoShow ? 'CONFIRMED' : 'NO_SHOW'
@@ -19198,7 +19708,12 @@ const crmHtml = `<!doctype html>
       saveProfessional(new Event('submit'), { conflictStrategy: 'KEEP_EXISTING' })
     })
     els.professionalImpactReprogram.addEventListener('click', () => {
-      els.professionalFeedback.textContent = 'Usa la lista de turnos afectados para contactar clientes y reprogramar desde Agenda.'
+      if (state.pendingImpactContext === 'schedule-block') {
+        showCrmToast('Revisa los turnos afectados en Agenda para reprogramarlos.', 'info')
+        state.pendingImpactContext = null
+      } else {
+        els.professionalFeedback.textContent = 'Usa la lista de turnos afectados para contactar clientes y reprogramar desde Agenda.'
+      }
       setSection('agenda')
     })
     els.professionalImpactCancel.addEventListener('click', () => {
@@ -19509,18 +20024,24 @@ const crmHtml = `<!doctype html>
       if (!tab) return
       state.conversationFilter = tab.dataset.conversationFilter
       const archiveView = state.conversationFilter === 'archived' ? 'archived' : 'active'
-      if (archiveView !== state.loadedArchiveView) {
+      const serverFilter = conversationServerFilterForCurrentTab()
+      if (archiveView !== state.loadedArchiveView || serverFilter !== state.loadedConversationFilter) {
         state.selected = null
         state.conversationNextCursor = null
         await loadConversations()
       } else {
         renderConversations()
+        ensureVisibleConversationsForCurrentFilter().catch((error) => showCrmToast(error.message, 'error'))
       }
     })
     els.conversationMore.addEventListener('click', () => loadConversations({ append: true }))
     els.archiveConversation.addEventListener('click', toggleArchiveConversation)
     els.viewAgenda.addEventListener('click', () => setSection('agenda'))
     els.quickSchedule.addEventListener('click', () => {
+      if (!canCreateAppointments()) {
+        showCrmToast('No tenes permiso para cargar turnos.', 'error')
+        return
+      }
       const customer = state.selected ? customerForPhone(state.selected.phone) : null
       openAppointmentDialog()
       if (customer) {
@@ -19531,6 +20052,10 @@ const crmHtml = `<!doctype html>
       }
     })
     els.quickChange.addEventListener('click', () => {
+      if (!canEditAppointments()) {
+        showCrmToast('No tenes permiso para editar turnos.', 'error')
+        return
+      }
       if (state.appointments[0]) {
         openAppointmentDialog({ appointment: state.appointments[0] })
       } else {
@@ -19635,7 +20160,13 @@ const crmHtml = `<!doctype html>
       renderAgendaMonth()
     })
     els.agendaRefresh.addEventListener('click', loadAgenda)
-    els.agendaNewAppointment.addEventListener('click', () => openAppointmentDialog())
+    els.agendaNewAppointment.addEventListener('click', () => {
+      if (!canCreateAppointments()) {
+        showCrmToast('No tenes permiso para cargar turnos.', 'error')
+        return
+      }
+      openAppointmentDialog()
+    })
     els.appointmentForm.addEventListener('submit', saveManualAppointment)
     els.appointmentClose.addEventListener('click', closeAppointmentDialog)
     els.appointmentCancel.addEventListener('click', closeAppointmentDialog)
@@ -19643,6 +20174,8 @@ const crmHtml = `<!doctype html>
     els.appointmentNoShow.addEventListener('click', toggleManualAppointmentNoShow)
     els.appointmentCustomer.addEventListener('change', syncAppointmentCustomerFields)
     els.appointmentWhatsapp.addEventListener('click', openAppointmentWhatsapp)
+    els.composerWindowWhatsapp.addEventListener('click', openWhatsappAppLink)
+    els.detailWhatsapp.addEventListener('click', openWhatsappAppLink)
     els.appointmentOpenChat.addEventListener('click', openAppointmentCustomerChat)
     els.appointmentStart.addEventListener('change', () => updateAppointmentContactActions(editingAgendaAppointment()))
     els.appointmentService.addEventListener('change', () => updateAppointmentContactActions(editingAgendaAppointment()))

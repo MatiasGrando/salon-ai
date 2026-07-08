@@ -187,6 +187,10 @@ export class ConversationService {
       }
     }
 
+    if (isArrivalNoticeMessage(message) && isMenuStep(conversation.currentStep)) {
+      return this.handleArrivalNotice(input.phone, message)
+    }
+
     if (conversation.currentStep === 'HUMAN_HANDOFF') {
       return {
         reply: botCopyService.humanHandoffAlreadyQueued()
@@ -544,6 +548,40 @@ export class ConversationService {
     }
 
     return null
+  }
+
+  private async handleArrivalNotice(phone: string, message: string): Promise<HandleMessageResult> {
+    const appointments = await this.findUpcomingAppointments(phone)
+    const nextAppointment = appointments[0]
+
+    if (!nextAppointment) {
+      return {
+        reply: botCopyService.arrivalNoticeNoAppointment()
+      }
+    }
+
+    const delay = calculateArrivalDelayMinutes(message, nextAppointment.startAt)
+
+    if (delay === null || delay > 5) {
+      await this.updateConversation(phone, {
+        currentStep: 'HUMAN_HANDOFF',
+        aiEnabled: false,
+        misunderstandingCount: 0,
+        humanHandoffAt: new Date(),
+        humanHandoffResolvedAt: null,
+        bookingV2State: null
+      })
+
+      return {
+        reply: botCopyService.lateArrivalHandoffQueued(),
+        skipHumanize: true
+      }
+    }
+
+    return {
+      reply: botCopyService.arrivalNoticeOk(),
+      skipHumanize: true
+    }
   }
 
   private async buildMyAppointmentsReply(phone: string, prefix?: string): Promise<HandleMessageResult> {
@@ -954,13 +992,72 @@ function isMyAppointmentsMessage(message: string, currentStep: string) {
     normalizedMessage.includes('que turnos tengo')
 }
 
+function isArrivalNoticeMessage(message: string) {
+  const normalizedMessage = normalizeText(message)
+
+  return normalizedMessage === 'avisar llegada' ||
+    normalizedMessage === 'llegada' ||
+    normalizedMessage.includes('estoy en camino') ||
+    normalizedMessage.includes('voy en camino') ||
+    normalizedMessage.includes('ya sali') ||
+    normalizedMessage.includes('estoy llegando') ||
+    normalizedMessage.includes('voy llegando') ||
+    normalizedMessage.includes('llego en') ||
+    normalizedMessage.includes('llego tarde') ||
+    normalizedMessage.includes('llegando tarde') ||
+    normalizedMessage.includes('me demoro') ||
+    normalizedMessage.includes('estoy demorado') ||
+    normalizedMessage.includes('estoy demorada') ||
+    normalizedMessage.includes('voy atrasado') ||
+    normalizedMessage.includes('voy atrasada')
+}
+
+function calculateArrivalDelayMinutes(message: string, appointmentStartAt: Date) {
+  const normalizedMessage = normalizeText(message)
+
+  if (
+    normalizedMessage.includes('tarde') ||
+    normalizedMessage.includes('demoro') ||
+    normalizedMessage.includes('demorado') ||
+    normalizedMessage.includes('demorada') ||
+    normalizedMessage.includes('atrasado') ||
+    normalizedMessage.includes('atrasada')
+  ) {
+    return null
+  }
+
+  const etaMinutes = parseArrivalEtaMinutes(normalizedMessage)
+
+  if (etaMinutes === null) {
+    return 0
+  }
+
+  const minutesUntilAppointment = Math.ceil((appointmentStartAt.getTime() - Date.now()) / 60000)
+
+  return etaMinutes - minutesUntilAppointment
+}
+
+function parseArrivalEtaMinutes(normalizedMessage: string) {
+  const match = normalizedMessage.match(/\b(?:llego|llegaria|estoy|voy)\s+(?:en\s+)?(\d{1,3})\s*(?:min|mins|minutos|m)?\b/)
+
+  if (!match?.[1]) {
+    return null
+  }
+
+  return Number(match[1])
+}
+
 function isCancelAppointmentMessage(message: string, currentStep: string) {
   const normalizedMessage = normalizeText(message)
 
   return (isMenuStep(currentStep) && normalizedMessage === '3') ||
     normalizedMessage === 'cancelar turno' ||
+    normalizedMessage === 'anular turno' ||
     normalizedMessage.includes('cancelar un turno') ||
     normalizedMessage.includes('cancelar mi turno') ||
+    normalizedMessage.includes('anular mi turno') ||
+    normalizedMessage.includes('anular un turno') ||
+    normalizedMessage.includes('no voy a ir') ||
     normalizedMessage.includes('quiero cancelar') ||
     normalizedMessage.includes('kiero cancelar') ||
     normalizedMessage.includes('quiero canselar') ||
@@ -973,8 +1070,14 @@ function isEditAppointmentMessage(message: string, currentStep: string) {
 
   return (isMenuStep(currentStep) && normalizedMessage === '4') ||
     normalizedMessage === 'editar turno' ||
+    normalizedMessage === 'modificar turno' ||
+    normalizedMessage === 'mover turno' ||
     normalizedMessage.includes('cambiar un turno') ||
     normalizedMessage.includes('cambiar mi turno') ||
+    normalizedMessage.includes('modificar mi turno') ||
+    normalizedMessage.includes('mover mi turno') ||
+    normalizedMessage.includes('moverlo') ||
+    normalizedMessage.includes('pasarlo') ||
     normalizedMessage.includes('camviar turno') ||
     normalizedMessage.includes('camviar un turno') ||
     normalizedMessage.includes('kiero cambiar') ||

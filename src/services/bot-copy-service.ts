@@ -21,6 +21,7 @@ export class BotCopyService {
       greeting,
       'Decime qué necesitás y te doy una mano.',
       '- Reservar turno',
+      '- Avisar llegada',
       '- Ver tus turnos',
       '- Cancelar un turno',
       '- Cambiar un turno'
@@ -317,6 +318,7 @@ export class BotCopyService {
       `¡Hola${nameText}! 😊 Yo muy bien, gracias por preguntar.`,
       'Decime qué necesitás y te doy una mano:',
       '- Reservar otro turno',
+      '- Avisar llegada',
       '- Ver tus turnos',
       '- Cancelar un turno',
       '- Cambiar un turno'
@@ -374,6 +376,29 @@ export class BotCopyService {
     return 'Listo, cancelé ese turno para que puedas elegir uno nuevo.'
   }
 
+  lateArrivalHandoffQueued() {
+    return [
+      'Gracias por avisar. Te esperamos.',
+      'Si la demora supera los 15 minutos, puede que tengamos que reacomodar el turno segun disponibilidad.'
+    ].join('\n')
+  }
+
+  arrivalNoticeOk() {
+    return 'Gracias por avisar. Te esperamos.'
+  }
+
+  arrivalNoticeNoAppointment() {
+    return [
+      'Gracias por avisar. No encontre un turno activo para este numero.',
+      'Decime que necesitas:',
+      '* reservar turno',
+      '* ver mis turnos',
+      '* cancelar turno',
+      '* cambiar turno',
+      '* pasarte con una persona'
+    ].join('\n')
+  }
+
   restartRequired(reason: string) {
     return `${reason} Necesito que empecemos de nuevo para hacerlo bien.`
   }
@@ -401,6 +426,7 @@ function withRecoveryOptions(message: string, options?: {
       '',
       'Decime cuál se parece más a lo que necesitás:',
       '* reservar turno',
+      '* avisar llegada',
       '* cambiar turno',
       '* cancelar turno',
       includeChangeService ? '* cambiar servicio' : null,

@@ -156,6 +156,7 @@ export async function crmRoutes(app: FastifyInstance) {
       cursor?: string
       since?: string
       archive?: 'active' | 'archived' | 'all'
+      filter?: 'handoff'
       paginated?: string
     }
     const take = Math.min(Math.max(Number(query.take ?? 30) || 30, 1), 100)
@@ -167,7 +168,8 @@ export async function crmRoutes(app: FastifyInstance) {
       ...conversationListWhere({
         ...(query.businessId ? { businessId: query.businessId } : {}),
         ...(query.phone ? { phone: query.phone } : {}),
-        archiveView
+        archiveView,
+        ...(query.filter ? { filter: query.filter } : {})
       }),
       ...(since ? { updatedAt: { gt: since } } : {})
     }
@@ -597,12 +599,19 @@ function conversationListWhere(input: {
   businessId?: string
   phone?: string
   archiveView: 'active' | 'archived' | 'all'
+  filter?: 'handoff'
 }) {
   return {
     ...(input.businessId ? { businessId: input.businessId } : {}),
     ...(input.phone ? { phone: { contains: input.phone } } : {}),
     ...(input.archiveView === 'active' ? { archivedAt: null } : {}),
-    ...(input.archiveView === 'archived' ? { archivedAt: { not: null } } : {})
+    ...(input.archiveView === 'archived' ? { archivedAt: { not: null } } : {}),
+    ...(input.filter === 'handoff'
+      ? {
+          currentStep: 'HUMAN_HANDOFF',
+          humanHandoffResolvedAt: null
+        }
+      : {})
   } satisfies Prisma.ConversationWhereInput
 }
 

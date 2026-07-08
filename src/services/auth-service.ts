@@ -14,6 +14,10 @@ export type AuthUser = {
   role: 'SUPER_ADMIN' | 'BUSINESS_ADMIN' | 'STAFF'
   businessId: string | null
   professionalId: string | null
+  canCreateAppointments: boolean
+  canEditAppointments: boolean
+  canCancelAppointments: boolean
+  canManageScheduleBlocks: boolean
 }
 
 export type AuthContext = {
@@ -76,7 +80,11 @@ export async function getAuthFromRequest(request: FastifyRequest): Promise<AuthC
       name: session.user.name,
       role: session.user.role,
       businessId: session.user.businessId,
-      professionalId: session.user.professionalId
+      professionalId: session.user.professionalId,
+      canCreateAppointments: session.user.canCreateAppointments,
+      canEditAppointments: session.user.canEditAppointments,
+      canCancelAppointments: session.user.canCancelAppointments,
+      canManageScheduleBlocks: session.user.canManageScheduleBlocks
     }
   }
 }

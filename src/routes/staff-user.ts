@@ -26,6 +26,10 @@ export async function staffUserRoutes(app: FastifyInstance) {
       password?: string
       professionalId?: string
       isActive?: boolean
+      canCreateAppointments?: boolean
+      canEditAppointments?: boolean
+      canCancelAppointments?: boolean
+      canManageScheduleBlocks?: boolean
     }
     const businessId = resolveBusinessId(request, body.businessId)
     if (!businessId) return reply.status(400).send({ message: 'Selecciona un comercio' })
@@ -51,7 +55,11 @@ export async function staffUserRoutes(app: FastifyInstance) {
         role: 'STAFF',
         businessId,
         professionalId: validation.professionalId,
-        isActive: body.isActive === false ? false : true
+        isActive: body.isActive === false ? false : true,
+        canCreateAppointments: body.canCreateAppointments !== false,
+        canEditAppointments: body.canEditAppointments !== false,
+        canCancelAppointments: body.canCancelAppointments !== false,
+        canManageScheduleBlocks: body.canManageScheduleBlocks !== false
       }
     })
 
@@ -70,6 +78,10 @@ export async function staffUserRoutes(app: FastifyInstance) {
       password?: string
       professionalId?: string
       isActive?: boolean
+      canCreateAppointments?: boolean
+      canEditAppointments?: boolean
+      canCancelAppointments?: boolean
+      canManageScheduleBlocks?: boolean
     }
 
     const existing = await prisma.user.findFirst({
@@ -111,6 +123,10 @@ export async function staffUserRoutes(app: FastifyInstance) {
         name: validation.name,
         email: validation.email,
         professionalId: validation.professionalId,
+        ...(typeof body.canCreateAppointments === 'boolean' ? { canCreateAppointments: body.canCreateAppointments } : {}),
+        ...(typeof body.canEditAppointments === 'boolean' ? { canEditAppointments: body.canEditAppointments } : {}),
+        ...(typeof body.canCancelAppointments === 'boolean' ? { canCancelAppointments: body.canCancelAppointments } : {}),
+        ...(typeof body.canManageScheduleBlocks === 'boolean' ? { canManageScheduleBlocks: body.canManageScheduleBlocks } : {}),
         ...(typeof body.isActive === 'boolean' ? { isActive: body.isActive } : {}),
         ...(passwordChanged ? { passwordHash: await hashPassword(validation.password) } : {})
       }
@@ -175,6 +191,10 @@ async function listStaffUsers(businessId: string) {
     businessId: user.businessId,
     professionalId: user.professionalId,
     professional: user.professional,
+    canCreateAppointments: user.canCreateAppointments,
+    canEditAppointments: user.canEditAppointments,
+    canCancelAppointments: user.canCancelAppointments,
+    canManageScheduleBlocks: user.canManageScheduleBlocks,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt
   }))

@@ -113,6 +113,10 @@ function publicUser(user: {
   businessId: string | null
   professionalId?: string | null
   professional?: { id: string; name: string } | null
+  canCreateAppointments?: boolean
+  canEditAppointments?: boolean
+  canCancelAppointments?: boolean
+  canManageScheduleBlocks?: boolean
 }) {
   return {
     id: user.id,
@@ -121,6 +125,10 @@ function publicUser(user: {
     role: user.role,
     businessId: user.businessId,
     professionalId: user.professionalId ?? null,
-    professional: user.professional ?? null
+    professional: user.professional ?? null,
+    canCreateAppointments: user.role === 'STAFF' ? user.canCreateAppointments !== false : true,
+    canEditAppointments: user.role === 'STAFF' ? user.canEditAppointments !== false : true,
+    canCancelAppointments: user.role === 'STAFF' ? user.canCancelAppointments !== false : true,
+    canManageScheduleBlocks: user.role === 'STAFF' ? user.canManageScheduleBlocks !== false : true
   }
 }

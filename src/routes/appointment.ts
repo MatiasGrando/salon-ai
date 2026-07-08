@@ -6,6 +6,9 @@ const service = new AppointmentService()
 export async function appointmentRoutes(app: FastifyInstance) {
 
   app.post('/appointments', async (request, reply) => {
+    if (!hasAgendaPermission(request.auth, 'canCreateAppointments')) {
+      return reply.status(403).send({ message: 'No tenes permiso para cargar turnos' })
+    }
 
     const body = request.body as {
       customerId: string
@@ -44,6 +47,10 @@ export async function appointmentRoutes(app: FastifyInstance) {
   })
 
   app.patch('/appointments/:id/status', async (request, reply) => {
+    if (!hasAgendaPermission(request.auth, 'canCancelAppointments')) {
+      return reply.status(403).send({ message: 'No tenes permiso para cancelar o cambiar el estado de turnos' })
+    }
+
     const params = request.params as {
       id: string
     }
@@ -72,6 +79,10 @@ export async function appointmentRoutes(app: FastifyInstance) {
   })
 
   app.patch('/appointments/:id', async (request, reply) => {
+    if (!hasAgendaPermission(request.auth, 'canEditAppointments')) {
+      return reply.status(403).send({ message: 'No tenes permiso para editar turnos' })
+    }
+
     const params = request.params as {
       id: string
     }
@@ -99,6 +110,10 @@ export async function appointmentRoutes(app: FastifyInstance) {
   })
 
   app.delete('/appointments/:id', async (request, reply) => {
+    if (!hasAgendaPermission(request.auth, 'canCancelAppointments')) {
+      return reply.status(403).send({ message: 'No tenes permiso para cancelar turnos' })
+    }
+
     const params = request.params as {
       id: string
     }
@@ -113,4 +128,13 @@ export async function appointmentRoutes(app: FastifyInstance) {
 
     return result.appointment
   })
+}
+
+function hasAgendaPermission(
+  auth: { user: { role: string; canCreateAppointments?: boolean; canEditAppointments?: boolean; canCancelAppointments?: boolean } } | undefined,
+  permission: 'canCreateAppointments' | 'canEditAppointments' | 'canCancelAppointments'
+) {
+  if (!auth) return false
+  if (auth.user.role !== 'STAFF') return true
+  return auth.user[permission] !== false
 }

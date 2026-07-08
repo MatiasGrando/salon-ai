@@ -45,6 +45,7 @@ type FindAvailabilityResult =
   | {
       ok: true
       slots: string[]
+      unavailableReason?: string | null
     }
   | {
       ok: false
@@ -576,7 +577,15 @@ export class AppointmentService {
 
     return {
       ok: true,
-      slots
+      slots,
+      unavailableReason: slots.length === 0
+        ? explainBlockedAvailability({
+            blocks: scheduleBlocks,
+            dayStart,
+            dayEnd,
+            professionalName: professional.name
+          })
+        : null
     }
   }
 
@@ -786,4 +795,57 @@ function hasBlockedIntervalOverlap(
   return scheduleBlocks.some((scheduleBlock) => {
     return scheduleBlock.startAt < endAt && scheduleBlock.endAt > startAt
   })
+}
+
+function explainBlockedAvailability(input: {
+  blocks: Array<{
+    professionalId: string | null
+    reason: string
+    title: string | null
+    startAt: Date
+    endAt: Date
+  }>
+  dayStart: Date
+  dayEnd: Date
+  professionalName: string
+}) {
+  const fullDayBlock = input.blocks.find((block) => {
+    return block.startAt <= input.dayStart &&
+      block.endAt >= input.dayEnd &&
+      ['HOLIDAY', 'VACATION'].includes(block.reason)
+  })
+
+  if (!fullDayBlock) {
+    return null
+  }
+
+  const reopenText = fullDayBlock.endAt > input.dayEnd
+    ? ` Volvemos a abrir el ${formatDisplayDate(fullDayBlock.endAt)}.`
+    : ''
+
+  if (fullDayBlock.professionalId) {
+    const professionalReturnText = fullDayBlock.endAt > input.dayEnd
+      ? ` ${input.professionalName} vuelve el ${formatDisplayDate(fullDayBlock.endAt)}.`
+      : ''
+
+    if (fullDayBlock.reason === 'VACATION') {
+      return `${input.professionalName} esta de vacaciones ese dia.${professionalReturnText} Si queres, buscamos otro profesional u otra fecha.`
+    }
+
+    return `${input.professionalName} no atiende ese dia.${professionalReturnText} Si queres, buscamos otro profesional u otra fecha.`
+  }
+
+  if (fullDayBlock.reason === 'HOLIDAY') {
+    return `Ese dia el salon va a estar cerrado por feriado.${reopenText} Podemos buscar otro dia.`
+  }
+
+  return `Ese dia el salon va a estar cerrado por vacaciones.${reopenText} Podemos buscar otra fecha.`
+}
+
+function formatDisplayDate(date: Date) {
+  const day = String(date.getDate()).padStart(2, '0')
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const year = date.getFullYear()
+
+  return `${day}/${month}/${year}`
 }
