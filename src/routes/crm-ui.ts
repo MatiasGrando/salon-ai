@@ -5239,6 +5239,13 @@ const crmHtml = `<!doctype html>
       overflow: auto;
     }
 
+    .impact-list button.item {
+      width: 100%;
+      color: inherit;
+      text-align: left;
+      cursor: pointer;
+    }
+
     .impact-actions {
       display: flex;
       gap: 8px;
@@ -7936,7 +7943,7 @@ const crmHtml = `<!doctype html>
       left: 5px;
       right: 5px;
       top: 2px;
-      z-index: 2;
+      z-index: 4;
       min-height: 24px;
       padding: 5px 7px;
       border-radius: 6px;
@@ -7956,7 +7963,7 @@ const crmHtml = `<!doctype html>
       left: 5px;
       right: 5px;
       top: 2px;
-      z-index: 3;
+      z-index: 2;
       min-height: 24px;
       padding: 5px 7px;
       border: 1px solid #cbd5e1;
@@ -12248,6 +12255,7 @@ const crmHtml = `<!doctype html>
       customerOverviewPagination: { page: 1, take: 25, total: 0, totalPages: 1 },
       selectedCustomerId: null,
       pendingImpactContext: null,
+      pendingImpactAppointments: [],
       customerFilter: 'all',
       customerInactiveDays: 60,
       customerSearch: '',
@@ -15352,6 +15360,7 @@ const crmHtml = `<!doctype html>
     }
 
     function showProfessionalImpact(input) {
+      state.pendingImpactAppointments = input.appointments || []
       els.professionalImpactTitle.textContent = input.title
       els.professionalImpactCopy.textContent = input.copy
       els.professionalImpactList.innerHTML = input.appointments.length
@@ -15359,12 +15368,18 @@ const crmHtml = `<!doctype html>
             const customer = appointment.customer?.name || 'Cliente'
             const phone = appointment.customer?.phone || 'Sin telefono'
             const service = appointment.service?.name || 'Servicio'
-            return '<div class="item">' +
+            return '<button class="item" type="button" data-impact-appointment="' + appointment.id + '">' +
               '<div class="item-title">' + escapeHtml(customer + ' - ' + service) + '</div>' +
               '<p>' + escapeHtml(formatAppointment(appointment.startAt) + ' · ' + phone) + '</p>' +
-            '</div>'
+            '</button>'
           }).join('')
         : '<div class="empty">No hay turnos futuros afectados.</div>'
+
+      for (const button of els.professionalImpactList.querySelectorAll('[data-impact-appointment]')) {
+        button.addEventListener('click', () => {
+          openImpactedAppointmentInAgenda(button.dataset.impactAppointment).catch((error) => showCrmToast(error.message, 'error'))
+        })
+      }
 
       els.professionalImpactPanel.classList.add('visible')
       els.professionalImpactPanel.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -15374,6 +15389,84 @@ const crmHtml = `<!doctype html>
       els.professionalImpactPanel.classList.remove('visible')
       els.professionalImpactList.innerHTML = ''
       state.pendingImpactContext = null
+      state.pendingImpactAppointments = []
+    }
+
+    async function refreshScheduleBlockImpactPanel() {
+      if (!state.businessId || state.pendingProfessionalSave) return
+      const from = startOfDay(new Date())
+      const to = addDays(from, 60)
+      const params = new URLSearchParams({
+        businessId: state.businessId,
+        from: from.toISOString(),
+        to: to.toISOString()
+      })
+
+      const [blocks, appointments] = await Promise.all([
+        getJson('/schedule-blocks?' + params.toString()),
+        getJson('/appointments?' + params.toString())
+      ])
+
+      const affectedAppointments = appointments
+        .filter((appointment) => appointment.status !== 'CANCELLED' && appointment.status !== 'NO_SHOW')
+        .filter((appointment) => blocks.some((block) => scheduleBlockAffectsAppointment(block, appointment)))
+
+      if (!affectedAppointments.length) {
+        if (state.pendingImpactContext === 'schedule-block') hideProfessionalImpact()
+        return
+      }
+
+      state.pendingImpactContext = 'schedule-block'
+      showProfessionalImpact({
+        title: 'Turnos afectados por bloqueos',
+        copy: 'Estos turnos caen dentro de feriados, vacaciones o ausencias cargadas. Reprogramalos desde Agenda o contacta al cliente antes de moverlos.',
+        appointments: uniqueAppointmentsById(affectedAppointments)
+      })
+    }
+
+    function scheduleBlockAffectsAppointment(block, appointment) {
+      if (block.professionalId && block.professionalId !== appointment.professionalId) return false
+      const blockStart = new Date(block.startAt)
+      const blockEnd = new Date(block.endAt)
+      const appointmentStart = new Date(appointment.startAt)
+      const duration = appointment.service?.duration || Number(els.agendaStep?.value || 15)
+      const appointmentEnd = addMinutes(appointmentStart, duration)
+      return appointmentStart < blockEnd && appointmentEnd > blockStart
+    }
+
+    function uniqueAppointmentsById(appointments) {
+      const seen = new Set()
+      return appointments.filter((appointment) => {
+        if (seen.has(appointment.id)) return false
+        seen.add(appointment.id)
+        return true
+      })
+    }
+
+    async function openImpactedAppointmentInAgenda(appointmentId = '') {
+      const impactedAppointment = state.pendingImpactAppointments.find((appointment) => appointment.id === appointmentId) ||
+        state.pendingImpactAppointments[0]
+      if (!impactedAppointment) {
+        setSection('agenda')
+        return
+      }
+
+      const appointmentStart = new Date(impactedAppointment.startAt)
+      state.agendaSelectedDate = appointmentStart
+      state.agendaMonthDate = new Date(appointmentStart)
+      if (els.agendaProfessional && impactedAppointment.professionalId) {
+        els.agendaProfessional.value = impactedAppointment.professionalId
+        if (els.agendaProfessional.value !== impactedAppointment.professionalId) els.agendaProfessional.value = ''
+      }
+      if (els.agendaService && impactedAppointment.serviceId) {
+        els.agendaService.value = impactedAppointment.serviceId
+        if (els.agendaService.value !== impactedAppointment.serviceId) els.agendaService.value = ''
+      }
+      setSection('agenda')
+      await loadAgenda()
+      const appointment = state.agendaAppointments.find((item) => item.id === impactedAppointment.id) || impactedAppointment
+      openAppointmentDialog({ appointment })
+      showCrmToast('Turno afectado abierto para reprogramar.', 'success')
     }
 
     function buildProfessionalWorkingHours() {
@@ -19252,6 +19345,10 @@ const crmHtml = `<!doctype html>
         loadCustomerOverview().catch(() => {})
       }
 
+      if (section === 'professionals') {
+        refreshScheduleBlockImpactPanel().catch((error) => showCrmToast(error.message, 'error'))
+      }
+
       if (section === 'reports') {
         loadReports().catch((error) => {
           els.reportStatusBars.innerHTML = '<div class="error">' + escapeHtml(error.message) + '</div>'
@@ -19709,12 +19806,12 @@ const crmHtml = `<!doctype html>
     })
     els.professionalImpactReprogram.addEventListener('click', () => {
       if (state.pendingImpactContext === 'schedule-block') {
-        showCrmToast('Revisa los turnos afectados en Agenda para reprogramarlos.', 'info')
+        openImpactedAppointmentInAgenda().catch((error) => showCrmToast(error.message, 'error'))
         state.pendingImpactContext = null
       } else {
         els.professionalFeedback.textContent = 'Usa la lista de turnos afectados para contactar clientes y reprogramar desde Agenda.'
+        setSection('agenda')
       }
-      setSection('agenda')
     })
     els.professionalImpactCancel.addEventListener('click', () => {
       els.professionalFeedback.textContent = 'Antes de cancelar, contacta a los clientes de la lista. La cancelacion automatica la dejamos para el siguiente paso.'
