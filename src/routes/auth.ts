@@ -87,7 +87,12 @@ export async function authRoutes(app: FastifyInstance) {
     const existing = await prisma.user.findUnique({ where: { email: adminEmail } })
     if (existing) return reply.status(409).send({ message: 'Ya existe un usuario con ese email' })
 
-    const business = await businessService.create(businessName)
+    let business
+    try {
+      business = await businessService.create(businessName)
+    } catch {
+      return reply.status(400).send({ message: 'No pude generar el subdominio para ese comercio' })
+    }
     const user = await prisma.user.create({
       data: {
         email: adminEmail,

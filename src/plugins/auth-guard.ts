@@ -64,6 +64,49 @@ function isPublicRoute(request: FastifyRequest) {
   return path === '/'
     || path === '/health'
     || path === '/crm'
+    || path.startsWith('/landing-assets/')
+    || path.startsWith('/public/booking/')
+    || isPublicLandingRoute(request.method, path)
     || path.startsWith('/auth/')
     || path.startsWith('/webhooks/whatsapp')
+}
+
+const internalRouteRoots = new Set([
+  'admin',
+  'api',
+  'appointments',
+  'auth',
+  'availability',
+  'businesses',
+  'business-hours',
+  'campaign-customer-options',
+  'campaign-deliveries',
+  'campaign-jobs',
+  'campaigns',
+  'chat',
+  'crm',
+  'customers',
+  'health',
+  'professional-hours',
+  'professionals',
+  'public',
+  'reminder-automations',
+  'reports',
+  'schedule-blocks',
+  'services',
+  'staff-users',
+  'webhooks',
+  'whatsapp',
+  'whatsapp-pricing',
+  'whatsapp-templates'
+])
+
+function isPublicLandingRoute(method: string, path: string) {
+  if (!['GET', 'HEAD'].includes(method.toUpperCase())) return false
+  if (path === '/reservar') return true
+
+  const match = /^\/([a-z0-9-]+)(?:\/reservar)?$/.exec(path)
+  if (!match) return false
+
+  return !internalRouteRoots.has(match[1] ?? '')
 }

@@ -1,0 +1,755 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Barber Colapinta - Reserva mock v2</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Work+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --ink: #1c1815;
+      --ink-2: #2a2420;
+      --paper: #f3ecdc;
+      --paper-2: #eae0c9;
+      --card: #fff8ea;
+      --brass: #b8925a;
+      --brass-dark: #8c6a3d;
+      --red: #8b2e2e;
+      --text: #2b2620;
+      --muted: #6e6455;
+      --line: #d7c7aa;
+      --shadow: 0 28px 70px rgba(18, 13, 9, .22);
+      color-scheme: light;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--paper);
+      color: var(--text);
+      font-family: "Work Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 0;
+      font-family: "Oswald", sans-serif;
+      text-transform: uppercase;
+      letter-spacing: .02em;
+    }
+
+    .stripe {
+      height: 6px;
+      background: repeating-linear-gradient(135deg, var(--red) 0 14px, var(--paper) 14px 20px, var(--ink) 20px 34px, var(--paper) 34px 40px);
+    }
+
+    .topbar {
+      min-height: 72px;
+      padding: 0 48px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      color: var(--paper);
+      background: var(--ink);
+      border-bottom: 1px solid rgba(184, 146, 90, .32);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-family: "Oswald", sans-serif;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .brand-mark {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      color: var(--brass);
+      border: 1px solid var(--brass);
+      font-family: "Space Mono", monospace;
+      font-size: 13px;
+    }
+
+    .brand span {
+      color: var(--brass);
+    }
+
+    .back-link {
+      min-height: 42px;
+      padding: 0 18px;
+      border: 1px solid rgba(184, 146, 90, .48);
+      border-radius: 2px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--paper);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .07em;
+      text-transform: uppercase;
+    }
+
+    .page {
+      width: min(1180px, calc(100% - 48px));
+      margin: 0 auto;
+      padding: 42px 0 70px;
+    }
+
+    .intro {
+      margin-bottom: 26px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      gap: 24px;
+      align-items: end;
+    }
+
+    .eyebrow {
+      margin-bottom: 10px;
+      color: var(--brass-dark);
+      font-family: "Space Mono", monospace;
+      font-size: 12px;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+
+    .intro h1 {
+      font-size: clamp(42px, 6vw, 68px);
+      line-height: .95;
+    }
+
+    .intro p {
+      max-width: 600px;
+      margin: 16px 0 0;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .trust-box {
+      padding: 18px;
+      color: var(--paper);
+      background: var(--ink);
+      border: 1px solid rgba(184, 146, 90, .34);
+    }
+
+    .trust-box strong {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--brass);
+      font-family: "Space Mono", monospace;
+      font-size: 14px;
+    }
+
+    .trust-box span {
+      color: #c9c0af;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .booking-shell {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 400px;
+      gap: 24px;
+      align-items: start;
+    }
+
+    .panel,
+    .summary-card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      box-shadow: 0 18px 38px rgba(48, 38, 26, .08);
+    }
+
+    .panel + .panel {
+      margin-top: 20px;
+    }
+
+    .panel-head {
+      padding: 22px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .panel-head h2 {
+      font-size: 28px;
+      line-height: 1;
+    }
+
+    .step-num {
+      color: var(--muted);
+      font-family: "Space Mono", monospace;
+      font-size: 12px;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+
+    .service-list {
+      display: grid;
+      gap: 1px;
+      background: var(--line);
+    }
+
+    .option {
+      width: 100%;
+      padding: 20px 22px;
+      border: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 20px;
+      align-items: center;
+      background: var(--card);
+      color: var(--text);
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .option:hover,
+    .option.active {
+      background: #f0e3c9;
+      outline: 2px solid var(--brass);
+      outline-offset: -2px;
+    }
+
+    .option h3 {
+      margin-bottom: 7px;
+      font-family: "Work Sans", sans-serif;
+      font-size: 17px;
+      text-transform: none;
+    }
+
+    .option p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .option-meta {
+      min-width: 128px;
+      display: grid;
+      gap: 6px;
+      justify-items: end;
+      font-family: "Space Mono", monospace;
+      font-size: 13px;
+    }
+
+    .option-meta b {
+      color: var(--red);
+      font-size: 15px;
+    }
+
+    .pro-grid {
+      padding: 22px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+    }
+
+    .pro-card {
+      min-height: 166px;
+      padding: 16px 12px;
+      border: 1px solid var(--line);
+      display: grid;
+      justify-items: center;
+      align-content: center;
+      gap: 10px;
+      background: #fff7e8;
+      text-align: center;
+      cursor: pointer;
+    }
+
+    .pro-card.active {
+      border-color: var(--brass);
+      background: var(--paper-2);
+      outline: 2px solid var(--brass);
+      outline-offset: -2px;
+    }
+
+    .avatar {
+      width: 62px;
+      height: 62px;
+      border-radius: 50%;
+      overflow: hidden;
+      border: 2px solid var(--brass);
+      background: var(--ink);
+    }
+
+    .avatar img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+      filter: grayscale(.3) sepia(.2) brightness(.95);
+    }
+
+    .pro-card strong {
+      font-size: 14px;
+    }
+
+    .pro-card span {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .calendar-grid {
+      padding: 22px;
+      display: grid;
+      gap: 18px;
+    }
+
+    .date-strip {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+    }
+
+    .date {
+      min-height: 72px;
+      border: 1px solid var(--line);
+      border-radius: 2px;
+      display: grid;
+      place-items: center;
+      background: #fffaf2;
+      color: var(--text);
+      font-family: "Space Mono", monospace;
+      cursor: pointer;
+    }
+
+    .date.active {
+      color: var(--paper);
+      background: var(--red);
+      border-color: var(--red);
+    }
+
+    .date small {
+      display: block;
+      opacity: .72;
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+
+    .date b {
+      display: block;
+      font-size: 18px;
+    }
+
+    .time-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+
+    .time {
+      min-height: 44px;
+      border: 1px solid var(--line);
+      border-radius: 2px;
+      display: grid;
+      place-items: center;
+      color: var(--text);
+      background: #fffaf2;
+      font-family: "Space Mono", monospace;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .time.active {
+      color: var(--ink);
+      background: var(--brass);
+      border-color: var(--brass);
+      font-weight: 800;
+    }
+
+    .time.disabled {
+      opacity: .38;
+      text-decoration: line-through;
+      cursor: not-allowed;
+    }
+
+    .summary-card {
+      position: sticky;
+      top: 24px;
+      overflow: hidden;
+    }
+
+    .summary-head {
+      padding: 24px;
+      color: var(--paper);
+      background: var(--ink);
+    }
+
+    .summary-head span {
+      color: var(--brass);
+      font-family: "Space Mono", monospace;
+      font-size: 11px;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    .summary-head h2 {
+      margin-top: 8px;
+      font-size: 30px;
+    }
+
+    .summary-body {
+      padding: 24px;
+    }
+
+    .receipt {
+      margin-bottom: 22px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .receipt-row {
+      padding-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      border-bottom: 1px dashed var(--line);
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .receipt-row strong {
+      color: var(--text);
+      text-align: right;
+    }
+
+    .receipt-row.total {
+      padding-top: 8px;
+      border-bottom: 0;
+      color: var(--text);
+      font-family: "Space Mono", monospace;
+      font-size: 16px;
+      font-weight: 800;
+    }
+
+    .receipt-row.total strong {
+      color: var(--red);
+    }
+
+    .customer-fields {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .field {
+      display: grid;
+      gap: 7px;
+    }
+
+    .field label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+
+    .field input {
+      min-height: 46px;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      border-radius: 2px;
+      background: #fffaf2;
+      color: var(--text);
+    }
+
+    .confirm {
+      width: 100%;
+      min-height: 50px;
+      border: 0;
+      border-radius: 2px;
+      color: var(--paper);
+      background: var(--red);
+      font-family: "Oswald", sans-serif;
+      font-size: 16px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      cursor: pointer;
+    }
+
+    .notice {
+      display: none;
+      margin-top: 14px;
+      padding: 13px 14px;
+      color: #23462a;
+      background: #e8f3e5;
+      border: 1px solid #b7d6ad;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .notice.show {
+      display: block;
+    }
+
+    @media (max-width: 980px) {
+      .topbar {
+        padding: 0 22px;
+      }
+
+      .page {
+        width: min(100% - 24px, 1180px);
+      }
+
+      .intro,
+      .booking-shell {
+        grid-template-columns: 1fr;
+      }
+
+      .summary-card {
+        position: static;
+      }
+
+      .pro-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    @media (max-width: 620px) {
+      .brand {
+        font-size: 18px;
+      }
+
+      .brand-mark {
+        display: none;
+      }
+
+      .back-link {
+        padding: 0 12px;
+        font-size: 11px;
+      }
+
+      .option {
+        grid-template-columns: 1fr;
+      }
+
+      .option-meta {
+        justify-items: start;
+      }
+
+      .date-strip,
+      .time-grid,
+      .pro-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="stripe"></div>
+
+  <header class="topbar">
+    <a class="brand" href="./weex-barberia-landing-mock-v2.html"><span class="brand-mark">BC</span>Barber <span>Colapinta</span></a>
+    <a class="back-link" href="./weex-barberia-landing-mock-v2.html">Volver a la landing</a>
+  </header>
+
+  <main class="page">
+    <section class="intro">
+      <div>
+        <div class="eyebrow">Reserva online - Barber Colapinta</div>
+        <h1>Eleg&iacute; tu turno.</h1>
+        <p>Flujo separado de la landing, simple y directo: servicio, profesional, fecha, horario y datos de contacto. El telefono queda como llave para unir reservas web y WhatsApp.</p>
+      </div>
+      <div class="trust-box">
+        <strong>Agenda sincronizada</strong>
+        <span>Mock visual: cuando esto pase a producto, estos pasos se conectan con Supabase y la agenda actual del CRM.</span>
+      </div>
+    </section>
+
+    <section class="booking-shell">
+      <div>
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Servicios</h2>
+            <span class="step-num">01 - Elegir</span>
+          </div>
+          <div class="service-list">
+            <button class="option active" type="button" data-kind="service" data-name="Corte clasico" data-price="$8.500" data-duration="40 min">
+              <span>
+                <h3>Corte clasico</h3>
+                <p>Tijera, maquina, lavado y peinado final.</p>
+              </span>
+              <span class="option-meta"><span>40 min</span><b>$8.500</b></span>
+            </button>
+            <button class="option" type="button" data-kind="service" data-name="Corte + barba" data-price="$13.500" data-duration="65 min">
+              <span>
+                <h3>Corte + barba</h3>
+                <p>Corte completo, perfilado con navaja y toalla caliente.</p>
+              </span>
+              <span class="option-meta"><span>65 min</span><b>$13.500</b></span>
+            </button>
+            <button class="option" type="button" data-kind="service" data-name="Ritual completo" data-price="$15.000" data-duration="75 min">
+              <span>
+                <h3>Ritual completo</h3>
+                <p>Corte, barba, vapor y tratamiento facial.</p>
+              </span>
+              <span class="option-meta"><span>75 min</span><b>$15.000</b></span>
+            </button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Profesional</h2>
+            <span class="step-num">02 - Equipo</span>
+          </div>
+          <div class="pro-grid">
+            <button class="pro-card active" type="button" data-kind="professional" data-name="Pedro Rivera">
+              <span class="avatar"><img src="https://picsum.photos/seed/book-pedro/240/240" alt="Pedro Rivera"></span>
+              <strong>Pedro Rivera</strong>
+              <span>Clasicos y navaja</span>
+            </button>
+            <button class="pro-card" type="button" data-kind="professional" data-name="Nico Suarez">
+              <span class="avatar"><img src="https://picsum.photos/seed/book-nico/240/240" alt="Nico Suarez"></span>
+              <strong>Nico Suarez</strong>
+              <span>Fades y disenos</span>
+            </button>
+            <button class="pro-card" type="button" data-kind="professional" data-name="Facu Torres">
+              <span class="avatar"><img src="https://picsum.photos/seed/book-facu/240/240" alt="Facu Torres"></span>
+              <strong>Facu Torres</strong>
+              <span>Barbas y color</span>
+            </button>
+            <button class="pro-card" type="button" data-kind="professional" data-name="Marco Diaz">
+              <span class="avatar"><img src="https://picsum.photos/seed/book-marco/240/240" alt="Marco Diaz"></span>
+              <strong>Marco Diaz</strong>
+              <span>Cortes modernos</span>
+            </button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Dia y horario</h2>
+            <span class="step-num">03 - Agenda</span>
+          </div>
+          <div class="calendar-grid">
+            <div class="date-strip">
+              <button class="date" type="button" data-kind="date" data-name="Jue 09 jul"><small>Jue</small><b>09</b></button>
+              <button class="date active" type="button" data-kind="date" data-name="Vie 10 jul"><small>Vie</small><b>10</b></button>
+              <button class="date" type="button" data-kind="date" data-name="Sab 11 jul"><small>Sab</small><b>11</b></button>
+              <button class="date" type="button" data-kind="date" data-name="Lun 13 jul"><small>Lun</small><b>13</b></button>
+              <button class="date" type="button" data-kind="date" data-name="Mar 14 jul"><small>Mar</small><b>14</b></button>
+            </div>
+            <div class="time-grid">
+              <button class="time" type="button" data-kind="time" data-name="10:00">10:00</button>
+              <button class="time disabled" type="button" disabled>10:30</button>
+              <button class="time active" type="button" data-kind="time" data-name="11:00">11:00</button>
+              <button class="time" type="button" data-kind="time" data-name="11:30">11:30</button>
+              <button class="time" type="button" data-kind="time" data-name="16:00">16:00</button>
+              <button class="time" type="button" data-kind="time" data-name="16:30">16:30</button>
+              <button class="time disabled" type="button" disabled>17:00</button>
+              <button class="time" type="button" data-kind="time" data-name="17:30">17:30</button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <aside class="summary-card">
+        <div class="summary-head">
+          <span>Resumen del turno</span>
+          <h2>Confirmar</h2>
+        </div>
+        <div class="summary-body">
+          <div class="receipt">
+            <div class="receipt-row"><span>Servicio</span><strong data-summary="service">Corte clasico</strong></div>
+            <div class="receipt-row"><span>Profesional</span><strong data-summary="professional">Pedro Rivera</strong></div>
+            <div class="receipt-row"><span>Fecha</span><strong data-summary="date">Vie 10 jul</strong></div>
+            <div class="receipt-row"><span>Horario</span><strong data-summary="time">11:00</strong></div>
+            <div class="receipt-row"><span>Duracion</span><strong data-summary="duration">40 min</strong></div>
+            <div class="receipt-row total"><span>Total</span><strong data-summary="price">$8.500</strong></div>
+          </div>
+          <div class="customer-fields">
+            <div class="field">
+              <label for="name">Nombre</label>
+              <input id="name" placeholder="Ej: Juan Perez">
+            </div>
+            <div class="field">
+              <label for="phone">Telefono</label>
+              <input id="phone" placeholder="Ej: 11 5555 5555">
+            </div>
+          </div>
+          <button class="confirm" type="button" id="confirm">Confirmar reserva</button>
+          <div class="notice" id="notice">Reserva mock confirmada. En producto real, este paso guardaria el turno y vincularia el telefono con el cliente del CRM.</div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    var selected = {
+      service: "Corte clasico",
+      price: "$8.500",
+      duration: "40 min",
+      professional: "Pedro Rivera",
+      date: "Vie 10 jul",
+      time: "11:00"
+    };
+
+    function updateSummary() {
+      document.querySelector('[data-summary="service"]').textContent = selected.service;
+      document.querySelector('[data-summary="price"]').textContent = selected.price;
+      document.querySelector('[data-summary="duration"]').textContent = selected.duration;
+      document.querySelector('[data-summary="professional"]').textContent = selected.professional;
+      document.querySelector('[data-summary="date"]').textContent = selected.date;
+      document.querySelector('[data-summary="time"]').textContent = selected.time;
+      document.getElementById("notice").classList.remove("show");
+    }
+
+    document.querySelectorAll("[data-kind]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var kind = button.dataset.kind;
+        var group = document.querySelectorAll('[data-kind="' + kind + '"]');
+        group.forEach(function (item) { item.classList.remove("active"); });
+        button.classList.add("active");
+
+        if (kind === "service") {
+          selected.service = button.dataset.name;
+          selected.price = button.dataset.price;
+          selected.duration = button.dataset.duration;
+        }
+
+        if (kind === "professional") selected.professional = button.dataset.name;
+        if (kind === "date") selected.date = button.dataset.name;
+        if (kind === "time") selected.time = button.dataset.name;
+
+        updateSummary();
+      });
+    });
+
+    document.getElementById("confirm").addEventListener("click", function () {
+      document.getElementById("notice").classList.add("show");
+    });
+  </script>
+</body>
+</html>

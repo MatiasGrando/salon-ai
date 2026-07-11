@@ -4,13 +4,6 @@ import { prisma } from '../config/prisma.js'
 import { whatsappConfig } from '../config/whatsapp.js'
 
 export async function healthRoutes(app: FastifyInstance) {
-  app.get('/', async () => {
-    return {
-      status: 'ok',
-      service: 'salon-ai'
-    }
-  })
-
   app.get('/health', async (request, reply) => {
     const checks = {
       database: await checkDatabase(),

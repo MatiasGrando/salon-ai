@@ -16,9 +16,14 @@ export async function businessRoutes(app: FastifyInstance) {
 
     const body = request.body as {
       name: string
+      slug?: string
     }
 
-    return service.create(body.name)
+    try {
+      return await service.create(body.name, body.slug)
+    } catch (error) {
+      return reply.status(400).send({ message: businessSlugErrorMessage(error) })
+    }
   })
 
   app.get('/businesses', async (request, reply) => {
@@ -41,14 +46,29 @@ export async function businessRoutes(app: FastifyInstance) {
     }
     const body = request.body as {
       name?: string
+      slug?: string | null
       logoUrl?: string | null
+      landingEnabled?: boolean
+      landingDescription?: string | null
+      coverImageUrl?: string | null
+      publicWhatsapp?: string | null
     }
     const name = body.name?.trim()
+    const slug = body.slug === undefined ? undefined : normalizeOptionalText(body.slug)
     const logoUrl = normalizeLogoUrl(body.logoUrl)
+    const coverImageUrl = normalizeImageUrl(body.coverImageUrl)
+    const landingDescription = normalizeOptionalText(body.landingDescription)
+    const publicWhatsapp = normalizeOptionalText(body.publicWhatsapp)
 
     if (body.name !== undefined && !name) {
       return reply.status(400).send({
         message: 'El nombre del local es requerido'
+      })
+    }
+
+    if (body.slug !== undefined && slug === null) {
+      return reply.status(400).send({
+        message: 'El subdominio es requerido'
       })
     }
 
@@ -58,16 +78,40 @@ export async function businessRoutes(app: FastifyInstance) {
       })
     }
 
-    if (name === undefined && logoUrl === undefined) {
+    if (body.coverImageUrl !== undefined && coverImageUrl === undefined) {
+      return reply.status(400).send({
+        message: 'La portada debe ser una imagen valida de hasta 2 MB'
+      })
+    }
+
+    if (
+      name === undefined &&
+      slug === undefined &&
+      logoUrl === undefined &&
+      body.landingEnabled === undefined &&
+      landingDescription === undefined &&
+      coverImageUrl === undefined &&
+      publicWhatsapp === undefined
+    ) {
       return reply.status(400).send({
         message: 'No hay cambios para guardar'
       })
     }
 
-    const business = await service.update(params.id, {
-      ...(name !== undefined ? { name } : {}),
-      ...(logoUrl !== undefined ? { logoUrl } : {})
-    })
+    let business
+    try {
+      business = await service.update(params.id, {
+        ...(name !== undefined ? { name } : {}),
+        ...(slug !== undefined ? { slug } : {}),
+        ...(logoUrl !== undefined ? { logoUrl } : {}),
+        ...(body.landingEnabled !== undefined ? { landingEnabled: Boolean(body.landingEnabled) } : {}),
+        ...(landingDescription !== undefined ? { landingDescription } : {}),
+        ...(coverImageUrl !== undefined ? { coverImageUrl } : {}),
+        ...(publicWhatsapp !== undefined ? { publicWhatsapp } : {})
+      })
+    } catch (error) {
+      return reply.status(400).send({ message: businessSlugErrorMessage(error) })
+    }
 
     if (!business) {
       return reply.status(404).send({
@@ -456,15 +500,19 @@ async function ensureBusinessSettings(businessId: string) {
 }
 
 function normalizeLogoUrl(logoUrl?: string | null) {
-  if (logoUrl === undefined) {
+  return normalizeImageUrl(logoUrl)
+}
+
+function normalizeImageUrl(imageUrl?: string | null) {
+  if (imageUrl === undefined) {
     return undefined
   }
 
-  if (logoUrl === null || logoUrl.trim() === '') {
+  if (imageUrl === null || imageUrl.trim() === '') {
     return null
   }
 
-  const normalized = logoUrl.trim()
+  const normalized = imageUrl.trim()
   const isImageDataUrl = /^data:image\/(png|jpeg|webp|gif);base64,[a-z0-9+/=]+$/i.test(normalized)
 
   return isImageDataUrl && normalized.length <= 2_800_000 ? normalized : undefined
@@ -474,6 +522,13 @@ function normalizeOptionalText(value?: string | null) {
   if (value === undefined) return undefined
   const normalized = value?.trim()
   return normalized || null
+}
+
+function businessSlugErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : ''
+  if (message === 'SLUG_INVALID') return 'El subdominio debe tener letras o numeros'
+  if (message === 'SLUG_RESERVED') return 'Ese subdominio esta reservado'
+  return message || 'No pude guardar el subdominio'
 }
 
 function canAccessBusiness(auth: AuthContext | undefined, businessId: string) {

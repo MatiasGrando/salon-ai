@@ -5868,6 +5868,106 @@ const crmHtml = `<!doctype html>
       height: 44px;
     }
 
+    .settings-field textarea {
+      min-height: 96px;
+      resize: vertical;
+    }
+
+    .settings-field small {
+      color: #6b7892;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .settings-toggle-row {
+      min-height: 46px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #101936;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .landing-preview-links {
+      padding: 12px;
+      display: grid;
+      gap: 8px;
+      border: 1px solid #dfe6f1;
+      border-radius: 8px;
+      background: #f8fbff;
+      color: #52617f;
+      font-size: 12px;
+    }
+
+    .landing-preview-links a {
+      color: #1d4ed8;
+      font-weight: 800;
+      overflow-wrap: anywhere;
+    }
+
+    .landing-cover-field {
+      display: grid;
+      gap: 10px;
+    }
+
+    .landing-cover-preview {
+      min-height: 160px;
+      border: 1px dashed #b8c5da;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      color: #52617f;
+      background: #f6f8ff;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .landing-cover-preview.has-image {
+      display: block;
+    }
+
+    .landing-cover-preview img {
+      width: 100%;
+      height: 100%;
+      min-height: 160px;
+      object-fit: cover;
+      display: none;
+    }
+
+    .landing-cover-preview.has-image img {
+      display: block;
+    }
+
+    .landing-cover-preview.has-image span {
+      display: none;
+    }
+
+    .landing-cover-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .landing-cover-actions label {
+      min-height: 38px;
+      padding: 0 14px;
+      border-radius: 8px;
+      display: inline-flex;
+      align-items: center;
+      color: #fff;
+      background: #2563eb;
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .landing-cover-actions input {
+      display: none;
+    }
+
     .business-logo-field {
       display: flex;
       align-items: center;
@@ -11520,6 +11620,60 @@ const crmHtml = `<!doctype html>
           </form>
         </section>
 
+        <section class="settings-panel">
+          <h3>Landing p&uacute;blica</h3>
+          <p>Configur&aacute; la p&aacute;gina de reservas que van a ver tus clientes.</p>
+          <form class="settings-form" id="landing-settings-form">
+            <label class="settings-toggle-row">
+              <input id="landing-enabled" type="checkbox">
+              Landing activa
+            </label>
+
+            <div class="settings-field">
+              <label for="landing-slug">Subdominio</label>
+              <input class="field" id="landing-slug" autocomplete="off" placeholder="lapelu">
+              <small>En local se prueba como /lapelu. Luego va a funcionar como lapelu.weex.com.ar.</small>
+            </div>
+
+            <div class="landing-preview-links">
+              <span>Vista previa local</span>
+              <a id="landing-local-link" href="#" target="_blank" rel="noopener">Sin subdominio configurado</a>
+              <span>Dominio final</span>
+              <a id="landing-domain-link" href="#" target="_blank" rel="noopener">Sin subdominio configurado</a>
+            </div>
+
+            <div class="settings-field">
+              <label for="landing-description">Descripci&oacute;n principal</label>
+              <textarea class="field" id="landing-description" maxlength="420" placeholder="Ej: Barber&iacute;a de barrio con reservas online, cortes cl&aacute;sicos y atenci&oacute;n personalizada."></textarea>
+            </div>
+
+            <div class="settings-field">
+              <label for="landing-whatsapp">WhatsApp p&uacute;blico</label>
+              <input class="field" id="landing-whatsapp" inputmode="tel" placeholder="+54 9 11 1234-5678">
+              <small>Se usa para el bot&oacute;n de consulta en la landing.</small>
+            </div>
+
+            <div class="landing-cover-field">
+              <div class="business-hours-title">Imagen de portada</div>
+              <div class="landing-cover-preview" id="landing-cover-preview">
+                <img id="landing-cover-image" alt="Portada de la landing">
+                <span>Sin portada cargada</span>
+              </div>
+              <div class="landing-cover-actions">
+                <label for="landing-cover">Subir portada
+                  <input id="landing-cover" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
+                </label>
+                <button class="business-logo-remove" id="landing-cover-remove" type="button">Quitar portada</button>
+              </div>
+            </div>
+
+            <div class="settings-actions">
+              <button class="primary" id="landing-settings-submit" type="submit">Guardar landing</button>
+            </div>
+            <p class="settings-feedback" id="landing-settings-feedback" role="status" aria-live="polite"></p>
+          </form>
+        </section>
+
         <section class="settings-panel" id="super-admin-panel" hidden>
           <h3>Alta de comercio</h3>
           <p>Cre&aacute; un comercio y su usuario administrador. Despu&eacute;s el negocio completa horarios, profesionales, servicios y WhatsApp.</p>
@@ -12327,6 +12481,7 @@ const crmHtml = `<!doctype html>
       campaignPage: 1,
       campaignTake: 8,
       campaignImageUrl: null,
+      landingCoverUrl: null,
       campaignEmojiCategory: 'recent',
       campaignDetailTab: 'summary',
       campaignManualSelected: new Map(),
@@ -12790,6 +12945,19 @@ const crmHtml = `<!doctype html>
       businessSundayEnd: document.getElementById('business-sunday-end'),
       businessSettingsSubmit: document.getElementById('business-settings-submit'),
       businessSettingsFeedback: document.getElementById('business-settings-feedback'),
+      landingSettingsForm: document.getElementById('landing-settings-form'),
+      landingEnabled: document.getElementById('landing-enabled'),
+      landingSlug: document.getElementById('landing-slug'),
+      landingLocalLink: document.getElementById('landing-local-link'),
+      landingDomainLink: document.getElementById('landing-domain-link'),
+      landingDescription: document.getElementById('landing-description'),
+      landingWhatsapp: document.getElementById('landing-whatsapp'),
+      landingCover: document.getElementById('landing-cover'),
+      landingCoverPreview: document.getElementById('landing-cover-preview'),
+      landingCoverImage: document.getElementById('landing-cover-image'),
+      landingCoverRemove: document.getElementById('landing-cover-remove'),
+      landingSettingsSubmit: document.getElementById('landing-settings-submit'),
+      landingSettingsFeedback: document.getElementById('landing-settings-feedback'),
       superAdminPanel: document.getElementById('super-admin-panel'),
       adminCreateBusinessForm: document.getElementById('admin-create-business-form'),
       adminBusinessName: document.getElementById('admin-business-name'),
@@ -15571,6 +15739,7 @@ const crmHtml = `<!doctype html>
       els.businessName.value = state.business?.name || ''
       setBusinessLogo(state.business?.logoUrl || null)
       updateBusinessBrand()
+      renderLandingSettings()
       const byDay = new Map(state.businessHours.map((hour) => [hour.dayOfWeek, hour]))
       const weekdays = [1, 2, 3, 4, 5].map((day) => byDay.get(day)).filter(Boolean)
       const weekday = weekdays[0]
@@ -15586,6 +15755,44 @@ const crmHtml = `<!doctype html>
       els.businessSundayEnabled.checked = Boolean(sunday)
       els.businessSundayStart.value = sunday?.startTime || '09:00'
       els.businessSundayEnd.value = sunday?.endTime || '14:00'
+    }
+
+    function renderLandingSettings() {
+      const slug = state.business?.slug || ''
+      els.landingEnabled.checked = state.business?.landingEnabled !== false
+      els.landingSlug.value = slug
+      els.landingDescription.value = state.business?.landingDescription || ''
+      els.landingWhatsapp.value = state.business?.publicWhatsapp || ''
+      setLandingCover(state.business?.coverImageUrl || null)
+      renderLandingLinks(slug)
+    }
+
+    function renderLandingLinks(slug) {
+      const normalizedSlug = normalizeLandingSlug(slug)
+      if (!normalizedSlug) {
+        els.landingLocalLink.textContent = 'Sin subdominio configurado'
+        els.landingLocalLink.href = '#'
+        els.landingDomainLink.textContent = 'Sin subdominio configurado'
+        els.landingDomainLink.href = '#'
+        return
+      }
+
+      const localUrl = window.location.origin + '/' + normalizedSlug
+      const domainUrl = 'https://' + normalizedSlug + '.weex.com.ar'
+      els.landingLocalLink.textContent = localUrl
+      els.landingLocalLink.href = localUrl
+      els.landingDomainLink.textContent = domainUrl
+      els.landingDomainLink.href = domainUrl
+    }
+
+    function normalizeLandingSlug(value) {
+      return String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 64)
     }
 
     function renderWhatsappSettings() {
@@ -15985,6 +16192,41 @@ const crmHtml = `<!doctype html>
       reader.readAsDataURL(file)
     }
 
+    function setLandingCover(coverUrl) {
+      state.landingCoverUrl = coverUrl
+      els.landingCoverImage.src = coverUrl || ''
+      els.landingCoverPreview.classList.toggle('has-image', Boolean(coverUrl))
+      els.landingCoverRemove.hidden = !coverUrl
+      if (!coverUrl) {
+        els.landingCover.value = ''
+      }
+    }
+
+    function readLandingCover(event) {
+      const file = event.target.files?.[0]
+      if (!file) return
+
+      const supportedTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
+      if (!supportedTypes.includes(file.type)) {
+        showLandingSettingsFeedback('Elegi una portada PNG, JPG, WEBP o GIF.', 'error')
+        setLandingCover(state.business?.coverImageUrl || null)
+        return
+      }
+
+      if (file.size > 2 * 1024 * 1024) {
+        showLandingSettingsFeedback('La portada no puede superar los 2 MB.', 'error')
+        setLandingCover(state.business?.coverImageUrl || null)
+        return
+      }
+
+      clearLandingSettingsFeedback()
+      const reader = new FileReader()
+      reader.addEventListener('load', () => {
+        setLandingCover(String(reader.result || ''))
+      })
+      reader.readAsDataURL(file)
+    }
+
     function showBusinessSettingsFeedback(message, type) {
       els.businessSettingsFeedback.textContent = message
       els.businessSettingsFeedback.className = 'settings-feedback visible ' + type
@@ -15993,6 +16235,16 @@ const crmHtml = `<!doctype html>
     function clearBusinessSettingsFeedback() {
       els.businessSettingsFeedback.textContent = ''
       els.businessSettingsFeedback.className = 'settings-feedback'
+    }
+
+    function showLandingSettingsFeedback(message, type) {
+      els.landingSettingsFeedback.textContent = message
+      els.landingSettingsFeedback.className = 'settings-feedback visible ' + type
+    }
+
+    function clearLandingSettingsFeedback() {
+      els.landingSettingsFeedback.textContent = ''
+      els.landingSettingsFeedback.className = 'settings-feedback'
     }
 
     function showAutomationSettingsFeedback(message, type) {
@@ -16120,6 +16372,43 @@ const crmHtml = `<!doctype html>
         .map((hour) => hour.dayOfWeek + ':' + hour.startTime + '-' + hour.endTime)
         .sort()
         .join('|')
+    }
+
+    async function saveLandingSettings(event) {
+      event.preventDefault()
+      clearLandingSettingsFeedback()
+      if (!state.businessId) return
+
+      const slug = normalizeLandingSlug(els.landingSlug.value)
+      if (!slug) {
+        showLandingSettingsFeedback('Completa el subdominio de la landing.', 'error')
+        return
+      }
+
+      els.landingSlug.value = slug
+      els.landingSettingsSubmit.disabled = true
+      els.landingSettingsSubmit.textContent = 'Guardando...'
+
+      try {
+        state.business = await getJson('/businesses/' + state.businessId, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            landingEnabled: els.landingEnabled.checked,
+            slug,
+            landingDescription: els.landingDescription.value.trim() || null,
+            publicWhatsapp: els.landingWhatsapp.value.trim() || null,
+            coverImageUrl: state.landingCoverUrl
+          })
+        })
+        renderLandingSettings()
+        showLandingSettingsFeedback('Landing guardada correctamente.', 'success')
+      } catch (error) {
+        showLandingSettingsFeedback(error.message, 'error')
+      } finally {
+        els.landingSettingsSubmit.disabled = false
+        els.landingSettingsSubmit.textContent = 'Guardar landing'
+      }
     }
 
     async function saveBusinessSettings(event) {
@@ -20051,6 +20340,15 @@ const crmHtml = `<!doctype html>
       renderCampaigns()
     })
     els.businessSettingsForm.addEventListener('submit', saveBusinessSettings)
+    els.landingSettingsForm.addEventListener('submit', saveLandingSettings)
+    els.landingSlug.addEventListener('input', () => {
+      renderLandingLinks(els.landingSlug.value)
+    })
+    els.landingCover.addEventListener('change', readLandingCover)
+    els.landingCoverRemove.addEventListener('click', () => {
+      clearLandingSettingsFeedback()
+      setLandingCover(null)
+    })
     els.staffUserForm?.addEventListener('submit', saveStaffUser)
     els.staffUserCancel?.addEventListener('click', resetStaffUserForm)
     els.staffUserList?.addEventListener('click', (event) => {

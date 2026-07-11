@@ -79,7 +79,12 @@ enum UserRole {
 model Business {
   id            String         @id @default(cuid())
   name          String
+  slug          String?        @unique
   logoUrl       String?
+  landingEnabled Boolean       @default(true)
+  landingDescription String?
+  coverImageUrl String?
+  publicWhatsapp String?
   botEnabled    Boolean        @default(true)
   aiEnabled     Boolean        @default(true)
   whatsappConfig BusinessWhatsAppConfig?
