@@ -1442,6 +1442,55 @@ const crmHtml = `<!doctype html>
       font-size: 13px;
     }
 
+    .support-business-switcher {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      margin-left: auto;
+      padding: 8px 10px;
+      border: 1px solid #dfe6f1;
+      border-radius: 8px;
+      background: #fff;
+      min-width: min(360px, 42vw);
+    }
+
+    .support-business-switcher.visible {
+      display: flex;
+    }
+
+    .support-business-switcher label {
+      display: grid;
+      gap: 2px;
+      flex: 1;
+      min-width: 0;
+      color: #52617f;
+      font-size: 11px;
+      font-weight: 750;
+      text-transform: uppercase;
+    }
+
+    .support-business-switcher select {
+      width: 100%;
+      min-width: 0;
+      border: 0;
+      padding: 0;
+      background: transparent;
+      color: #071033;
+      font-size: 14px;
+      font-weight: 750;
+      outline: none;
+    }
+
+    .support-business-badge {
+      padding: 5px 8px;
+      border-radius: 999px;
+      background: #eff6ff;
+      color: #174ea6;
+      font-size: 11px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
     .conversation-global-search {
       height: 46px;
       min-width: 0;
@@ -10568,6 +10617,12 @@ const crmHtml = `<!doctype html>
           <p>Gestion&aacute; tus chats y respond&eacute; m&aacute;s r&aacute;pido</p>
         </div>
       </div>
+      <div class="support-business-switcher" id="support-business-switcher" hidden>
+        <label for="support-business-select">Comercio en revisi&oacute;n
+          <select id="support-business-select"></select>
+        </label>
+        <span class="support-business-badge">S&uacute;per Admin</span>
+      </div>
       <button class="icon-button conversation-refresh" id="refresh" type="button" title="Actualizar" data-icon="refresh"></button>
     </header>
 
@@ -12402,6 +12457,7 @@ const crmHtml = `<!doctype html>
       staffUsers: [],
       services: [],
       customers: [],
+      businesses: [],
       customerOverview: [],
       currentUser: null,
       currentSessionBusiness: null,
@@ -12526,6 +12582,8 @@ const crmHtml = `<!doctype html>
       loginSubmit: document.getElementById('login-submit'),
       loginFeedback: document.getElementById('login-feedback'),
       logoutButton: document.getElementById('logout-button'),
+      supportBusinessSwitcher: document.getElementById('support-business-switcher'),
+      supportBusinessSelect: document.getElementById('support-business-select'),
       refresh: document.getElementById('refresh'),
       handoffCount: document.getElementById('handoff-count'),
       topConversationTotal: document.getElementById('top-conversation-total'),
@@ -13230,11 +13288,25 @@ const crmHtml = `<!doctype html>
       if (els.superAdminPanel) {
         els.superAdminPanel.hidden = state.currentUser?.role !== 'SUPER_ADMIN'
       }
+      renderSupportBusinessSwitcher()
       if (els.staffAccountsPanel) {
         els.staffAccountsPanel.hidden = !canManageStaffUsers()
       }
       applyAgendaPermissions()
       updateBusinessBrand()
+    }
+
+    function renderSupportBusinessSwitcher() {
+      if (!els.supportBusinessSwitcher || !els.supportBusinessSelect) return
+      const isSuperAdmin = state.currentUser?.role === 'SUPER_ADMIN'
+      els.supportBusinessSwitcher.hidden = !isSuperAdmin
+      els.supportBusinessSwitcher.classList.toggle('visible', isSuperAdmin)
+      if (!isSuperAdmin) return
+
+      els.supportBusinessSelect.innerHTML = state.businesses.map((business) => {
+        return '<option value="' + escapeHtml(business.id) + '">' + escapeHtml(business.name) + '</option>'
+      }).join('')
+      els.supportBusinessSelect.value = state.businessId || ''
     }
 
     function canManageStaffUsers() {
@@ -13509,19 +13581,10 @@ const crmHtml = `<!doctype html>
 
     async function loadBasics() {
       const businesses = await getJson('/businesses')
+      state.businesses = businesses
       state.business = state.currentSessionBusiness || businesses[0] || null
       state.businessId = state.business?.id || null
-      state.businessHours = state.businessId
-        ? await getJson('/business-hours?businessId=' + encodeURIComponent(state.businessId))
-        : []
-      state.whatsappSettings = state.businessId
-        ? await getJson('/businesses/' + state.businessId + '/whatsapp-settings')
-        : null
-      state.aiSettings = await getJson('/crm/ai-settings' + (state.businessId ? '?businessId=' + encodeURIComponent(state.businessId) : ''))
-      state.professionals = await getJson('/professionals')
-      await loadStaffUsers()
-      state.services = await getJson('/services')
-      state.customers = await getJson('/customers')
+      await loadBusinessScopedBasics()
       renderBusinessSettings()
       renderWhatsappSettings()
       renderAuthUi()
@@ -13533,6 +13596,65 @@ const crmHtml = `<!doctype html>
       renderAgendaFilters()
       renderAppointmentFormOptions()
       renderAgenda()
+    }
+
+    async function loadBusinessScopedBasics() {
+      const businessQuery = state.businessId ? '?businessId=' + encodeURIComponent(state.businessId) : ''
+      state.businessHours = state.businessId
+        ? await getJson('/business-hours?businessId=' + encodeURIComponent(state.businessId))
+        : []
+      state.whatsappSettings = state.businessId
+        ? await getJson('/businesses/' + state.businessId + '/whatsapp-settings')
+        : null
+      state.aiSettings = await getJson('/crm/ai-settings' + businessQuery)
+      state.professionals = await getJson('/professionals' + businessQuery)
+      await loadStaffUsers()
+      state.services = await getJson('/services' + businessQuery)
+      state.customers = await getJson('/customers' + businessQuery)
+    }
+
+    async function switchSupportBusiness(businessId) {
+      if (state.currentUser?.role !== 'SUPER_ADMIN' || !businessId || businessId === state.businessId) return
+      const nextBusiness = state.businesses.find((business) => business.id === businessId)
+      if (!nextBusiness) return
+      state.business = nextBusiness
+      state.businessId = nextBusiness.id
+      state.selected = null
+      state.messages = []
+      state.messageNextCursor = null
+      state.conversations = []
+      state.conversationNextCursor = null
+      state.conversationCounts = { active: 0, archived: 0, handoff: 0 }
+      state.lastConversationSyncAt = null
+      state.customerOverview = []
+      state.selectedCustomerId = null
+      state.agendaAppointments = []
+      state.agendaBlocks = []
+      state.campaignsLoaded = false
+      state.templatesLoaded = false
+      state.reminderLoaded = false
+
+      els.list.innerHTML = '<div class="empty">Cargando conversaciones de ' + escapeHtml(nextBusiness.name) + '...</div>'
+      try {
+        await loadBusinessScopedBasics()
+        renderSupportBusinessSwitcher()
+        renderBusinessSettings()
+        renderWhatsappSettings()
+        applyProfessionalBusinessHourLimits()
+        renderAiControls()
+        renderProfessionals()
+        renderStaffUsers()
+        renderServices()
+        renderAgendaFilters()
+        renderAppointmentFormOptions()
+        renderAgenda()
+        await loadConversations()
+        if (els.appShell?.dataset.section === 'customers') await loadCustomerOverview()
+        if (els.appShell?.dataset.section === 'reports') await loadReports()
+        showCrmToast('Revisando conversaciones de ' + nextBusiness.name + '.', 'success')
+      } catch (error) {
+        showCrmToast(error.message, 'error')
+      }
     }
 
     async function startCrm() {
@@ -20338,6 +20460,9 @@ const crmHtml = `<!doctype html>
     els.campaignPageNext.addEventListener('click', () => {
       state.campaignPage += 1
       renderCampaigns()
+    })
+    els.supportBusinessSelect?.addEventListener('change', (event) => {
+      switchSupportBusiness(event.target.value)
     })
     els.businessSettingsForm.addEventListener('submit', saveBusinessSettings)
     els.landingSettingsForm.addEventListener('submit', saveLandingSettings)

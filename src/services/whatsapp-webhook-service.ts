@@ -62,16 +62,7 @@ export class WhatsAppWebhookService {
     })
 
     for (const message of messages) {
-      const targetBusiness = message.phoneNumberId
-        ? await prisma.businessWhatsAppConfig.findFirst({
-            where: {
-              phoneNumberId: message.phoneNumberId
-            },
-            select: {
-              businessId: true
-            }
-          })
-        : null
+      const targetBusiness = await this.resolveTargetBusiness(message)
       const targetBusinessId = targetBusiness?.businessId ?? null
 
       console.info('[whatsapp-webhook] processing text message', {
@@ -154,6 +145,17 @@ export class WhatsAppWebhookService {
 
       await prisma.message.create({
         data: inboundMessageData
+      })
+
+      await prisma.conversation.update({
+        where: {
+          id: conversation.id
+        },
+        data: {
+          lastMessage: message.text,
+          archivedAt: null,
+          updatedAt: new Date()
+        }
       })
 
       const marketingOptOutApplied = await this.applyMarketingOptOut({
@@ -371,6 +373,47 @@ export class WhatsAppWebhookService {
     return messages
   }
 
+  private async resolveTargetBusiness(message: { phoneNumberId?: string; displayPhoneNumber?: string }) {
+    const normalizedDisplayPhoneNumber = normalizeWhatsAppPhone(message.displayPhoneNumber)
+    let targetBusiness = message.phoneNumberId
+      ? await prisma.businessWhatsAppConfig.findFirst({
+          where: {
+            phoneNumberId: message.phoneNumberId
+          },
+          select: {
+            businessId: true
+          }
+        })
+      : null
+
+    if (!targetBusiness && normalizedDisplayPhoneNumber) {
+      const candidates = await prisma.businessWhatsAppConfig.findMany({
+        where: {
+          displayPhoneNumber: {
+            not: null
+          }
+        },
+        select: {
+          businessId: true,
+          displayPhoneNumber: true
+        }
+      })
+      targetBusiness = candidates.find((candidate) => {
+        return normalizeWhatsAppPhone(candidate.displayPhoneNumber) === normalizedDisplayPhoneNumber
+      }) ?? null
+    }
+
+    if (!targetBusiness) {
+      console.warn('[whatsapp-webhook] no business matched incoming whatsapp number', {
+        phoneNumberId: message.phoneNumberId,
+        displayPhoneNumber: message.displayPhoneNumber,
+        normalizedDisplayPhoneNumber
+      })
+    }
+
+    return targetBusiness
+  }
+
   private async applyMarketingOptOut(input: { businessId: string | null; phone: string; text: string }) {
     if (!isMarketingOptOutMessage(input.text)) return false
     const customers = await prisma.customer.findMany({
@@ -460,6 +503,10 @@ function isMarketingOptOutMessage(text: string) {
 
 function normalizeMarketingPhone(phone: string) {
   return phone.replace(/\D/g, '')
+}
+
+function normalizeWhatsAppPhone(phone?: string | null) {
+  return phone?.replace(/\D/g, '') || null
 }
 
 function getOutgoingProviderMessageId(deliveryResult: Awaited<ReturnType<WhatsAppCloudApi['sendTextMessage']>>) {
