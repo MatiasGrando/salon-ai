@@ -1,0 +1,1069 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Barber Colapinta - Reserva estilo marca</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Playfair+Display:wght@600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --ink: #15110b;
+      --ink-2: #21190f;
+      --ink-3: #2b2114;
+      --cream: #f1eadb;
+      --cream-2: #fbf6eb;
+      --cream-3: #e4d6bc;
+      --gold: #c9a13b;
+      --gold-soft: rgba(201, 161, 59, .42);
+      --wine: #782332;
+      --wine-dark: #571822;
+      --text: #241e16;
+      --muted: #7e735f;
+      --line: #dacaa9;
+      --line-dark: rgba(201, 161, 59, .28);
+      --shadow: 0 24px 60px rgba(22, 15, 8, .22);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      min-height: 100vh;
+      padding: 34px 16px 80px;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 16% 0%, rgba(201, 161, 59, .18), transparent 30%),
+        linear-gradient(180deg, #16110b 0 220px, var(--cream) 220px 100%);
+      font-family: "Montserrat", system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a,
+    button {
+      color: inherit;
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    .brand-rail {
+      width: min(1040px, 100%);
+      margin: 0 auto 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      color: #f7f1e4;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 13px;
+      text-decoration: none;
+    }
+
+    .brand-mark {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      color: var(--gold);
+      border: 1px solid var(--gold);
+      border-radius: 50%;
+    }
+
+    .brand-mark svg {
+      width: 22px;
+      height: 22px;
+    }
+
+    .brand-name {
+      display: grid;
+      gap: 2px;
+    }
+
+    .brand-name strong {
+      font-family: "Playfair Display", serif;
+      font-size: 20px;
+      font-weight: 900;
+      letter-spacing: .04em;
+      line-height: 1;
+      text-transform: uppercase;
+    }
+
+    .brand-name span {
+      color: var(--gold);
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: .28em;
+      text-transform: uppercase;
+    }
+
+    .brand-note {
+      color: #d7c7a5;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    .modal {
+      width: min(1040px, 100%);
+      margin: 0 auto;
+      overflow: hidden;
+      background: var(--cream-2);
+      border: 1px solid rgba(201, 161, 59, .35);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+    }
+
+    .modal-header {
+      min-height: 78px;
+      padding: 20px 26px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      color: #f7f1e4;
+      background:
+        linear-gradient(90deg, rgba(21, 17, 11, .98), rgba(33, 25, 15, .96)),
+        repeating-linear-gradient(45deg, #20170e 0 2px, #17110b 2px 4px);
+      border-bottom: 1px solid var(--line-dark);
+    }
+
+    .icon-btn {
+      width: 40px;
+      height: 40px;
+      flex: 0 0 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--gold);
+      background: rgba(255, 255, 255, .035);
+      border: 1px solid rgba(201, 161, 59, .38);
+      border-radius: 50%;
+      transition: background .18s ease, border-color .18s ease;
+    }
+
+    .icon-btn:hover {
+      background: rgba(201, 161, 59, .1);
+      border-color: rgba(201, 161, 59, .7);
+    }
+
+    .icon-btn:disabled {
+      opacity: .36;
+      cursor: not-allowed;
+    }
+
+    .icon-btn svg {
+      width: 17px;
+      height: 17px;
+    }
+
+    .breadcrumb {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      flex-wrap: wrap;
+      color: #9b8d74;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .crumb {
+      padding: 0;
+      color: inherit;
+      background: transparent;
+      border: 0;
+      font: inherit;
+    }
+
+    .crumb.active {
+      color: var(--gold);
+    }
+
+    .crumb.done {
+      color: #e7dcc6;
+      cursor: pointer;
+    }
+
+    .crumb.done:hover {
+      color: var(--gold);
+    }
+
+    .crumb-sep {
+      color: rgba(201, 161, 59, .32);
+    }
+
+    .modal-body {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      align-items: stretch;
+    }
+
+    .main-col {
+      min-height: 540px;
+      padding: 40px 40px 50px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, .52), rgba(255, 255, 255, .22)),
+        var(--cream-2);
+      border-right: 1px solid var(--line);
+    }
+
+    .step-heading {
+      margin-bottom: 28px;
+      color: var(--ink);
+      font-family: "Playfair Display", serif;
+      font-size: 34px;
+      font-weight: 900;
+      line-height: 1.05;
+      letter-spacing: .02em;
+    }
+
+    .step-heading::after {
+      content: "";
+      display: block;
+      width: 72px;
+      height: 1px;
+      margin-top: 14px;
+      background: var(--gold);
+    }
+
+    .options {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .opt-card {
+      width: 100%;
+      min-height: 74px;
+      padding: 16px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      color: var(--text);
+      background: #fffaf0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      text-align: left;
+      transition: border-color .18s ease, background .18s ease, box-shadow .18s ease;
+    }
+
+    .opt-card:hover {
+      border-color: rgba(201, 161, 59, .72);
+    }
+
+    .opt-card.selected {
+      background: #fff3d8;
+      border-color: var(--gold);
+      box-shadow: inset 0 0 0 1px rgba(201, 161, 59, .38);
+    }
+
+    .opt-left {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .opt-left > span:last-child {
+      min-width: 0;
+      line-height: 1.35;
+    }
+
+    .opt-name {
+      display: inline-block;
+      color: var(--ink);
+      font-size: 15px;
+      font-weight: 900;
+    }
+
+    .opt-sub {
+      display: inline-block;
+      margin-top: 3px;
+      margin-left: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .opt-right {
+      flex: 0 0 auto;
+      display: grid;
+      justify-items: end;
+      gap: 4px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .opt-price {
+      color: var(--wine);
+      font-size: 15px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .radio {
+      width: 20px;
+      height: 20px;
+      flex: 0 0 20px;
+      position: relative;
+      border: 1.5px solid #cfc0a2;
+      border-radius: 50%;
+    }
+
+    .opt-card.selected .radio {
+      border-color: var(--wine);
+    }
+
+    .opt-card.selected .radio::after {
+      content: "";
+      position: absolute;
+      inset: 4px;
+      background: var(--wine);
+      border-radius: 50%;
+    }
+
+    .avatar {
+      width: 44px;
+      height: 44px;
+      flex: 0 0 44px;
+      display: grid;
+      place-items: center;
+      color: var(--gold);
+      background: var(--ink);
+      border: 1px solid rgba(201, 161, 59, .48);
+      border-radius: 50%;
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .filter-row {
+      margin-bottom: 26px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .pill {
+      min-height: 42px;
+      padding: 0 16px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--gold);
+      background: var(--ink);
+      border: 1px solid rgba(201, 161, 59, .46);
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 900;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+
+    .pill svg {
+      width: 15px;
+      height: 15px;
+    }
+
+    .section-label {
+      margin: 0 0 14px;
+      color: var(--ink);
+      font-family: "Playfair Display", serif;
+      font-size: 18px;
+      font-weight: 900;
+    }
+
+    .date-row {
+      margin-bottom: 32px;
+    }
+
+    .date-track {
+      display: flex;
+      gap: 10px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+
+    .date-track::-webkit-scrollbar {
+      display: none;
+    }
+
+    .date-chip {
+      width: 64px;
+      flex: 0 0 64px;
+      padding: 12px 0 14px;
+      color: var(--text);
+      background: #fffaf0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      text-align: center;
+      transition: border-color .18s ease, background .18s ease;
+    }
+
+    .date-chip:hover {
+      border-color: rgba(201, 161, 59, .72);
+    }
+
+    .date-chip small,
+    .date-chip span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: lowercase;
+    }
+
+    .date-chip b {
+      display: block;
+      margin: 5px 0 3px;
+      color: var(--ink);
+      font-size: 20px;
+      line-height: 1;
+    }
+
+    .date-chip.selected {
+      color: #fff8e9;
+      background: var(--wine);
+      border-color: var(--wine);
+    }
+
+    .date-chip.selected small,
+    .date-chip.selected span,
+    .date-chip.selected b {
+      color: #fff8e9;
+    }
+
+    .slots {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .slot {
+      min-height: 54px;
+      padding: 0 18px;
+      color: var(--ink);
+      background: #fffaf0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 900;
+      text-align: left;
+      transition: border-color .18s ease, background .18s ease, color .18s ease;
+    }
+
+    .slot:hover {
+      border-color: rgba(201, 161, 59, .72);
+    }
+
+    .slot.selected {
+      color: var(--ink);
+      background: #edcf7d;
+      border-color: var(--gold);
+    }
+
+    .summary {
+      padding: 32px 28px;
+      color: #f7f1e4;
+      background:
+        radial-gradient(circle at 20% 0%, rgba(201, 161, 59, .16), transparent 34%),
+        linear-gradient(180deg, var(--ink-2), var(--ink));
+    }
+
+    .biz-block {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .biz-logo {
+      width: 50px;
+      height: 50px;
+      flex: 0 0 50px;
+      display: grid;
+      place-items: center;
+      color: var(--gold);
+      background: #0f0b07;
+      border: 1px solid rgba(201, 161, 59, .56);
+      border-radius: 50%;
+      font-family: "Playfair Display", serif;
+      font-size: 15px;
+      font-weight: 900;
+    }
+
+    .biz-name {
+      margin-bottom: 4px;
+      color: #fff8e9;
+      font-family: "Playfair Display", serif;
+      font-size: 18px;
+      font-weight: 900;
+      line-height: 1.05;
+      text-transform: uppercase;
+    }
+
+    .biz-rating {
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      color: var(--gold);
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .biz-rating svg {
+      width: 13px;
+      height: 13px;
+    }
+
+    .biz-rating span,
+    .biz-address {
+      color: #c8b891;
+      font-weight: 500;
+    }
+
+    .biz-address {
+      font-size: 12.5px;
+      line-height: 1.45;
+    }
+
+    .divider {
+      border: 0;
+      border-top: 1px solid rgba(201, 161, 59, .24);
+      margin: 20px 0;
+    }
+
+    .summary-empty {
+      color: #b7a98d;
+      font-size: 13.5px;
+      font-style: italic;
+      line-height: 1.5;
+    }
+
+    .summary-line {
+      padding: 14px 0;
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      border-bottom: 1px solid rgba(201, 161, 59, .2);
+    }
+
+    .summary-line:last-child {
+      border-bottom: 0;
+    }
+
+    .summary-line span {
+      display: block;
+      color: #b7a98d;
+      font-size: 12.5px;
+      line-height: 1.35;
+    }
+
+    .summary-line strong,
+    .summary-line b {
+      color: #fff8e9;
+      font-size: 14.5px;
+      font-weight: 900;
+      text-align: right;
+    }
+
+    .summary-line.primary {
+      padding: 16px;
+      margin-bottom: 8px;
+      background: rgba(255, 255, 255, .045);
+      border: 1px solid rgba(201, 161, 59, .28);
+      border-radius: 10px;
+    }
+
+    .summary-line.primary strong,
+    .summary-line.primary b {
+      color: var(--gold);
+      text-align: left;
+      font-size: 15px;
+    }
+
+    .total-row {
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #fff8e9;
+      font-size: 15px;
+      font-weight: 900;
+    }
+
+    .total-row strong {
+      color: var(--gold);
+    }
+
+    .continue-btn {
+      width: 100%;
+      min-height: 52px;
+      padding: 0 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: #8f8165;
+      background: rgba(255, 255, 255, .06);
+      border: 1px solid rgba(201, 161, 59, .18);
+      border-radius: 999px;
+      font-size: 14px;
+      font-weight: 900;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      cursor: not-allowed;
+      transition: background .18s ease, border-color .18s ease, color .18s ease;
+    }
+
+    .continue-btn.enabled {
+      color: #fff8e9;
+      background: linear-gradient(180deg, var(--wine), var(--wine-dark));
+      border-color: var(--gold);
+      cursor: pointer;
+    }
+
+    .continue-btn.enabled:hover {
+      background: var(--wine-dark);
+    }
+
+    .continue-btn svg {
+      width: 15px;
+      height: 15px;
+    }
+
+    .confirm-note {
+      max-width: 440px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .success {
+      display: none;
+      padding: 58px 20px;
+      text-align: center;
+    }
+
+    .success.show {
+      display: block;
+    }
+
+    .success .check {
+      width: 58px;
+      height: 58px;
+      margin: 0 auto 18px;
+      display: grid;
+      place-items: center;
+      color: #fff8e9;
+      background: var(--wine);
+      border: 1px solid var(--gold);
+      border-radius: 50%;
+    }
+
+    .success .check svg {
+      width: 27px;
+      height: 27px;
+    }
+
+    .success h3 {
+      margin-bottom: 8px;
+      color: var(--ink);
+      font-family: "Playfair Display", serif;
+      font-size: 24px;
+      font-weight: 900;
+    }
+
+    .success p {
+      max-width: 430px;
+      margin: 0 auto;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    .success-link {
+      min-height: 46px;
+      margin-top: 22px;
+      padding: 0 18px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff8e9;
+      background: linear-gradient(180deg, var(--wine), var(--wine-dark));
+      border: 1px solid var(--gold);
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 900;
+      letter-spacing: .08em;
+      text-decoration: none;
+      text-transform: uppercase;
+    }
+
+    @media (max-width: 860px) {
+      body {
+        padding: 18px 12px 48px;
+      }
+
+      .brand-rail {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .brand-note {
+        display: none;
+      }
+
+      .modal-body {
+        grid-template-columns: 1fr;
+      }
+
+      .main-col {
+        min-height: 0;
+        padding: 28px 22px 36px;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .summary {
+        padding: 24px 22px;
+      }
+
+      .breadcrumb {
+        display: none;
+      }
+
+      .step-heading {
+        font-size: 28px;
+      }
+    }
+
+    @media (max-width: 560px) {
+      .modal-header {
+        padding: 16px;
+      }
+
+      .opt-card {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .opt-right {
+        width: 100%;
+        justify-items: start;
+      }
+
+      .date-chip {
+        width: 58px;
+        flex-basis: 58px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="brand-rail">
+    <a class="brand" href="#">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+          <circle cx="6" cy="6" r="2.6"></circle><circle cx="6" cy="18" r="2.6"></circle>
+          <line x1="8.1" y1="7.6" x2="20" y2="18"></line><line x1="8.1" y1="16.4" x2="20" y2="6"></line>
+        </svg>
+      </span>
+      <span class="brand-name">
+        <strong>Barber Colapinta</strong>
+        <span>Oficio de navaja y tijera</span>
+      </span>
+    </a>
+    <div class="brand-note">Reserva online</div>
+  </div>
+
+  <section class="modal">
+    <header class="modal-header">
+      <button class="icon-btn" id="backBtn" type="button" aria-label="Volver">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 19l-7-7 7-7"></path></svg>
+      </button>
+      <nav class="breadcrumb" id="breadcrumb" aria-label="Pasos de reserva"></nav>
+      <button class="icon-btn" id="closeBtn" type="button" aria-label="Cerrar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+      </button>
+    </header>
+
+    <div class="modal-body">
+      <main class="main-col">
+        <h1 class="step-heading" id="stepHeading">Seleccionar servicio</h1>
+        <div id="stepContent"></div>
+      </main>
+
+      <aside class="summary">
+        <div class="biz-block">
+          <div class="biz-logo">BC</div>
+          <div>
+            <div class="biz-name">Barber Colapinta</div>
+            <div class="biz-rating">
+              <svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 1.5l2.6 5.6 6.1.7-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L1.3 7.8l6.1-.7z"></path></svg>
+              4.9 <span>(reservas online)</span>
+            </div>
+            <div class="biz-address">Turnos simples por web y WhatsApp</div>
+          </div>
+        </div>
+
+        <hr class="divider">
+
+        <div id="summaryLines">
+          <div class="summary-empty">Elegi un servicio para ver el resumen de tu turno.</div>
+        </div>
+
+        <hr class="divider" id="totalDivider" hidden>
+        <div class="total-row" id="totalRow" hidden>
+          <span>Total</span>
+          <strong id="sumTotal">-</strong>
+        </div>
+
+        <button class="continue-btn" id="continueBtn" type="button" disabled>
+          <span id="continueLabel">Continuar</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+        </button>
+      </aside>
+    </div>
+  </section>
+
+  <script>
+    const STEPS = ["Servicios", "Profesional", "Hora", "Confirmar"];
+    const state = { step: 1, service: null, pro: null, date: null, dateLabel: null, time: null, confirmed: false };
+
+    const services = [
+      { name: "Corte Hombre", dur: "30 min", price: 15000 },
+      { name: "Corte y color", dur: "60 min", price: 40000 },
+      { name: "Perfilado de barba", dur: "25 min", price: 12000 }
+    ];
+
+    const pros = [
+      { name: "Agustin", sub: "Especialista en cortes clasicos", initials: "AG" },
+      { name: "Gaspar", sub: "Barba, fades y terminaciones", initials: "GA" },
+      { name: "Lucas", sub: "Cortes modernos y tijera", initials: "LU" }
+    ];
+
+    const slotsList = ["13:00", "13:30", "14:00", "14:30", "15:00", "15:30", "16:00", "16:30", "17:00", "17:30", "18:00", "18:30"];
+    const today = new Date();
+    const dayNames = ["dom", "lun", "mar", "mie", "jue", "vie", "sab"];
+    const monthNames = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+    const dates = Array.from({ length: 14 }, (_, index) => {
+      const date = new Date(today);
+      date.setHours(0, 0, 0, 0);
+      date.setDate(today.getDate() + index);
+      return date;
+    });
+
+    function money(value) {
+      return new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(value);
+    }
+
+    function renderBreadcrumb() {
+      const el = document.getElementById("breadcrumb");
+      el.innerHTML = STEPS.map((label, index) => {
+        const step = index + 1;
+        const className = step === state.step ? "active" : step < state.step ? "done" : "";
+        const sep = index < STEPS.length - 1 ? '<span class="crumb-sep">›</span>' : "";
+        return '<button class="crumb ' + className + '" type="button" data-goto="' + step + '"' + (step > state.step ? " disabled" : "") + ">" + label + "</button>" + sep;
+      }).join("");
+    }
+
+    function goToStep(step) {
+      if (step > state.step) return;
+      state.step = step;
+      state.confirmed = false;
+      document.getElementById("continueBtn").hidden = false;
+      render();
+    }
+
+    function renderStep1() {
+      document.getElementById("stepHeading").textContent = "Seleccionar servicio";
+      document.getElementById("stepContent").innerHTML = '<div class="options">' + services.map((service) => {
+        return '<button class="opt-card ' + (state.service?.name === service.name ? "selected" : "") + '" type="button" data-service="' + service.name + '">' +
+          '<span class="opt-left"><span class="radio"></span><span><span class="opt-name">' + service.name + '</span><span class="opt-sub">' + service.dur + '</span></span></span>' +
+          '<span class="opt-right"><span>' + service.dur + '</span><span class="opt-price">' + money(service.price) + '</span></span>' +
+        '</button>';
+      }).join("") + "</div>";
+      updateContinue(Boolean(state.service));
+    }
+
+    function renderStep2() {
+      document.getElementById("stepHeading").textContent = "Seleccionar profesional";
+      document.getElementById("stepContent").innerHTML = '<div class="options">' + pros.map((pro) => {
+        return '<button class="opt-card ' + (state.pro?.name === pro.name ? "selected" : "") + '" type="button" data-pro="' + pro.name + '">' +
+          '<span class="opt-left"><span class="avatar">' + pro.initials + '</span><span><span class="opt-name">' + pro.name + '</span><span class="opt-sub">' + pro.sub + '</span></span></span>' +
+          '<span class="radio"></span>' +
+        '</button>';
+      }).join("") + "</div>";
+      updateContinue(Boolean(state.pro));
+    }
+
+    function renderStep3() {
+      document.getElementById("stepHeading").textContent = "Seleccionar fecha y hora";
+      if (!state.date) setDate(dates[0]);
+      const dateHtml = dates.map((date) => {
+        const iso = dateIso(date);
+        return '<button class="date-chip ' + (state.date === iso ? "selected" : "") + '" type="button" data-date="' + iso + '">' +
+          '<span>' + dayNames[date.getDay()] + '</span><b>' + date.getDate() + '</b><small>' + monthNames[date.getMonth()] + '</small>' +
+        '</button>';
+      }).join("");
+      const slotHtml = slotsList.map((time) => {
+        return '<button class="slot ' + (state.time === time ? "selected" : "") + '" type="button" data-time="' + time + '">' + time + "</button>";
+      }).join("");
+      document.getElementById("stepContent").innerHTML =
+        '<div class="filter-row"><span class="pill">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"></circle><path d="M4 20c0-4 4-6 8-6s8 2 8 6"></path></svg>' +
+          (state.pro?.name || "Selecciona profesional") +
+        '</span></div>' +
+        '<div class="section-label">Selecciona una fecha</div>' +
+        '<div class="date-row"><div class="date-track">' + dateHtml + '</div></div>' +
+        '<div class="section-label">Escoge una hora</div>' +
+        '<div class="slots">' + slotHtml + '</div>';
+      updateContinue(Boolean(state.date && state.time));
+    }
+
+    function renderStep4() {
+      document.getElementById("stepHeading").textContent = state.confirmed ? "Turno confirmado" : "Confirmar turno";
+      const continueBtn = document.getElementById("continueBtn");
+      if (state.confirmed) {
+        continueBtn.hidden = true;
+        document.getElementById("stepContent").innerHTML =
+          '<div class="success show">' +
+            '<div class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6L9 17l-5-5"></path></svg></div>' +
+            '<h3>Turno confirmado</h3>' +
+            '<p>Tu reserva quedo registrada para ' + state.dateLabel + ' a las ' + state.time + '.</p>' +
+            '<a class="success-link" href="#">Volver a la landing</a>' +
+          '</div>';
+        return;
+      }
+      continueBtn.hidden = false;
+      document.getElementById("stepContent").innerHTML =
+        '<p class="confirm-note">Revisa el resumen antes de confirmar. En el siguiente paso vamos a sumar login para asociar este turno a un cliente real.</p>';
+      updateContinue(Boolean(state.service && state.pro && state.date && state.time), "Confirmar turno");
+    }
+
+    function renderSummary() {
+      const lines = [];
+      if (state.service) {
+        lines.push('<div class="summary-line primary"><div><strong>' + state.service.name + '</strong><span>' + state.service.dur + '</span></div><b>' + money(state.service.price) + '</b></div>');
+      }
+      if (state.pro) {
+        lines.push('<div class="summary-line"><span>Profesional</span><strong>' + state.pro.name + '</strong></div>');
+      }
+      if (state.date) {
+        lines.push('<div class="summary-line"><span>Fecha</span><strong>' + state.dateLabel + '</strong></div>');
+      }
+      if (state.time) {
+        lines.push('<div class="summary-line"><span>Horario</span><strong>' + state.time + '</strong></div>');
+      }
+
+      document.getElementById("summaryLines").innerHTML = lines.length ? lines.join("") : '<div class="summary-empty">Elegi un servicio para ver el resumen de tu turno.</div>';
+      document.getElementById("totalDivider").hidden = !state.service;
+      document.getElementById("totalRow").hidden = !state.service;
+      document.getElementById("sumTotal").textContent = state.service ? money(state.service.price) : "-";
+    }
+
+    function updateContinue(enabled, label = "Continuar") {
+      const btn = document.getElementById("continueBtn");
+      document.getElementById("continueLabel").textContent = label;
+      btn.disabled = !enabled;
+      btn.classList.toggle("enabled", Boolean(enabled));
+    }
+
+    function setDate(date) {
+      state.date = dateIso(date);
+      state.dateLabel = new Intl.DateTimeFormat("es-AR", { weekday: "long", day: "numeric", month: "long" }).format(date);
+    }
+
+    function dateIso(date) {
+      const yyyy = date.getFullYear();
+      const mm = String(date.getMonth() + 1).padStart(2, "0");
+      const dd = String(date.getDate()).padStart(2, "0");
+      return yyyy + "-" + mm + "-" + dd;
+    }
+
+    document.getElementById("stepContent").addEventListener("click", (event) => {
+      const serviceButton = event.target.closest("[data-service]");
+      if (serviceButton) {
+        state.service = services.find((service) => service.name === serviceButton.dataset.service) || null;
+        state.pro = null;
+        state.time = null;
+        render();
+        return;
+      }
+      const proButton = event.target.closest("[data-pro]");
+      if (proButton) {
+        state.pro = pros.find((pro) => pro.name === proButton.dataset.pro) || null;
+        state.time = null;
+        render();
+        return;
+      }
+      const dateButton = event.target.closest("[data-date]");
+      if (dateButton) {
+        setDate(new Date(dateButton.dataset.date + "T00:00:00"));
+        state.time = null;
+        render();
+        return;
+      }
+      const slotButton = event.target.closest("[data-time]");
+      if (slotButton) {
+        state.time = slotButton.dataset.time;
+        document.querySelectorAll("[data-time]").forEach((slot) => slot.classList.toggle("selected", slot === slotButton));
+        renderSummary();
+        updateContinue(true);
+      }
+    });
+
+    document.getElementById("breadcrumb").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-goto]");
+      if (!button || button.disabled) return;
+      goToStep(Number(button.dataset.goto));
+    });
+
+    document.getElementById("continueBtn").addEventListener("click", () => {
+      const btn = document.getElementById("continueBtn");
+      if (btn.disabled) return;
+      if (state.step === 4) {
+        state.confirmed = true;
+        render();
+        return;
+      }
+      state.step += 1;
+      render();
+    });
+
+    document.getElementById("backBtn").addEventListener("click", () => {
+      if (state.step > 1) goToStep(state.step - 1);
+    });
+
+    document.getElementById("closeBtn").addEventListener("click", () => {
+      window.location.hash = "landing";
+    });
+
+    function render() {
+      renderBreadcrumb();
+      document.getElementById("backBtn").disabled = state.step === 1;
+      if (state.step === 1) renderStep1();
+      if (state.step === 2) renderStep2();
+      if (state.step === 3) renderStep3();
+      if (state.step === 4) renderStep4();
+      renderSummary();
+    }
+
+    render();
+  </script>
+</body>
+</html>

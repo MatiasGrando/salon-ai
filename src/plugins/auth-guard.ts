@@ -103,9 +103,9 @@ const internalRouteRoots = new Set([
 
 function isPublicLandingRoute(method: string, path: string) {
   if (!['GET', 'HEAD'].includes(method.toUpperCase())) return false
-  if (path === '/reservar') return true
+  if (path === '/reservar' || path === '/cuenta') return true
 
-  const match = /^\/([a-z0-9-]+)(?:\/reservar)?$/.exec(path)
+  const match = /^\/([a-z0-9-]+)(?:\/(?:reservar|cuenta))?$/.exec(path)
   if (!match) return false
 
   return !internalRouteRoots.has(match[1] ?? '')
