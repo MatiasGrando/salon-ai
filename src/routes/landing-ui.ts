@@ -39,6 +39,16 @@ export async function landingUiRoutes(app: FastifyInstance) {
     return reply.type('text/html').send(renderBookingPlaceholder(business, '/'))
   })
 
+  app.get('/cuenta', async (request, reply) => {
+    const slug = resolveSlugFromHost(request)
+    if (!slug) return reply.status(404).type('text/html').send(renderNotFound())
+
+    const business = await businessService.findPublicBySlug(slug)
+    if (!business || !business.landingEnabled) return reply.status(404).type('text/html').send(renderNotFound())
+
+    return reply.type('text/html').send(renderCustomerAccount(business, '/'))
+  })
+
   app.get('/:slug', async (request, reply) => {
     const params = request.params as { slug: string }
     const slug = normalizeBusinessSlug(params.slug)
@@ -55,6 +65,15 @@ export async function landingUiRoutes(app: FastifyInstance) {
     if (!business || !business.landingEnabled) return reply.status(404).type('text/html').send(renderNotFound())
 
     return reply.type('text/html').send(renderBookingPlaceholder(business, `/${slug}`))
+  })
+
+  app.get('/:slug/cuenta', async (request, reply) => {
+    const params = request.params as { slug: string }
+    const slug = normalizeBusinessSlug(params.slug)
+    const business = await businessService.findPublicBySlug(slug)
+    if (!business || !business.landingEnabled) return reply.status(404).type('text/html').send(renderNotFound())
+
+    return reply.type('text/html').send(renderCustomerAccount(business, `/${slug}`))
   })
 }
 
@@ -84,6 +103,7 @@ function renderLanding(business: LandingBusiness, basePath = '') {
   const serviceCarouselItems = Math.max(visibleServices.length, 1)
   const professionalCarouselItems = Math.max(visibleProfessionals.length, 1)
   const bookingUrl = `${basePath}/reservar`
+  const accountUrl = `${basePath}/cuenta`
   const whatsappUrl = business.publicWhatsapp ? `https://wa.me/${business.publicWhatsapp.replace(/\D/g, '')}` : null
 
   return htmlPage({
@@ -111,13 +131,21 @@ function renderLanding(business: LandingBusiness, basePath = '') {
             <a href="#horarios">Horarios</a>
             <a href="#contacto">Contacto</a>
           </nav>
-          <a class="btn-gold-outline" href="${escapeAttribute(bookingUrl)}">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-              <rect x="3" y="5" width="18" height="16" rx="2"></rect><line x1="3" y1="10" x2="21" y2="10"></line>
-              <line x1="8" y1="3" x2="8" y2="7"></line><line x1="16" y1="3" x2="16" y2="7"></line>
-            </svg>
-            Reservar turno
-          </a>
+          <div class="nav-actions">
+            <a class="btn-account" href="${escapeAttribute(accountUrl)}" aria-label="Mi perfil">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                <circle cx="12" cy="8" r="3.2"></circle><path d="M5 20a7 7 0 0 1 14 0"></path>
+              </svg>
+              <span>Perfil</span>
+            </a>
+            <a class="btn-gold-outline" href="${escapeAttribute(bookingUrl)}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                <rect x="3" y="5" width="18" height="16" rx="2"></rect><line x1="3" y1="10" x2="21" y2="10"></line>
+                <line x1="8" y1="3" x2="8" y2="7"></line><line x1="16" y1="3" x2="16" y2="7"></line>
+              </svg>
+              Reservar turno
+            </a>
+          </div>
         </div>
       </header>
 
@@ -381,71 +409,58 @@ function renderBrandIcon(icon: SimpleIcon) {
 
 function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
   const slug = business.slug || ''
+  const initialsText = initials(business.name) || 'WX'
   return htmlPage({
     title: `Reservar en ${business.name}`,
     body: `
-      <main class="booking-shell">
-        <a class="back-link" href="${escapeAttribute(backPath)}">Volver</a>
-        <section class="booking-card booking-flow" data-booking-slug="${escapeAttribute(slug)}">
-          <div class="booking-flow-head">
-            <div>
-              <span class="eyebrow">Reserva online</span>
-              <h1>${escapeHtml(business.name)}</h1>
-              <p>ElegÃ­ servicio, profesional y horario. Al confirmar, usamos tu telÃ©fono para unir esta reserva con WhatsApp.</p>
-            </div>
-          </div>
+      <main class="fresha-booking" data-booking-slug="${escapeAttribute(slug)}">
+        <section class="fresha-modal">
+          <header class="fresha-header">
+            <button class="fresha-icon-btn" id="booking-back" type="button" aria-label="Volver">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M15 19l-7-7 7-7"></path></svg>
+            </button>
+            <nav class="fresha-breadcrumb" id="booking-breadcrumb" aria-label="Pasos de reserva"></nav>
+            <a class="fresha-icon-btn" href="${escapeAttribute(backPath)}" aria-label="Cerrar reserva">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+            </a>
+          </header>
 
-          <div class="steps" aria-hidden="true">
-            <span class="active">Servicios</span>
-            <span>Profesional</span>
-            <span>Hora</span>
-            <span>Confirmar</span>
-          </div>
+          <div class="fresha-body">
+            <section class="fresha-main">
+              <h1 class="fresha-heading" id="booking-heading">Seleccionar servicio</h1>
+              <div id="booking-content"></div>
+              <div class="fresha-feedback" id="booking-feedback" role="status" aria-live="polite"></div>
+            </section>
 
-          <div class="booking-layout">
-            <div class="booking-main">
-              <section class="booking-step">
-                <h2>Servicio</h2>
-                <div class="booking-options" id="booking-services"></div>
-              </section>
-
-              <section class="booking-step">
-                <h2>Profesional</h2>
-                <div class="booking-options" id="booking-professionals"></div>
-              </section>
-
-              <section class="booking-step">
-                <h2>DÃ­a y horario</h2>
-                <div class="booking-date-row">
-                  <input class="field" id="booking-date" type="date">
-                  <button class="button secondary" id="booking-load-slots" type="button">Ver horarios</button>
+            <aside class="fresha-summary">
+              <div class="summary-business">
+                <div class="summary-logo">${escapeHtml(initialsText)}</div>
+                <div>
+                  <div class="summary-name">${escapeHtml(business.name)}</div>
+                  <div class="summary-rating">
+                    <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.6 6.1.7-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L1.3 7.8l6.1-.7z"></path></svg>
+                    4.9 <span>(reservas online)</span>
+                  </div>
+                  <div class="summary-address">Turnos web disponibles</div>
                 </div>
-                <div class="slot-grid" id="booking-slots"></div>
-              </section>
+              </div>
 
-              <section class="booking-step">
-                <h2>Tus datos</h2>
-                <form class="booking-customer-form" id="booking-customer-form">
-                  <label>Nombre
-                    <input class="field" id="booking-customer-name" autocomplete="name" placeholder="Tu nombre" required>
-                  </label>
-                  <label>TelÃ©fono
-                    <input class="field" id="booking-customer-phone" autocomplete="tel" inputmode="tel" placeholder="+54 9 11 1234-5678" required>
-                  </label>
-                  <button class="button primary full" id="booking-confirm" type="submit">Confirmar turno</button>
-                </form>
-              </section>
-            </div>
+              <hr class="summary-divider">
 
-            <aside class="booking-summary">
-              <span>Resumen</span>
-              <h2 id="booking-summary-title">SeleccionÃ¡ tu turno</h2>
-              <dl>
-                <div><dt>Servicio</dt><dd id="booking-summary-service">Pendiente</dd></div>
-                <div><dt>Profesional</dt><dd id="booking-summary-professional">Pendiente</dd></div>
-                <div><dt>Horario</dt><dd id="booking-summary-time">Pendiente</dd></div>
-              </dl>
-              <p class="booking-feedback" id="booking-feedback" role="status" aria-live="polite"></p>
+              <div id="booking-summary-lines">
+                <div class="summary-empty">Eleg&iacute; un servicio para ver el resumen de tu turno.</div>
+              </div>
+
+              <hr class="summary-divider" id="booking-total-divider" hidden>
+              <div class="summary-total" id="booking-total-row" hidden>
+                <span>Total</span>
+                <strong id="booking-total">-</strong>
+              </div>
+
+              <button class="fresha-continue" id="booking-continue" type="button" disabled>
+                <span id="booking-continue-label">Continuar</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+              </button>
             </aside>
           </div>
         </section>
@@ -453,80 +468,99 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
       <script>
         (() => {
           const slug = ${JSON.stringify(slug)}
+          const backPath = ${JSON.stringify(backPath)}
+          const steps = ['Servicios', 'Profesional', 'Hora', 'Confirmar']
           const state = {
+            step: 1,
             catalog: null,
             service: null,
             professionalId: null,
-            slot: null
+            date: null,
+            dateLabel: null,
+            slot: null,
+            confirmed: false
           }
           const els = {
-            services: document.getElementById('booking-services'),
-            professionals: document.getElementById('booking-professionals'),
-            date: document.getElementById('booking-date'),
-            loadSlots: document.getElementById('booking-load-slots'),
-            slots: document.getElementById('booking-slots'),
-            form: document.getElementById('booking-customer-form'),
-            name: document.getElementById('booking-customer-name'),
-            phone: document.getElementById('booking-customer-phone'),
-            confirm: document.getElementById('booking-confirm'),
+            back: document.getElementById('booking-back'),
+            breadcrumb: document.getElementById('booking-breadcrumb'),
+            heading: document.getElementById('booking-heading'),
+            content: document.getElementById('booking-content'),
             feedback: document.getElementById('booking-feedback'),
-            summaryTitle: document.getElementById('booking-summary-title'),
-            summaryService: document.getElementById('booking-summary-service'),
-            summaryProfessional: document.getElementById('booking-summary-professional'),
-            summaryTime: document.getElementById('booking-summary-time')
+            summaryLines: document.getElementById('booking-summary-lines'),
+            totalDivider: document.getElementById('booking-total-divider'),
+            totalRow: document.getElementById('booking-total-row'),
+            total: document.getElementById('booking-total'),
+            continue: document.getElementById('booking-continue'),
+            continueLabel: document.getElementById('booking-continue-label')
           }
 
-          function initDate() {
-            const today = new Date()
-            const yyyy = today.getFullYear()
-            const mm = String(today.getMonth() + 1).padStart(2, '0')
-            const dd = String(today.getDate()).padStart(2, '0')
-            els.date.min = yyyy + '-' + mm + '-' + dd
-            els.date.value = els.date.min
-          }
+          const dayNames = ['dom', 'lun', 'mar', 'mie', 'jue', 'vie', 'sab']
+          const monthNames = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+          const dates = Array.from({ length: 14 }, (_, index) => {
+            const date = new Date()
+            date.setHours(0, 0, 0, 0)
+            date.setDate(date.getDate() + index)
+            return date
+          })
 
           async function loadCatalog() {
-            setFeedback('Cargando opciones...', '')
+            setFeedback('Cargando opciones...', 'info')
             try {
               state.catalog = await getJson('/public/booking/' + encodeURIComponent(slug) + '/catalog')
-              renderServices()
-              renderProfessionals()
-              renderSummary()
               setFeedback('', '')
+              render()
             } catch (error) {
               setFeedback(error.message, 'error')
+              render()
             }
           }
 
-          function renderServices() {
-            const services = state.catalog?.services || []
-            if (!services.length) {
-              els.services.innerHTML = '<p class="muted">TodavÃ­a no hay servicios cargados para reservar.</p>'
-              return
-            }
-            els.services.innerHTML = services.map((service) => {
-              const active = state.service?.id === service.id ? ' active' : ''
-              return '<button class="booking-option' + active + '" type="button" data-service-id="' + escapeHtml(service.id) + '">' +
-                '<strong>' + escapeHtml(service.name) + '</strong>' +
-                '<span>' + escapeHtml(service.duration + ' min' + (service.price ? ' Â· ' + formatPrice(service.price) : '')) + '</span>' +
-              '</button>'
+          function renderBreadcrumb() {
+            els.breadcrumb.innerHTML = steps.map((label, index) => {
+              const step = index + 1
+              const className = step === state.step ? 'active' : step < state.step ? 'done' : ''
+              const separator = index < steps.length - 1 ? '<span class="crumb-sep">›</span>' : ''
+              return '<button class="crumb ' + className + '" type="button" data-step="' + step + '"' + (step > state.step ? ' disabled' : '') + '>' + escapeHtml(label) + '</button>' + separator
             }).join('')
           }
 
-          function renderProfessionals() {
+          function renderServiceStep() {
+            els.heading.textContent = 'Seleccionar servicio'
+            const services = state.catalog?.services || []
+            if (!services.length) {
+              els.content.innerHTML = '<p class="fresha-muted">Todavia no hay servicios cargados para reservar.</p>'
+              updateContinue(false)
+              return
+            }
+            els.content.innerHTML = '<div class="fresha-options">' + services.map((service) => {
+              return '<button class="fresha-option ' + (state.service?.id === service.id ? 'selected' : '') + '" type="button" data-service-id="' + escapeHtml(service.id) + '">' +
+                '<span class="option-left"><span class="radio"></span><span><strong>' + escapeHtml(service.name) + '</strong><small>' + escapeHtml(service.category || (service.duration + ' min')) + '</small></span></span>' +
+                '<span class="option-right"><span>' + escapeHtml(service.duration + ' min') + '</span><strong>' + escapeHtml(service.price ? formatPrice(service.price) : 'Consultar') + '</strong></span>' +
+              '</button>'
+            }).join('') + '</div>'
+            updateContinue(Boolean(state.service))
+          }
+
+          function renderProfessionalStep() {
+            els.heading.textContent = 'Seleccionar profesional'
             const professionals = availableProfessionals()
             if (!state.service) {
-              els.professionals.innerHTML = '<p class="muted">Primero elegÃ­ un servicio.</p>'
+              els.content.innerHTML = '<p class="fresha-muted">Primero elegi un servicio.</p>'
+              updateContinue(false)
               return
             }
             if (!professionals.length) {
-              els.professionals.innerHTML = '<p class="muted">No hay profesionales cargados para este servicio.</p>'
+              els.content.innerHTML = '<p class="fresha-muted">No hay profesionales cargados para este servicio.</p>'
+              updateContinue(false)
               return
             }
-            els.professionals.innerHTML = professionals.map((professional) => {
-                const active = state.professionalId === professional.id ? ' active' : ''
-                return '<button class="booking-option' + active + '" type="button" data-professional-id="' + escapeHtml(professional.id) + '"><strong>' + escapeHtml(professional.name) + '</strong><span>Elegir profesional</span></button>'
-              }).join('')
+            els.content.innerHTML = '<div class="fresha-options">' + professionals.map((professional) => {
+              return '<button class="fresha-option ' + (state.professionalId === professional.id ? 'selected' : '') + '" type="button" data-professional-id="' + escapeHtml(professional.id) + '">' +
+                '<span class="option-left"><span class="avatar">' + escapeHtml(initials(professional.name)) + '</span><span><strong>' + escapeHtml(professional.name) + '</strong><small>Agenda disponible</small></span></span>' +
+                '<span class="radio"></span>' +
+              '</button>'
+            }).join('') + '</div>'
+            updateContinue(Boolean(state.professionalId))
           }
 
           function availableProfessionals() {
@@ -536,101 +570,170 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
             return (state.catalog.professionals || []).filter((professional) => allowed.has(professional.id))
           }
 
+          async function renderTimeStep() {
+            els.heading.textContent = 'Seleccionar fecha y hora'
+            if (!state.date) {
+              setDate(dates[0])
+            }
+            const dateChips = dates.map((date) => {
+              const iso = dateIso(date)
+              return '<button class="date-chip ' + (state.date === iso ? 'selected' : '') + '" type="button" data-date="' + iso + '">' +
+                '<span>' + dayNames[date.getDay()] + '</span><strong>' + date.getDate() + '</strong><small>' + monthNames[date.getMonth()] + '</small>' +
+              '</button>'
+            }).join('')
+            els.content.innerHTML =
+              '<div class="filter-row"><span class="fresha-pill">' + escapeHtml(professionalName(state.professionalId) || 'Selecciona profesional') + '</span></div>' +
+              '<div class="section-label">Selecciona una fecha</div>' +
+              '<div class="date-track">' + dateChips + '</div>' +
+              '<div class="section-label">Escoge una hora</div>' +
+              '<div class="slots" id="booking-slots"><p class="fresha-muted">Buscando horarios...</p></div>'
+            updateContinue(false)
+            await loadSlots()
+          }
+
           async function loadSlots() {
             if (!state.service) {
-              setFeedback('ElegÃ­ un servicio para ver horarios.', 'error')
               return
             }
             if (!state.professionalId) {
-              setFeedback('ElegÃ­ un profesional para ver horarios.', 'error')
-              return
-            }
-            if (!els.date.value) {
-              setFeedback('ElegÃ­ una fecha.', 'error')
               return
             }
             state.slot = null
-            renderSummary()
-            els.slots.innerHTML = '<p class="muted">Buscando horarios...</p>'
-            setFeedback('', '')
+            const slotsEl = document.getElementById('booking-slots')
+            if (slotsEl) slotsEl.innerHTML = '<p class="fresha-muted">Buscando horarios...</p>'
             try {
-              const result = await getJson('/public/booking/' + encodeURIComponent(slug) + '/availability?serviceId=' + encodeURIComponent(state.service.id) + '&professionalId=' + encodeURIComponent(state.professionalId) + '&date=' + encodeURIComponent(els.date.value))
+              const result = await getJson('/public/booking/' + encodeURIComponent(slug) + '/availability?serviceId=' + encodeURIComponent(state.service.id) + '&professionalId=' + encodeURIComponent(state.professionalId) + '&date=' + encodeURIComponent(state.date))
               if (!result.slots.length) {
-                els.slots.innerHTML = '<p class="muted">' + escapeHtml(result.message || 'No hay horarios disponibles para esa fecha.') + '</p>'
+                if (slotsEl) slotsEl.innerHTML = '<p class="fresha-muted">' + escapeHtml(result.message || 'No hay horarios disponibles para esa fecha.') + '</p>'
+                updateConfirmState()
                 return
               }
-              els.slots.innerHTML = result.slots.map((slot) => {
-                return '<button class="slot-button" type="button" data-time="' + escapeHtml(slot.time) + '" data-professional-id="' + escapeHtml(slot.professionalId) + '" data-professional-name="' + escapeHtml(slot.professionalName) + '">' +
-                  '<strong>' + escapeHtml(slot.time) + '</strong><span>' + escapeHtml(slot.professionalName) + '</span>' +
+              if (slotsEl) slotsEl.innerHTML = result.slots.map((slot) => {
+                return '<button class="slot ' + (state.slot?.time === slot.time ? 'selected' : '') + '" type="button" onclick="window.__selectBookingSlot(this)" data-time="' + escapeHtml(slot.time) + '" data-professional-id="' + escapeHtml(slot.professionalId) + '" data-professional-name="' + escapeHtml(slot.professionalName) + '">' +
+                  escapeHtml(slot.time) +
                 '</button>'
               }).join('')
+              if (slotsEl) {
+                slotsEl.querySelectorAll('[data-time]').forEach((slotButton) => {
+                  slotButton.addEventListener('click', () => selectSlot(slotButton))
+                })
+              }
             } catch (error) {
-              els.slots.innerHTML = ''
+              if (slotsEl) slotsEl.innerHTML = ''
               setFeedback(error.message, 'error')
+            } finally {
+              updateConfirmState()
             }
           }
 
-          async function confirmBooking(event) {
-            event.preventDefault()
-            if (!state.service || !state.slot) {
-              setFeedback('ElegÃ­ servicio, fecha y horario antes de confirmar.', 'error')
+          function renderConfirmStep() {
+            els.heading.textContent = state.confirmed ? 'Turno confirmado' : 'Confirmar turno'
+            if (state.confirmed) {
+              els.content.innerHTML =
+                '<div class="booking-success">' +
+                  '<div class="success-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M20 6L9 17l-5-5"></path></svg></div>' +
+                  '<h2>Turno confirmado</h2>' +
+                  '<p>Tu reserva quedo registrada para ' + escapeHtml(state.dateLabel || '') + ' a las ' + escapeHtml(state.slot?.time || '') + '.</p>' +
+                  '<a class="success-link" href="' + escapeHtml(backPath) + '">Volver a la landing</a>' +
+                '</div>'
+              updateContinue(false)
+              els.continue.hidden = true
               return
             }
-            const customerName = els.name.value.trim()
-            const customerPhone = els.phone.value.trim()
-            if (!customerName || !customerPhone) {
-              setFeedback('Completa nombre y telÃ©fono.', 'error')
-              return
-            }
-            els.confirm.disabled = true
-            els.confirm.textContent = 'Confirmando...'
-            setFeedback('', '')
-            try {
-              const result = await getJson('/public/booking/' + encodeURIComponent(slug) + '/book', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  serviceId: state.service.id,
-                  professionalId: state.slot.professionalId,
-                  date: els.date.value,
-                  time: state.slot.time,
-                  customerName,
-                  customerPhone
-                })
-              })
-              const appointment = result.appointment
-              setFeedback('Turno confirmado para ' + escapeHtml(formatDisplayDate(appointment.startAt)) + ' con ' + escapeHtml(appointment.professional.name) + '.', 'success')
-              els.confirm.textContent = 'Turno confirmado'
-              els.form.querySelectorAll('input, button').forEach((control) => { control.disabled = true })
-            } catch (error) {
-              els.confirm.disabled = false
-              els.confirm.textContent = 'Confirmar turno'
-              setFeedback(error.message, 'error')
-              await loadSlots()
-            }
+            els.continue.hidden = false
+            els.content.innerHTML =
+              '<p class="confirm-note">Revisa el resumen antes de confirmar. En el siguiente paso vamos a sumar login para asociar este turno a un cliente real.</p>'
+            updateContinue(Boolean(state.service && state.professionalId && state.slot), 'Confirmar turno')
           }
 
           function renderSummary() {
-            els.summaryService.textContent = state.service?.name || 'Pendiente'
-            els.summaryProfessional.textContent = state.slot?.professionalName || professionalName(state.professionalId) || 'Pendiente'
-            els.summaryTime.textContent = state.slot ? els.date.value + ' ' + state.slot.time : 'Pendiente'
+            const lines = []
+            if (state.service) {
+              lines.push(
+                '<div class="summary-card-line primary-line">' +
+                  '<div><strong>' + escapeHtml(state.service.name) + '</strong><span>' + escapeHtml(state.service.duration + ' min') + '</span></div>' +
+                  '<b>' + escapeHtml(state.service.price ? formatPrice(state.service.price) : 'Consultar') + '</b>' +
+                '</div>'
+              )
+            }
+            if (state.professionalId) {
+              lines.push(
+                '<div class="summary-card-line">' +
+                  '<span>Profesional</span>' +
+                  '<strong>' + escapeHtml(professionalName(state.professionalId)) + '</strong>' +
+                '</div>'
+              )
+            }
+            if (state.date) {
+              lines.push(
+                '<div class="summary-card-line">' +
+                  '<span>Fecha</span>' +
+                  '<strong>' + escapeHtml(state.dateLabel || '') + '</strong>' +
+                '</div>'
+              )
+            }
+            if (state.slot) {
+              lines.push(
+                '<div class="summary-card-line">' +
+                  '<span>Horario</span>' +
+                  '<strong>' + escapeHtml(state.slot.time) + '</strong>' +
+                '</div>'
+              )
+            }
+            els.summaryLines.innerHTML = lines.length ? lines.join('') : '<div class="summary-empty">Elegi un servicio para ver el resumen de tu turno.</div>'
+            els.totalDivider.hidden = !state.service
+            els.totalRow.hidden = !state.service
+            els.total.textContent = state.service?.price ? formatPrice(state.service.price) : '-'
           }
 
           function setFeedback(message, type) {
             els.feedback.textContent = message
-            els.feedback.className = 'booking-feedback' + (message ? ' visible ' + type : '')
+            els.feedback.className = 'fresha-feedback' + (message ? ' visible ' + type : '')
           }
+
+          function selectSlot(slotButton) {
+            state.slot = {
+              time: slotButton.dataset.time,
+              professionalId: slotButton.dataset.professionalId,
+              professionalName: slotButton.dataset.professionalName
+            }
+            document.querySelectorAll('[data-time]').forEach((item) => {
+              item.classList.toggle('selected', item === slotButton)
+            })
+            renderSummary()
+            updateContinue(true)
+          }
+          window.__selectBookingSlot = selectSlot
 
           function professionalName(id) {
             return (state.catalog?.professionals || []).find((professional) => professional.id === id)?.name || ''
+          }
+
+          function updateContinue(enabled, label = 'Continuar') {
+            els.continue.disabled = !enabled
+            els.continue.classList.toggle('enabled', Boolean(enabled))
+            els.continueLabel.textContent = label
+          }
+
+          function updateConfirmState() {
+            if (state.step === 3) updateContinue(Boolean(state.date && state.slot))
+          }
+
+          function goToStep(step) {
+            if (step > state.step) return
+            state.step = step
+            state.confirmed = false
+            els.continue.hidden = false
+            render()
           }
 
           function formatPrice(value) {
             return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(value)
           }
 
-          function formatDisplayDate(value) {
-            return new Intl.DateTimeFormat('es-AR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value))
+          function setDate(date) {
+            state.date = dateIso(date)
+            state.dateLabel = new Intl.DateTimeFormat('es-AR', { weekday: 'long', day: 'numeric', month: 'long' }).format(date)
           }
 
           async function getJson(url, options) {
@@ -649,43 +752,93 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
               .replace(/'/g, '&#039;')
           }
 
-          els.services.addEventListener('click', (event) => {
-            const button = event.target.closest('[data-service-id]')
-            if (!button) return
-            state.service = (state.catalog.services || []).find((service) => service.id === button.dataset.serviceId) || null
-            state.professionalId = null
-            state.slot = null
-            els.slots.innerHTML = ''
-            renderServices()
-            renderProfessionals()
-            renderSummary()
-          })
+          function dateIso(date) {
+            const yyyy = date.getFullYear()
+            const mm = String(date.getMonth() + 1).padStart(2, '0')
+            const dd = String(date.getDate()).padStart(2, '0')
+            return yyyy + '-' + mm + '-' + dd
+          }
 
-          els.professionals.addEventListener('click', (event) => {
-            const button = event.target.closest('[data-professional-id]')
-            if (!button) return
-            state.professionalId = button.dataset.professionalId
-            state.slot = null
-            els.slots.innerHTML = ''
-            renderProfessionals()
-            renderSummary()
-          })
+          function initials(value) {
+            return String(value || '')
+              .split(/\\s+/)
+              .filter(Boolean)
+              .slice(0, 2)
+              .map((word) => word[0]?.toUpperCase() || '')
+              .join('')
+          }
 
-          els.slots.addEventListener('click', (event) => {
-            const button = event.target.closest('[data-time]')
-            if (!button) return
-            state.slot = {
-              time: button.dataset.time,
-              professionalId: button.dataset.professionalId,
-              professionalName: button.dataset.professionalName
+          function render() {
+            renderBreadcrumb()
+            setFeedback('', '')
+            els.back.disabled = state.step === 1
+            if (!state.catalog) {
+              els.heading.textContent = 'Cargando reserva'
+              els.content.innerHTML = '<p class="fresha-muted">Estamos cargando la agenda.</p>'
+              updateContinue(false)
+              renderSummary()
+              return
             }
-            els.slots.querySelectorAll('.slot-button').forEach((item) => item.classList.toggle('active', item === button))
+            if (state.step === 1) renderServiceStep()
+            if (state.step === 2) renderProfessionalStep()
+            if (state.step === 3) void renderTimeStep()
+            if (state.step === 4) renderConfirmStep()
             renderSummary()
+          }
+
+          els.content.addEventListener('click', (event) => {
+            const serviceButton = event.target.closest('[data-service-id]')
+            if (serviceButton) {
+              state.service = (state.catalog.services || []).find((service) => service.id === serviceButton.dataset.serviceId) || null
+              state.professionalId = null
+              state.slot = null
+              render()
+              return
+            }
+            const slotButton = event.target.closest('.slot[data-time]')
+            if (slotButton) {
+              selectSlot(slotButton)
+              return
+            }
+            const professionalButton = event.target.closest('.fresha-option[data-professional-id]')
+            if (professionalButton) {
+              state.professionalId = professionalButton.dataset.professionalId
+              state.slot = null
+              render()
+              return
+            }
+            const dateButton = event.target.closest('[data-date]')
+            if (dateButton) {
+              const date = new Date(dateButton.dataset.date + 'T00:00:00')
+              setDate(date)
+              state.slot = null
+              render()
+              return
+            }
           })
 
-          els.loadSlots.addEventListener('click', loadSlots)
-          els.form.addEventListener('submit', confirmBooking)
-          initDate()
+          els.breadcrumb.addEventListener('click', (event) => {
+            const button = event.target.closest('[data-step]')
+            if (!button || button.disabled) return
+            goToStep(Number(button.dataset.step))
+          })
+
+          els.back.addEventListener('click', () => {
+            if (state.step > 1) goToStep(state.step - 1)
+          })
+
+          els.continue.addEventListener('click', () => {
+            if (els.continue.disabled) return
+            if (state.step === 4) {
+              state.confirmed = true
+              render()
+              return
+            }
+            state.step += 1
+            render()
+          })
+
+          render()
           void loadCatalog()
         })()
       </script>
@@ -1050,43 +1203,504 @@ function htmlPage(input: { title: string; body: string }) {
     .btn-light { min-height: 44px; padding: 0 22px; color: var(--white); border: 1px solid rgba(201,161,59,.5); background: rgba(255,255,255,.04); }
     .muted { color: var(--ink-soft); }
 
-    .booking-shell { min-height: 100vh; width: min(980px, calc(100% - 32px)); margin: 0 auto; padding: 36px 0; display: grid; align-content: center; gap: 18px; }
+    .booking-shell { min-height: 100vh; width: min(1120px, calc(100% - 32px)); margin: 0 auto; padding: 36px 0; display: grid; align-content: center; gap: 18px; }
     .back-link { color: var(--ink-soft); font-weight: 800; }
     .booking-card { padding: 36px; background: var(--cream-card); border: 1px solid var(--cream-line); border-radius: var(--radius-md); box-shadow: var(--shadow-card); }
-    .booking-flow-head { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; }
     .eyebrow { color: var(--burgundy); font-size: 12px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
     .booking-card h1 { margin: 12px 0; color: var(--ink); font-family: var(--font-display); font-size: 58px; line-height: .98; }
-    .steps { margin-top: 28px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-    .steps span { min-height: 44px; padding: 0 12px; display: grid; place-items: center; border: 1px solid var(--cream-line); border-radius: var(--radius-md); color: var(--ink-soft); font-size: 13px; font-weight: 800; }
-    .steps .active { color: var(--white); border-color: var(--burgundy); background: var(--burgundy); }
-    .booking-layout { margin-top: 28px; display: grid; grid-template-columns: minmax(0, 1fr) 310px; gap: 22px; align-items: start; }
-    .booking-main { display: grid; gap: 18px; }
-    .booking-step { padding: 20px; border: 1px solid var(--cream-line); border-radius: var(--radius-md); }
-    .booking-step h2, .booking-summary h2 { margin: 0 0 14px; color: var(--ink); font-family: var(--font-display); font-size: 22px; }
-    .booking-options { display: grid; gap: 10px; }
-    .booking-option, .slot-button { min-height: 66px; padding: 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; text-align: left; color: var(--ink); background: #FFF; border: 1px solid var(--cream-line); border-radius: var(--radius-md); cursor: pointer; }
-    .booking-option strong, .slot-button strong { display: block; font-size: 15px; }
-    .booking-option span, .slot-button span { color: var(--ink-soft); font-size: 12px; }
-    .booking-option.active, .slot-button.active { border-color: var(--burgundy); background: #FFF7E6; }
-    .booking-date-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
-    .field { min-height: 48px; padding: 0 12px; border: 1px solid var(--cream-line); border-radius: var(--radius-md); background: #FFF; color: var(--ink); }
-    .slot-grid { margin-top: 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
-    .slot-button { min-height: 58px; flex-direction: column; align-items: flex-start; justify-content: center; }
-    .booking-customer-form { display: grid; gap: 12px; }
-    .booking-customer-form label { display: grid; gap: 7px; color: var(--ink-soft); font-size: 12px; font-weight: 800; }
-    .booking-summary { position: sticky; top: 88px; padding: 20px; background: #FFF; border: 1px solid var(--cream-line); border-radius: var(--radius-md); }
-    .booking-summary dl { display: grid; gap: 12px; }
-    .booking-summary dl div { padding-bottom: 12px; border-bottom: 1px solid var(--cream-line); }
-    .booking-summary dt { color: var(--ink-soft); font-size: 12px; font-weight: 800; }
-    .booking-summary dd { margin-top: 4px; color: var(--ink); font-weight: 800; }
     .button { min-height: 48px; padding: 0 20px; border: 1px solid var(--cream-line); background: #FFF; color: var(--ink); }
     .button.primary { color: var(--white); background: var(--burgundy); border-color: var(--burgundy); }
     .button.secondary { color: var(--ink); background: #FFF; }
     .button.full { width: 100%; }
-    .booking-feedback { display: none; margin-top: 18px; padding: 12px; border-radius: var(--radius-md); font-size: 13px; line-height: 1.45; }
-    .booking-feedback.visible { display: block; color: #1D4ED8; border: 1px solid #BFDBFE; background: #EFF6FF; }
-    .booking-feedback.error { color: #B42318; border-color: #FECACA; background: #FFF1F2; }
-    .booking-feedback.success { color: #166534; border-color: #BBF7D0; background: #F0FDF4; }
+    .button:disabled { opacity: .58; cursor: not-allowed; }
+
+    .fresha-booking {
+      min-height: 100vh;
+      padding: 32px 16px 80px;
+      background: #F1EFF4;
+      color: #1B1B1F;
+      font-family: "Montserrat", system-ui, sans-serif;
+    }
+    .fresha-modal {
+      max-width: 1040px;
+      margin: 0 auto;
+      overflow: hidden;
+      background: #FFFFFF;
+      border-radius: 20px;
+      box-shadow: 0 2px 4px rgba(20,16,40,.04), 0 20px 48px rgba(20,16,40,.08);
+    }
+    .fresha-header {
+      min-height: 82px;
+      padding: 22px 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      border-bottom: 1px solid #EFEEF3;
+    }
+    .fresha-icon-btn {
+      width: 38px;
+      height: 38px;
+      flex: 0 0 38px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #1B1B1F;
+      background: #FFFFFF;
+      border: 1px solid #E7E5EC;
+      border-radius: 50%;
+      cursor: pointer;
+    }
+    .fresha-icon-btn:hover { background: #EFEEF3; }
+    .fresha-icon-btn:disabled { opacity: .35; cursor: not-allowed; }
+    .fresha-icon-btn svg { width: 16px; height: 16px; }
+    .fresha-breadcrumb {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      color: #9C9CA6;
+      font-size: 14px;
+    }
+    .crumb {
+      padding: 0;
+      color: inherit;
+      background: transparent;
+      border: 0;
+      font: inherit;
+    }
+    .crumb.active { color: #1B1B1F; font-weight: 700; }
+    .crumb.done { color: #6B6B76; cursor: pointer; }
+    .crumb.done:hover { text-decoration: underline; }
+    .crumb:disabled { cursor: default; }
+    .crumb-sep { color: #E7E5EC; }
+    .fresha-body {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      align-items: start;
+    }
+    .fresha-main {
+      min-height: 530px;
+      padding: 36px 40px 48px;
+      border-right: 1px solid #EFEEF3;
+    }
+    .fresha-heading {
+      margin: 0 0 28px;
+      color: #1B1B1F;
+      font-family: "Montserrat", system-ui, sans-serif;
+      font-size: 30px;
+      font-weight: 800;
+      line-height: 1.1;
+    }
+    .fresha-options {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .fresha-option {
+      width: 100%;
+      min-height: 74px;
+      padding: 16px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      color: #1B1B1F;
+      background: #FFFFFF;
+      border: 1px solid #E7E5EC;
+      border-radius: 12px;
+      text-align: left;
+      cursor: pointer;
+      transition: border-color .15s ease, background .15s ease;
+    }
+    .fresha-option:hover { border-color: #9C9CA6; }
+    .fresha-option.selected {
+      background: #F4F1FE;
+      border-color: #5B34EA;
+    }
+    .option-left {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .option-left strong {
+      display: block;
+      color: #1B1B1F;
+      font-size: 15px;
+      font-weight: 800;
+    }
+    .option-left small,
+    .option-right span {
+      display: block;
+      margin-top: 3px;
+      color: #6B6B76;
+      font-size: 13px;
+    }
+    .option-right {
+      flex: 0 0 auto;
+      display: grid;
+      justify-items: end;
+      gap: 3px;
+      color: #1B1B1F;
+      font-size: 14px;
+    }
+    .option-right strong {
+      font-size: 15px;
+      font-weight: 800;
+    }
+    .radio {
+      width: 20px;
+      height: 20px;
+      flex: 0 0 20px;
+      position: relative;
+      border: 1.5px solid #E7E5EC;
+      border-radius: 50%;
+    }
+    .fresha-option.selected .radio { border-color: #5B34EA; }
+    .fresha-option.selected .radio::after {
+      content: "";
+      position: absolute;
+      inset: 4px;
+      background: #5B34EA;
+      border-radius: 50%;
+    }
+    .avatar {
+      width: 42px;
+      height: 42px;
+      flex: 0 0 42px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #6B6B76;
+      background: #EFEEF3;
+      border-radius: 50%;
+      font-size: 13px;
+      font-weight: 800;
+    }
+    .filter-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 26px;
+    }
+    .fresha-pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 40px;
+      padding: 0 16px;
+      color: #1B1B1F;
+      background: #FFFFFF;
+      border: 1px solid #E7E5EC;
+      border-radius: 999px;
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .section-label {
+      margin: 0 0 14px;
+      color: #1B1B1F;
+      font-size: 16px;
+      font-weight: 800;
+    }
+    .date-track {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 32px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .date-track::-webkit-scrollbar { display: none; }
+    .date-chip {
+      width: 64px;
+      flex: 0 0 64px;
+      padding: 12px 0 14px;
+      color: #1B1B1F;
+      background: #FFFFFF;
+      border: 1px solid #E7E5EC;
+      border-radius: 12px;
+      text-align: center;
+      cursor: pointer;
+    }
+    .date-chip span,
+    .date-chip small {
+      display: block;
+      color: #6B6B76;
+      font-size: 11px;
+      text-transform: lowercase;
+    }
+    .date-chip strong {
+      display: block;
+      margin: 5px 0 3px;
+      font-size: 19px;
+      line-height: 1;
+    }
+    .date-chip.selected {
+      color: #FFFFFF;
+      background: #5B34EA;
+      border-color: #5B34EA;
+    }
+    .date-chip.selected span,
+    .date-chip.selected small { color: #FFFFFF; }
+    .slots {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .slot {
+      min-height: 54px;
+      padding: 0 18px;
+      color: #1B1B1F;
+      background: #FFFFFF;
+      border: 1px solid #E7E5EC;
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 800;
+      text-align: left;
+      cursor: pointer;
+    }
+    .slot:hover { border-color: #9C9CA6; }
+    .slot.selected {
+      color: #5B34EA;
+      background: #F4F1FE;
+      border-color: #5B34EA;
+    }
+    .fresha-summary {
+      padding: 32px 28px;
+      background: #FFFFFF;
+    }
+    .summary-business {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .summary-logo {
+      width: 48px;
+      height: 48px;
+      flex: 0 0 48px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #FFFFFF;
+      background: #1B1B1F;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 900;
+    }
+    .summary-name {
+      margin-bottom: 3px;
+      color: #1B1B1F;
+      font-size: 15px;
+      font-weight: 900;
+    }
+    .summary-rating {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-bottom: 3px;
+      color: #1B1B1F;
+      font-size: 13px;
+      font-weight: 800;
+    }
+    .summary-rating svg {
+      width: 13px;
+      height: 13px;
+    }
+    .summary-rating span,
+    .summary-address {
+      color: #6B6B76;
+      font-weight: 500;
+    }
+    .summary-address {
+      font-size: 12.5px;
+      line-height: 1.4;
+    }
+    .summary-divider {
+      border: 0;
+      border-top: 1px solid #EFEEF3;
+      margin: 20px 0;
+    }
+    .summary-empty {
+      color: #9C9CA6;
+      font-size: 13.5px;
+      font-style: italic;
+      line-height: 1.5;
+    }
+    .summary-card-line {
+      padding: 14px 0;
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      border-bottom: 1px solid #EFEEF3;
+    }
+    .summary-card-line:last-child { border-bottom: 0; }
+    .summary-card-line span {
+      display: block;
+      color: #6B6B76;
+      font-size: 12.5px;
+      line-height: 1.35;
+    }
+    .summary-card-line strong,
+    .summary-card-line b {
+      color: #1B1B1F;
+      font-size: 14.5px;
+      font-weight: 900;
+      text-align: right;
+    }
+    .primary-line {
+      padding: 16px;
+      margin-bottom: 8px;
+      background: #F8F7FA;
+      border: 1px solid #EFEEF3;
+      border-radius: 14px;
+    }
+    .primary-line strong,
+    .primary-line b {
+      text-align: left;
+      font-size: 15px;
+    }
+    .summary-total {
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #1B1B1F;
+      font-size: 15px;
+      font-weight: 900;
+    }
+    .fresha-continue {
+      width: 100%;
+      min-height: 52px;
+      padding: 0 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: #9C9CA6;
+      background: #F3F2F6;
+      border: 0;
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 900;
+      cursor: not-allowed;
+    }
+    .fresha-continue.enabled {
+      color: #FFFFFF;
+      background: #1B1B1F;
+      cursor: pointer;
+    }
+    .fresha-continue.enabled:hover { background: #4726BD; }
+    .fresha-continue svg {
+      width: 15px;
+      height: 15px;
+    }
+    .fresha-feedback {
+      display: none;
+      margin-top: 18px;
+      padding: 13px 14px;
+      border-radius: 12px;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .fresha-feedback.visible { display: block; }
+    .fresha-feedback.info {
+      color: #1D4ED8;
+      background: #EFF6FF;
+      border: 1px solid #BFDBFE;
+    }
+    .fresha-feedback.error {
+      color: #B42318;
+      background: #FFF1F2;
+      border: 1px solid #FECACA;
+    }
+    .fresha-muted {
+      color: #6B6B76;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+    .confirm-note {
+      max-width: 440px;
+      color: #6B6B76;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+    .booking-success {
+      padding: 58px 20px;
+      text-align: center;
+    }
+    .success-check {
+      width: 58px;
+      height: 58px;
+      margin: 0 auto 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #2E9E4F;
+      background: #EAF7EE;
+      border-radius: 50%;
+    }
+    .success-check svg {
+      width: 27px;
+      height: 27px;
+    }
+    .booking-success h2 {
+      margin: 0 0 8px;
+      color: #1B1B1F;
+      font-family: "Montserrat", system-ui, sans-serif;
+      font-size: 22px;
+      font-weight: 900;
+    }
+    .booking-success p {
+      max-width: 420px;
+      margin: 0 auto;
+      color: #6B6B76;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+    .success-link {
+      min-height: 46px;
+      margin-top: 22px;
+      padding: 0 18px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: #FFFFFF;
+      background: #1B1B1F;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 900;
+    }
+
+    @media (max-width: 820px) {
+      .fresha-booking { padding: 18px 12px 48px; }
+      .fresha-body { grid-template-columns: 1fr; }
+      .fresha-main {
+        min-height: 0;
+        padding: 28px 22px 36px;
+        border-right: 0;
+        border-bottom: 1px solid #EFEEF3;
+      }
+      .fresha-summary { padding: 24px 22px; }
+      .fresha-breadcrumb { display: none; }
+      .fresha-heading { font-size: 25px; }
+      .option-right { min-width: 92px; }
+    }
+
+    @media (max-width: 560px) {
+      .fresha-header { padding: 16px; }
+      .fresha-option {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+      .option-right {
+        width: 100%;
+        justify-items: start;
+      }
+      .date-chip {
+        width: 58px;
+        flex-basis: 58px;
+      }
+    }
 
     @media (max-width: 1100px) {
       .nav-links { display: none; }
@@ -1100,9 +1714,7 @@ function htmlPage(input: { title: string; body: string }) {
 
     @media (max-width: 900px) {
       .wrap { padding: 0 20px; }
-      .booking-layout { grid-template-columns: 1fr; }
       .hero-content { height: auto; max-width: none; padding: 48px 20px; }
-      .booking-summary { position: static; }
     }
 
     @media (max-width: 560px) {
@@ -1118,7 +1730,6 @@ function htmlPage(input: { title: string; body: string }) {
       .servicios .carousel-row { --card-width: 132px; }
       .profesionales .carousel-row { --card-width: 136px; }
       .resenas .carousel-row { --card-width: 190px; }
-      .steps, .booking-date-row { grid-template-columns: 1fr; }
       .gallery-track { grid-template-columns: repeat(2, 1fr); }
       .site-footer { padding: 44px 0 24px; }
       .footer-grid { grid-template-columns: 1fr; gap: 34px; }

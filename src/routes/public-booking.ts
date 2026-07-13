@@ -163,6 +163,58 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       appointment
     }
   })
+
+  app.get('/public/booking/:slug/history', async (request, reply) => {
+    const params = request.params as { slug: string }
+    const query = request.query as { phone?: string }
+    const business = await businessService.findPublicBySlug(params.slug)
+    if (!business || !business.landingEnabled) return reply.status(404).send({ message: 'No encontre esta landing' })
+
+    const phone = normalizePhone(query.phone)
+    if (phone.length < 8) return reply.status(400).send({ message: 'Ingresa un telefono valido para ver tus turnos' })
+
+    const appointments = await prisma.appointment.findMany({
+      where: {
+        customer: {
+          phone
+        },
+        professional: {
+          businessId: business.id
+        }
+      },
+      include: {
+        service: true,
+        professional: true,
+        customer: true
+      },
+      orderBy: {
+        startAt: 'desc'
+      },
+      take: 40
+    })
+
+    return {
+      appointments: appointments.map((appointment) => ({
+        id: appointment.id,
+        startAt: appointment.startAt,
+        status: appointment.status,
+        service: {
+          id: appointment.service.id,
+          name: appointment.service.name,
+          duration: appointment.service.duration,
+          price: appointment.service.price
+        },
+        professional: {
+          id: appointment.professional.id,
+          name: appointment.professional.name
+        },
+        customer: {
+          name: appointment.customer.name,
+          phone: appointment.customer.phone
+        }
+      }))
+    }
+  })
 }
 
 async function professionalsForService(businessId: string, serviceId: string, professionalId?: string) {
