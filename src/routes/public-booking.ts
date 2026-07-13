@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
 import { AppointmentService } from '../services/appointment-service.js'
 import { BusinessService } from '../services/business-service.js'
+import { inferDefaultAreaCodeFromPhone, normalizePhone, phoneSearchVariants } from '../services/phone-normalization-service.js'
+import { getWeexAuthFromRequest, linkExistingCustomersByPhone } from '../services/weex-account-service.js'
 
 const businessService = new BusinessService()
 const appointmentService = new AppointmentService()
@@ -114,11 +116,13 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     const professionalId = body.professionalId?.trim()
     const date = body.date?.trim()
     const time = body.time?.trim()
-    const customerName = body.customerName?.trim()
-    const customerPhone = normalizePhone(body.customerPhone)
+    const weexAuth = await getWeexAuthFromRequest(request)
+    const customerName = weexAuth?.account.name || body.customerName?.trim()
+    const defaultAreaCode = inferDefaultAreaCodeFromPhone(business.publicWhatsapp)
+    const customerPhone = normalizePhone(weexAuth?.account.phone || body.customerPhone, { defaultAreaCode })
 
     if (!serviceId || !professionalId || !date || !time || !customerName || !customerPhone) {
-      return reply.status(400).send({ message: 'Completa servicio, profesional, fecha, horario, nombre y telefono' })
+      return reply.status(400).send({ message: 'Completa servicio, profesional, fecha, horario y tus datos de contacto' })
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) {
       return reply.status(400).send({ message: 'La fecha u horario no parecen validos' })
@@ -148,6 +152,10 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       return reply.status(result.statusCode).send({ message: result.message })
     }
 
+    if (weexAuth?.account.phone) {
+      await linkExistingCustomersByPhone(weexAuth.account.id, customerPhone, defaultAreaCode)
+    }
+
     const appointment = await prisma.appointment.findUnique({
       where: {
         id: result.appointment.id
@@ -170,13 +178,17 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     const business = await businessService.findPublicBySlug(params.slug)
     if (!business || !business.landingEnabled) return reply.status(404).send({ message: 'No encontre esta landing' })
 
-    const phone = normalizePhone(query.phone)
+    const defaultAreaCode = inferDefaultAreaCodeFromPhone(business.publicWhatsapp)
+    const phone = normalizePhone(query.phone, { defaultAreaCode })
     if (phone.length < 8) return reply.status(400).send({ message: 'Ingresa un telefono valido para ver tus turnos' })
+    const phoneVariants = phoneSearchVariants(phone, { defaultAreaCode })
 
     const appointments = await prisma.appointment.findMany({
       where: {
         customer: {
-          phone
+          phone: {
+            in: phoneVariants
+          }
         },
         professional: {
           businessId: business.id
@@ -257,13 +269,16 @@ async function professionalsForService(businessId: string, serviceId: string, pr
 }
 
 async function findOrCreatePublicCustomer(input: { businessId: string; name: string; phone: string }) {
+  const phoneVariants = phoneSearchVariants(input.phone)
   const existingAppointments = await prisma.appointment.findMany({
     where: {
       professional: {
         businessId: input.businessId
       },
       customer: {
-        phone: input.phone
+        phone: {
+          in: phoneVariants
+        }
       }
     },
     select: {
@@ -286,7 +301,9 @@ async function findOrCreatePublicCustomer(input: { businessId: string; name: str
 
   const customer = await prisma.customer.findFirst({
     where: {
-      phone: input.phone
+      phone: {
+        in: phoneVariants
+      }
     }
   })
 
@@ -307,8 +324,4 @@ async function findOrCreatePublicCustomer(input: { businessId: string; name: str
       phone: input.phone
     }
   })
-}
-
-function normalizePhone(value?: string) {
-  return String(value || '').replace(/\D/g, '')
 }

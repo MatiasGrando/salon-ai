@@ -1,4 +1,5 @@
 import { resolveBusinessWhatsAppCredentials, type WhatsAppCloudCredentials } from '../services/business-whatsapp-settings.js'
+import { normalizeArgentineMobilePhone } from '../services/phone-normalization-service.js'
 
 type SendTextMessageInput = {
   businessId?: string | null
@@ -416,7 +417,8 @@ function definedString<T extends string>(key: T, value?: string) {
 }
 
 function formatRecipientPhone(phone: string, config: WhatsAppCloudCredentials) {
-  const digits = phone.replace(/\D/g, '')
+  const normalized = normalizeArgentineMobilePhone(phone)
+  const digits = normalized.ok ? normalized.phone : phone.replace(/\D/g, '')
 
   if (config.phoneNumberMode === 'legacy_argentina_without_mobile_9' && digits.startsWith('549')) {
     return `54${digits.slice(3)}`

@@ -8105,6 +8105,8 @@ const crmHtml = `<!doctype html>
       line-height: 1.25;
       cursor: grab;
       user-select: none;
+      transition: opacity .16s ease, box-shadow .16s ease, transform .16s ease;
+      animation: agenda-event-enter .16s ease-out;
     }
 
     .agenda-block {
@@ -8151,8 +8153,59 @@ const crmHtml = `<!doctype html>
     }
 
     .agenda-event.dragging {
-      opacity: .45;
+      opacity: .22;
       cursor: grabbing;
+    }
+
+    .agenda-drag-ghost {
+      position: fixed;
+      z-index: 10000;
+      width: 160px;
+      min-height: 24px;
+      padding: 5px 7px;
+      border-radius: 6px;
+      color: #101936;
+      background: color-mix(in srgb, var(--agenda-event-color, #2563eb) 16%, #ffffff);
+      border-left: 4px solid var(--agenda-event-color, #2563eb);
+      box-shadow: 0 14px 30px rgba(15, 23, 42, .22);
+      overflow: hidden;
+      font-size: 11px;
+      line-height: 1.25;
+      pointer-events: none;
+      transform: translate3d(0, 0, 0) rotate(.4deg);
+    }
+
+    .agenda-drag-ghost strong,
+    .agenda-drag-ghost span {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .agenda-drag-ghost span {
+      margin-top: 2px;
+    }
+
+    .agenda-event.is-pending {
+      opacity: .72;
+      cursor: progress;
+      box-shadow: inset 0 0 0 1px rgba(37, 99, 235, .22), 0 8px 16px rgba(15, 23, 42, .1);
+    }
+
+    .agenda-event.is-pending::after {
+      content: "";
+      position: absolute;
+      right: 7px;
+      bottom: 7px;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      border: 2px solid rgba(37, 99, 235, .22);
+      border-top-color: #2563eb;
+      background: rgba(255, 255, 255, .82);
+      pointer-events: none;
+      animation: agenda-pending-spin .72s linear infinite;
     }
 
     .agenda-cell.drag-target:not(.closed) {
@@ -8163,6 +8216,60 @@ const crmHtml = `<!doctype html>
     .agenda-cell.drag-invalid {
       background: #fff1f2;
       box-shadow: inset 0 0 0 2px #ef4444;
+    }
+
+    .agenda-drop-preview {
+      position: absolute;
+      left: 5px;
+      right: 5px;
+      top: 2px;
+      z-index: 6;
+      min-height: 24px;
+      padding: 5px 7px;
+      border-radius: 6px;
+      border: 1px dashed var(--agenda-event-color, #2563eb);
+      border-left: 4px solid var(--agenda-event-color, #2563eb);
+      background: color-mix(in srgb, var(--agenda-event-color, #2563eb) 10%, rgba(255, 255, 255, .94));
+      color: #0f172a;
+      box-shadow: 0 10px 22px rgba(15, 23, 42, .12);
+      opacity: .94;
+      overflow: hidden;
+      pointer-events: none;
+      animation: agenda-preview-enter .12s ease-out;
+    }
+
+    .agenda-drop-preview strong,
+    .agenda-drop-preview span {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .agenda-drop-preview strong {
+      font-size: 11px;
+      line-height: 1.2;
+      font-weight: 800;
+    }
+
+    .agenda-drop-preview span {
+      margin-top: 2px;
+      font-size: 10px;
+      line-height: 1.2;
+    }
+
+    @keyframes agenda-event-enter {
+      from { opacity: .82; transform: translateY(2px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes agenda-preview-enter {
+      from { opacity: 0; transform: scale(.985); }
+      to { opacity: .94; transform: scale(1); }
+    }
+
+    @keyframes agenda-pending-spin {
+      to { transform: rotate(360deg); }
     }
 
     .agenda-event.is-overlap {
@@ -12492,6 +12599,9 @@ const crmHtml = `<!doctype html>
       agendaLoadedRangeStart: null,
       agendaLoadedRangeEnd: null,
       agendaDraggingAppointmentId: null,
+      agendaDragPreviewKey: null,
+      agendaPointerDrag: null,
+      agendaPendingAppointmentIds: new Set(),
       agendaDidDrag: false,
       editingAppointmentId: null,
       aiSettings: {
@@ -17668,21 +17778,22 @@ const crmHtml = `<!doctype html>
         const leftOffset = 5 + (gap / 2)
         const widthOffset = gap + (10 / placement.columns)
         const noShow = appointment.status === 'NO_SHOW'
+        const pending = state.agendaPendingAppointmentIds.has(appointment.id)
 
         const event = document.createElement('article')
-        event.className = 'agenda-event' + (placement.columns > 1 ? ' is-overlap' : '') + (noShow ? ' no-show' : '')
+        event.className = 'agenda-event' + (placement.columns > 1 ? ' is-overlap' : '') + (noShow ? ' no-show' : '') + (pending ? ' is-pending' : '')
         event.style.height = height + 'px'
         event.style.top = top + 'px'
         event.style.left = 'calc(' + ((placement.column * 100) / placement.columns) + '% + ' + leftOffset + 'px)'
         event.style.right = 'auto'
         event.style.width = 'calc(' + (100 / placement.columns) + '% - ' + widthOffset + 'px)'
         event.style.setProperty('--agenda-event-color', eventColor)
-        event.title = customer + ' - ' + service + ' con ' + professional + (noShow ? ' - Ausente' : '')
+        event.title = customer + ' - ' + service + ' con ' + professional + (noShow ? ' - Ausente' : '') + (pending ? ' - Guardando cambio' : '')
         event.innerHTML = '<strong>' + escapeHtml(formatTimeOnly(start) + ' - ' + formatTimeOnly(addMinutes(start, duration))) + '</strong>' +
           '<span>' + escapeHtml(service) + '</span>' +
           '<span>' + escapeHtml(customer + (noShow ? ' - Ausente' : '')) + '</span>'
         event.dataset.appointmentId = appointment.id
-        event.draggable = canEditAppointments()
+        event.draggable = false
         event.addEventListener('click', (clickEvent) => {
           clickEvent.stopPropagation()
           if (state.agendaDidDrag) {
@@ -17691,59 +17802,162 @@ const crmHtml = `<!doctype html>
           }
           openAppointmentDialog({ appointment })
         })
+        event.addEventListener('pointerdown', (pointerEvent) => {
+          startAgendaPointerDrag(pointerEvent, event, appointment.id)
+        })
         cell.appendChild(event)
       }
     }
 
     function enableAgendaDragAndDrop() {
-      for (const event of els.agendaGridWrap.querySelectorAll('.agenda-event[data-appointment-id]')) {
-        event.addEventListener('dragstart', (dragEvent) => {
-          if (!canEditAppointments()) {
-            dragEvent.preventDefault()
-            showCrmToast('No tenes permiso para editar turnos.', 'error')
-            return
-          }
-          state.agendaDraggingAppointmentId = event.dataset.appointmentId
-          state.agendaDidDrag = true
-          event.classList.add('dragging')
-          dragEvent.dataTransfer.effectAllowed = 'move'
-          dragEvent.dataTransfer.setData('text/plain', event.dataset.appointmentId)
-        })
-        event.addEventListener('dragend', () => {
-          event.classList.remove('dragging')
-          state.agendaDraggingAppointmentId = null
-          clearAgendaDragTargets()
-          setTimeout(() => {
-            state.agendaDidDrag = false
-          }, 200)
-        })
+      clearAgendaPointerDrag()
+    }
+
+    function startAgendaPointerDrag(pointerEvent, eventNode, appointmentId) {
+      if (pointerEvent.button !== 0) return
+      if (!canEditAppointments()) {
+        showCrmToast('No tenes permiso para editar turnos.', 'error')
+        return
+      }
+      if (state.agendaPendingAppointmentIds.has(appointmentId)) return
+
+      const rect = eventNode.getBoundingClientRect()
+      state.agendaPointerDrag = {
+        appointmentId,
+        eventNode,
+        ghost: null,
+        startX: pointerEvent.clientX,
+        startY: pointerEvent.clientY,
+        offsetX: pointerEvent.clientX - rect.left,
+        offsetY: pointerEvent.clientY - rect.top,
+        width: rect.width,
+        height: rect.height,
+        targetCell: null,
+        dragging: false
       }
 
-      for (const cell of els.agendaGridWrap.querySelectorAll('[data-cell-date][data-cell-minute]')) {
-        cell.addEventListener('dragover', (dragEvent) => {
-          if (!state.agendaDraggingAppointmentId) return
-          dragEvent.preventDefault()
-          dragEvent.dataTransfer.dropEffect = 'move'
-          cell.classList.toggle('drag-invalid', cell.classList.contains('closed'))
-          cell.classList.toggle('drag-target', !cell.classList.contains('closed'))
-        })
-        cell.addEventListener('dragleave', () => {
-          cell.classList.remove('drag-target', 'drag-invalid')
-        })
-        cell.addEventListener('drop', async (dropEvent) => {
-          dropEvent.preventDefault()
-          const appointmentId = state.agendaDraggingAppointmentId || dropEvent.dataTransfer.getData('text/plain')
-          clearAgendaDragTargets()
-          if (!appointmentId || cell.classList.contains('closed')) {
-            if (cell.classList.contains('closed')) showCrmToast('Ese horario esta fuera del horario de atencion.', 'error')
-            return
-          }
-          await moveAgendaAppointment(
-            appointmentId,
-            cell.dataset.cellDate,
-            Number(cell.dataset.cellMinute)
-          )
-        })
+      eventNode.setPointerCapture?.(pointerEvent.pointerId)
+      eventNode.addEventListener('pointermove', handleAgendaPointerMove)
+      eventNode.addEventListener('pointerup', handleAgendaPointerEnd, { once: true })
+      eventNode.addEventListener('pointercancel', handleAgendaPointerCancel, { once: true })
+    }
+
+    function handleAgendaPointerMove(pointerEvent) {
+      const drag = state.agendaPointerDrag
+      if (!drag) return
+
+      const moved = Math.hypot(pointerEvent.clientX - drag.startX, pointerEvent.clientY - drag.startY)
+      if (!drag.dragging && moved < 5) return
+      pointerEvent.preventDefault()
+
+      if (!drag.dragging) {
+        drag.dragging = true
+        state.agendaDraggingAppointmentId = drag.appointmentId
+        state.agendaDidDrag = true
+        drag.eventNode.classList.add('dragging')
+        drag.ghost = createAgendaDragGhost(drag)
+        document.body.appendChild(drag.ghost)
+      }
+
+      moveAgendaDragGhost(drag, pointerEvent.clientX, pointerEvent.clientY)
+      updateAgendaPointerTarget(drag, pointerEvent.clientX, pointerEvent.clientY)
+    }
+
+    function handleAgendaPointerEnd(pointerEvent) {
+      const drag = state.agendaPointerDrag
+      if (!drag) return
+      drag.eventNode.removeEventListener('pointermove', handleAgendaPointerMove)
+      drag.eventNode.removeEventListener('pointercancel', handleAgendaPointerCancel)
+
+      if (!drag.dragging) {
+        clearAgendaPointerDrag()
+        return
+      }
+
+      pointerEvent.preventDefault()
+      const targetCell = drag.targetCell
+      const appointmentId = drag.appointmentId
+      clearAgendaPointerDrag({ keepDidDrag: true })
+
+      if (!targetCell) {
+        showCrmToast('Solta el turno sobre un horario disponible.', 'error')
+        return
+      }
+
+      moveAgendaAppointment(
+        appointmentId,
+        targetCell.dataset.cellDate,
+        Number(targetCell.dataset.cellMinute)
+      ).catch((error) => showCrmToast(error.message, 'error'))
+    }
+
+    function handleAgendaPointerCancel() {
+      const drag = state.agendaPointerDrag
+      drag?.eventNode.removeEventListener('pointermove', handleAgendaPointerMove)
+      drag?.eventNode.removeEventListener('pointerup', handleAgendaPointerEnd)
+      clearAgendaPointerDrag()
+    }
+
+    function createAgendaDragGhost(drag) {
+      const ghost = drag.eventNode.cloneNode(true)
+      ghost.classList.remove('dragging', 'is-pending')
+      ghost.classList.add('agenda-drag-ghost')
+      ghost.style.width = drag.width + 'px'
+      ghost.style.height = drag.height + 'px'
+      ghost.removeAttribute('data-appointment-id')
+      return ghost
+    }
+
+    function moveAgendaDragGhost(drag, clientX, clientY) {
+      if (!drag.ghost) return
+      drag.ghost.style.left = (clientX - drag.offsetX) + 'px'
+      drag.ghost.style.top = (clientY - drag.offsetY) + 'px'
+    }
+
+    function updateAgendaPointerTarget(drag, clientX, clientY) {
+      const hovered = document.elementFromPoint(clientX, clientY)
+      const cell = hovered?.closest?.('[data-cell-date][data-cell-minute]')
+      for (const current of els.agendaGridWrap.querySelectorAll('.drag-target, .drag-invalid')) {
+        if (current !== cell) current.classList.remove('drag-target', 'drag-invalid')
+      }
+
+      if (!cell || !els.agendaGridWrap.contains(cell)) {
+        drag.targetCell = null
+        clearAgendaDropPreview()
+        return
+      }
+
+      const closed = cell.classList.contains('closed')
+      cell.classList.toggle('drag-invalid', closed)
+      cell.classList.toggle('drag-target', !closed)
+      if (closed) {
+        drag.targetCell = null
+        clearAgendaDropPreview()
+        return
+      }
+
+      drag.targetCell = cell
+      renderAgendaDropPreview(
+        drag.appointmentId,
+        cell,
+        cell.dataset.cellDate,
+        Number(cell.dataset.cellMinute)
+      )
+    }
+
+    function clearAgendaPointerDrag(options = {}) {
+      const drag = state.agendaPointerDrag
+      drag?.eventNode.classList.remove('dragging')
+      drag?.ghost?.remove()
+      state.agendaPointerDrag = null
+      state.agendaDraggingAppointmentId = null
+      clearAgendaDragTargets()
+      if (options.keepDidDrag) {
+        setTimeout(() => {
+          state.agendaDidDrag = false
+        }, 200)
+      } else {
+        state.agendaDidDrag = false
       }
     }
 
@@ -17751,20 +17965,68 @@ const crmHtml = `<!doctype html>
       for (const cell of els.agendaGridWrap.querySelectorAll('.drag-target, .drag-invalid')) {
         cell.classList.remove('drag-target', 'drag-invalid')
       }
+      clearAgendaDropPreview()
+    }
+
+    function clearAgendaDropPreview() {
+      state.agendaDragPreviewKey = null
+      els.agendaGridWrap.querySelector('.agenda-drop-preview')?.remove()
+    }
+
+    function renderAgendaDropPreview(appointmentId, cell, targetDateKey, targetMinute) {
+      const appointment = state.agendaAppointments.find((item) => item.id === appointmentId)
+      if (!appointment) return
+
+      const previewKey = appointmentId + ':' + targetDateKey + ':' + targetMinute
+      if (state.agendaDragPreviewKey === previewKey && cell.querySelector('.agenda-drop-preview')) return
+
+      clearAgendaDropPreview()
+      state.agendaDragPreviewKey = previewKey
+
+      const target = parseDateKey(targetDateKey)
+      target.setHours(Math.floor(targetMinute / 60), targetMinute % 60, 0, 0)
+      const duration = appointment.service?.duration || Number(els.agendaStep.value || 15)
+      const displayRange = getAgendaDisplayRange()
+      const pixelsPerMinute = 28 / 15
+      const height = Math.max(24, duration * pixelsPerMinute - 4)
+      const customer = appointment.customer?.name || 'Cliente'
+      const service = appointment.service?.name || 'Servicio'
+      const professionalIndex = activeProfessionals().findIndex((item) => item.id === appointment.professionalId)
+      const eventColor = agendaProfessionalColor(appointment.professionalId, professionalIndex)
+
+      const preview = document.createElement('article')
+      preview.className = 'agenda-drop-preview'
+      preview.style.height = height + 'px'
+      preview.style.setProperty('--agenda-event-color', eventColor)
+      preview.innerHTML = '<strong>' + escapeHtml(formatTimeOnly(target) + ' - ' + formatTimeOnly(addMinutes(target, duration))) + '</strong>' +
+        '<span>' + escapeHtml(service) + '</span>' +
+        '<span>' + escapeHtml(customer) + '</span>'
+      if (targetMinute < displayRange.start || targetMinute >= displayRange.end) return
+      cell.appendChild(preview)
     }
 
     async function moveAgendaAppointment(appointmentId, targetDateKey, targetMinute) {
       const appointment = state.agendaAppointments.find((item) => item.id === appointmentId)
       if (!appointment) return
+      if (state.agendaPendingAppointmentIds.has(appointmentId)) return
 
       const target = parseDateKey(targetDateKey)
       target.setHours(Math.floor(targetMinute / 60), targetMinute % 60, 0, 0)
       if (new Date(appointment.startAt).getTime() === target.getTime()) return
 
-      const event = els.agendaGridWrap.querySelector('[data-appointment-id="' + appointmentId + '"]')
-      event?.classList.add('dragging')
+      const previousAppointment = { ...appointment }
+      state.agendaPendingAppointmentIds.add(appointmentId)
+      state.agendaAppointments = state.agendaAppointments.map((item) => {
+        return item.id === appointmentId
+          ? { ...item, startAt: target.toISOString(), status: 'CONFIRMED' }
+          : item
+      })
+      state.agendaSelectedDate = target
+      state.agendaMonthDate = new Date(target)
+      renderAgenda()
+
       try {
-        await getJson('/appointments/' + appointmentId, {
+        const saved = await getJson('/appointments/' + appointmentId, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -17774,15 +18036,20 @@ const crmHtml = `<!doctype html>
             startAt: target.toISOString()
           })
         })
-        state.agendaSelectedDate = target
-        state.agendaMonthDate = new Date(target)
-        await loadAgenda()
+        state.agendaAppointments = state.agendaAppointments.map((item) => {
+          return item.id === appointmentId ? { ...item, ...saved } : item
+        })
       } catch (error) {
-        event?.classList.remove('dragging')
+        state.agendaAppointments = state.agendaAppointments.map((item) => {
+          return item.id === appointmentId ? previousAppointment : item
+        })
         showCrmToast(error.message, 'error')
         renderAgenda()
+        return
       } finally {
+        state.agendaPendingAppointmentIds.delete(appointmentId)
         state.agendaDraggingAppointmentId = null
+        renderAgenda()
       }
     }
 

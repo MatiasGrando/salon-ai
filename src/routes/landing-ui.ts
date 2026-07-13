@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { siFacebook, siInstagram, siWhatsapp, type SimpleIcon } from 'simple-icons'
 import { BusinessService, normalizeBusinessSlug } from '../services/business-service.js'
+import { inferDefaultAreaCodeFromPhone } from '../services/phone-normalization-service.js'
+import { weexGoogleClientId } from '../services/weex-account-service.js'
 
 const businessService = new BusinessService()
 const baseDomain = (process.env.PUBLIC_BASE_DOMAIN || 'weex.com.ar').toLowerCase()
@@ -411,6 +413,8 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
   const slug = business.slug || ''
   const initialsText = initials(business.name) || 'WX'
   const accountPath = backPath === '/' ? '/cuenta' : `${backPath}/cuenta`
+  const googleClientId = weexGoogleClientId()
+  const defaultAreaCode = inferDefaultAreaCodeFromPhone(business.publicWhatsapp)
   return htmlPage({
     title: `Reservar en ${business.name}`,
     body: `
@@ -486,10 +490,40 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
           </div>
         </section>
       </main>
+      <div class="booking-gate" id="booking-gate" hidden>
+        <section class="booking-gate-card" role="dialog" aria-modal="true" aria-labelledby="booking-gate-title">
+          <button class="booking-gate-close" id="booking-gate-close" type="button" aria-label="Cerrar">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>
+          </button>
+          <div class="booking-gate-panel" id="booking-gate-login">
+            <h2 id="booking-gate-title">Inicia sesion o registrate para reservar</h2>
+            <p>Para continuar, necesitamos verificar que eres tu.</p>
+            <div class="booking-gate-google" id="booking-gate-google"></div>
+            <div class="booking-gate-divider"><span></span><b>o</b><span></span></div>
+            <button class="booking-gate-secondary" type="button" disabled>Continuar con el movil</button>
+            <button class="booking-gate-secondary" type="button" disabled>Continuar con Facebook</button>
+          </div>
+          <form class="booking-gate-panel" id="booking-gate-phone" hidden>
+            <h2>Anadir telefono</h2>
+            <p>Introduce tu numero de telefono para confirmar la cita.</p>
+            <label for="booking-phone-input">Numero de telefono</label>
+            <div class="booking-phone-row">
+              <span>+54</span>
+              <input id="booking-phone-input" name="phone" inputmode="tel" autocomplete="tel" placeholder="9 11-6431-2742">
+            </div>
+            <button class="booking-gate-primary" type="submit">Continuar</button>
+          </form>
+          <div class="booking-gate-feedback" id="booking-gate-feedback" role="status" aria-live="polite"></div>
+        </section>
+      </div>
+      ${googleClientId ? '<script src="https://accounts.google.com/gsi/client" async defer></script>' : ''}
       <script>
         (() => {
           const slug = ${JSON.stringify(slug)}
           const backPath = ${JSON.stringify(backPath)}
+          const accountPath = ${JSON.stringify(accountPath)}
+          const googleClientId = ${JSON.stringify(googleClientId)}
+          const defaultAreaCode = ${JSON.stringify(defaultAreaCode)}
           const steps = ['Servicios', 'Profesional', 'Hora', 'Confirmar']
           const state = {
             step: 1,
@@ -499,6 +533,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
             date: null,
             dateLabel: null,
             slot: null,
+            weexAccount: null,
             confirmed: false
           }
           const els = {
@@ -512,7 +547,14 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
             totalRow: document.getElementById('booking-total-row'),
             total: document.getElementById('booking-total'),
             continue: document.getElementById('booking-continue'),
-            continueLabel: document.getElementById('booking-continue-label')
+            continueLabel: document.getElementById('booking-continue-label'),
+            gate: document.getElementById('booking-gate'),
+            gateLogin: document.getElementById('booking-gate-login'),
+            gatePhone: document.getElementById('booking-gate-phone'),
+            gateClose: document.getElementById('booking-gate-close'),
+            gateGoogle: document.getElementById('booking-gate-google'),
+            gateFeedback: document.getElementById('booking-gate-feedback'),
+            phoneInput: document.getElementById('booking-phone-input')
           }
 
           const dayNames = ['dom', 'lun', 'mar', 'mie', 'jue', 'vie', 'sab']
@@ -527,7 +569,12 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
           async function loadCatalog() {
             setFeedback('Cargando opciones...', 'info')
             try {
-              state.catalog = await getJson('/public/booking/' + encodeURIComponent(slug) + '/catalog')
+              const [catalog, auth] = await Promise.all([
+                getJson('/public/booking/' + encodeURIComponent(slug) + '/catalog'),
+                getJson('/public/weex/me').catch(() => null)
+              ])
+              state.catalog = catalog
+              state.weexAccount = auth?.account || null
               setFeedback('', '')
               render()
             } catch (error) {
@@ -650,12 +697,16 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
           function renderConfirmStep() {
             els.heading.textContent = state.confirmed ? 'Turno confirmado' : 'Confirmar turno'
             if (state.confirmed) {
+              const accountName = state.weexAccount?.name || 'tu reserva'
               els.content.innerHTML =
                 '<div class="booking-success">' +
                   '<div class="success-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M20 6L9 17l-5-5"></path></svg></div>' +
-                  '<h2>Turno confirmado</h2>' +
-                  '<p>Tu reserva quedo registrada para ' + escapeHtml(state.dateLabel || '') + ' a las ' + escapeHtml(state.slot?.time || '') + '.</p>' +
-                  '<a class="success-link" href="' + escapeHtml(backPath) + '">Volver a la landing</a>' +
+                  '<h2>Reserva exitosa, ' + escapeHtml(accountName) + '</h2>' +
+                  '<p>' + escapeHtml(state.dateLabel || '') + ' a las ' + escapeHtml(state.slot?.time || '') + '.</p>' +
+                  '<div class="success-actions">' +
+                    '<a class="success-link secondary" href="' + escapeHtml(backPath) + '">Volver a ' + escapeHtml(state.catalog?.business?.name || 'comercio') + '</a>' +
+                    '<a class="success-link" href="' + escapeHtml(accountPath) + '">Ver reservas</a>' +
+                  '</div>' +
                 '</div>'
               updateContinue(false)
               els.continue.hidden = true
@@ -663,7 +714,10 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
             }
             els.continue.hidden = false
             els.content.innerHTML =
-              '<p class="confirm-note">Revisa el resumen antes de confirmar. En el siguiente paso vamos a sumar login para asociar este turno a un cliente real.</p>'
+              '<div class="booking-account-ready">' +
+                '<div class="account-mini-avatar">' + escapeHtml(initials(state.weexAccount?.name || 'Reserva')) + '</div>' +
+                '<div><h2>Reserva para ' + escapeHtml(state.weexAccount?.name || 'vos') + '</h2></div>' +
+              '</div>'
             updateContinue(Boolean(state.service && state.professionalId && state.slot), 'Confirmar turno')
           }
 
@@ -752,16 +806,167 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
             return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(value)
           }
 
+          function formatPhoneInput(value) {
+            let digits = String(value || '').replace(/\\D/g, '')
+            if (digits.startsWith('00')) digits = digits.slice(2)
+            if (digits.startsWith('54')) digits = digits.slice(2)
+            if (digits.startsWith('0')) digits = digits.slice(1)
+            if (digits.startsWith('15')) digits = '9' + defaultAreaCode + digits.slice(2)
+            if (digits.slice(defaultAreaCode.length, defaultAreaCode.length + 2) === '15') {
+              digits = '9' + defaultAreaCode + digits.slice(defaultAreaCode.length + 2)
+            }
+            if (!digits.startsWith('9') && digits.length >= 10) digits = '9' + digits
+            digits = digits.slice(0, 11)
+            const hasMobilePrefix = digits.startsWith('9')
+            const national = hasMobilePrefix ? digits.slice(1) : digits
+            const areaLength = inferAreaCodeLength(national)
+            const area = national.slice(0, areaLength)
+            const local = national.slice(areaLength)
+            const firstLength = local.length >= 8 ? 4 : local.length >= 7 ? 3 : 2
+            const first = local.slice(0, firstLength)
+            const second = local.slice(first.length, first.length + 4)
+            return [
+              hasMobilePrefix ? '9 ' : '',
+              area,
+              first ? (area ? '-' : '') + first : '',
+              second ? '-' + second : ''
+            ].join('')
+          }
+
+          function phoneForSubmit(value) {
+            return '+54 ' + formatPhoneInput(value)
+          }
+
+          function inferAreaCodeLength(nationalDigits) {
+            if (defaultAreaCode && nationalDigits.startsWith(defaultAreaCode)) return defaultAreaCode.length
+            if (nationalDigits.startsWith('11')) return 2
+            return 3
+          }
+
           function setDate(date) {
             state.date = dateIso(date)
             state.dateLabel = new Intl.DateTimeFormat('es-AR', { weekday: 'long', day: 'numeric', month: 'long' }).format(date)
           }
 
           async function getJson(url, options) {
-            const response = await fetch(url, options)
+            let response
+            try {
+              response = await fetch(url, {
+                credentials: 'same-origin',
+                ...options
+              })
+            } catch {
+              throw new Error('No pudimos conectar con el servidor. Intenta de nuevo.')
+            }
             const body = await response.json().catch(() => ({}))
             if (!response.ok) throw new Error(body.message || 'No pude completar la operacion')
             return body
+          }
+
+          async function postJson(url, payload) {
+            return getJson(url, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(payload)
+            })
+          }
+
+          async function refreshWeexAccount() {
+            const auth = await getJson('/public/weex/me').catch(() => null)
+            state.weexAccount = auth?.account || null
+            return state.weexAccount
+          }
+
+          async function continueFromTimeStep() {
+            updateContinue(false)
+            const account = await refreshWeexAccount()
+            if (!account) {
+              showBookingGate('login')
+              updateContinue(true)
+              return
+            }
+            if (!account.phone) {
+              showBookingGate('phone')
+              updateContinue(true)
+              return
+            }
+            proceedToConfirm()
+          }
+
+          function proceedToConfirm() {
+            hideBookingGate()
+            state.step = 4
+            state.confirmed = false
+            render()
+          }
+
+          function showBookingGate(mode) {
+            els.gate.hidden = false
+            els.gateLogin.hidden = mode !== 'login'
+            els.gatePhone.hidden = mode !== 'phone'
+            setGateFeedback('', '')
+            if (mode === 'login') renderBookingGoogleButton()
+            if (mode === 'phone') {
+              els.phoneInput.value = formatPhoneInput(state.weexAccount?.phone || '')
+              window.setTimeout(() => els.phoneInput.focus(), 50)
+            }
+          }
+
+          function hideBookingGate() {
+            els.gate.hidden = true
+            setGateFeedback('', '')
+          }
+
+          function setGateFeedback(message, type) {
+            els.gateFeedback.textContent = message
+            els.gateFeedback.className = 'booking-gate-feedback' + (message ? ' visible ' + type : '')
+          }
+
+          function renderBookingGoogleButton() {
+            if (!googleClientId) {
+              setGateFeedback('Falta configurar GOOGLE_CLIENT_ID para iniciar sesion con Google.', 'error')
+              return
+            }
+            if (!window.google?.accounts?.id) {
+              window.setTimeout(renderBookingGoogleButton, 250)
+              return
+            }
+            if (els.gateGoogle.dataset.rendered === 'true') return
+            els.gateGoogle.dataset.rendered = 'true'
+            window.google.accounts.id.initialize({
+              client_id: googleClientId,
+              callback: handleBookingGoogleCredential
+            })
+            window.google.accounts.id.renderButton(els.gateGoogle, {
+              type: 'standard',
+              theme: 'outline',
+              size: 'large',
+              text: 'continue_with',
+              shape: 'pill',
+              logo_alignment: 'left',
+              width: Math.min(384, els.gateGoogle.clientWidth || 384)
+            })
+          }
+
+          async function handleBookingGoogleCredential(response) {
+            if (!response?.credential) {
+              setGateFeedback('Google no devolvio una credencial valida.', 'error')
+              return
+            }
+            setGateFeedback('Validando Google...', 'info')
+            try {
+              const result = await postJson('/public/weex/auth/google', { credential: response.credential })
+              state.weexAccount = result.account
+              if (!state.weexAccount.phone) {
+                showBookingGate('phone')
+                return
+              }
+              proceedToConfirm()
+            } catch (error) {
+              setGateFeedback(error.message, 'error')
+            }
           }
 
           function escapeHtml(value) {
@@ -787,6 +992,25 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
               .slice(0, 2)
               .map((word) => word[0]?.toUpperCase() || '')
               .join('')
+          }
+
+          async function confirmBooking() {
+            updateContinue(false, 'Confirmando...')
+            setFeedback('Confirmando tu turno...', 'info')
+            try {
+              await postJson('/public/booking/' + encodeURIComponent(slug) + '/book', {
+                serviceId: state.service.id,
+                professionalId: state.slot?.professionalId || state.professionalId,
+                date: state.date,
+                time: state.slot?.time
+              })
+              state.confirmed = true
+              setFeedback('', '')
+              render()
+            } catch (error) {
+              setFeedback(error.message, 'error')
+              updateContinue(true, 'Confirmar turno')
+            }
           }
 
           function render() {
@@ -851,12 +1075,42 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
           els.continue.addEventListener('click', () => {
             if (els.continue.disabled) return
             if (state.step === 4) {
-              state.confirmed = true
-              render()
+              void confirmBooking()
+              return
+            }
+            if (state.step === 3) {
+              void continueFromTimeStep()
               return
             }
             state.step += 1
             render()
+          })
+
+          els.gateClose.addEventListener('click', hideBookingGate)
+          els.gate.addEventListener('click', (event) => {
+            if (event.target === els.gate) hideBookingGate()
+          })
+          els.gatePhone.addEventListener('submit', (event) => {
+            event.preventDefault()
+            const phone = phoneForSubmit(els.phoneInput.value)
+            if (phone.replace(/\\D/g, '').length < 8) {
+              setGateFeedback('Ingresa un telefono valido para confirmar tu turno.', 'error')
+              return
+            }
+            void (async () => {
+              setGateFeedback('Guardando telefono...', 'info')
+              try {
+                const result = await postJson('/public/weex/profile/phone', { phone, businessSlug: slug })
+                state.weexAccount = result.account
+                proceedToConfirm()
+              } catch (error) {
+                setGateFeedback(error.message, 'error')
+              }
+            })()
+          })
+
+          els.phoneInput.addEventListener('input', () => {
+            els.phoneInput.value = formatPhoneInput(els.phoneInput.value)
           })
 
           render()
@@ -871,6 +1125,8 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
   const slug = business.slug || ''
   const initialsText = initials(business.name) || 'WX'
   const bookingUrl = `${basePath}/reservar`
+  const googleClientId = weexGoogleClientId()
+  const defaultAreaCode = inferDefaultAreaCodeFromPhone(business.publicWhatsapp)
   return htmlPage({
     title: `Mi perfil | ${business.name}`,
     body: `
@@ -916,10 +1172,9 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
               <div class="google-orb" aria-hidden="true">G</div>
               <h1>Ingresa con Google</h1>
               <p>Usamos tus datos de Google para identificarte. Solo vas a completar tu telefono para ver y asociar tus turnos.</p>
-              <button class="google-button" id="google-login" type="button">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M22.6 12.2c0-.8-.1-1.5-.2-2.2H12v4.2h5.9a5 5 0 0 1-2.2 3.3v2.7h3.6c2.1-1.9 3.3-4.8 3.3-8z"></path><path fill="#34A853" d="M12 23c3 0 5.5-1 7.3-2.8l-3.6-2.7c-1 .7-2.2 1.1-3.7 1.1-2.8 0-5.2-1.9-6.1-4.5H2.2v2.8A11 11 0 0 0 12 23z"></path><path fill="#FBBC05" d="M5.9 14.1a6.6 6.6 0 0 1 0-4.2V7.1H2.2a11 11 0 0 0 0 9.8l3.7-2.8z"></path><path fill="#EA4335" d="M12 5.4c1.6 0 3.1.6 4.2 1.7l3.2-3.2A10.8 10.8 0 0 0 12 1 11 11 0 0 0 2.2 7.1l3.7 2.8c.9-2.6 3.3-4.5 6.1-4.5z"></path></svg>
-                Continuar con Google
-              </button>
+              <div class="google-button-wrap" id="google-button-wrap"></div>
+              ${googleClientId ? '' : '<div class="account-feedback visible error">Falta configurar GOOGLE_CLIENT_ID para activar el login real.</div>'}
+              <div class="account-feedback" id="account-login-feedback" role="status" aria-live="polite"></div>
             </div>
 
             <div class="account-workspace" id="account-workspace" hidden>
@@ -945,8 +1200,12 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
                   <form class="phone-form" id="phone-form">
                     <label for="phone-input">Telefono</label>
                     <div class="phone-row">
-                      <input id="phone-input" name="phone" inputmode="tel" autocomplete="tel" placeholder="+54 9 11 2345 6789">
-                      <button class="save-phone" type="submit">Guardar</button>
+                      <div class="phone-readonly" id="phone-readonly">Sin telefono cargado</div>
+                      <span class="phone-prefix" id="phone-prefix" hidden>+54</span>
+                      <input id="phone-input" name="phone" inputmode="tel" autocomplete="tel" placeholder="9 11-6431-2742" hidden>
+                      <button class="edit-phone" id="phone-edit" type="button">Editar</button>
+                      <button class="save-phone" id="phone-save" type="submit" hidden>Guardar</button>
+                      <button class="cancel-phone" id="phone-cancel" type="button" hidden>Cancelar</button>
                     </div>
                     <small>Este es el unico dato editable. Lo usamos para encontrar tus reservas.</small>
                   </form>
@@ -970,15 +1229,19 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
         </section>
       </main>
 
+      ${googleClientId ? '<script src="https://accounts.google.com/gsi/client" async defer></script>' : ''}
       <script>
         (() => {
           const slug = ${JSON.stringify(slug)}
-          const storageKey = 'weex.customer.' + slug
+          const googleClientId = ${JSON.stringify(googleClientId)}
+          const defaultAreaCode = ${JSON.stringify(defaultAreaCode)}
           const state = {
             tab: 'profile',
-            user: readUser(),
+            user: null,
             appointments: [],
-            selectedId: null
+            selectedId: null,
+            editingPhone: false,
+            booted: false
           }
           const els = {
             login: document.getElementById('account-login'),
@@ -994,35 +1257,19 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             profileName: document.getElementById('profile-name'),
             profileEmail: document.getElementById('profile-email'),
             largeAvatar: document.getElementById('large-avatar'),
+            phoneReadonly: document.getElementById('phone-readonly'),
+            phonePrefix: document.getElementById('phone-prefix'),
             phoneInput: document.getElementById('phone-input'),
             phoneForm: document.getElementById('phone-form'),
+            phoneEdit: document.getElementById('phone-edit'),
+            phoneSave: document.getElementById('phone-save'),
+            phoneCancel: document.getElementById('phone-cancel'),
             historyCount: document.getElementById('history-count'),
             upcomingCount: document.getElementById('upcoming-count'),
             upcomingState: document.getElementById('upcoming-state'),
             historyItems: document.getElementById('history-items'),
-            historyDetail: document.getElementById('history-detail')
-          }
-
-          function readUser() {
-            try {
-              return JSON.parse(localStorage.getItem(storageKey) || 'null')
-            } catch {
-              return null
-            }
-          }
-
-          function saveUser(user) {
-            state.user = user
-            localStorage.setItem(storageKey, JSON.stringify(user))
-          }
-
-          function mockGoogleUser() {
-            return {
-              name: 'Matias Grando',
-              email: 'matias.grando@gmail.com',
-              picture: '',
-              phone: ''
-            }
+            historyDetail: document.getElementById('history-detail'),
+            googleButtonWrap: document.getElementById('google-button-wrap')
           }
 
           function renderShell() {
@@ -1035,6 +1282,9 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
               els.avatar.textContent = 'G'
               els.name.textContent = 'Invitado'
               els.email.textContent = 'Inicia sesion con Google'
+              if (!state.booted) {
+                els.login.hidden = true
+              }
               return
             }
             const user = state.user
@@ -1045,11 +1295,77 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             els.profileName.textContent = user.name
             els.profileEmail.textContent = user.email
             els.largeAvatar.textContent = avatarText
-            els.phoneInput.value = user.phone || ''
+            els.phoneInput.value = formatPhoneInput(user.phone || '')
+            els.phoneReadonly.textContent = user.phone ? formatPhoneDisplay(user.phone) : 'Sin telefono cargado'
+            els.phoneReadonly.hidden = state.editingPhone
+            els.phonePrefix.hidden = !state.editingPhone
+            els.phoneInput.hidden = !state.editingPhone
+            els.phoneEdit.textContent = user.phone ? 'Editar' : 'Cargar numero'
+            els.phoneEdit.hidden = state.editingPhone
+            els.phoneSave.hidden = !state.editingPhone
+            els.phoneCancel.hidden = !state.editingPhone
             els.title.textContent = state.tab === 'profile' ? 'Perfil' : 'Historial'
             els.profilePanel.hidden = state.tab !== 'profile'
             els.historyPanel.hidden = state.tab !== 'history'
             renderHistory()
+          }
+
+          async function boot() {
+            try {
+              const result = await getJson('/public/weex/me')
+              state.user = result.account
+              state.booted = true
+              renderShell()
+              if (state.user?.phone) void loadHistory()
+            } catch {
+              state.user = null
+              state.booted = true
+              renderShell()
+              renderGoogleButton()
+            }
+          }
+
+          function renderGoogleButton() {
+            if (!googleClientId || !els.googleButtonWrap) return
+            if (!window.google?.accounts?.id) {
+              window.setTimeout(renderGoogleButton, 250)
+              return
+            }
+            if (els.googleButtonWrap.dataset.rendered === 'true') return
+            els.googleButtonWrap.dataset.rendered = 'true'
+            window.google.accounts.id.initialize({
+              client_id: googleClientId,
+              callback: handleGoogleCredential
+            })
+            window.google.accounts.id.renderButton(els.googleButtonWrap, {
+              type: 'standard',
+              theme: 'outline',
+              size: 'large',
+              text: 'continue_with',
+              shape: 'rectangular',
+              logo_alignment: 'left',
+              width: Math.min(360, els.googleButtonWrap.clientWidth || 360)
+            })
+          }
+
+          async function handleGoogleCredential(response) {
+            if (!response?.credential) {
+              setLoginFeedback('Google no devolvio una credencial valida.', 'error')
+              return
+            }
+            setLoginFeedback('Validando Google...', 'info')
+            try {
+              const result = await postJson('/public/weex/auth/google', { credential: response.credential })
+              state.user = result.account
+              state.appointments = []
+              state.selectedId = null
+              setLoginFeedback('', '')
+              setFeedback('Google conectado. Agrega tu telefono para cargar tu historial.', 'info')
+              renderShell()
+              if (state.user?.phone) void loadHistory()
+            } catch (error) {
+              setLoginFeedback(error.message, 'error')
+            }
           }
 
           async function loadHistory() {
@@ -1062,7 +1378,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             }
             setFeedback('Cargando tus turnos...', 'info')
             try {
-              const result = await getJson('/public/booking/' + encodeURIComponent(slug) + '/history?phone=' + encodeURIComponent(state.user.phone))
+              const result = await getJson('/public/weex/appointments?businessSlug=' + encodeURIComponent(slug) + '&limit=5')
               state.appointments = result.appointments || []
               state.selectedId = state.appointments[0]?.id || null
               setFeedback('', '')
@@ -1124,10 +1440,30 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             els.feedback.className = 'account-feedback' + (message ? ' visible ' + type : '')
           }
 
+          function setLoginFeedback(message, type) {
+            const feedback = document.getElementById('account-login-feedback')
+            if (!feedback) return
+            feedback.textContent = message
+            feedback.className = 'account-feedback' + (message ? ' visible ' + type : '')
+          }
+
           async function getJson(url) {
             const response = await fetch(url)
             const body = await response.json().catch(() => ({}))
             if (!response.ok) throw new Error(body.message || 'No pude cargar la informacion')
+            return body
+          }
+
+          async function postJson(url, payload = {}) {
+            const response = await fetch(url, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(payload)
+            })
+            const body = await response.json().catch(() => ({}))
+            if (!response.ok) throw new Error(body.message || 'No pude completar la operacion')
             return body
           }
 
@@ -1152,6 +1488,48 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             return String(value || '').replace(/\\D/g, '')
           }
 
+          function formatPhoneInput(value) {
+            let digits = normalizePhone(value)
+            if (digits.startsWith('00')) digits = digits.slice(2)
+            if (digits.startsWith('54')) digits = digits.slice(2)
+            if (digits.startsWith('0')) digits = digits.slice(1)
+            if (digits.startsWith('15')) digits = '9' + defaultAreaCode + digits.slice(2)
+            if (digits.slice(defaultAreaCode.length, defaultAreaCode.length + 2) === '15') {
+              digits = '9' + defaultAreaCode + digits.slice(defaultAreaCode.length + 2)
+            }
+            if (!digits.startsWith('9') && digits.length >= 10) digits = '9' + digits
+            digits = digits.slice(0, 11)
+            const hasMobilePrefix = digits.startsWith('9')
+            const national = hasMobilePrefix ? digits.slice(1) : digits
+            const areaLength = inferAreaCodeLength(national)
+            const area = national.slice(0, areaLength)
+            const local = national.slice(areaLength)
+            const firstLength = local.length >= 8 ? 4 : local.length >= 7 ? 3 : 2
+            const first = local.slice(0, firstLength)
+            const second = local.slice(first.length, first.length + 4)
+            return [
+              hasMobilePrefix ? '9 ' : '',
+              area,
+              first ? (area ? '-' : '') + first : '',
+              second ? '-' + second : ''
+            ].join('')
+          }
+
+          function formatPhoneDisplay(value) {
+            const formatted = formatPhoneInput(value)
+            return formatted ? '+54 ' + formatted : 'Sin telefono cargado'
+          }
+
+          function phoneForSubmit(value) {
+            return '+54 ' + formatPhoneInput(value)
+          }
+
+          function inferAreaCodeLength(nationalDigits) {
+            if (defaultAreaCode && nationalDigits.startsWith(defaultAreaCode)) return defaultAreaCode.length
+            if (nationalDigits.startsWith('11')) return 2
+            return 3
+          }
+
           function businessInitials() {
             return ${JSON.stringify(initialsText)}
           }
@@ -1164,32 +1542,52 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;')
           }
 
-          document.getElementById('google-login').addEventListener('click', () => {
-            saveUser(mockGoogleUser())
-            setFeedback('Google conectado. Agrega tu telefono para cargar tu historial.', 'info')
-            renderShell()
-          })
-
-          els.logout.addEventListener('click', () => {
-            localStorage.removeItem(storageKey)
+          els.logout.addEventListener('click', async () => {
+            await postJson('/public/weex/logout').catch(() => null)
             state.user = null
             state.appointments = []
             state.selectedId = null
             setFeedback('', '')
             renderShell()
+            renderGoogleButton()
           })
 
           els.phoneForm.addEventListener('submit', (event) => {
             event.preventDefault()
-            const phone = els.phoneInput.value.trim()
+            const phone = phoneForSubmit(els.phoneInput.value)
             if (normalizePhone(phone).length < 8) {
               setFeedback('Ingresa un telefono valido para ver tus turnos.', 'error')
               return
             }
-            saveUser({ ...state.user, phone })
-            setFeedback('Telefono guardado. Ya podemos cargar tus turnos.', 'info')
-            void loadHistory()
+            void (async () => {
+              try {
+                const result = await postJson('/public/weex/profile/phone', { phone, businessSlug: slug })
+                state.user = result.account
+                state.editingPhone = false
+                setFeedback(result.linkedCount > 0 ? 'Telefono guardado. Vinculamos ' + result.linkedCount + ' historial(es) con tu cuenta.' : 'Telefono guardado. Tus proximos turnos se van a ver aca.', 'info')
+                renderShell()
+                await loadHistory()
+              } catch (error) {
+                setFeedback(error.message, 'error')
+              }
+            })()
+          })
+
+          els.phoneEdit.addEventListener('click', () => {
+            state.editingPhone = true
             renderShell()
+            window.setTimeout(() => els.phoneInput.focus(), 50)
+          })
+
+          els.phoneCancel.addEventListener('click', () => {
+            state.editingPhone = false
+            els.phoneInput.value = formatPhoneInput(state.user?.phone || '')
+            setFeedback('', '')
+            renderShell()
+          })
+
+          els.phoneInput.addEventListener('input', () => {
+            els.phoneInput.value = formatPhoneInput(els.phoneInput.value)
           })
 
           document.querySelectorAll('.account-tab').forEach((tab) => {
@@ -1209,7 +1607,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
           })
 
           renderShell()
-          if (state.user?.phone) void loadHistory()
+          void boot()
         })()
       </script>
     `
@@ -2118,6 +2516,203 @@ function htmlPage(input: { title: string; body: string }) {
       font-size: 14px;
       line-height: 1.55;
     }
+    .booking-account-ready,
+    .booking-account-required {
+      max-width: 520px;
+      margin-bottom: 18px;
+      padding: 18px;
+      background: #FFFDF8;
+      border: 1px solid var(--cream-line);
+      border-radius: 14px;
+    }
+    .booking-account-ready {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .booking-account-required h2,
+    .booking-account-ready h2 {
+      margin: 0 0 5px;
+      color: var(--dark-1);
+      font-family: var(--font-sans);
+      font-size: 17px;
+      font-weight: 900;
+      line-height: 1.2;
+    }
+    .booking-account-required p,
+    .booking-account-ready p {
+      margin: 0;
+      color: var(--ink-soft);
+      font-size: 13.5px;
+      line-height: 1.45;
+    }
+    .booking-account-required .success-link {
+      margin-top: 14px;
+    }
+    .account-mini-avatar {
+      width: 44px;
+      height: 44px;
+      flex: 0 0 44px;
+      display: grid;
+      place-items: center;
+      color: #FFF8E9;
+      background: var(--burgundy);
+      border: 1px solid var(--gold);
+      border-radius: 50%;
+      font-size: 13px;
+      font-weight: 900;
+    }
+    .booking-gate {
+      position: fixed;
+      inset: 0;
+      z-index: 80;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background: rgba(20,20,24,.38);
+      backdrop-filter: blur(2px);
+    }
+    .booking-gate[hidden] { display: none; }
+    .booking-gate-card {
+      width: min(496px, 100%);
+      position: relative;
+      padding: 36px 48px 34px;
+      color: #111114;
+      background: #FFFFFF;
+      border: 1px solid #E4E4EA;
+      border-radius: 26px;
+      box-shadow: 0 22px 56px rgba(22,20,26,.22);
+    }
+    .booking-gate-close {
+      width: 34px;
+      height: 34px;
+      position: absolute;
+      top: 22px;
+      right: 22px;
+      display: grid;
+      place-items: center;
+      color: #111114;
+      background: transparent;
+      border: 0;
+      border-radius: 50%;
+      cursor: pointer;
+    }
+    .booking-gate-close:hover { background: #F3F3F6; }
+    .booking-gate-close svg { width: 19px; height: 19px; }
+    .booking-gate-panel h2 {
+      max-width: 360px;
+      margin: 0 0 12px;
+      color: #111114;
+      font-family: var(--font-sans);
+      font-size: 28px;
+      font-weight: 900;
+      line-height: 1.18;
+    }
+    .booking-gate-panel p {
+      margin: 0 0 26px;
+      color: #65656F;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .booking-gate-google {
+      min-height: 44px;
+      display: grid;
+      place-items: center;
+    }
+    .booking-gate-divider {
+      margin: 22px 0;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 14px;
+      color: #A5A5AE;
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .booking-gate-divider span {
+      height: 1px;
+      background: #E5E5EB;
+    }
+    .booking-gate-secondary,
+    .booking-gate-primary {
+      width: 100%;
+      min-height: 48px;
+      margin-top: 12px;
+      border-radius: 999px;
+      font-size: 15px;
+      font-weight: 900;
+    }
+    .booking-gate-secondary {
+      color: #111114;
+      background: #FFFFFF;
+      border: 1px solid #D7D7DF;
+    }
+    .booking-gate-secondary:disabled {
+      opacity: .52;
+      cursor: not-allowed;
+    }
+    .booking-gate-primary {
+      color: #FFFFFF;
+      background: #111114;
+      border: 0;
+      cursor: pointer;
+    }
+    .booking-gate-panel label {
+      display: block;
+      margin-bottom: 9px;
+      color: #111114;
+      font-size: 13px;
+      font-weight: 900;
+    }
+    .booking-phone-row {
+      display: grid;
+      grid-template-columns: 104px minmax(0, 1fr);
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .booking-phone-row span,
+    .booking-phone-row input {
+      min-height: 48px;
+      display: flex;
+      align-items: center;
+      color: #111114;
+      background: #FFFFFF;
+      border: 1px solid #D7D7DF;
+      border-radius: 12px;
+      font-size: 15px;
+    }
+    .booking-phone-row span {
+      justify-content: center;
+      font-weight: 800;
+    }
+    .booking-phone-row input {
+      min-width: 0;
+      padding: 0 14px;
+      outline: none;
+    }
+    .booking-phone-row input:focus {
+      border-color: #6C4DFF;
+      box-shadow: 0 0 0 3px rgba(108,77,255,.12);
+    }
+    .booking-gate-feedback {
+      display: none;
+      margin-top: 16px;
+      padding: 12px 13px;
+      border-radius: 12px;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .booking-gate-feedback.visible { display: block; }
+    .booking-gate-feedback.info {
+      color: #1D4ED8;
+      background: #EFF6FF;
+      border: 1px solid #BFDBFE;
+    }
+    .booking-gate-feedback.error {
+      color: #B42318;
+      background: #FFF1F2;
+      border: 1px solid #FECACA;
+    }
     .booking-success {
       padding: 58px 20px;
       text-align: center;
@@ -2152,9 +2747,16 @@ function htmlPage(input: { title: string; body: string }) {
       font-size: 14px;
       line-height: 1.55;
     }
+    .success-actions {
+      margin-top: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
     .success-link {
       min-height: 46px;
-      margin-top: 22px;
       padding: 0 18px;
       display: inline-flex;
       align-items: center;
@@ -2167,6 +2769,11 @@ function htmlPage(input: { title: string; body: string }) {
       font-weight: 900;
       letter-spacing: .08em;
       text-transform: uppercase;
+    }
+    .success-link.secondary {
+      color: var(--burgundy);
+      background: #FFFDF8;
+      border-color: var(--cream-line);
     }
 
     .account-page {
@@ -2340,6 +2947,11 @@ function htmlPage(input: { title: string; body: string }) {
       color: #6F6F7A;
       font-size: 14px;
     }
+    .google-button-wrap {
+      min-height: 44px;
+      display: grid;
+      place-items: center;
+    }
     .google-button {
       width: 100%;
       min-height: 52px;
@@ -2450,10 +3062,12 @@ function htmlPage(input: { title: string; body: string }) {
     }
     .phone-row {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: auto minmax(0, 1fr) auto auto;
       gap: 10px;
     }
-    .phone-row input {
+    .phone-row input,
+    .phone-prefix,
+    .phone-readonly {
       min-width: 0;
       height: 48px;
       padding: 0 14px;
@@ -2463,20 +3077,45 @@ function htmlPage(input: { title: string; body: string }) {
       border-radius: 12px;
       outline: none;
     }
+    .phone-prefix {
+      display: flex;
+      align-items: center;
+      color: #17171B;
+      background: #F8F8FB;
+      font-weight: 900;
+    }
+    .phone-readonly {
+      grid-column: 1 / 3;
+      display: flex;
+      align-items: center;
+      background: #F8F8FB;
+      cursor: default;
+      user-select: none;
+    }
     .phone-row input:focus {
       border-color: #5B34EA;
       box-shadow: 0 0 0 3px rgba(91,52,234,.12);
     }
-    .save-phone {
+    .save-phone,
+    .edit-phone,
+    .cancel-phone {
       min-height: 48px;
       padding: 0 18px;
-      color: #FFFFFF;
-      background: #17171B;
-      border: 0;
       border-radius: 12px;
       font-size: 14px;
       font-weight: 900;
       cursor: pointer;
+    }
+    .save-phone,
+    .edit-phone {
+      color: #FFFFFF;
+      background: #17171B;
+      border: 0;
+    }
+    .cancel-phone {
+      color: #17171B;
+      background: #FFFFFF;
+      border: 1px solid #DBDAE2;
     }
     .phone-form small {
       display: block;
@@ -2772,6 +3411,7 @@ function htmlPage(input: { title: string; body: string }) {
       .account-section-head { align-items: flex-start; flex-direction: column; }
       .profile-grid { grid-template-columns: 1fr; }
       .phone-row { grid-template-columns: 1fr; }
+      .phone-readonly { grid-column: auto; }
       .appointment-card { grid-template-columns: 74px minmax(0, 1fr); }
       .appointment-thumb { min-height: 72px; }
       .detail-hero { min-height: 180px; padding: 22px; }

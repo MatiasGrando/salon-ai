@@ -66,6 +66,7 @@ function isPublicRoute(request: FastifyRequest) {
     || path === '/crm'
     || path.startsWith('/landing-assets/')
     || path.startsWith('/public/booking/')
+    || path.startsWith('/public/weex/')
     || isPublicLandingRoute(request.method, path)
     || path.startsWith('/auth/')
     || path.startsWith('/webhooks/whatsapp')

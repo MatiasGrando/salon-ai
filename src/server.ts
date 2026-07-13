@@ -13,6 +13,7 @@ import { crmRoutes } from './routes/crm.js'
 import { crmUiRoutes } from './routes/crm-ui.js'
 import { landingUiRoutes } from './routes/landing-ui.js'
 import { publicBookingRoutes } from './routes/public-booking.js'
+import { weexAccountRoutes } from './routes/weex-account.js'
 import { scheduleBlockRoutes } from './routes/schedule-block.js'
 import { whatsappWebhookRoutes } from './routes/whatsapp-webhook.js'
 import { campaignRoutes } from './routes/campaign.js'
@@ -36,6 +37,7 @@ await app.register(authRoutes)
 await app.register(crmUiRoutes)
 await app.register(landingUiRoutes)
 await app.register(publicBookingRoutes)
+await app.register(weexAccountRoutes)
 await app.register(whatsappWebhookRoutes)
 await authGuard(app)
 await app.register(businessRoutes)

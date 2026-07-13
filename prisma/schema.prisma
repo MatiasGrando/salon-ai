@@ -104,6 +104,7 @@ model Business {
   reminderAutomations ReminderAutomation[]
   reminderDeliveries ReminderDelivery[]
   users User[]
+  weexCustomerLinks WeexCustomerLink[]
 
   createdAt     DateTime       @default(now())
 }
@@ -264,8 +265,66 @@ model Customer {
   manualCampaignRecipients CampaignManualRecipient[]
   campaignJobs CampaignJob[]
   reminderDeliveries ReminderDelivery[]
+  weexLinks    WeexCustomerLink[]
 
   createdAt DateTime @default(now())
+}
+
+model WeexAccount {
+  id String @id @default(cuid())
+
+  googleSub String @unique
+  email String
+  emailVerified Boolean @default(false)
+  name String
+  avatarUrl String?
+  phone String?
+  phoneVerifiedAt DateTime?
+
+  sessions WeexAccountSession[]
+  customerLinks WeexCustomerLink[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@index([phone])
+}
+
+model WeexAccountSession {
+  id String @id @default(cuid())
+
+  tokenHash String @unique
+  accountId String
+  account WeexAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+
+  createdAt DateTime @default(now())
+
+  @@index([accountId])
+  @@index([expiresAt])
+}
+
+model WeexCustomerLink {
+  id String @id @default(cuid())
+
+  weexAccountId String
+  weexAccount WeexAccount @relation(fields: [weexAccountId], references: [id], onDelete: Cascade)
+
+  customerId String
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  businessId String
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  phone String
+  linkedAt DateTime @default(now())
+
+  @@unique([weexAccountId, customerId, businessId])
+  @@index([weexAccountId, businessId])
+  @@index([customerId])
+  @@index([businessId])
+  @@index([phone])
 }
 
 model CustomerNote {
