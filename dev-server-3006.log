@@ -1,0 +1,147 @@
+
+> salon-ai@1.0.0 dev
+> tsx src/server.ts
+
+└── / (GET, HEAD)
+    ├── health (GET, HEAD)
+    ├── a
+    │   ├── uth/
+    │   │   ├── log
+    │   │   │   ├── in (POST)
+    │   │   │   └── out (POST)
+    │   │   └── me (GET, HEAD)
+    │   ├── dmin/businesses (POST)
+    │   ├── ppointments (POST, GET, HEAD)
+    │   │   └── /
+    │   │       └── :id (PATCH, DELETE)
+    │   │           └── /status (PATCH)
+    │   └── vailability (GET, HEAD)
+    ├── c
+    │   ├── rm (GET, HEAD)
+    │   │   └── /
+    │   │       ├── maintenance/delete-qa-
+    │   │       │   ├── data (POST)
+    │   │       │   └── conversations (GET, HEAD)
+    │   │       ├── conversations (GET, HEAD)
+    │   │       │   └── /
+    │   │       │       ├── summary (GET, HEAD)
+    │   │       │       └── :id
+    │   │       │           └── /
+    │   │       │               ├── m
+    │   │       │               │   ├── essages (GET, HEAD)
+    │   │       │               │   └── anual-replies (POST)
+    │   │       │               └── a
+    │   │       │                   ├── rchive (PATCH)
+    │   │       │                   └── i (PATCH)
+    │   │       └── ai-settings (GET, HEAD, PATCH)
+    │   ├── u
+    │   │   ├── enta (GET, HEAD)
+    │   │   └── stomers (POST, GET, HEAD)
+    │   │       └── /
+    │   │           ├── overview (GET, HEAD)
+    │   │           └── :id|:customerId (PATCH, DELETE)
+    │   │               └── /
+    │   │                   ├── notes (GET, HEAD, POST)
+    │   │                   └── marketing-preference (PATCH, GET, HEAD)
+    │   ├── hat (POST)
+    │   └── ampaign
+    │       ├── s (GET, HEAD, POST)
+    │       │   └── /
+    │       │       └── :id (PATCH, DELETE)
+    │       │           └── /
+    │       │               ├── template/sync (POST)
+    │       │               ├── d
+    │       │               │   ├── uplicate (POST)
+    │       │               │   └── eliveries (GET, HEAD, POST)
+    │       │               ├── audience-preview (GET, HEAD)
+    │       │               ├── execute-one-time (POST)
+    │       │               ├── process-automated (POST)
+    │       │               └── simulat
+    │       │                   ├── ions/latest (GET, HEAD)
+    │       │                   └── e (POST)
+    │       └── -
+    │           ├── customer-options (GET, HEAD)
+    │           ├── jobs/process-retries (POST)
+    │           └── deliveries/
+    │               └── :id (PATCH)
+    ├── landing-assets/
+    │   └── :asset (GET, HEAD)
+    ├── re
+    │   ├── servar (GET, HEAD)
+    │   ├── minder-automations (GET, HEAD, POST)
+    │   │   └── /
+    │   │       ├── process-due (POST)
+    │   │       └── :id (PATCH, DELETE)
+    │   └── ports/overview (GET, HEAD)
+    ├── p
+    │   ├── ublic/
+    │   │   ├── booking/
+    │   │   │   └── :slug
+    │   │   │       └── /
+    │   │   │           ├── catalog (GET, HEAD)
+    │   │   │           ├── availability (GET, HEAD)
+    │   │   │           ├── book (POST)
+    │   │   │           └── history (GET, HEAD)
+    │   │   └── weex/
+    │   │       ├── config (GET, HEAD)
+    │   │       ├── a
+    │   │       │   ├── uth/google (POST)
+    │   │       │   │   └── -code (POST)
+    │   │       │   └── ppointments (GET, HEAD)
+    │   │       ├── me (GET, HEAD)
+    │   │       ├── profile/phone (POST)
+    │   │       └── logout (POST)
+    │   └── rofessional
+    │       ├── s (POST, GET, HEAD)
+    │       │   └── /
+    │       │       └── :id (PATCH, DELETE)
+    │       │           └── /
+    │       │               ├── appointments-impact (GET, HEAD)
+    │       │               └── status (PATCH)
+    │       └── -hours (POST, GET, HEAD)
+    │           └── /setup (POST)
+    ├── w
+    │   ├── ebhooks/whatsapp (GET, HEAD, POST)
+    │   └── hatsapp
+    │       ├── -
+    │       │   ├── pricing (GET, HEAD)
+    │       │   └── templates (GET, HEAD, POST)
+    │       │       └── /
+    │       │           └── :id (PATCH, DELETE)
+    │       │               └── /
+    │       │                   ├── s
+    │       │                   │   ├── ubmit (POST)
+    │       │                   │   └── ync (POST)
+    │       │                   ├── meta-diagnosis (GET, HEAD)
+    │       │                   ├── test-send (POST)
+    │       │                   └── variable-preview (POST)
+    │       └── /message-templates (POST)
+    ├── business
+    │   ├── es (POST, GET, HEAD)
+    │   │   └── /
+    │   │       └── :id (PATCH)
+    │   │           └── /whatsapp
+    │   │               ├── -
+    │   │               │   ├── settings (GET, HEAD, PATCH)
+    │   │               │   └── embedded-signup-config (GET, HEAD)
+    │   │               └── /embedded-signup-callback (POST)
+    │   └── -hours (POST, GET, HEAD)
+    │       └── /setup (POST)
+    ├── s
+    │   ├── ervices (POST, GET, HEAD)
+    │   │   └── /
+    │   │       └── :id|:serviceId (PATCH, DELETE)
+    │   │           └── /aliases (POST)
+    │   ├── chedule-blocks (POST, GET, HEAD)
+    │   │   └── /
+    │   │       ├── impact (GET, HEAD)
+    │   │       └── :id (DELETE)
+    │   └── taff-users (GET, HEAD, POST)
+    │       └── /
+    │           └── :id (PATCH, DELETE)
+    └── :slug (GET, HEAD)
+        └── /
+            ├── reservar (GET, HEAD)
+            └── cuenta (GET, HEAD)
+
+Servidor iniciado en http://127.0.0.1:3006

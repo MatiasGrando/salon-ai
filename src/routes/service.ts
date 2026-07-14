@@ -11,12 +11,14 @@ export async function serviceRoutes(app: FastifyInstance) {
       businessId: string
       category?: string
       price?: number | string | null
+      imageUrl?: string | null
       aliases?: string[]
     }
     const name = body.name?.trim()
     const duration = Number(body.duration)
     const businessId = body.businessId?.trim()
     const category = body.category?.trim()
+    const imageUrl = normalizeServiceImageUrl(body.imageUrl)
     const price = body.price === null || body.price === undefined || body.price === ''
       ? null
       : Number(body.price)
@@ -48,11 +50,18 @@ export async function serviceRoutes(app: FastifyInstance) {
       })
     }
 
+    if (body.imageUrl !== undefined && imageUrl === undefined) {
+      return reply.status(400).send({
+        message: 'La imagen del servicio debe ser PNG, JPG, WEBP o GIF y pesar hasta 2 MB'
+      })
+    }
+
     const data = {
       name,
       duration,
       businessId,
       price,
+      imageUrl: imageUrl ?? null,
       ...(category ? { category } : {}),
       ...(aliases?.length
         ? {
@@ -99,6 +108,7 @@ export async function serviceRoutes(app: FastifyInstance) {
       duration?: number
       category?: string | null
       price?: number | string | null
+      imageUrl?: string | null
       aliases?: string[]
     }
     const name = body.name?.trim()
@@ -106,6 +116,7 @@ export async function serviceRoutes(app: FastifyInstance) {
     const price = body.price === null || body.price === undefined || body.price === ''
       ? null
       : Number(body.price)
+    const imageUrl = normalizeServiceImageUrl(body.imageUrl)
 
     if (!name) {
       return reply.status(400).send({
@@ -125,6 +136,12 @@ export async function serviceRoutes(app: FastifyInstance) {
       })
     }
 
+    if (body.imageUrl !== undefined && imageUrl === undefined) {
+      return reply.status(400).send({
+        message: 'La imagen del servicio debe ser PNG, JPG, WEBP o GIF y pesar hasta 2 MB'
+      })
+    }
+
     const aliases = body.aliases
       ?.map((alias) => alias.trim())
       .filter(Boolean)
@@ -138,7 +155,8 @@ export async function serviceRoutes(app: FastifyInstance) {
           name,
           duration,
           category: body.category?.trim() || null,
-          price
+          price,
+          imageUrl: imageUrl ?? null
         } as any,
         include: {
           aliases: true
@@ -226,4 +244,12 @@ export async function serviceRoutes(app: FastifyInstance) {
     })
   })
 
+}
+
+function normalizeServiceImageUrl(imageUrl?: string | null) {
+  if (imageUrl === undefined) return undefined
+  if (imageUrl === null || imageUrl.trim() === '') return null
+  const normalized = imageUrl.trim()
+  const isImageDataUrl = /^data:image\/(png|jpeg|webp|gif);base64,[a-z0-9+/=]+$/i.test(normalized)
+  return isImageDataUrl && normalized.length <= 2_800_000 ? normalized : undefined
 }

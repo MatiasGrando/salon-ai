@@ -39,9 +39,18 @@ export class BusinessService {
     slug?: string | null
     logoUrl?: string | null
     landingEnabled?: boolean
+    landingSubtitle?: string | null
+    landingOpeningYear?: number | null
     landingDescription?: string | null
     coverImageUrl?: string | null
+    landingGalleryImages?: string | null
     publicWhatsapp?: string | null
+    contactEmail?: string | null
+    publicAddress?: string | null
+    publicAddressArea?: string | null
+    publicMapsUrl?: string | null
+    instagramUrl?: string | null
+    facebookUrl?: string | null
   }) {
     const business = await prisma.business.findUnique({
       where: {
@@ -92,6 +101,11 @@ export class BusinessService {
           },
           orderBy: {
             name: 'asc'
+          }
+        },
+        whatsappConfig: {
+          select: {
+            displayPhoneNumber: true
           }
         }
       }

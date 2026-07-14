@@ -3,8 +3,8 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { siFacebook, siInstagram, siWhatsapp, type SimpleIcon } from 'simple-icons'
 import { BusinessService, normalizeBusinessSlug } from '../services/business-service.js'
-import { inferDefaultAreaCodeFromPhone } from '../services/phone-normalization-service.js'
-import { weexGoogleClientId } from '../services/weex-account-service.js'
+import { formatArgentineMobilePhone, inferDefaultAreaCodeFromPhone } from '../services/phone-normalization-service.js'
+import { weexGoogleCalendarEnabled, weexGoogleClientId } from '../services/weex-account-service.js'
 
 const businessService = new BusinessService()
 const baseDomain = (process.env.PUBLIC_BASE_DOMAIN || 'weex.com.ar').toLowerCase()
@@ -96,8 +96,11 @@ type LandingBusiness = NonNullable<PublicBusiness>
 
 function renderLanding(business: LandingBusiness, basePath = '') {
   const description = business.landingDescription || `Reserva tu turno en ${business.name} de forma simple y rapida.`
+  const subtitle = business.landingSubtitle || 'Oficio de navaja y tijera'
+  const openingLabel = business.landingOpeningYear ? `Desde ${business.landingOpeningYear}` : ''
   const services = business.services.slice(0, 6)
   const professionals = business.professionals.slice(0, 4)
+  const galleryImages = parseLandingGalleryImages(business.landingGalleryImages)
   const visibleServices = services.slice(0, 3)
   const carouselServices = [...visibleServices, ...visibleServices]
   const visibleProfessionals = professionals.slice(0, 3)
@@ -106,7 +109,17 @@ function renderLanding(business: LandingBusiness, basePath = '') {
   const professionalCarouselItems = Math.max(visibleProfessionals.length, 1)
   const bookingUrl = `${basePath}/reservar`
   const accountUrl = `${basePath}/cuenta`
-  const whatsappUrl = business.publicWhatsapp ? `https://wa.me/${business.publicWhatsapp.replace(/\D/g, '')}` : null
+  const whatsappDisplayPhone = publicWhatsappNumber(business)?.trim() || ''
+  const whatsappDigits = whatsappDisplayPhone.replace(/\D/g, '')
+  const whatsappUrl = whatsappDigits ? `https://wa.me/${whatsappDigits}` : null
+  const whatsappLabel = formatPublicWhatsappDisplay(whatsappDisplayPhone)
+  const addressLabel = formatPublicAddress(business)
+  const mapsUrl = business.publicMapsUrl?.trim() || null
+  const locationMarkup = addressLabel
+    ? mapsUrl
+      ? `<a class="hero-location-link" href="${escapeAttribute(mapsUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(addressLabel)}</a>`
+      : escapeHtml(addressLabel)
+    : ''
 
   return htmlPage({
     title: `${business.name} | Reservas online`,
@@ -119,13 +132,13 @@ function renderLanding(business: LandingBusiness, basePath = '') {
               <line x1="8.1" y1="7.6" x2="20" y2="18"></line>
               <line x1="8.1" y1="16.4" x2="20" y2="6"></line>
             </svg>
-            <span class="brand-text">
-              <span class="name">${escapeHtml(business.name)}</span>
-              <span class="tag">Oficio de navaja y tijera</span>
-            </span>
+              <span class="brand-text">
+                <span class="name">${escapeHtml(business.name)}</span>
+              <span class="tag">${escapeHtml(subtitle)}</span>
+              </span>
           </a>
           <nav class="nav-links" aria-label="Principal">
-            <a class="active" href="#">Inicio</a>
+            <a class="active" href="#inicio">Inicio</a>
             <a href="#servicios">Servicios</a>
             <a href="#profesionales">Profesionales</a>
             <a href="#galeria">Galeria</a>
@@ -152,20 +165,20 @@ function renderLanding(business: LandingBusiness, basePath = '') {
       </header>
 
       <main class="landing">
-        <section class="hero">
+        <section class="hero" id="inicio">
           <div class="hero-content">
-            <div class="eyebrow">
+            <div class="eyebrow ${openingLabel ? '' : 'is-empty'}">
               <span class="rule"></span>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
                 <path d="M3 12h13l-3-3m3 3l-3 3"></path><circle cx="20" cy="12" r="1.6"></circle>
               </svg>
-              Desde 2018
+              ${escapeHtml(openingLabel)}
               <span class="rule"></span>
             </div>
             <h1 class="hero-title">${formatHeroTitle(business.name)}</h1>
             <div class="hero-subtitle">
               <span class="rule"></span>
-              <span>Oficio de navaja y tijera</span>
+              <span>${escapeHtml(subtitle)}</span>
               <span class="rule"></span>
             </div>
             <div class="hero-rating">
@@ -173,12 +186,14 @@ function renderLanding(business: LandingBusiness, basePath = '') {
               <strong>4.9 / 5</strong>
               <span class="review-count">(reservas online)</span>
             </div>
-            <div class="hero-location">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-                <path d="M12 21s7-6.6 7-11.5A7 7 0 0 0 5 9.5C5 14.4 12 21 12 21Z"></path><circle cx="12" cy="9.5" r="2.4"></circle>
-              </svg>
-              Turnos simples por web y WhatsApp
-            </div>
+            ${locationMarkup ? `
+              <div class="hero-location">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                  <path d="M12 21s7-6.6 7-11.5A7 7 0 0 0 5 9.5C5 14.4 12 21 12 21Z"></path><circle cx="12" cy="9.5" r="2.4"></circle>
+                </svg>
+                ${locationMarkup}
+              </div>
+            ` : ''}
             <div class="hero-features">
               <div class="feature">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
@@ -229,7 +244,7 @@ function renderLanding(business: LandingBusiness, basePath = '') {
                     ${visibleServices.length ? carouselServices.map((service, index) => `
                       <div class="service-card">
                         <div class="card-photo photo-service-${index % 3}">
-                          <img src="${escapeAttribute(landingImageFor(index, 'service'))}" alt="${escapeAttribute(service.name)}">
+                          ${renderServiceImage(service, business, index)}
                         </div>
                         <div class="service-name">${escapeHtml(service.name)}</div>
                         <div class="service-meta">${escapeHtml(formatServiceMeta(service.duration, service.category))}</div>
@@ -248,12 +263,9 @@ function renderLanding(business: LandingBusiness, basePath = '') {
                   <div class="carousel-track">
                     ${visibleProfessionals.length ? carouselProfessionals.map((professional, index) => `
                       <div class="pro-card">
-                        <div class="card-photo photo-pro-${index % 3}">
-                          <img src="${escapeAttribute(professional.avatarUrl || landingImageFor(index, 'professional'))}" alt="${escapeAttribute(professional.name)}">
-                        </div>
+                        ${renderProfessionalPhotoFrame(professional, index)}
                         <div class="pro-name">${escapeHtml(professional.name)}</div>
-                        <div class="pro-role">Especialista en reservas y atencion personalizada</div>
-                        <div class="pro-rating"><span class="star">★</span> 4.9 <span class="count">(87)</span></div>
+                        ${renderProfessionalDescription(professional)}
                       </div>
                     `).join('') : `<p class="muted">El equipo se va a mostrar cuando haya profesionales activos.</p>`}
                   </div>
@@ -309,24 +321,7 @@ function renderLanding(business: LandingBusiness, basePath = '') {
           </div>
         </section>
 
-        <section id="galeria" class="galeria">
-          <div class="wrap">
-            <div class="col-header"><span class="rule"></span><h2>Galeria</h2><span class="rule"></span></div>
-            <div class="gallery-row">
-              <div class="gallery-track">
-                <figure class="gallery-item gallery-shot-1"><img src="/landing-assets/barber-hero-interior.png" alt="Interior del local"></figure>
-                <figure class="gallery-item gallery-shot-2"><img src="/landing-assets/barber-hero-service.png" alt="Corte en progreso"></figure>
-                <figure class="gallery-item gallery-shot-3"><img src="/landing-assets/barber-hero-interior.png" alt="Sillas de barberia"></figure>
-                <figure class="gallery-item gallery-shot-4"><img src="/landing-assets/barber-hero-service.png" alt="Detalle de servicio"></figure>
-                <figure class="gallery-item gallery-shot-5"><img src="/landing-assets/barber-hero-interior.png" alt="Ambiente de barberia"></figure>
-                <figure class="gallery-item gallery-shot-6"><img src="/landing-assets/barber-hero-service.png" alt="Terminacion de corte"></figure>
-              </div>
-              <button class="arrow-btn" aria-label="Siguiente" type="button">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"></path></svg>
-              </button>
-            </div>
-          </div>
-        </section>
+        ${renderLandingGallery(galleryImages, business.name)}
 
         <footer class="site-footer" id="contacto">
           <div class="wrap">
@@ -338,52 +333,26 @@ function renderLanding(business: LandingBusiness, basePath = '') {
                   <line x1="8.1" y1="16.4" x2="20" y2="6"></line>
                 </svg>
                 <h2>${escapeHtml(business.name)}</h2>
-                <p>Oficio de navaja y tijera</p>
+                <p>${escapeHtml(subtitle)}</p>
               </section>
 
               <section class="footer-column">
                 <h3>Contacto</h3>
                 <ul>
-                  <li>
-                    <span class="footer-icon">⌖</span>
-                    <span>Av. Colapinta 1234,<br>Palermo, CABA</span>
-                  </li>
-                  <li>
-                    <span class="footer-icon">☏</span>
-                    <span>WhatsApp +54 11 5028-0000</span>
-                  </li>
-                  <li>
-                    <span class="footer-icon">✉</span>
-                    <span>hola@barbercolapinta.com</span>
-                  </li>
+                  ${renderContactAddress(addressLabel, mapsUrl)}
+                  ${renderContactWhatsapp(whatsappUrl, whatsappLabel)}
+                  ${renderContactEmail(business.contactEmail)}
                 </ul>
               </section>
 
               <section class="footer-column">
                 <h3>Horarios</h3>
-                <ul>
-                  <li><span class="footer-icon">◷</span><span>Lun a vie 10:00 a 20:00</span></li>
-                  <li><span class="footer-icon">▣</span><span>Sábados 10:00 a 18:00</span></li>
-                  <li><span class="footer-icon">⊘</span><span>Domingos cerrado</span></li>
-                </ul>
+                <ul>${renderBusinessHours(business)}</ul>
               </section>
 
               <section class="footer-column footer-social">
                 <h3>Redes & reservas</h3>
-                <div class="social-links">
-                  <a href="#" aria-label="Instagram">
-                    ${renderBrandIcon(siInstagram)}
-                    <span>Instagram</span>
-                  </a>
-                  <a href="#" aria-label="Facebook">
-                    ${renderBrandIcon(siFacebook)}
-                    <span>Facebook</span>
-                  </a>
-                  <a href="${escapeAttribute(whatsappUrl || '#')}" ${whatsappUrl ? 'target="_blank" rel="noreferrer"' : ''} aria-label="WhatsApp">
-                    ${renderBrandIcon(siWhatsapp)}
-                    <span>WhatsApp</span>
-                  </a>
-                </div>
+                <div class="social-links">${renderSocialLinks(business, whatsappUrl)}</div>
                 <a class="footer-booking" href="${escapeAttribute(bookingUrl)}">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
                     <rect x="3" y="5" width="18" height="16" rx="2"></rect><line x1="3" y1="10" x2="21" y2="10"></line>
@@ -400,7 +369,10 @@ function renderLanding(business: LandingBusiness, basePath = '') {
             </div>
           </div>
         </footer>
+        ${renderWhatsappFab(whatsappUrl)}
+        ${renderLandingLightbox()}
       </main>
+      ${renderLandingLightboxScript()}
     `
   })
 }
@@ -409,12 +381,180 @@ function renderBrandIcon(icon: SimpleIcon) {
   return `<svg class="social-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="${escapeAttribute(icon.path)}"></path></svg>`
 }
 
+function renderSocialLinks(business: LandingBusiness, whatsappUrl: string | null) {
+  const links = [
+    business.instagramUrl ? { label: 'Instagram', url: business.instagramUrl, icon: siInstagram } : null,
+    business.facebookUrl ? { label: 'Facebook', url: business.facebookUrl, icon: siFacebook } : null,
+    whatsappUrl ? { label: 'WhatsApp', url: whatsappUrl, icon: siWhatsapp } : null
+  ].filter(Boolean) as Array<{ label: string; url: string; icon: SimpleIcon }>
+
+  if (!links.length) {
+    return '<span class="muted">Carg&aacute; redes desde el CRM para mostrarlas ac&aacute;.</span>'
+  }
+
+  return links.map((link) => `
+    <a href="${escapeAttribute(link.url)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeAttribute(link.label)}">
+      ${renderBrandIcon(link.icon)}
+      <span>${escapeHtml(link.label)}</span>
+    </a>
+  `).join('')
+}
+
+function renderContactWhatsapp(whatsappUrl: string | null, whatsappLabel: string) {
+  if (!whatsappUrl || !whatsappLabel) return ''
+  return `
+    <li>
+      <span class="footer-icon">☏</span>
+      <a class="footer-contact-link" href="${escapeAttribute(whatsappUrl)}" target="_blank" rel="noopener noreferrer">WhatsApp ${escapeHtml(whatsappLabel)}</a>
+    </li>
+  `
+}
+
+function renderContactAddress(addressLabel: string | null, mapsUrl: string | null) {
+  if (!addressLabel) return ''
+  const content = mapsUrl
+    ? `<a class="footer-contact-link" href="${escapeAttribute(mapsUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(addressLabel)}</a>`
+    : `<span>${escapeHtml(addressLabel)}</span>`
+  return `
+    <li>
+      <span class="footer-icon">⌖</span>
+      ${content}
+    </li>
+  `
+}
+
+function renderContactEmail(contactEmail?: string | null) {
+  const email = contactEmail?.trim()
+  if (!email) return ''
+  return `
+    <li>
+      <span class="footer-icon">✉</span>
+      <a class="footer-contact-link" href="mailto:${escapeAttribute(email)}">${escapeHtml(email)}</a>
+    </li>
+  `
+}
+
+function renderBusinessHours(business: LandingBusiness) {
+  const groups = groupedBusinessHours(business.businessHours)
+  if (!groups.length) {
+    return '<li><span class="footer-icon">◷</span><span>Horarios pendientes de carga</span></li>'
+  }
+
+  return groups.map((group) => `
+    <li>
+      <span class="footer-icon">◷</span>
+      <span>${escapeHtml(formatDayRange(group.days))} ${escapeHtml(group.startTime)} a ${escapeHtml(group.endTime)}</span>
+    </li>
+  `).join('')
+}
+
+function groupedBusinessHours(hours: LandingBusiness['businessHours']) {
+  const order = [1, 2, 3, 4, 5, 6, 0]
+  const normalized = hours
+    .filter((hour) => hour.startTime && hour.endTime)
+    .slice()
+    .sort((a, b) => order.indexOf(a.dayOfWeek) - order.indexOf(b.dayOfWeek))
+
+  const groups: Array<{ days: number[]; startTime: string; endTime: string }> = []
+  for (const hour of normalized) {
+    const previous = groups[groups.length - 1]
+    const expectedPreviousDay = order[order.indexOf(hour.dayOfWeek) - 1]
+    if (
+      previous &&
+      previous.startTime === hour.startTime &&
+      previous.endTime === hour.endTime &&
+      previous.days[previous.days.length - 1] === expectedPreviousDay
+    ) {
+      previous.days.push(hour.dayOfWeek)
+    } else {
+      groups.push({ days: [hour.dayOfWeek], startTime: hour.startTime, endTime: hour.endTime })
+    }
+  }
+  return groups
+}
+
+function formatDayRange(days: number[]) {
+  const firstDay = days[0] ?? 1
+  const lastDay = days[days.length - 1] ?? firstDay
+  if (days.length === 1) return dayLabel(firstDay)
+  return `${dayLabel(firstDay)} a ${dayLabel(lastDay)}`
+}
+
+function dayLabel(dayOfWeek: number) {
+  return ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab'][dayOfWeek] || 'Dia'
+}
+
+function renderWhatsappFab(whatsappUrl: string | null) {
+  if (!whatsappUrl) return ''
+  return `
+    <div class="wa-fab">
+      <a class="wa-btn" href="${escapeAttribute(whatsappUrl)}" target="_blank" rel="noopener noreferrer" aria-label="WhatsApp">
+        ${renderBrandIcon(siWhatsapp)}
+      </a>
+      <span class="wa-label">WhatsApp</span>
+    </div>
+  `
+}
+
+function publicWhatsappNumber(business: LandingBusiness) {
+  return business.whatsappConfig?.displayPhoneNumber || business.publicWhatsapp
+}
+
+function formatPublicWhatsappDisplay(value: string) {
+  const formatted = formatArgentineMobilePhone(value)
+  return formatted.replace(/^(\+54\s+9\s+\d{2,4})-/, '$1 ')
+}
+
+function formatPublicAddress(business: LandingBusiness) {
+  const address = cleanAddressLine(business.publicAddress)
+  if (!address) return null
+  const area = cleanAddressArea(business.publicAddressArea) || inferAddressArea(business.publicAddress)
+  return [address, area].filter(Boolean).join(', ')
+}
+
+function cleanAddressLine(value?: string | null) {
+  const normalized = value?.trim()
+  if (!normalized) return ''
+  return normalized
+    .replace(/\b[A-Z]\d{4}[A-Z]{3}\b/gi, '')
+    .replace(/\b[A-Z]\d{4}\b/gi, '')
+    .replace(/\bC\.?\s?P\.?\s*\d{4,5}\b/gi, '')
+    .replace(/\bCdad\.?\s+Aut[oó]noma\s+de\s+Buenos\s+Aires\b/gi, '')
+    .replace(/\bCiudad\s+Aut[oó]noma\s+de\s+Buenos\s+Aires\b/gi, '')
+    .replace(/\bCapital\s+Federal\b/gi, '')
+    .replace(/\bCABA\b/gi, '')
+    .replace(/\s*,\s*,+/g, ', ')
+    .replace(/^\s*,\s*|\s*,\s*$/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
+function cleanAddressArea(value?: string | null) {
+  const normalized = value?.trim()
+  if (!normalized) return ''
+  return normalized
+    .replace(/\s*,\s*/g, ', ')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
+function inferAddressArea(value?: string | null) {
+  const normalized = value?.trim()
+  if (!normalized) return ''
+  return /\b(CABA|Capital\s+Federal|Cdad\.?\s+Aut[oó]noma\s+de\s+Buenos\s+Aires|Ciudad\s+Aut[oó]noma\s+de\s+Buenos\s+Aires)\b/i.test(normalized)
+    ? 'CABA'
+    : ''
+}
+
 function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
   const slug = business.slug || ''
+  const subtitle = business.landingSubtitle || 'Oficio de navaja y tijera'
   const initialsText = initials(business.name) || 'WX'
   const accountPath = backPath === '/' ? '/cuenta' : `${backPath}/cuenta`
   const googleClientId = weexGoogleClientId()
-  const defaultAreaCode = inferDefaultAreaCodeFromPhone(business.publicWhatsapp)
+  const googleCalendarEnabled = weexGoogleCalendarEnabled()
+  const defaultAreaCode = inferDefaultAreaCodeFromPhone(publicWhatsappNumber(business))
+  const addressLabel = formatPublicAddress(business)
   return htmlPage({
     title: `Reservar en ${business.name}`,
     body: `
@@ -429,7 +569,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
             </span>
             <span class="booking-brand-name">
               <strong>${escapeHtml(business.name)}</strong>
-              <span>Oficio de navaja y tijera</span>
+              <span>${escapeHtml(subtitle)}</span>
             </span>
           </a>
           <div class="booking-brand-note">Reserva online</div>
@@ -466,7 +606,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
                     <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1.5l2.6 5.6 6.1.7-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L1.3 7.8l6.1-.7z"></path></svg>
                     4.9 <span>(reservas online)</span>
                   </div>
-                  <div class="summary-address">Turnos simples por web y WhatsApp</div>
+                  ${addressLabel ? `<div class="summary-address">${escapeHtml(addressLabel)}</div>` : ''}
                 </div>
               </div>
 
@@ -523,6 +663,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
           const backPath = ${JSON.stringify(backPath)}
           const accountPath = ${JSON.stringify(accountPath)}
           const googleClientId = ${JSON.stringify(googleClientId)}
+          const googleCalendarEnabled = ${JSON.stringify(googleCalendarEnabled)}
           const defaultAreaCode = ${JSON.stringify(defaultAreaCode)}
           const steps = ['Servicios', 'Profesional', 'Hora', 'Confirmar']
           const state = {
@@ -534,6 +675,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
             dateLabel: null,
             slot: null,
             weexAccount: null,
+            calendarSync: null,
             confirmed: false
           }
           const els = {
@@ -624,11 +766,27 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
             }
             els.content.innerHTML = '<div class="fresha-options">' + professionals.map((professional) => {
               return '<button class="fresha-option ' + (state.professionalId === professional.id ? 'selected' : '') + '" type="button" data-professional-id="' + escapeHtml(professional.id) + '">' +
-                '<span class="option-left"><span class="avatar">' + escapeHtml(initials(professional.name)) + '</span><span><strong>' + escapeHtml(professional.name) + '</strong><small>Agenda disponible</small></span></span>' +
+                '<span class="option-left">' + professionalAvatarHtml(professional) + '<span><strong>' + escapeHtml(professional.name) + '</strong><small>Agenda disponible</small></span></span>' +
                 '<span class="radio"></span>' +
               '</button>'
             }).join('') + '</div>'
             updateContinue(Boolean(state.professionalId))
+          }
+
+          function professionalAvatarHtml(professional) {
+            const avatarUrl = professionalAvatarUrl(professional.avatarUrl)
+            if (avatarUrl) {
+              return '<span class="avatar has-image"><img src="' + escapeHtml(avatarUrl) + '" alt=""></span>'
+            }
+            return '<span class="avatar">' + escapeHtml(initials(professional.name)) + '</span>'
+          }
+
+          function professionalAvatarUrl(value) {
+            const avatarUrl = String(value || '').trim()
+            if (!avatarUrl || avatarUrl.startsWith('/landing-assets/')) return null
+            if (/^data:image\\/(png|jpeg|webp|gif);base64,/i.test(avatarUrl)) return avatarUrl
+            if (/^https?:\\/\\//i.test(avatarUrl)) return avatarUrl
+            return null
           }
 
           function availableProfessionals() {
@@ -654,7 +812,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
               '<div class="section-label">Selecciona una fecha</div>' +
               '<div class="date-track">' + dateChips + '</div>' +
               '<div class="section-label">Escoge una hora</div>' +
-              '<div class="slots" id="booking-slots"><p class="fresha-muted">Buscando horarios...</p></div>'
+              '<div class="slots" id="booking-slots">' + renderSlotsLoading() + '</div>'
             updateContinue(false)
             await loadSlots()
           }
@@ -668,7 +826,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
             }
             state.slot = null
             const slotsEl = document.getElementById('booking-slots')
-            if (slotsEl) slotsEl.innerHTML = '<p class="fresha-muted">Buscando horarios...</p>'
+            if (slotsEl) slotsEl.innerHTML = renderSlotsLoading()
             try {
               const result = await getJson('/public/booking/' + encodeURIComponent(slug) + '/availability?serviceId=' + encodeURIComponent(state.service.id) + '&professionalId=' + encodeURIComponent(state.professionalId) + '&date=' + encodeURIComponent(state.date))
               if (!result.slots.length) {
@@ -698,11 +856,17 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
             els.heading.textContent = state.confirmed ? 'Turno confirmado' : 'Confirmar turno'
             if (state.confirmed) {
               const accountName = state.weexAccount?.name || 'tu reserva'
+              const calendarMessage = state.calendarSync?.ok
+                ? '<p class="success-calendar ok">Tambien lo agregamos a tu Google Calendar.</p>'
+                : state.calendarSync
+                  ? '<p class="success-calendar warn">Tu turno quedo confirmado, pero no pudimos cargarlo en Google Calendar. Podes verlo igual desde tus reservas.</p>'
+                  : ''
               els.content.innerHTML =
                 '<div class="booking-success">' +
                   '<div class="success-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M20 6L9 17l-5-5"></path></svg></div>' +
                   '<h2>Reserva exitosa, ' + escapeHtml(accountName) + '</h2>' +
                   '<p>' + escapeHtml(state.dateLabel || '') + ' a las ' + escapeHtml(state.slot?.time || '') + '.</p>' +
+                  calendarMessage +
                   '<div class="success-actions">' +
                     '<a class="success-link secondary" href="' + escapeHtml(backPath) + '">Volver a ' + escapeHtml(state.catalog?.business?.name || 'comercio') + '</a>' +
                     '<a class="success-link" href="' + escapeHtml(accountPath) + '">Ver reservas</a>' +
@@ -804,6 +968,14 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
 
           function formatPrice(value) {
             return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(value)
+          }
+
+          function renderSlotsLoading() {
+            return '<div class="slots-loading" role="status" aria-live="polite">' +
+              '<span class="loading-spinner"></span>' +
+              '<div><strong>Buscando horarios disponibles</strong><small>Estamos revisando la agenda de ' + escapeHtml(professionalName(state.professionalId) || 'este profesional') + '.</small></div>' +
+            '</div>' +
+            '<div class="slot-skeletons" aria-hidden="true"><span></span><span></span><span></span></div>'
           }
 
           function formatPhoneInput(value) {
@@ -929,6 +1101,10 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
               setGateFeedback('Falta configurar GOOGLE_CLIENT_ID para iniciar sesion con Google.', 'error')
               return
             }
+            if (googleCalendarEnabled) {
+              renderBookingGoogleCalendarButton()
+              return
+            }
             if (!window.google?.accounts?.id) {
               window.setTimeout(renderBookingGoogleButton, 250)
               return
@@ -948,6 +1124,51 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
               logo_alignment: 'left',
               width: Math.min(384, els.gateGoogle.clientWidth || 384)
             })
+          }
+
+          function renderBookingGoogleCalendarButton() {
+            if (!window.google?.accounts?.oauth2) {
+              window.setTimeout(renderBookingGoogleButton, 250)
+              return
+            }
+            if (els.gateGoogle.dataset.rendered === 'true') return
+            els.gateGoogle.dataset.rendered = 'true'
+            const codeClient = window.google.accounts.oauth2.initCodeClient({
+              client_id: googleClientId,
+              scope: 'openid email profile https://www.googleapis.com/auth/calendar.events',
+              ux_mode: 'popup',
+              include_granted_scopes: true,
+              prompt: 'consent',
+              callback: handleBookingGoogleCode
+            })
+            els.gateGoogle.innerHTML =
+              '<button class="booking-gate-google-action" type="button">' +
+                '<span class="google-mark">G</span>' +
+                '<span>Continuar con Google</span>' +
+              '</button>'
+            els.gateGoogle.querySelector('button')?.addEventListener('click', () => {
+              setGateFeedback('', '')
+              codeClient.requestCode()
+            })
+          }
+
+          async function handleBookingGoogleCode(response) {
+            if (!response?.code) {
+              setGateFeedback('Google no devolvio una autorizacion valida.', 'error')
+              return
+            }
+            setGateFeedback('Autorizando Google Calendar...', 'info')
+            try {
+              const result = await postJson('/public/weex/auth/google-code', { code: response.code })
+              state.weexAccount = result.account
+              if (!state.weexAccount.phone) {
+                showBookingGate('phone')
+                return
+              }
+              proceedToConfirm()
+            } catch (error) {
+              setGateFeedback(error.message, 'error')
+            }
           }
 
           async function handleBookingGoogleCredential(response) {
@@ -998,12 +1219,13 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
             updateContinue(false, 'Confirmando...')
             setFeedback('Confirmando tu turno...', 'info')
             try {
-              await postJson('/public/booking/' + encodeURIComponent(slug) + '/book', {
+              const result = await postJson('/public/booking/' + encodeURIComponent(slug) + '/book', {
                 serviceId: state.service.id,
                 professionalId: state.slot?.professionalId || state.professionalId,
                 date: state.date,
                 time: state.slot?.time
               })
+              state.calendarSync = result.calendarSync || null
               state.confirmed = true
               setFeedback('', '')
               render()
@@ -1126,27 +1348,21 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
   const initialsText = initials(business.name) || 'WX'
   const bookingUrl = `${basePath}/reservar`
   const googleClientId = weexGoogleClientId()
-  const defaultAreaCode = inferDefaultAreaCodeFromPhone(business.publicWhatsapp)
+  const googleCalendarEnabled = weexGoogleCalendarEnabled()
+  const defaultAreaCode = inferDefaultAreaCodeFromPhone(publicWhatsappNumber(business))
   return htmlPage({
     title: `Mi perfil | ${business.name}`,
     body: `
       <main class="account-page" data-account-slug="${escapeAttribute(slug)}">
-        <header class="account-topbar">
-          <a class="account-brand" href="${escapeAttribute(basePath)}">
-            <span class="account-brand-mark">${escapeHtml(initialsText)}</span>
-            <span>
-              <strong>${escapeHtml(business.name)}</strong>
-              <small>Reservas Weex</small>
-            </span>
-          </a>
-          <a class="account-book" href="${escapeAttribute(bookingUrl)}">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M8 3v4M16 3v4M3 10h18"></path></svg>
-            Reservar
-          </a>
-        </header>
-
         <section class="account-shell" id="account-shell">
           <aside class="account-sidebar">
+            <a class="account-brand" href="${escapeAttribute(basePath)}">
+              <span class="account-brand-mark">${escapeHtml(initialsText)}</span>
+              <span>
+                <strong>${escapeHtml(business.name)}</strong>
+                <small>Reservas Weex</small>
+              </span>
+            </a>
             <div class="account-user">
               <div class="account-avatar" id="account-avatar">G</div>
               <div>
@@ -1183,7 +1399,10 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
                   <span class="account-kicker">Mi cuenta</span>
                   <h1 id="account-title">Perfil</h1>
                 </div>
-                <span class="account-status" id="account-status">Google conectado</span>
+                <a class="account-book" href="${escapeAttribute(bookingUrl)}">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M8 3v4M16 3v4M3 10h18"></path></svg>
+                  Reservar
+                </a>
               </header>
 
               <div class="account-feedback" id="account-feedback" role="status" aria-live="polite"></div>
@@ -1197,19 +1416,31 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
                       <p id="profile-email">cliente@gmail.com</p>
                     </div>
                   </div>
-                  <form class="phone-form" id="phone-form">
-                    <label for="phone-input">Telefono</label>
+                  <div class="phone-form">
+                    <span class="phone-label">Telefono</span>
                     <div class="phone-row">
+                      <span class="phone-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.3 1.7.6 2.5a2 2 0 0 1-.5 2.1L8 9.5a16 16 0 0 0 6.5 6.5l1.2-1.2a2 2 0 0 1 2.1-.5c.8.3 1.6.5 2.5.6A2 2 0 0 1 22 16.9Z"></path></svg></span>
                       <div class="phone-readonly" id="phone-readonly">Sin telefono cargado</div>
-                      <span class="phone-prefix" id="phone-prefix" hidden>+54</span>
-                      <input id="phone-input" name="phone" inputmode="tel" autocomplete="tel" placeholder="9 11-6431-2742" hidden>
                       <button class="edit-phone" id="phone-edit" type="button">Editar</button>
-                      <button class="save-phone" id="phone-save" type="submit" hidden>Guardar</button>
-                      <button class="cancel-phone" id="phone-cancel" type="button" hidden>Cancelar</button>
                     </div>
                     <small>Este es el unico dato editable. Lo usamos para encontrar tus reservas.</small>
-                  </form>
+                  </div>
                 </div>
+              </section>
+
+              <section class="account-summary" id="account-summary" aria-label="Resumen de reservas">
+                <article class="summary-tile">
+                  <span class="summary-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="5" width="16" height="16" rx="2"></rect><path d="M8 3v4M16 3v4M4 10h16"></path></svg></span>
+                  <span><small>Proxima reserva</small><strong id="summary-next">Sin reservas proximas</strong></span>
+                </article>
+                <article class="summary-tile">
+                  <span class="summary-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg></span>
+                  <span><small>Turnos proximos</small><strong><b id="summary-upcoming">0</b> reservas</strong></span>
+                </article>
+                <article class="summary-tile">
+                  <span class="summary-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 6h13M8 12h13M8 18h13"></path><path d="M3 6h.01M3 12h.01M3 18h.01"></path></svg></span>
+                  <span><small>Historial</small><strong><b id="summary-past">0</b> reservas</strong></span>
+                </article>
               </section>
 
               <section class="history-layout" id="history-panel" hidden>
@@ -1217,7 +1448,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
                   <div class="history-filter">
                     <button class="history-chip active" type="button">Citas <span id="history-count">0</span></button>
                   </div>
-                  <h2>Proximas <span id="upcoming-count">0</span></h2>
+                  <h2>Proximas reservas <span id="upcoming-count">0</span></h2>
                   <div id="upcoming-state"></div>
                   <h2>Historial</h2>
                   <div id="history-items"></div>
@@ -1229,11 +1460,33 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
         </section>
       </main>
 
+      <div class="account-modal" id="phone-modal" hidden>
+        <form class="account-modal-card" id="phone-form">
+          <button class="account-modal-close" id="phone-modal-close" type="button" aria-label="Cerrar">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"></path></svg>
+          </button>
+          <span class="account-modal-kicker">Telefono</span>
+          <h2>Editar numero</h2>
+          <p>Usamos este dato para encontrar tus reservas y asociarlas a tu cuenta.</p>
+          <label for="phone-input">Numero de telefono</label>
+          <div class="modal-phone-row">
+            <span>+54</span>
+            <input id="phone-input" name="phone" inputmode="tel" autocomplete="tel" placeholder="9 11-6431-2742">
+          </div>
+          <div class="account-modal-feedback" id="phone-modal-feedback" role="status" aria-live="polite"></div>
+          <div class="modal-actions">
+            <button class="save-phone" id="phone-save" type="submit">Guardar</button>
+            <button class="cancel-phone" id="phone-cancel" type="button">Cancelar</button>
+          </div>
+        </form>
+      </div>
+
       ${googleClientId ? '<script src="https://accounts.google.com/gsi/client" async defer></script>' : ''}
       <script>
         (() => {
           const slug = ${JSON.stringify(slug)}
           const googleClientId = ${JSON.stringify(googleClientId)}
+          const googleCalendarEnabled = ${JSON.stringify(googleCalendarEnabled)}
           const defaultAreaCode = ${JSON.stringify(defaultAreaCode)}
           const state = {
             tab: 'profile',
@@ -1253,17 +1506,23 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             title: document.getElementById('account-title'),
             feedback: document.getElementById('account-feedback'),
             profilePanel: document.getElementById('profile-panel'),
+            accountSummary: document.getElementById('account-summary'),
             historyPanel: document.getElementById('history-panel'),
             profileName: document.getElementById('profile-name'),
             profileEmail: document.getElementById('profile-email'),
             largeAvatar: document.getElementById('large-avatar'),
             phoneReadonly: document.getElementById('phone-readonly'),
-            phonePrefix: document.getElementById('phone-prefix'),
             phoneInput: document.getElementById('phone-input'),
             phoneForm: document.getElementById('phone-form'),
             phoneEdit: document.getElementById('phone-edit'),
             phoneSave: document.getElementById('phone-save'),
             phoneCancel: document.getElementById('phone-cancel'),
+            phoneModal: document.getElementById('phone-modal'),
+            phoneModalClose: document.getElementById('phone-modal-close'),
+            phoneModalFeedback: document.getElementById('phone-modal-feedback'),
+            summaryNext: document.getElementById('summary-next'),
+            summaryUpcoming: document.getElementById('summary-upcoming'),
+            summaryPast: document.getElementById('summary-past'),
             historyCount: document.getElementById('history-count'),
             upcomingCount: document.getElementById('upcoming-count'),
             upcomingState: document.getElementById('upcoming-state'),
@@ -1295,19 +1554,30 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             els.profileName.textContent = user.name
             els.profileEmail.textContent = user.email
             els.largeAvatar.textContent = avatarText
-            els.phoneInput.value = formatPhoneInput(user.phone || '')
             els.phoneReadonly.textContent = user.phone ? formatPhoneDisplay(user.phone) : 'Sin telefono cargado'
-            els.phoneReadonly.hidden = state.editingPhone
-            els.phonePrefix.hidden = !state.editingPhone
-            els.phoneInput.hidden = !state.editingPhone
             els.phoneEdit.textContent = user.phone ? 'Editar' : 'Cargar numero'
-            els.phoneEdit.hidden = state.editingPhone
-            els.phoneSave.hidden = !state.editingPhone
-            els.phoneCancel.hidden = !state.editingPhone
             els.title.textContent = state.tab === 'profile' ? 'Perfil' : 'Historial'
             els.profilePanel.hidden = state.tab !== 'profile'
-            els.historyPanel.hidden = state.tab !== 'history'
+            els.accountSummary.hidden = state.tab !== 'profile'
+            els.historyPanel.hidden = false
             renderHistory()
+          }
+
+          function openPhoneModal() {
+            if (!state.user) return
+            state.editingPhone = true
+            els.phoneInput.value = formatPhoneInput(state.user.phone || '')
+            setPhoneModalFeedback('', '')
+            els.phoneModal.hidden = false
+            document.body.classList.add('modal-open')
+            window.setTimeout(() => els.phoneInput.focus(), 50)
+          }
+
+          function closePhoneModal() {
+            state.editingPhone = false
+            els.phoneModal.hidden = true
+            document.body.classList.remove('modal-open')
+            setPhoneModalFeedback('', '')
           }
 
           async function boot() {
@@ -1327,6 +1597,10 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
 
           function renderGoogleButton() {
             if (!googleClientId || !els.googleButtonWrap) return
+            if (googleCalendarEnabled) {
+              renderGoogleCalendarButton()
+              return
+            }
             if (!window.google?.accounts?.id) {
               window.setTimeout(renderGoogleButton, 250)
               return
@@ -1348,6 +1622,52 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             })
           }
 
+          function renderGoogleCalendarButton() {
+            if (!window.google?.accounts?.oauth2) {
+              window.setTimeout(renderGoogleButton, 250)
+              return
+            }
+            if (els.googleButtonWrap.dataset.rendered === 'true') return
+            els.googleButtonWrap.dataset.rendered = 'true'
+            const codeClient = window.google.accounts.oauth2.initCodeClient({
+              client_id: googleClientId,
+              scope: 'openid email profile https://www.googleapis.com/auth/calendar.events',
+              ux_mode: 'popup',
+              include_granted_scopes: true,
+              prompt: 'consent',
+              callback: handleGoogleCode
+            })
+            els.googleButtonWrap.innerHTML =
+              '<button class="account-google-calendar" type="button">' +
+                '<span class="google-mark">G</span>' +
+                '<span>Continuar con Google</span>' +
+              '</button>'
+            els.googleButtonWrap.querySelector('button')?.addEventListener('click', () => {
+              setLoginFeedback('', '')
+              codeClient.requestCode()
+            })
+          }
+
+          async function handleGoogleCode(response) {
+            if (!response?.code) {
+              setLoginFeedback('Google no devolvio una autorizacion valida.', 'error')
+              return
+            }
+            setLoginFeedback('Autorizando Google Calendar...', 'info')
+            try {
+              const result = await postJson('/public/weex/auth/google-code', { code: response.code })
+              state.user = result.account
+              state.appointments = []
+              state.selectedId = null
+              setLoginFeedback('', '')
+              setFeedback('Sesion iniciada. Tus proximas reservas se podran cargar en Google Calendar.', 'info')
+              renderShell()
+              if (state.user?.phone) void loadHistory()
+            } catch (error) {
+              setLoginFeedback(error.message, 'error')
+            }
+          }
+
           async function handleGoogleCredential(response) {
             if (!response?.credential) {
               setLoginFeedback('Google no devolvio una credencial valida.', 'error')
@@ -1360,7 +1680,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
               state.appointments = []
               state.selectedId = null
               setLoginFeedback('', '')
-              setFeedback('Google conectado. Agrega tu telefono para cargar tu historial.', 'info')
+              setFeedback('Sesion iniciada. Agrega tu telefono para cargar tu historial.', 'info')
               renderShell()
               if (state.user?.phone) void loadHistory()
             } catch (error) {
@@ -1398,6 +1718,9 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             const past = state.appointments.filter((appointment) => new Date(appointment.startAt) < now)
             els.historyCount.textContent = String(state.appointments.length)
             els.upcomingCount.textContent = String(upcoming.length)
+            els.summaryUpcoming.textContent = String(upcoming.length)
+            els.summaryPast.textContent = String(past.length)
+            els.summaryNext.textContent = upcoming[0] ? formatDateTime(upcoming[0].startAt).compact : 'Sin reservas proximas'
             els.upcomingState.innerHTML = upcoming.length
               ? '<div class="appointment-stack">' + upcoming.map(renderAppointmentCard).join('') + '</div>'
               : '<div class="empty-appointments"><div class="calendar-empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="5" width="16" height="16" rx="2"></rect><path d="M8 3v4M16 3v4M4 10h16"></path></svg></div><strong>No hay proximas citas</strong><p>Tus proximos turnos apareceran aca cuando reserves.</p><a href="${escapeAttribute(bookingUrl)}">Buscar lugares</a></div>'
@@ -1412,7 +1735,15 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             const date = formatDateTime(appointment.startAt)
             return '<button class="appointment-card' + active + '" type="button" data-appointment-id="' + escapeHtml(appointment.id) + '">' +
               '<span class="appointment-thumb">' + escapeHtml(initials(businessInitials())) + '</span>' +
-              '<span class="appointment-copy"><strong>' + escapeHtml(appointment.service.name) + '</strong><small>' + escapeHtml(date.short) + '</small><small>' + escapeHtml(formatPriceLine(appointment.service.price)) + ' · ' + escapeHtml(appointment.service.duration + ' min') + '</small><em>Volver a reservar</em></span>' +
+              '<span class="appointment-copy">' +
+                '<span class="appointment-card-head"><strong>' + escapeHtml(appointment.service.name) + '</strong><i>' + statusLabel(appointment.status) + '</i></span>' +
+                '<small>' + escapeHtml(date.short) + '</small>' +
+                '<span class="appointment-meta">' +
+                  '<small><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>' + escapeHtml(appointment.service.duration + ' min') + '</small>' +
+                  '<small><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 12V8a2 2 0 0 0-2-2h-6l-2-2H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"></path></svg>' + escapeHtml(formatPriceLine(appointment.service.price)) + '</small>' +
+                '</span>' +
+                '<em>Volver a reservar</em>' +
+              '</span>' +
             '</button>'
           }
 
@@ -1424,14 +1755,20 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             }
             const date = formatDateTime(appointment.startAt)
             els.historyDetail.innerHTML =
-              '<div class="detail-hero"><div class="detail-logo">' + escapeHtml(businessInitials()) + '</div><strong>${escapeHtml(business.name)}</strong></div>' +
+              '<div class="detail-hero"><div class="detail-logo">' + escapeHtml(businessInitials()) + '</div><span><strong>${escapeHtml(business.name)}</strong><small>Clasico. Preciso. Personal.</small></span></div>' +
+              '<div class="detail-body">' +
               '<span class="status-pill">' + statusLabel(appointment.status) + '</span>' +
               '<h2>' + escapeHtml(date.long) + '</h2>' +
-              '<p>' + escapeHtml(appointment.service.duration + ' minutos de duracion') + '</p>' +
+              '<p><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>' + escapeHtml(appointment.service.duration + ' minutos de duracion') + ' · Reserva #' + escapeHtml(appointment.id.slice(-6).toUpperCase()) + '</p>' +
+              '<div class="detail-facts">' +
+                '<span><b>Servicio</b><strong>' + escapeHtml(appointment.service.name) + '</strong></span>' +
+                '<span><b>Profesional</b><strong>' + escapeHtml(appointment.professional.name) + '</strong></span>' +
+                '<span><b>Precio</b><strong>' + escapeHtml(formatPriceLine(appointment.service.price)) + '</strong></span>' +
+              '</div>' +
               '<div class="detail-actions">' +
-                '<a href="${escapeAttribute(bookingUrl)}"><span class="action-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></span>Volver a reservar</a>' +
-                '<a href="${escapeAttribute(basePath)}"><span class="action-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M12 21s7-6.6 7-11.5A7 7 0 0 0 5 9.5C5 14.4 12 21 12 21Z"></path><circle cx="12" cy="9.5" r="2.4"></circle></svg></span>Ver lugar</a>' +
-                '<span><span class="action-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M4 7h16M4 12h16M4 17h10"></path></svg></span>' + escapeHtml(appointment.professional.name) + '</span>' +
+                '<a class="primary" href="${escapeAttribute(bookingUrl)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="4" y="5" width="16" height="16" rx="2"></rect><path d="M8 3v4M16 3v4M4 10h16"></path></svg>Volver a reservar</a>' +
+                '<a href="${escapeAttribute(basePath)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M12 21s7-6.6 7-11.5A7 7 0 0 0 5 9.5C5 14.4 12 21 12 21Z"></path><circle cx="12" cy="9.5" r="2.4"></circle></svg>Ver lugar</a>' +
+              '</div>' +
               '</div>'
           }
 
@@ -1445,6 +1782,11 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             if (!feedback) return
             feedback.textContent = message
             feedback.className = 'account-feedback' + (message ? ' visible ' + type : '')
+          }
+
+          function setPhoneModalFeedback(message, type) {
+            els.phoneModalFeedback.textContent = message
+            els.phoneModalFeedback.className = 'account-modal-feedback' + (message ? ' visible ' + type : '')
           }
 
           async function getJson(url) {
@@ -1471,7 +1813,8 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             const date = new Date(value)
             return {
               short: new Intl.DateTimeFormat('es-AR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(date),
-              long: new Intl.DateTimeFormat('es-AR', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date)
+              long: new Intl.DateTimeFormat('es-AR', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date),
+              compact: new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date)
             }
           }
 
@@ -1556,34 +1899,40 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             event.preventDefault()
             const phone = phoneForSubmit(els.phoneInput.value)
             if (normalizePhone(phone).length < 8) {
-              setFeedback('Ingresa un telefono valido para ver tus turnos.', 'error')
+              setPhoneModalFeedback('Ingresa un telefono valido para ver tus turnos.', 'error')
               return
             }
             void (async () => {
               try {
+                setPhoneModalFeedback('Guardando telefono...', 'info')
                 const result = await postJson('/public/weex/profile/phone', { phone, businessSlug: slug })
                 state.user = result.account
-                state.editingPhone = false
+                closePhoneModal()
                 setFeedback(result.linkedCount > 0 ? 'Telefono guardado. Vinculamos ' + result.linkedCount + ' historial(es) con tu cuenta.' : 'Telefono guardado. Tus proximos turnos se van a ver aca.', 'info')
                 renderShell()
                 await loadHistory()
               } catch (error) {
-                setFeedback(error.message, 'error')
+                setPhoneModalFeedback(error.message, 'error')
               }
             })()
           })
 
           els.phoneEdit.addEventListener('click', () => {
-            state.editingPhone = true
-            renderShell()
-            window.setTimeout(() => els.phoneInput.focus(), 50)
+            openPhoneModal()
           })
 
           els.phoneCancel.addEventListener('click', () => {
-            state.editingPhone = false
-            els.phoneInput.value = formatPhoneInput(state.user?.phone || '')
-            setFeedback('', '')
-            renderShell()
+            closePhoneModal()
+          })
+
+          els.phoneModalClose.addEventListener('click', closePhoneModal)
+
+          els.phoneModal.addEventListener('click', (event) => {
+            if (event.target === els.phoneModal) closePhoneModal()
+          })
+
+          document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && !els.phoneModal.hidden) closePhoneModal()
           })
 
           els.phoneInput.addEventListener('input', () => {
@@ -1690,6 +2039,7 @@ function htmlPage(input: { title: string; body: string }) {
       -webkit-font-smoothing: antialiased;
       overflow-x: hidden;
     }
+    body.modal-open { overflow: hidden; }
     img { max-width: 100%; display: block; }
     a { color: inherit; text-decoration: none; }
     button, input { font: inherit; }
@@ -1697,13 +2047,13 @@ function htmlPage(input: { title: string; body: string }) {
     .wrap { max-width: var(--container); margin: 0 auto; padding: 0 48px; }
 
     .navbar { position: sticky; top: 0; z-index: 20; background: var(--dark-1); border-bottom: 1px solid var(--dark-line); }
-    .navbar .wrap { height: 70px; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
-    .brand { display: flex; align-items: center; gap: 14px; min-width: 0; }
+    .navbar .wrap { height: 70px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+    .brand { width: 270px; display: flex; align-items: center; gap: 14px; min-width: 0; flex: 0 1 270px; }
     .brand-icon { width: 34px; height: 34px; color: var(--gold); flex: 0 0 auto; }
     .brand-text { display: grid; gap: 3px; min-width: 0; }
-    .brand-text .name { color: var(--white); font-family: var(--font-display); font-size: 19px; font-weight: 700; letter-spacing: 1px; line-height: 1.1; text-transform: uppercase; white-space: nowrap; }
-    .brand-text .tag { color: var(--gold); font-size: 10px; font-weight: 700; letter-spacing: 2.5px; line-height: 1; text-transform: uppercase; white-space: nowrap; }
-    .nav-links { display: flex; align-items: center; gap: 34px; color: #CFC6B4; font-size: 12.5px; font-weight: 600; letter-spacing: 1.3px; text-transform: uppercase; }
+    .brand-text .name { max-width: 100%; overflow: hidden; color: var(--white); font-family: var(--font-display); font-size: 19px; font-weight: 700; letter-spacing: 1px; line-height: 1.1; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+    .brand-text .tag { max-width: 100%; overflow: hidden; color: var(--gold); font-size: 10px; font-weight: 700; letter-spacing: 2px; line-height: 1; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+    .nav-links { display: flex; align-items: center; justify-content: center; gap: clamp(14px, 1.7vw, 26px); min-width: 0; color: #CFC6B4; font-size: 12px; font-weight: 600; letter-spacing: 1.1px; text-transform: uppercase; flex: 1 1 auto; }
     .nav-links a { padding-bottom: 6px; border-bottom: 2px solid transparent; transition: color .2s ease, border-color .2s ease; }
     .nav-links a:hover { color: var(--gold-light); }
     .nav-links a.active { color: var(--gold); border-bottom-color: var(--gold); }
@@ -1734,6 +2084,7 @@ function htmlPage(input: { title: string; body: string }) {
     .hero { height: 430px; display: grid; grid-template-columns: minmax(320px, 33%) 1fr; align-items: stretch; color: var(--white); background: var(--dark-1); overflow: hidden; }
     .hero-content { height: 430px; max-width: 460px; padding: 34px 40px 34px 48px; display: flex; flex-direction: column; justify-content: center; }
     .hero .eyebrow { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; color: var(--gold); font-size: 12px; font-weight: 700; letter-spacing: 3px; line-height: 1.2; text-transform: uppercase; }
+    .hero .eyebrow.is-empty { display: none; }
     .hero .eyebrow .rule, .hero-subtitle .rule { height: 1px; background: var(--gold-soft); }
     .hero .eyebrow .rule { width: 34px; }
     .hero .eyebrow svg { width: 16px; height: 16px; flex: 0 0 auto; }
@@ -1745,6 +2096,8 @@ function htmlPage(input: { title: string; body: string }) {
     .hero-rating strong { color: var(--gold-light); font-size: 15px; }
     .review-count, .hero-location { color: #BDB29C; }
     .hero-location { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; font-size: 13.5px; }
+    .hero-location-link { color: inherit; text-decoration: none; border-bottom: 1px solid rgba(202, 168, 96, .45); }
+    .hero-location-link:hover { color: var(--gold-light); }
     .hero-location svg { width: 14px; height: 14px; color: var(--gold); flex: 0 0 auto; }
     .hero-features { display: flex; gap: 20px; margin-bottom: 20px; }
     .feature { display: flex; align-items: center; gap: 10px; }
@@ -1797,10 +2150,75 @@ function htmlPage(input: { title: string; body: string }) {
     .card-photo { aspect-ratio: 1 / 1; margin-bottom: 14px; border-radius: var(--radius-md); background: linear-gradient(160deg, #2C2216, #1A1409 70%); position: relative; overflow: hidden; }
     .card-photo img { width: 100%; height: 100%; object-fit: cover; filter: sepia(.2) brightness(.78) contrast(1.08); transform: scale(1.08); }
     .card-photo::after { content: ""; position: absolute; inset: 0; background: linear-gradient(0deg, rgba(20,16,9,.28), transparent 48%), radial-gradient(circle at 70% 20%, rgba(201,161,59,.25), transparent 60%); pointer-events: none; }
+    .lightbox-trigger { font: inherit; color: inherit; cursor: zoom-in; }
+    .card-photo.lightbox-trigger { width: 100%; display: block; padding: 0; border: 0; }
+    .lightbox-trigger:focus-visible { outline: 2px solid var(--gold); outline-offset: 4px; }
+    .pro-initials {
+      width: 100%;
+      height: 100%;
+      display: grid;
+      place-items: center;
+      color: var(--gold);
+      background: linear-gradient(160deg, #241B10, #15100A 72%);
+      border: 1px solid rgba(201,161,59,.28);
+      font-family: var(--font-display);
+      font-size: 30px;
+      font-weight: 800;
+      letter-spacing: 1px;
+    }
     .service-card .card-photo, .pro-card .card-photo { aspect-ratio: 4 / 5; }
     .photo-service-0 img { object-position: 58% 48%; }
     .photo-service-1 img { object-position: 28% 44%; }
     .photo-service-2 img { object-position: 72% 52%; }
+    .service-generated-visual {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      color: #fff;
+      background:
+        radial-gradient(circle at 22% 18%, rgba(255,255,255,.28), transparent 22%),
+        radial-gradient(circle at 82% 78%, rgba(255,255,255,.14), transparent 24%),
+        linear-gradient(135deg, #17171B, #4B4030);
+    }
+    .service-generated-visual::before {
+      content: "";
+      position: absolute;
+      inset: 12px;
+      border: 1px solid rgba(255,255,255,.18);
+      border-radius: 10px;
+    }
+    .visual-icon {
+      z-index: 1;
+      color: #E6C66B;
+      font-family: var(--font-display);
+      font-size: 54px;
+      line-height: 1;
+      text-shadow: 0 12px 30px rgba(0,0,0,.35);
+    }
+    .visual-label {
+      position: absolute;
+      left: 16px;
+      right: 16px;
+      bottom: 16px;
+      z-index: 1;
+      color: rgba(255,255,255,.86);
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: .08em;
+      text-align: center;
+      text-transform: uppercase;
+    }
+    .visual-cut { background: linear-gradient(135deg, #161719, #5C5140); }
+    .visual-beard { background: linear-gradient(135deg, #18120F, #6A3F2B); }
+    .visual-color { background: linear-gradient(135deg, #181820, #7C315F 55%, #D0A43F); }
+    .visual-treatment { background: linear-gradient(135deg, #10241F, #807145); }
+    .visual-nails { background: linear-gradient(135deg, #24151D, #A84D75); }
+    .visual-lashes { background: linear-gradient(135deg, #161724, #5A4A7A); }
+    .visual-wax { background: linear-gradient(135deg, #1B221C, #A77835); }
+    .visual-massage { background: linear-gradient(135deg, #13201D, #4B7565); }
     .photo-pro-0 img { object-position: 52% 34%; }
     .photo-pro-1 img { object-position: 42% 38%; }
     .photo-pro-2 img { object-position: 66% 36%; }
@@ -1809,12 +2227,9 @@ function htmlPage(input: { title: string; body: string }) {
     .service-name { margin-bottom: 4px; color: var(--ink); font-size: 15px; font-weight: 700; }
     .service-meta { margin-bottom: 6px; color: var(--ink-soft); font-size: 12px; }
     .service-price { color: var(--burgundy); font-size: 14.5px; font-weight: 700; }
-    .pro-name { margin-bottom: 5px; color: var(--ink); font-size: 14px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; }
+    .pro-name { margin-bottom: 5px; color: var(--ink); font-size: 14px; font-weight: 800; letter-spacing: 1px; text-align: center; text-transform: uppercase; line-height: 1.25; }
     .pro-role { min-height: 32px; margin-bottom: 8px; color: var(--ink-soft); font-size: 12px; line-height: 1.4; }
-    .pro-rating { display: flex; align-items: center; gap: 6px; color: var(--ink); font-size: 12.5px; font-weight: 700; }
-    .pro-rating .star { color: var(--gold); }
-    .pro-rating span.count { color: var(--ink-soft); font-weight: 500; }
-    .review-card { flex: 0 0 var(--card-width); min-height: 224px; padding: 22px; background: var(--cream-card); border: 1px solid var(--cream-line); border-radius: 14px; box-shadow: var(--shadow-card); }
+    .review-card { flex: 0 0 var(--card-width); min-height: 224px; padding: 22px; text-align: left; background: var(--cream-card); border: 1px solid var(--cream-line); border-radius: 14px; box-shadow: var(--shadow-card); }
     .review-badge { width: 26px; height: 26px; margin-bottom: 10px; display: flex; align-items: center; justify-content: center; color: var(--gold); background: var(--dark-1); border-radius: 50%; font-family: var(--font-display); font-size: 13px; font-weight: 700; }
     .review-stars { margin-bottom: 10px; color: var(--gold); font-size: 13px; letter-spacing: 1px; }
     .review-author { margin-bottom: 6px; font-size: 13.5px; font-weight: 700; }
@@ -1831,8 +2246,8 @@ function htmlPage(input: { title: string; body: string }) {
     .galeria .col-header { margin-bottom: 22px; }
     .galeria .col-header h2 { font-size: 24px; }
     .gallery-row { position: relative; display: flex; align-items: center; gap: 14px; }
-    .gallery-track { display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; flex: 1; }
-    .gallery-item { aspect-ratio: 1 / 1; position: relative; overflow: hidden; border-radius: var(--radius-md); background: linear-gradient(150deg, #241B10, #150F08 75%); }
+    .gallery-track { width: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 210px)); justify-content: center; gap: 14px; }
+    .gallery-item { aspect-ratio: 1 / 1; width: 100%; padding: 0; position: relative; overflow: hidden; border: 0; border-radius: var(--radius-md); background: linear-gradient(150deg, #241B10, #150F08 75%); }
     .gallery-item img { width: 100%; height: 100%; object-fit: cover; filter: sepia(.22) brightness(.78) contrast(1.08); transform: scale(1.08); }
     .gallery-item::after { content: ""; position: absolute; inset: 0; background: radial-gradient(circle at 30% 70%, rgba(201,161,59,.2), transparent 60%); pointer-events: none; }
     .gallery-shot-1 img { object-position: 34% 50%; }
@@ -1841,6 +2256,101 @@ function htmlPage(input: { title: string; body: string }) {
     .gallery-shot-4 img { object-position: 28% 45%; }
     .gallery-shot-5 img { object-position: 48% 36%; }
     .gallery-shot-6 img { object-position: 78% 48%; }
+    .landing-lightbox[hidden] { display: none; }
+    .landing-lightbox {
+      position: fixed;
+      inset: 0;
+      z-index: 80;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+    .landing-lightbox-backdrop {
+      position: absolute;
+      inset: 0;
+      border: 0;
+      background: rgba(12, 9, 5, .78);
+      backdrop-filter: blur(8px);
+    }
+    .landing-lightbox-panel {
+      position: relative;
+      z-index: 1;
+      width: min(920px, 100%);
+      max-height: min(88vh, 780px);
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr);
+      overflow: hidden;
+      color: var(--ink);
+      background: var(--cream-card);
+      border: 1px solid rgba(201,161,59,.32);
+      border-radius: 16px;
+      box-shadow: 0 28px 80px rgba(0,0,0,.38);
+    }
+    .landing-lightbox-close {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      z-index: 2;
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      color: var(--white);
+      background: rgba(18, 14, 9, .72);
+      border: 1px solid rgba(255,255,255,.22);
+      border-radius: 50%;
+      cursor: pointer;
+    }
+    .landing-lightbox-close svg { width: 18px; height: 18px; }
+    .landing-lightbox-media {
+      min-height: 0;
+      display: grid;
+      place-items: center;
+      background: #17120C;
+      overflow: hidden;
+    }
+    .landing-lightbox-media img {
+      width: 100%;
+      max-height: min(66vh, 620px);
+      object-fit: contain;
+      display: block;
+    }
+    .landing-lightbox-review {
+      width: min(520px, calc(100% - 32px));
+      margin: 46px 16px 34px;
+      padding: 30px;
+      color: var(--ink);
+      background: var(--cream);
+      border: 1px solid var(--cream-line);
+      border-radius: 14px;
+      box-shadow: var(--shadow-card);
+    }
+    .landing-lightbox-review .review-stars { font-size: 17px; }
+    .landing-lightbox-review .review-author { font-size: 20px; }
+    .landing-lightbox-review .review-text { font-size: 16px; line-height: 1.65; }
+    .landing-lightbox-copy {
+      min-height: 82px;
+      max-height: 172px;
+      padding: 18px 22px 22px;
+      border-top: 1px solid var(--cream-line);
+      overflow-y: auto;
+    }
+    .landing-lightbox-copy h3 {
+      margin: 0 0 6px;
+      color: var(--ink);
+      font-family: var(--font-display);
+      font-size: 24px;
+      letter-spacing: 0;
+    }
+    .landing-lightbox-copy p {
+      margin: 0;
+      color: var(--ink-soft);
+      font-size: 14px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+    .landing-lightbox-copy p:empty { display: none; }
     .site-footer {
       color: var(--white);
       background:
@@ -1912,6 +2422,11 @@ function htmlPage(input: { title: string; body: string }) {
       font-size: 14px;
       line-height: 1.55;
     }
+    .footer-contact-link {
+      color: #E2D7C2;
+      text-decoration: none;
+    }
+    .footer-contact-link:hover { color: var(--gold-light); }
     .footer-icon {
       width: 22px;
       flex: 0 0 22px;
@@ -1985,6 +2500,47 @@ function htmlPage(input: { title: string; body: string }) {
       border-top: 1px solid rgba(201,161,59,.28);
       font-size: 12px;
       letter-spacing: .7px;
+    }
+    .wa-fab {
+      position: fixed;
+      right: 26px;
+      bottom: 26px;
+      z-index: 60;
+      display: grid;
+      justify-items: center;
+      gap: 7px;
+    }
+    .wa-btn {
+      width: 56px;
+      height: 56px;
+      display: grid;
+      place-items: center;
+      color: #FFFFFF;
+      background: #25D366;
+      border: 2px solid rgba(255,255,255,.82);
+      border-radius: 50%;
+      box-shadow: 0 10px 22px rgba(0,0,0,.28);
+      transition: transform .15s ease, box-shadow .15s ease;
+    }
+    .wa-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 14px 28px rgba(0,0,0,.34);
+    }
+    .wa-btn .social-icon {
+      width: 28px;
+      height: 28px;
+      color: currentColor;
+    }
+    .wa-label {
+      padding: 4px 8px;
+      color: var(--ink);
+      background: rgba(253,249,241,.92);
+      border: 1px solid var(--cream-line);
+      border-radius: 999px;
+      box-shadow: 0 8px 18px rgba(30,20,10,.08);
+      font-size: 10.5px;
+      font-weight: 800;
+      letter-spacing: .4px;
     }
     .btn-light { min-height: 44px; padding: 0 22px; color: var(--white); border: 1px solid rgba(201,161,59,.5); background: rgba(255,255,255,.04); }
     .muted { color: var(--ink-soft); }
@@ -2254,6 +2810,15 @@ function htmlPage(input: { title: string; body: string }) {
       border-radius: 50%;
       font-size: 13px;
       font-weight: 900;
+      overflow: hidden;
+    }
+    .avatar.has-image {
+      background: var(--dark-1);
+    }
+    .avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
     }
     .filter-row {
       display: flex;
@@ -2325,6 +2890,59 @@ function htmlPage(input: { title: string; body: string }) {
       display: flex;
       flex-direction: column;
       gap: 10px;
+    }
+    .slots-loading {
+      min-height: 66px;
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: var(--dark-1);
+      background: #FFFDF8;
+      border: 1px solid var(--cream-line);
+      border-radius: 10px;
+    }
+    .slots-loading strong,
+    .slots-loading small {
+      display: block;
+      line-height: 1.35;
+    }
+    .slots-loading strong {
+      font-size: 14px;
+      font-weight: 900;
+    }
+    .slots-loading small {
+      margin-top: 3px;
+      color: var(--ink-soft);
+      font-size: 12.5px;
+    }
+    .loading-spinner {
+      width: 22px;
+      height: 22px;
+      flex: 0 0 22px;
+      border: 3px solid rgba(201,161,59,.26);
+      border-top-color: var(--burgundy);
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    .slot-skeletons {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .slot-skeletons span {
+      height: 54px;
+      border-radius: 8px;
+      background: linear-gradient(90deg, #FFF8EC 0%, #F1E2BF 45%, #FFF8EC 90%);
+      background-size: 240% 100%;
+      animation: shimmer 1.1s ease-in-out infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    @keyframes shimmer {
+      0% { background-position: 120% 0; }
+      100% { background-position: -120% 0; }
     }
     .slot {
       min-height: 54px;
@@ -2619,6 +3237,37 @@ function htmlPage(input: { title: string; body: string }) {
       display: grid;
       place-items: center;
     }
+    .booking-gate-google-action {
+      width: 100%;
+      min-height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      color: #111114;
+      background: #FFFFFF;
+      border: 1px solid #D7D7DF;
+      border-radius: 999px;
+      font-size: 15px;
+      font-weight: 900;
+      cursor: pointer;
+    }
+    .booking-gate-google-action:hover {
+      background: #F7F7FA;
+      border-color: #BFC0C8;
+    }
+    .google-mark {
+      width: 22px;
+      height: 22px;
+      display: grid;
+      place-items: center;
+      color: #4285F4;
+      background: #FFFFFF;
+      border: 1px solid #ECECF2;
+      border-radius: 50%;
+      font-size: 14px;
+      font-weight: 900;
+    }
     .booking-gate-divider {
       margin: 22px 0;
       display: grid;
@@ -2747,6 +3396,24 @@ function htmlPage(input: { title: string; body: string }) {
       font-size: 14px;
       line-height: 1.55;
     }
+    .booking-success .success-calendar {
+      width: min(420px, 100%);
+      margin-top: 12px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      font-size: 13px;
+      font-weight: 800;
+    }
+    .booking-success .success-calendar.ok {
+      color: #166534;
+      background: #F0FDF4;
+      border: 1px solid #BBF7D0;
+    }
+    .booking-success .success-calendar.warn {
+      color: #92400E;
+      background: #FFFBEB;
+      border: 1px solid #FDE68A;
+    }
     .success-actions {
       margin-top: 22px;
       display: flex;
@@ -2778,26 +3445,16 @@ function htmlPage(input: { title: string; body: string }) {
 
     .account-page {
       min-height: 100vh;
-      background: #F7F7FA;
+      background: #FAFAF8;
       color: #17171B;
       font-family: "Montserrat", system-ui, sans-serif;
-    }
-    .account-topbar {
-      height: 74px;
-      padding: 0 32px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      background: #FFFFFF;
-      border-bottom: 1px solid #E9E8EE;
-      box-shadow: 0 1px 14px rgba(20,16,40,.04);
     }
     .account-brand {
       min-width: 0;
       display: flex;
       align-items: center;
       gap: 12px;
+      margin-bottom: 34px;
     }
     .account-brand-mark {
       width: 42px;
@@ -2805,9 +3462,11 @@ function htmlPage(input: { title: string; body: string }) {
       display: grid;
       place-items: center;
       color: #FFFFFF;
-      background: #17171B;
+      background: #111114;
+      border: 1px solid rgba(201,161,59,.52);
       border-radius: 12px;
-      font-size: 13px;
+      font-family: var(--font-display);
+      font-size: 17px;
       font-weight: 900;
     }
     .account-brand strong,
@@ -2826,24 +3485,25 @@ function htmlPage(input: { title: string; body: string }) {
       align-items: center;
       gap: 8px;
       color: #FFFFFF;
-      background: #17171B;
+      background: #111114;
       border-radius: 999px;
       font-size: 13px;
       font-weight: 900;
     }
     .account-book svg { width: 16px; height: 16px; }
     .account-shell {
-      min-height: calc(100vh - 74px);
+      min-height: 100vh;
       display: grid;
-      grid-template-columns: 280px minmax(0, 1fr);
+      grid-template-columns: 292px minmax(0, 1fr);
     }
     .account-sidebar {
-      padding: 28px 18px;
+      padding: 26px 20px;
       background: #FFFFFF;
       border-right: 1px solid #E9E8EE;
+      box-shadow: 1px 0 18px rgba(17,17,20,.035);
     }
     .account-user {
-      margin-bottom: 24px;
+      margin-bottom: 28px;
       display: flex;
       align-items: center;
       gap: 12px;
@@ -2854,7 +3514,10 @@ function htmlPage(input: { title: string; body: string }) {
       display: grid;
       place-items: center;
       color: #FFFFFF;
-      background: linear-gradient(135deg, #17171B, #5B34EA);
+      background:
+        radial-gradient(circle at 32% 24%, rgba(201,161,59,.26), transparent 34%),
+        linear-gradient(135deg, #252526, #08080A);
+      border: 1px solid rgba(201,161,59,.42);
       font-weight: 900;
       overflow: hidden;
     }
@@ -2897,8 +3560,8 @@ function htmlPage(input: { title: string; body: string }) {
     }
     .account-tab svg { width: 19px; height: 19px; flex: 0 0 19px; }
     .account-tab.active {
-      color: #5B34EA;
-      background: #F0ECFF;
+      color: #17171B;
+      background: #F8F1E1;
     }
     .account-logout {
       width: 100%;
@@ -2909,7 +3572,7 @@ function htmlPage(input: { title: string; body: string }) {
     }
     .account-main {
       min-width: 0;
-      padding: 46px;
+      padding: 40px 44px 52px;
     }
     .account-login {
       max-width: 480px;
@@ -2952,7 +3615,8 @@ function htmlPage(input: { title: string; body: string }) {
       display: grid;
       place-items: center;
     }
-    .google-button {
+    .google-button,
+    .account-google-calendar {
       width: 100%;
       min-height: 52px;
       display: inline-flex;
@@ -2967,7 +3631,8 @@ function htmlPage(input: { title: string; body: string }) {
       font-weight: 900;
       cursor: pointer;
     }
-    .google-button:hover { background: #F7F7FA; }
+    .google-button:hover,
+    .account-google-calendar:hover { background: #F7F7FA; }
     .google-button svg { width: 21px; height: 21px; }
     .account-section-head {
       margin-bottom: 20px;
@@ -2979,22 +3644,13 @@ function htmlPage(input: { title: string; body: string }) {
     .account-kicker {
       display: block;
       margin-bottom: 6px;
-      color: #5B34EA;
+      color: #B38724;
       font-size: 12px;
       font-weight: 900;
       letter-spacing: .12em;
       text-transform: uppercase;
     }
     .account-section-head h1 { font-size: 32px; }
-    .account-status {
-      padding: 8px 12px;
-      color: #188038;
-      background: #EAF7EE;
-      border-radius: 999px;
-      font-size: 12px;
-      font-weight: 900;
-      white-space: nowrap;
-    }
     .account-feedback {
       display: none;
       margin-bottom: 18px;
@@ -3015,37 +3671,44 @@ function htmlPage(input: { title: string; body: string }) {
       border: 1px solid #FECACA;
     }
     .account-panel,
+    .summary-tile,
     .history-detail,
     .empty-appointments {
       background: #FFFFFF;
-      border: 1px solid #E9E8EE;
-      border-radius: 16px;
-      box-shadow: 0 12px 34px rgba(20,16,40,.05);
+      border: 1px solid #E6E3DA;
+      border-radius: 12px;
+      box-shadow: 0 14px 38px rgba(17,17,20,.045);
     }
-    .account-panel { padding: 28px; }
+    .account-panel {
+      padding: 22px 30px;
+      margin-bottom: 22px;
+    }
     .profile-grid {
       display: grid;
-      grid-template-columns: minmax(0, .9fr) minmax(280px, 1.1fr);
-      gap: 28px;
+      grid-template-columns: minmax(0, .9fr) minmax(320px, 1.1fr);
+      gap: 30px;
       align-items: center;
     }
     .google-profile {
+      grid-column: 1;
       min-width: 0;
       display: flex;
       align-items: center;
-      gap: 16px;
+      gap: 22px;
     }
     .large-avatar {
-      width: 74px;
-      height: 74px;
-      flex: 0 0 74px;
-      border-radius: 20px;
-      font-size: 24px;
+      width: 76px;
+      height: 76px;
+      flex: 0 0 76px;
+      border-radius: 50%;
+      color: #D8B455;
+      font-family: var(--font-display);
+      font-size: 28px;
     }
     .google-profile h2 {
-      margin: 0 0 6px;
+      margin: 0 0 7px;
       color: #17171B;
-      font-size: 21px;
+      font-size: 23px;
       font-weight: 900;
       line-height: 1.15;
     }
@@ -3053,48 +3716,51 @@ function htmlPage(input: { title: string; body: string }) {
       color: #747480;
       font-size: 14px;
     }
-    .phone-form label {
+    .phone-form {
+      grid-column: 2;
+      padding-left: 30px;
+      border-left: 1px solid #ECE8DE;
+    }
+    .phone-label,
+    .account-modal-card label {
       display: block;
-      margin-bottom: 8px;
+      margin-bottom: 7px;
       color: #17171B;
       font-size: 13px;
       font-weight: 900;
     }
     .phone-row {
       display: grid;
-      grid-template-columns: auto minmax(0, 1fr) auto auto;
+      grid-template-columns: 44px minmax(0, 1fr) auto;
       gap: 10px;
+      align-items: center;
     }
-    .phone-row input,
-    .phone-prefix,
+    .phone-icon {
+      width: 44px;
+      height: 48px;
+      display: grid;
+      place-items: center;
+      color: #17171B;
+      background: #F4F1EA;
+      border-radius: 50%;
+    }
+    .phone-icon svg { width: 19px; height: 19px; }
     .phone-readonly {
       min-width: 0;
       height: 48px;
       padding: 0 14px;
       color: #17171B;
-      background: #FFFFFF;
-      border: 1px solid #DBDAE2;
+      background: #FBFBFC;
+      border: 1px solid #DCD9D2;
       border-radius: 12px;
       outline: none;
     }
-    .phone-prefix {
-      display: flex;
-      align-items: center;
-      color: #17171B;
-      background: #F8F8FB;
-      font-weight: 900;
-    }
     .phone-readonly {
-      grid-column: 1 / 3;
       display: flex;
       align-items: center;
-      background: #F8F8FB;
+      background: #F8F8FA;
       cursor: default;
       user-select: none;
-    }
-    .phone-row input:focus {
-      border-color: #5B34EA;
-      box-shadow: 0 0 0 3px rgba(91,52,234,.12);
     }
     .save-phone,
     .edit-phone,
@@ -3109,7 +3775,7 @@ function htmlPage(input: { title: string; body: string }) {
     .save-phone,
     .edit-phone {
       color: #FFFFFF;
-      background: #17171B;
+      background: #111114;
       border: 0;
     }
     .cancel-phone {
@@ -3124,14 +3790,178 @@ function htmlPage(input: { title: string; body: string }) {
       font-size: 12.5px;
       line-height: 1.45;
     }
+    .account-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 80;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background: rgba(17, 17, 20, .34);
+      backdrop-filter: blur(4px);
+    }
+    .account-modal[hidden] {
+      display: none;
+    }
+    .account-modal-card {
+      position: relative;
+      width: min(100%, 460px);
+      padding: 34px 34px 28px;
+      color: #17171B;
+      background: #FFFFFF;
+      border: 1px solid #E7E1D5;
+      border-radius: 14px;
+      box-shadow: 0 26px 80px rgba(25, 20, 14, .20);
+    }
+    .account-modal-close {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      width: 36px;
+      height: 36px;
+      display: grid;
+      place-items: center;
+      color: #17171B;
+      background: #FFFFFF;
+      border: 1px solid #E1DCD2;
+      border-radius: 50%;
+      cursor: pointer;
+    }
+    .account-modal-close svg {
+      width: 18px;
+      height: 18px;
+    }
+    .account-modal-kicker {
+      display: block;
+      margin-bottom: 8px;
+      color: #B38724;
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .account-modal-card h2 {
+      margin: 0 0 8px;
+      color: #101014;
+      font-size: 28px;
+      line-height: 1.1;
+    }
+    .account-modal-card p {
+      margin: 0 0 22px;
+      color: #747480;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+    .modal-phone-row {
+      display: grid;
+      grid-template-columns: 82px minmax(0, 1fr);
+      gap: 10px;
+      align-items: center;
+    }
+    .modal-phone-row span,
+    .modal-phone-row input {
+      height: 50px;
+      border: 1px solid #DCD9D2;
+      border-radius: 12px;
+      background: #FBFBFC;
+    }
+    .modal-phone-row span {
+      display: grid;
+      place-items: center;
+      color: #17171B;
+      font-weight: 900;
+    }
+    .modal-phone-row input {
+      min-width: 0;
+      padding: 0 14px;
+      color: #17171B;
+      font: inherit;
+      outline: none;
+    }
+    .modal-phone-row input:focus {
+      border-color: #B38724;
+      box-shadow: 0 0 0 3px rgba(179,135,36,.14);
+    }
+    .account-modal-feedback {
+      display: none;
+      margin-top: 14px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+    .account-modal-feedback.visible {
+      display: block;
+    }
+    .account-modal-feedback.error {
+      color: #B42318;
+      background: #FFF0F0;
+      border: 1px solid #FFB8B8;
+    }
+    .account-modal-feedback.info {
+      color: #7C520B;
+      background: #FFF7DE;
+      border: 1px solid #F2D58B;
+    }
+    .modal-actions {
+      margin-top: 18px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .account-summary {
+      margin-bottom: 24px;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 20px;
+    }
+    .summary-tile {
+      min-height: 88px;
+      padding: 18px 20px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .summary-icon {
+      width: 48px;
+      height: 48px;
+      flex: 0 0 48px;
+      display: grid;
+      place-items: center;
+      color: #B38724;
+      background: #F8F1E1;
+      border-radius: 12px;
+    }
+    .summary-icon svg { width: 23px; height: 23px; }
+    .summary-tile small,
+    .summary-tile strong {
+      display: block;
+    }
+    .summary-tile small {
+      margin-bottom: 7px;
+      color: #5F606A;
+      font-size: 13px;
+      font-weight: 800;
+    }
+    .summary-tile strong {
+      color: #17171B;
+      font-size: 15px;
+      font-weight: 900;
+      line-height: 1.25;
+    }
+    .summary-tile b {
+      margin-right: 6px;
+      font-size: 25px;
+      line-height: 1;
+    }
     .history-layout {
       display: grid;
-      grid-template-columns: minmax(310px, 420px) minmax(0, 1fr);
-      gap: 28px;
+      grid-template-columns: minmax(360px, 480px) minmax(0, 1fr);
+      gap: 20px;
       align-items: start;
     }
     .history-list h2 {
-      margin: 22px 0 14px;
+      margin: 20px 0 13px;
       color: #17171B;
       font-size: 20px;
       font-weight: 900;
@@ -3144,7 +3974,7 @@ function htmlPage(input: { title: string; body: string }) {
       height: 20px;
       margin-left: 6px;
       color: #6F6F7A;
-      background: #F0F0F4;
+      background: #EFEDE8;
       border-radius: 50%;
       font-size: 12px;
       font-weight: 900;
@@ -3166,8 +3996,8 @@ function htmlPage(input: { title: string; body: string }) {
     }
     .history-chip.active {
       color: #FFFFFF;
-      background: #17171B;
-      border-color: #17171B;
+      background: #111114;
+      border-color: #111114;
     }
     .history-chip.active span {
       color: #17171B;
@@ -3175,34 +4005,39 @@ function htmlPage(input: { title: string; body: string }) {
     }
     .appointment-stack {
       display: grid;
-      gap: 12px;
+      gap: 10px;
     }
     .appointment-card {
       width: 100%;
-      min-height: 96px;
-      padding: 10px;
+      min-height: 86px;
+      padding: 10px 12px;
       display: grid;
-      grid-template-columns: 92px minmax(0, 1fr);
+      grid-template-columns: 58px minmax(0, 1fr);
       gap: 12px;
       color: #17171B;
       background: #FFFFFF;
-      border: 1px solid #E0DFE7;
-      border-radius: 14px;
+      border: 1px solid #E7E2D8;
+      border-radius: 12px;
       text-align: left;
       cursor: pointer;
     }
     .appointment-card.active {
-      border-color: #6C4DFF;
-      box-shadow: 0 0 0 1px #6C4DFF;
+      border-color: #B38724;
+      box-shadow: 0 0 0 1px #B38724;
     }
     .appointment-thumb {
-      min-height: 76px;
+      width: 58px;
+      min-height: 58px;
       display: grid;
       place-items: center;
-      color: #FFFFFF;
-      background: linear-gradient(135deg, #B9B9C1, #17171B);
-      border-radius: 10px;
-      font-size: 19px;
+      color: #D8B455;
+      background:
+        radial-gradient(circle at 30% 20%, rgba(216,180,85,.24), transparent 38%),
+        linear-gradient(135deg, #2B2B2E, #0B0B0D);
+      border: 1px solid rgba(201,161,59,.28);
+      border-radius: 8px;
+      font-family: var(--font-display);
+      font-size: 18px;
       font-weight: 900;
       letter-spacing: .04em;
     }
@@ -3211,6 +4046,23 @@ function htmlPage(input: { title: string; body: string }) {
       display: grid;
       align-content: center;
       gap: 3px;
+    }
+    .appointment-card-head {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .appointment-card-head i {
+      padding: 5px 9px;
+      color: #8B681E;
+      background: #F8E9BE;
+      border-radius: 999px;
+      font-size: 11px;
+      font-style: normal;
+      font-weight: 900;
+      white-space: nowrap;
     }
     .appointment-copy strong,
     .appointment-copy small,
@@ -3221,7 +4073,23 @@ function htmlPage(input: { title: string; body: string }) {
     }
     .appointment-copy strong { font-size: 14px; font-weight: 900; }
     .appointment-copy small { color: #6F6F7A; font-size: 12px; font-style: normal; }
-    .appointment-copy em { color: #5B34EA; font-size: 12.5px; font-style: normal; font-weight: 800; }
+    .appointment-meta {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+    .appointment-meta small {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .appointment-meta svg {
+      width: 13px;
+      height: 13px;
+      flex: 0 0 13px;
+    }
+    .appointment-copy em { color: #111114; font-size: 12.5px; font-style: normal; font-weight: 800; justify-self: end; }
     .empty-appointments {
       min-height: 230px;
       padding: 28px 22px;
@@ -3236,8 +4104,8 @@ function htmlPage(input: { title: string; body: string }) {
       margin-bottom: 14px;
       display: grid;
       place-items: center;
-      color: #6C4DFF;
-      background: #F0ECFF;
+      color: #B38724;
+      background: #F8F1E1;
       border-radius: 15px;
     }
     .calendar-empty svg { width: 26px; height: 26px; }
@@ -3269,27 +4137,31 @@ function htmlPage(input: { title: string; body: string }) {
       font-size: 14px;
     }
     .history-detail {
-      min-height: 580px;
+      min-height: 524px;
       overflow: hidden;
     }
     .detail-hero {
-      min-height: 220px;
+      min-height: 136px;
       padding: 28px;
       display: flex;
-      align-items: flex-end;
-      gap: 16px;
+      align-items: center;
+      gap: 18px;
       color: #FFFFFF;
-      background: linear-gradient(135deg, #B7B7BE, #17171B);
+      background:
+        radial-gradient(circle at 92% -10%, rgba(201,161,59,.18), transparent 36%),
+        linear-gradient(135deg, #242427, #0D0D0F);
     }
     .detail-logo {
-      width: 82px;
-      height: 82px;
+      width: 78px;
+      height: 78px;
       display: grid;
       place-items: center;
-      background: rgba(255,255,255,.16);
-      border: 1px solid rgba(255,255,255,.24);
-      border-radius: 18px;
-      font-size: 24px;
+      color: #D8B455;
+      background: rgba(0,0,0,.18);
+      border: 1px solid rgba(201,161,59,.64);
+      border-radius: 10px;
+      font-family: var(--font-display);
+      font-size: 30px;
       font-weight: 900;
     }
     .detail-hero strong {
@@ -3298,56 +4170,95 @@ function htmlPage(input: { title: string; body: string }) {
       font-weight: 900;
       line-height: 1.05;
     }
+    .detail-hero small {
+      display: block;
+      margin-top: 6px;
+      color: rgba(255,255,255,.72);
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .detail-body {
+      padding: 24px 28px 28px;
+    }
     .status-pill {
       width: fit-content;
-      margin: 24px 32px 14px;
-      padding: 8px 13px;
+      margin: 0 0 14px;
+      padding: 7px 13px;
       display: inline-flex;
-      color: #FFFFFF;
-      background: #6C4DFF;
+      color: #8B681E;
+      background: #F8E9BE;
       border-radius: 999px;
       font-size: 12px;
       font-weight: 900;
     }
     .history-detail h2 {
-      margin: 0 32px 8px;
+      margin: 0 0 9px;
       color: #17171B;
       font-size: 27px;
       font-weight: 900;
       line-height: 1.15;
     }
     .history-detail p {
-      margin: 0 32px 22px;
+      margin: 0 0 18px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
       color: #6F6F7A;
       font-size: 14px;
     }
-    .detail-actions {
-      margin: 0 32px 28px;
+    .history-detail p svg { width: 16px; height: 16px; }
+    .detail-facts {
       display: grid;
-      border-top: 1px solid #EFEFF3;
+      border-top: 1px solid #EFECE5;
     }
-    .detail-actions a,
-    .detail-actions span {
-      min-height: 58px;
-      display: flex;
+    .detail-facts span {
+      min-height: 48px;
+      display: grid;
+      grid-template-columns: 140px minmax(0, 1fr);
       align-items: center;
+      gap: 16px;
+      border-bottom: 1px solid #EFECE5;
+    }
+    .detail-facts b {
+      color: #2B2B30;
+      font-size: 14px;
+      font-weight: 900;
+    }
+    .detail-facts strong {
+      color: #17171B;
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .detail-actions {
+      margin: 28px 0 0;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      border-top: 0;
+    }
+    .detail-actions a {
+      min-height: 50px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       gap: 12px;
       color: #17171B;
-      border-bottom: 1px solid #EFEFF3;
+      background: #FFFFFF;
+      border: 1px solid #CFC9BE;
+      border-radius: 8px;
       font-size: 14px;
-      font-weight: 800;
+      font-weight: 900;
     }
-    .action-icon {
-      width: 36px;
-      height: 36px;
-      display: grid;
-      place-items: center;
-      color: #5B34EA;
-      background: #F0ECFF;
-      border: 0;
-      border-radius: 50%;
+    .detail-actions a.primary {
+      color: #FFFFFF;
+      background: linear-gradient(180deg, #C99F36, #A7771E);
+      border-color: #A7771E;
     }
-    .action-icon svg { width: 18px; height: 18px; }
+    .detail-actions svg {
+      width: 18px;
+      height: 18px;
+      flex: 0 0 18px;
+    }
     .detail-empty {
       min-height: 560px;
       display: grid;
@@ -3399,19 +4310,26 @@ function htmlPage(input: { title: string; body: string }) {
       }
       .account-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .account-main { padding: 28px 18px; }
+      .account-summary { grid-template-columns: 1fr; }
       .history-layout { grid-template-columns: 1fr; }
       .history-detail { min-height: 0; }
     }
 
     @media (max-width: 680px) {
-      .account-topbar { height: auto; min-height: 68px; padding: 12px 16px; }
-      .account-brand small { display: none; }
+      .account-brand { margin-bottom: 18px; }
       .account-book { padding: 0 14px; }
       .account-login { margin: 26px auto; padding: 28px 20px; }
       .account-section-head { align-items: flex-start; flex-direction: column; }
       .profile-grid { grid-template-columns: 1fr; }
+      .google-profile,
+      .phone-form { grid-column: auto; }
+      .phone-form { padding-left: 0; border-left: 0; }
       .phone-row { grid-template-columns: 1fr; }
+      .phone-icon { display: none; }
       .phone-readonly { grid-column: auto; }
+      .detail-actions,
+      .detail-facts span { grid-template-columns: 1fr; }
+      .detail-facts span { gap: 4px; align-items: start; padding: 12px 0; }
       .appointment-card { grid-template-columns: 74px minmax(0, 1fr); }
       .appointment-thumb { min-height: 72px; }
       .detail-hero { min-height: 180px; padding: 22px; }
@@ -3428,7 +4346,7 @@ function htmlPage(input: { title: string; body: string }) {
       .hero-media { height: 360px; min-height: 360px; }
       .three-col { grid-template-columns: 1fr; gap: 44px 0; }
       .col-divider { display: none; }
-      .gallery-track { grid-template-columns: repeat(3, 1fr); }
+      .gallery-track { grid-template-columns: repeat(auto-fit, minmax(156px, 210px)); }
       .footer-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 42px 36px; }
     }
 
@@ -3453,11 +4371,17 @@ function htmlPage(input: { title: string; body: string }) {
       .servicios .carousel-row { --card-width: 132px; }
       .profesionales .carousel-row { --card-width: 136px; }
       .resenas .carousel-row { --card-width: 190px; }
-      .gallery-track { grid-template-columns: repeat(2, 1fr); }
+      .gallery-track { grid-template-columns: repeat(auto-fit, minmax(138px, 1fr)); }
+      .landing-lightbox { padding: 14px; }
+      .landing-lightbox-panel { max-height: 90vh; border-radius: 12px; }
+      .landing-lightbox-media img { max-height: 58vh; }
+      .landing-lightbox-copy { min-height: 76px; max-height: 154px; padding: 16px 18px 18px; }
+      .landing-lightbox-copy h3 { font-size: 21px; }
       .site-footer { padding: 44px 0 24px; }
       .footer-grid { grid-template-columns: 1fr; gap: 34px; }
       .social-links { grid-template-columns: 1fr; }
       .footer-bottom { flex-direction: column; }
+      .wa-fab { right: 16px; bottom: 16px; }
       .booking-card { padding: 24px 18px; }
       .booking-card h1 { font-size: 38px; }
     }
@@ -3484,6 +4408,71 @@ function landingImageFor(index: number, type: 'service' | 'professional') {
   return images[index % images.length] || images[0] || '/landing-assets/barber-hero-service.png'
 }
 
+function renderServiceImage(service: LandingBusiness['services'][number], business: LandingBusiness, index: number) {
+  const uploadedImage = serviceImageUrl(service.imageUrl)
+  if (uploadedImage) {
+    return `<img src="${escapeAttribute(uploadedImage)}" alt="${escapeAttribute(service.name)}">`
+  }
+
+  const inferred = inferServiceVisual(service.name)
+  if (inferred) {
+    return renderGeneratedServiceVisual(inferred, service.name)
+  }
+
+  if (business.coverImageUrl) {
+    return `<img src="${escapeAttribute(business.coverImageUrl)}" alt="${escapeAttribute(service.name)}">`
+  }
+
+  return `<img src="${escapeAttribute(landingImageFor(index, 'service'))}" alt="${escapeAttribute(service.name)}">`
+}
+
+function serviceImageUrl(value?: string | null) {
+  const imageUrl = value?.trim()
+  if (!imageUrl) return null
+  if (/^data:image\/(png|jpeg|webp|gif);base64,/i.test(imageUrl)) return imageUrl
+  if (/^https?:\/\//i.test(imageUrl)) return imageUrl
+  return null
+}
+
+function inferServiceVisual(name: string) {
+  const normalized = normalizeVisualText(name)
+  return serviceVisuals.find((visual) => visual.keywords.some((keyword) => normalized.includes(keyword))) || null
+}
+
+function normalizeVisualText(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
+function renderGeneratedServiceVisual(visual: ServiceVisual, serviceName: string) {
+  return `
+    <div class="service-generated-visual ${escapeAttribute(visual.className)}" aria-label="${escapeAttribute(serviceName)}">
+      <span class="visual-icon">${visual.icon}</span>
+      <span class="visual-label">${escapeHtml(visual.label)}</span>
+    </div>
+  `
+}
+
+type ServiceVisual = {
+  className: string
+  icon: string
+  label: string
+  keywords: string[]
+}
+
+const serviceVisuals: ServiceVisual[] = [
+  { className: 'visual-cut', icon: '✂', label: 'Corte', keywords: ['corte', 'haircut', 'fade', 'degrade', 'degradado', 'flequillo', 'tijera', 'maquina'] },
+  { className: 'visual-beard', icon: '⌁', label: 'Barba', keywords: ['barba', 'afeitado', 'navaja', 'perfilado', 'bigote'] },
+  { className: 'visual-color', icon: '●', label: 'Color', keywords: ['color', 'tintura', 'tinte', 'fantasia', 'mechas', 'reflejos', 'balayage', 'decoloracion', 'coloracion'] },
+  { className: 'visual-treatment', icon: '◆', label: 'Tratamiento', keywords: ['tratamiento', 'keratina', 'nutricion', 'botox', 'hidratacion', 'alisado', 'brushing'] },
+  { className: 'visual-nails', icon: '◌', label: 'Manos y pies', keywords: ['uña', 'unas', 'manicura', 'pedicura', 'nail', 'semi', 'esmaltado', 'kapping', 'soft gel'] },
+  { className: 'visual-lashes', icon: '◐', label: 'Mirada', keywords: ['pestaña', 'pestanas', 'ceja', 'cejas', 'lifting', 'laminado', 'perfilado de cejas'] },
+  { className: 'visual-wax', icon: '◇', label: 'Depilacion', keywords: ['depilacion', 'cera', 'definitiva', 'laser'] },
+  { className: 'visual-massage', icon: '✦', label: 'Relax', keywords: ['masaje', 'masajes', 'descontracturante', 'relajante', 'spa'] }
+]
+
 function formatHeroTitle(name: string) {
   const words = name.trim().split(/\s+/).filter(Boolean)
   if (words.length <= 1) return escapeHtml(name)
@@ -3505,6 +4494,155 @@ function formatPrice(price?: number | null) {
     currency: 'ARS',
     maximumFractionDigits: 0
   }).format(price)
+}
+
+function renderProfessionalPhoto(professional: LandingBusiness['professionals'][number]) {
+  const avatarUrl = professionalAvatarUrl(professional.avatarUrl)
+  if (avatarUrl) {
+    return `<img src="${escapeAttribute(avatarUrl)}" alt="${escapeAttribute(professional.name)}">`
+  }
+  return `<div class="pro-initials" aria-label="${escapeAttribute(professional.name)}">${escapeHtml(initials(professional.name) || '?')}</div>`
+}
+
+function renderProfessionalPhotoFrame(professional: LandingBusiness['professionals'][number], index: number) {
+  const avatarUrl = professionalAvatarUrl(professional.avatarUrl)
+  const className = `card-photo photo-pro-${index % 3}`
+  const description = professionalLandingDescription(professional)
+  if (!avatarUrl) {
+    return `<div class="${className}">${renderProfessionalPhoto(professional)}</div>`
+  }
+  return `
+    <button class="${className} lightbox-trigger" type="button" data-lightbox-kind="image" data-lightbox-title="${escapeAttribute(professional.name)}" data-lightbox-text="${escapeAttribute(description)}">
+      ${renderProfessionalPhoto(professional)}
+    </button>
+  `
+}
+
+function renderProfessionalDescription(professional: LandingBusiness['professionals'][number]) {
+  const description = professionalLandingDescription(professional)
+  return description ? `<div class="pro-role">${escapeHtml(description)}</div>` : ''
+}
+
+function professionalLandingDescription(professional: LandingBusiness['professionals'][number]) {
+  return professional.description?.trim() || ''
+}
+
+function parseLandingGalleryImages(value?: string | null) {
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value)
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .filter((imageUrl): imageUrl is string => typeof imageUrl === 'string' && /^data:image\/(png|jpeg|webp|gif);base64,/i.test(imageUrl))
+      .slice(0, 6)
+  } catch {
+    return []
+  }
+}
+
+function renderLandingGallery(images: string[], businessName: string) {
+  if (!images.length) return ''
+  return `
+    <section id="galeria" class="galeria">
+      <div class="wrap">
+        <div class="col-header"><span class="rule"></span><h2>Galeria</h2><span class="rule"></span></div>
+        <div class="gallery-row">
+          <div class="gallery-track">
+            ${images.map((imageUrl, index) => `
+              <button class="gallery-item gallery-shot-${(index % 6) + 1} lightbox-trigger" type="button" data-lightbox-kind="image" data-lightbox-title="${escapeAttribute(businessName)}" data-lightbox-text="Imagen ${index + 1} de la galeria">
+                <img src="${escapeAttribute(imageUrl)}" alt="${escapeAttribute(`${businessName} galeria ${index + 1}`)}">
+              </button>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+    </section>
+  `
+}
+
+function renderLandingLightbox() {
+  return `
+    <div class="landing-lightbox" id="landing-lightbox" hidden>
+      <button class="landing-lightbox-backdrop" type="button" data-lightbox-close aria-label="Cerrar vista ampliada"></button>
+      <section class="landing-lightbox-panel" role="dialog" aria-modal="true" aria-labelledby="landing-lightbox-title">
+        <button class="landing-lightbox-close" type="button" data-lightbox-close aria-label="Cerrar vista ampliada">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>
+        </button>
+        <div class="landing-lightbox-media" id="landing-lightbox-media"></div>
+        <div class="landing-lightbox-copy">
+          <h3 id="landing-lightbox-title"></h3>
+          <p id="landing-lightbox-text"></p>
+        </div>
+      </section>
+    </div>
+  `
+}
+
+function renderLandingLightboxScript() {
+  return `
+    <script>
+      (() => {
+        const lightbox = document.getElementById('landing-lightbox')
+        if (!lightbox) return
+
+        const media = document.getElementById('landing-lightbox-media')
+        const title = document.getElementById('landing-lightbox-title')
+        const text = document.getElementById('landing-lightbox-text')
+        const closeButtons = lightbox.querySelectorAll('[data-lightbox-close]')
+
+        function openLightbox(trigger) {
+          const kind = trigger.dataset.lightboxKind || 'image'
+          const imageUrl = trigger.dataset.lightboxImage || trigger.querySelector('img')?.getAttribute('src') || ''
+          const itemTitle = trigger.dataset.lightboxTitle || ''
+          const itemText = trigger.dataset.lightboxText || ''
+
+          media.replaceChildren()
+          title.textContent = itemTitle
+          text.textContent = itemText
+
+          if (kind === 'image' && imageUrl) {
+            const image = document.createElement('img')
+            image.src = imageUrl
+            image.alt = itemTitle || itemText || 'Imagen ampliada'
+            media.append(image)
+          } else {
+            return
+          }
+
+          lightbox.hidden = false
+          document.body.style.overflow = 'hidden'
+          lightbox.querySelector('.landing-lightbox-close')?.focus()
+        }
+
+        function closeLightbox() {
+          if (lightbox.hidden) return
+          lightbox.hidden = true
+          document.body.style.overflow = ''
+          media.replaceChildren()
+        }
+
+        document.querySelectorAll('[data-lightbox-kind]').forEach((trigger) => {
+          trigger.addEventListener('click', () => openLightbox(trigger))
+        })
+
+        closeButtons.forEach((button) => {
+          button.addEventListener('click', closeLightbox)
+        })
+
+        document.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape') closeLightbox()
+        })
+      })()
+    </script>
+  `
+}
+
+function professionalAvatarUrl(value?: string | null) {
+  const avatarUrl = value?.trim()
+  if (!avatarUrl || avatarUrl.startsWith('/landing-assets/')) return null
+  if (/^data:image\/(png|jpeg|webp|gif);base64,/i.test(avatarUrl)) return avatarUrl
+  if (/^https?:\/\//i.test(avatarUrl)) return avatarUrl
+  return null
 }
 
 function initials(name: string) {

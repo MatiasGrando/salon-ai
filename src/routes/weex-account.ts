@@ -7,14 +7,17 @@ import {
   destroyWeexSessionFromRequest,
   getWeexAppointmentsForBusiness,
   getWeexAuthFromRequest,
+  signInWithGoogleAuthCode,
   signInWithGoogleCredential,
   updateWeexPhone,
+  weexGoogleCalendarEnabled,
   weexGoogleClientId
 } from '../services/weex-account-service.js'
 
 export async function weexAccountRoutes(app: FastifyInstance) {
   app.get('/public/weex/config', async () => ({
-    googleClientId: weexGoogleClientId()
+    googleClientId: weexGoogleClientId(),
+    googleCalendarEnabled: weexGoogleCalendarEnabled()
   }))
 
   app.post('/public/weex/auth/google', async (request, reply) => {
@@ -31,6 +34,24 @@ export async function weexAccountRoutes(app: FastifyInstance) {
     } catch (error) {
       return reply.status(401).send({
         message: error instanceof Error ? error.message : 'No pudimos validar la cuenta de Google'
+      })
+    }
+  })
+
+  app.post('/public/weex/auth/google-code', async (request, reply) => {
+    const body = request.body as { code?: string }
+    const code = body.code?.trim()
+    if (!code) return reply.status(400).send({ message: 'Falta el codigo de Google' })
+
+    try {
+      const result = await signInWithGoogleAuthCode(code)
+      reply.header('Set-Cookie', buildWeexSessionCookie(result.session.token, result.session.expiresAt))
+      return {
+        account: result.account
+      }
+    } catch (error) {
+      return reply.status(401).send({
+        message: error instanceof Error ? error.message : 'No pudimos autorizar Google Calendar'
       })
     }
   })
@@ -55,11 +76,16 @@ export async function weexAccountRoutes(app: FastifyInstance) {
             slug: body.businessSlug.trim()
           },
           select: {
-            publicWhatsapp: true
+            publicWhatsapp: true,
+            whatsappConfig: {
+              select: {
+                displayPhoneNumber: true
+              }
+            }
           }
         })
       : null
-    const result = await updateWeexPhone(auth.account.id, body.phone || '', inferDefaultAreaCodeFromPhone(business?.publicWhatsapp))
+    const result = await updateWeexPhone(auth.account.id, body.phone || '', inferDefaultAreaCodeFromPhone(business?.whatsappConfig?.displayPhoneNumber || business?.publicWhatsapp))
     if (!result.ok) return reply.status(400).send({ message: result.message })
 
     return {

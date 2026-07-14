@@ -1,0 +1,3 @@
+ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "publicAddress" TEXT;
+ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "publicAddressArea" TEXT;
+ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "publicMapsUrl" TEXT;

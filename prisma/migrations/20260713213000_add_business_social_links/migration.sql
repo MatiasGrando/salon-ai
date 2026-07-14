@@ -1,0 +1,2 @@
+ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "instagramUrl" TEXT;
+ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "facebookUrl" TEXT;

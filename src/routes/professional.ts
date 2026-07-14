@@ -11,6 +11,7 @@ export async function professionalRoutes(app: FastifyInstance) {
   app.post('/professionals', async (request, reply) => {
     const body = request.body as {
       name: string
+      description?: string | null
       businessId: string
       avatarUrl?: string | null
       isActive?: boolean
@@ -19,6 +20,7 @@ export async function professionalRoutes(app: FastifyInstance) {
     }
 
     const name = body.name?.trim()
+    const description = normalizeDescription(body.description)
     const avatarUrl = normalizeAvatarUrl(body.avatarUrl)
     const businessId = body.businessId?.trim()
     const workingHours = body.workingHours
@@ -55,6 +57,7 @@ export async function professionalRoutes(app: FastifyInstance) {
     const professional = await prisma.professional.create({
       data: {
         name,
+        description,
         avatarUrl,
         isActive: body.isActive === false ? false : true,
         deactivatedAt: body.isActive === false ? new Date() : null,
@@ -122,6 +125,7 @@ export async function professionalRoutes(app: FastifyInstance) {
     }
     const body = request.body as {
       name?: string
+      description?: string | null
       avatarUrl?: string | null
       isActive?: boolean
       workingHours?: WorkingHourInput[]
@@ -129,6 +133,7 @@ export async function professionalRoutes(app: FastifyInstance) {
       conflictStrategy?: 'KEEP_EXISTING'
     }
     const name = body.name?.trim()
+    const description = normalizeDescription(body.description)
     const avatarUrl = normalizeAvatarUrl(body.avatarUrl)
 
     if (!name) {
@@ -191,6 +196,7 @@ export async function professionalRoutes(app: FastifyInstance) {
         },
         data: {
           name,
+          description,
           avatarUrl,
           isActive: typeof body.isActive === 'boolean' ? body.isActive : existing.isActive,
           deactivatedAt: typeof body.isActive === 'boolean'
@@ -375,6 +381,7 @@ function serializeProfessional(professional: any) {
 
   return {
     ...rest,
+    avatarUrl: normalizeAvatarUrl(rest.avatarUrl),
     services: (serviceLinks || []).map((link: { service: unknown }) => link.service)
   }
 }
@@ -382,7 +389,15 @@ function serializeProfessional(professional: any) {
 function normalizeAvatarUrl(avatarUrl?: string | null) {
   const normalizedAvatarUrl = avatarUrl?.trim()
 
-  return normalizedAvatarUrl || null
+  if (!normalizedAvatarUrl || normalizedAvatarUrl.startsWith('/landing-assets/')) return null
+  if (/^data:image\/(png|jpeg|webp|gif);base64,/i.test(normalizedAvatarUrl)) return normalizedAvatarUrl
+  if (/^https?:\/\//i.test(normalizedAvatarUrl)) return normalizedAvatarUrl
+  return null
+}
+
+function normalizeDescription(description?: string | null) {
+  const normalizedDescription = description?.trim()
+  return normalizedDescription || null
 }
 
 async function resolveServiceIdsForBusiness(businessId: string, serviceIds?: string[]) {

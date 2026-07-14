@@ -49,16 +49,34 @@ export async function businessRoutes(app: FastifyInstance) {
       slug?: string | null
       logoUrl?: string | null
       landingEnabled?: boolean
+      landingSubtitle?: string | null
+      landingOpeningYear?: number | string | null
       landingDescription?: string | null
       coverImageUrl?: string | null
+      landingGalleryImages?: string[] | null
       publicWhatsapp?: string | null
+      contactEmail?: string | null
+      publicAddress?: string | null
+      publicAddressArea?: string | null
+      publicMapsUrl?: string | null
+      instagramUrl?: string | null
+      facebookUrl?: string | null
     }
     const name = body.name?.trim()
     const slug = body.slug === undefined ? undefined : normalizeOptionalText(body.slug)
     const logoUrl = normalizeLogoUrl(body.logoUrl)
-    const coverImageUrl = normalizeImageUrl(body.coverImageUrl)
+    const coverImageUrl = normalizeCoverImageUrl(body.coverImageUrl)
+    const landingSubtitle = normalizeOptionalText(body.landingSubtitle)
+    const landingOpeningYear = normalizeOpeningYear(body.landingOpeningYear)
     const landingDescription = normalizeOptionalText(body.landingDescription)
+    const landingGalleryImages = normalizeGalleryImages(body.landingGalleryImages)
     const publicWhatsapp = normalizeOptionalText(body.publicWhatsapp)
+    const contactEmail = normalizeOptionalEmail(body.contactEmail)
+    const publicAddress = normalizeOptionalText(body.publicAddress)
+    const publicAddressArea = normalizeOptionalText(body.publicAddressArea)
+    const publicMapsUrl = normalizeMapsUrl(body.publicMapsUrl)
+    const instagramUrl = normalizeOptionalUrl(body.instagramUrl)
+    const facebookUrl = normalizeOptionalUrl(body.facebookUrl)
 
     if (body.name !== undefined && !name) {
       return reply.status(400).send({
@@ -80,7 +98,43 @@ export async function businessRoutes(app: FastifyInstance) {
 
     if (body.coverImageUrl !== undefined && coverImageUrl === undefined) {
       return reply.status(400).send({
-        message: 'La portada debe ser una imagen valida de hasta 2 MB'
+        message: 'La portada debe ser una imagen valida de hasta 3 MB'
+      })
+    }
+
+    if (body.landingGalleryImages !== undefined && landingGalleryImages === undefined) {
+      return reply.status(400).send({
+        message: 'La galerÃ­a permite hasta 6 imÃ¡genes PNG, JPG, WEBP o GIF de hasta 3 MB'
+      })
+    }
+
+    if (body.landingOpeningYear !== undefined && landingOpeningYear === undefined) {
+      return reply.status(400).send({
+        message: 'El año de apertura debe ser válido'
+      })
+    }
+
+    if (body.instagramUrl !== undefined && instagramUrl === undefined) {
+      return reply.status(400).send({
+        message: 'El link de Instagram debe ser una URL valida'
+      })
+    }
+
+    if (body.facebookUrl !== undefined && facebookUrl === undefined) {
+      return reply.status(400).send({
+        message: 'El link de Facebook debe ser una URL valida'
+      })
+    }
+
+    if (body.contactEmail !== undefined && contactEmail === undefined) {
+      return reply.status(400).send({
+        message: 'El email del comercio debe ser valido'
+      })
+    }
+
+    if (body.publicMapsUrl !== undefined && publicMapsUrl === undefined) {
+      return reply.status(400).send({
+        message: 'Pegá un link válido de Google Maps'
       })
     }
 
@@ -89,9 +143,18 @@ export async function businessRoutes(app: FastifyInstance) {
       slug === undefined &&
       logoUrl === undefined &&
       body.landingEnabled === undefined &&
+      landingSubtitle === undefined &&
+      landingOpeningYear === undefined &&
       landingDescription === undefined &&
       coverImageUrl === undefined &&
-      publicWhatsapp === undefined
+      landingGalleryImages === undefined &&
+      publicWhatsapp === undefined &&
+      contactEmail === undefined &&
+      publicAddress === undefined &&
+      publicAddressArea === undefined &&
+      publicMapsUrl === undefined &&
+      instagramUrl === undefined &&
+      facebookUrl === undefined
     ) {
       return reply.status(400).send({
         message: 'No hay cambios para guardar'
@@ -105,9 +168,18 @@ export async function businessRoutes(app: FastifyInstance) {
         ...(slug !== undefined ? { slug } : {}),
         ...(logoUrl !== undefined ? { logoUrl } : {}),
         ...(body.landingEnabled !== undefined ? { landingEnabled: Boolean(body.landingEnabled) } : {}),
+        ...(landingSubtitle !== undefined ? { landingSubtitle } : {}),
+        ...(landingOpeningYear !== undefined ? { landingOpeningYear } : {}),
         ...(landingDescription !== undefined ? { landingDescription } : {}),
         ...(coverImageUrl !== undefined ? { coverImageUrl } : {}),
-        ...(publicWhatsapp !== undefined ? { publicWhatsapp } : {})
+        ...(landingGalleryImages !== undefined ? { landingGalleryImages } : {}),
+        ...(publicWhatsapp !== undefined ? { publicWhatsapp } : {}),
+        ...(contactEmail !== undefined ? { contactEmail } : {}),
+        ...(publicAddress !== undefined ? { publicAddress } : {}),
+        ...(publicAddressArea !== undefined ? { publicAddressArea } : {}),
+        ...(publicMapsUrl !== undefined ? { publicMapsUrl } : {}),
+        ...(instagramUrl !== undefined ? { instagramUrl } : {}),
+        ...(facebookUrl !== undefined ? { facebookUrl } : {})
       })
     } catch (error) {
       return reply.status(400).send({ message: businessSlugErrorMessage(error) })
@@ -500,10 +572,25 @@ async function ensureBusinessSettings(businessId: string) {
 }
 
 function normalizeLogoUrl(logoUrl?: string | null) {
-  return normalizeImageUrl(logoUrl)
+  return normalizeImageUrl(logoUrl, 2)
 }
 
-function normalizeImageUrl(imageUrl?: string | null) {
+function normalizeCoverImageUrl(coverImageUrl?: string | null) {
+  return normalizeImageUrl(coverImageUrl, 3)
+}
+
+function normalizeGalleryImages(images?: string[] | null) {
+  if (images === undefined) return undefined
+  if (images === null) return null
+  if (!Array.isArray(images) || images.length > 6) return undefined
+
+  const normalizedImages = images.map((imageUrl) => normalizeImageUrl(imageUrl, 3))
+  if (normalizedImages.some((imageUrl) => !imageUrl)) return undefined
+
+  return normalizedImages.length ? JSON.stringify(normalizedImages) : null
+}
+
+function normalizeImageUrl(imageUrl: string | null | undefined, maxSizeMb: number) {
   if (imageUrl === undefined) {
     return undefined
   }
@@ -515,13 +602,58 @@ function normalizeImageUrl(imageUrl?: string | null) {
   const normalized = imageUrl.trim()
   const isImageDataUrl = /^data:image\/(png|jpeg|webp|gif);base64,[a-z0-9+/=]+$/i.test(normalized)
 
-  return isImageDataUrl && normalized.length <= 2_800_000 ? normalized : undefined
+  return isImageDataUrl && normalized.length <= maxSizeMb * 1_400_000 ? normalized : undefined
 }
 
 function normalizeOptionalText(value?: string | null) {
   if (value === undefined) return undefined
   const normalized = value?.trim()
   return normalized || null
+}
+
+function normalizeOptionalEmail(value?: string | null) {
+  if (value === undefined) return undefined
+  const normalized = value?.trim().toLowerCase()
+  if (!normalized) return null
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) ? normalized : undefined
+}
+
+function normalizeOptionalUrl(value?: string | null) {
+  if (value === undefined) return undefined
+  const normalized = value?.trim()
+  if (!normalized) return null
+  try {
+    const url = new URL(normalized)
+    return ['http:', 'https:'].includes(url.protocol) ? url.toString() : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function normalizeMapsUrl(value?: string | null) {
+  if (value === undefined) return undefined
+  const normalized = value?.trim()
+  if (!normalized) return null
+  try {
+    const url = new URL(normalized)
+    const hostname = url.hostname.toLowerCase().replace(/^www\./, '')
+    const isGoogleMaps =
+      hostname === 'maps.app.goo.gl' ||
+      hostname === 'goo.gl' && url.pathname.startsWith('/maps') ||
+      hostname === 'google.com' && url.pathname.startsWith('/maps') ||
+      hostname.endsWith('.google.com') && url.pathname.startsWith('/maps')
+    return ['http:', 'https:'].includes(url.protocol) && isGoogleMaps ? url.toString() : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function normalizeOpeningYear(value?: number | string | null) {
+  if (value === undefined) return undefined
+  if (value === null || String(value).trim() === '') return null
+  const year = Number(value)
+  const currentYear = new Date().getFullYear()
+  return Number.isInteger(year) && year >= 1900 && year <= currentYear ? year : undefined
 }
 
 function businessSlugErrorMessage(error: unknown) {

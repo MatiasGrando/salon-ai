@@ -1,0 +1,1 @@
+ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "contactEmail" TEXT;

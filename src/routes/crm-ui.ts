@@ -5544,6 +5544,65 @@ const crmHtml = `<!doctype html>
       line-height: 1.35;
     }
 
+    .service-image-field {
+      display: grid;
+      grid-template-columns: 112px minmax(0, 1fr);
+      gap: 12px;
+      align-items: center;
+    }
+
+    .service-image-preview {
+      width: 112px;
+      aspect-ratio: 4 / 3;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      border: 1px dashed #cbd5e1;
+      border-radius: 8px;
+      color: #64748b;
+      background: #f8fafc;
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .service-image-preview img {
+      width: 100%;
+      height: 100%;
+      display: none;
+      object-fit: cover;
+    }
+
+    .service-image-preview.has-image img {
+      display: block;
+    }
+
+    .service-image-preview.has-image span {
+      display: none;
+    }
+
+    .service-image-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .service-image-actions label {
+      height: 38px;
+      padding: 0 12px;
+      display: inline-flex;
+      align-items: center;
+      border-radius: 7px;
+      color: #fff;
+      background: #2563eb;
+      font-size: 13px;
+      font-weight: 750;
+      cursor: pointer;
+    }
+
+    .service-image-actions input {
+      display: none;
+    }
+
     .service-actions {
       display: grid;
       grid-template-columns: 0.82fr 1fr;
@@ -5608,6 +5667,9 @@ const crmHtml = `<!doctype html>
       width: 52px;
       height: 52px;
       border-radius: 50%;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
       color: #2563eb;
       background: #eaf0ff;
     }
@@ -5615,6 +5677,13 @@ const crmHtml = `<!doctype html>
     .service-card:nth-child(2n) .service-item-icon {
       color: #7c3aed;
       background: #f0e9ff;
+    }
+
+    .service-item-icon img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
     }
 
     .service-card-title {
@@ -5761,6 +5830,31 @@ const crmHtml = `<!doctype html>
       margin: 7px 0 0;
       color: #52617f;
       font-size: 14px;
+    }
+
+    .settings-main-tabs {
+      height: 51px;
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      border-bottom: 1px solid #dce3ef;
+    }
+
+    .settings-main-tabs button {
+      height: 42px;
+      padding: 0 11px;
+      border: 0;
+      border-bottom: 3px solid transparent;
+      background: transparent;
+      color: #42516e;
+      font-size: 14px;
+      font-weight: 650;
+      cursor: pointer;
+    }
+
+    .settings-main-tabs button.active {
+      border-color: #2563eb;
+      color: #2563eb;
     }
 
     .settings-panel {
@@ -6015,6 +6109,54 @@ const crmHtml = `<!doctype html>
 
     .landing-cover-actions input {
       display: none;
+    }
+
+    .landing-gallery-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .landing-gallery-item {
+      aspect-ratio: 1 / 1;
+      position: relative;
+      overflow: hidden;
+      border: 1px solid #d7e0ef;
+      border-radius: 8px;
+      background: #f6f8ff;
+    }
+
+    .landing-gallery-item img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .landing-gallery-remove {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      width: 28px;
+      height: 28px;
+      border: 0;
+      border-radius: 999px;
+      color: #fff;
+      background: rgba(13, 23, 42, .78);
+      font-size: 16px;
+      font-weight: 900;
+      cursor: pointer;
+    }
+
+    .landing-gallery-empty {
+      min-height: 82px;
+      display: grid;
+      place-items: center;
+      color: #52617f;
+      border: 1px dashed #b8c5da;
+      border-radius: 8px;
+      background: #f6f8ff;
+      font-size: 13px;
+      font-weight: 700;
     }
 
     .business-logo-field {
@@ -6836,12 +6978,25 @@ const crmHtml = `<!doctype html>
     .professionals-form-panel {
       position: relative;
       min-width: 0;
-      padding: 72px 32px 34px;
+      height: 100dvh;
+      max-height: 100dvh;
+      box-sizing: border-box;
+      padding: 0;
       border: 0;
       border-left: 1px solid #e8edf6;
       border-radius: 0;
       background: #fff;
       box-shadow: -14px 0 34px rgba(15, 23, 42, 0.04);
+      overflow: hidden;
+    }
+
+    .professional-panel-scroll {
+      height: 100%;
+      max-height: 100%;
+      box-sizing: border-box;
+      padding: 72px 32px 34px;
+      overflow-y: auto;
+      overscroll-behavior: contain;
     }
 
     .professionals-form-panel[hidden] {
@@ -6910,6 +7065,7 @@ const crmHtml = `<!doctype html>
     .professional-form {
       display: grid;
       gap: 28px;
+      padding-bottom: 0;
     }
 
     .professional-form-group {
@@ -6931,6 +7087,15 @@ const crmHtml = `<!doctype html>
       border-color: #dfe6f1;
       color: #263958;
       background: #fff;
+    }
+
+    .professional-form textarea.field {
+      min-height: 86px;
+      height: auto;
+      padding: 12px 14px;
+      resize: vertical;
+      font: inherit;
+      line-height: 1.45;
     }
 
     .professional-services-list {
@@ -6988,10 +7153,16 @@ const crmHtml = `<!doctype html>
     }
 
     .professional-form .config-actions {
+      position: sticky;
+      bottom: 0;
+      z-index: 2;
       display: grid;
       grid-template-columns: 1fr 1.25fr;
       gap: 14px;
-      margin-top: 18px;
+      margin: 18px -32px 0;
+      padding: 16px 32px 20px;
+      background: linear-gradient(180deg, rgba(255,255,255,.82), #fff 28%);
+      border-top: 1px solid #e8edf6;
     }
 
     .professional-form .config-actions button {
@@ -7036,8 +7207,24 @@ const crmHtml = `<!doctype html>
       }
 
       .professionals-form-panel {
+        height: auto;
+        max-height: none;
         border-left: 0;
         border-top: 1px solid #e8edf6;
+        overflow: visible;
+      }
+
+      .professional-panel-scroll {
+        height: auto;
+        max-height: none;
+        overflow: visible;
+      }
+
+      .professional-form .config-actions {
+        bottom: 0;
+        margin-left: -32px;
+        margin-right: -32px;
+        margin-bottom: -34px;
       }
 
       .professional-card-grid,
@@ -11271,59 +11458,66 @@ const crmHtml = `<!doctype html>
         </section>
 
         <aside class="professionals-form-panel" id="professional-panel" hidden>
-          <button class="professional-panel-close" id="professional-panel-close" type="button" aria-label="Cerrar">x</button>
-          <h3 id="professional-form-title">Nuevo profesional</h3>
-          <p>Completa los datos del profesional.</p>
-          <label class="professional-form-photo" id="professional-photo-picker">
-            <img id="professional-photo-preview" alt="">
-            <span data-icon="camera"></span>
-            <input id="professional-avatar" type="file" accept="image/*">
-          </label>
-          <form class="professional-form" id="professional-form">
-            <input id="professional-id" type="hidden">
-            <div class="professional-form-group">
-              <label for="professional-name">Nombre del profesional</label>
-              <input class="field" id="professional-name" placeholder="Ej: Carolina">
-            </div>
-            <div class="professional-form-group">
-              <label for="professional-services">Servicios que realiza</label>
-              <div class="professional-services-list" id="professional-services"></div>
-              <div class="professional-form-help">Podes seleccionar multiples servicios</div>
-            </div>
-            <div class="professional-form-group">
-              <div class="professional-schedule-title">Horarios de disponibilidad</div>
-              <div class="schedule-row">
-                <label><input id="professional-weekdays-enabled" type="checkbox" checked> Lunes a viernes</label>
-                <input class="field" id="professional-weekdays-start" type="time" value="09:00">
-                <span class="schedule-separator">-</span>
-                <input class="field" id="professional-weekdays-end" type="time" value="18:00">
+          <div class="professional-panel-scroll">
+            <button class="professional-panel-close" id="professional-panel-close" type="button" aria-label="Cerrar">x</button>
+            <h3 id="professional-form-title">Nuevo profesional</h3>
+            <p>Completa los datos del profesional.</p>
+            <label class="professional-form-photo" id="professional-photo-picker">
+              <img id="professional-photo-preview" alt="">
+              <span data-icon="camera"></span>
+              <input id="professional-avatar" type="file" accept="image/*">
+            </label>
+            <form class="professional-form" id="professional-form">
+              <input id="professional-id" type="hidden">
+              <div class="professional-form-group">
+                <label for="professional-name">Nombre del profesional</label>
+                <input class="field" id="professional-name" placeholder="Ej: Carolina">
               </div>
-              <div class="schedule-row">
-                <label><input id="professional-saturday-enabled" type="checkbox"> Sabado</label>
-                <input class="field" id="professional-saturday-start" type="time" value="09:00">
-                <span class="schedule-separator">-</span>
-                <input class="field" id="professional-saturday-end" type="time" value="14:00">
+              <div class="professional-form-group">
+                <label for="professional-description">Descripci&oacute;n para la landing</label>
+                <textarea class="field" id="professional-description" maxlength="220" placeholder="Ej: Especialista en color, cortes modernos y asesoramiento personalizado."></textarea>
+                <div class="professional-form-help">Opcional. Si queda vac&iacute;o, en la landing se muestra solo el nombre.</div>
               </div>
-              <div class="schedule-row">
-                <label><input id="professional-sunday-enabled" type="checkbox"> Domingo</label>
-                <input class="field" id="professional-sunday-start" type="time" value="09:00">
-                <span class="schedule-separator">-</span>
-                <input class="field" id="professional-sunday-end" type="time" value="14:00">
+              <div class="professional-form-group">
+                <label for="professional-services">Servicios que realiza</label>
+                <div class="professional-services-list" id="professional-services"></div>
+                <div class="professional-form-help">Podes seleccionar multiples servicios</div>
               </div>
-            </div>
-            <div class="professional-form-group">
-              <label for="professional-status">Estado</label>
-              <select id="professional-status">
-                <option value="active">Activo</option>
-                <option value="inactive">Inactivo</option>
-              </select>
-            </div>
-            <div class="config-actions">
-              <button class="secondary" id="professional-cancel" type="button" hidden>Cancelar</button>
-              <button class="primary" id="professional-submit" type="submit">Guardar profesional</button>
-            </div>
-            <p class="hint" id="professional-feedback"></p>
-          </form>
+              <div class="professional-form-group">
+                <div class="professional-schedule-title">Horarios de disponibilidad</div>
+                <div class="schedule-row">
+                  <label><input id="professional-weekdays-enabled" type="checkbox" checked> Lunes a viernes</label>
+                  <input class="field" id="professional-weekdays-start" type="time" value="09:00">
+                  <span class="schedule-separator">-</span>
+                  <input class="field" id="professional-weekdays-end" type="time" value="18:00">
+                </div>
+                <div class="schedule-row">
+                  <label><input id="professional-saturday-enabled" type="checkbox"> Sabado</label>
+                  <input class="field" id="professional-saturday-start" type="time" value="09:00">
+                  <span class="schedule-separator">-</span>
+                  <input class="field" id="professional-saturday-end" type="time" value="14:00">
+                </div>
+                <div class="schedule-row">
+                  <label><input id="professional-sunday-enabled" type="checkbox"> Domingo</label>
+                  <input class="field" id="professional-sunday-start" type="time" value="09:00">
+                  <span class="schedule-separator">-</span>
+                  <input class="field" id="professional-sunday-end" type="time" value="14:00">
+                </div>
+              </div>
+              <div class="professional-form-group">
+                <label for="professional-status">Estado</label>
+                <select id="professional-status">
+                  <option value="active">Activo</option>
+                  <option value="inactive">Inactivo</option>
+                </select>
+              </div>
+              <div class="config-actions">
+                <button class="secondary" id="professional-cancel" type="button" hidden>Cancelar</button>
+                <button class="primary" id="professional-submit" type="submit">Guardar profesional</button>
+              </div>
+              <p class="hint" id="professional-feedback"></p>
+            </form>
+          </div>
         </aside>
       </div>
     </section>
@@ -11389,6 +11583,22 @@ const crmHtml = `<!doctype html>
                 <label for="service-aliases">Alias (opcional)</label>
                 <div class="service-form-help">Alias opcionales separados por coma (ej: corte, corte hombre)</div>
                 <input class="field" id="service-aliases" placeholder="Ej: corte, corte hombre, haircut">
+              </div>
+              <div class="service-form-group">
+                <label for="service-image">Imagen del servicio (opcional)</label>
+                <div class="service-image-field">
+                  <div class="service-image-preview" id="service-image-preview">
+                    <img id="service-image-preview-img" alt="Imagen del servicio">
+                    <span>Sin imagen</span>
+                  </div>
+                  <div class="service-image-actions">
+                    <label for="service-image">Subir imagen
+                      <input id="service-image" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
+                    </label>
+                    <button class="secondary" id="service-image-remove" type="button">Quitar</button>
+                  </div>
+                </div>
+                <div class="service-form-help">Si no carg&aacute;s una imagen, la landing usa una imagen sugerida por el nombre del servicio o la portada del negocio.</div>
               </div>
               <div class="service-actions">
                 <button class="secondary" id="service-cancel" type="button">Cancelar</button>
@@ -11732,9 +11942,16 @@ const crmHtml = `<!doctype html>
           </div>
         </header>
 
-        <section class="settings-panel">
-          <h3>Datos del local</h3>
-          <p>Estos datos definen la disponibilidad general del negocio.</p>
+        <nav class="settings-main-tabs" id="settings-main-tabs" aria-label="Secciones de ajustes">
+          <button class="active" type="button" data-settings-view="commerce">Datos del Comercio</button>
+          <button type="button" data-settings-view="landing">Landing</button>
+          <button type="button" data-settings-view="staff">Staff</button>
+          <button type="button" data-settings-view="meta">Meta y WhatsApp</button>
+        </nav>
+
+        <section class="settings-panel" data-settings-panel="commerce">
+          <h3>Datos del comercio</h3>
+          <p>Datos generales, horarios y redes p&uacute;blicas del negocio.</p>
           <form class="settings-form" id="business-settings-form">
             <div class="business-logo-field">
               <label class="business-logo-picker" id="business-logo-picker" title="Cambiar logo del sal&oacute;n">
@@ -11753,13 +11970,55 @@ const crmHtml = `<!doctype html>
               <input class="field" id="business-name" placeholder="Ej: CRM Salon AI" required>
             </div>
 
+            <div class="settings-field">
+              <label for="business-email">Email del comercio</label>
+              <input class="field" id="business-email" type="email" placeholder="hola@tucomercio.com">
+              <small>Se muestra en el bloque de contacto de la landing.</small>
+            </div>
+
+            <div class="settings-field">
+              <label for="business-instagram">Instagram</label>
+              <input class="field" id="business-instagram" type="url" placeholder="https://instagram.com/tucomercio">
+              <small>Link p&uacute;blico para mostrar en la landing.</small>
+            </div>
+
+            <div class="settings-field">
+              <label for="business-facebook">Facebook</label>
+              <input class="field" id="business-facebook" type="url" placeholder="https://facebook.com/tucomercio">
+              <small>Opcional. Si queda vac&iacute;o no se muestra el acceso.</small>
+            </div>
+
             <div class="business-hours-grid">
               <div class="business-hours-title">Horarios de atenci&oacute;n</div>
               <div class="business-hours-row">
-                <label><input id="business-weekdays-enabled" type="checkbox"> Lunes a viernes</label>
-                <input class="field" id="business-weekdays-start" type="time" value="09:00">
+                <label><input id="business-monday-enabled" type="checkbox"> Lunes</label>
+                <input class="field" id="business-monday-start" type="time" value="09:00">
                 <span>-</span>
-                <input class="field" id="business-weekdays-end" type="time" value="19:00">
+                <input class="field" id="business-monday-end" type="time" value="19:00">
+              </div>
+              <div class="business-hours-row">
+                <label><input id="business-tuesday-enabled" type="checkbox"> Martes</label>
+                <input class="field" id="business-tuesday-start" type="time" value="09:00">
+                <span>-</span>
+                <input class="field" id="business-tuesday-end" type="time" value="19:00">
+              </div>
+              <div class="business-hours-row">
+                <label><input id="business-wednesday-enabled" type="checkbox"> Mi&eacute;rcoles</label>
+                <input class="field" id="business-wednesday-start" type="time" value="09:00">
+                <span>-</span>
+                <input class="field" id="business-wednesday-end" type="time" value="19:00">
+              </div>
+              <div class="business-hours-row">
+                <label><input id="business-thursday-enabled" type="checkbox"> Jueves</label>
+                <input class="field" id="business-thursday-start" type="time" value="09:00">
+                <span>-</span>
+                <input class="field" id="business-thursday-end" type="time" value="19:00">
+              </div>
+              <div class="business-hours-row">
+                <label><input id="business-friday-enabled" type="checkbox"> Viernes</label>
+                <input class="field" id="business-friday-start" type="time" value="09:00">
+                <span>-</span>
+                <input class="field" id="business-friday-end" type="time" value="19:00">
               </div>
               <div class="business-hours-row">
                 <label><input id="business-saturday-enabled" type="checkbox"> S&aacute;bado</label>
@@ -11782,7 +12041,7 @@ const crmHtml = `<!doctype html>
           </form>
         </section>
 
-        <section class="settings-panel">
+        <section class="settings-panel" data-settings-panel="landing" hidden>
           <h3>Landing p&uacute;blica</h3>
           <p>Configur&aacute; la p&aacute;gina de reservas que van a ver tus clientes.</p>
           <form class="settings-form" id="landing-settings-form">
@@ -11805,18 +12064,42 @@ const crmHtml = `<!doctype html>
             </div>
 
             <div class="settings-field">
+              <label for="landing-subtitle">Subt&iacute;tulo de marca</label>
+              <input class="field" id="landing-subtitle" maxlength="90" placeholder="Ej: Oficio de navaja y tijera">
+              <small>Aparece debajo del nombre del comercio en la portada y la barra superior.</small>
+            </div>
+
+            <div class="settings-field">
+              <label for="landing-opening-year">A&ntilde;o de apertura</label>
+              <input class="field" id="landing-opening-year" type="number" min="1900" placeholder="Ej: 2018">
+              <small>Opcional. Si lo complet&aacute;s, la portada muestra &ldquo;Desde 2018&rdquo;.</small>
+            </div>
+
+            <div class="settings-field">
               <label for="landing-description">Descripci&oacute;n principal</label>
               <textarea class="field" id="landing-description" maxlength="420" placeholder="Ej: Barber&iacute;a de barrio con reservas online, cortes cl&aacute;sicos y atenci&oacute;n personalizada."></textarea>
             </div>
 
             <div class="settings-field">
-              <label for="landing-whatsapp">WhatsApp p&uacute;blico</label>
-              <input class="field" id="landing-whatsapp" inputmode="tel" placeholder="+54 9 11 1234-5678">
-              <small>Se usa para el bot&oacute;n de consulta en la landing.</small>
+              <label for="landing-address">Direcci&oacute;n visible</label>
+              <input class="field" id="landing-address" autocomplete="street-address" placeholder="Ej: Cris&oacute;logo Larralde 5927, C1431APY Cdad. Aut&oacute;noma de Buenos Aires">
+              <small>Vamos a limpiar c&oacute;digos postales y ciudad para mostrarla prolija.</small>
+            </div>
+
+            <div class="settings-field">
+              <label for="landing-address-area">Barrio o zona</label>
+              <input class="field" id="landing-address-area" autocomplete="address-level3" placeholder="Ej: Villa Urquiza">
+              <small>Opcional. Si queda vac&iacute;o y detectamos CABA, se muestra CABA.</small>
+            </div>
+
+            <div class="settings-field">
+              <label for="landing-maps-url">Link de Google Maps</label>
+              <input class="field" id="landing-maps-url" type="url" placeholder="https://maps.app.goo.gl/...">
+              <small>Abr&iacute; Google Maps, busc&aacute; el local, toc&aacute; Compartir y peg&aacute; el enlace.</small>
             </div>
 
             <div class="landing-cover-field">
-              <div class="business-hours-title">Imagen de portada</div>
+              <div class="business-hours-title">Banner derecho / imagen de portada</div>
               <div class="landing-cover-preview" id="landing-cover-preview">
                 <img id="landing-cover-image" alt="Portada de la landing">
                 <span>Sin portada cargada</span>
@@ -11827,6 +12110,18 @@ const crmHtml = `<!doctype html>
                 </label>
                 <button class="business-logo-remove" id="landing-cover-remove" type="button">Quitar portada</button>
               </div>
+              <small>Recomendado: imagen horizontal 1600x700 o similar. M&aacute;ximo 3 MB. Se recorta con ajuste de portada para ocupar el banner derecho.</small>
+            </div>
+
+            <div class="landing-cover-field">
+              <div class="business-hours-title">Galer&iacute;a</div>
+              <div class="landing-gallery-grid" id="landing-gallery-list"></div>
+              <div class="landing-cover-actions">
+                <label for="landing-gallery">Subir im&aacute;genes
+                  <input id="landing-gallery" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple>
+                </label>
+              </div>
+              <small>Hasta 6 im&aacute;genes PNG, JPG, WEBP o GIF. M&aacute;ximo 3 MB cada una. Si no carg&aacute;s im&aacute;genes, la secci&oacute;n Galer&iacute;a no se muestra.</small>
             </div>
 
             <div class="settings-actions">
@@ -11836,7 +12131,7 @@ const crmHtml = `<!doctype html>
           </form>
         </section>
 
-        <section class="settings-panel" id="super-admin-panel" hidden>
+        <section class="settings-panel" id="super-admin-panel" data-settings-panel="commerce" hidden>
           <h3>Alta de comercio</h3>
           <p>Cre&aacute; un comercio y su usuario administrador. Despu&eacute;s el negocio completa horarios, profesionales, servicios y WhatsApp.</p>
           <form class="admin-create-form" id="admin-create-business-form">
@@ -11861,7 +12156,7 @@ const crmHtml = `<!doctype html>
           <p class="settings-feedback" id="admin-create-business-feedback" role="status" aria-live="polite"></p>
         </section>
 
-        <section class="settings-panel" id="staff-accounts-panel">
+        <section class="settings-panel" id="staff-accounts-panel" data-settings-panel="staff" hidden>
           <h3>Cuentas staff</h3>
           <p>Cre&aacute; accesos para profesionales del local y asign&aacute; cada cuenta a su agenda.</p>
           <form class="settings-form" id="staff-user-form">
@@ -11909,7 +12204,7 @@ const crmHtml = `<!doctype html>
           <div class="staff-account-list" id="staff-user-list"></div>
         </section>
 
-        <section class="settings-panel">
+        <section class="settings-panel" data-settings-panel="commerce">
           <h3>Automatizaci&oacute;n</h3>
           <p>Control&aacute; c&oacute;mo responde el asistente en todos los chats del local.</p>
           <div class="settings-automation-list">
@@ -11944,7 +12239,7 @@ const crmHtml = `<!doctype html>
           <p class="settings-feedback" id="automation-settings-feedback" role="status" aria-live="polite"></p>
         </section>
 
-        <section class="settings-panel">
+        <section class="settings-panel" data-settings-panel="meta" hidden>
           <h3>WhatsApp del comercio</h3>
           <p>Carg&aacute; los datos de WhatsApp Cloud del comercio y control&aacute; qu&eacute; env&iacute;os reales quedan habilitados.</p>
           <div class="whatsapp-settings-grid">
@@ -12613,6 +12908,7 @@ const crmHtml = `<!doctype html>
       professionalStatusFilter: 'all',
       professionalViewMode: 'cards',
       professionalAvatarUrl: null,
+      serviceImageUrl: null,
       businessLogoUrl: null,
       businessId: null,
       business: null,
@@ -12648,6 +12944,7 @@ const crmHtml = `<!doctype html>
       campaignTake: 8,
       campaignImageUrl: null,
       landingCoverUrl: null,
+      landingGalleryImages: [],
       campaignEmojiCategory: 'recent',
       campaignDetailTab: 'summary',
       campaignManualSelected: new Map(),
@@ -12657,6 +12954,7 @@ const crmHtml = `<!doctype html>
       campaignManualSearchTimer: null,
       campaignTemplateMeta: { name: null, id: null, status: 'NOT_CREATED', rejectionReason: null, lastSyncedAt: null },
       marketingView: 'templates',
+      settingsView: 'commerce',
       whatsappTemplates: [],
       templatesLoaded: false,
       reminderAutomations: [],
@@ -12829,6 +13127,7 @@ const crmHtml = `<!doctype html>
       professionalForm: document.getElementById('professional-form'),
       professionalId: document.getElementById('professional-id'),
       professionalName: document.getElementById('professional-name'),
+      professionalDescription: document.getElementById('professional-description'),
       professionalWeekdaysEnabled: document.getElementById('professional-weekdays-enabled'),
       professionalWeekdaysStart: document.getElementById('professional-weekdays-start'),
       professionalWeekdaysEnd: document.getElementById('professional-weekdays-end'),
@@ -12877,6 +13176,10 @@ const crmHtml = `<!doctype html>
       servicePrice: document.getElementById('service-price'),
       serviceCategory: document.getElementById('service-category'),
       serviceAliases: document.getElementById('service-aliases'),
+      serviceImage: document.getElementById('service-image'),
+      serviceImagePreview: document.getElementById('service-image-preview'),
+      serviceImagePreviewImg: document.getElementById('service-image-preview-img'),
+      serviceImageRemove: document.getElementById('service-image-remove'),
       serviceCancel: document.getElementById('service-cancel'),
       serviceFeedback: document.getElementById('service-feedback'),
       serviceSearch: document.getElementById('service-search'),
@@ -13102,9 +13405,21 @@ const crmHtml = `<!doctype html>
       businessLogoPreview: document.getElementById('business-logo-preview'),
       businessLogoRemove: document.getElementById('business-logo-remove'),
       businessName: document.getElementById('business-name'),
-      businessWeekdaysEnabled: document.getElementById('business-weekdays-enabled'),
-      businessWeekdaysStart: document.getElementById('business-weekdays-start'),
-      businessWeekdaysEnd: document.getElementById('business-weekdays-end'),
+      businessMondayEnabled: document.getElementById('business-monday-enabled'),
+      businessMondayStart: document.getElementById('business-monday-start'),
+      businessMondayEnd: document.getElementById('business-monday-end'),
+      businessTuesdayEnabled: document.getElementById('business-tuesday-enabled'),
+      businessTuesdayStart: document.getElementById('business-tuesday-start'),
+      businessTuesdayEnd: document.getElementById('business-tuesday-end'),
+      businessWednesdayEnabled: document.getElementById('business-wednesday-enabled'),
+      businessWednesdayStart: document.getElementById('business-wednesday-start'),
+      businessWednesdayEnd: document.getElementById('business-wednesday-end'),
+      businessThursdayEnabled: document.getElementById('business-thursday-enabled'),
+      businessThursdayStart: document.getElementById('business-thursday-start'),
+      businessThursdayEnd: document.getElementById('business-thursday-end'),
+      businessFridayEnabled: document.getElementById('business-friday-enabled'),
+      businessFridayStart: document.getElementById('business-friday-start'),
+      businessFridayEnd: document.getElementById('business-friday-end'),
       businessSaturdayEnabled: document.getElementById('business-saturday-enabled'),
       businessSaturdayStart: document.getElementById('business-saturday-start'),
       businessSaturdayEnd: document.getElementById('business-saturday-end'),
@@ -13113,17 +13428,27 @@ const crmHtml = `<!doctype html>
       businessSundayEnd: document.getElementById('business-sunday-end'),
       businessSettingsSubmit: document.getElementById('business-settings-submit'),
       businessSettingsFeedback: document.getElementById('business-settings-feedback'),
+      businessEmail: document.getElementById('business-email'),
+      businessInstagram: document.getElementById('business-instagram'),
+      businessFacebook: document.getElementById('business-facebook'),
+      settingsMainTabs: document.getElementById('settings-main-tabs'),
       landingSettingsForm: document.getElementById('landing-settings-form'),
       landingEnabled: document.getElementById('landing-enabled'),
       landingSlug: document.getElementById('landing-slug'),
       landingLocalLink: document.getElementById('landing-local-link'),
       landingDomainLink: document.getElementById('landing-domain-link'),
+      landingSubtitle: document.getElementById('landing-subtitle'),
+      landingOpeningYear: document.getElementById('landing-opening-year'),
       landingDescription: document.getElementById('landing-description'),
-      landingWhatsapp: document.getElementById('landing-whatsapp'),
+      landingAddress: document.getElementById('landing-address'),
+      landingAddressArea: document.getElementById('landing-address-area'),
+      landingMapsUrl: document.getElementById('landing-maps-url'),
       landingCover: document.getElementById('landing-cover'),
       landingCoverPreview: document.getElementById('landing-cover-preview'),
       landingCoverImage: document.getElementById('landing-cover-image'),
       landingCoverRemove: document.getElementById('landing-cover-remove'),
+      landingGallery: document.getElementById('landing-gallery'),
+      landingGalleryList: document.getElementById('landing-gallery-list'),
       landingSettingsSubmit: document.getElementById('landing-settings-submit'),
       landingSettingsFeedback: document.getElementById('landing-settings-feedback'),
       superAdminPanel: document.getElementById('super-admin-panel'),
@@ -13396,11 +13721,11 @@ const crmHtml = `<!doctype html>
 
     function renderAuthUi() {
       if (els.superAdminPanel) {
-        els.superAdminPanel.hidden = state.currentUser?.role !== 'SUPER_ADMIN'
+        els.superAdminPanel.hidden = state.settingsView !== 'commerce' || state.currentUser?.role !== 'SUPER_ADMIN'
       }
       renderSupportBusinessSwitcher()
       if (els.staffAccountsPanel) {
-        els.staffAccountsPanel.hidden = !canManageStaffUsers()
+        els.staffAccountsPanel.hidden = state.settingsView !== 'staff' || !canManageStaffUsers()
       }
       applyAgendaPermissions()
       updateBusinessBrand()
@@ -13721,6 +14046,12 @@ const crmHtml = `<!doctype html>
       await loadStaffUsers()
       state.services = await getJson('/services' + businessQuery)
       state.customers = await getJson('/customers' + businessQuery)
+    }
+
+    function businessScopedPath(path) {
+      return state.businessId
+        ? path + '?businessId=' + encodeURIComponent(state.businessId)
+        : path
     }
 
     async function switchSupportBusiness(businessId) {
@@ -14961,7 +15292,7 @@ const crmHtml = `<!doctype html>
         ? services.map((service) => {
             const priceLabel = hasServicePrice(service) ? formatCurrency(service.price) : 'Sin precio'
             return '<article class="service-card">' +
-              '<div class="service-item-icon">' + icon('scissors') + '</div>' +
+              '<div class="service-item-icon">' + (service.imageUrl ? '<img src="' + escapeHtml(service.imageUrl) + '" alt="">' : icon('scissors')) + '</div>' +
               '<div>' +
                 '<div class="service-card-title">' + escapeHtml(service.name) + '</div>' +
                 '<div class="service-card-meta">' +
@@ -15563,6 +15894,7 @@ const crmHtml = `<!doctype html>
 
       const id = els.professionalId.value
       const name = els.professionalName.value.trim()
+      const description = els.professionalDescription.value.trim()
       const serviceIds = getSelectedProfessionalServiceIds()
       const workingHours = buildProfessionalWorkingHours()
       if (!name) {
@@ -15587,6 +15919,7 @@ const crmHtml = `<!doctype html>
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             name,
+            description: description || null,
             businessId: state.businessId,
             avatarUrl: state.professionalAvatarUrl,
             isActive: els.professionalStatus.value === 'active',
@@ -15597,7 +15930,7 @@ const crmHtml = `<!doctype html>
         })
         els.professionalFeedback.textContent = id ? 'Profesional actualizado.' : 'Profesional creado.'
         hideProfessionalImpact()
-        state.professionals = await getJson('/professionals')
+        state.professionals = await getJson(businessScopedPath('/professionals'))
         renderProfessionals()
         renderStaffUsers()
         renderAgendaFilters()
@@ -15629,6 +15962,7 @@ const crmHtml = `<!doctype html>
       if (!professional) return
       els.professionalId.value = professional.id
       els.professionalName.value = professional.name
+      els.professionalDescription.value = professional.description || ''
       els.professionalStatus.value = professional.isActive === false ? 'inactive' : 'active'
       setProfessionalAvatar(professional.avatarUrl || null)
       setProfessionalWorkingHours(professional.workingHours || [])
@@ -15670,7 +16004,7 @@ const crmHtml = `<!doctype html>
           method: 'DELETE'
         })
         els.professionalFeedback.textContent = professional._count?.appointments ? 'Profesional desactivado y oculto de nuevas reservas.' : 'Profesional eliminado.'
-        state.professionals = await getJson('/professionals')
+        state.professionals = await getJson(businessScopedPath('/professionals'))
         renderProfessionals()
         renderStaffUsers()
         renderAgendaFilters()
@@ -15684,6 +16018,7 @@ const crmHtml = `<!doctype html>
     function resetProfessionalForm(clearFeedback = true) {
       els.professionalId.value = ''
       els.professionalName.value = ''
+      els.professionalDescription.value = ''
       els.professionalStatus.value = 'active'
       setProfessionalAvatar(null)
       els.professionalCancel.hidden = false
@@ -15744,7 +16079,7 @@ const crmHtml = `<!doctype html>
           body: JSON.stringify({ isActive })
         })
         els.professionalFeedback.textContent = isActive ? 'Profesional activado.' : 'Profesional desactivado para nuevas reservas.'
-        state.professionals = await getJson('/professionals')
+        state.professionals = await getJson(businessScopedPath('/professionals'))
         renderProfessionals()
         renderStaffUsers()
         renderAgendaFilters()
@@ -15967,35 +16302,47 @@ const crmHtml = `<!doctype html>
       input.end.max = maxEnd
     }
 
+    function businessDayInputs() {
+      return [
+        { dayOfWeek: 1, label: 'lunes', enabled: els.businessMondayEnabled, start: els.businessMondayStart, end: els.businessMondayEnd, defaultStart: '09:00', defaultEnd: '19:00' },
+        { dayOfWeek: 2, label: 'martes', enabled: els.businessTuesdayEnabled, start: els.businessTuesdayStart, end: els.businessTuesdayEnd, defaultStart: '09:00', defaultEnd: '19:00' },
+        { dayOfWeek: 3, label: 'miercoles', enabled: els.businessWednesdayEnabled, start: els.businessWednesdayStart, end: els.businessWednesdayEnd, defaultStart: '09:00', defaultEnd: '19:00' },
+        { dayOfWeek: 4, label: 'jueves', enabled: els.businessThursdayEnabled, start: els.businessThursdayStart, end: els.businessThursdayEnd, defaultStart: '09:00', defaultEnd: '19:00' },
+        { dayOfWeek: 5, label: 'viernes', enabled: els.businessFridayEnabled, start: els.businessFridayStart, end: els.businessFridayEnd, defaultStart: '09:00', defaultEnd: '19:00' },
+        { dayOfWeek: 6, label: 'sabado', enabled: els.businessSaturdayEnabled, start: els.businessSaturdayStart, end: els.businessSaturdayEnd, defaultStart: '09:00', defaultEnd: '14:00' },
+        { dayOfWeek: 0, label: 'domingo', enabled: els.businessSundayEnabled, start: els.businessSundayStart, end: els.businessSundayEnd, defaultStart: '09:00', defaultEnd: '14:00' }
+      ]
+    }
+
     function renderBusinessSettings() {
       els.businessName.value = state.business?.name || ''
+      els.businessEmail.value = state.business?.contactEmail || ''
+      els.businessInstagram.value = state.business?.instagramUrl || ''
+      els.businessFacebook.value = state.business?.facebookUrl || ''
       setBusinessLogo(state.business?.logoUrl || null)
       updateBusinessBrand()
       renderLandingSettings()
       const byDay = new Map(state.businessHours.map((hour) => [hour.dayOfWeek, hour]))
-      const weekdays = [1, 2, 3, 4, 5].map((day) => byDay.get(day)).filter(Boolean)
-      const weekday = weekdays[0]
-      const saturday = byDay.get(6)
-      const sunday = byDay.get(0)
-
-      els.businessWeekdaysEnabled.checked = weekdays.length === 5
-      els.businessWeekdaysStart.value = weekday?.startTime || '09:00'
-      els.businessWeekdaysEnd.value = weekday?.endTime || '19:00'
-      els.businessSaturdayEnabled.checked = Boolean(saturday)
-      els.businessSaturdayStart.value = saturday?.startTime || '09:00'
-      els.businessSaturdayEnd.value = saturday?.endTime || '14:00'
-      els.businessSundayEnabled.checked = Boolean(sunday)
-      els.businessSundayStart.value = sunday?.startTime || '09:00'
-      els.businessSundayEnd.value = sunday?.endTime || '14:00'
+      for (const day of businessDayInputs()) {
+        const hour = byDay.get(day.dayOfWeek)
+        day.enabled.checked = Boolean(hour)
+        day.start.value = hour?.startTime || day.defaultStart
+        day.end.value = hour?.endTime || day.defaultEnd
+      }
     }
 
     function renderLandingSettings() {
       const slug = state.business?.slug || ''
       els.landingEnabled.checked = state.business?.landingEnabled !== false
       els.landingSlug.value = slug
+      els.landingSubtitle.value = state.business?.landingSubtitle || ''
+      els.landingOpeningYear.value = state.business?.landingOpeningYear || ''
       els.landingDescription.value = state.business?.landingDescription || ''
-      els.landingWhatsapp.value = state.business?.publicWhatsapp || ''
+      els.landingAddress.value = state.business?.publicAddress || ''
+      els.landingAddressArea.value = state.business?.publicAddressArea || ''
+      els.landingMapsUrl.value = state.business?.publicMapsUrl || ''
       setLandingCover(state.business?.coverImageUrl || null)
+      setLandingGallery(parseLandingGalleryImages(state.business?.landingGalleryImages))
       renderLandingLinks(slug)
     }
 
@@ -16025,6 +16372,21 @@ const crmHtml = `<!doctype html>
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '')
         .slice(0, 64)
+    }
+
+    function isGoogleMapsUrl(value) {
+      try {
+        const url = new URL(value)
+        const hostname = url.hostname.toLowerCase().replace(/^www\./, '')
+        return ['http:', 'https:'].includes(url.protocol) && (
+          hostname === 'maps.app.goo.gl' ||
+          (hostname === 'goo.gl' && url.pathname.startsWith('/maps')) ||
+          (hostname === 'google.com' && url.pathname.startsWith('/maps')) ||
+          (hostname.endsWith('.google.com') && url.pathname.startsWith('/maps'))
+        )
+      } catch (error) {
+        return false
+      }
     }
 
     function renderWhatsappSettings() {
@@ -16445,8 +16807,8 @@ const crmHtml = `<!doctype html>
         return
       }
 
-      if (file.size > 2 * 1024 * 1024) {
-        showLandingSettingsFeedback('La portada no puede superar los 2 MB.', 'error')
+      if (file.size > 3 * 1024 * 1024) {
+        showLandingSettingsFeedback('La portada no puede superar los 3 MB.', 'error')
         setLandingCover(state.business?.coverImageUrl || null)
         return
       }
@@ -16457,6 +16819,88 @@ const crmHtml = `<!doctype html>
         setLandingCover(String(reader.result || ''))
       })
       reader.readAsDataURL(file)
+    }
+
+    function parseLandingGalleryImages(value) {
+      if (!value) return []
+      if (Array.isArray(value)) return value.filter(Boolean).slice(0, 6)
+      try {
+        const parsed = JSON.parse(value)
+        if (!Array.isArray(parsed)) return []
+        return parsed.filter((imageUrl) => typeof imageUrl === 'string' && imageUrl).slice(0, 6)
+      } catch {
+        return []
+      }
+    }
+
+    function setLandingGallery(images) {
+      state.landingGalleryImages = (images || []).slice(0, 6)
+      renderLandingGalleryList()
+      if (els.landingGallery) {
+        els.landingGallery.value = ''
+      }
+    }
+
+    function renderLandingGalleryList() {
+      if (!els.landingGalleryList) return
+      if (!state.landingGalleryImages.length) {
+        els.landingGalleryList.innerHTML = '<div class="landing-gallery-empty">Sin im&aacute;genes cargadas</div>'
+        return
+      }
+      els.landingGalleryList.innerHTML = state.landingGalleryImages.map((imageUrl, index) =>
+        '<div class="landing-gallery-item">' +
+          '<img src="' + escapeHtml(imageUrl) + '" alt="Imagen de galer&iacute;a ' + (index + 1) + '">' +
+          '<button class="landing-gallery-remove" type="button" data-remove-gallery-image="' + index + '" aria-label="Quitar imagen">&times;</button>' +
+        '</div>'
+      ).join('')
+    }
+
+    function readLandingGallery(event) {
+      const files = Array.from(event.target.files || [])
+      if (!files.length) return
+
+      const availableSlots = 6 - state.landingGalleryImages.length
+      if (availableSlots <= 0) {
+        showLandingSettingsFeedback('La galer&iacute;a permite hasta 6 im&aacute;genes.', 'error')
+        event.target.value = ''
+        return
+      }
+      if (files.length > availableSlots) {
+        showLandingSettingsFeedback('Pod&eacute;s agregar hasta ' + availableSlots + ' imagen' + (availableSlots === 1 ? '' : 'es') + ' m&aacute;s.', 'error')
+        event.target.value = ''
+        return
+      }
+
+      const supportedTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
+      if (files.some((file) => !supportedTypes.includes(file.type))) {
+        showLandingSettingsFeedback('La galer&iacute;a acepta PNG, JPG, WEBP o GIF.', 'error')
+        event.target.value = ''
+        return
+      }
+      if (files.some((file) => file.size > 3 * 1024 * 1024)) {
+        showLandingSettingsFeedback('Cada imagen de la galer&iacute;a no puede superar los 3 MB.', 'error')
+        event.target.value = ''
+        return
+      }
+
+      Promise.all(files.map(readFileAsDataUrl))
+        .then((images) => {
+          clearLandingSettingsFeedback()
+          setLandingGallery([...state.landingGalleryImages, ...images])
+        })
+        .catch(() => {
+          showLandingSettingsFeedback('No pude leer una de las im&aacute;genes de la galer&iacute;a.', 'error')
+          event.target.value = ''
+        })
+    }
+
+    function readFileAsDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.addEventListener('load', () => resolve(String(reader.result || '')))
+        reader.addEventListener('error', reject)
+        reader.readAsDataURL(file)
+      })
     }
 
     function showBusinessSettingsFeedback(message, type) {
@@ -16616,6 +17060,22 @@ const crmHtml = `<!doctype html>
         showLandingSettingsFeedback('Completa el subdominio de la landing.', 'error')
         return
       }
+      const openingYear = els.landingOpeningYear.value ? Number(els.landingOpeningYear.value) : null
+      const currentYear = new Date().getFullYear()
+      const publicAddress = els.landingAddress.value.trim()
+      const publicMapsUrl = els.landingMapsUrl.value.trim()
+      if (openingYear !== null && (!Number.isInteger(openingYear) || openingYear < 1900 || openingYear > currentYear)) {
+        showLandingSettingsFeedback('El año de apertura debe estar entre 1900 y ' + currentYear + '.', 'error')
+        return
+      }
+      if (publicAddress && !publicMapsUrl) {
+        showLandingSettingsFeedback('Pegá el link de Google Maps para que la dirección abra el mapa.', 'error')
+        return
+      }
+      if (publicMapsUrl && !isGoogleMapsUrl(publicMapsUrl)) {
+        showLandingSettingsFeedback('Pegá un link válido de Google Maps.', 'error')
+        return
+      }
 
       els.landingSlug.value = slug
       els.landingSettingsSubmit.disabled = true
@@ -16628,9 +17088,14 @@ const crmHtml = `<!doctype html>
           body: JSON.stringify({
             landingEnabled: els.landingEnabled.checked,
             slug,
+            landingSubtitle: els.landingSubtitle.value.trim() || null,
+            landingOpeningYear: openingYear,
             landingDescription: els.landingDescription.value.trim() || null,
-            publicWhatsapp: els.landingWhatsapp.value.trim() || null,
-            coverImageUrl: state.landingCoverUrl
+            publicAddress: publicAddress || null,
+            publicAddressArea: els.landingAddressArea.value.trim() || null,
+            publicMapsUrl: publicMapsUrl || null,
+            coverImageUrl: state.landingCoverUrl,
+            landingGalleryImages: state.landingGalleryImages
           })
         })
         renderLandingSettings()
@@ -16652,60 +17117,36 @@ const crmHtml = `<!doctype html>
         return
       }
 
-      const schedules = [
-        {
-          label: 'lunes a viernes',
-          enabled: els.businessWeekdaysEnabled.checked,
-          startTime: els.businessWeekdaysStart.value,
-          endTime: els.businessWeekdaysEnd.value
-        },
-        {
-          label: 'sabado',
-          enabled: els.businessSaturdayEnabled.checked,
-          startTime: els.businessSaturdayStart.value,
-          endTime: els.businessSaturdayEnd.value
-        },
-        {
-          label: 'domingo',
-          enabled: els.businessSundayEnabled.checked,
-          startTime: els.businessSundayStart.value,
-          endTime: els.businessSundayEnd.value
-        }
-      ]
+      const schedules = businessDayInputs().map((day) => ({
+        dayOfWeek: day.dayOfWeek,
+        label: day.label,
+        enabled: day.enabled.checked,
+        startTime: day.start.value,
+        endTime: day.end.value
+      }))
       const invalid = schedules.find((schedule) => schedule.enabled && (!schedule.startTime || !schedule.endTime || schedule.startTime >= schedule.endTime))
       if (invalid) {
         showBusinessSettingsFeedback('Revisa el horario de ' + invalid.label + '.', 'error')
         return
       }
 
-      const requestedHours = []
-      if (els.businessWeekdaysEnabled.checked) {
-        for (const dayOfWeek of [1, 2, 3, 4, 5]) {
-          requestedHours.push({
-            dayOfWeek,
-            startTime: els.businessWeekdaysStart.value,
-            endTime: els.businessWeekdaysEnd.value
-          })
-        }
-      }
-      if (els.businessSaturdayEnabled.checked) {
-        requestedHours.push({
-          dayOfWeek: 6,
-          startTime: els.businessSaturdayStart.value,
-          endTime: els.businessSaturdayEnd.value
-        })
-      }
-      if (els.businessSundayEnabled.checked) {
-        requestedHours.push({
-          dayOfWeek: 0,
-          startTime: els.businessSundayStart.value,
-          endTime: els.businessSundayEnd.value
-        })
-      }
+      const requestedHours = schedules
+        .filter((schedule) => schedule.enabled)
+        .map((schedule) => ({
+          dayOfWeek: schedule.dayOfWeek,
+          startTime: schedule.startTime,
+          endTime: schedule.endTime
+        }))
 
       const hoursChanged = businessHoursKey(requestedHours) !== businessHoursKey(state.businessHours)
       const nameChanged = name !== state.business?.name
       const logoChanged = state.businessLogoUrl !== (state.business?.logoUrl || null)
+      const contactEmail = els.businessEmail.value.trim()
+      const instagramUrl = els.businessInstagram.value.trim()
+      const facebookUrl = els.businessFacebook.value.trim()
+      const contactEmailChanged = contactEmail !== (state.business?.contactEmail || '')
+      const instagramChanged = instagramUrl !== (state.business?.instagramUrl || '')
+      const facebookChanged = facebookUrl !== (state.business?.facebookUrl || '')
       els.businessSettingsSubmit.disabled = true
       els.businessSettingsSubmit.textContent = 'Guardando...'
 
@@ -16716,31 +17157,24 @@ const crmHtml = `<!doctype html>
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               businessId: state.businessId,
-              weekdays: {
-                days: els.businessWeekdaysEnabled.checked ? [1, 2, 3, 4, 5] : [],
-                startTime: els.businessWeekdaysStart.value || '09:00',
-                endTime: els.businessWeekdaysEnd.value || '19:00'
-              },
-              saturday: {
-                days: els.businessSaturdayEnabled.checked ? [6] : [],
-                startTime: els.businessSaturdayStart.value || '09:00',
-                endTime: els.businessSaturdayEnd.value || '14:00'
-              },
-              sunday: {
-                days: els.businessSundayEnabled.checked ? [0] : [],
-                startTime: els.businessSundayStart.value || '09:00',
-                endTime: els.businessSundayEnd.value || '14:00'
-              }
+              schedules: requestedHours.map((hour) => ({
+                days: [hour.dayOfWeek],
+                startTime: hour.startTime,
+                endTime: hour.endTime
+              }))
             })
           })
         }
-        if (nameChanged || logoChanged) {
+        if (nameChanged || logoChanged || contactEmailChanged || instagramChanged || facebookChanged) {
           state.business = await getJson('/businesses/' + state.businessId, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               ...(nameChanged ? { name } : {}),
-              ...(logoChanged ? { logoUrl: state.businessLogoUrl } : {})
+              ...(logoChanged ? { logoUrl: state.businessLogoUrl } : {}),
+              ...(contactEmailChanged ? { contactEmail: contactEmail || null } : {}),
+              ...(instagramChanged ? { instagramUrl: instagramUrl || null } : {}),
+              ...(facebookChanged ? { facebookUrl: facebookUrl || null } : {})
             })
           })
         }
@@ -16748,7 +17182,7 @@ const crmHtml = `<!doctype html>
         applyProfessionalBusinessHourLimits()
         renderAgenda()
         showBusinessSettingsFeedback(
-          nameChanged || logoChanged || hoursChanged ? 'Ajustes guardados correctamente.' : 'No hay cambios para guardar.',
+          nameChanged || logoChanged || contactEmailChanged || instagramChanged || facebookChanged || hoursChanged ? 'Ajustes guardados correctamente.' : 'No hay cambios para guardar.',
           'success'
         )
       } catch (error) {
@@ -18545,6 +18979,18 @@ const crmHtml = `<!doctype html>
       }
     }
 
+    function setSettingsView(view) {
+      state.settingsView = ['commerce', 'landing', 'staff', 'meta'].includes(view) ? view : 'commerce'
+      for (const button of els.settingsMainTabs.querySelectorAll('[data-settings-view]')) {
+        button.classList.toggle('active', button.dataset.settingsView === state.settingsView)
+      }
+      for (const panel of document.querySelectorAll('[data-settings-panel]')) {
+        const shouldShow = panel.dataset.settingsPanel === state.settingsView
+        panel.hidden = !shouldShow
+      }
+      renderAuthUi()
+    }
+
     async function loadWhatsappTemplates() {
       if (!state.businessId) return
       try {
@@ -20038,6 +20484,7 @@ const crmHtml = `<!doctype html>
       }
       if (section === 'campaigns') setMarketingView(state.marketingView)
       if (section === 'campaigns' && !state.templatesLoaded) loadWhatsappTemplates()
+      if (section === 'settings') setSettingsView(state.settingsView)
       if (section === 'conversations' && isMobile()) setMobileView('inbox')
       closeMobileDrawer()
     }
@@ -20188,13 +20635,14 @@ const crmHtml = `<!doctype html>
             businessId: state.businessId,
             price,
             category: category || undefined,
+            imageUrl: state.serviceImageUrl,
             aliases
           })
         })
         const successMessage = id ? 'Servicio actualizado.' : 'Servicio creado.'
         resetServiceForm()
         els.serviceFeedback.textContent = successMessage
-        state.services = await getJson('/services')
+        state.services = await getJson(businessScopedPath('/services'))
         renderServices()
         renderAgendaFilters()
         renderAppointmentFormOptions()
@@ -20213,6 +20661,7 @@ const crmHtml = `<!doctype html>
       els.servicePrice.value = hasServicePrice(service) ? service.price : ''
       els.serviceCategory.value = service.category || ''
       els.serviceAliases.value = (service.aliases || []).map((alias) => alias.name).join(', ')
+      setServiceImage(service.imageUrl || null)
       els.serviceCancel.hidden = false
       els.serviceFeedback.textContent = 'Editando servicio.'
       els.serviceFormTitle.textContent = 'Editar servicio'
@@ -20229,7 +20678,7 @@ const crmHtml = `<!doctype html>
           method: 'DELETE'
         })
         els.serviceFeedback.textContent = 'Servicio eliminado.'
-        state.services = await getJson('/services')
+        state.services = await getJson(businessScopedPath('/services'))
         renderServices()
         renderAgendaFilters()
         renderAppointmentFormOptions()
@@ -20246,10 +20695,42 @@ const crmHtml = `<!doctype html>
       els.servicePrice.value = ''
       els.serviceCategory.value = ''
       els.serviceAliases.value = ''
+      setServiceImage(null)
       els.serviceCancel.hidden = false
       els.serviceFeedback.textContent = ''
       els.serviceFormTitle.textContent = 'Nuevo servicio'
       document.getElementById('service-submit').textContent = 'Guardar servicio'
+    }
+
+    function setServiceImage(imageUrl) {
+      state.serviceImageUrl = imageUrl
+      els.serviceImagePreviewImg.src = imageUrl || ''
+      els.serviceImagePreview.classList.toggle('has-image', Boolean(imageUrl))
+      els.serviceImageRemove.hidden = !imageUrl
+      if (!imageUrl) {
+        els.serviceImage.value = ''
+      }
+    }
+
+    function readServiceImage(event) {
+      const file = event.target.files?.[0]
+      if (!file) return
+      if (!new RegExp('^image/(png|jpeg|webp|gif)$', 'i').test(file.type)) {
+        els.serviceFeedback.textContent = 'Elegí una imagen PNG, JPG, WEBP o GIF.'
+        setServiceImage(null)
+        return
+      }
+      if (file.size > 2 * 1024 * 1024) {
+        els.serviceFeedback.textContent = 'La imagen del servicio no puede superar los 2 MB.'
+        setServiceImage(null)
+        return
+      }
+      const reader = new FileReader()
+      reader.onload = () => {
+        setServiceImage(String(reader.result || ''))
+        els.serviceFeedback.textContent = ''
+      }
+      reader.readAsDataURL(file)
     }
 
     function escapeHtml(value) {
@@ -20496,6 +20977,8 @@ const crmHtml = `<!doctype html>
     })
     els.serviceForm.addEventListener('submit', saveService)
     els.serviceCancel.addEventListener('click', resetServiceForm)
+    els.serviceImage.addEventListener('change', readServiceImage)
+    els.serviceImageRemove.addEventListener('click', () => setServiceImage(null))
     els.serviceSearch?.addEventListener('input', renderServices)
     els.campaignNew.addEventListener('click', () => state.marketingView === 'templates' ? openTemplateDialog() : state.marketingView === 'reminders' ? resetReminderDraft() : openCampaignDialog())
     els.marketingMainTabs.addEventListener('click', (event) => {
@@ -20740,6 +21223,19 @@ const crmHtml = `<!doctype html>
     els.landingCoverRemove.addEventListener('click', () => {
       clearLandingSettingsFeedback()
       setLandingCover(null)
+    })
+    els.landingGallery?.addEventListener('change', readLandingGallery)
+    els.landingGalleryList?.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-remove-gallery-image]')
+      if (!button) return
+      const index = Number(button.dataset.removeGalleryImage)
+      if (!Number.isInteger(index)) return
+      clearLandingSettingsFeedback()
+      setLandingGallery(state.landingGalleryImages.filter((_, itemIndex) => itemIndex !== index))
+    })
+    els.settingsMainTabs.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-settings-view]')
+      if (button) setSettingsView(button.dataset.settingsView)
     })
     els.staffUserForm?.addEventListener('submit', saveStaffUser)
     els.staffUserCancel?.addEventListener('click', resetStaffUserForm)

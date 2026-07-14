@@ -3,7 +3,12 @@ import { prisma } from '../config/prisma.js'
 import { AppointmentService } from '../services/appointment-service.js'
 import { BusinessService } from '../services/business-service.js'
 import { inferDefaultAreaCodeFromPhone, normalizePhone, phoneSearchVariants } from '../services/phone-normalization-service.js'
-import { getWeexAuthFromRequest, linkExistingCustomersByPhone } from '../services/weex-account-service.js'
+import {
+  createGoogleCalendarEventForAppointment,
+  getWeexAuthFromRequest,
+  linkExistingCustomersByPhone,
+  weexGoogleCalendarEnabled
+} from '../services/weex-account-service.js'
 
 const businessService = new BusinessService()
 const appointmentService = new AppointmentService()
@@ -64,20 +69,26 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     const business = await businessService.findPublicBySlug(params.slug)
     if (!business || !business.landingEnabled) return reply.status(404).send({ message: 'No encontre esta landing' })
     if (!query.serviceId || !query.professionalId || !query.date) return reply.status(400).send({ message: 'Servicio, profesional y fecha son requeridos' })
+    const serviceId = query.serviceId
+    const professionalId = query.professionalId
+    const date = query.date
 
-    const professionals = await professionalsForService(business.id, query.serviceId, query.professionalId)
+    const professionals = await professionalsForService(business.id, serviceId, professionalId)
     if (professionals.length === 0) return reply.status(404).send({ message: 'No hay profesionales para ese servicio' })
 
     const slots: Array<{ time: string; professionalId: string; professionalName: string }> = []
     const errors: string[] = []
 
-    for (const professional of professionals) {
-      const result = await appointmentService.findAvailability({
+    const results = await Promise.all(professionals.map(async (professional) => ({
+      professional,
+      result: await appointmentService.findAvailability({
         professionalId: professional.id,
-        serviceId: query.serviceId,
-        date: query.date
+        serviceId,
+        date
       })
+    })))
 
+    for (const { professional, result } of results) {
       if (result.ok) {
         for (const time of result.slots) {
           slots.push({
@@ -118,7 +129,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     const time = body.time?.trim()
     const weexAuth = await getWeexAuthFromRequest(request)
     const customerName = weexAuth?.account.name || body.customerName?.trim()
-    const defaultAreaCode = inferDefaultAreaCodeFromPhone(business.publicWhatsapp)
+    const defaultAreaCode = inferDefaultAreaCodeFromPhone(publicWhatsappNumber(business))
     const customerPhone = normalizePhone(weexAuth?.account.phone || body.customerPhone, { defaultAreaCode })
 
     if (!serviceId || !professionalId || !date || !time || !customerName || !customerPhone) {
@@ -167,8 +178,24 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       }
     })
 
+    let calendarSync: { ok: true; eventId: string } | { ok: false; message: string } | null = null
+    if (weexAuth && weexGoogleCalendarEnabled()) {
+      try {
+        calendarSync = await createGoogleCalendarEventForAppointment({
+          accountId: weexAuth.account.id,
+          appointmentId: result.appointment.id
+        })
+      } catch (error) {
+        calendarSync = {
+          ok: false,
+          message: error instanceof Error ? error.message : 'El turno se guardo, pero no pudimos cargarlo en Google Calendar.'
+        }
+      }
+    }
+
     return {
-      appointment
+      appointment,
+      calendarSync
     }
   })
 
@@ -178,7 +205,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     const business = await businessService.findPublicBySlug(params.slug)
     if (!business || !business.landingEnabled) return reply.status(404).send({ message: 'No encontre esta landing' })
 
-    const defaultAreaCode = inferDefaultAreaCodeFromPhone(business.publicWhatsapp)
+    const defaultAreaCode = inferDefaultAreaCodeFromPhone(publicWhatsappNumber(business))
     const phone = normalizePhone(query.phone, { defaultAreaCode })
     if (phone.length < 8) return reply.status(400).send({ message: 'Ingresa un telefono valido para ver tus turnos' })
     const phoneVariants = phoneSearchVariants(phone, { defaultAreaCode })
@@ -324,4 +351,10 @@ async function findOrCreatePublicCustomer(input: { businessId: string; name: str
       phone: input.phone
     }
   })
+}
+
+type PublicBookingBusiness = NonNullable<Awaited<ReturnType<BusinessService['findPublicBySlug']>>>
+
+function publicWhatsappNumber(business: PublicBookingBusiness) {
+  return business.whatsappConfig?.displayPhoneNumber || business.publicWhatsapp
 }

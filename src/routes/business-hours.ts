@@ -41,13 +41,20 @@ export async function businessHoursRoutes(app: FastifyInstance) {
         startTime: string
         endTime: string
       }
+      schedules?: {
+        days: number[]
+        startTime: string
+        endTime: string
+      }[]
     }
 
-    const schedules = [
-      body.weekdays,
-      body.saturday,
-      body.sunday
-    ].filter((schedule) => schedule !== undefined)
+    const schedules = body.schedules?.length
+      ? body.schedules
+      : [
+          body.weekdays,
+          body.saturday,
+          body.sunday
+        ].filter((schedule) => schedule !== undefined)
 
     if (!body.businessId) {
       return reply.status(400).send({

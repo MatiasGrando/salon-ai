@@ -6,9 +6,14 @@ import { normalizeArgentineMobilePhone, normalizePhone, phoneSearchVariants } fr
 
 const SESSION_COOKIE = 'weex_account_session'
 const SESSION_MAX_AGE_DAYS = 90
+const GOOGLE_CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.events'
+const GOOGLE_OAUTH_REDIRECT_URI = 'postmessage'
 
 const googleClientId = process.env.WEEX_GOOGLE_CLIENT_ID?.trim() || process.env.GOOGLE_CLIENT_ID?.trim() || ''
+const googleClientSecret = process.env.WEEX_GOOGLE_CLIENT_SECRET?.trim() || process.env.GOOGLE_CLIENT_SECRET?.trim() || ''
+const googleCalendarSyncEnabled = process.env.ENABLE_GOOGLE_CALENDAR_SYNC === 'true'
 const googleClient = new OAuth2Client(googleClientId || undefined)
+const googleCalendarClient = new OAuth2Client(googleClientId || undefined, googleClientSecret || undefined, GOOGLE_OAUTH_REDIRECT_URI)
 
 export type WeexAccountAuth = {
   account: PublicWeexAccount
@@ -22,6 +27,7 @@ export type PublicWeexAccount = {
   avatarUrl: string | null
   phone: string | null
   phoneVerifiedAt: Date | null
+  googleCalendarConnected: boolean
 }
 
 type GoogleProfile = {
@@ -34,6 +40,10 @@ type GoogleProfile = {
 
 export function weexGoogleClientId() {
   return googleClientId
+}
+
+export function weexGoogleCalendarEnabled() {
+  return Boolean(googleCalendarSyncEnabled && googleClientId && googleClientSecret)
 }
 
 export async function signInWithGoogleCredential(credential: string) {
@@ -61,6 +71,169 @@ export async function signInWithGoogleCredential(credential: string) {
   return {
     account: publicWeexAccount(account),
     session
+  }
+}
+
+export async function signInWithGoogleAuthCode(code: string) {
+  if (!googleClientId || !googleClientSecret) {
+    throw new Error('Google Calendar no esta configurado')
+  }
+
+  const { tokens } = await googleCalendarClient.getToken(code)
+  if (!tokens.id_token) {
+    throw new Error('Google no devolvio una identidad valida')
+  }
+  const profile = await verifyGoogleCredential(tokens.id_token)
+  const tokenUpdate = {
+    ...(tokens.access_token ? { googleCalendarAccessToken: tokens.access_token } : {}),
+    ...(tokens.refresh_token ? { googleCalendarRefreshToken: tokens.refresh_token } : {}),
+    ...(tokens.expiry_date ? { googleCalendarTokenExpiresAt: new Date(tokens.expiry_date) } : {}),
+    ...((tokens.scope || tokens.access_token) ? { googleCalendarScope: tokens.scope || GOOGLE_CALENDAR_SCOPE } : {})
+  }
+  const account = await prisma.weexAccount.upsert({
+    where: {
+      googleSub: profile.googleSub
+    },
+    update: {
+      email: profile.email,
+      emailVerified: profile.emailVerified,
+      name: profile.name,
+      avatarUrl: profile.avatarUrl,
+      ...tokenUpdate
+    },
+    create: {
+      googleSub: profile.googleSub,
+      email: profile.email,
+      emailVerified: profile.emailVerified,
+      name: profile.name,
+      avatarUrl: profile.avatarUrl,
+      googleCalendarAccessToken: tokens.access_token || null,
+      googleCalendarRefreshToken: tokens.refresh_token || null,
+      googleCalendarTokenExpiresAt: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
+      googleCalendarScope: tokens.scope || (tokens.access_token ? GOOGLE_CALENDAR_SCOPE : null)
+    }
+  })
+  const session = await createWeexSession(account.id)
+
+  return {
+    account: publicWeexAccount(account),
+    session
+  }
+}
+
+export async function createGoogleCalendarEventForAppointment(input: { accountId: string; appointmentId: string }) {
+  const account = await prisma.weexAccount.findUnique({
+    where: {
+      id: input.accountId
+    }
+  })
+  if (!account?.googleCalendarAccessToken && !account?.googleCalendarRefreshToken) {
+    return {
+      ok: false as const,
+      message: 'Tu cuenta no tiene permiso de Google Calendar todavia.'
+    }
+  }
+  if (!account.googleCalendarScope?.includes(GOOGLE_CALENDAR_SCOPE)) {
+    return {
+      ok: false as const,
+      message: 'Falta autorizar el permiso de Google Calendar.'
+    }
+  }
+
+  const appointment = await prisma.appointment.findUnique({
+    where: {
+      id: input.appointmentId
+    },
+    include: {
+      customer: true,
+      service: true,
+      professional: {
+        include: {
+          business: true
+        }
+      }
+    }
+  })
+  if (!appointment) {
+    return {
+      ok: false as const,
+      message: 'No encontre el turno para cargarlo en Calendar.'
+    }
+  }
+  if (appointment.googleCalendarEventId && appointment.googleCalendarAccountId === account.id) {
+    return {
+      ok: true as const,
+      eventId: appointment.googleCalendarEventId
+    }
+  }
+
+  const client = new OAuth2Client(googleClientId || undefined, googleClientSecret || undefined, GOOGLE_OAUTH_REDIRECT_URI)
+  client.setCredentials({
+    ...(account.googleCalendarAccessToken ? { access_token: account.googleCalendarAccessToken } : {}),
+    ...(account.googleCalendarRefreshToken ? { refresh_token: account.googleCalendarRefreshToken } : {}),
+    ...(account.googleCalendarTokenExpiresAt ? { expiry_date: account.googleCalendarTokenExpiresAt.getTime() } : {})
+  })
+  client.on('tokens', (tokens) => {
+    const tokenRefreshUpdate = {
+      ...(tokens.access_token ? { googleCalendarAccessToken: tokens.access_token } : {}),
+      ...(tokens.refresh_token ? { googleCalendarRefreshToken: tokens.refresh_token } : {}),
+      ...(tokens.expiry_date ? { googleCalendarTokenExpiresAt: new Date(tokens.expiry_date) } : {})
+    }
+    if (Object.keys(tokenRefreshUpdate).length === 0) return
+    void prisma.weexAccount.update({
+      where: {
+        id: account.id
+      },
+      data: tokenRefreshUpdate
+    }).catch(() => null)
+  })
+
+  const startAt = appointment.startAt
+  const endAt = new Date(startAt.getTime() + appointment.service.duration * 60_000)
+  const businessName = appointment.professional.business.name
+  const response = await client.request<{ id?: string }>({
+    url: 'https://www.googleapis.com/calendar/v3/calendars/primary/events',
+    method: 'POST',
+    data: {
+      summary: `${appointment.service.name} en ${businessName}`,
+      description: [
+        `Turno reservado en ${businessName}.`,
+        `Profesional: ${appointment.professional.name}`,
+        `Cliente: ${appointment.customer.name}`,
+        appointment.customer.phone ? `Telefono: ${appointment.customer.phone}` : null
+      ].filter(Boolean).join('\n'),
+      start: {
+        dateTime: startAt.toISOString(),
+        timeZone: 'America/Argentina/Buenos_Aires'
+      },
+      end: {
+        dateTime: endAt.toISOString(),
+        timeZone: 'America/Argentina/Buenos_Aires'
+      }
+    }
+  })
+
+  const eventId = response.data.id
+  if (!eventId) {
+    return {
+      ok: false as const,
+      message: 'Google Calendar no devolvio el evento creado.'
+    }
+  }
+
+  await prisma.appointment.update({
+    where: {
+      id: appointment.id
+    },
+    data: {
+      googleCalendarEventId: eventId,
+      googleCalendarAccountId: account.id
+    }
+  })
+
+  return {
+    ok: true as const,
+    eventId
   }
 }
 
@@ -351,6 +524,9 @@ function publicWeexAccount(account: {
   avatarUrl: string | null
   phone: string | null
   phoneVerifiedAt: Date | null
+  googleCalendarRefreshToken?: string | null
+  googleCalendarAccessToken?: string | null
+  googleCalendarScope?: string | null
 }) {
   return {
     id: account.id,
@@ -359,7 +535,11 @@ function publicWeexAccount(account: {
     name: account.name,
     avatarUrl: account.avatarUrl,
     phone: account.phone,
-    phoneVerifiedAt: account.phoneVerifiedAt
+    phoneVerifiedAt: account.phoneVerifiedAt,
+    googleCalendarConnected: Boolean(
+      (account.googleCalendarRefreshToken || account.googleCalendarAccessToken)
+      && account.googleCalendarScope?.includes(GOOGLE_CALENDAR_SCOPE)
+    )
   }
 }
 

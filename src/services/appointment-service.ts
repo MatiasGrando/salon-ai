@@ -509,7 +509,7 @@ export class AppointmentService {
 
     const dayOfWeek = dayStart.getDay()
     const dayEnd = addDays(dayStart, 1)
-    const [businessHours, professionalHours, scheduleBlocks] = await Promise.all([
+    const [businessHours, professionalHours, scheduleBlocks, appointments] = await Promise.all([
       prisma.businessHours.findMany({
         where: {
           businessId: professional.businessId,
@@ -540,6 +540,21 @@ export class AppointmentService {
             }
           ]
         }
+      }),
+      prisma.appointment.findMany({
+        where: {
+          professionalId: input.professionalId,
+          startAt: {
+            gte: dayStart,
+            lt: dayEnd
+          },
+          status: {
+            notIn: ['CANCELLED', 'NO_SHOW']
+          }
+        },
+        include: {
+          service: true
+        }
       })
     ])
 
@@ -563,13 +578,7 @@ export class AppointmentService {
           continue
         }
 
-        const hasOverlap = await this.hasAppointmentOverlap({
-          professionalId: input.professionalId,
-          startAt,
-          endAt
-        })
-
-        if (!hasOverlap) {
+        if (!hasAppointmentIntervalOverlap(appointments, startAt, endAt)) {
           slots.push(formatTime(startAt))
         }
       }
@@ -794,6 +803,19 @@ function hasBlockedIntervalOverlap(
 ) {
   return scheduleBlocks.some((scheduleBlock) => {
     return scheduleBlock.startAt < endAt && scheduleBlock.endAt > startAt
+  })
+}
+
+function hasAppointmentIntervalOverlap(
+  appointments: Array<{ startAt: Date; service: { duration: number } }>,
+  startAt: Date,
+  endAt: Date
+) {
+  return appointments.some((appointment) => {
+    const existingStart = appointment.startAt
+    const existingEnd = addMinutes(existingStart, appointment.service.duration)
+
+    return existingStart < endAt && existingEnd > startAt
   })
 }
 

@@ -82,9 +82,18 @@ model Business {
   slug          String?        @unique
   logoUrl       String?
   landingEnabled Boolean       @default(true)
+  landingSubtitle String?
+  landingOpeningYear Int?
   landingDescription String?
   coverImageUrl String?
+  landingGalleryImages String?
   publicWhatsapp String?
+  contactEmail String?
+  publicAddress String?
+  publicAddressArea String?
+  publicMapsUrl String?
+  instagramUrl String?
+  facebookUrl String?
   botEnabled    Boolean        @default(true)
   aiEnabled     Boolean        @default(true)
   whatsappConfig BusinessWhatsAppConfig?
@@ -195,6 +204,7 @@ model BusinessFeatureSettings {
 model Professional {
   id         String   @id @default(cuid())
   name       String
+  description String?
   avatarUrl  String?
   isActive   Boolean  @default(true)
   deactivatedAt DateTime?
@@ -218,6 +228,7 @@ model Service {
   duration   Int
   category   String?
   price      Int?
+  imageUrl   String?
 
   businessId String
   business   Business @relation(fields: [businessId], references: [id])
@@ -280,6 +291,10 @@ model WeexAccount {
   avatarUrl String?
   phone String?
   phoneVerifiedAt DateTime?
+  googleCalendarAccessToken String?
+  googleCalendarRefreshToken String?
+  googleCalendarTokenExpiresAt DateTime?
+  googleCalendarScope String?
 
   sessions WeexAccountSession[]
   customerLinks WeexCustomerLink[]
@@ -353,6 +368,8 @@ model Appointment {
 
   status AppointmentStatus @default(CONFIRMED)
   reminderDeliveries ReminderDelivery[]
+  googleCalendarEventId String?
+  googleCalendarAccountId String?
 
   createdAt DateTime @default(now())
 }
