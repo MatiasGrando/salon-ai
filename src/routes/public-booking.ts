@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
 import { AppointmentService } from '../services/appointment-service.js'
 import { BusinessService } from '../services/business-service.js'
+import { sendBookingConfirmationEmail } from '../services/booking-confirmation-email-service.js'
 import { inferDefaultAreaCodeFromPhone, normalizePhone, phoneSearchVariants } from '../services/phone-normalization-service.js'
 import {
   createGoogleCalendarEventForAppointment,
@@ -191,6 +192,22 @@ export async function publicBookingRoutes(app: FastifyInstance) {
           message: error instanceof Error ? error.message : 'El turno se guardo, pero no pudimos cargarlo en Google Calendar.'
         }
       }
+    }
+
+    if (weexAuth?.account.emailVerified && appointment) {
+      void sendBookingConfirmationEmail({
+        recipientEmail: weexAuth.account.email,
+        recipientName: weexAuth.account.name,
+        appointmentId: appointment.id,
+        businessName: business.name,
+        businessAddress: [business.publicAddress, business.publicAddressArea].filter(Boolean).join(', ') || null,
+        serviceName: appointment.service.name,
+        professionalName: appointment.professional.name,
+        startAt: appointment.startAt,
+        durationMinutes: appointment.service.duration
+      }).catch((error) => {
+        request.log.error({ error, appointmentId: appointment.id }, 'No se pudo enviar el correo de confirmacion')
+      })
     }
 
     return {
