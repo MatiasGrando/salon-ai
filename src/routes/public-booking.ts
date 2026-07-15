@@ -201,6 +201,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
         appointmentId: appointment.id,
         businessName: business.name,
         businessAddress: [business.publicAddress, business.publicAddressArea].filter(Boolean).join(', ') || null,
+        businessAddressArea: business.publicAddressArea,
         serviceName: appointment.service.name,
         professionalName: appointment.professional.name,
         startAt: appointment.startAt,

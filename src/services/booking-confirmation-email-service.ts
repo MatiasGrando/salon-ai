@@ -4,6 +4,7 @@ type BookingConfirmationEmailInput = {
   appointmentId: string
   businessName: string
   businessAddress?: string | null
+  businessAddressArea?: string | null
   serviceName: string
   professionalName: string
   startAt: Date
@@ -66,10 +67,10 @@ export async function sendBookingConfirmationEmail(input: BookingConfirmationEma
 function renderEmailHtml(input: BookingConfirmationEmailInput, dateLabel: string, timeLabel: string) {
   const endAt = new Date(input.startAt.getTime() + input.durationMinutes * 60_000)
   const reservationMarkup = JSON.stringify({
-    '@context': 'https://schema.org',
+    '@context': 'http://schema.org',
     '@type': 'EventReservation',
     reservationNumber: input.appointmentId,
-    reservationStatus: 'https://schema.org/ReservationConfirmed',
+    reservationStatus: 'http://schema.org/Confirmed',
     underName: {
       '@type': 'Person',
       name: input.recipientName,
@@ -83,7 +84,13 @@ function renderEmailHtml(input: BookingConfirmationEmailInput, dateLabel: string
       location: {
         '@type': 'Place',
         name: input.businessName,
-        ...(input.businessAddress ? { address: input.businessAddress } : {})
+        address: {
+          '@type': 'PostalAddress',
+          streetAddress: input.businessAddress || input.businessName,
+          addressLocality: input.businessAddressArea || 'Buenos Aires',
+          addressRegion: 'Buenos Aires',
+          addressCountry: 'AR'
+        }
       }
     }
   }).replace(/</g, '\\u003c')
