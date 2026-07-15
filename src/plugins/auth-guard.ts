@@ -62,6 +62,9 @@ function collectBusinessId(source: unknown, result: Set<string>) {
 function isPublicRoute(request: FastifyRequest) {
   const path = request.url.split('?')[0] ?? ''
   return path === '/'
+    || path === '/privacidad'
+    || path === '/politicas'
+    || path === '/terminos'
     || path === '/health'
     || path === '/crm'
     || path.startsWith('/landing-assets/')

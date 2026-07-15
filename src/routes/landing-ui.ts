@@ -23,12 +23,31 @@ export async function landingUiRoutes(app: FastifyInstance) {
 
   app.get('/', async (request, reply) => {
     const slug = resolveSlugFromHost(request)
-    if (!slug) return reply.type('text/html').send(renderWeexPlaceholder())
+    if (!slug) return reply.type('text/html').send(renderWeexHome())
 
     const business = await businessService.findPublicBySlug(slug)
     if (!business || !business.landingEnabled) return reply.status(404).type('text/html').send(renderNotFound())
 
     return reply.type('text/html').send(renderLanding(business))
+  })
+
+  app.get('/privacidad', async (_request, reply) => {
+    return reply.type('text/html').send(renderWeexPrivacy())
+  })
+
+  app.get('/politicas', async (_request, reply) => {
+    return reply.type('text/html').send(renderWeexPrivacy())
+  })
+
+  app.get('/terminos', async (_request, reply) => {
+    return reply.type('text/html').send(renderWeexTerms())
+  })
+
+  app.get('/registro', async (request, reply) => {
+    const slug = resolveSlugFromHost(request)
+    if (slug) return reply.redirect(buildCentralRegistrationUrl(request))
+
+    return reply.type('text/html').send(renderWeexRegistration())
   })
 
   app.get('/reservar', async (request, reply) => {
@@ -91,8 +110,216 @@ function resolveSlugFromHost(request: FastifyRequest) {
   return normalizeBusinessSlug(subdomain)
 }
 
+function buildCentralRegistrationUrl(request: FastifyRequest) {
+  const query = request.query as { business?: string; return?: string }
+  const params = new URLSearchParams()
+  const business = query.business?.trim() || resolveSlugFromHost(request)
+  if (business) params.set('business', business)
+  params.set('return', safeRegistrationReturnUrl(request, query.return))
+  return `https://${baseDomain}/registro?${params.toString()}`
+}
+
+function safeRegistrationReturnUrl(request: FastifyRequest, candidate?: string) {
+  const fallback = `${requestProtocol(request)}://${requestHost(request) || baseDomain}/`
+  if (!candidate) return fallback
+  try {
+    const url = new URL(candidate)
+    const hostname = url.hostname.toLowerCase()
+    const isAllowedHost = hostname === baseDomain || hostname === `www.${baseDomain}` || hostname.endsWith(`.${baseDomain}`)
+    return isAllowedHost ? url.toString() : fallback
+  } catch {
+    return fallback
+  }
+}
+
+function requestProtocol(request: FastifyRequest) {
+  const rawProto = request.headers['x-forwarded-proto']
+  const proto = Array.isArray(rawProto) ? rawProto[0] : rawProto
+  return proto?.split(',')[0]?.trim() || (process.env.NODE_ENV === 'production' ? 'https' : 'http')
+}
+
+function requestHost(request: FastifyRequest) {
+  const rawHost = request.headers['x-forwarded-host'] || request.headers.host
+  const host = Array.isArray(rawHost) ? rawHost[0] : rawHost
+  return host?.split(',')[0]?.trim() || ''
+}
+
 type PublicBusiness = Awaited<ReturnType<BusinessService['findPublicBySlug']>>
 type LandingBusiness = NonNullable<PublicBusiness>
+
+function renderWeexRegistration() {
+  const googleClientId = weexGoogleClientId()
+  const googleCalendarEnabled = weexGoogleCalendarEnabled()
+  return htmlPage({
+    title: 'Registro | Weex',
+    body: `
+      <main class="central-login-page">
+        <section class="central-login-card">
+          <a class="central-login-brand" href="/">
+            <span class="account-brand-mark">WX</span>
+            <span>
+              <strong>Weex</strong>
+              <small>Reservas online</small>
+            </span>
+          </a>
+          <div class="google-orb" aria-hidden="true">G</div>
+          <h1>Ingresa con Google</h1>
+          <p>Usamos tu cuenta para identificar tus reservas en cualquier comercio de Weex.</p>
+          <div class="google-button-wrap" id="central-google-button"></div>
+          ${googleClientId ? '' : '<div class="account-feedback visible error">Falta configurar GOOGLE_CLIENT_ID para activar el login real.</div>'}
+          <div class="account-feedback" id="central-login-feedback" role="status" aria-live="polite"></div>
+        </section>
+      </main>
+
+      ${googleClientId ? '<script src="https://accounts.google.com/gsi/client" async defer></script>' : ''}
+      <script>
+        (() => {
+          const googleClientId = ${JSON.stringify(googleClientId)}
+          const googleCalendarEnabled = ${JSON.stringify(googleCalendarEnabled)}
+          const baseDomain = ${JSON.stringify(baseDomain)}
+          const params = new URLSearchParams(window.location.search)
+          const returnUrl = safeReturnUrl(params.get('return'))
+          const els = {
+            button: document.getElementById('central-google-button'),
+            feedback: document.getElementById('central-login-feedback')
+          }
+
+          function boot() {
+            if (!googleClientId || !els.button) return
+            if (googleCalendarEnabled) {
+              renderGoogleCalendarButton()
+              return
+            }
+            if (!window.google?.accounts?.id) {
+              window.setTimeout(boot, 250)
+              return
+            }
+            if (els.button.dataset.rendered === 'true') return
+            els.button.dataset.rendered = 'true'
+            window.google.accounts.id.initialize({
+              client_id: googleClientId,
+              callback: handleGoogleCredential
+            })
+            window.google.accounts.id.renderButton(els.button, {
+              type: 'standard',
+              theme: 'outline',
+              size: 'large',
+              text: 'continue_with',
+              shape: 'rectangular',
+              logo_alignment: 'left',
+              width: Math.min(360, els.button.clientWidth || 360)
+            })
+          }
+
+          function renderGoogleCalendarButton() {
+            if (!window.google?.accounts?.oauth2) {
+              window.setTimeout(boot, 250)
+              return
+            }
+            if (els.button.dataset.rendered === 'true') return
+            els.button.dataset.rendered = 'true'
+            const codeClient = window.google.accounts.oauth2.initCodeClient({
+              client_id: googleClientId,
+              scope: 'openid email profile https://www.googleapis.com/auth/calendar.events',
+              ux_mode: 'popup',
+              include_granted_scopes: true,
+              prompt: 'consent',
+              callback: handleGoogleCode
+            })
+            els.button.innerHTML =
+              '<button class="account-google-calendar" type="button">' +
+                '<span class="google-mark">G</span>' +
+                '<span>Continuar con Google</span>' +
+              '</button>'
+            els.button.querySelector('button')?.addEventListener('click', () => {
+              setFeedback('', '')
+              codeClient.requestCode()
+            })
+          }
+
+          async function handleGoogleCode(response) {
+            if (!response?.code) {
+              setFeedback('Google no devolvio una autorizacion valida.', 'error')
+              return
+            }
+            setFeedback('Autorizando Google Calendar...', 'info')
+            try {
+              const result = await postJson('/public/weex/auth/google-code', { code: response.code })
+              completeLogin(result.account)
+            } catch (error) {
+              setFeedback(error.message, 'error')
+            }
+          }
+
+          async function handleGoogleCredential(response) {
+            if (!response?.credential) {
+              setFeedback('Google no devolvio una credencial valida.', 'error')
+              return
+            }
+            setFeedback('Validando Google...', 'info')
+            try {
+              const result = await postJson('/public/weex/auth/google', { credential: response.credential })
+              completeLogin(result.account)
+            } catch (error) {
+              setFeedback(error.message, 'error')
+            }
+          }
+
+          function completeLogin(account) {
+            setFeedback('Sesion iniciada. Volviendo al comercio...', 'info')
+            const targetOrigin = returnUrl ? new URL(returnUrl).origin : '*'
+            if (window.opener && !window.opener.closed) {
+              window.opener.postMessage({ type: 'WEEX_AUTH_SUCCESS', account }, targetOrigin)
+              window.setTimeout(() => window.close(), 650)
+              return
+            }
+            if (returnUrl) {
+              window.setTimeout(() => window.location.assign(returnUrl), 650)
+            }
+          }
+
+          async function postJson(url, payload = {}) {
+            const response = await fetch(url, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(payload)
+            })
+            const body = await response.json().catch(() => ({}))
+            if (!response.ok) throw new Error(body.message || 'No pude completar la operacion')
+            return body
+          }
+
+          function safeReturnUrl(candidate) {
+            if (!candidate) return ''
+            try {
+              const url = new URL(candidate)
+              const hostname = url.hostname.toLowerCase()
+              const allowed =
+                hostname === baseDomain ||
+                hostname === 'www.' + baseDomain ||
+                hostname.endsWith('.' + baseDomain) ||
+                hostname === 'localhost' ||
+                hostname === '127.0.0.1'
+              return allowed ? url.toString() : ''
+            } catch {
+              return ''
+            }
+          }
+
+          function setFeedback(message, type) {
+            if (!els.feedback) return
+            els.feedback.textContent = message
+            els.feedback.className = 'account-feedback' + (message ? ' visible ' + type : '')
+          }
+
+          boot()
+        })()
+      </script>
+    `
+  })
+}
 
 function renderLanding(business: LandingBusiness, basePath = '') {
   const description = business.landingDescription || `Reserva tu turno en ${business.name} de forma simple y rapida.`
@@ -365,7 +592,7 @@ function renderLanding(business: LandingBusiness, basePath = '') {
 
             <div class="footer-bottom">
               <span>© 2026 ${escapeHtml(business.name)}</span>
-              <span>Powered by Weex</span>
+              <span>Powered by Weex · <a href="/privacidad">Privacidad</a> · <a href="/terminos">Términos</a></span>
             </div>
           </div>
         </footer>
@@ -665,6 +892,8 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
           const googleClientId = ${JSON.stringify(googleClientId)}
           const googleCalendarEnabled = ${JSON.stringify(googleCalendarEnabled)}
           const defaultAreaCode = ${JSON.stringify(defaultAreaCode)}
+          const baseDomain = ${JSON.stringify(baseDomain)}
+          const centralLoginBaseUrl = ${JSON.stringify(`https://${baseDomain}`)}
           const steps = ['Servicios', 'Profesional', 'Hora', 'Confirmar']
           const state = {
             step: 1,
@@ -1101,6 +1330,10 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
               setGateFeedback('Falta configurar GOOGLE_CLIENT_ID para iniciar sesion con Google.', 'error')
               return
             }
+            if (usesCentralWeexLogin()) {
+              renderBookingCentralLoginButton()
+              return
+            }
             if (googleCalendarEnabled) {
               renderBookingGoogleCalendarButton()
               return
@@ -1123,6 +1356,30 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
               shape: 'pill',
               logo_alignment: 'left',
               width: Math.min(384, els.gateGoogle.clientWidth || 384)
+            })
+          }
+
+          function renderBookingCentralLoginButton() {
+            if (els.gateGoogle.dataset.rendered === 'true') return
+            els.gateGoogle.dataset.rendered = 'true'
+            els.gateGoogle.innerHTML =
+              '<button class="booking-gate-google-action" type="button">' +
+                '<span class="google-mark">G</span>' +
+                '<span>Continuar con Google</span>' +
+              '</button>'
+            els.gateGoogle.querySelector('button')?.addEventListener('click', () => {
+              openCentralWeexLogin(async () => {
+                const account = await refreshWeexAccount()
+                if (!account) {
+                  setGateFeedback('No pudimos iniciar sesion. Intenta de nuevo.', 'error')
+                  return
+                }
+                if (!account.phone) {
+                  showBookingGate('phone')
+                  return
+                }
+                proceedToConfirm()
+              }, setGateFeedback)
             })
           }
 
@@ -1150,6 +1407,48 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
               setGateFeedback('', '')
               codeClient.requestCode()
             })
+          }
+
+          function usesCentralWeexLogin() {
+            const hostname = window.location.hostname.toLowerCase()
+            return hostname.endsWith('.' + baseDomain)
+          }
+
+          function openCentralWeexLogin(onSuccess, setLocalFeedback) {
+            const loginUrl = centralLoginBaseUrl + '/registro?business=' + encodeURIComponent(slug) + '&return=' + encodeURIComponent(window.location.href)
+            const expectedOrigin = new URL(centralLoginBaseUrl).origin
+            setLocalFeedback('Abriendo inicio de sesion...', 'info')
+
+            let finished = false
+            const popup = window.open(loginUrl, 'weexGoogleLogin', 'width=460,height=680,menubar=no,toolbar=no,location=yes,status=no')
+
+            if (!popup) {
+              window.location.assign(loginUrl)
+              return
+            }
+
+            const interval = window.setInterval(() => {
+              if (!finished && popup.closed) {
+                window.clearInterval(interval)
+                window.removeEventListener('message', handleMessage)
+                setLocalFeedback('Cerraste el inicio de sesion antes de terminar.', 'error')
+              }
+            }, 500)
+
+            async function handleMessage(event) {
+              if (event.origin !== expectedOrigin || event.data?.type !== 'WEEX_AUTH_SUCCESS') return
+              finished = true
+              window.clearInterval(interval)
+              window.removeEventListener('message', handleMessage)
+              try {
+                await onSuccess(event.data.account)
+              } catch (error) {
+                setLocalFeedback(error.message || 'No pudimos completar el inicio de sesion.', 'error')
+              }
+            }
+
+            window.addEventListener('message', handleMessage)
+            popup.focus()
           }
 
           async function handleBookingGoogleCode(response) {
@@ -1488,6 +1787,8 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
           const googleClientId = ${JSON.stringify(googleClientId)}
           const googleCalendarEnabled = ${JSON.stringify(googleCalendarEnabled)}
           const defaultAreaCode = ${JSON.stringify(defaultAreaCode)}
+          const baseDomain = ${JSON.stringify(baseDomain)}
+          const centralLoginBaseUrl = ${JSON.stringify(`https://${baseDomain}`)}
           const state = {
             tab: 'profile',
             user: null,
@@ -1597,6 +1898,10 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
 
           function renderGoogleButton() {
             if (!googleClientId || !els.googleButtonWrap) return
+            if (usesCentralWeexLogin()) {
+              renderCentralLoginButton()
+              return
+            }
             if (googleCalendarEnabled) {
               renderGoogleCalendarButton()
               return
@@ -1619,6 +1924,28 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
               shape: 'rectangular',
               logo_alignment: 'left',
               width: Math.min(360, els.googleButtonWrap.clientWidth || 360)
+            })
+          }
+
+          function renderCentralLoginButton() {
+            if (els.googleButtonWrap.dataset.rendered === 'true') return
+            els.googleButtonWrap.dataset.rendered = 'true'
+            els.googleButtonWrap.innerHTML =
+              '<button class="account-google-calendar" type="button">' +
+                '<span class="google-mark">G</span>' +
+                '<span>Continuar con Google</span>' +
+              '</button>'
+            els.googleButtonWrap.querySelector('button')?.addEventListener('click', () => {
+              openCentralWeexLogin(async () => {
+                const result = await getJson('/public/weex/me')
+                state.user = result.account
+                state.appointments = []
+                state.selectedId = null
+                setLoginFeedback('', '')
+                setFeedback('Sesion iniciada. Agrega tu telefono para cargar tu historial.', 'info')
+                renderShell()
+                if (state.user?.phone) void loadHistory()
+              }, setLoginFeedback)
             })
           }
 
@@ -1646,6 +1973,48 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
               setLoginFeedback('', '')
               codeClient.requestCode()
             })
+          }
+
+          function usesCentralWeexLogin() {
+            const hostname = window.location.hostname.toLowerCase()
+            return hostname.endsWith('.' + baseDomain)
+          }
+
+          function openCentralWeexLogin(onSuccess, setLocalFeedback) {
+            const loginUrl = centralLoginBaseUrl + '/registro?business=' + encodeURIComponent(slug) + '&return=' + encodeURIComponent(window.location.href)
+            const expectedOrigin = new URL(centralLoginBaseUrl).origin
+            setLocalFeedback('Abriendo inicio de sesion...', 'info')
+
+            let finished = false
+            const popup = window.open(loginUrl, 'weexGoogleLogin', 'width=460,height=680,menubar=no,toolbar=no,location=yes,status=no')
+
+            if (!popup) {
+              window.location.assign(loginUrl)
+              return
+            }
+
+            const interval = window.setInterval(() => {
+              if (!finished && popup.closed) {
+                window.clearInterval(interval)
+                window.removeEventListener('message', handleMessage)
+                setLocalFeedback('Cerraste el inicio de sesion antes de terminar.', 'error')
+              }
+            }, 500)
+
+            async function handleMessage(event) {
+              if (event.origin !== expectedOrigin || event.data?.type !== 'WEEX_AUTH_SUCCESS') return
+              finished = true
+              window.clearInterval(interval)
+              window.removeEventListener('message', handleMessage)
+              try {
+                await onSuccess(event.data.account)
+              } catch (error) {
+                setLocalFeedback(error.message || 'No pudimos completar el inicio de sesion.', 'error')
+              }
+            }
+
+            window.addEventListener('message', handleMessage)
+            popup.focus()
           }
 
           async function handleGoogleCode(response) {
@@ -1963,20 +2332,76 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
   })
 }
 
-function renderWeexPlaceholder() {
+function renderWeexHome() {
   return htmlPage({
-    title: 'Weex',
+    title: 'Weex | Gestión y reservas para salones',
     body: `
-      <main class="booking-shell">
-        <section class="booking-card">
+      ${renderWeexLegalHeader()}
+      <main class="weex-home">
+        <section class="weex-hero">
           <span class="eyebrow">Weex</span>
-          <h1>La pagina principal queda reservada para la web institucional.</h1>
-          <p>Mientras tanto, las landings publicas funcionan por slug local o por subdominio cuando el dominio este activo.</p>
-          <a class="button primary" href="/crm">Entrar al CRM</a>
+          <h1>Gestión, reservas y comunicación para salones.</h1>
+          <p>Weex es una plataforma para salones de belleza y barberías que centraliza clientes, agenda, reservas online y comunicaciones por WhatsApp.</p>
+          <p>El acceso con Google permite identificar al usuario, consultar sus próximas reservas y, si lo autoriza, agregar sus turnos al Calendario de Google.</p>
+          <div class="weex-actions">
+            <a class="button primary" href="/crm">Ingresar a Weex</a>
+            <a class="button secondary" href="/politicas">Política de privacidad</a>
+          </div>
+        </section>
+        <section class="weex-features" aria-label="Funciones principales">
+          <article><h2>Agenda y reservas</h2><p>Organizá horarios, profesionales, servicios y turnos desde un único lugar.</p></article>
+          <article><h2>Relación con clientes</h2><p>Conservá el historial de visitas y gestioná comunicaciones relevantes para cada cliente.</p></article>
+          <article><h2>Integración con Google</h2><p>Los clientes pueden iniciar sesión con Google y agregar las reservas confirmadas a su calendario.</p></article>
         </section>
       </main>
+      ${renderWeexLegalFooter()}
     `
   })
+}
+
+function renderWeexPrivacy() {
+  return renderWeexLegalPage('Política de privacidad', `
+    <p><strong>Última actualización: 14 de julio de 2026.</strong></p>
+    <p>Esta Política de privacidad explica cómo Weex recopila, utiliza y protege información cuando usás nuestra plataforma de gestión y reservas para salones y barberías.</p>
+    <h2>Información que recopilamos</h2>
+    <p>Podemos tratar tu nombre, correo electrónico, teléfono, datos de reservas y la información técnica necesaria para mantener tu sesión y operar el servicio.</p>
+    <h2>Inicio de sesión y Calendario de Google</h2>
+    <p>Cuando elegís continuar con Google, recibimos los datos básicos de tu perfil que autorizás, como nombre, correo electrónico e identificador de cuenta. Si autorizás la integración con Google Calendar, Weex crea y administra únicamente los eventos de calendario asociados a tus reservas.</p>
+    <p>El uso y la transferencia a cualquier otra aplicación de la información recibida de las API de Google cumplirán la <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer">Política de datos de usuario de los servicios de API de Google</a>, incluidos sus requisitos de uso limitado.</p>
+    <h2>Cómo usamos la información</h2>
+    <p>Usamos estos datos para autenticar usuarios, gestionar cuentas y reservas, prestar soporte, prevenir abusos y, cuando corresponde, crear o actualizar eventos de calendario solicitados por el usuario. No vendemos datos personales.</p>
+    <h2>Con quién compartimos información</h2>
+    <p>Podemos usar proveedores tecnológicos estrictamente necesarios para alojar y operar Weex. También compartimos información cuando lo exige la ley o para proteger la seguridad del servicio.</p>
+    <h2>Conservación y seguridad</h2>
+    <p>Conservamos la información durante el tiempo necesario para prestar el servicio y cumplir obligaciones legales. Aplicamos medidas técnicas y organizativas razonables para protegerla.</p>
+    <h2>Tus opciones y eliminación</h2>
+    <p>Podés revocar el acceso de Weex desde la configuración de seguridad de tu cuenta de Google. También podés solicitar acceso, corrección o eliminación de tus datos escribiendo a <a href="mailto:contacto@weex.com.ar">contacto@weex.com.ar</a>.</p>
+    <h2>Contacto</h2>
+    <p>Para consultas sobre privacidad, escribinos a <a href="mailto:contacto@weex.com.ar">contacto@weex.com.ar</a>.</p>
+  `)
+}
+
+function renderWeexTerms() {
+  return renderWeexLegalPage('Términos del servicio', `
+    <p><strong>Última actualización: 14 de julio de 2026.</strong></p>
+    <p>Estos términos regulan el uso de Weex, una plataforma de gestión, comunicación y reservas para salones y barberías.</p>
+    <h2>Uso del servicio</h2><p>Debés proporcionar información veraz, mantener segura tu cuenta y utilizar el servicio de acuerdo con la ley. No está permitido interferir con su funcionamiento ni usarlo para actividades abusivas o fraudulentas.</p>
+    <h2>Reservas e integraciones</h2><p>Los comercios son responsables de sus servicios, disponibilidad y atención. Las integraciones de terceros, incluido Google Calendar, dependen de la autorización del usuario y de la disponibilidad del proveedor correspondiente.</p>
+    <h2>Disponibilidad y cambios</h2><p>Podemos actualizar o modificar funciones para mejorar la plataforma. Procuramos mantener el servicio disponible, aunque no garantizamos un funcionamiento ininterrumpido.</p>
+    <h2>Contacto</h2><p>Si tenés preguntas sobre estos términos, escribinos a <a href="mailto:contacto@weex.com.ar">contacto@weex.com.ar</a>.</p>
+  `)
+}
+
+function renderWeexLegalPage(title: string, content: string) {
+  return htmlPage({ title: `${title} | Weex`, body: `${renderWeexLegalHeader()}<main class="legal-shell"><article class="legal-card"><span class="eyebrow">Weex</span><h1>${escapeHtml(title)}</h1>${content}</article></main>${renderWeexLegalFooter()}` })
+}
+
+function renderWeexLegalHeader() {
+  return `<header class="weex-header"><a href="/" class="weex-wordmark">Weex</a><nav aria-label="Navegación principal"><a href="/">Inicio</a><a href="/politicas">Privacidad</a><a href="/terminos">Términos</a></nav></header>`
+}
+
+function renderWeexLegalFooter() {
+  return `<footer class="weex-footer"><span>© 2026 Weex</span><span><a href="/politicas">Política de privacidad</a> · <a href="/terminos">Términos del servicio</a> · <a href="mailto:contacto@weex.com.ar">Contacto</a></span></footer>`
 }
 
 function renderNotFound() {
@@ -2555,6 +2980,24 @@ function htmlPage(input: { title: string; body: string }) {
     .button.secondary { color: var(--ink); background: #FFF; }
     .button.full { width: 100%; }
     .button:disabled { opacity: .58; cursor: not-allowed; }
+    .weex-header, .weex-footer { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 24px max(24px, calc((100% - 1120px) / 2)); background: var(--dark-1); color: var(--white); }
+    .weex-header nav { display: flex; flex-wrap: wrap; gap: 20px; color: #CFC6B4; font-size: 14px; }
+    .weex-header a:hover, .weex-footer a:hover { color: var(--gold-light); }
+    .weex-wordmark { color: var(--gold); font-family: var(--font-display); font-size: 28px; font-weight: 800; letter-spacing: 1px; }
+    .weex-home, .legal-shell { width: min(1120px, calc(100% - 32px)); margin: 0 auto; padding: 72px 0; }
+    .weex-hero { max-width: 850px; }
+    .weex-hero h1, .legal-card h1 { margin: 16px 0 22px; font-family: var(--font-display); font-size: clamp(44px, 7vw, 78px); line-height: .98; }
+    .weex-hero > p { max-width: 780px; margin-top: 12px; font-size: 18px; }
+    .weex-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+    .weex-features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 68px; }
+    .weex-features article, .legal-card { padding: 28px; background: var(--cream-card); border: 1px solid var(--cream-line); border-radius: var(--radius-md); box-shadow: var(--shadow-card); }
+    .weex-features h2, .legal-card h2 { margin-bottom: 10px; font-family: var(--font-display); }
+    .legal-shell { max-width: 860px; }
+    .legal-card h1 { font-size: clamp(40px, 6vw, 64px); }
+    .legal-card h2 { margin-top: 30px; font-size: 26px; }
+    .legal-card p { margin-top: 12px; }
+    .legal-card a { color: var(--burgundy); text-decoration: underline; }
+    .weex-footer { font-size: 13px; color: #CFC6B4; }
 
     .fresha-booking {
       min-height: 100vh;
@@ -3449,6 +3892,57 @@ function htmlPage(input: { title: string; body: string }) {
       color: #17171B;
       font-family: "Montserrat", system-ui, sans-serif;
     }
+    .central-login-page {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 28px;
+      color: #17171B;
+      background:
+        linear-gradient(135deg, rgba(248,241,225,.86), rgba(250,250,248,.98) 44%, rgba(238,238,242,.78)),
+        #FAFAF8;
+      font-family: "Montserrat", system-ui, sans-serif;
+    }
+    .central-login-card {
+      width: min(100%, 460px);
+      padding: 34px;
+      background: #FFFFFF;
+      border: 1px solid #E9E8EE;
+      border-radius: 16px;
+      box-shadow: 0 24px 70px rgba(20,16,40,.11);
+      text-align: center;
+    }
+    .central-login-brand {
+      width: fit-content;
+      min-width: 0;
+      margin: 0 auto 28px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: #17171B;
+      text-align: left;
+    }
+    .central-login-brand strong,
+    .central-login-brand small {
+      display: block;
+    }
+    .central-login-brand strong { font-size: 15px; font-weight: 900; }
+    .central-login-brand small { margin-top: 2px; color: #777783; font-size: 12px; font-weight: 700; }
+    .central-login-card h1 {
+      margin: 0;
+      color: #17171B;
+      font-size: 30px;
+      line-height: 1.1;
+      font-weight: 900;
+      letter-spacing: 0;
+    }
+    .central-login-card p {
+      margin: 12px auto 24px;
+      max-width: 340px;
+      color: #6F6F7A;
+      font-size: 14px;
+      line-height: 1.45;
+    }
     .account-brand {
       min-width: 0;
       display: flex;
@@ -4317,6 +4811,8 @@ function htmlPage(input: { title: string; body: string }) {
 
     @media (max-width: 680px) {
       .account-brand { margin-bottom: 18px; }
+      .central-login-page { padding: 16px; }
+      .central-login-card { padding: 28px 20px; }
       .account-book { padding: 0 14px; }
       .account-login { margin: 26px auto; padding: 28px 20px; }
       .account-section-head { align-items: flex-start; flex-direction: column; }
@@ -4384,6 +4880,9 @@ function htmlPage(input: { title: string; body: string }) {
       .wa-fab { right: 16px; bottom: 16px; }
       .booking-card { padding: 24px 18px; }
       .booking-card h1 { font-size: 38px; }
+      .weex-header, .weex-footer { align-items: flex-start; flex-direction: column; }
+      .weex-home, .legal-shell { padding: 46px 0; }
+      .weex-features { grid-template-columns: 1fr; margin-top: 44px; }
     }
   </style>
 </head>

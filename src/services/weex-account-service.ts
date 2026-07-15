@@ -8,6 +8,7 @@ const SESSION_COOKIE = 'weex_account_session'
 const SESSION_MAX_AGE_DAYS = 90
 const GOOGLE_CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.events'
 const GOOGLE_OAUTH_REDIRECT_URI = 'postmessage'
+const publicBaseDomain = process.env.PUBLIC_BASE_DOMAIN?.trim().toLowerCase() || 'weex.com.ar'
 
 const googleClientId = process.env.WEEX_GOOGLE_CLIENT_ID?.trim() || process.env.GOOGLE_CLIENT_ID?.trim() || ''
 const googleClientSecret = process.env.WEEX_GOOGLE_CLIENT_SECRET?.trim() || process.env.GOOGLE_CLIENT_SECRET?.trim() || ''
@@ -455,6 +456,7 @@ export function buildWeexSessionCookie(token: string, expiresAt: Date) {
   return [
     `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
     'Path=/',
+    productionCookieDomain(),
     'HttpOnly',
     'SameSite=Lax',
     `Expires=${expiresAt.toUTCString()}`,
@@ -466,11 +468,16 @@ export function buildExpiredWeexSessionCookie() {
   return [
     `${SESSION_COOKIE}=`,
     'Path=/',
+    productionCookieDomain(),
     'HttpOnly',
     'SameSite=Lax',
     'Expires=Thu, 01 Jan 1970 00:00:00 GMT',
     process.env.NODE_ENV === 'production' ? 'Secure' : null
   ].filter(Boolean).join('; ')
+}
+
+function productionCookieDomain() {
+  return process.env.NODE_ENV === 'production' ? `Domain=.${publicBaseDomain}` : null
 }
 
 async function verifyGoogleCredential(credential: string): Promise<GoogleProfile> {
