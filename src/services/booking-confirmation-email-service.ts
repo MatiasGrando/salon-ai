@@ -70,6 +70,8 @@ function renderEmailHtml(input: BookingConfirmationEmailInput, dateLabel: string
     '@context': 'http://schema.org',
     '@type': 'EventReservation',
     reservationNumber: input.appointmentId,
+    ticketNumber: input.appointmentId,
+    numSeats: 1,
     reservationStatus: 'http://schema.org/Confirmed',
     underName: {
       '@type': 'Person',
