@@ -220,7 +220,7 @@ function renderWeexRegistration() {
             els.button.dataset.rendered = 'true'
             const codeClient = window.google.accounts.oauth2.initCodeClient({
               client_id: googleClientId,
-              scope: 'openid email profile https://www.googleapis.com/auth/calendar.events',
+              scope: 'openid email profile https://www.googleapis.com/auth/calendar.events.owned',
               ux_mode: 'popup',
               include_granted_scopes: true,
               prompt: 'consent',
@@ -1392,7 +1392,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
             els.gateGoogle.dataset.rendered = 'true'
             const codeClient = window.google.accounts.oauth2.initCodeClient({
               client_id: googleClientId,
-              scope: 'openid email profile https://www.googleapis.com/auth/calendar.events',
+              scope: 'openid email profile https://www.googleapis.com/auth/calendar.events.owned',
               ux_mode: 'popup',
               include_granted_scopes: true,
               prompt: 'consent',
@@ -1958,7 +1958,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             els.googleButtonWrap.dataset.rendered = 'true'
             const codeClient = window.google.accounts.oauth2.initCodeClient({
               client_id: googleClientId,
-              scope: 'openid email profile https://www.googleapis.com/auth/calendar.events',
+              scope: 'openid email profile https://www.googleapis.com/auth/calendar.events.owned',
               ux_mode: 'popup',
               include_granted_scopes: true,
               prompt: 'consent',

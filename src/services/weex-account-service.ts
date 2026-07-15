@@ -6,7 +6,7 @@ import { normalizeArgentineMobilePhone, normalizePhone, phoneSearchVariants } fr
 
 const SESSION_COOKIE = 'weex_account_session'
 const SESSION_MAX_AGE_DAYS = 90
-const GOOGLE_CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.events'
+const GOOGLE_CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.events.owned'
 const GOOGLE_OAUTH_REDIRECT_URI = 'postmessage'
 const publicBaseDomain = process.env.PUBLIC_BASE_DOMAIN?.trim().toLowerCase() || 'weex.com.ar'
 
