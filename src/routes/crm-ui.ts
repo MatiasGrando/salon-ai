@@ -7462,6 +7462,162 @@ const crmHtml = `<!doctype html>
       align-items: stretch;
     }
 
+    .professional-production-panel {
+      display: grid;
+      gap: 14px;
+    }
+
+    .production-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .production-filters {
+      display: flex;
+      align-items: end;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .production-filter {
+      min-width: 150px;
+      display: grid;
+      gap: 4px;
+    }
+
+    .production-filter[hidden] {
+      display: none;
+    }
+
+    .production-filter label {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 750;
+    }
+
+    .production-filter select,
+    .production-filter input {
+      min-height: 38px;
+      border: 1px solid #dfe2e8;
+      border-radius: 8px;
+      padding: 7px 10px;
+      color: var(--text);
+      background: #fff;
+    }
+
+    .production-summary {
+      padding: 10px 12px;
+      border-radius: 8px;
+      color: #1e3a5f;
+      background: #eef5ff;
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .production-table {
+      overflow: hidden;
+      border: 1px solid #e4e6eb;
+      border-radius: 9px;
+    }
+
+    .production-table-head,
+    .production-professional-row {
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) 110px 110px 34px;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .production-table-head {
+      padding: 9px 12px;
+      color: var(--muted);
+      background: #f8f9fb;
+      border-bottom: 1px solid #e4e6eb;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: .03em;
+    }
+
+    .production-professional + .production-professional {
+      border-top: 1px solid #e8eaf0;
+    }
+
+    .production-professional-row {
+      width: 100%;
+      min-height: 54px;
+      padding: 10px 12px;
+      border: 0;
+      color: var(--text);
+      background: #fff;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .production-professional-row:hover {
+      background: #fafbfc;
+    }
+
+    .production-professional-name {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .production-professional-name .professional-avatar {
+      flex: 0 0 30px;
+      width: 30px;
+      height: 30px;
+    }
+
+    .production-value {
+      font-size: 13px;
+      font-weight: 750;
+    }
+
+    .production-chevron {
+      width: 18px;
+      height: 18px;
+      transition: transform .18s ease;
+    }
+
+    .production-professional.expanded .production-chevron {
+      transform: rotate(180deg);
+    }
+
+    .production-service-detail {
+      padding: 8px 58px 12px;
+      background: #fbfcfe;
+      border-top: 1px solid #eef0f4;
+    }
+
+    .production-service-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 7px 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .production-service-row + .production-service-row {
+      border-top: 1px solid #eef0f4;
+    }
+
+    .production-service-row strong {
+      min-width: 30px;
+      color: var(--text);
+      text-align: right;
+    }
+
     .reports-panel,
     .reports-table-panel {
       padding: 16px;
@@ -7870,6 +8026,27 @@ const crmHtml = `<!doctype html>
 
       .future-agenda-summary {
         grid-template-columns: 1fr;
+      }
+
+      .production-head,
+      .production-filters {
+        display: grid;
+        grid-template-columns: 1fr;
+      }
+
+      .production-filter {
+        min-width: 0;
+      }
+
+      .production-table-head,
+      .production-professional-row {
+        grid-template-columns: minmax(120px, 1fr) 70px 70px 24px;
+        gap: 6px;
+      }
+
+      .production-service-detail {
+        padding-left: 16px;
+        padding-right: 16px;
       }
     }
 
@@ -12478,6 +12655,43 @@ const crmHtml = `<!doctype html>
           </article>
         </section>
 
+        <section class="reports-table-panel professional-production-panel">
+          <div class="production-head">
+            <div>
+              <h3>Producci&oacute;n por profesional</h3>
+              <p>Turnos cuyo horario ya pas&oacute;, excluyendo cancelados y ausentes.</p>
+            </div>
+            <div class="production-filters">
+              <div class="production-filter">
+                <label for="production-range">Per&iacute;odo</label>
+                <select id="production-range">
+                  <option value="day" selected>D&iacute;a</option>
+                  <option value="week">Semana</option>
+                  <option value="custom">Personalizado</option>
+                </select>
+              </div>
+              <div class="production-filter" id="production-reference-wrap">
+                <label for="production-date" id="production-date-label">Fecha</label>
+                <input id="production-date" type="date">
+              </div>
+              <div class="production-filter" id="production-from-wrap" hidden>
+                <label for="production-from">Desde</label>
+                <input id="production-from" type="date">
+              </div>
+              <div class="production-filter" id="production-to-wrap" hidden>
+                <label for="production-to">Hasta</label>
+                <input id="production-to" type="date">
+              </div>
+              <div class="production-filter">
+                <label for="production-professional">Profesional</label>
+                <select id="production-professional"><option value="">Todos</option></select>
+              </div>
+            </div>
+          </div>
+          <div class="production-summary" id="production-summary">Cargando producci&oacute;n...</div>
+          <div id="production-table"><div class="report-empty-note">Cargando informaci&oacute;n...</div></div>
+        </section>
+
         <section class="reports-triple">
           <article class="reports-table-panel">
             <div class="future-agenda-head">
@@ -12874,6 +13088,7 @@ const crmHtml = `<!doctype html>
       customerNotes: [],
       agendaAppointments: [],
       reportOverview: null,
+      professionalProduction: null,
       agendaBlocks: [],
       agendaSelectedDate: new Date(),
       agendaMonthDate: new Date(),
@@ -13360,6 +13575,17 @@ const crmHtml = `<!doctype html>
       reportRiskTable: document.getElementById('report-risk-table'),
       reportRiskCopy: document.getElementById('report-risk-copy'),
       reportUnconvertedChats: document.getElementById('report-unconverted-chats'),
+      productionRange: document.getElementById('production-range'),
+      productionReferenceWrap: document.getElementById('production-reference-wrap'),
+      productionDateLabel: document.getElementById('production-date-label'),
+      productionDate: document.getElementById('production-date'),
+      productionFromWrap: document.getElementById('production-from-wrap'),
+      productionFrom: document.getElementById('production-from'),
+      productionToWrap: document.getElementById('production-to-wrap'),
+      productionTo: document.getElementById('production-to'),
+      productionProfessional: document.getElementById('production-professional'),
+      productionSummary: document.getElementById('production-summary'),
+      productionTable: document.getElementById('production-table'),
       mobileInbox: document.getElementById('mobile-inbox'),
       mobileChat: document.getElementById('mobile-chat'),
       mobileDetails: document.getElementById('mobile-details'),
@@ -14030,6 +14256,7 @@ const crmHtml = `<!doctype html>
       renderStaffUsers()
       renderServices()
       renderAgendaFilters()
+      renderProductionProfessionalOptions()
       renderAppointmentFormOptions()
       renderAgenda()
     }
@@ -15353,6 +15580,116 @@ const crmHtml = `<!doctype html>
       })
       state.reportOverview = await getJson('/reports/overview?' + params.toString())
       renderReports()
+      await loadProfessionalProduction().catch((error) => {
+        els.productionSummary.textContent = 'No pude cargar la produccion.'
+        els.productionTable.innerHTML = '<div class="error">' + escapeHtml(error.message) + '</div>'
+      })
+    }
+
+    function renderProductionProfessionalOptions() {
+      if (!els.productionProfessional) return
+      const selected = els.productionProfessional.value || ''
+      els.productionProfessional.innerHTML = ['<option value="">Todos</option>']
+        .concat(state.professionals.map((professional) => {
+          return '<option value="' + professional.id + '">' + escapeHtml(professional.name) + '</option>'
+        }))
+        .join('')
+      els.productionProfessional.value = state.professionals.some((professional) => professional.id === selected) ? selected : ''
+    }
+
+    function dateInputValue(date) {
+      const year = date.getFullYear()
+      const month = String(date.getMonth() + 1).padStart(2, '0')
+      const day = String(date.getDate()).padStart(2, '0')
+      return year + '-' + month + '-' + day
+    }
+
+    function initializeProductionFilters() {
+      const today = dateInputValue(new Date())
+      if (!els.productionDate.value) els.productionDate.value = today
+      if (!els.productionFrom.value) els.productionFrom.value = today
+      if (!els.productionTo.value) els.productionTo.value = today
+      renderProductionProfessionalOptions()
+      syncProductionRangeControls()
+    }
+
+    function syncProductionRangeControls() {
+      const custom = els.productionRange.value === 'custom'
+      els.productionReferenceWrap.hidden = custom
+      els.productionFromWrap.hidden = !custom
+      els.productionToWrap.hidden = !custom
+      els.productionDateLabel.textContent = els.productionRange.value === 'week' ? 'Semana de' : 'Fecha'
+    }
+
+    async function loadProfessionalProduction() {
+      if (!state.businessId) throw new Error('Selecciona un comercio para ver la produccion')
+      initializeProductionFilters()
+      els.productionSummary.textContent = 'Cargando produccion...'
+      els.productionTable.innerHTML = '<div class="report-empty-note">Cargando informacion...</div>'
+      const params = new URLSearchParams({
+        businessId: state.businessId,
+        range: els.productionRange.value,
+        date: els.productionDate.value,
+        from: els.productionFrom.value,
+        to: els.productionTo.value
+      })
+      if (els.productionProfessional.value) params.set('professionalId', els.productionProfessional.value)
+      state.professionalProduction = await getJson('/reports/professional-production?' + params.toString())
+      renderProfessionalProduction()
+    }
+
+    function renderProfessionalProduction() {
+      const production = state.professionalProduction
+      if (!production) return
+      const totals = production.totals
+      els.productionSummary.textContent = formatProductionPeriod(production.period) + ' · ' +
+        totals.appointments + (totals.appointments === 1 ? ' turno realizado' : ' turnos realizados') + ' · ' +
+        totals.customers + (totals.customers === 1 ? ' cliente' : ' clientes') + ' · ' +
+        totals.professionals + (totals.professionals === 1 ? ' profesional' : ' profesionales')
+
+      if (production.professionals.length === 0) {
+        els.productionTable.innerHTML = '<div class="report-empty-note">No hay turnos realizados con estos filtros.</div>'
+        return
+      }
+
+      els.productionTable.innerHTML = '<div class="production-table">' +
+        '<div class="production-table-head"><span>Profesional</span><span>Clientes</span><span>Servicios</span><span></span></div>' +
+        production.professionals.map((professional) => {
+          const detailId = 'production-detail-' + professional.professionalId
+          return '<article class="production-professional" data-production-professional>' +
+            '<button class="production-professional-row" type="button" data-production-toggle aria-expanded="false" aria-controls="' + escapeHtml(detailId) + '">' +
+              '<span class="production-professional-name"><span class="professional-avatar">' + escapeHtml(professional.professionalName.slice(0, 1).toUpperCase()) + '</span>' + escapeHtml(professional.professionalName) + '</span>' +
+              '<span class="production-value">' + professional.customerCount + '</span>' +
+              '<span class="production-value">' + professional.appointmentCount + '</span>' +
+              '<span class="production-chevron">' + icon('chevron') + '</span>' +
+            '</button>' +
+            '<div class="production-service-detail" id="' + escapeHtml(detailId) + '" hidden>' +
+              professional.services.map((service) => {
+                return '<div class="production-service-row"><span>' + escapeHtml(service.serviceName) + '</span><strong>' + service.count + '</strong></div>'
+              }).join('') +
+            '</div>' +
+          '</article>'
+        }).join('') +
+      '</div>'
+
+      for (const button of els.productionTable.querySelectorAll('[data-production-toggle]')) {
+        button.addEventListener('click', () => {
+          const row = button.closest('[data-production-professional]')
+          const detail = row.querySelector('.production-service-detail')
+          const expanded = button.getAttribute('aria-expanded') === 'true'
+          button.setAttribute('aria-expanded', String(!expanded))
+          row.classList.toggle('expanded', !expanded)
+          detail.hidden = expanded
+        })
+      }
+    }
+
+    function formatProductionPeriod(period) {
+      const start = new Date(period.start)
+      const end = new Date(new Date(period.end).getTime() - 1)
+      const formatter = new Intl.DateTimeFormat('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+      if (start.toDateString() === end.toDateString()) return formatter.format(start)
+      return formatter.format(start) + ' al ' + formatter.format(end)
     }
 
     function renderReports() {
@@ -21466,6 +21803,19 @@ const crmHtml = `<!doctype html>
     els.reportsFutureDays.addEventListener('change', loadReports)
     els.reportsInactiveDays.addEventListener('change', loadReports)
     els.reportsRefresh.addEventListener('click', loadReports)
+    els.productionRange.addEventListener('change', () => {
+      syncProductionRangeControls()
+      loadProfessionalProduction().catch((error) => {
+        els.productionTable.innerHTML = '<div class="error">' + escapeHtml(error.message) + '</div>'
+      })
+    })
+    for (const field of [els.productionDate, els.productionFrom, els.productionTo, els.productionProfessional]) {
+      field.addEventListener('change', () => {
+        loadProfessionalProduction().catch((error) => {
+          els.productionTable.innerHTML = '<div class="error">' + escapeHtml(error.message) + '</div>'
+        })
+      })
+    }
     els.agendaProfessional.addEventListener('change', async () => {
       renderAgendaProfessionalControls()
       await loadAgenda()

@@ -36,6 +36,120 @@ type CustomerSummaryRow = {
 }
 
 export async function reportRoutes(app: FastifyInstance) {
+  app.get('/reports/professional-production', async (request, reply) => {
+    const query = request.query as {
+      businessId?: string
+      range?: 'day' | 'week' | 'custom'
+      date?: string
+      from?: string
+      to?: string
+      professionalId?: string
+    }
+    const businessId = query.businessId?.trim()
+    if (!businessId) return reply.status(400).send({ message: 'businessId es requerido' })
+
+    const range = ['day', 'week', 'custom'].includes(query.range ?? '')
+      ? query.range as 'day' | 'week' | 'custom'
+      : 'day'
+    const referenceDate = parseCalendarDate(query.date) ?? startOfDay(new Date())
+    let periodStart = startOfDay(referenceDate)
+    let periodEnd = addDays(periodStart, 1)
+
+    if (range === 'week') {
+      periodStart = startOfMonday(periodStart)
+      periodEnd = addDays(periodStart, 7)
+    }
+
+    if (range === 'custom') {
+      const customStart = parseCalendarDate(query.from)
+      const customEnd = parseCalendarDate(query.to)
+      if (!customStart || !customEnd) {
+        return reply.status(400).send({ message: 'Selecciona las fechas desde y hasta' })
+      }
+      if (customEnd < customStart) {
+        return reply.status(400).send({ message: 'La fecha hasta no puede ser anterior a la fecha desde' })
+      }
+      if (addDays(customStart, 366) < customEnd) {
+        return reply.status(400).send({ message: 'El rango no puede superar 366 dias' })
+      }
+      periodStart = startOfDay(customStart)
+      periodEnd = addDays(startOfDay(customEnd), 1)
+    }
+
+    const now = new Date()
+    const effectiveEnd = periodEnd < now ? periodEnd : now
+    const appointments = effectiveEnd <= periodStart
+      ? []
+      : await prisma.appointment.findMany({
+          where: {
+            professional: {
+              businessId,
+              ...(query.professionalId ? { id: query.professionalId } : {})
+            },
+            startAt: { gte: periodStart, lt: effectiveEnd },
+            status: { notIn: ['CANCELLED', 'NO_SHOW'] }
+          },
+          select: {
+            customerId: true,
+            professional: { select: { id: true, name: true } },
+            service: { select: { id: true, name: true } }
+          },
+          orderBy: [
+            { professional: { name: 'asc' } },
+            { service: { name: 'asc' } }
+          ]
+        })
+
+    const productionByProfessional = new Map<string, {
+      professionalId: string
+      professionalName: string
+      appointmentCount: number
+      customerIds: Set<string>
+      services: Map<string, { serviceId: string; serviceName: string; count: number }>
+    }>()
+
+    for (const appointment of appointments) {
+      const professional = productionByProfessional.get(appointment.professional.id) ?? {
+        professionalId: appointment.professional.id,
+        professionalName: appointment.professional.name,
+        appointmentCount: 0,
+        customerIds: new Set<string>(),
+        services: new Map<string, { serviceId: string; serviceName: string; count: number }>()
+      }
+      professional.appointmentCount += 1
+      professional.customerIds.add(appointment.customerId)
+      const service = professional.services.get(appointment.service.id) ?? {
+        serviceId: appointment.service.id,
+        serviceName: appointment.service.name,
+        count: 0
+      }
+      service.count += 1
+      professional.services.set(service.serviceId, service)
+      productionByProfessional.set(professional.professionalId, professional)
+    }
+
+    const professionals = Array.from(productionByProfessional.values())
+      .map((professional) => ({
+        professionalId: professional.professionalId,
+        professionalName: professional.professionalName,
+        appointmentCount: professional.appointmentCount,
+        customerCount: professional.customerIds.size,
+        services: Array.from(professional.services.values())
+          .sort((left, right) => right.count - left.count || left.serviceName.localeCompare(right.serviceName))
+      }))
+      .sort((left, right) => right.appointmentCount - left.appointmentCount || left.professionalName.localeCompare(right.professionalName))
+
+    return {
+      period: { start: periodStart, end: periodEnd, range },
+      totals: {
+        appointments: appointments.length,
+        customers: new Set(appointments.map((appointment) => appointment.customerId)).size,
+        professionals: professionals.length
+      },
+      professionals
+    }
+  })
+
   app.get('/reports/overview', async (request, reply) => {
     const query = request.query as {
       businessId?: string
@@ -518,6 +632,25 @@ function sum(values: Iterable<number>) {
 function startOfDay(date: Date) {
   const result = new Date(date)
   result.setHours(0, 0, 0, 0)
+  return result
+}
+
+function startOfMonday(date: Date) {
+  const result = startOfDay(date)
+  const offset = (result.getDay() + 6) % 7
+  result.setDate(result.getDate() - offset)
+  return result
+}
+
+function parseCalendarDate(value: string | undefined) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null
+  const parts = value.split('-').map(Number)
+  const year = parts[0]
+  const month = parts[1]
+  const day = parts[2]
+  if (year === undefined || month === undefined || day === undefined) return null
+  const result = new Date(year, month - 1, day)
+  if (result.getFullYear() !== year || result.getMonth() !== month - 1 || result.getDate() !== day) return null
   return result
 }
 
