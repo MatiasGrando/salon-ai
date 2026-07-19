@@ -13,6 +13,15 @@ type VisitGapRow = {
   averageDays: number | string | null
   sampleSize: bigint | number
 }
+type UnconvertedConversationRow = {
+  id: string
+  phone: string
+  selectedCustomerName: string | null
+  lastMessage: string | null
+  updatedAt: Date
+  archivedAt: Date | null
+  totalCount: bigint | number
+}
 type CustomerSummaryRow = {
   customerId: string
   name: string
@@ -64,6 +73,7 @@ export async function reportRoutes(app: FastifyInstance) {
       futureGroups,
       conversationCountRows,
       convertedConversationRows,
+      unconvertedConversationRows,
       customerMixRows,
       visitGapRows,
       inactiveRows,
@@ -138,6 +148,36 @@ export async function reportRoutes(app: FastifyInstance) {
                AND a.status IN ('PENDING', 'CONFIRMED', 'COMPLETED')
                AND regexp_replace(customer.phone, '[^0-9]', '', 'g') = regexp_replace(c.phone, '[^0-9]', '', 'g')
            )`,
+        businessId,
+        periodStart,
+        periodEnd
+      ),
+      prisma.$queryRawUnsafe<UnconvertedConversationRow[]>(
+        `SELECT
+           c.id,
+           c.phone,
+           c."selectedCustomerName",
+           c."lastMessage",
+           c."updatedAt",
+           c."archivedAt",
+           COUNT(*) OVER() AS "totalCount"
+         FROM "Conversation" c
+         WHERE c."businessId" = $1
+           AND c."updatedAt" >= $2
+           AND c."updatedAt" <= $3
+           AND NOT EXISTS (
+             SELECT 1
+             FROM "Appointment" a
+             JOIN "Professional" p ON p.id = a."professionalId"
+             JOIN "Customer" customer ON customer.id = a."customerId"
+             WHERE p."businessId" = $1
+               AND a."startAt" >= $2
+               AND a."startAt" <= $3
+               AND a.status IN ('PENDING', 'CONFIRMED', 'COMPLETED')
+               AND regexp_replace(customer.phone, '[^0-9]', '', 'g') = regexp_replace(c.phone, '[^0-9]', '', 'g')
+           )
+         ORDER BY c."updatedAt" DESC
+         LIMIT 8`,
         businessId,
         periodStart,
         periodEnd
@@ -364,6 +404,17 @@ export async function reportRoutes(app: FastifyInstance) {
         total: chatTotal,
         converted: chatConverted,
         rate: chatTotal ? Math.round((chatConverted / chatTotal) * 100) : 0
+      },
+      unconvertedChats: {
+        total: Math.max(0, chatTotal - chatConverted),
+        items: unconvertedConversationRows.map((conversation) => ({
+          id: conversation.id,
+          phone: conversation.phone,
+          name: conversation.selectedCustomerName,
+          lastMessage: conversation.lastMessage,
+          updatedAt: conversation.updatedAt,
+          archivedAt: conversation.archivedAt
+        }))
       },
       customerMix: {
         newCustomers: mixNew,

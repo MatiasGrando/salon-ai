@@ -12504,7 +12504,7 @@ const crmHtml = `<!doctype html>
               <h3>Chats sin turno</h3>
               <p>Conversaciones que todavia no agendaron.</p>
             </div>
-            <div class="report-empty-note" id="report-unconverted-chats">Pendiente de conectar al historial de chats.</div>
+            <div id="report-unconverted-chats"><div class="report-empty-note">Cargando conversaciones...</div></div>
           </article>
 
           <article class="reports-table-panel">
@@ -13359,6 +13359,7 @@ const crmHtml = `<!doctype html>
       reportProfessionalsTable: document.getElementById('report-professionals-table'),
       reportRiskTable: document.getElementById('report-risk-table'),
       reportRiskCopy: document.getElementById('report-risk-copy'),
+      reportUnconvertedChats: document.getElementById('report-unconverted-chats'),
       mobileInbox: document.getElementById('mobile-inbox'),
       mobileChat: document.getElementById('mobile-chat'),
       mobileDetails: document.getElementById('mobile-details'),
@@ -15394,6 +15395,7 @@ const crmHtml = `<!doctype html>
       renderFutureAgenda(report.futureAgenda)
       renderReportServices(report.services)
       renderReportProfessionals(report.professionals)
+      renderUnconvertedChats(report.unconvertedChats)
       renderInactiveCustomers(report.inactiveCustomers.items)
       renderRiskCustomers(report.riskCustomers.items)
     }
@@ -15508,6 +15510,57 @@ const crmHtml = `<!doctype html>
           '</div>' +
         '</div>'
       }).join('')
+    }
+
+    function renderUnconvertedChats(input) {
+      const chats = input?.items || []
+      if (chats.length === 0) {
+        els.reportUnconvertedChats.innerHTML = '<div class="report-empty-note">No hay chats sin turno en este periodo.</div>'
+        return
+      }
+
+      els.reportUnconvertedChats.innerHTML = chats.map((conversation) => {
+        const name = conversation.name || customerForPhone(conversation.phone)?.name || conversation.phone || 'Cliente'
+        const preview = conversation.lastMessage || 'Sin mensajes'
+        return '<div class="risk-row">' +
+          '<div class="risk-main">' +
+            '<button class="risk-profile-link" type="button" data-report-conversation="' + escapeHtml(conversation.id) + '" data-report-conversation-phone="' + escapeHtml(conversation.phone || '') + '" data-report-conversation-archived="' + (conversation.archivedAt ? 'true' : 'false') + '">' +
+              icon('message') +
+              '<span class="risk-name">' + escapeHtml(name) + '</span>' +
+            '</button>' +
+            '<div class="risk-meta">' + escapeHtml(preview) + '</div>' +
+          '</div>' +
+          '<span class="risk-badge inactive-badge">' + escapeHtml(formatConversationTime(conversation.updatedAt)) + '</span>' +
+        '</div>'
+      }).join('') +
+      (input.total > chats.length ? '<div class="reactivation-action">Mostrando ' + chats.length + ' de ' + input.total + '</div>' : '')
+
+      for (const button of els.reportUnconvertedChats.querySelectorAll('[data-report-conversation]')) {
+        button.addEventListener('click', () => openConversationFromReport({
+          id: button.dataset.reportConversation,
+          phone: button.dataset.reportConversationPhone,
+          archived: button.dataset.reportConversationArchived === 'true'
+        }))
+      }
+    }
+
+    async function openConversationFromReport(input) {
+      try {
+        let conversation = state.conversations.find((item) => item.id === input.id)
+        if (!conversation) {
+          const params = new URLSearchParams({ phone: input.phone, take: '1', archive: 'all' })
+          if (state.businessId) params.set('businessId', state.businessId)
+          const conversations = await getJson('/crm/conversations?' + params.toString())
+          conversation = conversations.find((item) => item.id === input.id) || conversations[0]
+        }
+        if (!conversation) throw new Error('No pude encontrar esta conversacion.')
+        if (!state.conversations.some((item) => item.id === conversation.id)) state.conversations.unshift(conversation)
+        state.conversationFilter = input.archived ? 'archived' : 'all'
+        setSection('conversations')
+        await selectConversation(conversation.id)
+      } catch (error) {
+        showCrmToast(error.message || 'No pude abrir la conversacion.', 'error')
+      }
     }
 
     function renderRiskCustomers(customers) {
