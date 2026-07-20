@@ -1,8 +1,14 @@
 import { prisma } from '../config/prisma.js'
 import { WhatsAppCloudApi } from '../integrations/whatsapp-cloud-api.js'
 import { assertBusinessCanSendWhatsApp } from './business-whatsapp-settings.js'
+import { RecordCommunicationAttempt } from '../application/communications/record-communication-attempt.js'
+import { PrismaCommunicationAttemptRepository } from '../infrastructure/communications/prisma-communication-attempt-repository.js'
+import { CommunicationService } from '../application/communications/communication-service.js'
+import { PrismaCommunicationRepository } from '../infrastructure/communications/prisma-communication-repository.js'
 
 const whatsappCloudApi = new WhatsAppCloudApi()
+const recordCommunicationAttempt = new RecordCommunicationAttempt(new PrismaCommunicationAttemptRepository())
+const communicationService = new CommunicationService(new PrismaCommunicationRepository())
 const POST_SALE_LOOKBACK_DAYS = 8
 
 type ConversationIdRow = { id: string }
@@ -154,6 +160,24 @@ export async function processDuePostSales(input: { businessId?: string; limit?: 
         }
       })
 
+      await recordCommunicationAttempt.execute({
+        businessId: automation.businessId,
+        customerId: appointment.customer.id,
+        customerName: appointment.customer.name,
+        phone: appointment.customer.phone,
+        message: resolved.previewText,
+        sourceType: 'POST_SALE',
+        sourceId: automation.id,
+        sourceDeliveryId: delivery.id,
+        purpose: 'FOLLOW_UP',
+        mode: 'WHATSAPP_API',
+        status,
+        providerMessageId: delivery.providerMessageId,
+        failureReason: lastError,
+        occurredAt: sentAt,
+        metadata: { appointmentId: appointment.id, visitDate }
+      })
+
       if (result.sent) {
         await recordPostSaleOutboundMessage({
           conversationId,
@@ -232,6 +256,18 @@ export async function capturePostSaleResponse(input: {
         })]
       : [])
   ])
+
+  const commonRecipient = await prisma.communicationRecipient.findUnique({
+    where: { sourceDeliveryId: delivery.id },
+    select: { id: true }
+  })
+  if (commonRecipient) {
+    await communicationService.transitionRecipient({
+      recipientId: commonRecipient.id,
+      businessId: delivery.businessId,
+      status: 'RESPONDED'
+    })
+  }
 
   return { captured: true as const, reply, rating, lowRating, commentCaptured: false }
 }

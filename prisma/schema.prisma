@@ -120,6 +120,8 @@ model Business {
   reminderDeliveries ReminderDelivery[]
   postSaleAutomation PostSaleAutomation?
   postSaleDeliveries PostSaleDelivery[]
+  communicationExecutions CommunicationExecution[]
+  communicationRecipients CommunicationRecipient[]
   users User[]
   weexCustomerLinks WeexCustomerLink[]
 
@@ -285,6 +287,7 @@ model Customer {
   campaignJobs CampaignJob[]
   reminderDeliveries ReminderDelivery[]
   postSaleDeliveries PostSaleDelivery[]
+  communicationRecipients CommunicationRecipient[]
   weexLinks    WeexCustomerLink[]
 
   createdAt DateTime @default(now())
@@ -809,4 +812,84 @@ model CampaignJob {
   @@index([status, nextAttemptAt])
   @@index([campaignId, customerId])
   @@index([businessId, status])
+}
+
+model CommunicationExecution {
+  id String @id @default(cuid())
+
+  businessId String
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  sourceType String
+  sourceId String
+  purpose String
+  mode String
+  status String @default("READY")
+  initiatedByUserId String?
+  candidateCount Int @default(0)
+  eligibleCount Int @default(0)
+  excludedCount Int @default(0)
+  metadata Json?
+  startedAt DateTime @default(now())
+  completedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  recipients CommunicationRecipient[]
+
+  @@index([businessId, sourceType, sourceId, createdAt])
+  @@index([businessId, status, createdAt])
+}
+
+model CommunicationRecipient {
+  id String @id @default(cuid())
+
+  executionId String
+  execution CommunicationExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  businessId String
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customerId String
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  phoneSnapshot String
+  customerNameSnapshot String
+  messageSnapshot String
+  status String @default("PENDING")
+  sourceDeliveryId String? @unique
+  providerMessageId String?
+  scheduledAt DateTime?
+  openedAt DateTime?
+  sentAt DateTime?
+  deliveredAt DateTime?
+  readAt DateTime?
+  respondedAt DateTime?
+  bookedAt DateTime?
+  skippedAt DateTime?
+  failedAt DateTime?
+  skipReason String?
+  failureReason String?
+  metadata Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events CommunicationEvent[]
+
+  @@unique([executionId, customerId])
+  @@index([businessId, customerId, sentAt])
+  @@index([businessId, status, scheduledAt])
+}
+
+model CommunicationEvent {
+  id String @id @default(cuid())
+
+  recipientId String
+  recipient CommunicationRecipient @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  fromStatus String?
+  toStatus String
+  actorType String @default("SYSTEM")
+  actorId String?
+  note String?
+  createdAt DateTime @default(now())
+
+  @@index([recipientId, createdAt])
 }

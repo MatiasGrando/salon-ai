@@ -3717,6 +3717,15 @@ const crmHtml = `<!doctype html>
       font-weight: 700;
     }
 
+    .manual-send-workbench { margin-top: 16px; padding: 16px; display: grid; gap: 14px; border: 1px solid #dbe4f0; border-radius: 12px; background: #f8fafc; }
+    .manual-send-progress { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .manual-send-progress div { flex: 1; height: 7px; overflow: hidden; border-radius: 99px; background: #e2e8f0; }
+    .manual-send-progress div span { display: block; height: 100%; border-radius: inherit; background: #0d63f3; }
+    .manual-send-contact { padding: 15px; display: grid; gap: 12px; border: 1px solid #dbe4f0; border-radius: 10px; background: #fff; }
+    .manual-send-message { padding: 12px; white-space: pre-wrap; border-radius: 9px; color: #334155; background: #eef6ff; font-size: 13px; line-height: 1.5; }
+    .manual-send-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+    .manual-send-whatsapp { padding: 9px 13px; border-radius: 8px; color: #fff; background: #16a34a; font-size: 12px; font-weight: 800; text-decoration: none; }
+
     .campaign-manual-settings p {
       margin-top: 3px;
       color: #687790;
@@ -13265,6 +13274,7 @@ const crmHtml = `<!doctype html>
       campaignAudiences: {},
       campaignDeliveries: {},
       campaignSimulations: {},
+      campaignManualExecutions: {},
       campaignSimulationLoading: {},
       campaignsLoaded: false,
       selectedCampaignId: null,
@@ -14444,6 +14454,10 @@ const crmHtml = `<!doctype html>
       state.agendaAppointments = []
       state.agendaBlocks = []
       state.campaignsLoaded = false
+      state.campaignAudiences = {}
+      state.campaignDeliveries = {}
+      state.campaignSimulations = {}
+      state.campaignManualExecutions = {}
       state.templatesLoaded = false
       state.reminderLoaded = false
       state.postSaleLoaded = false
@@ -20252,11 +20266,13 @@ const crmHtml = `<!doctype html>
         const results = await Promise.all([
           getJson('/campaigns/' + campaignId + '/audience-preview'),
           getJson('/campaigns/' + campaignId + '/deliveries'),
-          getJson('/campaigns/' + campaignId + '/simulations/latest')
+          getJson('/campaigns/' + campaignId + '/simulations/latest'),
+          getJson('/campaigns/' + campaignId + '/manual-executions/latest')
         ])
         state.campaignAudiences[campaignId] = results[0]
         state.campaignDeliveries[campaignId] = results[1]
         state.campaignSimulations[campaignId] = results[2]?.run || null
+        state.campaignManualExecutions[campaignId] = results[3]?.execution || null
       } catch (error) {
         state.campaignAudiences[campaignId] = { error: error.message }
       }
@@ -20442,6 +20458,22 @@ const crmHtml = `<!doctype html>
             '<div class="campaign-budget-item"><span>Generada</span><strong>' + escapeHtml(formatDateTime(simulation.createdAt)) + '</strong></div>' +
           '</div><div class="campaign-rule-note">' + simulationExclusionCopy + '</div></section>'
         : '<section class="campaign-budget-card"><h4>Simulador local</h4><p class="hint">Todav&iacute;a no se ejecut&oacute; una simulaci&oacute;n. No se enviar&aacute; ning&uacute;n mensaje.</p></section>'
+      const manualExecution = state.campaignManualExecutions[campaign.id]
+      const manualCurrent = manualExecution?.recipients?.find((recipient) => ['PENDING', 'OPENED'].includes(recipient.status))
+      const manualProgress = manualExecution?.eligibleCount ? Math.round((manualExecution.completedCount / manualExecution.eligibleCount) * 100) : 0
+      const manualStatusLabels = { PENDING: 'Pendiente', OPENED: 'WhatsApp abierto', SENT: 'Marcado enviado', SKIPPED: 'Omitido', RESPONDED: 'Respondi&oacute;', BOOKED: 'Reserv&oacute;' }
+      const manualExecutionCard = '<div class="manual-send-workbench">' +
+        '<div class="campaign-recipient-head"><div><h4>Env&iacute;o manual asistido</h4><p>Abre WhatsApp con el mensaje preparado y registra cada contacto en el historial.</p></div>' +
+          (manualExecution ? '<strong>' + manualExecution.completedCount + ' / ' + manualExecution.eligibleCount + '</strong>' : '') + '</div>' +
+        (manualExecution
+          ? '<div class="manual-send-progress"><div><span style="width:' + manualProgress + '%"></span></div><strong>' + manualProgress + '%</strong></div>' +
+            (manualCurrent
+              ? '<div class="manual-send-contact"><div class="campaign-recipient-copy"><strong>' + escapeHtml(manualCurrent.customerName) + '</strong><span>' + escapeHtml(formatCustomerPhone(manualCurrent.phone)) + ' &middot; ' + (manualStatusLabels[manualCurrent.status] || escapeHtml(manualCurrent.status)) + '</span></div>' +
+                  '<div class="manual-send-message">' + escapeHtml(manualCurrent.message) + '</div>' +
+                  '<div class="manual-send-actions"><button class="campaign-outline-button" type="button" data-manual-recipient-action="SKIPPED" data-manual-recipient-id="' + escapeHtml(manualCurrent.id) + '">Omitir</button><a class="manual-send-whatsapp" href="' + escapeHtml(manualCurrent.whatsappUrl) + '" target="_blank" rel="noopener" data-manual-open data-manual-recipient-id="' + escapeHtml(manualCurrent.id) + '">Abrir WhatsApp</a><button class="campaigns-new" type="button" data-manual-recipient-action="SENT" data-manual-recipient-id="' + escapeHtml(manualCurrent.id) + '">Marcar enviado</button></div></div>'
+              : '<div class="campaign-rule-note">Cola finalizada. Los contactos marcados como enviados ya participan del descanso entre promociones.</div>')
+          : '<div class="campaign-rule-note">Se aplicar&aacute;n nuevamente autorizaciones, tel&eacute;fonos v&aacute;lidos y descanso de ' + (campaign.cooldownDays ?? 30) + ' d&iacute;as antes de crear la cola.</div><div class="manual-send-actions"><button class="campaigns-new" type="button" data-campaign-action="manual-start">Preparar env&iacute;o manual</button></div>') +
+      '</div>'
       const budget = campaign.budgetLimit === null || campaign.budgetLimit === undefined
         ? 'Sin l&iacute;mite definido'
         : formatCurrency(campaign.budgetLimit)
@@ -20488,6 +20520,7 @@ const crmHtml = `<!doctype html>
         (audienceExclusionCopy ? '<div class="campaign-rule-note">Excluidos:&nbsp; ' + audienceExclusionCopy + '.</div>' : '') +
         '<div class="campaign-recipient-head"><div><h4>Orden de la cola simulada</h4><p>' + (simulation?.eligibleCount > 100 ? 'Se muestran los primeros 100 de ' + simulation.eligibleCount + ' destinatarios.' : 'Vista previa sin env&iacute;os reales.') + '</p></div><strong>' + (simulation?.eligibleCount ?? 0) + '</strong></div>' +
         '<div class="campaign-recipient-list">' + simulatedQueueRows + '</div>' +
+        manualExecutionCard +
       '</div>'
       const deliveryStatusLabels = { SENT: 'Enviado', DELIVERED: 'Entregado', READ: 'Le&iacute;do', RESPONDED: 'Respondi&oacute;', BOOKED: 'Reserv&oacute;', FAILED: 'Fallido', CANCELLED: 'Cancelado' }
       const historyRows = deliveries.length
@@ -21101,7 +21134,46 @@ const crmHtml = `<!doctype html>
       renderCampaigns()
     }
 
+    async function startManualCampaignExecution(campaign) {
+      const execution = await getJson('/campaigns/' + campaign.id + '/manual-executions', { method: 'POST' })
+      state.campaignManualExecutions[campaign.id] = execution
+      state.campaignDetailTab = 'recipients'
+      renderCampaignDetail()
+    }
+
+    async function updateManualCampaignRecipient(campaign, recipientId, status) {
+      for (const button of els.campaignDetailPanel.querySelectorAll('[data-manual-recipient-action]')) button.disabled = true
+      try {
+        const execution = await getJson('/campaigns/' + campaign.id + '/manual-executions/' + state.campaignManualExecutions[campaign.id].id + '/recipients/' + recipientId, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status, skipReason: status === 'SKIPPED' ? 'Omitido por el operador' : null })
+        })
+        state.campaignManualExecutions[campaign.id] = execution
+        if (status === 'SENT') {
+          state.campaignDeliveries[campaign.id] = await getJson('/campaigns/' + campaign.id + '/deliveries')
+        }
+        renderCampaignDetail()
+      } catch (error) {
+        const existing = els.campaignDetailPanel.querySelector('[data-campaign-inline-error]')
+        if (existing) existing.remove()
+        els.campaignDetailPanel.querySelector('.campaign-detail-header')?.insertAdjacentHTML('afterend', '<div class="campaign-rule-note" data-campaign-inline-error>' + escapeHtml(error.message) + '</div>')
+      }
+    }
+
     async function handleCampaignDetailAction(event) {
+      const manualOpen = event.target.closest('[data-manual-open]')
+      if (manualOpen) {
+        const campaign = state.campaigns.find((item) => item.id === state.selectedCampaignId)
+        if (campaign) void updateManualCampaignRecipient(campaign, manualOpen.dataset.manualRecipientId, 'OPENED')
+        return
+      }
+      const manualRecipientAction = event.target.closest('[data-manual-recipient-action]')
+      if (manualRecipientAction) {
+        const campaign = state.campaigns.find((item) => item.id === state.selectedCampaignId)
+        if (campaign) await updateManualCampaignRecipient(campaign, manualRecipientAction.dataset.manualRecipientId, manualRecipientAction.dataset.manualRecipientAction)
+        return
+      }
       const tab = event.target.closest('[data-campaign-tab]')
       if (tab) {
         state.campaignDetailTab = tab.dataset.campaignTab
@@ -21115,6 +21187,7 @@ const crmHtml = `<!doctype html>
 
       try {
         if (button.dataset.campaignAction === 'simulate') await simulateCampaign(campaign)
+        if (button.dataset.campaignAction === 'manual-start') await startManualCampaignExecution(campaign)
         if (button.dataset.campaignAction === 'process-automated') {
           button.disabled = true
           button.textContent = 'Procesando...'

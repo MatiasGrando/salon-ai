@@ -3,6 +3,14 @@ import { prisma } from '../config/prisma.js'
 import { whatsappPricingRates } from '../config/whatsapp-pricing.js'
 import { WhatsAppCloudApi } from '../integrations/whatsapp-cloud-api.js'
 import { assertBusinessCanSendWhatsApp } from '../services/business-whatsapp-settings.js'
+import { CommunicationService } from '../application/communications/communication-service.js'
+import { ManualCampaignCommunicationService } from '../application/campaigns/manual-campaign-communication-service.js'
+import { communicationStatuses, type CommunicationStatus } from '../domain/communications/communication.js'
+import { PrismaCommunicationRepository } from '../infrastructure/communications/prisma-communication-repository.js'
+import { PrismaCampaignDeliveryRecorder } from '../infrastructure/communications/prisma-campaign-delivery-recorder.js'
+import { toManualCommunicationExecutionViewModel } from './view-models/communication-view-model.js'
+import { RecordCommunicationAttempt } from '../application/communications/record-communication-attempt.js'
+import { PrismaCommunicationAttemptRepository } from '../infrastructure/communications/prisma-communication-attempt-repository.js'
 
 const CAMPAIGN_TYPES = ['ONE_TIME', 'AUTOMATED'] as const
 const CAMPAIGN_CHANNELS = ['WHATSAPP', 'EMAIL', 'BOTH'] as const
@@ -23,6 +31,9 @@ const CAMPAIGN_SEGMENTS = [
 const MARKETING_TEMPLATE_VARIABLES = ['nombre_cliente', 'usuario', 'fecha_ultima_visita'] as const
 const REMINDER_TEMPLATE_VARIABLES = ['nombre_cliente', 'usuario', 'fecha_turno', 'hora_turno', 'servicio', 'profesional'] as const
 const whatsappCloudApi = new WhatsAppCloudApi()
+const communicationService = new CommunicationService(new PrismaCommunicationRepository())
+const manualCampaignCommunicationService = new ManualCampaignCommunicationService(communicationService, new PrismaCampaignDeliveryRecorder())
+const recordCommunicationAttempt = new RecordCommunicationAttempt(new PrismaCommunicationAttemptRepository())
 
 type CampaignInput = {
   businessId?: string
@@ -719,6 +730,95 @@ export async function campaignRoutes(app: FastifyInstance) {
     return calculateCampaignAudience(campaign)
   })
 
+  app.get('/campaigns/:id/manual-executions/latest', async (request, reply) => {
+    const params = request.params as { id: string }
+    const campaign = await prisma.campaign.findUnique({ where: { id: params.id }, select: { id: true, businessId: true } })
+    if (!campaign) return reply.status(404).send({ message: 'No encontré esa campaña' })
+    const execution = await prisma.communicationExecution.findFirst({
+      where: { businessId: campaign.businessId, sourceType: 'CAMPAIGN', sourceId: campaign.id, mode: 'WHATSAPP_MANUAL' },
+      include: { recipients: { include: { customer: { select: { id: true, name: true, phone: true } } }, orderBy: { createdAt: 'asc' } } },
+      orderBy: { createdAt: 'desc' }
+    })
+    return { execution: execution ? toManualCommunicationExecutionViewModel(execution) : null }
+  })
+
+  app.post('/campaigns/:id/manual-executions', async (request, reply) => {
+    const params = request.params as { id: string }
+    const campaign = await prisma.campaign.findUnique({
+      where: { id: params.id },
+      include: { manualRecipients: { include: { customer: { select: { id: true, name: true, phone: true } } } } }
+    })
+    if (!campaign) return reply.status(404).send({ message: 'No encontré esa campaña' })
+    if (!['WHATSAPP', 'BOTH'].includes(campaign.channel)) return reply.status(400).send({ message: 'La campaña debe incluir el canal WhatsApp' })
+
+    const running = await prisma.communicationExecution.findFirst({
+      where: { businessId: campaign.businessId, sourceType: 'CAMPAIGN', sourceId: campaign.id, mode: 'WHATSAPP_MANUAL', status: 'RUNNING' },
+      include: { recipients: { include: { customer: { select: { id: true, name: true, phone: true } } }, orderBy: { createdAt: 'asc' } } },
+      orderBy: { createdAt: 'desc' }
+    })
+    if (running) return toManualCommunicationExecutionViewModel(running)
+
+    const audience = await calculateCampaignAudience(campaign)
+    const recipients = []
+    const invalidRecipients: Array<{ customerId: string; reason: string }> = []
+    for (const customer of audience.included) {
+      const context = await buildTemplateVariableContext({ businessId: campaign.businessId, customerId: customer.id })
+      const resolved = resolveWhatsAppTemplateVariables({ body: campaign.message, category: 'MARKETING', context })
+      const invalid = [...resolved.unsupported, ...resolved.missing]
+      if (invalid.length) {
+        invalidRecipients.push({ customerId: customer.id, reason: 'Faltan variables: ' + invalid.join(', ') })
+        continue
+      }
+      recipients.push({
+        customerId: customer.id,
+        customerName: customer.name,
+        phone: customer.phone,
+        message: resolved.previewText,
+        metadata: { lastVisitAt: customer.lastVisitAt }
+      })
+    }
+    if (!recipients.length) return reply.status(400).send({ message: 'No hay destinatarios habilitados para el envío manual' })
+    const excludedByRules = Object.values(audience.excluded).reduce((total, value) => total + Number(value || 0), 0)
+    const execution = await manualCampaignCommunicationService.start({
+      businessId: campaign.businessId,
+      sourceId: campaign.id,
+      initiatedByUserId: request.auth?.user.id ?? null,
+      candidateCount: audience.total + excludedByRules + invalidRecipients.length,
+      excludedCount: excludedByRules + invalidRecipients.length,
+      metadata: { campaignName: campaign.name, exclusionSummary: audience.excluded, invalidRecipients },
+      recipients
+    })
+    return reply.status(201).send(toManualCommunicationExecutionViewModel(execution))
+  })
+
+  app.patch('/campaigns/:campaignId/manual-executions/:executionId/recipients/:recipientId', async (request, reply) => {
+    const params = request.params as { campaignId: string; executionId: string; recipientId: string }
+    const body = request.body as { status?: string; note?: string; skipReason?: string }
+    const status = body.status?.trim().toUpperCase()
+    const allowed = ['OPENED', 'SENT', 'SKIPPED', 'RESPONDED', 'BOOKED']
+    if (!status || !communicationStatuses.includes(status as CommunicationStatus) || !allowed.includes(status)) {
+      return reply.status(400).send({ message: 'Estado de comunicación inválido' })
+    }
+    const campaign = await prisma.campaign.findUnique({ where: { id: params.campaignId }, select: { id: true, businessId: true } })
+    if (!campaign) return reply.status(404).send({ message: 'No encontré esa campaña' })
+    try {
+      await manualCampaignCommunicationService.transition({
+        executionId: params.executionId,
+        recipientId: params.recipientId,
+        businessId: campaign.businessId,
+        status: status as CommunicationStatus,
+        actorId: request.auth?.user.id ?? null,
+        note: body.note?.trim().slice(0, 500) || null,
+        skipReason: body.skipReason?.trim().slice(0, 200) || null
+      })
+      const execution = await communicationService.getExecution(params.executionId, campaign.businessId)
+      if (!execution) return reply.status(404).send({ message: 'No encontré esa ejecución manual' })
+      return toManualCommunicationExecutionViewModel(execution)
+    } catch (error) {
+      return reply.status(409).send({ message: error instanceof Error ? error.message : 'No pude actualizar el destinatario' })
+    }
+  })
+
   app.post('/campaigns/:id/execute-one-time', async (request, reply) => {
     const params = request.params as { id: string }
     const campaign = await prisma.campaign.findUnique({
@@ -756,74 +856,14 @@ export async function campaignRoutes(app: FastifyInstance) {
       return reply.status(400).send({ message: 'El presupuesto solo alcanza para ' + recipients.length + ' de ' + audience.included.length + ' destinatarios. Ajusta el presupuesto antes de enviar.' })
     }
 
-    const now = new Date()
-    let sent = 0
-    let failed = 0
-    const results: Array<{ customerId: string; name: string; phone: string; status: 'SENT' | 'FAILED'; message?: string }> = []
-
-    for (const customer of recipients) {
-      const context = await buildTemplateVariableContext({ businessId: campaign.businessId, customerId: customer.id })
-      const resolved = resolveWhatsAppTemplateVariables({
-        body: campaign.whatsappTemplate.body,
-        category: campaign.whatsappTemplate.category,
-        context
-      })
-      if (resolved.unsupported.length || resolved.missing.length) {
-        failed += 1
-        await prisma.campaignDelivery.create({
-          data: {
-            businessId: campaign.businessId,
-            campaignId: campaign.id,
-            customerId: customer.id,
-            status: 'FAILED',
-            attemptNumber: 1,
-            sentAt: now
-          }
-        })
-        results.push({ customerId: customer.id, name: customer.name, phone: customer.phone, status: 'FAILED', message: 'Faltan variables: ' + [...resolved.unsupported, ...resolved.missing].join(', ') })
-        continue
-      }
-
-      const result = await whatsappCloudApi.sendTemplateMessage({
-        businessId: campaign.businessId,
-        to: customer.phone,
-        templateName: campaign.whatsappTemplate.metaName,
-        languageCode: campaign.whatsappTemplate.language,
-        bodyParameters: resolved.bodyParameters,
-        headerImageDataUrl: campaign.whatsappTemplate.imageUrl
-      })
-      const providerMessageId = result.sent ? extractProviderMessageId(result.response) : null
-      await prisma.campaignDelivery.create({
-        data: {
-          businessId: campaign.businessId,
-          campaignId: campaign.id,
-          customerId: customer.id,
-          status: result.sent ? 'SENT' : 'FAILED',
-          attemptNumber: 1,
-          providerMessageId,
-          sentAt: now
-        }
-      })
-      if (result.sent) sent += 1
-      else failed += 1
-      const failureMessage = !result.sent
-        ? ('errorMessage' in result ? result.errorMessage : undefined) || ('reason' in result ? result.reason : undefined) || 'No se pudo enviar'
-        : undefined
-      results.push({
-        customerId: customer.id,
-        name: customer.name,
-        phone: customer.phone,
-        status: result.sent ? 'SENT' : 'FAILED',
-        ...(failureMessage !== undefined ? { message: failureMessage } : {})
-      })
-    }
+    const summary = await sendCampaignRecipients({ campaign, template: campaign.whatsappTemplate, recipients })
 
     await prisma.campaign.update({
       where: { id: campaign.id },
       data: { status: 'FINISHED' }
     })
 
-    return { status: 'FINISHED', sent, failed, total: recipients.length, results }
+    return { status: 'FINISHED', ...summary }
   })
 
   app.post('/campaigns/:id/process-automated', async (request, reply) => {
@@ -934,7 +974,11 @@ export async function campaignRoutes(app: FastifyInstance) {
           })
       const nextRetryCount = job.retryCount + 1
       const status = result.sent ? 'SENT' : 'FAILED'
-      await prisma.$transaction([
+      const providerMessageId = result.sent ? extractProviderMessageId(result.response) : null
+      const failureMessage = !result.sent
+        ? ('errorMessage' in result ? result.errorMessage : undefined) || ('reason' in result ? result.reason : undefined) || 'No se pudo enviar'
+        : null
+      const [, delivery] = await prisma.$transaction([
         prisma.campaignJob.update({
           where: { id: job.id },
           data: {
@@ -950,11 +994,28 @@ export async function campaignRoutes(app: FastifyInstance) {
             customerId: job.customerId,
             status,
             attemptNumber: job.attemptNumber,
-            providerMessageId: result.sent ? extractProviderMessageId(result.response) : null,
+            providerMessageId,
             sentAt: now
           }
         })
       ])
+      await recordCommunicationAttempt.execute({
+        businessId: job.businessId,
+        customerId: job.customerId,
+        customerName: job.customer.name,
+        phone: job.customer.phone,
+        message: resolved.previewText,
+        sourceType: 'CAMPAIGN',
+        sourceId: job.campaignId,
+        sourceDeliveryId: delivery.id,
+        purpose: 'PROMOTIONAL',
+        mode: 'WHATSAPP_API',
+        status,
+        providerMessageId,
+        failureReason: failureMessage,
+        occurredAt: now,
+        metadata: { campaignRunId: job.runId, retryCount: nextRetryCount }
+      })
       if (result.sent) sent += 1
       else failed += 1
     }
@@ -1035,7 +1096,7 @@ export async function campaignRoutes(app: FastifyInstance) {
         const failureMessage = !result.sent
           ? ('errorMessage' in result ? result.errorMessage : undefined) || ('reason' in result ? result.reason : undefined) || 'No se pudo enviar'
           : null
-        await prisma.reminderDelivery.upsert({
+        const delivery = await prisma.reminderDelivery.upsert({
           where: {
             reminderAutomationId_appointmentId: {
               reminderAutomationId: automation.id,
@@ -1061,6 +1122,23 @@ export async function campaignRoutes(app: FastifyInstance) {
             lastError: failureMessage,
             sentAt: now
           }
+        })
+        await recordCommunicationAttempt.execute({
+          businessId,
+          customerId: appointment.customer.id,
+          customerName: appointment.customer.name,
+          phone: appointment.customer.phone,
+          message: resolved.previewText,
+          sourceType: 'REMINDER',
+          sourceId: automation.id,
+          sourceDeliveryId: delivery.id,
+          purpose: 'OPERATIONAL',
+          mode: 'WHATSAPP_API',
+          status: result.sent ? 'SENT' : 'FAILED',
+          providerMessageId: delivery.providerMessageId,
+          failureReason: failureMessage,
+          occurredAt: now,
+          metadata: { appointmentId: appointment.id, scheduledFor: scheduledFor.toISOString() }
         })
         if (result.sent) sent += 1
         else failed += 1
@@ -1237,7 +1315,7 @@ export async function campaignRoutes(app: FastifyInstance) {
       }
     })
 
-    return prisma.campaignDelivery.create({
+    const delivery = await prisma.campaignDelivery.create({
       data: {
         businessId: campaign.businessId,
         campaignId: campaign.id,
@@ -1248,6 +1326,25 @@ export async function campaignRoutes(app: FastifyInstance) {
         sentAt
       }
     })
+    const context = await buildTemplateVariableContext({ businessId: campaign.businessId, customerId })
+    const resolved = resolveWhatsAppTemplateVariables({ body: campaign.message, category: 'MARKETING', context })
+    await recordCommunicationAttempt.execute({
+      businessId: campaign.businessId,
+      customerId,
+      customerName: customer.name,
+      phone: customer.phone,
+      message: resolved.previewText,
+      sourceType: 'CAMPAIGN',
+      sourceId: campaign.id,
+      sourceDeliveryId: delivery.id,
+      purpose: 'PROMOTIONAL',
+      mode: 'WHATSAPP_MANUAL',
+      status: 'SENT',
+      providerMessageId: delivery.providerMessageId,
+      failureReason: null,
+      occurredAt: sentAt
+    })
+    return delivery
   })
 
   app.patch('/campaign-deliveries/:id', async (request, reply) => {
@@ -1262,7 +1359,7 @@ export async function campaignRoutes(app: FastifyInstance) {
     if (!current) return reply.status(404).send({ message: 'No encontre ese envio' })
 
     const changedAt = new Date()
-    return prisma.campaignDelivery.update({
+    const updated = await prisma.campaignDelivery.update({
       where: { id: current.id },
       data: {
         status,
@@ -1272,6 +1369,16 @@ export async function campaignRoutes(app: FastifyInstance) {
         ...(status === 'BOOKED' ? { bookedAt: changedAt } : {})
       }
     })
+    const commonRecipient = await prisma.communicationRecipient.findUnique({ where: { sourceDeliveryId: current.id }, select: { id: true } })
+    if (commonRecipient && communicationStatuses.includes(status as CommunicationStatus)) {
+      await communicationService.transitionRecipient({
+        recipientId: commonRecipient.id,
+        businessId: current.businessId,
+        status: status as CommunicationStatus,
+        actorId: request.auth?.user.id ?? null
+      })
+    }
+    return updated
   })
 
   app.patch('/customers/:customerId/marketing-preference', async (request, reply) => {
@@ -1595,10 +1702,10 @@ async function sendCampaignRecipients(input: {
           bodyParameters: resolved.bodyParameters,
           headerImageDataUrl: input.template.imageUrl
         })
-    const status = result.sent ? 'SENT' : 'FAILED'
+    const status: 'SENT' | 'FAILED' = result.sent ? 'SENT' : 'FAILED'
     const providerMessageId = result.sent ? extractProviderMessageId(result.response) : null
     const attemptNumber = (attemptsByCustomer.get(customer.id) ?? 0) + 1
-    await prisma.campaignDelivery.create({
+    const delivery = await prisma.campaignDelivery.create({
       data: {
         businessId: input.campaign.businessId,
         campaignId: input.campaign.id,
@@ -1609,34 +1716,52 @@ async function sendCampaignRecipients(input: {
         sentAt: now
       }
     })
-    if (input.runId) {
+    const failureMessage = !result.sent
+      ? ('errorMessage' in result ? result.errorMessage : undefined) || ('reason' in result ? result.reason : undefined) || 'No se pudo enviar'
+      : null
+    await recordCommunicationAttempt.execute({
+      businessId: input.campaign.businessId,
+      customerId: customer.id,
+      customerName: customer.name,
+      phone: customer.phone,
+      message: resolved.previewText,
+      sourceType: 'CAMPAIGN',
+      sourceId: input.campaign.id,
+      sourceDeliveryId: delivery.id,
+      purpose: 'PROMOTIONAL',
+      mode: 'WHATSAPP_API',
+      status,
+      providerMessageId,
+      failureReason: failureMessage,
+      occurredAt: now,
+      ...(input.runId ? { metadata: { campaignRunId: input.runId } } : {})
+    })
+    const runId = input.runId
+    if (runId) {
       await prisma.campaignJob.create({
         data: {
           businessId: input.campaign.businessId,
           campaignId: input.campaign.id,
-          runId: input.runId,
+          runId,
           customerId: customer.id,
           status,
           attemptNumber,
           retryCount: 0,
           maxRetries: 3,
           nextAttemptAt: status === 'FAILED' ? new Date(now.getTime() + retryDelayMinutes(1) * 60_000) : now,
-          idempotencyKey: 'real:' + input.runId + ':' + customer.id
+          idempotencyKey: 'real:' + runId + ':' + customer.id
         }
       })
     }
     if (result.sent) sent += 1
     else failed += 1
-    const message = !result.sent
-      ? ('errorMessage' in result ? result.errorMessage : undefined) || ('reason' in result ? result.reason : undefined) || 'No se pudo enviar'
-      : undefined
-    results.push({
+    const resultRow = {
       customerId: customer.id,
       name: customer.name,
       phone: customer.phone,
-      status,
-      ...(message !== undefined ? { message } : {})
-    })
+      status
+    }
+    results.push(failureMessage ? { ...resultRow, message: failureMessage } : resultRow)
   }
 
   return { sent, failed, total: input.recipients.length, results }
