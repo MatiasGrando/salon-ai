@@ -3,6 +3,11 @@ import { prisma } from '../config/prisma.js'
 import { Prisma } from '../generated/prisma/client.js'
 import { WhatsAppCloudApi } from '../integrations/whatsapp-cloud-api.js'
 import { assertBusinessCanSendWhatsApp } from '../services/business-whatsapp-settings.js'
+import {
+  closeConversationOpportunity,
+  CONVERSATION_CLOSE_REASONS,
+  type ConversationCloseReason
+} from '../services/conversation-opportunity-service.js'
 
 const whatsappCloudApi = new WhatsAppCloudApi()
 const WHATSAPP_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000
@@ -382,6 +387,28 @@ export async function crmRoutes(app: FastifyInstance) {
       where: { id: params.id },
       data: { archivedAt: body.archived ? new Date() : null }
     })
+  })
+
+  app.patch('/crm/conversations/:id/opportunity/close', async (request, reply) => {
+    const params = request.params as { id: string }
+    const body = request.body as { reason?: string; note?: string }
+    if (!body.reason || !CONVERSATION_CLOSE_REASONS.includes(body.reason as ConversationCloseReason)) {
+      return reply.status(400).send({ message: 'Selecciona un motivo de cierre valido' })
+    }
+
+    const authUser = request.auth?.user
+    if (!authUser) return reply.status(401).send({ message: 'Sesion requerida' })
+    const result = await closeConversationOpportunity({
+      conversationId: params.id,
+      reason: body.reason as ConversationCloseReason,
+      ...(authUser?.role === 'SUPER_ADMIN'
+        ? { businessId: null }
+        : authUser?.businessId ? { businessId: authUser.businessId } : {}),
+      ...(body.note === undefined ? {} : { note: body.note }),
+      ...(authUser?.id ? { actorUserId: authUser.id } : {})
+    })
+    if (!result.ok) return reply.status(result.statusCode).send({ message: result.message })
+    return result.conversation
   })
 
   app.patch('/crm/conversations/:id/ai', async (request, reply) => {

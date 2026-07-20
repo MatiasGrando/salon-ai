@@ -9,6 +9,7 @@ import { runWithAiEnabled } from './ai-execution-context.js'
 import { BookingV2Engine } from './booking-v2-engine.js'
 import type { BookingV2MessagePlan } from './booking-v2-dialogue.js'
 import type { BookingField } from './booking-v2-state.js'
+import { reopenClosedConversationOpportunity } from './conversation-opportunity-service.js'
 
 const bookingConversationFlow = new BookingConversationFlow()
 const bookingProvider = new InternalBookingProvider()
@@ -56,6 +57,9 @@ export class ConversationService {
         phone: input.phone
       }
     })
+    if (existingConversation?.opportunityStatus === 'CLOSED') {
+      await reopenClosedConversationOpportunity(existingConversation.id)
+    }
     const shouldResetExpiredFlow = existingConversation
       ? isExpiredInProgressConversation(existingConversation.currentStep, existingConversation.updatedAt)
       : false

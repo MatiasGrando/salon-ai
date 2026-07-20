@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
+import { processDuePostSales } from './post-sale-service.js'
 
 const DEFAULT_CAMPAIGN_INTERVAL_HOURS = 12
 const DEFAULT_REMINDER_INTERVAL_MINUTES = 15
@@ -125,6 +126,11 @@ export function startMarketingScheduler(app: FastifyInstance) {
         if (response.statusCode >= 400) {
           app.log.error({ businessId: business.businessId, statusCode: response.statusCode, body: response.body }, 'Fallo el procesamiento de recordatorios')
         }
+      }
+
+      const postSaleResult = await processDuePostSales({ limit: 100 })
+      if (postSaleResult.sent || postSaleResult.failed) {
+        app.log.info(postSaleResult, 'Postventas procesadas')
       }
     } catch (error) {
       app.log.error(error, 'Fallo el ciclo de recordatorios automaticos')

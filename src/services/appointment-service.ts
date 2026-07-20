@@ -1,4 +1,8 @@
 import { prisma } from '../config/prisma.js'
+import {
+  markConversationOpportunityConverted,
+  reopenConversationOpportunityForInvalidatedAppointment
+} from './conversation-opportunity-service.js'
 
 const availabilitySlotInterval = 30
 
@@ -65,7 +69,7 @@ export class AppointmentService {
       }
     }
 
-    const [professional, service] = await Promise.all([
+    const [professional, service, customer] = await Promise.all([
       prisma.professional.findUnique({
         where: {
           id: input.professionalId
@@ -75,7 +79,8 @@ export class AppointmentService {
         where: {
           id: input.serviceId
         }
-      })
+      }),
+      prisma.customer.findUnique({ where: { id: input.customerId } })
     ])
 
     if (!professional) {
@@ -99,6 +104,14 @@ export class AppointmentService {
         ok: false,
         statusCode: 404,
         message: 'No encontre ese servicio'
+      }
+    }
+
+    if (!customer) {
+      return {
+        ok: false,
+        statusCode: 404,
+        message: 'No encontre ese cliente'
       }
     }
 
@@ -184,6 +197,16 @@ export class AppointmentService {
         startAt
       }
     })
+
+    try {
+      await markConversationOpportunityConverted({
+        businessId: professional.businessId,
+        customerPhone: customer.phone,
+        appointmentId: appointment.id
+      })
+    } catch (error) {
+      console.error('No pude vincular el turno con la oportunidad de chat', error)
+    }
 
     return {
       ok: true,
@@ -362,9 +385,7 @@ export class AppointmentService {
       }
     }
 
-    return {
-      ok: true as const,
-      appointment: await prisma.appointment.update({
+    const cancelledAppointment = await prisma.appointment.update({
         where: {
           id: appointmentId
         },
@@ -372,6 +393,14 @@ export class AppointmentService {
           status: 'CANCELLED'
         }
       })
+    try {
+      await reopenConversationOpportunityForInvalidatedAppointment(appointmentId)
+    } catch (error) {
+      console.error('No pude reabrir la oportunidad del turno cancelado', error)
+    }
+    return {
+      ok: true as const,
+      appointment: cancelledAppointment
     }
   }
 
@@ -390,9 +419,7 @@ export class AppointmentService {
       }
     }
 
-    return {
-      ok: true as const,
-      appointment: await prisma.appointment.update({
+    const updatedAppointment = await prisma.appointment.update({
         where: {
           id: appointmentId
         },
@@ -405,6 +432,16 @@ export class AppointmentService {
           service: true
         }
       })
+    if (status === 'CANCELLED' || status === 'NO_SHOW') {
+      try {
+        await reopenConversationOpportunityForInvalidatedAppointment(appointmentId)
+      } catch (error) {
+        console.error('No pude reabrir la oportunidad del turno invalidado', error)
+      }
+    }
+    return {
+      ok: true as const,
+      appointment: updatedAppointment
     }
   }
 

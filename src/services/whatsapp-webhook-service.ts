@@ -3,6 +3,8 @@ import { prisma } from '../config/prisma.js'
 import { WhatsAppCloudApi } from '../integrations/whatsapp-cloud-api.js'
 import { assertBusinessCanSendWhatsApp } from './business-whatsapp-settings.js'
 import { ConversationService } from './conversation-service.js'
+import { reopenClosedConversationOpportunity } from './conversation-opportunity-service.js'
+import { capturePostSaleResponse } from './post-sale-service.js'
 
 type VerifyWebhookInput = {
   mode: string | undefined
@@ -157,6 +159,7 @@ export class WhatsAppWebhookService {
           updatedAt: new Date()
         }
       })
+      await reopenClosedConversationOpportunity(conversation.id)
 
       const marketingOptOutApplied = await this.applyMarketingOptOut({
         businessId: conversation.businessId,
@@ -186,6 +189,51 @@ export class WhatsAppWebhookService {
           from: message.from,
           reply: replyText,
           marketingOptOut: true,
+          delivery: deliveryResult
+        })
+        continue
+      }
+
+      const postSaleResponse = await capturePostSaleResponse({
+        conversationId: conversation.id,
+        phone: message.from,
+        message: message.text,
+        businessId: conversation.businessId ?? null
+      })
+      if (postSaleResponse.captured) {
+        let deliveryResult: Awaited<ReturnType<WhatsAppCloudApi['sendTextMessage']>> | null = null
+        if (postSaleResponse.reply && conversation.businessId) {
+          const gate = await assertBusinessCanSendWhatsApp(conversation.businessId, 'BOT')
+          deliveryResult = gate.allowed
+            ? await whatsappCloudApi.sendTextMessage({
+                businessId: conversation.businessId,
+                to: message.from,
+                text: postSaleResponse.reply
+              })
+            : { sent: false as const, to: message.from, reason: gate.message }
+          const providerMessageId = getOutgoingProviderMessageId(deliveryResult)
+          await prisma.message.create({
+            data: {
+              conversationId: conversation.id,
+              phone: message.from,
+              direction: 'OUTBOUND',
+              body: postSaleResponse.reply,
+              status: deliveryResult.sent ? 'sent' : 'failed',
+              ...(providerMessageId ? { providerMessageId } : {}),
+              metadata: { ...deliveryResult, automation: 'post_sale' }
+            }
+          })
+          await prisma.conversation.update({
+            where: { id: conversation.id },
+            data: { lastMessage: postSaleResponse.reply }
+          })
+        }
+        results.push({
+          messageId: message.id,
+          from: message.from,
+          reply: postSaleResponse.reply,
+          postSale: true,
+          rating: postSaleResponse.rating,
           delivery: deliveryResult
         })
         continue

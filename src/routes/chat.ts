@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
 import { ConversationService } from '../services/conversation-service.js'
+import { reopenClosedConversationOpportunity } from '../services/conversation-opportunity-service.js'
+import { capturePostSaleResponse } from '../services/post-sale-service.js'
 
 const service = new ConversationService()
 
@@ -42,6 +44,8 @@ export async function chatRoutes(app: FastifyInstance) {
       }
     })
 
+    await reopenClosedConversationOpportunity(conversation.id)
+
     const freshConversation = await prisma.conversation.findUnique({
       where: {
         id: conversation.id
@@ -63,6 +67,33 @@ export async function chatRoutes(app: FastifyInstance) {
         })
     const businessBotEnabled = freshConversation?.business?.botEnabled ?? fallbackBusiness?.botEnabled ?? true
     const businessAiEnabled = freshConversation?.business?.aiEnabled ?? fallbackBusiness?.aiEnabled ?? true
+
+    const postSaleResponse = await capturePostSaleResponse({
+      conversationId: conversation.id,
+      phone: body.phone,
+      message: body.message,
+      businessId: freshConversation?.businessId ?? null
+    })
+    if (postSaleResponse.captured) {
+      if (postSaleResponse.reply) {
+        await prisma.message.create({
+          data: {
+            conversationId: conversation.id,
+            phone: body.phone,
+            direction: 'OUTBOUND',
+            body: postSaleResponse.reply,
+            status: 'sent',
+            metadata: { provider: 'internal_chat', automation: 'post_sale' }
+          }
+        })
+      }
+      return {
+        reply: postSaleResponse.reply,
+        postSale: true,
+        rating: postSaleResponse.rating,
+        commentCaptured: postSaleResponse.commentCaptured
+      }
+    }
 
     if (freshConversation?.currentStep === 'HUMAN_HANDOFF') {
       await prisma.conversation.update({

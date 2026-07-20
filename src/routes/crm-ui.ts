@@ -7954,6 +7954,45 @@ const crmHtml = `<!doctype html>
       white-space: nowrap;
     }
 
+    .unconverted-chat-actions {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .report-chat-close-button {
+      min-height: 30px;
+      padding: 5px 9px;
+      border: 1px solid #dfe2e8;
+      border-radius: 7px;
+      color: #4b5563;
+      background: #fff;
+      font-size: 11px;
+      font-weight: 750;
+      cursor: pointer;
+    }
+
+    .report-chat-close-button:hover {
+      color: #991b1b;
+      border-color: #fecaca;
+      background: #fff7f7;
+    }
+
+    .opportunity-close-form {
+      display: grid;
+      gap: 14px;
+    }
+
+    .opportunity-close-form .settings-field {
+      display: grid;
+      gap: 6px;
+    }
+
+    .opportunity-close-form textarea {
+      min-height: 90px;
+      resize: vertical;
+    }
+
     .inactive-badge {
       color: #1d4ed8;
       background: #eff6ff;
@@ -11070,6 +11109,7 @@ const crmHtml = `<!doctype html>
       <button type="button" data-nav-section="campaigns" data-marketing-nav="templates"><span>📣</span><strong>Marketing</strong></button>
       <div class="nav-subitems" aria-label="Marketing">
         <button type="button" data-nav-section="campaigns" data-marketing-nav="templates">Plantillas</button>
+        <button type="button" data-nav-section="campaigns" data-marketing-nav="post-sale">Postventa</button>
         <button type="button" data-nav-section="campaigns" data-marketing-nav="campaigns">Campañas</button>
       </div>
       <button type="button" data-nav-section="reports"><span>📊</span><strong>Reportes</strong></button>
@@ -11831,6 +11871,7 @@ const crmHtml = `<!doctype html>
           <button type="button" data-marketing-view="templates">Plantillas de Meta</button>
           <button class="active" type="button" data-marketing-view="campaigns">Campa&ntilde;as</button>
           <button type="button" data-marketing-view="reminders">Recordatorios autom&aacute;ticos</button>
+          <button type="button" data-marketing-view="post-sale">Postventa</button>
         </nav>
 
         <div id="campaigns-content">
@@ -12103,6 +12144,44 @@ const crmHtml = `<!doctype html>
             </section>
             <aside class="campaign-detail-panel template-detail-panel" id="reminder-detail-panel">
               <div class="campaign-detail-empty"><div><strong>Recordatorio autom&aacute;tico</strong><br>Eleg&iacute; una plantilla aprobada para ver la vista previa.</div></div>
+            </aside>
+          </div>
+        </div>
+
+        <div class="template-manager reminder-manager" id="post-sale-manager" hidden>
+          <section class="campaign-metrics" aria-label="Resumen de postventa">
+            <article class="campaign-metric"><div class="campaign-metric-icon green">&#10003;</div><div><strong id="post-sale-status">Pausada</strong><span>Automatizaci&oacute;n</span><small>Seguimiento luego del turno</small></div></article>
+            <article class="campaign-metric"><div class="campaign-metric-icon violet">&#10148;</div><div><strong id="post-sale-sent">0</strong><span>Enviados</span><small>&Uacute;ltimos 30 registros</small></div></article>
+            <article class="campaign-metric"><div class="campaign-metric-icon orange">&#128172;</div><div><strong id="post-sale-response-rate">0%</strong><span>Respondieron</span><small>Encuestas contestadas</small></div></article>
+            <article class="campaign-metric"><div class="campaign-metric-icon blue">&#9733;</div><div><strong id="post-sale-rating">-</strong><span>Calificaci&oacute;n</span><small id="post-sale-negative">0 casos a revisar</small></div></article>
+          </section>
+          <div class="campaigns-workspace template-workspace">
+            <section class="campaign-list-panel">
+              <div class="campaign-list-toolbar"><div><strong>Configurar seguimiento</strong><p class="hint">Se env&iacute;a una sola encuesta por cliente y por d&iacute;a, cuando finaliza su &uacute;ltimo turno.</p></div></div>
+              <div class="template-builder-card">
+                <div class="campaign-form-field full">
+                  <label for="post-sale-template">Plantilla aprobada de WhatsApp</label>
+                  <select id="post-sale-template"><option value="">Seleccionar plantilla aprobada</option></select>
+                  <p class="campaign-form-help">La plantilla debe pedir una calificaci&oacute;n del 1 al 5. Pod&eacute;s usar las variables del turno.</p>
+                </div>
+                <div class="campaign-form-field full">
+                  <label for="post-sale-delay">Enviar despu&eacute;s de finalizado el turno</label>
+                  <select id="post-sale-delay"><option value="60">1 hora despu&eacute;s</option><option value="120">2 horas despu&eacute;s</option><option value="180">3 horas despu&eacute;s</option><option value="240">4 horas despu&eacute;s</option></select>
+                </div>
+                <div class="campaign-form-field full"><label for="post-sale-positive">Respuesta para calificaci&oacute;n positiva (4 o 5)</label><textarea id="post-sale-positive" rows="3"></textarea></div>
+                <div class="campaign-form-field full"><label for="post-sale-neutral">Respuesta para calificaci&oacute;n neutral (3)</label><textarea id="post-sale-neutral" rows="3"></textarea></div>
+                <div class="campaign-form-field full"><label for="post-sale-negative-response">Respuesta para calificaci&oacute;n baja (1 o 2)</label><textarea id="post-sale-negative-response" rows="3"></textarea><p class="campaign-form-help">Una calificaci&oacute;n baja pausa el bot y deja el chat para atenci&oacute;n humana.</p></div>
+                <div class="campaign-form-field full"><label for="post-sale-review-url">Enlace para dejar una rese&ntilde;a (opcional)</label><input id="post-sale-review-url" type="url" placeholder="https://..."><p class="campaign-form-help">Se agrega solamente a la respuesta de calificaciones 4 y 5.</p></div>
+                <label class="automation-control">
+                  <div class="automation-copy"><strong>Proceso postventa autom&aacute;tico</strong><span>Busca turnos ya finalizados, excepto ausentes o cancelados.</span><small id="post-sale-enabled-copy">Pausada</small></div>
+                  <input id="post-sale-enabled" type="checkbox"><span class="automation-switch" aria-hidden="true"></span>
+                </label>
+                <p class="campaign-form-feedback" id="post-sale-feedback" role="status" aria-live="polite"></p>
+                <div class="dialog-actions"><button class="secondary" id="post-sale-process" type="button">Procesar pendientes</button><button class="primary" id="post-sale-save" type="button">Guardar configuraci&oacute;n</button></div>
+              </div>
+            </section>
+            <aside class="campaign-detail-panel template-detail-panel" id="post-sale-history">
+              <div class="campaign-detail-empty"><div><strong>Historial de postventa</strong><br>Todav&iacute;a no hay encuestas enviadas.</div></div>
             </aside>
           </div>
         </div>
@@ -12749,6 +12828,41 @@ const crmHtml = `<!doctype html>
     </section>
   </main>
 
+  <div class="dialog-backdrop" id="opportunity-close-dialog" hidden>
+    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="opportunity-close-title">
+      <header class="dialog-header">
+        <div>
+          <h3 id="opportunity-close-title">Cerrar chat sin turno</h3>
+          <p class="hint">La conversaci&oacute;n dejar&aacute; de aparecer como oportunidad abierta.</p>
+        </div>
+        <button class="icon-button" id="opportunity-close-x" type="button" aria-label="Cerrar">&times;</button>
+      </header>
+      <form class="opportunity-close-form" id="opportunity-close-form">
+        <div class="settings-field">
+          <label for="opportunity-close-reason">Motivo</label>
+          <select class="field" id="opportunity-close-reason" required>
+            <option value="">Seleccionar motivo</option>
+            <option value="NO_RESPONSE">No respondi&oacute;</option>
+            <option value="PRICE_INQUIRY">Solo consult&oacute; precio</option>
+            <option value="NO_AVAILABILITY">No hab&iacute;a disponibilidad</option>
+            <option value="NOT_INTERESTED">No le interes&oacute;</option>
+            <option value="WRONG_NUMBER">N&uacute;mero incorrecto</option>
+            <option value="OTHER">Otro</option>
+          </select>
+        </div>
+        <div class="settings-field">
+          <label for="opportunity-close-note">Nota opcional</label>
+          <textarea class="field" id="opportunity-close-note" maxlength="500" placeholder="Agreg&aacute; contexto para el equipo"></textarea>
+        </div>
+        <p class="settings-feedback" id="opportunity-close-feedback" role="status" aria-live="polite"></p>
+        <div class="dialog-actions">
+          <button class="secondary" id="opportunity-close-cancel" type="button">Cancelar</button>
+          <button class="danger" id="opportunity-close-submit" type="submit">Cerrar sin turno</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
   <div class="dialog-backdrop" id="campaign-dialog" hidden>
     <section class="dialog campaign-dialog" role="dialog" aria-modal="true" aria-labelledby="campaign-dialog-title">
       <header class="dialog-header">
@@ -13089,6 +13203,7 @@ const crmHtml = `<!doctype html>
       agendaAppointments: [],
       reportOverview: null,
       professionalProduction: null,
+      closingOpportunityConversationId: null,
       agendaBlocks: [],
       agendaSelectedDate: new Date(),
       agendaMonthDate: new Date(),
@@ -13177,6 +13292,8 @@ const crmHtml = `<!doctype html>
       reminderDraft: { name: '', channel: 'WHATSAPP', templateId: null, enabled: false, sendBeforeMinutes: 1440 },
       pendingReminderDeleteConfirm: false,
       reminderLoaded: false,
+      postSaleData: null,
+      postSaleLoaded: false,
       selectedTemplateId: null,
       templateFilter: 'ALL',
       templateSearch: '',
@@ -13406,6 +13523,7 @@ const crmHtml = `<!doctype html>
       campaignsContent: document.getElementById('campaigns-content'),
       templateManager: document.getElementById('template-manager'),
       reminderManager: document.getElementById('reminder-manager'),
+      postSaleManager: document.getElementById('post-sale-manager'),
       templateFilterTabs: document.getElementById('template-filter-tabs'),
       templateTableBody: document.getElementById('template-table-body'),
       templateDetailPanel: document.getElementById('template-detail-panel'),
@@ -13430,6 +13548,23 @@ const crmHtml = `<!doctype html>
       reminderTimeLabel: document.getElementById('reminder-time-label'),
       reminderEnabledCopy: document.getElementById('reminder-enabled-copy'),
       reminderDetailPanel: document.getElementById('reminder-detail-panel'),
+      postSaleStatus: document.getElementById('post-sale-status'),
+      postSaleSent: document.getElementById('post-sale-sent'),
+      postSaleResponseRate: document.getElementById('post-sale-response-rate'),
+      postSaleRating: document.getElementById('post-sale-rating'),
+      postSaleNegative: document.getElementById('post-sale-negative'),
+      postSaleTemplate: document.getElementById('post-sale-template'),
+      postSaleDelay: document.getElementById('post-sale-delay'),
+      postSalePositive: document.getElementById('post-sale-positive'),
+      postSaleNeutral: document.getElementById('post-sale-neutral'),
+      postSaleNegativeResponse: document.getElementById('post-sale-negative-response'),
+      postSaleReviewUrl: document.getElementById('post-sale-review-url'),
+      postSaleEnabled: document.getElementById('post-sale-enabled'),
+      postSaleEnabledCopy: document.getElementById('post-sale-enabled-copy'),
+      postSaleFeedback: document.getElementById('post-sale-feedback'),
+      postSaleProcess: document.getElementById('post-sale-process'),
+      postSaleSave: document.getElementById('post-sale-save'),
+      postSaleHistory: document.getElementById('post-sale-history'),
       campaignFilterTabs: document.getElementById('campaign-filter-tabs'),
       campaignTableBody: document.getElementById('campaign-table-body'),
       campaignDetailPanel: document.getElementById('campaign-detail-panel'),
@@ -13575,6 +13710,14 @@ const crmHtml = `<!doctype html>
       reportRiskTable: document.getElementById('report-risk-table'),
       reportRiskCopy: document.getElementById('report-risk-copy'),
       reportUnconvertedChats: document.getElementById('report-unconverted-chats'),
+      opportunityCloseDialog: document.getElementById('opportunity-close-dialog'),
+      opportunityCloseForm: document.getElementById('opportunity-close-form'),
+      opportunityCloseX: document.getElementById('opportunity-close-x'),
+      opportunityCloseReason: document.getElementById('opportunity-close-reason'),
+      opportunityCloseNote: document.getElementById('opportunity-close-note'),
+      opportunityCloseFeedback: document.getElementById('opportunity-close-feedback'),
+      opportunityCloseCancel: document.getElementById('opportunity-close-cancel'),
+      opportunityCloseSubmit: document.getElementById('opportunity-close-submit'),
       productionRange: document.getElementById('production-range'),
       productionReferenceWrap: document.getElementById('production-reference-wrap'),
       productionDateLabel: document.getElementById('production-date-label'),
@@ -13852,6 +13995,7 @@ const crmHtml = `<!doctype html>
             '<div class="nav-subitems" aria-label="Marketing">' +
               '<button type="button" data-nav-section="campaigns" data-marketing-nav="templates">Plantillas</button>' +
               '<button type="button" data-nav-section="campaigns" data-marketing-nav="campaigns">Campa&ntilde;as</button>' +
+              '<button type="button" data-nav-section="campaigns" data-marketing-nav="post-sale">Postventa</button>' +
             '</div>'
         }).join('') +
         '<div class="nav-user">' +
@@ -14302,6 +14446,8 @@ const crmHtml = `<!doctype html>
       state.campaignsLoaded = false
       state.templatesLoaded = false
       state.reminderLoaded = false
+      state.postSaleLoaded = false
+      state.postSaleData = null
 
       els.list.innerHTML = '<div class="empty">Cargando conversaciones de ' + escapeHtml(nextBusiness.name) + '...</div>'
       try {
@@ -15867,7 +16013,10 @@ const crmHtml = `<!doctype html>
             '</button>' +
             '<div class="risk-meta">' + escapeHtml(preview) + '</div>' +
           '</div>' +
-          '<span class="risk-badge inactive-badge">' + escapeHtml(formatConversationTime(conversation.updatedAt)) + '</span>' +
+          '<div class="unconverted-chat-actions">' +
+            '<span class="risk-badge inactive-badge">' + escapeHtml(formatConversationTime(conversation.updatedAt)) + '</span>' +
+            '<button class="report-chat-close-button" type="button" data-close-report-conversation="' + escapeHtml(conversation.id) + '">Cerrar</button>' +
+          '</div>' +
         '</div>'
       }).join('') +
       (input.total > chats.length ? '<div class="reactivation-action">Mostrando ' + chats.length + ' de ' + input.total + '</div>' : '')
@@ -15878,6 +16027,63 @@ const crmHtml = `<!doctype html>
           phone: button.dataset.reportConversationPhone,
           archived: button.dataset.reportConversationArchived === 'true'
         }))
+      }
+      for (const button of els.reportUnconvertedChats.querySelectorAll('[data-close-report-conversation]')) {
+        button.addEventListener('click', () => openOpportunityCloseDialog(button.dataset.closeReportConversation))
+      }
+    }
+
+    function openOpportunityCloseDialog(conversationId) {
+      state.closingOpportunityConversationId = conversationId
+      els.opportunityCloseReason.value = ''
+      els.opportunityCloseNote.value = ''
+      els.opportunityCloseFeedback.textContent = ''
+      els.opportunityCloseFeedback.className = 'settings-feedback'
+      els.opportunityCloseSubmit.disabled = false
+      els.opportunityCloseSubmit.textContent = 'Cerrar sin turno'
+      els.opportunityCloseDialog.hidden = false
+      requestAnimationFrame(() => els.opportunityCloseReason.focus())
+    }
+
+    function closeOpportunityCloseDialog() {
+      els.opportunityCloseDialog.hidden = true
+      state.closingOpportunityConversationId = null
+      els.opportunityCloseFeedback.textContent = ''
+      els.opportunityCloseSubmit.disabled = false
+      els.opportunityCloseSubmit.textContent = 'Cerrar sin turno'
+    }
+
+    async function saveOpportunityClose(event) {
+      event.preventDefault()
+      const conversationId = state.closingOpportunityConversationId
+      if (!conversationId) return closeOpportunityCloseDialog()
+      const reason = els.opportunityCloseReason.value
+      if (!reason) {
+        els.opportunityCloseFeedback.textContent = 'Selecciona un motivo de cierre.'
+        els.opportunityCloseFeedback.className = 'settings-feedback visible error'
+        return
+      }
+
+      try {
+        els.opportunityCloseSubmit.disabled = true
+        els.opportunityCloseSubmit.textContent = 'Cerrando...'
+        els.opportunityCloseFeedback.textContent = ''
+        await getJson('/crm/conversations/' + conversationId + '/opportunity/close', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reason,
+            note: els.opportunityCloseNote.value.trim()
+          })
+        })
+        closeOpportunityCloseDialog()
+        showCrmToast('Chat cerrado sin turno.', 'success')
+        await Promise.all([loadReports(), refreshConversationSummary()])
+      } catch (error) {
+        els.opportunityCloseFeedback.textContent = error.message || 'No pude cerrar el chat.'
+        els.opportunityCloseFeedback.className = 'settings-feedback visible error'
+        els.opportunityCloseSubmit.disabled = false
+        els.opportunityCloseSubmit.textContent = 'Cerrar sin turno'
       }
     }
 
@@ -19349,6 +19555,7 @@ const crmHtml = `<!doctype html>
       els.campaignsContent.hidden = view !== 'campaigns'
       els.templateManager.hidden = view !== 'templates'
       els.reminderManager.hidden = view !== 'reminders'
+      els.postSaleManager.hidden = view !== 'post-sale'
       for (const button of els.marketingMainTabs.querySelectorAll('[data-marketing-view]')) button.classList.toggle('active', button.dataset.marketingView === view)
       for (const button of document.querySelectorAll('.workspace-nav .nav-subitems [data-marketing-nav]')) button.classList.toggle('active', els.appShell.dataset.section === 'campaigns' && button.dataset.marketingNav === view)
       document.querySelector('.campaigns-title h2').textContent = view === 'templates' ? 'Plantillas de WhatsApp' : 'Campañas'
@@ -19364,6 +19571,11 @@ const crmHtml = `<!doctype html>
         els.campaignSearch.placeholder = 'Buscar recordatorio'
         els.campaignNew.hidden = false
         loadReminderSettings()
+      } else if (view === 'post-sale') {
+        document.querySelector('.campaigns-title h2').textContent = 'Proceso postventa'
+        document.querySelector('.campaigns-title p').textContent = 'Medí la experiencia y detectá clientes que necesitan atención.'
+        els.campaignNew.hidden = true
+        loadPostSaleSettings()
       } else {
         els.campaignNew.hidden = false
       }
@@ -19389,6 +19601,7 @@ const crmHtml = `<!doctype html>
         if (!state.selectedTemplateId || !state.whatsappTemplates.some((item) => item.id === state.selectedTemplateId)) state.selectedTemplateId = state.whatsappTemplates[0]?.id || null
         renderWhatsappTemplates()
         renderReminderSettings()
+        renderPostSaleSettings()
       } catch (error) {
         els.templateTableBody.innerHTML = '<tr class="campaign-empty-row"><td colspan="6">' + escapeHtml(error.message) + '</td></tr>'
       }
@@ -19595,6 +19808,108 @@ const crmHtml = `<!doctype html>
         els.reminderFeedback.className = 'campaign-form-feedback error'
       } finally {
         els.reminderDelete.disabled = false
+      }
+    }
+
+    async function loadPostSaleSettings() {
+      if (!state.businessId) return
+      if (!state.templatesLoaded) await loadWhatsappTemplates()
+      try {
+        state.postSaleData = await getJson('/post-sale/settings?businessId=' + encodeURIComponent(state.businessId))
+        state.postSaleLoaded = true
+        renderPostSaleSettings()
+      } catch (error) {
+        els.postSaleFeedback.textContent = error.message
+        els.postSaleFeedback.className = 'campaign-form-feedback error'
+      }
+    }
+
+    function postSaleStatusLabel(status) {
+      return { PENDING: 'Pendiente', SENT: 'Enviada', RESPONDED: 'Respondida', FAILED: 'Fallida', EXPIRED: 'Vencida' }[status] || status
+    }
+
+    function renderPostSaleSettings() {
+      if (!els.postSaleTemplate || !state.postSaleData) return
+      const settings = state.postSaleData.settings || {}
+      const metrics = state.postSaleData.metrics || {}
+      const deliveries = state.postSaleData.deliveries || []
+      const templates = state.whatsappTemplates.filter((item) => item.status === 'APPROVED' && item.category === 'UTILITY')
+      els.postSaleTemplate.innerHTML = '<option value="">Seleccionar plantilla aprobada</option>' + templates.map((item) => '<option value="' + escapeHtml(item.id) + '">' + escapeHtml(item.internalName) + ' (' + escapeHtml(templateCategoryLabel(item.category)) + ')</option>').join('')
+      els.postSaleTemplate.value = settings.templateId || ''
+      els.postSaleDelay.value = String(settings.delayMinutes || 120)
+      els.postSalePositive.value = settings.positiveResponse || ''
+      els.postSaleNeutral.value = settings.neutralResponse || ''
+      els.postSaleNegativeResponse.value = settings.negativeResponse || ''
+      els.postSaleReviewUrl.value = settings.reviewUrl || ''
+      els.postSaleEnabled.checked = Boolean(settings.enabled)
+      els.postSaleEnabledCopy.textContent = settings.enabled ? 'Activa' : 'Pausada'
+      els.postSaleStatus.textContent = settings.enabled ? 'Activa' : 'Pausada'
+      els.postSaleSent.textContent = String(metrics.sent || 0)
+      els.postSaleResponseRate.textContent = String(metrics.responseRate || 0) + '%'
+      els.postSaleRating.textContent = metrics.averageRating === null || metrics.averageRating === undefined ? '-' : String(metrics.averageRating) + '/5'
+      els.postSaleNegative.textContent = String(metrics.negative || 0) + ((metrics.negative || 0) === 1 ? ' caso a revisar' : ' casos a revisar')
+      els.postSaleProcess.disabled = !settings.enabled || !settings.templateId
+      els.postSaleHistory.innerHTML = '<div class="template-detail-head"><div><span class="campaign-badge automatic">Postventa</span><h3>Historial reciente</h3><p class="template-meta-line">Los &uacute;ltimos 30 seguimientos generados.</p></div></div>' + (deliveries.length
+        ? '<div class="campaign-recipient-list">' + deliveries.map((delivery) => {
+            const score = delivery.rating ? ' &middot; ' + delivery.rating + '/5 &#9733;' : ''
+            const detail = [delivery.appointment?.service?.name, delivery.appointment?.professional?.name].filter(Boolean).join(' &middot; ')
+            const error = delivery.lastError ? '<small class="campaign-form-feedback error">' + escapeHtml(delivery.lastError) + '</small>' : ''
+            const comment = delivery.comment ? '<small>&ldquo;' + escapeHtml(delivery.comment) + '&rdquo;</small>' : ''
+            return '<div class="campaign-recipient-row"><div class="campaign-recipient-avatar">' + (delivery.rating || '&#9733;') + '</div><div class="campaign-recipient-copy"><strong>' + escapeHtml(delivery.customer?.name || 'Cliente') + '</strong><span>' + escapeHtml(detail || 'Servicio') + ' &middot; ' + escapeHtml(formatDateTime(delivery.appointment?.startAt)) + '</span>' + comment + error + '</div><span class="reminder-channel-chip">' + escapeHtml(postSaleStatusLabel(delivery.status)) + score + '</span></div>'
+          }).join('') + '</div>'
+        : '<div class="campaign-detail-empty"><div><strong>Sin env&iacute;os todav&iacute;a</strong><br>Al procesar turnos finalizados aparecer&aacute;n ac&aacute;.</div></div>')
+    }
+
+    async function savePostSaleSettings() {
+      els.postSaleFeedback.textContent = ''
+      els.postSaleSave.disabled = true
+      try {
+        await getJson('/post-sale/settings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            businessId: state.businessId,
+            enabled: els.postSaleEnabled.checked,
+            delayMinutes: Number(els.postSaleDelay.value),
+            templateId: els.postSaleTemplate.value || null,
+            positiveResponse: els.postSalePositive.value.trim(),
+            neutralResponse: els.postSaleNeutral.value.trim(),
+            negativeResponse: els.postSaleNegativeResponse.value.trim(),
+            reviewUrl: els.postSaleReviewUrl.value.trim() || null
+          })
+        })
+        await loadPostSaleSettings()
+        els.postSaleFeedback.textContent = 'Configuración de postventa guardada.'
+        els.postSaleFeedback.className = 'campaign-form-feedback success'
+      } catch (error) {
+        els.postSaleFeedback.textContent = error.message
+        els.postSaleFeedback.className = 'campaign-form-feedback error'
+      } finally {
+        els.postSaleSave.disabled = false
+      }
+    }
+
+    async function processDuePostSalesFromCrm() {
+      els.postSaleFeedback.textContent = ''
+      els.postSaleProcess.disabled = true
+      els.postSaleProcess.textContent = 'Procesando...'
+      try {
+        const result = await getJson('/post-sale/process-due', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ businessId: state.businessId, limit: 100 })
+        })
+        await loadPostSaleSettings()
+        els.postSaleFeedback.textContent = result.total
+          ? 'Procesado: ' + result.sent + ' enviados · ' + result.failed + ' fallidos.'
+          : 'No hay seguimientos pendientes en este momento.'
+        els.postSaleFeedback.className = result.failed ? 'campaign-form-feedback error' : 'campaign-form-feedback success'
+      } catch (error) {
+        els.postSaleFeedback.textContent = error.message
+        els.postSaleFeedback.className = 'campaign-form-feedback error'
+      } finally {
+        els.postSaleProcess.textContent = 'Procesar pendientes'
+        els.postSaleProcess.disabled = !state.postSaleData?.settings?.enabled || !state.postSaleData?.settings?.templateId
       }
     }
 
@@ -21406,6 +21721,9 @@ const crmHtml = `<!doctype html>
     els.reminderSave.addEventListener('click', saveReminderSettings)
     els.reminderDelete.addEventListener('click', deleteSelectedReminder)
     els.reminderProcess.addEventListener('click', processDueReminders)
+    els.postSaleEnabled.addEventListener('change', () => { els.postSaleEnabledCopy.textContent = els.postSaleEnabled.checked ? 'Activa' : 'Pausada' })
+    els.postSaleSave.addEventListener('click', savePostSaleSettings)
+    els.postSaleProcess.addEventListener('click', processDuePostSalesFromCrm)
     els.templateDetailPanel.addEventListener('click', async (event) => {
       const button = event.target.closest('[data-template-action]')
       if (!button) return
@@ -21803,6 +22121,12 @@ const crmHtml = `<!doctype html>
     els.reportsFutureDays.addEventListener('change', loadReports)
     els.reportsInactiveDays.addEventListener('change', loadReports)
     els.reportsRefresh.addEventListener('click', loadReports)
+    els.opportunityCloseForm.addEventListener('submit', saveOpportunityClose)
+    els.opportunityCloseX.addEventListener('click', closeOpportunityCloseDialog)
+    els.opportunityCloseCancel.addEventListener('click', closeOpportunityCloseDialog)
+    els.opportunityCloseDialog.addEventListener('click', (event) => {
+      if (event.target === els.opportunityCloseDialog) closeOpportunityCloseDialog()
+    })
     els.productionRange.addEventListener('change', () => {
       syncProductionRangeControls()
       loadProfessionalProduction().catch((error) => {

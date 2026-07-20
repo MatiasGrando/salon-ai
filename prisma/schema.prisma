@@ -34,6 +34,12 @@ enum ConversationStep {
   HUMAN_HANDOFF
 }
 
+enum ConversationOpportunityStatus {
+  OPEN
+  CONVERTED
+  CLOSED
+}
+
 enum MessageDirection {
   INBOUND
   OUTBOUND
@@ -112,6 +118,8 @@ model Business {
   campaignJobs CampaignJob[]
   reminderAutomations ReminderAutomation[]
   reminderDeliveries ReminderDelivery[]
+  postSaleAutomation PostSaleAutomation?
+  postSaleDeliveries PostSaleDelivery[]
   users User[]
   weexCustomerLinks WeexCustomerLink[]
 
@@ -276,6 +284,7 @@ model Customer {
   manualCampaignRecipients CampaignManualRecipient[]
   campaignJobs CampaignJob[]
   reminderDeliveries ReminderDelivery[]
+  postSaleDeliveries PostSaleDelivery[]
   weexLinks    WeexCustomerLink[]
 
   createdAt DateTime @default(now())
@@ -368,6 +377,8 @@ model Appointment {
 
   status AppointmentStatus @default(CONFIRMED)
   reminderDeliveries ReminderDelivery[]
+  convertedConversation Conversation? @relation("ConversationOpportunityAppointment")
+  postSaleDeliveries PostSaleDelivery[]
   googleCalendarEventId String?
   googleCalendarAccountId String?
 
@@ -424,13 +435,40 @@ model Conversation {
   humanHandoffResolvedAt DateTime?
   archivedAt DateTime?
 
+  opportunityStatus ConversationOpportunityStatus @default(OPEN)
+  opportunityOpenedAt DateTime @default(now())
+  opportunityConvertedAt DateTime?
+  opportunityClosedAt DateTime?
+  opportunityCloseReason String?
+  opportunityCloseNote String?
+  opportunityAppointmentId String? @unique
+  opportunityAppointment Appointment? @relation("ConversationOpportunityAppointment", fields: [opportunityAppointmentId], references: [id], onDelete: SetNull)
+
   messages Message[]
+  opportunityEvents ConversationOpportunityEvent[]
+  postSaleDeliveries PostSaleDelivery[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([businessId, archivedAt, updatedAt])
   @@index([currentStep, archivedAt, updatedAt])
+  @@index([businessId, opportunityStatus, updatedAt])
+}
+
+model ConversationOpportunityEvent {
+  id String @id @default(cuid())
+
+  conversationId String
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  type String
+  reason String?
+  note String?
+  appointmentId String?
+  actorUserId String?
+  createdAt DateTime @default(now())
+
+  @@index([conversationId, createdAt])
 }
 
 model Message {
@@ -537,6 +575,7 @@ model WhatsAppTemplate {
   submittedAt DateTime?
   lastSyncedAt DateTime?
   campaigns Campaign[]
+  postSaleAutomations PostSaleAutomation[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -594,6 +633,63 @@ model ReminderDelivery {
   @@index([businessId, status, sentAt])
   @@index([appointmentId])
   @@index([customerId, sentAt])
+}
+
+model PostSaleAutomation {
+  id String @id @default(cuid())
+
+  businessId String @unique
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  enabled Boolean @default(false)
+  delayMinutes Int @default(120)
+  responseWindowDays Int @default(7)
+  lowRatingThreshold Int @default(2)
+  templateId String?
+  template WhatsAppTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  positiveResponse String @default("Gracias por tu calificación. Nos alegra que hayas tenido una buena experiencia.")
+  neutralResponse String @default("Gracias por responder. Nos gustaría saber qué podríamos mejorar.")
+  negativeResponse String @default("Lamentamos que tu experiencia no haya sido buena. El equipo va a contactarte por este chat.")
+  reviewUrl String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deliveries PostSaleDelivery[]
+
+  @@index([enabled, businessId])
+  @@index([templateId])
+}
+
+model PostSaleDelivery {
+  id String @id @default(cuid())
+
+  businessId String
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  automationId String?
+  automation PostSaleAutomation? @relation(fields: [automationId], references: [id], onDelete: SetNull)
+  appointmentId String
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  customerId String
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  conversationId String?
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  visitDate String
+  status String @default("PENDING")
+  providerMessageId String?
+  lastError String?
+  scheduledFor DateTime
+  sentAt DateTime?
+  responseExpiresAt DateTime?
+  respondedAt DateTime?
+  rating Int?
+  comment String?
+  commentRequestedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([businessId, customerId, visitDate])
+  @@index([businessId, status, scheduledFor])
+  @@index([conversationId, status, responseExpiresAt])
+  @@index([appointmentId])
 }
 
 model CampaignManualRecipient {

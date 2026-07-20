@@ -93,6 +93,7 @@ const internalRouteRoots = new Set([
   'health',
   'professional-hours',
   'professionals',
+  'post-sale',
   'public',
   'reminder-automations',
   'reports',

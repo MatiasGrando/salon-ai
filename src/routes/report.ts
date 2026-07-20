@@ -251,17 +251,7 @@ export async function reportRoutes(app: FastifyInstance) {
          WHERE c."businessId" = $1
            AND c."updatedAt" >= $2
            AND c."updatedAt" <= $3
-           AND EXISTS (
-             SELECT 1
-             FROM "Appointment" a
-             JOIN "Professional" p ON p.id = a."professionalId"
-             JOIN "Customer" customer ON customer.id = a."customerId"
-             WHERE p."businessId" = $1
-               AND a."startAt" >= $2
-               AND a."startAt" <= $3
-               AND a.status IN ('PENDING', 'CONFIRMED', 'COMPLETED')
-               AND regexp_replace(customer.phone, '[^0-9]', '', 'g') = regexp_replace(c.phone, '[^0-9]', '', 'g')
-           )`,
+           AND c."opportunityStatus" = 'CONVERTED'`,
         businessId,
         periodStart,
         periodEnd
@@ -279,17 +269,7 @@ export async function reportRoutes(app: FastifyInstance) {
          WHERE c."businessId" = $1
            AND c."updatedAt" >= $2
            AND c."updatedAt" <= $3
-           AND NOT EXISTS (
-             SELECT 1
-             FROM "Appointment" a
-             JOIN "Professional" p ON p.id = a."professionalId"
-             JOIN "Customer" customer ON customer.id = a."customerId"
-             WHERE p."businessId" = $1
-               AND a."startAt" >= $2
-               AND a."startAt" <= $3
-               AND a.status IN ('PENDING', 'CONFIRMED', 'COMPLETED')
-               AND regexp_replace(customer.phone, '[^0-9]', '', 'g') = regexp_replace(c.phone, '[^0-9]', '', 'g')
-           )
+           AND c."opportunityStatus" = 'OPEN'
          ORDER BY c."updatedAt" DESC
          LIMIT 8`,
         businessId,
@@ -520,7 +500,7 @@ export async function reportRoutes(app: FastifyInstance) {
         rate: chatTotal ? Math.round((chatConverted / chatTotal) * 100) : 0
       },
       unconvertedChats: {
-        total: Math.max(0, chatTotal - chatConverted),
+        total: numberValue(unconvertedConversationRows[0]?.totalCount),
         items: unconvertedConversationRows.map((conversation) => ({
           id: conversation.id,
           phone: conversation.phone,
