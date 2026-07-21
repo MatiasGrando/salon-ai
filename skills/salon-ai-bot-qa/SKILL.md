@@ -204,6 +204,19 @@ If the user says "no quiero nada", "nada gracias" or equivalent while a booking 
 
 If the user provides service + date + time but no professional, do not choose a professional automatically and do not confirm the appointment. Ask for the professional or "cualquier profesional". Keep the requested time so it can be used after the professional is selected.
 
+### Booking V2 Informational Interruptions
+
+Every Booking V2 message must pass through the conversation router, even while a booking is in progress.
+
+If the customer asks about business information such as opening hours, address, website, booking link, phone, email, Instagram, Facebook, services, or prices:
+
+- answer only with data loaded from the current business;
+- never invent a missing value;
+- preserve all booking-critical state and any pending proposal;
+- repeat only the next pending booking question after the informational answer;
+- support mixed messages, such as `a que hora abren y quiero un corte manana`, by answering the question and applying only validated booking data;
+- continue with deterministic business-information detection if OpenAI fails.
+
 ### Tone
 
 Cami should stay warm, attentive, feminine, and professional across all messages, not only the first one.

@@ -10,12 +10,22 @@ import { BookingV2Engine } from './booking-v2-engine.js'
 import type { BookingV2MessagePlan } from './booking-v2-dialogue.js'
 import type { BookingField } from './booking-v2-state.js'
 import { reopenClosedConversationOpportunity } from './conversation-opportunity-service.js'
+import {
+  businessInformationTopicsFromRouting,
+  ConversationRouter,
+  type ConversationRouting
+} from './conversation-router.js'
+import { ConversationRouterContextService } from './conversation-router-context-service.js'
+import { BusinessKnowledgeService } from './business-knowledge-service.js'
 
 const bookingConversationFlow = new BookingConversationFlow()
 const bookingProvider = new InternalBookingProvider()
 const botCopyService = new BotCopyService()
 const aiMessageUnderstandingService = new AiMessageUnderstandingService()
 const bookingV2Engine = new BookingV2Engine()
+const conversationRouter = new ConversationRouter()
+const conversationRouterContextService = new ConversationRouterContextService()
+const businessKnowledgeService = new BusinessKnowledgeService()
 
 type HandleMessageInput = {
   phone: string
@@ -112,6 +122,17 @@ export class ConversationService {
         reply: botCopyService.mainMenu(conversation.selectedCustomerName)
       }
     }
+
+    const bookingV2Enabled = Boolean(businessId && await this.isBookingV2Enabled(businessId))
+    const bookingV2Routing = bookingV2Enabled && businessId
+      ? await conversationRouter.route(await conversationRouterContextService.load({
+          businessId,
+          conversationId: conversation.id,
+          message,
+          currentStep: conversation.currentStep,
+          conversation
+        }))
+      : null
 
     if (conversation.currentStep === 'CANCEL_SELECT_APPOINTMENT') {
       return this.cancelAppointmentByMessage(input.phone, message)
@@ -230,6 +251,16 @@ export class ConversationService {
       }
     }
 
+    if (bookingV2Enabled && businessId && bookingV2Routing) {
+      return this.handleBookingV2({
+        phone: input.phone,
+        message,
+        businessId,
+        conversation,
+        routing: bookingV2Routing
+      })
+    }
+
     const orchestratedReply = await this.tryHandleOrchestratedIntent({
       phone: input.phone,
       message,
@@ -239,15 +270,6 @@ export class ConversationService {
 
     if (orchestratedReply) {
       return orchestratedReply
-    }
-
-    if (businessId && await this.isBookingV2Enabled(businessId)) {
-      return this.handleBookingV2({
-        phone: input.phone,
-        message,
-        businessId,
-        conversation
-      })
     }
 
     if (
@@ -298,17 +320,26 @@ export class ConversationService {
       misunderstandingCount: number
       bookingV2State?: unknown
     }
+    routing: ConversationRouting
   }): Promise<HandleMessageResult> {
+    const informationTopics = businessInformationTopicsFromRouting(input.routing)
+    const informationReply = informationTopics.length
+      ? await businessKnowledgeService.answer({
+          businessId: input.businessId,
+          topics: informationTopics
+        })
+      : null
+
     if (
       input.conversation.currentStep === 'CONFIRM' &&
-      isPositiveConfirmation(input.message) &&
+      isPositiveBookingV2Confirmation(input.message) &&
       input.conversation.selectedCustomerName &&
       input.conversation.selectedServiceId &&
       input.conversation.selectedProfessionalId &&
       input.conversation.selectedDate &&
       input.conversation.selectedTime
     ) {
-      return this.confirmBookingV2Appointment({
+      const confirmation = await this.confirmBookingV2Appointment({
         phone: input.phone,
         conversation: {
           selectedCustomerName: input.conversation.selectedCustomerName,
@@ -318,12 +349,40 @@ export class ConversationService {
           selectedTime: input.conversation.selectedTime
         }
       })
+
+      return informationReply
+        ? {
+            ...confirmation,
+            reply: `${informationReply}\n\n${confirmation.reply}`
+          }
+        : confirmation
+    }
+
+    if (informationReply && !input.routing.bookingMessage) {
+      if (!isActiveBookingV2Step(input.conversation.currentStep)) {
+        return {
+          reply: `${informationReply}\n\nSi querés, también puedo ayudarte a reservar un turno.`,
+          skipMisunderstandingTracking: true,
+          skipHumanize: true
+        }
+      }
+
+      const resumed = await bookingV2Engine.resume({
+        businessId: input.businessId,
+        conversation: input.conversation
+      })
+
+      return {
+        reply: `${informationReply}\n\n${resumed.reply}`,
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
     }
 
     const result = await bookingV2Engine.process({
       businessId: input.businessId,
       conversation: input.conversation,
-      message: input.message
+      message: input.routing.bookingMessage ?? input.message
     })
 
     await this.updateConversation(input.phone, {
@@ -340,7 +399,7 @@ export class ConversationService {
     })
 
     return {
-      reply: result.reply,
+      reply: informationReply ? `${informationReply}\n\n${result.reply}` : result.reply,
       skipMisunderstandingTracking: true,
       skipHumanize: true
     }
@@ -907,19 +966,38 @@ function stepForBookingV2Field(field: BookingField) {
   return 'ASK_TIME'
 }
 
-function isPositiveConfirmation(message: string) {
-  return [
+export function isPositiveBookingV2Confirmation(message: string) {
+  const normalizedMessage = normalizeText(message)
+  const exactConfirmations = [
     'si',
-    'sí',
     'dale',
     'ok',
+    'okey',
     'okay',
     'correcto',
     'confirmo',
+    'confirmar',
+    'confirmalo',
     'esta bien',
-    'está bien',
-    'exacto'
-  ].includes(normalizeText(message))
+    'exacto',
+    'listo',
+    'perfecto',
+    'quedamos asi',
+    'asi esta bien',
+    'okey perfecto quedamos asi'
+  ]
+
+  if (exactConfirmations.includes(normalizedMessage)) return true
+  return /\b(confirmo|confirmar|confirmalo)\b/.test(normalizedMessage)
+}
+
+function isActiveBookingV2Step(currentStep: string) {
+  return currentStep === 'ASK_CUSTOMER_NAME' ||
+    currentStep === 'ASK_SERVICE' ||
+    currentStep === 'ASK_PROFESSIONAL' ||
+    currentStep === 'ASK_DATE' ||
+    currentStep === 'ASK_TIME' ||
+    currentStep === 'CONFIRM'
 }
 
 function formatDateForBookingV2(value: string) {

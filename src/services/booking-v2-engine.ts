@@ -96,6 +96,18 @@ export class BookingV2Engine {
     )
   }
 
+  async resume(input: Omit<BookingV2ProcessInput, 'message'>): Promise<BookingV2ProcessResult> {
+    const state = stateFromConversation(input.conversation)
+    const catalog = await this.domain.loadCatalog(input.businessId)
+
+    return this.fromInterpretation({
+      state,
+      nextField: nextMissingField(state.draft),
+      outcome: 'no_change',
+      affectedField: null
+    }, null, catalog)
+  }
+
   private async fromState(
     state: BookingV2State,
     outcome: BookingV2ProcessResult['outcome'],

@@ -23,6 +23,14 @@ import { BookingV2Engine } from '../src/services/booking-v2-engine.js'
 import type { BookingV2Catalog } from '../src/services/booking-v2-interpreter.js'
 import type { BookingV2CatalogOption } from '../src/services/booking-v2-extractor.js'
 import { renderBookingV2Response } from '../src/services/booking-v2-response-renderer.js'
+import {
+  businessInformationTopicsFromRouting,
+  deterministicConversationRouting,
+  mergeConversationRouting,
+  normalizeConversationRouting
+} from '../src/services/conversation-router.js'
+import { renderBusinessKnowledgeAnswers } from '../src/services/business-knowledge-service.js'
+import { isPositiveBookingV2Confirmation } from '../src/services/conversation-service.js'
 
 const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
   {
@@ -577,6 +585,168 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       })
 
       assert.equal(reply, 'Disculpame, no te entendí bien. ¿Qué servicio querés reservar?')
+    }
+  },
+  {
+    name: 'router conserva multiples intenciones informativas',
+    run: () => {
+      const routing = normalizeConversationRouting({
+        intents: [
+          {
+            type: 'business_information',
+            topic: 'opening_hours',
+            confidence: 0.96,
+            evidence: 'a que hora abren'
+          },
+          {
+            type: 'business_information',
+            topic: 'address',
+            confidence: 0.91,
+            evidence: 'donde quedan'
+          },
+          {
+            type: 'book_appointment',
+            topic: null,
+            confidence: 0.94,
+            evidence: 'quiero un corte'
+          }
+        ],
+        bookingMessage: 'quiero un corte manana'
+      })
+
+      assert.deepEqual(
+        routing.intents.map((intent) => [intent.type, intent.topic]),
+        [
+          ['business_information', 'opening_hours'],
+          ['business_information', 'address'],
+          ['book_appointment', null]
+        ]
+      )
+      assert.equal(routing.bookingMessage, 'quiero un corte manana')
+    }
+  },
+  {
+    name: 'confirmacion critica requiere evidencia determinista explicita',
+    run: () => {
+      assert.equal(isPositiveBookingV2Confirmation('okey perfecto quedamos asi'), true)
+      assert.equal(isPositiveBookingV2Confirmation('si confirmo y pasame la direccion'), true)
+      assert.equal(isPositiveBookingV2Confirmation('pasame la direccion'), false)
+      assert.equal(isPositiveBookingV2Confirmation('creo que podria estar bien'), false)
+    }
+  },
+  {
+    name: 'router determinista entiende consultas del local y mensajes mixtos',
+    run: () => {
+      const routing = deterministicConversationRouting(
+        'A que hora abren y donde quedan? Tambien quiero reservar un corte manana.'
+      )
+
+      assert.deepEqual(
+        businessInformationTopicsFromRouting(routing),
+        ['opening_hours', 'address']
+      )
+      assert.equal(routing.bookingMessage?.includes('quiero reservar un corte'), true)
+    }
+  },
+  {
+    name: 'router completa una parte de reserva omitida por la IA',
+    run: () => {
+      const message = 'A que hora abren manana y quiero un corte despues de las 18?'
+      const aiRouting = normalizeConversationRouting({
+        intents: [
+          {
+            type: 'business_information',
+            topic: 'opening_hours',
+            confidence: 0.9,
+            evidence: 'a que hora abren'
+          },
+          {
+            type: 'availability_preference',
+            topic: null,
+            confidence: 0.8,
+            evidence: 'despues de las 18'
+          }
+        ],
+        bookingMessage: null
+      })
+
+      const merged = mergeConversationRouting(
+        aiRouting,
+        deterministicConversationRouting(message),
+        message
+      )
+
+      assert.equal(merged.bookingMessage, message)
+      assert.deepEqual(
+        merged.intents.map((intent) => intent.type),
+        ['business_information', 'availability_preference']
+      )
+    }
+  },
+  {
+    name: 'conocimiento del negocio responde solo con datos cargados',
+    run: () => {
+      const replies = renderBusinessKnowledgeAnswers({
+        name: 'Salon Demo',
+        slug: 'salon-demo',
+        landingEnabled: true,
+        publicWhatsapp: '1155555555',
+        contactEmail: null,
+        publicAddress: 'Av. Siempre Viva 123',
+        publicAddressArea: 'Palermo',
+        publicMapsUrl: 'https://maps.example/demo',
+        instagramUrl: 'https://instagram.com/salon-demo',
+        facebookUrl: null,
+        businessHours: [
+          { dayOfWeek: 1, startTime: '09:00', endTime: '18:00' },
+          { dayOfWeek: 6, startTime: '10:00', endTime: '14:00' }
+        ],
+        services: [
+          { name: 'Corte', duration: 30, price: 15000 }
+        ]
+      }, ['opening_hours', 'address', 'website', 'booking_channels', 'email', 'prices'], 'example.com')
+
+      assert.equal(replies[0]?.includes('Lunes: 09:00 a 18:00'), true)
+      assert.equal(replies[1]?.includes('Av. Siempre Viva 123, Palermo'), true)
+      assert.equal(replies[2], 'La página de Salon Demo es https://salon-demo.example.com')
+      assert.equal(replies[3], 'Podés reservar por este chat o desde https://salon-demo.example.com/reservar')
+      assert.equal(replies[4]?.includes('No tengo el email'), true)
+      assert.equal(replies[5]?.includes('Corte (30 min)'), true)
+      assert.equal(replies[5]?.includes('15.000'), true)
+    }
+  },
+  {
+    name: 'motor puede retomar sin consumir extractor ni modificar borrador',
+    run: async () => {
+      const extractor = fakeExtractor(null)
+      const engine = new BookingV2Engine(fakeDomainPort(), extractor)
+      const conversation = {
+        selectedCustomerName: 'Juan',
+        selectedServiceId: 'haircut',
+        selectedProfessionalId: null,
+        selectedDate: null,
+        selectedTime: null,
+        misunderstandingCount: 0,
+        bookingV2State: null
+      }
+
+      const result = await engine.resume({
+        businessId: 'business-1',
+        conversation
+      })
+
+      assert.equal(result.plan.type, 'ask_field')
+      assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'professional')
+      assert.deepEqual(result.conversationPatch, {
+        selectedCustomerName: 'Juan',
+        selectedServiceId: 'haircut',
+        selectedProfessionalId: null,
+        selectedDate: null,
+        selectedTime: null,
+        misunderstandingCount: 0,
+        bookingV2State: null
+      })
+      assert.equal(extractor.calls.length, 0)
     }
   }
 ]
