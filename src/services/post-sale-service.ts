@@ -5,6 +5,7 @@ import { RecordCommunicationAttempt } from '../application/communications/record
 import { PrismaCommunicationAttemptRepository } from '../infrastructure/communications/prisma-communication-attempt-repository.js'
 import { CommunicationService } from '../application/communications/communication-service.js'
 import { PrismaCommunicationRepository } from '../infrastructure/communications/prisma-communication-repository.js'
+import { assertPostSaleManualTransition, canAutomaticPostSaleSend, type PostSaleManualStatus } from '../domain/communications/post-sale.js'
 
 const whatsappCloudApi = new WhatsAppCloudApi()
 const recordCommunicationAttempt = new RecordCommunicationAttempt(new PrismaCommunicationAttemptRepository())
@@ -13,38 +14,27 @@ const POST_SALE_LOOKBACK_DAYS = 8
 
 type ConversationIdRow = { id: string }
 
-export async function processDuePostSales(input: { businessId?: string; limit?: number } = {}) {
+export async function prepareDuePostSales(input: { businessId?: string; limit?: number } = {}) {
   const now = new Date()
   const limit = Math.max(1, Math.min(100, input.limit ?? 25))
-  await prisma.postSaleDelivery.updateMany({
-    where: {
-      ...(input.businessId ? { businessId: input.businessId } : {}),
-      status: 'SENT',
-      responseExpiresAt: { lt: now }
-    },
-    data: { status: 'EXPIRED' }
-  })
   const automations = await prisma.postSaleAutomation.findMany({
     where: {
-      enabled: true,
       ...(input.businessId ? { businessId: input.businessId } : {}),
-      template: { status: 'APPROVED', category: 'UTILITY' }
+      mode: { in: ['MANUAL_ASSISTED', 'AUTOMATIC_API'] }
     },
     include: { template: true }
   })
 
-  let sent = 0
+  let prepared = 0
   let failed = 0
   let skipped = 0
 
   for (const automation of automations) {
-    if (sent + failed >= limit || !automation.template) break
-    const gate = await assertBusinessCanSendWhatsApp(automation.businessId, 'REMINDER')
-    if (!gate.allowed) {
+    if (prepared + failed >= limit) break
+    if (!automation.template) {
       skipped += 1
       continue
     }
-
     const appointments = await prisma.appointment.findMany({
       where: {
         professional: { businessId: automation.businessId },
@@ -71,7 +61,7 @@ export async function processDuePostSales(input: { businessId?: string; limit?: 
     }
 
     for (const appointment of lastAppointmentByVisit.values()) {
-      if (sent + failed >= limit) break
+      if (prepared + failed >= limit) break
       const visitDate = localDateKey(appointment.startAt)
       const scheduledFor = new Date(
         appointment.startAt.getTime() +
@@ -99,20 +89,129 @@ export async function processDuePostSales(input: { businessId?: string; limit?: 
           customerId: appointment.customerId,
           visitDate,
           scheduledFor,
+          mode: automation.mode === 'MANUAL_ASSISTED' ? 'WHATSAPP_MANUAL' : 'WHATSAPP_API',
           error: 'Faltan variables: ' + resolved.missing.join(', ')
         })
         failed += 1
         continue
       }
+      const deliveryData = {
+        automationId: automation.id,
+        appointmentId: appointment.id,
+        mode: automation.mode === 'MANUAL_ASSISTED' ? 'WHATSAPP_MANUAL' : 'WHATSAPP_API',
+        status: 'PENDING',
+        messageSnapshot: resolved.previewText,
+        scheduledFor,
+        lastError: null
+      }
+      if (existing) {
+        const refreshed = await prisma.postSaleDelivery.updateMany({
+          where: { id: existing.id, status: 'FAILED' },
+          data: deliveryData
+        })
+        prepared += refreshed.count
+      } else {
+        const created = await prisma.postSaleDelivery.createMany({
+          data: [{
+            businessId: automation.businessId,
+            customerId: appointment.customerId,
+            visitDate,
+            ...deliveryData
+          }],
+          skipDuplicates: true
+        })
+        prepared += created.count
+      }
+    }
+  }
 
+  return { prepared, failed, skipped, total: prepared + failed }
+}
+
+export async function processDuePostSales(input: { businessId?: string; limit?: number } = {}) {
+  const now = new Date()
+  const limit = Math.max(1, Math.min(100, input.limit ?? 25))
+  await prisma.postSaleDelivery.updateMany({
+    where: {
+      ...(input.businessId ? { businessId: input.businessId } : {}),
+      status: 'PROCESSING',
+      updatedAt: { lt: new Date(now.getTime() - 10 * 60_000) }
+    },
+    data: { status: 'FAILED', lastError: 'El procesamiento anterior se interrumpi\u00f3. Se reintentar\u00e1.' }
+  })
+  await prisma.postSaleDelivery.updateMany({
+    where: {
+      ...(input.businessId ? { businessId: input.businessId } : {}),
+      mode: 'WHATSAPP_API',
+      status: 'SENT',
+      responseExpiresAt: { lt: now }
+    },
+    data: { status: 'EXPIRED' }
+  })
+  const preparation = await prepareDuePostSales(input)
+  const automations = await prisma.postSaleAutomation.findMany({
+    where: {
+      ...(input.businessId ? { businessId: input.businessId } : {}),
+      mode: 'AUTOMATIC_API',
+      template: { status: 'APPROVED', category: 'UTILITY' }
+    },
+    include: { template: true }
+  })
+  let sent = 0
+  let failed = 0
+  let skipped = preparation.skipped
+
+  for (const automation of automations) {
+    if (sent + failed >= limit || !automation.template) break
+    const gate = await assertBusinessCanSendWhatsApp(automation.businessId, 'REMINDER')
+    if (!gate.allowed) {
+      skipped += 1
+      continue
+    }
+    const deliveries = await prisma.postSaleDelivery.findMany({
+      where: {
+        automationId: automation.id,
+        status: { in: ['PENDING', 'FAILED'] },
+        scheduledFor: { lte: now }
+      },
+      include: {
+        customer: { select: { id: true, name: true, phone: true } },
+        appointment: {
+          include: {
+            customer: { select: { id: true, name: true, phone: true } },
+            service: { select: { id: true, name: true, duration: true } },
+            professional: { select: { id: true, name: true } }
+          }
+        }
+      },
+      orderBy: { scheduledFor: 'asc' },
+      take: limit - sent - failed
+    })
+
+    for (const delivery of deliveries) {
+      if (!canAutomaticPostSaleSend(delivery.status)) continue
+      const claim = await prisma.postSaleDelivery.updateMany({
+        where: { id: delivery.id, status: { in: ['PENDING', 'FAILED'] } },
+        data: { status: 'PROCESSING', mode: 'WHATSAPP_API', lastError: null }
+      })
+      if (!claim.count) continue
+      const resolved = resolvePostSaleTemplate(automation.template.body, delivery.appointment)
+      if (resolved.missing.length) {
+        await prisma.postSaleDelivery.update({
+          where: { id: delivery.id },
+          data: { status: 'FAILED', lastError: 'Faltan variables: ' + resolved.missing.join(', ') }
+        })
+        failed += 1
+        continue
+      }
       const conversationId = await findOrCreateConversation({
         businessId: automation.businessId,
-        phone: appointment.customer.phone,
+        phone: delivery.customer.phone,
         preview: resolved.previewText
       })
       const result = await whatsappCloudApi.sendTemplateMessage({
         businessId: automation.businessId,
-        to: appointment.customer.phone,
+        to: delivery.customer.phone,
         templateName: automation.template.metaName,
         languageCode: automation.template.language,
         bodyParameters: resolved.bodyParameters,
@@ -125,46 +224,24 @@ export async function processDuePostSales(input: { businessId?: string; limit?: 
         : ('errorMessage' in result ? result.errorMessage : undefined) ||
           ('reason' in result ? result.reason : undefined) ||
           'No se pudo enviar la postventa'
-      const delivery = await prisma.postSaleDelivery.upsert({
-        where: {
-          businessId_customerId_visitDate: {
-            businessId: automation.businessId,
-            customerId: appointment.customerId,
-            visitDate
-          }
-        },
-        create: {
-          businessId: automation.businessId,
-          automationId: automation.id,
-          appointmentId: appointment.id,
-          customerId: appointment.customerId,
-          conversationId,
-          visitDate,
-          status,
-          providerMessageId: result.sent ? extractProviderMessageId(result.response) : null,
-          lastError,
-          scheduledFor,
-          sentAt,
-          responseExpiresAt: result.sent ? addDays(sentAt, automation.responseWindowDays) : null
-        },
-        update: {
-          automationId: automation.id,
-          appointmentId: appointment.id,
+      const updated = await prisma.postSaleDelivery.update({
+        where: { id: delivery.id },
+        data: {
+          mode: 'WHATSAPP_API',
           conversationId,
           status,
+          messageSnapshot: resolved.previewText,
           providerMessageId: result.sent ? extractProviderMessageId(result.response) : null,
           lastError,
-          scheduledFor,
           sentAt,
           responseExpiresAt: result.sent ? addDays(sentAt, automation.responseWindowDays) : null
         }
       })
-
       await recordCommunicationAttempt.execute({
         businessId: automation.businessId,
-        customerId: appointment.customer.id,
-        customerName: appointment.customer.name,
-        phone: appointment.customer.phone,
+        customerId: delivery.customer.id,
+        customerName: delivery.customer.name,
+        phone: delivery.customer.phone,
         message: resolved.previewText,
         sourceType: 'POST_SALE',
         sourceId: automation.id,
@@ -172,18 +249,17 @@ export async function processDuePostSales(input: { businessId?: string; limit?: 
         purpose: 'FOLLOW_UP',
         mode: 'WHATSAPP_API',
         status,
-        providerMessageId: delivery.providerMessageId,
+        providerMessageId: updated.providerMessageId,
         failureReason: lastError,
         occurredAt: sentAt,
-        metadata: { appointmentId: appointment.id, visitDate }
+        metadata: { appointmentId: delivery.appointmentId, visitDate: delivery.visitDate }
       })
-
       if (result.sent) {
         await recordPostSaleOutboundMessage({
           conversationId,
-          phone: appointment.customer.phone,
+          phone: delivery.customer.phone,
           text: resolved.previewText,
-          providerMessageId: delivery.providerMessageId
+          providerMessageId: updated.providerMessageId
         })
         sent += 1
       } else {
@@ -191,8 +267,69 @@ export async function processDuePostSales(input: { businessId?: string; limit?: 
       }
     }
   }
+  return {
+    prepared: preparation.prepared,
+    preparationFailed: preparation.failed,
+    sent,
+    failed,
+    skipped,
+    total: preparation.prepared + sent + failed + preparation.failed
+  }
+}
 
-  return { sent, failed, skipped, total: sent + failed }
+export async function transitionManualPostSale(input: {
+  businessId: string
+  deliveryId: string
+  status: PostSaleManualStatus
+  note?: string | null
+}) {
+  const delivery = await prisma.postSaleDelivery.findFirst({
+    where: { id: input.deliveryId, businessId: input.businessId },
+    include: {
+      customer: { select: { id: true, name: true, phone: true } },
+      automation: { select: { mode: true } }
+    }
+  })
+  if (!delivery) throw new Error('No encontr\u00e9 ese seguimiento de postventa')
+  if (delivery.mode !== 'WHATSAPP_MANUAL' && delivery.automation?.mode !== 'MANUAL_ASSISTED') {
+    throw new Error('Este seguimiento est\u00e1 configurado para env\u00edo autom\u00e1tico')
+  }
+  assertPostSaleManualTransition(delivery.status, input.status)
+  const now = new Date()
+  const transition = await prisma.postSaleDelivery.updateMany({
+    where: { id: delivery.id, status: delivery.status },
+    data: {
+      status: input.status,
+      mode: input.status === 'PENDING' ? delivery.mode : 'WHATSAPP_MANUAL',
+      manualNote: input.note?.trim().slice(0, 500) || null,
+      ...(input.status === 'OPENED' ? { openedAt: now } : {}),
+      ...(input.status === 'SENT' ? { sentAt: now } : {}),
+      ...(input.status === 'SKIPPED' ? { skippedAt: now } : {}),
+      ...(input.status === 'RESPONDED' ? { respondedAt: now } : {}),
+      ...(input.status === 'RESOLVED' ? { resolvedAt: now } : {}),
+      ...(input.status === 'PENDING' ? { lastError: null } : {})
+    }
+  })
+  if (!transition.count) throw new Error('El seguimiento cambi\u00f3 mientras lo estabas gestionando. Actualiz\u00e1 la lista.')
+  const updated = await prisma.postSaleDelivery.findUniqueOrThrow({ where: { id: delivery.id } })
+  if (input.status === 'SENT') {
+    await recordCommunicationAttempt.execute({
+      businessId: delivery.businessId,
+      customerId: delivery.customer.id,
+      customerName: delivery.customer.name,
+      phone: delivery.customer.phone,
+      message: delivery.messageSnapshot || 'Seguimiento postventa',
+      sourceType: 'POST_SALE',
+      sourceId: delivery.automationId || delivery.id,
+      sourceDeliveryId: delivery.id,
+      purpose: 'FOLLOW_UP',
+      mode: 'WHATSAPP_MANUAL',
+      status: 'SENT',
+      occurredAt: now,
+      metadata: { appointmentId: delivery.appointmentId, visitDate: delivery.visitDate }
+    })
+  }
+  return updated
 }
 
 export async function capturePostSaleResponse(input: {
@@ -206,6 +343,7 @@ export async function capturePostSaleResponse(input: {
     where: {
       conversationId: input.conversationId,
       ...(input.businessId ? { businessId: input.businessId } : {}),
+      mode: 'WHATSAPP_API',
       status: { in: ['SENT', 'RESPONDED'] },
       responseExpiresAt: { gte: now }
     },
@@ -320,6 +458,7 @@ async function saveFailedDelivery(input: {
   customerId: string
   visitDate: string
   scheduledFor: Date
+  mode: string
   error: string
 }) {
   const { error, ...delivery } = input
@@ -332,7 +471,7 @@ async function saveFailedDelivery(input: {
       }
     },
     create: { ...delivery, status: 'FAILED', lastError: error },
-    update: { status: 'FAILED', lastError: error, scheduledFor: input.scheduledFor }
+    update: { status: 'FAILED', mode: input.mode, lastError: error, scheduledFor: input.scheduledFor }
   })
 }
 
@@ -354,7 +493,8 @@ function resolvePostSaleTemplate(
     fecha_turno: formatDate(appointment.startAt),
     hora_turno: formatTime(appointment.startAt),
     servicio: appointment.service.name,
-    profesional: appointment.professional.name
+    profesional: appointment.professional.name,
+    fecha_ultima_visita: formatDate(appointment.startAt)
   }
   const missing = variables.filter((variable) => !values[variable])
   return {

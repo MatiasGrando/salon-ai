@@ -644,6 +644,7 @@ model PostSaleAutomation {
   businessId String @unique
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   enabled Boolean @default(false)
+  mode String @default("PAUSED")
   delayMinutes Int @default(120)
   responseWindowDays Int @default(7)
   lowRatingThreshold Int @default(2)
@@ -659,6 +660,7 @@ model PostSaleAutomation {
   deliveries PostSaleDelivery[]
 
   @@index([enabled, businessId])
+  @@index([mode, businessId])
   @@index([templateId])
 }
 
@@ -677,10 +679,16 @@ model PostSaleDelivery {
   conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
   visitDate String
   status String @default("PENDING")
+  mode String @default("WHATSAPP_API")
+  messageSnapshot String?
   providerMessageId String?
   lastError String?
   scheduledFor DateTime
+  openedAt DateTime?
   sentAt DateTime?
+  skippedAt DateTime?
+  resolvedAt DateTime?
+  manualNote String?
   responseExpiresAt DateTime?
   respondedAt DateTime?
   rating Int?

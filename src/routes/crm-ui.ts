@@ -12159,7 +12159,7 @@ const crmHtml = `<!doctype html>
 
         <div class="template-manager reminder-manager" id="post-sale-manager" hidden>
           <section class="campaign-metrics" aria-label="Resumen de postventa">
-            <article class="campaign-metric"><div class="campaign-metric-icon green">&#10003;</div><div><strong id="post-sale-status">Pausada</strong><span>Automatizaci&oacute;n</span><small>Seguimiento luego del turno</small></div></article>
+            <article class="campaign-metric"><div class="campaign-metric-icon green">&#10003;</div><div><strong id="post-sale-status">Pausada</strong><span>Modo de trabajo</span><small id="post-sale-pending-copy">0 pendientes</small></div></article>
             <article class="campaign-metric"><div class="campaign-metric-icon violet">&#10148;</div><div><strong id="post-sale-sent">0</strong><span>Enviados</span><small>&Uacute;ltimos 30 registros</small></div></article>
             <article class="campaign-metric"><div class="campaign-metric-icon orange">&#128172;</div><div><strong id="post-sale-response-rate">0%</strong><span>Respondieron</span><small>Encuestas contestadas</small></div></article>
             <article class="campaign-metric"><div class="campaign-metric-icon blue">&#9733;</div><div><strong id="post-sale-rating">-</strong><span>Calificaci&oacute;n</span><small id="post-sale-negative">0 casos a revisar</small></div></article>
@@ -12169,9 +12169,14 @@ const crmHtml = `<!doctype html>
               <div class="campaign-list-toolbar"><div><strong>Configurar seguimiento</strong><p class="hint">Se env&iacute;a una sola encuesta por cliente y por d&iacute;a, cuando finaliza su &uacute;ltimo turno.</p></div></div>
               <div class="template-builder-card">
                 <div class="campaign-form-field full">
-                  <label for="post-sale-template">Plantilla aprobada de WhatsApp</label>
-                  <select id="post-sale-template"><option value="">Seleccionar plantilla aprobada</option></select>
-                  <p class="campaign-form-help">La plantilla debe pedir una calificaci&oacute;n del 1 al 5. Pod&eacute;s usar las variables del turno.</p>
+                  <label for="post-sale-mode">Modalidad de seguimiento</label>
+                  <select id="post-sale-mode"><option value="PAUSED">Pausado</option><option value="MANUAL_ASSISTED">Manual asistido</option><option value="AUTOMATIC_API">Autom&aacute;tico por API</option></select>
+                  <p class="campaign-form-help" id="post-sale-mode-help">Eleg&iacute; si quer&eacute;s preparar mensajes para enviarlos manualmente o automatizar todo por Meta.</p>
+                </div>
+                <div class="campaign-form-field full">
+                  <label for="post-sale-template" id="post-sale-template-label">Plantilla de postventa</label>
+                  <select id="post-sale-template"><option value="">Seleccionar plantilla</option></select>
+                  <p class="campaign-form-help" id="post-sale-template-help">La plantilla debe pedir una calificaci&oacute;n del 1 al 5. Pod&eacute;s usar las variables del turno.</p>
                 </div>
                 <div class="campaign-form-field full">
                   <label for="post-sale-delay">Enviar despu&eacute;s de finalizado el turno</label>
@@ -12181,16 +12186,13 @@ const crmHtml = `<!doctype html>
                 <div class="campaign-form-field full"><label for="post-sale-neutral">Respuesta para calificaci&oacute;n neutral (3)</label><textarea id="post-sale-neutral" rows="3"></textarea></div>
                 <div class="campaign-form-field full"><label for="post-sale-negative-response">Respuesta para calificaci&oacute;n baja (1 o 2)</label><textarea id="post-sale-negative-response" rows="3"></textarea><p class="campaign-form-help">Una calificaci&oacute;n baja pausa el bot y deja el chat para atenci&oacute;n humana.</p></div>
                 <div class="campaign-form-field full"><label for="post-sale-review-url">Enlace para dejar una rese&ntilde;a (opcional)</label><input id="post-sale-review-url" type="url" placeholder="https://..."><p class="campaign-form-help">Se agrega solamente a la respuesta de calificaciones 4 y 5.</p></div>
-                <label class="automation-control">
-                  <div class="automation-copy"><strong>Proceso postventa autom&aacute;tico</strong><span>Busca turnos ya finalizados, excepto ausentes o cancelados.</span><small id="post-sale-enabled-copy">Pausada</small></div>
-                  <input id="post-sale-enabled" type="checkbox"><span class="automation-switch" aria-hidden="true"></span>
-                </label>
+                <div class="campaign-rule-note">Se toma el &uacute;ltimo turno finalizado de cada cliente por d&iacute;a. Se excluyen solamente ausentes y cancelados.</div>
                 <p class="campaign-form-feedback" id="post-sale-feedback" role="status" aria-live="polite"></p>
                 <div class="dialog-actions"><button class="secondary" id="post-sale-process" type="button">Procesar pendientes</button><button class="primary" id="post-sale-save" type="button">Guardar configuraci&oacute;n</button></div>
               </div>
             </section>
             <aside class="campaign-detail-panel template-detail-panel" id="post-sale-history">
-              <div class="campaign-detail-empty"><div><strong>Historial de postventa</strong><br>Todav&iacute;a no hay encuestas enviadas.</div></div>
+              <div class="campaign-detail-empty"><div><strong>Seguimientos de postventa</strong><br>Todav&iacute;a no hay turnos listos para contactar.</div></div>
             </aside>
           </div>
         </div>
@@ -13563,14 +13565,17 @@ const crmHtml = `<!doctype html>
       postSaleResponseRate: document.getElementById('post-sale-response-rate'),
       postSaleRating: document.getElementById('post-sale-rating'),
       postSaleNegative: document.getElementById('post-sale-negative'),
+      postSalePendingCopy: document.getElementById('post-sale-pending-copy'),
+      postSaleMode: document.getElementById('post-sale-mode'),
+      postSaleModeHelp: document.getElementById('post-sale-mode-help'),
       postSaleTemplate: document.getElementById('post-sale-template'),
+      postSaleTemplateLabel: document.getElementById('post-sale-template-label'),
+      postSaleTemplateHelp: document.getElementById('post-sale-template-help'),
       postSaleDelay: document.getElementById('post-sale-delay'),
       postSalePositive: document.getElementById('post-sale-positive'),
       postSaleNeutral: document.getElementById('post-sale-neutral'),
       postSaleNegativeResponse: document.getElementById('post-sale-negative-response'),
       postSaleReviewUrl: document.getElementById('post-sale-review-url'),
-      postSaleEnabled: document.getElementById('post-sale-enabled'),
-      postSaleEnabledCopy: document.getElementById('post-sale-enabled-copy'),
       postSaleFeedback: document.getElementById('post-sale-feedback'),
       postSaleProcess: document.getElementById('post-sale-process'),
       postSaleSave: document.getElementById('post-sale-save'),
@@ -19839,7 +19844,29 @@ const crmHtml = `<!doctype html>
     }
 
     function postSaleStatusLabel(status) {
-      return { PENDING: 'Pendiente', SENT: 'Enviada', RESPONDED: 'Respondida', FAILED: 'Fallida', EXPIRED: 'Vencida' }[status] || status
+      return { PENDING: 'Pendiente', PROCESSING: 'Procesando', OPENED: 'WhatsApp abierto', SENT: 'Enviada', RESPONDED: 'Respondi\u00f3', RESOLVED: 'Resuelta', SKIPPED: 'Omitida', FAILED: 'Fallida', EXPIRED: 'Vencida' }[status] || status
+    }
+
+    function postSaleModeLabel(mode) {
+      return { PAUSED: 'Pausada', MANUAL_ASSISTED: 'Manual asistido', AUTOMATIC_API: 'Autom\u00e1tica' }[mode] || 'Pausada'
+    }
+
+    function renderPostSaleTemplateOptions(mode, selectedTemplateId) {
+      const automatic = mode === 'AUTOMATIC_API'
+      const templates = automatic
+        ? state.whatsappTemplates.filter((item) => item.status === 'APPROVED' && item.category === 'UTILITY')
+        : state.whatsappTemplates
+      els.postSaleTemplateLabel.textContent = automatic ? 'Plantilla aprobada de Recordatorio' : 'Plantilla interna de postventa'
+      els.postSaleTemplateHelp.textContent = automatic
+        ? 'Meta exige una plantilla de Recordatorio aprobada para iniciar el contacto por API.'
+        : 'Para el env\u00edo manual pod\u00e9s usar cualquier plantilla interna, sin aprobaci\u00f3n de Meta.'
+      els.postSaleModeHelp.textContent = mode === 'MANUAL_ASSISTED'
+        ? 'Se prepara el texto y abr\u00eds WhatsApp. Vos registr\u00e1s el env\u00edo y continu\u00e1s el seguimiento manualmente.'
+        : mode === 'AUTOMATIC_API'
+          ? 'La API env\u00eda la encuesta y el bot procesa la calificaci\u00f3n o deriva el chat cuando corresponde.'
+          : 'No se generan nuevos seguimientos ni se env\u00edan mensajes.'
+      els.postSaleTemplate.innerHTML = '<option value="">Seleccionar plantilla</option>' + templates.map((item) => '<option value="' + escapeHtml(item.id) + '">' + escapeHtml(item.internalName) + ' (' + escapeHtml(templateStatusLabel(item.status)) + ')</option>').join('')
+      els.postSaleTemplate.value = templates.some((item) => item.id === selectedTemplateId) ? selectedTemplateId : ''
     }
 
     function renderPostSaleSettings() {
@@ -19847,31 +19874,43 @@ const crmHtml = `<!doctype html>
       const settings = state.postSaleData.settings || {}
       const metrics = state.postSaleData.metrics || {}
       const deliveries = state.postSaleData.deliveries || []
-      const templates = state.whatsappTemplates.filter((item) => item.status === 'APPROVED' && item.category === 'UTILITY')
-      els.postSaleTemplate.innerHTML = '<option value="">Seleccionar plantilla aprobada</option>' + templates.map((item) => '<option value="' + escapeHtml(item.id) + '">' + escapeHtml(item.internalName) + ' (' + escapeHtml(templateCategoryLabel(item.category)) + ')</option>').join('')
-      els.postSaleTemplate.value = settings.templateId || ''
+      const mode = settings.mode || (settings.enabled ? 'AUTOMATIC_API' : 'PAUSED')
+      els.postSaleMode.value = mode
+      renderPostSaleTemplateOptions(mode, settings.templateId || '')
       els.postSaleDelay.value = String(settings.delayMinutes || 120)
       els.postSalePositive.value = settings.positiveResponse || ''
       els.postSaleNeutral.value = settings.neutralResponse || ''
       els.postSaleNegativeResponse.value = settings.negativeResponse || ''
       els.postSaleReviewUrl.value = settings.reviewUrl || ''
-      els.postSaleEnabled.checked = Boolean(settings.enabled)
-      els.postSaleEnabledCopy.textContent = settings.enabled ? 'Activa' : 'Pausada'
-      els.postSaleStatus.textContent = settings.enabled ? 'Activa' : 'Pausada'
+      els.postSaleStatus.textContent = postSaleModeLabel(mode)
+      els.postSalePendingCopy.textContent = String(metrics.pending || 0) + ((metrics.pending || 0) === 1 ? ' pendiente' : ' pendientes')
       els.postSaleSent.textContent = String(metrics.sent || 0)
       els.postSaleResponseRate.textContent = String(metrics.responseRate || 0) + '%'
       els.postSaleRating.textContent = metrics.averageRating === null || metrics.averageRating === undefined ? '-' : String(metrics.averageRating) + '/5'
       els.postSaleNegative.textContent = String(metrics.negative || 0) + ((metrics.negative || 0) === 1 ? ' caso a revisar' : ' casos a revisar')
-      els.postSaleProcess.disabled = !settings.enabled || !settings.templateId
-      els.postSaleHistory.innerHTML = '<div class="template-detail-head"><div><span class="campaign-badge automatic">Postventa</span><h3>Historial reciente</h3><p class="template-meta-line">Los &uacute;ltimos 30 seguimientos generados.</p></div></div>' + (deliveries.length
+      els.postSaleProcess.textContent = mode === 'MANUAL_ASSISTED' ? 'Actualizar pendientes' : 'Procesar pendientes'
+      els.postSaleProcess.disabled = mode === 'PAUSED' || !settings.templateId
+      els.postSaleHistory.innerHTML = '<div class="template-detail-head"><div><span class="campaign-badge automatic">Postventa</span><h3>Seguimientos</h3><p class="template-meta-line">Pendientes, env&iacute;os y respuestas recientes.</p></div></div>' + (deliveries.length
         ? '<div class="campaign-recipient-list">' + deliveries.map((delivery) => {
             const score = delivery.rating ? ' &middot; ' + delivery.rating + '/5 &#9733;' : ''
             const detail = [delivery.appointment?.service?.name, delivery.appointment?.professional?.name].filter(Boolean).join(' &middot; ')
             const error = delivery.lastError ? '<small class="campaign-form-feedback error">' + escapeHtml(delivery.lastError) + '</small>' : ''
             const comment = delivery.comment ? '<small>&ldquo;' + escapeHtml(delivery.comment) + '&rdquo;</small>' : ''
-            return '<div class="campaign-recipient-row"><div class="campaign-recipient-avatar">' + (delivery.rating || '&#9733;') + '</div><div class="campaign-recipient-copy"><strong>' + escapeHtml(delivery.customer?.name || 'Cliente') + '</strong><span>' + escapeHtml(detail || 'Servicio') + ' &middot; ' + escapeHtml(formatDateTime(delivery.appointment?.startAt)) + '</span>' + comment + error + '</div><span class="reminder-channel-chip">' + escapeHtml(postSaleStatusLabel(delivery.status)) + score + '</span></div>'
+            const canManagePending = mode === 'MANUAL_ASSISTED' || delivery.mode === 'WHATSAPP_MANUAL'
+            const openAction = delivery.whatsappUrl && delivery.status !== 'OPENED'
+              ? '<a class="manual-send-whatsapp" href="' + escapeHtml(delivery.whatsappUrl) + '" target="_blank" rel="noopener" data-post-sale-open data-post-sale-delivery-id="' + escapeHtml(delivery.id) + '">Abrir WhatsApp</a>'
+              : delivery.whatsappUrl ? '<a class="manual-send-whatsapp" href="' + escapeHtml(delivery.whatsappUrl) + '" target="_blank" rel="noopener">Volver a WhatsApp</a>' : ''
+            let actions = ''
+            if (canManagePending && ['PENDING', 'OPENED', 'FAILED'].includes(delivery.status)) {
+              actions = '<div class="manual-send-actions"><button class="campaign-outline-button" type="button" data-post-sale-action="SKIPPED" data-post-sale-delivery-id="' + escapeHtml(delivery.id) + '">Omitir</button>' + openAction + '<button class="campaigns-new" type="button" data-post-sale-action="SENT" data-post-sale-delivery-id="' + escapeHtml(delivery.id) + '">Marcar enviado</button></div>'
+            } else if (delivery.mode === 'WHATSAPP_MANUAL' && delivery.status === 'SENT') {
+              actions = '<div class="manual-send-actions"><button class="campaign-outline-button" type="button" data-post-sale-action="RESPONDED" data-post-sale-delivery-id="' + escapeHtml(delivery.id) + '">Marc\u00f3 respuesta</button><button class="campaigns-new" type="button" data-post-sale-action="RESOLVED" data-post-sale-delivery-id="' + escapeHtml(delivery.id) + '">Resolver</button></div>'
+            } else if (delivery.mode === 'WHATSAPP_MANUAL' && delivery.status === 'RESPONDED') {
+              actions = '<div class="manual-send-actions"><button class="campaigns-new" type="button" data-post-sale-action="RESOLVED" data-post-sale-delivery-id="' + escapeHtml(delivery.id) + '">Resolver</button></div>'
+            }
+            return '<div class="campaign-recipient-row"><div class="campaign-recipient-avatar">' + (delivery.rating || '&#9733;') + '</div><div class="campaign-recipient-copy"><strong>' + escapeHtml(delivery.customer?.name || 'Cliente') + '</strong><span>' + escapeHtml(detail || 'Servicio') + ' &middot; ' + escapeHtml(formatDateTime(delivery.appointment?.startAt)) + '</span>' + comment + error + actions + '</div><span class="reminder-channel-chip">' + escapeHtml(postSaleStatusLabel(delivery.status)) + score + '</span></div>'
           }).join('') + '</div>'
-        : '<div class="campaign-detail-empty"><div><strong>Sin env&iacute;os todav&iacute;a</strong><br>Al procesar turnos finalizados aparecer&aacute;n ac&aacute;.</div></div>')
+        : '<div class="campaign-detail-empty"><div><strong>Sin seguimientos todav&iacute;a</strong><br>Los turnos finalizados aparecer&aacute;n ac&aacute; cuando corresponda.</div></div>')
     }
 
     async function savePostSaleSettings() {
@@ -19883,7 +19922,7 @@ const crmHtml = `<!doctype html>
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             businessId: state.businessId,
-            enabled: els.postSaleEnabled.checked,
+            mode: els.postSaleMode.value,
             delayMinutes: Number(els.postSaleDelay.value),
             templateId: els.postSaleTemplate.value || null,
             positiveResponse: els.postSalePositive.value.trim(),
@@ -19914,16 +19953,35 @@ const crmHtml = `<!doctype html>
           body: JSON.stringify({ businessId: state.businessId, limit: 100 })
         })
         await loadPostSaleSettings()
-        els.postSaleFeedback.textContent = result.total
-          ? 'Procesado: ' + result.sent + ' enviados · ' + result.failed + ' fallidos.'
+        els.postSaleFeedback.textContent = result.total || result.prepared
+          ? 'Procesado: ' + (result.prepared || 0) + ' preparados · ' + result.sent + ' enviados · ' + result.failed + ' fallidos.'
           : 'No hay seguimientos pendientes en este momento.'
-        els.postSaleFeedback.className = result.failed ? 'campaign-form-feedback error' : 'campaign-form-feedback success'
+        els.postSaleFeedback.className = result.failed || result.preparationFailed ? 'campaign-form-feedback error' : 'campaign-form-feedback success'
       } catch (error) {
         els.postSaleFeedback.textContent = error.message
         els.postSaleFeedback.className = 'campaign-form-feedback error'
       } finally {
-        els.postSaleProcess.textContent = 'Procesar pendientes'
-        els.postSaleProcess.disabled = !state.postSaleData?.settings?.enabled || !state.postSaleData?.settings?.templateId
+        const mode = state.postSaleData?.settings?.mode || 'PAUSED'
+        els.postSaleProcess.textContent = mode === 'MANUAL_ASSISTED' ? 'Actualizar pendientes' : 'Procesar pendientes'
+        els.postSaleProcess.disabled = mode === 'PAUSED' || !state.postSaleData?.settings?.templateId
+      }
+    }
+
+    async function updateManualPostSale(deliveryId, status) {
+      for (const button of els.postSaleHistory.querySelectorAll('[data-post-sale-action]')) button.disabled = true
+      try {
+        await getJson('/post-sale/deliveries/' + deliveryId + '/manual-status', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ businessId: state.businessId, status })
+        })
+        await loadPostSaleSettings()
+        els.postSaleFeedback.textContent = status === 'SENT' ? 'Env\u00edo manual registrado. No se volver\u00e1 a enviar autom\u00e1ticamente.' : 'Seguimiento actualizado.'
+        els.postSaleFeedback.className = 'campaign-form-feedback success'
+      } catch (error) {
+        els.postSaleFeedback.textContent = error.message
+        els.postSaleFeedback.className = 'campaign-form-feedback error'
+        renderPostSaleSettings()
       }
     }
 
@@ -21794,9 +21852,21 @@ const crmHtml = `<!doctype html>
     els.reminderSave.addEventListener('click', saveReminderSettings)
     els.reminderDelete.addEventListener('click', deleteSelectedReminder)
     els.reminderProcess.addEventListener('click', processDueReminders)
-    els.postSaleEnabled.addEventListener('change', () => { els.postSaleEnabledCopy.textContent = els.postSaleEnabled.checked ? 'Activa' : 'Pausada' })
+    els.postSaleMode.addEventListener('change', () => {
+      renderPostSaleTemplateOptions(els.postSaleMode.value, els.postSaleTemplate.value)
+      els.postSaleStatus.textContent = postSaleModeLabel(els.postSaleMode.value)
+    })
     els.postSaleSave.addEventListener('click', savePostSaleSettings)
     els.postSaleProcess.addEventListener('click', processDuePostSalesFromCrm)
+    els.postSaleHistory.addEventListener('click', (event) => {
+      const open = event.target.closest('[data-post-sale-open]')
+      if (open) {
+        void updateManualPostSale(open.dataset.postSaleDeliveryId, 'OPENED')
+        return
+      }
+      const action = event.target.closest('[data-post-sale-action]')
+      if (action) void updateManualPostSale(action.dataset.postSaleDeliveryId, action.dataset.postSaleAction)
+    })
     els.templateDetailPanel.addEventListener('click', async (event) => {
       const button = event.target.closest('[data-template-action]')
       if (!button) return

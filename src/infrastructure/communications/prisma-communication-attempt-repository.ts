@@ -7,6 +7,10 @@ export class PrismaCommunicationAttemptRepository implements CommunicationAttemp
     await prisma.$transaction(async (tx) => {
       const existing = await tx.communicationRecipient.findUnique({ where: { sourceDeliveryId: input.sourceDeliveryId } })
       if (existing) {
+        await tx.communicationExecution.update({
+          where: { id: existing.executionId },
+          data: { mode: input.mode, status: 'COMPLETED', completedAt: input.occurredAt }
+        })
         await tx.communicationRecipient.update({
           where: { id: existing.id },
           data: {
