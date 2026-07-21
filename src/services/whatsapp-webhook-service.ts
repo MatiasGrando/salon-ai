@@ -160,6 +160,7 @@ export class WhatsAppWebhookService {
         }
       })
       await reopenClosedConversationOpportunity(conversation.id)
+      await linkInstagramReferral(message.text, conversation.id, conversation.businessId)
 
       const marketingOptOutApplied = await this.applyMarketingOptOut({
         businessId: conversation.businessId,
@@ -534,6 +535,20 @@ export class WhatsAppWebhookService {
 
     return business?.botEnabled ?? true
   }
+}
+
+async function linkInstagramReferral(text: string, conversationId: string, businessId?: string | null) {
+  const referralCode = text.match(/\bIG-[A-F0-9]{8}\b/i)?.[0]?.toUpperCase()
+  if (!referralCode) return
+  const lead = await prisma.instagramLead.findUnique({ where: { referralCode } })
+  if (!lead || (businessId && lead.businessId !== businessId)) return
+  await prisma.instagramLead.update({
+    where: { id: lead.id },
+    data: {
+      whatsappConversationId: conversationId,
+      whatsappLinkedAt: new Date()
+    }
+  })
 }
 
 function isMarketingOptOutMessage(text: string) {

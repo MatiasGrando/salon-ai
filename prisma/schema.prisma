@@ -103,6 +103,7 @@ model Business {
   botEnabled    Boolean        @default(true)
   aiEnabled     Boolean        @default(true)
   whatsappConfig BusinessWhatsAppConfig?
+  instagramConfig BusinessInstagramConfig?
   featureSettings BusinessFeatureSettings?
 
   professionals Professional[]
@@ -110,6 +111,7 @@ model Business {
   businessHours BusinessHours[]
   scheduleBlocks ScheduleBlock[]
   conversations Conversation[]
+  instagramLeads InstagramLead[]
   campaigns     Campaign[]
   whatsappTemplates WhatsAppTemplate[]
   marketingPreferences CustomerMarketingPreference[]
@@ -189,6 +191,64 @@ model BusinessWhatsAppConfig {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model BusinessInstagramConfig {
+  id String @id @default(cuid())
+
+  businessId String @unique
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  instagramAccountId String @unique
+  username String?
+  accessToken String?
+  tokenExpiresAt DateTime?
+  enabled Boolean @default(true)
+  connectedAt DateTime?
+  lastError String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model InstagramLead {
+  id String @id @default(cuid())
+
+  businessId String
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  instagramUserId String
+  username String?
+  displayName String?
+  referralCode String @unique
+  lastMessage String?
+  lastAutoReplyAt DateTime?
+  whatsappConversationId String? @unique
+  whatsappConversation Conversation? @relation(fields: [whatsappConversationId], references: [id], onDelete: SetNull)
+  whatsappLinkedAt DateTime?
+
+  messages InstagramMessage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([businessId, instagramUserId])
+  @@index([businessId, updatedAt])
+}
+
+model InstagramMessage {
+  id String @id @default(cuid())
+
+  leadId String
+  lead InstagramLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  providerMessageId String? @unique
+  direction MessageDirection
+  body String
+  status String?
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([leadId, createdAt])
 }
 
 model BusinessFeatureSettings {
@@ -450,6 +510,7 @@ model Conversation {
   messages Message[]
   opportunityEvents ConversationOpportunityEvent[]
   postSaleDeliveries PostSaleDelivery[]
+  instagramLead InstagramLead?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

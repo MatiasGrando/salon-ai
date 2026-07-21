@@ -73,6 +73,7 @@ function isPublicRoute(request: FastifyRequest) {
     || isPublicLandingRoute(request.method, path)
     || path.startsWith('/auth/')
     || path.startsWith('/webhooks/whatsapp')
+    || path.startsWith('/webhooks/instagram')
 }
 
 const internalRouteRoots = new Set([

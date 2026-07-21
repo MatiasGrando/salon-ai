@@ -16,6 +16,8 @@ import { publicBookingRoutes } from './routes/public-booking.js'
 import { weexAccountRoutes } from './routes/weex-account.js'
 import { scheduleBlockRoutes } from './routes/schedule-block.js'
 import { whatsappWebhookRoutes } from './routes/whatsapp-webhook.js'
+import { instagramWebhookRoutes } from './routes/instagram-webhook.js'
+import { instagramSettingsRoutes } from './routes/instagram-settings.js'
 import { campaignRoutes } from './routes/campaign.js'
 import { reportRoutes } from './routes/report.js'
 import { authRoutes } from './routes/auth.js'
@@ -40,8 +42,10 @@ await app.register(landingUiRoutes)
 await app.register(publicBookingRoutes)
 await app.register(weexAccountRoutes)
 await app.register(whatsappWebhookRoutes)
+await app.register(instagramWebhookRoutes)
 await authGuard(app)
 await app.register(businessRoutes)
+await app.register(instagramSettingsRoutes)
 await app.register(professionalRoutes)
 await app.register(serviceRoutes)
 await app.register(customerRoutes)

@@ -12577,6 +12577,61 @@ const crmHtml = `<!doctype html>
             </form>
             <p class="settings-feedback" id="whatsapp-settings-feedback" role="status" aria-live="polite"></p>
           </div>
+
+          <h3 style="margin-top:32px">Instagram del comercio</h3>
+          <p>Conect&aacute; la cuenta profesional para recibir mensajes y derivar las reservas al WhatsApp p&uacute;blico del comercio.</p>
+          <div class="whatsapp-settings-grid">
+            <div class="whatsapp-status-card">
+              <div>
+                <strong id="instagram-settings-title">Instagram no conectado</strong>
+                <span id="instagram-settings-copy">Carg&aacute; el Instagram Account ID y el token generado en Meta.</span>
+              </div>
+              <div class="whatsapp-status-badge" id="instagram-settings-badge">Pendiente</div>
+            </div>
+            <label class="automation-control">
+              <div class="automation-copy">
+                <strong>Bot de Instagram</strong>
+                <span>Responde una vez por contacto y lo deriva a WhatsApp con un c&oacute;digo de seguimiento.</span>
+                <small id="instagram-enabled-status">Desactivado</small>
+              </div>
+              <input id="instagram-enabled-toggle" type="checkbox">
+              <span class="automation-switch" aria-hidden="true"></span>
+            </label>
+            <form class="whatsapp-technical-form" id="instagram-technical-form">
+              <h4>Datos manuales de conexi&oacute;n</h4>
+              <div class="whatsapp-technical-grid">
+                <div class="settings-field">
+                  <label for="instagram-account-id">Instagram Account ID</label>
+                  <input class="field" id="instagram-account-id" autocomplete="off" inputmode="numeric">
+                </div>
+                <div class="settings-field">
+                  <label for="instagram-username">Usuario</label>
+                  <input class="field" id="instagram-username" autocomplete="off" placeholder="usuario sin @">
+                </div>
+                <div class="settings-field">
+                  <label for="instagram-token-expires">Vencimiento del token</label>
+                  <input class="field" id="instagram-token-expires" type="datetime-local">
+                </div>
+                <div class="settings-field full">
+                  <label for="instagram-access-token">Token de acceso</label>
+                  <input class="field" id="instagram-access-token" type="password" autocomplete="off" placeholder="Pegar solo para conectar o actualizar">
+                </div>
+                <div class="settings-field full">
+                  <label for="instagram-webhook-url">URL de devoluci&oacute;n de llamada</label>
+                  <input class="field" id="instagram-webhook-url" readonly>
+                </div>
+                <div class="settings-field full">
+                  <label for="instagram-verify-token">Token de verificaci&oacute;n</label>
+                  <input class="field" id="instagram-verify-token" readonly>
+                </div>
+              </div>
+              <div class="settings-actions">
+                <button class="secondary" id="instagram-technical-submit" type="submit">Guardar conexi&oacute;n</button>
+                <button class="secondary" id="instagram-test-button" type="button">Probar token</button>
+              </div>
+            </form>
+            <p class="settings-feedback" id="instagram-settings-feedback" role="status" aria-live="polite"></p>
+          </div>
         </section>
 
       </div>
@@ -13255,6 +13310,7 @@ const crmHtml = `<!doctype html>
       business: null,
       businessHours: [],
       whatsappSettings: null,
+      instagramSettings: null,
       whatsappEmbeddedSignupSession: {},
       whatsappEmbeddedSignupPayloadKeys: [],
       whatsappMetaMessagesSeen: [],
@@ -13370,6 +13426,21 @@ const crmHtml = `<!doctype html>
       whatsappTokenExpires: document.getElementById('whatsapp-token-expires'),
       whatsappAccessToken: document.getElementById('whatsapp-access-token'),
       whatsappTechnicalSubmit: document.getElementById('whatsapp-technical-submit'),
+      instagramSettingsTitle: document.getElementById('instagram-settings-title'),
+      instagramSettingsCopy: document.getElementById('instagram-settings-copy'),
+      instagramSettingsBadge: document.getElementById('instagram-settings-badge'),
+      instagramEnabledToggle: document.getElementById('instagram-enabled-toggle'),
+      instagramEnabledStatus: document.getElementById('instagram-enabled-status'),
+      instagramTechnicalForm: document.getElementById('instagram-technical-form'),
+      instagramAccountId: document.getElementById('instagram-account-id'),
+      instagramUsername: document.getElementById('instagram-username'),
+      instagramTokenExpires: document.getElementById('instagram-token-expires'),
+      instagramAccessToken: document.getElementById('instagram-access-token'),
+      instagramWebhookUrl: document.getElementById('instagram-webhook-url'),
+      instagramVerifyToken: document.getElementById('instagram-verify-token'),
+      instagramTechnicalSubmit: document.getElementById('instagram-technical-submit'),
+      instagramTestButton: document.getElementById('instagram-test-button'),
+      instagramSettingsFeedback: document.getElementById('instagram-settings-feedback'),
       staffAccountsPanel: document.getElementById('staff-accounts-panel'),
       staffUserForm: document.getElementById('staff-user-form'),
       staffUserId: document.getElementById('staff-user-id'),
@@ -14409,6 +14480,7 @@ const crmHtml = `<!doctype html>
       await loadBusinessScopedBasics()
       renderBusinessSettings()
       renderWhatsappSettings()
+      renderInstagramSettings()
       renderAuthUi()
       applyProfessionalBusinessHourLimits()
       renderAiControls()
@@ -14428,6 +14500,9 @@ const crmHtml = `<!doctype html>
         : []
       state.whatsappSettings = state.businessId
         ? await getJson('/businesses/' + state.businessId + '/whatsapp-settings')
+        : null
+      state.instagramSettings = state.businessId
+        ? await getJson('/businesses/' + state.businessId + '/instagram-settings')
         : null
       state.aiSettings = await getJson('/crm/ai-settings' + businessQuery)
       state.professionals = await getJson('/professionals' + businessQuery)
@@ -17105,6 +17180,116 @@ const crmHtml = `<!doctype html>
       await saveWhatsappSettingsPatch(payload, 'Conexion tecnica guardada.')
       els.whatsappTechnicalSubmit.disabled = false
       els.whatsappTechnicalSubmit.textContent = 'Guardar conexion'
+    }
+
+    function renderInstagramSettings() {
+      const settings = state.instagramSettings || {}
+      const connection = settings.connection || {}
+      const connected = Boolean(connection.connected)
+      const ready = connected && Boolean(settings.redirectReady)
+      els.instagramSettingsTitle.textContent = connected
+        ? 'Instagram conectado' + (connection.username ? ' · @' + connection.username : '')
+        : 'Instagram no conectado'
+      els.instagramSettingsCopy.textContent = connection.lastError
+        || (ready
+          ? 'La cuenta puede recibir mensajes y derivar reservas a WhatsApp.'
+          : connected
+            ? 'La cuenta esta conectada, pero falta cargar el WhatsApp publico del comercio.'
+            : 'Carga el Instagram Account ID y el token generado en Meta.')
+      els.instagramSettingsBadge.textContent = ready ? 'Listo' : connected ? 'Incompleto' : 'Pendiente'
+      els.instagramSettingsBadge.classList.toggle('connected', ready)
+      els.instagramEnabledToggle.checked = Boolean(settings.enabled)
+      els.instagramEnabledToggle.disabled = !connected
+      els.instagramEnabledStatus.textContent = settings.enabled ? 'Activo' : 'Desactivado'
+      els.instagramAccountId.value = connection.instagramAccountId || ''
+      els.instagramUsername.value = connection.username || ''
+      els.instagramTokenExpires.value = connection.tokenExpiresAt ? toDatetimeLocalValue(connection.tokenExpiresAt) : ''
+      els.instagramAccessToken.value = ''
+      els.instagramWebhookUrl.value = window.location.origin + (settings.webhook?.callbackPath || '/webhooks/instagram')
+      els.instagramVerifyToken.value = settings.webhook?.verifyToken || ''
+      els.instagramTestButton.disabled = !connected
+    }
+
+    function showInstagramSettingsFeedback(message, type) {
+      els.instagramSettingsFeedback.textContent = message
+      els.instagramSettingsFeedback.className = 'settings-feedback visible ' + type
+    }
+
+    function clearInstagramSettingsFeedback() {
+      els.instagramSettingsFeedback.textContent = ''
+      els.instagramSettingsFeedback.className = 'settings-feedback'
+    }
+
+    async function saveInstagramSettings(event) {
+      event.preventDefault()
+      if (!state.businessId) return
+      clearInstagramSettingsFeedback()
+      const payload = {
+        instagramAccountId: els.instagramAccountId.value.trim(),
+        username: els.instagramUsername.value.trim(),
+        tokenExpiresAt: els.instagramTokenExpires.value ? new Date(els.instagramTokenExpires.value).toISOString() : null,
+        enabled: els.instagramEnabledToggle.checked
+      }
+      const token = els.instagramAccessToken.value.trim()
+      if (token) payload.accessToken = token
+      if (!payload.instagramAccountId) {
+        showInstagramSettingsFeedback('Completa el Instagram Account ID.', 'error')
+        return
+      }
+      if (!token && !state.instagramSettings?.connection?.hasAccessToken) {
+        showInstagramSettingsFeedback('Pega el token de acceso generado en Meta.', 'error')
+        return
+      }
+      els.instagramTechnicalSubmit.disabled = true
+      els.instagramTechnicalSubmit.textContent = 'Validando...'
+      try {
+        state.instagramSettings = await getJson('/businesses/' + state.businessId + '/instagram-settings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        })
+        renderInstagramSettings()
+        showInstagramSettingsFeedback('Instagram conectado y token validado.', 'success')
+      } catch (error) {
+        renderInstagramSettings()
+        showInstagramSettingsFeedback(error.message, 'error')
+      } finally {
+        els.instagramTechnicalSubmit.disabled = false
+        els.instagramTechnicalSubmit.textContent = 'Guardar conexion'
+      }
+    }
+
+    async function toggleInstagramBot() {
+      if (!state.businessId || !state.instagramSettings?.connection?.connected) return
+      clearInstagramSettingsFeedback()
+      try {
+        state.instagramSettings = await getJson('/businesses/' + state.businessId + '/instagram-settings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: els.instagramEnabledToggle.checked })
+        })
+        renderInstagramSettings()
+        showInstagramSettingsFeedback(els.instagramEnabledToggle.checked ? 'Bot de Instagram activado.' : 'Bot de Instagram pausado.', 'success')
+      } catch (error) {
+        renderInstagramSettings()
+        showInstagramSettingsFeedback(error.message, 'error')
+      }
+    }
+
+    async function testInstagramConnection() {
+      if (!state.businessId) return
+      clearInstagramSettingsFeedback()
+      els.instagramTestButton.disabled = true
+      els.instagramTestButton.textContent = 'Probando...'
+      try {
+        const result = await getJson('/businesses/' + state.businessId + '/instagram-settings/test', { method: 'POST' })
+        showInstagramSettingsFeedback('Token valido para @' + (result.account?.username || 'la cuenta conectada') + '.', 'success')
+      } catch (error) {
+        showInstagramSettingsFeedback(error.message, 'error')
+      } finally {
+        els.instagramTestButton.disabled = false
+        els.instagramTestButton.textContent = 'Probar token'
+      }
     }
 
     async function loadFacebookSdk(apiVersion) {
@@ -22122,6 +22307,9 @@ const crmHtml = `<!doctype html>
     })
     els.whatsappTechnicalForm.addEventListener('submit', saveWhatsappTechnicalSettings)
     els.whatsappConnectButton.addEventListener('click', showWhatsappManualConnectionGuide)
+    els.instagramTechnicalForm.addEventListener('submit', saveInstagramSettings)
+    els.instagramEnabledToggle.addEventListener('change', toggleInstagramBot)
+    els.instagramTestButton.addEventListener('click', testInstagramConnection)
     els.realWhatsappToggle.addEventListener('change', () => {
       saveWhatsappSettingsPatch({
         realWhatsappEnabled: els.realWhatsappToggle.checked,
