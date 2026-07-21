@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
 import { prepareDuePostSales, processDuePostSales, transitionManualPostSale } from '../services/post-sale-service.js'
 import { buildManualWhatsAppUrl } from '../domain/communications/communication.js'
-import { isPostSaleTemplateEligible, normalizePostSaleMode, postSaleManualStatuses, postSaleModes } from '../domain/communications/post-sale.js'
+import { isPostSaleTemplateEligible, normalizePostSaleMode, partitionLatestPostSales, postSaleManualStatuses, postSaleModes } from '../domain/communications/post-sale.js'
 
 const DEFAULT_SETTINGS = {
   enabled: false,
@@ -47,10 +47,21 @@ export async function postSaleRoutes(app: FastifyInstance) {
     const sent = deliveries.filter((delivery) => ['SENT', 'RESPONDED', 'RESOLVED', 'EXPIRED'].includes(delivery.status)).length
     const responded = deliveries.filter((delivery) => delivery.status === 'RESPONDED').length
     const ratings = deliveries.flatMap((delivery) => delivery.rating === null ? [] : [delivery.rating])
+    const activePendingIds = new Set(partitionLatestPostSales(
+      deliveries
+        .filter((delivery) => ['PENDING', 'OPENED', 'FAILED', 'PROCESSING'].includes(delivery.status))
+        .map((delivery) => ({
+          id: delivery.id,
+          businessId: delivery.businessId,
+          customerId: delivery.customerId,
+          scheduledFor: delivery.scheduledFor,
+          status: delivery.status
+        }))
+    ).activeIds)
     return {
       settings: settings ? { ...settings, mode } : { businessId, ...DEFAULT_SETTINGS, template: null },
       metrics: {
-        pending: deliveries.filter((delivery) => ['PENDING', 'OPENED', 'FAILED'].includes(delivery.status)).length,
+        pending: activePendingIds.size,
         sent,
         manualSent: deliveries.filter((delivery) => delivery.mode === 'WHATSAPP_MANUAL' && ['SENT', 'RESPONDED', 'RESOLVED'].includes(delivery.status)).length,
         responded,
@@ -62,6 +73,7 @@ export async function postSaleRoutes(app: FastifyInstance) {
       },
       deliveries: deliveries.map((delivery) => ({
         ...delivery,
+        isActivePending: activePendingIds.has(delivery.id),
         whatsappUrl: ['PENDING', 'OPENED', 'FAILED'].includes(delivery.status) && delivery.messageSnapshot
           ? safeManualWhatsAppUrl(delivery.customer.phone, delivery.messageSnapshot)
           : null

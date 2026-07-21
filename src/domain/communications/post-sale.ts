@@ -41,3 +41,34 @@ export function isPostSaleTemplateEligible(
 ) {
   return mode !== 'AUTOMATIC_API' || (template.status === 'APPROVED' && template.category === 'UTILITY')
 }
+
+export function partitionLatestPostSales(deliveries: Array<{
+  id: string
+  businessId: string
+  customerId: string
+  scheduledFor: Date
+  status?: string
+}>) {
+  const activeIds: string[] = []
+  const supersededIds: string[] = []
+  const seen = new Set<string>()
+  const reserved = new Set<string>()
+  const ordered = [...deliveries].sort((left, right) => {
+    const leftReserved = ['OPENED', 'PROCESSING'].includes(left.status || '')
+    const rightReserved = ['OPENED', 'PROCESSING'].includes(right.status || '')
+    if (leftReserved && !rightReserved) return -1
+    if (rightReserved && !leftReserved) return 1
+    return right.scheduledFor.getTime() - left.scheduledFor.getTime()
+  })
+  for (const delivery of ordered) {
+    const key = delivery.businessId + ':' + delivery.customerId
+    if (seen.has(key)) {
+      if (!reserved.has(key)) supersededIds.push(delivery.id)
+    } else {
+      seen.add(key)
+      if (['OPENED', 'PROCESSING'].includes(delivery.status || '')) reserved.add(key)
+      activeIds.push(delivery.id)
+    }
+  }
+  return { activeIds, supersededIds }
+}

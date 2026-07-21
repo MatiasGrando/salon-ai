@@ -5,7 +5,7 @@ import { RecordCommunicationAttempt } from '../application/communications/record
 import { PrismaCommunicationAttemptRepository } from '../infrastructure/communications/prisma-communication-attempt-repository.js'
 import { CommunicationService } from '../application/communications/communication-service.js'
 import { PrismaCommunicationRepository } from '../infrastructure/communications/prisma-communication-repository.js'
-import { assertPostSaleManualTransition, canAutomaticPostSaleSend, type PostSaleManualStatus } from '../domain/communications/post-sale.js'
+import { assertPostSaleManualTransition, canAutomaticPostSaleSend, partitionLatestPostSales, type PostSaleManualStatus } from '../domain/communications/post-sale.js'
 
 const whatsappCloudApi = new WhatsAppCloudApi()
 const recordCommunicationAttempt = new RecordCommunicationAttempt(new PrismaCommunicationAttemptRepository())
@@ -125,7 +125,29 @@ export async function prepareDuePostSales(input: { businessId?: string; limit?: 
     }
   }
 
-  return { prepared, failed, skipped, total: prepared + failed }
+  const superseded = await supersedeOlderPendingPostSales(input.businessId, now)
+  return { prepared, failed, skipped, superseded, total: prepared + failed + superseded }
+}
+
+async function supersedeOlderPendingPostSales(businessId: string | undefined, now: Date) {
+  const pending = await prisma.postSaleDelivery.findMany({
+    where: {
+      ...(businessId ? { businessId } : {}),
+      status: { in: ['PENDING', 'OPENED', 'FAILED', 'PROCESSING'] }
+    },
+    select: { id: true, businessId: true, customerId: true, scheduledFor: true, status: true }
+  })
+  const { supersededIds } = partitionLatestPostSales(pending)
+  if (!supersededIds.length) return 0
+  const result = await prisma.postSaleDelivery.updateMany({
+    where: { id: { in: supersededIds }, status: { in: ['PENDING', 'FAILED'] } },
+    data: {
+      status: 'SKIPPED',
+      skippedAt: now,
+      manualNote: 'Reemplazado por una visita posterior del mismo cliente'
+    }
+  })
+  return result.count
 }
 
 export async function processDuePostSales(input: { businessId?: string; limit?: number } = {}) {
@@ -171,7 +193,7 @@ export async function processDuePostSales(input: { businessId?: string; limit?: 
     const deliveries = await prisma.postSaleDelivery.findMany({
       where: {
         automationId: automation.id,
-        status: { in: ['PENDING', 'FAILED'] },
+        status: { in: ['PENDING', 'OPENED', 'FAILED', 'PROCESSING'] },
         scheduledFor: { lte: now }
       },
       include: {
@@ -184,11 +206,27 @@ export async function processDuePostSales(input: { businessId?: string; limit?: 
           }
         }
       },
-      orderBy: { scheduledFor: 'asc' },
-      take: limit - sent - failed
+      orderBy: { scheduledFor: 'desc' },
+      take: Math.max(100, (limit - sent - failed) * 10)
     })
 
+    const partition = partitionLatestPostSales(deliveries)
+    if (partition.supersededIds.length) {
+      const superseded = await prisma.postSaleDelivery.updateMany({
+        where: { id: { in: partition.supersededIds }, status: { in: ['PENDING', 'FAILED'] } },
+        data: {
+          status: 'SKIPPED',
+          skippedAt: now,
+          manualNote: 'Reemplazado por una visita posterior del mismo cliente'
+        }
+      })
+      skipped += superseded.count
+    }
+    const activeIds = new Set(partition.activeIds)
+
     for (const delivery of deliveries) {
+      if (sent + failed >= limit) break
+      if (!activeIds.has(delivery.id)) continue
       if (!canAutomaticPostSaleSend(delivery.status)) continue
       const claim = await prisma.postSaleDelivery.updateMany({
         where: { id: delivery.id, status: { in: ['PENDING', 'FAILED'] } },
@@ -270,6 +308,7 @@ export async function processDuePostSales(input: { businessId?: string; limit?: 
   return {
     prepared: preparation.prepared,
     preparationFailed: preparation.failed,
+    superseded: preparation.superseded,
     sent,
     failed,
     skipped,
@@ -313,6 +352,20 @@ export async function transitionManualPostSale(input: {
   if (!transition.count) throw new Error('El seguimiento cambi\u00f3 mientras lo estabas gestionando. Actualiz\u00e1 la lista.')
   const updated = await prisma.postSaleDelivery.findUniqueOrThrow({ where: { id: delivery.id } })
   if (input.status === 'SENT') {
+    await prisma.postSaleDelivery.updateMany({
+      where: {
+        businessId: delivery.businessId,
+        customerId: delivery.customerId,
+        id: { not: delivery.id },
+        status: { in: ['PENDING', 'FAILED'] },
+        scheduledFor: { lte: now }
+      },
+      data: {
+        status: 'SKIPPED',
+        skippedAt: now,
+        manualNote: 'Omitido porque el cliente ya fue contactado manualmente'
+      }
+    })
     await recordCommunicationAttempt.execute({
       businessId: delivery.businessId,
       customerId: delivery.customer.id,

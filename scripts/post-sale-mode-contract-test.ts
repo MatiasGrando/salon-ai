@@ -3,7 +3,8 @@ import {
   assertPostSaleManualTransition,
   canAutomaticPostSaleSend,
   isPostSaleTemplateEligible,
-  normalizePostSaleMode
+  normalizePostSaleMode,
+  partitionLatestPostSales
 } from '../src/domain/communications/post-sale.js'
 
 assert.equal(normalizePostSaleMode('MANUAL_ASSISTED'), 'MANUAL_ASSISTED')
@@ -22,6 +23,28 @@ assert.equal(isPostSaleTemplateEligible('MANUAL_ASSISTED', { status: 'DRAFT', ca
 assert.equal(isPostSaleTemplateEligible('AUTOMATIC_API', { status: 'DRAFT', category: 'UTILITY' }), false)
 assert.equal(isPostSaleTemplateEligible('AUTOMATIC_API', { status: 'APPROVED', category: 'MARKETING' }), false)
 assert.equal(isPostSaleTemplateEligible('AUTOMATIC_API', { status: 'APPROVED', category: 'UTILITY' }), true)
+
+const partition = partitionLatestPostSales([
+  { id: 'old-a', businessId: 'business', customerId: 'customer-a', scheduledFor: new Date('2026-07-10T12:00:00Z') },
+  { id: 'new-a', businessId: 'business', customerId: 'customer-a', scheduledFor: new Date('2026-07-12T12:00:00Z') },
+  { id: 'only-b', businessId: 'business', customerId: 'customer-b', scheduledFor: new Date('2026-07-11T12:00:00Z') }
+])
+assert.deepEqual(partition.activeIds, ['new-a', 'only-b'])
+assert.deepEqual(partition.supersededIds, ['old-a'])
+
+const reservedManual = partitionLatestPostSales([
+  { id: 'opened', businessId: 'business', customerId: 'customer', status: 'OPENED', scheduledFor: new Date('2026-07-10T12:00:00Z') },
+  { id: 'new-pending', businessId: 'business', customerId: 'customer', status: 'PENDING', scheduledFor: new Date('2026-07-12T12:00:00Z') }
+])
+assert.deepEqual(reservedManual.activeIds, ['opened'], 'WhatsApp abierto conserva la gesti\u00f3n manual y bloquea otro contacto')
+assert.deepEqual(reservedManual.supersededIds, [], 'El seguimiento nuevo espera hasta que finalice la gesti\u00f3n abierta')
+
+const reservedProcessing = partitionLatestPostSales([
+  { id: 'processing', businessId: 'business', customerId: 'customer', status: 'PROCESSING', scheduledFor: new Date('2026-07-10T12:00:00Z') },
+  { id: 'other-pending', businessId: 'business', customerId: 'customer', status: 'PENDING', scheduledFor: new Date('2026-07-12T12:00:00Z') }
+])
+assert.deepEqual(reservedProcessing.activeIds, ['processing'])
+assert.deepEqual(reservedProcessing.supersededIds, [], 'Un proceso en curso bloquea otro env\u00edo del mismo cliente')
 
 assert.doesNotThrow(() => assertPostSaleManualTransition('PENDING', 'OPENED'))
 assert.doesNotThrow(() => assertPostSaleManualTransition('OPENED', 'SENT'))

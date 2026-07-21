@@ -13306,6 +13306,7 @@ const crmHtml = `<!doctype html>
       reminderLoaded: false,
       postSaleData: null,
       postSaleLoaded: false,
+      postSaleTab: 'pending',
       selectedTemplateId: null,
       templateFilter: 'ALL',
       templateSearch: '',
@@ -19874,6 +19875,10 @@ const crmHtml = `<!doctype html>
       const settings = state.postSaleData.settings || {}
       const metrics = state.postSaleData.metrics || {}
       const deliveries = state.postSaleData.deliveries || []
+      const pendingStatuses = ['PENDING', 'OPENED', 'FAILED', 'PROCESSING']
+      const pendingDeliveries = deliveries.filter((delivery) => pendingStatuses.includes(delivery.status) && delivery.isActivePending !== false)
+      const historyDeliveries = deliveries.filter((delivery) => !pendingStatuses.includes(delivery.status))
+      const visibleDeliveries = state.postSaleTab === 'history' ? historyDeliveries : pendingDeliveries
       const mode = settings.mode || (settings.enabled ? 'AUTOMATIC_API' : 'PAUSED')
       els.postSaleMode.value = mode
       renderPostSaleTemplateOptions(mode, settings.templateId || '')
@@ -19890,12 +19895,14 @@ const crmHtml = `<!doctype html>
       els.postSaleNegative.textContent = String(metrics.negative || 0) + ((metrics.negative || 0) === 1 ? ' caso a revisar' : ' casos a revisar')
       els.postSaleProcess.textContent = mode === 'MANUAL_ASSISTED' ? 'Actualizar pendientes' : 'Procesar pendientes'
       els.postSaleProcess.disabled = mode === 'PAUSED' || !settings.templateId
-      els.postSaleHistory.innerHTML = '<div class="template-detail-head"><div><span class="campaign-badge automatic">Postventa</span><h3>Seguimientos</h3><p class="template-meta-line">Pendientes, env&iacute;os y respuestas recientes.</p></div></div>' + (deliveries.length
-        ? '<div class="campaign-recipient-list">' + deliveries.map((delivery) => {
+      els.postSaleHistory.innerHTML = '<div class="template-detail-head"><div><span class="campaign-badge automatic">Postventa</span><h3>Seguimientos</h3><p class="template-meta-line">Una sola postventa activa por cliente.</p></div></div>' +
+        '<nav class="campaign-detail-tabs" aria-label="Seguimientos de postventa"><button class="' + (state.postSaleTab === 'pending' ? 'active' : '') + '" type="button" data-post-sale-tab="pending">Pendientes (' + pendingDeliveries.length + ')</button><button class="' + (state.postSaleTab === 'history' ? 'active' : '') + '" type="button" data-post-sale-tab="history">Historial (' + historyDeliveries.length + ')</button></nav>' + (visibleDeliveries.length
+        ? '<div class="campaign-recipient-list">' + visibleDeliveries.map((delivery) => {
             const score = delivery.rating ? ' &middot; ' + delivery.rating + '/5 &#9733;' : ''
             const detail = [delivery.appointment?.service?.name, delivery.appointment?.professional?.name].filter(Boolean).join(' &middot; ')
             const error = delivery.lastError ? '<small class="campaign-form-feedback error">' + escapeHtml(delivery.lastError) + '</small>' : ''
             const comment = delivery.comment ? '<small>&ldquo;' + escapeHtml(delivery.comment) + '&rdquo;</small>' : ''
+            const note = delivery.manualNote ? '<small>' + escapeHtml(delivery.manualNote) + '</small>' : ''
             const canManagePending = mode === 'MANUAL_ASSISTED' || delivery.mode === 'WHATSAPP_MANUAL'
             const openAction = delivery.whatsappUrl && delivery.status !== 'OPENED'
               ? '<a class="manual-send-whatsapp" href="' + escapeHtml(delivery.whatsappUrl) + '" target="_blank" rel="noopener" data-post-sale-open data-post-sale-delivery-id="' + escapeHtml(delivery.id) + '">Abrir WhatsApp</a>'
@@ -19908,9 +19915,9 @@ const crmHtml = `<!doctype html>
             } else if (delivery.mode === 'WHATSAPP_MANUAL' && delivery.status === 'RESPONDED') {
               actions = '<div class="manual-send-actions"><button class="campaigns-new" type="button" data-post-sale-action="RESOLVED" data-post-sale-delivery-id="' + escapeHtml(delivery.id) + '">Resolver</button></div>'
             }
-            return '<div class="campaign-recipient-row"><div class="campaign-recipient-avatar">' + (delivery.rating || '&#9733;') + '</div><div class="campaign-recipient-copy"><strong>' + escapeHtml(delivery.customer?.name || 'Cliente') + '</strong><span>' + escapeHtml(detail || 'Servicio') + ' &middot; ' + escapeHtml(formatDateTime(delivery.appointment?.startAt)) + '</span>' + comment + error + actions + '</div><span class="reminder-channel-chip">' + escapeHtml(postSaleStatusLabel(delivery.status)) + score + '</span></div>'
+            return '<div class="campaign-recipient-row"><div class="campaign-recipient-avatar">' + (delivery.rating || '&#9733;') + '</div><div class="campaign-recipient-copy"><strong>' + escapeHtml(delivery.customer?.name || 'Cliente') + '</strong><span>' + escapeHtml(detail || 'Servicio') + ' &middot; ' + escapeHtml(formatDateTime(delivery.appointment?.startAt)) + '</span>' + comment + note + error + actions + '</div><span class="reminder-channel-chip">' + escapeHtml(postSaleStatusLabel(delivery.status)) + score + '</span></div>'
           }).join('') + '</div>'
-        : '<div class="campaign-detail-empty"><div><strong>Sin seguimientos todav&iacute;a</strong><br>Los turnos finalizados aparecer&aacute;n ac&aacute; cuando corresponda.</div></div>')
+        : '<div class="campaign-detail-empty"><div><strong>' + (state.postSaleTab === 'history' ? 'Sin historial todav&iacute;a' : 'No hay postventas pendientes') + '</strong><br>' + (state.postSaleTab === 'history' ? 'Los contactos gestionados aparecer&aacute;n ac&aacute;.' : 'La cola est&aacute; al d&iacute;a.') + '</div></div>')
     }
 
     async function savePostSaleSettings() {
@@ -21859,6 +21866,12 @@ const crmHtml = `<!doctype html>
     els.postSaleSave.addEventListener('click', savePostSaleSettings)
     els.postSaleProcess.addEventListener('click', processDuePostSalesFromCrm)
     els.postSaleHistory.addEventListener('click', (event) => {
+      const tab = event.target.closest('[data-post-sale-tab]')
+      if (tab) {
+        state.postSaleTab = tab.dataset.postSaleTab
+        renderPostSaleSettings()
+        return
+      }
       const open = event.target.closest('[data-post-sale-open]')
       if (open) {
         void updateManualPostSale(open.dataset.postSaleDeliveryId, 'OPENED')
