@@ -94,7 +94,9 @@ export class ConversationRouter {
         model: openAiConfig.model,
         instructions: [
           'Sos el router de una recepcionista virtual para comercios con agenda.',
-          'Interpreta cada mensaje antes de que el backend ejecute el paso actual.',
+          'Clasifica exclusivamente customerMessage, que es el turno actual del cliente.',
+          'recentMessages y lastBotMessage sirven solo para desambiguar el turno actual.',
+          'Nunca repitas una intencion de recentMessages si no aparece tambien en customerMessage.',
           'Podes devolver varias intenciones cuando el mensaje mezcla pedidos.',
           'No respondas al cliente, no ejecutes acciones y no inventes datos.',
           'Usa business_information para preguntas sobre horarios del local, direccion, web, formas de reservar, contacto, redes, servicios o precios.',
@@ -105,7 +107,7 @@ export class ConversationRouter {
           'Usa request_human cuando pide una persona o la consulta requiere criterio humano.',
           'bookingMessage debe contener solamente la parte util para continuar o modificar la reserva.',
           'Si el mensaje es solo informativo, social o ajeno a la reserva, bookingMessage debe ser null.',
-          'Conserva evidencia textual breve para auditar cada clasificacion.',
+          'evidence debe ser un fragmento textual exacto de customerMessage.',
           'Si no esta claro, usa unknown con confianza baja.'
         ].join('\n'),
         input: JSON.stringify({
@@ -214,7 +216,11 @@ export function mergeConversationRouting(
   deterministic: ConversationRouting,
   originalMessage: string
 ): Omit<ConversationRouting, 'source'> {
-  const intents = [...aiRouting.intents]
+  const deterministicTopics = new Set(businessInformationTopicsFromRouting(deterministic))
+  const intents = aiRouting.intents.filter((intent) =>
+    intent.type !== 'business_information' ||
+    (intent.topic !== null && deterministicTopics.has(intent.topic))
+  )
 
   for (const fallbackIntent of deterministic.intents) {
     if (fallbackIntent.type === 'unknown') continue
@@ -269,7 +275,9 @@ function detectBusinessInformationTopics(normalized: string): BusinessInformatio
   if (containsAny(normalized, ['instagram', 'ig del local', 'insta del local'])) add('instagram')
   if (containsAny(normalized, ['facebook'])) add('facebook')
   if (containsAny(normalized, [
-    'que servicios tienen', 'que servicios hacen', 'que hacen en el local', 'lista de servicios'
+    'que servicios tienen', 'que servicios hacen', 'que servicios hay', 'cuales servicios hay',
+    'servicios disponibles', 'mostrame los servicios', 'mostrar servicios', 'ver servicios',
+    'que hacen en el local', 'lista de servicios'
   ])) add('services')
   if (containsAny(normalized, [
     'cuanto sale', 'cuanto cuesta', 'que precio', 'lista de precios', 'precios de los servicios'

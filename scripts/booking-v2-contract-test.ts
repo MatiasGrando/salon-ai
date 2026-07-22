@@ -31,6 +31,7 @@ import {
 } from '../src/services/conversation-router.js'
 import { renderBusinessKnowledgeAnswers } from '../src/services/business-knowledge-service.js'
 import { isPositiveBookingV2Confirmation } from '../src/services/conversation-service.js'
+import { removeCurrentInboundFromHistory } from '../src/services/conversation-router-context-service.js'
 
 const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
   {
@@ -681,6 +682,64 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         merged.intents.map((intent) => intent.type),
         ['business_information', 'availability_preference']
       )
+    }
+  },
+  {
+    name: 'router no reutiliza una consulta informativa anterior en un saludo',
+    run: () => {
+      const merged = mergeConversationRouting(
+        normalizeConversationRouting({
+          intents: [
+            {
+              type: 'business_information',
+              topic: 'website',
+              confidence: 0.9,
+              evidence: 'pagina web'
+            },
+            {
+              type: 'social_message',
+              topic: null,
+              confidence: 0.95,
+              evidence: 'Hola'
+            }
+          ],
+          bookingMessage: null
+        }),
+        deterministicConversationRouting('Hola'),
+        'Hola'
+      )
+
+      assert.deepEqual(
+        merged.intents.map((intent) => intent.type),
+        ['social_message']
+      )
+      assert.deepEqual(businessInformationTopicsFromRouting({ ...merged, source: 'ai' }), [])
+    }
+  },
+  {
+    name: 'contexto del router excluye el mensaje actual duplicado',
+    run: () => {
+      const history = removeCurrentInboundFromHistory([
+        { direction: 'INBOUND', body: 'Tenes pagina web?' },
+        { direction: 'OUTBOUND', body: 'La pagina es https://example.com' },
+        { direction: 'INBOUND', body: 'Hola' }
+      ], 'Hola')
+
+      assert.deepEqual(history, [
+        { direction: 'INBOUND', body: 'Tenes pagina web?' },
+        { direction: 'OUTBOUND', body: 'La pagina es https://example.com' }
+      ])
+    }
+  },
+  {
+    name: 'router determinista reconoce formas naturales de pedir servicios',
+    run: () => {
+      for (const message of ['Cuales servicios hay?', 'Que servicios hay?', 'Mostrame los servicios']) {
+        assert.deepEqual(
+          businessInformationTopicsFromRouting(deterministicConversationRouting(message)),
+          ['services']
+        )
+      }
     }
   },
   {

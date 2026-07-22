@@ -216,6 +216,15 @@ If the customer asks about business information such as opening hours, address, 
 - repeat only the next pending booking question after the informational answer;
 - support mixed messages, such as `a que hora abren y quiero un corte manana`, by answering the question and applying only validated booking data;
 - continue with deterministic business-information detection if OpenAI fails.
+- classify only the current inbound message; never repeat an informational intent from conversation history when the new message does not contain it.
+
+Regression sequence:
+
+1. User asks `Tenes pagina web?` and Cami answers it.
+2. User later says `Hola` while the booking is still active.
+3. Cami must greet or resume the pending booking question without repeating the website answer.
+
+Natural catalog questions such as `Cuales servicios hay?`, `Que servicios hay?` and `Mostrame los servicios` must render the real service catalog and then resume the pending booking step.
 
 ### Tone
 

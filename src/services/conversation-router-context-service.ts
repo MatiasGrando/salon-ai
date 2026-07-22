@@ -45,10 +45,10 @@ export class ConversationRouterContextService {
       })
     ])
 
-    const recentMessages = messages.reverse().map((message) => ({
+    const recentMessages = removeCurrentInboundFromHistory(messages.reverse().map((message) => ({
       direction: message.direction,
       body: message.body
-    }))
+    })), input.message)
     const lastBotMessage = [...recentMessages].reverse().find((message) => message.direction === 'OUTBOUND')?.body ?? null
     const state = stateFromConversation(input.conversation)
 
@@ -64,6 +64,31 @@ export class ConversationRouterContextService {
       }
     }
   }
+}
+
+export function removeCurrentInboundFromHistory(
+  messages: ConversationRouterInput['recentMessages'],
+  currentMessage: string
+) {
+  const result = messages.slice()
+  const normalizedCurrent = normalizeForComparison(currentMessage)
+
+  for (let index = result.length - 1; index >= 0; index -= 1) {
+    const candidate = result[index]
+    if (
+      candidate?.direction === 'INBOUND' &&
+      normalizeForComparison(candidate.body) === normalizedCurrent
+    ) {
+      result.splice(index, 1)
+      break
+    }
+  }
+
+  return result
+}
+
+function normalizeForComparison(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
 function availableInformationForBusiness(business: {
