@@ -6,6 +6,7 @@ import { BusinessService } from '../services/business-service.js'
 import type { AuthContext } from '../services/auth-service.js'
 
 const service = new BusinessService()
+const LANDING_TEMPLATES = new Set(['classic', 'editorial', 'salon-white'])
 
 export async function businessRoutes(app: FastifyInstance) {
 
@@ -49,6 +50,7 @@ export async function businessRoutes(app: FastifyInstance) {
       slug?: string | null
       logoUrl?: string | null
       landingEnabled?: boolean
+      landingTemplate?: string
       landingSubtitle?: string | null
       landingOpeningYear?: number | string | null
       landingDescription?: string | null
@@ -66,6 +68,7 @@ export async function businessRoutes(app: FastifyInstance) {
     const slug = body.slug === undefined ? undefined : normalizeOptionalText(body.slug)
     const logoUrl = normalizeLogoUrl(body.logoUrl)
     const coverImageUrl = normalizeCoverImageUrl(body.coverImageUrl)
+    const landingTemplate = normalizeLandingTemplate(body.landingTemplate)
     const landingSubtitle = normalizeOptionalText(body.landingSubtitle)
     const landingOpeningYear = normalizeOpeningYear(body.landingOpeningYear)
     const landingDescription = normalizeOptionalText(body.landingDescription)
@@ -99,6 +102,12 @@ export async function businessRoutes(app: FastifyInstance) {
     if (body.coverImageUrl !== undefined && coverImageUrl === undefined) {
       return reply.status(400).send({
         message: 'La portada debe ser una imagen valida de hasta 3 MB'
+      })
+    }
+
+    if (body.landingTemplate !== undefined && landingTemplate === undefined) {
+      return reply.status(400).send({
+        message: 'El diseño de landing seleccionado no es válido'
       })
     }
 
@@ -143,6 +152,7 @@ export async function businessRoutes(app: FastifyInstance) {
       slug === undefined &&
       logoUrl === undefined &&
       body.landingEnabled === undefined &&
+      landingTemplate === undefined &&
       landingSubtitle === undefined &&
       landingOpeningYear === undefined &&
       landingDescription === undefined &&
@@ -168,6 +178,7 @@ export async function businessRoutes(app: FastifyInstance) {
         ...(slug !== undefined ? { slug } : {}),
         ...(logoUrl !== undefined ? { logoUrl } : {}),
         ...(body.landingEnabled !== undefined ? { landingEnabled: Boolean(body.landingEnabled) } : {}),
+        ...(landingTemplate !== undefined ? { landingTemplate } : {}),
         ...(landingSubtitle !== undefined ? { landingSubtitle } : {}),
         ...(landingOpeningYear !== undefined ? { landingOpeningYear } : {}),
         ...(landingDescription !== undefined ? { landingDescription } : {}),
@@ -654,6 +665,12 @@ function normalizeOpeningYear(value?: number | string | null) {
   const year = Number(value)
   const currentYear = new Date().getFullYear()
   return Number.isInteger(year) && year >= 1900 && year <= currentYear ? year : undefined
+}
+
+function normalizeLandingTemplate(value?: string) {
+  if (value === undefined) return undefined
+  const normalized = value.trim().toLowerCase()
+  return LANDING_TEMPLATES.has(normalized) ? normalized : undefined
 }
 
 function businessSlugErrorMessage(error: unknown) {

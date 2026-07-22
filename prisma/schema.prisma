@@ -88,6 +88,7 @@ model Business {
   slug          String?        @unique
   logoUrl       String?
   landingEnabled Boolean       @default(true)
+  landingTemplate String        @default("classic")
   landingSubtitle String?
   landingOpeningYear Int?
   landingDescription String?

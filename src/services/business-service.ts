@@ -39,6 +39,7 @@ export class BusinessService {
     slug?: string | null
     logoUrl?: string | null
     landingEnabled?: boolean
+    landingTemplate?: string
     landingSubtitle?: string | null
     landingOpeningYear?: number | null
     landingDescription?: string | null

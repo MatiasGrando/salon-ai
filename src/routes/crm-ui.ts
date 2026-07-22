@@ -3515,7 +3515,7 @@ const crmHtml = `<!doctype html>
       min-height: 0;
       padding: 20px 24px 18px;
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       column-gap: 18px;
       row-gap: 16px;
       align-content: start;
@@ -6056,6 +6056,188 @@ const crmHtml = `<!doctype html>
       color: #1d4ed8;
       font-weight: 800;
       overflow-wrap: anywhere;
+    }
+
+    .landing-template-fieldset {
+      min-width: 0;
+      padding: 0;
+      border: 0;
+    }
+
+    .landing-template-fieldset legend {
+      margin-bottom: 5px;
+      color: #17213c;
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .landing-template-help {
+      margin: 0 0 12px;
+      color: #64748b;
+      font-size: 12px;
+    }
+
+    .landing-template-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .landing-template-card {
+      min-width: 0;
+      padding: 10px;
+      position: relative;
+      display: grid;
+      gap: 8px;
+      border: 1px solid #dce3ed;
+      border-radius: 14px;
+      background: #fff;
+      cursor: pointer;
+      transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+    }
+
+    .landing-template-card:hover {
+      border-color: #b8c4d6;
+      box-shadow: 0 10px 24px rgba(20, 32, 58, .08);
+      transform: translateY(-1px);
+    }
+
+    .landing-template-card:has(input:checked) {
+      border-color: #b9914d;
+      box-shadow: 0 0 0 2px rgba(185, 145, 77, .16), 0 12px 28px rgba(20, 32, 58, .09);
+    }
+
+    .landing-template-radio {
+      width: 1px;
+      height: 1px;
+      position: absolute;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+
+    .landing-template-radio:focus-visible + .landing-template-thumb {
+      outline: 3px solid rgba(37, 99, 235, .28);
+      outline-offset: 3px;
+    }
+
+    .landing-template-thumb {
+      aspect-ratio: 16 / 9;
+      position: relative;
+      overflow: hidden;
+      border: 1px solid #e5e8ee;
+      border-radius: 9px;
+      background: #f5f6f8;
+    }
+
+    .landing-template-thumb::before {
+      content: "";
+      position: absolute;
+      top: 8%;
+      left: 6%;
+      right: 6%;
+      height: 7%;
+      border-radius: 999px;
+      background: currentColor;
+      opacity: .18;
+    }
+
+    .landing-template-thumb::after {
+      content: "";
+      position: absolute;
+      inset: 24% 6% 9%;
+      border-radius: 5px;
+    }
+
+    .landing-template-thumb.classic {
+      color: #c9a13b;
+      background: #171109;
+    }
+
+    .landing-template-thumb.classic::after {
+      background:
+        linear-gradient(90deg, #241b11 0 35%, transparent 35%),
+        linear-gradient(135deg, #5a4730, #b9914d);
+    }
+
+    .landing-template-thumb.editorial {
+      color: #26231f;
+      background: #fbfaf7;
+    }
+
+    .landing-template-thumb.editorial::after {
+      background:
+        linear-gradient(90deg, #f7f4ee 0 38%, transparent 38% 42%, #cbb39b 42% 70%, transparent 70% 74%, #e7ded3 74%);
+    }
+
+    .landing-template-thumb.salon-white {
+      color: #bd7e67;
+      background: #fff;
+    }
+
+    .landing-template-thumb.salon-white::after {
+      background:
+        linear-gradient(90deg, #fdfbf8 0 48%, transparent 48% 52%, #d9a793 52%),
+        linear-gradient(#fff, #f6e6de);
+      box-shadow: inset 0 -9px 0 #fdfbf8;
+    }
+
+    .landing-template-copy {
+      padding: 0 2px 2px;
+      display: grid;
+      gap: 3px;
+    }
+
+    .landing-template-copy strong {
+      color: #17213c;
+      font-size: 13px;
+    }
+
+    .landing-template-copy small {
+      color: #64748b;
+      font-size: 11px;
+      line-height: 1.4;
+    }
+
+    .landing-template-preview {
+      width: fit-content;
+      margin: 0 2px 2px;
+      color: #1d4ed8;
+      font-size: 11px;
+      font-weight: 800;
+      text-decoration: none;
+    }
+
+    .landing-template-preview[aria-disabled="true"] {
+      color: #94a3b8;
+      pointer-events: none;
+    }
+
+    .landing-template-check {
+      width: 25px;
+      height: 25px;
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      display: grid;
+      place-items: center;
+      border: 2px solid rgba(255,255,255,.9);
+      border-radius: 50%;
+      color: transparent;
+      background: rgba(255,255,255,.78);
+      box-shadow: 0 2px 8px rgba(15,23,42,.12);
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .landing-template-card:has(input:checked) .landing-template-check {
+      color: #fff;
+      background: #b9914d;
+    }
+
+    @media (max-width: 720px) {
+      .landing-template-grid { grid-template-columns: 1fr; }
     }
 
     .landing-cover-field {
@@ -12315,6 +12497,43 @@ const crmHtml = `<!doctype html>
               Landing activa
             </label>
 
+            <fieldset class="landing-template-fieldset">
+              <legend>Eleg&iacute; un dise&ntilde;o</legend>
+              <p class="landing-template-help">Tus textos, servicios e im&aacute;genes se conservan. Solo cambia la presentaci&oacute;n.</p>
+              <div class="landing-template-grid">
+                <label class="landing-template-card">
+                  <input class="landing-template-radio" type="radio" name="landing-template" value="classic">
+                  <span class="landing-template-thumb classic" aria-hidden="true"></span>
+                  <span class="landing-template-copy">
+                    <strong>Cl&aacute;sica</strong>
+                    <small>Directa, contrastada y compacta.</small>
+                  </span>
+                  <a class="landing-template-preview" data-template-preview="classic" href="#" target="_blank" rel="noopener">Vista previa</a>
+                  <span class="landing-template-check" aria-hidden="true">&#10003;</span>
+                </label>
+                <label class="landing-template-card">
+                  <input class="landing-template-radio" type="radio" name="landing-template" value="editorial">
+                  <span class="landing-template-thumb editorial" aria-hidden="true"></span>
+                  <span class="landing-template-copy">
+                    <strong>Editorial</strong>
+                    <small>Luminosa, elegante y visual.</small>
+                  </span>
+                  <a class="landing-template-preview" data-template-preview="editorial" href="#" target="_blank" rel="noopener">Vista previa</a>
+                  <span class="landing-template-check" aria-hidden="true">&#10003;</span>
+                </label>
+                <label class="landing-template-card">
+                  <input class="landing-template-radio" type="radio" name="landing-template" value="salon-white">
+                  <span class="landing-template-thumb salon-white" aria-hidden="true"></span>
+                  <span class="landing-template-copy">
+                    <strong>Studio claro</strong>
+                    <small>Blanco, blush y secciones amplias.</small>
+                  </span>
+                  <a class="landing-template-preview" data-template-preview="salon-white" href="#" target="_blank" rel="noopener">Vista previa</a>
+                  <span class="landing-template-check" aria-hidden="true">&#10003;</span>
+                </label>
+              </div>
+            </fieldset>
+
             <div class="settings-field">
               <label for="landing-slug">Subdominio</label>
               <input class="field" id="landing-slug" autocomplete="off" placeholder="lapelu">
@@ -17030,6 +17249,9 @@ const crmHtml = `<!doctype html>
     function renderLandingSettings() {
       const slug = state.business?.slug || ''
       els.landingEnabled.checked = state.business?.landingEnabled !== false
+      const landingTemplate = state.business?.landingTemplate || 'classic'
+      const landingTemplateInput = document.querySelector('input[name="landing-template"][value="' + landingTemplate + '"]')
+      if (landingTemplateInput) landingTemplateInput.checked = true
       els.landingSlug.value = slug
       els.landingSubtitle.value = state.business?.landingSubtitle || ''
       els.landingOpeningYear.value = state.business?.landingOpeningYear || ''
@@ -17049,6 +17271,10 @@ const crmHtml = `<!doctype html>
         els.landingLocalLink.href = '#'
         els.landingDomainLink.textContent = 'Sin subdominio configurado'
         els.landingDomainLink.href = '#'
+        for (const link of document.querySelectorAll('[data-template-preview]')) {
+          link.href = '#'
+          link.setAttribute('aria-disabled', 'true')
+        }
         return
       }
 
@@ -17058,6 +17284,10 @@ const crmHtml = `<!doctype html>
       els.landingLocalLink.href = localUrl
       els.landingDomainLink.textContent = domainUrl
       els.landingDomainLink.href = domainUrl
+      for (const link of document.querySelectorAll('[data-template-preview]')) {
+        link.href = localUrl + '?template=' + encodeURIComponent(link.dataset.templatePreview || 'classic')
+        link.removeAttribute('aria-disabled')
+      }
     }
 
     function normalizeLandingSlug(value) {
@@ -17893,6 +18123,7 @@ const crmHtml = `<!doctype html>
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             landingEnabled: els.landingEnabled.checked,
+            landingTemplate: document.querySelector('input[name="landing-template"]:checked')?.value || 'classic',
             slug,
             landingSubtitle: els.landingSubtitle.value.trim() || null,
             landingOpeningYear: openingYear,

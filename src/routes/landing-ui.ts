@@ -28,7 +28,7 @@ export async function landingUiRoutes(app: FastifyInstance) {
     const business = await businessService.findPublicBySlug(slug)
     if (!business || !business.landingEnabled) return reply.status(404).type('text/html').send(renderNotFound())
 
-    return reply.type('text/html').send(renderLanding(business))
+    return reply.type('text/html').send(renderLanding(business, '', previewLandingTemplate(request)))
   })
 
   app.get('/privacidad', async (_request, reply) => {
@@ -76,7 +76,7 @@ export async function landingUiRoutes(app: FastifyInstance) {
     const business = await businessService.findPublicBySlug(slug)
     if (!business || !business.landingEnabled) return reply.status(404).type('text/html').send(renderNotFound())
 
-    return reply.type('text/html').send(renderLanding(business, `/${slug}`))
+    return reply.type('text/html').send(renderLanding(business, `/${slug}`, previewLandingTemplate(request)))
   })
 
   app.get('/:slug/reservar', async (request, reply) => {
@@ -142,6 +142,16 @@ function requestHost(request: FastifyRequest) {
   const rawHost = request.headers['x-forwarded-host'] || request.headers.host
   const host = Array.isArray(rawHost) ? rawHost[0] : rawHost
   return host?.split(',')[0]?.trim() || ''
+}
+
+function previewLandingTemplate(request: FastifyRequest) {
+  const query = request.query as { template?: string }
+  return query.template
+}
+
+function normalizeLandingTemplate(value?: string | null) {
+  if (value === 'salon-white') return 'salon-white'
+  return value === 'editorial' ? 'editorial' : 'classic'
 }
 
 type PublicBusiness = Awaited<ReturnType<BusinessService['findPublicBySlug']>>
@@ -321,7 +331,11 @@ function renderWeexRegistration() {
   })
 }
 
-function renderLanding(business: LandingBusiness, basePath = '') {
+function renderLanding(business: LandingBusiness, basePath = '', templateOverride?: string) {
+  const landingTemplate = normalizeLandingTemplate(templateOverride || business.landingTemplate)
+  if (landingTemplate === 'salon-white') {
+    return renderSalonWhiteLanding(business, basePath)
+  }
   const description = business.landingDescription || `Reserva tu turno en ${business.name} de forma simple y rapida.`
   const subtitle = business.landingSubtitle || 'Oficio de navaja y tijera'
   const openingLabel = business.landingOpeningYear ? `Desde ${business.landingOpeningYear}` : ''
@@ -350,6 +364,7 @@ function renderLanding(business: LandingBusiness, basePath = '') {
 
   return htmlPage({
     title: `${business.name} | Reservas online`,
+    bodyClass: `landing-template-${landingTemplate}`,
     body: `
       <header class="navbar">
         <div class="wrap">
@@ -605,6 +620,387 @@ function renderLanding(business: LandingBusiness, basePath = '') {
       ${renderLandingLightboxScript()}
     `
   })
+}
+
+function renderSalonWhiteLanding(business: LandingBusiness, basePath = '') {
+  const description = business.landingDescription || `Cuidamos tu cabello y realzamos tu estilo con una atención personalizada.`
+  const subtitle = business.landingSubtitle || 'Belleza y cuidado personal'
+  const openingLabel = business.landingOpeningYear ? `Desde ${business.landingOpeningYear}` : ''
+  const services = business.services.slice(0, 3)
+  const professionals = business.professionals.slice(0, 3)
+  const galleryImages = parseLandingGalleryImages(business.landingGalleryImages)
+  const bookingUrl = `${basePath}/reservar`
+  const accountUrl = `${basePath}/cuenta`
+  const whatsappDisplayPhone = publicWhatsappNumber(business)?.trim() || ''
+  const whatsappDigits = whatsappDisplayPhone.replace(/\D/g, '')
+  const whatsappUrl = whatsappDigits ? `https://wa.me/${whatsappDigits}` : null
+  const whatsappLabel = formatPublicWhatsappDisplay(whatsappDisplayPhone)
+  const addressLabel = formatPublicAddress(business)
+  const mapsUrl = business.publicMapsUrl?.trim() || null
+  const heroImage = business.coverImageUrl || '/landing-assets/barber-hero-service.png'
+
+  return htmlPage({
+    title: `${business.name} | Reservas online`,
+    bodyClass: 'landing-template-salon-white',
+    body: `
+      <style>
+        .salon-white-page {
+          --sw-white: #fff;
+          --sw-cream: #fdfbf8;
+          --sw-ink: #2b2420;
+          --sw-muted: #8a7f76;
+          --sw-line: #efe8e1;
+          --sw-blush: #d9a793;
+          --sw-blush-dark: #bd7e67;
+          --sw-blush-tint: #f6e6de;
+          min-height: 100vh;
+          color: var(--sw-ink);
+          background: var(--sw-white);
+          font-family: "Jost", Arial, sans-serif;
+        }
+        .salon-white-page h1,
+        .salon-white-page h2,
+        .salon-white-page h3 { font-family: "Playfair Display", Georgia, serif; font-weight: 600; }
+        .salon-white-page p { color: var(--sw-muted); }
+        .sw-nav {
+          padding: 24px 56px;
+          position: relative;
+          z-index: 30;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 24px;
+          background: #fff;
+          border-bottom: 1px solid var(--sw-line);
+        }
+        .sw-logo { min-width: 0; display: grid; gap: 2px; }
+        .sw-logo strong { overflow: hidden; font-family: "Playfair Display", Georgia, serif; font-size: 21px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+        .sw-logo small { overflow: hidden; color: var(--sw-blush-dark); font-size: 9px; font-weight: 600; letter-spacing: .12em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+        .sw-nav-links { display: flex; gap: clamp(20px, 2.4vw, 34px); font-size: 14px; }
+        .sw-nav-links a.active,
+        .sw-nav-links a:hover { color: var(--sw-blush-dark); }
+        .sw-nav-actions { display: flex; align-items: center; gap: 10px; }
+        .sw-account {
+          width: 42px;
+          height: 42px;
+          display: grid;
+          place-items: center;
+          border: 1px solid var(--sw-line);
+          border-radius: 50%;
+        }
+        .sw-account svg { width: 18px; height: 18px; }
+        .sw-pill,
+        .sw-outline {
+          min-height: 44px;
+          padding: 0 24px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 999px;
+          font-size: 13.5px;
+          font-weight: 500;
+          white-space: nowrap;
+        }
+        .sw-pill { color: #fff; background: var(--sw-blush); border: 1px solid var(--sw-blush); }
+        .sw-pill:hover { background: var(--sw-blush-dark); }
+        .sw-outline { color: var(--sw-ink); background: transparent; border: 1px solid var(--sw-ink); }
+        .sw-hero { display: grid; grid-template-columns: 1fr 1fr; align-items: stretch; }
+        .sw-hero-copy { padding: 90px 64px; display: flex; flex-direction: column; justify-content: center; }
+        .sw-eyebrow { color: var(--sw-blush-dark); font-size: 12px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; }
+        .sw-hero h1 { margin-top: 16px; font-size: 58px; line-height: 1.1; }
+        .sw-underline { width: 44px; height: 2px; margin-top: 20px; background: var(--sw-blush); }
+        .sw-hero-copy > p { max-width: 430px; margin-top: 22px; font-size: 17px; line-height: 1.65; }
+        .sw-hero-actions { margin-top: 30px; display: flex; flex-wrap: wrap; gap: 14px; }
+        .sw-rating { margin-top: 34px; display: flex; align-items: center; gap: 10px; color: var(--sw-muted); font-size: 13px; }
+        .sw-stars { color: var(--sw-blush-dark); letter-spacing: 1px; }
+        .sw-hero-photo { min-height: 560px; position: relative; overflow: hidden; }
+        .sw-hero-photo img { display: block; width: 100%; height: 100%; object-fit: cover; filter: saturate(.97); }
+        .sw-section { padding: 88px clamp(24px, 4vw, 56px); }
+        .sw-section.cream { background: var(--sw-cream); }
+        .sw-section-head { max-width: 560px; margin: 0 auto 48px; text-align: center; }
+        .sw-section-head h2 { margin-top: 10px; font-size: clamp(31px, 3vw, 38px); }
+        .sw-section-head .sw-underline { margin: 16px auto 0; }
+        .sw-section-head p { margin-top: 14px; font-size: 15px; }
+        .sw-services,
+        .sw-team,
+        .sw-testimonials { max-width: 1280px; margin: 0 auto; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
+        .sw-service-card { overflow: hidden; background: #fff; border: 1px solid var(--sw-line); border-radius: 16px; }
+        .sw-service-photo { height: 220px; position: relative; overflow: hidden; background: var(--sw-blush-tint); }
+        .sw-service-photo img { width: 100%; height: 100%; object-fit: cover; }
+        .sw-service-photo .service-generated-visual { height: 100%; }
+        .sw-service-body { padding: 24px 22px; }
+        .sw-service-icon { width: 40px; height: 40px; margin-bottom: 14px; display: grid; place-items: center; color: var(--sw-blush-dark); background: var(--sw-blush-tint); border-radius: 50%; font-size: 18px; }
+        .sw-service-body h3 { font-size: 19px; }
+        .sw-service-meta { margin-top: 14px; display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+        .sw-service-meta span { color: var(--sw-muted); font-size: 12.5px; }
+        .sw-service-meta strong { color: var(--sw-blush-dark); font-family: "Playfair Display", Georgia, serif; font-size: 17px; font-weight: 600; }
+        .sw-team-card { text-align: center; }
+        .sw-team-photo { aspect-ratio: 1 / 1.05; margin-bottom: 18px; overflow: hidden; border-radius: 16px; background: var(--sw-blush-tint); }
+        .sw-team-photo img { width: 100%; height: 100%; object-fit: cover; }
+        .sw-team-photo .pro-initials { border: 0; color: var(--sw-blush-dark); background: var(--sw-blush-tint); }
+        .sw-team-card h3 { font-size: 20px; }
+        .sw-team-role { margin-top: 5px; color: var(--sw-blush-dark); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; }
+        .sw-team-card p { margin-top: 10px; font-size: 13.5px; line-height: 1.5; }
+        .sw-testimonial { padding: 26px; background: #fff; border: 1px solid var(--sw-line); border-radius: 16px; }
+        .sw-testimonial-top { margin-bottom: 14px; display: flex; align-items: center; gap: 12px; }
+        .sw-testimonial-avatar { width: 44px; height: 44px; display: grid; place-items: center; flex: 0 0 auto; color: #fff; background: var(--sw-blush); border-radius: 50%; font-family: "Playfair Display", Georgia, serif; }
+        .sw-testimonial-name { font-size: 14px; font-weight: 500; }
+        .sw-testimonial-stars { color: var(--sw-blush-dark); font-size: 12px; }
+        .sw-testimonial p { color: var(--sw-ink); font-size: 14px; line-height: 1.6; }
+        .sw-gallery { max-width: 1280px; margin: 0 auto; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: 150px; gap: 14px; }
+        .sw-gallery button { grid-row: span 2; padding: 0; overflow: hidden; border: 0; border-radius: 14px; cursor: zoom-in; }
+        .sw-gallery button:nth-child(2),
+        .sw-gallery button:nth-child(5) { grid-row: span 1; }
+        .sw-gallery img { width: 100%; height: 100%; object-fit: cover; }
+        .sw-contact { padding: 88px clamp(24px, 4vw, 56px); display: grid; grid-template-columns: 1.1fr 1fr; gap: 60px; }
+        .sw-contact h2 { margin-top: 14px; font-size: 34px; }
+        .sw-contact-copy > p { max-width: 440px; margin-top: 16px; font-size: 15px; line-height: 1.6; }
+        .sw-info-list { margin-top: 32px; display: grid; gap: 18px; }
+        .sw-info-item { display: flex; align-items: flex-start; gap: 14px; }
+        .sw-info-icon { width: 38px; height: 38px; display: grid; place-items: center; flex: 0 0 auto; color: var(--sw-blush-dark); background: var(--sw-blush-tint); border-radius: 50%; }
+        .sw-info-label { color: var(--sw-muted); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+        .sw-info-value { margin-top: 2px; font-size: 15px; }
+        .sw-info-value a:hover { color: var(--sw-blush-dark); }
+        .sw-socials { margin-top: 30px; display: flex; gap: 12px; }
+        .sw-socials a { width: 42px; height: 42px; display: grid; place-items: center; border: 1px solid var(--sw-line); border-radius: 50%; }
+        .sw-socials a:hover { background: var(--sw-blush-tint); border-color: var(--sw-blush-tint); }
+        .sw-socials .social-icon { width: 18px; height: 18px; color: var(--sw-ink); }
+        .sw-hours { padding: 36px; background: var(--sw-cream); border-radius: 20px; }
+        .sw-hours h3 { margin-bottom: 20px; font-size: 21px; }
+        .sw-hours-row { padding: 12px 0; display: flex; justify-content: space-between; gap: 20px; border-bottom: 1px solid var(--sw-line); font-size: 14px; }
+        .sw-hours-row span:first-child { color: var(--sw-muted); }
+        .sw-hours .sw-pill { width: 100%; margin-top: 24px; }
+        .sw-footer { padding: 26px clamp(24px, 4vw, 56px); display: flex; justify-content: space-between; gap: 20px; color: var(--sw-muted); border-top: 1px solid var(--sw-line); font-size: 12.5px; }
+        .salon-white-page .wa-fab > a { background: #25d366; }
+        @media (max-width: 900px) {
+          .sw-nav { padding: 20px 24px; }
+          .sw-nav-links { display: none; }
+          .sw-logo { max-width: 140px; }
+          .sw-hero { grid-template-columns: 1fr; }
+          .sw-hero-copy { min-height: 0; padding: 60px 24px; }
+          .sw-hero h1 { font-size: 40px; }
+          .sw-hero-photo { min-height: 560px; }
+          .sw-section { padding: 64px 24px; }
+          .sw-services,
+          .sw-team,
+          .sw-testimonials { grid-template-columns: 1fr; }
+          .sw-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+          .sw-contact { padding: 64px 24px; grid-template-columns: 1fr; }
+        }
+        @media (max-width: 560px) {
+          .sw-nav .sw-pill { min-height: 40px; padding: 0 15px; font-size: 12px; }
+          .sw-account { width: 40px; height: 40px; }
+          .sw-hero-actions { align-items: stretch; flex-direction: column; }
+          .sw-gallery { grid-auto-rows: 120px; gap: 10px; }
+          .sw-footer { align-items: flex-start; flex-direction: column; }
+        }
+      </style>
+
+      <main class="salon-white-page">
+        <nav class="sw-nav" aria-label="Principal">
+          <a class="sw-logo" href="${escapeAttribute(basePath || '/')}">
+            <strong>${escapeHtml(business.name)}</strong>
+            <small>${escapeHtml(subtitle)}</small>
+          </a>
+          <div class="sw-nav-links">
+            <a class="active" href="#inicio">Inicio</a>
+            <a href="#servicios">Servicios</a>
+            <a href="#profesionales">Profesionales</a>
+            ${galleryImages.length ? '<a href="#galeria">Galería</a>' : ''}
+            <a href="#contacto">Contacto</a>
+          </div>
+          <div class="sw-nav-actions">
+            <a class="sw-account" href="${escapeAttribute(accountUrl)}" aria-label="Mi perfil">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="8" r="3.2"></circle><path d="M5 20a7 7 0 0 1 14 0"></path></svg>
+            </a>
+            <a class="sw-pill" href="${escapeAttribute(bookingUrl)}">Reservar turno</a>
+          </div>
+        </nav>
+
+        <section class="sw-hero" id="inicio">
+          <div class="sw-hero-copy">
+            <span class="sw-eyebrow">${escapeHtml([business.name, openingLabel].filter(Boolean).join(' · '))}</span>
+            <h1>Belleza<br>que se siente</h1>
+            <div class="sw-underline"></div>
+            <p>${escapeHtml(description)}</p>
+            <div class="sw-hero-actions">
+              <a class="sw-pill" href="${escapeAttribute(bookingUrl)}">Reservar turno</a>
+              <a class="sw-outline" href="#servicios">Ver servicios</a>
+            </div>
+            <div class="sw-rating"><span class="sw-stars">★★★★★</span><span>4.9 / 5 · reservas online</span></div>
+          </div>
+          <div class="sw-hero-photo">
+            <img src="${escapeAttribute(heroImage)}" alt="Portada de ${escapeAttribute(business.name)}">
+          </div>
+        </section>
+
+        <section class="sw-section" id="servicios">
+          <header class="sw-section-head">
+            <span class="sw-eyebrow">Servicios</span>
+            <h2>Nuestros servicios</h2>
+            <div class="sw-underline"></div>
+            <p>Trabajamos con productos profesionales y una atención pensada para cada persona.</p>
+          </header>
+          <div class="sw-services">
+            ${services.length ? services.map((service, index) => `
+              <article class="sw-service-card">
+                <div class="sw-service-photo">${renderServiceImage(service, business, index)}</div>
+                <div class="sw-service-body">
+                  <div class="sw-service-icon" aria-hidden="true">✦</div>
+                  <h3>${escapeHtml(service.name)}</h3>
+                  <div class="sw-service-meta"><span>${escapeHtml(formatServiceMeta(service.duration, service.category))}</span><strong>${formatPrice(service.price)}</strong></div>
+                </div>
+              </article>
+            `).join('') : '<p>Todavía no hay servicios publicados.</p>'}
+          </div>
+        </section>
+
+        <section class="sw-section cream" id="profesionales">
+          <header class="sw-section-head">
+            <span class="sw-eyebrow">Equipo</span>
+            <h2>Profesionales</h2>
+            <div class="sw-underline"></div>
+            <p>Elegí con quién querés atenderte al reservar tu turno.</p>
+          </header>
+          <div class="sw-team">
+            ${professionals.length ? professionals.map((professional) => `
+              <article class="sw-team-card">
+                <div class="sw-team-photo">${renderProfessionalPhoto(professional)}</div>
+                <h3>${escapeHtml(professional.name)}</h3>
+                <div class="sw-team-role">Profesional</div>
+                ${professionalLandingDescription(professional) ? `<p>${escapeHtml(professionalLandingDescription(professional))}</p>` : ''}
+              </article>
+            `).join('') : '<p>El equipo se mostrará cuando haya profesionales activos.</p>'}
+          </div>
+        </section>
+
+        <section class="sw-section" id="comentarios">
+          <header class="sw-section-head">
+            <span class="sw-eyebrow">Comentarios</span>
+            <h2>Lo que dicen nuestros clientes</h2>
+            <div class="sw-underline"></div>
+          </header>
+          <div class="sw-testimonials">
+            ${renderSalonWhiteTestimonials()}
+          </div>
+        </section>
+
+        ${galleryImages.length ? `
+          <section class="sw-section cream" id="galeria">
+            <header class="sw-section-head">
+              <span class="sw-eyebrow">Galería</span>
+              <h2>Nuestro trabajo</h2>
+              <div class="sw-underline"></div>
+            </header>
+            <div class="sw-gallery">
+              ${galleryImages.map((imageUrl, index) => `
+                <button class="lightbox-trigger" type="button" data-lightbox-kind="image" data-lightbox-title="${escapeAttribute(business.name)}" data-lightbox-text="Galería ${index + 1}">
+                  <img src="${escapeAttribute(imageUrl)}" alt="${escapeAttribute(business.name)} galería ${index + 1}">
+                </button>
+              `).join('')}
+            </div>
+          </section>
+        ` : ''}
+
+        <section class="sw-contact" id="contacto">
+          <div class="sw-contact-copy">
+            <span class="sw-eyebrow">Contacto</span>
+            <h2>Visitanos o escribinos</h2>
+            <p>Reservá online las 24 horas o contactanos directamente para cualquier consulta.</p>
+            <div class="sw-info-list">
+              ${renderSalonWhiteContact(addressLabel, mapsUrl, whatsappUrl, whatsappLabel, business.contactEmail)}
+            </div>
+            <div class="sw-socials">${renderSalonWhiteSocialLinks(business, whatsappUrl)}</div>
+          </div>
+          <aside class="sw-hours">
+            <h3>Horarios</h3>
+            ${renderSalonWhiteHours(business)}
+            <a class="sw-pill" href="${escapeAttribute(bookingUrl)}">Reservar turno</a>
+          </aside>
+        </section>
+
+        <footer class="sw-footer">
+          <span>© 2026 ${escapeHtml(business.name)}</span>
+          <span>Powered by Weex · <a href="/privacidad">Privacidad</a> · <a href="/terminos">Términos</a></span>
+        </footer>
+        ${renderWhatsappFab(whatsappUrl)}
+        ${renderLandingLightbox()}
+      </main>
+      ${renderLandingLightboxScript()}
+    `
+  })
+}
+
+function renderSalonWhiteTestimonials() {
+  const testimonials = [
+    { initial: 'M', name: 'Mariana L.', text: 'Siempre salgo feliz. Entienden lo que quiero y el resultado se ve increíble.' },
+    { initial: 'J', name: 'Julieta R.', text: 'Reservé por la web en dos minutos y llegué con el turno ya listo.' },
+    { initial: 'S', name: 'Sofía P.', text: 'Me encantó poder elegir profesional y horario sin tener que escribir por WhatsApp.' }
+  ]
+  return testimonials.map((testimonial) => `
+    <article class="sw-testimonial">
+      <div class="sw-testimonial-top">
+        <div class="sw-testimonial-avatar">${testimonial.initial}</div>
+        <div><div class="sw-testimonial-name">${testimonial.name}</div><div class="sw-testimonial-stars">★★★★★</div></div>
+      </div>
+      <p>${testimonial.text}</p>
+    </article>
+  `).join('')
+}
+
+function renderSalonWhiteHours(business: LandingBusiness) {
+  const groups = groupedBusinessHours(business.businessHours)
+  if (!groups.length) return '<div class="sw-hours-row"><span>Horarios</span><span>Pendientes de carga</span></div>'
+  return groups.map((group) => `
+    <div class="sw-hours-row"><span>${escapeHtml(formatDayRange(group.days))}</span><span>${escapeHtml(group.startTime)} – ${escapeHtml(group.endTime)}</span></div>
+  `).join('')
+}
+
+function renderSalonWhiteContact(
+  addressLabel: string | null,
+  mapsUrl: string | null,
+  whatsappUrl: string | null,
+  whatsappLabel: string,
+  contactEmail?: string | null
+) {
+  const items = [
+    addressLabel ? {
+      icon: '⌖',
+      label: 'Dirección',
+      value: mapsUrl
+        ? `<a href="${escapeAttribute(mapsUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(addressLabel)}</a>`
+        : escapeHtml(addressLabel)
+    } : null,
+    whatsappUrl && whatsappLabel ? {
+      icon: '☏',
+      label: 'WhatsApp',
+      value: `<a href="${escapeAttribute(whatsappUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(whatsappLabel)}</a>`
+    } : null,
+    contactEmail?.trim() ? {
+      icon: '✉',
+      label: 'Email',
+      value: `<a href="mailto:${escapeAttribute(contactEmail.trim())}">${escapeHtml(contactEmail.trim())}</a>`
+    } : null
+  ].filter(Boolean) as Array<{ icon: string; label: string; value: string }>
+
+  if (!items.length) return '<p>Completá los datos de contacto desde el CRM.</p>'
+  return items.map((item) => `
+    <div class="sw-info-item">
+      <div class="sw-info-icon" aria-hidden="true">${item.icon}</div>
+      <div><div class="sw-info-label">${item.label}</div><div class="sw-info-value">${item.value}</div></div>
+    </div>
+  `).join('')
+}
+
+function renderSalonWhiteSocialLinks(business: LandingBusiness, whatsappUrl: string | null) {
+  const links = [
+    business.instagramUrl ? { label: 'Instagram', url: business.instagramUrl, icon: siInstagram } : null,
+    business.facebookUrl ? { label: 'Facebook', url: business.facebookUrl, icon: siFacebook } : null,
+    whatsappUrl ? { label: 'WhatsApp', url: whatsappUrl, icon: siWhatsapp } : null
+  ].filter(Boolean) as Array<{ label: string; url: string; icon: SimpleIcon }>
+  return links.map((link) => `
+    <a href="${escapeAttribute(link.url)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeAttribute(link.label)}">${renderBrandIcon(link.icon)}</a>
+  `).join('')
 }
 
 function renderBrandIcon(icon: SimpleIcon) {
@@ -2422,7 +2818,7 @@ function renderNotFound() {
   })
 }
 
-function htmlPage(input: { title: string; body: string }) {
+function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
   return `<!doctype html>
 <html lang="es">
 <head>
@@ -2431,7 +2827,7 @@ function htmlPage(input: { title: string; body: string }) {
   <title>${escapeHtml(input.title)}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800;900&family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600&family=Playfair+Display:wght@500;600;700;800;900&family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     :root {
       color-scheme: light;
@@ -4842,10 +5238,159 @@ function htmlPage(input: { title: string; body: string }) {
       .detail-actions { margin-left: 22px; margin-right: 22px; }
     }
 
+    .landing-template-editorial {
+      --dark-1: #fbfaf7;
+      --dark-2: #f4f0e9;
+      --dark-line: #e8e1d8;
+      --gold: #a98267;
+      --gold-light: #c4a78f;
+      --gold-soft: rgba(169,130,103,.48);
+      --burgundy: #a98267;
+      --burgundy-dark: #8e6b55;
+      --cream: #ffffff;
+      --cream-card: #fbfaf7;
+      --cream-line: #e8e1d8;
+      --ink: #26231f;
+      --ink-soft: #756f68;
+      --white: #26231f;
+      background: #fff;
+    }
+    .landing-template-editorial .navbar {
+      background: rgba(255,255,255,.96);
+      border-bottom-color: #ece7e0;
+      backdrop-filter: blur(14px);
+    }
+    .landing-template-editorial .brand-icon,
+    .landing-template-editorial .brand-text .tag { color: #a98267; }
+    .landing-template-editorial .brand-text .name { color: #26231f; }
+    .landing-template-editorial .nav-links { color: #625d57; }
+    .landing-template-editorial .nav-links a:hover,
+    .landing-template-editorial .nav-links a.active { color: #8e6b55; }
+    .landing-template-editorial .btn-account {
+      color: #3e3934;
+      border-color: #d8c9bc;
+    }
+    .landing-template-editorial .btn-gold-outline,
+    .landing-template-editorial .btn-cta {
+      color: #fff;
+      background: #a98267;
+      border-color: #a98267;
+      border-radius: 3px;
+      box-shadow: none;
+    }
+    .landing-template-editorial .btn-gold-outline:hover,
+    .landing-template-editorial .btn-cta:hover { background: #8e6b55; }
+    .landing-template-editorial .hero {
+      height: 560px;
+      grid-template-columns: minmax(390px, 42%) 1fr;
+      color: #26231f;
+      background: #fbfaf7;
+      border-bottom: 1px solid #ece7e0;
+    }
+    .landing-template-editorial .hero-content {
+      height: 560px;
+      max-width: 650px;
+      padding: 58px clamp(36px, 5vw, 82px);
+    }
+    .landing-template-editorial .hero-title {
+      max-width: 600px;
+      margin-bottom: 22px;
+      color: #26231f;
+      font-size: clamp(52px, 5.2vw, 80px);
+      font-weight: 600;
+      line-height: .92;
+      letter-spacing: -.025em;
+    }
+    .landing-template-editorial .hero .eyebrow,
+    .landing-template-editorial .hero-subtitle { color: #9b745d; }
+    .landing-template-editorial .hero-subtitle {
+      max-width: 430px;
+      margin-bottom: 22px;
+      font-size: 12px;
+      letter-spacing: 2.2px;
+    }
+    .landing-template-editorial .hero-rating,
+    .landing-template-editorial .hero-rating strong { color: #3b3732; }
+    .landing-template-editorial .review-count,
+    .landing-template-editorial .hero-location,
+    .landing-template-editorial .feature span,
+    .landing-template-editorial .hero-note { color: #756f68; }
+    .landing-template-editorial .feature svg,
+    .landing-template-editorial .hero-location svg,
+    .landing-template-editorial .hero-note svg { color: #a98267; }
+    .landing-template-editorial .hero-media { height: 560px; background: #eee7df; }
+    .landing-template-editorial .hero-media::before {
+      z-index: 2;
+      background: linear-gradient(90deg, rgba(251,250,247,.18), transparent 28%);
+    }
+    .landing-template-editorial .hero-media .hero-media-backdrop {
+      filter: blur(24px) brightness(.82) saturate(.72);
+    }
+    .landing-template-editorial .hero-media .hero-media-cover { filter: none; }
+    .landing-template-editorial .hero-image-preview img { filter: brightness(.96) saturate(.75); }
+    .landing-template-editorial .hero-image-preview::after {
+      background: linear-gradient(90deg, rgba(251,250,247,.16), transparent 38%);
+    }
+    .landing-template-editorial .hero-media-label { color: rgba(38,35,31,.6); }
+    .landing-template-editorial .section-panel { padding-top: 72px; background: #fff; }
+    .landing-template-editorial .col-header h2 {
+      font-size: 25px;
+      font-weight: 600;
+      letter-spacing: .05em;
+      text-transform: none;
+    }
+    .landing-template-editorial .card-photo,
+    .landing-template-editorial .gallery-item { border-radius: 2px; }
+    .landing-template-editorial .card-photo img,
+    .landing-template-editorial .gallery-item img {
+      filter: saturate(.82) contrast(1.02);
+      transform: none;
+    }
+    .landing-template-editorial .card-photo::after,
+    .landing-template-editorial .gallery-item::after { background: linear-gradient(0deg, rgba(38,35,31,.12), transparent 45%); }
+    .landing-template-editorial .review-card {
+      background: #fbfaf7;
+      border-radius: 2px;
+      box-shadow: none;
+    }
+    .landing-template-editorial .review-badge { color: #fff; background: #a98267; }
+    .landing-template-editorial .galeria { margin-top: 52px; }
+    .landing-template-editorial .site-footer {
+      color: #26231f;
+      background: #f4f0e9;
+      border-top-color: #dfd5ca;
+    }
+    .landing-template-editorial .footer-brand h2 { color: #26231f; font-weight: 600; }
+    .landing-template-editorial .footer-brand p,
+    .landing-template-editorial .footer-column h3,
+    .landing-template-editorial .footer-mark,
+    .landing-template-editorial .footer-icon,
+    .landing-template-editorial .social-icon { color: #8e6b55; }
+    .landing-template-editorial .footer-column li,
+    .landing-template-editorial .footer-contact-link { color: #625d57; }
+    .landing-template-editorial .social-links a {
+      color: #3e3934;
+      background: rgba(255,255,255,.48);
+      border-color: #d8c9bc;
+    }
+    .landing-template-editorial .footer-bottom {
+      color: #81786f;
+      border-top-color: #d8c9bc;
+    }
+    .landing-template-editorial .footer-booking {
+      color: #fff;
+      background: #a98267;
+      border-color: #a98267;
+      box-shadow: none;
+    }
+
     @media (max-width: 1100px) {
       .nav-links { display: none; }
       .hero { height: auto; grid-template-columns: 1fr; }
       .hero-media { height: 360px; min-height: 360px; }
+      .landing-template-editorial .hero { height: auto; grid-template-columns: 1fr; }
+      .landing-template-editorial .hero-content { height: auto; }
+      .landing-template-editorial .hero-media { height: 460px; min-height: 460px; }
       .three-col { grid-template-columns: 1fr; gap: 44px 0; }
       .col-divider { display: none; }
       .gallery-track { grid-template-columns: repeat(auto-fit, minmax(156px, 210px)); }
@@ -4867,6 +5412,8 @@ function htmlPage(input: { title: string; body: string }) {
       .btn-account span { display: none; }
       .btn-gold-outline { min-height: 38px; padding: 0 12px; font-size: 12px; }
       .hero-title { font-size: 42px; }
+      .landing-template-editorial .hero-title { font-size: 48px; }
+      .landing-template-editorial .hero-media { height: 340px; min-height: 340px; }
       .hero-features { flex-direction: column; gap: 0; }
       .feature { padding: 10px 0; border-bottom: 1px solid rgba(201,161,59,.22); }
       .feature:last-child { border-bottom: 0; }
@@ -4892,7 +5439,7 @@ function htmlPage(input: { title: string; body: string }) {
     }
   </style>
 </head>
-<body>
+<body class="${escapeAttribute(input.bodyClass || '')}">
 ${input.body}
 </body>
 </html>`
