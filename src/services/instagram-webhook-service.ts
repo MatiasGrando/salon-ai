@@ -45,7 +45,12 @@ export class InstagramWebhookService {
 
     for (const event of events) {
       const config = await prisma.businessInstagramConfig.findFirst({
-        where: { instagramAccountId: { in: event.instagramAccountIds } },
+        where: {
+          OR: [
+            { instagramAccountId: { in: event.instagramAccountIds } },
+            { apiAccountId: { in: event.instagramAccountIds } }
+          ]
+        },
         include: { business: { select: { id: true, name: true, publicWhatsapp: true } } }
       })
       if (!config) {
@@ -126,7 +131,7 @@ export class InstagramWebhookService {
 
       try {
         const delivery = await instagramApi.sendTextMessage({
-          instagramAccountId: config.instagramAccountId,
+          instagramAccountId: config.apiAccountId ?? config.instagramAccountId,
           accessToken: config.accessToken,
           recipientId: event.senderId,
           text: replyText

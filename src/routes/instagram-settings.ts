@@ -40,14 +40,9 @@ export async function instagramSettingsRoutes(app: FastifyInstance) {
 
     let account: Awaited<ReturnType<InstagramApi['getAccount']>>
     try {
-      account = await instagramApi.getAccount({ accessToken })
+      account = await instagramApi.getAccountById({ accountId: instagramAccountId, accessToken })
     } catch (error) {
       return reply.status(400).send({ message: error instanceof Error ? error.message : 'No pude validar el token de Instagram.' })
-    }
-    if (account.id !== instagramAccountId) {
-      return reply.status(400).send({
-        message: `El token pertenece a la cuenta ${account.id}, pero cargaste ${instagramAccountId}.`
-      })
     }
 
     const tokenExpiresAt = parseOptionalDate(body.tokenExpiresAt)
@@ -59,6 +54,7 @@ export async function instagramSettingsRoutes(app: FastifyInstance) {
       where: { businessId: params.id },
       update: {
         instagramAccountId,
+        apiAccountId: account.id,
         username,
         ...(body.accessToken ? { accessToken } : {}),
         ...(body.tokenExpiresAt !== undefined ? { tokenExpiresAt: tokenExpiresAt ?? null } : {}),
@@ -69,6 +65,7 @@ export async function instagramSettingsRoutes(app: FastifyInstance) {
       create: {
         businessId: params.id,
         instagramAccountId,
+        apiAccountId: account.id,
         username,
         accessToken,
         tokenExpiresAt: tokenExpiresAt ?? null,
@@ -89,7 +86,7 @@ export async function instagramSettingsRoutes(app: FastifyInstance) {
       const account = await instagramApi.getAccount({ accessToken: settings.accessToken })
       await prisma.businessInstagramConfig.update({
         where: { businessId: params.id },
-        data: { username: account.username, lastError: null }
+        data: { apiAccountId: account.id, username: account.username, lastError: null }
       })
       return { ok: true, account }
     } catch (error) {
@@ -103,6 +100,7 @@ export async function instagramSettingsRoutes(app: FastifyInstance) {
 function presentSettings(
   settings: {
     instagramAccountId: string
+    apiAccountId: string | null
     username: string | null
     accessToken: string | null
     tokenExpiresAt: Date | null

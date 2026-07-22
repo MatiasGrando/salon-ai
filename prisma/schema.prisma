@@ -200,6 +200,7 @@ model BusinessInstagramConfig {
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   instagramAccountId String @unique
+  apiAccountId String? @unique
   username String?
   accessToken String?
   tokenExpiresAt DateTime?

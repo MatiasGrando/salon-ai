@@ -10,7 +10,11 @@ type InstagramApiError = {
 
 export class InstagramApi {
   async getAccount(input: { accessToken: string }) {
-    const url = new URL(`https://graph.instagram.com/${instagramConfig.apiVersion}/me`)
+    return this.getAccountById({ accountId: 'me', accessToken: input.accessToken })
+  }
+
+  async getAccountById(input: { accountId: string; accessToken: string }) {
+    const url = new URL(`https://graph.instagram.com/${instagramConfig.apiVersion}/${encodeURIComponent(input.accountId)}`)
     url.searchParams.set('fields', 'id,username,name')
     url.searchParams.set('access_token', input.accessToken)
     const response = await fetch(url)
