@@ -6084,7 +6084,8 @@ const crmHtml = `<!doctype html>
       width: 100%;
       height: 100%;
       min-height: 160px;
-      object-fit: cover;
+      object-fit: contain;
+      background: #edf1f7;
       display: none;
     }
 
@@ -12374,7 +12375,7 @@ const crmHtml = `<!doctype html>
                 </label>
                 <button class="business-logo-remove" id="landing-cover-remove" type="button">Quitar portada</button>
               </div>
-              <small>Recomendado: imagen horizontal 1600x700 o similar. M&aacute;ximo 3 MB. Se recorta con ajuste de portada para ocupar el banner derecho.</small>
+              <small>Recomendado: imagen horizontal 1600x700 o similar. M&aacute;ximo 3 MB. La portada se adapta para mostrarse completa en cualquier pantalla.</small>
             </div>
 
             <div class="landing-cover-field">

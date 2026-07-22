@@ -456,7 +456,10 @@ function renderLanding(business: LandingBusiness, basePath = '') {
             </div>
           </div>
           <div class="hero-media ${business.coverImageUrl ? 'has-image' : ''}">
-            ${business.coverImageUrl ? `<img src="${escapeAttribute(business.coverImageUrl)}" alt="Portada de ${escapeAttribute(business.name)}">` : renderHeroImagePreview()}
+            ${business.coverImageUrl ? `
+              <img class="hero-media-backdrop" src="${escapeAttribute(business.coverImageUrl)}" alt="" aria-hidden="true">
+              <img class="hero-media-cover" src="${escapeAttribute(business.coverImageUrl)}" alt="Portada de ${escapeAttribute(business.name)}">
+            ` : renderHeroImagePreview()}
             <div class="hero-media-label">${escapeHtml(business.name)}</div>
           </div>
         </section>
@@ -2534,7 +2537,10 @@ function htmlPage(input: { title: string; body: string }) {
     .hero-note svg { width: 13px; height: 13px; color: var(--gold); }
     .hero-media { position: relative; height: 430px; min-height: 0; overflow: hidden; background: linear-gradient(120deg, rgba(20,16,9,.55), rgba(20,16,9,.15) 40%, rgba(20,16,9,.6)), repeating-linear-gradient(45deg, #2A2013 0 2px, #241B10 2px 4px); }
     .hero-media::before { content: ""; position: absolute; inset: 0; z-index: 1; background: radial-gradient(ellipse at 30% 20%, rgba(201,161,59,.18), transparent 55%); pointer-events: none; }
-    .hero-media img, .hero-image-preview img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center center; filter: grayscale(.18) sepia(.18) brightness(.74) contrast(1.08); }
+    .hero-media img, .hero-image-preview img { position: absolute; inset: 0; width: 100%; height: 100%; object-position: center center; }
+    .hero-media .hero-media-backdrop { z-index: 0; object-fit: cover; filter: blur(22px) grayscale(.18) sepia(.18) brightness(.42) contrast(1.08); transform: scale(1.08); }
+    .hero-media .hero-media-cover { z-index: 1; object-fit: contain; filter: grayscale(.08) sepia(.08) brightness(.9) contrast(1.03); }
+    .hero-image-preview img { object-fit: cover; filter: grayscale(.18) sepia(.18) brightness(.74) contrast(1.08); }
     .hero-image-preview { position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0; background: var(--dark-1); }
     .hero-image-preview::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(20,16,9,.28), transparent 45%), linear-gradient(0deg, rgba(20,16,9,.32), transparent 48%); pointer-events: none; }
     .hero-media-label { position: absolute; right: 28px; bottom: 24px; z-index: 2; color: rgba(247,243,234,.5); font-family: var(--font-display); font-size: 13px; letter-spacing: 2px; text-transform: uppercase; }
