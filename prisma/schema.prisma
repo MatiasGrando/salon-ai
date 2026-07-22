@@ -659,6 +659,7 @@ model ReminderAutomation {
   channel String @default("WHATSAPP")
   templateId String?
   enabled Boolean @default(false)
+  mode String @default("PAUSED")
   sendBeforeMinutes Int @default(1440)
 
   createdAt DateTime @default(now())
@@ -666,6 +667,7 @@ model ReminderAutomation {
   deliveries ReminderDelivery[]
 
   @@index([businessId, enabled])
+  @@index([businessId, mode])
   @@index([businessId, sendBeforeMinutes])
 }
 
@@ -684,18 +686,25 @@ model ReminderDelivery {
   customerId String
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
-  status String @default("SENT")
+  status String @default("PENDING")
+  mode String @default("WHATSAPP_API")
+  messageSnapshot String?
   providerMessageId String?
   attemptNumber Int @default(1)
   lastError String?
   scheduledFor DateTime
-  sentAt DateTime @default(now())
+  openedAt DateTime?
+  sentAt DateTime?
+  skippedAt DateTime?
+  manualNote String?
   deliveredAt DateTime?
   readAt DateTime?
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([reminderAutomationId, appointmentId])
   @@index([businessId, status, sentAt])
+  @@index([businessId, status, scheduledFor])
   @@index([appointmentId])
   @@index([customerId, sentAt])
 }

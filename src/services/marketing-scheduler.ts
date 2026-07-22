@@ -113,7 +113,13 @@ export function startMarketingScheduler(app: FastifyInstance) {
       }
 
       const businesses = await prisma.reminderAutomation.findMany({
-        where: { enabled: true, channel: 'WHATSAPP' },
+        where: {
+          channel: 'WHATSAPP',
+          OR: [
+            { mode: { in: ['MANUAL_ASSISTED', 'AUTOMATIC_API'] } },
+            { enabled: true }
+          ]
+        },
         distinct: ['businessId'],
         select: { businessId: true }
       })

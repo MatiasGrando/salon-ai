@@ -5,12 +5,14 @@ import { WhatsAppCloudApi } from '../integrations/whatsapp-cloud-api.js'
 import { assertBusinessCanSendWhatsApp } from '../services/business-whatsapp-settings.js'
 import { CommunicationService } from '../application/communications/communication-service.js'
 import { ManualCampaignCommunicationService } from '../application/campaigns/manual-campaign-communication-service.js'
-import { communicationStatuses, type CommunicationStatus } from '../domain/communications/communication.js'
+import { buildManualWhatsAppUrl, communicationStatuses, type CommunicationStatus } from '../domain/communications/communication.js'
+import { isReminderTemplateEligible, normalizeReminderMode, reminderManualStatuses, reminderModes } from '../domain/communications/reminder.js'
 import { PrismaCommunicationRepository } from '../infrastructure/communications/prisma-communication-repository.js'
 import { PrismaCampaignDeliveryRecorder } from '../infrastructure/communications/prisma-campaign-delivery-recorder.js'
 import { toManualCommunicationExecutionViewModel } from './view-models/communication-view-model.js'
 import { RecordCommunicationAttempt } from '../application/communications/record-communication-attempt.js'
 import { PrismaCommunicationAttemptRepository } from '../infrastructure/communications/prisma-communication-attempt-repository.js'
+import { prepareDueReminders, processDueReminders as processDueReminderDeliveries, transitionManualReminder } from '../services/reminder-service.js'
 
 const CAMPAIGN_TYPES = ['ONE_TIME', 'AUTOMATED'] as const
 const CAMPAIGN_CHANNELS = ['WHATSAPP', 'EMAIL', 'BOTH'] as const
@@ -391,11 +393,12 @@ export async function campaignRoutes(app: FastifyInstance) {
     const query = request.query as { businessId?: string }
     const businessId = query.businessId?.trim()
     if (!businessId) return reply.status(400).send({ message: 'businessId es requerido' })
-    return prisma.reminderAutomation.findMany({ where: { businessId }, orderBy: [{ sendBeforeMinutes: 'desc' }, { createdAt: 'desc' }] })
+    const automations = await prisma.reminderAutomation.findMany({ where: { businessId }, orderBy: [{ sendBeforeMinutes: 'desc' }, { createdAt: 'desc' }] })
+    return automations.map((automation) => ({ ...automation, mode: normalizeReminderMode(automation.mode, automation.enabled) }))
   })
 
   app.post('/reminder-automations', async (request, reply) => {
-    const body = request.body as { businessId?: string; name?: string; channel?: string; templateId?: string | null; enabled?: boolean; sendBeforeMinutes?: number | string }
+    const body = request.body as { businessId?: string; name?: string; channel?: string; templateId?: string | null; enabled?: boolean; mode?: string; sendBeforeMinutes?: number | string }
     const businessId = body.businessId?.trim()
     const normalized = await normalizeReminderAutomationInput(body, reply, businessId)
     if (!normalized) return
@@ -406,8 +409,15 @@ export async function campaignRoutes(app: FastifyInstance) {
     const params = request.params as { id: string }
     const current = await prisma.reminderAutomation.findUnique({ where: { id: params.id } })
     if (!current) return reply.status(404).send({ message: 'No encontre ese recordatorio' })
-    const body = request.body as { name?: string; channel?: string; templateId?: string | null; enabled?: boolean; sendBeforeMinutes?: number | string }
-    const normalized = await normalizeReminderAutomationInput({ ...current, ...body, businessId: current.businessId }, reply, current.businessId)
+    const body = request.body as { name?: string; channel?: string; templateId?: string | null; enabled?: boolean; mode?: string; sendBeforeMinutes?: number | string }
+    const normalized = await normalizeReminderAutomationInput({
+      ...current,
+      ...body,
+      ...(body.mode === undefined && body.enabled !== undefined
+        ? { mode: body.enabled ? 'AUTOMATIC_API' : 'PAUSED' }
+        : {}),
+      businessId: current.businessId
+    }, reply, current.businessId)
     if (!normalized) return
     const { businessId: _businessId, ...data } = normalized
     return prisma.reminderAutomation.update({ where: { id: current.id }, data })
@@ -422,13 +432,14 @@ export async function campaignRoutes(app: FastifyInstance) {
   })
 
   async function normalizeReminderAutomationInput(
-    body: { businessId?: string; name?: string; channel?: string; templateId?: string | null; enabled?: boolean; sendBeforeMinutes?: number | string },
+    body: { businessId?: string; name?: string; channel?: string; templateId?: string | null; enabled?: boolean; mode?: string; sendBeforeMinutes?: number | string },
     reply: FastifyReply,
     fallbackBusinessId?: string
   ) {
     const businessId = body.businessId?.trim() || fallbackBusinessId
     const name = body.name?.trim()
     const channel = body.channel?.trim().toUpperCase() || 'WHATSAPP'
+    const mode = normalizeReminderMode(body.mode, body.enabled === true)
     const templateId = body.templateId?.trim() || null
     const sendBeforeMinutes = Number(body.sendBeforeMinutes ?? 1440)
     if (!businessId) {
@@ -443,27 +454,33 @@ export async function campaignRoutes(app: FastifyInstance) {
       reply.status(400).send({ message: 'Canal de recordatorio invalido' })
       return null
     }
+    if (body.mode !== undefined && !reminderModes.includes(body.mode as typeof reminderModes[number])) {
+      reply.status(400).send({ message: 'Selecciona un modo de recordatorio valido' })
+      return null
+    }
     if (![60, 120, 1440, 2880].includes(sendBeforeMinutes)) {
       reply.status(400).send({ message: 'Elegi un tiempo de recordatorio valido' })
       return null
     }
     if (channel === 'WHATSAPP') {
       if (templateId) {
-        const template = await prisma.whatsAppTemplate.findFirst({ where: { id: templateId, businessId, status: 'APPROVED' } })
+        const template = await prisma.whatsAppTemplate.findFirst({ where: { id: templateId, businessId } })
         if (!template) {
-          reply.status(400).send({ message: 'Selecciona una plantilla de recordatorio aprobada' })
+          reply.status(400).send({ message: 'La plantilla seleccionada no existe' })
           return null
         }
-        if (normalizeWhatsAppTemplateCategory(template.category) !== 'UTILITY') {
-          reply.status(400).send({ message: 'Los recordatorios solo pueden usar plantillas aprobadas de Recordatorio' })
+        if (!isReminderTemplateEligible(mode, template)) {
+          reply.status(400).send({ message: mode === 'AUTOMATIC_API'
+            ? 'El modo automatico requiere una plantilla de Recordatorio aprobada por Meta'
+            : 'Selecciona una plantilla de tipo Recordatorio' })
           return null
         }
       }
-      if (body.enabled && !templateId) {
-        reply.status(400).send({ message: 'Selecciona una plantilla aprobada antes de activar recordatorios' })
+      if (mode !== 'PAUSED' && !templateId) {
+        reply.status(400).send({ message: 'Selecciona una plantilla antes de activar recordatorios' })
         return null
       }
-    } else if (body.enabled) {
+    } else if (mode !== 'PAUSED') {
       reply.status(400).send({ message: 'Recordatorios por email quedan preparados para mas adelante' })
       return null
     }
@@ -472,10 +489,83 @@ export async function campaignRoutes(app: FastifyInstance) {
       name,
       channel,
       templateId,
-      enabled: Boolean(body.enabled),
+      enabled: mode === 'AUTOMATIC_API',
+      mode: channel === 'EMAIL' ? 'PAUSED' : mode,
       sendBeforeMinutes
     }
   }
+
+  app.get('/reminder-automations/:id/deliveries', async (request, reply) => {
+    const params = request.params as { id: string }
+    const query = request.query as { businessId?: string }
+    const businessId = query.businessId?.trim()
+    if (!businessId) return reply.status(400).send({ message: 'businessId es requerido' })
+    const automation = await prisma.reminderAutomation.findFirst({ where: { id: params.id, businessId } })
+    if (!automation) return reply.status(404).send({ message: 'No encontre ese recordatorio' })
+    const mode = normalizeReminderMode(automation.mode, automation.enabled)
+    if (mode !== 'PAUSED') await prepareDueReminders({ businessId, automationId: automation.id, limit: 100 })
+    const deliveries = await prisma.reminderDelivery.findMany({
+      where: { reminderAutomationId: automation.id },
+      include: {
+        customer: { select: { name: true, phone: true } },
+        appointment: {
+          select: {
+            startAt: true,
+            status: true,
+            service: { select: { name: true } },
+            professional: { select: { name: true } }
+          }
+        }
+      },
+      orderBy: { scheduledFor: 'desc' },
+      take: 100
+    })
+    const now = new Date()
+    const isDue = (delivery: (typeof deliveries)[number]) =>
+      delivery.appointment.status === 'CONFIRMED' &&
+      delivery.appointment.startAt > now &&
+      delivery.appointment.startAt.getTime() - automation.sendBeforeMinutes * 60_000 <= now.getTime()
+    return {
+      automation: { ...automation, mode },
+      metrics: {
+        pending: deliveries.filter((delivery) => isDue(delivery) && ['PENDING', 'OPENED', 'FAILED', 'PROCESSING'].includes(delivery.status)).length,
+        sent: deliveries.filter((delivery) => ['SENT', 'DELIVERED', 'READ'].includes(delivery.status)).length,
+        failed: deliveries.filter((delivery) => delivery.status === 'FAILED').length
+      },
+      deliveries: deliveries.map((delivery) => ({
+        ...delivery,
+        isDue: isDue(delivery),
+        whatsappUrl: isDue(delivery) && ['PENDING', 'OPENED', 'FAILED'].includes(delivery.status) && delivery.messageSnapshot
+          ? safeManualReminderUrl(delivery.customer.phone, delivery.messageSnapshot)
+          : null
+      }))
+    }
+  })
+
+  app.patch('/reminder-automations/:automationId/deliveries/:deliveryId/manual-status', async (request, reply) => {
+    const params = request.params as { automationId: string; deliveryId: string }
+    const body = request.body as { businessId?: string; status?: string; note?: string | null }
+    const businessId = body.businessId?.trim()
+    if (!businessId) return reply.status(400).send({ message: 'businessId es requerido' })
+    const delivery = await prisma.reminderDelivery.findFirst({
+      where: { id: params.deliveryId, reminderAutomationId: params.automationId, businessId },
+      select: { id: true }
+    })
+    if (!delivery) return reply.status(404).send({ message: 'No encontre ese recordatorio pendiente' })
+    if (!reminderManualStatuses.includes(body.status as typeof reminderManualStatuses[number])) {
+      return reply.status(400).send({ message: 'Estado de recordatorio invalido' })
+    }
+    try {
+      return await transitionManualReminder({
+        businessId,
+        deliveryId: delivery.id,
+        status: body.status as typeof reminderManualStatuses[number],
+        ...(body.note !== undefined ? { note: body.note } : {})
+      })
+    } catch (error) {
+      return reply.status(409).send({ message: error instanceof Error ? error.message : 'No se pudo actualizar el recordatorio' })
+    }
+  })
 
   app.post('/whatsapp/message-templates', async (request, reply) => {
     const body = request.body as {
@@ -1027,133 +1117,7 @@ export async function campaignRoutes(app: FastifyInstance) {
     const businessId = body.businessId?.trim()
     const limit = Math.max(1, Math.min(100, Number(body.limit ?? 25) || 25))
     if (!businessId) return reply.status(400).send({ message: 'businessId es requerido' })
-    const gate = await assertBusinessCanSendWhatsApp(businessId, 'REMINDER')
-    if (!gate.allowed) return reply.status(409).send({ message: gate.message })
-
-    const automations = await prisma.reminderAutomation.findMany({ where: { businessId, enabled: true, channel: 'WHATSAPP' } })
-    const now = new Date()
-    let sent = 0
-    let failed = 0
-    const results: Array<{ reminderId: string; appointmentId: string; customerId: string; status: 'SENT' | 'FAILED'; message?: string }> = []
-
-    for (const automation of automations) {
-      if (sent + failed >= limit) break
-      if (!automation.templateId) continue
-      const template = await prisma.whatsAppTemplate.findFirst({ where: { id: automation.templateId, businessId, status: 'APPROVED' } })
-      if (!template || normalizeWhatsAppTemplateCategory(template.category) !== 'UTILITY') continue
-      const maxStartAt = new Date(now.getTime() + automation.sendBeforeMinutes * 60_000)
-      const appointments = await prisma.appointment.findMany({
-        where: {
-          startAt: { gt: now, lte: maxStartAt },
-          status: { in: ['CONFIRMED'] },
-          professional: { businessId },
-          reminderDeliveries: {
-            none: {
-              reminderAutomationId: automation.id,
-              OR: [
-                { status: { in: ['SENT', 'DELIVERED', 'READ'] } },
-                { attemptNumber: { gte: 3 } }
-              ]
-            }
-          }
-        },
-        include: {
-          customer: { select: { id: true, name: true, phone: true } },
-          service: { select: { name: true } },
-          professional: { select: { name: true } }
-        },
-        orderBy: { startAt: 'asc' },
-        take: Math.max(0, limit - sent - failed)
-      })
-      for (const appointment of appointments) {
-        const scheduledFor = new Date(appointment.startAt.getTime() - automation.sendBeforeMinutes * 60_000)
-        if (scheduledFor > now) continue
-        const resolved = resolveWhatsAppTemplateVariables({
-          body: template.body,
-          category: template.category,
-          context: {
-            customer: appointment.customer,
-            appointment: {
-              id: appointment.id,
-              startAt: appointment.startAt,
-              customer: appointment.customer,
-              service: appointment.service,
-              professional: appointment.professional
-            }
-          }
-        })
-        const invalid = [...resolved.unsupported, ...resolved.missing]
-        const result = invalid.length
-          ? { sent: false as const, reason: 'Faltan variables: ' + invalid.join(', '), to: appointment.customer.phone }
-          : await whatsappCloudApi.sendTemplateMessage({
-              businessId,
-              to: appointment.customer.phone,
-              templateName: template.metaName,
-              languageCode: template.language,
-              bodyParameters: resolved.bodyParameters,
-              headerImageDataUrl: template.imageUrl
-            })
-        const failureMessage = !result.sent
-          ? ('errorMessage' in result ? result.errorMessage : undefined) || ('reason' in result ? result.reason : undefined) || 'No se pudo enviar'
-          : null
-        const delivery = await prisma.reminderDelivery.upsert({
-          where: {
-            reminderAutomationId_appointmentId: {
-              reminderAutomationId: automation.id,
-              appointmentId: appointment.id
-            }
-          },
-          create: {
-            businessId,
-            reminderAutomationId: automation.id,
-            appointmentId: appointment.id,
-            customerId: appointment.customer.id,
-            status: result.sent ? 'SENT' : 'FAILED',
-            providerMessageId: result.sent ? extractProviderMessageId(result.response) : null,
-            attemptNumber: 1,
-            lastError: failureMessage,
-            scheduledFor,
-            sentAt: now
-          },
-          update: {
-            status: result.sent ? 'SENT' : 'FAILED',
-            providerMessageId: result.sent ? extractProviderMessageId(result.response) : null,
-            attemptNumber: { increment: 1 },
-            lastError: failureMessage,
-            sentAt: now
-          }
-        })
-        await recordCommunicationAttempt.execute({
-          businessId,
-          customerId: appointment.customer.id,
-          customerName: appointment.customer.name,
-          phone: appointment.customer.phone,
-          message: resolved.previewText,
-          sourceType: 'REMINDER',
-          sourceId: automation.id,
-          sourceDeliveryId: delivery.id,
-          purpose: 'OPERATIONAL',
-          mode: 'WHATSAPP_API',
-          status: result.sent ? 'SENT' : 'FAILED',
-          providerMessageId: delivery.providerMessageId,
-          failureReason: failureMessage,
-          occurredAt: now,
-          metadata: { appointmentId: appointment.id, scheduledFor: scheduledFor.toISOString() }
-        })
-        if (result.sent) sent += 1
-        else failed += 1
-        const message = failureMessage || undefined
-        results.push({
-          reminderId: automation.id,
-          appointmentId: appointment.id,
-          customerId: appointment.customer.id,
-          status: result.sent ? 'SENT' : 'FAILED',
-          ...(message !== undefined ? { message } : {})
-        })
-      }
-    }
-
-    return { sent, failed, total: sent + failed, results }
+    return processDueReminderDeliveries({ businessId, limit })
   })
 
   app.get('/campaigns/:id/simulations/latest', async (request, reply) => {
@@ -2273,4 +2237,12 @@ function daysBetween(from: Date, to: Date) {
 
 function isUsableCampaignPhone(phone: string) {
   return phone.replace(/\D/g, '').length >= 8
+}
+
+function safeManualReminderUrl(phone: string, message: string) {
+  try {
+    return buildManualWhatsAppUrl(phone, message)
+  } catch {
+    return null
+  }
 }

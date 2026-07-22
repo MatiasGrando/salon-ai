@@ -12125,9 +12125,14 @@ const crmHtml = `<!doctype html>
                   </select>
                 </div>
                 <div class="campaign-form-field full">
-                  <label for="reminder-template">Plantilla aprobada de Recordatorio</label>
-                  <select id="reminder-template"><option value="">Seleccionar plantilla aprobada</option></select>
-                  <p class="campaign-form-help">Solo aparecen plantillas aprobadas con tipo Recordatorio.</p>
+                  <label for="reminder-mode">Modalidad de env&iacute;o</label>
+                  <select id="reminder-mode"><option value="PAUSED">Pausado</option><option value="MANUAL_ASSISTED">Manual asistido</option><option value="AUTOMATIC_API">Autom&aacute;tico por API</option></select>
+                  <p class="campaign-form-help" id="reminder-mode-help">Eleg&iacute; si quer&eacute;s preparar los mensajes o enviarlos autom&aacute;ticamente.</p>
+                </div>
+                <div class="campaign-form-field full">
+                  <label for="reminder-template" id="reminder-template-form-label">Plantilla de Recordatorio</label>
+                  <select id="reminder-template"><option value="">Seleccionar plantilla</option></select>
+                  <p class="campaign-form-help" id="reminder-template-help">En modo manual no hace falta aprobaci&oacute;n de Meta.</p>
                 </div>
                 <div class="campaign-form-field full">
                   <label for="reminder-before">Enviar recordatorio</label>
@@ -12138,15 +12143,7 @@ const crmHtml = `<!doctype html>
                     <option value="2880">48 horas antes</option>
                   </select>
                 </div>
-                <label class="automation-control">
-                  <div class="automation-copy">
-                    <strong>Recordatorios autom&aacute;ticos</strong>
-                    <span>Activa la configuraci&oacute;n y proces&aacute; los turnos pendientes cuando quieras enviar.</span>
-                    <small id="reminder-enabled-copy">Pausado</small>
-                  </div>
-                  <input id="reminder-enabled" type="checkbox">
-                  <span class="automation-switch" aria-hidden="true"></span>
-                </label>
+                <div class="campaign-rule-note">Cada configuraci&oacute;n genera un solo recordatorio por turno. Marcarlo enviado manualmente impide que luego se repita por API.</div>
                 <p class="campaign-form-feedback" id="reminder-feedback" role="status" aria-live="polite"></p>
                 <div class="dialog-actions"><button class="secondary" id="reminder-delete" type="button">Eliminar</button><button class="secondary" id="reminder-process" type="button">Procesar pendientes</button><button class="primary" id="reminder-save" type="button">Guardar recordatorio</button></div>
               </div>
@@ -13357,7 +13354,9 @@ const crmHtml = `<!doctype html>
       templatesLoaded: false,
       reminderAutomations: [],
       selectedReminderId: null,
-      reminderDraft: { name: '', channel: 'WHATSAPP', templateId: null, enabled: false, sendBeforeMinutes: 1440 },
+      reminderDraft: { name: '', channel: 'WHATSAPP', templateId: null, mode: 'PAUSED', enabled: false, sendBeforeMinutes: 1440 },
+      reminderDeliveryData: {},
+      reminderDetailTab: 'pending',
       pendingReminderDeleteConfirm: false,
       reminderLoaded: false,
       postSaleData: null,
@@ -13620,9 +13619,12 @@ const crmHtml = `<!doctype html>
       reminderList: document.getElementById('reminder-list'),
       reminderName: document.getElementById('reminder-name'),
       reminderChannel: document.getElementById('reminder-channel'),
+      reminderMode: document.getElementById('reminder-mode'),
+      reminderModeHelp: document.getElementById('reminder-mode-help'),
       reminderTemplate: document.getElementById('reminder-template'),
+      reminderTemplateFormLabel: document.getElementById('reminder-template-form-label'),
+      reminderTemplateHelp: document.getElementById('reminder-template-help'),
       reminderBefore: document.getElementById('reminder-before'),
-      reminderEnabled: document.getElementById('reminder-enabled'),
       reminderDelete: document.getElementById('reminder-delete'),
       reminderProcess: document.getElementById('reminder-process'),
       reminderSave: document.getElementById('reminder-save'),
@@ -13630,7 +13632,6 @@ const crmHtml = `<!doctype html>
       reminderStatusLabel: document.getElementById('reminder-status-label'),
       reminderTemplateLabel: document.getElementById('reminder-template-label'),
       reminderTimeLabel: document.getElementById('reminder-time-label'),
-      reminderEnabledCopy: document.getElementById('reminder-enabled-copy'),
       reminderDetailPanel: document.getElementById('reminder-detail-panel'),
       postSaleStatus: document.getElementById('post-sale-status'),
       postSaleSent: document.getElementById('post-sale-sent'),
@@ -14541,6 +14542,9 @@ const crmHtml = `<!doctype html>
       state.campaignManualExecutions = {}
       state.templatesLoaded = false
       state.reminderLoaded = false
+      state.selectedReminderId = null
+      state.reminderDeliveryData = {}
+      state.reminderDetailTab = 'pending'
       state.postSaleLoaded = false
       state.postSaleData = null
 
@@ -19837,6 +19841,7 @@ const crmHtml = `<!doctype html>
         state.reminderAutomations = await getJson('/reminder-automations?businessId=' + encodeURIComponent(state.businessId))
         state.reminderLoaded = true
         if (state.selectedReminderId && !state.reminderAutomations.some((item) => item.id === state.selectedReminderId)) state.selectedReminderId = null
+        if (state.selectedReminderId) await loadReminderDeliveries(state.selectedReminderId, false)
         renderReminderSettings()
       } catch (error) {
         els.reminderFeedback.textContent = error.message
@@ -19851,8 +19856,24 @@ const crmHtml = `<!doctype html>
       return '24 hs'
     }
 
-    function approvedReminderTemplates() {
-      return state.whatsappTemplates.filter((item) => item.status === 'APPROVED' && item.category === 'UTILITY')
+    function reminderTemplatesForMode(mode) {
+      return mode === 'AUTOMATIC_API'
+        ? state.whatsappTemplates.filter((item) => item.status === 'APPROVED' && item.category === 'UTILITY')
+        : state.whatsappTemplates.filter((item) => item.category === 'UTILITY')
+    }
+
+    function reminderModeLabel(mode) {
+      return { PAUSED: 'Pausado', MANUAL_ASSISTED: 'Manual asistido', AUTOMATIC_API: 'Autom\u00e1tico' }[mode] || 'Pausado'
+    }
+
+    function reminderDeliveryStatusLabel(status) {
+      return { PENDING: 'Pendiente', OPENED: 'WhatsApp abierto', PROCESSING: 'Procesando', SENT: 'Enviado', DELIVERED: 'Entregado', READ: 'Le\u00eddo', SKIPPED: 'Omitido', FAILED: 'Fallido', CANCELLED: 'Cancelado', EXPIRED: 'Vencido' }[status] || status
+    }
+
+    async function loadReminderDeliveries(reminderId, rerender = true) {
+      if (!reminderId || !state.businessId) return
+      state.reminderDeliveryData[reminderId] = await getJson('/reminder-automations/' + reminderId + '/deliveries?businessId=' + encodeURIComponent(state.businessId))
+      if (rerender && state.selectedReminderId === reminderId) renderReminderSettings()
     }
 
     function reminderChannelLabel(channel) {
@@ -19868,7 +19889,8 @@ const crmHtml = `<!doctype html>
     function resetReminderDraft() {
       state.selectedReminderId = null
       state.pendingReminderDeleteConfirm = false
-      state.reminderDraft = { name: '', channel: 'WHATSAPP', templateId: null, enabled: false, sendBeforeMinutes: 1440 }
+      state.reminderDraft = { name: '', channel: 'WHATSAPP', templateId: null, mode: 'PAUSED', enabled: false, sendBeforeMinutes: 1440 }
+      state.reminderDetailTab = 'pending'
       els.reminderFeedback.textContent = ''
       els.reminderFeedback.className = 'campaign-form-feedback'
       renderReminderSettings()
@@ -19877,8 +19899,9 @@ const crmHtml = `<!doctype html>
 
     function renderReminderSettings() {
       if (!els.reminderTemplate) return
-      const templates = approvedReminderTemplates()
       const settings = currentReminderDraft()
+      const mode = settings.channel === 'EMAIL' ? 'PAUSED' : (settings.mode || (settings.enabled ? 'AUTOMATIC_API' : 'PAUSED'))
+      const templates = reminderTemplatesForMode(mode)
       const query = state.campaignSearch.trim().toLowerCase()
       const filteredReminders = state.reminderAutomations.filter((item) => {
         const template = state.whatsappTemplates.find((templateItem) => templateItem.id === item.templateId)
@@ -19887,32 +19910,63 @@ const crmHtml = `<!doctype html>
       els.reminderList.innerHTML = filteredReminders.length
         ? filteredReminders.map((item) => {
             const template = state.whatsappTemplates.find((templateItem) => templateItem.id === item.templateId)
-            return '<button class="reminder-list-button' + (item.id === state.selectedReminderId ? ' selected' : '') + '" type="button" data-reminder-id="' + escapeHtml(item.id) + '"><div class="campaign-recipient-row"><div class="campaign-recipient-avatar">' + (item.channel === 'EMAIL' ? '&#9993;' : '&#128276;') + '</div><div class="campaign-recipient-copy"><strong>' + escapeHtml(item.name) + '</strong><span>' + escapeHtml(template?.internalName || 'Sin plantilla') + ' · ' + escapeHtml(reminderTimeLabel(item.sendBeforeMinutes)) + ' antes</span></div><span class="reminder-channel-chip">' + escapeHtml(reminderChannelLabel(item.channel)) + '</span></div></button>'
+            return '<button class="reminder-list-button' + (item.id === state.selectedReminderId ? ' selected' : '') + '" type="button" data-reminder-id="' + escapeHtml(item.id) + '"><div class="campaign-recipient-row"><div class="campaign-recipient-avatar">' + (item.channel === 'EMAIL' ? '&#9993;' : '&#128276;') + '</div><div class="campaign-recipient-copy"><strong>' + escapeHtml(item.name) + '</strong><span>' + escapeHtml(template?.internalName || 'Sin plantilla') + ' · ' + escapeHtml(reminderTimeLabel(item.sendBeforeMinutes)) + ' antes</span></div><span class="reminder-channel-chip">' + escapeHtml(reminderModeLabel(item.mode || (item.enabled ? 'AUTOMATIC_API' : 'PAUSED'))) + '</span></div></button>'
           }).join('')
         : '<div class="template-variable-empty">Todavía no hay recordatorios. Creá uno para turnos por WhatsApp; Email queda preparado para más adelante.</div>'
-      els.reminderTemplate.innerHTML = '<option value="">Seleccionar plantilla aprobada</option>' + templates.map((item) => '<option value="' + escapeHtml(item.id) + '">' + escapeHtml(item.internalName) + ' (' + escapeHtml(item.language) + ')</option>').join('')
+      els.reminderTemplate.innerHTML = '<option value="">Seleccionar plantilla</option>' + templates.map((item) => '<option value="' + escapeHtml(item.id) + '">' + escapeHtml(item.internalName) + ' (' + escapeHtml(templateStatusLabel(item.status)) + ')</option>').join('')
       els.reminderName.value = settings.name || ''
       els.reminderChannel.value = settings.channel || 'WHATSAPP'
-      els.reminderTemplate.value = settings.templateId || ''
+      els.reminderMode.value = mode
+      els.reminderTemplate.value = templates.some((item) => item.id === settings.templateId) ? settings.templateId : ''
       els.reminderBefore.value = String(settings.sendBeforeMinutes || 1440)
-      els.reminderEnabled.checked = Boolean(settings.enabled)
-      const activeCount = state.reminderAutomations.filter((item) => item.enabled).length
+      els.reminderModeHelp.textContent = mode === 'MANUAL_ASSISTED'
+        ? 'Prepara la cola y abre WhatsApp con el mensaje completo. Vos registrás cada envío.'
+        : mode === 'AUTOMATIC_API'
+          ? 'La API envía el recordatorio cuando se cumple la anticipación configurada.'
+          : 'No se generan nuevos recordatorios ni se envían mensajes.'
+      els.reminderTemplateFormLabel.textContent = mode === 'AUTOMATIC_API' ? 'Plantilla aprobada de Recordatorio' : 'Plantilla interna de Recordatorio'
+      els.reminderTemplateHelp.textContent = mode === 'AUTOMATIC_API'
+        ? 'Meta exige una plantilla Utility aprobada para iniciar el mensaje por API.'
+        : 'En modo manual podés usar una plantilla interna aunque todavía no esté aprobada por Meta.'
+      const activeCount = state.reminderAutomations.filter((item) => (item.mode || (item.enabled ? 'AUTOMATIC_API' : 'PAUSED')) !== 'PAUSED').length
       els.reminderStatusLabel.textContent = activeCount ? activeCount + ' activos' : 'Pausado'
-      els.reminderEnabledCopy.textContent = settings.enabled ? 'Activo' : 'Pausado'
       els.reminderTimeLabel.textContent = reminderTimeLabel(settings.sendBeforeMinutes || 1440)
-      const template = templates.find((item) => item.id === settings.templateId)
+      const template = state.whatsappTemplates.find((item) => item.id === settings.templateId)
       els.reminderTemplateLabel.textContent = state.reminderAutomations.length ? state.reminderAutomations.length + ' configurados' : 'Sin recordatorios'
       els.reminderDelete.hidden = !state.selectedReminderId
       els.reminderDelete.textContent = state.pendingReminderDeleteConfirm ? 'Confirmar eliminar' : 'Eliminar'
       els.reminderTemplate.disabled = settings.channel === 'EMAIL'
-      els.reminderEnabled.disabled = settings.channel === 'EMAIL'
-      els.reminderProcess.disabled = !state.reminderAutomations.some((item) => item.enabled && item.channel === 'WHATSAPP')
+      els.reminderMode.disabled = settings.channel === 'EMAIL'
+      els.reminderProcess.textContent = mode === 'MANUAL_ASSISTED' ? 'Actualizar pendientes' : 'Procesar pendientes'
+      els.reminderProcess.disabled = !state.reminderAutomations.some((item) => item.channel === 'WHATSAPP' && (item.mode || (item.enabled ? 'AUTOMATIC_API' : 'PAUSED')) !== 'PAUSED')
       els.reminderSave.textContent = state.selectedReminderId ? 'Guardar cambios' : 'Crear recordatorio'
+      const deliveryData = state.selectedReminderId ? state.reminderDeliveryData[state.selectedReminderId] : null
+      const deliveries = deliveryData?.deliveries || []
+      const pendingStatuses = ['PENDING', 'OPENED', 'FAILED', 'PROCESSING']
+      const pending = deliveries.filter((delivery) => pendingStatuses.includes(delivery.status) && delivery.isDue !== false)
+      const history = deliveries.filter((delivery) => !pendingStatuses.includes(delivery.status))
+      const visible = state.reminderDetailTab === 'history' ? history : pending
+      const deliveryPanel = state.selectedReminderId
+        ? '<nav class="campaign-detail-tabs" aria-label="Recordatorios"><button class="' + (state.reminderDetailTab === 'pending' ? 'active' : '') + '" type="button" data-reminder-detail-tab="pending">Pendientes (' + pending.length + ')</button><button class="' + (state.reminderDetailTab === 'history' ? 'active' : '') + '" type="button" data-reminder-detail-tab="history">Historial (' + history.length + ')</button></nav>' +
+          (visible.length ? '<div class="campaign-recipient-list">' + visible.map((delivery) => {
+            const detail = [delivery.appointment?.service?.name, delivery.appointment?.professional?.name].filter(Boolean).join(' · ')
+            const note = delivery.manualNote ? '<small>' + escapeHtml(delivery.manualNote) + '</small>' : ''
+            const error = delivery.lastError ? '<small class="campaign-form-feedback error">' + escapeHtml(delivery.lastError) + '</small>' : ''
+            const canManage = mode === 'MANUAL_ASSISTED' || delivery.mode === 'WHATSAPP_MANUAL'
+            const open = delivery.whatsappUrl && delivery.status !== 'OPENED'
+              ? '<a class="manual-send-whatsapp" href="' + escapeHtml(delivery.whatsappUrl) + '" target="_blank" rel="noopener" data-reminder-open data-reminder-delivery-id="' + escapeHtml(delivery.id) + '">Abrir WhatsApp</a>'
+              : delivery.whatsappUrl ? '<a class="manual-send-whatsapp" href="' + escapeHtml(delivery.whatsappUrl) + '" target="_blank" rel="noopener">Volver a WhatsApp</a>' : ''
+            const actions = canManage && ['PENDING', 'OPENED', 'FAILED'].includes(delivery.status)
+              ? '<div class="manual-send-actions"><button class="campaign-outline-button" type="button" data-reminder-delivery-action="SKIPPED" data-reminder-delivery-id="' + escapeHtml(delivery.id) + '">Omitir</button>' + open + '<button class="campaigns-new" type="button" data-reminder-delivery-action="SENT" data-reminder-delivery-id="' + escapeHtml(delivery.id) + '">Marcar enviado</button></div>'
+              : ''
+            return '<div class="campaign-recipient-row"><div class="campaign-recipient-avatar">&#128276;</div><div class="campaign-recipient-copy"><strong>' + escapeHtml(delivery.customer?.name || 'Cliente') + '</strong><span>' + escapeHtml(detail || 'Turno') + ' · ' + escapeHtml(formatDateTime(delivery.appointment?.startAt)) + '</span>' + note + error + actions + '</div><span class="reminder-channel-chip">' + escapeHtml(reminderDeliveryStatusLabel(delivery.status)) + '</span></div>'
+          }).join('') + '</div>' : '<div class="campaign-detail-empty"><div><strong>' + (state.reminderDetailTab === 'history' ? 'Sin historial todavía' : 'No hay recordatorios pendientes') + '</strong><br>' + (state.reminderDetailTab === 'history' ? 'Los recordatorios gestionados aparecerán acá.' : 'La cola está al día.') + '</div></div>')
+        : ''
       els.reminderDetailPanel.innerHTML = settings.channel === 'EMAIL'
         ? '<div class="campaign-detail-empty"><div><strong>Email preparado para más adelante</strong><br>Este canal queda modelado, pero todavía no se activa ni envía mensajes.</div></div>'
         : template
-        ? '<div class="template-detail-head"><div>' + templateStatusBadge(template.status) + '<h3>' + escapeHtml(template.internalName) + '</h3><p class="template-meta-line">Nombre en Meta: ' + escapeHtml(template.metaName) + '</p></div></div><div class="template-preview">' + (template.imageUrl ? '<img class="template-detail-preview-image" src="' + escapeHtml(template.imageUrl) + '" alt="Imagen de la plantilla">' : '') + '<div class="template-preview-message">' + escapeHtml(template.body) + '</div></div><div class="template-review-note"><strong>Preparado para recordatorios.</strong><span>El envío real se conectará en el siguiente paso.</span></div>'
-        : '<div class="campaign-detail-empty"><div><strong>Recordatorio automático</strong><br>Elegí una plantilla aprobada de Recordatorio para ver la vista previa.</div></div>'
+        ? '<div class="template-detail-head"><div>' + templateStatusBadge(template.status) + '<h3>' + escapeHtml(settings.name || template.internalName) + '</h3><p class="template-meta-line">' + escapeHtml(reminderModeLabel(mode)) + ' · ' + escapeHtml(reminderTimeLabel(settings.sendBeforeMinutes)) + ' antes</p></div></div><div class="template-preview"><div class="template-preview-message">' + escapeHtml(template.body) + '</div></div>' + deliveryPanel
+        : '<div class="campaign-detail-empty"><div><strong>Configurá el recordatorio</strong><br>Elegí una plantilla para preparar los mensajes.</div></div>'
     }
 
     function updateReminderDraftFromForm() {
@@ -19921,8 +19975,9 @@ const crmHtml = `<!doctype html>
         businessId: state.businessId,
         name: els.reminderName.value.trim(),
         channel: els.reminderChannel.value,
+        mode: els.reminderChannel.value === 'EMAIL' ? 'PAUSED' : els.reminderMode.value,
         templateId: els.reminderChannel.value === 'EMAIL' ? null : (els.reminderTemplate.value || null),
-        enabled: els.reminderChannel.value === 'EMAIL' ? false : els.reminderEnabled.checked,
+        enabled: els.reminderChannel.value !== 'EMAIL' && els.reminderMode.value === 'AUTOMATIC_API',
         sendBeforeMinutes: Number(els.reminderBefore.value || 1440)
       }
       if (state.selectedReminderId) {
@@ -19944,8 +19999,9 @@ const crmHtml = `<!doctype html>
           businessId: state.businessId,
           name: els.reminderName.value.trim(),
           channel: els.reminderChannel.value,
+          mode: els.reminderChannel.value === 'EMAIL' ? 'PAUSED' : els.reminderMode.value,
           templateId: els.reminderChannel.value === 'EMAIL' ? null : (els.reminderTemplate.value || null),
-          enabled: els.reminderChannel.value === 'EMAIL' ? false : els.reminderEnabled.checked,
+          enabled: els.reminderChannel.value !== 'EMAIL' && els.reminderMode.value === 'AUTOMATIC_API',
           sendBeforeMinutes: els.reminderBefore.value
         }
         const saved = await getJson(state.selectedReminderId ? '/reminder-automations/' + state.selectedReminderId : '/reminder-automations', {
@@ -19954,7 +20010,7 @@ const crmHtml = `<!doctype html>
           body: JSON.stringify(payload)
         })
         state.selectedReminderId = saved.id
-        state.reminderDraft = { name: '', channel: 'WHATSAPP', templateId: null, enabled: false, sendBeforeMinutes: 1440 }
+        state.reminderDraft = { name: '', channel: 'WHATSAPP', templateId: null, mode: 'PAUSED', enabled: false, sendBeforeMinutes: 1440 }
         await loadReminderSettings()
         els.reminderFeedback.textContent = 'Recordatorio guardado.'
         els.reminderFeedback.className = 'campaign-form-feedback success'
@@ -19977,8 +20033,8 @@ const crmHtml = `<!doctype html>
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ businessId: state.businessId, limit: 100 })
         })
-        els.reminderFeedback.textContent = result.total
-          ? 'Procesado: ' + result.sent + ' enviados · ' + result.failed + ' fallidos.'
+        els.reminderFeedback.textContent = result.total || result.prepared
+          ? 'Procesado: ' + (result.prepared || 0) + ' preparados · ' + result.sent + ' enviados · ' + result.failed + ' fallidos.'
           : 'No hay recordatorios pendientes en este momento.'
         els.reminderFeedback.className = result.failed ? 'campaign-form-feedback error' : 'campaign-form-feedback success'
         await loadReminderSettings()
@@ -19986,8 +20042,30 @@ const crmHtml = `<!doctype html>
         els.reminderFeedback.textContent = error.message
         els.reminderFeedback.className = 'campaign-form-feedback error'
       } finally {
-        els.reminderProcess.textContent = 'Procesar pendientes'
-        els.reminderProcess.disabled = !state.reminderAutomations.some((item) => item.enabled && item.channel === 'WHATSAPP')
+        const mode = currentReminderDraft().mode || 'PAUSED'
+        els.reminderProcess.textContent = mode === 'MANUAL_ASSISTED' ? 'Actualizar pendientes' : 'Procesar pendientes'
+        els.reminderProcess.disabled = !state.reminderAutomations.some((item) => item.channel === 'WHATSAPP' && (item.mode || (item.enabled ? 'AUTOMATIC_API' : 'PAUSED')) !== 'PAUSED')
+      }
+    }
+
+    async function updateManualReminderDelivery(deliveryId, status) {
+      if (!state.selectedReminderId) return
+      for (const button of els.reminderDetailPanel.querySelectorAll('[data-reminder-delivery-action]')) button.disabled = true
+      try {
+        await getJson('/reminder-automations/' + state.selectedReminderId + '/deliveries/' + deliveryId + '/manual-status', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ businessId: state.businessId, status })
+        })
+        await loadReminderDeliveries(state.selectedReminderId)
+        els.reminderFeedback.textContent = status === 'SENT'
+          ? 'Envío manual registrado. Este recordatorio no se repetirá por API.'
+          : 'Recordatorio actualizado.'
+        els.reminderFeedback.className = 'campaign-form-feedback success'
+      } catch (error) {
+        els.reminderFeedback.textContent = error.message
+        els.reminderFeedback.className = 'campaign-form-feedback error'
+        renderReminderSettings()
       }
     }
 
@@ -22027,23 +22105,45 @@ const crmHtml = `<!doctype html>
       renderWhatsappTemplates()
     })
     els.templateSyncAll.addEventListener('click', syncAllWhatsappTemplates)
-    els.reminderList.addEventListener('click', (event) => {
+    els.reminderList.addEventListener('click', async (event) => {
       const button = event.target.closest('[data-reminder-id]')
       if (!button) return
       state.selectedReminderId = button.dataset.reminderId
+      state.reminderDetailTab = 'pending'
       state.pendingReminderDeleteConfirm = false
       els.reminderFeedback.textContent = ''
       els.reminderFeedback.className = 'campaign-form-feedback'
       renderReminderSettings()
+      try {
+        await loadReminderDeliveries(state.selectedReminderId)
+      } catch (error) {
+        els.reminderFeedback.textContent = error.message
+        els.reminderFeedback.className = 'campaign-form-feedback error'
+      }
     })
     els.reminderName.addEventListener('input', updateReminderDraftFromForm)
     els.reminderChannel.addEventListener('change', updateReminderDraftFromForm)
+    els.reminderMode.addEventListener('change', updateReminderDraftFromForm)
     els.reminderTemplate.addEventListener('change', updateReminderDraftFromForm)
     els.reminderBefore.addEventListener('change', updateReminderDraftFromForm)
-    els.reminderEnabled.addEventListener('change', updateReminderDraftFromForm)
     els.reminderSave.addEventListener('click', saveReminderSettings)
     els.reminderDelete.addEventListener('click', deleteSelectedReminder)
     els.reminderProcess.addEventListener('click', processDueReminders)
+    els.reminderDetailPanel.addEventListener('click', (event) => {
+      const tab = event.target.closest('[data-reminder-detail-tab]')
+      if (tab) {
+        state.reminderDetailTab = tab.dataset.reminderDetailTab
+        renderReminderSettings()
+        return
+      }
+      const open = event.target.closest('[data-reminder-open]')
+      if (open) {
+        void updateManualReminderDelivery(open.dataset.reminderDeliveryId, 'OPENED')
+        return
+      }
+      const action = event.target.closest('[data-reminder-delivery-action]')
+      if (action) void updateManualReminderDelivery(action.dataset.reminderDeliveryId, action.dataset.reminderDeliveryAction)
+    })
     els.postSaleMode.addEventListener('change', () => {
       renderPostSaleTemplateOptions(els.postSaleMode.value, els.postSaleTemplate.value)
       els.postSaleStatus.textContent = postSaleModeLabel(els.postSaleMode.value)

@@ -9,6 +9,7 @@
     "prisma:generate": "prisma generate",
     "test:booking-v2": "tsx scripts/booking-v2-contract-test.ts",
     "test:post-sale": "tsx scripts/post-sale-mode-contract-test.ts",
+    "test:reminders": "tsx scripts/reminder-mode-contract-test.ts",
     "test:conversation": "tsx scripts/conversation-smoke-test.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
