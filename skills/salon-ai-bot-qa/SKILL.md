@@ -233,6 +233,8 @@ Whenever Booking V2 asks the customer to choose, show the real available options
 
 Questions such as `Quienes atienden?`, `Que profesionales hay?` and `Con quien me puedo atender?` must answer from the business professional catalog and mention the services assigned to each professional when available.
 
+When the pending field is `professional`, an exact match with a compatible catalog professional must be accepted deterministically before AI extraction. It must never overwrite or propose changing the customer's name. Pending proposal confirmations (`si`/`no`) must always be evaluated from the literal current customer message, never from a router rewrite.
+
 ### Tone
 
 Cami should stay warm, attentive, feminine, and professional across all messages, not only the first one.

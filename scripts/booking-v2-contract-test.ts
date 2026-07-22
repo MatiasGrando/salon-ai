@@ -491,6 +491,34 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'motor prioriza el profesional esperado y no lo confunde con el nombre',
+    run: async () => {
+      const extractor = fakeExtractor(extraction({
+        name: field('Ana', 0.7, 'Ana')
+      }))
+      const engine = new BookingV2Engine(fakeDomainPort(), extractor)
+
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Mati',
+          selectedServiceId: 'beard',
+          selectedProfessionalId: null,
+          selectedDate: null,
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: 'Ana'
+      })
+
+      assert.equal(result.state.draft.name, 'Mati')
+      assert.equal(result.state.draft.professional, 'professional-2')
+      assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'date')
+      assert.equal(extractor.calls.length, 0)
+    }
+  },
+  {
     name: 'motor confirma propuesta pendiente sin gastar extractor',
     run: async () => {
       const pending = conversationPatchFromState(proposeField(createEmptyBookingV2State(), {

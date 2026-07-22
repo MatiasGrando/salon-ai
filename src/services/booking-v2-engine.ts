@@ -5,6 +5,7 @@ import { buildBookingV2MessagePlan, type BookingV2MessagePlan } from './booking-
 import { renderBookingV2Response } from './booking-v2-response-renderer.js'
 import { applyBookingV2Extraction, type BookingV2Interpretation } from './booking-v2-interpreter.js'
 import {
+  acceptField,
   confirmProposal,
   nextMissingField,
   rejectProposal,
@@ -67,6 +68,21 @@ export class BookingV2Engine {
     }
 
     const catalog = await this.domain.loadCatalog(input.businessId)
+    const deterministicProfessional = resolveExpectedProfessional(
+      input.message,
+      initialState,
+      catalog
+    )
+    if (deterministicProfessional) {
+      const state = acceptField(initialState, 'professional', deterministicProfessional)
+      return this.fromInterpretation({
+        state,
+        nextField: nextMissingField(state.draft),
+        outcome: 'accepted',
+        affectedField: 'professional'
+      }, null, catalog)
+    }
+
     const extractionCatalog = this.domain.toExtractionCatalog(catalog)
     const extraction = await this.extractor.extract({
       message: input.message,
@@ -206,4 +222,23 @@ function normalize(value: string) {
     .replace(/\p{Diacritic}/gu, '')
     .replace(/[^\p{Letter}\p{Number}\s]/gu, '')
     .replace(/\s+/g, ' ')
+}
+
+function resolveExpectedProfessional(
+  message: string,
+  state: BookingV2State,
+  catalog: BookingV2DomainCatalog
+) {
+  if (nextMissingField(state.draft) !== 'professional') return null
+
+  const selectedService = state.draft.service
+  const normalizedMessage = normalize(message)
+    .replace(/^(?:con|quiero con|prefiero|elijo a|con la|con el)\s+/, '')
+
+  const matches = catalog.professionals.filter((professional) =>
+    normalize(professional.name) === normalizedMessage &&
+    (!selectedService || professional.serviceIds.includes(selectedService))
+  )
+
+  return matches.length === 1 ? matches[0]?.id ?? null : null
 }

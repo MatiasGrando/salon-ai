@@ -382,7 +382,9 @@ export class ConversationService {
     const result = await bookingV2Engine.process({
       businessId: input.businessId,
       conversation: input.conversation,
-      message: input.routing.bookingMessage ?? input.message
+      message: input.conversation.bookingV2State
+        ? input.message
+        : input.routing.bookingMessage ?? input.message
     })
 
     await this.updateConversation(input.phone, {
