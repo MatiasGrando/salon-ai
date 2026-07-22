@@ -44,8 +44,8 @@ export class InstagramWebhookService {
     const results = []
 
     for (const event of events) {
-      const config = await prisma.businessInstagramConfig.findUnique({
-        where: { instagramAccountId: event.instagramAccountId },
+      const config = await prisma.businessInstagramConfig.findFirst({
+        where: { instagramAccountId: { in: event.instagramAccountIds } },
         include: { business: { select: { id: true, name: true, publicWhatsapp: true } } }
       })
       if (!config) {
@@ -92,7 +92,11 @@ export class InstagramWebhookService {
           direction: 'INBOUND',
           body: event.text,
           status: 'received',
-          metadata: { provider: 'instagram', ...(event.timestamp ? { timestamp: event.timestamp } : {}) }
+          metadata: {
+            provider: 'instagram',
+            webhookAccountIds: event.instagramAccountIds,
+            ...(event.timestamp ? { timestamp: event.timestamp } : {})
+          }
         }
       })
 
@@ -162,7 +166,7 @@ export class InstagramWebhookService {
 
 function extractTextEvents(payload: InstagramWebhookPayload) {
   const result: Array<{
-    instagramAccountId: string
+    instagramAccountIds: string[]
     senderId: string
     messageId?: string
     text: string
@@ -173,8 +177,10 @@ function extractTextEvents(payload: InstagramWebhookPayload) {
     for (const event of entry.messaging ?? []) {
       const message = event.message
       if (!event.sender?.id || !message?.text || message.is_echo || message.is_deleted) continue
+      const instagramAccountIds = [...new Set([event.recipient?.id, entry.id].filter((id): id is string => Boolean(id)))]
+      if (instagramAccountIds.length === 0) continue
       result.push({
-        instagramAccountId: entry.id,
+        instagramAccountIds,
         senderId: event.sender.id,
         text: message.text.trim(),
         ...(message.mid ? { messageId: message.mid } : {}),
