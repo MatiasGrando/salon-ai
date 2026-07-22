@@ -305,8 +305,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     run: async () => {
       const domainCatalog = createBookingV2DomainCatalog({
         services: [
-          { id: 'haircut', name: 'Corte', aliases: ['corte de pelo'], duration: 30, category: null },
-          { id: 'beard', name: 'Barba', aliases: [], duration: 20, category: null }
+          { id: 'haircut', name: 'Corte', aliases: ['corte de pelo'], duration: 30, price: 15000, category: null },
+          { id: 'beard', name: 'Barba', aliases: [], duration: 20, price: null, category: null }
         ],
         professionals: [
           { id: 'professional-1', name: 'Nico', serviceIds: ['haircut'] },
@@ -453,7 +453,9 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         reason: 'missing',
         misunderstandingCount: 0
       })
-      assert.equal(result.reply, '¿Con qué profesional querés atenderte?')
+      assert.equal(result.reply.includes('• Nico'), true)
+      assert.equal(result.reply.includes('• Cualquier profesional'), true)
+      assert.equal(result.reply.includes('Ana'), false)
     }
   },
   {
@@ -483,7 +485,9 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(result.plan.type, 'ask_field')
       assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'time')
       assert.deepEqual(result.availabilityOptions.map((option) => option.time), ['15:00', '15:30'])
-      assert.equal(result.reply, 'Tengo disponible a las 15:00 y 15:30. ¿Qué horario preferís?')
+      assert.equal(result.reply.includes('• 15:00 con Nico'), true)
+      assert.equal(result.reply.includes('• 15:30 con Nico'), true)
+      assert.equal(result.reply.includes('¿Cuál te queda mejor?'), true)
     }
   },
   {
@@ -585,7 +589,10 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         catalog: fakeDomainCatalog()
       })
 
-      assert.equal(reply, 'Disculpame, no te entendí bien. ¿Qué servicio querés reservar?')
+      assert.equal(reply.includes('Disculpame, no te entendí bien.'), true)
+      assert.equal(reply.includes('• Corte — 30 min'), true)
+      assert.equal(reply.includes('15.000'), true)
+      assert.equal(reply.includes('• Barba — 20 min — precio a consultar'), true)
     }
   },
   {
@@ -743,6 +750,17 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'router determinista reconoce consultas sobre profesionales',
+    run: () => {
+      for (const message of ['Quienes atienden?', 'Que profesionales hay?', 'Con quien me puedo atender?']) {
+        assert.deepEqual(
+          businessInformationTopicsFromRouting(deterministicConversationRouting(message)),
+          ['professionals']
+        )
+      }
+    }
+  },
+  {
     name: 'conocimiento del negocio responde solo con datos cargados',
     run: () => {
       const replies = renderBusinessKnowledgeAnswers({
@@ -762,6 +780,9 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         ],
         services: [
           { name: 'Corte', duration: 30, price: 15000 }
+        ],
+        professionals: [
+          { name: 'Nico', services: ['Corte'] }
         ]
       }, ['opening_hours', 'address', 'website', 'booking_channels', 'email', 'prices'], 'example.com')
 
@@ -772,6 +793,27 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(replies[4]?.includes('No tengo el email'), true)
       assert.equal(replies[5]?.includes('Corte (30 min)'), true)
       assert.equal(replies[5]?.includes('15.000'), true)
+
+      const professionalReplies = renderBusinessKnowledgeAnswers({
+        name: 'Salon Demo',
+        slug: 'salon-demo',
+        landingEnabled: true,
+        publicWhatsapp: null,
+        contactEmail: null,
+        publicAddress: null,
+        publicAddressArea: null,
+        publicMapsUrl: null,
+        instagramUrl: null,
+        facebookUrl: null,
+        businessHours: [],
+        services: [],
+        professionals: [
+          { name: 'Nico', services: ['Corte'] }
+        ]
+      }, ['professionals'], 'example.com')
+
+      assert.equal(professionalReplies[0]?.includes('Nico'), true)
+      assert.equal(professionalReplies[0]?.includes('Corte'), true)
     }
   },
   {
@@ -927,8 +969,8 @@ function fakeDomainPort() {
 function fakeDomainCatalog() {
   return createBookingV2DomainCatalog({
     services: [
-      { id: 'haircut', name: 'Corte', aliases: ['corte de pelo'], duration: 30, category: null },
-      { id: 'beard', name: 'Barba', aliases: [], duration: 20, category: null }
+      { id: 'haircut', name: 'Corte', aliases: ['corte de pelo'], duration: 30, price: 15000, category: null },
+      { id: 'beard', name: 'Barba', aliases: [], duration: 20, price: null, category: null }
     ],
     professionals: [
       { id: 'professional-1', name: 'Nico', serviceIds: ['haircut', 'beard'] },

@@ -34,6 +34,11 @@ export class ConversationRouterContextService {
           services: {
             select: { id: true },
             take: 1
+          },
+          professionals: {
+            where: { isActive: true },
+            select: { id: true },
+            take: 1
           }
         }
       }),
@@ -103,6 +108,7 @@ function availableInformationForBusiness(business: {
   facebookUrl: string | null
   businessHours: Array<{ dayOfWeek: number; startTime: string; endTime: string }>
   services: Array<{ id: string }>
+  professionals: Array<{ id: string }>
 } | null): BusinessInformationTopic[] {
   if (!business) return []
 
@@ -115,5 +121,6 @@ function availableInformationForBusiness(business: {
   if (business.instagramUrl) topics.push('instagram')
   if (business.facebookUrl) topics.push('facebook')
   if (business.services.length) topics.push('services', 'prices')
+  if (business.professionals.length) topics.push('professionals')
   return topics
 }

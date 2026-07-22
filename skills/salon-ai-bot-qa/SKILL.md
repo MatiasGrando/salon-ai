@@ -226,6 +226,13 @@ Regression sequence:
 
 Natural catalog questions such as `Cuales servicios hay?`, `Que servicios hay?` and `Mostrame los servicios` must render the real service catalog and then resume the pending booking step.
 
+Whenever Booking V2 asks the customer to choose, show the real available options instead of an empty question:
+- service: list the business services with duration and price, or `precio a consultar`;
+- professional: list only active professionals compatible with the selected service, plus `Cualquier profesional`;
+- time: list real availability as `hora con profesional` so the customer knows who would attend them.
+
+Questions such as `Quienes atienden?`, `Que profesionales hay?` and `Con quien me puedo atender?` must answer from the business professional catalog and mention the services assigned to each professional when available.
+
 ### Tone
 
 Cami should stay warm, attentive, feminine, and professional across all messages, not only the first one.

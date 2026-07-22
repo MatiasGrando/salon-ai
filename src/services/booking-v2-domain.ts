@@ -11,6 +11,7 @@ export type BookingV2ServiceOption = {
   name: string
   aliases: string[]
   duration: number
+  price: number | null
   category: string | null
 }
 
@@ -77,6 +78,7 @@ export class BookingV2DomainService {
         name: service.name,
         aliases: service.aliases.map((alias) => alias.name),
         duration: service.duration,
+        price: service.price,
         category: service.category
       })),
       professionals: professionals.map((professional) => ({

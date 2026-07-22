@@ -31,6 +31,7 @@ export const BUSINESS_INFORMATION_TOPICS = [
   'instagram',
   'facebook',
   'services',
+  'professionals',
   'prices',
   'other'
 ] as const
@@ -99,7 +100,7 @@ export class ConversationRouter {
           'Nunca repitas una intencion de recentMessages si no aparece tambien en customerMessage.',
           'Podes devolver varias intenciones cuando el mensaje mezcla pedidos.',
           'No respondas al cliente, no ejecutes acciones y no inventes datos.',
-          'Usa business_information para preguntas sobre horarios del local, direccion, web, formas de reservar, contacto, redes, servicios o precios.',
+          'Usa business_information para preguntas sobre horarios del local, direccion, web, formas de reservar, contacto, redes, servicios, profesionales o precios.',
           'Usa availability_preference para dias o franjas como despues de las 18, por la manana o solo sabados.',
           'Usa professional_preference cuando nombra, pregunta o cambia profesional.',
           'Usa request_quote cuando pide precio estimado o presupuesto personalizado.',
@@ -279,6 +280,10 @@ function detectBusinessInformationTopics(normalized: string): BusinessInformatio
     'servicios disponibles', 'mostrame los servicios', 'mostrar servicios', 'ver servicios',
     'que hacen en el local', 'lista de servicios'
   ])) add('services')
+  if (containsAny(normalized, [
+    'que profesionales hay', 'cuales profesionales hay', 'quienes atienden', 'quien atiende',
+    'con quien me puedo atender', 'lista de profesionales', 'profesionales disponibles'
+  ])) add('professionals')
   if (containsAny(normalized, [
     'cuanto sale', 'cuanto cuesta', 'que precio', 'lista de precios', 'precios de los servicios'
   ])) add('prices')

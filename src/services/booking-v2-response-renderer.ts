@@ -17,14 +17,18 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
 
   if (input.plan.type === 'ask_field') {
     if (input.plan.field === 'time' && input.availabilityOptions?.length) {
-      return `Tengo ${formatAvailabilityOptions(input.availabilityOptions)}. ¿Qué horario preferís?`
+      return [
+        'Tengo estos horarios disponibles 😊',
+        formatAvailabilityOptions(input.availabilityOptions),
+        '¿Cuál te queda mejor?'
+      ].join('\n')
     }
-    const question = questionForField(input.plan.field)
+    const question = questionForField(input.plan.field, input.draft, input.catalog)
     if (input.plan.reason === 'not_understood') {
       return `Disculpame, no te entendí bien. ${question}`
     }
     if (input.plan.field === 'name' && !input.draft.name) {
-      return `Hola, soy la asistente virtual. ${question}`
+      return `¡Hola! Soy Cami 😊 ${question}`
     }
     return question
   }
@@ -40,12 +44,47 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
   return bookingConfirmation(input.draft, input.catalog)
 }
 
-function questionForField(field: BookingField) {
+function questionForField(
+  field: BookingField,
+  draft: BookingDraft,
+  catalog?: BookingV2DomainCatalog | null
+) {
   if (field === 'name') return '¿Me decís tu nombre?'
-  if (field === 'service') return '¿Qué servicio querés reservar?'
-  if (field === 'professional') return '¿Con qué profesional querés atenderte?'
-  if (field === 'date') return '¿Qué día querés venir?'
+  if (field === 'service') return serviceQuestion(catalog)
+  if (field === 'professional') return professionalQuestion(draft.service, catalog)
+  if (field === 'date') return 'Perfecto 😊 ¿Qué día te gustaría venir? Puede ser hoy, mañana o una fecha específica.'
   return '¿Qué horario preferís?'
+}
+
+function serviceQuestion(catalog?: BookingV2DomainCatalog | null) {
+  if (!catalog?.services.length) return '¿Qué servicio querés reservar?'
+
+  return [
+    'Estos son los servicios disponibles 😊',
+    ...catalog.services.map((service) => {
+      const price = service.price === null ? 'precio a consultar' : formatMoney(service.price)
+      return `• ${service.name} — ${service.duration} min — ${price}`
+    }),
+    '¿Cuál querés reservar?'
+  ].join('\n')
+}
+
+function professionalQuestion(
+  serviceId: string | null,
+  catalog?: BookingV2DomainCatalog | null
+) {
+  const professionals = catalog?.professionals.filter((professional) =>
+    !serviceId || professional.serviceIds.includes(serviceId)
+  ) ?? []
+
+  if (!professionals.length) return '¿Con qué profesional querés atenderte?'
+
+  return [
+    'Podés atenderte con:',
+    ...professionals.map((professional) => `• ${professional.name}`),
+    '• Cualquier profesional',
+    '¿Con quién preferís?'
+  ].join('\n')
 }
 
 function confirmationForField(
@@ -99,10 +138,23 @@ function formatDate(value: string | null) {
 }
 
 function formatAvailabilityOptions(options: BookingV2AvailabilityOption[]) {
-  const uniqueTimes = Array.from(new Set(options.map((option) => option.time))).slice(0, 6)
-  if (uniqueTimes.length === 1) return `disponible a las ${uniqueTimes[0]}`
-  if (uniqueTimes.length === 2) return `disponible a las ${uniqueTimes[0]} y ${uniqueTimes[1]}`
+  const seen = new Set<string>()
+  const uniqueOptions = options.filter((option) => {
+    const key = `${option.time}:${option.professionalId}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  }).slice(0, 6)
 
-  const last = uniqueTimes[uniqueTimes.length - 1]
-  return `disponible a las ${uniqueTimes.slice(0, -1).join(', ')} y ${last}`
+  return uniqueOptions
+    .map((option) => `• ${option.time} con ${option.professionalName}`)
+    .join('\n')
+}
+
+function formatMoney(value: number) {
+  return new Intl.NumberFormat('es-AR', {
+    style: 'currency',
+    currency: 'ARS',
+    maximumFractionDigits: 0
+  }).format(value)
 }

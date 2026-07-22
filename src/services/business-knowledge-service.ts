@@ -24,6 +24,10 @@ export type BusinessKnowledge = {
     duration: number
     price: number | null
   }>
+  professionals: Array<{
+    name: string
+    services: string[]
+  }>
 }
 
 export class BusinessKnowledgeService {
@@ -53,12 +57,32 @@ export class BusinessKnowledgeService {
         services: {
           orderBy: { name: 'asc' },
           select: { name: true, duration: true, price: true }
+        },
+        professionals: {
+          where: { isActive: true },
+          orderBy: { name: 'asc' },
+          select: {
+            name: true,
+            serviceLinks: {
+              select: {
+                service: {
+                  select: { name: true }
+                }
+              }
+            }
+          }
         }
       }
     })
 
     if (!business) return null
-    return renderBusinessKnowledgeAnswers(business, input.topics).join('\n\n') || null
+    return renderBusinessKnowledgeAnswers({
+      ...business,
+      professionals: business.professionals.map((professional) => ({
+        name: professional.name,
+        services: professional.serviceLinks.map((link) => link.service.name)
+      }))
+    }, input.topics).join('\n\n') || null
   }
 }
 
@@ -131,6 +155,20 @@ function answerTopic(business: BusinessKnowledge, topic: BusinessInformationTopi
     return [
       topic === 'prices' ? 'Estos son los precios cargados actualmente:' : 'Estos son los servicios disponibles:',
       ...lines
+    ].join('\n')
+  }
+
+  if (topic === 'professionals') {
+    if (!business.professionals.length) return missingInformation('la lista de profesionales')
+    return [
+      'Estos son los profesionales disponibles:',
+      ...business.professionals.map((professional) => {
+        const services = professional.services.length
+          ? ` — ${professional.services.join(', ')}`
+          : ''
+        return `• ${professional.name}${services}`
+      }),
+      'Si querés, también puedo ayudarte a buscar un horario con alguno de ellos 😊'
     ].join('\n')
   }
 
