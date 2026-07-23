@@ -57,7 +57,7 @@ export async function landingUiRoutes(app: FastifyInstance) {
     const business = await businessService.findPublicBySlug(slug)
     if (!business || !business.landingEnabled) return reply.status(404).type('text/html').send(renderNotFound())
 
-    return reply.type('text/html').send(renderBookingPlaceholder(business, '/'))
+    return reply.type('text/html').send(renderBookingPlaceholder(business, '/', previewLandingTemplate(request)))
   })
 
   app.get('/cuenta', async (request, reply) => {
@@ -85,7 +85,7 @@ export async function landingUiRoutes(app: FastifyInstance) {
     const business = await businessService.findPublicBySlug(slug)
     if (!business || !business.landingEnabled) return reply.status(404).type('text/html').send(renderNotFound())
 
-    return reply.type('text/html').send(renderBookingPlaceholder(business, `/${slug}`))
+    return reply.type('text/html').send(renderBookingPlaceholder(business, `/${slug}`, previewLandingTemplate(request)))
   })
 
   app.get('/:slug/cuenta', async (request, reply) => {
@@ -629,7 +629,7 @@ function renderSalonWhiteLanding(business: LandingBusiness, basePath = '') {
   const services = business.services.slice(0, 3)
   const professionals = business.professionals.slice(0, 3)
   const galleryImages = parseLandingGalleryImages(business.landingGalleryImages)
-  const bookingUrl = `${basePath}/reservar`
+  const bookingUrl = `${basePath}/reservar?template=salon-white`
   const accountUrl = `${basePath}/cuenta`
   const whatsappDisplayPhone = publicWhatsappNumber(business)?.trim() || ''
   const whatsappDigits = whatsappDisplayPhone.replace(/\D/g, '')
@@ -1172,8 +1172,9 @@ function inferAddressArea(value?: string | null) {
     : ''
 }
 
-function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
+function renderBookingPlaceholder(business: LandingBusiness, backPath: string, templateOverride?: string) {
   const slug = business.slug || ''
+  const bookingTemplate = normalizeLandingTemplate(templateOverride || business.landingTemplate)
   const subtitle = business.landingSubtitle || 'Oficio de navaja y tijera'
   const initialsText = initials(business.name) || 'WX'
   const accountPath = backPath === '/' ? '/cuenta' : `${backPath}/cuenta`
@@ -1183,6 +1184,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string) {
   const addressLabel = formatPublicAddress(business)
   return htmlPage({
     title: `Reservar en ${business.name}`,
+    bodyClass: `booking-template-${bookingTemplate}`,
     body: `
       <main class="fresha-booking" data-booking-slug="${escapeAttribute(slug)}">
         <div class="booking-brand-rail">
@@ -5164,6 +5166,255 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
       text-align: center;
     }
 
+    /* La reserva de Salon White continúa la identidad visual de la landing. */
+    .booking-template-salon-white {
+      --dark-1: #2B2420;
+      --dark-2: #3B312C;
+      --gold: #D9A793;
+      --gold-light: #E8C7B9;
+      --burgundy: #D9A793;
+      --burgundy-dark: #BD7E67;
+      --cream: #FDFBF8;
+      --cream-card: #FFFFFF;
+      --cream-line: #EFE8E1;
+      --ink: #2B2420;
+      --ink-soft: #8A7F76;
+      --white: #FFFFFF;
+      --font-display: "Playfair Display", Georgia, serif;
+      --font-sans: "Jost", Arial, sans-serif;
+      background: #FDFBF8;
+    }
+    .booking-template-salon-white .fresha-booking {
+      padding: 32px 24px 72px;
+      color: #2B2420;
+      background: linear-gradient(180deg, #FFFFFF 0 198px, #FDFBF8 198px 100%);
+      font-family: "Jost", Arial, sans-serif;
+    }
+    .booking-template-salon-white .booking-brand-rail {
+      width: min(1160px, 100%);
+      margin-bottom: 24px;
+      color: #2B2420;
+    }
+    .booking-template-salon-white .booking-brand-mark {
+      color: #BD7E67;
+      background: #F6E6DE;
+      border-color: #E8C7B9;
+    }
+    .booking-template-salon-white .booking-brand-name strong {
+      color: #2B2420;
+      font-family: "Playfair Display", Georgia, serif;
+      font-size: 23px;
+      font-weight: 600;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+    .booking-template-salon-white .booking-brand-name span,
+    .booking-template-salon-white .booking-brand-note {
+      color: #BD7E67;
+      font-weight: 600;
+      letter-spacing: .18em;
+    }
+    .booking-template-salon-white .fresha-modal {
+      max-width: 1160px;
+      background: #FFFFFF;
+      border-color: #EFE8E1;
+      border-radius: 2px;
+      box-shadow: 0 18px 54px rgba(87, 65, 53, .09);
+    }
+    .booking-template-salon-white .fresha-header {
+      min-height: 76px;
+      color: #2B2420;
+      background: #FFFFFF;
+      border-bottom-color: #EFE8E1;
+    }
+    .booking-template-salon-white .fresha-icon-btn {
+      color: #2B2420;
+      background: #FFFFFF;
+      border-color: #E8DED7;
+    }
+    .booking-template-salon-white .fresha-icon-btn:hover {
+      color: #BD7E67;
+      background: #FDF7F4;
+      border-color: #D9A793;
+    }
+    .booking-template-salon-white .fresha-breadcrumb {
+      color: #A69A91;
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: .12em;
+    }
+    .booking-template-salon-white .crumb.active,
+    .booking-template-salon-white .crumb.done:hover { color: #BD7E67; }
+    .booking-template-salon-white .crumb.done { color: #62574F; }
+    .booking-template-salon-white .crumb-sep { color: #E2D8D1; }
+    .booking-template-salon-white .fresha-body {
+      grid-template-columns: minmax(0, 1fr) 370px;
+    }
+    .booking-template-salon-white .fresha-main {
+      min-height: 570px;
+      padding: 48px 54px 58px;
+      background: #FFFFFF;
+      border-right-color: #EFE8E1;
+    }
+    .booking-template-salon-white .fresha-heading {
+      margin-bottom: 34px;
+      color: #2B2420;
+      font-family: "Playfair Display", Georgia, serif;
+      font-size: 40px;
+      font-weight: 600;
+      letter-spacing: 0;
+    }
+    .booking-template-salon-white .fresha-heading::after {
+      width: 44px;
+      margin-top: 16px;
+      background: #D9A793;
+    }
+    .booking-template-salon-white .fresha-options { gap: 12px; }
+    .booking-template-salon-white .fresha-option,
+    .booking-template-salon-white .date-chip,
+    .booking-template-salon-white .slot,
+    .booking-template-salon-white .slots-loading,
+    .booking-template-salon-white .booking-account-ready,
+    .booking-template-salon-white .booking-account-required {
+      color: #2B2420;
+      background: #FFFFFF;
+      border-color: #EFE8E1;
+      border-radius: 2px;
+    }
+    .booking-template-salon-white .fresha-option:hover,
+    .booking-template-salon-white .slot:hover { border-color: #D9A793; }
+    .booking-template-salon-white .fresha-option.selected {
+      background: #FDF7F4;
+      border-color: #D9A793;
+      box-shadow: inset 3px 0 0 #D9A793;
+    }
+    .booking-template-salon-white .option-left strong,
+    .booking-template-salon-white .section-label,
+    .booking-template-salon-white .slots-loading strong,
+    .booking-template-salon-white .booking-account-required h2,
+    .booking-template-salon-white .booking-account-ready h2 { color: #2B2420; }
+    .booking-template-salon-white .option-left strong { font-weight: 600; }
+    .booking-template-salon-white .option-right strong { color: #BD7E67; }
+    .booking-template-salon-white .radio { border-color: #D7CAC1; }
+    .booking-template-salon-white .fresha-option.selected .radio { border-color: #BD7E67; }
+    .booking-template-salon-white .fresha-option.selected .radio::after { background: #BD7E67; }
+    .booking-template-salon-white .avatar {
+      color: #BD7E67;
+      background: #F6E6DE;
+      border-color: #E8C7B9;
+      font-weight: 600;
+    }
+    .booking-template-salon-white .fresha-pill {
+      color: #BD7E67;
+      background: #FDF7F4;
+      border-color: #E8C7B9;
+      font-weight: 600;
+    }
+    .booking-template-salon-white .date-chip.selected {
+      color: #FFFFFF;
+      background: #D9A793;
+      border-color: #D9A793;
+    }
+    .booking-template-salon-white .date-chip.selected span,
+    .booking-template-salon-white .date-chip.selected small { color: #FFFFFF; }
+    .booking-template-salon-white .slot.selected {
+      color: #2B2420;
+      background: #F6E6DE;
+      border-color: #D9A793;
+    }
+    .booking-template-salon-white .loading-spinner {
+      border-color: rgba(217,167,147,.25);
+      border-top-color: #BD7E67;
+    }
+    .booking-template-salon-white .slot-skeletons span {
+      background: linear-gradient(90deg, #FCF7F4 0%, #F3E4DC 45%, #FCF7F4 90%);
+      background-size: 240% 100%;
+    }
+    .booking-template-salon-white .fresha-summary {
+      min-height: 570px;
+      padding: 42px 34px;
+      color: #2B2420;
+      background: #FDFBF8;
+    }
+    .booking-template-salon-white .summary-logo {
+      color: #BD7E67;
+      background: #F6E6DE;
+      border-color: #E8C7B9;
+      font-weight: 600;
+    }
+    .booking-template-salon-white .summary-name {
+      color: #2B2420;
+      font-weight: 600;
+      text-transform: none;
+    }
+    .booking-template-salon-white .summary-rating { color: #BD7E67; }
+    .booking-template-salon-white .summary-rating span,
+    .booking-template-salon-white .summary-address,
+    .booking-template-salon-white .summary-empty,
+    .booking-template-salon-white .summary-card-line span { color: #8A7F76; }
+    .booking-template-salon-white .summary-divider,
+    .booking-template-salon-white .summary-card-line { border-color: #EDE4DE; }
+    .booking-template-salon-white .summary-card-line strong,
+    .booking-template-salon-white .summary-card-line b,
+    .booking-template-salon-white .summary-total { color: #2B2420; }
+    .booking-template-salon-white .primary-line {
+      background: #FFFFFF;
+      border-color: #E8D9D1;
+      border-radius: 2px;
+    }
+    .booking-template-salon-white .primary-line strong,
+    .booking-template-salon-white .primary-line b { color: #BD7E67; }
+    .booking-template-salon-white .fresha-continue {
+      color: #A99D95;
+      background: #F4EEEA;
+      border-color: #E8DED7;
+      font-weight: 600;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+    .booking-template-salon-white .fresha-continue.enabled {
+      color: #FFFFFF;
+      background: #D9A793;
+      border-color: #D9A793;
+    }
+    .booking-template-salon-white .fresha-continue.enabled:hover { background: #BD7E67; }
+    .booking-template-salon-white .booking-gate {
+      background: rgba(43, 36, 32, .32);
+      backdrop-filter: blur(4px);
+    }
+    .booking-template-salon-white .booking-gate-card {
+      color: #2B2420;
+      background: #FFFFFF;
+      border-color: #EFE8E1;
+      border-radius: 4px;
+      box-shadow: 0 24px 64px rgba(66, 49, 40, .18);
+    }
+    .booking-template-salon-white .booking-gate-panel h2 {
+      color: #2B2420;
+      font-family: "Playfair Display", Georgia, serif;
+      font-weight: 600;
+    }
+    .booking-template-salon-white .booking-gate-primary {
+      color: #FFFFFF;
+      background: #D9A793;
+    }
+    .booking-template-salon-white .booking-gate-google-action,
+    .booking-template-salon-white .booking-gate-secondary,
+    .booking-template-salon-white .booking-phone-row span,
+    .booking-template-salon-white .booking-phone-row input {
+      color: #2B2420;
+      border-color: #E5DAD3;
+    }
+    .booking-template-salon-white .booking-phone-row input:focus {
+      border-color: #D9A793;
+      box-shadow: 0 0 0 3px rgba(217,167,147,.16);
+    }
+    .booking-template-salon-white .success-check {
+      color: #FFFFFF;
+      background: #D9A793;
+      border-color: #D9A793;
+    }
+
     @media (max-width: 820px) {
       .fresha-booking { padding: 18px 12px 48px; }
       .booking-brand-rail { align-items: flex-start; flex-direction: column; }
@@ -5179,6 +5430,11 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
       .fresha-breadcrumb { display: none; }
       .fresha-heading { font-size: 25px; }
       .option-right { min-width: 92px; }
+      .booking-template-salon-white .fresha-booking { padding: 18px 12px 48px; }
+      .booking-template-salon-white .fresha-body { grid-template-columns: minmax(0, 1fr); }
+      .booking-template-salon-white .fresha-main { padding: 34px 24px 42px; }
+      .booking-template-salon-white .fresha-summary { min-height: auto; padding: 30px 24px; }
+      .booking-template-salon-white .fresha-heading { font-size: 32px; }
     }
 
     @media (max-width: 560px) {
