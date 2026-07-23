@@ -68,7 +68,7 @@ function isPublicRoute(request: FastifyRequest) {
     || path === '/health'
     || path === '/crm'
     || path.startsWith('/landing-assets/')
-    || isTamaraSiteAsset(request, path)
+    || isTamaraSitePublicRoute(request, path)
     || path.startsWith('/public/booking/')
     || path.startsWith('/public/weex/')
     || isPublicLandingRoute(request.method, path)
@@ -77,13 +77,14 @@ function isPublicRoute(request: FastifyRequest) {
     || path.startsWith('/webhooks/instagram')
 }
 
-function isTamaraSiteAsset(request: FastifyRequest, path: string) {
+function isTamaraSitePublicRoute(request: FastifyRequest, path: string) {
   const rawHost = request.headers['x-forwarded-host'] || request.headers.host
   const host = Array.isArray(rawHost) ? rawHost[0] : rawHost
   const hostname = host?.split(',')[0]?.trim().split(':')[0]?.toLowerCase()
   if (hostname !== 'tamaragrando.weex.com.ar') return false
 
-  return path === '/tamara-grando-profile-dark.png'
+  return request.method.toUpperCase() === 'POST' && path === '/contacto'
+    || path === '/tamara-grando-profile-dark.png'
     || path === '/branding/modo9-emblem-web.jpg'
     || /^\/partners\/(?:chacarita-juniors|deportivo-espanol|deportivo-riestra)\.svg$/.test(path)
     || /^\/testimonials\/(?:juan-m|florencia-l|ramiro-s|agustin-p|camila-r|nicolas-t)-avatar\.jpg$/.test(path)

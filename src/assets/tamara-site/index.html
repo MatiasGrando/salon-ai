@@ -338,10 +338,16 @@
   .radio-row{display:flex;gap:10px;}
   .radio-opt{
     flex:1;border:1px solid var(--border);border-radius:6px;padding:11px;text-align:center;
-    font-size:13px;color:var(--muted);cursor:pointer;background:var(--card);
+    font-family:'Work Sans',sans-serif;font-size:13px;color:var(--muted);cursor:pointer;background:var(--card);
   }
   .radio-opt.active{border-color:var(--lime);color:var(--lime);background:rgba(201,255,62,.08);}
   .form-card .btn{width:100%;margin-top:6px;}
+  .form-card .btn:disabled{opacity:.62;cursor:wait;transform:none;}
+  .form-honeypot{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;clip:rect(0 0 0 0)!important;white-space:nowrap!important;}
+  .form-feedback{display:none;margin-top:14px;padding:11px 13px;border-radius:6px;font-size:13px;line-height:1.45;}
+  .form-feedback.visible{display:block;}
+  .form-feedback.success{color:#dfff8c;background:rgba(201,255,62,.08);border:1px solid rgba(201,255,62,.38);}
+  .form-feedback.error{color:#ffadb0;background:rgba(228,34,43,.1);border:1px solid rgba(228,34,43,.38);}
   @media(max-width:900px){.cta-section{grid-template-columns:1fr;padding:44px 26px;}}
 
   /* FOOTER */
@@ -391,7 +397,7 @@
     <h1>Construí la <span class="hl">identidad</span> que sostenga tu mejor rendimiento.</h1>
     <p class="sub">Soy Tamara Grando. Mentora especializada en mentalidad deportiva. Acompaño a deportistas a fortalecer su identidad, desarrollar una mentalidad sólida y atravesar los grandes desafíos de su carrera con confianza, propósito y dirección.</p>
     <div class="hero-ctas">
-      <a href="#aura" class="btn btn-primary">Sumarme a Aura</a>
+      <a href="https://chat.whatsapp.com/KTyhMEAaqu53VIAOj0vpUx?mode=gi_t" class="btn btn-primary" target="_blank" rel="noopener noreferrer">Sumarme a Aura</a>
       <a href="#contacto" class="btn btn-outline">Agendar una consulta →</a>
     </div>
     <div class="hero-stats">
@@ -506,7 +512,7 @@
           <li><span class="dot"></span><div>Masterclasses<span class="desc">Contenido exclusivo sobre mente, emociones y alto rendimiento.</span></div></li>
           <li><span class="dot"></span><div>Meditaciones guiadas<span class="desc">Prácticas para foco, calma y regulación antes de competir.</span></div></li>
         </ul>
-        <a href="#contacto" class="btn btn-primary">Unirme a Aura</a>
+        <a href="https://chat.whatsapp.com/KTyhMEAaqu53VIAOj0vpUx?mode=gi_t" class="btn btn-primary" target="_blank" rel="noopener noreferrer">Unirme a Aura</a>
       </div>
       <div class="aura-card">
         <div class="icon">→</div>
@@ -598,20 +604,23 @@
         <h2>Empecemos hoy tu Modo 9</h2>
         <p>Dejá tus datos y elegí cómo querés arrancar: sumándote gratis a Aura o agendando una consulta 1 a 1 conmigo.</p>
       </div>
-      <div class="form-card">
+      <form class="form-card" id="tamara-contact-form" novalidate>
         <h3>Quiero saber más</h3>
         <p class="small">Te respondo personalmente en menos de 48hs.</p>
-        <div class="field"><label>Nombre y apellido</label><input type="text" placeholder="¿Cómo te llamás?"></div>
-        <div class="field"><label>Email o teléfono</label><input type="text" placeholder="tu@email.com"></div>
+        <div class="field"><label for="contact-name">Nombre y apellido</label><input id="contact-name" name="name" type="text" autocomplete="name" maxlength="100" placeholder="¿Cómo te llamás?" required></div>
+        <div class="field"><label for="contact-channel">Email o teléfono</label><input id="contact-channel" name="contact" type="text" autocomplete="email" maxlength="160" placeholder="tu@email.com" required></div>
         <div class="field">
           <label>¿Qué te interesa?</label>
           <div class="radio-row">
-            <div class="radio-opt active">Sumarme a Aura</div>
-            <div class="radio-opt">Agendar consulta</div>
+            <button class="radio-opt active" type="button" data-interest="AURA" aria-pressed="true">Sumarme a Aura</button>
+            <button class="radio-opt" type="button" data-interest="CONSULTA" aria-pressed="false">Agendar consulta</button>
           </div>
         </div>
-        <button class="btn btn-primary">Enviar</button>
-      </div>
+        <input id="contact-interest" name="interest" type="hidden" value="AURA">
+        <div class="form-honeypot" aria-hidden="true"><label for="contact-website">Sitio web</label><input id="contact-website" name="website" type="text" tabindex="-1" autocomplete="off"></div>
+        <button class="btn btn-primary" id="contact-submit" type="submit">Enviar</button>
+        <div class="form-feedback" id="contact-feedback" role="status" aria-live="polite"></div>
+      </form>
     </div>
   </div>
 </section>
@@ -749,6 +758,72 @@
 
     move(false);
     start();
+  })();
+</script>
+<script>
+  (() => {
+    const form = document.getElementById('tamara-contact-form');
+    if (!form) return;
+
+    const interestInput = document.getElementById('contact-interest');
+    const interestButtons = [...form.querySelectorAll('[data-interest]')];
+    const submitButton = document.getElementById('contact-submit');
+    const feedback = document.getElementById('contact-feedback');
+
+    const showFeedback = (message, type) => {
+      feedback.textContent = message;
+      feedback.className = `form-feedback${message ? ` visible ${type}` : ''}`;
+    };
+
+    interestButtons.forEach(button => {
+      button.addEventListener('click', () => {
+        interestInput.value = button.dataset.interest;
+        interestButtons.forEach(option => {
+          const active = option === button;
+          option.classList.toggle('active', active);
+          option.setAttribute('aria-pressed', active ? 'true' : 'false');
+        });
+      });
+    });
+
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      showFeedback('', '');
+      submitButton.disabled = true;
+      submitButton.textContent = 'Enviando...';
+
+      const formData = new FormData(form);
+      const payload = {
+        name: String(formData.get('name') || '').trim(),
+        contact: String(formData.get('contact') || '').trim(),
+        interest: String(formData.get('interest') || 'AURA'),
+        website: String(formData.get('website') || '')
+      };
+
+      try {
+        const response = await fetch('/contacto', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.message || 'No pudimos enviar tu consulta.');
+
+        form.reset();
+        interestInput.value = 'AURA';
+        interestButtons.forEach((option, index) => {
+          const active = index === 0;
+          option.classList.toggle('active', active);
+          option.setAttribute('aria-pressed', active ? 'true' : 'false');
+        });
+        showFeedback(result.message || '¡Gracias! Recibimos tu consulta.', 'success');
+      } catch (error) {
+        showFeedback(error instanceof Error ? error.message : 'No pudimos enviar tu consulta. Intentá nuevamente.', 'error');
+      } finally {
+        submitButton.disabled = false;
+        submitButton.textContent = 'Enviar';
+      }
+    });
   })();
 </script>
 
