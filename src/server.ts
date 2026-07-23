@@ -12,6 +12,7 @@ import { chatRoutes } from './routes/chat.js'
 import { crmRoutes } from './routes/crm.js'
 import { crmUiRoutes } from './routes/crm-ui.js'
 import { landingUiRoutes } from './routes/landing-ui.js'
+import { tamaraSiteRoutes } from './routes/tamara-site.js'
 import { publicBookingRoutes } from './routes/public-booking.js'
 import { weexAccountRoutes } from './routes/weex-account.js'
 import { scheduleBlockRoutes } from './routes/schedule-block.js'
@@ -38,6 +39,7 @@ const host = process.env.HOST ?? '0.0.0.0'
 await app.register(healthRoutes)
 await app.register(authRoutes)
 await app.register(crmUiRoutes)
+await app.register(tamaraSiteRoutes)
 await app.register(landingUiRoutes)
 await app.register(publicBookingRoutes)
 await app.register(weexAccountRoutes)
