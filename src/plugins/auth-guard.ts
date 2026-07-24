@@ -85,6 +85,8 @@ function isTamaraSitePublicRoute(request: FastifyRequest, path: string) {
 
   return request.method.toUpperCase() === 'POST' && path === '/contacto'
     || path === '/tamara-grando-profile-dark.png'
+    || path === '/tamara-hero-v1.png'
+    || /^\/experience-0[1-5]\.jpeg$/.test(path)
     || path === '/branding/modo9-emblem-web.jpg'
     || /^\/partners\/(?:chacarita-juniors|deportivo-espanol|deportivo-riestra)\.svg$/.test(path)
     || /^\/testimonials\/(?:juan-m|florencia-l|ramiro-s|agustin-p|camila-r|nicolas-t)-avatar\.jpg$/.test(path)

@@ -11,6 +11,12 @@ const contactLimit = 5
 
 const tamaraAssets = [
   { url: '/tamara-grando-profile-dark.png', file: 'tamara-grando-profile-dark.png', contentType: 'image/png' },
+  { url: '/tamara-hero-v1.png', file: 'tamara-hero-v1.png', contentType: 'image/png' },
+  { url: '/experience-01.jpeg', file: 'experience-01.jpeg', contentType: 'image/jpeg' },
+  { url: '/experience-02.jpeg', file: 'experience-02.jpeg', contentType: 'image/jpeg' },
+  { url: '/experience-03.jpeg', file: 'experience-03.jpeg', contentType: 'image/jpeg' },
+  { url: '/experience-04.jpeg', file: 'experience-04.jpeg', contentType: 'image/jpeg' },
+  { url: '/experience-05.jpeg', file: 'experience-05.jpeg', contentType: 'image/jpeg' },
   { url: '/branding/modo9-emblem-web.jpg', file: join('branding', 'modo9-emblem-web.jpg'), contentType: 'image/jpeg' },
   { url: '/partners/chacarita-juniors.svg', file: join('partners', 'chacarita-juniors.svg'), contentType: 'image/svg+xml' },
   { url: '/partners/deportivo-espanol.svg', file: join('partners', 'deportivo-espanol.svg'), contentType: 'image/svg+xml' },
