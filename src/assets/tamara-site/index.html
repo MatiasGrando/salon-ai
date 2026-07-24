@@ -78,7 +78,7 @@
   /* HERO */
   .hero{
     position:relative;min-height:92vh;display:flex;align-items:flex-end;
-    padding-bottom:70px;overflow:hidden;
+    padding-bottom:116px;overflow:hidden;
   }
   .hero-bg{
     position:absolute;inset:0;
@@ -97,9 +97,34 @@
   .hero h1 .hl{color:var(--red);}
   .hero p.sub{font-size:19px;color:var(--muted);max-width:560px;margin-bottom:36px;}
   .hero-ctas{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:56px;}
-  .hero-stats{display:flex;gap:48px;flex-wrap:wrap;border-top:1px solid rgba(245,244,241,.15);padding-top:26px;}
-  .stat b{font-family:'Anton',sans-serif;font-size:30px;display:block;color:var(--lime);}
-  .stat span{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;}
+  .hero-stats{
+    position:absolute;z-index:3;left:0;right:0;bottom:0;min-height:116px;
+    display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
+    padding:0 max(20px,calc((100% - 1180px)/2));
+    background:rgba(8,8,9,.94);border-top:1px solid rgba(245,244,241,.12);
+    backdrop-filter:blur(8px);
+  }
+  .stat{
+    min-width:0;padding:22px 34px;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;text-align:center;
+    border-left:1px solid rgba(245,244,241,.1);
+  }
+  .stat:first-child{border-left:0;}
+  .stat b{
+    font-family:'Anton',sans-serif;font-size:38px;font-weight:400;line-height:1;
+    letter-spacing:.02em;display:block;color:var(--lime);
+  }
+  .stat span{
+    margin-top:9px;font-size:11px;color:var(--muted);line-height:1.25;
+    text-transform:uppercase;letter-spacing:.12em;
+  }
+  @media(max-width:620px){
+    .hero{padding-bottom:96px;}
+    .hero-stats{min-height:96px;padding:0;}
+    .stat{padding:17px 7px;}
+    .stat b{font-size:28px;}
+    .stat span{margin-top:7px;font-size:9px;letter-spacing:.07em;}
+  }
 
   section{padding:110px 0;}
   .section-alt{background:var(--bg-alt);}
@@ -400,11 +425,11 @@
       <a href="https://chat.whatsapp.com/KTyhMEAaqu53VIAOj0vpUx?mode=gi_t" class="btn btn-primary" target="_blank" rel="noopener noreferrer">Sumarme a Aura</a>
       <a href="#contacto" class="btn btn-outline">Agendar una consulta →</a>
     </div>
-    <div class="hero-stats">
-      <div class="stat"><b>+15</b><span>Años recorriendo canchas</span></div>
-      <div class="stat"><b>8</b><span>Clubes e instituciones</span></div>
-      <div class="stat"><b>9</b><span>Pasos en 3 fases</span></div>
-    </div>
+  </div>
+  <div class="hero-stats" aria-label="Experiencia de Tamara Grando">
+    <div class="stat"><b>+15</b><span>Años</span></div>
+    <div class="stat"><b>+10</b><span>Países</span></div>
+    <div class="stat"><b>+1000</b><span>Futbolistas</span></div>
   </div>
 </section>
 
