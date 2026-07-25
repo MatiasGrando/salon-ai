@@ -5,9 +5,9 @@ export const reminderManualStatuses = ['PENDING', 'OPENED', 'SENT', 'SKIPPED'] a
 export type ReminderManualStatus = typeof reminderManualStatuses[number]
 
 const manualTransitions: Record<string, readonly ReminderManualStatus[]> = {
-  PENDING: ['OPENED', 'SENT', 'SKIPPED'],
+  PENDING: ['OPENED', 'SKIPPED'],
   OPENED: ['PENDING', 'SENT', 'SKIPPED'],
-  FAILED: ['PENDING', 'OPENED', 'SENT', 'SKIPPED'],
+  FAILED: ['PENDING', 'OPENED', 'SKIPPED'],
   SENT: [],
   SKIPPED: [],
   DELIVERED: [],
@@ -40,4 +40,27 @@ export function assertReminderManualTransition(from: string, to: string): assert
 
 export function canAutomaticReminderSend(status: string) {
   return status === 'PENDING' || status === 'FAILED'
+}
+
+const reminderVariableAliases: Record<string, string> = {
+  cliente: 'nombre_cliente',
+  nombre: 'nombre_cliente',
+  nombre_cliente: 'nombre_cliente',
+  usuario: 'nombre_cliente',
+  dia: 'fecha_turno',
+  fecha: 'fecha_turno',
+  fecha_turno: 'fecha_turno',
+  hora: 'hora_turno',
+  hora_turno: 'hora_turno',
+  servicio: 'servicio',
+  profesional: 'profesional'
+}
+
+export function normalizeReminderVariable(value: string) {
+  const normalized = value
+    .trim()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+  return reminderVariableAliases[normalized] || normalized
 }

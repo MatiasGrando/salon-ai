@@ -12062,7 +12062,7 @@ const crmHtml = `<!doctype html>
         <nav class="campaigns-main-tabs" id="marketing-main-tabs" aria-label="Tipos de comunicaci&oacute;n">
           <button type="button" data-marketing-view="templates">Plantillas de Meta</button>
           <button class="active" type="button" data-marketing-view="campaigns">Campa&ntilde;as</button>
-          <button type="button" data-marketing-view="reminders">Recordatorios autom&aacute;ticos</button>
+          <button type="button" data-marketing-view="reminders">Recordatorios de turnos</button>
           <button type="button" data-marketing-view="post-sale">Postventa</button>
         </nav>
 
@@ -12288,12 +12288,12 @@ const crmHtml = `<!doctype html>
         <div class="template-manager reminder-manager" id="reminder-manager" hidden>
           <section class="campaign-metrics" aria-label="Resumen de recordatorios">
             <article class="campaign-metric"><div class="campaign-metric-icon green">&#128276;</div><div><strong id="reminder-status-label">Pausado</strong><span>Estado</span><small>Sin env&iacute;os reales todav&iacute;a</small></div></article>
-            <article class="campaign-metric"><div class="campaign-metric-icon violet">&#128197;</div><div><strong id="reminder-template-label">Sin plantilla</strong><span>Plantilla</span><small>Debe estar aprobada por Meta</small></div></article>
+            <article class="campaign-metric"><div class="campaign-metric-icon violet">&#128197;</div><div><strong id="reminder-template-label">Sin plantilla</strong><span>Plantilla</span><small>Seg&uacute;n modalidad elegida</small></div></article>
             <article class="campaign-metric"><div class="campaign-metric-icon orange">&#9200;</div><div><strong id="reminder-time-label">24 hs</strong><span>Anticipaci&oacute;n</span><small>Antes del turno</small></div></article>
           </section>
           <div class="campaigns-workspace template-workspace">
             <section class="campaign-list-panel">
-              <div class="campaign-list-toolbar"><div><strong>Recordatorios configurados</strong><p class="hint">Pod&eacute;s tener varios recordatorios por turno. WhatsApp exige plantilla aprobada.</p></div></div>
+              <div class="campaign-list-toolbar"><div><strong>Recordatorios configurados</strong><p class="hint">Pod&eacute;s tener varios recordatorios por turno. El modo autom&aacute;tico exige una plantilla aprobada por Meta.</p></div></div>
               <div class="campaign-recipient-list" id="reminder-list"></div>
               <div class="template-builder-card">
                 <div class="campaign-form-field full">
@@ -20007,8 +20007,8 @@ const crmHtml = `<!doctype html>
       els.templateSyncAll.hidden = view !== 'templates'
       if (view === 'templates' && !state.templatesLoaded) loadWhatsappTemplates()
       if (view === 'reminders') {
-        document.querySelector('.campaigns-title h2').textContent = 'Recordatorios automáticos'
-        document.querySelector('.campaigns-title p').textContent = 'Configurá recordatorios de turnos con plantillas aprobadas por Meta.'
+        document.querySelector('.campaigns-title h2').textContent = 'Recordatorios de turnos'
+        document.querySelector('.campaigns-title p').textContent = 'Prepará o automatizá recordatorios antes de cada turno.'
         els.campaignSearch.placeholder = 'Buscar recordatorio'
         els.campaignNew.hidden = false
         loadReminderSettings()
@@ -20161,7 +20161,7 @@ const crmHtml = `<!doctype html>
         ? 'Meta exige una plantilla Utility aprobada para iniciar el mensaje por API.'
         : 'En modo manual podés usar una plantilla interna aunque todavía no esté aprobada por Meta.'
       const activeCount = state.reminderAutomations.filter((item) => (item.mode || (item.enabled ? 'AUTOMATIC_API' : 'PAUSED')) !== 'PAUSED').length
-      els.reminderStatusLabel.textContent = activeCount ? activeCount + ' activos' : 'Pausado'
+      els.reminderStatusLabel.textContent = activeCount ? activeCount + (activeCount === 1 ? ' activo' : ' activos') : 'Pausado'
       els.reminderTimeLabel.textContent = reminderTimeLabel(settings.sendBeforeMinutes || 1440)
       const template = state.whatsappTemplates.find((item) => item.id === settings.templateId)
       els.reminderTemplateLabel.textContent = state.reminderAutomations.length ? state.reminderAutomations.length + ' configurados' : 'Sin recordatorios'
@@ -20184,14 +20184,20 @@ const crmHtml = `<!doctype html>
             const detail = [delivery.appointment?.service?.name, delivery.appointment?.professional?.name].filter(Boolean).join(' · ')
             const note = delivery.manualNote ? '<small>' + escapeHtml(delivery.manualNote) + '</small>' : ''
             const error = delivery.lastError ? '<small class="campaign-form-feedback error">' + escapeHtml(delivery.lastError) + '</small>' : ''
+            const preparedMessage = delivery.messageSnapshot
+              ? '<div class="manual-send-message">' + escapeHtml(delivery.messageSnapshot) + '</div>'
+              : ''
             const canManage = mode === 'MANUAL_ASSISTED' || delivery.mode === 'WHATSAPP_MANUAL'
             const open = delivery.whatsappUrl && delivery.status !== 'OPENED'
               ? '<a class="manual-send-whatsapp" href="' + escapeHtml(delivery.whatsappUrl) + '" target="_blank" rel="noopener" data-reminder-open data-reminder-delivery-id="' + escapeHtml(delivery.id) + '">Abrir WhatsApp</a>'
               : delivery.whatsappUrl ? '<a class="manual-send-whatsapp" href="' + escapeHtml(delivery.whatsappUrl) + '" target="_blank" rel="noopener">Volver a WhatsApp</a>' : ''
-            const actions = canManage && ['PENDING', 'OPENED', 'FAILED'].includes(delivery.status)
-              ? '<div class="manual-send-actions"><button class="campaign-outline-button" type="button" data-reminder-delivery-action="SKIPPED" data-reminder-delivery-id="' + escapeHtml(delivery.id) + '">Omitir</button>' + open + '<button class="campaigns-new" type="button" data-reminder-delivery-action="SENT" data-reminder-delivery-id="' + escapeHtml(delivery.id) + '">Marcar enviado</button></div>'
-              : ''
-            return '<div class="campaign-recipient-row"><div class="campaign-recipient-avatar">&#128276;</div><div class="campaign-recipient-copy"><strong>' + escapeHtml(delivery.customer?.name || 'Cliente') + '</strong><span>' + escapeHtml(detail || 'Turno') + ' · ' + escapeHtml(formatDateTime(delivery.appointment?.startAt)) + '</span>' + note + error + actions + '</div><span class="reminder-channel-chip">' + escapeHtml(reminderDeliveryStatusLabel(delivery.status)) + '</span></div>'
+            let actions = ''
+            if (canManage && ['PENDING', 'FAILED'].includes(delivery.status)) {
+              actions = '<div class="manual-send-actions"><button class="campaign-outline-button" type="button" data-reminder-delivery-action="SKIPPED" data-reminder-delivery-id="' + escapeHtml(delivery.id) + '">Omitir</button>' + open + '</div>'
+            } else if (canManage && delivery.status === 'OPENED') {
+              actions = '<div class="manual-send-actions"><button class="campaign-outline-button" type="button" data-reminder-delivery-action="SKIPPED" data-reminder-delivery-id="' + escapeHtml(delivery.id) + '">Omitir</button>' + open + '<button class="campaigns-new" type="button" data-reminder-delivery-action="SENT" data-reminder-delivery-id="' + escapeHtml(delivery.id) + '">Marcar enviado</button></div>'
+            }
+            return '<div class="campaign-recipient-row"><div class="campaign-recipient-avatar">&#128276;</div><div class="campaign-recipient-copy"><strong>' + escapeHtml(delivery.customer?.name || 'Cliente') + '</strong><span>' + escapeHtml(detail || 'Turno') + ' · ' + escapeHtml(formatDateTime(delivery.appointment?.startAt)) + '</span>' + preparedMessage + note + error + actions + '</div><span class="reminder-channel-chip">' + escapeHtml(reminderDeliveryStatusLabel(delivery.status)) + '</span></div>'
           }).join('') + '</div>' : '<div class="campaign-detail-empty"><div><strong>' + (state.reminderDetailTab === 'history' ? 'Sin historial todavía' : 'No hay recordatorios pendientes') + '</strong><br>' + (state.reminderDetailTab === 'history' ? 'Los recordatorios gestionados aparecerán acá.' : 'La cola está al día.') + '</div></div>')
         : ''
       els.reminderDetailPanel.innerHTML = settings.channel === 'EMAIL'

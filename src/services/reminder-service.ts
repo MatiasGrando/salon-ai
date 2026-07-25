@@ -3,7 +3,12 @@ import { WhatsAppCloudApi } from '../integrations/whatsapp-cloud-api.js'
 import { assertBusinessCanSendWhatsApp } from './business-whatsapp-settings.js'
 import { RecordCommunicationAttempt } from '../application/communications/record-communication-attempt.js'
 import { PrismaCommunicationAttemptRepository } from '../infrastructure/communications/prisma-communication-attempt-repository.js'
-import { assertReminderManualTransition, canAutomaticReminderSend, type ReminderManualStatus } from '../domain/communications/reminder.js'
+import {
+  assertReminderManualTransition,
+  canAutomaticReminderSend,
+  normalizeReminderVariable,
+  type ReminderManualStatus
+} from '../domain/communications/reminder.js'
 
 const whatsappCloudApi = new WhatsAppCloudApi()
 const recordCommunicationAttempt = new RecordCommunicationAttempt(new PrismaCommunicationAttemptRepository())
@@ -273,6 +278,12 @@ export async function transitionManualReminder(input: {
   if (['OPENED', 'SENT'].includes(input.status) && delivery.appointment.startAt.getTime() - delivery.reminderAutomation.sendBeforeMinutes * 60_000 > Date.now()) {
     throw new Error('Todav\u00eda no se cumpli\u00f3 la anticipaci\u00f3n configurada')
   }
+  if (input.status === 'OPENED' && !delivery.messageSnapshot?.trim()) {
+    throw new Error('El mensaje todav\u00eda no est\u00e1 preparado. Actualiz\u00e1 los pendientes.')
+  }
+  if (input.status === 'SENT' && (delivery.status !== 'OPENED' || !delivery.messageSnapshot?.trim())) {
+    throw new Error('Primero abr\u00ed WhatsApp con el mensaje preparado')
+  }
   assertReminderManualTransition(delivery.status, input.status)
   const now = new Date()
   const transition = await prisma.reminderDelivery.updateMany({
@@ -318,22 +329,23 @@ function resolveReminderTemplate(
     professional: { name: string }
   }
 ) {
-  const variables = Array.from(body.matchAll(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g))
+  const variablePattern = /\{\{\s*([\p{L}_][\p{L}\p{N}_]*)\s*\}\}/gu
+  const variables = Array.from(body.matchAll(variablePattern))
     .map((match) => match[1])
     .filter((value): value is string => Boolean(value))
   const values: Record<string, string> = {
     nombre_cliente: appointment.customer.name,
-    usuario: appointment.customer.name,
     fecha_turno: formatDate(appointment.startAt),
     hora_turno: formatTime(appointment.startAt),
     servicio: appointment.service.name,
     profesional: appointment.professional.name
   }
-  const missing = variables.filter((variable) => !values[variable])
+  const valueFor = (variable: string) => values[normalizeReminderVariable(variable)] || ''
+  const missing = variables.filter((variable) => !valueFor(variable))
   return {
     missing,
-    bodyParameters: variables.map((variable) => values[variable] || ''),
-    previewText: body.replace(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g, (_match, variable: string) => values[variable] || '{{' + variable + '}}')
+    bodyParameters: variables.map(valueFor),
+    previewText: body.replace(variablePattern, (_match, variable: string) => valueFor(variable) || '{{' + variable + '}}')
   }
 }
 
@@ -355,7 +367,14 @@ async function saveFailedReminder(input: {
       }
     },
     create: { ...delivery, status: 'FAILED', attemptNumber: 0, lastError: error, sentAt: null },
-    update: { mode: input.mode, status: 'FAILED', lastError: error, scheduledFor: input.scheduledFor, sentAt: null }
+    update: {
+      mode: input.mode,
+      status: 'FAILED',
+      messageSnapshot: null,
+      lastError: error,
+      scheduledFor: input.scheduledFor,
+      sentAt: null
+    }
   })
 }
 

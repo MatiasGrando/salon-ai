@@ -3,7 +3,8 @@ import {
   assertReminderManualTransition,
   canAutomaticReminderSend,
   isReminderTemplateEligible,
-  normalizeReminderMode
+  normalizeReminderMode,
+  normalizeReminderVariable
 } from '../src/domain/communications/reminder.js'
 
 assert.equal(normalizeReminderMode('MANUAL_ASSISTED'), 'MANUAL_ASSISTED')
@@ -23,7 +24,15 @@ assert.equal(canAutomaticReminderSend('SENT'), false, 'Un recordatorio manual en
 
 assert.doesNotThrow(() => assertReminderManualTransition('PENDING', 'OPENED'))
 assert.doesNotThrow(() => assertReminderManualTransition('OPENED', 'SENT'))
-assert.doesNotThrow(() => assertReminderManualTransition('FAILED', 'SENT'))
+assert.throws(() => assertReminderManualTransition('PENDING', 'SENT'))
+assert.throws(() => assertReminderManualTransition('FAILED', 'SENT'))
 assert.throws(() => assertReminderManualTransition('SENT', 'OPENED'))
+
+assert.equal(normalizeReminderVariable('usuario'), 'nombre_cliente')
+assert.equal(normalizeReminderVariable('Dia'), 'fecha_turno')
+assert.equal(normalizeReminderVariable('d\u00eda'), 'fecha_turno')
+assert.equal(normalizeReminderVariable('FECHA'), 'fecha_turno')
+assert.equal(normalizeReminderVariable('hora'), 'hora_turno')
+assert.equal(normalizeReminderVariable('Profesional'), 'profesional')
 
 console.log('Reminder mode contract tests passed')
