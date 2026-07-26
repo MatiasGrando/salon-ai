@@ -5,7 +5,9 @@ import { buildBookingV2MessagePlan, type BookingV2MessagePlan } from './booking-
 import { renderBookingV2Response } from './booking-v2-response-renderer.js'
 import { applyBookingV2Extraction, type BookingV2Interpretation } from './booking-v2-interpreter.js'
 import {
+  ANY_PROFESSIONAL_ID,
   acceptField,
+  clearFieldAndDependents,
   confirmProposal,
   nextMissingField,
   rejectProposal,
@@ -50,24 +52,35 @@ export class BookingV2Engine {
 
   async process(input: BookingV2ProcessInput): Promise<BookingV2ProcessResult> {
     const initialState = stateFromConversation(input.conversation)
+    const catalog = await this.domain.loadCatalog(input.businessId)
 
     if (initialState.pendingProposal) {
       const confirmation = readConfirmation(input.message)
       if (confirmation === 'yes') {
-        return this.fromState(confirmProposal(initialState), 'proposal_confirmed', null, null)
+        return this.fromState(confirmProposal(initialState), 'proposal_confirmed', null, catalog)
       }
       if (confirmation === 'no') {
-        return this.fromState(rejectProposal(initialState), 'proposal_rejected', null, null)
+        return this.fromState(rejectProposal(initialState), 'proposal_rejected', null, catalog)
       }
       return this.fromInterpretation({
         state: initialState,
         nextField: nextMissingField(initialState.draft),
         outcome: 'confirmation_required',
         affectedField: initialState.pendingProposal.field
-      }, null, null)
+      }, null, catalog)
     }
 
-    const catalog = await this.domain.loadCatalog(input.businessId)
+    const deterministicService = resolveExpectedService(input.message, initialState, catalog)
+    if (deterministicService) {
+      const state = acceptField(initialState, 'service', deterministicService)
+      return this.fromInterpretation({
+        state,
+        nextField: nextMissingField(state.draft),
+        outcome: 'accepted',
+        affectedField: 'service'
+      }, null, catalog)
+    }
+
     const deterministicProfessional = resolveExpectedProfessional(
       input.message,
       initialState,
@@ -80,6 +93,39 @@ export class BookingV2Engine {
         nextField: nextMissingField(state.draft),
         outcome: 'accepted',
         affectedField: 'professional'
+      }, null, catalog)
+    }
+
+    const deterministicDate = resolveExpectedDate(
+      input.message,
+      initialState,
+      input.currentDate ?? new Date()
+    )
+    if (deterministicDate) {
+      const state = acceptField(initialState, 'date', deterministicDate)
+      return this.fromInterpretation({
+        state,
+        nextField: nextMissingField(state.draft),
+        outcome: 'accepted',
+        affectedField: 'date'
+      }, null, catalog)
+    }
+
+    const deterministicTime = await this.resolveExpectedTime(
+      input.message,
+      initialState,
+      catalog
+    )
+    if (deterministicTime) {
+      const stateWithProfessional = initialState.draft.professional === ANY_PROFESSIONAL_ID
+        ? acceptField(initialState, 'professional', deterministicTime.professionalId)
+        : initialState
+      const state = acceptField(stateWithProfessional, 'time', deterministicTime.time)
+      return this.fromInterpretation({
+        state,
+        nextField: nextMissingField(state.draft),
+        outcome: 'accepted',
+        affectedField: 'time'
       }, null, catalog)
     }
 
@@ -144,17 +190,90 @@ export class BookingV2Engine {
     catalog: BookingV2DomainCatalog | null,
     outcome: BookingV2ProcessResult['outcome'] = interpretation.outcome
   ): Promise<BookingV2ProcessResult> {
-    const plan = buildBookingV2MessagePlan(interpretation)
-    const availabilityOptions = await this.availabilityOptionsForPlan(plan, interpretation.state, catalog)
+    let effectiveInterpretation = interpretation
+    let plan = buildBookingV2MessagePlan(effectiveInterpretation)
+    let availabilityOptions: BookingV2AvailabilityOption[] = []
+    let unavailableDate: string | null = null
+
+    if (
+      catalog &&
+      effectiveInterpretation.state.draft.service &&
+      effectiveInterpretation.state.draft.date &&
+      shouldValidateAvailability(plan)
+    ) {
+      const availability = await this.domain.findAvailabilityOptions({
+        catalog,
+        serviceId: effectiveInterpretation.state.draft.service,
+        professionalId: effectiveInterpretation.state.draft.professional,
+        date: effectiveInterpretation.state.draft.date
+      })
+
+      availabilityOptions = availability.ok ? availability.options : []
+
+      if (availabilityOptions.length === 0) {
+        unavailableDate = effectiveInterpretation.state.draft.date
+        const state = {
+          ...effectiveInterpretation.state,
+          draft: clearFieldAndDependents(effectiveInterpretation.state.draft, 'date'),
+          pendingProposal: null
+        }
+        effectiveInterpretation = {
+          state,
+          nextField: 'date',
+          outcome: 'no_change',
+          affectedField: 'date'
+        }
+        plan = buildBookingV2MessagePlan(effectiveInterpretation)
+      } else {
+        const proposedTime = timeToValidate(plan, effectiveInterpretation.state)
+        if (proposedTime && !availabilityOptions.some((option) => option.time === proposedTime)) {
+          const state = {
+            ...effectiveInterpretation.state,
+            draft: clearFieldAndDependents(effectiveInterpretation.state.draft, 'time'),
+            pendingProposal: null
+          }
+          effectiveInterpretation = {
+            state,
+            nextField: 'time',
+            outcome: 'no_change',
+            affectedField: 'time'
+          }
+          plan = buildBookingV2MessagePlan(effectiveInterpretation)
+        } else if (
+          proposedTime &&
+          plan.type === 'confirm_booking' &&
+          effectiveInterpretation.state.draft.professional === ANY_PROFESSIONAL_ID
+        ) {
+          const selectedOption = availabilityOptions.find((option) => option.time === proposedTime)
+          if (selectedOption) {
+            let state = acceptField(
+              effectiveInterpretation.state,
+              'professional',
+              selectedOption.professionalId
+            )
+            state = acceptField(state, 'time', proposedTime)
+            effectiveInterpretation = {
+              state,
+              nextField: 'confirmation',
+              outcome: 'accepted',
+              affectedField: 'time'
+            }
+            plan = buildBookingV2MessagePlan(effectiveInterpretation)
+          }
+        }
+      }
+    }
+
     return {
-      state: interpretation.state,
-      conversationPatch: conversationPatchFromState(interpretation.state),
+      state: effectiveInterpretation.state,
+      conversationPatch: conversationPatchFromState(effectiveInterpretation.state),
       plan,
       reply: renderBookingV2Response({
         plan,
-        draft: interpretation.state.draft,
+        draft: effectiveInterpretation.state.draft,
         catalog,
-        availabilityOptions
+        availabilityOptions,
+        unavailableDate
       }),
       availabilityOptions,
       extraction,
@@ -162,13 +281,16 @@ export class BookingV2Engine {
     }
   }
 
-  private async availabilityOptionsForPlan(
-    plan: BookingV2MessagePlan,
+  private async resolveExpectedTime(
+    message: string,
     state: BookingV2State,
-    catalog: BookingV2DomainCatalog | null
+    catalog: BookingV2DomainCatalog
   ) {
-    if (plan.type !== 'ask_field' || plan.field !== 'time') return []
-    if (!catalog || !state.draft.service || !state.draft.date) return []
+    if (nextMissingField(state.draft) !== 'time') return null
+    if (!state.draft.service || !state.draft.date) return null
+
+    const requestedTime = parseTime(message)
+    if (!requestedTime) return null
 
     const availability = await this.domain.findAvailabilityOptions({
       catalog,
@@ -177,7 +299,8 @@ export class BookingV2Engine {
       date: state.draft.date
     })
 
-    return availability.ok ? availability.options : []
+    if (!availability.ok) return null
+    return availability.options.find((option) => option.time === requestedTime) ?? null
   }
 }
 
@@ -234,6 +357,16 @@ function resolveExpectedProfessional(
   const selectedService = state.draft.service
   const normalizedMessage = normalize(message)
     .replace(/^(?:con|quiero con|prefiero|elijo a|con la|con el)\s+/, '')
+  if ([
+    'cualquier profesional',
+    'cualquiera',
+    'sin preferencia',
+    'me da igual',
+    'el que este disponible',
+    'la que este disponible'
+  ].includes(normalizedMessage)) {
+    return ANY_PROFESSIONAL_ID
+  }
 
   const matches = catalog.professionals.filter((professional) =>
     normalize(professional.name) === normalizedMessage &&
@@ -241,4 +374,72 @@ function resolveExpectedProfessional(
   )
 
   return matches.length === 1 ? matches[0]?.id ?? null : null
+}
+
+function resolveExpectedService(
+  message: string,
+  state: BookingV2State,
+  catalog: BookingV2DomainCatalog
+) {
+  if (nextMissingField(state.draft) !== 'service') return null
+  const signature = selectionSignature(message)
+  if (!signature) return null
+
+  const matches = catalog.services.filter((service) =>
+    [service.name, ...service.aliases].some((label) => selectionSignature(label) === signature)
+  )
+
+  return matches.length === 1 ? matches[0]?.id ?? null : null
+}
+
+function resolveExpectedDate(message: string, state: BookingV2State, currentDate: Date) {
+  if (nextMissingField(state.draft) !== 'date') return null
+  const normalized = normalize(message)
+  if (normalized !== 'hoy' && normalized !== 'manana') return null
+
+  const date = dateInTimeZone(currentDate, 'America/Buenos_Aires')
+  if (normalized === 'manana') date.setUTCDate(date.getUTCDate() + 1)
+  return date.toISOString().slice(0, 10)
+}
+
+function selectionSignature(value: string) {
+  return normalize(value)
+    .split(' ')
+    .filter((token) => token && !['y', 'de', 'del', 'el', 'la'].includes(token))
+    .sort()
+    .join(' ')
+}
+
+function dateInTimeZone(value: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(value)
+  const read = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((part) => part.type === type)?.value)
+  return new Date(Date.UTC(read('year'), read('month') - 1, read('day')))
+}
+
+function parseTime(message: string) {
+  const normalized = normalize(message)
+  const match = /(?:^|\s)(\d{1,2})(?::(\d{2}))?\s*(?:h|hs|hrs|horas)?(?:\s|$)/.exec(normalized)
+  if (!match) return null
+  const hour = Number(match[1])
+  const minute = Number(match[2] ?? '0')
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+}
+
+function shouldValidateAvailability(plan: BookingV2MessagePlan) {
+  return plan.type === 'confirm_booking' ||
+    (plan.type === 'ask_field' && plan.field === 'time') ||
+    (plan.type === 'confirm_field' && plan.field === 'time')
+}
+
+function timeToValidate(plan: BookingV2MessagePlan, state: BookingV2State) {
+  if (plan.type === 'confirm_booking') return state.draft.time
+  if (plan.type === 'confirm_field' && plan.field === 'time') return plan.value
+  return null
 }

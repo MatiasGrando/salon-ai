@@ -1,4 +1,5 @@
 export const BOOKING_FIELDS = ['name', 'service', 'professional', 'date', 'time'] as const
+export const ANY_PROFESSIONAL_ID = '__any_professional__'
 
 export type BookingField = (typeof BOOKING_FIELDS)[number]
 export type ConfidenceLevel = 'high' | 'medium' | 'low'

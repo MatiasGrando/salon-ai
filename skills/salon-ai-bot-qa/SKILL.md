@@ -235,6 +235,17 @@ Questions such as `Quienes atienden?`, `Que profesionales hay?` and `Con quien m
 
 When the pending field is `professional`, an exact match with a compatible catalog professional must be accepted deterministically before AI extraction. It must never overwrite or propose changing the customer's name. Pending proposal confirmations (`si`/`no`) must always be evaluated from the literal current customer message, never from a router rewrite.
 
+After confirming a proposed service or professional, Booking V2 must keep the loaded catalog when rendering the next question so the customer immediately sees the compatible options.
+
+Common exact selections must avoid redundant field confirmations:
+- accept equivalent service labels regardless of conjunction order, such as `Color y corte` for `Corte y color`;
+- accept `hoy` and `mañana` deterministically in the business timezone;
+- accept a typed time only when that time exists in the current real availability.
+
+Never ask the customer to choose a time on a date with no availability. Clear that date, explain that no slots exist, and ask for another date. Never reach final confirmation with a time that was not returned by the availability provider.
+
+`Cualquier profesional`, `cualquiera` and `sin preferencia` are valid Booking V2 selections. Keep the flow moving without forcing another professional question; when the customer chooses an available time, bind the booking to the real professional attached to that slot before final confirmation.
+
 ### Tone
 
 Cami should stay warm, attentive, feminine, and professional across all messages, not only the first one.

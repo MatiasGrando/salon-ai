@@ -3,6 +3,7 @@ import { InternalBookingProvider } from '../providers/internal-booking-provider.
 import type { BookingProvider } from '../providers/booking-provider.js'
 import type { BookingV2Catalog } from './booking-v2-interpreter.js'
 import type { BookingV2CatalogOption } from './booking-v2-extractor.js'
+import { ANY_PROFESSIONAL_ID } from './booking-v2-state.js'
 
 type PrismaClientLike = typeof defaultPrisma
 
@@ -132,7 +133,7 @@ export class BookingV2DomainService {
       return { ok: false, message: 'No encontre ese servicio para este comercio' }
     }
 
-    const professionals = input.professionalId
+    const professionals = input.professionalId && input.professionalId !== ANY_PROFESSIONAL_ID
       ? input.catalog.professionals.filter((professional) => professional.id === input.professionalId)
       : input.catalog.professionals
 
@@ -140,7 +141,11 @@ export class BookingV2DomainService {
       this.professionalOffersService(input.catalog, professional.id, input.serviceId)
     )
 
-    if (input.professionalId && compatibleProfessionals.length === 0) {
+    if (
+      input.professionalId &&
+      input.professionalId !== ANY_PROFESSIONAL_ID &&
+      compatibleProfessionals.length === 0
+    ) {
       return { ok: false, message: 'Ese profesional no realiza ese servicio' }
     }
 

@@ -1,13 +1,14 @@
 import type { BookingV2DomainCatalog } from './booking-v2-domain.js'
 import type { BookingV2AvailabilityOption } from './booking-v2-domain.js'
 import type { BookingV2MessagePlan } from './booking-v2-dialogue.js'
-import type { BookingDraft, BookingField } from './booking-v2-state.js'
+import { ANY_PROFESSIONAL_ID, type BookingDraft, type BookingField } from './booking-v2-state.js'
 
 export type BookingV2RenderInput = {
   plan: BookingV2MessagePlan
   draft: BookingDraft
   catalog?: BookingV2DomainCatalog | null
   availabilityOptions?: BookingV2AvailabilityOption[]
+  unavailableDate?: string | null
 }
 
 export function renderBookingV2Response(input: BookingV2RenderInput): string {
@@ -16,6 +17,9 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
   }
 
   if (input.plan.type === 'ask_field') {
+    if (input.plan.field === 'date' && input.unavailableDate) {
+      return `El ${formatDate(input.unavailableDate)} no tiene horarios disponibles para esa reserva. ¿Querés probar mañana u otra fecha?`
+    }
     if (input.plan.field === 'time' && input.availabilityOptions?.length) {
       return [
         'Tengo estos horarios disponibles 😊',
@@ -127,6 +131,7 @@ function labelForService(serviceId: string | null, catalog?: BookingV2DomainCata
 }
 
 function labelForProfessional(professionalId: string | null, catalog?: BookingV2DomainCatalog | null) {
+  if (professionalId === ANY_PROFESSIONAL_ID) return 'cualquier profesional disponible'
   return catalog?.professionals.find((professional) => professional.id === professionalId)?.name ?? 'el profesional elegido'
 }
 

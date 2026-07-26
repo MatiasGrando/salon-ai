@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import {
+  ANY_PROFESSIONAL_ID,
   acceptField,
   confidenceLevel,
   confirmProposal,
@@ -519,9 +520,156 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'motor acepta cualquier profesional y asigna uno al elegir horario',
+    run: async () => {
+      const extractor = fakeExtractor(null)
+      const engine = new BookingV2Engine(fakeDomainPort(), extractor)
+
+      const professionalResult = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Mati',
+          selectedServiceId: 'haircut',
+          selectedProfessionalId: null,
+          selectedDate: null,
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: 'Cualquier profesional'
+      })
+
+      assert.equal(professionalResult.state.draft.professional, ANY_PROFESSIONAL_ID)
+      assert.equal(professionalResult.plan.type === 'ask_field' ? professionalResult.plan.field : null, 'date')
+
+      const timeResult = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Mati',
+          selectedServiceId: 'haircut',
+          selectedProfessionalId: ANY_PROFESSIONAL_ID,
+          selectedDate: '2026-07-27',
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: '15hs'
+      })
+
+      assert.equal(timeResult.state.draft.professional, 'professional-1')
+      assert.equal(timeResult.state.draft.time, '15:00')
+      assert.equal(timeResult.plan.type, 'confirm_booking')
+      assert.equal(timeResult.reply.includes('con Nico'), true)
+      assert.equal(extractor.calls.length, 0)
+    }
+  },
+  {
+    name: 'motor acepta un servicio equivalente sin confirmacion innecesaria',
+    run: async () => {
+      const domainCatalog = createBookingV2DomainCatalog({
+        services: [
+          { id: 'color', name: 'Corte y color', aliases: [], duration: 60, price: 40000, category: null }
+        ],
+        professionals: [
+          { id: 'professional-1', name: 'Lucas', serviceIds: ['color'] }
+        ]
+      })
+      const extractor = fakeExtractor(extraction({
+        service: field('color', 0.65, 'Color y corte')
+      }))
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog: domainCatalog }), extractor)
+
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Mati',
+          selectedServiceId: null,
+          selectedProfessionalId: null,
+          selectedDate: null,
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: 'Color y corte'
+      })
+
+      assert.equal(result.state.draft.service, 'color')
+      assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'professional')
+      assert.equal(result.reply.includes('• Lucas'), true)
+      assert.equal(extractor.calls.length, 0)
+    }
+  },
+  {
+    name: 'motor no pide horario cuando el dia elegido no tiene disponibilidad',
+    run: async () => {
+      const extractor = fakeExtractor(extraction({
+        date: field('2026-07-26', 0.6, 'Hoy')
+      }))
+      const engine = new BookingV2Engine(
+        fakeDomainPort({ availabilityOptions: [] }),
+        extractor
+      )
+
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Mati',
+          selectedServiceId: 'haircut',
+          selectedProfessionalId: 'professional-1',
+          selectedDate: null,
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: 'Hoy?',
+        currentDate: new Date('2026-07-26T14:00:00Z')
+      })
+
+      assert.equal(result.state.draft.date, null)
+      assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'date')
+      assert.equal(result.reply.includes('26/07/2026 no tiene horarios disponibles'), true)
+      assert.equal(extractor.calls.length, 0)
+    }
+  },
+  {
+    name: 'motor rechaza un horario que no figura en la disponibilidad real',
+    run: async () => {
+      const extractor = fakeExtractor(extraction({
+        time: field('15:00', 0.95, '15hs')
+      }))
+      const engine = new BookingV2Engine(
+        fakeDomainPort({
+          availabilityOptions: [
+            { time: '16:00', professionalId: 'professional-1', professionalName: 'Nico' }
+          ]
+        }),
+        extractor
+      )
+
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Mati',
+          selectedServiceId: 'haircut',
+          selectedProfessionalId: 'professional-1',
+          selectedDate: '2026-07-27',
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: '15hs'
+      })
+
+      assert.equal(result.state.draft.time, null)
+      assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'time')
+      assert.equal(result.reply.includes('• 16:00 con Nico'), true)
+    }
+  },
+  {
     name: 'motor confirma propuesta pendiente sin gastar extractor',
     run: async () => {
-      const pending = conversationPatchFromState(proposeField(createEmptyBookingV2State(), {
+      const namedState = acceptField(createEmptyBookingV2State(), 'name', 'Mati')
+      const pending = conversationPatchFromState(proposeField(namedState, {
         field: 'service',
         value: 'haircut',
         confidence: 0.7,
@@ -533,7 +681,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       const result = await engine.process({
         businessId: 'business-1',
         conversation: {
-          selectedCustomerName: null,
+          selectedCustomerName: 'Mati',
           selectedServiceId: null,
           selectedProfessionalId: null,
           selectedDate: null,
@@ -547,6 +695,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(result.outcome, 'proposal_confirmed')
       assert.equal(result.state.draft.service, 'haircut')
       assert.equal(result.conversationPatch.bookingV2State, null)
+      assert.equal(result.reply.includes('• Nico'), true)
       assert.equal(extractor.calls.length, 0)
     }
   },
@@ -955,8 +1104,19 @@ function fakeBookingProvider(slotsByProfessional: Record<string, string[]>) {
   return provider
 }
 
-function fakeDomainPort() {
-  const domainCatalog = fakeDomainCatalog()
+function fakeDomainPort(input?: {
+  catalog?: ReturnType<typeof fakeDomainCatalog>
+  availabilityOptions?: Array<{
+    time: string
+    professionalId: string
+    professionalName: string
+  }>
+}) {
+  const domainCatalog = input?.catalog ?? fakeDomainCatalog()
+  const availabilityOptions = input?.availabilityOptions ?? [
+    { time: '15:00', professionalId: 'professional-1', professionalName: 'Nico' },
+    { time: '15:30', professionalId: 'professional-1', professionalName: 'Nico' }
+  ]
 
   return {
     async loadCatalog() {
@@ -985,10 +1145,7 @@ function fakeDomainPort() {
     async findAvailabilityOptions() {
       return {
         ok: true as const,
-        options: [
-          { time: '15:00', professionalId: 'professional-1', professionalName: 'Nico' },
-          { time: '15:30', professionalId: 'professional-1', professionalName: 'Nico' }
-        ]
+        options: availabilityOptions
       }
     }
   }
