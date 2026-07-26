@@ -180,6 +180,58 @@ const crmHtml = `<!doctype html>
     button {
       border: 0;
       cursor: pointer;
+      transition:
+        background-color 160ms ease,
+        border-color 160ms ease,
+        color 160ms ease,
+        box-shadow 160ms ease,
+        opacity 160ms ease,
+        transform 120ms ease;
+    }
+
+    button:not(:disabled):active {
+      transform: translateY(1px) scale(0.985);
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.66;
+    }
+
+    button.is-loading {
+      cursor: wait;
+      pointer-events: none;
+    }
+
+    button.is-loading::before {
+      content: "";
+      display: inline-block;
+      width: 0.9em;
+      height: 0.9em;
+      margin-right: 0.55em;
+      border: 2px solid currentColor;
+      border-right-color: transparent;
+      border-radius: 50%;
+      vertical-align: -0.12em;
+      animation: button-spinner 650ms linear infinite;
+    }
+
+    button.is-loading[data-loading-icon-only="true"]::before {
+      margin-right: 0;
+    }
+
+    @keyframes button-spinner {
+      to { transform: rotate(360deg); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      button {
+        transition: none;
+      }
+
+      button.is-loading::before {
+        animation-duration: 1.2s;
+      }
     }
 
     .app {
@@ -13816,6 +13868,7 @@ const crmHtml = `<!doctype html>
       serviceImagePreviewImg: document.getElementById('service-image-preview-img'),
       serviceImageRemove: document.getElementById('service-image-remove'),
       serviceCancel: document.getElementById('service-cancel'),
+      serviceSubmit: document.getElementById('service-submit'),
       serviceFeedback: document.getElementById('service-feedback'),
       serviceSearch: document.getElementById('service-search'),
       serviceList: document.getElementById('service-list'),
@@ -13978,6 +14031,7 @@ const crmHtml = `<!doctype html>
       templateChecklist: document.getElementById('template-checklist'),
       templatePreviewStatus: document.getElementById('template-preview-status'),
       templateFormFeedback: document.getElementById('template-form-feedback'),
+      templateSaveDraft: document.getElementById('template-save-draft'),
       templateSaveSubmit: document.getElementById('template-save-submit'),
       templateDeleteDialog: document.getElementById('template-delete-dialog'),
       templateDeleteClose: document.getElementById('template-delete-close'),
@@ -14335,6 +14389,43 @@ const crmHtml = `<!doctype html>
       return response.json()
     }
 
+    function setButtonLoading(button, loading, loadingText = 'Cargando...') {
+      if (!button) return false
+      if (loading) {
+        if (button.dataset.loading === 'true') return false
+        button.dataset.loading = 'true'
+        button.dataset.loadingOriginalHtml = button.innerHTML
+        button.dataset.loadingWasDisabled = String(button.disabled)
+        button.classList.add('is-loading')
+        button.setAttribute('aria-busy', 'true')
+        button.disabled = true
+        if (loadingText) button.textContent = loadingText
+        if (!loadingText) button.dataset.loadingIconOnly = 'true'
+        return true
+      }
+
+      if (button.dataset.loading !== 'true') return true
+      button.innerHTML = button.dataset.loadingOriginalHtml || button.innerHTML
+      button.disabled = button.dataset.loadingWasDisabled === 'true'
+      button.classList.remove('is-loading')
+      button.removeAttribute('aria-busy')
+      delete button.dataset.loading
+      delete button.dataset.loadingOriginalHtml
+      delete button.dataset.loadingWasDisabled
+      delete button.dataset.loadingIconOnly
+      hydrateIcons(button)
+      return true
+    }
+
+    async function withButtonLoading(button, loadingText, action) {
+      if (!setButtonLoading(button, true, loadingText)) return
+      try {
+        return await action()
+      } finally {
+        setButtonLoading(button, false)
+      }
+    }
+
     function showLogin(message) {
       document.body.dataset.auth = 'login'
       if (message) {
@@ -14367,8 +14458,7 @@ const crmHtml = `<!doctype html>
     async function loginToCrm(event) {
       event.preventDefault()
       els.loginFeedback.className = 'login-feedback'
-      els.loginSubmit.disabled = true
-      els.loginSubmit.textContent = 'Entrando...'
+      if (!setButtonLoading(els.loginSubmit, true, 'Entrando...')) return
       try {
         const session = await getJson('/auth/login', {
           method: 'POST',
@@ -14385,6 +14475,8 @@ const crmHtml = `<!doctype html>
         await startCrm()
       } catch (error) {
         showLogin(error.message)
+      } finally {
+        setButtonLoading(els.loginSubmit, false)
       }
     }
 
@@ -14395,7 +14487,9 @@ const crmHtml = `<!doctype html>
 
     function bindLogoutButton() {
       if (!els.logoutButton) return
-      els.logoutButton.addEventListener('click', logoutFromCrm)
+      els.logoutButton.addEventListener('click', () => {
+        withButtonLoading(els.logoutButton, 'Saliendo...', logoutFromCrm)
+      })
     }
 
     function renderAuthUi() {
@@ -14465,8 +14559,7 @@ const crmHtml = `<!doctype html>
     async function createAdminBusiness(event) {
       event.preventDefault()
       els.adminCreateBusinessFeedback.className = 'settings-feedback'
-      els.adminCreateBusinessSubmit.disabled = true
-      els.adminCreateBusinessSubmit.textContent = 'Creando...'
+      if (!setButtonLoading(els.adminCreateBusinessSubmit, true, 'Creando...')) return
       try {
         const result = await getJson('/admin/businesses', {
           method: 'POST',
@@ -14486,8 +14579,7 @@ const crmHtml = `<!doctype html>
         els.adminCreateBusinessFeedback.textContent = error.message
         els.adminCreateBusinessFeedback.className = 'settings-feedback visible error'
       } finally {
-        els.adminCreateBusinessSubmit.disabled = false
-        els.adminCreateBusinessSubmit.textContent = 'Crear comercio'
+        setButtonLoading(els.adminCreateBusinessSubmit, false)
       }
     }
 
@@ -14607,8 +14699,7 @@ const crmHtml = `<!doctype html>
         return
       }
 
-      els.staffUserSubmit.disabled = true
-      els.staffUserSubmit.textContent = id ? 'Guardando...' : 'Creando...'
+      if (!setButtonLoading(els.staffUserSubmit, true, id ? 'Guardando...' : 'Creando...')) return
       try {
         state.staffUsers = await getJson(id ? '/staff-users/' + id : '/staff-users', {
           method: id ? 'PATCH' : 'POST',
@@ -14632,7 +14723,7 @@ const crmHtml = `<!doctype html>
       } catch (error) {
         showStaffUserFeedback(error.message, 'error')
       } finally {
-        els.staffUserSubmit.disabled = false
+        setButtonLoading(els.staffUserSubmit, false)
         els.staffUserSubmit.textContent = els.staffUserId.value ? 'Guardar cambios' : 'Crear cuenta staff'
       }
     }
@@ -15202,8 +15293,8 @@ const crmHtml = `<!doctype html>
     async function saveMarketingPreference() {
       const pending = state.pendingMarketingChange
       if (!pending) return closeMarketingConfirmDialog()
+      if (!setButtonLoading(els.marketingConfirmSubmit, true, 'Guardando...')) return
       try {
-        els.marketingConfirmSubmit.disabled = true
         els.marketingConfirmFeedback.textContent = ''
         await getJson('/customers/' + pending.customerId + '/marketing-preference', {
           method: 'PATCH',
@@ -15219,7 +15310,8 @@ const crmHtml = `<!doctype html>
         if (state.campaignsLoaded) await loadCampaigns()
       } catch (error) {
         els.marketingConfirmFeedback.textContent = error.message
-        els.marketingConfirmSubmit.disabled = false
+      } finally {
+        setButtonLoading(els.marketingConfirmSubmit, false)
       }
     }
 
@@ -15230,9 +15322,8 @@ const crmHtml = `<!doctype html>
         return
       }
 
+      if (!setButtonLoading(els.customerDeleteConfirm, true, 'Eliminando...')) return
       try {
-        els.customerDeleteConfirm.disabled = true
-        els.customerDeleteConfirm.textContent = 'Eliminando...'
         els.customerDeleteFeedback.textContent = ''
         await getJson('/customers/' + customer.id, { method: 'DELETE' })
         state.customers = state.customers.filter((item) => item.id !== customer.id)
@@ -15242,8 +15333,8 @@ const crmHtml = `<!doctype html>
         await loadCustomerOverview()
       } catch (error) {
         els.customerDeleteFeedback.textContent = error.message
-        els.customerDeleteConfirm.disabled = false
-        els.customerDeleteConfirm.textContent = 'Eliminar cliente'
+      } finally {
+        setButtonLoading(els.customerDeleteConfirm, false)
       }
     }
 
@@ -15626,7 +15717,11 @@ const crmHtml = `<!doctype html>
         return
       }
 
-      els.customerDialogSubmit.disabled = true
+      if (!setButtonLoading(
+        els.customerDialogSubmit,
+        true,
+        isNote ? 'Guardando nota...' : isCreate ? 'Creando...' : 'Guardando...'
+      )) return
       els.customerDialogFeedback.textContent = ''
       try {
         if (isCreate) {
@@ -15663,7 +15758,8 @@ const crmHtml = `<!doctype html>
         closeCustomerDialog()
       } catch (error) {
         els.customerDialogFeedback.textContent = error.message
-        els.customerDialogSubmit.disabled = false
+      } finally {
+        setButtonLoading(els.customerDialogSubmit, false)
       }
     }
 
@@ -16383,9 +16479,8 @@ const crmHtml = `<!doctype html>
         return
       }
 
+      if (!setButtonLoading(els.opportunityCloseSubmit, true, 'Cerrando...')) return
       try {
-        els.opportunityCloseSubmit.disabled = true
-        els.opportunityCloseSubmit.textContent = 'Cerrando...'
         els.opportunityCloseFeedback.textContent = ''
         await getJson('/crm/conversations/' + conversationId + '/opportunity/close', {
           method: 'PATCH',
@@ -16401,8 +16496,8 @@ const crmHtml = `<!doctype html>
       } catch (error) {
         els.opportunityCloseFeedback.textContent = error.message || 'No pude cerrar el chat.'
         els.opportunityCloseFeedback.className = 'settings-feedback visible error'
-        els.opportunityCloseSubmit.disabled = false
-        els.opportunityCloseSubmit.textContent = 'Cerrar sin turno'
+      } finally {
+        setButtonLoading(els.opportunityCloseSubmit, false)
       }
     }
 
@@ -16567,7 +16662,7 @@ const crmHtml = `<!doctype html>
       const text = els.replyText.value.trim()
       if (!text) return
 
-      els.sendButton.disabled = true
+      if (!setButtonLoading(els.sendButton, true, 'Enviando...')) return
       try {
         const result = await getJson('/crm/conversations/' + state.selected.id + '/manual-replies', {
           method: 'POST',
@@ -16592,6 +16687,7 @@ const crmHtml = `<!doctype html>
           showCrmToast(error.message, 'error')
         }
       } finally {
+        setButtonLoading(els.sendButton, false)
         updateComposerAvailability()
       }
     }
@@ -16667,7 +16763,7 @@ const crmHtml = `<!doctype html>
 
     async function toggleConversationAi() {
       if (!state.selected) return
-      els.conversationAiToggle.disabled = true
+      if (!setButtonLoading(els.conversationAiToggle, true, 'Cambiando...')) return
       try {
         const updated = await getJson('/crm/conversations/' + state.selected.id + '/ai', {
           method: 'PATCH',
@@ -16682,13 +16778,13 @@ const crmHtml = `<!doctype html>
       } catch (error) {
         showCrmToast(error.message, 'error')
       } finally {
-        els.conversationAiToggle.disabled = false
+        setButtonLoading(els.conversationAiToggle, false)
       }
     }
 
     async function resolveHandoff() {
       if (!state.selected) return
-      els.resolveHandoff.disabled = true
+      if (!setButtonLoading(els.resolveHandoff, true, 'Resolviendo...')) return
       try {
         const updated = await getJson('/crm/conversations/' + state.selected.id + '/ai', {
           method: 'PATCH',
@@ -16703,14 +16799,14 @@ const crmHtml = `<!doctype html>
       } catch (error) {
         showCrmToast(error.message, 'error')
       } finally {
-        els.resolveHandoff.disabled = false
+        setButtonLoading(els.resolveHandoff, false)
       }
     }
 
     async function toggleArchiveConversation() {
       if (!state.selected) return
       const archived = !state.selected.archivedAt
-      els.archiveConversation.disabled = true
+      if (!setButtonLoading(els.archiveConversation, true, archived ? 'Archivando...' : 'Restaurando...')) return
       try {
         await getJson('/crm/conversations/' + state.selected.id + '/archive', {
           method: 'PATCH',
@@ -16723,7 +16819,7 @@ const crmHtml = `<!doctype html>
       } catch (error) {
         showCrmToast(error.message, 'error')
       } finally {
-        els.archiveConversation.disabled = false
+        setButtonLoading(els.archiveConversation, false)
       }
     }
 
@@ -16745,6 +16841,8 @@ const crmHtml = `<!doctype html>
         return
       }
 
+      const submitButton = event.submitter || els.blockForm.querySelector('button[type="submit"]')
+      if (!setButtonLoading(submitButton, true, 'Creando bloqueo...')) return
       try {
         const createdBlock = await getJson('/schedule-blocks', {
           method: 'POST',
@@ -16777,6 +16875,8 @@ const crmHtml = `<!doctype html>
         }
       } catch (error) {
         els.blockFeedback.textContent = error.message
+      } finally {
+        setButtonLoading(submitButton, false)
       }
     }
 
@@ -16828,6 +16928,7 @@ const crmHtml = `<!doctype html>
         return
       }
 
+      if (!setButtonLoading(els.professionalSubmit, true, id ? 'Guardando...' : 'Creando...')) return
       try {
         await getJson(id ? '/professionals/' + id : '/professionals', {
           method: id ? 'PATCH' : 'POST',
@@ -16869,6 +16970,8 @@ const crmHtml = `<!doctype html>
         } else {
           els.professionalFeedback.textContent = error.message
         }
+      } finally {
+        setButtonLoading(els.professionalSubmit, false)
       }
     }
 
@@ -17410,11 +17513,12 @@ const crmHtml = `<!doctype html>
         return
       }
 
-      els.whatsappTechnicalSubmit.disabled = true
-      els.whatsappTechnicalSubmit.textContent = 'Guardando...'
-      await saveWhatsappSettingsPatch(payload, 'Conexion tecnica guardada.')
-      els.whatsappTechnicalSubmit.disabled = false
-      els.whatsappTechnicalSubmit.textContent = 'Guardar conexion'
+      if (!setButtonLoading(els.whatsappTechnicalSubmit, true, 'Guardando...')) return
+      try {
+        await saveWhatsappSettingsPatch(payload, 'Conexion tecnica guardada.')
+      } finally {
+        setButtonLoading(els.whatsappTechnicalSubmit, false)
+      }
     }
 
     function renderInstagramSettings() {
@@ -17475,8 +17579,7 @@ const crmHtml = `<!doctype html>
         showInstagramSettingsFeedback('Pega el token de acceso generado en Meta.', 'error')
         return
       }
-      els.instagramTechnicalSubmit.disabled = true
-      els.instagramTechnicalSubmit.textContent = 'Validando...'
+      if (!setButtonLoading(els.instagramTechnicalSubmit, true, 'Validando...')) return
       try {
         state.instagramSettings = await getJson('/businesses/' + state.businessId + '/instagram-settings', {
           method: 'PATCH',
@@ -17489,8 +17592,7 @@ const crmHtml = `<!doctype html>
         renderInstagramSettings()
         showInstagramSettingsFeedback(error.message, 'error')
       } finally {
-        els.instagramTechnicalSubmit.disabled = false
-        els.instagramTechnicalSubmit.textContent = 'Guardar conexion'
+        setButtonLoading(els.instagramTechnicalSubmit, false)
       }
     }
 
@@ -17514,16 +17616,14 @@ const crmHtml = `<!doctype html>
     async function testInstagramConnection() {
       if (!state.businessId) return
       clearInstagramSettingsFeedback()
-      els.instagramTestButton.disabled = true
-      els.instagramTestButton.textContent = 'Probando...'
+      if (!setButtonLoading(els.instagramTestButton, true, 'Probando...')) return
       try {
         const result = await getJson('/businesses/' + state.businessId + '/instagram-settings/test', { method: 'POST' })
         showInstagramSettingsFeedback('Token valido para @' + (result.account?.username || 'la cuenta conectada') + '.', 'success')
       } catch (error) {
         showInstagramSettingsFeedback(error.message, 'error')
       } finally {
-        els.instagramTestButton.disabled = false
-        els.instagramTestButton.textContent = 'Probar token'
+        setButtonLoading(els.instagramTestButton, false)
       }
     }
 
@@ -18114,8 +18214,7 @@ const crmHtml = `<!doctype html>
       }
 
       els.landingSlug.value = slug
-      els.landingSettingsSubmit.disabled = true
-      els.landingSettingsSubmit.textContent = 'Guardando...'
+      if (!setButtonLoading(els.landingSettingsSubmit, true, 'Guardando...')) return
 
       try {
         state.business = await getJson('/businesses/' + state.businessId, {
@@ -18140,8 +18239,7 @@ const crmHtml = `<!doctype html>
       } catch (error) {
         showLandingSettingsFeedback(error.message, 'error')
       } finally {
-        els.landingSettingsSubmit.disabled = false
-        els.landingSettingsSubmit.textContent = 'Guardar landing'
+        setButtonLoading(els.landingSettingsSubmit, false)
       }
     }
 
@@ -18184,8 +18282,7 @@ const crmHtml = `<!doctype html>
       const contactEmailChanged = contactEmail !== (state.business?.contactEmail || '')
       const instagramChanged = instagramUrl !== (state.business?.instagramUrl || '')
       const facebookChanged = facebookUrl !== (state.business?.facebookUrl || '')
-      els.businessSettingsSubmit.disabled = true
-      els.businessSettingsSubmit.textContent = 'Guardando...'
+      if (!setButtonLoading(els.businessSettingsSubmit, true, 'Guardando...')) return
 
       try {
         if (hoursChanged) {
@@ -18225,8 +18322,7 @@ const crmHtml = `<!doctype html>
       } catch (error) {
         showBusinessSettingsFeedback(error.message, 'error')
       } finally {
-        els.businessSettingsSubmit.disabled = false
-        els.businessSettingsSubmit.textContent = 'Guardar ajustes'
+        setButtonLoading(els.businessSettingsSubmit, false)
       }
     }
 
@@ -19835,6 +19931,11 @@ const crmHtml = `<!doctype html>
         return
       }
 
+      if (!setButtonLoading(
+        els.appointmentSubmit,
+        true,
+        state.editingAppointmentId ? 'Guardando...' : 'Creando turno...'
+      )) return
       try {
         if (!customerId) {
           const name = els.appointmentCustomerName.value.trim()
@@ -19878,6 +19979,8 @@ const crmHtml = `<!doctype html>
           ? ' Podes marcar Turno excepcional si decidiste forzarlo manualmente.'
           : ''
         els.appointmentFeedback.textContent = error.message + suggestion
+      } finally {
+        setButtonLoading(els.appointmentSubmit, false)
       }
     }
 
@@ -19890,6 +19993,7 @@ const crmHtml = `<!doctype html>
       }
       if (!requestCrmConfirmation('delete-appointment:' + appointmentId, 'Eliminar este turno de la agenda?')) return
 
+      if (!setButtonLoading(els.appointmentDelete, true, 'Eliminando...')) return
       try {
         await getJson('/appointments/' + appointmentId, {
           method: 'DELETE'
@@ -19902,6 +20006,8 @@ const crmHtml = `<!doctype html>
         }
       } catch (error) {
         els.appointmentFeedback.textContent = error.message
+      } finally {
+        setButtonLoading(els.appointmentDelete, false)
       }
     }
 
@@ -19917,6 +20023,7 @@ const crmHtml = `<!doctype html>
       const nextStatus = isNoShow ? 'CONFIRMED' : 'NO_SHOW'
       if (!requestCrmConfirmation('appointment-status:' + appointmentId + ':' + nextStatus, isNoShow ? 'Quitar el estado ausente de este turno?' : 'Marcar este turno como ausente?')) return
 
+      if (!setButtonLoading(els.appointmentNoShow, true, isNoShow ? 'Actualizando...' : 'Marcando...')) return
       try {
         await getJson('/appointments/' + appointmentId + '/status', {
           method: 'PATCH',
@@ -19936,6 +20043,8 @@ const crmHtml = `<!doctype html>
         }
       } catch (error) {
         els.appointmentFeedback.textContent = error.message
+      } finally {
+        setButtonLoading(els.appointmentNoShow, false)
       }
     }
 
@@ -20051,8 +20160,7 @@ const crmHtml = `<!doctype html>
     async function syncAllWhatsappTemplates() {
       const syncable = state.whatsappTemplates.filter((item) => item.status !== 'DRAFT')
       if (!syncable.length) return
-      els.templateSyncAll.disabled = true
-      els.templateSyncAll.textContent = 'Actualizando...'
+      if (!setButtonLoading(els.templateSyncAll, true, 'Actualizando...')) return
       try {
         for (const template of syncable) {
           await getJson('/whatsapp-templates/' + template.id + '/sync', { method: 'POST' })
@@ -20061,8 +20169,7 @@ const crmHtml = `<!doctype html>
       } catch (error) {
         els.templateDetailPanel.insertAdjacentHTML('afterbegin', '<div class="template-rejection">' + escapeHtml(error.message) + '</div>')
       } finally {
-        els.templateSyncAll.disabled = false
-        els.templateSyncAll.textContent = 'Actualizar todas'
+        setButtonLoading(els.templateSyncAll, false)
       }
     }
 
@@ -20231,7 +20338,7 @@ const crmHtml = `<!doctype html>
 
     async function saveReminderSettings() {
       els.reminderFeedback.textContent = ''
-      els.reminderSave.disabled = true
+      if (!setButtonLoading(els.reminderSave, true, 'Guardando...')) return
       try {
         const payload = {
           businessId: state.businessId,
@@ -20256,15 +20363,14 @@ const crmHtml = `<!doctype html>
         els.reminderFeedback.textContent = error.message
         els.reminderFeedback.className = 'campaign-form-feedback error'
       } finally {
-        els.reminderSave.disabled = false
+        setButtonLoading(els.reminderSave, false)
       }
     }
 
     async function processDueReminders() {
       els.reminderFeedback.textContent = ''
       els.reminderFeedback.className = 'campaign-form-feedback'
-      els.reminderProcess.disabled = true
-      els.reminderProcess.textContent = 'Procesando...'
+      if (!setButtonLoading(els.reminderProcess, true, 'Procesando...')) return
       try {
         const result = await getJson('/reminder-automations/process-due', {
           method: 'POST',
@@ -20280,6 +20386,7 @@ const crmHtml = `<!doctype html>
         els.reminderFeedback.textContent = error.message
         els.reminderFeedback.className = 'campaign-form-feedback error'
       } finally {
+        setButtonLoading(els.reminderProcess, false)
         const mode = currentReminderDraft().mode || 'PAUSED'
         els.reminderProcess.textContent = mode === 'MANUAL_ASSISTED' ? 'Actualizar pendientes' : 'Procesar pendientes'
         els.reminderProcess.disabled = !state.reminderAutomations.some((item) => item.channel === 'WHATSAPP' && (item.mode || (item.enabled ? 'AUTOMATIC_API' : 'PAUSED')) !== 'PAUSED')
@@ -20423,7 +20530,7 @@ const crmHtml = `<!doctype html>
 
     async function savePostSaleSettings() {
       els.postSaleFeedback.textContent = ''
-      els.postSaleSave.disabled = true
+      if (!setButtonLoading(els.postSaleSave, true, 'Guardando...')) return
       try {
         await getJson('/post-sale/settings', {
           method: 'PATCH',
@@ -20446,14 +20553,13 @@ const crmHtml = `<!doctype html>
         els.postSaleFeedback.textContent = error.message
         els.postSaleFeedback.className = 'campaign-form-feedback error'
       } finally {
-        els.postSaleSave.disabled = false
+        setButtonLoading(els.postSaleSave, false)
       }
     }
 
     async function processDuePostSalesFromCrm() {
       els.postSaleFeedback.textContent = ''
-      els.postSaleProcess.disabled = true
-      els.postSaleProcess.textContent = 'Procesando...'
+      if (!setButtonLoading(els.postSaleProcess, true, 'Procesando...')) return
       try {
         const result = await getJson('/post-sale/process-due', {
           method: 'POST',
@@ -20469,6 +20575,7 @@ const crmHtml = `<!doctype html>
         els.postSaleFeedback.textContent = error.message
         els.postSaleFeedback.className = 'campaign-form-feedback error'
       } finally {
+        setButtonLoading(els.postSaleProcess, false)
         const mode = state.postSaleData?.settings?.mode || 'PAUSED'
         els.postSaleProcess.textContent = mode === 'MANUAL_ASSISTED' ? 'Actualizar pendientes' : 'Procesar pendientes'
         els.postSaleProcess.disabled = mode === 'PAUSED' || !state.postSaleData?.settings?.templateId
@@ -20770,6 +20877,8 @@ const crmHtml = `<!doctype html>
         return
       }
       const id = els.templateId.value
+      const submitButton = sendToMeta ? els.templateSaveSubmit : els.templateSaveDraft
+      if (!setButtonLoading(submitButton, true, sendToMeta ? 'Enviando a Meta...' : 'Guardando...')) return
       try {
         const saved = await getJson(id ? '/whatsapp-templates/' + id : '/whatsapp-templates', { method: id ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
         if (sendToMeta) await getJson('/whatsapp-templates/' + saved.id + '/submit', { method: 'POST' })
@@ -20779,6 +20888,8 @@ const crmHtml = `<!doctype html>
       } catch (error) {
         els.templateFormFeedback.textContent = error.message
         els.templateFormFeedback.className = 'campaign-form-feedback template-form-feedback error'
+      } finally {
+        setButtonLoading(submitButton, false)
       }
     }
 
@@ -21407,7 +21518,7 @@ const crmHtml = `<!doctype html>
         return
       }
 
-      els.campaignSubmit.disabled = true
+      if (!setButtonLoading(els.campaignSubmit, true, id ? 'Guardando...' : 'Creando...')) return
       try {
         const saved = await getJson(id ? '/campaigns/' + id : '/campaigns', {
           method: id ? 'PATCH' : 'POST',
@@ -21420,7 +21531,7 @@ const crmHtml = `<!doctype html>
       } catch (error) {
         els.campaignFormFeedback.textContent = error.message
       } finally {
-        els.campaignSubmit.disabled = false
+        setButtonLoading(els.campaignSubmit, false)
       }
     }
 
@@ -21567,11 +21678,11 @@ const crmHtml = `<!doctype html>
     async function confirmCampaignActivation() {
       const campaign = state.campaigns.find((item) => item.id === state.pendingCampaignActivationId)
       if (!campaign) return closeCampaignActivationDialog()
+      const loadingText = campaign.type === 'ONE_TIME'
+        ? (campaign.scheduleMode === 'SCHEDULED' ? 'Programando...' : 'Enviando...')
+        : 'Activando...'
+      if (!setButtonLoading(els.campaignActivationConfirm, true, loadingText)) return
       try {
-        els.campaignActivationConfirm.disabled = true
-        els.campaignActivationConfirm.textContent = campaign.type === 'ONE_TIME'
-          ? (campaign.scheduleMode === 'SCHEDULED' ? 'Programando...' : 'Enviando...')
-          : 'Activando...'
         if (campaign.type === 'ONE_TIME' && campaign.scheduleMode === 'SCHEDULED') {
           await getJson('/campaigns/' + campaign.id, {
             method: 'PATCH',
@@ -21596,10 +21707,8 @@ const crmHtml = `<!doctype html>
         await loadCampaigns()
       } catch (error) {
         els.campaignActivationFeedback.textContent = error.message
-        els.campaignActivationConfirm.disabled = false
-        els.campaignActivationConfirm.textContent = campaign.type === 'ONE_TIME'
-          ? (campaign.scheduleMode === 'SCHEDULED' ? 'Programar campaña' : 'Enviar y finalizar')
-          : 'Confirmar activación'
+      } finally {
+        setButtonLoading(els.campaignActivationConfirm, false)
       }
     }
 
@@ -21630,9 +21739,8 @@ const crmHtml = `<!doctype html>
     async function confirmCampaignDelete() {
       const campaign = state.campaigns.find((item) => item.id === state.pendingCampaignDeleteId)
       if (!campaign) return closeCampaignDeleteDialog()
+      if (!setButtonLoading(els.campaignDeleteConfirm, true, 'Eliminando...')) return
       try {
-        els.campaignDeleteConfirm.disabled = true
-        els.campaignDeleteConfirm.textContent = 'Eliminando...'
         await getJson('/campaigns/' + campaign.id, { method: 'DELETE' })
         closeCampaignDeleteDialog()
         state.selectedCampaignId = null
@@ -21640,8 +21748,8 @@ const crmHtml = `<!doctype html>
         await loadCampaigns()
       } catch (error) {
         els.campaignDeleteFeedback.textContent = error.message
-        els.campaignDeleteConfirm.disabled = false
-        els.campaignDeleteConfirm.textContent = 'Eliminar campaña'
+      } finally {
+        setButtonLoading(els.campaignDeleteConfirm, false)
       }
     }
 
@@ -21666,17 +21774,16 @@ const crmHtml = `<!doctype html>
     async function confirmTemplateDelete() {
       const template = state.whatsappTemplates.find((item) => item.id === state.pendingTemplateDeleteId)
       if (!template) return closeTemplateDeleteDialog()
+      if (!setButtonLoading(els.templateDeleteConfirm, true, 'Eliminando...')) return
       try {
-        els.templateDeleteConfirm.disabled = true
-        els.templateDeleteConfirm.textContent = 'Eliminando...'
         await getJson('/whatsapp-templates/' + template.id, { method: 'DELETE' })
         closeTemplateDeleteDialog()
         state.selectedTemplateId = null
         await loadWhatsappTemplates()
       } catch (error) {
         els.templateDeleteFeedback.textContent = error.message
-        els.templateDeleteConfirm.disabled = false
-        els.templateDeleteConfirm.textContent = 'Eliminar plantilla'
+      } finally {
+        setButtonLoading(els.templateDeleteConfirm, false)
       }
     }
 
@@ -21969,6 +22076,7 @@ const crmHtml = `<!doctype html>
         return
       }
 
+      if (!setButtonLoading(els.serviceSubmit, true, id ? 'Guardando...' : 'Creando...')) return
       try {
         await getJson(id ? '/services/' + id : '/services', {
           method: id ? 'PATCH' : 'POST',
@@ -21993,6 +22101,8 @@ const crmHtml = `<!doctype html>
         renderAgenda()
       } catch (error) {
         els.serviceFeedback.textContent = error.message
+      } finally {
+        setButtonLoading(els.serviceSubmit, false)
       }
     }
 
@@ -22678,7 +22788,9 @@ const crmHtml = `<!doctype html>
     els.bookingV2Toggle.addEventListener('change', toggleBookingV2)
     els.conversationAiToggle.addEventListener('click', toggleConversationAi)
     els.resolveHandoff.addEventListener('click', resolveHandoff)
-    els.refresh.addEventListener('click', loadConversations)
+    els.refresh.addEventListener('click', () => {
+      withButtonLoading(els.refresh, '', () => loadConversations())
+    })
     els.searchButton.addEventListener('click', () => expandConversationSearch().catch((error) => showCrmToast(error.message, 'error')))
     els.search.addEventListener('input', scheduleConversationSearchExpansion)
     els.search.addEventListener('keydown', (event) => {
@@ -22802,7 +22914,9 @@ const crmHtml = `<!doctype html>
     els.reportsRange.addEventListener('change', loadReports)
     els.reportsFutureDays.addEventListener('change', loadReports)
     els.reportsInactiveDays.addEventListener('change', loadReports)
-    els.reportsRefresh.addEventListener('click', loadReports)
+    els.reportsRefresh.addEventListener('click', () => {
+      withButtonLoading(els.reportsRefresh, 'Actualizando...', loadReports)
+    })
     els.opportunityCloseForm.addEventListener('submit', saveOpportunityClose)
     els.opportunityCloseX.addEventListener('click', closeOpportunityCloseDialog)
     els.opportunityCloseCancel.addEventListener('click', closeOpportunityCloseDialog)
@@ -22851,7 +22965,9 @@ const crmHtml = `<!doctype html>
       state.agendaMonthDate = new Date(state.agendaMonthDate.getFullYear(), state.agendaMonthDate.getMonth() + 1, 1)
       renderAgendaMonth()
     })
-    els.agendaRefresh.addEventListener('click', loadAgenda)
+    els.agendaRefresh.addEventListener('click', () => {
+      withButtonLoading(els.agendaRefresh, '', loadAgenda)
+    })
     els.agendaNewAppointment.addEventListener('click', () => {
       if (!canCreateAppointments()) {
         showCrmToast('No tenes permiso para cargar turnos.', 'error')
