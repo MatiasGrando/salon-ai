@@ -23,7 +23,7 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
     }
     if (input.plan.field === 'time' && input.availabilityOptions?.length) {
       return [
-        'Tengo estos horarios disponibles 😊',
+        'Estos son todos los horarios disponibles 😊',
         formatAvailabilityOptions(input.availabilityOptions),
         '¿Cuál te queda mejor?'
       ].join('\n')
@@ -156,16 +156,24 @@ function formatDate(value: string | null) {
 }
 
 function formatAvailabilityOptions(options: BookingV2AvailabilityOption[]) {
-  const seen = new Set<string>()
-  const uniqueOptions = options.filter((option) => {
-    const key = `${option.time}:${option.professionalId}`
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  }).slice(0, 6)
+  const optionsByProfessional = new Map<string, {
+    professionalName: string
+    times: Set<string>
+  }>()
 
-  return uniqueOptions
-    .map((option) => `• ${option.time} con ${option.professionalName}`)
+  for (const option of options) {
+    const group = optionsByProfessional.get(option.professionalId) ?? {
+      professionalName: option.professionalName,
+      times: new Set<string>()
+    }
+    group.times.add(option.time)
+    optionsByProfessional.set(option.professionalId, group)
+  }
+
+  return Array.from(optionsByProfessional.values())
+    .map((group) =>
+      `• ${group.professionalName}: ${Array.from(group.times).sort().join(', ')}`
+    )
     .join('\n')
 }
 

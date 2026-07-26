@@ -507,8 +507,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(result.plan.type, 'ask_field')
       assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'time')
       assert.deepEqual(result.availabilityOptions.map((option) => option.time), ['15:00', '15:30'])
-      assert.equal(result.reply.includes('• 15:00 con Nico'), true)
-      assert.equal(result.reply.includes('• 15:30 con Nico'), true)
+      assert.equal(result.reply.includes('• Nico: 15:00, 15:30'), true)
+      assert.equal(result.reply.includes('todos los horarios disponibles'), true)
       assert.equal(result.reply.includes('¿Cuál te queda mejor?'), true)
     }
   },
@@ -726,7 +726,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
       assert.equal(result.state.draft.time, null)
       assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'time')
-      assert.equal(result.reply.includes('• 16:00 con Nico'), true)
+      assert.equal(result.reply.includes('• Nico: 16:00'), true)
     }
   },
   {
@@ -814,6 +814,46 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         reply,
         'Perfecto. ¿Confirmás la reserva para Corte con Nico el 10/07/2026 a las 15:00?'
       )
+    }
+  },
+  {
+    name: 'renderiza todos los horarios sin cortar despues del sexto',
+    run: () => {
+      const availabilityOptions = [
+        '09:00',
+        '09:30',
+        '10:00',
+        '10:30',
+        '11:00',
+        '11:30',
+        '15:00',
+        '15:30'
+      ].map((time) => ({
+        time,
+        professionalId: 'professional-1',
+        professionalName: 'Nico'
+      }))
+
+      const reply = renderBookingV2Response({
+        plan: {
+          type: 'ask_field',
+          field: 'time',
+          reason: 'missing',
+          misunderstandingCount: 0
+        },
+        draft: {
+          name: 'Mati',
+          service: 'haircut',
+          professional: 'professional-1',
+          date: '2026-07-27',
+          time: null
+        },
+        catalog: fakeDomainCatalog(),
+        availabilityOptions
+      })
+
+      assert.equal(reply.includes('todos los horarios disponibles'), true)
+      assert.equal(reply.includes('09:00, 09:30, 10:00, 10:30, 11:00, 11:30, 15:00, 15:30'), true)
     }
   },
   {
