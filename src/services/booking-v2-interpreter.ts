@@ -29,7 +29,11 @@ export function applyBookingV2Extraction(
   extraction: BookingV2Extraction,
   catalog: BookingV2Catalog
 ): BookingV2Interpretation {
-  if (extraction.correction.field && extraction.correction.confidence >= 0.55) {
+  if (
+    extraction.correction.field &&
+    initialState.draft[extraction.correction.field] &&
+    extraction.correction.confidence >= 0.55
+  ) {
     const state = proposeCorrection(
       initialState,
       extraction.correction.field,

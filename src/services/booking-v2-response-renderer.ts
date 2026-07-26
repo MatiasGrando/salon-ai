@@ -9,6 +9,7 @@ export type BookingV2RenderInput = {
   catalog?: BookingV2DomainCatalog | null
   availabilityOptions?: BookingV2AvailabilityOption[]
   unavailableDate?: string | null
+  serviceSuggestions?: BookingV2DomainCatalog['services']
 }
 
 export function renderBookingV2Response(input: BookingV2RenderInput): string {
@@ -27,7 +28,12 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
         '¿Cuál te queda mejor?'
       ].join('\n')
     }
-    const question = questionForField(input.plan.field, input.draft, input.catalog)
+    const question = questionForField(
+      input.plan.field,
+      input.draft,
+      input.catalog,
+      input.serviceSuggestions
+    )
     if (input.plan.reason === 'not_understood') {
       return `Disculpame, no te entendí bien. ${question}`
     }
@@ -51,21 +57,28 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
 function questionForField(
   field: BookingField,
   draft: BookingDraft,
-  catalog?: BookingV2DomainCatalog | null
+  catalog?: BookingV2DomainCatalog | null,
+  serviceSuggestions?: BookingV2DomainCatalog['services']
 ) {
   if (field === 'name') return '¿Me decís tu nombre?'
-  if (field === 'service') return serviceQuestion(catalog)
+  if (field === 'service') return serviceQuestion(catalog, serviceSuggestions)
   if (field === 'professional') return professionalQuestion(draft.service, catalog)
   if (field === 'date') return 'Perfecto 😊 ¿Qué día te gustaría venir? Puede ser hoy, mañana o una fecha específica.'
   return '¿Qué horario preferís?'
 }
 
-function serviceQuestion(catalog?: BookingV2DomainCatalog | null) {
+function serviceQuestion(
+  catalog?: BookingV2DomainCatalog | null,
+  serviceSuggestions?: BookingV2DomainCatalog['services']
+) {
   if (!catalog?.services.length) return '¿Qué servicio querés reservar?'
+  const services = serviceSuggestions?.length ? serviceSuggestions : catalog.services
 
   return [
-    'Estos son los servicios disponibles 😊',
-    ...catalog.services.map((service) => {
+    serviceSuggestions?.length
+      ? 'Encontré más de una opción parecida 😊 ¿Cuál de estas querés?'
+      : 'Estos son los servicios disponibles 😊',
+    ...services.map((service) => {
       const price = service.price === null ? 'precio a consultar' : formatMoney(service.price)
       return `• ${service.name} — ${service.duration} min — ${price}`
     }),

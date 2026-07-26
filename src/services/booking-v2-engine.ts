@@ -71,14 +71,26 @@ export class BookingV2Engine {
     }
 
     const deterministicService = resolveExpectedService(input.message, initialState, catalog)
-    if (deterministicService) {
-      const state = acceptField(initialState, 'service', deterministicService)
+    if (deterministicService?.kind === 'selected') {
+      const state = acceptField(initialState, 'service', deterministicService.serviceId)
       return this.fromInterpretation({
         state,
         nextField: nextMissingField(state.draft),
         outcome: 'accepted',
         affectedField: 'service'
       }, null, catalog)
+    }
+    if (deterministicService?.kind === 'ambiguous') {
+      return this.fromInterpretation({
+        state: initialState,
+        nextField: 'service',
+        outcome: 'no_change',
+        affectedField: 'service'
+      }, null, catalog, 'no_change', {
+        serviceSuggestions: catalog.services.filter((service) =>
+          deterministicService.serviceIds.includes(service.id)
+        )
+      })
     }
 
     const deterministicProfessional = resolveExpectedProfessional(
@@ -188,7 +200,10 @@ export class BookingV2Engine {
     interpretation: BookingV2Interpretation,
     extraction: BookingV2Extraction | null,
     catalog: BookingV2DomainCatalog | null,
-    outcome: BookingV2ProcessResult['outcome'] = interpretation.outcome
+    outcome: BookingV2ProcessResult['outcome'] = interpretation.outcome,
+    renderContext?: {
+      serviceSuggestions?: BookingV2DomainCatalog['services']
+    }
   ): Promise<BookingV2ProcessResult> {
     let effectiveInterpretation = interpretation
     let plan = buildBookingV2MessagePlan(effectiveInterpretation)
@@ -273,7 +288,10 @@ export class BookingV2Engine {
         draft: effectiveInterpretation.state.draft,
         catalog,
         availabilityOptions,
-        unavailableDate
+        unavailableDate,
+        ...(renderContext?.serviceSuggestions
+          ? { serviceSuggestions: renderContext.serviceSuggestions }
+          : {})
       }),
       availabilityOptions,
       extraction,
@@ -385,11 +403,37 @@ function resolveExpectedService(
   const signature = selectionSignature(message)
   if (!signature) return null
 
-  const matches = catalog.services.filter((service) =>
+  const exactMatches = catalog.services.filter((service) =>
     [service.name, ...service.aliases].some((label) => selectionSignature(label) === signature)
   )
+  if (exactMatches.length === 1) {
+    return {
+      kind: 'selected' as const,
+      serviceId: exactMatches[0]?.id ?? ''
+    }
+  }
 
-  return matches.length === 1 ? matches[0]?.id ?? null : null
+  const requestedTokens = new Set(signature.split(' '))
+  const partialMatches = catalog.services.filter((service) =>
+    [service.name, ...service.aliases].some((label) => {
+      const labelTokens = new Set(selectionSignature(label).split(' '))
+      return Array.from(requestedTokens).every((token) => labelTokens.has(token))
+    })
+  )
+
+  if (partialMatches.length === 1) {
+    return {
+      kind: 'selected' as const,
+      serviceId: partialMatches[0]?.id ?? ''
+    }
+  }
+  if (partialMatches.length > 1) {
+    return {
+      kind: 'ambiguous' as const,
+      serviceIds: partialMatches.map((service) => service.id)
+    }
+  }
+  return null
 }
 
 function resolveExpectedDate(message: string, state: BookingV2State, currentDate: Date) {

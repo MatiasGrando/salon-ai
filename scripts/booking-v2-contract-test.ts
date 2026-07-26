@@ -206,6 +206,27 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'no interpreta como correccion un campo que todavia no fue elegido',
+    run: () => {
+      const interpretation = applyBookingV2Extraction(
+        acceptField(createEmptyBookingV2State(), 'name', 'Mati'),
+        extraction({
+          correction: {
+            field: 'service',
+            newValue: null,
+            confidence: 0.9,
+            evidence: 'Corte'
+          }
+        }),
+        catalog()
+      )
+
+      assert.equal(interpretation.state.pendingProposal, null)
+      assert.equal(interpretation.nextField, 'service')
+      assert.equal(interpretation.outcome, 'no_change')
+    }
+  },
+  {
     name: 'confianza baja genera una repregunta humana del campo actual',
     run: () => {
       let state = createEmptyBookingV2State()
@@ -596,6 +617,49 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(result.state.draft.service, 'color')
       assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'professional')
       assert.equal(result.reply.includes('• Lucas'), true)
+      assert.equal(extractor.calls.length, 0)
+    }
+  },
+  {
+    name: 'motor aclara un servicio parcial ambiguo sin preguntar si quiere modificarlo',
+    run: async () => {
+      const domainCatalog = createBookingV2DomainCatalog({
+        services: [
+          { id: 'haircut', name: 'Corte Hombre', aliases: [], duration: 30, price: 15000, category: null },
+          { id: 'color', name: 'Corte y color', aliases: [], duration: 60, price: 40000, category: null }
+        ],
+        professionals: []
+      })
+      const extractor = fakeExtractor(extraction({
+        correction: {
+          field: 'service',
+          newValue: null,
+          confidence: 0.9,
+          evidence: 'Corte'
+        }
+      }))
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog: domainCatalog }), extractor)
+
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Mati',
+          selectedServiceId: null,
+          selectedProfessionalId: null,
+          selectedDate: null,
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: 'Corte'
+      })
+
+      assert.equal(result.state.draft.service, null)
+      assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'service')
+      assert.equal(result.reply.includes('más de una opción'), true)
+      assert.equal(result.reply.includes('Corte Hombre'), true)
+      assert.equal(result.reply.includes('Corte y color'), true)
+      assert.equal(result.reply.includes('modificar'), false)
       assert.equal(extractor.calls.length, 0)
     }
   },
