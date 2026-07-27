@@ -747,7 +747,7 @@ export function mergeBookingV2ConversationalCopy(
 }
 
 function isSafeBookingV2ConversationalPrefix(prefix: string) {
-  if (prefix.length > 120 || prefix.includes('\n')) return false
+  if (prefix.length > 60 || prefix.includes('\n')) return false
   if (/[\d$?¿]/.test(prefix) || /https?:\/\//i.test(prefix)) return false
   const normalizedPrefix = prefix
     .trim()
@@ -757,6 +757,9 @@ function isSafeBookingV2ConversationalPrefix(prefix: string) {
     .replace(/[^\p{Letter}\p{Number}\s]/gu, '')
     .replace(/\s+/g, ' ')
   if (/^(?:hola|holaa|buen dia|buenas|buenas tardes|buenas noches)\b/.test(normalizedPrefix)) {
+    return false
+  }
+  if (!/^(?:dale|claro|perfecto|buenisimo|entiendo|gracias)\b/.test(normalizedPrefix)) {
     return false
   }
   return !/\b(?:disponible|disponibilidad|turno|reserva|reservado|confirmado|horario|hora|servicio|profesional|precio|direccion|ubicacion|hoy|mañana|manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/i.test(prefix)

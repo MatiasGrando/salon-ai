@@ -384,17 +384,11 @@ export class ConversationService {
     if (informationReply && !input.routing.bookingMessage) {
       if (!isActiveBookingV2Step(input.conversation.currentStep)) {
         const requiredReply = applyAssistantPersonalityToReply(
-          `${informationReply}\n\nSi querés, también puedo ayudarte a reservar un turno.`,
+          informationReply,
           assistantPersonality
         )
         return {
-          reply: await this.composeBookingV2Reply({
-            customerMessage: input.message,
-            requiredReply,
-            currentStep: input.conversation.currentStep,
-            customerName: input.conversation.selectedCustomerName,
-            personality: assistantPersonality
-          }),
+          reply: requiredReply,
           skipMisunderstandingTracking: true,
           skipHumanize: true
         }
@@ -410,13 +404,7 @@ export class ConversationService {
         assistantPersonality
       )
       return {
-        reply: await this.composeBookingV2Reply({
-          customerMessage: input.message,
-          requiredReply,
-          currentStep: input.conversation.currentStep,
-          customerName: input.conversation.selectedCustomerName,
-          personality: assistantPersonality
-        }),
+        reply: requiredReply,
         skipMisunderstandingTracking: true,
         skipHumanize: true
       }

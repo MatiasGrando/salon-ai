@@ -1153,6 +1153,20 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         mergeBookingV2ConversationalCopy(requiredReply, '¡Hola Matías! 😊'),
         requiredReply
       )
+      assert.equal(
+        mergeBookingV2ConversationalCopy(
+          requiredReply,
+          '¡Qué lindo es explorar nuevos lugares! 😊'
+        ),
+        requiredReply
+      )
+      assert.equal(
+        mergeBookingV2ConversationalCopy(
+          requiredReply,
+          'Espero que estés teniendo un buen día 😊'
+        ),
+        requiredReply
+      )
     }
   },
   {
