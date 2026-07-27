@@ -227,6 +227,26 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'no inventa una correccion de fecha a partir de una hora compacta',
+    run: () => {
+      const interpretation = applyBookingV2Extraction(
+        completeDraft(),
+        extraction({
+          correction: {
+            field: 'date',
+            newValue: '2026-07-28',
+            confidence: 0.9,
+            evidence: '1830'
+          }
+        }),
+        catalog()
+      )
+
+      assert.equal(interpretation.state.pendingProposal, null)
+      assert.equal(interpretation.state.draft.date, '2026-07-10')
+    }
+  },
+  {
     name: 'confianza baja genera una repregunta humana del campo actual',
     run: () => {
       let state = createEmptyBookingV2State()
@@ -727,6 +747,113 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(result.state.draft.time, null)
       assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'time')
       assert.equal(result.reply.includes('• Nico: 16:00'), true)
+    }
+  },
+  {
+    name: 'motor acepta horarios compactos sin confundirlos con una fecha',
+    run: async () => {
+      const extractor = fakeExtractor(extraction({
+        correction: {
+          field: 'date',
+          newValue: '2026-07-28',
+          confidence: 0.9,
+          evidence: '1830'
+        }
+      }))
+      const engine = new BookingV2Engine(
+        fakeDomainPort({
+          availabilityOptions: [
+            { time: '18:30', professionalId: 'professional-1', professionalName: 'Nico' }
+          ]
+        }),
+        extractor
+      )
+
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Mati',
+          selectedServiceId: 'haircut',
+          selectedProfessionalId: 'professional-1',
+          selectedDate: '2026-07-28',
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: '1830'
+      })
+
+      assert.equal(result.state.draft.date, '2026-07-28')
+      assert.equal(result.state.draft.time, '18:30')
+      assert.equal(result.plan.type, 'confirm_booking')
+      assert.equal(extractor.calls.length, 0)
+    }
+  },
+  {
+    name: 'motor resuelve una hora de doce horas contra la disponibilidad real',
+    run: async () => {
+      const extractor = fakeExtractor(null)
+      const engine = new BookingV2Engine(
+        fakeDomainPort({
+          availabilityOptions: [
+            { time: '18:00', professionalId: 'professional-1', professionalName: 'Nico' }
+          ]
+        }),
+        extractor
+      )
+
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Mati',
+          selectedServiceId: 'haircut',
+          selectedProfessionalId: 'professional-1',
+          selectedDate: '2026-07-28',
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: 'si a las 6'
+      })
+
+      assert.equal(result.state.draft.time, '18:00')
+      assert.equal(result.plan.type, 'confirm_booking')
+      assert.equal(extractor.calls.length, 0)
+    }
+  },
+  {
+    name: 'motor permite cambiar la hora desde la confirmacion final',
+    run: async () => {
+      const extractor = fakeExtractor(null)
+      const engine = new BookingV2Engine(
+        fakeDomainPort({
+          availabilityOptions: [
+            { time: '18:00', professionalId: 'professional-1', professionalName: 'Nico' },
+            { time: '18:30', professionalId: 'professional-1', professionalName: 'Nico' }
+          ]
+        }),
+        extractor
+      )
+
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Mati',
+          selectedServiceId: 'haircut',
+          selectedProfessionalId: 'professional-1',
+          selectedDate: '2026-07-28',
+          selectedTime: '18:30',
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: 'quiero cambiar la hora'
+      })
+
+      assert.equal(result.state.draft.time, null)
+      assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'time')
+      assert.equal(result.reply.includes('• Nico: 18:00, 18:30'), true)
+      assert.equal(result.reply.includes('Confirmás la reserva'), false)
+      assert.equal(extractor.calls.length, 0)
     }
   },
   {

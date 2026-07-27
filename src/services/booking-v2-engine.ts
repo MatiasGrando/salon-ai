@@ -54,6 +54,29 @@ export class BookingV2Engine {
     const initialState = stateFromConversation(input.conversation)
     const catalog = await this.domain.loadCatalog(input.businessId)
 
+    if (initialState.draft.time && isTimeChangeRequest(input.message)) {
+      const stateWithoutTime = {
+        ...initialState,
+        draft: clearFieldAndDependents(initialState.draft, 'time'),
+        pendingProposal: null
+      }
+      const requestedTime = await this.resolveExpectedTime(
+        input.message,
+        stateWithoutTime,
+        catalog
+      )
+      const state = requestedTime
+        ? acceptField(stateWithoutTime, 'time', requestedTime.time)
+        : stateWithoutTime
+
+      return this.fromInterpretation({
+        state,
+        nextField: nextMissingField(state.draft),
+        outcome: requestedTime ? 'accepted' : 'no_change',
+        affectedField: 'time'
+      }, null, catalog)
+    }
+
     if (initialState.pendingProposal) {
       const confirmation = readConfirmation(input.message)
       if (confirmation === 'yes') {
@@ -318,7 +341,15 @@ export class BookingV2Engine {
     })
 
     if (!availability.ok) return null
-    return availability.options.find((option) => option.time === requestedTime) ?? null
+    const candidateTimes = [requestedTime]
+    const requestedHour = Number(requestedTime.slice(0, 2))
+    if (requestedHour >= 1 && requestedHour <= 11) {
+      candidateTimes.push(`${String(requestedHour + 12).padStart(2, '0')}${requestedTime.slice(2)}`)
+    }
+
+    return candidateTimes
+      .map((time) => availability.options.find((option) => option.time === time))
+      .find((option) => option !== undefined) ?? null
   }
 }
 
@@ -468,12 +499,36 @@ function dateInTimeZone(value: Date, timeZone: string) {
 
 function parseTime(message: string) {
   const normalized = normalize(message)
+  const compactMatch = /(?:^|\s)(\d{3,4})(?:\s*(?:h|hs|hrs|horas))?(?:\s|$)/.exec(normalized)
+  if (compactMatch?.[1]) {
+    const compact = compactMatch[1].padStart(4, '0')
+    const hour = Number(compact.slice(0, 2))
+    const minute = Number(compact.slice(2))
+    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+      return `${compact.slice(0, 2)}:${compact.slice(2)}`
+    }
+  }
+
   const match = /(?:^|\s)(\d{1,2})(?::(\d{2}))?\s*(?:h|hs|hrs|horas)?(?:\s|$)/.exec(normalized)
   if (!match) return null
   const hour = Number(match[1])
   const minute = Number(match[2] ?? '0')
   if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+}
+
+function isTimeChangeRequest(message: string) {
+  const normalized = normalize(message)
+  return [
+    'cambiar la hora',
+    'cambiar el horario',
+    'cambio la hora',
+    'cambio el horario',
+    'modificar la hora',
+    'modificar el horario',
+    'otra hora',
+    'otro horario'
+  ].some((phrase) => normalized.includes(phrase))
 }
 
 function shouldValidateAvailability(plan: BookingV2MessagePlan) {

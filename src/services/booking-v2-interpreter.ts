@@ -32,6 +32,7 @@ export function applyBookingV2Extraction(
   if (
     extraction.correction.field &&
     initialState.draft[extraction.correction.field] &&
+    isExplicitCorrectionEvidence(extraction.correction.evidence) &&
     extraction.correction.confidence >= 0.55
   ) {
     const state = proposeCorrection(
@@ -121,4 +122,27 @@ function validValue(
 
 function hasLowConfidenceEvidence(field: ExtractedBookingField) {
   return Boolean(field.evidence) && confidenceLevel(field.confidence) === 'low'
+}
+
+function isExplicitCorrectionEvidence(evidence: string) {
+  const normalized = evidence
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+
+  return [
+    'cambiar',
+    'cambio',
+    'modificar',
+    'corregir',
+    'correccion',
+    'mejor ',
+    'en realidad',
+    'en vez de',
+    'no era',
+    'quise decir',
+    'prefiero otro',
+    'prefiero otra'
+  ].some((phrase) => normalized.includes(phrase))
 }
