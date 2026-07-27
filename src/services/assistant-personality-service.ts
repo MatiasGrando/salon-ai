@@ -191,6 +191,7 @@ export function applyAssistantPersonalityToReply(
       ['te gustaría', 'le gustaría'],
       ['te queda', 'le queda'],
       ['atenderte', 'atenderse'],
+      ['te puedo ayudar', 'puedo ayudarle'],
       ['puedo ayudarte', 'puedo ayudarle']
     ])
   }

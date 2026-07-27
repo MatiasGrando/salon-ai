@@ -78,6 +78,7 @@ export class ConversationService {
     const shouldResetExpiredFlow = existingConversation
       ? isExpiredInProgressConversation(existingConversation.currentStep, existingConversation.updatedAt)
       : false
+    const bookingV2Enabled = Boolean(businessId && await this.isBookingV2Enabled(businessId))
 
     const conversation = existingConversation
       ? await prisma.conversation.update({
@@ -114,6 +115,17 @@ export class ConversationService {
 
     if (shouldResetExpiredFlow) {
       if (!conversation.selectedCustomerName) {
+        if (bookingV2Enabled && businessId) {
+          await this.updateConversation(input.phone, {
+            currentStep: 'START'
+          })
+          const personality = await getBusinessAssistantPersonality(businessId)
+          return {
+            reply: applyAssistantPersonalityToReply(botCopyService.welcome(), personality),
+            skipHumanize: true
+          }
+        }
+
         await this.updateConversation(input.phone, {
           currentStep: 'ASK_CUSTOMER_NAME'
         })
@@ -128,7 +140,6 @@ export class ConversationService {
       }
     }
 
-    const bookingV2Enabled = Boolean(businessId && await this.isBookingV2Enabled(businessId))
     const bookingV2Routing = bookingV2Enabled && businessId
       ? await conversationRouter.route(await conversationRouterContextService.load({
           businessId,
@@ -169,7 +180,7 @@ export class ConversationService {
 
     if (isHardResetMessage(message)) {
       await this.updateConversation(input.phone, {
-        currentStep: 'ASK_CUSTOMER_NAME',
+        currentStep: bookingV2Enabled ? 'START' : 'ASK_CUSTOMER_NAME',
         selectedServiceId: null,
         selectedProfessionalId: null,
         selectedDate: null,
@@ -180,10 +191,15 @@ export class ConversationService {
         bookingV2State: null
       })
 
-      const resetReply = botCopyService.askInitialName()
+      const resetReply = bookingV2Enabled
+        ? botCopyService.welcome()
+        : botCopyService.askInitialName()
       if (!bookingV2Enabled || !businessId) return { reply: resetReply }
       const personality = await getBusinessAssistantPersonality(businessId)
-      return { reply: applyAssistantPersonalityToReply(resetReply, personality) }
+      return {
+        reply: applyAssistantPersonalityToReply(resetReply, personality),
+        skipHumanize: true
+      }
     }
 
     if (isResetMessage(message)) {
@@ -401,6 +417,21 @@ export class ConversationService {
           customerName: input.conversation.selectedCustomerName,
           personality: assistantPersonality
         }),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+
+    if (
+      input.conversation.currentStep === 'START' &&
+      !input.routing.bookingMessage &&
+      isBookingV2GreetingOnlyMessage(input.message)
+    ) {
+      return {
+        reply: applyAssistantPersonalityToReply(
+          botCopyService.welcome(),
+          assistantPersonality
+        ),
         skipMisunderstandingTracking: true,
         skipHumanize: true
       }
@@ -1040,6 +1071,27 @@ export function isPositiveBookingV2Confirmation(message: string) {
 
   if (exactConfirmations.includes(normalizedMessage)) return true
   return /\b(confirmo|confirmar|confirmalo)\b/.test(normalizedMessage)
+}
+
+export function isBookingV2GreetingOnlyMessage(message: string) {
+  const normalizedMessage = normalizeText(message)
+    .replace(/[^\p{Letter}\p{Number}\s]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return [
+    'hola',
+    'holaa',
+    'hola cami',
+    'buenas',
+    'buen dia',
+    'buenas tardes',
+    'buenas noches',
+    'hola como estas',
+    'como estas',
+    'como va',
+    'que tal',
+    'todo bien'
+  ].includes(normalizedMessage)
 }
 
 function isActiveBookingV2Step(currentStep: string) {

@@ -31,7 +31,10 @@ import {
   normalizeConversationRouting
 } from '../src/services/conversation-router.js'
 import { renderBusinessKnowledgeAnswers } from '../src/services/business-knowledge-service.js'
-import { isPositiveBookingV2Confirmation } from '../src/services/conversation-service.js'
+import {
+  isBookingV2GreetingOnlyMessage,
+  isPositiveBookingV2Confirmation
+} from '../src/services/conversation-service.js'
 import { removeCurrentInboundFromHistory } from '../src/services/conversation-router-context-service.js'
 import { mergeBookingV2ConversationalCopy } from '../src/services/ai-message-understanding-service.js'
 import {
@@ -1239,6 +1242,16 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(isPositiveBookingV2Confirmation('si confirmo y pasame la direccion'), true)
       assert.equal(isPositiveBookingV2Confirmation('pasame la direccion'), false)
       assert.equal(isPositiveBookingV2Confirmation('creo que podria estar bien'), false)
+    }
+  },
+  {
+    name: 'bienvenida neutral se limita a saludos sin asumir una reserva',
+    run: () => {
+      assert.equal(isBookingV2GreetingOnlyMessage('Hola'), true)
+      assert.equal(isBookingV2GreetingOnlyMessage('buenas tardes'), true)
+      assert.equal(isBookingV2GreetingOnlyMessage('hola como estas?'), true)
+      assert.equal(isBookingV2GreetingOnlyMessage('Hola, hasta que hora estan abiertos?'), false)
+      assert.equal(isBookingV2GreetingOnlyMessage('hola quiero reservar'), false)
     }
   },
   {

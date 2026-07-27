@@ -14,6 +14,10 @@ type AppointmentListItem = {
 }
 
 export class BotCopyService {
+  welcome() {
+    return '¡Hola! Soy Cami 😊\n\n¿En qué te puedo ayudar?'
+  }
+
   mainMenu(customerName?: string | null) {
     const greeting = customerName ? `Hola ${getFirstName(customerName)}, soy Cami.` : 'Hola, soy Cami.'
 
