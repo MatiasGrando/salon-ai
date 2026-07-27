@@ -188,6 +188,7 @@ export function applyAssistantPersonalityToReply(
       ['¿Confirmás', '¿Confirma'],
       ['confirmás', 'confirma'],
       ['¿Me decís', '¿Me dice'],
+      ['¿Te puedo ayudar', '¿Puedo ayudarle'],
       ['te gustaría', 'le gustaría'],
       ['te queda', 'le queda'],
       ['atenderte', 'atenderse'],

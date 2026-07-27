@@ -18,6 +18,10 @@ export class BotCopyService {
     return '¡Hola! Soy Cami 😊\n\n¿En qué te puedo ayudar?'
   }
 
+  conversationClosed() {
+    return 'Dale, gracias por escribirnos 😊 Si necesitás algo más, estoy por acá.'
+  }
+
   mainMenu(customerName?: string | null) {
     const greeting = customerName ? `Hola ${getFirstName(customerName)}, soy Cami.` : 'Hola, soy Cami.'
 

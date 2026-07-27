@@ -381,10 +381,25 @@ export class ConversationService {
         : confirmation
     }
 
+    if (
+      input.conversation.currentStep === 'START' &&
+      !input.routing.bookingMessage &&
+      isBookingV2ConversationClosing(input.message, input.routing)
+    ) {
+      return {
+        reply: applyAssistantPersonalityToReply(
+          botCopyService.conversationClosed(),
+          assistantPersonality
+        ),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+
     if (informationReply && !input.routing.bookingMessage) {
       if (!isActiveBookingV2Step(input.conversation.currentStep)) {
         const requiredReply = applyAssistantPersonalityToReply(
-          informationReply,
+          withBusinessInformationFollowUp(informationReply),
           assistantPersonality
         )
         return {
@@ -1080,6 +1095,56 @@ export function isBookingV2GreetingOnlyMessage(message: string) {
     'que tal',
     'todo bien'
   ].includes(normalizedMessage)
+}
+
+export function isBookingV2ConversationClosing(
+  message: string,
+  routing?: ConversationRouting
+) {
+  if (routing?.intents.some((intent) =>
+    intent.type === 'stop_flow' && intent.confidence >= 0.65
+  )) {
+    return true
+  }
+
+  const normalizedMessage = normalizeText(message)
+    .replace(/[^\p{Letter}\p{Number}\s]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (/^(?:no+|nop|nono|nah|na)(?: gracias| tranqui| todo bien)?$/.test(normalizedMessage)) {
+    return true
+  }
+
+  return [
+    'gracias',
+    'muchas gracias',
+    'listo',
+    'listo gracias',
+    'joya',
+    'joya gracias',
+    'era eso',
+    'solo eso',
+    'nada mas',
+    'nada por ahora',
+    'por ahora nada',
+    'estamos',
+    'estamos bien',
+    'todo bien gracias',
+    'de una gracias',
+    'con eso estoy',
+    'eso es todo'
+  ].includes(normalizedMessage) ||
+    [
+      'no necesito nada',
+      'no preciso nada',
+      'con eso alcanza',
+      'con eso estamos'
+    ].some((phrase) => normalizedMessage.includes(phrase))
+}
+
+export function withBusinessInformationFollowUp(informationReply: string) {
+  return `${informationReply.trim()}\n\n¿Te puedo ayudar en algo más?`
 }
 
 function isActiveBookingV2Step(currentStep: string) {

@@ -32,8 +32,10 @@ import {
 } from '../src/services/conversation-router.js'
 import { renderBusinessKnowledgeAnswers } from '../src/services/business-knowledge-service.js'
 import {
+  isBookingV2ConversationClosing,
   isBookingV2GreetingOnlyMessage,
-  isPositiveBookingV2Confirmation
+  isPositiveBookingV2Confirmation,
+  withBusinessInformationFollowUp
 } from '../src/services/conversation-service.js'
 import { removeCurrentInboundFromHistory } from '../src/services/conversation-router-context-service.js'
 import { mergeBookingV2ConversationalCopy } from '../src/services/ai-message-understanding-service.js'
@@ -1320,6 +1322,61 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(isBookingV2GreetingOnlyMessage('hola como estas?'), true)
       assert.equal(isBookingV2GreetingOnlyMessage('Hola, hasta que hora estan abiertos?'), false)
       assert.equal(isBookingV2GreetingOnlyMessage('hola quiero reservar'), false)
+    }
+  },
+  {
+    name: 'respuesta informativa pregunta si puede ayudar en algo mas',
+    run: () => {
+      assert.equal(
+        withBusinessInformationFollowUp('Barber Colapinta queda en Villa Urquiza.'),
+        'Barber Colapinta queda en Villa Urquiza.\n\n¿Te puedo ayudar en algo más?'
+      )
+
+      const formal = applyAssistantPersonalityToReply(
+        withBusinessInformationFollowUp('La dirección es Av. Siempre Viva 123.'),
+        normalizeAssistantPersonality({
+          preset: 'elegant',
+          treatment: 'usted'
+        })
+      )
+      assert.equal(formal.includes('¿Puedo ayudarle en algo más?'), true)
+    }
+  },
+  {
+    name: 'cierre conversacional acepta negativas y expresiones informales',
+    run: () => {
+      for (const message of [
+        'no',
+        'no gracias',
+        'nop',
+        'nono gracias',
+        'nada más',
+        'joya',
+        'estamos',
+        'era eso',
+        'con eso estamos'
+      ]) {
+        assert.equal(isBookingV2ConversationClosing(message), true, message)
+      }
+      assert.equal(isBookingV2ConversationClosing('no, quiero otro horario'), false)
+      assert.equal(isBookingV2ConversationClosing('quiero reservar'), false)
+    }
+  },
+  {
+    name: 'cierre conversacional acepta variantes detectadas por la ia',
+    run: () => {
+      assert.equal(isBookingV2ConversationClosing('tamo joya', {
+        intents: [
+          {
+            type: 'stop_flow',
+            topic: null,
+            confidence: 0.92,
+            evidence: 'tamo joya'
+          }
+        ],
+        bookingMessage: null,
+        source: 'ai'
+      }), true)
     }
   },
   {

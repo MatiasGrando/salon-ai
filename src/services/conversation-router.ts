@@ -110,6 +110,7 @@ export class ConversationRouter {
           'Usa request_quote cuando pide precio estimado o presupuesto personalizado.',
           'Usa submit_media cuando afirma enviar una foto, imagen o comprobante.',
           'Usa request_human cuando pide una persona o la consulta requiere criterio humano.',
+          'Usa stop_flow cuando dice que no necesita nada mas o quiere terminar la conversacion, incluso con respuestas informales como no gracias, nada mas, era eso, joya o estamos.',
           'bookingMessage debe contener solamente la parte util para continuar o modificar la reserva.',
           'Si el mensaje es solo informativo, social o ajeno a la reserva, bookingMessage debe ser null.',
           'evidence debe ser un fragmento textual exacto de customerMessage.',
