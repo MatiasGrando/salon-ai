@@ -258,6 +258,8 @@ Booking V2 extraction must receive `expectedField` explicitly. The model may use
 
 Booking V2 conversational copy may add at most one short social prefix around the deterministic reply. The required reply must remain verbatim. Reject AI prefixes containing questions, numbers, URLs, prices, dates, times, availability claims, service/professional claims, or confirmation claims; fall back to the deterministic reply unchanged.
 
+Assistant personality is configured per business, not per conversation. It may control assistant name, role, preset, `vos`/`tú`/`usted`, emoji level, preferred emojis, response length and additional style instructions. It must never override booking facts, validation or confirmation rules. The `none` emoji level must also remove emojis from deterministic Booking V2 copy.
+
 ### Tone
 
 Cami should stay warm, attentive, feminine, and professional across all messages, not only the first one.

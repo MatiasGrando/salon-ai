@@ -6535,6 +6535,42 @@ const crmHtml = `<!doctype html>
       background: #fff1f2;
     }
 
+    .assistant-personality-form {
+      display: grid;
+      gap: 18px;
+      margin-top: 18px;
+    }
+
+    .assistant-personality-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .assistant-personality-grid .settings-field.full {
+      grid-column: 1 / -1;
+    }
+
+    .assistant-preview {
+      padding: 16px;
+      border: 1px solid #e5e7eb;
+      border-radius: 16px;
+      background: linear-gradient(145deg, #f8fafc, #fff);
+    }
+
+    .assistant-preview strong {
+      display: block;
+      margin-bottom: 8px;
+      color: #111827;
+    }
+
+    .assistant-preview p {
+      margin: 0;
+      white-space: pre-line;
+      color: #374151;
+      line-height: 1.55;
+    }
+
     .settings-automation-list {
       margin-top: 20px;
       border-top: 1px solid #e5eaf3;
@@ -9434,6 +9470,8 @@ const crmHtml = `<!doctype html>
       .template-meta-grid,
       .template-type-grid,
       .template-variable-row { grid-template-columns: 1fr; }
+      .assistant-personality-grid { grid-template-columns: 1fr; }
+      .assistant-personality-grid .settings-field.full { grid-column: auto; }
       .template-preview-panel { position: static; }
 
       .crm-top,
@@ -12775,6 +12813,76 @@ const crmHtml = `<!doctype html>
           <p class="settings-feedback" id="automation-settings-feedback" role="status" aria-live="polite"></p>
         </section>
 
+        <section class="settings-panel" data-settings-panel="commerce">
+          <h3>Personalidad del asistente</h3>
+          <p>Defin&iacute; c&oacute;mo se presenta y conversa. Los datos de reservas y disponibilidad contin&uacute;an protegidos por el sistema.</p>
+          <form class="assistant-personality-form" id="assistant-personality-form">
+            <div class="assistant-personality-grid">
+              <div class="settings-field">
+                <label for="assistant-preset">Estilo base</label>
+                <select class="field" id="assistant-preset">
+                  <option value="warm">C&aacute;lida y cercana</option>
+                  <option value="elegant">Profesional y elegante</option>
+                  <option value="relaxed">Joven y relajada</option>
+                  <option value="direct">Breve y directa</option>
+                  <option value="neutral">Neutral</option>
+                </select>
+              </div>
+              <div class="settings-field">
+                <label for="assistant-name">Nombre</label>
+                <input class="field" id="assistant-name" maxlength="40" placeholder="Ej: Cami">
+              </div>
+              <div class="settings-field">
+                <label for="assistant-role">Rol</label>
+                <input class="field" id="assistant-role" maxlength="80" placeholder="Ej: recepcionista virtual">
+              </div>
+              <div class="settings-field">
+                <label for="assistant-treatment">Tratamiento</label>
+                <select class="field" id="assistant-treatment">
+                  <option value="vos">Vos</option>
+                  <option value="tu">T&uacute;</option>
+                  <option value="usted">Usted</option>
+                </select>
+              </div>
+              <div class="settings-field">
+                <label for="assistant-emoji-level">Uso de emojis</label>
+                <select class="field" id="assistant-emoji-level">
+                  <option value="none">Sin emojis</option>
+                  <option value="low">Bajo</option>
+                  <option value="moderate">Moderado</option>
+                  <option value="frequent">Frecuente</option>
+                </select>
+              </div>
+              <div class="settings-field">
+                <label for="assistant-response-length">Extensi&oacute;n</label>
+                <select class="field" id="assistant-response-length">
+                  <option value="short">Breve</option>
+                  <option value="normal">Normal</option>
+                  <option value="detailed">Detallada</option>
+                </select>
+              </div>
+              <div class="settings-field full">
+                <label for="assistant-emojis">Emojis preferidos</label>
+                <input class="field" id="assistant-emojis" maxlength="80" placeholder="😊, ✨, 💖">
+                <small>Separalos con comas. Se usar&aacute;n seg&uacute;n el nivel elegido.</small>
+              </div>
+              <div class="settings-field full">
+                <label for="assistant-custom-instructions">Preferencias adicionales</label>
+                <textarea class="field" id="assistant-custom-instructions" maxlength="500" rows="4" placeholder="Ej: Hablar de forma cercana y profesional, sin exagerar."></textarea>
+                <small>Solo afectan el estilo; no pueden cambiar datos ni reglas de reservas.</small>
+              </div>
+            </div>
+            <div class="assistant-preview">
+              <strong>Vista previa</strong>
+              <p id="assistant-personality-preview"></p>
+            </div>
+            <div class="settings-actions">
+              <button class="primary" id="assistant-personality-submit" type="submit">Guardar personalidad</button>
+            </div>
+            <p class="settings-feedback" id="assistant-personality-feedback" role="status" aria-live="polite"></p>
+          </form>
+        </section>
+
         <section class="settings-panel" data-settings-panel="meta" hidden>
           <h3>WhatsApp del comercio</h3>
           <p>Carg&aacute; los datos de WhatsApp Cloud del comercio y control&aacute; qu&eacute; env&iacute;os reales quedan habilitados.</p>
@@ -13505,6 +13613,43 @@ const crmHtml = `<!doctype html>
     } else {
 
     const CRM_AUTO_REFRESH_MS = 15000
+    const ASSISTANT_PERSONALITY_PRESETS = {
+      warm: {
+        role: 'recepcionista virtual',
+        treatment: 'vos',
+        emojiLevel: 'moderate',
+        responseLength: 'short',
+        preferredEmojis: ['😊', '✨']
+      },
+      elegant: {
+        role: 'asistente personal',
+        treatment: 'usted',
+        emojiLevel: 'low',
+        responseLength: 'normal',
+        preferredEmojis: ['✨']
+      },
+      relaxed: {
+        role: 'asistente del local',
+        treatment: 'vos',
+        emojiLevel: 'frequent',
+        responseLength: 'short',
+        preferredEmojis: ['😊', '🙌', '✨']
+      },
+      direct: {
+        role: 'asistente de reservas',
+        treatment: 'vos',
+        emojiLevel: 'none',
+        responseLength: 'short',
+        preferredEmojis: []
+      },
+      neutral: {
+        role: 'asistente virtual',
+        treatment: 'tu',
+        emojiLevel: 'low',
+        responseLength: 'normal',
+        preferredEmojis: ['😊']
+      }
+    }
 
     const state = {
       conversations: [],
@@ -13567,7 +13712,18 @@ const crmHtml = `<!doctype html>
       aiSettings: {
         botEnabled: true,
         aiEnabled: true,
-        bookingV2Enabled: false
+        bookingV2Enabled: false,
+        assistantPersonality: {
+          preset: 'warm',
+          name: 'Cami',
+          role: 'recepcionista virtual',
+          treatment: 'vos',
+          emojiLevel: 'moderate',
+          responseLength: 'short',
+          preferredEmojis: ['😊', '✨'],
+          customInstructions: ''
+        },
+        assistantPersonalityPreview: ''
       },
       pendingProfessionalSave: null,
       professionalStatusFilter: 'all',
@@ -13676,6 +13832,18 @@ const crmHtml = `<!doctype html>
       globalAiStatus: document.getElementById('global-ai-status'),
       bookingV2Status: document.getElementById('booking-v2-status'),
       automationSettingsFeedback: document.getElementById('automation-settings-feedback'),
+      assistantPersonalityForm: document.getElementById('assistant-personality-form'),
+      assistantPreset: document.getElementById('assistant-preset'),
+      assistantName: document.getElementById('assistant-name'),
+      assistantRole: document.getElementById('assistant-role'),
+      assistantTreatment: document.getElementById('assistant-treatment'),
+      assistantEmojiLevel: document.getElementById('assistant-emoji-level'),
+      assistantResponseLength: document.getElementById('assistant-response-length'),
+      assistantEmojis: document.getElementById('assistant-emojis'),
+      assistantCustomInstructions: document.getElementById('assistant-custom-instructions'),
+      assistantPersonalityPreview: document.getElementById('assistant-personality-preview'),
+      assistantPersonalitySubmit: document.getElementById('assistant-personality-submit'),
+      assistantPersonalityFeedback: document.getElementById('assistant-personality-feedback'),
       whatsappSettingsTitle: document.getElementById('whatsapp-settings-title'),
       whatsappSettingsCopy: document.getElementById('whatsapp-settings-copy'),
       whatsappSettingsBadge: document.getElementById('whatsapp-settings-badge'),
@@ -16120,6 +16288,102 @@ const crmHtml = `<!doctype html>
       els.globalAiStatus.className = state.aiSettings.aiEnabled === false ? 'basic' : ''
       els.bookingV2Status.textContent = state.aiSettings.bookingV2Enabled === true ? 'Booking V2' : 'Bot actual'
       els.bookingV2Status.className = state.aiSettings.bookingV2Enabled === true ? '' : 'basic'
+      renderAssistantPersonality()
+    }
+
+    function renderAssistantPersonality() {
+      if (!els.assistantPersonalityForm) return
+      const personality = state.aiSettings.assistantPersonality || {}
+      els.assistantPreset.value = personality.preset || 'warm'
+      els.assistantName.value = personality.name || 'Cami'
+      els.assistantRole.value = personality.role || 'recepcionista virtual'
+      els.assistantTreatment.value = personality.treatment || 'vos'
+      els.assistantEmojiLevel.value = personality.emojiLevel || 'moderate'
+      els.assistantResponseLength.value = personality.responseLength || 'short'
+      els.assistantEmojis.value = Array.isArray(personality.preferredEmojis)
+        ? personality.preferredEmojis.join(', ')
+        : '😊, ✨'
+      els.assistantCustomInstructions.value = personality.customInstructions || ''
+      renderAssistantPersonalityPreview()
+    }
+
+    function assistantPersonalityFromForm() {
+      return {
+        preset: els.assistantPreset.value,
+        name: els.assistantName.value.trim(),
+        role: els.assistantRole.value.trim(),
+        treatment: els.assistantTreatment.value,
+        emojiLevel: els.assistantEmojiLevel.value,
+        responseLength: els.assistantResponseLength.value,
+        preferredEmojis: els.assistantEmojis.value
+          .split(',')
+          .map((emoji) => emoji.trim())
+          .filter(Boolean)
+          .slice(0, 6),
+        customInstructions: els.assistantCustomInstructions.value.trim()
+      }
+    }
+
+    function renderAssistantPersonalityPreview() {
+      if (!els.assistantPersonalityPreview) return
+      const personality = assistantPersonalityFromForm()
+      const emoji = personality.emojiLevel === 'none'
+        ? ''
+        : ' ' + (personality.preferredEmojis[0] || '😊')
+      const greeting = personality.treatment === 'usted'
+        ? 'Hola, soy ' + (personality.name || 'Cami') + ', su ' + (personality.role || 'asistente virtual') + '.' + emoji
+        : '¡Hola! Soy ' + (personality.name || 'Cami') + ', tu ' + (personality.role || 'asistente virtual') + '.' + emoji
+      const followUp = personality.treatment === 'usted'
+        ? '¿En qué puedo ayudarle?'
+        : personality.treatment === 'tu'
+          ? '¿En qué puedo ayudarte?'
+          : '¿En qué te puedo ayudar?'
+      els.assistantPersonalityPreview.textContent = greeting + '\\n\\n' + followUp
+    }
+
+    function applyAssistantPersonalityPreset() {
+      const preset = ASSISTANT_PERSONALITY_PRESETS[els.assistantPreset.value]
+      if (!preset) return
+      els.assistantRole.value = preset.role
+      els.assistantTreatment.value = preset.treatment
+      els.assistantEmojiLevel.value = preset.emojiLevel
+      els.assistantResponseLength.value = preset.responseLength
+      els.assistantEmojis.value = preset.preferredEmojis.join(', ')
+      renderAssistantPersonalityPreview()
+    }
+
+    async function saveAssistantPersonality(event) {
+      event.preventDefault()
+      if (!state.businessId) {
+        showAssistantPersonalityFeedback('Seleccioná un comercio antes de guardar.', 'error')
+        return
+      }
+      if (!els.assistantName.value.trim() || !els.assistantRole.value.trim()) {
+        showAssistantPersonalityFeedback('Completá el nombre y el rol del asistente.', 'error')
+        return
+      }
+      if (!setButtonLoading(els.assistantPersonalitySubmit, true, 'Guardando...')) return
+      try {
+        state.aiSettings = await getJson('/crm/ai-settings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            businessId: state.businessId,
+            assistantPersonality: assistantPersonalityFromForm()
+          })
+        })
+        renderAssistantPersonality()
+        showAssistantPersonalityFeedback('Personalidad guardada. Se aplicará en las próximas respuestas.', 'success')
+      } catch (error) {
+        showAssistantPersonalityFeedback(error.message, 'error')
+      } finally {
+        setButtonLoading(els.assistantPersonalitySubmit, false)
+      }
+    }
+
+    function showAssistantPersonalityFeedback(message, type) {
+      els.assistantPersonalityFeedback.textContent = message
+      els.assistantPersonalityFeedback.className = 'settings-feedback visible ' + type
     }
 
     function renderNavHandoffBadge(count) {
@@ -22786,6 +23050,20 @@ const crmHtml = `<!doctype html>
     els.globalBotToggle.addEventListener('change', toggleGlobalBot)
     els.globalAiToggle.addEventListener('change', toggleGlobalAi)
     els.bookingV2Toggle.addEventListener('change', toggleBookingV2)
+    els.assistantPersonalityForm.addEventListener('submit', saveAssistantPersonality)
+    els.assistantPreset.addEventListener('change', applyAssistantPersonalityPreset)
+    for (const field of [
+      els.assistantName,
+      els.assistantRole,
+      els.assistantTreatment,
+      els.assistantEmojiLevel,
+      els.assistantResponseLength,
+      els.assistantEmojis,
+      els.assistantCustomInstructions
+    ]) {
+      field.addEventListener('input', renderAssistantPersonalityPreview)
+      field.addEventListener('change', renderAssistantPersonalityPreview)
+    }
     els.conversationAiToggle.addEventListener('click', toggleConversationAi)
     els.resolveHandoff.addEventListener('click', resolveHandoff)
     els.refresh.addEventListener('click', () => {

@@ -8,6 +8,10 @@ import {
   CONVERSATION_CLOSE_REASONS,
   type ConversationCloseReason
 } from '../services/conversation-opportunity-service.js'
+import {
+  assistantPersonalityPreview,
+  normalizeAssistantPersonality
+} from '../services/assistant-personality-service.js'
 
 const whatsappCloudApi = new WhatsAppCloudApi()
 const WHATSAPP_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000
@@ -240,17 +244,26 @@ export async function crmRoutes(app: FastifyInstance) {
     }
 
     const business = await findCrmBusiness(query.businessId)
+    const featureSettings = business
+      ? await prisma.businessFeatureSettings.findUnique({
+          where: { businessId: business.id },
+          select: {
+            bookingV2Enabled: true,
+            assistantPersonality: true
+          }
+        })
+      : null
+    const assistantPersonality = normalizeAssistantPersonality(
+      featureSettings?.assistantPersonality
+    )
 
     return {
       businessId: business?.id ?? null,
       botEnabled: business?.botEnabled ?? true,
       aiEnabled: business?.aiEnabled ?? true,
-      bookingV2Enabled: business
-        ? Boolean(await prisma.businessFeatureSettings.findUnique({
-            where: { businessId: business.id },
-            select: { bookingV2Enabled: true }
-          }).then((settings) => settings?.bookingV2Enabled))
-        : false
+      bookingV2Enabled: Boolean(featureSettings?.bookingV2Enabled),
+      assistantPersonality,
+      assistantPersonalityPreview: assistantPersonalityPreview(assistantPersonality)
     }
   })
 
@@ -260,15 +273,17 @@ export async function crmRoutes(app: FastifyInstance) {
       botEnabled?: boolean
       aiEnabled?: boolean
       bookingV2Enabled?: boolean
+      assistantPersonality?: unknown
     }
 
     if (
       typeof body.botEnabled !== 'boolean' &&
       typeof body.aiEnabled !== 'boolean' &&
-      typeof body.bookingV2Enabled !== 'boolean'
+      typeof body.bookingV2Enabled !== 'boolean' &&
+      body.assistantPersonality === undefined
     ) {
       return reply.status(400).send({
-        message: 'botEnabled, aiEnabled o bookingV2Enabled debe ser boolean'
+        message: 'Envia una configuracion valida para actualizar'
       })
     }
 
@@ -295,27 +310,51 @@ export async function crmRoutes(app: FastifyInstance) {
       }
     })
 
-    if (typeof body.bookingV2Enabled === 'boolean') {
+    if (
+      typeof body.bookingV2Enabled === 'boolean' ||
+      body.assistantPersonality !== undefined
+    ) {
+      const assistantPersonality = body.assistantPersonality === undefined
+        ? undefined
+        : normalizeAssistantPersonality(body.assistantPersonality)
       await prisma.businessFeatureSettings.upsert({
         where: { businessId: business.id },
         create: {
           businessId: business.id,
-          bookingV2Enabled: body.bookingV2Enabled
+          ...(typeof body.bookingV2Enabled === 'boolean'
+            ? { bookingV2Enabled: body.bookingV2Enabled }
+            : {}),
+          ...(assistantPersonality
+            ? { assistantPersonality: assistantPersonality as Prisma.InputJsonValue }
+            : {})
         },
         update: {
-          bookingV2Enabled: body.bookingV2Enabled
+          ...(typeof body.bookingV2Enabled === 'boolean'
+            ? { bookingV2Enabled: body.bookingV2Enabled }
+            : {}),
+          ...(assistantPersonality
+            ? { assistantPersonality: assistantPersonality as Prisma.InputJsonValue }
+            : {})
         }
       })
     }
 
     const featureSettings = await prisma.businessFeatureSettings.findUnique({
       where: { businessId: business.id },
-      select: { bookingV2Enabled: true }
+      select: {
+        bookingV2Enabled: true,
+        assistantPersonality: true
+      }
     })
+    const assistantPersonality = normalizeAssistantPersonality(
+      featureSettings?.assistantPersonality
+    )
 
     return {
       ...updatedBusiness,
-      bookingV2Enabled: Boolean(featureSettings?.bookingV2Enabled)
+      bookingV2Enabled: Boolean(featureSettings?.bookingV2Enabled),
+      assistantPersonality,
+      assistantPersonalityPreview: assistantPersonalityPreview(assistantPersonality)
     }
   })
 

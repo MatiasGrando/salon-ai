@@ -17,6 +17,11 @@ import {
 } from './conversation-router.js'
 import { ConversationRouterContextService } from './conversation-router-context-service.js'
 import { BusinessKnowledgeService } from './business-knowledge-service.js'
+import {
+  applyAssistantPersonalityToReply,
+  getBusinessAssistantPersonality,
+  type AssistantPersonality
+} from './assistant-personality-service.js'
 
 const bookingConversationFlow = new BookingConversationFlow()
 const bookingProvider = new InternalBookingProvider()
@@ -175,9 +180,10 @@ export class ConversationService {
         bookingV2State: null
       })
 
-      return {
-        reply: botCopyService.askInitialName()
-      }
+      const resetReply = botCopyService.askInitialName()
+      if (!bookingV2Enabled || !businessId) return { reply: resetReply }
+      const personality = await getBusinessAssistantPersonality(businessId)
+      return { reply: applyAssistantPersonalityToReply(resetReply, personality) }
     }
 
     if (isResetMessage(message)) {
@@ -322,6 +328,7 @@ export class ConversationService {
     }
     routing: ConversationRouting
   }): Promise<HandleMessageResult> {
+    const assistantPersonality = await getBusinessAssistantPersonality(input.businessId)
     const informationTopics = businessInformationTopicsFromRouting(input.routing)
     const informationReply = informationTopics.length
       ? await businessKnowledgeService.answer({
@@ -360,13 +367,17 @@ export class ConversationService {
 
     if (informationReply && !input.routing.bookingMessage) {
       if (!isActiveBookingV2Step(input.conversation.currentStep)) {
-        const requiredReply = `${informationReply}\n\nSi querés, también puedo ayudarte a reservar un turno.`
+        const requiredReply = applyAssistantPersonalityToReply(
+          `${informationReply}\n\nSi querés, también puedo ayudarte a reservar un turno.`,
+          assistantPersonality
+        )
         return {
           reply: await this.composeBookingV2Reply({
             customerMessage: input.message,
             requiredReply,
             currentStep: input.conversation.currentStep,
-            customerName: input.conversation.selectedCustomerName
+            customerName: input.conversation.selectedCustomerName,
+            personality: assistantPersonality
           }),
           skipMisunderstandingTracking: true,
           skipHumanize: true
@@ -378,13 +389,17 @@ export class ConversationService {
         conversation: input.conversation
       })
 
-      const requiredReply = `${informationReply}\n\n${resumed.reply}`
+      const requiredReply = applyAssistantPersonalityToReply(
+        `${informationReply}\n\n${resumed.reply}`,
+        assistantPersonality
+      )
       return {
         reply: await this.composeBookingV2Reply({
           customerMessage: input.message,
           requiredReply,
           currentStep: input.conversation.currentStep,
-          customerName: input.conversation.selectedCustomerName
+          customerName: input.conversation.selectedCustomerName,
+          personality: assistantPersonality
         }),
         skipMisunderstandingTracking: true,
         skipHumanize: true
@@ -413,13 +428,17 @@ export class ConversationService {
         : null
     })
 
-    const requiredReply = informationReply ? `${informationReply}\n\n${result.reply}` : result.reply
+    const requiredReply = applyAssistantPersonalityToReply(
+      informationReply ? `${informationReply}\n\n${result.reply}` : result.reply,
+      assistantPersonality
+    )
     return {
       reply: await this.composeBookingV2Reply({
         customerMessage: input.message,
         requiredReply,
         currentStep: nextStep,
-        customerName: result.state.draft.name
+        customerName: result.state.draft.name,
+        personality: assistantPersonality
       }),
       skipMisunderstandingTracking: true,
       skipHumanize: true
@@ -431,6 +450,7 @@ export class ConversationService {
     requiredReply: string
     currentStep: string
     customerName: string | null
+    personality: AssistantPersonality
   }) {
     return await aiMessageUnderstandingService.composeBookingV2Reply(input)
       ?? input.requiredReply

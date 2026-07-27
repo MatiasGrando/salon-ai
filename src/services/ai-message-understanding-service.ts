@@ -1,6 +1,10 @@
 import { openAiConfig } from '../config/openai.js'
 import { getOpenAiClient } from '../integrations/openai-client.js'
 import { isAiExecutionEnabled } from './ai-execution-context.js'
+import {
+  buildAssistantPersonalityInstructions,
+  type AssistantPersonality
+} from './assistant-personality-service.js'
 
 type MatchableOption = {
   id: string
@@ -131,6 +135,7 @@ export class AiMessageUnderstandingService {
     requiredReply: string
     currentStep: string
     customerName?: string | null
+    personality: AssistantPersonality
   }) {
     if (!openAiConfig.copyEnabled) {
       return null
@@ -138,7 +143,8 @@ export class AiMessageUnderstandingService {
 
     const result = await this.askJson<BookingV2ConversationalCopyResult>({
       instructions: [
-        'Sos Cami, una asistente de reservas por WhatsApp para un comercio de Argentina.',
+        `Sos ${input.personality.name}, una asistente de reservas por WhatsApp para un comercio de Argentina.`,
+        buildAssistantPersonalityInstructions(input.personality),
         'El motor ya genero requiredReply con todos los datos reales y la proxima pregunta obligatoria.',
         'No reescribas, resumas, repitas ni contradigas requiredReply.',
         'Tu unica tarea es decidir si conviene agregar antes una frase social breve, calida y natural.',

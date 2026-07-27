@@ -34,6 +34,13 @@ import { renderBusinessKnowledgeAnswers } from '../src/services/business-knowled
 import { isPositiveBookingV2Confirmation } from '../src/services/conversation-service.js'
 import { removeCurrentInboundFromHistory } from '../src/services/conversation-router-context-service.js'
 import { mergeBookingV2ConversationalCopy } from '../src/services/ai-message-understanding-service.js'
+import {
+  applyAssistantPersonalityToReply,
+  assistantPersonalityPreview,
+  buildAssistantPersonalityInstructions,
+  normalizeAssistantPersonality,
+  personalityForPreset
+} from '../src/services/assistant-personality-service.js'
 
 const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
   {
@@ -1041,6 +1048,63 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         mergeBookingV2ConversationalCopy(requiredReply, '¿Querés venir mañana?'),
         requiredReply
       )
+    }
+  },
+  {
+    name: 'personalidad normaliza valores y aplica presets seguros',
+    run: () => {
+      const elegant = personalityForPreset('elegant', 'Lola')
+      assert.equal(elegant.name, 'Lola')
+      assert.equal(elegant.treatment, 'usted')
+      assert.equal(elegant.emojiLevel, 'low')
+      assert.equal(assistantPersonalityPreview(elegant).includes('su asistente personal'), true)
+
+      const normalized = normalizeAssistantPersonality({
+        preset: 'inexistente',
+        name: '  Mia  ',
+        emojiLevel: 'muchos',
+        preferredEmojis: ['💖', '✨']
+      })
+      assert.equal(normalized.preset, 'warm')
+      assert.equal(normalized.name, 'Mia')
+      assert.equal(normalized.emojiLevel, 'moderate')
+    }
+  },
+  {
+    name: 'personalidad cambia identidad tratamiento y emojis sin tocar datos',
+    run: () => {
+      const profile = normalizeAssistantPersonality({
+        preset: 'direct',
+        name: 'Lola',
+        role: 'asistente de reservas',
+        treatment: 'usted',
+        emojiLevel: 'none',
+        responseLength: 'short',
+        preferredEmojis: [],
+        customInstructions: ''
+      })
+      const requiredReply = '¡Hola! Soy Cami 😊 ¿Querés reservar a las 18:30?'
+      const styled = applyAssistantPersonalityToReply(requiredReply, profile)
+
+      assert.equal(styled.includes('Lola'), true)
+      assert.equal(styled.includes('¿Quiere reservar a las 18:30?'), true)
+      assert.equal(styled.includes('😊'), false)
+      assert.equal(styled.includes('18:30'), true)
+    }
+  },
+  {
+    name: 'instrucciones de personalidad conservan preferencias configuradas',
+    run: () => {
+      const profile = normalizeAssistantPersonality({
+        preset: 'relaxed',
+        name: 'Mia',
+        customInstructions: 'Evitar respuestas solemnes'
+      })
+      const instructions = buildAssistantPersonalityInstructions(profile)
+
+      assert.equal(instructions.includes('Tu nombre es Mia'), true)
+      assert.equal(instructions.includes('Preset de tono: relaxed'), true)
+      assert.equal(instructions.includes('Evitar respuestas solemnes'), true)
     }
   },
   {

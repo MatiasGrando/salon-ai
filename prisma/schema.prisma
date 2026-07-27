@@ -83,72 +83,72 @@ enum UserRole {
 }
 
 model Business {
-  id            String         @id @default(cuid())
-  name          String
-  slug          String?        @unique
-  logoUrl       String?
-  landingEnabled Boolean       @default(true)
-  landingTemplate String        @default("classic")
-  landingSubtitle String?
-  landingOpeningYear Int?
-  landingDescription String?
-  coverImageUrl String?
+  id                   String                   @id @default(cuid())
+  name                 String
+  slug                 String?                  @unique
+  logoUrl              String?
+  landingEnabled       Boolean                  @default(true)
+  landingTemplate      String                   @default("classic")
+  landingSubtitle      String?
+  landingOpeningYear   Int?
+  landingDescription   String?
+  coverImageUrl        String?
   landingGalleryImages String?
-  publicWhatsapp String?
-  contactEmail String?
-  publicAddress String?
-  publicAddressArea String?
-  publicMapsUrl String?
-  instagramUrl String?
-  facebookUrl String?
-  botEnabled    Boolean        @default(true)
-  aiEnabled     Boolean        @default(true)
-  whatsappConfig BusinessWhatsAppConfig?
-  instagramConfig BusinessInstagramConfig?
-  featureSettings BusinessFeatureSettings?
+  publicWhatsapp       String?
+  contactEmail         String?
+  publicAddress        String?
+  publicAddressArea    String?
+  publicMapsUrl        String?
+  instagramUrl         String?
+  facebookUrl          String?
+  botEnabled           Boolean                  @default(true)
+  aiEnabled            Boolean                  @default(true)
+  whatsappConfig       BusinessWhatsAppConfig?
+  instagramConfig      BusinessInstagramConfig?
+  featureSettings      BusinessFeatureSettings?
 
-  professionals Professional[]
-  services      Service[]
-  businessHours BusinessHours[]
-  scheduleBlocks ScheduleBlock[]
-  conversations Conversation[]
-  instagramLeads InstagramLead[]
-  campaigns     Campaign[]
-  whatsappTemplates WhatsAppTemplate[]
-  marketingPreferences CustomerMarketingPreference[]
-  campaignDeliveries CampaignDelivery[]
-  campaignRuns CampaignRun[]
-  campaignJobs CampaignJob[]
-  reminderAutomations ReminderAutomation[]
-  reminderDeliveries ReminderDelivery[]
-  postSaleAutomation PostSaleAutomation?
-  postSaleDeliveries PostSaleDelivery[]
+  professionals           Professional[]
+  services                Service[]
+  businessHours           BusinessHours[]
+  scheduleBlocks          ScheduleBlock[]
+  conversations           Conversation[]
+  instagramLeads          InstagramLead[]
+  campaigns               Campaign[]
+  whatsappTemplates       WhatsAppTemplate[]
+  marketingPreferences    CustomerMarketingPreference[]
+  campaignDeliveries      CampaignDelivery[]
+  campaignRuns            CampaignRun[]
+  campaignJobs            CampaignJob[]
+  reminderAutomations     ReminderAutomation[]
+  reminderDeliveries      ReminderDelivery[]
+  postSaleAutomation      PostSaleAutomation?
+  postSaleDeliveries      PostSaleDelivery[]
   communicationExecutions CommunicationExecution[]
   communicationRecipients CommunicationRecipient[]
-  users User[]
-  weexCustomerLinks WeexCustomerLink[]
+  users                   User[]
+  weexCustomerLinks       WeexCustomerLink[]
 
-  createdAt     DateTime       @default(now())
+  createdAt DateTime @default(now())
 }
 
 model User {
   id String @id @default(cuid())
 
-  email String @unique
-  name String
+  email        String   @unique
+  name         String
   passwordHash String
-  role UserRole @default(BUSINESS_ADMIN)
-  isActive Boolean @default(true)
+  role         UserRole @default(BUSINESS_ADMIN)
+  isActive     Boolean  @default(true)
 
-  businessId String?
-  business Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
-  professionalId String?
-  professional Professional? @relation(fields: [professionalId], references: [id], onDelete: SetNull)
-  sessions UserSession[]
-  canCreateAppointments Boolean @default(true)
-  canEditAppointments Boolean @default(true)
-  canCancelAppointments Boolean @default(true)
-  canManageScheduleBlocks Boolean @default(true)
+  businessId              String?
+  business                Business?     @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  professionalId          String?
+  professional            Professional? @relation(fields: [professionalId], references: [id], onDelete: SetNull)
+  sessions                UserSession[]
+  canCreateAppointments   Boolean       @default(true)
+  canEditAppointments     Boolean       @default(true)
+  canCancelAppointments   Boolean       @default(true)
+  canManageScheduleBlocks Boolean       @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -161,9 +161,9 @@ model User {
 model UserSession {
   id String @id @default(cuid())
 
-  tokenHash String @unique
-  userId String
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   expiresAt DateTime
 
   createdAt DateTime @default(now())
@@ -175,20 +175,20 @@ model UserSession {
 model BusinessWhatsAppConfig {
   id String @id @default(cuid())
 
-  businessId String @unique
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  businessId String   @unique
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
-  connectionStatus WhatsAppConnectionStatus @default(NOT_CONNECTED)
-  mode WhatsAppConnectionMode @default(CLIENT_OWNED)
-  wabaId String?
-  phoneNumberId String?
+  connectionStatus   WhatsAppConnectionStatus @default(NOT_CONNECTED)
+  mode               WhatsAppConnectionMode   @default(CLIENT_OWNED)
+  wabaId             String?
+  phoneNumberId      String?
   displayPhoneNumber String?
-  metaAppId String?
-  accessToken String?
-  tokenExpiresAt DateTime?
-  connectedAt DateTime?
-  disconnectedAt DateTime?
-  lastError String?
+  metaAppId          String?
+  accessToken        String?
+  tokenExpiresAt     DateTime?
+  connectedAt        DateTime?
+  disconnectedAt     DateTime?
+  lastError          String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -197,17 +197,17 @@ model BusinessWhatsAppConfig {
 model BusinessInstagramConfig {
   id String @id @default(cuid())
 
-  businessId String @unique
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  businessId String   @unique
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
-  instagramAccountId String @unique
-  apiAccountId String? @unique
-  username String?
-  accessToken String?
-  tokenExpiresAt DateTime?
-  enabled Boolean @default(true)
-  connectedAt DateTime?
-  lastError String?
+  instagramAccountId String    @unique
+  apiAccountId       String?   @unique
+  username           String?
+  accessToken        String?
+  tokenExpiresAt     DateTime?
+  enabled            Boolean   @default(true)
+  connectedAt        DateTime?
+  lastError          String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -216,17 +216,17 @@ model BusinessInstagramConfig {
 model InstagramLead {
   id String @id @default(cuid())
 
-  businessId String
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  instagramUserId String
-  username String?
-  displayName String?
-  referralCode String @unique
-  lastMessage String?
-  lastAutoReplyAt DateTime?
-  whatsappConversationId String? @unique
-  whatsappConversation Conversation? @relation(fields: [whatsappConversationId], references: [id], onDelete: SetNull)
-  whatsappLinkedAt DateTime?
+  businessId             String
+  business               Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  instagramUserId        String
+  username               String?
+  displayName            String?
+  referralCode           String        @unique
+  lastMessage            String?
+  lastAutoReplyAt        DateTime?
+  whatsappConversationId String?       @unique
+  whatsappConversation   Conversation? @relation(fields: [whatsappConversationId], references: [id], onDelete: SetNull)
+  whatsappLinkedAt       DateTime?
 
   messages InstagramMessage[]
 
@@ -240,13 +240,13 @@ model InstagramLead {
 model InstagramMessage {
   id String @id @default(cuid())
 
-  leadId String
-  lead InstagramLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  providerMessageId String? @unique
-  direction MessageDirection
-  body String
-  status String?
-  metadata Json?
+  leadId            String
+  lead              InstagramLead    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  providerMessageId String?          @unique
+  direction         MessageDirection
+  body              String
+  status            String?
+  metadata          Json?
 
   createdAt DateTime @default(now())
 
@@ -256,70 +256,71 @@ model InstagramMessage {
 model BusinessFeatureSettings {
   id String @id @default(cuid())
 
-  businessId String @unique
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  businessId String   @unique
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
-  botEnabled Boolean @default(true)
-  aiEnabled Boolean @default(true)
-  campaignsEnabled Boolean @default(false)
-  remindersEnabled Boolean @default(false)
-  realWhatsappEnabled Boolean @default(false)
-  bookingV2Enabled Boolean @default(false)
-  billingOwner BillingOwner @default(CLIENT)
-  campaignSendingLocked Boolean @default(true)
-  reminderSendingLocked Boolean @default(true)
+  botEnabled            Boolean      @default(true)
+  aiEnabled             Boolean      @default(true)
+  campaignsEnabled      Boolean      @default(false)
+  remindersEnabled      Boolean      @default(false)
+  realWhatsappEnabled   Boolean      @default(false)
+  bookingV2Enabled      Boolean      @default(false)
+  assistantPersonality  Json?
+  billingOwner          BillingOwner @default(CLIENT)
+  campaignSendingLocked Boolean      @default(true)
+  reminderSendingLocked Boolean      @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
 model Professional {
-  id         String   @id @default(cuid())
-  name       String
-  description String?
-  avatarUrl  String?
-  isActive   Boolean  @default(true)
+  id            String    @id @default(cuid())
+  name          String
+  description   String?
+  avatarUrl     String?
+  isActive      Boolean   @default(true)
   deactivatedAt DateTime?
 
   businessId String
   business   Business @relation(fields: [businessId], references: [id])
 
-  appointments Appointment[]
-  workingHours ProfessionalHours[]
+  appointments   Appointment[]
+  workingHours   ProfessionalHours[]
   scheduleBlocks ScheduleBlock[]
-  serviceLinks ProfessionalService[]
-  users User[]
+  serviceLinks   ProfessionalService[]
+  users          User[]
 
-  createdAt  DateTime @default(now())
+  createdAt DateTime @default(now())
 }
 
 model Service {
-  id         String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  name       String
-  duration   Int
-  category   String?
-  price      Int?
-  imageUrl   String?
+  name     String
+  duration Int
+  category String?
+  price    Int?
+  imageUrl String?
 
   businessId String
   business   Business @relation(fields: [businessId], references: [id])
 
-  appointments Appointment[]
-  aliases      ServiceAlias[]
+  appointments      Appointment[]
+  aliases           ServiceAlias[]
   professionalLinks ProfessionalService[]
 
-  createdAt  DateTime @default(now())
+  createdAt DateTime @default(now())
 }
 
 model ProfessionalService {
   id String @id @default(cuid())
 
   professionalId String
-  professional Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
 
   serviceId String
-  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
 
@@ -336,21 +337,21 @@ model ServiceAlias {
 }
 
 model Customer {
-  id        String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  name      String
-  phone     String
+  name  String
+  phone String
 
-  appointments Appointment[]
-  notes        CustomerNote[]
-  marketingPreferences CustomerMarketingPreference[]
-  campaignDeliveries CampaignDelivery[]
+  appointments             Appointment[]
+  notes                    CustomerNote[]
+  marketingPreferences     CustomerMarketingPreference[]
+  campaignDeliveries       CampaignDelivery[]
   manualCampaignRecipients CampaignManualRecipient[]
-  campaignJobs CampaignJob[]
-  reminderDeliveries ReminderDelivery[]
-  postSaleDeliveries PostSaleDelivery[]
-  communicationRecipients CommunicationRecipient[]
-  weexLinks    WeexCustomerLink[]
+  campaignJobs             CampaignJob[]
+  reminderDeliveries       ReminderDelivery[]
+  postSaleDeliveries       PostSaleDelivery[]
+  communicationRecipients  CommunicationRecipient[]
+  weexLinks                WeexCustomerLink[]
 
   createdAt DateTime @default(now())
 }
@@ -358,19 +359,19 @@ model Customer {
 model WeexAccount {
   id String @id @default(cuid())
 
-  googleSub String @unique
-  email String
-  emailVerified Boolean @default(false)
-  name String
-  avatarUrl String?
-  phone String?
-  phoneVerifiedAt DateTime?
-  googleCalendarAccessToken String?
-  googleCalendarRefreshToken String?
+  googleSub                    String    @unique
+  email                        String
+  emailVerified                Boolean   @default(false)
+  name                         String
+  avatarUrl                    String?
+  phone                        String?
+  phoneVerifiedAt              DateTime?
+  googleCalendarAccessToken    String?
+  googleCalendarRefreshToken   String?
   googleCalendarTokenExpiresAt DateTime?
-  googleCalendarScope String?
+  googleCalendarScope          String?
 
-  sessions WeexAccountSession[]
+  sessions      WeexAccountSession[]
   customerLinks WeexCustomerLink[]
 
   createdAt DateTime @default(now())
@@ -383,9 +384,9 @@ model WeexAccount {
 model WeexAccountSession {
   id String @id @default(cuid())
 
-  tokenHash String @unique
+  tokenHash String      @unique
   accountId String
-  account WeexAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  account   WeexAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
   expiresAt DateTime
 
   createdAt DateTime @default(now())
@@ -398,15 +399,15 @@ model WeexCustomerLink {
   id String @id @default(cuid())
 
   weexAccountId String
-  weexAccount WeexAccount @relation(fields: [weexAccountId], references: [id], onDelete: Cascade)
+  weexAccount   WeexAccount @relation(fields: [weexAccountId], references: [id], onDelete: Cascade)
 
   customerId String
-  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   businessId String
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
-  phone String
+  phone    String
   linkedAt DateTime @default(now())
 
   @@unique([weexAccountId, customerId, businessId])
@@ -430,28 +431,28 @@ model Appointment {
   id String @id @default(cuid())
 
   customerId String
-  customer Customer @relation(fields: [customerId], references: [id])
+  customer   Customer @relation(fields: [customerId], references: [id])
 
   professionalId String
-  professional Professional @relation(fields: [professionalId], references: [id])
+  professional   Professional @relation(fields: [professionalId], references: [id])
 
   serviceId String
-  service Service @relation(fields: [serviceId], references: [id])
+  service   Service @relation(fields: [serviceId], references: [id])
 
   startAt DateTime
 
-  status AppointmentStatus @default(CONFIRMED)
-  reminderDeliveries ReminderDelivery[]
-  convertedConversation Conversation? @relation("ConversationOpportunityAppointment")
-  postSaleDeliveries PostSaleDelivery[]
-  googleCalendarEventId String?
+  status                  AppointmentStatus  @default(CONFIRMED)
+  reminderDeliveries      ReminderDelivery[]
+  convertedConversation   Conversation?      @relation("ConversationOpportunityAppointment")
+  postSaleDeliveries      PostSaleDelivery[]
+  googleCalendarEventId   String?
   googleCalendarAccountId String?
 
   createdAt DateTime @default(now())
 }
 
 model BusinessHours {
-  id         String @id @default(cuid())
+  id String @id @default(cuid())
 
   businessId String
   business   Business @relation(fields: [businessId], references: [id])
@@ -466,12 +467,12 @@ model ProfessionalHours {
   id String @id @default(cuid())
 
   professionalId String
-  professional Professional @relation(fields: [professionalId], references: [id])
+  professional   Professional @relation(fields: [professionalId], references: [id])
 
   dayOfWeek Int
 
   startTime String
-  endTime String
+  endTime   String
 
   createdAt DateTime @default(now())
 }
@@ -479,40 +480,40 @@ model ProfessionalHours {
 model Conversation {
   id String @id @default(cuid())
 
-  phone String @unique
+  phone      String    @unique
   businessId String?
-  business Business? @relation(fields: [businessId], references: [id])
+  business   Business? @relation(fields: [businessId], references: [id])
 
-  currentStep ConversationStep @default(START)
-  aiEnabled Boolean @default(true)
-  misunderstandingCount Int @default(0)
+  currentStep           ConversationStep @default(START)
+  aiEnabled             Boolean          @default(true)
+  misunderstandingCount Int              @default(0)
 
-  selectedServiceId String?
+  selectedServiceId      String?
   selectedProfessionalId String?
-  selectedDate String?
-  selectedTime String?
-  selectedCustomerName String?
-  lastAvailability Json?
-  bookingV2State Json?
+  selectedDate           String?
+  selectedTime           String?
+  selectedCustomerName   String?
+  lastAvailability       Json?
+  bookingV2State         Json?
 
-  lastMessage String?
-  humanHandoffAt DateTime?
+  lastMessage            String?
+  humanHandoffAt         DateTime?
   humanHandoffResolvedAt DateTime?
-  archivedAt DateTime?
+  archivedAt             DateTime?
 
-  opportunityStatus ConversationOpportunityStatus @default(OPEN)
-  opportunityOpenedAt DateTime @default(now())
-  opportunityConvertedAt DateTime?
-  opportunityClosedAt DateTime?
-  opportunityCloseReason String?
-  opportunityCloseNote String?
-  opportunityAppointmentId String? @unique
-  opportunityAppointment Appointment? @relation("ConversationOpportunityAppointment", fields: [opportunityAppointmentId], references: [id], onDelete: SetNull)
+  opportunityStatus        ConversationOpportunityStatus @default(OPEN)
+  opportunityOpenedAt      DateTime                      @default(now())
+  opportunityConvertedAt   DateTime?
+  opportunityClosedAt      DateTime?
+  opportunityCloseReason   String?
+  opportunityCloseNote     String?
+  opportunityAppointmentId String?                       @unique
+  opportunityAppointment   Appointment?                  @relation("ConversationOpportunityAppointment", fields: [opportunityAppointmentId], references: [id], onDelete: SetNull)
 
-  messages Message[]
-  opportunityEvents ConversationOpportunityEvent[]
+  messages           Message[]
+  opportunityEvents  ConversationOpportunityEvent[]
   postSaleDeliveries PostSaleDelivery[]
-  instagramLead InstagramLead?
+  instagramLead      InstagramLead?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -526,13 +527,13 @@ model ConversationOpportunityEvent {
   id String @id @default(cuid())
 
   conversationId String
-  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  type String
-  reason String?
-  note String?
-  appointmentId String?
-  actorUserId String?
-  createdAt DateTime @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  type           String
+  reason         String?
+  note           String?
+  appointmentId  String?
+  actorUserId    String?
+  createdAt      DateTime     @default(now())
 
   @@index([conversationId, createdAt])
 }
@@ -541,18 +542,18 @@ model Message {
   id String @id @default(cuid())
 
   conversationId String
-  conversation Conversation @relation(fields: [conversationId], references: [id])
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
 
-  phone String
+  phone     String
   direction MessageDirection
-  body String
+  body      String
 
-  providerMessageId String? @unique
-  status String?
-  providerStatusCode Int?
-  providerErrorCode String?
+  providerMessageId    String? @unique
+  status               String?
+  providerStatusCode   Int?
+  providerErrorCode    String?
   providerErrorMessage String?
-  metadata Json?
+  metadata             Json?
 
   createdAt DateTime @default(now())
 }
@@ -561,17 +562,17 @@ model ScheduleBlock {
   id String @id @default(cuid())
 
   businessId String
-  business Business @relation(fields: [businessId], references: [id])
+  business   Business @relation(fields: [businessId], references: [id])
 
   professionalId String?
-  professional Professional? @relation(fields: [professionalId], references: [id])
+  professional   Professional? @relation(fields: [professionalId], references: [id])
 
   reason ScheduleBlockReason
-  title String?
-  note String?
+  title  String?
+  note   String?
 
   startAt DateTime
-  endAt DateTime
+  endAt   DateTime
 
   createdAt DateTime @default(now())
 }
@@ -580,40 +581,40 @@ model Campaign {
   id String @id @default(cuid())
 
   businessId String
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
-  name String
-  type String @default("ONE_TIME")
-  channel String @default("WHATSAPP")
-  status String @default("DRAFT")
-  segment String @default("ALL")
-  segmentLabel String @default("Todos los clientes")
-  segmentDays Int?
-  priority Int @default(2)
-  maxAttempts Int @default(2)
-  retryIntervalDays Int @default(30)
-  cooldownDays Int @default(30)
-  respectCooldown Boolean @default(true)
-  stopOnBooking Boolean @default(true)
-  stopOnReply Boolean @default(true)
-  restartAfterVisit Boolean @default(true)
-  message String
-  imageUrl String?
-  templateName String?
-  templateLanguage String @default("es_AR")
-  templateId String?
-  templateStatus String @default("NOT_CREATED")
+  name                    String
+  type                    String                    @default("ONE_TIME")
+  channel                 String                    @default("WHATSAPP")
+  status                  String                    @default("DRAFT")
+  segment                 String                    @default("ALL")
+  segmentLabel            String                    @default("Todos los clientes")
+  segmentDays             Int?
+  priority                Int                       @default(2)
+  maxAttempts             Int                       @default(2)
+  retryIntervalDays       Int                       @default(30)
+  cooldownDays            Int                       @default(30)
+  respectCooldown         Boolean                   @default(true)
+  stopOnBooking           Boolean                   @default(true)
+  stopOnReply             Boolean                   @default(true)
+  restartAfterVisit       Boolean                   @default(true)
+  message                 String
+  imageUrl                String?
+  templateName            String?
+  templateLanguage        String                    @default("es_AR")
+  templateId              String?
+  templateStatus          String                    @default("NOT_CREATED")
   templateRejectionReason String?
-  templateLastSyncedAt DateTime?
-  whatsappTemplateId String?
-  whatsappTemplate WhatsAppTemplate? @relation(fields: [whatsappTemplateId], references: [id], onDelete: SetNull)
-  scheduleMode String @default("IMMEDIATE")
-  scheduledAt DateTime?
-  budgetLimit Int?
-  deliveries CampaignDelivery[]
-  manualRecipients CampaignManualRecipient[]
-  runs CampaignRun[]
-  jobs CampaignJob[]
+  templateLastSyncedAt    DateTime?
+  whatsappTemplateId      String?
+  whatsappTemplate        WhatsAppTemplate?         @relation(fields: [whatsappTemplateId], references: [id], onDelete: SetNull)
+  scheduleMode            String                    @default("IMMEDIATE")
+  scheduledAt             DateTime?
+  budgetLimit             Int?
+  deliveries              CampaignDelivery[]
+  manualRecipients        CampaignManualRecipient[]
+  runs                    CampaignRun[]
+  jobs                    CampaignJob[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -626,21 +627,21 @@ model WhatsAppTemplate {
   id String @id @default(cuid())
 
   businessId String
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
-  internalName String
-  metaName String
-  category String @default("MARKETING")
-  language String @default("es_AR")
-  body String
-  exampleJson String?
-  imageUrl String?
-  status String @default("DRAFT")
-  metaId String?
-  rejectionReason String?
-  submittedAt DateTime?
-  lastSyncedAt DateTime?
-  campaigns Campaign[]
+  internalName        String
+  metaName            String
+  category            String               @default("MARKETING")
+  language            String               @default("es_AR")
+  body                String
+  exampleJson         String?
+  imageUrl            String?
+  status              String               @default("DRAFT")
+  metaId              String?
+  rejectionReason     String?
+  submittedAt         DateTime?
+  lastSyncedAt        DateTime?
+  campaigns           Campaign[]
   postSaleAutomations PostSaleAutomation[]
 
   createdAt DateTime @default(now())
@@ -654,17 +655,17 @@ model ReminderAutomation {
   id String @id @default(cuid())
 
   businessId String
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
-  name String
-  channel String @default("WHATSAPP")
-  templateId String?
-  enabled Boolean @default(false)
-  mode String @default("PAUSED")
-  sendBeforeMinutes Int @default(1440)
+  name              String
+  channel           String  @default("WHATSAPP")
+  templateId        String?
+  enabled           Boolean @default(false)
+  mode              String  @default("PAUSED")
+  sendBeforeMinutes Int     @default(1440)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
   deliveries ReminderDelivery[]
 
   @@index([businessId, enabled])
@@ -676,32 +677,32 @@ model ReminderDelivery {
   id String @id @default(cuid())
 
   businessId String
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   reminderAutomationId String
-  reminderAutomation ReminderAutomation @relation(fields: [reminderAutomationId], references: [id], onDelete: Cascade)
+  reminderAutomation   ReminderAutomation @relation(fields: [reminderAutomationId], references: [id], onDelete: Cascade)
 
   appointmentId String
-  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
 
   customerId String
-  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
-  status String @default("PENDING")
-  mode String @default("WHATSAPP_API")
-  messageSnapshot String?
+  status            String    @default("PENDING")
+  mode              String    @default("WHATSAPP_API")
+  messageSnapshot   String?
   providerMessageId String?
-  attemptNumber Int @default(1)
-  lastError String?
-  scheduledFor DateTime
-  openedAt DateTime?
-  sentAt DateTime?
-  skippedAt DateTime?
-  manualNote String?
-  deliveredAt DateTime?
-  readAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  attemptNumber     Int       @default(1)
+  lastError         String?
+  scheduledFor      DateTime
+  openedAt          DateTime?
+  sentAt            DateTime?
+  skippedAt         DateTime?
+  manualNote        String?
+  deliveredAt       DateTime?
+  readAt            DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   @@unique([reminderAutomationId, appointmentId])
   @@index([businessId, status, sentAt])
@@ -713,21 +714,21 @@ model ReminderDelivery {
 model PostSaleAutomation {
   id String @id @default(cuid())
 
-  businessId String @unique
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  enabled Boolean @default(false)
-  mode String @default("PAUSED")
-  delayMinutes Int @default(120)
-  responseWindowDays Int @default(7)
-  lowRatingThreshold Int @default(2)
-  templateId String?
-  template WhatsAppTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
-  positiveResponse String @default("Gracias por tu calificación. Nos alegra que hayas tenido una buena experiencia.")
-  neutralResponse String @default("Gracias por responder. Nos gustaría saber qué podríamos mejorar.")
-  negativeResponse String @default("Lamentamos que tu experiencia no haya sido buena. El equipo va a contactarte por este chat.")
-  reviewUrl String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  businessId         String            @unique
+  business           Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  enabled            Boolean           @default(false)
+  mode               String            @default("PAUSED")
+  delayMinutes       Int               @default(120)
+  responseWindowDays Int               @default(7)
+  lowRatingThreshold Int               @default(2)
+  templateId         String?
+  template           WhatsAppTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  positiveResponse   String            @default("Gracias por tu calificación. Nos alegra que hayas tenido una buena experiencia.")
+  neutralResponse    String            @default("Gracias por responder. Nos gustaría saber qué podríamos mejorar.")
+  negativeResponse   String            @default("Lamentamos que tu experiencia no haya sido buena. El equipo va a contactarte por este chat.")
+  reviewUrl          String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
 
   deliveries PostSaleDelivery[]
 
@@ -739,35 +740,35 @@ model PostSaleAutomation {
 model PostSaleDelivery {
   id String @id @default(cuid())
 
-  businessId String
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  automationId String?
-  automation PostSaleAutomation? @relation(fields: [automationId], references: [id], onDelete: SetNull)
-  appointmentId String
-  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
-  customerId String
-  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  conversationId String?
-  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
-  visitDate String
-  status String @default("PENDING")
-  mode String @default("WHATSAPP_API")
-  messageSnapshot String?
-  providerMessageId String?
-  lastError String?
-  scheduledFor DateTime
-  openedAt DateTime?
-  sentAt DateTime?
-  skippedAt DateTime?
-  resolvedAt DateTime?
-  manualNote String?
-  responseExpiresAt DateTime?
-  respondedAt DateTime?
-  rating Int?
-  comment String?
+  businessId         String
+  business           Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  automationId       String?
+  automation         PostSaleAutomation? @relation(fields: [automationId], references: [id], onDelete: SetNull)
+  appointmentId      String
+  appointment        Appointment         @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  customerId         String
+  customer           Customer            @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  conversationId     String?
+  conversation       Conversation?       @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  visitDate          String
+  status             String              @default("PENDING")
+  mode               String              @default("WHATSAPP_API")
+  messageSnapshot    String?
+  providerMessageId  String?
+  lastError          String?
+  scheduledFor       DateTime
+  openedAt           DateTime?
+  sentAt             DateTime?
+  skippedAt          DateTime?
+  resolvedAt         DateTime?
+  manualNote         String?
+  responseExpiresAt  DateTime?
+  respondedAt        DateTime?
+  rating             Int?
+  comment            String?
   commentRequestedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
 
   @@unique([businessId, customerId, visitDate])
   @@index([businessId, status, scheduledFor])
@@ -779,10 +780,10 @@ model CampaignManualRecipient {
   id String @id @default(cuid())
 
   campaignId String
-  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 
   customerId String
-  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
 
@@ -794,18 +795,18 @@ model CustomerMarketingPreference {
   id String @id @default(cuid())
 
   businessId String
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   customerId String
-  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
-  status String @default("NOT_AUTHORIZED")
-  source String @default("DEFAULT")
-  optedInAt DateTime?
+  status     String    @default("NOT_AUTHORIZED")
+  source     String    @default("DEFAULT")
+  optedInAt  DateTime?
   declinedAt DateTime?
   optedOutAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   @@unique([businessId, customerId])
   @@index([businessId, status])
@@ -815,23 +816,23 @@ model CampaignDelivery {
   id String @id @default(cuid())
 
   businessId String
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   campaignId String
-  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 
   customerId String
-  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
-  status String @default("SENT")
-  attemptNumber Int @default(1)
+  status            String    @default("SENT")
+  attemptNumber     Int       @default(1)
   providerMessageId String?
-  sentAt DateTime @default(now())
-  deliveredAt DateTime?
-  readAt DateTime?
-  respondedAt DateTime?
-  bookedAt DateTime?
-  createdAt DateTime @default(now())
+  sentAt            DateTime  @default(now())
+  deliveredAt       DateTime?
+  readAt            DateTime?
+  respondedAt       DateTime?
+  bookedAt          DateTime?
+  createdAt         DateTime  @default(now())
 
   @@index([businessId, customerId, sentAt])
   @@index([campaignId, customerId, sentAt])
@@ -841,20 +842,20 @@ model CampaignRun {
   id String @id @default(cuid())
 
   businessId String
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   campaignId String
-  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 
-  mode String @default("SIMULATION")
-  status String @default("COMPLETED")
-  candidateCount Int @default(0)
-  eligibleCount Int @default(0)
-  excludedCount Int @default(0)
-  exclusionSummary Json
+  mode                  String    @default("SIMULATION")
+  status                String    @default("COMPLETED")
+  candidateCount        Int       @default(0)
+  eligibleCount         Int       @default(0)
+  excludedCount         Int       @default(0)
+  exclusionSummary      Json
   configurationSnapshot Json
-  createdAt DateTime @default(now())
-  completedAt DateTime?
+  createdAt             DateTime  @default(now())
+  completedAt           DateTime?
 
   jobs CampaignJob[]
 
@@ -866,27 +867,27 @@ model CampaignJob {
   id String @id @default(cuid())
 
   businessId String
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   campaignId String
-  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 
   runId String
-  run CampaignRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  run   CampaignRun @relation(fields: [runId], references: [id], onDelete: Cascade)
 
   customerId String
-  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
-  status String @default("READY")
-  attemptNumber Int @default(1)
-  retryCount Int @default(0)
-  maxRetries Int @default(3)
-  nextAttemptAt DateTime @default(now())
-  lockedAt DateTime?
-  lockToken String?
-  idempotencyKey String @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  status         String    @default("READY")
+  attemptNumber  Int       @default(1)
+  retryCount     Int       @default(0)
+  maxRetries     Int       @default(3)
+  nextAttemptAt  DateTime  @default(now())
+  lockedAt       DateTime?
+  lockToken      String?
+  idempotencyKey String    @unique
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@unique([runId, customerId])
   @@index([status, nextAttemptAt])
@@ -898,22 +899,22 @@ model CommunicationExecution {
   id String @id @default(cuid())
 
   businessId String
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
-  sourceType String
-  sourceId String
-  purpose String
-  mode String
-  status String @default("READY")
+  sourceType        String
+  sourceId          String
+  purpose           String
+  mode              String
+  status            String    @default("READY")
   initiatedByUserId String?
-  candidateCount Int @default(0)
-  eligibleCount Int @default(0)
-  excludedCount Int @default(0)
-  metadata Json?
-  startedAt DateTime @default(now())
-  completedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  candidateCount    Int       @default(0)
+  eligibleCount     Int       @default(0)
+  excludedCount     Int       @default(0)
+  metadata          Json?
+  startedAt         DateTime  @default(now())
+  completedAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   recipients CommunicationRecipient[]
 
@@ -925,32 +926,32 @@ model CommunicationRecipient {
   id String @id @default(cuid())
 
   executionId String
-  execution CommunicationExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
-  businessId String
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  customerId String
-  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  execution   CommunicationExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  businessId  String
+  business    Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customerId  String
+  customer    Customer               @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
-  phoneSnapshot String
+  phoneSnapshot        String
   customerNameSnapshot String
-  messageSnapshot String
-  status String @default("PENDING")
-  sourceDeliveryId String? @unique
-  providerMessageId String?
-  scheduledAt DateTime?
-  openedAt DateTime?
-  sentAt DateTime?
-  deliveredAt DateTime?
-  readAt DateTime?
-  respondedAt DateTime?
-  bookedAt DateTime?
-  skippedAt DateTime?
-  failedAt DateTime?
-  skipReason String?
-  failureReason String?
-  metadata Json?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  messageSnapshot      String
+  status               String    @default("PENDING")
+  sourceDeliveryId     String?   @unique
+  providerMessageId    String?
+  scheduledAt          DateTime?
+  openedAt             DateTime?
+  sentAt               DateTime?
+  deliveredAt          DateTime?
+  readAt               DateTime?
+  respondedAt          DateTime?
+  bookedAt             DateTime?
+  skippedAt            DateTime?
+  failedAt             DateTime?
+  skipReason           String?
+  failureReason        String?
+  metadata             Json?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   events CommunicationEvent[]
 
@@ -963,13 +964,13 @@ model CommunicationEvent {
   id String @id @default(cuid())
 
   recipientId String
-  recipient CommunicationRecipient @relation(fields: [recipientId], references: [id], onDelete: Cascade)
-  fromStatus String?
-  toStatus String
-  actorType String @default("SYSTEM")
-  actorId String?
-  note String?
-  createdAt DateTime @default(now())
+  recipient   CommunicationRecipient @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  fromStatus  String?
+  toStatus    String
+  actorType   String                 @default("SYSTEM")
+  actorId     String?
+  note        String?
+  createdAt   DateTime               @default(now())
 
   @@index([recipientId, createdAt])
 }
