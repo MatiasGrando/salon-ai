@@ -1,0 +1,63 @@
+[
+  {
+    "id": "faq-horarios-hoy",
+    "category": "business-information",
+    "message": "¿están abiertos hoy?",
+    "expectedTopics": ["opening_hours"],
+    "expectsBookingMessage": false
+  },
+  {
+    "id": "faq-ubicacion",
+    "category": "business-information",
+    "message": "¿dónde queda el salón?",
+    "expectedTopics": ["address"],
+    "expectsBookingMessage": false
+  },
+  {
+    "id": "faq-servicios",
+    "category": "business-information",
+    "message": "¿qué servicios tienen?",
+    "expectedTopics": ["services"],
+    "expectsBookingMessage": true
+  },
+  {
+    "id": "faq-precios",
+    "category": "business-information",
+    "message": "¿cuánto cuesta un corte?",
+    "expectedTopics": ["prices"],
+    "expectsBookingMessage": true
+  },
+  {
+    "id": "faq-multiples-datos",
+    "category": "business-information",
+    "message": "¿dónde quedan y a qué hora abren?",
+    "expectedTopics": ["opening_hours", "address"],
+    "expectsBookingMessage": false
+  },
+  {
+    "id": "handoff-explicito",
+    "category": "handoff",
+    "message": "no me sirve el bot, quiero hablar con una persona",
+    "expectedHandoff": true
+  },
+  {
+    "id": "handoff-reclamo",
+    "category": "handoff",
+    "message": "quiero hablar con una persona, es un reclamo serio",
+    "expectedHandoff": true
+  },
+  {
+    "id": "fuera-de-alcance-mundial",
+    "category": "out-of-scope",
+    "message": "¿quién va a ganar el mundial?",
+    "expectedTopics": [],
+    "expectsBookingMessage": false
+  },
+  {
+    "id": "fuera-de-alcance-poema",
+    "category": "out-of-scope",
+    "message": "escribime un poema sobre la luna",
+    "expectedTopics": [],
+    "expectsBookingMessage": false
+  }
+]

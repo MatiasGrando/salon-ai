@@ -1032,7 +1032,7 @@ function isExpiredInProgressConversation(currentStep: string, updatedAt: Date) {
   return Date.now() - updatedAt.getTime() >= expirationMs
 }
 
-function isHumanHandoffMessage(message: string) {
+export function isHumanHandoffMessage(message: string) {
   const normalizedMessage = normalizeText(message)
   const exactMessages = [
     'persona',
