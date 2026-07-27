@@ -1510,6 +1510,27 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'router reconoce pedidos generales de precios y catalogo',
+    run: () => {
+      for (const message of [
+        'si quiero saber los precios',
+        'me mostras los precios?',
+        'quiero ver el catalogo',
+        'que tarifas tienen?'
+      ]) {
+        const routing = deterministicConversationRouting(message, {
+          currentStep: 'START'
+        })
+        assert.deepEqual(
+          businessInformationTopicsFromRouting(routing),
+          ['prices'],
+          message
+        )
+        assert.equal(routing.bookingMessage, null, message)
+      }
+    }
+  },
+  {
     name: 'consulta informativa conserva una reserva cuando la intencion es explicita',
     run: () => {
       const message = 'cuanto sale el corte y quiero reservar un turno'

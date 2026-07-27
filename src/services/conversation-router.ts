@@ -329,7 +329,10 @@ function detectBusinessInformationTopics(
     'con quien me puedo atender', 'lista de profesionales', 'profesionales disponibles'
   ])) add('professionals')
   if (containsAny(normalized, [
-    'cuanto sale', 'cuanto cuesta', 'que precio', 'lista de precios', 'precios de los servicios'
+    'cuanto sale', 'cuanto cuesta', 'que precio', 'lista de precios', 'precios de los servicios',
+    'quiero saber los precios', 'saber los precios', 'ver los precios', 'ver precios',
+    'que precios tienen', 'cuales son los precios', 'mostrar precios', 'mostrame los precios',
+    'los precios', 'catalogo', 'tarifas'
   ])) add('prices')
 
   return topics
