@@ -93,6 +93,17 @@ export class BookingV2Engine {
       }, null, catalog)
     }
 
+    const deterministicName = resolveExpectedName(input.message, initialState)
+    if (deterministicName) {
+      const state = acceptField(initialState, 'name', deterministicName)
+      return this.fromInterpretation({
+        state,
+        nextField: nextMissingField(state.draft),
+        outcome: 'accepted',
+        affectedField: 'name'
+      }, null, catalog)
+    }
+
     const deterministicService = resolveExpectedService(input.message, initialState, catalog)
     if (deterministicService?.kind === 'selected') {
       const state = acceptField(initialState, 'service', deterministicService.serviceId)
@@ -395,6 +406,88 @@ function normalize(value: string) {
     .replace(/\p{Diacritic}/gu, '')
     .replace(/[^\p{Letter}\p{Number}\s]/gu, '')
     .replace(/\s+/g, ' ')
+}
+
+function resolveExpectedName(message: string, state: BookingV2State) {
+  if (nextMissingField(state.draft) !== 'name') return null
+
+  const candidate = message.trim().replace(/\s+/g, ' ')
+  if (
+    candidate.length < 2 ||
+    candidate.length > 60 ||
+    !/^\p{Letter}+(?:[ '-]\p{Letter}+){0,2}$/u.test(candidate)
+  ) {
+    return null
+  }
+
+  const rejectedTokens = new Set([
+    'agendar',
+    'buen',
+    'buenas',
+    'cancelar',
+    'color',
+    'como',
+    'corte',
+    'cualquiera',
+    'cuando',
+    'dia',
+    'direccion',
+    'domingo',
+    'es',
+    'gracias',
+    'hola',
+    'horario',
+    'horarios',
+    'hoy',
+    'jueves',
+    'llamo',
+    'lunes',
+    'manana',
+    'martes',
+    'me',
+    'mi',
+    'miercoles',
+    'necesito',
+    'ninguno',
+    'nombre',
+    'pagina',
+    'precio',
+    'profesional',
+    'profesionales',
+    'quiero',
+    'reset',
+    'reservar',
+    'reserva',
+    'sabado',
+    'servicio',
+    'servicios',
+    'soy',
+    'tarde',
+    'tal',
+    'total',
+    'turno',
+    'ubicacion',
+    'web',
+    'viernes'
+  ])
+  const tokens = normalize(candidate).split(' ')
+  if (tokens.some((token) => rejectedTokens.has(token))) return null
+  if (['no', 'si', 'todo bien', 'no se', 'por favor'].includes(normalize(candidate))) {
+    return null
+  }
+
+  return candidate
+    .split(' ')
+    .map((part) => part
+      .split(/([-'])/)
+      .map((segment) => (
+        segment === '-' || segment === "'"
+          ? segment
+          : segment.charAt(0).toLocaleUpperCase('es-AR') +
+            segment.slice(1).toLocaleLowerCase('es-AR')
+      ))
+      .join(''))
+    .join(' ')
 }
 
 function resolveExpectedProfessional(

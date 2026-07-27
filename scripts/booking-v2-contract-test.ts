@@ -509,6 +509,73 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'motor acepta un nombre simple sin pedir confirmacion innecesaria',
+    run: async () => {
+      const extractor = fakeExtractor(null)
+      const engine = new BookingV2Engine(fakeDomainPort(), extractor)
+
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: null,
+        message: 'matias',
+        currentDate: new Date('2026-07-01T12:00:00')
+      })
+
+      assert.equal(result.state.draft.name, 'Matias')
+      assert.equal(result.plan.type, 'ask_field')
+      assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'service')
+      assert.equal(result.reply.includes('servicios disponibles'), true)
+      assert.equal(result.reply.includes('Tu nombre es'), false)
+      assert.equal(extractor.calls.length, 0)
+    }
+  },
+  {
+    name: 'motor reconoce nombres simples con espacios acentos y guiones',
+    run: async () => {
+      const cases = [
+        ['mati', 'Mati'],
+        ['maría josé', 'María José'],
+        ['ana-maría', 'Ana-María']
+      ] as const
+
+      for (const [message, expectedName] of cases) {
+        const engine = new BookingV2Engine(fakeDomainPort(), fakeExtractor(null))
+        const result = await engine.process({
+          businessId: 'business-1',
+          conversation: null,
+          message,
+          currentDate: new Date('2026-07-01T12:00:00')
+        })
+        assert.equal(result.state.draft.name, expectedName)
+        assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'service')
+      }
+    }
+  },
+  {
+    name: 'motor no confunde saludos o pedidos con nombres simples',
+    run: async () => {
+      for (const message of [
+        'hola',
+        'quiero un turno',
+        'no sé',
+        'corte hombre',
+        'reset total',
+        'página web',
+        'me llamo'
+      ]) {
+        const engine = new BookingV2Engine(fakeDomainPort(), fakeExtractor(null))
+        const result = await engine.process({
+          businessId: 'business-1',
+          conversation: null,
+          message,
+          currentDate: new Date('2026-07-01T12:00:00')
+        })
+        assert.equal(result.state.draft.name, null)
+        assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'name')
+      }
+    }
+  },
+  {
     name: 'extractor recibe explicitamente el campo esperado del flujo',
     run: async () => {
       const extractor = fakeExtractor(null)
