@@ -35,8 +35,10 @@ import {
   isBookingV2ConversationClosing,
   isBookingV2GreetingOnlyMessage,
   isPositiveBookingV2Confirmation,
+  shouldShowBookingV2IntentFallback,
   withBusinessInformationFollowUp
 } from '../src/services/conversation-service.js'
+import { BotCopyService } from '../src/services/bot-copy-service.js'
 import { removeCurrentInboundFromHistory } from '../src/services/conversation-router-context-service.js'
 import { mergeBookingV2ConversationalCopy } from '../src/services/ai-message-understanding-service.js'
 import {
@@ -1322,6 +1324,37 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(isBookingV2GreetingOnlyMessage('hola como estas?'), true)
       assert.equal(isBookingV2GreetingOnlyMessage('Hola, hasta que hora estan abiertos?'), false)
       assert.equal(isBookingV2GreetingOnlyMessage('hola quiero reservar'), false)
+    }
+  },
+  {
+    name: 'intencion desconocida o social no inicia una reserva',
+    run: () => {
+      const unknown = deterministicConversationRouting('si queres salir a comer?')
+      assert.equal(unknown.bookingMessage, null)
+      assert.equal(shouldShowBookingV2IntentFallback('START', unknown), true)
+
+      assert.equal(shouldShowBookingV2IntentFallback('START', {
+        intents: [{
+          type: 'social_message',
+          topic: null,
+          confidence: 0.92,
+          evidence: 'si queres salir a comer'
+        }],
+        bookingMessage: null,
+        source: 'ai'
+      }), true)
+
+      assert.equal(shouldShowBookingV2IntentFallback('ASK_SERVICE', unknown), false)
+      assert.equal(shouldShowBookingV2IntentFallback('START', {
+        ...unknown,
+        bookingMessage: 'quiero reservar'
+      }), false)
+
+      const reply = new BotCopyService().intentNotUnderstood()
+      assert.equal(reply.includes('No estoy segura de haber entendido'), true)
+      assert.equal(reply.includes('Consultar servicios y precios'), true)
+      assert.equal(reply.includes('Reservar o cambiar un turno'), true)
+      assert.equal(reply.includes('Hablar con una persona'), true)
     }
   },
   {

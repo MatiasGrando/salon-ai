@@ -18,6 +18,20 @@ export class BotCopyService {
     return '¡Hola! Soy Cami 😊\n\n¿En qué te puedo ayudar?'
   }
 
+  intentNotUnderstood() {
+    return [
+      'No estoy segura de haber entendido 😊',
+      '',
+      'Puedo ayudarte con:',
+      '• Consultar servicios y precios',
+      '• Ver horarios y ubicación',
+      '• Reservar o cambiar un turno',
+      '• Hablar con una persona',
+      '',
+      '¿Qué necesitás?'
+    ].join('\n')
+  }
+
   conversationClosed() {
     return 'Dale, gracias por escribirnos 😊 Si necesitás algo más, estoy por acá.'
   }

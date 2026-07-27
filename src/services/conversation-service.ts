@@ -440,6 +440,20 @@ export class ConversationService {
       }
     }
 
+    if (shouldShowBookingV2IntentFallback(
+      input.conversation.currentStep,
+      input.routing
+    )) {
+      return {
+        reply: applyAssistantPersonalityToReply(
+          botCopyService.intentNotUnderstood(),
+          assistantPersonality
+        ),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+
     const result = await bookingV2Engine.process({
       businessId: input.businessId,
       conversation: input.conversation,
@@ -1141,6 +1155,17 @@ export function isBookingV2ConversationClosing(
       'con eso alcanza',
       'con eso estamos'
     ].some((phrase) => normalizedMessage.includes(phrase))
+}
+
+export function shouldShowBookingV2IntentFallback(
+  currentStep: string,
+  routing: ConversationRouting
+) {
+  if (currentStep !== 'START' || routing.bookingMessage) return false
+
+  return routing.intents.length === 0 || routing.intents.every((intent) =>
+    ['unknown', 'social_message'].includes(intent.type)
+  )
 }
 
 export function withBusinessInformationFollowUp(informationReply: string) {
