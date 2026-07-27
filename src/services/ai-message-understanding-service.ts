@@ -63,6 +63,10 @@ export type AiBookingAgentResult = AiBookingIntentResult & {
   clarificationQuestion: string | null
 }
 
+type BookingV2ConversationalCopyResult = {
+  prefix: string | null
+}
+
 const minimumConfidence = 0.65
 const minimumClarificationConfidence = 0.35
 
@@ -120,6 +124,53 @@ export class AiMessageUnderstandingService {
     }
 
     return result.reply.trim()
+  }
+
+  async composeBookingV2Reply(input: {
+    customerMessage: string
+    requiredReply: string
+    currentStep: string
+    customerName?: string | null
+  }) {
+    if (!openAiConfig.copyEnabled) {
+      return null
+    }
+
+    const result = await this.askJson<BookingV2ConversationalCopyResult>({
+      instructions: [
+        'Sos Cami, una asistente de reservas por WhatsApp para un comercio de Argentina.',
+        'El motor ya genero requiredReply con todos los datos reales y la proxima pregunta obligatoria.',
+        'No reescribas, resumas, repitas ni contradigas requiredReply.',
+        'Tu unica tarea es decidir si conviene agregar antes una frase social breve, calida y natural.',
+        'La frase no puede contener datos del negocio, servicios, profesionales, fechas, horas, precios, disponibilidad ni confirmaciones.',
+        'No hagas otra pregunta: requiredReply ya contiene la pregunta necesaria.',
+        'No prometas resultados ni digas que una reserva fue realizada.',
+        'Usa español rioplatense y como maximo un emoji. Evita repetir Perfecto.',
+        'Si no aporta valor, si requiredReply ya comienza con un saludo o si el mensaje es solo un dato, usa prefix null.'
+      ].join('\n'),
+      input: {
+        customerMessage: input.customerMessage,
+        requiredReply: input.requiredReply,
+        currentStep: input.currentStep,
+        customerName: input.customerName ?? null
+      },
+      schemaName: 'booking_v2_conversational_copy',
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['prefix'],
+        properties: {
+          prefix: {
+            anyOf: [
+              { type: 'string' },
+              { type: 'null' }
+            ]
+          }
+        }
+      }
+    })
+
+    return mergeBookingV2ConversationalCopy(input.requiredReply, result?.prefix ?? null)
   }
 
   async classifyConversationIntent(input: {
@@ -675,6 +726,23 @@ export class AiMessageUnderstandingService {
       return null
     }
   }
+}
+
+export function mergeBookingV2ConversationalCopy(
+  requiredReply: string,
+  prefix: string | null
+) {
+  const cleanedPrefix = prefix?.trim()
+  if (!cleanedPrefix || !isSafeBookingV2ConversationalPrefix(cleanedPrefix)) {
+    return requiredReply
+  }
+  return `${cleanedPrefix}\n\n${requiredReply}`
+}
+
+function isSafeBookingV2ConversationalPrefix(prefix: string) {
+  if (prefix.length > 120 || prefix.includes('\n')) return false
+  if (/[\d$?¿]/.test(prefix) || /https?:\/\//i.test(prefix)) return false
+  return !/\b(?:disponible|disponibilidad|turno|reserva|reservado|confirmado|horario|hora|servicio|profesional|precio|direccion|ubicacion|hoy|mañana|manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/i.test(prefix)
 }
 
 function cleanExtractedName(name: string) {

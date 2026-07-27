@@ -168,6 +168,7 @@ export class BookingV2Engine {
     const extraction = await this.extractor.extract({
       message: input.message,
       draft: initialState.draft,
+      expectedField: nextMissingField(initialState.draft),
       services: extractionCatalog.services,
       professionals: extractionCatalog.professionals,
       ...(input.currentDate ? { currentDate: input.currentDate } : {})

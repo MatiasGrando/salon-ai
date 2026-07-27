@@ -34,6 +34,7 @@ export type BookingV2Extraction = {
 export type BookingV2ExtractionInput = {
   message: string
   draft: BookingDraft
+  expectedField: BookingField | 'confirmation'
   services: BookingV2CatalogOption[]
   professionals: BookingV2CatalogOption[]
   currentDate?: Date
@@ -52,13 +53,18 @@ export class BookingV2Extractor {
           'Sos una capa de comprension para un sistema de reservas por WhatsApp.',
           'Extrae datos sin decidir el flujo, sin responder al cliente y sin ejecutar acciones.',
           'Evalua cada campo por separado con value, confidence y evidence.',
+          'expectedField indica el dato que el flujo esta esperando ahora. Usalo para resolver ambiguedades, pero no inventes valores.',
+          'Si expectedField es professional y el mensaje coincide con un profesional, nunca lo extraigas como name.',
+          'Si expectedField es time, interpreta formatos como 1830, 18hs, 18.30 o a las seis como horarios, nunca como fechas.',
           'Para service y professional usa exclusivamente IDs presentes en las listas recibidas.',
           'Si no hay evidencia de un campo, usa value null, confidence 0 y evidence vacio.',
           'No supongas datos por el paso actual ni copies datos existentes si no aparecen en el mensaje.',
           'Interpreta fechas relativas usando currentDate y timezone.',
           'date debe usar YYYY-MM-DD. time debe usar HH:mm.',
-          'Detecta correction cuando el usuario quiere cambiar servicio, profesional, fecha u horario ya elegidos.',
+          'Detecta correction solo cuando el usuario expresa que quiere cambiar un dato que ya existe en currentDraft.',
+          'Un valor aislado no es una correccion. No marques correction por el solo hecho de que currentDraft ya tenga otros campos.',
           'Frases como mejor otro dia expresan correccion de date aunque no incluyan el nuevo valor.',
+          'Si expectedField es confirmation, presta especial atencion a pedidos de cambio como quiero cambiar la hora.',
           'La confianza representa certeza semantica, no validez en la base.',
           'Un texto ambiguo entre varias opciones debe tener confianza media.',
           'Un texto corrupto o sin relacion clara debe tener confianza baja.'
@@ -66,6 +72,7 @@ export class BookingV2Extractor {
         input: JSON.stringify({
           customerMessage: input.message,
           currentDraft: input.draft,
+          expectedField: input.expectedField,
           currentDate: formatDate(input.currentDate ?? new Date()),
           timezone: 'America/Buenos_Aires',
           services: input.services,

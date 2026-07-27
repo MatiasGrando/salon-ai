@@ -360,8 +360,14 @@ export class ConversationService {
 
     if (informationReply && !input.routing.bookingMessage) {
       if (!isActiveBookingV2Step(input.conversation.currentStep)) {
+        const requiredReply = `${informationReply}\n\nSi querés, también puedo ayudarte a reservar un turno.`
         return {
-          reply: `${informationReply}\n\nSi querés, también puedo ayudarte a reservar un turno.`,
+          reply: await this.composeBookingV2Reply({
+            customerMessage: input.message,
+            requiredReply,
+            currentStep: input.conversation.currentStep,
+            customerName: input.conversation.selectedCustomerName
+          }),
           skipMisunderstandingTracking: true,
           skipHumanize: true
         }
@@ -372,8 +378,14 @@ export class ConversationService {
         conversation: input.conversation
       })
 
+      const requiredReply = `${informationReply}\n\n${resumed.reply}`
       return {
-        reply: `${informationReply}\n\n${resumed.reply}`,
+        reply: await this.composeBookingV2Reply({
+          customerMessage: input.message,
+          requiredReply,
+          currentStep: input.conversation.currentStep,
+          customerName: input.conversation.selectedCustomerName
+        }),
         skipMisunderstandingTracking: true,
         skipHumanize: true
       }
@@ -387,8 +399,9 @@ export class ConversationService {
         : input.routing.bookingMessage ?? input.message
     })
 
+    const nextStep = conversationStepFromBookingV2Plan(result.plan)
     await this.updateConversation(input.phone, {
-      currentStep: conversationStepFromBookingV2Plan(result.plan),
+      currentStep: nextStep,
       ...result.conversationPatch,
       lastAvailability: result.availabilityOptions.length
         ? {
@@ -400,11 +413,27 @@ export class ConversationService {
         : null
     })
 
+    const requiredReply = informationReply ? `${informationReply}\n\n${result.reply}` : result.reply
     return {
-      reply: informationReply ? `${informationReply}\n\n${result.reply}` : result.reply,
+      reply: await this.composeBookingV2Reply({
+        customerMessage: input.message,
+        requiredReply,
+        currentStep: nextStep,
+        customerName: result.state.draft.name
+      }),
       skipMisunderstandingTracking: true,
       skipHumanize: true
     }
+  }
+
+  private async composeBookingV2Reply(input: {
+    customerMessage: string
+    requiredReply: string
+    currentStep: string
+    customerName: string | null
+  }) {
+    return await aiMessageUnderstandingService.composeBookingV2Reply(input)
+      ?? input.requiredReply
   }
 
   private async confirmBookingV2Appointment(input: {

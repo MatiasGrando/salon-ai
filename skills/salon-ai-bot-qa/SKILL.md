@@ -254,6 +254,10 @@ Compact time answers such as `1830` and `930` must resolve to `18:30` and `09:30
 
 At final confirmation, phrases such as `quiero cambiar la hora` or `quiero cambiar el horario` must clear only the selected time and immediately show the real availability again instead of repeating the final confirmation.
 
+Booking V2 extraction must receive `expectedField` explicitly. The model may use it to resolve ambiguity, but the backend remains responsible for catalog and availability validation.
+
+Booking V2 conversational copy may add at most one short social prefix around the deterministic reply. The required reply must remain verbatim. Reject AI prefixes containing questions, numbers, URLs, prices, dates, times, availability claims, service/professional claims, or confirmation claims; fall back to the deterministic reply unchanged.
+
 ### Tone
 
 Cami should stay warm, attentive, feminine, and professional across all messages, not only the first one.

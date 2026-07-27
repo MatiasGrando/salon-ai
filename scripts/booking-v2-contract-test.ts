@@ -33,6 +33,7 @@ import {
 import { renderBusinessKnowledgeAnswers } from '../src/services/business-knowledge-service.js'
 import { isPositiveBookingV2Confirmation } from '../src/services/conversation-service.js'
 import { removeCurrentInboundFromHistory } from '../src/services/conversation-router-context-service.js'
+import { mergeBookingV2ConversationalCopy } from '../src/services/ai-message-understanding-service.js'
 
 const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
   {
@@ -498,6 +499,32 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(result.reply.includes('• Nico'), true)
       assert.equal(result.reply.includes('• Cualquier profesional'), true)
       assert.equal(result.reply.includes('Ana'), false)
+    }
+  },
+  {
+    name: 'extractor recibe explicitamente el campo esperado del flujo',
+    run: async () => {
+      const extractor = fakeExtractor(null)
+      const engine = new BookingV2Engine(fakeDomainPort(), extractor)
+
+      await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Mati',
+          selectedServiceId: 'haircut',
+          selectedProfessionalId: null,
+          selectedDate: null,
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: 'no sé'
+      })
+
+      assert.equal(
+        (extractor.calls[0] as { expectedField?: string } | undefined)?.expectedField,
+        'professional'
+      )
     }
   },
   {
@@ -981,6 +1008,39 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
       assert.equal(reply.includes('todos los horarios disponibles'), true)
       assert.equal(reply.includes('09:00, 09:30, 10:00, 10:30, 11:00, 11:30, 15:00, 15:30'), true)
+    }
+  },
+  {
+    name: 'capa conversacional conserva literalmente la respuesta obligatoria',
+    run: () => {
+      const requiredReply = [
+        'Estos son todos los horarios disponibles 😊',
+        '• Nico: 18:00, 18:30',
+        '¿Cuál te queda mejor?'
+      ].join('\n')
+
+      const composed = mergeBookingV2ConversationalCopy(
+        requiredReply,
+        '¡Dale, Mati! 😊'
+      )
+
+      assert.equal(composed.endsWith(requiredReply), true)
+      assert.equal(composed.startsWith('¡Dale, Mati! 😊'), true)
+    }
+  },
+  {
+    name: 'capa conversacional rechaza prefijos con datos o preguntas inventadas',
+    run: () => {
+      const requiredReply = '¿Qué día te gustaría venir?'
+
+      assert.equal(
+        mergeBookingV2ConversationalCopy(requiredReply, 'Tengo 3 horarios disponibles'),
+        requiredReply
+      )
+      assert.equal(
+        mergeBookingV2ConversationalCopy(requiredReply, '¿Querés venir mañana?'),
+        requiredReply
+      )
     }
   },
   {
