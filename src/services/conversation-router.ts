@@ -236,7 +236,13 @@ export function mergeConversationRouting(
       return false
     }
     return intent.type !== 'business_information' ||
-      (intent.topic !== null && deterministicTopics.has(intent.topic))
+      (
+        intent.topic !== null &&
+        (
+          deterministicTopics.has(intent.topic) ||
+          isGroundedBusinessInformationIntent(intent, originalMessage)
+        )
+      )
   })
 
   for (const fallbackIntent of deterministic.intents) {
@@ -293,6 +299,10 @@ function detectBusinessInformationTopics(
   if (containsAny(normalized, [
     'donde queda', 'donde estan', 'direccion', 'ubicacion', 'como llego', 'maps', 'mapa'
   ])) add('address')
+  if (
+    normalized.includes('donde') &&
+    containsAny(normalized, ['local', 'esta', 'estan', 'queda', 'ubica', 'encuentra'])
+  ) add('address')
 
   if (containsAny(normalized, [
     'pagina web', 'pagina de internet', 'sitio web', 'web del local', 'cual es la web'
@@ -325,6 +335,40 @@ function detectBusinessInformationTopics(
 
 function containsAny(value: string, phrases: string[]) {
   return phrases.some((phrase) => value.includes(phrase))
+}
+
+function isGroundedBusinessInformationIntent(
+  intent: RoutedIntent,
+  originalMessage: string
+) {
+  if (intent.type !== 'business_information' || !intent.topic) return false
+  const message = normalizeEvidenceText(originalMessage)
+  const evidence = normalizeEvidenceText(intent.evidence)
+  if (!evidence || !message.includes(evidence)) return false
+
+  const topicSignals: Record<BusinessInformationTopic, string[]> = {
+    opening_hours: ['horario', 'horarios', 'abren', 'abrir', 'cierran', 'cerrar', 'abierto'],
+    address: ['direccion', 'ubicacion', 'donde', 'llegar', 'llego', 'local', 'mapa', 'maps'],
+    website: ['web', 'pagina', 'sitio', 'internet'],
+    booking_channels: ['reservar', 'reservo', 'turno', 'link', 'enlace'],
+    phone: ['telefono', 'numero', 'whatsapp'],
+    email: ['email', 'mail', 'correo'],
+    instagram: ['instagram', 'insta', 'ig'],
+    facebook: ['facebook'],
+    services: ['servicio', 'servicios', 'hacen', 'ofrecen'],
+    professionals: ['profesional', 'profesionales', 'atiende', 'atienden'],
+    prices: ['precio', 'precios', 'sale', 'cuesta', 'valor'],
+    other: []
+  }
+
+  return containsAny(message, topicSignals[intent.topic])
+}
+
+function normalizeEvidenceText(value: string) {
+  return normalizeText(value)
+    .replace(/[^\p{Letter}\p{Number}\s]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function normalizeConfidence(value: number) {

@@ -1233,6 +1233,25 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'pedido de nombre no vuelve a presentar al asistente',
+    run: () => {
+      const reply = renderBookingV2Response({
+        plan: {
+          type: 'ask_field',
+          field: 'name',
+          reason: 'missing',
+          misunderstandingCount: 0
+        },
+        draft: createEmptyBookingV2State().draft,
+        catalog: fakeDomainCatalog()
+      })
+
+      assert.equal(reply, '¿Me decís tu nombre?')
+      assert.equal(reply.includes('Hola'), false)
+      assert.equal(reply.includes('Soy Cami'), false)
+    }
+  },
+  {
     name: 'router conserva multiples intenciones informativas',
     run: () => {
       const routing = normalizeConversationRouting({
@@ -1301,6 +1320,40 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         ['opening_hours', 'address']
       )
       assert.equal(routing.bookingMessage?.includes('quiero reservar un corte'), true)
+    }
+  },
+  {
+    name: 'router reconoce formas naturales de preguntar la ubicacion',
+    run: () => {
+      const routing = deterministicConversationRouting(
+        'hola que tal, queria saber donde esta el local',
+        { currentStep: 'START' }
+      )
+      assert.deepEqual(businessInformationTopicsFromRouting(routing), ['address'])
+      assert.equal(routing.bookingMessage, null)
+    }
+  },
+  {
+    name: 'router conserva informacion de ia cuando la evidencia esta en el mensaje',
+    run: () => {
+      const message = 'me indicarias como llegar hasta ustedes'
+      const merged = mergeConversationRouting({
+        intents: [
+          {
+            type: 'business_information',
+            topic: 'address',
+            confidence: 0.92,
+            evidence: 'como llegar hasta ustedes'
+          }
+        ],
+        bookingMessage: null
+      }, deterministicConversationRouting(message, { currentStep: 'START' }), message)
+
+      assert.deepEqual(
+        businessInformationTopicsFromRouting({ ...merged, source: 'ai' }),
+        ['address']
+      )
+      assert.equal(merged.bookingMessage, null)
     }
   },
   {

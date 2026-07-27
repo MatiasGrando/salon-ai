@@ -37,9 +37,6 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
     if (input.plan.reason === 'not_understood') {
       return `Disculpame, no te entendí bien. ${question}`
     }
-    if (input.plan.field === 'name' && !input.draft.name) {
-      return `¡Hola! Soy Cami 😊 ${question}`
-    }
     return question
   }
 
