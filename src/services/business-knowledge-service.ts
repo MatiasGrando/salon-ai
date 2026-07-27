@@ -153,7 +153,7 @@ function answerTopic(business: BusinessKnowledge, topic: BusinessInformationTopi
       return `• ${service.name} (${service.duration} min)${topic === 'prices' ? ` — ${price}` : ''}`
     })
     return [
-      topic === 'prices' ? 'Estos son los precios cargados actualmente:' : 'Estos son los servicios disponibles:',
+      topic === 'prices' ? 'Estos son los precios de nuestros servicios:' : 'Estos son los servicios disponibles:',
       ...lines
     ].join('\n')
   }

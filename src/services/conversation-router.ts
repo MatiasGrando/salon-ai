@@ -183,10 +183,7 @@ export function deterministicConversationRouting(
 ): ConversationRouting {
   const normalized = normalizeText(message)
   const topics = detectBusinessInformationTopics(normalized, context?.currentStep)
-  const hasBookingSignal = containsAny(normalized, [
-    'turno', 'reservar', 'reserva', 'corte', 'barba', 'color', 'servicio',
-    'para hoy', 'para manana', 'quiero venir', 'necesito venir'
-  ])
+  const hasBookingSignal = hasExplicitBookingIntent(normalized)
   const intents: RoutedIntent[] = topics.map((topic) => ({
     type: 'business_information',
     topic,
@@ -205,7 +202,7 @@ export function deterministicConversationRouting(
 
   return {
     intents,
-    bookingMessage: topics.length > 0 && hasBookingSignal ? message.trim() || null : null,
+    bookingMessage: hasBookingSignal ? message.trim() || null : null,
     source: 'deterministic'
   }
 }
@@ -225,13 +222,17 @@ export function mergeConversationRouting(
   originalMessage: string
 ): Omit<ConversationRouting, 'source'> {
   const deterministicTopics = new Set(businessInformationTopicsFromRouting(deterministic))
-  const standaloneOpeningHoursQuestion =
-    deterministicTopics.has('opening_hours') &&
+  const standaloneBusinessInformationQuestion =
+    deterministicTopics.size > 0 &&
     deterministic.bookingMessage === null
   const intents = aiRouting.intents.filter((intent) => {
     if (
-      standaloneOpeningHoursQuestion &&
-      ['book_appointment', 'availability_preference'].includes(intent.type)
+      standaloneBusinessInformationQuestion &&
+      [
+        'book_appointment',
+        'availability_preference',
+        'professional_preference'
+      ].includes(intent.type)
     ) {
       return false
     }
@@ -262,7 +263,7 @@ export function mergeConversationRouting(
 
   return {
     intents,
-    bookingMessage: standaloneOpeningHoursQuestion
+    bookingMessage: standaloneBusinessInformationQuestion
       ? null
       : aiRouting.bookingMessage
         ?? deterministic.bookingMessage
@@ -335,6 +336,30 @@ function detectBusinessInformationTopics(
 
 function containsAny(value: string, phrases: string[]) {
   return phrases.some((phrase) => value.includes(phrase))
+}
+
+function hasExplicitBookingIntent(normalized: string) {
+  return containsAny(normalized, [
+    'quiero reservar',
+    'necesito reservar',
+    'quiero un turno',
+    'necesito un turno',
+    'sacar turno',
+    'sacame un turno',
+    'agendar turno',
+    'agendame',
+    'reservame',
+    'quiero venir',
+    'necesito venir',
+    'quiero hacerme',
+    'me quiero hacer',
+    'me quiero cortar',
+    'necesito un corte',
+    'quiero un corte',
+    'quiero corte',
+    'quiero con',
+    'prefiero con'
+  ])
 }
 
 function isGroundedBusinessInformationIntent(

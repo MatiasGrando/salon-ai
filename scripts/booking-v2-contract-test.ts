@@ -1418,6 +1418,53 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'consulta de precio no inicia una reserva aunque mencione un servicio',
+    run: () => {
+      const message = 'y cuanto cuesta un corte?'
+      const deterministic = deterministicConversationRouting(message, {
+        currentStep: 'START'
+      })
+      assert.deepEqual(businessInformationTopicsFromRouting(deterministic), ['prices'])
+      assert.equal(deterministic.bookingMessage, null)
+
+      const merged = mergeConversationRouting({
+        intents: [
+          {
+            type: 'business_information',
+            topic: 'prices',
+            confidence: 0.95,
+            evidence: 'cuanto cuesta un corte'
+          },
+          {
+            type: 'book_appointment',
+            topic: null,
+            confidence: 0.7,
+            evidence: 'un corte'
+          }
+        ],
+        bookingMessage: 'un corte'
+      }, deterministic, message)
+
+      assert.equal(merged.bookingMessage, null)
+      assert.equal(
+        merged.intents.some((intent) => intent.type === 'book_appointment'),
+        false
+      )
+    }
+  },
+  {
+    name: 'consulta informativa conserva una reserva cuando la intencion es explicita',
+    run: () => {
+      const message = 'cuanto sale el corte y quiero reservar un turno'
+      const routing = deterministicConversationRouting(message, {
+        currentStep: 'START'
+      })
+
+      assert.deepEqual(businessInformationTopicsFromRouting(routing), ['prices'])
+      assert.equal(routing.bookingMessage, message)
+    }
+  },
+  {
     name: 'router completa una parte de reserva omitida por la IA',
     run: () => {
       const message = 'A que hora abren manana y quiero un corte despues de las 18?'
@@ -1552,6 +1599,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(replies[2], 'La página de Salon Demo es https://salon-demo.example.com')
       assert.equal(replies[3], 'Podés reservar por este chat o desde https://salon-demo.example.com/reservar')
       assert.equal(replies[4]?.includes('No tengo el email'), true)
+      assert.equal(replies[5]?.startsWith('Estos son los precios de nuestros servicios:'), true)
       assert.equal(replies[5]?.includes('Corte (30 min)'), true)
       assert.equal(replies[5]?.includes('15.000'), true)
 
