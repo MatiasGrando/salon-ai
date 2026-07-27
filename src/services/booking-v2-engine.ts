@@ -176,7 +176,7 @@ export class BookingV2Engine {
     }
 
     const extractionCatalog = this.domain.toExtractionCatalog(catalog)
-    const extraction = await this.extractor.extract({
+    const rawExtraction = await this.extractor.extract({
       message: input.message,
       draft: initialState.draft,
       expectedField: nextMissingField(initialState.draft),
@@ -185,7 +185,7 @@ export class BookingV2Engine {
       ...(input.currentDate ? { currentDate: input.currentDate } : {})
     })
 
-    if (!extraction) {
+    if (!rawExtraction) {
       return this.fromInterpretation({
         state: initialState,
         nextField: nextMissingField(initialState.draft),
@@ -193,6 +193,11 @@ export class BookingV2Engine {
         affectedField: null
       }, null, catalog)
     }
+    const extraction = discardUngroundedCatalogSelections(
+      rawExtraction,
+      input.message,
+      catalog
+    )
 
     return this.fromInterpretation(
       applyBookingV2Extraction(
@@ -577,6 +582,74 @@ function selectionSignature(value: string) {
     .filter((token) => token && !['y', 'de', 'del', 'el', 'la'].includes(token))
     .sort()
     .join(' ')
+}
+
+function discardUngroundedCatalogSelections(
+  extraction: BookingV2Extraction,
+  message: string,
+  catalog: BookingV2DomainCatalog
+): BookingV2Extraction {
+  const groundedService = !extraction.service.value || catalog.services.some((service) =>
+    service.id === extraction.service.value &&
+    [service.name, ...service.aliases].some((label) => messageGroundsLabel(message, label))
+  )
+  const groundedProfessional =
+    !extraction.professional.value ||
+    catalog.professionals.some((professional) =>
+      professional.id === extraction.professional.value &&
+      messageGroundsLabel(message, professional.name)
+    )
+  const groundedCorrection = !extraction.correction.newValue ||
+    extraction.correction.field === null ||
+    !['service', 'professional'].includes(extraction.correction.field) ||
+    (
+      extraction.correction.field === 'service'
+        ? catalog.services.some((service) =>
+            service.id === extraction.correction.newValue &&
+            [service.name, ...service.aliases].some((label) =>
+              messageGroundsLabel(message, label)
+            )
+          )
+        : catalog.professionals.some((professional) =>
+            professional.id === extraction.correction.newValue &&
+            messageGroundsLabel(message, professional.name)
+          )
+    )
+
+  return {
+    ...extraction,
+    service: groundedService
+      ? extraction.service
+      : { value: null, confidence: 0, evidence: '' },
+    professional: groundedProfessional
+      ? extraction.professional
+      : { value: null, confidence: 0, evidence: '' },
+    correction: groundedCorrection
+      ? extraction.correction
+      : { ...extraction.correction, newValue: null }
+  }
+}
+
+function messageGroundsLabel(message: string, label: string) {
+  const ignoredTokens = new Set(['de', 'del', 'el', 'la', 'los', 'las', 'y'])
+  const messageTokens = normalize(message).split(' ').filter(Boolean)
+  const labelTokens = normalize(label)
+    .split(' ')
+    .filter((token) => token.length >= 3 && !ignoredTokens.has(token))
+
+  return labelTokens.some((labelToken) =>
+    messageTokens.some((messageToken) =>
+      labelToken === messageToken ||
+      commonPrefixLength(labelToken, messageToken) >= 4
+    )
+  )
+}
+
+function commonPrefixLength(left: string, right: string) {
+  const limit = Math.min(left.length, right.length)
+  let length = 0
+  while (length < limit && left[length] === right[length]) length += 1
+  return length
 }
 
 function dateInTimeZone(value: Date, timeZone: string) {

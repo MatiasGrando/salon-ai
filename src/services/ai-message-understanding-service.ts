@@ -148,6 +148,7 @@ export class AiMessageUnderstandingService {
         'El motor ya genero requiredReply con todos los datos reales y la proxima pregunta obligatoria.',
         'No reescribas, resumas, repitas ni contradigas requiredReply.',
         'Tu unica tarea es decidir si conviene agregar antes una frase social breve, calida y natural.',
+        'No vuelvas a saludar ni a presentarte: la bienvenida ocurre una sola vez al inicio de la conversacion.',
         'La frase no puede contener datos del negocio, servicios, profesionales, fechas, horas, precios, disponibilidad ni confirmaciones.',
         'No hagas otra pregunta: requiredReply ya contiene la pregunta necesaria.',
         'No prometas resultados ni digas que una reserva fue realizada.',
@@ -748,6 +749,16 @@ export function mergeBookingV2ConversationalCopy(
 function isSafeBookingV2ConversationalPrefix(prefix: string) {
   if (prefix.length > 120 || prefix.includes('\n')) return false
   if (/[\d$?¿]/.test(prefix) || /https?:\/\//i.test(prefix)) return false
+  const normalizedPrefix = prefix
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/[^\p{Letter}\p{Number}\s]/gu, '')
+    .replace(/\s+/g, ' ')
+  if (/^(?:hola|holaa|buen dia|buenas|buenas tardes|buenas noches)\b/.test(normalizedPrefix)) {
+    return false
+  }
   return !/\b(?:disponible|disponibilidad|turno|reserva|reservado|confirmado|horario|hora|servicio|profesional|precio|direccion|ubicacion|hoy|mañana|manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/i.test(prefix)
 }
 

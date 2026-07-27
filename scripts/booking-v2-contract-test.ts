@@ -745,6 +745,37 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'motor no elige un servicio que el cliente nunca menciono',
+    run: async () => {
+      const engine = new BookingV2Engine(
+        fakeDomainPort(),
+        fakeExtractor(extraction({
+          service: field('haircut', 0.9, 'quiero un turno')
+        }))
+      )
+
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Matias',
+          selectedServiceId: null,
+          selectedProfessionalId: null,
+          selectedDate: null,
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: 'si quiero un turno'
+      })
+
+      assert.equal(result.state.draft.service, null)
+      assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'service')
+      assert.equal(result.reply.includes('• Corte'), true)
+      assert.equal(result.reply.includes('• Barba'), true)
+      assert.equal(result.reply.includes('¿Querés reservar Corte?'), false)
+    }
+  },
+  {
     name: 'motor aclara un servicio parcial ambiguo sin preguntar si quiere modificarlo',
     run: async () => {
       const domainCatalog = createBookingV2DomainCatalog({
@@ -1116,6 +1147,10 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       )
       assert.equal(
         mergeBookingV2ConversationalCopy(requiredReply, '¿Querés venir mañana?'),
+        requiredReply
+      )
+      assert.equal(
+        mergeBookingV2ConversationalCopy(requiredReply, '¡Hola Matías! 😊'),
         requiredReply
       )
     }
