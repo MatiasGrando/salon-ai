@@ -84,7 +84,9 @@ type AiConversationRouting = {
 
 export class ConversationRouter {
   async route(input: ConversationRouterInput): Promise<ConversationRouting> {
-    const deterministic = deterministicConversationRouting(input.message)
+    const deterministic = deterministicConversationRouting(input.message, {
+      currentStep: input.currentStep
+    })
     if (!isAiExecutionEnabled()) return deterministic
 
     const client = getOpenAiClient()
@@ -101,6 +103,8 @@ export class ConversationRouter {
           'Podes devolver varias intenciones cuando el mensaje mezcla pedidos.',
           'No respondas al cliente, no ejecutes acciones y no inventes datos.',
           'Usa business_information para preguntas sobre horarios del local, direccion, web, formas de reservar, contacto, redes, servicios, profesionales o precios.',
+          'Si currentStep es START y preguntan genericamente por los horarios, interpretalo como opening_hours del negocio, no como disponibilidad para reservar.',
+          'Si currentStep es ASK_TIME, una pregunta por horarios se refiere a disponibilidad de turnos, salvo que mencione explicitamente abrir, cerrar u horario del local.',
           'Usa availability_preference para dias o franjas como despues de las 18, por la manana o solo sabados.',
           'Usa professional_preference cuando nombra, pregunta o cambia profesional.',
           'Usa request_quote cuando pide precio estimado o presupuesto personalizado.',
@@ -173,9 +177,12 @@ export function normalizeConversationRouting(input: AiConversationRouting): Omit
   }
 }
 
-export function deterministicConversationRouting(message: string): ConversationRouting {
+export function deterministicConversationRouting(
+  message: string,
+  context?: { currentStep?: string }
+): ConversationRouting {
   const normalized = normalizeText(message)
-  const topics = detectBusinessInformationTopics(normalized)
+  const topics = detectBusinessInformationTopics(normalized, context?.currentStep)
   const hasBookingSignal = containsAny(normalized, [
     'turno', 'reservar', 'reserva', 'corte', 'barba', 'color', 'servicio',
     'para hoy', 'para manana', 'quiero venir', 'necesito venir'
@@ -218,10 +225,19 @@ export function mergeConversationRouting(
   originalMessage: string
 ): Omit<ConversationRouting, 'source'> {
   const deterministicTopics = new Set(businessInformationTopicsFromRouting(deterministic))
-  const intents = aiRouting.intents.filter((intent) =>
-    intent.type !== 'business_information' ||
-    (intent.topic !== null && deterministicTopics.has(intent.topic))
-  )
+  const standaloneOpeningHoursQuestion =
+    deterministicTopics.has('opening_hours') &&
+    deterministic.bookingMessage === null
+  const intents = aiRouting.intents.filter((intent) => {
+    if (
+      standaloneOpeningHoursQuestion &&
+      ['book_appointment', 'availability_preference'].includes(intent.type)
+    ) {
+      return false
+    }
+    return intent.type !== 'business_information' ||
+      (intent.topic !== null && deterministicTopics.has(intent.topic))
+  })
 
   for (const fallbackIntent of deterministic.intents) {
     if (fallbackIntent.type === 'unknown') continue
@@ -240,13 +256,18 @@ export function mergeConversationRouting(
 
   return {
     intents,
-    bookingMessage: aiRouting.bookingMessage
-      ?? deterministic.bookingMessage
-      ?? (hasBookingRelatedIntent ? originalMessage.trim() || null : null)
+    bookingMessage: standaloneOpeningHoursQuestion
+      ? null
+      : aiRouting.bookingMessage
+        ?? deterministic.bookingMessage
+        ?? (hasBookingRelatedIntent ? originalMessage.trim() || null : null)
   }
 }
 
-function detectBusinessInformationTopics(normalized: string): BusinessInformationTopic[] {
+function detectBusinessInformationTopics(
+  normalized: string,
+  currentStep?: string
+): BusinessInformationTopic[] {
   const topics: BusinessInformationTopic[] = []
   const add = (topic: BusinessInformationTopic) => {
     if (!topics.includes(topic)) topics.push(topic)
@@ -257,6 +278,17 @@ function detectBusinessInformationTopics(normalized: string): BusinessInformatio
     'horarios del local', 'cuando abren', 'cuando cierran', 'estan abiertos', 'abren hoy',
     'abren manana', 'abren el'
   ])) add('opening_hours')
+  if (
+    currentStep === 'START' &&
+    containsAny(normalized, [
+      'los horarios',
+      'sus horarios',
+      'que horarios tienen',
+      'cuales son los horarios',
+      'queria saber el horario',
+      'queria saber los horarios'
+    ])
+  ) add('opening_hours')
 
   if (containsAny(normalized, [
     'donde queda', 'donde estan', 'direccion', 'ubicacion', 'como llego', 'maps', 'mapa'

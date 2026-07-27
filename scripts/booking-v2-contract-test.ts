@@ -1269,6 +1269,53 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'router diferencia horarios del local de horarios de una reserva',
+    run: () => {
+      const openingHours = deterministicConversationRouting(
+        'queria saber los horarios',
+        { currentStep: 'START' }
+      )
+      assert.deepEqual(businessInformationTopicsFromRouting(openingHours), ['opening_hours'])
+      assert.equal(openingHours.bookingMessage, null)
+
+      const bookingAvailability = deterministicConversationRouting(
+        'que horarios tenes',
+        { currentStep: 'ASK_TIME' }
+      )
+      assert.deepEqual(businessInformationTopicsFromRouting(bookingAvailability), [])
+    }
+  },
+  {
+    name: 'router no deja que la ia convierta horarios del local en una reserva',
+    run: () => {
+      const message = 'queria saber los horarios'
+      const deterministic = deterministicConversationRouting(message, {
+        currentStep: 'START'
+      })
+      const merged = mergeConversationRouting({
+        intents: [
+          {
+            type: 'availability_preference',
+            topic: null,
+            confidence: 0.9,
+            evidence: 'los horarios'
+          }
+        ],
+        bookingMessage: message
+      }, deterministic, message)
+
+      assert.deepEqual(
+        businessInformationTopicsFromRouting({ ...merged, source: 'ai' }),
+        ['opening_hours']
+      )
+      assert.equal(merged.bookingMessage, null)
+      assert.equal(
+        merged.intents.some((intent) => intent.type === 'availability_preference'),
+        false
+      )
+    }
+  },
+  {
     name: 'router completa una parte de reserva omitida por la IA',
     run: () => {
       const message = 'A que hora abren manana y quiero un corte despues de las 18?'
