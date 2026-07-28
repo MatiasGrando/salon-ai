@@ -29,10 +29,20 @@ export type BookingV2GuidedEstimate = {
   priceMax: number | null
 }
 
+export type BookingV2PendingDeposit = {
+  serviceId: string
+  mode: 'FIXED' | 'PERCENTAGE'
+  configuredValue: number
+  baseAmount: number | null
+  amount: number
+  status: 'awaiting_proof'
+}
+
 export type BookingV2State = {
   draft: BookingDraft
   pendingProposal: BookingProposal | null
   guidedEstimate: BookingV2GuidedEstimate | null
+  pendingDeposit: BookingV2PendingDeposit | null
   misunderstandingCount: number
 }
 
@@ -57,6 +67,7 @@ export function createEmptyBookingV2State(): BookingV2State {
     },
     pendingProposal: null,
     guidedEstimate: null,
+    pendingDeposit: null,
     misunderstandingCount: 0
   }
 }
@@ -98,6 +109,7 @@ export function acceptField(
     guidedEstimate: field === 'service' && state.draft[field] !== value
       ? null
       : state.guidedEstimate,
+    pendingDeposit: state.draft[field] !== value ? null : state.pendingDeposit,
     misunderstandingCount: 0
   }
 }
@@ -144,6 +156,7 @@ export function confirmProposal(state: BookingV2State): BookingV2State {
       draft: clearFieldAndDependents(state.draft, proposal.field),
       pendingProposal: null,
       guidedEstimate: proposal.field === 'service' ? null : state.guidedEstimate,
+      pendingDeposit: null,
       misunderstandingCount: 0
     }
   }

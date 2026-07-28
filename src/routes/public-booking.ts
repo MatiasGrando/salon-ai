@@ -43,7 +43,10 @@ export async function publicBookingRoutes(app: FastifyInstance) {
         slug: business.slug
       },
       services: business.services
-        .filter((service) => service.attentionMode === 'DIRECT_BOOKING')
+        .filter((service) =>
+          service.attentionMode === 'DIRECT_BOOKING' &&
+          service.depositMode === 'NONE'
+        )
         .map((service) => ({
         id: service.id,
         name: service.name,
@@ -282,7 +285,8 @@ async function professionalsForService(businessId: string, serviceId: string, pr
     where: {
       id: serviceId,
       businessId,
-      attentionMode: 'DIRECT_BOOKING'
+      attentionMode: 'DIRECT_BOOKING',
+      depositMode: 'NONE'
     },
     select: {
       id: true

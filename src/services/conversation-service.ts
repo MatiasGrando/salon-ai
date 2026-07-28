@@ -9,6 +9,14 @@ import { runWithAiEnabled } from './ai-execution-context.js'
 import { BookingV2Engine } from './booking-v2-engine.js'
 import type { BookingV2MessagePlan } from './booking-v2-dialogue.js'
 import type { BookingField } from './booking-v2-state.js'
+import {
+  conversationPatchFromState,
+  stateFromConversation
+} from './booking-v2-conversation-state.js'
+import {
+  calculateBookingV2Deposit,
+  renderBookingV2DepositRequest
+} from './booking-v2-deposit.js'
 import { reopenClosedConversationOpportunity } from './conversation-opportunity-service.js'
 import {
   businessInformationTopicsFromRouting,
@@ -362,6 +370,28 @@ export class ConversationService {
       input.conversation.selectedDate &&
       input.conversation.selectedTime
     ) {
+      const depositRequest = await this.requestBookingV2DepositIfNeeded({
+        phone: input.phone,
+        businessId: input.businessId,
+        conversation: {
+          selectedCustomerName: input.conversation.selectedCustomerName,
+          selectedServiceId: input.conversation.selectedServiceId,
+          selectedProfessionalId: input.conversation.selectedProfessionalId,
+          selectedDate: input.conversation.selectedDate,
+          selectedTime: input.conversation.selectedTime,
+          misunderstandingCount: input.conversation.misunderstandingCount,
+          bookingV2State: input.conversation.bookingV2State
+        }
+      })
+      if (depositRequest) {
+        return informationReply
+          ? {
+              ...depositRequest,
+              reply: `${informationReply}\n\n${depositRequest.reply}`
+            }
+          : depositRequest
+      }
+
       const confirmation = await this.confirmBookingV2Appointment({
         phone: input.phone,
         conversation: {
@@ -557,6 +587,76 @@ export class ConversationService {
         customerName: input.conversation.selectedCustomerName,
         date: formatDateForBookingV2(input.conversation.selectedDate),
         time: input.conversation.selectedTime
+      }),
+      skipMisunderstandingTracking: true,
+      skipHumanize: true
+    }
+  }
+
+  private async requestBookingV2DepositIfNeeded(input: {
+    phone: string
+    businessId: string
+    conversation: {
+      selectedCustomerName: string
+      selectedServiceId: string
+      selectedProfessionalId: string
+      selectedDate: string
+      selectedTime: string
+      misunderstandingCount: number
+      bookingV2State?: unknown
+    }
+  }): Promise<HandleMessageResult | null> {
+    const service = await prisma.service.findFirst({
+      where: {
+        id: input.conversation.selectedServiceId,
+        businessId: input.businessId
+      },
+      select: {
+        id: true,
+        name: true,
+        price: true,
+        depositMode: true,
+        depositValue: true
+      }
+    })
+    if (!service || service.depositMode === 'NONE') return null
+
+    const state = stateFromConversation(input.conversation)
+    const estimateMinimum = state.guidedEstimate?.serviceId === service.id
+      ? state.guidedEstimate.priceMin
+      : null
+    const calculation = calculateBookingV2Deposit({
+      mode: service.depositMode,
+      value: service.depositValue,
+      servicePrice: service.price,
+      estimateMinimum
+    })
+    if (!calculation) return null
+
+    const nextState = {
+      ...state,
+      pendingDeposit: {
+        serviceId: service.id,
+        mode: calculation.mode,
+        configuredValue: calculation.configuredValue,
+        baseAmount: calculation.baseAmount,
+        amount: calculation.amount,
+        status: 'awaiting_proof' as const
+      }
+    }
+    await this.updateConversation(input.phone, {
+      currentStep: 'HUMAN_HANDOFF',
+      ...conversationPatchFromState(nextState),
+      aiEnabled: false,
+      humanHandoffAt: new Date(),
+      humanHandoffResolvedAt: null,
+      lastAvailability: null
+    })
+
+    return {
+      reply: renderBookingV2DepositRequest({
+        serviceName: service.name,
+        calculation
       }),
       skipMisunderstandingTracking: true,
       skipHumanize: true

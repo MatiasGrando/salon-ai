@@ -5591,7 +5591,8 @@ const crmHtml = `<!doctype html>
       margin-top: 2px;
     }
 
-    .service-estimate-editor {
+    .service-estimate-editor,
+    .service-deposit-editor {
       display: grid;
       gap: 12px;
       padding-top: 13px;
@@ -12334,6 +12335,26 @@ const crmHtml = `<!doctype html>
                     <span>Permitir continuar con la reserva despu&eacute;s del estimativo</span>
                   </label>
                 </div>
+                <label class="service-photo-option">
+                  <input id="service-deposit-enabled" type="checkbox">
+                  <span>Solicitar se&ntilde;a para confirmar la reserva</span>
+                </label>
+                <div class="service-deposit-editor" id="service-deposit-editor" hidden>
+                  <div class="service-form-grid">
+                    <div class="service-form-group">
+                      <label for="service-deposit-mode">C&oacute;mo calcularla</label>
+                      <select id="service-deposit-mode">
+                        <option value="FIXED">Monto fijo</option>
+                        <option value="PERCENTAGE">Porcentaje del precio</option>
+                      </select>
+                    </div>
+                    <div class="service-form-group">
+                      <label for="service-deposit-value" id="service-deposit-value-label">Monto de la se&ntilde;a</label>
+                      <input class="field" id="service-deposit-value" type="number" min="1" step="1" placeholder="Ej: 20000">
+                    </div>
+                  </div>
+                  <div class="service-form-help" id="service-deposit-help">Se solicitar&aacute; al final de la reserva y el equipo confirmar&aacute; el comprobante.</div>
+                </div>
               </div>
               <div class="service-form-group">
                 <label for="service-category">Categor&iacute;a (opcional)</label>
@@ -14322,6 +14343,12 @@ const crmHtml = `<!doctype html>
       serviceEstimateAddOption: document.getElementById('service-estimate-add-option'),
       serviceEstimateDisclaimer: document.getElementById('service-estimate-disclaimer'),
       serviceEstimateAllowsBooking: document.getElementById('service-estimate-allows-booking'),
+      serviceDepositEnabled: document.getElementById('service-deposit-enabled'),
+      serviceDepositEditor: document.getElementById('service-deposit-editor'),
+      serviceDepositMode: document.getElementById('service-deposit-mode'),
+      serviceDepositValue: document.getElementById('service-deposit-value'),
+      serviceDepositValueLabel: document.getElementById('service-deposit-value-label'),
+      serviceDepositHelp: document.getElementById('service-deposit-help'),
       serviceParentGroup: document.getElementById('service-parent-group'),
       serviceParent: document.getElementById('service-parent'),
       serviceCategoryId: document.getElementById('service-category-id'),
@@ -16616,6 +16643,7 @@ const crmHtml = `<!doctype html>
       els.servicePriceMode.disabled = isGroup
       els.serviceAttentionMode.disabled = isGroup
       els.serviceRequiresPhoto.disabled = isGroup
+      els.serviceDepositEnabled.disabled = isGroup
       els.serviceParentGroup.hidden = !isVariant
 
       if (!isVariant) els.serviceParent.value = ''
@@ -16629,6 +16657,7 @@ const crmHtml = `<!doctype html>
           : 'El cliente puede reservarlo directamente y no contiene variantes.'
       updateServiceAttentionHelp()
       updateServicePriceModeHelp()
+      updateServiceDepositFields()
     }
 
     function updateServiceAttentionHelp() {
@@ -16692,6 +16721,26 @@ const crmHtml = `<!doctype html>
         : 'Se mostrarÃ¡ como importe exacto, por ejemplo: $ 35.000.'
     }
 
+    function updateServiceDepositFields() {
+      const attentionMode = els.serviceAttentionMode.value
+      const canBook = attentionMode === 'DIRECT_BOOKING' ||
+        (attentionMode === 'GUIDED_ESTIMATE' && els.serviceEstimateAllowsBooking.checked)
+      const canEnable = els.serviceItemType.value !== 'GROUP' && canBook
+      if (!canEnable) els.serviceDepositEnabled.checked = false
+      els.serviceDepositEnabled.disabled = !canEnable
+      const enabled = els.serviceDepositEnabled.checked && canEnable
+      const percentage = els.serviceDepositMode.value === 'PERCENTAGE'
+      els.serviceDepositEditor.hidden = !enabled
+      els.serviceDepositValueLabel.textContent = percentage
+        ? 'Porcentaje de la seña'
+        : 'Monto de la seña'
+      els.serviceDepositValue.placeholder = percentage ? 'Ej: 30' : 'Ej: 20000'
+      els.serviceDepositValue.max = percentage ? '100' : ''
+      els.serviceDepositHelp.textContent = percentage
+        ? 'Se calcula al final. En un estimativo de $100.000 a $150.000, el porcentaje se toma sobre $100.000.'
+        : 'Se solicitará este monto al final de la reserva y el equipo confirmará el comprobante.'
+    }
+
     function renderServices() {
       renderServiceCatalogControls()
       els.serviceCount.textContent = String(state.services.length)
@@ -16725,6 +16774,11 @@ const crmHtml = `<!doctype html>
                 : 'Servicio'
             const professionalCount = Number(service._count?.professionalLinks || 0)
             const attentionMode = service.attentionMode || 'DIRECT_BOOKING'
+            const depositLabel = service.depositMode === 'FIXED' && Number(service.depositValue) > 0
+              ? 'Seña: ' + formatCurrency(service.depositValue)
+              : service.depositMode === 'PERCENTAGE' && Number(service.depositValue) > 0
+                ? 'Seña: ' + Number(service.depositValue) + '%'
+                : null
             const attentionLabel = service.requiresPhoto
               ? 'Pide fotos y deriva'
               : attentionMode === 'QUOTE'
@@ -16739,6 +16793,7 @@ const crmHtml = `<!doctype html>
               : '<span>' + icon('clock') + escapeHtml(service.duration + ' min') + '</span>' +
                 '<span>' + icon('tag') + escapeHtml(priceLabel) + '</span>' +
                 '<span>' + escapeHtml(attentionLabel) + '</span>' +
+                (depositLabel ? '<span>' + escapeHtml(depositLabel) + '</span>' : '') +
                 ((attentionMode === 'DIRECT_BOOKING' && !service.requiresPhoto) ||
                   (attentionMode === 'GUIDED_ESTIMATE' && service.estimateAllowsBooking !== false)
                   ? professionalCount > 0
@@ -22949,6 +23004,12 @@ const crmHtml = `<!doctype html>
         note: String(option.note || '').trim() || null
       }))
       const estimateQuestion = els.serviceEstimateQuestion.value.trim()
+      const depositMode = isGroup || !els.serviceDepositEnabled.checked
+        ? 'NONE'
+        : els.serviceDepositMode.value
+      const depositValue = depositMode === 'NONE'
+        ? null
+        : Number(els.serviceDepositValue.value)
 
       if (!name || (!isGroup && (!Number.isFinite(duration) || duration <= 0))) {
         els.serviceFeedback.textContent = isGroup ? 'Completá el nombre.' : 'Completá nombre y duración.'
@@ -22984,6 +23045,19 @@ const crmHtml = `<!doctype html>
         els.serviceFeedback.textContent = 'CompletÃ¡ la pregunta y revisÃ¡ los rangos del estimativo.'
         return
       }
+      if (
+        depositMode !== 'NONE' &&
+        (
+          !Number.isInteger(depositValue) ||
+          depositValue <= 0 ||
+          (depositMode === 'PERCENTAGE' && depositValue > 100)
+        )
+      ) {
+        els.serviceFeedback.textContent = depositMode === 'PERCENTAGE'
+          ? 'El porcentaje de la seña debe ser un entero entre 1 y 100.'
+          : 'El monto de la seña debe ser un entero mayor a 0.'
+        return
+      }
 
       if (!setButtonLoading(els.serviceSubmit, true, id ? 'Guardando...' : 'Creando...')) return
       try {
@@ -23006,6 +23080,8 @@ const crmHtml = `<!doctype html>
             estimateOptions,
             estimateDisclaimer: els.serviceEstimateDisclaimer.value.trim() || null,
             estimateAllowsBooking: els.serviceEstimateAllowsBooking.checked,
+            depositMode,
+            depositValue,
             imageUrl: state.serviceImageUrl,
             aliases
           })
@@ -23039,10 +23115,14 @@ const crmHtml = `<!doctype html>
       els.serviceEstimateQuestion.value = service.estimateQuestion || ''
       els.serviceEstimateDisclaimer.value = service.estimateDisclaimer || ''
       els.serviceEstimateAllowsBooking.checked = service.estimateAllowsBooking !== false
+      els.serviceDepositEnabled.checked = service.depositMode === 'FIXED' || service.depositMode === 'PERCENTAGE'
+      els.serviceDepositMode.value = service.depositMode === 'PERCENTAGE' ? 'PERCENTAGE' : 'FIXED'
+      els.serviceDepositValue.value = service.depositValue ?? ''
       state.serviceEstimateOptions = Array.isArray(service.estimateOptions)
         ? service.estimateOptions.map((option) => ({ ...option }))
         : []
       renderServiceEstimateOptions()
+      updateServiceDepositFields()
       els.serviceAliases.value = (service.aliases || []).map((alias) => alias.name).join(', ')
       updateServiceTypeFields()
       setServiceImage(service.imageUrl || null)
@@ -23088,8 +23168,12 @@ const crmHtml = `<!doctype html>
       els.serviceEstimateQuestion.value = ''
       els.serviceEstimateDisclaimer.value = ''
       els.serviceEstimateAllowsBooking.checked = true
+      els.serviceDepositEnabled.checked = false
+      els.serviceDepositMode.value = 'FIXED'
+      els.serviceDepositValue.value = ''
       state.serviceEstimateOptions = []
       renderServiceEstimateOptions()
+      updateServiceDepositFields()
       els.serviceAliases.value = ''
       setServiceImage(null)
       els.serviceCancel.hidden = true
@@ -23376,9 +23460,15 @@ const crmHtml = `<!doctype html>
     els.serviceForm.addEventListener('submit', saveService)
     els.serviceCancel.addEventListener('click', resetServiceForm)
     els.serviceItemType.addEventListener('change', updateServiceTypeFields)
-    els.serviceAttentionMode.addEventListener('change', updateServiceAttentionHelp)
+    els.serviceAttentionMode.addEventListener('change', () => {
+      updateServiceAttentionHelp()
+      updateServiceDepositFields()
+    })
     els.serviceRequiresPhoto.addEventListener('change', updateServiceAttentionHelp)
     els.servicePriceMode.addEventListener('change', updateServicePriceModeHelp)
+    els.serviceDepositEnabled.addEventListener('change', updateServiceDepositFields)
+    els.serviceDepositMode.addEventListener('change', updateServiceDepositFields)
+    els.serviceEstimateAllowsBooking.addEventListener('change', updateServiceDepositFields)
     els.serviceEstimateAddOption.addEventListener('click', () => addServiceEstimateOption())
     els.serviceCategorySave.addEventListener('click', saveServiceCategory)
     els.serviceCategoryCancel.addEventListener('click', resetServiceCategoryForm)

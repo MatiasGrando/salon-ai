@@ -21,6 +21,10 @@ import {
   stateFromConversation
 } from '../src/services/booking-v2-conversation-state.js'
 import { BookingV2Engine } from '../src/services/booking-v2-engine.js'
+import {
+  calculateBookingV2Deposit,
+  renderBookingV2DepositRequest
+} from '../src/services/booking-v2-deposit.js'
 import type { BookingV2Catalog } from '../src/services/booking-v2-interpreter.js'
 import type { BookingV2CatalogOption } from '../src/services/booking-v2-extractor.js'
 import {
@@ -71,6 +75,47 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(confidenceLevel(0.95), 'high')
       assert.equal(confidenceLevel(0.7), 'medium')
       assert.equal(confidenceLevel(0.2), 'low')
+    }
+  },
+  {
+    name: 'seña fija conserva el monto configurado',
+    run: () => {
+      assert.deepEqual(calculateBookingV2Deposit({
+        mode: 'FIXED',
+        value: 20000,
+        servicePrice: 90000,
+        estimateMinimum: null
+      }), {
+        mode: 'FIXED',
+        configuredValue: 20000,
+        baseAmount: null,
+        amount: 20000
+      })
+    }
+  },
+  {
+    name: 'seña porcentual usa la banda minima del estimativo',
+    run: () => {
+      const calculation = calculateBookingV2Deposit({
+        mode: 'PERCENTAGE',
+        value: 30,
+        servicePrice: 80000,
+        estimateMinimum: 100000
+      })
+      assert.deepEqual(calculation, {
+        mode: 'PERCENTAGE',
+        configuredValue: 30,
+        baseAmount: 100000,
+        amount: 30000
+      })
+      const reply = renderBookingV2DepositRequest({
+        serviceName: 'Iluminación',
+        calculation: calculation!
+      })
+      assert.equal(reply.includes('$ 30.000'), true)
+      assert.equal(reply.includes('$ 100.000'), true)
+      assert.equal(reply.includes('comprobante'), true)
+      assert.equal(reply.includes('confirmará el turno'), true)
     }
   },
   {
@@ -459,6 +504,29 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       })
 
       assert.deepEqual(restored.pendingProposal, state.pendingProposal)
+    }
+  },
+  {
+    name: 'persiste la seña pendiente con el contexto de la reserva',
+    run: () => {
+      const state = {
+        ...completeDraft(),
+        pendingDeposit: {
+          serviceId: 'haircut',
+          mode: 'PERCENTAGE' as const,
+          configuredValue: 30,
+          baseAmount: 100000,
+          amount: 30000,
+          status: 'awaiting_proof' as const
+        }
+      }
+      const patch = conversationPatchFromState(state)
+      const restored = stateFromConversation({
+        ...patch,
+        bookingV2State: patch.bookingV2State
+      })
+      assert.deepEqual(restored.pendingDeposit, state.pendingDeposit)
+      assert.equal(restored.draft.time, '15:00')
     }
   },
   {

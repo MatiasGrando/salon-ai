@@ -24,6 +24,8 @@ export type BookingV2ServiceOption = {
   estimateOptions?: BookingV2EstimateOption[]
   estimateDisclaimer?: string | null
   estimateAllowsBooking?: boolean
+  depositMode?: 'NONE' | 'FIXED' | 'PERCENTAGE'
+  depositValue?: number | null
 }
 
 export type BookingV2EstimateOption = {
@@ -136,7 +138,9 @@ export class BookingV2DomainService {
           estimateQuestion: service.estimateQuestion,
           estimateOptions: readEstimateOptions(service.estimateOptions),
           estimateDisclaimer: service.estimateDisclaimer,
-          estimateAllowsBooking: service.estimateAllowsBooking
+          estimateAllowsBooking: service.estimateAllowsBooking,
+          depositMode: service.depositMode,
+          depositValue: service.depositValue
         }
       }),
       professionals: professionals.map((professional) => ({

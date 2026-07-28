@@ -47,6 +47,12 @@ enum ServiceAttentionMode {
   GUIDED_ESTIMATE
 }
 
+enum ServiceDepositMode {
+  NONE
+  FIXED
+  PERCENTAGE
+}
+
 enum ServicePriceMode {
   FIXED
   STARTING_AT
@@ -325,6 +331,8 @@ model Service {
   estimateOptions       Json?
   estimateDisclaimer    String?
   estimateAllowsBooking Boolean              @default(true)
+  depositMode           ServiceDepositMode   @default(NONE)
+  depositValue          Int?
 
   businessId String
   business   Business @relation(fields: [businessId], references: [id])

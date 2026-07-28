@@ -3,6 +3,7 @@ import {
   createEmptyBookingV2State,
   type BookingField,
   type BookingV2GuidedEstimate,
+  type BookingV2PendingDeposit,
   type BookingProposal,
   type BookingV2State
 } from './booking-v2-state.js'
@@ -31,6 +32,7 @@ export type BookingV2PersistedState = {
   version: 1
   pendingProposal: BookingProposal | null
   guidedEstimate?: BookingV2GuidedEstimate | null
+  pendingDeposit?: BookingV2PendingDeposit | null
 }
 
 export function stateFromConversation(
@@ -48,6 +50,7 @@ export function stateFromConversation(
     },
     pendingProposal: readPendingProposal(conversation.bookingV2State),
     guidedEstimate: readGuidedEstimate(conversation.bookingV2State),
+    pendingDeposit: readPendingDeposit(conversation.bookingV2State),
     misunderstandingCount: conversation.misunderstandingCount
   }
 }
@@ -60,11 +63,12 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
     selectedDate: state.draft.date,
     selectedTime: state.draft.time,
     misunderstandingCount: state.misunderstandingCount,
-    bookingV2State: state.pendingProposal || state.guidedEstimate
+    bookingV2State: state.pendingProposal || state.guidedEstimate || state.pendingDeposit
       ? {
           version: 1,
           pendingProposal: state.pendingProposal,
-          ...(state.guidedEstimate ? { guidedEstimate: state.guidedEstimate } : {})
+          ...(state.guidedEstimate ? { guidedEstimate: state.guidedEstimate } : {}),
+          ...(state.pendingDeposit ? { pendingDeposit: state.pendingDeposit } : {})
         }
       : null
   }
@@ -118,6 +122,31 @@ function readGuidedEstimate(value: unknown): BookingV2GuidedEstimate | null {
     optionLabel: candidate.optionLabel ?? null,
     priceMin: candidate.priceMin ?? null,
     priceMax: candidate.priceMax ?? null
+  }
+}
+
+function readPendingDeposit(value: unknown): BookingV2PendingDeposit | null {
+  if (!value || typeof value !== 'object') return null
+  const persisted = value as { version?: unknown; pendingDeposit?: unknown }
+  if (persisted.version !== 1 || !persisted.pendingDeposit || typeof persisted.pendingDeposit !== 'object') {
+    return null
+  }
+  const candidate = persisted.pendingDeposit as Partial<BookingV2PendingDeposit>
+  if (typeof candidate.serviceId !== 'string') return null
+  if (candidate.mode !== 'FIXED' && candidate.mode !== 'PERCENTAGE') return null
+  if (typeof candidate.configuredValue !== 'number' || !Number.isFinite(candidate.configuredValue)) return null
+  if (candidate.baseAmount !== null && (typeof candidate.baseAmount !== 'number' || !Number.isFinite(candidate.baseAmount))) {
+    return null
+  }
+  if (typeof candidate.amount !== 'number' || !Number.isFinite(candidate.amount)) return null
+  if (candidate.status !== 'awaiting_proof') return null
+  return {
+    serviceId: candidate.serviceId,
+    mode: candidate.mode,
+    configuredValue: candidate.configuredValue,
+    baseAmount: candidate.baseAmount ?? null,
+    amount: candidate.amount,
+    status: candidate.status
   }
 }
 

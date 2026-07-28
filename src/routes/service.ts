@@ -148,6 +148,8 @@ export async function serviceRoutes(app: FastifyInstance) {
       estimateOptions?: unknown
       estimateDisclaimer?: string | null
       estimateAllowsBooking?: boolean
+      depositMode?: string
+      depositValue?: number | string | null
     }
     const name = body.name?.trim()
     const duration = Number(body.duration)
@@ -167,6 +169,8 @@ export async function serviceRoutes(app: FastifyInstance) {
     const attentionMode = normalizeServiceAttentionMode(body.attentionMode)
     const requiresPhoto = Boolean(body.requiresPhoto)
     const estimateOptions = normalizeEstimateOptions(body.estimateOptions)
+    const depositMode = normalizeServiceDepositMode(body.depositMode)
+    const depositValue = normalizeNullableNumber(body.depositValue)
 
     if (!businessId) {
       return reply.status(400).send({
@@ -231,6 +235,32 @@ export async function serviceRoutes(app: FastifyInstance) {
         message: 'El estimativo necesita una pregunta y al menos una opcion'
       })
     }
+    if (body.depositMode !== undefined && !depositMode) {
+      return reply.status(400).send({
+        message: 'Selecciona una modalidad de seña valida'
+      })
+    }
+    const depositValidation = validateDepositRule(depositMode ?? 'NONE', depositValue)
+    if (!depositValidation.ok) {
+      return reply.status(400).send({ message: depositValidation.message })
+    }
+    const depositBaseValidation = validatePercentageDepositBase({
+      mode: depositMode ?? 'NONE',
+      attentionMode: attentionMode ?? 'DIRECT_BOOKING',
+      price,
+      estimateOptions: estimateOptions ?? []
+    })
+    if (!depositBaseValidation.ok) {
+      return reply.status(400).send({ message: depositBaseValidation.message })
+    }
+    const depositFlowValidation = validateDepositBookingFlow({
+      mode: depositMode ?? 'NONE',
+      attentionMode: attentionMode ?? 'DIRECT_BOOKING',
+      estimateAllowsBooking: body.estimateAllowsBooking !== false
+    })
+    if (!depositFlowValidation.ok) {
+      return reply.status(400).send({ message: depositFlowValidation.message })
+    }
 
     const hierarchy = await validateServiceHierarchy({
       businessId,
@@ -260,6 +290,8 @@ export async function serviceRoutes(app: FastifyInstance) {
       estimateOptions: isBookable && estimateOptions?.length ? estimateOptions : undefined,
       estimateDisclaimer: isBookable ? normalizeOptionalText(body.estimateDisclaimer) : null,
       estimateAllowsBooking: isBookable ? body.estimateAllowsBooking !== false : true,
+      depositMode: isBookable ? depositMode ?? 'NONE' : 'NONE',
+      depositValue: isBookable && depositMode !== 'NONE' ? depositValue : null,
       ...(aliases?.length
         ? {
             aliases: {
@@ -337,6 +369,8 @@ export async function serviceRoutes(app: FastifyInstance) {
       estimateOptions?: unknown
       estimateDisclaimer?: string | null
       estimateAllowsBooking?: boolean
+      depositMode?: string
+      depositValue?: number | string | null
     }
     const name = body.name?.trim()
     const duration = Number(body.duration)
@@ -388,6 +422,8 @@ export async function serviceRoutes(app: FastifyInstance) {
         estimateOptions: true,
         estimateDisclaimer: true,
         estimateAllowsBooking: true,
+        depositMode: true,
+        depositValue: true,
         _count: {
           select: {
             variants: true
@@ -433,6 +469,15 @@ export async function serviceRoutes(app: FastifyInstance) {
     const estimateQuestion = body.estimateQuestion === undefined
       ? existing.estimateQuestion
       : normalizeOptionalText(body.estimateQuestion)
+    const estimateAllowsBooking = typeof body.estimateAllowsBooking === 'boolean'
+      ? body.estimateAllowsBooking
+      : existing.estimateAllowsBooking
+    const depositMode = body.depositMode === undefined
+      ? existing.depositMode
+      : normalizeServiceDepositMode(body.depositMode)
+    const depositValue = body.depositValue === undefined
+      ? existing.depositValue
+      : normalizeNullableNumber(body.depositValue)
     if (estimateOptions === null) {
       return reply.status(400).send({
         message: 'Revisa las opciones del estimativo'
@@ -447,6 +492,32 @@ export async function serviceRoutes(app: FastifyInstance) {
       return reply.status(400).send({
         message: 'Selecciona una modalidad de atencion valida'
       })
+    }
+    if (!depositMode) {
+      return reply.status(400).send({
+        message: 'Selecciona una modalidad de seña valida'
+      })
+    }
+    const depositValidation = validateDepositRule(depositMode, depositValue)
+    if (!depositValidation.ok) {
+      return reply.status(400).send({ message: depositValidation.message })
+    }
+    const depositBaseValidation = validatePercentageDepositBase({
+      mode: depositMode,
+      attentionMode,
+      price,
+      estimateOptions: estimateOptions ?? []
+    })
+    if (!depositBaseValidation.ok) {
+      return reply.status(400).send({ message: depositBaseValidation.message })
+    }
+    const depositFlowValidation = validateDepositBookingFlow({
+      mode: depositMode,
+      attentionMode,
+      estimateAllowsBooking
+    })
+    if (!depositFlowValidation.ok) {
+      return reply.status(400).send({ message: depositFlowValidation.message })
     }
     if (parentServiceId === params.id) {
       return reply.status(400).send({
@@ -501,10 +572,10 @@ export async function serviceRoutes(app: FastifyInstance) {
               : normalizeOptionalText(body.estimateDisclaimer)
             : null,
           estimateAllowsBooking: isBookable
-            ? typeof body.estimateAllowsBooking === 'boolean'
-              ? body.estimateAllowsBooking
-              : existing.estimateAllowsBooking
+            ? estimateAllowsBooking
             : true,
+          depositMode: isBookable ? depositMode : 'NONE',
+          depositValue: isBookable && depositMode !== 'NONE' ? depositValue : null,
           ...(body.sortOrder === undefined ? {} : { sortOrder: normalizeSortOrder(body.sortOrder) }),
           price,
           imageUrl: imageUrl ?? null
@@ -722,6 +793,90 @@ function normalizeServiceAttentionMode(value?: string) {
     : value === undefined
       ? undefined
       : null
+}
+
+function normalizeServiceDepositMode(value?: string) {
+  const normalized = value?.trim().toUpperCase()
+  return normalized === 'NONE' || normalized === 'FIXED' || normalized === 'PERCENTAGE'
+    ? normalized
+    : value === undefined
+      ? undefined
+      : null
+}
+
+function normalizeNullableNumber(value?: number | string | null) {
+  if (value === undefined || value === null || value === '') return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : Number.NaN
+}
+
+function validateDepositRule(mode: 'NONE' | 'FIXED' | 'PERCENTAGE', value: number | null) {
+  if (mode === 'NONE') return { ok: true as const }
+  if (value === null || !Number.isFinite(value) || value <= 0) {
+    return {
+      ok: false as const,
+      message: mode === 'FIXED'
+        ? 'El monto de la seña debe ser mayor a 0'
+        : 'El porcentaje de la seña debe ser mayor a 0'
+    }
+  }
+  if (mode === 'PERCENTAGE' && value > 100) {
+    return {
+      ok: false as const,
+      message: 'El porcentaje de la seña no puede superar el 100%'
+    }
+  }
+  if (!Number.isInteger(value)) {
+    return {
+      ok: false as const,
+      message: 'La seña debe expresarse con un numero entero'
+    }
+  }
+  return { ok: true as const }
+}
+
+function validatePercentageDepositBase(input: {
+  mode: 'NONE' | 'FIXED' | 'PERCENTAGE'
+  attentionMode: 'DIRECT_BOOKING' | 'QUOTE' | 'ADVISOR' | 'GUIDED_ESTIMATE'
+  price: number | null
+  estimateOptions: Array<{ priceMin: number } | null>
+}) {
+  if (input.mode !== 'PERCENTAGE') return { ok: true as const }
+  if (input.attentionMode === 'GUIDED_ESTIMATE') {
+    if (
+      input.estimateOptions.length > 0 &&
+      input.estimateOptions.every((option) => option !== null && option.priceMin > 0)
+    ) {
+      return { ok: true as const }
+    }
+    return {
+      ok: false as const,
+      message: 'Para calcular la seña porcentual, todos los estimativos deben tener un minimo mayor a 0'
+    }
+  }
+  if (input.price !== null && input.price > 0) return { ok: true as const }
+  return {
+    ok: false as const,
+    message: 'Para calcular la seña porcentual, carga un precio base mayor a 0'
+  }
+}
+
+function validateDepositBookingFlow(input: {
+  mode: 'NONE' | 'FIXED' | 'PERCENTAGE'
+  attentionMode: 'DIRECT_BOOKING' | 'QUOTE' | 'ADVISOR' | 'GUIDED_ESTIMATE'
+  estimateAllowsBooking: boolean
+}) {
+  if (input.mode === 'NONE') return { ok: true as const }
+  if (
+    input.attentionMode === 'DIRECT_BOOKING' ||
+    (input.attentionMode === 'GUIDED_ESTIMATE' && input.estimateAllowsBooking)
+  ) {
+    return { ok: true as const }
+  }
+  return {
+    ok: false as const,
+    message: 'La seña solo puede activarse en servicios que permiten continuar con una reserva'
+  }
 }
 
 function normalizeEstimateOptions(value: unknown) {
