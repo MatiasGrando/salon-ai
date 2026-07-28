@@ -24,6 +24,22 @@ export type BookingV2MessagePlan =
       type: 'confirm_booking'
     }
   | {
+      type: 'ask_estimate_option'
+      reason: 'missing' | 'not_understood'
+    }
+  | {
+      type: 'show_estimate'
+      optionLabel: string
+      priceMin: number
+      priceMax: number | null
+      note: string | null
+      allowsBooking: boolean
+    }
+  | {
+      type: 'ask_estimate_decision'
+      allowsBooking: boolean
+    }
+  | {
       type: 'handoff'
       reason:
         | 'repeated_misunderstanding'
@@ -31,6 +47,7 @@ export type BookingV2MessagePlan =
         | 'quote_required'
         | 'advisor_required'
         | 'photo_required'
+        | 'estimate_quote_requested'
     }
 
 export function buildBookingV2MessagePlan(

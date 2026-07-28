@@ -54,6 +54,70 @@ export class BookingV2Engine {
     const initialState = stateFromConversation(input.conversation)
     const catalog = await this.domain.loadCatalog(input.businessId)
 
+    if (initialState.guidedEstimate) {
+      const service = catalog.services.find((option) =>
+        option.id === initialState.guidedEstimate?.serviceId &&
+        option.attentionMode === 'GUIDED_ESTIMATE'
+      )
+      if (service && initialState.guidedEstimate.stage === 'awaiting_option') {
+        const option = resolveEstimateOption(input.message, service.estimateOptions ?? [])
+        if (!option) {
+          return this.guidedEstimateResult(initialState, {
+            type: 'ask_estimate_option',
+            reason: 'not_understood'
+          }, catalog, 'no_change')
+        }
+        const state: BookingV2State = {
+          ...initialState,
+          guidedEstimate: {
+            serviceId: service.id,
+            stage: 'awaiting_decision',
+            optionId: option.id,
+            optionLabel: option.label,
+            priceMin: option.priceMin,
+            priceMax: option.priceMax
+          },
+          misunderstandingCount: 0
+        }
+        return this.guidedEstimateResult(state, {
+          type: 'show_estimate',
+          optionLabel: option.label,
+          priceMin: option.priceMin,
+          priceMax: option.priceMax,
+          note: option.note,
+          allowsBooking: service.estimateAllowsBooking !== false
+        }, catalog, 'accepted')
+      }
+      if (service && initialState.guidedEstimate.stage === 'awaiting_decision') {
+        if (isExactQuoteRequest(input.message, service.estimateAllowsBooking !== false)) {
+          return this.guidedEstimateResult(initialState, {
+            type: 'handoff',
+            reason: service.requiresPhoto ? 'photo_required' : 'estimate_quote_requested'
+          }, catalog, 'accepted')
+        }
+        if (service.estimateAllowsBooking !== false && isContinueBookingRequest(input.message)) {
+          const state: BookingV2State = {
+            ...initialState,
+            guidedEstimate: {
+              ...initialState.guidedEstimate,
+              stage: 'completed'
+            },
+            misunderstandingCount: 0
+          }
+          return this.fromInterpretation({
+            state,
+            nextField: nextMissingField(state.draft),
+            outcome: 'accepted',
+            affectedField: null
+          }, null, catalog)
+        }
+        return this.guidedEstimateResult(initialState, {
+          type: 'ask_estimate_decision',
+          allowsBooking: service.estimateAllowsBooking !== false
+        }, catalog, 'no_change')
+      }
+    }
+
     if (initialState.draft.time && isTimeChangeRequest(input.message)) {
       const stateWithoutTime = {
         ...initialState,
@@ -213,6 +277,24 @@ export class BookingV2Engine {
   async resume(input: Omit<BookingV2ProcessInput, 'message'>): Promise<BookingV2ProcessResult> {
     const state = stateFromConversation(input.conversation)
     const catalog = await this.domain.loadCatalog(input.businessId)
+    const guidedService = state.guidedEstimate
+      ? catalog.services.find((service) =>
+          service.id === state.guidedEstimate?.serviceId &&
+          service.attentionMode === 'GUIDED_ESTIMATE'
+        )
+      : null
+    if (guidedService && state.guidedEstimate?.stage === 'awaiting_option') {
+      return this.guidedEstimateResult(state, {
+        type: 'ask_estimate_option',
+        reason: 'missing'
+      }, catalog, 'no_change')
+    }
+    if (guidedService && state.guidedEstimate?.stage === 'awaiting_decision') {
+      return this.guidedEstimateResult(state, {
+        type: 'ask_estimate_decision',
+        allowsBooking: guidedService.estimateAllowsBooking !== false
+      }, catalog, 'no_change')
+    }
 
     return this.fromInterpretation({
       state,
@@ -253,7 +335,31 @@ export class BookingV2Engine {
     const selectedService = catalog?.services.find(
       (service) => service.id === effectiveInterpretation.state.draft.service
     )
-    if (
+    if (selectedService?.attentionMode === 'GUIDED_ESTIMATE') {
+      if (
+        effectiveInterpretation.state.guidedEstimate?.serviceId !== selectedService.id ||
+        effectiveInterpretation.state.guidedEstimate.stage !== 'completed'
+      ) {
+        effectiveInterpretation = {
+          ...effectiveInterpretation,
+          state: {
+            ...effectiveInterpretation.state,
+            guidedEstimate: {
+              serviceId: selectedService.id,
+              stage: 'awaiting_option',
+              optionId: null,
+              optionLabel: null,
+              priceMin: null,
+              priceMax: null
+            }
+          }
+        }
+        plan = {
+          type: 'ask_estimate_option',
+          reason: 'missing'
+        }
+      }
+    } else if (
       selectedService &&
       (selectedService.requiresPhoto || (
         selectedService.attentionMode !== undefined &&
@@ -370,6 +476,28 @@ export class BookingV2Engine {
       }),
       availabilityOptions,
       extraction,
+      outcome
+    }
+  }
+
+  private guidedEstimateResult(
+    state: BookingV2State,
+    plan: BookingV2MessagePlan,
+    catalog: BookingV2DomainCatalog,
+    outcome: BookingV2ProcessResult['outcome']
+  ): BookingV2ProcessResult {
+    return {
+      state,
+      conversationPatch: conversationPatchFromState(state),
+      plan,
+      reply: renderBookingV2Response({
+        plan,
+        draft: state.draft,
+        catalog,
+        availabilityOptions: []
+      }),
+      availabilityOptions: [],
+      extraction: null,
       outcome
     }
   }
@@ -755,6 +883,53 @@ function isTimeChangeRequest(message: string) {
     'modificar el horario',
     'otra hora',
     'otro horario'
+  ].some((phrase) => normalized.includes(phrase))
+}
+
+function resolveEstimateOption(
+  message: string,
+  options: NonNullable<BookingV2DomainCatalog['services'][number]['estimateOptions']>
+) {
+  const normalized = normalize(message)
+  const numericMatch = /^(?:opcion\s*)?(\d{1,2})$/.exec(normalized)
+  if (numericMatch?.[1]) {
+    return options[Number(numericMatch[1]) - 1] ?? null
+  }
+  const exact = options.filter((option) => normalize(option.label) === normalized)
+  if (exact.length === 1) return exact[0] ?? null
+  const embedded = options.filter((option) =>
+    normalized.includes(normalize(option.label)) ||
+    normalize(option.label).includes(normalized)
+  )
+  return embedded.length === 1 ? embedded[0] ?? null : null
+}
+
+function isExactQuoteRequest(message: string, allowsBooking: boolean) {
+  const normalized = normalize(message)
+  if (!allowsBooking && ['si', 'dale', 'ok', 'quiero', 'por favor'].includes(normalized)) return true
+  return [
+    'presupuesto',
+    'presupuesto exacto',
+    'cotizacion',
+    'cotizar',
+    'que lo vea',
+    'que me lo vean',
+    'hablar con alguien',
+    'hablar con una persona',
+    'prefiero presupuesto'
+  ].some((phrase) => normalized.includes(phrase))
+}
+
+function isContinueBookingRequest(message: string) {
+  const normalized = normalize(message)
+  return [
+    'reservar',
+    'reserva',
+    'quiero reservar',
+    'seguir con la reserva',
+    'continuar con la reserva',
+    'sacar turno',
+    'quiero un turno'
   ].some((phrase) => normalized.includes(phrase))
 }
 

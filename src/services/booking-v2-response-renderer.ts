@@ -30,12 +30,52 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
         ? `${service.name} requiere asesoramiento antes de coordinar. Te derivo con una persona del local para que pueda orientarte.`
         : 'Este servicio requiere asesoramiento antes de coordinar. Te derivo con una persona del local para que pueda orientarte.'
     }
+    if (input.plan.reason === 'estimate_quote_requested') {
+      return service
+        ? `Perfecto. Te derivo con una persona del local para preparar un presupuesto exacto de ${service.name}.`
+        : 'Perfecto. Te derivo con una persona del local para preparar un presupuesto exacto.'
+    }
     if (input.plan.reason === 'no_compatible_professional') {
       return service
         ? `Por el momento no tengo profesionales habilitados para ${service.name}. Te derivo con una persona del local para revisarlo.`
         : 'Por el momento no tengo profesionales disponibles. Te derivo con una persona del local.'
     }
     return 'Te derivo con una persona para que pueda ayudarte mejor.'
+  }
+
+  if (input.plan.type === 'ask_estimate_option') {
+    const service = input.catalog?.services.find((option) => option.id === input.draft.service)
+    const explanation = service?.estimateExplanation?.trim()
+    const question = service?.estimateQuestion?.trim() || '¿Cuál de estas opciones se parece más a tu caso?'
+    const options = service?.estimateOptions ?? []
+    return [
+      ...(input.plan.reason === 'not_understood'
+        ? ['Disculpame, no pude identificar la opción.']
+        : explanation ? [explanation] : []),
+      question,
+      ...options.map((option, index) => `• ${index + 1}. ${option.label}`)
+    ].join('\n')
+  }
+
+  if (input.plan.type === 'show_estimate') {
+    const service = input.catalog?.services.find((option) => option.id === input.draft.service)
+    const estimate = input.plan.priceMax !== null && input.plan.priceMax !== input.plan.priceMin
+      ? `entre ${formatMoney(input.plan.priceMin)} y ${formatMoney(input.plan.priceMax)}`
+      : `desde ${formatMoney(input.plan.priceMin)}`
+    return [
+      `Para ${input.plan.optionLabel}, el valor estimado de ${service?.name ?? 'este servicio'} es ${estimate}.`,
+      ...(input.plan.note ? [input.plan.note] : []),
+      ...(service?.estimateDisclaimer?.trim() ? [service.estimateDisclaimer.trim()] : []),
+      input.plan.allowsBooking
+        ? '¿Querés continuar con la reserva o preferís que el equipo prepare un presupuesto exacto?'
+        : '¿Querés que el equipo prepare un presupuesto exacto?'
+    ].join('\n\n')
+  }
+
+  if (input.plan.type === 'ask_estimate_decision') {
+    return input.plan.allowsBooking
+      ? '¿Preferís continuar con la reserva o pedir un presupuesto exacto?'
+      : '¿Querés que el equipo prepare un presupuesto exacto?'
   }
 
   if (input.plan.type === 'ask_field') {
@@ -146,7 +186,9 @@ function formatServiceOption(service: BookingV2DomainCatalog['services'][number]
   const price = service.price === null
     ? 'precio a consultar'
     : `${service.priceMode === 'STARTING_AT' ? 'desde ' : ''}${formatMoney(service.price)}`
-  const attention = service.requiresPhoto
+  const attention = service.attentionMode === 'GUIDED_ESTIMATE'
+    ? 'estimativo disponible'
+    : service.requiresPhoto
     ? 'requiere fotos'
     : service.attentionMode === 'QUOTE'
       ? 'presupuesto personalizado'

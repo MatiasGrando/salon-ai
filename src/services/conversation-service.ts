@@ -1058,6 +1058,13 @@ export function isExplicitResetRequest(message: string) {
 
 function conversationStepFromBookingV2Plan(plan: BookingV2MessagePlan) {
   if (plan.type === 'handoff') return 'HUMAN_HANDOFF'
+  if (
+    plan.type === 'ask_estimate_option' ||
+    plan.type === 'show_estimate' ||
+    plan.type === 'ask_estimate_decision'
+  ) {
+    return 'ASK_SERVICE'
+  }
   if (plan.type === 'confirm_booking') return 'CONFIRM'
   if (plan.type === 'confirm_field' || plan.type === 'confirm_correction') {
     return stepForBookingV2Field(plan.field)

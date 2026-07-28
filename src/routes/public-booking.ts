@@ -42,7 +42,9 @@ export async function publicBookingRoutes(app: FastifyInstance) {
         name: business.name,
         slug: business.slug
       },
-      services: business.services.map((service) => ({
+      services: business.services
+        .filter((service) => service.attentionMode === 'DIRECT_BOOKING')
+        .map((service) => ({
         id: service.id,
         name: service.name,
         duration: service.duration,
@@ -279,7 +281,8 @@ async function professionalsForService(businessId: string, serviceId: string, pr
   const service = await prisma.service.findFirst({
     where: {
       id: serviceId,
-      businessId
+      businessId,
+      attentionMode: 'DIRECT_BOOKING'
     },
     select: {
       id: true

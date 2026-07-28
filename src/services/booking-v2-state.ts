@@ -20,9 +20,19 @@ export type BookingProposal = {
   kind: 'field' | 'correction'
 }
 
+export type BookingV2GuidedEstimate = {
+  serviceId: string
+  stage: 'awaiting_option' | 'awaiting_decision' | 'completed'
+  optionId: string | null
+  optionLabel: string | null
+  priceMin: number | null
+  priceMax: number | null
+}
+
 export type BookingV2State = {
   draft: BookingDraft
   pendingProposal: BookingProposal | null
+  guidedEstimate: BookingV2GuidedEstimate | null
   misunderstandingCount: number
 }
 
@@ -46,6 +56,7 @@ export function createEmptyBookingV2State(): BookingV2State {
       time: null
     },
     pendingProposal: null,
+    guidedEstimate: null,
     misunderstandingCount: 0
   }
 }
@@ -81,8 +92,12 @@ export function acceptField(
   )
 
   return {
+    ...state,
     draft,
     pendingProposal: null,
+    guidedEstimate: field === 'service' && state.draft[field] !== value
+      ? null
+      : state.guidedEstimate,
     misunderstandingCount: 0
   }
 }
@@ -125,8 +140,10 @@ export function confirmProposal(state: BookingV2State): BookingV2State {
 
   if (proposal.kind === 'correction' && proposal.value === null) {
     return {
+      ...state,
       draft: clearFieldAndDependents(state.draft, proposal.field),
       pendingProposal: null,
+      guidedEstimate: proposal.field === 'service' ? null : state.guidedEstimate,
       misunderstandingCount: 0
     }
   }

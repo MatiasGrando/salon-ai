@@ -2,6 +2,7 @@ import {
   BOOKING_FIELDS,
   createEmptyBookingV2State,
   type BookingField,
+  type BookingV2GuidedEstimate,
   type BookingProposal,
   type BookingV2State
 } from './booking-v2-state.js'
@@ -29,6 +30,7 @@ export type BookingV2ConversationPatch = {
 export type BookingV2PersistedState = {
   version: 1
   pendingProposal: BookingProposal | null
+  guidedEstimate?: BookingV2GuidedEstimate | null
 }
 
 export function stateFromConversation(
@@ -45,6 +47,7 @@ export function stateFromConversation(
       time: conversation.selectedTime
     },
     pendingProposal: readPendingProposal(conversation.bookingV2State),
+    guidedEstimate: readGuidedEstimate(conversation.bookingV2State),
     misunderstandingCount: conversation.misunderstandingCount
   }
 }
@@ -57,10 +60,11 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
     selectedDate: state.draft.date,
     selectedTime: state.draft.time,
     misunderstandingCount: state.misunderstandingCount,
-    bookingV2State: state.pendingProposal
+    bookingV2State: state.pendingProposal || state.guidedEstimate
       ? {
           version: 1,
-          pendingProposal: state.pendingProposal
+          pendingProposal: state.pendingProposal,
+          ...(state.guidedEstimate ? { guidedEstimate: state.guidedEstimate } : {})
         }
       : null
   }
@@ -91,6 +95,29 @@ function readPendingProposal(value: unknown): BookingProposal | null {
     confidence: Math.max(0, Math.min(1, candidate.confidence)),
     evidence: candidate.evidence,
     kind: candidate.kind
+  }
+}
+
+function readGuidedEstimate(value: unknown): BookingV2GuidedEstimate | null {
+  if (!value || typeof value !== 'object') return null
+  const persisted = value as { version?: unknown; guidedEstimate?: unknown }
+  if (persisted.version !== 1 || !persisted.guidedEstimate || typeof persisted.guidedEstimate !== 'object') {
+    return null
+  }
+  const candidate = persisted.guidedEstimate as Partial<BookingV2GuidedEstimate>
+  if (typeof candidate.serviceId !== 'string') return null
+  if (!['awaiting_option', 'awaiting_decision', 'completed'].includes(candidate.stage ?? '')) return null
+  if (candidate.optionId !== null && typeof candidate.optionId !== 'string') return null
+  if (candidate.optionLabel !== null && typeof candidate.optionLabel !== 'string') return null
+  if (candidate.priceMin !== null && (typeof candidate.priceMin !== 'number' || !Number.isFinite(candidate.priceMin))) return null
+  if (candidate.priceMax !== null && (typeof candidate.priceMax !== 'number' || !Number.isFinite(candidate.priceMax))) return null
+  return {
+    serviceId: candidate.serviceId,
+    stage: candidate.stage as BookingV2GuidedEstimate['stage'],
+    optionId: candidate.optionId ?? null,
+    optionLabel: candidate.optionLabel ?? null,
+    priceMin: candidate.priceMin ?? null,
+    priceMax: candidate.priceMax ?? null
   }
 }
 

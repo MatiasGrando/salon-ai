@@ -5591,6 +5591,58 @@ const crmHtml = `<!doctype html>
       margin-top: 2px;
     }
 
+    .service-estimate-editor {
+      display: grid;
+      gap: 12px;
+      padding-top: 13px;
+      border-top: 1px solid #dfe6f1;
+    }
+
+    .service-estimate-editor textarea {
+      min-height: 72px;
+      padding: 10px 12px;
+      border: 1px solid #dfe6f1;
+      border-radius: 7px;
+      resize: vertical;
+      color: #263958;
+      background: #fff;
+    }
+
+    .estimate-option-row {
+      padding: 12px;
+      display: grid;
+      grid-template-columns: 1.4fr .8fr .8fr auto;
+      gap: 8px;
+      align-items: end;
+      border: 1px solid #dfe6f1;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .estimate-option-row label {
+      display: grid;
+      gap: 5px;
+    }
+
+    .estimate-option-row input {
+      width: 100%;
+      height: 38px;
+      padding: 0 9px;
+      border: 1px solid #dfe6f1;
+      border-radius: 6px;
+    }
+
+    @media (max-width: 620px) {
+      .estimate-option-row {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .estimate-option-row label:first-child,
+      .estimate-option-row label[style] {
+        grid-column: 1 / -1 !important;
+      }
+    }
+
     .service-input-addon {
       display: grid;
       grid-template-columns: 1fr auto;
@@ -12251,6 +12303,7 @@ const crmHtml = `<!doctype html>
                     <option value="DIRECT_BOOKING">Reserva autom&aacute;tica</option>
                     <option value="QUOTE">Presupuesto personalizado</option>
                     <option value="ADVISOR">Asesoramiento previo</option>
+                    <option value="GUIDED_ESTIMATE">Estimativo guiado</option>
                   </select>
                   <div class="service-form-help" id="service-attention-help">El bot mostrar&aacute; profesionales y horarios disponibles para confirmar el turno.</div>
                 </div>
@@ -12258,6 +12311,29 @@ const crmHtml = `<!doctype html>
                   <input id="service-requires-photo" type="checkbox">
                   <span>Pedir fotos antes de derivar al equipo</span>
                 </label>
+                <div class="service-estimate-editor" id="service-estimate-editor" hidden>
+                  <div class="service-form-group">
+                    <label for="service-estimate-explanation">Explicaci&oacute;n del precio</label>
+                    <textarea id="service-estimate-explanation" placeholder="El precio depende del largo y de la cantidad de producto necesaria."></textarea>
+                  </div>
+                  <div class="service-form-group">
+                    <label for="service-estimate-question">Pregunta para calcular el estimativo</label>
+                    <input class="field" id="service-estimate-question" placeholder="&iquest;Qu&eacute; largo tiene tu cabello?">
+                  </div>
+                  <div class="service-form-group">
+                    <label>Opciones y rangos</label>
+                    <div id="service-estimate-options"></div>
+                    <button class="secondary" id="service-estimate-add-option" type="button">Agregar opci&oacute;n</button>
+                  </div>
+                  <div class="service-form-group">
+                    <label for="service-estimate-disclaimer">Aclaraci&oacute;n final</label>
+                    <textarea id="service-estimate-disclaimer" placeholder="El valor es estimativo y puede variar luego de evaluar el cabello."></textarea>
+                  </div>
+                  <label class="service-photo-option">
+                    <input id="service-estimate-allows-booking" type="checkbox" checked>
+                    <span>Permitir continuar con la reserva despu&eacute;s del estimativo</span>
+                  </label>
+                </div>
               </div>
               <div class="service-form-group">
                 <label for="service-category">Categor&iacute;a (opcional)</label>
@@ -13925,6 +14001,7 @@ const crmHtml = `<!doctype html>
       professionalViewMode: 'cards',
       professionalAvatarUrl: null,
       serviceImageUrl: null,
+      serviceEstimateOptions: [],
       businessLogoUrl: null,
       businessId: null,
       business: null,
@@ -14238,6 +14315,13 @@ const crmHtml = `<!doctype html>
       serviceAttentionMode: document.getElementById('service-attention-mode'),
       serviceAttentionHelp: document.getElementById('service-attention-help'),
       serviceRequiresPhoto: document.getElementById('service-requires-photo'),
+      serviceEstimateEditor: document.getElementById('service-estimate-editor'),
+      serviceEstimateExplanation: document.getElementById('service-estimate-explanation'),
+      serviceEstimateQuestion: document.getElementById('service-estimate-question'),
+      serviceEstimateOptions: document.getElementById('service-estimate-options'),
+      serviceEstimateAddOption: document.getElementById('service-estimate-add-option'),
+      serviceEstimateDisclaimer: document.getElementById('service-estimate-disclaimer'),
+      serviceEstimateAllowsBooking: document.getElementById('service-estimate-allows-booking'),
       serviceParentGroup: document.getElementById('service-parent-group'),
       serviceParent: document.getElementById('service-parent'),
       serviceCategoryId: document.getElementById('service-category-id'),
@@ -16549,13 +16633,57 @@ const crmHtml = `<!doctype html>
 
     function updateServiceAttentionHelp() {
       const mode = els.serviceAttentionMode.value
+      const isGuidedEstimate = mode === 'GUIDED_ESTIMATE'
+      els.serviceEstimateEditor.hidden = !isGuidedEstimate
+      if (isGuidedEstimate && state.serviceEstimateOptions.length === 0) {
+        addServiceEstimateOption()
+      }
       els.serviceAttentionHelp.textContent = mode === 'QUOTE'
         ? 'El bot no ofrecerÃ¡ horarios: derivarÃ¡ la consulta para preparar un presupuesto.'
         : mode === 'ADVISOR'
           ? 'El bot no ofrecerÃ¡ horarios: derivarÃ¡ al equipo para asesorar al cliente.'
+          : mode === 'GUIDED_ESTIMATE'
+            ? 'El bot harÃ¡ una pregunta, mostrarÃ¡ un rango estimado y ofrecerÃ¡ reservar o pedir un presupuesto exacto.'
           : els.serviceRequiresPhoto.checked
             ? 'Al pedir fotos, el bot pausarÃ¡ la reserva automÃ¡tica y derivarÃ¡ el caso al equipo.'
             : 'El bot mostrarÃ¡ profesionales y horarios disponibles para confirmar el turno.'
+    }
+
+    function addServiceEstimateOption(option = {}) {
+      state.serviceEstimateOptions.push({
+        id: option.id || 'estimate-' + Date.now() + '-' + state.serviceEstimateOptions.length,
+        label: option.label || '',
+        priceMin: option.priceMin ?? '',
+        priceMax: option.priceMax ?? '',
+        note: option.note || ''
+      })
+      renderServiceEstimateOptions()
+    }
+
+    function renderServiceEstimateOptions() {
+      els.serviceEstimateOptions.innerHTML = state.serviceEstimateOptions.map((option, index) =>
+        '<div class="estimate-option-row" data-estimate-index="' + index + '">' +
+          '<label>OpciÃ³n<input data-estimate-field="label" value="' + escapeHtml(option.label) + '" placeholder="Hasta los hombros"></label>' +
+          '<label>MÃ­nimo<input data-estimate-field="priceMin" type="number" min="0" value="' + escapeHtml(option.priceMin) + '" placeholder="80000"></label>' +
+          '<label>MÃ¡ximo<input data-estimate-field="priceMax" type="number" min="0" value="' + escapeHtml(option.priceMax) + '" placeholder="100000"></label>' +
+          '<button class="service-icon-button danger" type="button" data-remove-estimate-option="' + index + '" title="Quitar opciÃ³n">' + icon('trash') + '</button>' +
+          '<label style="grid-column: 1 / 4;">AclaraciÃ³n opcional<input data-estimate-field="note" value="' + escapeHtml(option.note) + '" placeholder="Puede variar segÃºn la cantidad de producto."></label>' +
+        '</div>'
+      ).join('')
+
+      for (const input of els.serviceEstimateOptions.querySelectorAll('[data-estimate-field]')) {
+        input.addEventListener('input', () => {
+          const row = input.closest('[data-estimate-index]')
+          const option = state.serviceEstimateOptions[Number(row?.dataset.estimateIndex)]
+          if (option) option[input.dataset.estimateField] = input.value
+        })
+      }
+      for (const button of els.serviceEstimateOptions.querySelectorAll('[data-remove-estimate-option]')) {
+        button.addEventListener('click', () => {
+          state.serviceEstimateOptions.splice(Number(button.dataset.removeEstimateOption), 1)
+          renderServiceEstimateOptions()
+        })
+      }
     }
 
     function updateServicePriceModeHelp() {
@@ -16603,13 +16731,16 @@ const crmHtml = `<!doctype html>
                 ? 'Presupuesto personalizado'
                 : attentionMode === 'ADVISOR'
                   ? 'Asesoramiento previo'
+                  : attentionMode === 'GUIDED_ESTIMATE'
+                    ? 'Estimativo guiado'
                   : 'Reserva automÃ¡tica'
             const serviceMeta = itemType === 'GROUP'
               ? '<span>Grupo de variantes</span>'
               : '<span>' + icon('clock') + escapeHtml(service.duration + ' min') + '</span>' +
                 '<span>' + icon('tag') + escapeHtml(priceLabel) + '</span>' +
                 '<span>' + escapeHtml(attentionLabel) + '</span>' +
-                (attentionMode === 'DIRECT_BOOKING' && !service.requiresPhoto
+                ((attentionMode === 'DIRECT_BOOKING' && !service.requiresPhoto) ||
+                  (attentionMode === 'GUIDED_ESTIMATE' && service.estimateAllowsBooking !== false)
                   ? professionalCount > 0
                     ? '<span>' + escapeHtml(professionalCount === 1 ? '1 profesional' : professionalCount + ' profesionales') + '</span>'
                     : '<span class="service-professional-warning">Sin profesionales asignados</span>'
@@ -19123,8 +19254,11 @@ const crmHtml = `<!doctype html>
     function bookableServices() {
       return state.services.filter((service) =>
         service.isBookable !== false &&
-        (service.attentionMode || 'DIRECT_BOOKING') === 'DIRECT_BOOKING' &&
-        service.requiresPhoto !== true
+        (
+          (service.attentionMode || 'DIRECT_BOOKING') === 'DIRECT_BOOKING' ||
+          (service.attentionMode === 'GUIDED_ESTIMATE' && service.estimateAllowsBooking !== false)
+        ) &&
+        (service.requiresPhoto !== true || service.attentionMode === 'GUIDED_ESTIMATE')
       )
     }
 
@@ -22807,6 +22941,14 @@ const crmHtml = `<!doctype html>
         .filter(Boolean)
       const attentionMode = isGroup ? 'DIRECT_BOOKING' : els.serviceAttentionMode.value
       const requiresPhoto = isGroup ? false : els.serviceRequiresPhoto.checked
+      const estimateOptions = state.serviceEstimateOptions.map((option) => ({
+        id: option.id,
+        label: String(option.label || '').trim(),
+        priceMin: Number(option.priceMin),
+        priceMax: String(option.priceMax ?? '').trim() === '' ? null : Number(option.priceMax),
+        note: String(option.note || '').trim() || null
+      }))
+      const estimateQuestion = els.serviceEstimateQuestion.value.trim()
 
       if (!name || (!isGroup && (!Number.isFinite(duration) || duration <= 0))) {
         els.serviceFeedback.textContent = isGroup ? 'Completá el nombre.' : 'Completá nombre y duración.'
@@ -22826,6 +22968,22 @@ const crmHtml = `<!doctype html>
         els.serviceFeedback.textContent = 'Para usar "Desde", cargÃ¡ un precio mayor a 0.'
         return
       }
+      if (
+        attentionMode === 'GUIDED_ESTIMATE' &&
+        (
+          !estimateQuestion ||
+          estimateOptions.length === 0 ||
+          estimateOptions.some((option) =>
+            !option.label ||
+            !Number.isFinite(option.priceMin) ||
+            option.priceMin < 0 ||
+            (option.priceMax !== null && (!Number.isFinite(option.priceMax) || option.priceMax < option.priceMin))
+          )
+        )
+      ) {
+        els.serviceFeedback.textContent = 'CompletÃ¡ la pregunta y revisÃ¡ los rangos del estimativo.'
+        return
+      }
 
       if (!setButtonLoading(els.serviceSubmit, true, id ? 'Guardando...' : 'Creando...')) return
       try {
@@ -22843,6 +23001,11 @@ const crmHtml = `<!doctype html>
             isBookable: !isGroup,
             attentionMode,
             requiresPhoto,
+            estimateExplanation: els.serviceEstimateExplanation.value.trim() || null,
+            estimateQuestion: estimateQuestion || null,
+            estimateOptions,
+            estimateDisclaimer: els.serviceEstimateDisclaimer.value.trim() || null,
+            estimateAllowsBooking: els.serviceEstimateAllowsBooking.checked,
             imageUrl: state.serviceImageUrl,
             aliases
           })
@@ -22872,6 +23035,14 @@ const crmHtml = `<!doctype html>
       els.serviceParent.value = service.parentServiceId || ''
       els.serviceAttentionMode.value = service.attentionMode || 'DIRECT_BOOKING'
       els.serviceRequiresPhoto.checked = service.requiresPhoto === true
+      els.serviceEstimateExplanation.value = service.estimateExplanation || ''
+      els.serviceEstimateQuestion.value = service.estimateQuestion || ''
+      els.serviceEstimateDisclaimer.value = service.estimateDisclaimer || ''
+      els.serviceEstimateAllowsBooking.checked = service.estimateAllowsBooking !== false
+      state.serviceEstimateOptions = Array.isArray(service.estimateOptions)
+        ? service.estimateOptions.map((option) => ({ ...option }))
+        : []
+      renderServiceEstimateOptions()
       els.serviceAliases.value = (service.aliases || []).map((alias) => alias.name).join(', ')
       updateServiceTypeFields()
       setServiceImage(service.imageUrl || null)
@@ -22913,6 +23084,12 @@ const crmHtml = `<!doctype html>
       els.serviceParent.value = ''
       els.serviceAttentionMode.value = 'DIRECT_BOOKING'
       els.serviceRequiresPhoto.checked = false
+      els.serviceEstimateExplanation.value = ''
+      els.serviceEstimateQuestion.value = ''
+      els.serviceEstimateDisclaimer.value = ''
+      els.serviceEstimateAllowsBooking.checked = true
+      state.serviceEstimateOptions = []
+      renderServiceEstimateOptions()
       els.serviceAliases.value = ''
       setServiceImage(null)
       els.serviceCancel.hidden = true
@@ -23202,6 +23379,7 @@ const crmHtml = `<!doctype html>
     els.serviceAttentionMode.addEventListener('change', updateServiceAttentionHelp)
     els.serviceRequiresPhoto.addEventListener('change', updateServiceAttentionHelp)
     els.servicePriceMode.addEventListener('change', updateServicePriceModeHelp)
+    els.serviceEstimateAddOption.addEventListener('click', () => addServiceEstimateOption())
     els.serviceCategorySave.addEventListener('click', saveServiceCategory)
     els.serviceCategoryCancel.addEventListener('click', resetServiceCategoryForm)
     els.serviceCategoryName.addEventListener('keydown', (event) => {

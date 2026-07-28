@@ -44,6 +44,7 @@ enum ServiceAttentionMode {
   DIRECT_BOOKING
   QUOTE
   ADVISOR
+  GUIDED_ESTIMATE
 }
 
 enum ServicePriceMode {
@@ -309,16 +310,21 @@ model Professional {
 model Service {
   id String @id @default(cuid())
 
-  name          String
-  duration      Int
-  category      String?
-  price         Int?
-  priceMode     ServicePriceMode     @default(FIXED)
-  imageUrl      String?
-  isBookable    Boolean              @default(true)
-  sortOrder     Int                  @default(0)
-  attentionMode ServiceAttentionMode @default(DIRECT_BOOKING)
-  requiresPhoto Boolean              @default(false)
+  name                  String
+  duration              Int
+  category              String?
+  price                 Int?
+  priceMode             ServicePriceMode     @default(FIXED)
+  imageUrl              String?
+  isBookable            Boolean              @default(true)
+  sortOrder             Int                  @default(0)
+  attentionMode         ServiceAttentionMode @default(DIRECT_BOOKING)
+  requiresPhoto         Boolean              @default(false)
+  estimateExplanation   String?
+  estimateQuestion      String?
+  estimateOptions       Json?
+  estimateDisclaimer    String?
+  estimateAllowsBooking Boolean              @default(true)
 
   businessId String
   business   Business @relation(fields: [businessId], references: [id])

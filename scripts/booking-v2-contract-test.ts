@@ -713,6 +713,131 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'estimativo guiado pregunta calcula y permite continuar la reserva',
+    run: async () => {
+      const catalog = createBookingV2DomainCatalog({
+        services: [{
+          id: 'highlights',
+          name: 'Iluminacion',
+          aliases: ['iluminacion'],
+          duration: 180,
+          price: 80000,
+          category: 'Coloracion',
+          attentionMode: 'GUIDED_ESTIMATE',
+          requiresPhoto: true,
+          estimateExplanation: 'El precio depende del largo y del producto.',
+          estimateQuestion: '¿Qué largo tiene tu cabello?',
+          estimateOptions: [
+            { id: 'short', label: 'Hasta los hombros', priceMin: 80000, priceMax: 100000, note: null },
+            { id: 'long', label: 'Hasta media espalda', priceMin: 110000, priceMax: 140000, note: 'Puede variar según la cantidad de producto.' }
+          ],
+          estimateDisclaimer: 'Es un valor estimativo.',
+          estimateAllowsBooking: true
+        }],
+        professionals: [{
+          id: 'professional-1',
+          name: 'Tamara',
+          serviceIds: ['highlights']
+        }]
+      })
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog }), fakeExtractor(null))
+      const selected = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Mati',
+          selectedServiceId: null,
+          selectedProfessionalId: null,
+          selectedDate: null,
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: 'iluminacion'
+      })
+      assert.equal(selected.plan.type, 'ask_estimate_option')
+      assert.equal(selected.reply.includes('¿Qué largo'), true)
+      assert.equal(selected.reply.includes('2. Hasta media espalda'), true)
+
+      const estimated = await engine.process({
+        businessId: 'business-1',
+        conversation: selected.conversationPatch,
+        message: '2'
+      })
+      assert.equal(estimated.plan.type, 'show_estimate')
+      assert.equal(estimated.reply.includes('110.000'), true)
+      assert.equal(estimated.reply.includes('140.000'), true)
+      assert.equal(estimated.reply.includes('continuar con la reserva'), true)
+
+      const resumed = await engine.resume({
+        businessId: 'business-1',
+        conversation: estimated.conversationPatch
+      })
+      assert.equal(resumed.plan.type, 'ask_estimate_decision')
+      assert.equal(resumed.state.guidedEstimate?.stage, 'awaiting_decision')
+
+      const continued = await engine.process({
+        businessId: 'business-1',
+        conversation: estimated.conversationPatch,
+        message: 'quiero reservar'
+      })
+      assert.equal(continued.plan.type, 'ask_field')
+      assert.equal(continued.plan.type === 'ask_field' ? continued.plan.field : null, 'professional')
+      assert.equal(continued.reply.includes('Tamara'), true)
+    }
+  },
+  {
+    name: 'estimativo guiado deriva con contexto si piden presupuesto exacto',
+    run: async () => {
+      const catalog = createBookingV2DomainCatalog({
+        services: [{
+          id: 'highlights',
+          name: 'Iluminacion',
+          aliases: [],
+          duration: 180,
+          price: 80000,
+          category: null,
+          attentionMode: 'GUIDED_ESTIMATE',
+          requiresPhoto: true,
+          estimateQuestion: '¿Qué largo tiene tu cabello?',
+          estimateOptions: [
+            { id: 'short', label: 'Hasta los hombros', priceMin: 80000, priceMax: 100000, note: null }
+          ],
+          estimateAllowsBooking: true
+        }],
+        professionals: []
+      })
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog }), fakeExtractor(null))
+      const state = {
+        selectedCustomerName: 'Mati',
+        selectedServiceId: 'highlights',
+        selectedProfessionalId: null,
+        selectedDate: null,
+        selectedTime: null,
+        misunderstandingCount: 0,
+        bookingV2State: {
+          version: 1,
+          pendingProposal: null,
+          guidedEstimate: {
+            serviceId: 'highlights',
+            stage: 'awaiting_decision',
+            optionId: 'short',
+            optionLabel: 'Hasta los hombros',
+            priceMin: 80000,
+            priceMax: 100000
+          }
+        }
+      }
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: state,
+        message: 'prefiero un presupuesto exacto'
+      })
+      assert.deepEqual(result.plan, { type: 'handoff', reason: 'photo_required' })
+      assert.equal(result.reply.includes('foto clara'), true)
+      assert.equal(result.conversationPatch.bookingV2State?.guidedEstimate?.optionLabel, 'Hasta los hombros')
+    }
+  },
+  {
     name: 'motor reconoce nombres simples con espacios acentos y guiones',
     run: async () => {
       const cases = [

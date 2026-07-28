@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
+import { Prisma } from '../generated/prisma/client.js'
 
 export async function serviceRoutes(app: FastifyInstance) {
   app.post('/service-categories', async (request, reply) => {
@@ -142,6 +143,11 @@ export async function serviceRoutes(app: FastifyInstance) {
       sortOrder?: number
       attentionMode?: string
       requiresPhoto?: boolean
+      estimateExplanation?: string | null
+      estimateQuestion?: string | null
+      estimateOptions?: unknown
+      estimateDisclaimer?: string | null
+      estimateAllowsBooking?: boolean
     }
     const name = body.name?.trim()
     const duration = Number(body.duration)
@@ -160,6 +166,7 @@ export async function serviceRoutes(app: FastifyInstance) {
     const isBookable = body.isBookable !== false
     const attentionMode = normalizeServiceAttentionMode(body.attentionMode)
     const requiresPhoto = Boolean(body.requiresPhoto)
+    const estimateOptions = normalizeEstimateOptions(body.estimateOptions)
 
     if (!businessId) {
       return reply.status(400).send({
@@ -211,6 +218,19 @@ export async function serviceRoutes(app: FastifyInstance) {
         message: 'Selecciona una modalidad de atencion valida'
       })
     }
+    if (body.estimateOptions !== undefined && estimateOptions === null) {
+      return reply.status(400).send({
+        message: 'Revisa las opciones del estimativo'
+      })
+    }
+    if (
+      attentionMode === 'GUIDED_ESTIMATE' &&
+      (!body.estimateQuestion?.trim() || !estimateOptions?.length)
+    ) {
+      return reply.status(400).send({
+        message: 'El estimativo necesita una pregunta y al menos una opcion'
+      })
+    }
 
     const hierarchy = await validateServiceHierarchy({
       businessId,
@@ -235,6 +255,11 @@ export async function serviceRoutes(app: FastifyInstance) {
       sortOrder: normalizeSortOrder(body.sortOrder),
       attentionMode: isBookable ? attentionMode ?? 'DIRECT_BOOKING' : 'DIRECT_BOOKING',
       requiresPhoto: isBookable ? requiresPhoto : false,
+      estimateExplanation: isBookable ? normalizeOptionalText(body.estimateExplanation) : null,
+      estimateQuestion: isBookable ? normalizeOptionalText(body.estimateQuestion) : null,
+      estimateOptions: isBookable && estimateOptions?.length ? estimateOptions : undefined,
+      estimateDisclaimer: isBookable ? normalizeOptionalText(body.estimateDisclaimer) : null,
+      estimateAllowsBooking: isBookable ? body.estimateAllowsBooking !== false : true,
       ...(aliases?.length
         ? {
             aliases: {
@@ -307,6 +332,11 @@ export async function serviceRoutes(app: FastifyInstance) {
       sortOrder?: number
       attentionMode?: string
       requiresPhoto?: boolean
+      estimateExplanation?: string | null
+      estimateQuestion?: string | null
+      estimateOptions?: unknown
+      estimateDisclaimer?: string | null
+      estimateAllowsBooking?: boolean
     }
     const name = body.name?.trim()
     const duration = Number(body.duration)
@@ -353,6 +383,11 @@ export async function serviceRoutes(app: FastifyInstance) {
         priceMode: true,
         attentionMode: true,
         requiresPhoto: true,
+        estimateExplanation: true,
+        estimateQuestion: true,
+        estimateOptions: true,
+        estimateDisclaimer: true,
+        estimateAllowsBooking: true,
         _count: {
           select: {
             variants: true
@@ -392,6 +427,22 @@ export async function serviceRoutes(app: FastifyInstance) {
     const requiresPhoto = typeof body.requiresPhoto === 'boolean'
       ? body.requiresPhoto
       : existing.requiresPhoto
+    const estimateOptions = body.estimateOptions === undefined
+      ? normalizeEstimateOptions(existing.estimateOptions)
+      : normalizeEstimateOptions(body.estimateOptions)
+    const estimateQuestion = body.estimateQuestion === undefined
+      ? existing.estimateQuestion
+      : normalizeOptionalText(body.estimateQuestion)
+    if (estimateOptions === null) {
+      return reply.status(400).send({
+        message: 'Revisa las opciones del estimativo'
+      })
+    }
+    if (attentionMode === 'GUIDED_ESTIMATE' && (!estimateQuestion || !estimateOptions?.length)) {
+      return reply.status(400).send({
+        message: 'El estimativo necesita una pregunta y al menos una opcion'
+      })
+    }
     if (!attentionMode) {
       return reply.status(400).send({
         message: 'Selecciona una modalidad de atencion valida'
@@ -437,6 +488,23 @@ export async function serviceRoutes(app: FastifyInstance) {
           priceMode: isBookable ? priceMode : 'FIXED',
           attentionMode: isBookable ? attentionMode : 'DIRECT_BOOKING',
           requiresPhoto: isBookable ? requiresPhoto : false,
+          estimateExplanation: isBookable
+            ? body.estimateExplanation === undefined
+              ? existing.estimateExplanation
+              : normalizeOptionalText(body.estimateExplanation)
+            : null,
+          estimateQuestion: isBookable ? estimateQuestion : null,
+          estimateOptions: isBookable && estimateOptions?.length ? estimateOptions : Prisma.JsonNull,
+          estimateDisclaimer: isBookable
+            ? body.estimateDisclaimer === undefined
+              ? existing.estimateDisclaimer
+              : normalizeOptionalText(body.estimateDisclaimer)
+            : null,
+          estimateAllowsBooking: isBookable
+            ? typeof body.estimateAllowsBooking === 'boolean'
+              ? body.estimateAllowsBooking
+              : existing.estimateAllowsBooking
+            : true,
           ...(body.sortOrder === undefined ? {} : { sortOrder: normalizeSortOrder(body.sortOrder) }),
           price,
           imageUrl: imageUrl ?? null
@@ -646,11 +714,62 @@ function normalizeServiceImageUrl(imageUrl?: string | null) {
 
 function normalizeServiceAttentionMode(value?: string) {
   const normalized = value?.trim().toUpperCase()
-  return normalized === 'DIRECT_BOOKING' || normalized === 'QUOTE' || normalized === 'ADVISOR'
+  return normalized === 'DIRECT_BOOKING' ||
+    normalized === 'QUOTE' ||
+    normalized === 'ADVISOR' ||
+    normalized === 'GUIDED_ESTIMATE'
     ? normalized
     : value === undefined
       ? undefined
       : null
+}
+
+function normalizeEstimateOptions(value: unknown) {
+  if (value === undefined) return undefined
+  if (value === null) return []
+  if (!Array.isArray(value) || value.length > 12) return null
+  const normalized = value.map((entry, index) => {
+    if (!entry || typeof entry !== 'object') return null
+    const option = entry as {
+      id?: unknown
+      label?: unknown
+      priceMin?: unknown
+      priceMax?: unknown
+      note?: unknown
+    }
+    const label = typeof option.label === 'string' ? option.label.trim() : ''
+    const priceMin = Number(option.priceMin)
+    const priceMax = option.priceMax === null || option.priceMax === undefined || option.priceMax === ''
+      ? null
+      : Number(option.priceMax)
+    if (
+      !label ||
+      !Number.isFinite(priceMin) ||
+      priceMin < 0 ||
+      (priceMax !== null && (!Number.isFinite(priceMax) || priceMax < priceMin))
+    ) {
+      return null
+    }
+    return {
+      id: typeof option.id === 'string' && option.id.trim()
+        ? option.id.trim().slice(0, 80)
+        : `estimate-${index + 1}`,
+      label: label.slice(0, 120),
+      priceMin,
+      priceMax,
+      note: typeof option.note === 'string' && option.note.trim()
+        ? option.note.trim().slice(0, 300)
+        : null
+    }
+  })
+  return normalized.some((option) => option === null)
+    ? null
+    : normalized
+}
+
+function normalizeOptionalText(value?: string | null) {
+  const normalized = value?.trim()
+  return normalized ? normalized.slice(0, 1000) : null
 }
 
 function normalizeServicePriceMode(value?: string) {

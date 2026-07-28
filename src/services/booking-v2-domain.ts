@@ -17,8 +17,21 @@ export type BookingV2ServiceOption = {
   category: string | null
   parentServiceId?: string | null
   parentServiceName?: string | null
-  attentionMode?: 'DIRECT_BOOKING' | 'QUOTE' | 'ADVISOR'
+  attentionMode?: 'DIRECT_BOOKING' | 'QUOTE' | 'ADVISOR' | 'GUIDED_ESTIMATE'
   requiresPhoto?: boolean
+  estimateExplanation?: string | null
+  estimateQuestion?: string | null
+  estimateOptions?: BookingV2EstimateOption[]
+  estimateDisclaimer?: string | null
+  estimateAllowsBooking?: boolean
+}
+
+export type BookingV2EstimateOption = {
+  id: string
+  label: string
+  priceMin: number
+  priceMax: number | null
+  note: string | null
 }
 
 export type BookingV2ProfessionalOption = {
@@ -118,7 +131,12 @@ export class BookingV2DomainService {
           parentServiceId: service.parentServiceId,
           parentServiceName: service.parentService?.name ?? null,
           attentionMode: service.attentionMode,
-          requiresPhoto: service.requiresPhoto
+          requiresPhoto: service.requiresPhoto,
+          estimateExplanation: service.estimateExplanation,
+          estimateQuestion: service.estimateQuestion,
+          estimateOptions: readEstimateOptions(service.estimateOptions),
+          estimateDisclaimer: service.estimateDisclaimer,
+          estimateAllowsBooking: service.estimateAllowsBooking
         }
       }),
       professionals: professionals.map((professional) => ({
@@ -213,6 +231,32 @@ export class BookingV2DomainService {
 
     return { ok: true, options }
   }
+}
+
+function readEstimateOptions(value: unknown): BookingV2EstimateOption[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return []
+    const option = entry as Partial<BookingV2EstimateOption>
+    if (
+      typeof option.id !== 'string' ||
+      typeof option.label !== 'string' ||
+      typeof option.priceMin !== 'number' ||
+      !Number.isFinite(option.priceMin)
+    ) {
+      return []
+    }
+    const priceMax = typeof option.priceMax === 'number' && Number.isFinite(option.priceMax)
+      ? option.priceMax
+      : null
+    return [{
+      id: option.id,
+      label: option.label,
+      priceMin: option.priceMin,
+      priceMax,
+      note: typeof option.note === 'string' ? option.note : null
+    }]
+  })
 }
 
 export function createBookingV2DomainCatalog(input: {
