@@ -108,6 +108,7 @@ model Business {
   featureSettings      BusinessFeatureSettings?
 
   professionals           Professional[]
+  serviceCategories       ServiceCategory[]
   services                Service[]
   businessHours           BusinessHours[]
   scheduleBlocks          ScheduleBlock[]
@@ -297,20 +298,50 @@ model Professional {
 model Service {
   id String @id @default(cuid())
 
-  name     String
-  duration Int
-  category String?
-  price    Int?
-  imageUrl String?
+  name       String
+  duration   Int
+  category   String?
+  price      Int?
+  imageUrl   String?
+  isBookable Boolean @default(true)
+  sortOrder  Int     @default(0)
 
   businessId String
   business   Business @relation(fields: [businessId], references: [id])
+
+  catalogCategoryId String?
+  catalogCategory   ServiceCategory? @relation(fields: [catalogCategoryId], references: [id], onDelete: SetNull)
+
+  parentServiceId String?
+  parentService   Service?  @relation("ServiceVariants", fields: [parentServiceId], references: [id], onDelete: Restrict)
+  variants        Service[] @relation("ServiceVariants")
 
   appointments      Appointment[]
   aliases           ServiceAlias[]
   professionalLinks ProfessionalService[]
 
   createdAt DateTime @default(now())
+
+  @@index([businessId, catalogCategoryId, sortOrder])
+  @@index([parentServiceId])
+}
+
+model ServiceCategory {
+  id        String  @id @default(cuid())
+  name      String
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  services Service[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([businessId, name])
+  @@index([businessId, sortOrder])
 }
 
 model ProfessionalService {

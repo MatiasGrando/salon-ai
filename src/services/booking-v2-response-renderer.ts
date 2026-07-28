@@ -70,17 +70,40 @@ function serviceQuestion(
 ) {
   if (!catalog?.services.length) return '¿Qué servicio querés reservar?'
   const services = serviceSuggestions?.length ? serviceSuggestions : catalog.services
+  const serviceLines = formatServiceOptions(services)
 
   return [
     serviceSuggestions?.length
       ? 'Encontré más de una opción parecida 😊 ¿Cuál de estas querés?'
       : 'Estos son los servicios disponibles 😊',
-    ...services.map((service) => {
-      const price = service.price === null ? 'precio a consultar' : formatMoney(service.price)
-      return `• ${service.name} — ${service.duration} min — ${price}`
-    }),
+    ...serviceLines,
     '¿Cuál querés reservar?'
   ].join('\n')
+}
+
+export function formatServiceOptions(
+  services: BookingV2DomainCatalog['services']
+) {
+  const hasCategories = services.some((service) => service.category)
+  if (!hasCategories) return services.map(formatServiceOption)
+
+  const groups = new Map<string, BookingV2DomainCatalog['services']>()
+  for (const service of services) {
+    const category = service.category?.trim() || 'Otros'
+    const group = groups.get(category) ?? []
+    group.push(service)
+    groups.set(category, group)
+  }
+
+  return Array.from(groups.entries()).flatMap(([category, options]) => [
+    `${category}:`,
+    ...options.map(formatServiceOption)
+  ])
+}
+
+function formatServiceOption(service: BookingV2DomainCatalog['services'][number]) {
+  const price = service.price === null ? 'precio a consultar' : formatMoney(service.price)
+  return `• ${service.name} — ${service.duration} min — ${price}`
 }
 
 function professionalQuestion(

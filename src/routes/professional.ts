@@ -412,6 +412,7 @@ async function resolveServiceIdsForBusiness(businessId: string, serviceIds?: str
   const services = await prisma.service.findMany({
     where: {
       businessId,
+      isBookable: true,
       ...(normalizedServiceIds ? { id: { in: normalizedServiceIds } } : {})
     },
     select: {

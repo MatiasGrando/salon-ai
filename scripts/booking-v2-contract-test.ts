@@ -23,7 +23,10 @@ import {
 import { BookingV2Engine } from '../src/services/booking-v2-engine.js'
 import type { BookingV2Catalog } from '../src/services/booking-v2-interpreter.js'
 import type { BookingV2CatalogOption } from '../src/services/booking-v2-extractor.js'
-import { renderBookingV2Response } from '../src/services/booking-v2-response-renderer.js'
+import {
+  formatServiceOptions,
+  renderBookingV2Response
+} from '../src/services/booking-v2-response-renderer.js'
 import {
   businessInformationTopicsFromRouting,
   deterministicConversationRouting,
@@ -1080,6 +1083,49 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         reply,
         'Perfecto. ¿Confirmás la reserva para Corte con Nico el 10/07/2026 a las 15:00?'
       )
+    }
+  },
+  {
+    name: 'catalogo jerarquico agrupa variantes reservables por categoria',
+    run: () => {
+      const lines = formatServiceOptions([
+        {
+          id: 'classic',
+          name: 'Corte — Clasico',
+          aliases: ['clasico'],
+          duration: 30,
+          price: 15000,
+          category: 'Cortes',
+          parentServiceId: 'haircut',
+          parentServiceName: 'Corte'
+        },
+        {
+          id: 'fade',
+          name: 'Corte — Degrade',
+          aliases: ['degrade'],
+          duration: 45,
+          price: 18000,
+          category: 'Cortes',
+          parentServiceId: 'haircut',
+          parentServiceName: 'Corte'
+        },
+        {
+          id: 'beard',
+          name: 'Barba',
+          aliases: [],
+          duration: 20,
+          price: 12000,
+          category: 'Barba'
+        }
+      ])
+
+      assert.deepEqual(lines, [
+        'Cortes:',
+        '• Corte — Clasico — 30 min — $ 15.000',
+        '• Corte — Degrade — 45 min — $ 18.000',
+        'Barba:',
+        '• Barba — 20 min — $ 12.000'
+      ])
     }
   },
   {

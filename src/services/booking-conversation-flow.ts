@@ -1524,7 +1524,10 @@ export class BookingConversationFlow {
 
   private async buildServicesReply(prefix?: string, businessId?: string | null): Promise<HandleBookingResult> {
     const services = await prisma.service.findMany({
-      where: businessId ? { businessId } : {},
+      where: {
+        ...(businessId ? { businessId } : {}),
+        isBookable: true
+      },
       include: {
         aliases: true
       },
@@ -1659,7 +1662,10 @@ export class BookingConversationFlow {
     }
 
     const services = await prisma.service.findMany({
-      where: input.businessId ? { businessId: input.businessId } : {},
+      where: {
+        ...(input.businessId ? { businessId: input.businessId } : {}),
+        isBookable: true
+      },
       include: {
         aliases: true
       },
@@ -1673,7 +1679,10 @@ export class BookingConversationFlow {
     }
 
     const professionals = await prisma.professional.findMany({
-      where: input.businessId ? { businessId: input.businessId } : {},
+      where: {
+        ...(input.businessId ? { businessId: input.businessId } : {}),
+        isBookable: true
+      },
       orderBy: {
         name: 'asc'
       }
@@ -2118,7 +2127,10 @@ export class BookingConversationFlow {
 
   private async findServiceByMessage(message: string, businessId?: string | null) {
     const services = await prisma.service.findMany({
-      where: businessId ? { businessId } : {},
+      where: {
+        ...(businessId ? { businessId } : {}),
+        isBookable: true
+      },
       include: {
         aliases: true
       },

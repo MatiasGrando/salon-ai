@@ -32,6 +32,7 @@ export class ConversationRouterContextService {
             select: { dayOfWeek: true, startTime: true, endTime: true }
           },
           services: {
+            where: { isBookable: true },
             select: { id: true },
             take: 1
           },

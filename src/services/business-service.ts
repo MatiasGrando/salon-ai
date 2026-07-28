@@ -91,6 +91,7 @@ export class BusinessService {
       include: {
         businessHours: true,
         services: {
+          where: { isBookable: true },
           orderBy: [
             { category: 'asc' },
             { name: 'asc' }

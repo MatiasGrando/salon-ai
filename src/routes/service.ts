@@ -2,6 +2,124 @@ import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
 
 export async function serviceRoutes(app: FastifyInstance) {
+  app.post('/service-categories', async (request, reply) => {
+    const body = request.body as {
+      businessId?: string
+      name?: string
+      sortOrder?: number
+    }
+    const businessId = body.businessId?.trim()
+    const name = body.name?.trim()
+
+    if (!businessId || !name) {
+      return reply.status(400).send({
+        message: 'businessId y name son requeridos'
+      })
+    }
+
+    const duplicate = await prisma.serviceCategory.findFirst({
+      where: {
+        businessId,
+        name: { equals: name, mode: 'insensitive' }
+      }
+    })
+    if (duplicate) {
+      return reply.status(409).send({
+        message: 'Ya existe una categoria con ese nombre'
+      })
+    }
+
+    return prisma.serviceCategory.create({
+      data: {
+        businessId,
+        name,
+        sortOrder: normalizeSortOrder(body.sortOrder)
+      },
+      include: { _count: { select: { services: true } } }
+    })
+  })
+
+  app.get('/service-categories', async (request) => {
+    const query = request.query as { businessId?: string }
+    return prisma.serviceCategory.findMany({
+      where: query.businessId ? { businessId: query.businessId } : {},
+      include: { _count: { select: { services: true } } },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }]
+    })
+  })
+
+  app.patch('/service-categories/:id', async (request, reply) => {
+    const params = request.params as { id: string }
+    const body = request.body as {
+      name?: string
+      sortOrder?: number
+      isActive?: boolean
+    }
+    const category = await prisma.serviceCategory.findUnique({
+      where: { id: params.id }
+    })
+    const name = body.name?.trim()
+
+    if (!category) {
+      return reply.status(404).send({ message: 'No encontre la categoria' })
+    }
+    if (!name) {
+      return reply.status(400).send({ message: 'name es requerido' })
+    }
+
+    const duplicate = await prisma.serviceCategory.findFirst({
+      where: {
+        businessId: category.businessId,
+        id: { not: category.id },
+        name: { equals: name, mode: 'insensitive' }
+      }
+    })
+    if (duplicate) {
+      return reply.status(409).send({
+        message: 'Ya existe una categoria con ese nombre'
+      })
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const result = await tx.serviceCategory.update({
+        where: { id: category.id },
+        data: {
+          name,
+          ...(body.sortOrder === undefined ? {} : { sortOrder: normalizeSortOrder(body.sortOrder) }),
+          ...(typeof body.isActive === 'boolean' ? { isActive: body.isActive } : {})
+        }
+      })
+      await tx.service.updateMany({
+        where: { catalogCategoryId: category.id },
+        data: { category: name }
+      })
+      return result
+    })
+
+    return {
+      ...updated,
+      _count: {
+        services: await prisma.service.count({
+          where: { catalogCategoryId: category.id }
+        })
+      }
+    }
+  })
+
+  app.delete('/service-categories/:id', async (request, reply) => {
+    const params = request.params as { id: string }
+    const serviceCount = await prisma.service.count({
+      where: { catalogCategoryId: params.id }
+    })
+    if (serviceCount > 0) {
+      return reply.status(409).send({
+        message: 'Move los servicios a otra categoria antes de eliminarla'
+      })
+    }
+
+    await prisma.serviceCategory.delete({ where: { id: params.id } })
+    return { deleted: true }
+  })
 
   app.post('/services', async (request, reply) => {
 
@@ -13,6 +131,10 @@ export async function serviceRoutes(app: FastifyInstance) {
       price?: number | string | null
       imageUrl?: string | null
       aliases?: string[]
+      categoryId?: string | null
+      parentServiceId?: string | null
+      isBookable?: boolean
+      sortOrder?: number
     }
     const name = body.name?.trim()
     const duration = Number(body.duration)
@@ -25,6 +147,8 @@ export async function serviceRoutes(app: FastifyInstance) {
     const aliases = body.aliases
       ?.map((alias) => alias.trim())
       .filter(Boolean)
+    const categoryId = normalizeNullableId(body.categoryId)
+    const parentServiceId = normalizeNullableId(body.parentServiceId)
 
     if (!businessId) {
       return reply.status(400).send({
@@ -56,13 +180,26 @@ export async function serviceRoutes(app: FastifyInstance) {
       })
     }
 
+    const hierarchy = await validateServiceHierarchy({
+      businessId,
+      categoryId,
+      parentServiceId
+    })
+    if (!hierarchy.ok) {
+      return reply.status(400).send({ message: hierarchy.message })
+    }
+
     const data = {
       name,
       duration,
       businessId,
       price,
       imageUrl: imageUrl ?? null,
-      ...(category ? { category } : {}),
+      category: hierarchy.categoryName ?? category ?? null,
+      catalogCategoryId: categoryId,
+      parentServiceId,
+      isBookable: body.isBookable !== false,
+      sortOrder: normalizeSortOrder(body.sortOrder),
       ...(aliases?.length
         ? {
             aliases: {
@@ -74,11 +211,36 @@ export async function serviceRoutes(app: FastifyInstance) {
         : {})
     }
 
-    return prisma.service.create({
-      data: data as any,
-      include: {
-        aliases: true
+    return prisma.$transaction(async (tx) => {
+      if (parentServiceId) {
+        await tx.service.update({
+          where: { id: parentServiceId },
+          data: { isBookable: false }
+        })
       }
+      const created = await tx.service.create({
+        data: data as any,
+        include: serviceCatalogInclude
+      })
+      if (parentServiceId) {
+        const parentLinks = await tx.professionalService.findMany({
+          where: { serviceId: parentServiceId },
+          select: { professionalId: true }
+        })
+        if (parentLinks.length) {
+          await tx.professionalService.createMany({
+            data: parentLinks.map((link) => ({
+              serviceId: created.id,
+              professionalId: link.professionalId
+            })),
+            skipDuplicates: true
+          })
+        }
+      }
+      return tx.service.findUnique({
+        where: { id: created.id },
+        include: serviceCatalogInclude
+      })
     })
   })
 
@@ -93,9 +255,8 @@ export async function serviceRoutes(app: FastifyInstance) {
             businessId: query.businessId
           }
         : {},
-      include: {
-        aliases: true
-      }
+      include: serviceCatalogInclude,
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }]
     })
   })
 
@@ -110,6 +271,10 @@ export async function serviceRoutes(app: FastifyInstance) {
       price?: number | string | null
       imageUrl?: string | null
       aliases?: string[]
+      categoryId?: string | null
+      parentServiceId?: string | null
+      isBookable?: boolean
+      sortOrder?: number
     }
     const name = body.name?.trim()
     const duration = Number(body.duration)
@@ -145,8 +310,47 @@ export async function serviceRoutes(app: FastifyInstance) {
     const aliases = body.aliases
       ?.map((alias) => alias.trim())
       .filter(Boolean)
+    const existing = await prisma.service.findUnique({
+      where: { id: params.id },
+      select: {
+        id: true,
+        businessId: true,
+        catalogCategoryId: true,
+        parentServiceId: true
+      }
+    })
+    if (!existing) {
+      return reply.status(404).send({ message: 'No encontre el servicio' })
+    }
+
+    const categoryId = body.categoryId === undefined
+      ? existing.catalogCategoryId
+      : normalizeNullableId(body.categoryId)
+    const parentServiceId = body.parentServiceId === undefined
+      ? existing.parentServiceId
+      : normalizeNullableId(body.parentServiceId)
+    if (parentServiceId === params.id) {
+      return reply.status(400).send({
+        message: 'Un servicio no puede ser variante de si mismo'
+      })
+    }
+
+    const hierarchy = await validateServiceHierarchy({
+      businessId: existing.businessId,
+      categoryId,
+      parentServiceId
+    })
+    if (!hierarchy.ok) {
+      return reply.status(400).send({ message: hierarchy.message })
+    }
 
     return prisma.$transaction(async (tx) => {
+      if (parentServiceId) {
+        await tx.service.update({
+          where: { id: parentServiceId },
+          data: { isBookable: false }
+        })
+      }
       const service = await tx.service.update({
         where: {
           id: params.id
@@ -154,14 +358,31 @@ export async function serviceRoutes(app: FastifyInstance) {
         data: {
           name,
           duration,
-          category: body.category?.trim() || null,
+          category: hierarchy.categoryName ?? body.category?.trim() ?? null,
+          catalogCategoryId: categoryId,
+          parentServiceId,
+          ...(typeof body.isBookable === 'boolean' ? { isBookable: body.isBookable } : {}),
+          ...(body.sortOrder === undefined ? {} : { sortOrder: normalizeSortOrder(body.sortOrder) }),
           price,
           imageUrl: imageUrl ?? null
         } as any,
-        include: {
-          aliases: true
-        }
+        include: serviceCatalogInclude
       })
+      if (parentServiceId) {
+        const parentLinks = await tx.professionalService.findMany({
+          where: { serviceId: parentServiceId },
+          select: { professionalId: true }
+        })
+        if (parentLinks.length) {
+          await tx.professionalService.createMany({
+            data: parentLinks.map((link) => ({
+              serviceId: service.id,
+              professionalId: link.professionalId
+            })),
+            skipDuplicates: true
+          })
+        }
+      }
 
       if (aliases) {
         await tx.serviceAlias.deleteMany({
@@ -184,9 +405,7 @@ export async function serviceRoutes(app: FastifyInstance) {
         where: {
           id: service.id
         },
-        include: {
-          aliases: true
-        }
+        include: serviceCatalogInclude
       })
     })
   })
@@ -196,15 +415,24 @@ export async function serviceRoutes(app: FastifyInstance) {
       id: string
     }
 
-    const appointmentCount = await prisma.appointment.count({
-      where: {
-        serviceId: params.id
-      }
-    })
+    const [appointmentCount, variantCount] = await Promise.all([
+      prisma.appointment.count({
+        where: {
+          serviceId: params.id
+        }
+      }),
+      prisma.service.count({
+        where: {
+          parentServiceId: params.id
+        }
+      })
+    ])
 
-    if (appointmentCount > 0) {
+    if (appointmentCount > 0 || variantCount > 0) {
       return reply.status(409).send({
-        message: 'No se puede eliminar porque tiene turnos asociados. En el próximo paso podemos agregar desactivar.'
+        message: variantCount > 0
+          ? 'No se puede eliminar porque tiene variantes asociadas'
+          : 'No se puede eliminar porque tiene turnos asociados'
       })
     }
 
@@ -244,6 +472,80 @@ export async function serviceRoutes(app: FastifyInstance) {
     })
   })
 
+}
+
+const serviceCatalogInclude = {
+  aliases: true,
+  catalogCategory: true,
+  parentService: {
+    select: {
+      id: true,
+      name: true
+    }
+  },
+  _count: {
+    select: {
+      variants: true
+    }
+  }
+} as const
+
+async function validateServiceHierarchy(input: {
+  businessId: string
+  categoryId: string | null
+  parentServiceId: string | null
+}): Promise<
+  | { ok: true, categoryName: string | null }
+  | { ok: false, message: string }
+> {
+  const [category, parent] = await Promise.all([
+    input.categoryId
+      ? prisma.serviceCategory.findFirst({
+          where: { id: input.categoryId, businessId: input.businessId }
+        })
+      : null,
+    input.parentServiceId
+      ? prisma.service.findFirst({
+          where: {
+            id: input.parentServiceId,
+            businessId: input.businessId,
+            parentServiceId: null
+          }
+        })
+      : null
+  ])
+
+  if (input.categoryId && !category) {
+    return { ok: false, message: 'La categoria no pertenece a este negocio' }
+  }
+  if (input.parentServiceId && !parent) {
+    return { ok: false, message: 'El servicio principal no pertenece a este negocio' }
+  }
+  if (
+    category &&
+    parent?.catalogCategoryId &&
+    parent.catalogCategoryId !== category.id
+  ) {
+    return {
+      ok: false,
+      message: 'La variante debe usar la misma categoria que el servicio principal'
+    }
+  }
+
+  return {
+    ok: true,
+    categoryName: category?.name ?? parent?.category ?? null
+  }
+}
+
+function normalizeNullableId(value?: string | null) {
+  const normalized = value?.trim()
+  return normalized || null
+}
+
+function normalizeSortOrder(value?: number) {
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : 0
 }
 
 function normalizeServiceImageUrl(imageUrl?: string | null) {

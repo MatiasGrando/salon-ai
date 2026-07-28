@@ -55,8 +55,16 @@ export class BusinessKnowledgeService {
           select: { dayOfWeek: true, startTime: true, endTime: true }
         },
         services: {
-          orderBy: { name: 'asc' },
-          select: { name: true, duration: true, price: true }
+          where: { isBookable: true },
+          orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+          select: {
+            name: true,
+            duration: true,
+            price: true,
+            parentService: {
+              select: { name: true }
+            }
+          }
         },
         professionals: {
           where: { isActive: true },
@@ -78,6 +86,13 @@ export class BusinessKnowledgeService {
     if (!business) return null
     return renderBusinessKnowledgeAnswers({
       ...business,
+      services: business.services.map((service) => ({
+        name: service.parentService
+          ? `${service.parentService.name} — ${service.name}`
+          : service.name,
+        duration: service.duration,
+        price: service.price
+      })),
       professionals: business.professionals.map((professional) => ({
         name: professional.name,
         services: professional.serviceLinks.map((link) => link.service.name)

@@ -14,6 +14,8 @@ export type BookingV2ServiceOption = {
   duration: number
   price: number | null
   category: string | null
+  parentServiceId?: string | null
+  parentServiceName?: string | null
 }
 
 export type BookingV2ProfessionalOption = {
@@ -55,9 +57,20 @@ export class BookingV2DomainService {
   async loadCatalog(businessId: string): Promise<BookingV2DomainCatalog> {
     const [services, professionals] = await Promise.all([
       this.db.service.findMany({
-        where: { businessId },
-        include: { aliases: true },
-        orderBy: { name: 'asc' }
+        where: {
+          businessId,
+          isBookable: true
+        },
+        include: {
+          aliases: true,
+          catalogCategory: true,
+          parentService: {
+            include: {
+              aliases: true
+            }
+          }
+        },
+        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }]
       }),
       this.db.professional.findMany({
         where: {
@@ -76,11 +89,27 @@ export class BookingV2DomainService {
     return createBookingV2DomainCatalog({
       services: services.map((service) => ({
         id: service.id,
-        name: service.name,
-        aliases: service.aliases.map((alias) => alias.name),
+        name: service.parentService
+          ? `${service.parentService.name} — ${service.name}`
+          : service.name,
+        aliases: Array.from(new Set([
+          service.name,
+          ...service.aliases.map((alias) => alias.name),
+          ...(service.parentService
+            ? [
+                service.parentService.name,
+                `${service.parentService.name} ${service.name}`,
+                ...service.parentService.aliases.map((alias) =>
+                  `${alias.name} ${service.name}`
+                )
+              ]
+            : [])
+        ])),
         duration: service.duration,
         price: service.price,
-        category: service.category
+        category: service.catalogCategory?.name ?? service.category,
+        parentServiceId: service.parentServiceId,
+        parentServiceName: service.parentService?.name ?? null
       })),
       professionals: professionals.map((professional) => ({
         id: professional.id,

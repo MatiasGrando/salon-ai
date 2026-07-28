@@ -5605,6 +5605,95 @@ const crmHtml = `<!doctype html>
       line-height: 1.35;
     }
 
+    .service-category-manager {
+      padding: 14px;
+      border: 1px solid #e4e9f1;
+      border-radius: 12px;
+      background: #f8fafc;
+    }
+
+    .service-category-editor {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .service-category-editor .field {
+      min-width: 0;
+      height: 40px;
+      padding: 0 11px;
+      border: 1px solid #dfe6f1;
+      border-radius: 7px;
+      color: #263958;
+      background: #fff;
+    }
+
+    .service-category-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .service-category-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 8px 6px 10px;
+      border: 1px solid #dce4ef;
+      border-radius: 999px;
+      background: #fff;
+      color: #34405a;
+      font-size: 0.78rem;
+      font-weight: 700;
+    }
+
+    .service-category-chip button {
+      width: 24px;
+      height: 24px;
+      border: 0;
+      border-radius: 50%;
+      background: #eef2f7;
+      color: #526079;
+      cursor: pointer;
+    }
+
+    .service-bookable-control {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid #e4e9f1;
+      border-radius: 10px;
+      background: #fff;
+    }
+
+    .service-bookable-control input {
+      margin-top: 3px;
+    }
+
+    .service-bookable-control strong,
+    .service-bookable-control span {
+      display: block;
+    }
+
+    .service-bookable-control span {
+      margin-top: 3px;
+      color: #78849a;
+      font-size: 0.78rem;
+      line-height: 1.4;
+    }
+
+    .service-card-category {
+      margin-bottom: 3px;
+      color: #7667d8;
+      font-size: 0.72rem;
+      font-weight: 800;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+
     .service-image-field {
       display: grid;
       grid-template-columns: 112px minmax(0, 1fr);
@@ -12035,7 +12124,7 @@ const crmHtml = `<!doctype html>
             <div class="service-count-icon" data-icon="copy"></div>
             <div>
               <strong id="service-count">0</strong>
-              <span>Servicios activos</span>
+              <span>&Iacute;tems del cat&aacute;logo</span>
             </div>
           </div>
         </header>
@@ -12044,6 +12133,17 @@ const crmHtml = `<!doctype html>
           <div class="services-form-panel">
             <h3 id="service-form-title">Nuevo servicio</h3>
             <p>Complet&aacute; los datos para agregar un nuevo servicio.</p>
+            <div class="service-category-manager">
+              <strong>Categor&iacute;as del cat&aacute;logo</strong>
+              <div class="service-form-help">Cre&aacute; grupos como Cortes, Barba, Color o Tratamientos.</div>
+              <input id="service-category-id" type="hidden">
+              <div class="service-category-editor">
+                <input class="field" id="service-category-name" placeholder="Nueva categor&iacute;a">
+                <button class="secondary" id="service-category-save" type="button">Agregar</button>
+                <button class="secondary" id="service-category-cancel" type="button" hidden>Cancelar</button>
+              </div>
+              <div class="service-category-list" id="service-category-list"></div>
+            </div>
             <form class="service-form" id="service-form">
               <input id="service-id" type="hidden">
               <div class="service-form-group">
@@ -12070,14 +12170,22 @@ const crmHtml = `<!doctype html>
                 <label for="service-category">Categor&iacute;a (opcional)</label>
                 <select id="service-category">
                   <option value="">Seleccionar categor&iacute;a</option>
-                  <option value="Corte">Corte</option>
-                  <option value="Color">Color</option>
-                  <option value="Barba">Barba</option>
-                  <option value="Manos y pies">Manos y pies</option>
-                  <option value="Tratamiento">Tratamiento</option>
-                  <option value="Otro">Otro</option>
                 </select>
               </div>
+              <div class="service-form-group">
+                <label for="service-parent">Servicio principal (opcional)</label>
+                <div class="service-form-help">Usalo para crear variantes, por ejemplo Color &rarr; Ra&iacute;ces y Color completo.</div>
+                <select id="service-parent">
+                  <option value="">No es una variante</option>
+                </select>
+              </div>
+              <label class="service-bookable-control" for="service-bookable">
+                <input id="service-bookable" type="checkbox" checked>
+                <span>
+                  <strong>Se puede reservar directamente</strong>
+                  <span>Desactiv&aacute; esta opci&oacute;n si solo agrupa variantes. Al agregar una variante, el servicio principal se convierte autom&aacute;ticamente en agrupador.</span>
+                </span>
+              </label>
               <div class="service-form-group">
                 <label for="service-aliases">Alias (opcional)</label>
                 <div class="service-form-help">Alias opcionales separados por coma (ej: corte, corte hombre)</div>
@@ -13666,6 +13774,7 @@ const crmHtml = `<!doctype html>
       professionals: [],
       staffUsers: [],
       services: [],
+      serviceCategories: [],
       customers: [],
       businesses: [],
       customerOverview: [],
@@ -14030,6 +14139,13 @@ const crmHtml = `<!doctype html>
       serviceDuration: document.getElementById('service-duration'),
       servicePrice: document.getElementById('service-price'),
       serviceCategory: document.getElementById('service-category'),
+      serviceParent: document.getElementById('service-parent'),
+      serviceBookable: document.getElementById('service-bookable'),
+      serviceCategoryId: document.getElementById('service-category-id'),
+      serviceCategoryName: document.getElementById('service-category-name'),
+      serviceCategorySave: document.getElementById('service-category-save'),
+      serviceCategoryCancel: document.getElementById('service-category-cancel'),
+      serviceCategoryList: document.getElementById('service-category-list'),
       serviceAliases: document.getElementById('service-aliases'),
       serviceImage: document.getElementById('service-image'),
       serviceImagePreview: document.getElementById('service-image-preview'),
@@ -14987,6 +15103,7 @@ const crmHtml = `<!doctype html>
       state.aiSettings = await getJson('/crm/ai-settings' + businessQuery)
       state.professionals = await getJson('/professionals' + businessQuery)
       await loadStaffUsers()
+      state.serviceCategories = await getJson('/service-categories' + businessQuery)
       state.services = await getJson('/services' + businessQuery)
       state.customers = await getJson('/customers' + businessQuery)
     }
@@ -16236,22 +16353,78 @@ const crmHtml = `<!doctype html>
       }
     }
 
+    function renderServiceCatalogControls() {
+      const selectedCategory = els.serviceCategory.value
+      const selectedParent = els.serviceParent.value
+      els.serviceCategory.innerHTML = '<option value="">Seleccionar categor&iacute;a</option>' +
+        state.serviceCategories
+          .filter((category) => category.isActive !== false)
+          .map((category) => '<option value="' + escapeHtml(category.id) + '">' + escapeHtml(category.name) + '</option>')
+          .join('')
+      els.serviceCategory.value = selectedCategory
+
+      const currentServiceId = els.serviceId.value
+      els.serviceParent.innerHTML = '<option value="">No es una variante</option>' +
+        state.services
+          .filter((service) => !service.parentServiceId && service.id !== currentServiceId)
+          .map((service) => '<option value="' + escapeHtml(service.id) + '">' + escapeHtml(service.name) + '</option>')
+          .join('')
+      els.serviceParent.value = selectedParent
+
+      els.serviceCategoryList.innerHTML = state.serviceCategories.length
+        ? state.serviceCategories.map((category) =>
+            '<span class="service-category-chip">' +
+              escapeHtml(category.name) +
+              ' <small>(' + Number(category._count?.services || 0) + ')</small>' +
+              '<button type="button" title="Editar" data-edit-service-category="' + escapeHtml(category.id) + '">✎</button>' +
+              '<button type="button" title="Eliminar" data-delete-service-category="' + escapeHtml(category.id) + '">×</button>' +
+            '</span>'
+          ).join('')
+        : '<span class="service-form-help">Todav&iacute;a no hay categor&iacute;as.</span>'
+
+      for (const button of els.serviceCategoryList.querySelectorAll('[data-edit-service-category]')) {
+        button.addEventListener('click', () => editServiceCategory(button.dataset.editServiceCategory))
+      }
+      for (const button of els.serviceCategoryList.querySelectorAll('[data-delete-service-category]')) {
+        button.addEventListener('click', () => deleteServiceCategory(button.dataset.deleteServiceCategory))
+      }
+    }
+
     function renderServices() {
+      renderServiceCatalogControls()
       els.serviceCount.textContent = String(state.services.length)
       const query = (els.serviceSearch?.value || '').trim().toLowerCase()
       const services = state.services.filter((service) => {
         const aliases = (service.aliases || []).map((alias) => alias.name).join(' ')
-        const haystack = [service.name, service.category, aliases].filter(Boolean).join(' ').toLowerCase()
+        const haystack = [
+          service.name,
+          service.parentService?.name,
+          service.catalogCategory?.name,
+          service.category,
+          aliases
+        ].filter(Boolean).join(' ').toLowerCase()
         return !query || haystack.includes(query)
       })
 
       els.serviceList.innerHTML = services.length
         ? services.map((service) => {
             const priceLabel = hasServicePrice(service) ? formatCurrency(service.price) : 'Sin precio'
+            const categoryLabel = service.catalogCategory?.name || service.category || 'Sin categor&iacute;a'
+            const serviceLabel = service.parentService
+              ? service.parentService.name + ' — ' + service.name
+              : service.name
+            const hierarchyLabel = service.parentService
+              ? 'Variante'
+              : Number(service._count?.variants || 0) > 0
+                ? Number(service._count.variants) + ' variantes'
+                : service.isBookable === false
+                  ? 'Agrupador'
+                  : 'Reservable'
             return '<article class="service-card">' +
               '<div class="service-item-icon">' + (service.imageUrl ? '<img src="' + escapeHtml(service.imageUrl) + '" alt="">' : icon('scissors')) + '</div>' +
               '<div>' +
-                '<div class="service-card-title">' + escapeHtml(service.name) + '</div>' +
+                '<div class="service-card-category">' + escapeHtml(categoryLabel + ' · ' + hierarchyLabel) + '</div>' +
+                '<div class="service-card-title">' + escapeHtml(serviceLabel) + '</div>' +
                 '<div class="service-card-meta">' +
                   '<span>' + icon('clock') + escapeHtml(service.duration + ' min') + '</span>' +
                   '<span>' + icon('tag') + escapeHtml(priceLabel) + '</span>' +
@@ -18756,15 +18929,26 @@ const crmHtml = `<!doctype html>
       }
     }
 
+    function bookableServices() {
+      return state.services.filter((service) => service.isBookable !== false)
+    }
+
+    function serviceCatalogLabel(service) {
+      return service?.parentService
+        ? service.parentService.name + ' — ' + service.name
+        : service?.name || 'Servicio'
+    }
+
     function renderProfessionalServiceOptions(selectedIds = []) {
       if (!els.professionalServices) return
 
       const selected = new Set(selectedIds)
-      els.professionalServices.innerHTML = state.services.length
-        ? state.services.map((service) => {
+      const services = bookableServices()
+      els.professionalServices.innerHTML = services.length
+        ? services.map((service) => {
             return '<label class="professional-service-option">' +
               '<input type="checkbox" value="' + service.id + '"' + (selected.has(service.id) ? ' checked' : '') + '>' +
-              '<span>' + escapeHtml(service.name) + '</span>' +
+              '<span>' + escapeHtml(serviceCatalogLabel(service)) + '</span>' +
             '</label>'
           }).join('')
         : '<div class="professional-form-help">No hay servicios cargados</div>'
@@ -18820,12 +19004,13 @@ const crmHtml = `<!doctype html>
         .join('')
       els.agendaProfessional.value = activeProfessionals().some((professional) => professional.id === selectedProfessional) ? selectedProfessional : ''
 
+      const services = bookableServices()
       els.agendaService.innerHTML = ['<option value="">Todos los servicios</option>']
-        .concat(state.services.map((service) => {
-          return '<option value="' + service.id + '">' + escapeHtml(service.name) + '</option>'
+        .concat(services.map((service) => {
+          return '<option value="' + service.id + '">' + escapeHtml(serviceCatalogLabel(service)) + '</option>'
         }))
         .join('')
-      els.agendaService.value = state.services.some((service) => service.id === selectedService) ? selectedService : ''
+      els.agendaService.value = services.some((service) => service.id === selectedService) ? selectedService : ''
       renderAgendaProfessionalControls()
     }
 
@@ -18868,8 +19053,8 @@ const crmHtml = `<!doctype html>
         return '<option value="' + professional.id + '">' + escapeHtml(professional.name) + '</option>'
       }).join('')
 
-      els.appointmentService.innerHTML = state.services.map((service) => {
-        return '<option value="' + service.id + '">' + escapeHtml(service.name) + ' · ' + service.duration + ' min</option>'
+      els.appointmentService.innerHTML = bookableServices().map((service) => {
+        return '<option value="' + service.id + '">' + escapeHtml(serviceCatalogLabel(service)) + ' · ' + service.duration + ' min</option>'
       }).join('')
 
       els.appointmentCustomer.innerHTML = ['<option value="">Crear cliente nuevo</option>']
@@ -19216,8 +19401,8 @@ const crmHtml = `<!doctype html>
         }))
         .join('')
       const serviceOptions = ['<option value="">Todos los servicios</option>']
-        .concat(state.services.map((service) => {
-          return '<option value="' + service.id + '"' + (service.id === selectedService ? ' selected' : '') + '>' + escapeHtml(service.name) + '</option>'
+        .concat(bookableServices().map((service) => {
+          return '<option value="' + service.id + '"' + (service.id === selectedService ? ' selected' : '') + '>' + escapeHtml(serviceCatalogLabel(service)) + '</option>'
         }))
         .join('')
 
@@ -22312,6 +22497,86 @@ const crmHtml = `<!doctype html>
       return new Intl.DateTimeFormat('es-AR', options).format(date)
     }
 
+    async function saveServiceCategory() {
+      if (!state.businessId) {
+        els.serviceFeedback.textContent = 'No encontre un negocio cargado.'
+        return
+      }
+      const id = els.serviceCategoryId.value
+      const name = els.serviceCategoryName.value.trim()
+      if (!name) {
+        els.serviceFeedback.textContent = 'Escribi el nombre de la categoria.'
+        return
+      }
+
+      if (!setButtonLoading(els.serviceCategorySave, true, id ? 'Guardando...' : 'Agregando...')) return
+      try {
+        await getJson(id ? '/service-categories/' + id : '/service-categories', {
+          method: id ? 'PATCH' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            businessId: state.businessId,
+            name
+          })
+        })
+        resetServiceCategoryForm()
+        await reloadServiceCatalog()
+        els.serviceFeedback.textContent = id ? 'Categoria actualizada.' : 'Categoria creada.'
+      } catch (error) {
+        els.serviceFeedback.textContent = error.message
+      } finally {
+        setButtonLoading(els.serviceCategorySave, false)
+      }
+    }
+
+    function editServiceCategory(id) {
+      const category = state.serviceCategories.find((item) => item.id === id)
+      if (!category) return
+      els.serviceCategoryId.value = category.id
+      els.serviceCategoryName.value = category.name
+      els.serviceCategorySave.textContent = 'Guardar'
+      els.serviceCategoryCancel.hidden = false
+      els.serviceCategoryName.focus()
+    }
+
+    async function deleteServiceCategory(id) {
+      const category = state.serviceCategories.find((item) => item.id === id)
+      if (!category || !requestCrmConfirmation('delete-service-category:' + id, 'Eliminar categoria ' + category.name + '?')) return
+      try {
+        await getJson('/service-categories/' + id, { method: 'DELETE' })
+        resetServiceCategoryForm()
+        await reloadServiceCatalog()
+        els.serviceFeedback.textContent = 'Categoria eliminada.'
+      } catch (error) {
+        els.serviceFeedback.textContent = error.message
+      }
+    }
+
+    function resetServiceCategoryForm() {
+      els.serviceCategoryId.value = ''
+      els.serviceCategoryName.value = ''
+      els.serviceCategorySave.textContent = 'Agregar'
+      els.serviceCategoryCancel.hidden = true
+    }
+
+    async function reloadServiceCatalog() {
+      const businessQuery = state.businessId
+        ? '?businessId=' + encodeURIComponent(state.businessId)
+        : ''
+      const selectedCategory = els.serviceCategory.value
+      const selectedParent = els.serviceParent.value
+      ;[state.serviceCategories, state.services] = await Promise.all([
+        getJson('/service-categories' + businessQuery),
+        getJson('/services' + businessQuery)
+      ])
+      renderServices()
+      els.serviceCategory.value = selectedCategory
+      els.serviceParent.value = selectedParent
+      renderAgendaFilters()
+      renderAppointmentFormOptions()
+      renderAgenda()
+    }
+
     async function saveService(event) {
       event.preventDefault()
       if (!state.businessId) {
@@ -22324,7 +22589,8 @@ const crmHtml = `<!doctype html>
       const duration = Number(els.serviceDuration.value)
       const priceValue = els.servicePrice.value.trim()
       const price = priceValue ? Number(priceValue) : null
-      const category = els.serviceCategory.value.trim()
+      const categoryId = els.serviceCategory.value.trim() || null
+      const parentServiceId = els.serviceParent.value.trim() || null
       const aliases = els.serviceAliases.value
         .split(',')
         .map((alias) => alias.trim())
@@ -22350,7 +22616,9 @@ const crmHtml = `<!doctype html>
             duration,
             businessId: state.businessId,
             price,
-            category: category || undefined,
+            categoryId,
+            parentServiceId,
+            isBookable: els.serviceBookable.checked,
             imageUrl: state.serviceImageUrl,
             aliases
           })
@@ -22358,11 +22626,7 @@ const crmHtml = `<!doctype html>
         const successMessage = id ? 'Servicio actualizado.' : 'Servicio creado.'
         resetServiceForm()
         els.serviceFeedback.textContent = successMessage
-        state.services = await getJson(businessScopedPath('/services'))
-        renderServices()
-        renderAgendaFilters()
-        renderAppointmentFormOptions()
-        renderAgenda()
+        await reloadServiceCatalog()
       } catch (error) {
         els.serviceFeedback.textContent = error.message
       } finally {
@@ -22374,10 +22638,13 @@ const crmHtml = `<!doctype html>
       const service = state.services.find((item) => item.id === id)
       if (!service) return
       els.serviceId.value = service.id
+      renderServiceCatalogControls()
       els.serviceName.value = service.name
       els.serviceDuration.value = service.duration
       els.servicePrice.value = hasServicePrice(service) ? service.price : ''
-      els.serviceCategory.value = service.category || ''
+      els.serviceCategory.value = service.catalogCategoryId || ''
+      els.serviceParent.value = service.parentServiceId || ''
+      els.serviceBookable.checked = service.isBookable !== false
       els.serviceAliases.value = (service.aliases || []).map((alias) => alias.name).join(', ')
       setServiceImage(service.imageUrl || null)
       els.serviceCancel.hidden = false
@@ -22396,11 +22663,7 @@ const crmHtml = `<!doctype html>
           method: 'DELETE'
         })
         els.serviceFeedback.textContent = 'Servicio eliminado.'
-        state.services = await getJson(businessScopedPath('/services'))
-        renderServices()
-        renderAgendaFilters()
-        renderAppointmentFormOptions()
-        renderAgenda()
+        await reloadServiceCatalog()
       } catch (error) {
         els.serviceFeedback.textContent = error.message
       }
@@ -22412,12 +22675,15 @@ const crmHtml = `<!doctype html>
       els.serviceDuration.value = ''
       els.servicePrice.value = ''
       els.serviceCategory.value = ''
+      els.serviceParent.value = ''
+      els.serviceBookable.checked = true
       els.serviceAliases.value = ''
       setServiceImage(null)
-      els.serviceCancel.hidden = false
+      els.serviceCancel.hidden = true
       els.serviceFeedback.textContent = ''
       els.serviceFormTitle.textContent = 'Nuevo servicio'
       document.getElementById('service-submit').textContent = 'Guardar servicio'
+      renderServiceCatalogControls()
     }
 
     function setServiceImage(imageUrl) {
@@ -22695,6 +22961,17 @@ const crmHtml = `<!doctype html>
     })
     els.serviceForm.addEventListener('submit', saveService)
     els.serviceCancel.addEventListener('click', resetServiceForm)
+    els.serviceCategorySave.addEventListener('click', saveServiceCategory)
+    els.serviceCategoryCancel.addEventListener('click', resetServiceCategoryForm)
+    els.serviceCategoryName.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return
+      event.preventDefault()
+      saveServiceCategory()
+    })
+    els.serviceParent.addEventListener('change', () => {
+      const parent = state.services.find((service) => service.id === els.serviceParent.value)
+      if (parent?.catalogCategoryId) els.serviceCategory.value = parent.catalogCategoryId
+    })
     els.serviceImage.addEventListener('change', readServiceImage)
     els.serviceImageRemove.addEventListener('click', () => setServiceImage(null))
     els.serviceSearch?.addEventListener('input', renderServices)
