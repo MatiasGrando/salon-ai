@@ -139,6 +139,8 @@ export async function serviceRoutes(app: FastifyInstance) {
       parentServiceId?: string | null
       isBookable?: boolean
       sortOrder?: number
+      attentionMode?: string
+      requiresPhoto?: boolean
     }
     const name = body.name?.trim()
     const duration = Number(body.duration)
@@ -154,6 +156,8 @@ export async function serviceRoutes(app: FastifyInstance) {
     const categoryId = normalizeNullableId(body.categoryId)
     const parentServiceId = normalizeNullableId(body.parentServiceId)
     const isBookable = body.isBookable !== false
+    const attentionMode = normalizeServiceAttentionMode(body.attentionMode)
+    const requiresPhoto = Boolean(body.requiresPhoto)
 
     if (!businessId) {
       return reply.status(400).send({
@@ -190,6 +194,11 @@ export async function serviceRoutes(app: FastifyInstance) {
         message: 'Una variante debe poder reservarse'
       })
     }
+    if (body.attentionMode !== undefined && !attentionMode) {
+      return reply.status(400).send({
+        message: 'Selecciona una modalidad de atencion valida'
+      })
+    }
 
     const hierarchy = await validateServiceHierarchy({
       businessId,
@@ -211,6 +220,8 @@ export async function serviceRoutes(app: FastifyInstance) {
       parentServiceId,
       isBookable,
       sortOrder: normalizeSortOrder(body.sortOrder),
+      attentionMode: isBookable ? attentionMode ?? 'DIRECT_BOOKING' : 'DIRECT_BOOKING',
+      requiresPhoto: isBookable ? requiresPhoto : false,
       ...(aliases?.length
         ? {
             aliases: {
@@ -280,6 +291,8 @@ export async function serviceRoutes(app: FastifyInstance) {
       parentServiceId?: string | null
       isBookable?: boolean
       sortOrder?: number
+      attentionMode?: string
+      requiresPhoto?: boolean
     }
     const name = body.name?.trim()
     const duration = Number(body.duration)
@@ -323,6 +336,8 @@ export async function serviceRoutes(app: FastifyInstance) {
         catalogCategoryId: true,
         parentServiceId: true,
         isBookable: true,
+        attentionMode: true,
+        requiresPhoto: true,
         _count: {
           select: {
             variants: true
@@ -343,6 +358,17 @@ export async function serviceRoutes(app: FastifyInstance) {
     const isBookable = typeof body.isBookable === 'boolean'
       ? body.isBookable
       : existing.isBookable
+    const attentionMode = body.attentionMode === undefined
+      ? existing.attentionMode
+      : normalizeServiceAttentionMode(body.attentionMode)
+    const requiresPhoto = typeof body.requiresPhoto === 'boolean'
+      ? body.requiresPhoto
+      : existing.requiresPhoto
+    if (!attentionMode) {
+      return reply.status(400).send({
+        message: 'Selecciona una modalidad de atencion valida'
+      })
+    }
     if (parentServiceId === params.id) {
       return reply.status(400).send({
         message: 'Un servicio no puede ser variante de si mismo'
@@ -380,6 +406,8 @@ export async function serviceRoutes(app: FastifyInstance) {
           catalogCategoryId: categoryId,
           parentServiceId,
           isBookable,
+          attentionMode: isBookable ? attentionMode : 'DIRECT_BOOKING',
+          requiresPhoto: isBookable ? requiresPhoto : false,
           ...(body.sortOrder === undefined ? {} : { sortOrder: normalizeSortOrder(body.sortOrder) }),
           price,
           imageUrl: imageUrl ?? null
@@ -585,4 +613,13 @@ function normalizeServiceImageUrl(imageUrl?: string | null) {
   const normalized = imageUrl.trim()
   const isImageDataUrl = /^data:image\/(png|jpeg|webp|gif);base64,[a-z0-9+/=]+$/i.test(normalized)
   return isImageDataUrl && normalized.length <= 2_800_000 ? normalized : undefined
+}
+
+function normalizeServiceAttentionMode(value?: string) {
+  const normalized = value?.trim().toUpperCase()
+  return normalized === 'DIRECT_BOOKING' || normalized === 'QUOTE' || normalized === 'ADVISOR'
+    ? normalized
+    : value === undefined
+      ? undefined
+      : null
 }

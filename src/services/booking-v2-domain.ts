@@ -16,6 +16,8 @@ export type BookingV2ServiceOption = {
   category: string | null
   parentServiceId?: string | null
   parentServiceName?: string | null
+  attentionMode?: 'DIRECT_BOOKING' | 'QUOTE' | 'ADVISOR'
+  requiresPhoto?: boolean
 }
 
 export type BookingV2ProfessionalOption = {
@@ -112,7 +114,9 @@ export class BookingV2DomainService {
           price: service.price,
           category,
           parentServiceId: service.parentServiceId,
-          parentServiceName: service.parentService?.name ?? null
+          parentServiceName: service.parentService?.name ?? null,
+          attentionMode: service.attentionMode,
+          requiresPhoto: service.requiresPhoto
         }
       }),
       professionals: professionals.map((professional) => ({

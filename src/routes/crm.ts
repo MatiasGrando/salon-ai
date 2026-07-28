@@ -407,6 +407,44 @@ export async function crmRoutes(app: FastifyInstance) {
     }
   })
 
+  app.get('/crm/messages/:id/media', async (request, reply) => {
+    const params = request.params as { id: string }
+    const message = await prisma.message.findUnique({
+      where: { id: params.id },
+      include: {
+        conversation: {
+          select: { businessId: true }
+        }
+      }
+    })
+    const metadata = message?.metadata && typeof message.metadata === 'object'
+      ? message.metadata as Record<string, unknown>
+      : null
+    const media = metadata?.media && typeof metadata.media === 'object'
+      ? metadata.media as Record<string, unknown>
+      : null
+    const mediaId = typeof media?.id === 'string' ? media.id : null
+
+    if (!message || !mediaId || media?.type !== 'image') {
+      return reply.status(404).send({ message: 'No encontre esa imagen' })
+    }
+
+    const downloaded = await whatsappCloudApi.downloadMedia({
+      businessId: message.conversation.businessId,
+      mediaId
+    })
+    if (!downloaded.downloaded) {
+      return reply.status(502).send({
+        message: downloaded.errorMessage || downloaded.reason || 'No pude descargar la imagen'
+      })
+    }
+
+    return reply
+      .header('Content-Type', downloaded.contentType)
+      .header('Cache-Control', 'private, max-age=300')
+      .send(downloaded.data)
+  })
+
   app.patch('/crm/conversations/:id/archive', async (request, reply) => {
     const params = request.params as { id: string }
     const body = request.body as { archived?: boolean }

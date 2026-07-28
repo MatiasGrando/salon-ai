@@ -1,0 +1,5 @@
+CREATE TYPE "ServiceAttentionMode" AS ENUM ('DIRECT_BOOKING', 'QUOTE', 'ADVISOR');
+
+ALTER TABLE "Service"
+ADD COLUMN "attentionMode" "ServiceAttentionMode" NOT NULL DEFAULT 'DIRECT_BOOKING',
+ADD COLUMN "requiresPhoto" BOOLEAN NOT NULL DEFAULT false;

@@ -463,9 +463,17 @@ export class ConversationService {
     })
 
     const nextStep = conversationStepFromBookingV2Plan(result.plan)
+    const isHandoff = result.plan.type === 'handoff'
     await this.updateConversation(input.phone, {
       currentStep: nextStep,
       ...result.conversationPatch,
+      ...(isHandoff
+        ? {
+            aiEnabled: false,
+            humanHandoffAt: new Date(),
+            humanHandoffResolvedAt: null
+          }
+        : {}),
       lastAvailability: result.availabilityOptions.length
         ? {
             serviceId: result.state.draft.service,

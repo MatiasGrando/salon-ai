@@ -1912,6 +1912,16 @@ const crmHtml = `<!doctype html>
       background: #fff1f2;
     }
 
+    .message-media-image {
+      width: min(360px, 100%);
+      max-height: 360px;
+      margin-bottom: 7px;
+      display: block;
+      border-radius: 7px;
+      object-fit: cover;
+      background: #e8edf5;
+    }
+
     .message-time {
       margin-top: 5px;
       font-size: 9px;
@@ -5556,6 +5566,29 @@ const crmHtml = `<!doctype html>
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 18px;
+    }
+
+    .service-attention-panel {
+      padding: 15px;
+      display: grid;
+      gap: 13px;
+      border: 1px solid #dfe6f1;
+      border-radius: 10px;
+      background: #f8fbff;
+    }
+
+    .service-photo-option {
+      display: flex;
+      align-items: flex-start;
+      gap: 9px;
+      color: #263958;
+      font-size: 13px;
+      font-weight: 750;
+      line-height: 1.35;
+    }
+
+    .service-photo-option input {
+      margin-top: 2px;
     }
 
     .service-input-addon {
@@ -12181,9 +12214,9 @@ const crmHtml = `<!doctype html>
               <div class="service-form-group">
                 <label for="service-item-type">Tipo de elemento</label>
                 <select id="service-item-type">
-                  <option value="SERVICE">Servicio reservable</option>
+                  <option value="SERVICE">Servicio</option>
                   <option value="GROUP">Grupo de variantes</option>
-                  <option value="VARIANT">Variante reservable</option>
+                  <option value="VARIANT">Variante</option>
                 </select>
                 <div class="service-form-help" id="service-item-type-help">El cliente puede reservarlo directamente.</div>
               </div>
@@ -12202,6 +12235,21 @@ const crmHtml = `<!doctype html>
                     <input id="service-price" type="number" min="0" step="1" placeholder="Ej: 15000">
                   </div>
                 </div>
+              </div>
+              <div class="service-attention-panel" id="service-attention-panel">
+                <div class="service-form-group">
+                  <label for="service-attention-mode">C&oacute;mo se atiende</label>
+                  <select id="service-attention-mode">
+                    <option value="DIRECT_BOOKING">Reserva autom&aacute;tica</option>
+                    <option value="QUOTE">Presupuesto personalizado</option>
+                    <option value="ADVISOR">Asesoramiento previo</option>
+                  </select>
+                  <div class="service-form-help" id="service-attention-help">El bot mostrar&aacute; profesionales y horarios disponibles para confirmar el turno.</div>
+                </div>
+                <label class="service-photo-option">
+                  <input id="service-requires-photo" type="checkbox">
+                  <span>Pedir fotos antes de derivar al equipo</span>
+                </label>
               </div>
               <div class="service-form-group">
                 <label for="service-category">Categor&iacute;a (opcional)</label>
@@ -14176,6 +14224,10 @@ const crmHtml = `<!doctype html>
       serviceItemType: document.getElementById('service-item-type'),
       serviceItemTypeHelp: document.getElementById('service-item-type-help'),
       serviceCommercialFields: document.getElementById('service-commercial-fields'),
+      serviceAttentionPanel: document.getElementById('service-attention-panel'),
+      serviceAttentionMode: document.getElementById('service-attention-mode'),
+      serviceAttentionHelp: document.getElementById('service-attention-help'),
+      serviceRequiresPhoto: document.getElementById('service-requires-photo'),
       serviceParentGroup: document.getElementById('service-parent-group'),
       serviceParent: document.getElementById('service-parent'),
       serviceCategoryId: document.getElementById('service-category-id'),
@@ -16234,7 +16286,14 @@ const crmHtml = `<!doctype html>
         const dayKey = createdAt.toDateString()
         const dayDivider = dayKey === lastDay ? '' : '<div class="message-day">' + escapeHtml(formatMessageDay(createdAt)) + '</div>'
         lastDay = dayKey
+        const media = message.metadata && typeof message.metadata === 'object'
+          ? message.metadata.media
+          : null
+        const mediaHtml = media?.type === 'image' && media.id
+          ? '<img class="message-media-image" src="/crm/messages/' + encodeURIComponent(message.id) + '/media" alt="Foto enviada por el cliente" loading="lazy">'
+          : ''
         return dayDivider + '<article class="message ' + direction + (failed ? ' failed' : '') + '">' +
+          mediaHtml +
           escapeHtml(message.body) +
           '<div class="message-time">' + escapeHtml(formatMessageTime(createdAt)) + deliveryStatus + '</div>' +
         '</article>'
@@ -16457,8 +16516,11 @@ const crmHtml = `<!doctype html>
       )
 
       els.serviceCommercialFields.hidden = isGroup
+      els.serviceAttentionPanel.hidden = isGroup
       els.serviceDuration.disabled = isGroup
       els.servicePrice.disabled = isGroup
+      els.serviceAttentionMode.disabled = isGroup
+      els.serviceRequiresPhoto.disabled = isGroup
       els.serviceParentGroup.hidden = !isVariant
 
       if (!isVariant) els.serviceParent.value = ''
@@ -16470,6 +16532,18 @@ const crmHtml = `<!doctype html>
             ? 'Es una opción reservable dentro del grupo que selecciones.'
             : 'Primero creá un Grupo de variantes para poder asociarla.'
           : 'El cliente puede reservarlo directamente y no contiene variantes.'
+      updateServiceAttentionHelp()
+    }
+
+    function updateServiceAttentionHelp() {
+      const mode = els.serviceAttentionMode.value
+      els.serviceAttentionHelp.textContent = mode === 'QUOTE'
+        ? 'El bot no ofrecerÃ¡ horarios: derivarÃ¡ la consulta para preparar un presupuesto.'
+        : mode === 'ADVISOR'
+          ? 'El bot no ofrecerÃ¡ horarios: derivarÃ¡ al equipo para asesorar al cliente.'
+          : els.serviceRequiresPhoto.checked
+            ? 'Al pedir fotos, el bot pausarÃ¡ la reserva automÃ¡tica y derivarÃ¡ el caso al equipo.'
+            : 'El bot mostrarÃ¡ profesionales y horarios disponibles para confirmar el turno.'
     }
 
     function renderServices() {
@@ -16497,18 +16571,29 @@ const crmHtml = `<!doctype html>
               : service.name
             const itemType = getServiceItemType(service)
             const hierarchyLabel = itemType === 'VARIANT'
-              ? 'Variante reservable'
+              ? 'Variante'
               : itemType === 'GROUP'
                 ? Number(service._count?.variants || 0) + ' variantes'
-                : 'Servicio reservable'
+                : 'Servicio'
             const professionalCount = Number(service._count?.professionalLinks || 0)
+            const attentionMode = service.attentionMode || 'DIRECT_BOOKING'
+            const attentionLabel = service.requiresPhoto
+              ? 'Pide fotos y deriva'
+              : attentionMode === 'QUOTE'
+                ? 'Presupuesto personalizado'
+                : attentionMode === 'ADVISOR'
+                  ? 'Asesoramiento previo'
+                  : 'Reserva automÃ¡tica'
             const serviceMeta = itemType === 'GROUP'
               ? '<span>Grupo de variantes</span>'
               : '<span>' + icon('clock') + escapeHtml(service.duration + ' min') + '</span>' +
                 '<span>' + icon('tag') + escapeHtml(priceLabel) + '</span>' +
-                (professionalCount > 0
-                  ? '<span>' + escapeHtml(professionalCount === 1 ? '1 profesional' : professionalCount + ' profesionales') + '</span>'
-                  : '<span class="service-professional-warning">Sin profesionales asignados</span>')
+                '<span>' + escapeHtml(attentionLabel) + '</span>' +
+                (attentionMode === 'DIRECT_BOOKING' && !service.requiresPhoto
+                  ? professionalCount > 0
+                    ? '<span>' + escapeHtml(professionalCount === 1 ? '1 profesional' : professionalCount + ' profesionales') + '</span>'
+                    : '<span class="service-professional-warning">Sin profesionales asignados</span>'
+                  : '')
             return '<article class="service-card">' +
               '<div class="service-item-icon">' + (service.imageUrl ? '<img src="' + escapeHtml(service.imageUrl) + '" alt="">' : icon('scissors')) + '</div>' +
               '<div>' +
@@ -19016,7 +19101,11 @@ const crmHtml = `<!doctype html>
     }
 
     function bookableServices() {
-      return state.services.filter((service) => service.isBookable !== false)
+      return state.services.filter((service) =>
+        service.isBookable !== false &&
+        (service.attentionMode || 'DIRECT_BOOKING') === 'DIRECT_BOOKING' &&
+        service.requiresPhoto !== true
+      )
     }
 
     function serviceCatalogLabel(service) {
@@ -22695,6 +22784,8 @@ const crmHtml = `<!doctype html>
         .split(',')
         .map((alias) => alias.trim())
         .filter(Boolean)
+      const attentionMode = isGroup ? 'DIRECT_BOOKING' : els.serviceAttentionMode.value
+      const requiresPhoto = isGroup ? false : els.serviceRequiresPhoto.checked
 
       if (!name || (!isGroup && (!Number.isFinite(duration) || duration <= 0))) {
         els.serviceFeedback.textContent = isGroup ? 'Completá el nombre.' : 'Completá nombre y duración.'
@@ -22724,6 +22815,8 @@ const crmHtml = `<!doctype html>
             categoryId,
             parentServiceId,
             isBookable: !isGroup,
+            attentionMode,
+            requiresPhoto,
             imageUrl: state.serviceImageUrl,
             aliases
           })
@@ -22750,6 +22843,8 @@ const crmHtml = `<!doctype html>
       els.servicePrice.value = hasServicePrice(service) ? service.price : ''
       els.serviceCategory.value = service.catalogCategoryId || ''
       els.serviceParent.value = service.parentServiceId || ''
+      els.serviceAttentionMode.value = service.attentionMode || 'DIRECT_BOOKING'
+      els.serviceRequiresPhoto.checked = service.requiresPhoto === true
       els.serviceAliases.value = (service.aliases || []).map((alias) => alias.name).join(', ')
       updateServiceTypeFields()
       setServiceImage(service.imageUrl || null)
@@ -22788,6 +22883,8 @@ const crmHtml = `<!doctype html>
       els.serviceCategory.value = ''
       els.serviceItemType.value = 'SERVICE'
       els.serviceParent.value = ''
+      els.serviceAttentionMode.value = 'DIRECT_BOOKING'
+      els.serviceRequiresPhoto.checked = false
       els.serviceAliases.value = ''
       setServiceImage(null)
       els.serviceCancel.hidden = true
@@ -23074,6 +23171,8 @@ const crmHtml = `<!doctype html>
     els.serviceForm.addEventListener('submit', saveService)
     els.serviceCancel.addEventListener('click', resetServiceForm)
     els.serviceItemType.addEventListener('change', updateServiceTypeFields)
+    els.serviceAttentionMode.addEventListener('change', updateServiceAttentionHelp)
+    els.serviceRequiresPhoto.addEventListener('change', updateServiceAttentionHelp)
     els.serviceCategorySave.addEventListener('click', saveServiceCategory)
     els.serviceCategoryCancel.addEventListener('click', resetServiceCategoryForm)
     els.serviceCategoryName.addEventListener('keydown', (event) => {

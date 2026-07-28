@@ -77,6 +77,79 @@ function messageTemplateStatusRank(status?: string) {
 }
 
 export class WhatsAppCloudApi {
+  async downloadMedia(input: { businessId?: string | null; mediaId: string }) {
+    const config = await resolveBusinessWhatsAppCredentials(input.businessId)
+    if (!config.accessToken) {
+      return {
+        downloaded: false as const,
+        reason: 'WHATSAPP_ACCESS_TOKEN no configurado'
+      }
+    }
+
+    const metadataResponse = await fetch(
+      `https://graph.facebook.com/${config.apiVersion}/${encodeURIComponent(input.mediaId)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${config.accessToken}`
+        }
+      }
+    )
+    if (!metadataResponse.ok) {
+      const parsedError = parseWhatsAppError(await metadataResponse.text())
+      return {
+        downloaded: false as const,
+        status: metadataResponse.status,
+        errorCode: parsedError.code,
+        errorMessage: parsedError.message
+      }
+    }
+
+    const metadata = await metadataResponse.json() as {
+      url?: string
+      mime_type?: string
+      file_size?: number
+    }
+    if (!metadata.url) {
+      return {
+        downloaded: false as const,
+        reason: 'Meta no devolvio la URL del archivo'
+      }
+    }
+    if (metadata.file_size && metadata.file_size > 8 * 1024 * 1024) {
+      return {
+        downloaded: false as const,
+        reason: 'La imagen supera el limite de 8 MB'
+      }
+    }
+
+    const mediaResponse = await fetch(metadata.url, {
+      headers: {
+        Authorization: `Bearer ${config.accessToken}`
+      }
+    })
+    if (!mediaResponse.ok) {
+      return {
+        downloaded: false as const,
+        status: mediaResponse.status,
+        reason: 'No pude descargar el archivo desde Meta'
+      }
+    }
+
+    const data = Buffer.from(await mediaResponse.arrayBuffer())
+    if (data.length > 8 * 1024 * 1024) {
+      return {
+        downloaded: false as const,
+        reason: 'La imagen supera el limite de 8 MB'
+      }
+    }
+
+    return {
+      downloaded: true as const,
+      data,
+      contentType: metadata.mime_type || mediaResponse.headers.get('content-type') || 'application/octet-stream'
+    }
+  }
+
   async listMessageTemplates(input: { businessId?: string | null; name: string }): Promise<ListMessageTemplatesResult> {
     const config = await resolveBusinessWhatsAppCredentials(input.businessId)
     if (!config.accessToken || !config.businessAccountId) {

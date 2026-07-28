@@ -25,7 +25,12 @@ export type BookingV2MessagePlan =
     }
   | {
       type: 'handoff'
-      reason: 'repeated_misunderstanding' | 'no_compatible_professional'
+      reason:
+        | 'repeated_misunderstanding'
+        | 'no_compatible_professional'
+        | 'quote_required'
+        | 'advisor_required'
+        | 'photo_required'
     }
 
 export function buildBookingV2MessagePlan(

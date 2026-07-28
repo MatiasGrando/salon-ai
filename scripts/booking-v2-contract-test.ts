@@ -51,6 +51,7 @@ import {
   normalizeAssistantPersonality,
   personalityForPreset
 } from '../src/services/assistant-personality-service.js'
+import { WhatsAppWebhookService } from '../src/services/whatsapp-webhook-service.js'
 
 const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
   {
@@ -537,6 +538,178 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(result.reply.includes('servicios disponibles'), true)
       assert.equal(result.reply.includes('Tu nombre es'), false)
       assert.equal(extractor.calls.length, 0)
+    }
+  },
+  {
+    name: 'servicio con presupuesto deriva sin pedir profesional ni horario',
+    run: async () => {
+      const catalog = createBookingV2DomainCatalog({
+        services: [{
+          id: 'color',
+          name: 'Color completo',
+          aliases: ['color'],
+          duration: 90,
+          price: 65000,
+          category: 'Coloracion',
+          attentionMode: 'QUOTE',
+          requiresPhoto: false
+        }],
+        professionals: [{
+          id: 'professional-1',
+          name: 'Tamara',
+          serviceIds: ['color']
+        }]
+      })
+      const engine = new BookingV2Engine(
+        fakeDomainPort({ catalog }),
+        fakeExtractor(null)
+      )
+
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Mati',
+          selectedServiceId: null,
+          selectedProfessionalId: null,
+          selectedDate: null,
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: 'quiero color completo'
+      })
+
+      assert.deepEqual(result.plan, {
+        type: 'handoff',
+        reason: 'quote_required'
+      })
+      assert.equal(result.reply.includes('presupuesto personalizado'), true)
+      assert.equal(result.reply.includes('profesional'), false)
+      assert.equal(result.reply.includes('horario'), false)
+    }
+  },
+  {
+    name: 'servicio con asesoramiento deriva antes de reservar',
+    run: async () => {
+      const catalog = createBookingV2DomainCatalog({
+        services: [{
+          id: 'nutrition',
+          name: 'Nutricion',
+          aliases: ['nutricion'],
+          duration: 120,
+          price: null,
+          category: 'Tratamientos',
+          attentionMode: 'ADVISOR',
+          requiresPhoto: false
+        }],
+        professionals: []
+      })
+      const engine = new BookingV2Engine(
+        fakeDomainPort({ catalog }),
+        fakeExtractor(null)
+      )
+
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Mati',
+          selectedServiceId: null,
+          selectedProfessionalId: null,
+          selectedDate: null,
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: 'nutricion'
+      })
+
+      assert.deepEqual(result.plan, {
+        type: 'handoff',
+        reason: 'advisor_required'
+      })
+      assert.equal(result.reply.includes('requiere asesoramiento'), true)
+    }
+  },
+  {
+    name: 'pedido de fotos prevalece y no ofrece una reserva automatica',
+    run: async () => {
+      const catalog = createBookingV2DomainCatalog({
+        services: [{
+          id: 'highlights',
+          name: 'Iluminacion',
+          aliases: ['iluminacion'],
+          duration: 180,
+          price: 160000,
+          category: 'Coloracion',
+          attentionMode: 'QUOTE',
+          requiresPhoto: true
+        }],
+        professionals: []
+      })
+      const engine = new BookingV2Engine(
+        fakeDomainPort({ catalog }),
+        fakeExtractor(null)
+      )
+
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Mati',
+          selectedServiceId: null,
+          selectedProfessionalId: null,
+          selectedDate: null,
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: 'iluminacion'
+      })
+
+      assert.deepEqual(result.plan, {
+        type: 'handoff',
+        reason: 'photo_required'
+      })
+      assert.equal(result.reply.includes('foto clara'), true)
+      assert.equal(result.reply.includes('resultado que busc'), true)
+      assert.equal(result.availabilityOptions.length, 0)
+    }
+  },
+  {
+    name: 'webhook conserva fotos entrantes con sus datos de Meta',
+    run: () => {
+      const messages = new WhatsAppWebhookService().extractIncomingMessages({
+        entry: [{
+          changes: [{
+            value: {
+              metadata: {
+                phone_number_id: 'phone-number-1',
+                display_phone_number: '5491100000000'
+              },
+              messages: [{
+                id: 'wamid.image-1',
+                from: '5491199999999',
+                type: 'image',
+                image: {
+                  id: 'media-1',
+                  mime_type: 'image/jpeg',
+                  sha256: 'hash-1',
+                  caption: 'Mi pelo actual'
+                }
+              }]
+            }
+          }]
+        }]
+      })
+
+      assert.equal(messages.length, 1)
+      assert.equal(messages[0]?.text, 'Mi pelo actual')
+      assert.deepEqual(messages[0]?.media, {
+        type: 'image',
+        id: 'media-1',
+        mimeType: 'image/jpeg',
+        sha256: 'hash-1',
+        caption: 'Mi pelo actual'
+      })
     }
   },
   {

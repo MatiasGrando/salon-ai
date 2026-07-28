@@ -250,6 +250,26 @@ export class BookingV2Engine {
     let availabilityOptions: BookingV2AvailabilityOption[] = []
     let unavailableDate: string | null = null
 
+    const selectedService = catalog?.services.find(
+      (service) => service.id === effectiveInterpretation.state.draft.service
+    )
+    if (
+      selectedService &&
+      (selectedService.requiresPhoto || (
+        selectedService.attentionMode !== undefined &&
+        selectedService.attentionMode !== 'DIRECT_BOOKING'
+      ))
+    ) {
+      plan = {
+        type: 'handoff',
+        reason: selectedService.requiresPhoto
+          ? 'photo_required'
+          : selectedService.attentionMode === 'QUOTE'
+            ? 'quote_required'
+            : 'advisor_required'
+      }
+    }
+
     if (
       catalog &&
       plan.type === 'ask_field' &&

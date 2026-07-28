@@ -14,8 +14,23 @@ export type BookingV2RenderInput = {
 
 export function renderBookingV2Response(input: BookingV2RenderInput): string {
   if (input.plan.type === 'handoff') {
+    const service = input.catalog?.services.find((option) => option.id === input.draft.service)
+    if (input.plan.reason === 'photo_required') {
+      return service
+        ? `Para evaluar ${service.name}, enviame una foto clara del estado actual y, si tenés, otra del resultado que buscás. El equipo la revisará y continuará con vos por acá.`
+        : 'Enviame una foto clara del estado actual y, si tenés, otra del resultado que buscás. El equipo la revisará y continuará con vos por acá.'
+    }
+    if (input.plan.reason === 'quote_required') {
+      return service
+        ? `${service.name} requiere un presupuesto personalizado. Te derivo con una persona del local para que pueda prepararlo.`
+        : 'Este servicio requiere un presupuesto personalizado. Te derivo con una persona del local para que pueda prepararlo.'
+    }
+    if (input.plan.reason === 'advisor_required') {
+      return service
+        ? `${service.name} requiere asesoramiento antes de coordinar. Te derivo con una persona del local para que pueda orientarte.`
+        : 'Este servicio requiere asesoramiento antes de coordinar. Te derivo con una persona del local para que pueda orientarte.'
+    }
     if (input.plan.reason === 'no_compatible_professional') {
-      const service = input.catalog?.services.find((option) => option.id === input.draft.service)
       return service
         ? `Por el momento no tengo profesionales habilitados para ${service.name}. Te derivo con una persona del local para revisarlo.`
         : 'Por el momento no tengo profesionales disponibles. Te derivo con una persona del local.'
@@ -82,6 +97,10 @@ function serviceQuestion(
   const serviceLines = suggestionCategory
     ? services.map(formatServiceOption)
     : formatServiceOptions(services)
+  const containsAssistedServices = services.some((service) =>
+    service.requiresPhoto ||
+    (service.attentionMode !== undefined && service.attentionMode !== 'DIRECT_BOOKING')
+  )
 
   return [
     serviceSuggestions?.length
@@ -90,7 +109,7 @@ function serviceQuestion(
         : 'Encontré más de una opción parecida 😊 ¿Cuál de estas querés?'
       : 'Estos son los servicios disponibles 😊',
     ...serviceLines,
-    '¿Cuál querés reservar?'
+    containsAssistedServices ? '¿Cuál te interesa?' : '¿Cuál querés reservar?'
   ].join('\n')
 }
 
@@ -125,7 +144,14 @@ export function formatServiceOptions(
 
 function formatServiceOption(service: BookingV2DomainCatalog['services'][number]) {
   const price = service.price === null ? 'precio a consultar' : formatMoney(service.price)
-  return `• ${service.name} — ${service.duration} min — ${price}`
+  const attention = service.requiresPhoto
+    ? 'requiere fotos'
+    : service.attentionMode === 'QUOTE'
+      ? 'presupuesto personalizado'
+      : service.attentionMode === 'ADVISOR'
+        ? 'asesoramiento previo'
+        : null
+  return `• ${service.name} — ${service.duration} min — ${price}${attention ? ` — ${attention}` : ''}`
 }
 
 function professionalQuestion(

@@ -27,6 +27,12 @@ type WhatsAppWebhookPayload = {
           text?: {
             body?: string
           }
+          image?: {
+            id?: string
+            mime_type?: string
+            sha256?: string
+            caption?: string
+          }
         }>
       }
     }>
@@ -55,19 +61,19 @@ export class WhatsAppWebhookService {
   }
 
   async handleWebhook(payload: WhatsAppWebhookPayload = {}) {
-    const messages = this.extractTextMessages(payload)
+    const messages = this.extractIncomingMessages(payload)
     const results = []
 
     console.info('[whatsapp-webhook] received payload', {
       entries: payload.entry?.length ?? 0,
-      textMessages: messages.length
+      incomingMessages: messages.length
     })
 
     for (const message of messages) {
       const targetBusiness = await this.resolveTargetBusiness(message)
       const targetBusinessId = targetBusiness?.businessId ?? null
 
-      console.info('[whatsapp-webhook] processing text message', {
+      console.info('[whatsapp-webhook] processing message', {
         messageId: message.id,
         from: message.from,
         phoneNumberId: message.phoneNumberId,
@@ -127,6 +133,13 @@ export class WhatsAppWebhookService {
           provider: string
           phoneNumberId?: string
           displayPhoneNumber?: string
+          media?: {
+            type: 'image'
+            id: string
+            mimeType?: string
+            sha256?: string
+            caption?: string
+          }
         }
       } = {
         conversationId: conversation.id,
@@ -137,7 +150,8 @@ export class WhatsAppWebhookService {
         metadata: {
           provider: 'whatsapp',
           ...(message.phoneNumberId ? { phoneNumberId: message.phoneNumberId } : {}),
-          ...(message.displayPhoneNumber ? { displayPhoneNumber: message.displayPhoneNumber } : {})
+          ...(message.displayPhoneNumber ? { displayPhoneNumber: message.displayPhoneNumber } : {}),
+          ...(message.media ? { media: message.media } : {})
         }
       }
 
@@ -380,22 +394,32 @@ export class WhatsAppWebhookService {
     }
   }
 
-  private extractTextMessages(payload: WhatsAppWebhookPayload) {
+  extractIncomingMessages(payload: WhatsAppWebhookPayload) {
     const messages: Array<{
       id?: string
       from: string
       text: string
       phoneNumberId?: string
       displayPhoneNumber?: string
+      media?: {
+        type: 'image'
+        id: string
+        mimeType?: string
+        sha256?: string
+        caption?: string
+      }
     }> = []
 
     for (const entry of payload.entry ?? []) {
       for (const change of entry.changes ?? []) {
         const metadata = change.value?.metadata
         for (const message of change.value?.messages ?? []) {
-          if (message.type !== 'text' || !message.from || !message.text?.body) {
+          if (!message.from) {
             continue
           }
+          const isText = message.type === 'text' && Boolean(message.text?.body)
+          const isImage = message.type === 'image' && Boolean(message.image?.id)
+          if (!isText && !isImage) continue
 
           const textMessage: {
             id?: string
@@ -403,11 +427,31 @@ export class WhatsAppWebhookService {
             text: string
             phoneNumberId?: string
             displayPhoneNumber?: string
+            media?: {
+              type: 'image'
+              id: string
+              mimeType?: string
+              sha256?: string
+              caption?: string
+            }
           } = {
             from: message.from,
-            text: message.text.body,
+            text: isText
+              ? message.text?.body ?? ''
+              : message.image?.caption?.trim() || 'Foto recibida',
             ...(metadata?.phone_number_id ? { phoneNumberId: metadata.phone_number_id } : {}),
-            ...(metadata?.display_phone_number ? { displayPhoneNumber: metadata.display_phone_number } : {})
+            ...(metadata?.display_phone_number ? { displayPhoneNumber: metadata.display_phone_number } : {}),
+            ...(isImage && message.image?.id
+              ? {
+                  media: {
+                    type: 'image' as const,
+                    id: message.image.id,
+                    ...(message.image.mime_type ? { mimeType: message.image.mime_type } : {}),
+                    ...(message.image.sha256 ? { sha256: message.image.sha256 } : {}),
+                    ...(message.image.caption ? { caption: message.image.caption } : {})
+                  }
+                }
+              : {})
           }
 
           if (message.id) {

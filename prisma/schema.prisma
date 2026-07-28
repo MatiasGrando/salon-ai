@@ -40,6 +40,12 @@ enum ConversationOpportunityStatus {
   CLOSED
 }
 
+enum ServiceAttentionMode {
+  DIRECT_BOOKING
+  QUOTE
+  ADVISOR
+}
+
 enum MessageDirection {
   INBOUND
   OUTBOUND
@@ -298,13 +304,15 @@ model Professional {
 model Service {
   id String @id @default(cuid())
 
-  name       String
-  duration   Int
-  category   String?
-  price      Int?
-  imageUrl   String?
-  isBookable Boolean @default(true)
-  sortOrder  Int     @default(0)
+  name          String
+  duration      Int
+  category      String?
+  price         Int?
+  imageUrl      String?
+  isBookable    Boolean              @default(true)
+  sortOrder     Int                  @default(0)
+  attentionMode ServiceAttentionMode @default(DIRECT_BOOKING)
+  requiresPhoto Boolean              @default(false)
 
   businessId String
   business   Business @relation(fields: [businessId], references: [id])
