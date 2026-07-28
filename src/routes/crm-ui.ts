@@ -5659,32 +5659,6 @@ const crmHtml = `<!doctype html>
       cursor: pointer;
     }
 
-    .service-bookable-control {
-      display: flex;
-      align-items: flex-start;
-      gap: 10px;
-      padding: 12px;
-      border: 1px solid #e4e9f1;
-      border-radius: 10px;
-      background: #fff;
-    }
-
-    .service-bookable-control input {
-      margin-top: 3px;
-    }
-
-    .service-bookable-control strong,
-    .service-bookable-control span {
-      display: block;
-    }
-
-    .service-bookable-control span {
-      margin-top: 3px;
-      color: #78849a;
-      font-size: 0.78rem;
-      line-height: 1.4;
-    }
-
     .service-card-category {
       margin-bottom: 3px;
       color: #7667d8;
@@ -9132,6 +9106,42 @@ const crmHtml = `<!doctype html>
       overflow: hidden;
     }
 
+    .confirmation-dialog {
+      width: min(440px, 100%);
+      grid-template-rows: auto;
+      padding: 22px;
+      gap: 18px;
+    }
+
+    .confirmation-dialog-icon {
+      width: 46px;
+      height: 46px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      color: #b42318;
+      background: #fff1f2;
+      font-size: 22px;
+      font-weight: 900;
+    }
+
+    .confirmation-dialog h3 {
+      margin: 0 0 8px;
+      color: #17213a;
+      font-size: 19px;
+    }
+
+    .confirmation-dialog p {
+      margin: 0;
+      color: #5f6c82;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .confirmation-dialog .dialog-actions {
+      padding-top: 0;
+    }
+
     .dialog-header {
       min-height: 58px;
       padding: 14px 16px;
@@ -11875,6 +11885,20 @@ const crmHtml = `<!doctype html>
       </section>
     </div>
 
+    <div class="dialog-backdrop" id="confirmation-dialog" hidden>
+      <section class="dialog confirmation-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirmation-dialog-title" aria-describedby="confirmation-dialog-message">
+        <div class="confirmation-dialog-icon" aria-hidden="true">!</div>
+        <div>
+          <h3 id="confirmation-dialog-title">&iquest;Est&aacute;s seguro?</h3>
+          <p id="confirmation-dialog-message"></p>
+        </div>
+        <div class="dialog-actions">
+          <button class="secondary" id="confirmation-cancel" type="button">Cancelar</button>
+          <button class="danger" id="confirmation-accept" type="button">S&iacute;, eliminar</button>
+        </div>
+      </section>
+    </div>
+
     <div class="dialog-backdrop" id="customer-dialog" hidden>
       <section class="dialog customer-dialog" role="dialog" aria-modal="true" aria-labelledby="customer-dialog-title">
         <header class="dialog-header">
@@ -12147,10 +12171,19 @@ const crmHtml = `<!doctype html>
             <form class="service-form" id="service-form">
               <input id="service-id" type="hidden">
               <div class="service-form-group">
-                <label for="service-name">Nombre del servicio</label>
+                <label for="service-name">Nombre</label>
                 <input class="field" id="service-name" placeholder="Ej: Corte Hombre">
               </div>
-              <div class="service-form-grid">
+              <div class="service-form-group">
+                <label for="service-item-type">Tipo de elemento</label>
+                <select id="service-item-type">
+                  <option value="SERVICE">Servicio reservable</option>
+                  <option value="GROUP">Grupo de variantes</option>
+                  <option value="VARIANT">Variante reservable</option>
+                </select>
+                <div class="service-form-help" id="service-item-type-help">El cliente puede reservarlo directamente.</div>
+              </div>
+              <div class="service-form-grid" id="service-commercial-fields">
                 <div class="service-form-group">
                   <label for="service-duration"><span data-icon="clock"></span>Duraci&oacute;n</label>
                   <div class="service-input-addon">
@@ -12172,20 +12205,13 @@ const crmHtml = `<!doctype html>
                   <option value="">Seleccionar categor&iacute;a</option>
                 </select>
               </div>
-              <div class="service-form-group">
-                <label for="service-parent">Servicio principal (opcional)</label>
-                <div class="service-form-help">Usalo para crear variantes, por ejemplo Color &rarr; Ra&iacute;ces y Color completo.</div>
+              <div class="service-form-group" id="service-parent-group" hidden>
+                <label for="service-parent">Grupo principal</label>
+                <div class="service-form-help">Solo aparecen elementos creados como Grupo de variantes.</div>
                 <select id="service-parent">
-                  <option value="">No es una variante</option>
+                  <option value="">Seleccionar grupo</option>
                 </select>
               </div>
-              <label class="service-bookable-control" for="service-bookable">
-                <input id="service-bookable" type="checkbox" checked>
-                <span>
-                  <strong>Se puede reservar directamente</strong>
-                  <span>Desactiv&aacute; esta opci&oacute;n si solo agrupa variantes. Al agregar una variante, el servicio principal se convierte autom&aacute;ticamente en agrupador.</span>
-                </span>
-              </label>
               <div class="service-form-group">
                 <label for="service-aliases">Alias (opcional)</label>
                 <div class="service-form-help">Alias opcionales separados por coma (ej: corte, corte hombre)</div>
@@ -13904,7 +13930,7 @@ const crmHtml = `<!doctype html>
       templateSearch: '',
       templateDraftExamples: {},
       templateImageUrl: null,
-      pendingUiConfirmation: null,
+      pendingUiConfirmationResolve: null,
       crmToastTimer: null,
       isRefreshing: false,
       autoRefreshTimer: null,
@@ -13914,6 +13940,10 @@ const crmHtml = `<!doctype html>
     const els = {
       list: document.getElementById('conversation-list'),
       crmToast: document.getElementById('crm-toast'),
+      confirmationDialog: document.getElementById('confirmation-dialog'),
+      confirmationMessage: document.getElementById('confirmation-dialog-message'),
+      confirmationAccept: document.getElementById('confirmation-accept'),
+      confirmationCancel: document.getElementById('confirmation-cancel'),
       count: document.getElementById('conversation-count'),
       unreadCount: document.getElementById('conversation-unread-count'),
       archivedCount: document.getElementById('conversation-archived-count'),
@@ -14139,8 +14169,11 @@ const crmHtml = `<!doctype html>
       serviceDuration: document.getElementById('service-duration'),
       servicePrice: document.getElementById('service-price'),
       serviceCategory: document.getElementById('service-category'),
+      serviceItemType: document.getElementById('service-item-type'),
+      serviceItemTypeHelp: document.getElementById('service-item-type-help'),
+      serviceCommercialFields: document.getElementById('service-commercial-fields'),
+      serviceParentGroup: document.getElementById('service-parent-group'),
       serviceParent: document.getElementById('service-parent'),
-      serviceBookable: document.getElementById('service-bookable'),
       serviceCategoryId: document.getElementById('service-category-id'),
       serviceCategoryName: document.getElementById('service-category-name'),
       serviceCategorySave: document.getElementById('service-category-save'),
@@ -15035,7 +15068,7 @@ const crmHtml = `<!doctype html>
     async function deleteStaffUser(id) {
       const user = state.staffUsers.find((item) => item.id === id)
       if (!user) return
-      if (!requestCrmConfirmation('delete-staff-user:' + id, 'Eliminar la cuenta staff de ' + user.name + '?')) return
+      if (!await requestCrmConfirmation('¿Querés eliminar la cuenta staff de ' + user.name + '?')) return
 
       try {
         state.staffUsers = await getJson('/staff-users/' + id, { method: 'DELETE' })
@@ -15057,15 +15090,25 @@ const crmHtml = `<!doctype html>
       }, 5200)
     }
 
-    function requestCrmConfirmation(key, message) {
-      const now = Date.now()
-      if (state.pendingUiConfirmation?.key === key && state.pendingUiConfirmation.expiresAt > now) {
-        state.pendingUiConfirmation = null
-        return true
+    function closeCrmConfirmation(accepted = false) {
+      const resolve = state.pendingUiConfirmationResolve
+      state.pendingUiConfirmationResolve = null
+      els.confirmationDialog.hidden = true
+      if (resolve) resolve(accepted)
+    }
+
+    function requestCrmConfirmation(message, options = {}) {
+      if (state.pendingUiConfirmationResolve) {
+        closeCrmConfirmation(false)
       }
-      state.pendingUiConfirmation = { key, expiresAt: now + 7000 }
-      showCrmToast(message + ' Volve a tocar la accion para confirmar.', 'error')
-      return false
+      els.confirmationMessage.textContent = message
+      els.confirmationAccept.textContent = options.confirmLabel || 'Sí, eliminar'
+      els.confirmationAccept.className = options.danger === false ? 'primary' : 'danger'
+      els.confirmationDialog.hidden = false
+      window.setTimeout(() => els.confirmationCancel.focus(), 0)
+      return new Promise((resolve) => {
+        state.pendingUiConfirmationResolve = resolve
+      })
     }
 
     async function loadBasics() {
@@ -16364,9 +16407,13 @@ const crmHtml = `<!doctype html>
       els.serviceCategory.value = selectedCategory
 
       const currentServiceId = els.serviceId.value
-      els.serviceParent.innerHTML = '<option value="">No es una variante</option>' +
+      els.serviceParent.innerHTML = '<option value="">Seleccionar grupo</option>' +
         state.services
-          .filter((service) => !service.parentServiceId && service.id !== currentServiceId)
+          .filter((service) =>
+            !service.parentServiceId &&
+            service.isBookable === false &&
+            service.id !== currentServiceId
+          )
           .map((service) => '<option value="' + escapeHtml(service.id) + '">' + escapeHtml(service.name) + '</option>')
           .join('')
       els.serviceParent.value = selectedParent
@@ -16390,6 +16437,37 @@ const crmHtml = `<!doctype html>
       }
     }
 
+    function getServiceItemType(service) {
+      if (service?.parentServiceId) return 'VARIANT'
+      return service?.isBookable === false ? 'GROUP' : 'SERVICE'
+    }
+
+    function updateServiceTypeFields() {
+      const itemType = els.serviceItemType.value
+      const isGroup = itemType === 'GROUP'
+      const isVariant = itemType === 'VARIANT'
+      const hasGroups = state.services.some((service) =>
+        !service.parentServiceId &&
+        service.isBookable === false &&
+        service.id !== els.serviceId.value
+      )
+
+      els.serviceCommercialFields.hidden = isGroup
+      els.serviceDuration.disabled = isGroup
+      els.servicePrice.disabled = isGroup
+      els.serviceParentGroup.hidden = !isVariant
+
+      if (!isVariant) els.serviceParent.value = ''
+
+      els.serviceItemTypeHelp.textContent = isGroup
+        ? 'Organiza opciones relacionadas y no se puede reservar directamente.'
+        : isVariant
+          ? hasGroups
+            ? 'Es una opción reservable dentro del grupo que selecciones.'
+            : 'Primero creá un Grupo de variantes para poder asociarla.'
+          : 'El cliente puede reservarlo directamente y no contiene variantes.'
+    }
+
     function renderServices() {
       renderServiceCatalogControls()
       els.serviceCount.textContent = String(state.services.length)
@@ -16409,26 +16487,26 @@ const crmHtml = `<!doctype html>
       els.serviceList.innerHTML = services.length
         ? services.map((service) => {
             const priceLabel = hasServicePrice(service) ? formatCurrency(service.price) : 'Sin precio'
-            const categoryLabel = service.catalogCategory?.name || service.category || 'Sin categor&iacute;a'
+            const categoryLabel = service.catalogCategory?.name || service.category || 'Sin categoría'
             const serviceLabel = service.parentService
               ? service.parentService.name + ' — ' + service.name
               : service.name
-            const hierarchyLabel = service.parentService
-              ? 'Variante'
-              : Number(service._count?.variants || 0) > 0
-                ? Number(service._count.variants) + ' variantes'
-                : service.isBookable === false
-                  ? 'Agrupador'
-                  : 'Reservable'
+            const itemType = getServiceItemType(service)
+            const hierarchyLabel = itemType === 'VARIANT'
+              ? 'Variante reservable'
+              : itemType === 'GROUP'
+                ? Number(service._count?.variants || 0) + ' variantes'
+                : 'Servicio reservable'
+            const serviceMeta = itemType === 'GROUP'
+              ? '<span>Grupo de variantes</span>'
+              : '<span>' + icon('clock') + escapeHtml(service.duration + ' min') + '</span>' +
+                '<span>' + icon('tag') + escapeHtml(priceLabel) + '</span>'
             return '<article class="service-card">' +
               '<div class="service-item-icon">' + (service.imageUrl ? '<img src="' + escapeHtml(service.imageUrl) + '" alt="">' : icon('scissors')) + '</div>' +
               '<div>' +
                 '<div class="service-card-category">' + escapeHtml(categoryLabel + ' · ' + hierarchyLabel) + '</div>' +
                 '<div class="service-card-title">' + escapeHtml(serviceLabel) + '</div>' +
-                '<div class="service-card-meta">' +
-                  '<span>' + icon('clock') + escapeHtml(service.duration + ' min') + '</span>' +
-                  '<span>' + icon('tag') + escapeHtml(priceLabel) + '</span>' +
-                '</div>' +
+                '<div class="service-card-meta">' + serviceMeta + '</div>' +
               '</div>' +
               '<div class="service-card-actions">' +
                 '<button class="service-icon-button" type="button" title="Editar" aria-label="Editar ' + escapeHtml(service.name) + '" data-edit-service="' + service.id + '">' + icon('edit') + '</button>' +
@@ -17325,7 +17403,7 @@ const crmHtml = `<!doctype html>
       }
       const block = state.agendaBlocks.find((item) => item.id === blockId)
       const label = block ? (block.title || scheduleBlockReasonLabel(block.reason)) : 'este bloqueo'
-      if (!requestCrmConfirmation('delete-schedule-block:' + blockId, 'Eliminar ' + label + ' de la agenda?')) return
+      if (!await requestCrmConfirmation('¿Querés eliminar ' + label + ' de la agenda?')) return
 
       try {
         await getJson('/schedule-blocks/' + blockId, { method: 'DELETE' })
@@ -17452,7 +17530,7 @@ const crmHtml = `<!doctype html>
         return
       }
 
-      if (!requestCrmConfirmation('delete-professional:' + id, 'Eliminar profesional ' + professional.name + '?')) return
+      if (!await requestCrmConfirmation('¿Querés eliminar al profesional ' + professional.name + '?')) return
 
       try {
         await getJson('/professionals/' + id, {
@@ -20376,7 +20454,10 @@ const crmHtml = `<!doctype html>
         return
       }
 
-      if (force && !requestCrmConfirmation('appointment-force:' + (state.editingAppointmentId || startAt), 'Guardar este turno como excepcion? Puede quedar fuera de horario o superpuesto con otro turno.')) {
+      if (force && !await requestCrmConfirmation(
+        'Este turno puede quedar fuera de horario o superpuesto con otro turno. ¿Querés guardarlo como excepción?',
+        { confirmLabel: 'Sí, guardar', danger: false }
+      )) {
         return
       }
 
@@ -20440,7 +20521,7 @@ const crmHtml = `<!doctype html>
         els.appointmentFeedback.textContent = 'No tenes permiso para cancelar turnos.'
         return
       }
-      if (!requestCrmConfirmation('delete-appointment:' + appointmentId, 'Eliminar este turno de la agenda?')) return
+      if (!await requestCrmConfirmation('¿Querés eliminar este turno de la agenda?')) return
 
       if (!setButtonLoading(els.appointmentDelete, true, 'Eliminando...')) return
       try {
@@ -20470,7 +20551,10 @@ const crmHtml = `<!doctype html>
       const appointment = state.agendaAppointments.find((item) => item.id === appointmentId)
       const isNoShow = appointment?.status === 'NO_SHOW'
       const nextStatus = isNoShow ? 'CONFIRMED' : 'NO_SHOW'
-      if (!requestCrmConfirmation('appointment-status:' + appointmentId + ':' + nextStatus, isNoShow ? 'Quitar el estado ausente de este turno?' : 'Marcar este turno como ausente?')) return
+      if (!await requestCrmConfirmation(
+        isNoShow ? '¿Querés quitar el estado ausente de este turno?' : '¿Querés marcar este turno como ausente?',
+        { confirmLabel: isNoShow ? 'Sí, quitar estado' : 'Sí, marcar ausente', danger: false }
+      )) return
 
       if (!setButtonLoading(els.appointmentNoShow, true, isNoShow ? 'Actualizando...' : 'Marcando...')) return
       try {
@@ -22541,7 +22625,12 @@ const crmHtml = `<!doctype html>
 
     async function deleteServiceCategory(id) {
       const category = state.serviceCategories.find((item) => item.id === id)
-      if (!category || !requestCrmConfirmation('delete-service-category:' + id, 'Eliminar categoria ' + category.name + '?')) return
+      if (!category) return
+      const serviceCount = Number(category._count?.services || 0)
+      const categoryMessage = serviceCount > 0
+        ? '¿Querés eliminar la categoría ' + category.name + '? Sus ' + serviceCount + ' servicios se conservarán sin categoría.'
+        : '¿Querés eliminar la categoría ' + category.name + '?'
+      if (!await requestCrmConfirmation(categoryMessage)) return
       try {
         await getJson('/service-categories/' + id, { method: 'DELETE' })
         resetServiceCategoryForm()
@@ -22586,18 +22675,26 @@ const crmHtml = `<!doctype html>
 
       const id = els.serviceId.value
       const name = els.serviceName.value.trim()
-      const duration = Number(els.serviceDuration.value)
+      const itemType = els.serviceItemType.value
+      const isGroup = itemType === 'GROUP'
+      const isVariant = itemType === 'VARIANT'
+      const duration = isGroup ? 1 : Number(els.serviceDuration.value)
       const priceValue = els.servicePrice.value.trim()
-      const price = priceValue ? Number(priceValue) : null
+      const price = isGroup ? null : priceValue ? Number(priceValue) : null
       const categoryId = els.serviceCategory.value.trim() || null
-      const parentServiceId = els.serviceParent.value.trim() || null
+      const parentServiceId = isVariant ? els.serviceParent.value.trim() || null : null
       const aliases = els.serviceAliases.value
         .split(',')
         .map((alias) => alias.trim())
         .filter(Boolean)
 
-      if (!name || !Number.isFinite(duration) || duration <= 0) {
-        els.serviceFeedback.textContent = 'Completa nombre y duracion.'
+      if (!name || (!isGroup && (!Number.isFinite(duration) || duration <= 0))) {
+        els.serviceFeedback.textContent = isGroup ? 'Completá el nombre.' : 'Completá nombre y duración.'
+        return
+      }
+
+      if (isVariant && !parentServiceId) {
+        els.serviceFeedback.textContent = 'Seleccioná el grupo al que pertenece la variante.'
         return
       }
 
@@ -22618,7 +22715,7 @@ const crmHtml = `<!doctype html>
             price,
             categoryId,
             parentServiceId,
-            isBookable: els.serviceBookable.checked,
+            isBookable: !isGroup,
             imageUrl: state.serviceImageUrl,
             aliases
           })
@@ -22638,14 +22735,15 @@ const crmHtml = `<!doctype html>
       const service = state.services.find((item) => item.id === id)
       if (!service) return
       els.serviceId.value = service.id
+      els.serviceItemType.value = getServiceItemType(service)
       renderServiceCatalogControls()
       els.serviceName.value = service.name
       els.serviceDuration.value = service.duration
       els.servicePrice.value = hasServicePrice(service) ? service.price : ''
       els.serviceCategory.value = service.catalogCategoryId || ''
       els.serviceParent.value = service.parentServiceId || ''
-      els.serviceBookable.checked = service.isBookable !== false
       els.serviceAliases.value = (service.aliases || []).map((alias) => alias.name).join(', ')
+      updateServiceTypeFields()
       setServiceImage(service.imageUrl || null)
       els.serviceCancel.hidden = false
       els.serviceFeedback.textContent = 'Editando servicio.'
@@ -22656,7 +22754,12 @@ const crmHtml = `<!doctype html>
 
     async function deleteService(id) {
       const service = state.services.find((item) => item.id === id)
-      if (!service || !requestCrmConfirmation('delete-service:' + id, 'Eliminar servicio ' + service.name + '?')) return
+      if (!service) return
+      const variantCount = Number(service._count?.variants || 0)
+      const deleteMessage = variantCount > 0
+        ? '¿Querés eliminar el grupo ' + service.name + ' y sus ' + variantCount + ' variantes? Esta acción no se puede deshacer.'
+        : '¿Querés eliminar ' + service.name + '? Esta acción no se puede deshacer.'
+      if (!await requestCrmConfirmation(deleteMessage)) return
 
       try {
         await getJson('/services/' + id, {
@@ -22675,8 +22778,8 @@ const crmHtml = `<!doctype html>
       els.serviceDuration.value = ''
       els.servicePrice.value = ''
       els.serviceCategory.value = ''
+      els.serviceItemType.value = 'SERVICE'
       els.serviceParent.value = ''
-      els.serviceBookable.checked = true
       els.serviceAliases.value = ''
       setServiceImage(null)
       els.serviceCancel.hidden = true
@@ -22684,6 +22787,7 @@ const crmHtml = `<!doctype html>
       els.serviceFormTitle.textContent = 'Nuevo servicio'
       document.getElementById('service-submit').textContent = 'Guardar servicio'
       renderServiceCatalogControls()
+      updateServiceTypeFields()
     }
 
     function setServiceImage(imageUrl) {
@@ -22961,6 +23065,7 @@ const crmHtml = `<!doctype html>
     })
     els.serviceForm.addEventListener('submit', saveService)
     els.serviceCancel.addEventListener('click', resetServiceForm)
+    els.serviceItemType.addEventListener('change', updateServiceTypeFields)
     els.serviceCategorySave.addEventListener('click', saveServiceCategory)
     els.serviceCategoryCancel.addEventListener('click', resetServiceCategoryForm)
     els.serviceCategoryName.addEventListener('keydown', (event) => {
@@ -22971,6 +23076,16 @@ const crmHtml = `<!doctype html>
     els.serviceParent.addEventListener('change', () => {
       const parent = state.services.find((service) => service.id === els.serviceParent.value)
       if (parent?.catalogCategoryId) els.serviceCategory.value = parent.catalogCategoryId
+    })
+    els.confirmationAccept.addEventListener('click', () => closeCrmConfirmation(true))
+    els.confirmationCancel.addEventListener('click', () => closeCrmConfirmation(false))
+    els.confirmationDialog.addEventListener('click', (event) => {
+      if (event.target === els.confirmationDialog) closeCrmConfirmation(false)
+    })
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !els.confirmationDialog.hidden) {
+        closeCrmConfirmation(false)
+      }
     })
     els.serviceImage.addEventListener('change', readServiceImage)
     els.serviceImageRemove.addEventListener('click', () => setServiceImage(null))
