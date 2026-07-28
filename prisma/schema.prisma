@@ -46,6 +46,11 @@ enum ServiceAttentionMode {
   ADVISOR
 }
 
+enum ServicePriceMode {
+  FIXED
+  STARTING_AT
+}
+
 enum MessageDirection {
   INBOUND
   OUTBOUND
@@ -308,6 +313,7 @@ model Service {
   duration      Int
   category      String?
   price         Int?
+  priceMode     ServicePriceMode     @default(FIXED)
   imageUrl      String?
   isBookable    Boolean              @default(true)
   sortOrder     Int                  @default(0)

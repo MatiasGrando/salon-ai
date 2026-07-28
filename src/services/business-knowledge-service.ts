@@ -23,6 +23,7 @@ export type BusinessKnowledge = {
     name: string
     duration: number
     price: number | null
+    priceMode?: 'FIXED' | 'STARTING_AT'
   }>
   professionals: Array<{
     name: string
@@ -61,6 +62,7 @@ export class BusinessKnowledgeService {
             name: true,
             duration: true,
             price: true,
+            priceMode: true,
             parentService: {
               select: { name: true }
             }
@@ -91,7 +93,8 @@ export class BusinessKnowledgeService {
           ? `${service.parentService.name} — ${service.name}`
           : service.name,
         duration: service.duration,
-        price: service.price
+        price: service.price,
+        priceMode: service.priceMode
       })),
       professionals: business.professionals.map((professional) => ({
         name: professional.name,
@@ -164,7 +167,9 @@ function answerTopic(business: BusinessKnowledge, topic: BusinessInformationTopi
   if (topic === 'services' || topic === 'prices') {
     if (!business.services.length) return missingInformation('el catálogo de servicios')
     const lines = business.services.map((service) => {
-      const price = service.price === null ? 'precio a consultar' : formatMoney(service.price)
+      const price = service.price === null
+        ? 'precio a consultar'
+        : `${service.priceMode === 'STARTING_AT' ? 'Desde ' : ''}${formatMoney(service.price)}`
       return `• ${service.name} (${service.duration} min)${topic === 'prices' ? ` — ${price}` : ''}`
     })
     return [

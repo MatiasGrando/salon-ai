@@ -12229,11 +12229,19 @@ const crmHtml = `<!doctype html>
                   </div>
                 </div>
                 <div class="service-form-group">
-                  <label for="service-price"><span data-icon="tag"></span>Precio</label>
+                  <label for="service-price"><span data-icon="tag"></span>Precio base</label>
                   <div class="service-input-addon prefix">
                     <span class="addon">$</span>
                     <input id="service-price" type="number" min="0" step="1" placeholder="Ej: 15000">
                   </div>
+                </div>
+                <div class="service-form-group" style="grid-column: 1 / -1;">
+                  <label for="service-price-mode">C&oacute;mo mostrar el precio</label>
+                  <select id="service-price-mode">
+                    <option value="FIXED">Precio fijo</option>
+                    <option value="STARTING_AT">Desde este precio</option>
+                  </select>
+                  <div class="service-form-help" id="service-price-mode-help">Se mostrar&aacute; el importe exacto, por ejemplo: $ 35.000.</div>
                 </div>
               </div>
               <div class="service-attention-panel" id="service-attention-panel">
@@ -14220,6 +14228,8 @@ const crmHtml = `<!doctype html>
       serviceName: document.getElementById('service-name'),
       serviceDuration: document.getElementById('service-duration'),
       servicePrice: document.getElementById('service-price'),
+      servicePriceMode: document.getElementById('service-price-mode'),
+      servicePriceModeHelp: document.getElementById('service-price-mode-help'),
       serviceCategory: document.getElementById('service-category'),
       serviceItemType: document.getElementById('service-item-type'),
       serviceItemTypeHelp: document.getElementById('service-item-type-help'),
@@ -16519,6 +16529,7 @@ const crmHtml = `<!doctype html>
       els.serviceAttentionPanel.hidden = isGroup
       els.serviceDuration.disabled = isGroup
       els.servicePrice.disabled = isGroup
+      els.servicePriceMode.disabled = isGroup
       els.serviceAttentionMode.disabled = isGroup
       els.serviceRequiresPhoto.disabled = isGroup
       els.serviceParentGroup.hidden = !isVariant
@@ -16533,6 +16544,7 @@ const crmHtml = `<!doctype html>
             : 'Primero creá un Grupo de variantes para poder asociarla.'
           : 'El cliente puede reservarlo directamente y no contiene variantes.'
       updateServiceAttentionHelp()
+      updateServicePriceModeHelp()
     }
 
     function updateServiceAttentionHelp() {
@@ -16544,6 +16556,12 @@ const crmHtml = `<!doctype html>
           : els.serviceRequiresPhoto.checked
             ? 'Al pedir fotos, el bot pausarÃ¡ la reserva automÃ¡tica y derivarÃ¡ el caso al equipo.'
             : 'El bot mostrarÃ¡ profesionales y horarios disponibles para confirmar el turno.'
+    }
+
+    function updateServicePriceModeHelp() {
+      els.servicePriceModeHelp.textContent = els.servicePriceMode.value === 'STARTING_AT'
+        ? 'Se mostrarÃ¡ como precio inicial, por ejemplo: Desde $ 45.000.'
+        : 'Se mostrarÃ¡ como importe exacto, por ejemplo: $ 35.000.'
     }
 
     function renderServices() {
@@ -16564,7 +16582,9 @@ const crmHtml = `<!doctype html>
 
       els.serviceList.innerHTML = services.length
         ? services.map((service) => {
-            const priceLabel = hasServicePrice(service) ? formatCurrency(service.price) : 'Sin precio'
+            const priceLabel = hasServicePrice(service)
+              ? (service.priceMode === 'STARTING_AT' ? 'Desde ' : '') + formatCurrency(service.price)
+              : 'Sin precio'
             const categoryLabel = service.catalogCategory?.name || service.category || 'Sin categoría'
             const serviceLabel = service.parentService
               ? service.parentService.name + ' — ' + service.name
@@ -22778,6 +22798,7 @@ const crmHtml = `<!doctype html>
       const duration = isGroup ? 1 : Number(els.serviceDuration.value)
       const priceValue = els.servicePrice.value.trim()
       const price = isGroup ? null : priceValue ? Number(priceValue) : null
+      const priceMode = isGroup ? 'FIXED' : els.servicePriceMode.value
       const categoryId = els.serviceCategory.value.trim() || null
       const parentServiceId = isVariant ? els.serviceParent.value.trim() || null : null
       const aliases = els.serviceAliases.value
@@ -22801,6 +22822,10 @@ const crmHtml = `<!doctype html>
         els.serviceFeedback.textContent = 'El precio debe ser mayor o igual a 0.'
         return
       }
+      if (priceMode === 'STARTING_AT' && (price === null || price <= 0)) {
+        els.serviceFeedback.textContent = 'Para usar "Desde", cargÃ¡ un precio mayor a 0.'
+        return
+      }
 
       if (!setButtonLoading(els.serviceSubmit, true, id ? 'Guardando...' : 'Creando...')) return
       try {
@@ -22812,6 +22837,7 @@ const crmHtml = `<!doctype html>
             duration,
             businessId: state.businessId,
             price,
+            priceMode,
             categoryId,
             parentServiceId,
             isBookable: !isGroup,
@@ -22841,6 +22867,7 @@ const crmHtml = `<!doctype html>
       els.serviceName.value = service.name
       els.serviceDuration.value = service.duration
       els.servicePrice.value = hasServicePrice(service) ? service.price : ''
+      els.servicePriceMode.value = service.priceMode || 'FIXED'
       els.serviceCategory.value = service.catalogCategoryId || ''
       els.serviceParent.value = service.parentServiceId || ''
       els.serviceAttentionMode.value = service.attentionMode || 'DIRECT_BOOKING'
@@ -22880,6 +22907,7 @@ const crmHtml = `<!doctype html>
       els.serviceName.value = ''
       els.serviceDuration.value = ''
       els.servicePrice.value = ''
+      els.servicePriceMode.value = 'FIXED'
       els.serviceCategory.value = ''
       els.serviceItemType.value = 'SERVICE'
       els.serviceParent.value = ''
@@ -23173,6 +23201,7 @@ const crmHtml = `<!doctype html>
     els.serviceItemType.addEventListener('change', updateServiceTypeFields)
     els.serviceAttentionMode.addEventListener('change', updateServiceAttentionHelp)
     els.serviceRequiresPhoto.addEventListener('change', updateServiceAttentionHelp)
+    els.servicePriceMode.addEventListener('change', updateServicePriceModeHelp)
     els.serviceCategorySave.addEventListener('click', saveServiceCategory)
     els.serviceCategoryCancel.addEventListener('click', resetServiceCategoryForm)
     els.serviceCategoryName.addEventListener('keydown', (event) => {

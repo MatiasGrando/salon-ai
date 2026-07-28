@@ -143,7 +143,9 @@ export function formatServiceOptions(
 }
 
 function formatServiceOption(service: BookingV2DomainCatalog['services'][number]) {
-  const price = service.price === null ? 'precio a consultar' : formatMoney(service.price)
+  const price = service.price === null
+    ? 'precio a consultar'
+    : `${service.priceMode === 'STARTING_AT' ? 'desde ' : ''}${formatMoney(service.price)}`
   const attention = service.requiresPhoto
     ? 'requiere fotos'
     : service.attentionMode === 'QUOTE'

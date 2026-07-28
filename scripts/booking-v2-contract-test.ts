@@ -1331,6 +1331,36 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'catalogo diferencia precio fijo de precio desde',
+    run: () => {
+      const lines = formatServiceOptions([
+        {
+          id: 'haircut',
+          name: 'Corte',
+          aliases: [],
+          duration: 30,
+          price: 35000,
+          priceMode: 'FIXED',
+          category: null
+        },
+        {
+          id: 'roots',
+          name: 'Raíces',
+          aliases: [],
+          duration: 60,
+          price: 45000,
+          priceMode: 'STARTING_AT',
+          category: null
+        }
+      ])
+
+      assert.equal(lines[0]?.includes('Corte — 30 min — $'), true)
+      assert.equal(lines[0]?.toLowerCase().includes('desde'), false)
+      assert.equal(lines[1]?.toLowerCase().includes('raíces — 60 min — desde $'), true)
+      assert.equal(lines[1]?.includes('45.000'), true)
+    }
+  },
+  {
     name: 'categoria navegable muestra solo sus servicios',
     run: async () => {
       const catalog = createBookingV2DomainCatalog({
@@ -2057,7 +2087,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           { dayOfWeek: 6, startTime: '10:00', endTime: '14:00' }
         ],
         services: [
-          { name: 'Corte', duration: 30, price: 15000 }
+          { name: 'Corte', duration: 30, price: 15000, priceMode: 'STARTING_AT' }
         ],
         professionals: [
           { name: 'Nico', services: ['Corte'] }
@@ -2072,6 +2102,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(replies[5]?.startsWith('Estos son los precios de nuestros servicios:'), true)
       assert.equal(replies[5]?.includes('Corte (30 min)'), true)
       assert.equal(replies[5]?.includes('15.000'), true)
+      assert.equal(replies[5]?.includes('Desde'), true)
 
       const professionalReplies = renderBusinessKnowledgeAnswers({
         name: 'Salon Demo',

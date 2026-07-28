@@ -133,6 +133,7 @@ export async function serviceRoutes(app: FastifyInstance) {
       businessId: string
       category?: string
       price?: number | string | null
+      priceMode?: string
       imageUrl?: string | null
       aliases?: string[]
       categoryId?: string | null
@@ -150,6 +151,7 @@ export async function serviceRoutes(app: FastifyInstance) {
     const price = body.price === null || body.price === undefined || body.price === ''
       ? null
       : Number(body.price)
+    const priceMode = normalizeServicePriceMode(body.priceMode)
     const aliases = body.aliases
       ?.map((alias) => alias.trim())
       .filter(Boolean)
@@ -180,6 +182,16 @@ export async function serviceRoutes(app: FastifyInstance) {
     if (price !== null && (!Number.isFinite(price) || price < 0)) {
       return reply.status(400).send({
         message: 'price debe ser mayor o igual a 0'
+      })
+    }
+    if (body.priceMode !== undefined && !priceMode) {
+      return reply.status(400).send({
+        message: 'Selecciona una modalidad de precio valida'
+      })
+    }
+    if (priceMode === 'STARTING_AT' && (price === null || price <= 0)) {
+      return reply.status(400).send({
+        message: 'El precio desde debe ser mayor a 0'
       })
     }
 
@@ -214,6 +226,7 @@ export async function serviceRoutes(app: FastifyInstance) {
       duration,
       businessId,
       price,
+      priceMode: isBookable ? priceMode ?? 'FIXED' : 'FIXED',
       imageUrl: imageUrl ?? null,
       category: hierarchy.categoryName ?? category ?? null,
       catalogCategoryId: categoryId,
@@ -285,6 +298,7 @@ export async function serviceRoutes(app: FastifyInstance) {
       duration?: number
       category?: string | null
       price?: number | string | null
+      priceMode?: string
       imageUrl?: string | null
       aliases?: string[]
       categoryId?: string | null
@@ -336,6 +350,7 @@ export async function serviceRoutes(app: FastifyInstance) {
         catalogCategoryId: true,
         parentServiceId: true,
         isBookable: true,
+        priceMode: true,
         attentionMode: true,
         requiresPhoto: true,
         _count: {
@@ -358,6 +373,19 @@ export async function serviceRoutes(app: FastifyInstance) {
     const isBookable = typeof body.isBookable === 'boolean'
       ? body.isBookable
       : existing.isBookable
+    const priceMode = body.priceMode === undefined
+      ? existing.priceMode
+      : normalizeServicePriceMode(body.priceMode)
+    if (!priceMode) {
+      return reply.status(400).send({
+        message: 'Selecciona una modalidad de precio valida'
+      })
+    }
+    if (isBookable && priceMode === 'STARTING_AT' && (price === null || price <= 0)) {
+      return reply.status(400).send({
+        message: 'El precio desde debe ser mayor a 0'
+      })
+    }
     const attentionMode = body.attentionMode === undefined
       ? existing.attentionMode
       : normalizeServiceAttentionMode(body.attentionMode)
@@ -406,6 +434,7 @@ export async function serviceRoutes(app: FastifyInstance) {
           catalogCategoryId: categoryId,
           parentServiceId,
           isBookable,
+          priceMode: isBookable ? priceMode : 'FIXED',
           attentionMode: isBookable ? attentionMode : 'DIRECT_BOOKING',
           requiresPhoto: isBookable ? requiresPhoto : false,
           ...(body.sortOrder === undefined ? {} : { sortOrder: normalizeSortOrder(body.sortOrder) }),
@@ -618,6 +647,15 @@ function normalizeServiceImageUrl(imageUrl?: string | null) {
 function normalizeServiceAttentionMode(value?: string) {
   const normalized = value?.trim().toUpperCase()
   return normalized === 'DIRECT_BOOKING' || normalized === 'QUOTE' || normalized === 'ADVISOR'
+    ? normalized
+    : value === undefined
+      ? undefined
+      : null
+}
+
+function normalizeServicePriceMode(value?: string) {
+  const normalized = value?.trim().toUpperCase()
+  return normalized === 'FIXED' || normalized === 'STARTING_AT'
     ? normalized
     : value === undefined
       ? undefined

@@ -493,7 +493,7 @@ function renderLanding(business: LandingBusiness, basePath = '', templateOverrid
                         </div>
                         <div class="service-name">${escapeHtml(service.name)}</div>
                         <div class="service-meta">${escapeHtml(formatServiceMeta(service.duration, service.category))}</div>
-                        <div class="service-price">${formatPrice(service.price)}</div>
+                        <div class="service-price">${formatPrice(service.price, service.priceMode)}</div>
                       </div>
                     `).join('') : `<p class="muted">Este comercio todavia no cargo servicios visibles.</p>`}
                   </div>
@@ -848,7 +848,7 @@ function renderSalonWhiteLanding(business: LandingBusiness, basePath = '') {
                 <div class="sw-service-body">
                   <div class="sw-service-icon" aria-hidden="true">✦</div>
                   <h3>${escapeHtml(service.name)}</h3>
-                  <div class="sw-service-meta"><span>${escapeHtml(formatServiceMeta(service.duration, service.category))}</span><strong>${formatPrice(service.price)}</strong></div>
+                  <div class="sw-service-meta"><span>${escapeHtml(formatServiceMeta(service.duration, service.category))}</span><strong>${formatPrice(service.price, service.priceMode)}</strong></div>
                 </div>
               </article>
             `).join('') : '<p>Todavía no hay servicios publicados.</p>'}
@@ -1375,7 +1375,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             els.content.innerHTML = '<div class="fresha-options">' + services.map((service) => {
               return '<button class="fresha-option ' + (state.service?.id === service.id ? 'selected' : '') + '" type="button" data-service-id="' + escapeHtml(service.id) + '">' +
                 '<span class="option-left"><span class="radio"></span><span><strong>' + escapeHtml(service.name) + '</strong><small>' + escapeHtml(service.category || (service.duration + ' min')) + '</small></span></span>' +
-                '<span class="option-right"><span>' + escapeHtml(service.duration + ' min') + '</span><strong>' + escapeHtml(service.price ? formatPrice(service.price) : 'Consultar') + '</strong></span>' +
+                '<span class="option-right"><span>' + escapeHtml(service.duration + ' min') + '</span><strong>' + escapeHtml(service.price ? formatPrice(service.price, service.priceMode) : 'Consultar') + '</strong></span>' +
               '</button>'
             }).join('') + '</div>'
             updateContinue(Boolean(state.service))
@@ -1521,7 +1521,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               lines.push(
                 '<div class="summary-card-line primary-line">' +
                   '<div><strong>' + escapeHtml(state.service.name) + '</strong><span>' + escapeHtml(state.service.duration + ' min') + '</span></div>' +
-                  '<b>' + escapeHtml(state.service.price ? formatPrice(state.service.price) : 'Consultar') + '</b>' +
+                  '<b>' + escapeHtml(state.service.price ? formatPrice(state.service.price, state.service.priceMode) : 'Consultar') + '</b>' +
                 '</div>'
               )
             }
@@ -1552,7 +1552,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             els.summaryLines.innerHTML = lines.length ? lines.join('') : '<div class="summary-empty">Elegi un servicio para ver el resumen de tu turno.</div>'
             els.totalDivider.hidden = !state.service
             els.totalRow.hidden = !state.service
-            els.total.textContent = state.service?.price ? formatPrice(state.service.price) : '-'
+            els.total.textContent = state.service?.price ? formatPrice(state.service.price, state.service.priceMode) : '-'
           }
 
           function setFeedback(message, type) {
@@ -5795,13 +5795,14 @@ function formatServiceMeta(duration: number, category?: string | null) {
   return [category, `${duration} min`].filter(Boolean).join(' - ')
 }
 
-function formatPrice(price?: number | null) {
+function formatPrice(price?: number | null, priceMode?: 'FIXED' | 'STARTING_AT') {
   if (!price) return 'Consultar'
-  return new Intl.NumberFormat('es-AR', {
+  const formatted = new Intl.NumberFormat('es-AR', {
     style: 'currency',
     currency: 'ARS',
     maximumFractionDigits: 0
   }).format(price)
+  return priceMode === 'STARTING_AT' ? `Desde ${formatted}` : formatted
 }
 
 function renderProfessionalPhoto(professional: LandingBusiness['professionals'][number]) {

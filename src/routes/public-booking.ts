@@ -48,6 +48,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
         duration: service.duration,
         category: service.category,
         price: service.price,
+        priceMode: service.priceMode,
         professionalIds: serviceLinks
           .filter((link) => link.serviceId === service.id)
           .map((link) => link.professionalId)

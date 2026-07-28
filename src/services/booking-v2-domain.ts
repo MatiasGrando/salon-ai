@@ -13,6 +13,7 @@ export type BookingV2ServiceOption = {
   aliases: string[]
   duration: number
   price: number | null
+  priceMode?: 'FIXED' | 'STARTING_AT'
   category: string | null
   parentServiceId?: string | null
   parentServiceName?: string | null
@@ -112,6 +113,7 @@ export class BookingV2DomainService {
           ])),
           duration: service.duration,
           price: service.price,
+          priceMode: service.priceMode,
           category,
           parentServiceId: service.parentServiceId,
           parentServiceName: service.parentService?.name ?? null,
