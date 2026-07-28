@@ -252,6 +252,21 @@ export class BookingV2Engine {
 
     if (
       catalog &&
+      plan.type === 'ask_field' &&
+      plan.field === 'professional' &&
+      effectiveInterpretation.state.draft.service &&
+      !catalog.professionals.some((professional) =>
+        professional.serviceIds.includes(effectiveInterpretation.state.draft.service ?? '')
+      )
+    ) {
+      plan = {
+        type: 'handoff',
+        reason: 'no_compatible_professional'
+      }
+    }
+
+    if (
+      catalog &&
       effectiveInterpretation.state.draft.service &&
       effectiveInterpretation.state.draft.date &&
       shouldValidateAvailability(plan)
@@ -503,6 +518,11 @@ function resolveExpectedProfessional(
   if (nextMissingField(state.draft) !== 'professional') return null
 
   const selectedService = state.draft.service
+  const compatibleProfessionals = catalog.professionals.filter((professional) =>
+    !selectedService || professional.serviceIds.includes(selectedService)
+  )
+  if (compatibleProfessionals.length === 0) return null
+
   const normalizedMessage = normalize(message)
     .replace(/^(?:con|quiero con|prefiero|elijo a|con la|con el)\s+/, '')
   if ([
@@ -516,9 +536,8 @@ function resolveExpectedProfessional(
     return ANY_PROFESSIONAL_ID
   }
 
-  const matches = catalog.professionals.filter((professional) =>
-    normalize(professional.name) === normalizedMessage &&
-    (!selectedService || professional.serviceIds.includes(selectedService))
+  const matches = compatibleProfessionals.filter((professional) =>
+    normalize(professional.name) === normalizedMessage
   )
 
   return matches.length === 1 ? matches[0]?.id ?? null : null
@@ -561,6 +580,27 @@ function resolveExpectedService(
     return {
       kind: 'ambiguous' as const,
       serviceIds: partialMatches.map((service) => service.id)
+    }
+  }
+
+  const normalizedMessage = ` ${normalize(message)} `
+  const embeddedMatches = catalog.services.filter((service) =>
+    [service.name, ...service.aliases].some((label) => {
+      const normalizedLabel = normalize(label)
+      return normalizedLabel.length >= 3 &&
+        normalizedMessage.includes(` ${normalizedLabel} `)
+    })
+  )
+  if (embeddedMatches.length === 1) {
+    return {
+      kind: 'selected' as const,
+      serviceId: embeddedMatches[0]?.id ?? ''
+    }
+  }
+  if (embeddedMatches.length > 1) {
+    return {
+      kind: 'ambiguous' as const,
+      serviceIds: embeddedMatches.map((service) => service.id)
     }
   }
   return null

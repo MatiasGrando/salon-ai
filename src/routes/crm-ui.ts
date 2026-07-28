@@ -5839,6 +5839,10 @@ const crmHtml = `<!doctype html>
       height: 14px;
     }
 
+    .service-card-meta .service-professional-warning {
+      color: #b42318;
+    }
+
     .service-card-actions {
       display: flex;
       align-items: center;
@@ -16497,10 +16501,14 @@ const crmHtml = `<!doctype html>
               : itemType === 'GROUP'
                 ? Number(service._count?.variants || 0) + ' variantes'
                 : 'Servicio reservable'
+            const professionalCount = Number(service._count?.professionalLinks || 0)
             const serviceMeta = itemType === 'GROUP'
               ? '<span>Grupo de variantes</span>'
               : '<span>' + icon('clock') + escapeHtml(service.duration + ' min') + '</span>' +
-                '<span>' + icon('tag') + escapeHtml(priceLabel) + '</span>'
+                '<span>' + icon('tag') + escapeHtml(priceLabel) + '</span>' +
+                (professionalCount > 0
+                  ? '<span>' + escapeHtml(professionalCount === 1 ? '1 profesional' : professionalCount + ' profesionales') + '</span>'
+                  : '<span class="service-professional-warning">Sin profesionales asignados</span>')
             return '<article class="service-card">' +
               '<div class="service-item-icon">' + (service.imageUrl ? '<img src="' + escapeHtml(service.imageUrl) + '" alt="">' : icon('scissors')) + '</div>' +
               '<div>' +

@@ -14,6 +14,12 @@ export type BookingV2RenderInput = {
 
 export function renderBookingV2Response(input: BookingV2RenderInput): string {
   if (input.plan.type === 'handoff') {
+    if (input.plan.reason === 'no_compatible_professional') {
+      const service = input.catalog?.services.find((option) => option.id === input.draft.service)
+      return service
+        ? `Por el momento no tengo profesionales habilitados para ${service.name}. Te derivo con una persona del local para revisarlo.`
+        : 'Por el momento no tengo profesionales disponibles. Te derivo con una persona del local.'
+    }
     return 'Te derivo con una persona para que pueda ayudarte mejor.'
   }
 
@@ -70,15 +76,31 @@ function serviceQuestion(
 ) {
   if (!catalog?.services.length) return '¿Qué servicio querés reservar?'
   const services = serviceSuggestions?.length ? serviceSuggestions : catalog.services
-  const serviceLines = formatServiceOptions(services)
+  const suggestionCategory = serviceSuggestions?.length
+    ? sharedCategory(services)
+    : null
+  const serviceLines = suggestionCategory
+    ? services.map(formatServiceOption)
+    : formatServiceOptions(services)
 
   return [
     serviceSuggestions?.length
-      ? 'Encontré más de una opción parecida 😊 ¿Cuál de estas querés?'
+      ? suggestionCategory
+        ? `Para ${suggestionCategory} tengo estas opciones 😊`
+        : 'Encontré más de una opción parecida 😊 ¿Cuál de estas querés?'
       : 'Estos son los servicios disponibles 😊',
     ...serviceLines,
     '¿Cuál querés reservar?'
   ].join('\n')
+}
+
+function sharedCategory(services: BookingV2DomainCatalog['services']) {
+  const categories = Array.from(new Set(
+    services
+      .map((service) => service.category?.trim())
+      .filter((category): category is string => Boolean(category))
+  ))
+  return categories.length === 1 ? categories[0] ?? null : null
 }
 
 export function formatServiceOptions(
@@ -114,7 +136,12 @@ function professionalQuestion(
     !serviceId || professional.serviceIds.includes(serviceId)
   ) ?? []
 
-  if (!professionals.length) return '¿Con qué profesional querés atenderte?'
+  if (!professionals.length) {
+    const service = catalog?.services.find((option) => option.id === serviceId)
+    return service
+      ? `Por el momento no tengo profesionales habilitados para ${service.name}. Si querés, puedo derivarte con una persona del local para revisarlo.`
+      : 'Por el momento no tengo profesionales disponibles. Si querés, puedo derivarte con una persona del local.'
+  }
 
   return [
     'Podés atenderte con:',

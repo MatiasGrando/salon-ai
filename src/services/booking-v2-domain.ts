@@ -87,30 +87,34 @@ export class BookingV2DomainService {
     ])
 
     return createBookingV2DomainCatalog({
-      services: services.map((service) => ({
-        id: service.id,
-        name: service.parentService
-          ? `${service.parentService.name} — ${service.name}`
-          : service.name,
-        aliases: Array.from(new Set([
-          service.name,
-          ...service.aliases.map((alias) => alias.name),
-          ...(service.parentService
-            ? [
-                service.parentService.name,
-                `${service.parentService.name} ${service.name}`,
-                ...service.parentService.aliases.map((alias) =>
-                  `${alias.name} ${service.name}`
-                )
-              ]
-            : [])
-        ])),
-        duration: service.duration,
-        price: service.price,
-        category: service.catalogCategory?.name ?? service.category,
-        parentServiceId: service.parentServiceId,
-        parentServiceName: service.parentService?.name ?? null
-      })),
+      services: services.map((service) => {
+        const category = service.catalogCategory?.name ?? service.category
+        return {
+          id: service.id,
+          name: service.parentService
+            ? `${service.parentService.name} — ${service.name}`
+            : service.name,
+          aliases: Array.from(new Set([
+            service.name,
+            ...service.aliases.map((alias) => alias.name),
+            ...(category ? [category] : []),
+            ...(service.parentService
+              ? [
+                  service.parentService.name,
+                  `${service.parentService.name} ${service.name}`,
+                  ...service.parentService.aliases.map((alias) =>
+                    `${alias.name} ${service.name}`
+                  )
+                ]
+              : [])
+          ])),
+          duration: service.duration,
+          price: service.price,
+          category,
+          parentServiceId: service.parentServiceId,
+          parentServiceName: service.parentService?.name ?? null
+        }
+      }),
       professionals: professionals.map((professional) => ({
         id: professional.id,
         name: professional.name,

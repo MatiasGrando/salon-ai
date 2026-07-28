@@ -514,7 +514,8 @@ const serviceCatalogInclude = {
   },
   _count: {
     select: {
-      variants: true
+      variants: true,
+      professionalLinks: true
     }
   }
 } as const

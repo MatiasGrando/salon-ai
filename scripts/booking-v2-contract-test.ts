@@ -1129,6 +1129,146 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'dominio incorpora la categoria como alias navegable',
+    run: async () => {
+      const domain = new BookingV2DomainService({
+        service: {
+          findMany: async () => [
+            {
+              id: 'full-color',
+              name: 'Color Completo',
+              aliases: [],
+              duration: 90,
+              price: 65000,
+              category: 'Coloracion',
+              catalogCategory: { name: 'Coloracion' },
+              parentService: null,
+              parentServiceId: null
+            }
+          ]
+        },
+        professional: {
+          findMany: async () => []
+        }
+      } as never)
+
+      const catalog = await domain.loadCatalog('business-1')
+
+      assert.equal(catalog.services[0]?.aliases.includes('Coloracion'), true)
+    }
+  },
+  {
+    name: 'categoria navegable muestra solo sus servicios',
+    run: async () => {
+      const catalog = createBookingV2DomainCatalog({
+        services: [
+          { id: 'full-color', name: 'Color Completo', aliases: ['Coloracion'], duration: 90, price: 65000, category: 'Coloracion' },
+          { id: 'roots', name: 'Raíces', aliases: ['Coloracion'], duration: 60, price: 40000, category: 'Coloracion' },
+          { id: 'haircut', name: 'Corte Hombre', aliases: ['corte'], duration: 30, price: 15000, category: 'Cortes' }
+        ],
+        professionals: []
+      })
+      const extractor = fakeExtractor(null)
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog }), extractor)
+
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Mati',
+          selectedServiceId: null,
+          selectedProfessionalId: null,
+          selectedDate: null,
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: 'quiero coloración'
+      })
+
+      assert.equal(result.state.draft.service, null)
+      assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'service')
+      assert.equal(result.reply.includes('Para Coloracion tengo estas opciones'), true)
+      assert.equal(result.reply.includes('Color Completo'), true)
+      assert.equal(result.reply.includes('Raíces'), true)
+      assert.equal(result.reply.includes('Corte Hombre'), false)
+      assert.equal(extractor.calls.length, 0)
+    }
+  },
+  {
+    name: 'frases naturales seleccionan servicios dentro de la categoria',
+    run: async () => {
+      const catalog = createBookingV2DomainCatalog({
+        services: [
+          { id: 'full-color', name: 'Color Completo', aliases: ['Coloracion'], duration: 90, price: 65000, category: 'Coloracion' },
+          { id: 'roots', name: 'Raíces', aliases: ['Coloracion'], duration: 60, price: 40000, category: 'Coloracion' }
+        ],
+        professionals: [
+          { id: 'professional-1', name: 'Tamara', serviceIds: ['full-color', 'roots'] }
+        ]
+      })
+
+      for (const [message, serviceId] of [
+        ['quiero color completo', 'full-color'],
+        ['quiero hacerme las raíces', 'roots']
+      ] as const) {
+        const extractor = fakeExtractor(null)
+        const engine = new BookingV2Engine(fakeDomainPort({ catalog }), extractor)
+        const result = await engine.process({
+          businessId: 'business-1',
+          conversation: {
+            selectedCustomerName: 'Mati',
+            selectedServiceId: null,
+            selectedProfessionalId: null,
+            selectedDate: null,
+            selectedTime: null,
+            misunderstandingCount: 0,
+            bookingV2State: null
+          },
+          message
+        })
+
+        assert.equal(result.state.draft.service, serviceId)
+        assert.equal(result.reply.includes('Tamara'), true)
+        assert.equal(extractor.calls.length, 0)
+      }
+    }
+  },
+  {
+    name: 'servicio sin profesionales informa el problema y no acepta cualquiera',
+    run: async () => {
+      const catalog = createBookingV2DomainCatalog({
+        services: [
+          { id: 'roots', name: 'Raíces', aliases: ['Coloracion'], duration: 60, price: 40000, category: 'Coloracion' }
+        ],
+        professionals: []
+      })
+      const extractor = fakeExtractor(null)
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog }), extractor)
+
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Mati',
+          selectedServiceId: 'roots',
+          selectedProfessionalId: null,
+          selectedDate: null,
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: 'cualquiera'
+      })
+
+      assert.equal(result.state.draft.professional, null)
+      assert.deepEqual(result.plan, {
+        type: 'handoff',
+        reason: 'no_compatible_professional'
+      })
+      assert.equal(result.reply.includes('no tengo profesionales habilitados'), true)
+      assert.equal(result.reply.includes('Raíces'), true)
+    }
+  },
+  {
     name: 'renderiza todos los horarios sin cortar despues del sexto',
     run: () => {
       const availabilityOptions = [
