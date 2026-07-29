@@ -44,6 +44,11 @@ export type BookingV2MessagePlan =
       reason: 'missing' | 'not_understood'
     }
   | {
+      type: 'ask_category_advice_confirmation'
+      categoryName: string
+      reason: 'missing' | 'not_understood'
+    }
+  | {
       type: 'handoff'
       reason:
         | 'repeated_misunderstanding'
@@ -52,8 +57,10 @@ export type BookingV2MessagePlan =
         | 'advisor_required'
         | 'photo_required'
         | 'estimate_quote_requested'
+        | 'category_advice_requested'
         | 'service_selection_uncertain'
         | 'service_validation_uncertain'
+      categoryName?: string
     }
 
 export function buildBookingV2MessagePlan(

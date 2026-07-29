@@ -70,6 +70,47 @@ export class BookingV2Engine {
     const catalog = await this.domain.loadCatalog(input.businessId)
     const initialState = sanitizeCatalogNameCollision(storedState, catalog)
 
+    if (initialState.categoryAdvice?.stage === 'awaiting_confirmation') {
+      const confirmation = readCategoryAdviceConfirmation(input.message)
+      if (confirmation === 'yes') {
+        const categoryName = initialState.categoryAdvice.categoryName
+        const state: BookingV2State = {
+          ...initialState,
+          categoryAdvice: {
+            ...initialState.categoryAdvice,
+            stage: 'requested'
+          },
+          misunderstandingCount: 0
+        }
+        return this.guidedEstimateResult(state, {
+          type: 'handoff',
+          reason: 'category_advice_requested',
+          categoryName
+        }, catalog, 'accepted')
+      }
+      if (confirmation === 'no') {
+        const categoryName = initialState.categoryAdvice.categoryName
+        const state: BookingV2State = {
+          ...initialState,
+          categoryAdvice: null,
+          misunderstandingCount: 0
+        }
+        return this.fromInterpretation({
+          state,
+          nextField: 'service',
+          outcome: 'no_change',
+          affectedField: 'service'
+        }, null, catalog, 'no_change', {
+          serviceSuggestions: servicesForCategory(catalog, categoryName)
+        })
+      }
+      return this.guidedEstimateResult(initialState, {
+        type: 'ask_category_advice_confirmation',
+        categoryName: initialState.categoryAdvice.categoryName,
+        reason: 'not_understood'
+      }, catalog, 'no_change')
+    }
+
     if (initialState.serviceValidation?.stage === 'awaiting_confirmation') {
       const service = catalog.services.find((option) =>
         option.id === initialState.serviceValidation?.serviceId &&
@@ -248,6 +289,42 @@ export class BookingV2Engine {
 
     if (
       nextMissingField(initialState.draft) === 'service' &&
+      isCategoryAdviceIntent(input.message)
+    ) {
+      const adviceCategory = resolveCategoryAdviceCategory(input.message, initialState, catalog)
+      if (adviceCategory) {
+        const state: BookingV2State = {
+          ...initialState,
+          categoryAdvice: {
+            categoryName: adviceCategory,
+            stage: 'awaiting_confirmation'
+          },
+          misunderstandingCount: 0
+        }
+        return this.guidedEstimateResult(state, {
+          type: 'ask_category_advice_confirmation',
+          categoryName: adviceCategory,
+          reason: 'missing'
+        }, catalog, 'accepted')
+      }
+
+      const adviceServices = catalog.services.filter((service) =>
+        service.categoryAdviceEnabled === true
+      )
+      if (adviceServices.length) {
+        return this.fromInterpretation({
+          state: initialState,
+          nextField: 'service',
+          outcome: 'no_change',
+          affectedField: 'service'
+        }, null, catalog, 'no_change', {
+          serviceSuggestions: adviceServices
+        })
+      }
+    }
+
+    if (
+      nextMissingField(initialState.draft) === 'service' &&
       deterministicServiceValidationDecision(input.message) === 'uncertain'
     ) {
       return this.guidedEstimateResult(initialState, {
@@ -278,15 +355,26 @@ export class BookingV2Engine {
       }, null, catalog)
     }
     if (deterministicService?.kind === 'ambiguous') {
+      const serviceSuggestions = catalog.services.filter((service) =>
+        deterministicService.serviceIds.includes(service.id)
+      )
+      const adviceCategory = sharedAdviceCategory(serviceSuggestions)
+      const state: BookingV2State = {
+        ...initialState,
+        categoryAdvice: adviceCategory
+          ? {
+              categoryName: adviceCategory,
+              stage: 'offered'
+            }
+          : null
+      }
       return this.fromInterpretation({
-        state: initialState,
+        state,
         nextField: 'service',
         outcome: 'no_change',
         affectedField: 'service'
       }, null, catalog, 'no_change', {
-        serviceSuggestions: catalog.services.filter((service) =>
-          deterministicService.serviceIds.includes(service.id)
-        )
+        serviceSuggestions
       })
     }
 
@@ -601,6 +689,9 @@ export class BookingV2Engine {
       }
     }
 
+    const serviceSuggestions = renderContext?.serviceSuggestions ??
+      offeredCategoryServices(effectiveInterpretation.state, catalog)
+
     return {
       state: effectiveInterpretation.state,
       conversationPatch: conversationPatchFromState(effectiveInterpretation.state),
@@ -611,9 +702,7 @@ export class BookingV2Engine {
         catalog,
         availabilityOptions,
         unavailableDate,
-        ...(renderContext?.serviceSuggestions
-          ? { serviceSuggestions: renderContext.serviceSuggestions }
-          : {})
+        ...(serviceSuggestions ? { serviceSuggestions } : {})
       }),
       availabilityOptions,
       extraction,
@@ -672,6 +761,101 @@ export class BookingV2Engine {
       .map((time) => availability.options.find((option) => option.time === time))
       .find((option) => option !== undefined) ?? null
   }
+}
+
+function isCategoryAdviceIntent(message: string) {
+  const normalized = normalize(message)
+  return deterministicServiceValidationDecision(message) === 'uncertain' ||
+    [
+      'hablar con un profesional',
+      'hablar con una persona',
+      'asesoramiento profesional',
+      'ayuda para elegir',
+      'ayudarme a elegir'
+    ].some((phrase) => normalized.includes(phrase))
+}
+
+function resolveCategoryAdviceCategory(
+  message: string,
+  state: BookingV2State,
+  catalog: BookingV2DomainCatalog
+) {
+  const categories = adviceCategories(catalog)
+  const normalizedMessage = normalize(message)
+  const mentioned = categories.filter((category) =>
+    normalizedMessage.includes(normalize(category))
+  )
+  if (mentioned.length === 1) return mentioned[0] ?? null
+
+  const offeredCategory = state.categoryAdvice?.stage === 'offered'
+    ? state.categoryAdvice.categoryName
+    : null
+  if (
+    offeredCategory &&
+    categories.some((category) => normalize(category) === normalize(offeredCategory))
+  ) {
+    return offeredCategory
+  }
+
+  return categories.length === 1 ? categories[0] ?? null : null
+}
+
+function adviceCategories(catalog: BookingV2DomainCatalog) {
+  return Array.from(new Set(
+    catalog.services
+      .filter((service) => service.categoryAdviceEnabled === true)
+      .map((service) => service.category?.trim())
+      .filter((category): category is string => Boolean(category))
+  ))
+}
+
+function sharedAdviceCategory(services: BookingV2DomainCatalog['services']) {
+  const categories = Array.from(new Set(
+    services
+      .filter((service) => service.categoryAdviceEnabled === true)
+      .map((service) => service.category?.trim())
+      .filter((category): category is string => Boolean(category))
+  ))
+  return categories.length === 1 ? categories[0] ?? null : null
+}
+
+function servicesForCategory(catalog: BookingV2DomainCatalog, categoryName: string) {
+  return catalog.services.filter((service) =>
+    typeof service.category === 'string' &&
+    normalize(service.category) === normalize(categoryName)
+  )
+}
+
+function offeredCategoryServices(
+  state: BookingV2State,
+  catalog: BookingV2DomainCatalog | null
+) {
+  if (!catalog || state.categoryAdvice?.stage !== 'offered') return undefined
+  const services = servicesForCategory(catalog, state.categoryAdvice.categoryName)
+  return services.length ? services : undefined
+}
+
+function readCategoryAdviceConfirmation(message: string): 'yes' | 'no' | null {
+  const confirmation = readConfirmation(message)
+  if (confirmation) return confirmation
+  const normalized = normalize(message)
+  if ([
+    'volver',
+    'volver a los tratamientos',
+    'ver tratamientos',
+    'reservar directamente',
+    'seguir reservando'
+  ].includes(normalized)) {
+    return 'no'
+  }
+  if ([
+    'hablar con un profesional',
+    'si hablar con un profesional',
+    'quiero hablar con un profesional'
+  ].includes(normalized)) {
+    return 'yes'
+  }
+  return null
 }
 
 function readConfirmation(message: string): 'yes' | 'no' | null {

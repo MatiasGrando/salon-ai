@@ -388,10 +388,11 @@ model Service {
 }
 
 model ServiceCategory {
-  id        String  @id @default(cuid())
-  name      String
-  sortOrder Int     @default(0)
-  isActive  Boolean @default(true)
+  id            String  @id @default(cuid())
+  name          String
+  sortOrder     Int     @default(0)
+  isActive      Boolean @default(true)
+  adviceEnabled Boolean @default(false)
 
   businessId String
   business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)

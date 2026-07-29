@@ -16,6 +16,9 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
   if (input.plan.type === 'handoff') {
     const service = input.catalog?.services.find((option) => option.id === input.draft.service)
     const waitNotice = 'La respuesta puede demorar unos minutos, pero van a continuar con vos por acá.'
+    if (input.plan.reason === 'category_advice_requested') {
+      return `Perfecto. Te derivo con una persona del equipo para ayudarte a elegir el servicio de ${input.plan.categoryName ?? 'esta categoría'}. ${waitNotice}`
+    }
     if (input.plan.reason === 'photo_required') {
       return service
         ? `Para evaluar ${service.name}, enviame una foto clara del estado actual y, si tenés, otra del resultado que buscás. Cuando la recibamos, te voy a derivar con una persona del equipo para que la revise. ${waitNotice}`
@@ -50,6 +53,19 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
         : `Por el momento no tengo profesionales disponibles. Te derivo con una persona del local. ${waitNotice}`
     }
     return `Te derivo con una persona para que pueda ayudarte mejor. ${waitNotice}`
+  }
+
+  if (input.plan.type === 'ask_category_advice_confirmation') {
+    return [
+      ...(input.plan.reason === 'not_understood'
+        ? ['No pude confirmar qué preferís.']
+        : []),
+      `Para ayudarte a elegir un servicio de ${input.plan.categoryName}, voy a derivar la conversación con un profesional.`,
+      'La respuesta puede no ser inmediata.',
+      '¿Querés continuar?',
+      '• Sí, hablar con un profesional',
+      '• Volver a los tratamientos'
+    ].join('\n\n')
   }
 
   if (input.plan.type === 'ask_service_validation') {
@@ -160,7 +176,12 @@ function serviceQuestion(
     ? sharedCategory(services)
     : null
   const serviceLines = suggestionCategory
-    ? services.map(formatServiceOption)
+    ? [
+        ...services.map(formatServiceOption),
+        ...(categoryOffersAdvice(services)
+          ? formatCategoryAdviceOption(suggestionCategory)
+          : [])
+      ]
     : formatServiceOptions(services)
   const containsAssistedServices = services.some((service) =>
     service.requiresPhoto ||
@@ -174,7 +195,9 @@ function serviceQuestion(
         : 'Encontré más de una opción parecida 😊 ¿Cuál de estas querés?'
       : 'Estos son los servicios disponibles 😊',
     ...serviceLines,
-    ...(services.length > 1 ? ['• No sé cuál necesito'] : []),
+    ...(services.length > 1 && !services.some((service) => service.categoryAdviceEnabled)
+      ? ['• No sé cuál necesito']
+      : []),
     containsAssistedServices ? '¿Cuál te interesa?' : '¿Cuál querés reservar?'
   ].join('\n')
 }
@@ -204,8 +227,20 @@ export function formatServiceOptions(
 
   return Array.from(groups.entries()).flatMap(([category, options]) => [
     `${category}:`,
-    ...options.map(formatServiceOption)
+    ...options.map(formatServiceOption),
+    ...(categoryOffersAdvice(options) ? formatCategoryAdviceOption(category) : [])
   ])
+}
+
+function categoryOffersAdvice(services: BookingV2DomainCatalog['services']) {
+  return services.some((service) => service.categoryAdviceEnabled === true)
+}
+
+function formatCategoryAdviceOption(category: string) {
+  return [
+    `• Hablar con un profesional para elegir mi servicio de ${category}`,
+    '  La consulta se deriva al equipo y la respuesta puede demorar.'
+  ]
 }
 
 function formatServiceOption(service: BookingV2DomainCatalog['services'][number]) {

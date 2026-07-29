@@ -1452,6 +1452,7 @@ function conversationStepFromBookingV2Plan(plan: BookingV2MessagePlan) {
   if (plan.type === 'handoff') return 'HUMAN_HANDOFF'
   if (
     plan.type === 'ask_service_validation' ||
+    plan.type === 'ask_category_advice_confirmation' ||
     plan.type === 'ask_estimate_option' ||
     plan.type === 'show_estimate' ||
     plan.type === 'ask_estimate_decision'

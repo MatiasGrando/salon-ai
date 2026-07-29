@@ -12588,6 +12588,11 @@ const crmHtml = `<!doctype html>
             <button class="primary" id="service-category-save" type="button">Agregar</button>
             <button class="secondary" id="service-category-cancel" type="button" hidden>Cancelar edici&oacute;n</button>
           </div>
+          <label class="service-photo-option">
+            <input id="service-category-advice-enabled" type="checkbox">
+            <span>Ofrecer asesoramiento profesional para elegir un servicio</span>
+          </label>
+          <p class="service-form-help">El bot mostrar&aacute; esta opci&oacute;n dentro de la categor&iacute;a, avisar&aacute; que la respuesta puede demorar y pedir&aacute; confirmaci&oacute;n antes de derivar.</p>
           <p class="hint" id="service-category-feedback"></p>
           <div class="service-category-list" id="service-category-list"></div>
         </div>
@@ -14592,6 +14597,7 @@ const crmHtml = `<!doctype html>
       serviceCategoryClose: document.getElementById('service-category-close'),
       serviceCategoryId: document.getElementById('service-category-id'),
       serviceCategoryName: document.getElementById('service-category-name'),
+      serviceCategoryAdviceEnabled: document.getElementById('service-category-advice-enabled'),
       serviceCategorySave: document.getElementById('service-category-save'),
       serviceCategoryCancel: document.getElementById('service-category-cancel'),
       serviceCategoryFeedback: document.getElementById('service-category-feedback'),
@@ -16905,6 +16911,7 @@ const crmHtml = `<!doctype html>
             '<span class="service-category-chip">' +
               escapeHtml(category.name) +
               ' <small>(' + Number(category._count?.services || 0) + ')</small>' +
+              (category.adviceEnabled ? ' <small>· asesoramiento</small>' : '') +
               '<button type="button" title="Editar" data-edit-service-category="' + escapeHtml(category.id) + '">✎</button>' +
               '<button type="button" title="Eliminar" data-delete-service-category="' + escapeHtml(category.id) + '">×</button>' +
             '</span>'
@@ -23436,6 +23443,7 @@ const crmHtml = `<!doctype html>
       }
       const id = els.serviceCategoryId.value
       const name = els.serviceCategoryName.value.trim()
+      const adviceEnabled = els.serviceCategoryAdviceEnabled.checked
       if (!name) {
         els.serviceCategoryFeedback.textContent = 'Escribí el nombre de la categoría.'
         els.serviceCategoryName.focus()
@@ -23449,7 +23457,8 @@ const crmHtml = `<!doctype html>
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             businessId: state.businessId,
-            name
+            name,
+            adviceEnabled
           })
         })
         const shouldSelectCreatedCategory =
@@ -23490,6 +23499,7 @@ const crmHtml = `<!doctype html>
       if (!category) return
       els.serviceCategoryId.value = category.id
       els.serviceCategoryName.value = category.name
+      els.serviceCategoryAdviceEnabled.checked = category.adviceEnabled === true
       els.serviceCategorySave.textContent = 'Guardar'
       els.serviceCategoryCancel.hidden = false
       els.serviceCategoryDialogTitle.textContent = 'Editar categoría'
@@ -23518,6 +23528,7 @@ const crmHtml = `<!doctype html>
     function resetServiceCategoryForm() {
       els.serviceCategoryId.value = ''
       els.serviceCategoryName.value = ''
+      els.serviceCategoryAdviceEnabled.checked = false
       els.serviceCategorySave.textContent = 'Agregar'
       els.serviceCategoryCancel.hidden = true
       els.serviceCategoryDialogTitle.textContent = 'Agregar categoría'

@@ -34,6 +34,11 @@ export type BookingV2ServiceValidation = {
   stage: 'awaiting_confirmation' | 'completed'
 }
 
+export type BookingV2CategoryAdvice = {
+  categoryName: string
+  stage: 'offered' | 'awaiting_confirmation' | 'requested'
+}
+
 export type BookingV2PendingDeposit = {
   depositId: string
   appointmentId: string
@@ -57,6 +62,7 @@ export type BookingV2AdvisorQuote = {
 export type BookingV2State = {
   draft: BookingDraft
   pendingProposal: BookingProposal | null
+  categoryAdvice: BookingV2CategoryAdvice | null
   serviceValidation: BookingV2ServiceValidation | null
   guidedEstimate: BookingV2GuidedEstimate | null
   advisorQuote: BookingV2AdvisorQuote | null
@@ -84,6 +90,7 @@ export function createEmptyBookingV2State(): BookingV2State {
       time: null
     },
     pendingProposal: null,
+    categoryAdvice: null,
     serviceValidation: null,
     guidedEstimate: null,
     advisorQuote: null,
@@ -126,6 +133,7 @@ export function acceptField(
     ...state,
     draft,
     pendingProposal: null,
+    categoryAdvice: field === 'service' ? null : state.categoryAdvice,
     serviceValidation: field === 'service' && state.draft[field] !== value
       ? null
       : state.serviceValidation,
@@ -181,6 +189,7 @@ export function confirmProposal(state: BookingV2State): BookingV2State {
       ...state,
       draft: clearFieldAndDependents(state.draft, proposal.field),
       pendingProposal: null,
+      categoryAdvice: proposal.field === 'service' ? null : state.categoryAdvice,
       serviceValidation: proposal.field === 'service' ? null : state.serviceValidation,
       guidedEstimate: proposal.field === 'service' ? null : state.guidedEstimate,
       advisorQuote: proposal.field === 'service' ? null : state.advisorQuote,

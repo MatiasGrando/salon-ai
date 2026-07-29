@@ -3,6 +3,7 @@ import {
   createEmptyBookingV2State,
   type BookingField,
   type BookingV2AdvisorQuote,
+  type BookingV2CategoryAdvice,
   type BookingV2GuidedEstimate,
   type BookingV2ServiceValidation,
   type BookingV2PendingDeposit,
@@ -33,6 +34,7 @@ export type BookingV2ConversationPatch = {
 export type BookingV2PersistedState = {
   version: 1
   pendingProposal: BookingProposal | null
+  categoryAdvice?: BookingV2CategoryAdvice | null
   serviceValidation?: BookingV2ServiceValidation | null
   guidedEstimate?: BookingV2GuidedEstimate | null
   advisorQuote?: BookingV2AdvisorQuote | null
@@ -53,6 +55,7 @@ export function stateFromConversation(
       time: conversation.selectedTime
     },
     pendingProposal: readPendingProposal(conversation.bookingV2State),
+    categoryAdvice: readCategoryAdvice(conversation.bookingV2State),
     serviceValidation: readServiceValidation(conversation.bookingV2State),
     guidedEstimate: readGuidedEstimate(conversation.bookingV2State),
     advisorQuote: readAdvisorQuote(conversation.bookingV2State),
@@ -69,16 +72,38 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
     selectedDate: state.draft.date,
     selectedTime: state.draft.time,
     misunderstandingCount: state.misunderstandingCount,
-    bookingV2State: state.pendingProposal || state.serviceValidation || state.guidedEstimate || state.advisorQuote || state.pendingDeposit
+    bookingV2State: state.pendingProposal || state.categoryAdvice || state.serviceValidation || state.guidedEstimate || state.advisorQuote || state.pendingDeposit
       ? {
           version: 1,
           pendingProposal: state.pendingProposal,
+          ...(state.categoryAdvice ? { categoryAdvice: state.categoryAdvice } : {}),
           ...(state.serviceValidation ? { serviceValidation: state.serviceValidation } : {}),
           ...(state.guidedEstimate ? { guidedEstimate: state.guidedEstimate } : {}),
           ...(state.advisorQuote ? { advisorQuote: state.advisorQuote } : {}),
           ...(state.pendingDeposit ? { pendingDeposit: state.pendingDeposit } : {})
         }
       : null
+  }
+}
+
+function readCategoryAdvice(value: unknown): BookingV2CategoryAdvice | null {
+  if (!value || typeof value !== 'object') return null
+  const persisted = value as { version?: unknown; categoryAdvice?: unknown }
+  if (
+    persisted.version !== 1 ||
+    !persisted.categoryAdvice ||
+    typeof persisted.categoryAdvice !== 'object'
+  ) {
+    return null
+  }
+  const candidate = persisted.categoryAdvice as Partial<BookingV2CategoryAdvice>
+  if (typeof candidate.categoryName !== 'string' || !candidate.categoryName.trim()) return null
+  if (!['offered', 'awaiting_confirmation', 'requested'].includes(candidate.stage ?? '')) {
+    return null
+  }
+  return {
+    categoryName: candidate.categoryName.trim(),
+    stage: candidate.stage as BookingV2CategoryAdvice['stage']
   }
 }
 

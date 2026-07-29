@@ -739,6 +739,94 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'categoria configurable ofrece asesoramiento y confirma antes de derivar',
+    run: async () => {
+      const catalog = createBookingV2DomainCatalog({
+        services: [
+          {
+            id: 'nutrition-1',
+            name: 'Tratamiento nutritivo',
+            aliases: ['nutricion'],
+            duration: 60,
+            price: 30000,
+            category: 'Nutrición',
+            categoryAdviceEnabled: true
+          },
+          {
+            id: 'nutrition-2',
+            name: 'Alisado molecular',
+            aliases: ['nutricion'],
+            duration: 90,
+            price: 45000,
+            category: 'Nutrición',
+            categoryAdviceEnabled: true
+          },
+          {
+            id: 'haircut',
+            name: 'Corte',
+            aliases: [],
+            duration: 30,
+            price: 15000,
+            category: 'Cortes'
+          }
+        ],
+        professionals: [{
+          id: 'professional-1',
+          name: 'Mica',
+          serviceIds: ['nutrition-1', 'nutrition-2', 'haircut']
+        }]
+      })
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog }), fakeExtractor(null))
+      const namedState = acceptField(createEmptyBookingV2State(), 'name', 'Mati')
+
+      const categoryMenu = await engine.process({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(namedState),
+        message: 'quiero un turno de nutricion'
+      })
+      assert.equal(categoryMenu.plan.type, 'ask_field')
+      assert.equal(categoryMenu.state.categoryAdvice?.stage, 'offered')
+      assert.equal(
+        categoryMenu.reply.includes('Hablar con un profesional para elegir mi servicio de Nutrición'),
+        true
+      )
+      assert.equal(categoryMenu.reply.includes('respuesta puede demorar'), true)
+
+      const confirmation = await engine.process({
+        businessId: 'business-1',
+        conversation: categoryMenu.conversationPatch,
+        message: 'necesito asesoramiento'
+      })
+      assert.equal(confirmation.plan.type, 'ask_category_advice_confirmation')
+      assert.equal(confirmation.state.categoryAdvice?.stage, 'awaiting_confirmation')
+      assert.equal(confirmation.reply.includes('¿Querés continuar?'), true)
+      assert.equal(confirmation.reply.includes('Volver a los tratamientos'), true)
+
+      const returned = await engine.process({
+        businessId: 'business-1',
+        conversation: confirmation.conversationPatch,
+        message: 'volver a los tratamientos'
+      })
+      assert.equal(returned.plan.type, 'ask_field')
+      assert.equal(returned.state.categoryAdvice, null)
+      assert.equal(returned.reply.includes('Tratamiento nutritivo'), true)
+      assert.equal(returned.reply.includes('Corte —'), false)
+
+      const handedOff = await engine.process({
+        businessId: 'business-1',
+        conversation: confirmation.conversationPatch,
+        message: 'sí'
+      })
+      assert.deepEqual(handedOff.plan, {
+        type: 'handoff',
+        reason: 'category_advice_requested',
+        categoryName: 'Nutrición'
+      })
+      assert.equal(handedOff.state.categoryAdvice?.stage, 'requested')
+      assert.equal(handedOff.reply.includes('servicio de Nutrición'), true)
+    }
+  },
+  {
     name: 'servicio configurable explica y valida antes de pedir profesional',
     run: async () => {
       const validationCatalog = createBookingV2DomainCatalog({

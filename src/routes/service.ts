@@ -9,6 +9,7 @@ export async function serviceRoutes(app: FastifyInstance) {
       businessId?: string
       name?: string
       sortOrder?: number
+      adviceEnabled?: boolean
     }
     const businessId = body.businessId?.trim()
     const name = body.name?.trim()
@@ -35,7 +36,8 @@ export async function serviceRoutes(app: FastifyInstance) {
       data: {
         businessId,
         name,
-        sortOrder: normalizeSortOrder(body.sortOrder)
+        sortOrder: normalizeSortOrder(body.sortOrder),
+        adviceEnabled: body.adviceEnabled === true
       },
       include: { _count: { select: { services: true } } }
     })
@@ -56,6 +58,7 @@ export async function serviceRoutes(app: FastifyInstance) {
       name?: string
       sortOrder?: number
       isActive?: boolean
+      adviceEnabled?: boolean
     }
     const category = await prisma.serviceCategory.findUnique({
       where: { id: params.id }
@@ -88,7 +91,10 @@ export async function serviceRoutes(app: FastifyInstance) {
         data: {
           name,
           ...(body.sortOrder === undefined ? {} : { sortOrder: normalizeSortOrder(body.sortOrder) }),
-          ...(typeof body.isActive === 'boolean' ? { isActive: body.isActive } : {})
+          ...(typeof body.isActive === 'boolean' ? { isActive: body.isActive } : {}),
+          ...(typeof body.adviceEnabled === 'boolean'
+            ? { adviceEnabled: body.adviceEnabled }
+            : {})
         }
       })
       await tx.service.updateMany({

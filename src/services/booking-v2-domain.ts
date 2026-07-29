@@ -15,6 +15,8 @@ export type BookingV2ServiceOption = {
   price: number | null
   priceMode?: 'FIXED' | 'STARTING_AT'
   category: string | null
+  categoryId?: string | null
+  categoryAdviceEnabled?: boolean
   parentServiceId?: string | null
   parentServiceName?: string | null
   attentionMode?: 'DIRECT_BOOKING' | 'QUOTE' | 'ADVISOR' | 'GUIDED_ESTIMATE'
@@ -133,6 +135,8 @@ export class BookingV2DomainService {
           price: service.price,
           priceMode: service.priceMode,
           category,
+          categoryId: service.catalogCategoryId,
+          categoryAdviceEnabled: service.catalogCategory?.adviceEnabled === true,
           parentServiceId: service.parentServiceId,
           parentServiceName: service.parentService?.name ?? null,
           attentionMode: service.attentionMode,
