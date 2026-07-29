@@ -5599,6 +5599,11 @@ const crmHtml = `<!doctype html>
       border-top: 1px solid #dfe6f1;
     }
 
+    .service-estimate-editor[hidden],
+    .service-deposit-editor[hidden] {
+      display: none;
+    }
+
     .service-estimate-editor textarea {
       min-height: 72px;
       padding: 10px 12px;
