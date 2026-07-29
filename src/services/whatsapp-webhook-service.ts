@@ -4,6 +4,7 @@ import { WhatsAppCloudApi } from '../integrations/whatsapp-cloud-api.js'
 import { assertBusinessCanSendWhatsApp } from './business-whatsapp-settings.js'
 import { ConversationService } from './conversation-service.js'
 import { reopenClosedConversationOpportunity } from './conversation-opportunity-service.js'
+import { bookingDepositService } from './booking-deposit-service.js'
 import { capturePostSaleResponse } from './post-sale-service.js'
 
 type VerifyWebhookInput = {
@@ -159,9 +160,16 @@ export class WhatsAppWebhookService {
         inboundMessageData.providerMessageId = message.id
       }
 
-      await prisma.message.create({
+      const inboundMessage = await prisma.message.create({
         data: inboundMessageData
       })
+      if (message.media?.type === 'image') {
+        await bookingDepositService.markProofReceived({
+          conversationId: conversation.id,
+          messageId: inboundMessage.id,
+          receivedAt: inboundMessage.createdAt
+        })
+      }
 
       await prisma.conversation.update({
         where: {

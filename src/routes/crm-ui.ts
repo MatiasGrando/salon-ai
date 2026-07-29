@@ -11649,6 +11649,8 @@ const crmHtml = `<!doctype html>
           <details class="chat-more-menu">
             <summary class="icon-button" title="Opciones" data-icon="more"></summary>
             <div class="chat-more-popover">
+              <button class="primary" id="deposit-approve" type="button" hidden>Aprobar se&ntilde;a y confirmar</button>
+              <button class="danger" id="deposit-reject" type="button" hidden>Rechazar se&ntilde;a</button>
               <button class="secondary" id="resolve-handoff" type="button" disabled hidden>Marcar como resuelto</button>
               <button class="secondary" id="conversation-ai-toggle" type="button" disabled>Atender manualmente</button>
               <button class="secondary" id="archive-conversation" type="button" disabled>Archivar chat</button>
@@ -12352,6 +12354,13 @@ const crmHtml = `<!doctype html>
                       <label for="service-deposit-value" id="service-deposit-value-label">Monto de la se&ntilde;a</label>
                       <input class="field" id="service-deposit-value" type="number" min="1" step="1" placeholder="Ej: 20000">
                     </div>
+                    <div class="service-form-group" style="grid-column: 1 / -1;">
+                      <label for="service-deposit-hold-minutes">Tiempo para enviar el comprobante</label>
+                      <div class="service-input-addon">
+                        <input id="service-deposit-hold-minutes" type="number" min="5" max="1440" step="5" value="60">
+                        <span class="addon">min</span>
+                      </div>
+                    </div>
                   </div>
                   <div class="service-form-help" id="service-deposit-help">Se solicitar&aacute; al final de la reserva y el equipo confirmar&aacute; el comprobante.</div>
                 </div>
@@ -12814,6 +12823,43 @@ const crmHtml = `<!doctype html>
               <label for="business-facebook">Facebook</label>
               <input class="field" id="business-facebook" type="url" placeholder="https://facebook.com/tucomercio">
               <small>Opcional. Si queda vac&iacute;o no se muestra el acceso.</small>
+            </div>
+
+            <div class="business-hours-grid">
+              <div class="business-hours-title">Medios de pago para se&ntilde;as</div>
+              <label class="settings-toggle-row">
+                <input id="payment-transfer-enabled" type="checkbox">
+                Aceptar transferencia bancaria
+              </label>
+              <div class="settings-field">
+                <label for="payment-alias">Alias</label>
+                <input class="field" id="payment-alias" maxlength="80" placeholder="Ej: barber.colapinta">
+              </div>
+              <div class="settings-field">
+                <label for="payment-cbu">CBU</label>
+                <input class="field" id="payment-cbu" maxlength="22" inputmode="numeric" placeholder="22 d&iacute;gitos">
+              </div>
+              <div class="settings-field">
+                <label for="payment-cvu">CVU</label>
+                <input class="field" id="payment-cvu" maxlength="22" inputmode="numeric" placeholder="22 d&iacute;gitos">
+              </div>
+              <div class="settings-field">
+                <label for="payment-account-holder">Titular</label>
+                <input class="field" id="payment-account-holder" maxlength="120" placeholder="Nombre del titular">
+              </div>
+              <label class="settings-toggle-row">
+                <input id="payment-link-enabled" type="checkbox">
+                Aceptar enlace de pago
+              </label>
+              <div class="settings-field">
+                <label for="payment-link">Enlace de pago</label>
+                <input class="field" id="payment-link" type="url" placeholder="https://...">
+              </div>
+              <div class="settings-field">
+                <label for="payment-instructions">Indicaciones adicionales</label>
+                <textarea class="field" id="payment-instructions" maxlength="500" placeholder="Ej: Inclu&iacute; tu nombre en el concepto de la transferencia."></textarea>
+                <small>El bot incluye estos datos al solicitar la se&ntilde;a.</small>
+              </div>
             </div>
 
             <div class="business-hours-grid">
@@ -14027,6 +14073,7 @@ const crmHtml = `<!doctype html>
       businessId: null,
       business: null,
       businessHours: [],
+      paymentSettings: null,
       whatsappSettings: null,
       instagramSettings: null,
       whatsappEmbeddedSignupSession: {},
@@ -14199,6 +14246,8 @@ const crmHtml = `<!doctype html>
       chatStatus: document.getElementById('chat-status'),
       stepChip: document.getElementById('step-chip'),
       resolveHandoff: document.getElementById('resolve-handoff'),
+      depositApprove: document.getElementById('deposit-approve'),
+      depositReject: document.getElementById('deposit-reject'),
       conversationAiToggle: document.getElementById('conversation-ai-toggle'),
       archiveConversation: document.getElementById('archive-conversation'),
       chatMoreMenu: document.querySelector('.chat-more-menu'),
@@ -14349,6 +14398,7 @@ const crmHtml = `<!doctype html>
       serviceDepositValue: document.getElementById('service-deposit-value'),
       serviceDepositValueLabel: document.getElementById('service-deposit-value-label'),
       serviceDepositHelp: document.getElementById('service-deposit-help'),
+      serviceDepositHoldMinutes: document.getElementById('service-deposit-hold-minutes'),
       serviceParentGroup: document.getElementById('service-parent-group'),
       serviceParent: document.getElementById('service-parent'),
       serviceCategoryId: document.getElementById('service-category-id'),
@@ -14657,6 +14707,14 @@ const crmHtml = `<!doctype html>
       businessEmail: document.getElementById('business-email'),
       businessInstagram: document.getElementById('business-instagram'),
       businessFacebook: document.getElementById('business-facebook'),
+      paymentTransferEnabled: document.getElementById('payment-transfer-enabled'),
+      paymentAlias: document.getElementById('payment-alias'),
+      paymentCbu: document.getElementById('payment-cbu'),
+      paymentCvu: document.getElementById('payment-cvu'),
+      paymentAccountHolder: document.getElementById('payment-account-holder'),
+      paymentLinkEnabled: document.getElementById('payment-link-enabled'),
+      paymentLink: document.getElementById('payment-link'),
+      paymentInstructions: document.getElementById('payment-instructions'),
       settingsMainTabs: document.getElementById('settings-main-tabs'),
       landingSettingsForm: document.getElementById('landing-settings-form'),
       landingEnabled: document.getElementById('landing-enabled'),
@@ -15314,6 +15372,9 @@ const crmHtml = `<!doctype html>
       state.businessHours = state.businessId
         ? await getJson('/business-hours?businessId=' + encodeURIComponent(state.businessId))
         : []
+      state.paymentSettings = state.businessId
+        ? await getJson('/businesses/' + state.businessId + '/payment-settings')
+        : null
       state.whatsappSettings = state.businessId
         ? await getJson('/businesses/' + state.businessId + '/whatsapp-settings')
         : null
@@ -15377,7 +15438,7 @@ const crmHtml = `<!doctype html>
         renderServices()
         renderAgendaFilters()
         renderAppointmentFormOptions()
-        renderAgenda()
+        await loadAgenda()
         await loadConversations()
         if (els.appShell?.dataset.section === 'customers') await loadCustomerOverview()
         if (els.appShell?.dataset.section === 'reports') await loadReports()
@@ -16280,9 +16341,18 @@ const crmHtml = `<!doctype html>
       els.chatStatus.textContent = selected.phone
       els.stepChip.textContent = conversationStepLabel(selected.currentStep, selected.aiEnabled)
       els.stepChip.className = conversationStepChipClass(selected.currentStep, selected.aiEnabled)
+      const deposit = selected.bookingDeposits?.[0] || null
+      const activeDeposit = deposit && ['PENDING_PROOF', 'PROOF_RECEIVED'].includes(deposit.status)
       const canResolveHandoff = selected.currentStep === 'HUMAN_HANDOFF' || selected.aiEnabled === false
-      els.resolveHandoff.hidden = !canResolveHandoff
-      els.resolveHandoff.disabled = !canResolveHandoff
+      els.depositApprove.hidden = !activeDeposit
+      els.depositApprove.disabled = deposit?.status !== 'PROOF_RECEIVED'
+      els.depositApprove.textContent = deposit?.status === 'PROOF_RECEIVED'
+        ? 'Aprobar seña de ' + formatCurrency(deposit.amount)
+        : 'Esperando comprobante'
+      els.depositReject.hidden = !activeDeposit
+      els.depositReject.disabled = !activeDeposit
+      els.resolveHandoff.hidden = !canResolveHandoff || Boolean(activeDeposit)
+      els.resolveHandoff.disabled = !canResolveHandoff || Boolean(activeDeposit)
       els.conversationAiToggle.hidden = canResolveHandoff
       els.conversationAiToggle.disabled = canResolveHandoff
       els.conversationAiToggle.textContent = 'Atender manualmente'
@@ -17617,6 +17687,58 @@ const crmHtml = `<!doctype html>
       }
     }
 
+    async function approveSelectedDeposit() {
+      if (!state.selected) return
+      const deposit = state.selected.bookingDeposits?.[0]
+      if (!deposit || deposit.status !== 'PROOF_RECEIVED') return
+      if (!await requestCrmConfirmation(
+        '¿Confirmás que el comprobante por ' + formatCurrency(deposit.amount) + ' es válido? El turno quedará confirmado.',
+        { confirmLabel: 'Sí, aprobar seña', danger: false }
+      )) return
+      if (!setButtonLoading(els.depositApprove, true, 'Confirmando...')) return
+      try {
+        state.selected = await getJson('/crm/conversations/' + state.selected.id + '/deposit/approve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        })
+        await loadConversations()
+        showCrmToast('Seña aprobada y turno confirmado.', 'success')
+        await loadAgenda()
+      } catch (error) {
+        showCrmToast(error.message, 'error')
+      } finally {
+        setButtonLoading(els.depositApprove, false)
+      }
+    }
+
+    async function rejectSelectedDeposit() {
+      if (!state.selected) return
+      const deposit = state.selected.bookingDeposits?.[0]
+      if (!deposit || !['PENDING_PROOF', 'PROOF_RECEIVED'].includes(deposit.status)) return
+      if (!await requestCrmConfirmation(
+        '¿Querés rechazar la seña? El horario temporal se liberará y el cliente recibirá un aviso.',
+        { confirmLabel: 'Sí, rechazar seña' }
+      )) return
+      if (!setButtonLoading(els.depositReject, true, 'Rechazando...')) return
+      try {
+        state.selected = await getJson('/crm/conversations/' + state.selected.id + '/deposit/reject', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reason: 'El comprobante no pudo ser validado'
+          })
+        })
+        await loadConversations()
+        showCrmToast('Seña rechazada y horario liberado.', 'success')
+        await loadAgenda()
+      } catch (error) {
+        showCrmToast(error.message, 'error')
+      } finally {
+        setButtonLoading(els.depositReject, false)
+      }
+    }
+
     async function toggleArchiveConversation() {
       if (!state.selected) return
       const archived = !state.selected.archivedAt
@@ -18151,6 +18273,14 @@ const crmHtml = `<!doctype html>
       els.businessEmail.value = state.business?.contactEmail || ''
       els.businessInstagram.value = state.business?.instagramUrl || ''
       els.businessFacebook.value = state.business?.facebookUrl || ''
+      els.paymentTransferEnabled.checked = state.paymentSettings?.transferEnabled === true
+      els.paymentAlias.value = state.paymentSettings?.alias || ''
+      els.paymentCbu.value = state.paymentSettings?.cbu || ''
+      els.paymentCvu.value = state.paymentSettings?.cvu || ''
+      els.paymentAccountHolder.value = state.paymentSettings?.accountHolder || ''
+      els.paymentLinkEnabled.checked = state.paymentSettings?.paymentLinkEnabled === true
+      els.paymentLink.value = state.paymentSettings?.paymentLink || ''
+      els.paymentInstructions.value = state.paymentSettings?.instructions || ''
       setBusinessLogo(state.business?.logoUrl || null)
       updateBusinessBrand()
       renderLandingSettings()
@@ -19126,13 +19256,24 @@ const crmHtml = `<!doctype html>
             })
           })
         }
+        state.paymentSettings = await getJson('/businesses/' + state.businessId + '/payment-settings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            transferEnabled: els.paymentTransferEnabled.checked,
+            alias: els.paymentAlias.value.trim() || null,
+            cbu: els.paymentCbu.value.trim() || null,
+            cvu: els.paymentCvu.value.trim() || null,
+            accountHolder: els.paymentAccountHolder.value.trim() || null,
+            paymentLinkEnabled: els.paymentLinkEnabled.checked,
+            paymentLink: els.paymentLink.value.trim() || null,
+            instructions: els.paymentInstructions.value.trim() || null
+          })
+        })
         renderBusinessSettings()
         applyProfessionalBusinessHourLimits()
         renderAgenda()
-        showBusinessSettingsFeedback(
-          nameChanged || logoChanged || contactEmailChanged || instagramChanged || facebookChanged || hoursChanged ? 'Ajustes guardados correctamente.' : 'No hay cambios para guardar.',
-          'success'
-        )
+        showBusinessSettingsFeedback('Ajustes y medios de pago guardados correctamente.', 'success')
       } catch (error) {
         showBusinessSettingsFeedback(error.message, 'error')
       } finally {
@@ -23010,6 +23151,9 @@ const crmHtml = `<!doctype html>
       const depositValue = depositMode === 'NONE'
         ? null
         : Number(els.serviceDepositValue.value)
+      const depositHoldMinutes = depositMode === 'NONE'
+        ? 60
+        : Number(els.serviceDepositHoldMinutes.value)
 
       if (!name || (!isGroup && (!Number.isFinite(duration) || duration <= 0))) {
         els.serviceFeedback.textContent = isGroup ? 'Completá el nombre.' : 'Completá nombre y duración.'
@@ -23058,6 +23202,17 @@ const crmHtml = `<!doctype html>
           : 'El monto de la seña debe ser un entero mayor a 0.'
         return
       }
+      if (
+        depositMode !== 'NONE' &&
+        (
+          !Number.isInteger(depositHoldMinutes) ||
+          depositHoldMinutes < 5 ||
+          depositHoldMinutes > 1440
+        )
+      ) {
+        els.serviceFeedback.textContent = 'El tiempo para enviar el comprobante debe estar entre 5 minutos y 24 horas.'
+        return
+      }
 
       if (!setButtonLoading(els.serviceSubmit, true, id ? 'Guardando...' : 'Creando...')) return
       try {
@@ -23082,6 +23237,7 @@ const crmHtml = `<!doctype html>
             estimateAllowsBooking: els.serviceEstimateAllowsBooking.checked,
             depositMode,
             depositValue,
+            depositHoldMinutes,
             imageUrl: state.serviceImageUrl,
             aliases
           })
@@ -23118,6 +23274,7 @@ const crmHtml = `<!doctype html>
       els.serviceDepositEnabled.checked = service.depositMode === 'FIXED' || service.depositMode === 'PERCENTAGE'
       els.serviceDepositMode.value = service.depositMode === 'PERCENTAGE' ? 'PERCENTAGE' : 'FIXED'
       els.serviceDepositValue.value = service.depositValue ?? ''
+      els.serviceDepositHoldMinutes.value = service.depositHoldMinutes || 60
       state.serviceEstimateOptions = Array.isArray(service.estimateOptions)
         ? service.estimateOptions.map((option) => ({ ...option }))
         : []
@@ -23171,6 +23328,7 @@ const crmHtml = `<!doctype html>
       els.serviceDepositEnabled.checked = false
       els.serviceDepositMode.value = 'FIXED'
       els.serviceDepositValue.value = ''
+      els.serviceDepositHoldMinutes.value = '60'
       state.serviceEstimateOptions = []
       renderServiceEstimateOptions()
       updateServiceDepositFields()
@@ -23862,6 +24020,8 @@ const crmHtml = `<!doctype html>
     }
     els.conversationAiToggle.addEventListener('click', toggleConversationAi)
     els.resolveHandoff.addEventListener('click', resolveHandoff)
+    els.depositApprove.addEventListener('click', approveSelectedDeposit)
+    els.depositReject.addEventListener('click', rejectSelectedDeposit)
     els.refresh.addEventListener('click', () => {
       withButtonLoading(els.refresh, '', () => loadConversations())
     })

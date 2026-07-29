@@ -53,6 +53,14 @@ enum ServiceDepositMode {
   PERCENTAGE
 }
 
+enum BookingDepositStatus {
+  PENDING_PROOF
+  PROOF_RECEIVED
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
 enum ServicePriceMode {
   FIXED
   STARTING_AT
@@ -124,6 +132,7 @@ model Business {
   whatsappConfig       BusinessWhatsAppConfig?
   instagramConfig      BusinessInstagramConfig?
   featureSettings      BusinessFeatureSettings?
+  paymentSettings      BusinessPaymentSettings?
 
   professionals           Professional[]
   serviceCategories       ServiceCategory[]
@@ -146,6 +155,7 @@ model Business {
   communicationRecipients CommunicationRecipient[]
   users                   User[]
   weexCustomerLinks       WeexCustomerLink[]
+  bookingDeposits         BookingDeposit[]
 
   createdAt DateTime @default(now())
 }
@@ -227,6 +237,25 @@ model BusinessInstagramConfig {
   enabled            Boolean   @default(true)
   connectedAt        DateTime?
   lastError          String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model BusinessPaymentSettings {
+  id String @id @default(cuid())
+
+  businessId String   @unique
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  transferEnabled    Boolean @default(false)
+  alias              String?
+  cbu                String?
+  cvu                String?
+  accountHolder      String?
+  paymentLinkEnabled Boolean @default(false)
+  paymentLink        String?
+  instructions       String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -333,6 +362,7 @@ model Service {
   estimateAllowsBooking Boolean              @default(true)
   depositMode           ServiceDepositMode   @default(NONE)
   depositValue          Int?
+  depositHoldMinutes    Int                  @default(60)
 
   businessId String
   business   Business @relation(fields: [businessId], references: [id])
@@ -504,6 +534,7 @@ model Appointment {
   reminderDeliveries      ReminderDelivery[]
   convertedConversation   Conversation?      @relation("ConversationOpportunityAppointment")
   postSaleDeliveries      PostSaleDelivery[]
+  bookingDeposit          BookingDeposit?
   googleCalendarEventId   String?
   googleCalendarAccountId String?
 
@@ -572,6 +603,7 @@ model Conversation {
   messages           Message[]
   opportunityEvents  ConversationOpportunityEvent[]
   postSaleDeliveries PostSaleDelivery[]
+  bookingDeposits    BookingDeposit[]
   instagramLead      InstagramLead?
 
   createdAt DateTime @default(now())
@@ -580,6 +612,36 @@ model Conversation {
   @@index([businessId, archivedAt, updatedAt])
   @@index([currentStep, archivedAt, updatedAt])
   @@index([businessId, opportunityStatus, updatedAt])
+}
+
+model BookingDeposit {
+  id String @id @default(cuid())
+
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  appointmentId String      @unique
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  mode             ServiceDepositMode
+  configuredValue  Int
+  baseAmount       Int?
+  amount           Int
+  status           BookingDepositStatus @default(PENDING_PROOF)
+  expiresAt        DateTime
+  proofMessageId   String?
+  reviewedAt       DateTime?
+  reviewedByUserId String?
+  rejectionReason  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([businessId, status, expiresAt])
+  @@index([conversationId, createdAt])
 }
 
 model ConversationOpportunityEvent {

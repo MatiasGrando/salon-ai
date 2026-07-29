@@ -8,6 +8,7 @@
     "start": "prisma generate && prisma migrate deploy && tsx src/server.ts",
     "prisma:generate": "prisma generate",
     "test:booking-v2": "tsx scripts/booking-v2-contract-test.ts",
+    "test:deposits": "tsx scripts/deposit-flow-contract-test.ts",
     "test:post-sale": "tsx scripts/post-sale-mode-contract-test.ts",
     "test:reminders": "tsx scripts/reminder-mode-contract-test.ts",
     "test:conversation": "tsx scripts/conversation-smoke-test.ts",

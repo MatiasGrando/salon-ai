@@ -150,6 +150,7 @@ export async function serviceRoutes(app: FastifyInstance) {
       estimateAllowsBooking?: boolean
       depositMode?: string
       depositValue?: number | string | null
+      depositHoldMinutes?: number | string
     }
     const name = body.name?.trim()
     const duration = Number(body.duration)
@@ -171,6 +172,7 @@ export async function serviceRoutes(app: FastifyInstance) {
     const estimateOptions = normalizeEstimateOptions(body.estimateOptions)
     const depositMode = normalizeServiceDepositMode(body.depositMode)
     const depositValue = normalizeNullableNumber(body.depositValue)
+    const depositHoldMinutes = normalizeDepositHoldMinutes(body.depositHoldMinutes)
 
     if (!businessId) {
       return reply.status(400).send({
@@ -240,6 +242,11 @@ export async function serviceRoutes(app: FastifyInstance) {
         message: 'Selecciona una modalidad de seña valida'
       })
     }
+    if (depositHoldMinutes === null) {
+      return reply.status(400).send({
+        message: 'El tiempo para pagar la seña debe estar entre 5 minutos y 24 horas'
+      })
+    }
     const depositValidation = validateDepositRule(depositMode ?? 'NONE', depositValue)
     if (!depositValidation.ok) {
       return reply.status(400).send({ message: depositValidation.message })
@@ -292,6 +299,7 @@ export async function serviceRoutes(app: FastifyInstance) {
       estimateAllowsBooking: isBookable ? body.estimateAllowsBooking !== false : true,
       depositMode: isBookable ? depositMode ?? 'NONE' : 'NONE',
       depositValue: isBookable && depositMode !== 'NONE' ? depositValue : null,
+      depositHoldMinutes: isBookable ? depositHoldMinutes ?? 60 : 60,
       ...(aliases?.length
         ? {
             aliases: {
@@ -371,6 +379,7 @@ export async function serviceRoutes(app: FastifyInstance) {
       estimateAllowsBooking?: boolean
       depositMode?: string
       depositValue?: number | string | null
+      depositHoldMinutes?: number | string
     }
     const name = body.name?.trim()
     const duration = Number(body.duration)
@@ -424,6 +433,7 @@ export async function serviceRoutes(app: FastifyInstance) {
         estimateAllowsBooking: true,
         depositMode: true,
         depositValue: true,
+        depositHoldMinutes: true,
         _count: {
           select: {
             variants: true
@@ -478,6 +488,9 @@ export async function serviceRoutes(app: FastifyInstance) {
     const depositValue = body.depositValue === undefined
       ? existing.depositValue
       : normalizeNullableNumber(body.depositValue)
+    const depositHoldMinutes = body.depositHoldMinutes === undefined
+      ? existing.depositHoldMinutes
+      : normalizeDepositHoldMinutes(body.depositHoldMinutes)
     if (estimateOptions === null) {
       return reply.status(400).send({
         message: 'Revisa las opciones del estimativo'
@@ -496,6 +509,11 @@ export async function serviceRoutes(app: FastifyInstance) {
     if (!depositMode) {
       return reply.status(400).send({
         message: 'Selecciona una modalidad de seña valida'
+      })
+    }
+    if (depositHoldMinutes === null) {
+      return reply.status(400).send({
+        message: 'El tiempo para pagar la seña debe estar entre 5 minutos y 24 horas'
       })
     }
     const depositValidation = validateDepositRule(depositMode, depositValue)
@@ -576,6 +594,7 @@ export async function serviceRoutes(app: FastifyInstance) {
             : true,
           depositMode: isBookable ? depositMode : 'NONE',
           depositValue: isBookable && depositMode !== 'NONE' ? depositValue : null,
+          depositHoldMinutes: isBookable ? depositHoldMinutes : 60,
           ...(body.sortOrder === undefined ? {} : { sortOrder: normalizeSortOrder(body.sortOrder) }),
           price,
           imageUrl: imageUrl ?? null
@@ -808,6 +827,12 @@ function normalizeNullableNumber(value?: number | string | null) {
   if (value === undefined || value === null || value === '') return null
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : Number.NaN
+}
+
+function normalizeDepositHoldMinutes(value?: number | string) {
+  if (value === undefined || value === '') return undefined
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed >= 5 && parsed <= 1440 ? parsed : null
 }
 
 function validateDepositRule(mode: 'NONE' | 'FIXED' | 'PERCENTAGE', value: number | null) {

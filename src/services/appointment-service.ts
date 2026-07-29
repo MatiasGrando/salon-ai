@@ -3,6 +3,7 @@ import {
   markConversationOpportunityConverted,
   reopenConversationOpportunityForInvalidatedAppointment
 } from './conversation-opportunity-service.js'
+import { bookingDepositService } from './booking-deposit-service.js'
 
 const availabilitySlotInterval = 30
 
@@ -12,6 +13,7 @@ type CreateAppointmentInput = {
   serviceId: string
   startAt: string
   force?: boolean
+  status?: 'PENDING' | 'CONFIRMED'
 }
 
 type AppointmentMutationResult =
@@ -59,6 +61,7 @@ type FindAvailabilityResult =
 
 export class AppointmentService {
   async create(input: CreateAppointmentInput): Promise<AppointmentMutationResult> {
+    await bookingDepositService.expireOverdue()
     const startAt = new Date(input.startAt)
 
     if (Number.isNaN(startAt.getTime())) {
@@ -194,18 +197,21 @@ export class AppointmentService {
         customerId: input.customerId,
         professionalId: input.professionalId,
         serviceId: input.serviceId,
-        startAt
+        startAt,
+        status: input.status ?? 'CONFIRMED'
       }
     })
 
-    try {
-      await markConversationOpportunityConverted({
-        businessId: professional.businessId,
-        customerPhone: customer.phone,
-        appointmentId: appointment.id
-      })
-    } catch (error) {
-      console.error('No pude vincular el turno con la oportunidad de chat', error)
+    if (appointment.status === 'CONFIRMED') {
+      try {
+        await markConversationOpportunityConverted({
+          businessId: professional.businessId,
+          customerPhone: customer.phone,
+          appointmentId: appointment.id
+        })
+      } catch (error) {
+        console.error('No pude vincular el turno con la oportunidad de chat', error)
+      }
     }
 
     return {
@@ -226,6 +232,21 @@ export class AppointmentService {
         ok: false,
         statusCode: 404,
         message: 'No encontre ese turno'
+      }
+    }
+    if (
+      existing.status === 'PENDING' &&
+      await prisma.bookingDeposit.count({
+        where: {
+          appointmentId: existing.id,
+          status: { in: ['PENDING_PROOF', 'PROOF_RECEIVED'] }
+        }
+      })
+    ) {
+      return {
+        ok: false,
+        statusCode: 409,
+        message: 'Resolve la seña pendiente antes de modificar este turno'
       }
     }
 
@@ -384,7 +405,6 @@ export class AppointmentService {
         message: 'No encontre ese turno'
       }
     }
-
     const cancelledAppointment = await prisma.appointment.update({
         where: {
           id: appointmentId
@@ -393,6 +413,17 @@ export class AppointmentService {
           status: 'CANCELLED'
         }
       })
+    await prisma.bookingDeposit.updateMany({
+      where: {
+        appointmentId,
+        status: { in: ['PENDING_PROOF', 'PROOF_RECEIVED'] }
+      },
+      data: {
+        status: 'REJECTED',
+        reviewedAt: new Date(),
+        rejectionReason: 'Turno cancelado'
+      }
+    })
     try {
       await reopenConversationOpportunityForInvalidatedAppointment(appointmentId)
     } catch (error) {
@@ -418,6 +449,21 @@ export class AppointmentService {
         message: 'No encontre ese turno'
       }
     }
+    if (
+      status === 'CONFIRMED' &&
+      await prisma.bookingDeposit.count({
+        where: {
+          appointmentId,
+          status: { in: ['PENDING_PROOF', 'PROOF_RECEIVED'] }
+        }
+      })
+    ) {
+      return {
+        ok: false as const,
+        statusCode: 409,
+        message: 'Aproba el comprobante desde la conversacion antes de confirmar el turno'
+      }
+    }
 
     const updatedAppointment = await prisma.appointment.update({
         where: {
@@ -433,6 +479,17 @@ export class AppointmentService {
         }
       })
     if (status === 'CANCELLED' || status === 'NO_SHOW') {
+      await prisma.bookingDeposit.updateMany({
+        where: {
+          appointmentId,
+          status: { in: ['PENDING_PROOF', 'PROOF_RECEIVED'] }
+        },
+        data: {
+          status: 'REJECTED',
+          reviewedAt: new Date(),
+          rejectionReason: status === 'CANCELLED' ? 'Turno cancelado' : 'Turno marcado como ausente'
+        }
+      })
       try {
         await reopenConversationOpportunityForInvalidatedAppointment(appointmentId)
       } catch (error) {
@@ -481,6 +538,7 @@ export class AppointmentService {
   }
 
   async findAvailability(input: FindAvailabilityInput): Promise<FindAvailabilityResult> {
+    await bookingDepositService.expireOverdue()
     const dayStart = parseDate(input.date)
 
     if (!dayStart) {

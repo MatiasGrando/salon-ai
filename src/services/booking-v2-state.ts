@@ -30,12 +30,15 @@ export type BookingV2GuidedEstimate = {
 }
 
 export type BookingV2PendingDeposit = {
+  depositId: string
+  appointmentId: string
   serviceId: string
   mode: 'FIXED' | 'PERCENTAGE'
   configuredValue: number
   baseAmount: number | null
   amount: number
   status: 'awaiting_proof'
+  expiresAt: string
 }
 
 export type BookingV2State = {

@@ -132,6 +132,8 @@ function readPendingDeposit(value: unknown): BookingV2PendingDeposit | null {
     return null
   }
   const candidate = persisted.pendingDeposit as Partial<BookingV2PendingDeposit>
+  if (typeof candidate.depositId !== 'string') return null
+  if (typeof candidate.appointmentId !== 'string') return null
   if (typeof candidate.serviceId !== 'string') return null
   if (candidate.mode !== 'FIXED' && candidate.mode !== 'PERCENTAGE') return null
   if (typeof candidate.configuredValue !== 'number' || !Number.isFinite(candidate.configuredValue)) return null
@@ -140,13 +142,17 @@ function readPendingDeposit(value: unknown): BookingV2PendingDeposit | null {
   }
   if (typeof candidate.amount !== 'number' || !Number.isFinite(candidate.amount)) return null
   if (candidate.status !== 'awaiting_proof') return null
+  if (typeof candidate.expiresAt !== 'string' || Number.isNaN(new Date(candidate.expiresAt).getTime())) return null
   return {
+    depositId: candidate.depositId,
+    appointmentId: candidate.appointmentId,
     serviceId: candidate.serviceId,
     mode: candidate.mode,
     configuredValue: candidate.configuredValue,
     baseAmount: candidate.baseAmount ?? null,
     amount: candidate.amount,
-    status: candidate.status
+    status: candidate.status,
+    expiresAt: candidate.expiresAt
   }
 }
 

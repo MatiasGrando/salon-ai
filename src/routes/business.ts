@@ -35,6 +35,98 @@ export async function businessRoutes(app: FastifyInstance) {
     return business ? [business] : []
   })
 
+  app.get('/businesses/:id/payment-settings', async (request, reply) => {
+    const params = request.params as { id: string }
+    if (!canAccessBusiness(request.auth, params.id)) {
+      return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
+    }
+    const business = await prisma.business.findUnique({ where: { id: params.id }, select: { id: true } })
+    if (!business) return reply.status(404).send({ message: 'No encontre ese local' })
+    return prisma.businessPaymentSettings.upsert({
+      where: { businessId: params.id },
+      create: { businessId: params.id },
+      update: {}
+    })
+  })
+
+  app.patch('/businesses/:id/payment-settings', async (request, reply) => {
+    const params = request.params as { id: string }
+    if (request.auth?.user.role === 'STAFF') {
+      return reply.status(403).send({ message: 'No tenes permiso para modificar medios de pago' })
+    }
+    if (!canAccessBusiness(request.auth, params.id)) {
+      return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
+    }
+    const body = request.body as {
+      transferEnabled?: boolean
+      alias?: string | null
+      cbu?: string | null
+      cvu?: string | null
+      accountHolder?: string | null
+      paymentLinkEnabled?: boolean
+      paymentLink?: string | null
+      instructions?: string | null
+    }
+    const alias = normalizePaymentIdentifier(body.alias, 80)
+    const cbu = normalizePaymentIdentifier(body.cbu, 22)
+    const cvu = normalizePaymentIdentifier(body.cvu, 22)
+    const accountHolder = normalizePaymentIdentifier(body.accountHolder, 120)
+    const paymentLink = normalizeOptionalUrl(body.paymentLink)
+    const instructions = normalizePaymentIdentifier(body.instructions, 500)
+    if ([alias, cbu, cvu, accountHolder, instructions].some((value) => value === undefined)) {
+      return reply.status(400).send({ message: 'Revisa los datos del medio de pago' })
+    }
+    if (cbu && !/^\d{22}$/.test(cbu)) {
+      return reply.status(400).send({ message: 'El CBU debe tener 22 digitos' })
+    }
+    if (cvu && !/^\d{22}$/.test(cvu)) {
+      return reply.status(400).send({ message: 'El CVU debe tener 22 digitos' })
+    }
+    if (body.paymentLink !== undefined && paymentLink === undefined) {
+      return reply.status(400).send({ message: 'El enlace de pago no es valido' })
+    }
+    const current = await prisma.businessPaymentSettings.findUnique({
+      where: { businessId: params.id }
+    })
+    const transferEnabled = body.transferEnabled ?? current?.transferEnabled ?? false
+    const paymentLinkEnabled = body.paymentLinkEnabled ?? current?.paymentLinkEnabled ?? false
+    const nextAlias = alias === undefined ? current?.alias ?? null : alias
+    const nextCbu = cbu === undefined ? current?.cbu ?? null : cbu
+    const nextCvu = cvu === undefined ? current?.cvu ?? null : cvu
+    const nextPaymentLink = paymentLink === undefined ? current?.paymentLink ?? null : paymentLink
+    if (transferEnabled && !nextAlias && !nextCbu && !nextCvu) {
+      return reply.status(400).send({ message: 'Para habilitar transferencias carga alias, CBU o CVU' })
+    }
+    if (paymentLinkEnabled && !nextPaymentLink) {
+      return reply.status(400).send({ message: 'Para habilitar el enlace de pago carga una URL valida' })
+    }
+
+    return prisma.businessPaymentSettings.upsert({
+      where: { businessId: params.id },
+      create: {
+        businessId: params.id,
+        transferEnabled,
+        alias: nextAlias,
+        cbu: nextCbu,
+        cvu: nextCvu,
+        accountHolder: accountHolder ?? null,
+        paymentLinkEnabled,
+        paymentLink: nextPaymentLink,
+        instructions: instructions ?? null
+      },
+      update: {
+        transferEnabled,
+        ...(alias !== undefined ? { alias } : {}),
+        ...(cbu !== undefined ? { cbu } : {}),
+        ...(cvu !== undefined ? { cvu } : {}),
+        ...(accountHolder !== undefined ? { accountHolder } : {}),
+        paymentLinkEnabled,
+        ...(paymentLink !== undefined ? { paymentLink } : {}),
+        ...(instructions !== undefined ? { instructions } : {})
+      }
+    })
+  })
+
   app.patch('/businesses/:id', async (request, reply) => {
     if (request.auth?.user.role === 'STAFF') {
       return reply.status(403).send({ message: 'No tenes permiso para modificar el local' })
@@ -620,6 +712,13 @@ function normalizeOptionalText(value?: string | null) {
   if (value === undefined) return undefined
   const normalized = value?.trim()
   return normalized || null
+}
+
+function normalizePaymentIdentifier(value: string | null | undefined, maxLength: number) {
+  if (value === undefined) return undefined
+  const normalized = value?.trim()
+  if (!normalized) return null
+  return normalized.length <= maxLength ? normalized : undefined
 }
 
 function normalizeOptionalEmail(value?: string | null) {

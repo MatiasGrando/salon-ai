@@ -18,7 +18,13 @@ export async function appointmentRoutes(app: FastifyInstance) {
       force?: boolean
     }
 
-    const result = await service.create(body)
+    const result = await service.create({
+      customerId: body.customerId,
+      professionalId: body.professionalId,
+      serviceId: body.serviceId,
+      startAt: body.startAt,
+      ...(body.force === undefined ? {} : { force: body.force })
+    })
 
     if (!result.ok) {
       return reply.status(result.statusCode).send({

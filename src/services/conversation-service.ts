@@ -1,6 +1,7 @@
 import { prisma } from '../config/prisma.js'
 import { Prisma } from '../generated/prisma/client.js'
 import { InternalBookingProvider } from '../providers/internal-booking-provider.js'
+import { AppointmentService } from './appointment-service.js'
 import { AiMessageUnderstandingService, type AiConversationIntent } from './ai-message-understanding-service.js'
 import { BookingConversationFlow, isBookingStartMessage, isMenuStep } from './booking-conversation-flow.js'
 import { BotCopyService } from './bot-copy-service.js'
@@ -33,6 +34,7 @@ import {
 
 const bookingConversationFlow = new BookingConversationFlow()
 const bookingProvider = new InternalBookingProvider()
+const appointmentService = new AppointmentService()
 const botCopyService = new BotCopyService()
 const aiMessageUnderstandingService = new AiMessageUnderstandingService()
 const bookingV2Engine = new BookingV2Engine()
@@ -341,6 +343,7 @@ export class ConversationService {
     message: string
     businessId: string
     conversation: {
+      id: string
       currentStep: string
       selectedCustomerName: string | null
       selectedServiceId: string | null
@@ -374,6 +377,7 @@ export class ConversationService {
         phone: input.phone,
         businessId: input.businessId,
         conversation: {
+          id: input.conversation.id,
           selectedCustomerName: input.conversation.selectedCustomerName,
           selectedServiceId: input.conversation.selectedServiceId,
           selectedProfessionalId: input.conversation.selectedProfessionalId,
@@ -597,6 +601,7 @@ export class ConversationService {
     phone: string
     businessId: string
     conversation: {
+      id: string
       selectedCustomerName: string
       selectedServiceId: string
       selectedProfessionalId: string
@@ -616,7 +621,13 @@ export class ConversationService {
         name: true,
         price: true,
         depositMode: true,
-        depositValue: true
+        depositValue: true,
+        depositHoldMinutes: true,
+        business: {
+          select: {
+            paymentSettings: true
+          }
+        }
       }
     })
     if (!service || service.depositMode === 'NONE') return null
@@ -633,15 +644,67 @@ export class ConversationService {
     })
     if (!calculation) return null
 
+    const customer = await this.findOrCreateCustomer(
+      input.phone,
+      input.conversation.selectedCustomerName
+    )
+    const appointment = await appointmentService.create({
+      customerId: customer.id,
+      professionalId: input.conversation.selectedProfessionalId,
+      serviceId: input.conversation.selectedServiceId,
+      startAt: `${input.conversation.selectedDate}T${input.conversation.selectedTime}:00`,
+      status: 'PENDING'
+    })
+    if (!appointment.ok) {
+      await this.updateConversation(input.phone, {
+        currentStep: 'ASK_DATE',
+        selectedDate: null,
+        selectedTime: null,
+        lastAvailability: null,
+        bookingV2State: null
+      })
+      return {
+        reply: `No pude retener ese horario: ${appointment.message}. Probemos con otro día u horario.`,
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+
+    const expiresAt = new Date(Date.now() + service.depositHoldMinutes * 60_000)
+    let deposit
+    try {
+      deposit = await prisma.bookingDeposit.create({
+        data: {
+          businessId: input.businessId,
+          appointmentId: appointment.appointment.id,
+          conversationId: input.conversation.id,
+          mode: calculation.mode,
+          configuredValue: calculation.configuredValue,
+          baseAmount: calculation.baseAmount,
+          amount: calculation.amount,
+          expiresAt
+        }
+      })
+    } catch (error) {
+      await prisma.appointment.update({
+        where: { id: appointment.appointment.id },
+        data: { status: 'CANCELLED' }
+      })
+      throw error
+    }
+
     const nextState = {
       ...state,
       pendingDeposit: {
+        depositId: deposit.id,
+        appointmentId: appointment.appointment.id,
         serviceId: service.id,
         mode: calculation.mode,
         configuredValue: calculation.configuredValue,
         baseAmount: calculation.baseAmount,
         amount: calculation.amount,
-        status: 'awaiting_proof' as const
+        status: 'awaiting_proof' as const,
+        expiresAt: expiresAt.toISOString()
       }
     }
     await this.updateConversation(input.phone, {
@@ -656,7 +719,9 @@ export class ConversationService {
     return {
       reply: renderBookingV2DepositRequest({
         serviceName: service.name,
-        calculation
+        calculation,
+        paymentSettings: service.business.paymentSettings,
+        expiresAt
       }),
       skipMisunderstandingTracking: true,
       skipHumanize: true

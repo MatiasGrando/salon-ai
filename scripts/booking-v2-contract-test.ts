@@ -23,7 +23,8 @@ import {
 import { BookingV2Engine } from '../src/services/booking-v2-engine.js'
 import {
   calculateBookingV2Deposit,
-  renderBookingV2DepositRequest
+  renderBookingV2DepositRequest,
+  renderBookingV2PaymentInstructions
 } from '../src/services/booking-v2-deposit.js'
 import type { BookingV2Catalog } from '../src/services/booking-v2-interpreter.js'
 import type { BookingV2CatalogOption } from '../src/services/booking-v2-extractor.js'
@@ -116,6 +117,26 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(reply.includes('$ 100.000'), true)
       assert.equal(reply.includes('comprobante'), true)
       assert.equal(reply.includes('confirmará el turno'), true)
+    }
+  },
+  {
+    name: 'pedido de seña incluye transferencia y enlace configurados',
+    run: () => {
+      const instructions = renderBookingV2PaymentInstructions({
+        transferEnabled: true,
+        alias: 'barber.colapinta',
+        cbu: '1234567890123456789012',
+        cvu: null,
+        accountHolder: 'Barber Colapinta',
+        paymentLinkEnabled: true,
+        paymentLink: 'https://example.com/pagar',
+        instructions: 'Incluí tu nombre en el concepto.'
+      })
+      assert.equal(instructions.includes('Alias: barber.colapinta'), true)
+      assert.equal(instructions.includes('CBU: 1234567890123456789012'), true)
+      assert.equal(instructions.includes('Titular: Barber Colapinta'), true)
+      assert.equal(instructions.includes('https://example.com/pagar'), true)
+      assert.equal(instructions.includes('Incluí tu nombre'), true)
     }
   },
   {
@@ -512,12 +533,15 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       const state = {
         ...completeDraft(),
         pendingDeposit: {
+          depositId: 'deposit-1',
+          appointmentId: 'appointment-1',
           serviceId: 'haircut',
           mode: 'PERCENTAGE' as const,
           configuredValue: 30,
           baseAmount: 100000,
           amount: 30000,
-          status: 'awaiting_proof' as const
+          status: 'awaiting_proof' as const,
+          expiresAt: '2026-07-10T15:30:00.000Z'
         }
       }
       const patch = conversationPatchFromState(state)
