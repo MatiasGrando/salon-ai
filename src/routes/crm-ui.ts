@@ -16790,6 +16790,7 @@ const crmHtml = `<!doctype html>
     function updateServiceAttentionHelp() {
       const mode = els.serviceAttentionMode.value
       const isGuidedEstimate = mode === 'GUIDED_ESTIMATE'
+      updateServicePriceModeAvailability()
       els.serviceEstimateEditor.hidden = !isGuidedEstimate
       if (isGuidedEstimate && state.serviceEstimateOptions.length === 0) {
         addServiceEstimateOption()
@@ -16843,9 +16844,23 @@ const crmHtml = `<!doctype html>
     }
 
     function updateServicePriceModeHelp() {
+      if (els.serviceAttentionMode.value === 'QUOTE') {
+        els.servicePriceModeHelp.textContent = 'Al requerir presupuesto, el precio base solo puede mostrarse como valor inicial.'
+        return
+      }
       els.servicePriceModeHelp.textContent = els.servicePriceMode.value === 'STARTING_AT'
         ? 'Se mostrar\u00e1 como precio inicial, por ejemplo: Desde $ 45.000.'
         : 'Se mostrar\u00e1 como importe exacto, por ejemplo: $ 35.000.'
+    }
+
+    function updateServicePriceModeAvailability() {
+      const requiresQuote = els.serviceAttentionMode.value === 'QUOTE'
+      const fixedOption = els.servicePriceMode.querySelector('option[value="FIXED"]')
+      if (fixedOption) fixedOption.disabled = requiresQuote
+      if (requiresQuote && els.servicePriceMode.value === 'FIXED') {
+        els.servicePriceMode.value = 'STARTING_AT'
+      }
+      updateServicePriceModeHelp()
     }
 
     function updateServiceDepositFields() {
@@ -23295,6 +23310,10 @@ const crmHtml = `<!doctype html>
 
       if (price !== null && (!Number.isFinite(price) || price < 0)) {
         els.serviceFeedback.textContent = 'El precio debe ser mayor o igual a 0.'
+        return
+      }
+      if (attentionMode === 'QUOTE' && priceMode === 'FIXED') {
+        els.serviceFeedback.textContent = 'Un servicio con presupuesto no puede mostrar un precio fijo.'
         return
       }
       if (priceMode === 'STARTING_AT' && (price === null || price <= 0)) {

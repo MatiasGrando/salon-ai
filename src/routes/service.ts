@@ -225,6 +225,13 @@ export async function serviceRoutes(app: FastifyInstance) {
         message: 'Selecciona una modalidad de atencion valida'
       })
     }
+    const priceAttentionValidation = validateServicePriceAttentionMode(
+      priceMode ?? 'FIXED',
+      attentionMode ?? 'DIRECT_BOOKING'
+    )
+    if (!priceAttentionValidation.ok) {
+      return reply.status(400).send({ message: priceAttentionValidation.message })
+    }
     if (body.estimateOptions !== undefined && estimateOptions === null) {
       return reply.status(400).send({
         message: 'Revisa las opciones del estimativo'
@@ -508,6 +515,10 @@ export async function serviceRoutes(app: FastifyInstance) {
       return reply.status(400).send({
         message: 'Selecciona una modalidad de atencion valida'
       })
+    }
+    const priceAttentionValidation = validateServicePriceAttentionMode(priceMode, attentionMode)
+    if (!priceAttentionValidation.ok) {
+      return reply.status(400).send({ message: priceAttentionValidation.message })
     }
     if (!depositMode) {
       return reply.status(400).send({
@@ -966,4 +977,17 @@ function normalizeServicePriceMode(value?: string) {
     : value === undefined
       ? undefined
       : null
+}
+
+export function validateServicePriceAttentionMode(
+  priceMode: 'FIXED' | 'STARTING_AT',
+  attentionMode: 'DIRECT_BOOKING' | 'QUOTE' | 'ADVISOR' | 'GUIDED_ESTIMATE'
+) {
+  if (attentionMode === 'QUOTE' && priceMode === 'FIXED') {
+    return {
+      ok: false as const,
+      message: 'Un servicio con presupuesto no puede mostrar un precio fijo'
+    }
+  }
+  return { ok: true as const }
 }
