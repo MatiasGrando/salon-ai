@@ -12361,7 +12361,7 @@ const crmHtml = `<!doctype html>
                 <label for="service-name">Nombre</label>
                 <input class="field" id="service-name" placeholder="Ej: Corte Hombre">
               </div>
-              <div class="service-form-group" hidden>
+              <div class="service-form-group" hidden style="display: none;">
                 <label for="service-item-type">Tipo de elemento</label>
                 <select id="service-item-type">
                   <option value="SERVICE">Servicio</option>
