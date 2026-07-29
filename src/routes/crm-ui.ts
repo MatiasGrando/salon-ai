@@ -16790,14 +16790,14 @@ const crmHtml = `<!doctype html>
         addServiceEstimateOption()
       }
       els.serviceAttentionHelp.textContent = mode === 'QUOTE'
-        ? 'El bot derivarÃ¡ la consulta para preparar el presupuesto. Si el cliente lo acepta, continuarÃ¡ con profesional, dÃ­a, horario y seÃ±a si estÃ¡ configurada.'
+        ? 'El bot derivar\u00e1 la consulta para preparar el presupuesto. Si el cliente lo acepta, continuar\u00e1 con profesional, d\u00eda, horario y se\u00f1a si est\u00e1 configurada.'
         : mode === 'ADVISOR'
-          ? 'El bot no ofrecerÃ¡ horarios: derivarÃ¡ al equipo para asesorar al cliente.'
+          ? 'El bot no ofrecer\u00e1 horarios: derivar\u00e1 al equipo para asesorar al cliente.'
           : mode === 'GUIDED_ESTIMATE'
-            ? 'El bot harÃ¡ una pregunta, mostrarÃ¡ un rango estimado y ofrecerÃ¡ reservar o pedir un presupuesto exacto.'
+            ? 'El bot har\u00e1 una pregunta, mostrar\u00e1 un rango estimado y ofrecer\u00e1 reservar o pedir un presupuesto exacto.'
           : els.serviceRequiresPhoto.checked
-            ? 'Al pedir fotos, el bot pausarÃ¡ la reserva automÃ¡tica y derivarÃ¡ el caso al equipo.'
-            : 'El bot mostrarÃ¡ profesionales y horarios disponibles para confirmar el turno.'
+            ? 'Al pedir fotos, el bot pausar\u00e1 la reserva autom\u00e1tica y derivar\u00e1 el caso al equipo.'
+            : 'El bot mostrar\u00e1 profesionales y horarios disponibles para confirmar el turno.'
     }
 
     function addServiceEstimateOption(option = {}) {
@@ -16814,11 +16814,11 @@ const crmHtml = `<!doctype html>
     function renderServiceEstimateOptions() {
       els.serviceEstimateOptions.innerHTML = state.serviceEstimateOptions.map((option, index) =>
         '<div class="estimate-option-row" data-estimate-index="' + index + '">' +
-          '<label>OpciÃ³n<input data-estimate-field="label" value="' + escapeHtml(option.label) + '" placeholder="Hasta los hombros"></label>' +
-          '<label>MÃ­nimo<input data-estimate-field="priceMin" type="number" min="0" value="' + escapeHtml(option.priceMin) + '" placeholder="80000"></label>' +
-          '<label>MÃ¡ximo<input data-estimate-field="priceMax" type="number" min="0" value="' + escapeHtml(option.priceMax) + '" placeholder="100000"></label>' +
-          '<button class="service-icon-button danger" type="button" data-remove-estimate-option="' + index + '" title="Quitar opciÃ³n">' + icon('trash') + '</button>' +
-          '<label style="grid-column: 1 / 4;">AclaraciÃ³n opcional<input data-estimate-field="note" value="' + escapeHtml(option.note) + '" placeholder="Puede variar segÃºn la cantidad de producto."></label>' +
+          '<label>Opci\u00f3n<input data-estimate-field="label" value="' + escapeHtml(option.label) + '" placeholder="Hasta los hombros"></label>' +
+          '<label>M\u00ednimo<input data-estimate-field="priceMin" type="number" min="0" value="' + escapeHtml(option.priceMin) + '" placeholder="80000"></label>' +
+          '<label>M\u00e1ximo<input data-estimate-field="priceMax" type="number" min="0" value="' + escapeHtml(option.priceMax) + '" placeholder="100000"></label>' +
+          '<button class="service-icon-button danger" type="button" data-remove-estimate-option="' + index + '" title="Quitar opci\u00f3n">' + icon('trash') + '</button>' +
+          '<label style="grid-column: 1 / 4;">Aclaraci\u00f3n opcional<input data-estimate-field="note" value="' + escapeHtml(option.note) + '" placeholder="Puede variar seg\u00fan la cantidad de producto."></label>' +
         '</div>'
       ).join('')
 
@@ -16839,8 +16839,8 @@ const crmHtml = `<!doctype html>
 
     function updateServicePriceModeHelp() {
       els.servicePriceModeHelp.textContent = els.servicePriceMode.value === 'STARTING_AT'
-        ? 'Se mostrarÃ¡ como precio inicial, por ejemplo: Desde $ 45.000.'
-        : 'Se mostrarÃ¡ como importe exacto, por ejemplo: $ 35.000.'
+        ? 'Se mostrar\u00e1 como precio inicial, por ejemplo: Desde $ 45.000.'
+        : 'Se mostrar\u00e1 como importe exacto, por ejemplo: $ 35.000.'
     }
 
     function updateServiceDepositFields() {
@@ -16912,7 +16912,7 @@ const crmHtml = `<!doctype html>
                   ? 'Asesoramiento previo'
                   : attentionMode === 'GUIDED_ESTIMATE'
                     ? 'Estimativo guiado'
-                  : 'Reserva automÃ¡tica'
+                  : 'Reserva autom\u00e1tica'
             const serviceMeta = itemType === 'GROUP'
               ? '<span>Grupo de variantes</span>'
               : '<span>' + icon('clock') + escapeHtml(service.duration + ' min') + '</span>' +
@@ -17724,7 +17724,7 @@ const crmHtml = `<!doctype html>
       if (!state.selected) return
       const service = state.services.find((item) => item.id === state.selected.selectedServiceId)
       if (!service) {
-        showCrmToast('La conversaciÃ³n no tiene un servicio seleccionado.', 'error')
+        showCrmToast('La conversaci\u00f3n no tiene un servicio seleccionado.', 'error')
         return
       }
       const previousQuote = state.selected.bookingV2State?.advisorQuote
@@ -17750,8 +17750,8 @@ const crmHtml = `<!doctype html>
         els.advisorQuoteDialogAmount.value = normalized
       }
       els.advisorQuoteDialogAmountPreview.textContent = normalized
-        ? 'Se enviarÃ¡ como ' + formatCurrency(Number(normalized)) + '.'
-        : 'IngresÃ¡ el importe sin puntos ni comas.'
+        ? 'Se enviar\u00e1 como ' + formatCurrency(Number(normalized)) + '.'
+        : 'Ingres\u00e1 el importe sin puntos ni comas.'
     }
 
     async function submitAdvisorQuote(event) {
@@ -17759,7 +17759,7 @@ const crmHtml = `<!doctype html>
       if (!state.selected) return
       const amount = Number(normalizeMoneyInput(els.advisorQuoteDialogAmount.value))
       if (!Number.isInteger(amount) || amount <= 0) {
-        els.advisorQuoteDialogFeedback.textContent = 'IngresÃ¡ un importe vÃ¡lido.'
+        els.advisorQuoteDialogFeedback.textContent = 'Ingres\u00e1 un importe v\u00e1lido.'
         return
       }
       if (!setButtonLoading(els.advisorQuoteDialogSubmit, true, 'Enviando...')) return
@@ -17777,7 +17777,7 @@ const crmHtml = `<!doctype html>
         closeAdvisorQuoteDialog()
         await loadConversations()
         renderSelected()
-        showCrmToast('Presupuesto enviado. Cami continuarÃ¡ cuando el cliente lo acepte.', 'success')
+        showCrmToast('Presupuesto enviado. Cami continuar\u00e1 cuando el cliente lo acepte.', 'success')
       } catch (error) {
         els.advisorQuoteDialogFeedback.textContent = error.message
       } finally {
@@ -19636,7 +19636,7 @@ const crmHtml = `<!doctype html>
       }
 
       return summarizeWorkingHours(hours)
-        .split(' Â· ')
+        .split(' \u00b7 ')
         .slice(0, 2)
         .map((value) => '<span class="professional-hours-pill">' + escapeHtml(value.replace(' a ', ' - ')) + '</span>')
         .join('')
@@ -23293,7 +23293,7 @@ const crmHtml = `<!doctype html>
         return
       }
       if (priceMode === 'STARTING_AT' && (price === null || price <= 0)) {
-        els.serviceFeedback.textContent = 'Para usar "Desde", cargÃ¡ un precio mayor a 0.'
+        els.serviceFeedback.textContent = 'Para usar "Desde", carg\u00e1 un precio mayor a 0.'
         return
       }
       if (
@@ -23309,7 +23309,7 @@ const crmHtml = `<!doctype html>
           )
         )
       ) {
-        els.serviceFeedback.textContent = 'CompletÃ¡ la pregunta y revisÃ¡ los rangos del estimativo.'
+        els.serviceFeedback.textContent = 'Complet\u00e1 la pregunta y revis\u00e1 los rangos del estimativo.'
         return
       }
       if (
@@ -23612,7 +23612,7 @@ const crmHtml = `<!doctype html>
 
     function conversationStepLabel(step, aiEnabled, conversation = null) {
       if (conversation?.bookingV2State?.advisorQuote?.status === 'awaiting_acceptance') {
-        return 'Esperando aceptaciÃ³n'
+        return 'Esperando aceptaci\u00f3n'
       }
       if (conversation?.bookingV2State?.advisorQuote?.status === 'accepted') {
         return 'Presupuesto aceptado'
