@@ -5646,7 +5646,7 @@ const crmHtml = `<!doctype html>
 
     .service-estimate-editor[hidden],
     .service-deposit-editor[hidden] {
-      display: none;
+      display: none !important;
     }
 
     .service-estimate-editor textarea {
@@ -12405,11 +12405,11 @@ const crmHtml = `<!doctype html>
                   </select>
                   <div class="service-form-help" id="service-attention-help">El bot mostrar&aacute; profesionales y horarios disponibles para confirmar el turno.</div>
                 </div>
-                <label class="service-photo-option">
-                  <input id="service-requires-photo" type="checkbox">
-                  <span>Pedir fotos antes de derivar al equipo</span>
-                </label>
                 <div class="service-estimate-editor" id="service-estimate-editor" hidden>
+                  <label class="service-photo-option">
+                    <input id="service-requires-photo" type="checkbox">
+                    <span>Pedir fotos antes de derivar al equipo</span>
+                  </label>
                   <div class="service-form-group">
                     <label for="service-estimate-explanation">Explicaci&oacute;n del precio</label>
                     <textarea id="service-estimate-explanation" placeholder="El precio depende del largo y de la cantidad de producto necesaria."></textarea>
@@ -16902,6 +16902,8 @@ const crmHtml = `<!doctype html>
       const isGuidedEstimate = mode === 'GUIDED_ESTIMATE'
       updateServicePriceModeAvailability()
       els.serviceEstimateEditor.hidden = !isGuidedEstimate
+      els.serviceEstimateEditor.style.display = isGuidedEstimate ? '' : 'none'
+      if (!isGuidedEstimate) els.serviceRequiresPhoto.checked = false
       if (isGuidedEstimate && state.serviceEstimateOptions.length === 0) {
         addServiceEstimateOption()
       }
@@ -23416,15 +23418,20 @@ const crmHtml = `<!doctype html>
         .map((alias) => alias.trim())
         .filter(Boolean)
       const attentionMode = isGroup ? 'DIRECT_BOOKING' : els.serviceAttentionMode.value
-      const requiresPhoto = isGroup ? false : els.serviceRequiresPhoto.checked
-      const estimateOptions = state.serviceEstimateOptions.map((option) => ({
-        id: option.id,
-        label: String(option.label || '').trim(),
-        priceMin: Number(option.priceMin),
-        priceMax: String(option.priceMax ?? '').trim() === '' ? null : Number(option.priceMax),
-        note: String(option.note || '').trim() || null
-      }))
-      const estimateQuestion = els.serviceEstimateQuestion.value.trim()
+      const isGuidedEstimate = attentionMode === 'GUIDED_ESTIMATE'
+      const requiresPhoto = isGuidedEstimate && els.serviceRequiresPhoto.checked
+      const estimateOptions = isGuidedEstimate
+        ? state.serviceEstimateOptions.map((option) => ({
+            id: option.id,
+            label: String(option.label || '').trim(),
+            priceMin: Number(option.priceMin),
+            priceMax: String(option.priceMax ?? '').trim() === '' ? null : Number(option.priceMax),
+            note: String(option.note || '').trim() || null
+          }))
+        : []
+      const estimateQuestion = isGuidedEstimate
+        ? els.serviceEstimateQuestion.value.trim()
+        : ''
       const depositMode = isGroup || !els.serviceDepositEnabled.checked
         ? 'NONE'
         : els.serviceDepositMode.value
@@ -23514,11 +23521,17 @@ const crmHtml = `<!doctype html>
             isBookable: !isGroup,
             attentionMode,
             requiresPhoto,
-            estimateExplanation: els.serviceEstimateExplanation.value.trim() || null,
+            estimateExplanation: isGuidedEstimate
+              ? els.serviceEstimateExplanation.value.trim() || null
+              : null,
             estimateQuestion: estimateQuestion || null,
             estimateOptions,
-            estimateDisclaimer: els.serviceEstimateDisclaimer.value.trim() || null,
-            estimateAllowsBooking: els.serviceEstimateAllowsBooking.checked,
+            estimateDisclaimer: isGuidedEstimate
+              ? els.serviceEstimateDisclaimer.value.trim() || null
+              : null,
+            estimateAllowsBooking: isGuidedEstimate
+              ? els.serviceEstimateAllowsBooking.checked
+              : true,
             depositMode,
             depositValue,
             depositHoldMinutes,
