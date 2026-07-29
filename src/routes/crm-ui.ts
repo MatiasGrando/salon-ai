@@ -12002,7 +12002,8 @@ const crmHtml = `<!doctype html>
           <p class="customer-dialog-copy" id="advisor-quote-dialog-copy"></p>
           <div class="customer-dialog-field">
             <label for="advisor-quote-amount">Importe acordado</label>
-            <input id="advisor-quote-amount" inputmode="numeric" autocomplete="off" placeholder="Ej: 160000" required>
+            <input id="advisor-quote-amount" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="Ej: 160000" required>
+            <p class="money-preview" id="advisor-quote-amount-preview">Ingres&aacute; el importe sin puntos ni comas.</p>
           </div>
           <div class="customer-dialog-field">
             <label for="advisor-quote-note">Aclaraci&oacute;n para el cliente (opcional)</label>
@@ -14181,6 +14182,7 @@ const crmHtml = `<!doctype html>
       advisorQuoteDialogCancel: document.getElementById('advisor-quote-dialog-cancel'),
       advisorQuoteDialogSubmit: document.getElementById('advisor-quote-dialog-submit'),
       advisorQuoteDialogAmount: document.getElementById('advisor-quote-amount'),
+      advisorQuoteDialogAmountPreview: document.getElementById('advisor-quote-amount-preview'),
       advisorQuoteDialogNote: document.getElementById('advisor-quote-note'),
       advisorQuoteDialogFeedback: document.getElementById('advisor-quote-dialog-feedback'),
       confirmationAccept: document.getElementById('confirmation-accept'),
@@ -17726,8 +17728,9 @@ const crmHtml = `<!doctype html>
       const previousQuote = state.selected.bookingV2State?.advisorQuote
       els.advisorQuoteDialogCopy.textContent = 'Presupuesto para ' + service.name
       els.advisorQuoteDialogAmount.value = previousQuote?.amount
-        ? formatMoneyInput(previousQuote.amount)
+        ? String(previousQuote.amount)
         : ''
+      updateAdvisorQuoteAmountPreview()
       els.advisorQuoteDialogNote.value = previousQuote?.note || ''
       els.advisorQuoteDialogFeedback.textContent = ''
       els.advisorQuoteDialog.hidden = false
@@ -17737,6 +17740,16 @@ const crmHtml = `<!doctype html>
     function closeAdvisorQuoteDialog() {
       els.advisorQuoteDialog.hidden = true
       els.advisorQuoteDialogFeedback.textContent = ''
+    }
+
+    function updateAdvisorQuoteAmountPreview() {
+      const normalized = normalizeMoneyInput(els.advisorQuoteDialogAmount.value)
+      if (els.advisorQuoteDialogAmount.value !== normalized) {
+        els.advisorQuoteDialogAmount.value = normalized
+      }
+      els.advisorQuoteDialogAmountPreview.textContent = normalized
+        ? 'Se enviarÃ¡ como ' + formatCurrency(Number(normalized)) + '.'
+        : 'IngresÃ¡ el importe sin puntos ni comas.'
     }
 
     async function submitAdvisorQuote(event) {
@@ -24134,9 +24147,7 @@ const crmHtml = `<!doctype html>
     els.advisorQuoteDialogForm.addEventListener('submit', submitAdvisorQuote)
     els.advisorQuoteDialogClose.addEventListener('click', closeAdvisorQuoteDialog)
     els.advisorQuoteDialogCancel.addEventListener('click', closeAdvisorQuoteDialog)
-    els.advisorQuoteDialogAmount.addEventListener('input', () => {
-      els.advisorQuoteDialogAmount.value = formatMoneyInput(els.advisorQuoteDialogAmount.value)
-    })
+    els.advisorQuoteDialogAmount.addEventListener('input', updateAdvisorQuoteAmountPreview)
     els.depositApprove.addEventListener('click', approveSelectedDeposit)
     els.depositReject.addEventListener('click', rejectSelectedDeposit)
     els.refresh.addEventListener('click', () => {
