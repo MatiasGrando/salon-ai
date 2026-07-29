@@ -5745,6 +5745,10 @@ const crmHtml = `<!doctype html>
       width: min(560px, 100%);
     }
 
+    #confirmation-dialog {
+      z-index: 30;
+    }
+
     .service-category-dialog-body {
       padding: 18px;
       display: grid;
@@ -5804,6 +5808,16 @@ const crmHtml = `<!doctype html>
       background: #eef2f7;
       color: #526079;
       cursor: pointer;
+    }
+
+    @media (max-width: 620px) {
+      .service-category-editor {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .service-category-editor .field {
+        grid-column: 1 / -1;
+      }
     }
 
     .service-card-category {
@@ -14514,10 +14528,15 @@ const crmHtml = `<!doctype html>
       serviceDepositHoldMinutes: document.getElementById('service-deposit-hold-minutes'),
       serviceParentGroup: document.getElementById('service-parent-group'),
       serviceParent: document.getElementById('service-parent'),
+      serviceCategoryOpen: document.getElementById('service-category-open'),
+      serviceCategoryDialog: document.getElementById('service-category-dialog'),
+      serviceCategoryDialogTitle: document.getElementById('service-category-dialog-title'),
+      serviceCategoryClose: document.getElementById('service-category-close'),
       serviceCategoryId: document.getElementById('service-category-id'),
       serviceCategoryName: document.getElementById('service-category-name'),
       serviceCategorySave: document.getElementById('service-category-save'),
       serviceCategoryCancel: document.getElementById('service-category-cancel'),
+      serviceCategoryFeedback: document.getElementById('service-category-feedback'),
       serviceCategoryList: document.getElementById('service-category-list'),
       serviceAliases: document.getElementById('service-aliases'),
       serviceImage: document.getElementById('service-image'),
@@ -16803,8 +16822,10 @@ const crmHtml = `<!doctype html>
         state.serviceCategories
           .filter((category) => category.isActive !== false)
           .map((category) => '<option value="' + escapeHtml(category.id) + '">' + escapeHtml(category.name) + '</option>')
-          .join('')
+          .join('') +
+        '<option value="__ADD_CATEGORY__">Agregar nueva categor&iacute;a</option>'
       els.serviceCategory.value = selectedCategory
+      els.serviceCategory.dataset.lastValue = selectedCategory
 
       const currentServiceId = els.serviceId.value
       els.serviceParent.innerHTML = '<option value="">Seleccionar grupo</option>' +
@@ -23262,19 +23283,20 @@ const crmHtml = `<!doctype html>
 
     async function saveServiceCategory() {
       if (!state.businessId) {
-        els.serviceFeedback.textContent = 'No encontre un negocio cargado.'
+        els.serviceCategoryFeedback.textContent = 'No encontré un negocio cargado.'
         return
       }
       const id = els.serviceCategoryId.value
       const name = els.serviceCategoryName.value.trim()
       if (!name) {
-        els.serviceFeedback.textContent = 'Escribi el nombre de la categoria.'
+        els.serviceCategoryFeedback.textContent = 'Escribí el nombre de la categoría.'
+        els.serviceCategoryName.focus()
         return
       }
 
       if (!setButtonLoading(els.serviceCategorySave, true, id ? 'Guardando...' : 'Agregando...')) return
       try {
-        await getJson(id ? '/service-categories/' + id : '/service-categories', {
+        const category = await getJson(id ? '/service-categories/' + id : '/service-categories', {
           method: id ? 'PATCH' : 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -23282,14 +23304,37 @@ const crmHtml = `<!doctype html>
             name
           })
         })
-        resetServiceCategoryForm()
+        const shouldSelectCreatedCategory =
+          !id &&
+          els.serviceCategoryDialog.dataset.selectCreated === 'true' &&
+          category?.id
         await reloadServiceCatalog()
-        els.serviceFeedback.textContent = id ? 'Categoria actualizada.' : 'Categoria creada.'
+        if (shouldSelectCreatedCategory) {
+          els.serviceCategory.value = category.id
+          els.serviceCategory.dataset.lastValue = category.id
+        }
+        closeServiceCategoryDialog()
+        els.serviceFeedback.textContent = id ? 'Categoría actualizada.' : 'Categoría creada.'
       } catch (error) {
-        els.serviceFeedback.textContent = error.message
+        els.serviceCategoryFeedback.textContent = error.message
       } finally {
         setButtonLoading(els.serviceCategorySave, false)
       }
+    }
+
+    function openServiceCategoryDialog({ selectCreated = false } = {}) {
+      resetServiceCategoryForm()
+      els.serviceCategoryFeedback.textContent = ''
+      els.serviceCategoryDialog.dataset.selectCreated = selectCreated ? 'true' : 'false'
+      els.serviceCategoryDialog.hidden = false
+      requestAnimationFrame(() => els.serviceCategoryName.focus())
+    }
+
+    function closeServiceCategoryDialog() {
+      els.serviceCategoryDialog.hidden = true
+      els.serviceCategoryDialog.dataset.selectCreated = 'false'
+      resetServiceCategoryForm()
+      els.serviceCategoryFeedback.textContent = ''
     }
 
     function editServiceCategory(id) {
@@ -23299,6 +23344,8 @@ const crmHtml = `<!doctype html>
       els.serviceCategoryName.value = category.name
       els.serviceCategorySave.textContent = 'Guardar'
       els.serviceCategoryCancel.hidden = false
+      els.serviceCategoryDialogTitle.textContent = 'Editar categoría'
+      els.serviceCategoryFeedback.textContent = ''
       els.serviceCategoryName.focus()
     }
 
@@ -23314,9 +23361,9 @@ const crmHtml = `<!doctype html>
         await getJson('/service-categories/' + id, { method: 'DELETE' })
         resetServiceCategoryForm()
         await reloadServiceCatalog()
-        els.serviceFeedback.textContent = 'Categoria eliminada.'
+        els.serviceCategoryFeedback.textContent = 'Categoría eliminada.'
       } catch (error) {
-        els.serviceFeedback.textContent = error.message
+        els.serviceCategoryFeedback.textContent = error.message
       }
     }
 
@@ -23325,6 +23372,7 @@ const crmHtml = `<!doctype html>
       els.serviceCategoryName.value = ''
       els.serviceCategorySave.textContent = 'Agregar'
       els.serviceCategoryCancel.hidden = true
+      els.serviceCategoryDialogTitle.textContent = 'Agregar categoría'
     }
 
     async function reloadServiceCatalog() {
@@ -23873,12 +23921,25 @@ const crmHtml = `<!doctype html>
     els.serviceDepositMode.addEventListener('change', updateServiceDepositFields)
     els.serviceEstimateAllowsBooking.addEventListener('change', updateServiceDepositFields)
     els.serviceEstimateAddOption.addEventListener('click', () => addServiceEstimateOption())
+    els.serviceCategoryOpen.addEventListener('click', () => openServiceCategoryDialog())
+    els.serviceCategoryClose.addEventListener('click', closeServiceCategoryDialog)
     els.serviceCategorySave.addEventListener('click', saveServiceCategory)
     els.serviceCategoryCancel.addEventListener('click', resetServiceCategoryForm)
     els.serviceCategoryName.addEventListener('keydown', (event) => {
       if (event.key !== 'Enter') return
       event.preventDefault()
       saveServiceCategory()
+    })
+    els.serviceCategory.addEventListener('change', () => {
+      if (els.serviceCategory.value === '__ADD_CATEGORY__') {
+        els.serviceCategory.value = els.serviceCategory.dataset.lastValue || ''
+        openServiceCategoryDialog({ selectCreated: true })
+        return
+      }
+      els.serviceCategory.dataset.lastValue = els.serviceCategory.value
+    })
+    els.serviceCategoryDialog.addEventListener('click', (event) => {
+      if (event.target === els.serviceCategoryDialog) closeServiceCategoryDialog()
     })
     els.serviceParent.addEventListener('change', () => {
       const parent = state.services.find((service) => service.id === els.serviceParent.value)
@@ -23890,9 +23951,9 @@ const crmHtml = `<!doctype html>
       if (event.target === els.confirmationDialog) closeCrmConfirmation(false)
     })
     document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape' && !els.confirmationDialog.hidden) {
-        closeCrmConfirmation(false)
-      }
+      if (event.key !== 'Escape') return
+      if (!els.confirmationDialog.hidden) closeCrmConfirmation(false)
+      else if (!els.serviceCategoryDialog.hidden) closeServiceCategoryDialog()
     })
     els.serviceImage.addEventListener('change', readServiceImage)
     els.serviceImageRemove.addEventListener('click', () => setServiceImage(null))
