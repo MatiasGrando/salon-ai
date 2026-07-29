@@ -12299,7 +12299,7 @@ const crmHtml = `<!doctype html>
                 <label for="service-name">Nombre</label>
                 <input class="field" id="service-name" placeholder="Ej: Corte Hombre">
               </div>
-              <div class="service-form-group">
+              <div class="service-form-group" hidden>
                 <label for="service-item-type">Tipo de elemento</label>
                 <select id="service-item-type">
                   <option value="SERVICE">Servicio</option>
@@ -23265,7 +23265,7 @@ const crmHtml = `<!doctype html>
 
       const id = els.serviceId.value
       const name = els.serviceName.value.trim()
-      const itemType = els.serviceItemType.value
+      const itemType = id ? els.serviceItemType.value : 'SERVICE'
       const isGroup = itemType === 'GROUP'
       const isVariant = itemType === 'VARIANT'
       const duration = isGroup ? 1 : Number(els.serviceDuration.value)
