@@ -5,6 +5,10 @@ import { buildBookingV2MessagePlan, type BookingV2MessagePlan } from './booking-
 import { renderBookingV2Response } from './booking-v2-response-renderer.js'
 import { applyBookingV2Extraction, type BookingV2Interpretation } from './booking-v2-interpreter.js'
 import {
+  BookingV2ServiceValidationClassifier,
+  type ServiceValidationClassification
+} from './booking-v2-service-validation.js'
+import {
   ANY_PROFESSIONAL_ID,
   acceptField,
   clearFieldAndDependents,
@@ -26,6 +30,14 @@ type BookingV2DomainPort = Pick<
 >
 
 type BookingV2ExtractorPort = Pick<BookingV2Extractor, 'extract'>
+type BookingV2ServiceValidationPort = {
+  classify(input: {
+    message: string
+    serviceName: string
+    validationMessage: string
+    validationQuestion: string
+  }): Promise<ServiceValidationClassification>
+}
 
 export type BookingV2ProcessInput = {
   businessId: string
@@ -47,13 +59,88 @@ export type BookingV2ProcessResult = {
 export class BookingV2Engine {
   constructor(
     private readonly domain: BookingV2DomainPort = new BookingV2DomainService(),
-    private readonly extractor: BookingV2ExtractorPort = new BookingV2Extractor()
+    private readonly extractor: BookingV2ExtractorPort = new BookingV2Extractor(),
+    private readonly serviceValidationClassifier: BookingV2ServiceValidationPort =
+      new BookingV2ServiceValidationClassifier()
   ) {}
 
   async process(input: BookingV2ProcessInput): Promise<BookingV2ProcessResult> {
     const storedState = stateFromConversation(input.conversation)
     const catalog = await this.domain.loadCatalog(input.businessId)
     const initialState = sanitizeCatalogNameCollision(storedState, catalog)
+
+    if (initialState.serviceValidation?.stage === 'awaiting_confirmation') {
+      const service = catalog.services.find((option) =>
+        option.id === initialState.serviceValidation?.serviceId &&
+        option.validationEnabled
+      )
+      if (service) {
+        const alternative = resolveCatalogServiceSelection(input.message, catalog)
+        if (
+          alternative?.kind === 'selected' &&
+          alternative.serviceId !== service.id
+        ) {
+          const state = acceptField(initialState, 'service', alternative.serviceId)
+          return this.fromInterpretation({
+            state,
+            nextField: nextMissingField(state.draft),
+            outcome: 'accepted',
+            affectedField: 'service'
+          }, null, catalog)
+        }
+
+        const classification = await this.serviceValidationClassifier.classify({
+          message: input.message,
+          serviceName: service.name,
+          validationMessage: service.validationMessage?.trim() ?? '',
+          validationQuestion: service.validationQuestion?.trim() ?? ''
+        })
+        if (classification.confidence >= 0.7 && classification.decision === 'confirm') {
+          const state: BookingV2State = {
+            ...initialState,
+            serviceValidation: {
+              serviceId: service.id,
+              stage: 'completed'
+            },
+            misunderstandingCount: 0
+          }
+          return this.fromInterpretation({
+            state,
+            nextField: nextMissingField(state.draft),
+            outcome: 'accepted',
+            affectedField: 'service'
+          }, null, catalog)
+        }
+        if (classification.confidence >= 0.7 && classification.decision === 'reject') {
+          const state: BookingV2State = {
+            ...initialState,
+            draft: clearFieldAndDependents(initialState.draft, 'service'),
+            pendingProposal: null,
+            serviceValidation: null,
+            guidedEstimate: null,
+            advisorQuote: null,
+            pendingDeposit: null,
+            misunderstandingCount: 0
+          }
+          return this.fromInterpretation({
+            state,
+            nextField: 'service',
+            outcome: 'no_change',
+            affectedField: 'service'
+          }, null, catalog)
+        }
+        if (classification.confidence >= 0.7 && classification.decision === 'uncertain') {
+          return this.guidedEstimateResult(initialState, {
+            type: 'handoff',
+            reason: 'service_validation_uncertain'
+          }, catalog, 'accepted')
+        }
+        return this.guidedEstimateResult(initialState, {
+          type: 'ask_service_validation',
+          reason: 'not_understood'
+        }, catalog, 'no_change')
+      }
+    }
 
     if (initialState.guidedEstimate) {
       const service = catalog.services.find((option) =>
@@ -281,6 +368,18 @@ export class BookingV2Engine {
       stateFromConversation(input.conversation),
       catalog
     )
+    const validationService = state.serviceValidation
+      ? catalog.services.find((service) =>
+          service.id === state.serviceValidation?.serviceId &&
+          service.validationEnabled
+        )
+      : null
+    if (validationService && state.serviceValidation?.stage === 'awaiting_confirmation') {
+      return this.guidedEstimateResult(state, {
+        type: 'ask_service_validation',
+        reason: 'missing'
+      }, catalog, 'no_change')
+    }
     const guidedService = state.guidedEstimate
       ? catalog.services.find((service) =>
           service.id === state.guidedEstimate?.serviceId &&
@@ -344,7 +443,28 @@ export class BookingV2Engine {
       effectiveInterpretation.state.advisorQuote?.serviceId === selectedService.id &&
       effectiveInterpretation.state.advisorQuote.status === 'accepted'
     )
-    if (selectedService?.attentionMode === 'GUIDED_ESTIMATE') {
+    if (
+      selectedService?.validationEnabled &&
+      (
+        effectiveInterpretation.state.serviceValidation?.serviceId !== selectedService.id ||
+        effectiveInterpretation.state.serviceValidation.stage !== 'completed'
+      )
+    ) {
+      effectiveInterpretation = {
+        ...effectiveInterpretation,
+        state: {
+          ...effectiveInterpretation.state,
+          serviceValidation: {
+            serviceId: selectedService.id,
+            stage: 'awaiting_confirmation'
+          }
+        }
+      }
+      plan = {
+        type: 'ask_service_validation',
+        reason: 'missing'
+      }
+    } else if (selectedService?.attentionMode === 'GUIDED_ESTIMATE') {
       if (
         effectiveInterpretation.state.guidedEstimate?.serviceId !== selectedService.id ||
         effectiveInterpretation.state.guidedEstimate.stage !== 'completed'
@@ -712,6 +832,13 @@ function resolveExpectedService(
   catalog: BookingV2DomainCatalog
 ) {
   if (nextMissingField(state.draft) !== 'service') return null
+  return resolveCatalogServiceSelection(message, catalog)
+}
+
+function resolveCatalogServiceSelection(
+  message: string,
+  catalog: BookingV2DomainCatalog
+) {
   const signature = selectionSignature(message)
   if (!signature) return null
 

@@ -274,7 +274,7 @@ export class BotCopyService {
   }
 
   humanHandoffAlreadyQueued() {
-    return 'Tranqui 😊 Ya quedó avisado el equipo. Te van a responder por este mismo chat.'
+    return 'Tranqui 😊 Ya quedó avisado el equipo. La respuesta puede demorar unos minutos, pero te van a responder por este mismo chat.'
   }
 
   selectedServiceRejected(input: {
@@ -399,7 +399,8 @@ export class BotCopyService {
   lateArrivalHandoffQueued() {
     return [
       'Gracias por avisar. Te esperamos.',
-      'Si la demora supera los 15 minutos, puede que tengamos que reacomodar el turno segun disponibilidad.'
+      'Si la demora supera los 15 minutos, puede que tengamos que reacomodar el turno según disponibilidad.',
+      'Ya le avisé al equipo. La respuesta puede demorar unos minutos, pero van a continuar con vos por acá.'
     ].join('\n')
   }
 

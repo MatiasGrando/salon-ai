@@ -678,6 +678,314 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'servicio configurable explica y valida antes de pedir profesional',
+    run: async () => {
+      const validationCatalog = createBookingV2DomainCatalog({
+        services: [{
+          id: 'full-color',
+          name: 'Color completo',
+          aliases: ['color'],
+          duration: 90,
+          price: 65000,
+          category: 'Coloración',
+          validationEnabled: true,
+          validationMessage: 'Trabaja todo el cabello y permite lograr un color uniforme.',
+          validationQuestion: '¿Seguimos con Color completo?'
+        }],
+        professionals: [{
+          id: 'professional-1',
+          name: 'Tamara',
+          serviceIds: ['full-color']
+        }]
+      })
+      const engine = new BookingV2Engine(
+        fakeDomainPort({ catalog: validationCatalog }),
+        fakeExtractor(null)
+      )
+
+      const selected = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Mati',
+          selectedServiceId: null,
+          selectedProfessionalId: null,
+          selectedDate: null,
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: 'color completo'
+      })
+
+      assert.deepEqual(selected.plan, {
+        type: 'ask_service_validation',
+        reason: 'missing'
+      })
+      assert.equal(selected.reply.includes('Trabaja todo el cabello'), true)
+      assert.equal(selected.reply.includes('¿Seguimos con Color completo?'), true)
+      assert.equal(selected.state.serviceValidation?.stage, 'awaiting_confirmation')
+
+      const confirmed = await engine.process({
+        businessId: 'business-1',
+        conversation: selected.conversationPatch,
+        message: 'dale, mandale'
+      })
+      assert.equal(confirmed.state.serviceValidation?.stage, 'completed')
+      assert.equal(confirmed.plan.type, 'ask_field')
+      assert.equal(confirmed.plan.type === 'ask_field' ? confirmed.plan.field : null, 'professional')
+      assert.equal(confirmed.reply.includes('Tamara'), true)
+    }
+  },
+  {
+    name: 'rechazar validacion vuelve a elegir servicio sin perder el nombre',
+    run: async () => {
+      const validationCatalog = createBookingV2DomainCatalog({
+        services: [{
+          id: 'full-color',
+          name: 'Color completo',
+          aliases: ['color'],
+          duration: 90,
+          price: 65000,
+          category: 'Coloración',
+          validationEnabled: true,
+          validationMessage: 'Trabaja todo el cabello.',
+          validationQuestion: '¿Seguimos?'
+        }, {
+          id: 'roots',
+          name: 'Raíces',
+          aliases: ['raices'],
+          duration: 60,
+          price: 40000,
+          category: 'Coloración'
+        }],
+        professionals: []
+      })
+      const engine = new BookingV2Engine(
+        fakeDomainPort({ catalog: validationCatalog }),
+        fakeExtractor(null)
+      )
+      const state = {
+        ...createEmptyBookingV2State(),
+        draft: {
+          name: 'Mati',
+          service: 'full-color',
+          professional: null,
+          date: null,
+          time: null
+        },
+        serviceValidation: {
+          serviceId: 'full-color',
+          stage: 'awaiting_confirmation' as const
+        }
+      }
+      const rejected = await engine.process({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(state),
+        message: 'no, quiero elegir otro'
+      })
+
+      assert.equal(rejected.state.draft.name, 'Mati')
+      assert.equal(rejected.state.draft.service, null)
+      assert.equal(rejected.state.serviceValidation, null)
+      assert.equal(rejected.plan.type, 'ask_field')
+      assert.equal(rejected.plan.type === 'ask_field' ? rejected.plan.field : null, 'service')
+    }
+  },
+  {
+    name: 'durante validacion puede cambiar directamente a otro servicio',
+    run: async () => {
+      const validationCatalog = createBookingV2DomainCatalog({
+        services: [{
+          id: 'full-color',
+          name: 'Color completo',
+          aliases: ['color'],
+          duration: 90,
+          price: 65000,
+          category: 'Coloración',
+          validationEnabled: true,
+          validationMessage: 'Trabaja todo el cabello.'
+        }, {
+          id: 'roots',
+          name: 'Raíces',
+          aliases: ['raices'],
+          duration: 60,
+          price: 40000,
+          category: 'Coloración'
+        }],
+        professionals: [{
+          id: 'professional-1',
+          name: 'Tamara',
+          serviceIds: ['roots']
+        }]
+      })
+      const engine = new BookingV2Engine(
+        fakeDomainPort({ catalog: validationCatalog }),
+        fakeExtractor(null)
+      )
+      const state = {
+        ...createEmptyBookingV2State(),
+        draft: {
+          name: 'Mati',
+          service: 'full-color',
+          professional: null,
+          date: null,
+          time: null
+        },
+        serviceValidation: {
+          serviceId: 'full-color',
+          stage: 'awaiting_confirmation' as const
+        }
+      }
+      const changed = await engine.process({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(state),
+        message: 'mejor raíces'
+      })
+
+      assert.equal(changed.state.draft.service, 'roots')
+      assert.equal(changed.state.serviceValidation, null)
+      assert.equal(changed.plan.type, 'ask_field')
+      assert.equal(changed.plan.type === 'ask_field' ? changed.plan.field : null, 'professional')
+    }
+  },
+  {
+    name: 'duda en validacion avisa la derivacion y la posible demora',
+    run: async () => {
+      const validationCatalog = createBookingV2DomainCatalog({
+        services: [{
+          id: 'full-color',
+          name: 'Color completo',
+          aliases: ['color'],
+          duration: 90,
+          price: 65000,
+          category: 'Coloración',
+          validationEnabled: true,
+          validationMessage: 'Trabaja todo el cabello.'
+        }],
+        professionals: []
+      })
+      const engine = new BookingV2Engine(
+        fakeDomainPort({ catalog: validationCatalog }),
+        fakeExtractor(null)
+      )
+      const state = {
+        ...createEmptyBookingV2State(),
+        draft: {
+          name: 'Mati',
+          service: 'full-color',
+          professional: null,
+          date: null,
+          time: null
+        },
+        serviceValidation: {
+          serviceId: 'full-color',
+          stage: 'awaiting_confirmation' as const
+        }
+      }
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(state),
+        message: 'no sé cuál necesito'
+      })
+
+      assert.deepEqual(result.plan, {
+        type: 'handoff',
+        reason: 'service_validation_uncertain'
+      })
+      assert.equal(result.reply.includes('te derivo'), true)
+      assert.equal(result.reply.includes('demorar unos minutos'), true)
+      assert.equal(result.reply.includes('continuar con vos por acá'), true)
+    }
+  },
+  {
+    name: 'validacion pendiente se conserva al retomar la conversacion',
+    run: async () => {
+      const validationCatalog = createBookingV2DomainCatalog({
+        services: [{
+          id: 'full-color',
+          name: 'Color completo',
+          aliases: ['color'],
+          duration: 90,
+          price: 65000,
+          category: 'Coloración',
+          validationEnabled: true,
+          validationMessage: 'Trabaja todo el cabello.'
+        }],
+        professionals: []
+      })
+      const engine = new BookingV2Engine(
+        fakeDomainPort({ catalog: validationCatalog }),
+        fakeExtractor(null)
+      )
+      const state = {
+        ...createEmptyBookingV2State(),
+        draft: {
+          name: 'Mati',
+          service: 'full-color',
+          professional: null,
+          date: null,
+          time: null
+        },
+        serviceValidation: {
+          serviceId: 'full-color',
+          stage: 'awaiting_confirmation' as const
+        }
+      }
+
+      const resumed = await engine.resume({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(state)
+      })
+
+      assert.deepEqual(resumed.plan, {
+        type: 'ask_service_validation',
+        reason: 'missing'
+      })
+      assert.equal(resumed.state.draft.name, 'Mati')
+      assert.equal(resumed.state.draft.service, 'full-color')
+    }
+  },
+  {
+    name: 'todas las derivaciones del motor avisan que pueden demorar',
+    run: () => {
+      const handoffCatalog = createBookingV2DomainCatalog({
+        services: [{
+          id: 'color',
+          name: 'Color',
+          aliases: [],
+          duration: 90,
+          price: null,
+          category: null
+        }],
+        professionals: []
+      })
+      const reasons = [
+        'repeated_misunderstanding',
+        'no_compatible_professional',
+        'quote_required',
+        'advisor_required',
+        'photo_required',
+        'estimate_quote_requested',
+        'service_validation_uncertain'
+      ] as const
+
+      for (const reason of reasons) {
+        const reply = renderBookingV2Response({
+          plan: { type: 'handoff', reason },
+          draft: {
+            name: 'Mati',
+            service: 'color',
+            professional: null,
+            date: null,
+            time: null
+          },
+          catalog: handoffCatalog
+        })
+        assert.equal(reply.includes('demorar unos minutos'), true, reason)
+      }
+    }
+  },
+  {
     name: 'servicio con presupuesto deriva sin pedir profesional ni horario',
     run: async () => {
       const catalog = createBookingV2DomainCatalog({

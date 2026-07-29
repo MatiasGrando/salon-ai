@@ -78,7 +78,7 @@ export function renderBookingV2DepositRequest(input: {
     ? `\n\nEl horario queda reservado hasta las ${formatTime(input.expiresAt)}.`
     : ''
 
-  return `Para finalizar la reserva de ${input.serviceName}, necesitamos una seña de ${formattedAmount}.${calculationDetail}\n\n${paymentInstructions}${expiration}\n\nEnviá el comprobante de pago por acá. Después el equipo lo revisará y te confirmará el turno.`
+  return `Para finalizar la reserva de ${input.serviceName}, necesitamos una seña de ${formattedAmount}.${calculationDetail}\n\n${paymentInstructions}${expiration}\n\nEnviá el comprobante de pago por acá. Después el equipo lo revisará y te confirmará el turno. La respuesta puede demorar unos minutos, pero van a continuar con vos por acá.`
 }
 
 export function renderBookingV2PaymentInstructions(

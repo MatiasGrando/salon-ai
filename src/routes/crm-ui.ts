@@ -5637,6 +5637,7 @@ const crmHtml = `<!doctype html>
     }
 
     .service-estimate-editor,
+    .service-validation-editor,
     .service-deposit-editor {
       display: grid;
       gap: 12px;
@@ -5645,11 +5646,13 @@ const crmHtml = `<!doctype html>
     }
 
     .service-estimate-editor[hidden],
+    .service-validation-editor[hidden],
     .service-deposit-editor[hidden] {
       display: none !important;
     }
 
-    .service-estimate-editor textarea {
+    .service-estimate-editor textarea,
+    .service-validation-editor textarea {
       min-height: 72px;
       padding: 10px 12px;
       border: 1px solid #dfe6f1;
@@ -12433,6 +12436,22 @@ const crmHtml = `<!doctype html>
                   </label>
                 </div>
                 <label class="service-photo-option">
+                  <input id="service-validation-enabled" type="checkbox">
+                  <span>Validar que el cliente eligi&oacute; el servicio correcto</span>
+                </label>
+                <div class="service-validation-editor" id="service-validation-editor" hidden>
+                  <div class="service-form-group">
+                    <label for="service-validation-message">Explicaci&oacute;n para el cliente</label>
+                    <textarea id="service-validation-message" placeholder="El color completo trabaja todo el cabello y permite lograr un color uniforme o realizar colores fantas&iacute;a. Ra&iacute;ces trabaja &uacute;nicamente el crecimiento."></textarea>
+                    <div class="service-form-help">Explic&aacute; qu&eacute; incluye y en qu&eacute; se diferencia de los servicios que suelen confundirse.</div>
+                  </div>
+                  <div class="service-form-group">
+                    <label for="service-validation-question">Pregunta de confirmaci&oacute;n</label>
+                    <input class="field" id="service-validation-question" placeholder="&iquest;Seguimos con Color completo?">
+                  </div>
+                  <div class="service-form-help">Si confirma, el bot contin&uacute;a la reserva. Si rechaza, vuelve a los servicios. Si tiene dudas, avisa que lo derivar&aacute; al equipo y que la respuesta puede demorar unos minutos.</div>
+                </div>
+                <label class="service-photo-option">
                   <input id="service-deposit-enabled" type="checkbox">
                   <span>Solicitar se&ntilde;a para confirmar la reserva</span>
                 </label>
@@ -14519,6 +14538,10 @@ const crmHtml = `<!doctype html>
       serviceEstimateAddOption: document.getElementById('service-estimate-add-option'),
       serviceEstimateDisclaimer: document.getElementById('service-estimate-disclaimer'),
       serviceEstimateAllowsBooking: document.getElementById('service-estimate-allows-booking'),
+      serviceValidationEnabled: document.getElementById('service-validation-enabled'),
+      serviceValidationEditor: document.getElementById('service-validation-editor'),
+      serviceValidationMessage: document.getElementById('service-validation-message'),
+      serviceValidationQuestion: document.getElementById('service-validation-question'),
       serviceDepositEnabled: document.getElementById('service-deposit-enabled'),
       serviceDepositEditor: document.getElementById('service-deposit-editor'),
       serviceDepositMode: document.getElementById('service-deposit-mode'),
@@ -16880,6 +16903,7 @@ const crmHtml = `<!doctype html>
       els.servicePriceMode.disabled = isGroup
       els.serviceAttentionMode.disabled = isGroup
       els.serviceRequiresPhoto.disabled = isGroup
+      els.serviceValidationEnabled.disabled = isGroup
       els.serviceDepositEnabled.disabled = isGroup
       els.serviceParentGroup.hidden = !isVariant
 
@@ -16895,6 +16919,17 @@ const crmHtml = `<!doctype html>
       updateServiceAttentionHelp()
       updateServicePriceModeHelp()
       updateServiceDepositFields()
+      updateServiceValidationFields()
+    }
+
+    function updateServiceValidationFields() {
+      const enabled = els.serviceItemType.value !== 'GROUP' &&
+        els.serviceValidationEnabled.checked
+      if (els.serviceItemType.value === 'GROUP') {
+        els.serviceValidationEnabled.checked = false
+      }
+      els.serviceValidationEditor.hidden = !enabled
+      els.serviceValidationEditor.style.display = enabled ? '' : 'none'
     }
 
     function updateServiceAttentionHelp() {
@@ -17050,6 +17085,7 @@ const crmHtml = `<!doctype html>
               : '<span>' + icon('clock') + escapeHtml(service.duration + ' min') + '</span>' +
                 '<span>' + icon('tag') + escapeHtml(priceLabel) + '</span>' +
                 '<span>' + escapeHtml(attentionLabel) + '</span>' +
+                (service.validationEnabled ? '<span>Validaci\u00f3n previa</span>' : '') +
                 (depositLabel ? '<span>' + escapeHtml(depositLabel) + '</span>' : '') +
                 (serviceCanContinueToBooking(service)
                   ? professionalCount > 0
@@ -23432,6 +23468,13 @@ const crmHtml = `<!doctype html>
       const estimateQuestion = isGuidedEstimate
         ? els.serviceEstimateQuestion.value.trim()
         : ''
+      const validationEnabled = !isGroup && els.serviceValidationEnabled.checked
+      const validationMessage = validationEnabled
+        ? els.serviceValidationMessage.value.trim()
+        : ''
+      const validationQuestion = validationEnabled
+        ? els.serviceValidationQuestion.value.trim()
+        : ''
       const depositMode = isGroup || !els.serviceDepositEnabled.checked
         ? 'NONE'
         : els.serviceDepositMode.value
@@ -23478,6 +23521,10 @@ const crmHtml = `<!doctype html>
         )
       ) {
         els.serviceFeedback.textContent = 'Complet\u00e1 la pregunta y revis\u00e1 los rangos del estimativo.'
+        return
+      }
+      if (validationEnabled && !validationMessage) {
+        els.serviceFeedback.textContent = 'Completá la explicación para validar el servicio.'
         return
       }
       if (
@@ -23532,6 +23579,9 @@ const crmHtml = `<!doctype html>
             estimateAllowsBooking: isGuidedEstimate
               ? els.serviceEstimateAllowsBooking.checked
               : true,
+            validationEnabled,
+            validationMessage: validationMessage || null,
+            validationQuestion: validationQuestion || null,
             depositMode,
             depositValue,
             depositHoldMinutes,
@@ -23568,6 +23618,9 @@ const crmHtml = `<!doctype html>
       els.serviceEstimateQuestion.value = service.estimateQuestion || ''
       els.serviceEstimateDisclaimer.value = service.estimateDisclaimer || ''
       els.serviceEstimateAllowsBooking.checked = service.estimateAllowsBooking !== false
+      els.serviceValidationEnabled.checked = service.validationEnabled === true
+      els.serviceValidationMessage.value = service.validationMessage || ''
+      els.serviceValidationQuestion.value = service.validationQuestion || ''
       els.serviceDepositEnabled.checked = service.depositMode === 'FIXED' || service.depositMode === 'PERCENTAGE'
       els.serviceDepositMode.value = service.depositMode === 'PERCENTAGE' ? 'PERCENTAGE' : 'FIXED'
       els.serviceDepositValue.value = service.depositValue ?? ''
@@ -23577,6 +23630,7 @@ const crmHtml = `<!doctype html>
         : []
       renderServiceEstimateOptions()
       updateServiceDepositFields()
+      updateServiceValidationFields()
       els.serviceAliases.value = (service.aliases || []).map((alias) => alias.name).join(', ')
       updateServiceTypeFields()
       setServiceImage(service.imageUrl || null)
@@ -23622,6 +23676,9 @@ const crmHtml = `<!doctype html>
       els.serviceEstimateQuestion.value = ''
       els.serviceEstimateDisclaimer.value = ''
       els.serviceEstimateAllowsBooking.checked = true
+      els.serviceValidationEnabled.checked = false
+      els.serviceValidationMessage.value = ''
+      els.serviceValidationQuestion.value = ''
       els.serviceDepositEnabled.checked = false
       els.serviceDepositMode.value = 'FIXED'
       els.serviceDepositValue.value = ''
@@ -23629,6 +23686,7 @@ const crmHtml = `<!doctype html>
       state.serviceEstimateOptions = []
       renderServiceEstimateOptions()
       updateServiceDepositFields()
+      updateServiceValidationFields()
       els.serviceAliases.value = ''
       setServiceImage(null)
       els.serviceCancel.hidden = true
@@ -23933,6 +23991,7 @@ const crmHtml = `<!doctype html>
     els.serviceDepositEnabled.addEventListener('change', updateServiceDepositFields)
     els.serviceDepositMode.addEventListener('change', updateServiceDepositFields)
     els.serviceEstimateAllowsBooking.addEventListener('change', updateServiceDepositFields)
+    els.serviceValidationEnabled.addEventListener('change', updateServiceValidationFields)
     els.serviceEstimateAddOption.addEventListener('click', () => addServiceEstimateOption())
     els.serviceCategoryOpen.addEventListener('click', () => openServiceCategoryDialog())
     els.serviceCategoryClose.addEventListener('click', closeServiceCategoryDialog)

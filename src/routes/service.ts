@@ -149,6 +149,9 @@ export async function serviceRoutes(app: FastifyInstance) {
       estimateOptions?: unknown
       estimateDisclaimer?: string | null
       estimateAllowsBooking?: boolean
+      validationEnabled?: boolean
+      validationMessage?: string | null
+      validationQuestion?: string | null
       depositMode?: string
       depositValue?: number | string | null
       depositHoldMinutes?: number | string
@@ -171,6 +174,9 @@ export async function serviceRoutes(app: FastifyInstance) {
     const attentionMode = normalizeServiceAttentionMode(body.attentionMode)
     const requiresPhoto = Boolean(body.requiresPhoto)
     const estimateOptions = normalizeEstimateOptions(body.estimateOptions)
+    const validationEnabled = Boolean(body.validationEnabled)
+    const validationMessage = normalizeOptionalText(body.validationMessage)
+    const validationQuestion = normalizeOptionalText(body.validationQuestion)
     const depositMode = normalizeServiceDepositMode(body.depositMode)
     const depositValue = normalizeNullableNumber(body.depositValue)
     const depositHoldMinutes = normalizeDepositHoldMinutes(body.depositHoldMinutes)
@@ -245,6 +251,11 @@ export async function serviceRoutes(app: FastifyInstance) {
         message: 'El estimativo necesita una pregunta y al menos una opcion'
       })
     }
+    if (validationEnabled && !validationMessage) {
+      return reply.status(400).send({
+        message: 'La validacion necesita una explicacion para el cliente'
+      })
+    }
     if (body.depositMode !== undefined && !depositMode) {
       return reply.status(400).send({
         message: 'Selecciona una modalidad de seña valida'
@@ -307,6 +318,9 @@ export async function serviceRoutes(app: FastifyInstance) {
       estimateOptions: isBookable && estimateOptions?.length ? estimateOptions : undefined,
       estimateDisclaimer: isBookable ? normalizeOptionalText(body.estimateDisclaimer) : null,
       estimateAllowsBooking: isBookable ? body.estimateAllowsBooking !== false : true,
+      validationEnabled: isBookable ? validationEnabled : false,
+      validationMessage: isBookable && validationEnabled ? validationMessage : null,
+      validationQuestion: isBookable && validationEnabled ? validationQuestion : null,
       depositMode: isBookable ? depositMode ?? 'NONE' : 'NONE',
       depositValue: isBookable && depositMode !== 'NONE' ? depositValue : null,
       depositHoldMinutes: isBookable ? depositHoldMinutes ?? 60 : 60,
@@ -387,6 +401,9 @@ export async function serviceRoutes(app: FastifyInstance) {
       estimateOptions?: unknown
       estimateDisclaimer?: string | null
       estimateAllowsBooking?: boolean
+      validationEnabled?: boolean
+      validationMessage?: string | null
+      validationQuestion?: string | null
       depositMode?: string
       depositValue?: number | string | null
       depositHoldMinutes?: number | string
@@ -441,6 +458,9 @@ export async function serviceRoutes(app: FastifyInstance) {
         estimateOptions: true,
         estimateDisclaimer: true,
         estimateAllowsBooking: true,
+        validationEnabled: true,
+        validationMessage: true,
+        validationQuestion: true,
         depositMode: true,
         depositValue: true,
         depositHoldMinutes: true,
@@ -492,6 +512,15 @@ export async function serviceRoutes(app: FastifyInstance) {
     const estimateAllowsBooking = typeof body.estimateAllowsBooking === 'boolean'
       ? body.estimateAllowsBooking
       : existing.estimateAllowsBooking
+    const validationEnabled = typeof body.validationEnabled === 'boolean'
+      ? body.validationEnabled
+      : existing.validationEnabled
+    const validationMessage = body.validationMessage === undefined
+      ? existing.validationMessage
+      : normalizeOptionalText(body.validationMessage)
+    const validationQuestion = body.validationQuestion === undefined
+      ? existing.validationQuestion
+      : normalizeOptionalText(body.validationQuestion)
     const depositMode = body.depositMode === undefined
       ? existing.depositMode
       : normalizeServiceDepositMode(body.depositMode)
@@ -509,6 +538,11 @@ export async function serviceRoutes(app: FastifyInstance) {
     if (attentionMode === 'GUIDED_ESTIMATE' && (!estimateQuestion || !estimateOptions?.length)) {
       return reply.status(400).send({
         message: 'El estimativo necesita una pregunta y al menos una opcion'
+      })
+    }
+    if (isBookable && validationEnabled && !validationMessage) {
+      return reply.status(400).send({
+        message: 'La validacion necesita una explicacion para el cliente'
       })
     }
     if (!attentionMode) {
@@ -608,6 +642,9 @@ export async function serviceRoutes(app: FastifyInstance) {
           estimateAllowsBooking: isBookable
             ? estimateAllowsBooking
             : true,
+          validationEnabled: isBookable ? validationEnabled : false,
+          validationMessage: isBookable && validationEnabled ? validationMessage : null,
+          validationQuestion: isBookable && validationEnabled ? validationQuestion : null,
           depositMode: isBookable ? depositMode : 'NONE',
           depositValue: isBookable && depositMode !== 'NONE' ? depositValue : null,
           depositHoldMinutes: isBookable ? depositHoldMinutes : 60,

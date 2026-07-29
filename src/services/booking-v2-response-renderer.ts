@@ -15,32 +15,54 @@ export type BookingV2RenderInput = {
 export function renderBookingV2Response(input: BookingV2RenderInput): string {
   if (input.plan.type === 'handoff') {
     const service = input.catalog?.services.find((option) => option.id === input.draft.service)
+    const waitNotice = 'La respuesta puede demorar unos minutos, pero van a continuar con vos por acá.'
     if (input.plan.reason === 'photo_required') {
       return service
-        ? `Para evaluar ${service.name}, enviame una foto clara del estado actual y, si tenés, otra del resultado que buscás. El equipo la revisará y continuará con vos por acá.`
-        : 'Enviame una foto clara del estado actual y, si tenés, otra del resultado que buscás. El equipo la revisará y continuará con vos por acá.'
+        ? `Para evaluar ${service.name}, enviame una foto clara del estado actual y, si tenés, otra del resultado que buscás. Cuando la recibamos, te voy a derivar con una persona del equipo para que la revise. ${waitNotice}`
+        : `Enviame una foto clara del estado actual y, si tenés, otra del resultado que buscás. Cuando la recibamos, te voy a derivar con una persona del equipo para que la revise. ${waitNotice}`
     }
     if (input.plan.reason === 'quote_required') {
       return service
-        ? `${service.name} requiere un presupuesto personalizado. Te derivo con una persona del local para que pueda prepararlo.`
-        : 'Este servicio requiere un presupuesto personalizado. Te derivo con una persona del local para que pueda prepararlo.'
+        ? `${service.name} requiere un presupuesto personalizado. Te derivo con una persona del local para que pueda prepararlo. ${waitNotice}`
+        : `Este servicio requiere un presupuesto personalizado. Te derivo con una persona del local para que pueda prepararlo. ${waitNotice}`
     }
     if (input.plan.reason === 'advisor_required') {
       return service
-        ? `${service.name} requiere asesoramiento antes de coordinar. Te derivo con una persona del local para que pueda orientarte.`
-        : 'Este servicio requiere asesoramiento antes de coordinar. Te derivo con una persona del local para que pueda orientarte.'
+        ? `${service.name} requiere asesoramiento antes de coordinar. Te derivo con una persona del local para que pueda orientarte. ${waitNotice}`
+        : `Este servicio requiere asesoramiento antes de coordinar. Te derivo con una persona del local para que pueda orientarte. ${waitNotice}`
     }
     if (input.plan.reason === 'estimate_quote_requested') {
       return service
-        ? `Perfecto. Te derivo con una persona del local para preparar un presupuesto exacto de ${service.name}.`
-        : 'Perfecto. Te derivo con una persona del local para preparar un presupuesto exacto.'
+        ? `Perfecto. Te derivo con una persona del local para preparar un presupuesto exacto de ${service.name}. ${waitNotice}`
+        : `Perfecto. Te derivo con una persona del local para preparar un presupuesto exacto. ${waitNotice}`
+    }
+    if (input.plan.reason === 'service_validation_uncertain') {
+      return service
+        ? `Para asegurarnos de que ${service.name} sea la opción correcta, te derivo con una persona del equipo para que pueda orientarte. ${waitNotice}`
+        : `Para recomendarte el servicio correcto, te derivo con una persona del equipo. ${waitNotice}`
     }
     if (input.plan.reason === 'no_compatible_professional') {
       return service
-        ? `Por el momento no tengo profesionales habilitados para ${service.name}. Te derivo con una persona del local para revisarlo.`
-        : 'Por el momento no tengo profesionales disponibles. Te derivo con una persona del local.'
+        ? `Por el momento no tengo profesionales habilitados para ${service.name}. Te derivo con una persona del local para revisarlo. ${waitNotice}`
+        : `Por el momento no tengo profesionales disponibles. Te derivo con una persona del local. ${waitNotice}`
     }
-    return 'Te derivo con una persona para que pueda ayudarte mejor.'
+    return `Te derivo con una persona para que pueda ayudarte mejor. ${waitNotice}`
+  }
+
+  if (input.plan.type === 'ask_service_validation') {
+    const service = input.catalog?.services.find((option) => option.id === input.draft.service)
+    const message = service?.validationMessage?.trim() ||
+      `Elegiste ${service?.name ?? 'este servicio'}.`
+    const question = service?.validationQuestion?.trim() ||
+      `¿Seguimos con ${service?.name ?? 'este servicio'}?`
+    return [
+      ...(input.plan.reason === 'not_understood'
+        ? ['No pude confirmar si este servicio es el que necesitás.']
+        : []),
+      message,
+      question,
+      'Si no estás seguro/a, decime y te ayudo a elegir.'
+    ].join('\n\n')
   }
 
   if (input.plan.type === 'ask_estimate_option') {

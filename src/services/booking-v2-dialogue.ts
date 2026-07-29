@@ -40,6 +40,10 @@ export type BookingV2MessagePlan =
       allowsBooking: boolean
     }
   | {
+      type: 'ask_service_validation'
+      reason: 'missing' | 'not_understood'
+    }
+  | {
       type: 'handoff'
       reason:
         | 'repeated_misunderstanding'
@@ -48,6 +52,7 @@ export type BookingV2MessagePlan =
         | 'advisor_required'
         | 'photo_required'
         | 'estimate_quote_requested'
+        | 'service_validation_uncertain'
     }
 
 export function buildBookingV2MessagePlan(

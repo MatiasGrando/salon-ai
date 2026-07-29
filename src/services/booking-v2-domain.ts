@@ -24,6 +24,9 @@ export type BookingV2ServiceOption = {
   estimateOptions?: BookingV2EstimateOption[]
   estimateDisclaimer?: string | null
   estimateAllowsBooking?: boolean
+  validationEnabled?: boolean
+  validationMessage?: string | null
+  validationQuestion?: string | null
   depositMode?: 'NONE' | 'FIXED' | 'PERCENTAGE'
   depositValue?: number | null
 }
@@ -139,6 +142,9 @@ export class BookingV2DomainService {
           estimateOptions: readEstimateOptions(service.estimateOptions),
           estimateDisclaimer: service.estimateDisclaimer,
           estimateAllowsBooking: service.estimateAllowsBooking,
+          validationEnabled: service.validationEnabled,
+          validationMessage: service.validationMessage,
+          validationQuestion: service.validationQuestion,
           depositMode: service.depositMode,
           depositValue: service.depositValue
         }

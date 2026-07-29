@@ -4,6 +4,7 @@ import {
   type BookingField,
   type BookingV2AdvisorQuote,
   type BookingV2GuidedEstimate,
+  type BookingV2ServiceValidation,
   type BookingV2PendingDeposit,
   type BookingProposal,
   type BookingV2State
@@ -32,6 +33,7 @@ export type BookingV2ConversationPatch = {
 export type BookingV2PersistedState = {
   version: 1
   pendingProposal: BookingProposal | null
+  serviceValidation?: BookingV2ServiceValidation | null
   guidedEstimate?: BookingV2GuidedEstimate | null
   advisorQuote?: BookingV2AdvisorQuote | null
   pendingDeposit?: BookingV2PendingDeposit | null
@@ -51,6 +53,7 @@ export function stateFromConversation(
       time: conversation.selectedTime
     },
     pendingProposal: readPendingProposal(conversation.bookingV2State),
+    serviceValidation: readServiceValidation(conversation.bookingV2State),
     guidedEstimate: readGuidedEstimate(conversation.bookingV2State),
     advisorQuote: readAdvisorQuote(conversation.bookingV2State),
     pendingDeposit: readPendingDeposit(conversation.bookingV2State),
@@ -66,15 +69,35 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
     selectedDate: state.draft.date,
     selectedTime: state.draft.time,
     misunderstandingCount: state.misunderstandingCount,
-    bookingV2State: state.pendingProposal || state.guidedEstimate || state.advisorQuote || state.pendingDeposit
+    bookingV2State: state.pendingProposal || state.serviceValidation || state.guidedEstimate || state.advisorQuote || state.pendingDeposit
       ? {
           version: 1,
           pendingProposal: state.pendingProposal,
+          ...(state.serviceValidation ? { serviceValidation: state.serviceValidation } : {}),
           ...(state.guidedEstimate ? { guidedEstimate: state.guidedEstimate } : {}),
           ...(state.advisorQuote ? { advisorQuote: state.advisorQuote } : {}),
           ...(state.pendingDeposit ? { pendingDeposit: state.pendingDeposit } : {})
         }
       : null
+  }
+}
+
+function readServiceValidation(value: unknown): BookingV2ServiceValidation | null {
+  if (!value || typeof value !== 'object') return null
+  const persisted = value as { version?: unknown; serviceValidation?: unknown }
+  if (
+    persisted.version !== 1 ||
+    !persisted.serviceValidation ||
+    typeof persisted.serviceValidation !== 'object'
+  ) {
+    return null
+  }
+  const candidate = persisted.serviceValidation as Partial<BookingV2ServiceValidation>
+  if (typeof candidate.serviceId !== 'string') return null
+  if (candidate.stage !== 'awaiting_confirmation' && candidate.stage !== 'completed') return null
+  return {
+    serviceId: candidate.serviceId,
+    stage: candidate.stage
   }
 }
 
