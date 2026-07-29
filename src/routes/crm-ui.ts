@@ -12467,14 +12467,14 @@ const crmHtml = `<!doctype html>
                   <option value="__ADD_CATEGORY__">Agregar nueva categor&iacute;a</option>
                 </select>
               </div>
-              <div class="service-form-group" id="service-parent-group" hidden>
+              <div id="service-parent-group" hidden style="display: none;">
                 <label for="service-parent">Grupo principal</label>
                 <div class="service-form-help">Solo aparecen elementos creados como Grupo de variantes.</div>
                 <select id="service-parent">
                   <option value="">Seleccionar grupo</option>
                 </select>
               </div>
-              <div class="service-form-group">
+              <div hidden style="display: none;">
                 <label for="service-aliases">Alias (opcional)</label>
                 <div class="service-form-help">Alias opcionales separados por coma (ej: corte, corte hombre)</div>
                 <input class="field" id="service-aliases" placeholder="Ej: corte, corte hombre, haircut">
