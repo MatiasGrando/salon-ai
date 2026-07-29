@@ -236,12 +236,30 @@ export class ConversationService {
         misunderstandingCount: 0,
         humanHandoffAt: new Date(),
         humanHandoffResolvedAt: null,
+        photoQuoteAcknowledgedAt: null,
         bookingV2State: null
       })
 
       return {
         reply: botCopyService.humanHandoffQueued()
       }
+    }
+
+    const advisorQuoteState = stateFromConversation(conversation)
+    if (
+      bookingV2Enabled &&
+      businessId &&
+      advisorQuoteState.advisorQuote?.status === 'awaiting_acceptance' &&
+      advisorQuoteState.advisorQuote.serviceId === advisorQuoteState.draft.service
+    ) {
+      return this.handleAdvisorQuoteDecision({
+        phone: input.phone,
+        message,
+        businessId,
+        conversation,
+        state: advisorQuoteState,
+        routing: bookingV2Routing
+      })
     }
 
     if (isArrivalNoticeMessage(message) && isMenuStep(conversation.currentStep)) {
@@ -338,6 +356,148 @@ export class ConversationService {
     })
   }
 
+  private async handleAdvisorQuoteDecision(input: {
+    phone: string
+    message: string
+    businessId: string
+    conversation: {
+      currentStep: string
+      selectedCustomerName: string | null
+      selectedServiceId: string | null
+      selectedProfessionalId: string | null
+      selectedDate: string | null
+      selectedTime: string | null
+      misunderstandingCount: number
+      bookingV2State?: unknown
+    }
+    state: ReturnType<typeof stateFromConversation>
+    routing: ConversationRouting | null
+  }): Promise<HandleMessageResult> {
+    const quote = input.state.advisorQuote
+    if (!quote) {
+      return {
+        reply: 'No encontré el presupuesto pendiente. El equipo lo revisará con vos.',
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+    const service = await prisma.service.findFirst({
+      where: {
+        id: quote.serviceId,
+        businessId: input.businessId
+      },
+      select: { name: true }
+    })
+    const serviceName = service?.name ?? 'el servicio'
+    const personality = await getBusinessAssistantPersonality(input.businessId)
+
+    if (isNegativeAdvisorQuoteDecision(input.message)) {
+      await this.updateConversation(input.phone, {
+        currentStep: 'START',
+        aiEnabled: true,
+        selectedServiceId: null,
+        selectedProfessionalId: null,
+        selectedDate: null,
+        selectedTime: null,
+        misunderstandingCount: 0,
+        lastAvailability: null,
+        bookingV2State: null,
+        humanHandoffResolvedAt: new Date()
+      })
+      return {
+        reply: applyAssistantPersonalityToReply(
+          `Entendido, no avanzamos con el presupuesto de ${serviceName}. ¿Te puedo ayudar en algo más?`,
+          personality
+        ),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+
+    if (!isPositiveAdvisorQuoteDecision(input.message)) {
+      const informationTopics = input.routing
+        ? businessInformationTopicsFromRouting(input.routing)
+        : []
+      const informationReply = informationTopics.length
+        ? await businessKnowledgeService.answer({
+            businessId: input.businessId,
+            topics: informationTopics
+          })
+        : null
+      return {
+        reply: applyAssistantPersonalityToReply(
+          [
+            ...(informationReply ? [informationReply] : []),
+            `Para confirmar: el presupuesto de ${serviceName} es ${formatMoneyForConversation(quote.amount)}. ¿Querés continuar con la reserva? Podés responderme sí o no.`
+          ].join('\n\n'),
+          personality
+        ),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+
+    const acceptedState = {
+      ...input.state,
+      advisorQuote: {
+        ...quote,
+        status: 'accepted' as const
+      },
+      guidedEstimate: input.state.guidedEstimate?.serviceId === quote.serviceId
+        ? {
+            ...input.state.guidedEstimate,
+            stage: 'completed' as const,
+            priceMin: quote.amount,
+            priceMax: quote.amount
+          }
+        : input.state.guidedEstimate,
+      misunderstandingCount: 0
+    }
+    const acceptedPatch = conversationPatchFromState(acceptedState)
+    const resumed = await bookingV2Engine.resume({
+      businessId: input.businessId,
+      conversation: {
+        selectedCustomerName: acceptedPatch.selectedCustomerName,
+        selectedServiceId: acceptedPatch.selectedServiceId,
+        selectedProfessionalId: acceptedPatch.selectedProfessionalId,
+        selectedDate: acceptedPatch.selectedDate,
+        selectedTime: acceptedPatch.selectedTime,
+        misunderstandingCount: acceptedPatch.misunderstandingCount,
+        bookingV2State: acceptedPatch.bookingV2State
+      }
+    })
+    const nextStep = conversationStepFromBookingV2Plan(resumed.plan)
+    const isHandoff = resumed.plan.type === 'handoff'
+    await this.updateConversation(input.phone, {
+      currentStep: nextStep,
+      ...resumed.conversationPatch,
+      aiEnabled: !isHandoff,
+      humanHandoffResolvedAt: new Date(),
+      ...(isHandoff
+        ? {
+            humanHandoffAt: new Date(),
+            humanHandoffResolvedAt: null
+          }
+        : {}),
+      lastAvailability: resumed.availabilityOptions.length
+        ? {
+            serviceId: resumed.state.draft.service,
+            professionalId: resumed.state.draft.professional,
+            date: resumed.state.draft.date,
+            options: resumed.availabilityOptions
+          }
+        : null
+    })
+    return {
+      reply: applyAssistantPersonalityToReply(
+        `Perfecto, avanzamos con ${serviceName} por ${formatMoneyForConversation(quote.amount)}.\n\n${resumed.reply}`,
+        personality
+      ),
+      skipMisunderstandingTracking: true,
+      skipHumanize: true
+    }
+  }
+
   private async handleBookingV2(input: {
     phone: string
     message: string
@@ -403,7 +563,8 @@ export class ConversationService {
           selectedServiceId: input.conversation.selectedServiceId,
           selectedProfessionalId: input.conversation.selectedProfessionalId,
           selectedDate: input.conversation.selectedDate,
-          selectedTime: input.conversation.selectedTime
+          selectedTime: input.conversation.selectedTime,
+          bookingV2State: input.conversation.bookingV2State
         }
       })
 
@@ -505,7 +666,8 @@ export class ConversationService {
         ? {
             aiEnabled: false,
             humanHandoffAt: new Date(),
-            humanHandoffResolvedAt: null
+            humanHandoffResolvedAt: null,
+            photoQuoteAcknowledgedAt: null
           }
         : {}),
       lastAvailability: result.availabilityOptions.length
@@ -554,23 +716,43 @@ export class ConversationService {
       selectedProfessionalId: string
       selectedDate: string
       selectedTime: string
+      bookingV2State?: unknown
     }
   }): Promise<HandleMessageResult> {
     const customer = await this.findOrCreateCustomer(input.phone, input.conversation.selectedCustomerName)
+    const state = stateFromConversation({
+      selectedCustomerName: input.conversation.selectedCustomerName,
+      selectedServiceId: input.conversation.selectedServiceId,
+      selectedProfessionalId: input.conversation.selectedProfessionalId,
+      selectedDate: input.conversation.selectedDate,
+      selectedTime: input.conversation.selectedTime,
+      misunderstandingCount: 0,
+      bookingV2State: input.conversation.bookingV2State
+    })
+    const quotedPrice = acceptedAdvisorQuoteAmount(state, input.conversation.selectedServiceId)
     const appointment = await bookingProvider.createAppointment({
       customerId: customer.id,
       professionalId: input.conversation.selectedProfessionalId,
       serviceId: input.conversation.selectedServiceId,
-      startAt: `${input.conversation.selectedDate}T${input.conversation.selectedTime}:00`
+      startAt: `${input.conversation.selectedDate}T${input.conversation.selectedTime}:00`,
+      quotedPrice
     })
 
     if (!appointment.ok) {
+      const retryState = {
+        ...state,
+        draft: {
+          ...state.draft,
+          date: null,
+          time: null
+        },
+        pendingProposal: null,
+        pendingDeposit: null
+      }
       await this.updateConversation(input.phone, {
         currentStep: 'ASK_DATE',
-        selectedDate: null,
-        selectedTime: null,
-        lastAvailability: null,
-        bookingV2State: null
+        ...conversationPatchFromState(retryState),
+        lastAvailability: null
       })
 
       return {
@@ -633,9 +815,10 @@ export class ConversationService {
     if (!service || service.depositMode === 'NONE') return null
 
     const state = stateFromConversation(input.conversation)
-    const estimateMinimum = state.guidedEstimate?.serviceId === service.id
-      ? state.guidedEstimate.priceMin
-      : null
+    const estimateMinimum = acceptedAdvisorQuoteAmount(state, service.id) ??
+      (state.guidedEstimate?.serviceId === service.id
+        ? state.guidedEstimate.priceMin
+        : null)
     const calculation = calculateBookingV2Deposit({
       mode: service.depositMode,
       value: service.depositValue,
@@ -653,15 +836,24 @@ export class ConversationService {
       professionalId: input.conversation.selectedProfessionalId,
       serviceId: input.conversation.selectedServiceId,
       startAt: `${input.conversation.selectedDate}T${input.conversation.selectedTime}:00`,
-      status: 'PENDING'
+      status: 'PENDING',
+      quotedPrice: acceptedAdvisorQuoteAmount(state, service.id)
     })
     if (!appointment.ok) {
+      const retryState = {
+        ...state,
+        draft: {
+          ...state.draft,
+          date: null,
+          time: null
+        },
+        pendingProposal: null,
+        pendingDeposit: null
+      }
       await this.updateConversation(input.phone, {
         currentStep: 'ASK_DATE',
-        selectedDate: null,
-        selectedTime: null,
-        lastAvailability: null,
-        bookingV2State: null
+        ...conversationPatchFromState(retryState),
+        lastAvailability: null
       })
       return {
         reply: `No pude retener ese horario: ${appointment.message}. Probemos con otro día u horario.`,
@@ -713,6 +905,7 @@ export class ConversationService {
       aiEnabled: false,
       humanHandoffAt: new Date(),
       humanHandoffResolvedAt: null,
+      photoQuoteAcknowledgedAt: null,
       lastAvailability: null
     })
 
@@ -1139,6 +1332,7 @@ export class ConversationService {
       misunderstandingCount?: number
       humanHandoffAt?: Date | null
       humanHandoffResolvedAt?: Date | null
+      photoQuoteAcknowledgedAt?: Date | null
     }
   ) {
     const { lastAvailability, bookingV2State, ...rest } = data
@@ -1245,6 +1439,20 @@ function stepForBookingV2Field(field: BookingField) {
   return 'ASK_TIME'
 }
 
+export function acceptedAdvisorQuoteAmount(state: ReturnType<typeof stateFromConversation>, serviceId: string) {
+  return state.advisorQuote?.serviceId === serviceId && state.advisorQuote.status === 'accepted'
+    ? state.advisorQuote.amount
+    : null
+}
+
+function formatMoneyForConversation(value: number) {
+  return new Intl.NumberFormat('es-AR', {
+    style: 'currency',
+    currency: 'ARS',
+    maximumFractionDigits: 0
+  }).format(value)
+}
+
 export function isPositiveBookingV2Confirmation(message: string) {
   const normalizedMessage = normalizeText(message)
   const exactConfirmations = [
@@ -1268,6 +1476,58 @@ export function isPositiveBookingV2Confirmation(message: string) {
 
   if (exactConfirmations.includes(normalizedMessage)) return true
   return /\b(confirmo|confirmar|confirmalo)\b/.test(normalizedMessage)
+}
+
+export function isPositiveAdvisorQuoteDecision(message: string) {
+  const normalizedMessage = normalizeText(message)
+    .replace(/[^\p{Letter}\p{Number}\s]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (isPositiveBookingV2Confirmation(normalizedMessage)) return true
+  if ([
+    'de una',
+    'mandale',
+    'joya',
+    'avancemos',
+    'reservemos',
+    'hagamoslo'
+  ].includes(normalizedMessage)) return true
+  return [
+    'si quiero',
+    'si dale',
+    'me sirve',
+    'me parece bien',
+    'quiero reservar',
+    'quiero el turno'
+  ].some((phrase) => normalizedMessage.includes(phrase))
+}
+
+export function isNegativeAdvisorQuoteDecision(message: string) {
+  const normalizedMessage = normalizeText(message)
+    .replace(/[^\p{Letter}\p{Number}\s]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (/^(?:no+|nop|nono|nah|na)(?: gracias| por ahora| mejor no)?$/.test(normalizedMessage)) {
+    return true
+  }
+  if ([
+    'dejemoslo',
+    'dejalo ahi',
+    'ni ahi',
+    'paso',
+    'se me va'
+  ].includes(normalizedMessage)) return true
+  return [
+    'no gracias',
+    'no quiero',
+    'no me sirve',
+    'no por ahora',
+    'lo voy a pensar',
+    'lo pienso',
+    'muy caro',
+    'me parece caro',
+    'no llego'
+  ].some((phrase) => normalizedMessage.includes(phrase))
 }
 
 export function isBookingV2GreetingOnlyMessage(message: string) {

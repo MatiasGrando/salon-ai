@@ -2,6 +2,7 @@ import {
   BOOKING_FIELDS,
   createEmptyBookingV2State,
   type BookingField,
+  type BookingV2AdvisorQuote,
   type BookingV2GuidedEstimate,
   type BookingV2PendingDeposit,
   type BookingProposal,
@@ -32,6 +33,7 @@ export type BookingV2PersistedState = {
   version: 1
   pendingProposal: BookingProposal | null
   guidedEstimate?: BookingV2GuidedEstimate | null
+  advisorQuote?: BookingV2AdvisorQuote | null
   pendingDeposit?: BookingV2PendingDeposit | null
 }
 
@@ -50,6 +52,7 @@ export function stateFromConversation(
     },
     pendingProposal: readPendingProposal(conversation.bookingV2State),
     guidedEstimate: readGuidedEstimate(conversation.bookingV2State),
+    advisorQuote: readAdvisorQuote(conversation.bookingV2State),
     pendingDeposit: readPendingDeposit(conversation.bookingV2State),
     misunderstandingCount: conversation.misunderstandingCount
   }
@@ -63,11 +66,12 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
     selectedDate: state.draft.date,
     selectedTime: state.draft.time,
     misunderstandingCount: state.misunderstandingCount,
-    bookingV2State: state.pendingProposal || state.guidedEstimate || state.pendingDeposit
+    bookingV2State: state.pendingProposal || state.guidedEstimate || state.advisorQuote || state.pendingDeposit
       ? {
           version: 1,
           pendingProposal: state.pendingProposal,
           ...(state.guidedEstimate ? { guidedEstimate: state.guidedEstimate } : {}),
+          ...(state.advisorQuote ? { advisorQuote: state.advisorQuote } : {}),
           ...(state.pendingDeposit ? { pendingDeposit: state.pendingDeposit } : {})
         }
       : null
@@ -122,6 +126,27 @@ function readGuidedEstimate(value: unknown): BookingV2GuidedEstimate | null {
     optionLabel: candidate.optionLabel ?? null,
     priceMin: candidate.priceMin ?? null,
     priceMax: candidate.priceMax ?? null
+  }
+}
+
+function readAdvisorQuote(value: unknown): BookingV2AdvisorQuote | null {
+  if (!value || typeof value !== 'object') return null
+  const persisted = value as { version?: unknown; advisorQuote?: unknown }
+  if (persisted.version !== 1 || !persisted.advisorQuote || typeof persisted.advisorQuote !== 'object') {
+    return null
+  }
+  const candidate = persisted.advisorQuote as Partial<BookingV2AdvisorQuote>
+  if (typeof candidate.serviceId !== 'string') return null
+  if (typeof candidate.amount !== 'number' || !Number.isInteger(candidate.amount) || candidate.amount <= 0) return null
+  if (candidate.note !== null && typeof candidate.note !== 'string') return null
+  if (candidate.status !== 'awaiting_acceptance' && candidate.status !== 'accepted') return null
+  if (typeof candidate.quotedAt !== 'string' || Number.isNaN(new Date(candidate.quotedAt).getTime())) return null
+  return {
+    serviceId: candidate.serviceId,
+    amount: candidate.amount,
+    note: candidate.note?.trim() || null,
+    status: candidate.status,
+    quotedAt: candidate.quotedAt
   }
 }
 

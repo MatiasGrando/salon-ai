@@ -14,6 +14,10 @@ import {
   assistantPersonalityPreview,
   normalizeAssistantPersonality
 } from '../services/assistant-personality-service.js'
+import {
+  conversationPatchFromState,
+  stateFromConversation
+} from '../services/booking-v2-conversation-state.js'
 
 const whatsappCloudApi = new WhatsAppCloudApi()
 const WHATSAPP_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000
@@ -572,6 +576,98 @@ export async function crmRoutes(app: FastifyInstance) {
     })
   })
 
+  app.post('/crm/conversations/:id/advisor-quote', async (request, reply) => {
+    const params = request.params as { id: string }
+    const body = request.body as { amount?: number | string; note?: string | null }
+    const authUser = request.auth?.user
+    if (!authUser) return reply.status(401).send({ message: 'Sesion requerida' })
+    const amount = Number(body.amount)
+    const note = body.note?.trim().slice(0, 500) || null
+    if (!Number.isInteger(amount) || amount <= 0 || amount > 1_000_000_000) {
+      return reply.status(400).send({ message: 'Carga un importe de presupuesto valido' })
+    }
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: params.id }
+    })
+    if (!conversation || !conversation.businessId) {
+      return reply.status(404).send({ message: 'No encontre esa conversacion' })
+    }
+    if (authUser.role !== 'SUPER_ADMIN' && authUser.businessId !== conversation.businessId) {
+      return reply.status(403).send({ message: 'No tenes acceso a esa conversacion' })
+    }
+    if (conversation.currentStep !== 'HUMAN_HANDOFF' || conversation.aiEnabled) {
+      return reply.status(409).send({ message: 'La conversacion no esta esperando la intervencion de un asesor' })
+    }
+    if (!conversation.selectedServiceId) {
+      return reply.status(409).send({ message: 'La conversacion no tiene un servicio seleccionado' })
+    }
+    const service = await prisma.service.findFirst({
+      where: {
+        id: conversation.selectedServiceId,
+        businessId: conversation.businessId
+      },
+      select: {
+        id: true,
+        name: true,
+        attentionMode: true,
+        requiresPhoto: true
+      }
+    })
+    if (!service) return reply.status(404).send({ message: 'No encontre el servicio seleccionado' })
+    if (
+      !service.requiresPhoto &&
+      service.attentionMode !== 'QUOTE' &&
+      service.attentionMode !== 'GUIDED_ESTIMATE'
+    ) {
+      return reply.status(409).send({ message: 'Ese servicio no requiere un presupuesto del asesor' })
+    }
+
+    const quoteText = [
+      `El presupuesto para ${service.name} es ${formatCrmMoney(amount)}.`,
+      ...(note ? [note] : []),
+      '¿Querés continuar con la reserva? Si aceptás, Cami te ayudará a elegir profesional, día y horario.'
+    ].join('\n\n')
+    const delivery = await sendCrmAutomatedMessage({
+      conversationId: conversation.id,
+      businessId: conversation.businessId,
+      phone: conversation.phone,
+      text: quoteText,
+      provider: 'crm_advisor_quote'
+    })
+    if (!delivery.sent) {
+      return reply.status(502).send({
+        message: 'No pude enviar el presupuesto por WhatsApp. La conversacion sigue en atencion manual.'
+      })
+    }
+
+    const state = stateFromConversation(conversation)
+    const quotedState = {
+      ...state,
+      advisorQuote: {
+        serviceId: service.id,
+        amount,
+        note,
+        status: 'awaiting_acceptance' as const,
+        quotedAt: new Date().toISOString()
+      },
+      pendingDeposit: null,
+      misunderstandingCount: 0
+    }
+    const patch = conversationPatchFromState(quotedState)
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: {
+        currentStep: 'ASK_SERVICE',
+        aiEnabled: true,
+        lastMessage: quoteText,
+        humanHandoffResolvedAt: new Date(),
+        ...patch,
+        bookingV2State: patch.bookingV2State as Prisma.InputJsonValue
+      }
+    })
+    return conversationWithLatestDeposit(conversation.id)
+  })
+
   app.post('/crm/conversations/:id/deposit/approve', async (request, reply) => {
     const params = request.params as { id: string }
     const authUser = request.auth?.user
@@ -637,11 +733,12 @@ export async function crmRoutes(app: FastifyInstance) {
     } catch (error) {
       console.error('No pude vincular el turno confirmado por seña con la oportunidad', error)
     }
-    await sendDepositDecisionMessage({
+    await sendCrmAutomatedMessage({
       conversationId: deposit.conversationId,
       businessId: deposit.businessId,
       phone: deposit.conversation.phone,
-      text: `¡Listo! Confirmamos tu seña y el turno de ${deposit.appointment.service.name} para ${formatDepositAppointmentDate(deposit.appointment.startAt)} con ${deposit.appointment.professional.name}.`
+      text: `¡Listo! Confirmamos tu seña y el turno de ${deposit.appointment.service.name} para ${formatDepositAppointmentDate(deposit.appointment.startAt)} con ${deposit.appointment.professional.name}.`,
+      provider: 'crm_deposit_review'
     })
     return conversationWithLatestDeposit(deposit.conversationId)
   })
@@ -692,11 +789,12 @@ export async function crmRoutes(app: FastifyInstance) {
     if (!rejected) {
       return reply.status(409).send({ message: 'La seña ya fue revisada o la retención venció' })
     }
-    await sendDepositDecisionMessage({
+    await sendCrmAutomatedMessage({
       conversationId: deposit.conversationId,
       businessId: deposit.businessId,
       phone: deposit.conversation.phone,
-      text: `No pudimos validar el comprobante de la seña: ${reason}. Liberamos el horario para evitar una confirmación incorrecta. El equipo te ayudará a resolverlo por acá.`
+      text: `No pudimos validar el comprobante de la seña: ${reason}. Liberamos el horario para evitar una confirmación incorrecta. El equipo te ayudará a resolverlo por acá.`,
+      provider: 'crm_deposit_review'
     })
     return conversationWithLatestDeposit(deposit.conversationId)
   })
@@ -1019,11 +1117,12 @@ async function conversationWithLatestDeposit(conversationId: string) {
   })
 }
 
-async function sendDepositDecisionMessage(input: {
+async function sendCrmAutomatedMessage(input: {
   conversationId: string
   businessId: string
   phone: string
   text: string
+  provider: string
 }) {
   const gate = await assertBusinessCanSendWhatsApp(input.businessId, 'BOT')
   const delivery = gate.allowed
@@ -1045,11 +1144,12 @@ async function sendDepositDecisionMessage(input: {
       body: input.text,
       status: delivery.sent ? 'sent' : 'failed',
       metadata: {
-        provider: 'crm_deposit_review',
+        provider: input.provider,
         delivery
       }
     }
   })
+  return delivery
 }
 
 function formatDepositAppointmentDate(startAt: Date) {
@@ -1058,4 +1158,12 @@ function formatDepositAppointmentDate(startAt: Date) {
     timeStyle: 'short',
     timeZone: 'America/Argentina/Buenos_Aires'
   }).format(startAt)
+}
+
+function formatCrmMoney(value: number) {
+  return new Intl.NumberFormat('es-AR', {
+    style: 'currency',
+    currency: 'ARS',
+    maximumFractionDigits: 0
+  }).format(value)
 }

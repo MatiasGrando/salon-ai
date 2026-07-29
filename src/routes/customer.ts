@@ -5,6 +5,7 @@ type CustomerOverviewAppointment = {
   customerId: string
   status: string
   startAt: Date
+  quotedPrice: number | null
   professional: {
     name: string
   }
@@ -123,6 +124,7 @@ export async function customerRoutes(app: FastifyInstance) {
         customerId: true,
         status: true,
         startAt: true,
+        quotedPrice: true,
         professional: {
           select: {
             name: true
@@ -191,7 +193,7 @@ export async function customerRoutes(app: FastifyInstance) {
         (!lastVisit && customer.createdAt >= cutoff && customer.createdAt <= now)
       )
       const estimatedSpend = attended.reduce((total, appointment) => {
-        return total + (appointment.service.price ?? 0)
+        return total + (appointment.quotedPrice ?? appointment.service.price ?? 0)
       }, 0)
 
       const conversation = conversationsByPhone.get(normalizePhone(customer.phone)) ?? null

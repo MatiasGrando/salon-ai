@@ -528,7 +528,8 @@ model Appointment {
   serviceId String
   service   Service @relation(fields: [serviceId], references: [id])
 
-  startAt DateTime
+  startAt     DateTime
+  quotedPrice Int?
 
   status                  AppointmentStatus  @default(CONFIRMED)
   reminderDeliveries      ReminderDelivery[]
@@ -586,10 +587,11 @@ model Conversation {
   lastAvailability       Json?
   bookingV2State         Json?
 
-  lastMessage            String?
-  humanHandoffAt         DateTime?
-  humanHandoffResolvedAt DateTime?
-  archivedAt             DateTime?
+  lastMessage              String?
+  humanHandoffAt           DateTime?
+  humanHandoffResolvedAt   DateTime?
+  photoQuoteAcknowledgedAt DateTime?
+  archivedAt               DateTime?
 
   opportunityStatus        ConversationOpportunityStatus @default(OPEN)
   opportunityOpenedAt      DateTime                      @default(now())

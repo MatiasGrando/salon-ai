@@ -11651,6 +11651,7 @@ const crmHtml = `<!doctype html>
             <div class="chat-more-popover">
               <button class="primary" id="deposit-approve" type="button" hidden>Aprobar se&ntilde;a y confirmar</button>
               <button class="danger" id="deposit-reject" type="button" hidden>Rechazar se&ntilde;a</button>
+              <button class="primary" id="advisor-quote" type="button" hidden>Enviar presupuesto</button>
               <button class="secondary" id="resolve-handoff" type="button" disabled hidden>Marcar como resuelto</button>
               <button class="secondary" id="conversation-ai-toggle" type="button" disabled>Atender manualmente</button>
               <button class="secondary" id="archive-conversation" type="button" disabled>Archivar chat</button>
@@ -11988,6 +11989,32 @@ const crmHtml = `<!doctype html>
           <button class="secondary" id="confirmation-cancel" type="button">Cancelar</button>
           <button class="danger" id="confirmation-accept" type="button">S&iacute;, eliminar</button>
         </div>
+      </section>
+    </div>
+
+    <div class="dialog-backdrop" id="advisor-quote-dialog" hidden>
+      <section class="dialog customer-dialog" role="dialog" aria-modal="true" aria-labelledby="advisor-quote-dialog-title">
+        <div class="dialog-head">
+          <h3 id="advisor-quote-dialog-title">Enviar presupuesto</h3>
+          <button class="icon-button" id="advisor-quote-dialog-close" type="button" title="Cerrar">X</button>
+        </div>
+        <form class="customer-dialog-form" id="advisor-quote-dialog-form">
+          <p class="customer-dialog-copy" id="advisor-quote-dialog-copy"></p>
+          <div class="customer-dialog-field">
+            <label for="advisor-quote-amount">Importe acordado</label>
+            <input id="advisor-quote-amount" inputmode="numeric" autocomplete="off" placeholder="Ej: 160000" required>
+          </div>
+          <div class="customer-dialog-field">
+            <label for="advisor-quote-note">Aclaraci&oacute;n para el cliente (opcional)</label>
+            <textarea id="advisor-quote-note" maxlength="500" placeholder="Ej: Incluye producto y brushing."></textarea>
+          </div>
+          <p class="customer-dialog-copy">El cliente recibir&aacute; el presupuesto y, si lo acepta, Cami continuar&aacute; con profesional, d&iacute;a, horario y se&ntilde;a.</p>
+          <p class="customer-dialog-feedback" id="advisor-quote-dialog-feedback"></p>
+          <div class="dialog-actions">
+            <button class="secondary" id="advisor-quote-dialog-cancel" type="button">Cancelar</button>
+            <button class="primary" id="advisor-quote-dialog-submit" type="submit">Enviar y continuar</button>
+          </div>
+        </form>
       </section>
     </div>
 
@@ -14147,6 +14174,15 @@ const crmHtml = `<!doctype html>
       crmToast: document.getElementById('crm-toast'),
       confirmationDialog: document.getElementById('confirmation-dialog'),
       confirmationMessage: document.getElementById('confirmation-dialog-message'),
+      advisorQuoteDialog: document.getElementById('advisor-quote-dialog'),
+      advisorQuoteDialogForm: document.getElementById('advisor-quote-dialog-form'),
+      advisorQuoteDialogCopy: document.getElementById('advisor-quote-dialog-copy'),
+      advisorQuoteDialogClose: document.getElementById('advisor-quote-dialog-close'),
+      advisorQuoteDialogCancel: document.getElementById('advisor-quote-dialog-cancel'),
+      advisorQuoteDialogSubmit: document.getElementById('advisor-quote-dialog-submit'),
+      advisorQuoteDialogAmount: document.getElementById('advisor-quote-amount'),
+      advisorQuoteDialogNote: document.getElementById('advisor-quote-note'),
+      advisorQuoteDialogFeedback: document.getElementById('advisor-quote-dialog-feedback'),
       confirmationAccept: document.getElementById('confirmation-accept'),
       confirmationCancel: document.getElementById('confirmation-cancel'),
       count: document.getElementById('conversation-count'),
@@ -14246,6 +14282,7 @@ const crmHtml = `<!doctype html>
       chatStatus: document.getElementById('chat-status'),
       stepChip: document.getElementById('step-chip'),
       resolveHandoff: document.getElementById('resolve-handoff'),
+      advisorQuote: document.getElementById('advisor-quote'),
       depositApprove: document.getElementById('deposit-approve'),
       depositReject: document.getElementById('deposit-reject'),
       conversationAiToggle: document.getElementById('conversation-ai-toggle'),
@@ -15748,7 +15785,7 @@ const crmHtml = `<!doctype html>
     }
 
     function formatAppointmentCurrentPrice(appointment) {
-      const price = appointment.service?.price
+      const price = appointment.quotedPrice ?? appointment.service?.price
       return price === null || price === undefined ? '--' : formatCurrency(price)
     }
 
@@ -16120,7 +16157,7 @@ const crmHtml = `<!doctype html>
             '</div>' +
             '<p class="preview">' + escapeHtml(last?.body || conversation.lastMessage || 'Sin mensajes') + '</p>' +
             '<div class="conversation-status-line">' +
-              '<span class="' + conversationStepChipClass(conversation.currentStep, conversation.aiEnabled) + '">' + escapeHtml(conversationStepLabel(conversation.currentStep, conversation.aiEnabled)) + '</span>' +
+              '<span class="' + conversationStepChipClass(conversation.currentStep, conversation.aiEnabled) + '">' + escapeHtml(conversationStepLabel(conversation.currentStep, conversation.aiEnabled, conversation)) + '</span>' +
               (unread ? '<span class="conversation-unread-dot">1</span>' : '') +
             '</div>' +
           '</div>' +
@@ -16339,11 +16376,22 @@ const crmHtml = `<!doctype html>
       els.chatAvatar.textContent = avatar
       els.chatPhone.textContent = name
       els.chatStatus.textContent = selected.phone
-      els.stepChip.textContent = conversationStepLabel(selected.currentStep, selected.aiEnabled)
+      els.stepChip.textContent = conversationStepLabel(selected.currentStep, selected.aiEnabled, selected)
       els.stepChip.className = conversationStepChipClass(selected.currentStep, selected.aiEnabled)
       const deposit = selected.bookingDeposits?.[0] || null
       const activeDeposit = deposit && ['PENDING_PROOF', 'PROOF_RECEIVED'].includes(deposit.status)
       const canResolveHandoff = selected.currentStep === 'HUMAN_HANDOFF' || selected.aiEnabled === false
+      const selectedService = state.services.find((service) => service.id === selected.selectedServiceId) || null
+      const canSendAdvisorQuote = Boolean(
+        canResolveHandoff &&
+        !activeDeposit &&
+        selectedService &&
+        (
+          selectedService.requiresPhoto ||
+          selectedService.attentionMode === 'QUOTE' ||
+          selectedService.attentionMode === 'GUIDED_ESTIMATE'
+        )
+      )
       els.depositApprove.hidden = !activeDeposit
       els.depositApprove.disabled = deposit?.status !== 'PROOF_RECEIVED'
       els.depositApprove.textContent = deposit?.status === 'PROOF_RECEIVED'
@@ -16351,6 +16399,8 @@ const crmHtml = `<!doctype html>
         : 'Esperando comprobante'
       els.depositReject.hidden = !activeDeposit
       els.depositReject.disabled = !activeDeposit
+      els.advisorQuote.hidden = !canSendAdvisorQuote
+      els.advisorQuote.disabled = !canSendAdvisorQuote
       els.resolveHandoff.hidden = !canResolveHandoff || Boolean(activeDeposit)
       els.resolveHandoff.disabled = !canResolveHandoff || Boolean(activeDeposit)
       els.conversationAiToggle.hidden = canResolveHandoff
@@ -16362,7 +16412,7 @@ const crmHtml = `<!doctype html>
       els.detailPhone.textContent = selected.phone
       els.detailPhone.href = 'tel:' + selected.phone
       els.detailWhatsapp.href = whatsappAppUrl(selected.phone)
-      els.detailStep.textContent = conversationStepLabel(selected.currentStep, selected.aiEnabled)
+      els.detailStep.textContent = conversationStepLabel(selected.currentStep, selected.aiEnabled, selected)
       els.detailStep.className = conversationStepChipClass(selected.currentStep, selected.aiEnabled)
       els.detailMarketingStatus.textContent = customer ? 'Consultando...' : 'Sin cliente'
       els.detailMarketingStatus.className = 'chip'
@@ -17663,6 +17713,60 @@ const crmHtml = `<!doctype html>
         showCrmToast(error.message, 'error')
       } finally {
         setButtonLoading(els.conversationAiToggle, false)
+      }
+    }
+
+    function openAdvisorQuoteDialog() {
+      if (!state.selected) return
+      const service = state.services.find((item) => item.id === state.selected.selectedServiceId)
+      if (!service) {
+        showCrmToast('La conversaciÃ³n no tiene un servicio seleccionado.', 'error')
+        return
+      }
+      const previousQuote = state.selected.bookingV2State?.advisorQuote
+      els.advisorQuoteDialogCopy.textContent = 'Presupuesto para ' + service.name
+      els.advisorQuoteDialogAmount.value = previousQuote?.amount
+        ? formatMoneyInput(previousQuote.amount)
+        : ''
+      els.advisorQuoteDialogNote.value = previousQuote?.note || ''
+      els.advisorQuoteDialogFeedback.textContent = ''
+      els.advisorQuoteDialog.hidden = false
+      window.setTimeout(() => els.advisorQuoteDialogAmount.focus(), 0)
+    }
+
+    function closeAdvisorQuoteDialog() {
+      els.advisorQuoteDialog.hidden = true
+      els.advisorQuoteDialogFeedback.textContent = ''
+    }
+
+    async function submitAdvisorQuote(event) {
+      event.preventDefault()
+      if (!state.selected) return
+      const amount = Number(normalizeMoneyInput(els.advisorQuoteDialogAmount.value))
+      if (!Number.isInteger(amount) || amount <= 0) {
+        els.advisorQuoteDialogFeedback.textContent = 'IngresÃ¡ un importe vÃ¡lido.'
+        return
+      }
+      if (!setButtonLoading(els.advisorQuoteDialogSubmit, true, 'Enviando...')) return
+      els.advisorQuoteDialogFeedback.textContent = ''
+      try {
+        const updated = await getJson('/crm/conversations/' + state.selected.id + '/advisor-quote', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amount,
+            note: els.advisorQuoteDialogNote.value.trim() || null
+          })
+        })
+        state.selected = updated
+        closeAdvisorQuoteDialog()
+        await loadConversations()
+        renderSelected()
+        showCrmToast('Presupuesto enviado. Cami continuarÃ¡ cuando el cliente lo acepte.', 'success')
+      } catch (error) {
+        els.advisorQuoteDialogFeedback.textContent = error.message
+      } finally {
+        setButtonLoading(els.advisorQuoteDialogSubmit, false)
       }
     }
 
@@ -23487,7 +23591,13 @@ const crmHtml = `<!doctype html>
       return new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'long' }).format(date)
     }
 
-    function conversationStepLabel(step, aiEnabled) {
+    function conversationStepLabel(step, aiEnabled, conversation = null) {
+      if (conversation?.bookingV2State?.advisorQuote?.status === 'awaiting_acceptance') {
+        return 'Esperando aceptaciÃ³n'
+      }
+      if (conversation?.bookingV2State?.advisorQuote?.status === 'accepted') {
+        return 'Presupuesto aceptado'
+      }
       if (aiEnabled === false && step !== 'HUMAN_HANDOFF') return 'Atencion manual'
       const labels = {
         START: 'Inicio',
@@ -24020,6 +24130,13 @@ const crmHtml = `<!doctype html>
     }
     els.conversationAiToggle.addEventListener('click', toggleConversationAi)
     els.resolveHandoff.addEventListener('click', resolveHandoff)
+    els.advisorQuote.addEventListener('click', openAdvisorQuoteDialog)
+    els.advisorQuoteDialogForm.addEventListener('submit', submitAdvisorQuote)
+    els.advisorQuoteDialogClose.addEventListener('click', closeAdvisorQuoteDialog)
+    els.advisorQuoteDialogCancel.addEventListener('click', closeAdvisorQuoteDialog)
+    els.advisorQuoteDialogAmount.addEventListener('input', () => {
+      els.advisorQuoteDialogAmount.value = formatMoneyInput(els.advisorQuoteDialogAmount.value)
+    })
     els.depositApprove.addEventListener('click', approveSelectedDeposit)
     els.depositReject.addEventListener('click', rejectSelectedDeposit)
     els.refresh.addEventListener('click', () => {

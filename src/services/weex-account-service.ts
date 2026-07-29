@@ -436,7 +436,7 @@ export async function getWeexAppointmentsForBusiness(accountId: string, business
         id: appointment.service.id,
         name: appointment.service.name,
         duration: appointment.service.duration,
-        price: appointment.service.price
+        price: appointment.quotedPrice ?? appointment.service.price
       },
       professional: {
         id: appointment.professional.id,

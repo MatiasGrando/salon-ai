@@ -335,6 +335,11 @@ export class BookingV2Engine {
     const selectedService = catalog?.services.find(
       (service) => service.id === effectiveInterpretation.state.draft.service
     )
+    const hasAcceptedAdvisorQuote = Boolean(
+      selectedService &&
+      effectiveInterpretation.state.advisorQuote?.serviceId === selectedService.id &&
+      effectiveInterpretation.state.advisorQuote.status === 'accepted'
+    )
     if (selectedService?.attentionMode === 'GUIDED_ESTIMATE') {
       if (
         effectiveInterpretation.state.guidedEstimate?.serviceId !== selectedService.id ||
@@ -361,6 +366,7 @@ export class BookingV2Engine {
       }
     } else if (
       selectedService &&
+      !hasAcceptedAdvisorQuote &&
       (selectedService.requiresPhoto || (
         selectedService.attentionMode !== undefined &&
         selectedService.attentionMode !== 'DIRECT_BOOKING'

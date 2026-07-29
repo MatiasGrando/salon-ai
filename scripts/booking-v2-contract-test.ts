@@ -40,8 +40,11 @@ import {
 } from '../src/services/conversation-router.js'
 import { renderBusinessKnowledgeAnswers } from '../src/services/business-knowledge-service.js'
 import {
+  acceptedAdvisorQuoteAmount,
   isBookingV2ConversationClosing,
   isBookingV2GreetingOnlyMessage,
+  isNegativeAdvisorQuoteDecision,
+  isPositiveAdvisorQuoteDecision,
   isPositiveBookingV2Confirmation,
   shouldShowBookingV2IntentFallback,
   withBusinessInformationFollowUp
@@ -57,6 +60,10 @@ import {
   personalityForPreset
 } from '../src/services/assistant-personality-service.js'
 import { WhatsAppWebhookService } from '../src/services/whatsapp-webhook-service.js'
+import {
+  PHOTO_QUOTE_ACKNOWLEDGEMENT,
+  PhotoQuoteAcknowledgementService
+} from '../src/services/photo-quote-acknowledgement-service.js'
 
 const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
   {
@@ -554,6 +561,40 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'persiste el presupuesto del asesor y su aceptacion',
+    run: () => {
+      const state = {
+        ...createEmptyBookingV2State(),
+        draft: {
+          name: 'Mati',
+          service: 'illumination',
+          professional: null,
+          date: null,
+          time: null
+        },
+        advisorQuote: {
+          serviceId: 'illumination',
+          amount: 160000,
+          note: 'Incluye producto',
+          status: 'awaiting_acceptance' as const,
+          quotedAt: '2026-07-28T23:45:00.000Z'
+        }
+      }
+      const patch = conversationPatchFromState(state)
+      const restored = stateFromConversation({
+        ...patch,
+        bookingV2State: patch.bookingV2State
+      })
+      assert.deepEqual(restored.advisorQuote, state.advisorQuote)
+      assert.equal(restored.draft.service, 'illumination')
+      assert.equal(acceptedAdvisorQuoteAmount(restored, 'illumination'), null)
+      restored.advisorQuote = restored.advisorQuote
+        ? { ...restored.advisorQuote, status: 'accepted' }
+        : null
+      assert.equal(acceptedAdvisorQuoteAmount(restored, 'illumination'), 160000)
+    }
+  },
+  {
     name: 'ignora estado booking v2 invalido guardado en la conversacion',
     run: () => {
       const state = stateFromConversation({
@@ -681,6 +722,75 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'presupuesto aceptado evita una segunda derivacion y retoma por profesional',
+    run: async () => {
+      const quoteCatalog = createBookingV2DomainCatalog({
+        services: [{
+          id: 'illumination',
+          name: 'Iluminacion',
+          aliases: ['iluminacion'],
+          duration: 90,
+          price: 150000,
+          category: 'Coloracion',
+          attentionMode: 'QUOTE',
+          requiresPhoto: true
+        }],
+        professionals: [{
+          id: 'professional-1',
+          name: 'Tamara',
+          serviceIds: ['illumination']
+        }]
+      })
+      const engine = new BookingV2Engine(
+        fakeDomainPort({ catalog: quoteCatalog }),
+        fakeExtractor(null)
+      )
+      const state = {
+        ...createEmptyBookingV2State(),
+        draft: {
+          name: 'Mati',
+          service: 'illumination',
+          professional: null,
+          date: null,
+          time: null
+        },
+        advisorQuote: {
+          serviceId: 'illumination',
+          amount: 160000,
+          note: null,
+          status: 'accepted' as const,
+          quotedAt: '2026-07-28T23:45:00.000Z'
+        }
+      }
+      const patch = conversationPatchFromState(state)
+      const result = await engine.resume({
+        businessId: 'business-1',
+        conversation: {
+          ...patch,
+          bookingV2State: patch.bookingV2State
+        }
+      })
+      assert.equal(result.plan.type, 'ask_field')
+      assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'professional')
+      assert.equal(result.reply.includes('Tamara'), true)
+      assert.equal(result.reply.includes('foto'), false)
+    }
+  },
+  {
+    name: 'aceptacion y rechazo del presupuesto entienden respuestas naturales',
+    run: () => {
+      assert.equal(isPositiveAdvisorQuoteDecision('si dale, reservemos'), true)
+      assert.equal(isPositiveAdvisorQuoteDecision('de una'), true)
+      assert.equal(isPositiveAdvisorQuoteDecision('me sirve'), true)
+      assert.equal(isPositiveAdvisorQuoteDecision('mandale'), true)
+      assert.equal(isNegativeAdvisorQuoteDecision('no gracias'), true)
+      assert.equal(isNegativeAdvisorQuoteDecision('lo voy a pensar'), true)
+      assert.equal(isNegativeAdvisorQuoteDecision('ni ahi'), true)
+      assert.equal(isPositiveAdvisorQuoteDecision('cuanto demora?'), false)
+      assert.equal(isNegativeAdvisorQuoteDecision('cuanto demora?'), false)
+    }
+  },
+  {
     name: 'servicio con asesoramiento deriva antes de reservar',
     run: async () => {
       const catalog = createBookingV2DomainCatalog({
@@ -802,6 +912,61 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         sha256: 'hash-1',
         caption: 'Mi pelo actual'
       })
+    }
+  },
+  {
+    name: 'varias fotos separadas reciben un solo acuse para presupuesto',
+    run: async () => {
+      let acknowledged = false
+      const outboundMessages: Array<{ body: string }> = []
+      const sends: string[] = []
+      const db = {
+        service: {
+          findFirst: async () => ({ id: 'illumination' })
+        },
+        conversation: {
+          updateMany: async (args: { where: { photoQuoteAcknowledgedAt?: null }; data: Record<string, unknown> }) => {
+            if ('photoQuoteAcknowledgedAt' in args.where) {
+              if (acknowledged) return { count: 0 }
+              acknowledged = true
+              return { count: 1 }
+            }
+            acknowledged = false
+            return { count: 1 }
+          },
+          update: async () => ({ id: 'conversation-1' })
+        },
+        message: {
+          create: async (args: { data: { body: string } }) => {
+            outboundMessages.push({ body: args.data.body })
+            return { id: 'outbound-1' }
+          }
+        }
+      }
+      const sender = {
+        sendTextMessage: async (input: { text: string }) => {
+          sends.push(input.text)
+          return { sent: true as const, to: '5491100000000', response: { messages: [{ id: 'wamid.out' }] } }
+        }
+      }
+      const service = new PhotoQuoteAcknowledgementService(
+        db as never,
+        sender as never,
+        (async () => ({ allowed: true as const })) as never
+      )
+      const input = {
+        conversationId: 'conversation-1',
+        businessId: 'business-1',
+        phone: '5491100000000',
+        selectedServiceId: 'illumination'
+      }
+      const first = await service.acknowledge(input)
+      const second = await service.acknowledge(input)
+      assert.equal(first?.sent, true)
+      assert.equal(second, null)
+      assert.equal(sends.length, 1)
+      assert.equal(outboundMessages.length, 1)
+      assert.equal(outboundMessages[0]?.body, PHOTO_QUOTE_ACKNOWLEDGEMENT)
     }
   },
   {

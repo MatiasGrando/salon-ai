@@ -41,10 +41,19 @@ export type BookingV2PendingDeposit = {
   expiresAt: string
 }
 
+export type BookingV2AdvisorQuote = {
+  serviceId: string
+  amount: number
+  note: string | null
+  status: 'awaiting_acceptance' | 'accepted'
+  quotedAt: string
+}
+
 export type BookingV2State = {
   draft: BookingDraft
   pendingProposal: BookingProposal | null
   guidedEstimate: BookingV2GuidedEstimate | null
+  advisorQuote: BookingV2AdvisorQuote | null
   pendingDeposit: BookingV2PendingDeposit | null
   misunderstandingCount: number
 }
@@ -70,6 +79,7 @@ export function createEmptyBookingV2State(): BookingV2State {
     },
     pendingProposal: null,
     guidedEstimate: null,
+    advisorQuote: null,
     pendingDeposit: null,
     misunderstandingCount: 0
   }
@@ -112,6 +122,9 @@ export function acceptField(
     guidedEstimate: field === 'service' && state.draft[field] !== value
       ? null
       : state.guidedEstimate,
+    advisorQuote: field === 'service' && state.draft[field] !== value
+      ? null
+      : state.advisorQuote,
     pendingDeposit: state.draft[field] !== value ? null : state.pendingDeposit,
     misunderstandingCount: 0
   }
@@ -159,6 +172,7 @@ export function confirmProposal(state: BookingV2State): BookingV2State {
       draft: clearFieldAndDependents(state.draft, proposal.field),
       pendingProposal: null,
       guidedEstimate: proposal.field === 'service' ? null : state.guidedEstimate,
+      advisorQuote: proposal.field === 'service' ? null : state.advisorQuote,
       pendingDeposit: null,
       misunderstandingCount: 0
     }

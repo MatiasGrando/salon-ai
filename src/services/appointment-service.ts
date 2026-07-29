@@ -14,6 +14,7 @@ type CreateAppointmentInput = {
   startAt: string
   force?: boolean
   status?: 'PENDING' | 'CONFIRMED'
+  quotedPrice?: number | null
 }
 
 type AppointmentMutationResult =
@@ -198,7 +199,8 @@ export class AppointmentService {
         professionalId: input.professionalId,
         serviceId: input.serviceId,
         startAt,
-        status: input.status ?? 'CONFIRMED'
+        status: input.status ?? 'CONFIRMED',
+        quotedPrice: normalizeQuotedPrice(input.quotedPrice)
       }
     })
 
@@ -965,4 +967,9 @@ function formatDisplayDate(date: Date) {
   const year = date.getFullYear()
 
   return `${day}/${month}/${year}`
+}
+
+function normalizeQuotedPrice(value: number | null | undefined) {
+  if (value === null || value === undefined) return null
+  return Number.isInteger(value) && value > 0 ? value : null
 }

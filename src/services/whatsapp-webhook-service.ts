@@ -6,6 +6,10 @@ import { ConversationService } from './conversation-service.js'
 import { reopenClosedConversationOpportunity } from './conversation-opportunity-service.js'
 import { bookingDepositService } from './booking-deposit-service.js'
 import { capturePostSaleResponse } from './post-sale-service.js'
+import {
+  PHOTO_QUOTE_ACKNOWLEDGEMENT,
+  photoQuoteAcknowledgementService
+} from './photo-quote-acknowledgement-service.js'
 
 type VerifyWebhookInput = {
   mode: string | undefined
@@ -163,13 +167,13 @@ export class WhatsAppWebhookService {
       const inboundMessage = await prisma.message.create({
         data: inboundMessageData
       })
-      if (message.media?.type === 'image') {
-        await bookingDepositService.markProofReceived({
+      const depositProof = message.media?.type === 'image'
+        ? await bookingDepositService.markProofReceived({
           conversationId: conversation.id,
           messageId: inboundMessage.id,
           receivedAt: inboundMessage.createdAt
         })
-      }
+        : null
 
       await prisma.conversation.update({
         where: {
@@ -300,6 +304,17 @@ export class WhatsAppWebhookService {
         continue
       }
 
+      const photoQuoteAcknowledgement = message.media?.type === 'image' &&
+        !depositProof &&
+        !hasPendingDepositState(conversation.bookingV2State)
+        ? await photoQuoteAcknowledgementService.acknowledge({
+            conversationId: conversation.id,
+            businessId: conversation.businessId,
+            phone: message.from,
+            selectedServiceId: conversation.selectedServiceId
+          })
+        : null
+
       const businessAiEnabled = conversation.business
         ? conversation.business.aiEnabled
         : await this.isDefaultBusinessAiEnabled()
@@ -315,7 +330,13 @@ export class WhatsAppWebhookService {
           messageId: message.id,
           from: message.from,
           skipped: true,
-          reason: 'Atencion manual'
+          reason: 'Atencion manual',
+          ...(photoQuoteAcknowledgement
+            ? {
+                reply: PHOTO_QUOTE_ACKNOWLEDGEMENT,
+                delivery: photoQuoteAcknowledgement
+              }
+            : {})
         })
 
         continue
@@ -601,6 +622,11 @@ async function linkInstagramReferral(text: string, conversationId: string, busin
       whatsappLinkedAt: new Date()
     }
   })
+}
+
+function hasPendingDepositState(value: unknown) {
+  if (!value || typeof value !== 'object') return false
+  return Boolean((value as { pendingDeposit?: unknown }).pendingDeposit)
 }
 
 function isMarketingOptOutMessage(text: string) {

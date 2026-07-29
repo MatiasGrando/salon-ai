@@ -21,6 +21,7 @@ export type BookingCreateAppointmentInput = {
   professionalId: string
   serviceId: string
   startAt: string
+  quotedPrice?: number | null
 }
 
 export type BookingCreateAppointmentResult =
