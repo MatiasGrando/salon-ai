@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
 import { Prisma } from '../generated/prisma/client.js'
+import { serviceCanContinueToBooking } from '../services/booking-v2-deposit.js'
 
 export async function serviceRoutes(app: FastifyInstance) {
   app.post('/service-categories', async (request, reply) => {
@@ -254,6 +255,7 @@ export async function serviceRoutes(app: FastifyInstance) {
     const depositBaseValidation = validatePercentageDepositBase({
       mode: depositMode ?? 'NONE',
       attentionMode: attentionMode ?? 'DIRECT_BOOKING',
+      requiresPhoto,
       price,
       estimateOptions: estimateOptions ?? []
     })
@@ -263,6 +265,7 @@ export async function serviceRoutes(app: FastifyInstance) {
     const depositFlowValidation = validateDepositBookingFlow({
       mode: depositMode ?? 'NONE',
       attentionMode: attentionMode ?? 'DIRECT_BOOKING',
+      requiresPhoto,
       estimateAllowsBooking: body.estimateAllowsBooking !== false
     })
     if (!depositFlowValidation.ok) {
@@ -523,6 +526,7 @@ export async function serviceRoutes(app: FastifyInstance) {
     const depositBaseValidation = validatePercentageDepositBase({
       mode: depositMode,
       attentionMode,
+      requiresPhoto,
       price,
       estimateOptions: estimateOptions ?? []
     })
@@ -532,6 +536,7 @@ export async function serviceRoutes(app: FastifyInstance) {
     const depositFlowValidation = validateDepositBookingFlow({
       mode: depositMode,
       attentionMode,
+      requiresPhoto,
       estimateAllowsBooking
     })
     if (!depositFlowValidation.ok) {
@@ -863,6 +868,7 @@ function validateDepositRule(mode: 'NONE' | 'FIXED' | 'PERCENTAGE', value: numbe
 function validatePercentageDepositBase(input: {
   mode: 'NONE' | 'FIXED' | 'PERCENTAGE'
   attentionMode: 'DIRECT_BOOKING' | 'QUOTE' | 'ADVISOR' | 'GUIDED_ESTIMATE'
+  requiresPhoto: boolean
   price: number | null
   estimateOptions: Array<{ priceMin: number } | null>
 }) {
@@ -879,6 +885,9 @@ function validatePercentageDepositBase(input: {
       message: 'Para calcular la seña porcentual, todos los estimativos deben tener un minimo mayor a 0'
     }
   }
+  if (input.attentionMode === 'QUOTE' || input.requiresPhoto) {
+    return { ok: true as const }
+  }
   if (input.price !== null && input.price > 0) return { ok: true as const }
   return {
     ok: false as const,
@@ -889,13 +898,11 @@ function validatePercentageDepositBase(input: {
 function validateDepositBookingFlow(input: {
   mode: 'NONE' | 'FIXED' | 'PERCENTAGE'
   attentionMode: 'DIRECT_BOOKING' | 'QUOTE' | 'ADVISOR' | 'GUIDED_ESTIMATE'
+  requiresPhoto: boolean
   estimateAllowsBooking: boolean
 }) {
   if (input.mode === 'NONE') return { ok: true as const }
-  if (
-    input.attentionMode === 'DIRECT_BOOKING' ||
-    (input.attentionMode === 'GUIDED_ESTIMATE' && input.estimateAllowsBooking)
-  ) {
+  if (serviceCanContinueToBooking(input)) {
     return { ok: true as const }
   }
   return {

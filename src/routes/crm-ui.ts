@@ -16790,7 +16790,7 @@ const crmHtml = `<!doctype html>
         addServiceEstimateOption()
       }
       els.serviceAttentionHelp.textContent = mode === 'QUOTE'
-        ? 'El bot no ofrecerÃ¡ horarios: derivarÃ¡ la consulta para preparar un presupuesto.'
+        ? 'El bot derivarÃ¡ la consulta para preparar el presupuesto. Si el cliente lo acepta, continuarÃ¡ con profesional, dÃ­a, horario y seÃ±a si estÃ¡ configurada.'
         : mode === 'ADVISOR'
           ? 'El bot no ofrecerÃ¡ horarios: derivarÃ¡ al equipo para asesorar al cliente.'
           : mode === 'GUIDED_ESTIMATE'
@@ -16845,8 +16845,11 @@ const crmHtml = `<!doctype html>
 
     function updateServiceDepositFields() {
       const attentionMode = els.serviceAttentionMode.value
-      const canBook = attentionMode === 'DIRECT_BOOKING' ||
-        (attentionMode === 'GUIDED_ESTIMATE' && els.serviceEstimateAllowsBooking.checked)
+      const canBook = serviceCanContinueToBooking({
+        attentionMode,
+        requiresPhoto: els.serviceRequiresPhoto.checked,
+        estimateAllowsBooking: els.serviceEstimateAllowsBooking.checked
+      })
       const canEnable = els.serviceItemType.value !== 'GROUP' && canBook
       if (!canEnable) els.serviceDepositEnabled.checked = false
       els.serviceDepositEnabled.disabled = !canEnable
@@ -16916,8 +16919,7 @@ const crmHtml = `<!doctype html>
                 '<span>' + icon('tag') + escapeHtml(priceLabel) + '</span>' +
                 '<span>' + escapeHtml(attentionLabel) + '</span>' +
                 (depositLabel ? '<span>' + escapeHtml(depositLabel) + '</span>' : '') +
-                ((attentionMode === 'DIRECT_BOOKING' && !service.requiresPhoto) ||
-                  (attentionMode === 'GUIDED_ESTIMATE' && service.estimateAllowsBooking !== false)
+                (serviceCanContinueToBooking(service)
                   ? professionalCount > 0
                     ? '<span>' + escapeHtml(professionalCount === 1 ? '1 profesional' : professionalCount + ' profesionales') + '</span>'
                     : '<span class="service-professional-warning">Sin profesionales asignados</span>'
@@ -19567,12 +19569,16 @@ const crmHtml = `<!doctype html>
     function bookableServices() {
       return state.services.filter((service) =>
         service.isBookable !== false &&
-        (
-          (service.attentionMode || 'DIRECT_BOOKING') === 'DIRECT_BOOKING' ||
-          (service.attentionMode === 'GUIDED_ESTIMATE' && service.estimateAllowsBooking !== false)
-        ) &&
-        (service.requiresPhoto !== true || service.attentionMode === 'GUIDED_ESTIMATE')
+        serviceCanContinueToBooking(service)
       )
+    }
+
+    function serviceCanContinueToBooking(service) {
+      const attentionMode = service.attentionMode || 'DIRECT_BOOKING'
+      return attentionMode === 'DIRECT_BOOKING' ||
+        attentionMode === 'QUOTE' ||
+        service.requiresPhoto === true ||
+        (attentionMode === 'GUIDED_ESTIMATE' && service.estimateAllowsBooking !== false)
     }
 
     function serviceCatalogLabel(service) {
@@ -23745,7 +23751,10 @@ const crmHtml = `<!doctype html>
       updateServiceAttentionHelp()
       updateServiceDepositFields()
     })
-    els.serviceRequiresPhoto.addEventListener('change', updateServiceAttentionHelp)
+    els.serviceRequiresPhoto.addEventListener('change', () => {
+      updateServiceAttentionHelp()
+      updateServiceDepositFields()
+    })
     els.servicePriceMode.addEventListener('change', updateServicePriceModeHelp)
     els.serviceDepositEnabled.addEventListener('change', updateServiceDepositFields)
     els.serviceDepositMode.addEventListener('change', updateServiceDepositFields)

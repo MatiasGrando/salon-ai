@@ -1,4 +1,5 @@
 export type BookingV2DepositMode = 'NONE' | 'FIXED' | 'PERCENTAGE'
+export type BookingV2ServiceAttentionMode = 'DIRECT_BOOKING' | 'QUOTE' | 'ADVISOR' | 'GUIDED_ESTIMATE'
 
 export type BookingV2DepositCalculation = {
   mode: Exclude<BookingV2DepositMode, 'NONE'>
@@ -16,6 +17,17 @@ export type BookingV2PaymentSettings = {
   paymentLinkEnabled: boolean
   paymentLink: string | null
   instructions: string | null
+}
+
+export function serviceCanContinueToBooking(input: {
+  attentionMode: BookingV2ServiceAttentionMode
+  requiresPhoto: boolean
+  estimateAllowsBooking: boolean
+}) {
+  return input.attentionMode === 'DIRECT_BOOKING' ||
+    input.attentionMode === 'QUOTE' ||
+    input.requiresPhoto ||
+    (input.attentionMode === 'GUIDED_ESTIMATE' && input.estimateAllowsBooking)
 }
 
 export function calculateBookingV2Deposit(input: {

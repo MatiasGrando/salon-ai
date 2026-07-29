@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import { BookingDepositService } from '../src/services/booking-deposit-service.js'
 import {
   calculateBookingV2Deposit,
-  renderBookingV2DepositRequest
+  renderBookingV2DepositRequest,
+  serviceCanContinueToBooking
 } from '../src/services/booking-v2-deposit.js'
 
 type DepositRecord = {
@@ -42,6 +43,32 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       })
       assert.equal(result?.baseAmount, 100000)
       assert.equal(result?.amount, 30000)
+    }
+  },
+  {
+    name: 'presupuesto personalizado puede continuar a profesional horario y seña',
+    run: () => {
+      assert.equal(serviceCanContinueToBooking({
+        attentionMode: 'QUOTE',
+        requiresPhoto: true,
+        estimateAllowsBooking: false
+      }), true)
+      assert.equal(calculateBookingV2Deposit({
+        mode: 'PERCENTAGE',
+        value: 30,
+        servicePrice: null,
+        estimateMinimum: 160000
+      })?.amount, 48000)
+    }
+  },
+  {
+    name: 'asesoramiento sin continuidad no habilita seña',
+    run: () => {
+      assert.equal(serviceCanContinueToBooking({
+        attentionMode: 'ADVISOR',
+        requiresPhoto: false,
+        estimateAllowsBooking: false
+      }), false)
     }
   },
   {
