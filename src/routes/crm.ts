@@ -18,12 +18,22 @@ import {
   conversationPatchFromState,
   stateFromConversation
 } from '../services/booking-v2-conversation-state.js'
-import { nextMissingField, type BookingV2State } from '../services/booking-v2-state.js'
+import { BookingV2Engine } from '../services/booking-v2-engine.js'
+import {
+  acceptField,
+  clearFieldAndDependents,
+  nextMissingField,
+  type BookingV2State
+} from '../services/booking-v2-state.js'
 
 const whatsappCloudApi = new WhatsAppCloudApi()
+const bookingV2Engine = new BookingV2Engine()
 const WHATSAPP_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000
 
 function conversationStepForPersistedBookingState(state: BookingV2State) {
+  if (state.serviceValidation?.stage === 'awaiting_confirmation') {
+    return 'ASK_SERVICE'
+  }
   if (
     state.guidedEstimate?.stage === 'awaiting_option' ||
     state.guidedEstimate?.stage === 'awaiting_decision'
@@ -650,6 +660,128 @@ export async function crmRoutes(app: FastifyInstance) {
             humanHandoffResolvedAt: null
           }
     })
+  })
+
+  app.post('/crm/conversations/:id/service-resolution', async (request, reply) => {
+    const params = request.params as { id: string }
+    const body = request.body as { serviceId?: string | null }
+    const authUser = request.auth?.user
+    if (!authUser) return reply.status(401).send({ message: 'Sesion requerida' })
+
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: params.id }
+    })
+    if (!conversation || !conversation.businessId) {
+      return reply.status(404).send({ message: 'No encontre esa conversacion' })
+    }
+    if (authUser.role !== 'SUPER_ADMIN' && authUser.businessId !== conversation.businessId) {
+      return reply.status(403).send({ message: 'No tenes acceso a esa conversacion' })
+    }
+    if (conversation.currentStep !== 'HUMAN_HANDOFF' || conversation.aiEnabled) {
+      return reply.status(409).send({
+        message: 'La conversacion no esta esperando la intervencion de un asesor'
+      })
+    }
+
+    const activeDeposit = await prisma.bookingDeposit.findFirst({
+      where: {
+        conversationId: conversation.id,
+        status: { in: ['PENDING_PROOF', 'PROOF_RECEIVED'] }
+      },
+      select: { id: true }
+    })
+    if (activeDeposit) {
+      return reply.status(409).send({
+        message: 'Aproba o rechaza la seña pendiente antes de devolver la conversacion al bot'
+      })
+    }
+
+    let state = stateFromConversation(conversation)
+    if (body.serviceId) {
+      const service = await prisma.service.findFirst({
+        where: {
+          id: body.serviceId,
+          businessId: conversation.businessId,
+          isBookable: true
+        },
+        select: {
+          id: true,
+          validationEnabled: true
+        }
+      })
+      if (!service) {
+        return reply.status(404).send({ message: 'No encontre ese servicio reservable' })
+      }
+      state = acceptField(state, 'service', service.id)
+      state = {
+        ...state,
+        serviceValidation: service.validationEnabled
+          ? { serviceId: service.id, stage: 'completed' }
+          : null,
+        guidedEstimate: null,
+        advisorQuote: null,
+        pendingDeposit: null,
+        misunderstandingCount: 0
+      }
+    } else {
+      state = {
+        ...state,
+        draft: clearFieldAndDependents(state.draft, 'service'),
+        pendingProposal: null,
+        serviceValidation: null,
+        guidedEstimate: null,
+        advisorQuote: null,
+        pendingDeposit: null,
+        misunderstandingCount: 0
+      }
+    }
+
+    const initialPatch = conversationPatchFromState(state)
+    const resumed = await bookingV2Engine.resume({
+      businessId: conversation.businessId,
+      conversation: {
+        ...conversation,
+        ...initialPatch,
+        bookingV2State: initialPatch.bookingV2State
+      }
+    })
+    if (resumed.plan.type === 'handoff') {
+      return reply.status(409).send({
+        message: 'Ese servicio requiere que el equipo siga atendiendolo manualmente o cargue un presupuesto'
+      })
+    }
+
+    const delivery = await sendCrmAutomatedMessage({
+      conversationId: conversation.id,
+      businessId: conversation.businessId,
+      phone: conversation.phone,
+      text: resumed.reply,
+      provider: body.serviceId
+        ? 'crm_advisor_service_resolution'
+        : 'crm_advisor_catalog_return'
+    })
+    if (!delivery.sent) {
+      return reply.status(502).send({
+        message: 'No pude enviar el siguiente paso por WhatsApp. La conversacion sigue en atencion manual.'
+      })
+    }
+
+    const patch = resumed.conversationPatch
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: {
+        currentStep: conversationStepForPersistedBookingState(resumed.state),
+        aiEnabled: true,
+        lastMessage: resumed.reply,
+        humanHandoffResolvedAt: new Date(),
+        ...patch,
+        bookingV2State: patch.bookingV2State
+          ? patch.bookingV2State as Prisma.InputJsonValue
+          : Prisma.JsonNull,
+        lastAvailability: Prisma.JsonNull
+      }
+    })
+    return conversationWithLatestDeposit(conversation.id)
   })
 
   app.post('/crm/conversations/:id/advisor-quote', async (request, reply) => {

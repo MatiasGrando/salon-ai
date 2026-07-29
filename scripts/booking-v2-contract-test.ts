@@ -68,8 +68,24 @@ import {
   PHOTO_QUOTE_ACKNOWLEDGEMENT,
   PhotoQuoteAcknowledgementService
 } from '../src/services/photo-quote-acknowledgement-service.js'
+import { conversationCompletionPatchFromAppointment } from '../src/services/conversation-opportunity-service.js'
 
 const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
+  {
+    name: 'una reserva manual completa el chat y descarta el borrador derivado',
+    run: () => {
+      const completedAt = new Date('2026-07-29T12:00:00.000Z')
+      const patch = conversationCompletionPatchFromAppointment(completedAt)
+      assert.equal(patch.currentStep, 'COMPLETED')
+      assert.equal(patch.aiEnabled, true)
+      assert.equal(patch.selectedServiceId, null)
+      assert.equal(patch.selectedProfessionalId, null)
+      assert.equal(patch.selectedDate, null)
+      assert.equal(patch.selectedTime, null)
+      assert.equal(patch.misunderstandingCount, 0)
+      assert.equal(patch.humanHandoffResolvedAt, completedAt)
+    }
+  },
   {
     name: 'respeta el orden canonico aunque haya datos adelantados',
     run: () => {
@@ -678,6 +694,51 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'si no sabe que servicio elegir deriva inmediatamente a un asesor',
+    run: async () => {
+      const engine = new BookingV2Engine(fakeDomainPort(), fakeExtractor(null))
+      const state = acceptField(createEmptyBookingV2State(), 'name', 'Mati')
+
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(state),
+        message: 'no sé cuál necesito'
+      })
+
+      assert.deepEqual(result.plan, {
+        type: 'handoff',
+        reason: 'service_selection_uncertain'
+      })
+      assert.equal(result.state.draft.name, 'Mati')
+      assert.equal(result.state.draft.service, null)
+      assert.equal(result.reply.includes('ayudarte a elegir'), true)
+      assert.equal(result.reply.includes('demorar unos minutos'), true)
+    }
+  },
+  {
+    name: 'el catalogo ofrece explicitamente pedir ayuda para elegir',
+    run: () => {
+      const reply = renderBookingV2Response({
+        plan: {
+          type: 'ask_field',
+          field: 'service',
+          reason: 'missing',
+          misunderstandingCount: 0
+        },
+        draft: {
+          name: 'Mati',
+          service: null,
+          professional: null,
+          date: null,
+          time: null
+        },
+        catalog: fakeDomainCatalog()
+      })
+
+      assert.equal(reply.includes('• No sé cuál necesito'), true)
+    }
+  },
+  {
     name: 'servicio configurable explica y valida antes de pedir profesional',
     run: async () => {
       const validationCatalog = createBookingV2DomainCatalog({
@@ -966,6 +1027,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         'advisor_required',
         'photo_required',
         'estimate_quote_requested',
+        'service_selection_uncertain',
         'service_validation_uncertain'
       ] as const
 

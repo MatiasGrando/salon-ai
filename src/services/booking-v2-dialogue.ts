@@ -52,6 +52,7 @@ export type BookingV2MessagePlan =
         | 'advisor_required'
         | 'photo_required'
         | 'estimate_quote_requested'
+        | 'service_selection_uncertain'
         | 'service_validation_uncertain'
     }
 

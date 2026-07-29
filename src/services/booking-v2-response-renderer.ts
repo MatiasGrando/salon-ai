@@ -41,6 +41,9 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
         ? `Para asegurarnos de que ${service.name} sea la opción correcta, te derivo con una persona del equipo para que pueda orientarte. ${waitNotice}`
         : `Para recomendarte el servicio correcto, te derivo con una persona del equipo. ${waitNotice}`
     }
+    if (input.plan.reason === 'service_selection_uncertain') {
+      return `Te derivo con una persona del equipo para que pueda ayudarte a elegir el servicio más adecuado. ${waitNotice}`
+    }
     if (input.plan.reason === 'no_compatible_professional') {
       return service
         ? `Por el momento no tengo profesionales habilitados para ${service.name}. Te derivo con una persona del local para revisarlo. ${waitNotice}`
@@ -171,6 +174,7 @@ function serviceQuestion(
         : 'Encontré más de una opción parecida 😊 ¿Cuál de estas querés?'
       : 'Estos son los servicios disponibles 😊',
     ...serviceLines,
+    ...(services.length > 1 ? ['• No sé cuál necesito'] : []),
     containsAssistedServices ? '¿Cuál te interesa?' : '¿Cuál querés reservar?'
   ].join('\n')
 }

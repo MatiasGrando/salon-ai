@@ -6,6 +6,7 @@ import { renderBookingV2Response } from './booking-v2-response-renderer.js'
 import { applyBookingV2Extraction, type BookingV2Interpretation } from './booking-v2-interpreter.js'
 import {
   BookingV2ServiceValidationClassifier,
+  deterministicServiceValidationDecision,
   type ServiceValidationClassification
 } from './booking-v2-service-validation.js'
 import {
@@ -243,6 +244,16 @@ export class BookingV2Engine {
         outcome: 'confirmation_required',
         affectedField: initialState.pendingProposal.field
       }, null, catalog)
+    }
+
+    if (
+      nextMissingField(initialState.draft) === 'service' &&
+      deterministicServiceValidationDecision(input.message) === 'uncertain'
+    ) {
+      return this.guidedEstimateResult(initialState, {
+        type: 'handoff',
+        reason: 'service_selection_uncertain'
+      }, catalog, 'accepted')
     }
 
     const deterministicName = resolveExpectedName(input.message, initialState, catalog)

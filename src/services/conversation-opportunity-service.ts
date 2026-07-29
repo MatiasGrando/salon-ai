@@ -1,4 +1,5 @@
 import { prisma } from '../config/prisma.js'
+import { Prisma } from '../generated/prisma/client.js'
 
 export const CONVERSATION_CLOSE_REASONS = [
   'NO_RESPONSE',
@@ -13,16 +14,33 @@ export type ConversationCloseReason = (typeof CONVERSATION_CLOSE_REASONS)[number
 
 type ConversationIdRow = { id: string }
 
+export function conversationCompletionPatchFromAppointment(completedAt = new Date()) {
+  return {
+    currentStep: 'COMPLETED' as const,
+    aiEnabled: true,
+    selectedServiceId: null,
+    selectedProfessionalId: null,
+    selectedDate: null,
+    selectedTime: null,
+    misunderstandingCount: 0,
+    bookingV2State: Prisma.JsonNull,
+    lastAvailability: Prisma.JsonNull,
+    humanHandoffResolvedAt: completedAt
+  }
+}
+
 export async function markConversationOpportunityConverted(input: {
   businessId: string
   customerPhone: string
   appointmentId: string
+  completeConversation?: boolean
 }) {
   const conversationRows = await prisma.$queryRawUnsafe<ConversationIdRow[]>(
     `SELECT id
      FROM "Conversation"
      WHERE "businessId" = $1
-       AND regexp_replace(phone, '[^0-9]', '', 'g') = regexp_replace($2, '[^0-9]', '', 'g')
+       AND right(regexp_replace(phone, '[^0-9]', '', 'g'), 10) =
+           right(regexp_replace($2, '[^0-9]', '', 'g'), 10)
      ORDER BY "updatedAt" DESC
      LIMIT 1`,
     input.businessId,
@@ -36,11 +54,18 @@ export async function markConversationOpportunityConverted(input: {
     select: { opportunityStatus: true, opportunityAppointmentId: true }
   })
   if (!conversation) return null
-  if (conversation.opportunityStatus === 'CONVERTED' && conversation.opportunityAppointmentId === input.appointmentId) {
+  if (
+    conversation.opportunityStatus === 'CONVERTED' &&
+    conversation.opportunityAppointmentId === input.appointmentId &&
+    !input.completeConversation
+  ) {
     return conversationId
   }
 
   const convertedAt = new Date()
+  const completionPatch = input.completeConversation
+    ? conversationCompletionPatchFromAppointment(convertedAt)
+    : {}
   await prisma.$transaction([
     prisma.conversation.update({
       where: { id: conversationId },
@@ -50,7 +75,8 @@ export async function markConversationOpportunityConverted(input: {
         opportunityConvertedAt: convertedAt,
         opportunityClosedAt: null,
         opportunityCloseReason: null,
-        opportunityCloseNote: null
+        opportunityCloseNote: null,
+        ...completionPatch
       }
     }),
     prisma.conversationOpportunityEvent.create({

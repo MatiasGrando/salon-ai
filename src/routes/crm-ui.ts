@@ -12097,6 +12097,33 @@ const crmHtml = `<!doctype html>
       </section>
     </div>
 
+    <div class="dialog-backdrop" id="service-resolution-dialog" hidden>
+      <section class="dialog customer-dialog" role="dialog" aria-modal="true" aria-labelledby="service-resolution-dialog-title">
+        <div class="dialog-head">
+          <div>
+            <h3 id="service-resolution-dialog-title">Resolver elecci&oacute;n de servicio</h3>
+            <p class="customer-dialog-copy">Eleg&iacute; c&oacute;mo debe continuar esta conversaci&oacute;n.</p>
+          </div>
+          <button class="icon-button" id="service-resolution-dialog-close" type="button" title="Seguir atendiendo manualmente">X</button>
+        </div>
+        <form class="customer-dialog-form" id="service-resolution-dialog-form">
+          <div class="customer-dialog-field">
+            <label for="service-resolution-service">Servicio recomendado por el asesor</label>
+            <select id="service-resolution-service">
+              <option value="">Seleccionar servicio</option>
+            </select>
+            <p class="customer-dialog-copy">Al continuar, Cami retoma desde profesional, d&iacute;a y horario. La validaci&oacute;n del servicio se considera resuelta por el asesor.</p>
+          </div>
+          <p class="customer-dialog-feedback" id="service-resolution-dialog-feedback"></p>
+          <div class="dialog-actions">
+            <button class="secondary" id="service-resolution-dialog-manual" type="button">Seguir manualmente</button>
+            <button class="secondary" id="service-resolution-dialog-catalog" type="button">Volver al cat&aacute;logo</button>
+            <button class="primary" id="service-resolution-dialog-submit" type="submit">Usar servicio y retomar</button>
+          </div>
+        </form>
+      </section>
+    </div>
+
     <div class="dialog-backdrop" id="customer-dialog" hidden>
       <section class="dialog customer-dialog" role="dialog" aria-modal="true" aria-labelledby="customer-dialog-title">
         <header class="dialog-header">
@@ -14292,6 +14319,14 @@ const crmHtml = `<!doctype html>
       advisorQuoteDialogAmountPreview: document.getElementById('advisor-quote-amount-preview'),
       advisorQuoteDialogNote: document.getElementById('advisor-quote-note'),
       advisorQuoteDialogFeedback: document.getElementById('advisor-quote-dialog-feedback'),
+      serviceResolutionDialog: document.getElementById('service-resolution-dialog'),
+      serviceResolutionDialogForm: document.getElementById('service-resolution-dialog-form'),
+      serviceResolutionDialogClose: document.getElementById('service-resolution-dialog-close'),
+      serviceResolutionDialogManual: document.getElementById('service-resolution-dialog-manual'),
+      serviceResolutionDialogCatalog: document.getElementById('service-resolution-dialog-catalog'),
+      serviceResolutionDialogSubmit: document.getElementById('service-resolution-dialog-submit'),
+      serviceResolutionService: document.getElementById('service-resolution-service'),
+      serviceResolutionDialogFeedback: document.getElementById('service-resolution-dialog-feedback'),
       confirmationAccept: document.getElementById('confirmation-accept'),
       confirmationCancel: document.getElementById('confirmation-cancel'),
       count: document.getElementById('conversation-count'),
@@ -16521,6 +16556,9 @@ const crmHtml = `<!doctype html>
       els.advisorQuote.disabled = !canSendAdvisorQuote
       els.resolveHandoff.hidden = !canResolveHandoff || Boolean(activeDeposit)
       els.resolveHandoff.disabled = !canResolveHandoff || Boolean(activeDeposit)
+      els.resolveHandoff.textContent = selected.selectedServiceId
+        ? 'Marcar como resuelto'
+        : 'Definir servicio'
       els.conversationAiToggle.hidden = canResolveHandoff
       els.conversationAiToggle.disabled = canResolveHandoff
       els.conversationAiToggle.textContent = 'Atender manualmente'
@@ -17955,6 +17993,10 @@ const crmHtml = `<!doctype html>
 
     async function resolveHandoff() {
       if (!state.selected) return
+      if (!state.selected.selectedServiceId) {
+        openServiceResolutionDialog()
+        return
+      }
       if (!setButtonLoading(els.resolveHandoff, true, 'Resolviendo...')) return
       try {
         const updated = await getJson('/crm/conversations/' + state.selected.id + '/ai', {
@@ -17971,6 +18013,74 @@ const crmHtml = `<!doctype html>
         showCrmToast(error.message, 'error')
       } finally {
         setButtonLoading(els.resolveHandoff, false)
+      }
+    }
+
+    function openServiceResolutionDialog() {
+      if (!state.selected) return
+      const services = state.services
+        .filter((service) => service.isBookable !== false)
+        .sort((left, right) => {
+          const categoryComparison = String(left.catalogCategory?.name || left.category || '')
+            .localeCompare(String(right.catalogCategory?.name || right.category || ''), 'es')
+          return categoryComparison || String(left.name).localeCompare(String(right.name), 'es')
+        })
+      els.serviceResolutionService.innerHTML = [
+        '<option value="">Seleccionar servicio</option>',
+        ...services.map((service) => {
+          const category = service.catalogCategory?.name || service.category
+          const label = category ? category + ' — ' + service.name : service.name
+          return '<option value="' + escapeHtml(service.id) + '">' + escapeHtml(label) + '</option>'
+        })
+      ].join('')
+      els.serviceResolutionDialogFeedback.textContent = ''
+      els.serviceResolutionDialog.hidden = false
+      els.serviceResolutionService.focus()
+    }
+
+    function closeServiceResolutionDialog() {
+      els.serviceResolutionDialog.hidden = true
+      els.serviceResolutionDialogFeedback.textContent = ''
+      els.serviceResolutionService.value = ''
+    }
+
+    async function submitServiceResolution(event) {
+      event.preventDefault()
+      const serviceId = els.serviceResolutionService.value
+      if (!serviceId) {
+        els.serviceResolutionDialogFeedback.textContent = 'Selecciona el servicio que recomendo el asesor.'
+        return
+      }
+      await resolveServiceSelection(serviceId, els.serviceResolutionDialogSubmit)
+    }
+
+    async function returnServiceResolutionToCatalog() {
+      await resolveServiceSelection(null, els.serviceResolutionDialogCatalog)
+    }
+
+    async function resolveServiceSelection(serviceId, button) {
+      if (!state.selected) return
+      els.serviceResolutionDialogFeedback.textContent = ''
+      if (!setButtonLoading(button, true, serviceId ? 'Retomando...' : 'Enviando catálogo...')) return
+      try {
+        state.selected = await getJson('/crm/conversations/' + state.selected.id + '/service-resolution', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ serviceId })
+        })
+        closeServiceResolutionDialog()
+        await loadConversations()
+        renderSelected()
+        showCrmToast(
+          serviceId
+            ? 'Servicio definido. Cami retomó la reserva.'
+            : 'Cami volvió a mostrar el catálogo de servicios.',
+          'success'
+        )
+      } catch (error) {
+        els.serviceResolutionDialogFeedback.textContent = error.message
+      } finally {
+        setButtonLoading(button, false)
       }
     }
 
@@ -24403,6 +24513,10 @@ const crmHtml = `<!doctype html>
     els.advisorQuoteDialogClose.addEventListener('click', closeAdvisorQuoteDialog)
     els.advisorQuoteDialogCancel.addEventListener('click', closeAdvisorQuoteDialog)
     els.advisorQuoteDialogAmount.addEventListener('input', updateAdvisorQuoteAmountPreview)
+    els.serviceResolutionDialogForm.addEventListener('submit', submitServiceResolution)
+    els.serviceResolutionDialogClose.addEventListener('click', closeServiceResolutionDialog)
+    els.serviceResolutionDialogManual.addEventListener('click', closeServiceResolutionDialog)
+    els.serviceResolutionDialogCatalog.addEventListener('click', returnServiceResolutionToCatalog)
     els.depositApprove.addEventListener('click', approveSelectedDeposit)
     els.depositReject.addEventListener('click', rejectSelectedDeposit)
     els.refresh.addEventListener('click', () => {

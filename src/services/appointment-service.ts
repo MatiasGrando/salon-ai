@@ -209,7 +209,8 @@ export class AppointmentService {
         await markConversationOpportunityConverted({
           businessId: professional.businessId,
           customerPhone: customer.phone,
-          appointmentId: appointment.id
+          appointmentId: appointment.id,
+          completeConversation: true
         })
       } catch (error) {
         console.error('No pude vincular el turno con la oportunidad de chat', error)
