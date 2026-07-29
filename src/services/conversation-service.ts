@@ -272,21 +272,25 @@ export class ConversationService {
       }
     }
 
-    if (
-      conversation.currentStep === 'COMPLETED' &&
-      isPostBookingClosingMessage(message)
-    ) {
-      return {
-        reply: botCopyService.postBookingClosing(conversation.selectedCustomerName)
-      }
-    }
+    if (conversation.currentStep === 'COMPLETED') {
+      const sanitizedState = bookingV2Enabled && businessId
+        ? (await bookingV2Engine.resume({
+            businessId,
+            conversation
+          })).state
+        : stateFromConversation(conversation)
 
-    if (
-      conversation.currentStep === 'COMPLETED' &&
-      isPostBookingGreetingMessage(message)
-    ) {
-      await this.updateConversation(input.phone, {
+      if (isPostBookingClosingMessage(message)) {
+        return {
+          reply: botCopyService.postBookingClosing(sanitizedState.draft.name),
+          skipMisunderstandingTracking: true,
+          skipHumanize: true
+        }
+      }
+
+      const reopenedConversation = await this.updateConversation(input.phone, {
         currentStep: 'START',
+        selectedCustomerName: sanitizedState.draft.name,
         selectedServiceId: null,
         selectedProfessionalId: null,
         selectedDate: null,
@@ -296,8 +300,37 @@ export class ConversationService {
         bookingV2State: null
       })
 
+      if (isPostBookingGreetingMessage(message)) {
+        const personality = businessId
+          ? await getBusinessAssistantPersonality(businessId)
+          : null
+        const reply = botCopyService.reopenAfterBooking({
+          customerName: sanitizedState.draft.name,
+          askedHowAreYou: isPostBookingWellbeingQuestion(message)
+        })
+        return {
+          reply: personality
+            ? applyAssistantPersonalityToReply(reply, personality)
+            : reply,
+          skipMisunderstandingTracking: true,
+          skipHumanize: true
+        }
+      }
+
+      if (bookingV2Enabled && businessId && bookingV2Routing) {
+        return this.handleBookingV2({
+          phone: input.phone,
+          message,
+          businessId,
+          conversation: reopenedConversation,
+          routing: bookingV2Routing
+        })
+      }
+
       return {
-        reply: botCopyService.reopenAfterBooking(conversation.selectedCustomerName)
+        reply: sanitizedState.draft.name
+          ? botCopyService.mainMenu(sanitizedState.draft.name)
+          : botCopyService.welcome()
       }
     }
 
@@ -1848,33 +1881,21 @@ function isPostBookingClosingMessage(message: string) {
 }
 
 function isPostBookingGreetingMessage(message: string) {
-  const normalizedMessage = normalizeText(message)
+  return isBookingV2GreetingOnlyMessage(message)
+}
 
-  if (isBookingStartMessage(message, 'START')) {
-    return false
-  }
+export function isPostBookingWellbeingQuestion(message: string) {
+  const normalizedMessage = normalizeText(message)
+    .replace(/[^\p{Letter}\p{Number}\s]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim()
 
   return [
-    'hola',
-    'holaa',
-    'buenas',
-    'buen dia',
-    'buenas tardes',
-    'buenas noches',
     'hola como estas',
-    'hola como estas?',
     'como estas',
     'como va',
-    'que tal',
     'todo bien'
-  ].includes(normalizedMessage) ||
-    [
-      'hola cami',
-      'hola como estas',
-      'como estas',
-      'como va',
-      'que tal'
-    ].some((phrase) => normalizedMessage.includes(phrase))
+  ].includes(normalizedMessage)
 }
 
 function formatDate(date: Date) {

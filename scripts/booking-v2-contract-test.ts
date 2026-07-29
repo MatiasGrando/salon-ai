@@ -44,6 +44,7 @@ import {
   isBookingV2ConversationClosing,
   isBookingV2GreetingOnlyMessage,
   isNegativeAdvisorQuoteDecision,
+  isPostBookingWellbeingQuestion,
   isPositiveAdvisorQuoteDecision,
   isPositiveBookingV2Confirmation,
   shouldShowBookingV2IntentFallback,
@@ -2215,6 +2216,25 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(isBookingV2GreetingOnlyMessage('hola como estas?'), true)
       assert.equal(isBookingV2GreetingOnlyMessage('Hola, hasta que hora estan abiertos?'), false)
       assert.equal(isBookingV2GreetingOnlyMessage('hola quiero reservar'), false)
+    }
+  },
+  {
+    name: 'retomada posterior al turno no inventa que preguntaron como esta',
+    run: () => {
+      const copy = new BotCopyService()
+      const plainGreeting = copy.reopenAfterBooking({
+        customerName: 'Mati',
+        askedHowAreYou: isPostBookingWellbeingQuestion('hola')
+      })
+      assert.equal(plainGreeting, '¡Hola Mati! 😊\n\n¿En qué te puedo ayudar?')
+      assert.equal(plainGreeting.includes('gracias por preguntar'), false)
+      assert.equal(plainGreeting.includes('Reservar otro turno'), false)
+
+      const wellbeingGreeting = copy.reopenAfterBooking({
+        customerName: 'Mati',
+        askedHowAreYou: isPostBookingWellbeingQuestion('hola, ¿cómo estás?')
+      })
+      assert.equal(wellbeingGreeting.includes('Todo bien, gracias por preguntar.'), true)
     }
   },
   {

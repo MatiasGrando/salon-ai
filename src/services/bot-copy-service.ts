@@ -333,18 +333,16 @@ export class BotCopyService {
     return `Gracias a vos${nameText} 😊 Quedó todo listo. Cualquier cosa que necesites cambiar o consultar, escribime por acá.`
   }
 
-  reopenAfterBooking(customerName?: string | null) {
-    const nameText = customerName ? ` ${getFirstName(customerName)}` : ''
+  reopenAfterBooking(input: {
+    customerName?: string | null
+    askedHowAreYou?: boolean
+  } = {}) {
+    const nameText = input.customerName ? ` ${getFirstName(input.customerName)}` : ''
+    const greeting = input.askedHowAreYou
+      ? `¡Hola${nameText}! 😊 Todo bien, gracias por preguntar.`
+      : `¡Hola${nameText}! 😊`
 
-    return [
-      `¡Hola${nameText}! 😊 Yo muy bien, gracias por preguntar.`,
-      'Decime qué necesitás y te doy una mano:',
-      '- Reservar otro turno',
-      '- Avisar llegada',
-      '- Ver tus turnos',
-      '- Cancelar un turno',
-      '- Cambiar un turno'
-    ].join('\n')
+    return `${greeting}\n\n¿En qué te puedo ayudar?`
   }
 
   myAppointments(items: AppointmentListItem[]) {
