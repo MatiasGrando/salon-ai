@@ -51,8 +51,9 @@ export class BookingV2Engine {
   ) {}
 
   async process(input: BookingV2ProcessInput): Promise<BookingV2ProcessResult> {
-    const initialState = stateFromConversation(input.conversation)
+    const storedState = stateFromConversation(input.conversation)
     const catalog = await this.domain.loadCatalog(input.businessId)
+    const initialState = sanitizeCatalogNameCollision(storedState, catalog)
 
     if (initialState.guidedEstimate) {
       const service = catalog.services.find((option) =>
@@ -157,7 +158,7 @@ export class BookingV2Engine {
       }, null, catalog)
     }
 
-    const deterministicName = resolveExpectedName(input.message, initialState)
+    const deterministicName = resolveExpectedName(input.message, initialState, catalog)
     if (deterministicName) {
       const state = acceptField(initialState, 'name', deterministicName)
       return this.fromInterpretation({
@@ -275,8 +276,11 @@ export class BookingV2Engine {
   }
 
   async resume(input: Omit<BookingV2ProcessInput, 'message'>): Promise<BookingV2ProcessResult> {
-    const state = stateFromConversation(input.conversation)
     const catalog = await this.domain.loadCatalog(input.businessId)
+    const state = sanitizeCatalogNameCollision(
+      stateFromConversation(input.conversation),
+      catalog
+    )
     const guidedService = state.guidedEstimate
       ? catalog.services.find((service) =>
           service.id === state.guidedEstimate?.serviceId &&
@@ -582,7 +586,11 @@ function normalize(value: string) {
     .replace(/\s+/g, ' ')
 }
 
-function resolveExpectedName(message: string, state: BookingV2State) {
+function resolveExpectedName(
+  message: string,
+  state: BookingV2State,
+  catalog: BookingV2DomainCatalog
+) {
   if (nextMissingField(state.draft) !== 'name') return null
 
   const candidate = message.trim().replace(/\s+/g, ' ')
@@ -649,6 +657,7 @@ function resolveExpectedName(message: string, state: BookingV2State) {
   if (['no', 'si', 'todo bien', 'no se', 'por favor'].includes(normalize(candidate))) {
     return null
   }
+  if (nameCollidesWithCatalog(candidate, catalog)) return null
 
   return candidate
     .split(' ')
@@ -783,6 +792,8 @@ function discardUngroundedCatalogSelections(
   message: string,
   catalog: BookingV2DomainCatalog
 ): BookingV2Extraction {
+  const groundedName = !extraction.name.value ||
+    !nameCollidesWithCatalog(extraction.name.value, catalog)
   const groundedService = !extraction.service.value || catalog.services.some((service) =>
     service.id === extraction.service.value &&
     [service.name, ...service.aliases].some((label) => messageGroundsLabel(message, label))
@@ -812,6 +823,9 @@ function discardUngroundedCatalogSelections(
 
   return {
     ...extraction,
+    name: groundedName
+      ? extraction.name
+      : { value: null, confidence: 0, evidence: '' },
     service: groundedService
       ? extraction.service
       : { value: null, confidence: 0, evidence: '' },
@@ -822,6 +836,40 @@ function discardUngroundedCatalogSelections(
       ? extraction.correction
       : { ...extraction.correction, newValue: null }
   }
+}
+
+function sanitizeCatalogNameCollision(
+  state: BookingV2State,
+  catalog: BookingV2DomainCatalog
+): BookingV2State {
+  if (!state.draft.name || !nameCollidesWithCatalog(state.draft.name, catalog)) {
+    return state
+  }
+
+  return {
+    ...state,
+    draft: {
+      ...state.draft,
+      name: null
+    },
+    pendingProposal: state.pendingProposal?.field === 'name'
+      ? null
+      : state.pendingProposal
+  }
+}
+
+function nameCollidesWithCatalog(value: string, catalog: BookingV2DomainCatalog) {
+  const normalizedValue = normalize(value)
+  if (!normalizedValue) return false
+
+  return catalog.services.some((service) =>
+    [
+      service.name,
+      ...service.aliases,
+      service.category,
+      service.parentServiceName
+    ].some((label) => typeof label === 'string' && normalize(label) === normalizedValue)
+  )
 }
 
 function messageGroundsLabel(message: string, label: string) {

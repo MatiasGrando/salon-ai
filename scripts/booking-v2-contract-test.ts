@@ -59,7 +59,10 @@ import {
   normalizeAssistantPersonality,
   personalityForPreset
 } from '../src/services/assistant-personality-service.js'
-import { WhatsAppWebhookService } from '../src/services/whatsapp-webhook-service.js'
+import {
+  isSupportedDepositProof,
+  WhatsAppWebhookService
+} from '../src/services/whatsapp-webhook-service.js'
 import {
   PHOTO_QUOTE_ACKNOWLEDGEMENT,
   PhotoQuoteAcknowledgementService
@@ -915,6 +918,68 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'webhook conserva comprobantes PDF enviados como documento',
+    run: () => {
+      const messages = new WhatsAppWebhookService().extractIncomingMessages({
+        entry: [{
+          changes: [{
+            value: {
+              messages: [{
+                id: 'wamid.document-1',
+                from: '5491199999999',
+                type: 'document',
+                document: {
+                  id: 'media-document-1',
+                  mime_type: 'application/pdf',
+                  sha256: 'hash-document-1',
+                  filename: 'comprobante.pdf'
+                }
+              }]
+            }
+          }]
+        }]
+      })
+
+      assert.equal(messages.length, 1)
+      assert.equal(messages[0]?.text, 'Archivo recibido: comprobante.pdf')
+      assert.deepEqual(messages[0]?.media, {
+        type: 'document',
+        id: 'media-document-1',
+        mimeType: 'application/pdf',
+        sha256: 'hash-document-1',
+        filename: 'comprobante.pdf'
+      })
+    }
+  },
+  {
+    name: 'comprobantes aceptan fotos PDF y documentos comunes pero no ejecutables',
+    run: () => {
+      assert.equal(isSupportedDepositProof({
+        type: 'image',
+        id: 'image-1',
+        mimeType: 'image/jpeg'
+      }), true)
+      assert.equal(isSupportedDepositProof({
+        type: 'document',
+        id: 'pdf-1',
+        mimeType: 'application/pdf',
+        filename: 'comprobante.pdf'
+      }), true)
+      assert.equal(isSupportedDepositProof({
+        type: 'document',
+        id: 'sheet-1',
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        filename: 'transferencia.xlsx'
+      }), true)
+      assert.equal(isSupportedDepositProof({
+        type: 'document',
+        id: 'executable-1',
+        mimeType: 'application/x-msdownload',
+        filename: 'archivo.exe'
+      }), false)
+    }
+  },
+  {
     name: 'varias fotos separadas reciben un solo acuse para presupuesto',
     run: async () => {
       let acknowledged = false
@@ -1124,6 +1189,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         'quiero un turno',
         'no sé',
         'corte hombre',
+        'corte',
+        'barba',
         'reset total',
         'página web',
         'me llamo'
@@ -1138,6 +1205,59 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         assert.equal(result.state.draft.name, null)
         assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'name')
       }
+    }
+  },
+  {
+    name: 'motor sanea un servicio guardado como nombre sin perder la reserva',
+    run: async () => {
+      const engine = new BookingV2Engine(fakeDomainPort(), fakeExtractor(null))
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Corte',
+          selectedServiceId: 'haircut',
+          selectedProfessionalId: 'professional-1',
+          selectedDate: '2026-07-10',
+          selectedTime: '15:00',
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: 'hola',
+        currentDate: new Date('2026-07-01T12:00:00')
+      })
+
+      assert.equal(result.state.draft.name, null)
+      assert.equal(result.state.draft.service, 'haircut')
+      assert.equal(result.state.draft.professional, 'professional-1')
+      assert.equal(result.state.draft.date, '2026-07-10')
+      assert.equal(result.state.draft.time, '15:00')
+      assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'name')
+    }
+  },
+  {
+    name: 'motor reanuda y sanea el nombre sin borrar servicio profesional fecha y hora',
+    run: async () => {
+      const engine = new BookingV2Engine(fakeDomainPort(), fakeExtractor(null))
+      const result = await engine.resume({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Barba',
+          selectedServiceId: 'beard',
+          selectedProfessionalId: 'professional-2',
+          selectedDate: '2026-07-10',
+          selectedTime: '15:30',
+          misunderstandingCount: 1,
+          bookingV2State: null
+        },
+        currentDate: new Date('2026-07-01T12:00:00')
+      })
+
+      assert.equal(result.state.draft.name, null)
+      assert.equal(result.state.draft.service, 'beard')
+      assert.equal(result.state.draft.professional, 'professional-2')
+      assert.equal(result.state.draft.date, '2026-07-10')
+      assert.equal(result.state.draft.time, '15:30')
+      assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'name')
     }
   },
   {

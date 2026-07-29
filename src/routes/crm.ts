@@ -18,9 +18,64 @@ import {
   conversationPatchFromState,
   stateFromConversation
 } from '../services/booking-v2-conversation-state.js'
+import { nextMissingField, type BookingV2State } from '../services/booking-v2-state.js'
 
 const whatsappCloudApi = new WhatsAppCloudApi()
 const WHATSAPP_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000
+
+function conversationStepForPersistedBookingState(state: BookingV2State) {
+  if (
+    state.guidedEstimate?.stage === 'awaiting_option' ||
+    state.guidedEstimate?.stage === 'awaiting_decision'
+  ) {
+    return 'ASK_SERVICE'
+  }
+
+  const nextField = nextMissingField(state.draft)
+  if (nextField === 'name') return 'ASK_CUSTOMER_NAME'
+  if (nextField === 'service') return 'ASK_SERVICE'
+  if (nextField === 'professional') return 'ASK_PROFESSIONAL'
+  if (nextField === 'date') return 'ASK_DATE'
+  if (nextField === 'time') return 'ASK_TIME'
+  return 'CONFIRM'
+}
+
+function isInlineCrmMedia(contentType: string) {
+  const normalized = contentType.split(';')[0]?.trim().toLowerCase()
+  return normalized === 'application/pdf' ||
+    normalized === 'image/jpeg' ||
+    normalized === 'image/png' ||
+    normalized === 'image/webp' ||
+    normalized === 'image/gif'
+}
+
+function safeMediaFilename(
+  filename: string | null,
+  contentType: string,
+  mediaType: 'image' | 'document'
+) {
+  const sanitized = filename
+    ?.replace(/[\r\n"]/g, '')
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/[^a-zA-Z0-9._ -]/g, '_')
+    .trim()
+  if (sanitized) return sanitized.slice(0, 160)
+
+  const normalized = contentType.split(';')[0]?.trim().toLowerCase()
+  const extension = normalized === 'application/pdf'
+    ? 'pdf'
+    : normalized === 'image/png'
+      ? 'png'
+      : normalized === 'image/webp'
+        ? 'webp'
+        : normalized === 'image/gif'
+          ? 'gif'
+          : normalized === 'image/jpeg'
+            ? 'jpg'
+            : 'bin'
+  return `${mediaType === 'image' ? 'imagen' : 'archivo'}.${extension}`
+}
 
 export async function crmRoutes(app: FastifyInstance) {
   app.post('/crm/maintenance/delete-qa-data', async (request, reply) => {
@@ -444,9 +499,13 @@ export async function crmRoutes(app: FastifyInstance) {
       ? metadata.media as Record<string, unknown>
       : null
     const mediaId = typeof media?.id === 'string' ? media.id : null
+    const rawMediaType = media?.type
+    const mediaType = rawMediaType === 'image' || rawMediaType === 'document'
+      ? rawMediaType
+      : null
 
-    if (!message || !mediaId || media?.type !== 'image') {
-      return reply.status(404).send({ message: 'No encontre esa imagen' })
+    if (!message || !mediaId || !mediaType) {
+      return reply.status(404).send({ message: 'No encontre ese archivo' })
     }
 
     const downloaded = await whatsappCloudApi.downloadMedia({
@@ -455,12 +514,25 @@ export async function crmRoutes(app: FastifyInstance) {
     })
     if (!downloaded.downloaded) {
       return reply.status(502).send({
-        message: downloaded.errorMessage || downloaded.reason || 'No pude descargar la imagen'
+        message: downloaded.errorMessage || downloaded.reason || 'No pude descargar el archivo'
       })
     }
 
+    const rawFilename = media && typeof media.filename === 'string'
+      ? media.filename
+      : null
+    const filename = safeMediaFilename(
+      rawFilename,
+      downloaded.contentType,
+      mediaType
+    )
+    const disposition = isInlineCrmMedia(downloaded.contentType)
+      ? 'inline'
+      : 'attachment'
+
     return reply
       .header('Content-Type', downloaded.contentType)
+      .header('Content-Disposition', `${disposition}; filename="${filename}"`)
       .header('Cache-Control', 'private, max-age=300')
       .send(downloaded.data)
   })
@@ -535,6 +607,12 @@ export async function crmRoutes(app: FastifyInstance) {
     }
 
     const isEnablingAi = body.aiEnabled
+    const preservedState = isEnablingAi
+      ? stateFromConversation(conversation)
+      : null
+    const preservedPatch = preservedState
+      ? conversationPatchFromState(preservedState)
+      : null
     if (isEnablingAi) {
       const activeDeposit = await prisma.bookingDeposit.findFirst({
         where: {
@@ -557,13 +635,11 @@ export async function crmRoutes(app: FastifyInstance) {
       data: body.aiEnabled
         ? {
             aiEnabled: true,
-            currentStep: 'START',
-            selectedServiceId: null,
-            selectedProfessionalId: null,
-            selectedDate: null,
-            selectedTime: null,
-            lastAvailability: Prisma.JsonNull,
-            misunderstandingCount: 0,
+            currentStep: conversationStepForPersistedBookingState(preservedState!),
+            ...preservedPatch!,
+            bookingV2State: preservedPatch?.bookingV2State
+              ? preservedPatch.bookingV2State as Prisma.InputJsonValue
+              : Prisma.JsonNull,
             humanHandoffResolvedAt: isEnablingAi ? new Date() : conversation.humanHandoffResolvedAt
           }
         : {

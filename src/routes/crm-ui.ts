@@ -1922,6 +1922,40 @@ const crmHtml = `<!doctype html>
       background: #e8edf5;
     }
 
+    .message-media-pdf {
+      width: min(460px, 100%);
+      height: 320px;
+      margin-bottom: 7px;
+      display: block;
+      border: 1px solid #dbe3ef;
+      border-radius: 7px;
+      background: #fff;
+    }
+
+    .message-media-document {
+      margin-bottom: 7px;
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      border: 1px solid #dbe3ef;
+      border-radius: 7px;
+      color: #175cf5;
+      background: #f8fafc;
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .message-media-document::before {
+      content: 'ARCHIVO';
+      padding: 3px 5px;
+      border-radius: 4px;
+      color: #475569;
+      background: #e2e8f0;
+      font-size: 8px;
+      letter-spacing: .04em;
+    }
+
     .message-time {
       margin-top: 5px;
       font-size: 9px;
@@ -5487,6 +5521,17 @@ const crmHtml = `<!doctype html>
       font-weight: 700;
     }
 
+    .services-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .service-category-open {
+      min-height: 44px;
+      white-space: nowrap;
+    }
+
     .services-manager {
       padding: 0;
       border: 0;
@@ -5696,18 +5741,28 @@ const crmHtml = `<!doctype html>
       line-height: 1.35;
     }
 
-    .service-category-manager {
-      padding: 14px;
-      border: 1px solid #e4e9f1;
-      border-radius: 12px;
-      background: #f8fafc;
+    .service-category-dialog {
+      width: min(560px, 100%);
+    }
+
+    .service-category-dialog-body {
+      padding: 18px;
+      display: grid;
+      gap: 16px;
+      overflow: auto;
+    }
+
+    .service-category-dialog-copy {
+      margin: 0;
+      color: #52617f;
+      font-size: 13px;
+      line-height: 1.45;
     }
 
     .service-category-editor {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto auto;
       gap: 8px;
-      margin-top: 8px;
     }
 
     .service-category-editor .field {
@@ -5724,7 +5779,8 @@ const crmHtml = `<!doctype html>
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      margin-top: 10px;
+      padding-top: 14px;
+      border-top: 1px solid #e4e9f1;
     }
 
     .service-category-chip {
@@ -12269,11 +12325,14 @@ const crmHtml = `<!doctype html>
               <p>Gestion&aacute; los servicios que el bot puede ofrecer al tomar reservas.</p>
             </div>
           </div>
-          <div class="service-count-card">
-            <div class="service-count-icon" data-icon="copy"></div>
-            <div>
-              <strong id="service-count">0</strong>
-              <span>&Iacute;tems del cat&aacute;logo</span>
+          <div class="services-header-actions">
+            <button class="secondary service-category-open" id="service-category-open" type="button">Agregar categor&iacute;a</button>
+            <div class="service-count-card">
+              <div class="service-count-icon" data-icon="copy"></div>
+              <div>
+                <strong id="service-count">0</strong>
+                <span>&Iacute;tems del cat&aacute;logo</span>
+              </div>
             </div>
           </div>
         </header>
@@ -12282,17 +12341,6 @@ const crmHtml = `<!doctype html>
           <div class="services-form-panel">
             <h3 id="service-form-title">Nuevo servicio</h3>
             <p>Complet&aacute; los datos para agregar un nuevo servicio.</p>
-            <div class="service-category-manager">
-              <strong>Categor&iacute;as del cat&aacute;logo</strong>
-              <div class="service-form-help">Cre&aacute; grupos como Cortes, Barba, Color o Tratamientos.</div>
-              <input id="service-category-id" type="hidden">
-              <div class="service-category-editor">
-                <input class="field" id="service-category-name" placeholder="Nueva categor&iacute;a">
-                <button class="secondary" id="service-category-save" type="button">Agregar</button>
-                <button class="secondary" id="service-category-cancel" type="button" hidden>Cancelar</button>
-              </div>
-              <div class="service-category-list" id="service-category-list"></div>
-            </div>
             <form class="service-form" id="service-form">
               <input id="service-id" type="hidden">
               <div class="service-form-group">
@@ -12402,6 +12450,7 @@ const crmHtml = `<!doctype html>
                 <label for="service-category">Categor&iacute;a (opcional)</label>
                 <select id="service-category">
                   <option value="">Seleccionar categor&iacute;a</option>
+                  <option value="__ADD_CATEGORY__">Agregar nueva categor&iacute;a</option>
                 </select>
               </div>
               <div class="service-form-group" id="service-parent-group" hidden>
@@ -12464,6 +12513,26 @@ const crmHtml = `<!doctype html>
         </aside>
       </div>
     </section>
+
+    <div class="dialog-backdrop" id="service-category-dialog" hidden>
+      <section class="dialog service-category-dialog" role="dialog" aria-modal="true" aria-labelledby="service-category-dialog-title">
+        <header class="dialog-header">
+          <h3 id="service-category-dialog-title">Agregar categor&iacute;a</h3>
+          <button class="icon-button" id="service-category-close" type="button" title="Cerrar" aria-label="Cerrar">X</button>
+        </header>
+        <div class="service-category-dialog-body">
+          <p class="service-category-dialog-copy">Cre&aacute; grupos como Cortes, Barba, Color o Tratamientos.</p>
+          <input id="service-category-id" type="hidden">
+          <div class="service-category-editor">
+            <input class="field" id="service-category-name" placeholder="Nombre de la categor&iacute;a" autocomplete="off">
+            <button class="primary" id="service-category-save" type="button">Agregar</button>
+            <button class="secondary" id="service-category-cancel" type="button" hidden>Cancelar edici&oacute;n</button>
+          </div>
+          <p class="hint" id="service-category-feedback"></p>
+          <div class="service-category-list" id="service-category-list"></div>
+        </div>
+      </section>
+    </div>
 
     <section class="campaigns-view" id="campaigns-view">
       <div class="campaigns-shell">
@@ -16537,9 +16606,7 @@ const crmHtml = `<!doctype html>
         const media = message.metadata && typeof message.metadata === 'object'
           ? message.metadata.media
           : null
-        const mediaHtml = media?.type === 'image' && media.id
-          ? '<img class="message-media-image" src="/crm/messages/' + encodeURIComponent(message.id) + '/media" alt="Foto enviada por el cliente" loading="lazy">'
-          : ''
+        const mediaHtml = renderMessageMedia(message, media)
         return dayDivider + '<article class="message ' + direction + (failed ? ' failed' : '') + '">' +
           mediaHtml +
           escapeHtml(message.body) +
@@ -16556,6 +16623,28 @@ const crmHtml = `<!doctype html>
       } else {
         els.messages.scrollTop = els.messages.scrollHeight
       }
+    }
+
+    function renderMessageMedia(message, media) {
+      if (!media?.id || (media.type !== 'image' && media.type !== 'document')) return ''
+      const mediaUrl = '/crm/messages/' + encodeURIComponent(message.id) + '/media'
+      if (media.type === 'image') {
+        return '<a href="' + mediaUrl + '" target="_blank" rel="noopener">' +
+          '<img class="message-media-image" src="' + mediaUrl + '" alt="Foto enviada por el cliente" loading="lazy">' +
+        '</a>'
+      }
+
+      const mimeType = String(media.mimeType || '').split(';')[0].toLowerCase()
+      const filename = String(media.filename || 'Abrir archivo')
+      if (mimeType === 'application/pdf' || /\.pdf$/i.test(filename)) {
+        return '<object class="message-media-pdf" data="' + mediaUrl + '" type="application/pdf">' +
+          '<a class="message-media-document" href="' + mediaUrl + '" target="_blank" rel="noopener">Abrir ' + escapeHtml(filename) + '</a>' +
+        '</object>'
+      }
+
+      return '<a class="message-media-document" href="' + mediaUrl + '" target="_blank" rel="noopener">' +
+        escapeHtml(filename) +
+      '</a>'
     }
 
     function messageFailureText(message) {

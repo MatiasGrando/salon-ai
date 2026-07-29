@@ -88,7 +88,8 @@ export function renderBookingV2PaymentInstructions(
     return 'El equipo te compartirá los datos de pago por acá.'
   }
   const sections: string[] = []
-  if (settings.transferEnabled) {
+  const hasTransferDetails = Boolean(settings.alias || settings.cbu || settings.cvu)
+  if (settings.transferEnabled || hasTransferDetails) {
     const transferLines = [
       'Podés transferir con estos datos:',
       ...(settings.alias ? [`• Alias: ${settings.alias}`] : []),

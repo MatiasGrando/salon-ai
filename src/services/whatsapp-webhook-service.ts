@@ -17,6 +17,15 @@ type VerifyWebhookInput = {
   challenge: string | undefined
 }
 
+export type IncomingWhatsAppMedia = {
+  type: 'image' | 'document'
+  id: string
+  mimeType?: string
+  sha256?: string
+  caption?: string
+  filename?: string
+}
+
 type WhatsAppWebhookPayload = {
   entry?: Array<{
     changes?: Array<{
@@ -37,6 +46,13 @@ type WhatsAppWebhookPayload = {
             mime_type?: string
             sha256?: string
             caption?: string
+          }
+          document?: {
+            id?: string
+            mime_type?: string
+            sha256?: string
+            caption?: string
+            filename?: string
           }
         }>
       }
@@ -138,13 +154,7 @@ export class WhatsAppWebhookService {
           provider: string
           phoneNumberId?: string
           displayPhoneNumber?: string
-          media?: {
-            type: 'image'
-            id: string
-            mimeType?: string
-            sha256?: string
-            caption?: string
-          }
+          media?: IncomingWhatsAppMedia
         }
       } = {
         conversationId: conversation.id,
@@ -167,7 +177,7 @@ export class WhatsAppWebhookService {
       const inboundMessage = await prisma.message.create({
         data: inboundMessageData
       })
-      const depositProof = message.media?.type === 'image'
+      const depositProof = isSupportedDepositProof(message.media)
         ? await bookingDepositService.markProofReceived({
           conversationId: conversation.id,
           messageId: inboundMessage.id,
@@ -430,13 +440,7 @@ export class WhatsAppWebhookService {
       text: string
       phoneNumberId?: string
       displayPhoneNumber?: string
-      media?: {
-        type: 'image'
-        id: string
-        mimeType?: string
-        sha256?: string
-        caption?: string
-      }
+      media?: IncomingWhatsAppMedia
     }> = []
 
     for (const entry of payload.entry ?? []) {
@@ -448,7 +452,8 @@ export class WhatsAppWebhookService {
           }
           const isText = message.type === 'text' && Boolean(message.text?.body)
           const isImage = message.type === 'image' && Boolean(message.image?.id)
-          if (!isText && !isImage) continue
+          const isDocument = message.type === 'document' && Boolean(message.document?.id)
+          if (!isText && !isImage && !isDocument) continue
 
           const textMessage: {
             id?: string
@@ -456,18 +461,15 @@ export class WhatsAppWebhookService {
             text: string
             phoneNumberId?: string
             displayPhoneNumber?: string
-            media?: {
-              type: 'image'
-              id: string
-              mimeType?: string
-              sha256?: string
-              caption?: string
-            }
+            media?: IncomingWhatsAppMedia
           } = {
             from: message.from,
             text: isText
               ? message.text?.body ?? ''
-              : message.image?.caption?.trim() || 'Foto recibida',
+              : isImage
+                ? message.image?.caption?.trim() || 'Foto recibida'
+                : message.document?.caption?.trim() ||
+                  `Archivo recibido${message.document?.filename ? `: ${message.document.filename}` : ''}`,
             ...(metadata?.phone_number_id ? { phoneNumberId: metadata.phone_number_id } : {}),
             ...(metadata?.display_phone_number ? { displayPhoneNumber: metadata.display_phone_number } : {}),
             ...(isImage && message.image?.id
@@ -480,6 +482,17 @@ export class WhatsAppWebhookService {
                     ...(message.image.caption ? { caption: message.image.caption } : {})
                   }
                 }
+              : isDocument && message.document?.id
+                ? {
+                    media: {
+                      type: 'document' as const,
+                      id: message.document.id,
+                      ...(message.document.mime_type ? { mimeType: message.document.mime_type } : {}),
+                      ...(message.document.sha256 ? { sha256: message.document.sha256 } : {}),
+                      ...(message.document.caption ? { caption: message.document.caption } : {}),
+                      ...(message.document.filename ? { filename: message.document.filename } : {})
+                    }
+                  }
               : {})
           }
 
@@ -627,6 +640,48 @@ async function linkInstagramReferral(text: string, conversationId: string, busin
 function hasPendingDepositState(value: unknown) {
   if (!value || typeof value !== 'object') return false
   return Boolean((value as { pendingDeposit?: unknown }).pendingDeposit)
+}
+
+const SUPPORTED_DEPOSIT_PROOF_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'image/heic',
+  'image/heif',
+  'application/pdf',
+  'text/plain',
+  'text/csv',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+])
+
+const SUPPORTED_DEPOSIT_PROOF_EXTENSIONS = new Set([
+  'jpg',
+  'jpeg',
+  'png',
+  'webp',
+  'gif',
+  'heic',
+  'heif',
+  'pdf',
+  'txt',
+  'csv',
+  'doc',
+  'docx',
+  'xls',
+  'xlsx'
+])
+
+export function isSupportedDepositProof(media?: IncomingWhatsAppMedia) {
+  if (!media) return false
+  const mimeType = media.mimeType?.split(';')[0]?.trim().toLowerCase()
+  if (mimeType && SUPPORTED_DEPOSIT_PROOF_MIME_TYPES.has(mimeType)) return true
+
+  const extension = media.filename?.split('.').pop()?.trim().toLowerCase()
+  return Boolean(extension && SUPPORTED_DEPOSIT_PROOF_EXTENSIONS.has(extension))
 }
 
 function isMarketingOptOutMessage(text: string) {

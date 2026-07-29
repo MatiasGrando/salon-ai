@@ -3,6 +3,7 @@ import { BookingDepositService } from '../src/services/booking-deposit-service.j
 import {
   calculateBookingV2Deposit,
   renderBookingV2DepositRequest,
+  renderBookingV2PaymentInstructions,
   serviceCanContinueToBooking
 } from '../src/services/booking-v2-deposit.js'
 
@@ -101,6 +102,23 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.match(reply, /https:\/\/example\.com\/pagar/)
       assert.match(reply, /horario queda reservado/)
       assert.match(reply, /comprobante/)
+    }
+  },
+  {
+    name: 'comparte datos de transferencia ya cargados aunque el indicador historico este apagado',
+    run: () => {
+      const instructions = renderBookingV2PaymentInstructions({
+        transferEnabled: false,
+        alias: 'barber.colapinta',
+        cbu: null,
+        cvu: null,
+        accountHolder: 'Barber Colapinta',
+        paymentLinkEnabled: false,
+        paymentLink: null,
+        instructions: null
+      })
+      assert.match(instructions, /Alias: barber\.colapinta/)
+      assert.match(instructions, /Titular: Barber Colapinta/)
     }
   },
   {

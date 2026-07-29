@@ -1,6 +1,8 @@
 import { resolveBusinessWhatsAppCredentials, type WhatsAppCloudCredentials } from '../services/business-whatsapp-settings.js'
 import { normalizeArgentineMobilePhone } from '../services/phone-normalization-service.js'
 
+const MAX_INBOUND_MEDIA_BYTES = 25 * 1024 * 1024
+
 type SendTextMessageInput = {
   businessId?: string | null
   to: string
@@ -115,10 +117,10 @@ export class WhatsAppCloudApi {
         reason: 'Meta no devolvio la URL del archivo'
       }
     }
-    if (metadata.file_size && metadata.file_size > 8 * 1024 * 1024) {
+    if (metadata.file_size && metadata.file_size > MAX_INBOUND_MEDIA_BYTES) {
       return {
         downloaded: false as const,
-        reason: 'La imagen supera el limite de 8 MB'
+        reason: 'El archivo supera el limite de 25 MB'
       }
     }
 
@@ -136,10 +138,10 @@ export class WhatsAppCloudApi {
     }
 
     const data = Buffer.from(await mediaResponse.arrayBuffer())
-    if (data.length > 8 * 1024 * 1024) {
+    if (data.length > MAX_INBOUND_MEDIA_BYTES) {
       return {
         downloaded: false as const,
-        reason: 'La imagen supera el limite de 8 MB'
+        reason: 'El archivo supera el limite de 25 MB'
       }
     }
 
