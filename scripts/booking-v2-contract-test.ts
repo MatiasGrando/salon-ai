@@ -61,6 +61,7 @@ import {
   personalityForPreset
 } from '../src/services/assistant-personality-service.js'
 import {
+  buildIncomingConversationUpsert,
   isSupportedDepositProof,
   WhatsAppWebhookService
 } from '../src/services/whatsapp-webhook-service.js'
@@ -1336,6 +1337,40 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(result.reply.includes('foto clara'), true)
       assert.equal(result.reply.includes('resultado que busc'), true)
       assert.equal(result.availabilityOptions.length, 0)
+    }
+  },
+  {
+    name: 'webhook no crea conversacion si el numero receptor no pertenece a un comercio',
+    run: () => {
+      assert.equal(buildIncomingConversationUpsert(null, '5491199999999'), null)
+    }
+  },
+  {
+    name: 'webhook aisla la conversacion por comercio y telefono del cliente',
+    run: () => {
+      const businessA = buildIncomingConversationUpsert('business-a', '5491199999999')
+      const businessB = buildIncomingConversationUpsert('business-b', '5491199999999')
+
+      assert.notDeepEqual(businessA, businessB)
+      assert.deepEqual(
+        businessB,
+        {
+          where: {
+            businessId_phone: {
+              businessId: 'business-b',
+              phone: '5491199999999'
+            }
+          },
+          update: {},
+          create: {
+            businessId: 'business-b',
+            phone: '5491199999999'
+          },
+          include: {
+            business: true
+          }
+        }
+      )
     }
   },
   {

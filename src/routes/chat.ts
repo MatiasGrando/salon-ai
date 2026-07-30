@@ -16,18 +16,35 @@ export async function chatRoutes(app: FastifyInstance) {
       businessId?: string
     }
 
+    const targetBusiness = body.businessId
+      ? await prisma.business.findUnique({
+          where: { id: body.businessId },
+          select: { id: true }
+        })
+      : await prisma.business.findFirst({
+          orderBy: { createdAt: 'asc' },
+          select: { id: true }
+        })
+
+    if (!targetBusiness) {
+      return {
+        reply: null,
+        skipped: true,
+        reason: 'No hay un comercio asociado al chat'
+      }
+    }
+
     const conversation = await prisma.conversation.upsert({
       where: {
-        phone: body.phone
+        businessId_phone: {
+          businessId: targetBusiness.id,
+          phone: body.phone
+        }
       },
-      update: body.businessId
-        ? {
-            businessId: body.businessId
-          }
-        : {},
+      update: {},
       create: {
         phone: body.phone,
-        ...(body.businessId ? { businessId: body.businessId } : {})
+        businessId: targetBusiness.id
       }
     })
 
@@ -54,19 +71,8 @@ export async function chatRoutes(app: FastifyInstance) {
         business: true
       }
     })
-    const fallbackBusiness = freshConversation?.business
-      ? null
-      : await prisma.business.findFirst({
-          orderBy: {
-            createdAt: 'asc'
-          },
-          select: {
-            botEnabled: true,
-            aiEnabled: true
-          }
-        })
-    const businessBotEnabled = freshConversation?.business?.botEnabled ?? fallbackBusiness?.botEnabled ?? true
-    const businessAiEnabled = freshConversation?.business?.aiEnabled ?? fallbackBusiness?.aiEnabled ?? true
+    const businessBotEnabled = freshConversation?.business?.botEnabled ?? true
+    const businessAiEnabled = freshConversation?.business?.aiEnabled ?? true
 
     const postSaleResponse = await capturePostSaleResponse({
       conversationId: conversation.id,
@@ -125,7 +131,7 @@ export async function chatRoutes(app: FastifyInstance) {
     const result = await service.handleMessage({
       phone: body.phone,
       message: body.message,
-      ...(body.businessId ? { businessId: body.businessId } : {}),
+      businessId: targetBusiness.id,
       useAi: businessAiEnabled
     })
 

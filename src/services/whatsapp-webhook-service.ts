@@ -63,6 +63,27 @@ type WhatsAppWebhookPayload = {
 const conversationService = new ConversationService()
 const whatsappCloudApi = new WhatsAppCloudApi()
 
+export function buildIncomingConversationUpsert(businessId: string | null, phone: string) {
+  if (!businessId) return null
+
+  return {
+    where: {
+      businessId_phone: {
+        businessId,
+        phone
+      }
+    },
+    update: {},
+    create: {
+      businessId,
+      phone
+    },
+    include: {
+      business: true
+    }
+  } as const
+}
+
 export class WhatsAppWebhookService {
   verifyWebhook(input: VerifyWebhookInput) {
     if (
@@ -101,6 +122,24 @@ export class WhatsAppWebhookService {
         businessId: targetBusinessId
       })
 
+      const conversationUpsert = buildIncomingConversationUpsert(
+        targetBusinessId,
+        message.from
+      )
+      if (!conversationUpsert) {
+        console.warn('[whatsapp-webhook] skipped message for unmatched whatsapp number', {
+          messageId: message.id,
+          phoneNumberId: message.phoneNumberId
+        })
+        results.push({
+          messageId: message.id,
+          from: message.from,
+          skipped: true,
+          reason: 'Numero de WhatsApp no asociado'
+        })
+        continue
+      }
+
       if (message.id) {
         const existingMessage = await prisma.message.findUnique({
           where: {
@@ -125,23 +164,7 @@ export class WhatsAppWebhookService {
         }
       }
 
-      const conversation = await prisma.conversation.upsert({
-        where: {
-          phone: message.from
-        },
-        update: targetBusinessId
-          ? {
-              businessId: targetBusinessId
-            }
-          : {},
-        create: {
-          phone: message.from,
-          ...(targetBusinessId ? { businessId: targetBusinessId } : {})
-        },
-        include: {
-          business: true
-        }
-      })
+      const conversation = await prisma.conversation.upsert(conversationUpsert)
 
       const inboundMessageData: {
         conversationId: string
@@ -513,7 +536,8 @@ export class WhatsAppWebhookService {
     let targetBusiness = message.phoneNumberId
       ? await prisma.businessWhatsAppConfig.findFirst({
           where: {
-            phoneNumberId: message.phoneNumberId
+            phoneNumberId: message.phoneNumberId,
+            connectionStatus: 'CONNECTED'
           },
           select: {
             businessId: true
@@ -524,6 +548,7 @@ export class WhatsAppWebhookService {
     if (!targetBusiness && normalizedDisplayPhoneNumber) {
       const candidates = await prisma.businessWhatsAppConfig.findMany({
         where: {
+          connectionStatus: 'CONNECTED',
           displayPhoneNumber: {
             not: null
           }

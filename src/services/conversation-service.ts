@@ -60,7 +60,7 @@ export class ConversationService {
     return runWithAiEnabled(input.useAi !== false, async () => {
       const result = await this.handleMessageCore(input)
       if (!result.skipMisunderstandingTracking) {
-        await this.trackMisunderstanding(input.phone, result.reply)
+        await this.trackMisunderstanding(input.phone, input.businessId, result.reply)
       }
 
       if (result.skipHumanize) {
@@ -77,11 +77,21 @@ export class ConversationService {
   private async handleMessageCore(input: HandleMessageInput): Promise<HandleMessageResult> {
     const message = input.message.trim()
     const businessId = await this.resolveBusinessId(input.businessId)
-    const existingConversation = await prisma.conversation.findUnique({
-      where: {
-        phone: input.phone
-      }
-    })
+    const existingConversation = businessId
+      ? await prisma.conversation.findUnique({
+          where: {
+            businessId_phone: {
+              businessId,
+              phone: input.phone
+            }
+          }
+        })
+      : await prisma.conversation.findFirst({
+          where: {
+            businessId: null,
+            phone: input.phone
+          }
+        })
     if (existingConversation?.opportunityStatus === 'CLOSED') {
       await reopenClosedConversationOpportunity(existingConversation.id)
     }
@@ -93,12 +103,11 @@ export class ConversationService {
     const conversation = existingConversation
       ? await prisma.conversation.update({
           where: {
-            phone: input.phone
+            id: existingConversation.id
           },
           data: shouldResetExpiredFlow
             ? {
                 lastMessage: message,
-                businessId,
                 archivedAt: null,
                 currentStep: 'START',
                 selectedServiceId: null,
@@ -111,7 +120,6 @@ export class ConversationService {
               }
             : {
                 lastMessage: message,
-                businessId,
                 archivedAt: null
               }
         })
@@ -126,7 +134,7 @@ export class ConversationService {
     if (shouldResetExpiredFlow) {
       if (!conversation.selectedCustomerName) {
         if (bookingV2Enabled && businessId) {
-          await this.updateConversation(input.phone, {
+          await this.updateConversation(input.phone, businessId, {
             currentStep: 'START'
           })
           const personality = await getBusinessAssistantPersonality(businessId)
@@ -136,7 +144,7 @@ export class ConversationService {
           }
         }
 
-        await this.updateConversation(input.phone, {
+        await this.updateConversation(input.phone, businessId, {
           currentStep: 'ASK_CUSTOMER_NAME'
         })
 
@@ -161,35 +169,35 @@ export class ConversationService {
       : null
 
     if (conversation.currentStep === 'CANCEL_SELECT_APPOINTMENT') {
-      return this.cancelAppointmentByMessage(input.phone, message)
+      return this.cancelAppointmentByMessage(input.phone, message, businessId)
     }
 
     if (conversation.currentStep === 'EDIT_SELECT_APPOINTMENT') {
-      return this.editAppointmentByMessage(input.phone, message)
+      return this.editAppointmentByMessage(input.phone, message, businessId)
     }
 
     if (isMyAppointmentsMessage(message, conversation.currentStep)) {
-      return this.buildMyAppointmentsReply(input.phone)
+      return this.buildMyAppointmentsReply(input.phone, businessId)
     }
 
     if (isCancelAppointmentMessage(message, conversation.currentStep)) {
-      await this.updateConversation(input.phone, {
+      await this.updateConversation(input.phone, businessId, {
         currentStep: 'CANCEL_SELECT_APPOINTMENT'
       })
 
-      return this.buildMyAppointmentsReply(input.phone, botCopyService.cancelAppointmentIntro())
+      return this.buildMyAppointmentsReply(input.phone, businessId, botCopyService.cancelAppointmentIntro())
     }
 
     if (isEditAppointmentMessage(message, conversation.currentStep)) {
-      await this.updateConversation(input.phone, {
+      await this.updateConversation(input.phone, businessId, {
         currentStep: 'EDIT_SELECT_APPOINTMENT'
       })
 
-      return this.buildMyAppointmentsReply(input.phone, botCopyService.editAppointmentIntro())
+      return this.buildMyAppointmentsReply(input.phone, businessId, botCopyService.editAppointmentIntro())
     }
 
     if (isHardResetMessage(message)) {
-      await this.updateConversation(input.phone, {
+      await this.updateConversation(input.phone, businessId, {
         currentStep: bookingV2Enabled ? 'START' : 'ASK_CUSTOMER_NAME',
         selectedServiceId: null,
         selectedProfessionalId: null,
@@ -213,7 +221,7 @@ export class ConversationService {
     }
 
     if (isResetMessage(message)) {
-      await this.updateConversation(input.phone, {
+      await this.updateConversation(input.phone, businessId, {
         currentStep: 'START',
         selectedServiceId: null,
         selectedProfessionalId: null,
@@ -230,7 +238,7 @@ export class ConversationService {
     }
 
     if (isHumanHandoffMessage(message)) {
-      await this.updateConversation(input.phone, {
+      await this.updateConversation(input.phone, businessId, {
         currentStep: 'HUMAN_HANDOFF',
         aiEnabled: false,
         misunderstandingCount: 0,
@@ -263,7 +271,7 @@ export class ConversationService {
     }
 
     if (isArrivalNoticeMessage(message) && isMenuStep(conversation.currentStep)) {
-      return this.handleArrivalNotice(input.phone, message)
+      return this.handleArrivalNotice(input.phone, message, businessId)
     }
 
     if (conversation.currentStep === 'HUMAN_HANDOFF') {
@@ -288,7 +296,7 @@ export class ConversationService {
         }
       }
 
-      const reopenedConversation = await this.updateConversation(input.phone, {
+      const reopenedConversation = await this.updateConversation(input.phone, businessId, {
         currentStep: 'START',
         selectedCustomerName: sanitizedState.draft.name,
         selectedServiceId: null,
@@ -360,7 +368,7 @@ export class ConversationService {
       !conversation.selectedCustomerName &&
       !isBookingStartMessage(message, conversation.currentStep)
     ) {
-      await this.updateConversation(input.phone, {
+      await this.updateConversation(input.phone, businessId, {
         currentStep: 'ASK_CUSTOMER_NAME',
         selectedServiceId: null,
         selectedProfessionalId: null,
@@ -425,7 +433,7 @@ export class ConversationService {
     const personality = await getBusinessAssistantPersonality(input.businessId)
 
     if (isNegativeAdvisorQuoteDecision(input.message)) {
-      await this.updateConversation(input.phone, {
+      await this.updateConversation(input.phone, input.businessId, {
         currentStep: 'START',
         aiEnabled: true,
         selectedServiceId: null,
@@ -501,7 +509,7 @@ export class ConversationService {
     })
     const nextStep = conversationStepFromBookingV2Plan(resumed.plan)
     const isHandoff = resumed.plan.type === 'handoff'
-    await this.updateConversation(input.phone, {
+    await this.updateConversation(input.phone, input.businessId, {
       currentStep: nextStep,
       ...resumed.conversationPatch,
       aiEnabled: !isHandoff,
@@ -591,6 +599,7 @@ export class ConversationService {
 
       const confirmation = await this.confirmBookingV2Appointment({
         phone: input.phone,
+        businessId: input.businessId,
         conversation: {
           selectedCustomerName: input.conversation.selectedCustomerName,
           selectedServiceId: input.conversation.selectedServiceId,
@@ -692,7 +701,7 @@ export class ConversationService {
 
     const nextStep = conversationStepFromBookingV2Plan(result.plan)
     const isHandoff = result.plan.type === 'handoff'
-    await this.updateConversation(input.phone, {
+    await this.updateConversation(input.phone, input.businessId, {
       currentStep: nextStep,
       ...result.conversationPatch,
       ...(isHandoff
@@ -743,6 +752,7 @@ export class ConversationService {
 
   private async confirmBookingV2Appointment(input: {
     phone: string
+    businessId: string
     conversation: {
       selectedCustomerName: string
       selectedServiceId: string
@@ -782,7 +792,7 @@ export class ConversationService {
         pendingProposal: null,
         pendingDeposit: null
       }
-      await this.updateConversation(input.phone, {
+      await this.updateConversation(input.phone, input.businessId, {
         currentStep: 'ASK_DATE',
         ...conversationPatchFromState(retryState),
         lastAvailability: null
@@ -795,7 +805,7 @@ export class ConversationService {
       }
     }
 
-    await this.updateConversation(input.phone, {
+    await this.updateConversation(input.phone, input.businessId, {
       currentStep: 'COMPLETED',
       bookingV2State: null,
       lastAvailability: null
@@ -883,7 +893,7 @@ export class ConversationService {
         pendingProposal: null,
         pendingDeposit: null
       }
-      await this.updateConversation(input.phone, {
+      await this.updateConversation(input.phone, input.businessId, {
         currentStep: 'ASK_DATE',
         ...conversationPatchFromState(retryState),
         lastAvailability: null
@@ -932,7 +942,7 @@ export class ConversationService {
         expiresAt: expiresAt.toISOString()
       }
     }
-    await this.updateConversation(input.phone, {
+    await this.updateConversation(input.phone, input.businessId, {
       currentStep: 'HUMAN_HANDOFF',
       ...conversationPatchFromState(nextState),
       aiEnabled: false,
@@ -981,11 +991,21 @@ export class ConversationService {
     }
   }
 
-  private async trackMisunderstanding(phone: string, reply: string) {
+  private async trackMisunderstanding(
+    phone: string,
+    requestedBusinessId: string | undefined,
+    reply: string
+  ) {
+    const businessId = await this.resolveBusinessId(requestedBusinessId)
+    if (!businessId) return
+
     if (isMisunderstandingReply(reply)) {
       await prisma.conversation.update({
         where: {
-          phone
+          businessId_phone: {
+            businessId,
+            phone
+          }
         },
         data: {
           misunderstandingCount: {
@@ -999,7 +1019,10 @@ export class ConversationService {
 
     await prisma.conversation.update({
       where: {
-        phone
+        businessId_phone: {
+          businessId,
+          phone
+        }
       },
       data: {
         misunderstandingCount: 0
@@ -1055,27 +1078,27 @@ export class ConversationService {
     }
   }): Promise<HandleMessageResult | null> {
     if (input.intent === 'my_appointments') {
-      return this.buildMyAppointmentsReply(input.phone)
+      return this.buildMyAppointmentsReply(input.phone, input.businessId)
     }
 
     if (input.intent === 'cancel_appointment') {
-      await this.updateConversation(input.phone, {
+      await this.updateConversation(input.phone, input.businessId, {
         currentStep: 'CANCEL_SELECT_APPOINTMENT'
       })
 
-      return this.buildMyAppointmentsReply(input.phone, botCopyService.cancelAppointmentIntro())
+      return this.buildMyAppointmentsReply(input.phone, input.businessId, botCopyService.cancelAppointmentIntro())
     }
 
     if (input.intent === 'edit_appointment') {
-      await this.updateConversation(input.phone, {
+      await this.updateConversation(input.phone, input.businessId, {
         currentStep: 'EDIT_SELECT_APPOINTMENT'
       })
 
-      return this.buildMyAppointmentsReply(input.phone, botCopyService.editAppointmentIntro())
+      return this.buildMyAppointmentsReply(input.phone, input.businessId, botCopyService.editAppointmentIntro())
     }
 
     if (input.intent === 'reset_conversation') {
-      await this.updateConversation(input.phone, {
+      await this.updateConversation(input.phone, input.businessId, {
         currentStep: 'START',
         selectedServiceId: null,
         selectedProfessionalId: null,
@@ -1111,8 +1134,12 @@ export class ConversationService {
     return null
   }
 
-  private async handleArrivalNotice(phone: string, message: string): Promise<HandleMessageResult> {
-    const appointments = await this.findUpcomingAppointments(phone)
+  private async handleArrivalNotice(
+    phone: string,
+    message: string,
+    businessId: string | null
+  ): Promise<HandleMessageResult> {
+    const appointments = await this.findUpcomingAppointments(phone, businessId)
     const nextAppointment = appointments[0]
 
     if (!nextAppointment) {
@@ -1124,7 +1151,7 @@ export class ConversationService {
     const delay = calculateArrivalDelayMinutes(message, nextAppointment.startAt)
 
     if (delay === null || delay > 5) {
-      await this.updateConversation(phone, {
+      await this.updateConversation(phone, businessId, {
         currentStep: 'HUMAN_HANDOFF',
         aiEnabled: false,
         misunderstandingCount: 0,
@@ -1145,8 +1172,12 @@ export class ConversationService {
     }
   }
 
-  private async buildMyAppointmentsReply(phone: string, prefix?: string): Promise<HandleMessageResult> {
-    const appointments = await this.findUpcomingAppointments(phone)
+  private async buildMyAppointmentsReply(
+    phone: string,
+    businessId: string | null,
+    prefix?: string
+  ): Promise<HandleMessageResult> {
+    const appointments = await this.findUpcomingAppointments(phone, businessId)
 
     return {
       reply: [
@@ -1161,11 +1192,15 @@ export class ConversationService {
     }
   }
 
-  private async cancelAppointmentByMessage(phone: string, message: string): Promise<HandleMessageResult> {
+  private async cancelAppointmentByMessage(
+    phone: string,
+    message: string,
+    businessId: string | null
+  ): Promise<HandleMessageResult> {
     if (isResetMessage(message)) {
-      const appointments = await this.findUpcomingAppointments(phone)
+      const appointments = await this.findUpcomingAppointments(phone, businessId)
 
-      await this.updateConversation(phone, {
+      await this.updateConversation(phone, businessId, {
         currentStep: 'START',
         selectedServiceId: null,
         selectedProfessionalId: null,
@@ -1183,20 +1218,20 @@ export class ConversationService {
     const selectedOption = parseAppointmentListOption(message)
 
     if (!selectedOption) {
-      return this.buildMyAppointmentsReply(phone, 'No llegué a entender qué turno querés cancelar. Respondeme con el número de la lista, por ejemplo: 1, el 1 o cancelar el número 1.')
+      return this.buildMyAppointmentsReply(phone, businessId, 'No llegué a entender qué turno querés cancelar. Respondeme con el número de la lista, por ejemplo: 1, el 1 o cancelar el número 1.')
     }
 
-    const appointments = await this.findUpcomingAppointments(phone)
+    const appointments = await this.findUpcomingAppointments(phone, businessId)
 
     const appointment = appointments[selectedOption - 1]
 
     if (!appointment) {
-      return this.buildMyAppointmentsReply(phone, 'No encontré ese número en la lista. Elegí uno de los turnos que te muestro, por ejemplo: 1 o el 1.')
+      return this.buildMyAppointmentsReply(phone, businessId, 'No encontré ese número en la lista. Elegí uno de los turnos que te muestro, por ejemplo: 1 o el 1.')
     }
 
     await bookingProvider.cancelAppointment(appointment.id)
 
-    await this.updateConversation(phone, {
+    await this.updateConversation(phone, businessId, {
       currentStep: 'COMPLETED'
     })
 
@@ -1209,11 +1244,15 @@ export class ConversationService {
     }
   }
 
-  private async editAppointmentByMessage(phone: string, message: string): Promise<HandleMessageResult> {
+  private async editAppointmentByMessage(
+    phone: string,
+    message: string,
+    businessId: string | null
+  ): Promise<HandleMessageResult> {
     if (isResetMessage(message)) {
-      const appointments = await this.findUpcomingAppointments(phone)
+      const appointments = await this.findUpcomingAppointments(phone, businessId)
 
-      await this.updateConversation(phone, {
+      await this.updateConversation(phone, businessId, {
         currentStep: 'START',
         selectedServiceId: null,
         selectedProfessionalId: null,
@@ -1231,20 +1270,20 @@ export class ConversationService {
     const selectedOption = parseAppointmentListOption(message)
 
     if (!selectedOption) {
-      return this.buildMyAppointmentsReply(phone, 'No llegué a entender qué turno querés cambiar. Respondeme con el número de la lista, por ejemplo: 1, el 1 o cambiar el número 1.')
+      return this.buildMyAppointmentsReply(phone, businessId, 'No llegué a entender qué turno querés cambiar. Respondeme con el número de la lista, por ejemplo: 1, el 1 o cambiar el número 1.')
     }
 
-    const appointments = await this.findUpcomingAppointments(phone)
+    const appointments = await this.findUpcomingAppointments(phone, businessId)
 
     const appointment = appointments[selectedOption - 1]
 
     if (!appointment) {
-      return this.buildMyAppointmentsReply(phone, 'No encontré ese número en la lista. Elegí uno de los turnos que te muestro, por ejemplo: 1 o el 1.')
+      return this.buildMyAppointmentsReply(phone, businessId, 'No encontré ese número en la lista. Elegí uno de los turnos que te muestro, por ejemplo: 1 o el 1.')
     }
 
     await bookingProvider.cancelAppointment(appointment.id)
 
-    await this.updateConversation(phone, {
+    await this.updateConversation(phone, businessId, {
       currentStep: 'START',
       selectedServiceId: null,
       selectedProfessionalId: null,
@@ -1262,12 +1301,19 @@ export class ConversationService {
     }
   }
 
-  private async findUpcomingAppointments(phone: string) {
+  private async findUpcomingAppointments(phone: string, businessId: string | null) {
     return prisma.appointment.findMany({
       where: {
         customer: {
           phone
         },
+        ...(businessId
+          ? {
+              professional: {
+                businessId
+              }
+            }
+          : {}),
         status: {
           notIn: ['CANCELLED', 'NO_SHOW']
         },
@@ -1341,6 +1387,7 @@ export class ConversationService {
 
   private async updateConversation(
     phone: string,
+    businessId: string | null,
     data: {
       currentStep:
         | 'START'
@@ -1387,9 +1434,16 @@ export class ConversationService {
           })
     }
 
+    if (!businessId) {
+      throw new Error('No se puede actualizar una conversacion sin comercio')
+    }
+
     return prisma.conversation.update({
       where: {
-        phone
+        businessId_phone: {
+          businessId,
+          phone
+        }
       },
       data: dataToUpdate
     })

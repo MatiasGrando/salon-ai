@@ -84,7 +84,7 @@ export class BookingConversationFlow {
     }
 
     if (isStopBookingMessage(message)) {
-      await this.updateConversation(phone, {
+      await this.updateConversation(phone, businessId, {
         currentStep: 'START',
         selectedServiceId: null,
         selectedProfessionalId: null,
@@ -100,7 +100,7 @@ export class BookingConversationFlow {
     }
 
     if (isChangeServiceMessage(message)) {
-      await this.updateConversation(phone, {
+      await this.updateConversation(phone, businessId, {
         currentStep: 'ASK_SERVICE',
         selectedServiceId: null,
         selectedProfessionalId: null,
@@ -114,7 +114,7 @@ export class BookingConversationFlow {
 
     if (isChangeProfessionalMessage(message)) {
       if (!conversation.selectedServiceId) {
-        await this.restartBooking(phone)
+        await this.restartBooking(phone, businessId)
 
         return this.buildServicesReply('Primero necesito que elijamos el servicio.', businessId)
       }
@@ -126,12 +126,12 @@ export class BookingConversationFlow {
       })
 
       if (!selectedService) {
-        await this.restartBooking(phone)
+        await this.restartBooking(phone, businessId)
 
         return this.buildServicesReply('Ese servicio ya no aparece disponible. ¿Elegimos otro?', businessId)
       }
 
-      await this.updateConversation(phone, {
+      await this.updateConversation(phone, businessId, {
         currentStep: 'ASK_PROFESSIONAL',
         selectedProfessionalId: null,
         selectedDate: null,
@@ -143,7 +143,7 @@ export class BookingConversationFlow {
     }
 
     if (isChangeDateMessage(message)) {
-      await this.updateConversation(phone, {
+      await this.updateConversation(phone, businessId, {
         currentStep: 'ASK_DATE',
         selectedDate: null,
         selectedTime: null,
@@ -157,7 +157,7 @@ export class BookingConversationFlow {
 
     if (isChangeTimeMessage(message)) {
       if (!conversation.selectedServiceId || !conversation.selectedDate) {
-        await this.updateConversation(phone, {
+        await this.updateConversation(phone, businessId, {
           currentStep: 'ASK_DATE',
           selectedDate: null,
           selectedTime: null,
@@ -187,7 +187,7 @@ export class BookingConversationFlow {
         }
       }
 
-      await this.updateConversation(phone, {
+      await this.updateConversation(phone, businessId, {
         currentStep: 'ASK_TIME',
         selectedTime: null,
         lastAvailability: {
@@ -313,7 +313,7 @@ export class BookingConversationFlow {
       conversation.selectedCustomerName &&
       isBookingStartMessage(message, conversation.currentStep)
     ) {
-      await this.updateConversation(phone, {
+      await this.updateConversation(phone, businessId, {
         currentStep: 'ASK_SERVICE',
         selectedServiceId: null,
         selectedProfessionalId: null,
@@ -342,7 +342,7 @@ export class BookingConversationFlow {
       return this.startBooking({ phone, businessId, conversation })
     }
 
-    await this.updateConversation(phone, {
+    await this.updateConversation(phone, businessId, {
       currentStep: 'START'
     })
 
@@ -360,7 +360,7 @@ export class BookingConversationFlow {
     const correction = 'Soy Cami. Te ayudo por aca.'
 
     if (!input.conversation.selectedCustomerName) {
-      await this.updateConversation(input.phone, {
+      await this.updateConversation(input.phone, input.businessId, {
         currentStep: 'ASK_CUSTOMER_NAME',
         selectedServiceId: null,
         selectedProfessionalId: null,
@@ -379,7 +379,7 @@ export class BookingConversationFlow {
 
     const remainingMessage = input.remainingMessage ?? 'reservar turno'
 
-    await this.updateConversation(input.phone, {
+    await this.updateConversation(input.phone, input.businessId, {
       currentStep: 'ASK_SERVICE',
       selectedServiceId: null,
       selectedProfessionalId: null,
@@ -429,7 +429,7 @@ export class BookingConversationFlow {
       const customerIntro = await this.extractCustomerIntroFromMessage(input.conversation.lastMessage?.toString() ?? '')
 
       if (customerIntro?.name) {
-        await this.updateConversation(input.phone, {
+        await this.updateConversation(input.phone, input.businessId, {
           currentStep: 'ASK_SERVICE',
           selectedServiceId: null,
           selectedProfessionalId: null,
@@ -465,7 +465,7 @@ export class BookingConversationFlow {
       })
 
       if (bookingDraft) {
-        await this.updateConversation(input.phone, {
+        await this.updateConversation(input.phone, input.businessId, {
           currentStep: 'ASK_CUSTOMER_NAME',
           selectedServiceId: bookingDraft.serviceId,
           selectedProfessionalId: bookingDraft.professionalId,
@@ -482,7 +482,7 @@ export class BookingConversationFlow {
         }
       }
 
-      await this.updateConversation(input.phone, {
+      await this.updateConversation(input.phone, input.businessId, {
         currentStep: 'ASK_CUSTOMER_NAME',
         selectedServiceId: null,
         selectedProfessionalId: null,
@@ -496,7 +496,7 @@ export class BookingConversationFlow {
       }
     }
 
-    await this.updateConversation(input.phone, {
+    await this.updateConversation(input.phone, input.businessId, {
       currentStep: 'ASK_SERVICE',
       selectedServiceId: null,
       selectedProfessionalId: null,
@@ -551,6 +551,7 @@ export class BookingConversationFlow {
 
       return this.buildAvailabilityReply({
         phone: input.phone,
+        businessId: input.businessId,
         serviceId: selectedService.id,
         professionalId: input.conversation.selectedProfessionalId,
         date: input.conversation.selectedDate,
@@ -571,6 +572,7 @@ export class BookingConversationFlow {
 
       return this.buildAvailabilityReply({
         phone: input.phone,
+        businessId: input.businessId,
         serviceId: selectedService.id,
         professionalId: input.conversation.selectedProfessionalId,
         date: selectedDateFromMessage,
@@ -587,7 +589,7 @@ export class BookingConversationFlow {
     }
 
     if (input.conversation?.selectedProfessionalId) {
-      await this.updateConversation(input.phone, {
+      await this.updateConversation(input.phone, input.businessId, {
         currentStep: 'ASK_DATE',
         selectedServiceId: selectedService.id,
         selectedProfessionalId: input.conversation.selectedProfessionalId,
@@ -602,7 +604,7 @@ export class BookingConversationFlow {
     }
 
     if (selectedDateFromMessage) {
-      await this.updateConversation(input.phone, {
+      await this.updateConversation(input.phone, input.businessId, {
         currentStep: 'ASK_PROFESSIONAL',
         selectedServiceId: selectedService.id,
         selectedProfessionalId: null,
@@ -617,7 +619,7 @@ export class BookingConversationFlow {
       )
     }
 
-    await this.updateConversation(input.phone, {
+    await this.updateConversation(input.phone, input.businessId, {
       currentStep: 'ASK_DATE',
       selectedServiceId: selectedService.id,
       selectedProfessionalId: null,
@@ -641,7 +643,7 @@ export class BookingConversationFlow {
     conversation: ConversationState
   }) {
     if (!input.conversation.selectedServiceId) {
-      await this.restartBooking(input.phone)
+      await this.restartBooking(input.phone, input.businessId)
 
       return this.buildServicesReply('Primero necesito que elijamos el servicio.', input.businessId)
     }
@@ -656,7 +658,7 @@ export class BookingConversationFlow {
     })
 
     if (!selectedService) {
-      await this.restartBooking(input.phone)
+      await this.restartBooking(input.phone, input.businessId)
 
       return this.buildServicesReply('Ese servicio ya no aparece disponible. ¿Elegimos otro?', input.businessId)
     }
@@ -664,7 +666,7 @@ export class BookingConversationFlow {
     if (await this.isAnyProfessionalSelection(input.message, selectedService.businessId)) {
       const selectedDate = await this.parseDateFromMessage(input.message) ?? input.conversation.selectedDate
 
-      await this.updateConversation(input.phone, {
+      await this.updateConversation(input.phone, input.businessId, {
         currentStep: selectedDate ? 'ASK_TIME' : 'ASK_DATE',
         selectedProfessionalId: null,
         selectedDate: selectedDate ?? null
@@ -673,6 +675,7 @@ export class BookingConversationFlow {
       if (selectedDate) {
         return this.buildAvailabilityReply({
           phone: input.phone,
+          businessId: input.businessId,
           serviceId: selectedService.id,
           professionalId: null,
           date: selectedDate,
@@ -695,7 +698,7 @@ export class BookingConversationFlow {
     const correctedDate = await this.parseDateFromMessage(input.message)
 
     if (correctedDate) {
-      await this.updateConversation(input.phone, {
+      await this.updateConversation(input.phone, input.businessId, {
         currentStep: 'ASK_PROFESSIONAL',
         selectedDate: correctedDate,
         selectedTime: null,
@@ -721,7 +724,7 @@ export class BookingConversationFlow {
     })
     const selectedDate = await this.parseDateFromMessage(input.message) ?? input.conversation.selectedDate
 
-    await this.updateConversation(input.phone, {
+    await this.updateConversation(input.phone, input.businessId, {
       currentStep: selectedDate ? 'ASK_TIME' : 'ASK_DATE',
       selectedProfessionalId: selectedProfessional.id,
       selectedDate: selectedDate ?? null
@@ -730,6 +733,7 @@ export class BookingConversationFlow {
     if (selectedDate) {
       return this.buildAvailabilityReply({
         phone: input.phone,
+        businessId: input.businessId,
         serviceId: selectedService.id,
         professionalId: selectedProfessional.id,
         date: selectedDate,
@@ -759,7 +763,7 @@ export class BookingConversationFlow {
     conversation: ConversationState
   }) {
     if (!input.conversation.selectedServiceId) {
-      await this.restartBooking(input.phone)
+      await this.restartBooking(input.phone, input.businessId)
 
       return this.buildServicesReply('Me falta confirmar el servicio, asi que volvemos un paso y lo elegimos bien.', input.businessId)
     }
@@ -782,7 +786,7 @@ export class BookingConversationFlow {
 
         if (selectedService) {
           if (rejectsSelectedService(input.message, selectedService)) {
-            await this.updateConversation(input.phone, {
+            await this.updateConversation(input.phone, input.businessId, {
               currentStep: 'ASK_SERVICE',
               selectedServiceId: null,
               selectedProfessionalId: null,
@@ -799,7 +803,7 @@ export class BookingConversationFlow {
           }
 
           if (await this.isAnyProfessionalSelection(input.message, selectedService.businessId)) {
-            await this.updateConversation(input.phone, {
+            await this.updateConversation(input.phone, input.businessId, {
               currentStep: 'ASK_DATE',
               selectedProfessionalId: null,
               selectedTime: null,
@@ -814,7 +818,7 @@ export class BookingConversationFlow {
           const requestedProfessional = await this.findProfessionalMentionedInMessage(input.message, selectedService.businessId)
 
           if (requestedProfessional) {
-            await this.updateConversation(input.phone, {
+            await this.updateConversation(input.phone, input.businessId, {
               currentStep: 'ASK_DATE',
               selectedProfessionalId: requestedProfessional.id,
               selectedTime: null,
@@ -844,7 +848,7 @@ export class BookingConversationFlow {
       })
 
       if (!selectedService) {
-        await this.restartBooking(input.phone)
+        await this.restartBooking(input.phone, input.businessId)
 
         return this.buildServicesReply('Ese servicio ya no aparece disponible. ¿Elegimos otro?', input.businessId)
       }
@@ -854,6 +858,7 @@ export class BookingConversationFlow {
       if (requestedProfessional) {
         return this.buildAvailabilityReply({
           phone: input.phone,
+          businessId: input.businessId,
           serviceId: input.conversation.selectedServiceId,
           professionalId: requestedProfessional.id,
           date: selectedDate,
@@ -878,6 +883,7 @@ export class BookingConversationFlow {
       if (asksForAnyProfessional || asksForBroadAvailability) {
         return this.buildAvailabilityReply({
           phone: input.phone,
+          businessId: input.businessId,
           serviceId: input.conversation.selectedServiceId,
           professionalId: null,
           date: selectedDate,
@@ -908,7 +914,7 @@ export class BookingConversationFlow {
       }
 
       if (dayAvailability.options.length === 0) {
-        await this.updateConversation(input.phone, {
+        await this.updateConversation(input.phone, input.businessId, {
           currentStep: 'ASK_DATE',
           selectedDate: null,
           selectedTime: null,
@@ -923,7 +929,7 @@ export class BookingConversationFlow {
       }
 
       if (!asksForAnyProfessional) {
-        await this.updateConversation(input.phone, {
+        await this.updateConversation(input.phone, input.businessId, {
           currentStep: 'ASK_PROFESSIONAL',
           selectedDate,
           selectedTime: null,
@@ -957,6 +963,7 @@ export class BookingConversationFlow {
 
     return this.buildAvailabilityReply({
       phone: input.phone,
+      businessId: input.businessId,
       serviceId: input.conversation.selectedServiceId,
       professionalId: input.conversation.selectedProfessionalId,
       date: selectedDate,
@@ -976,7 +983,7 @@ export class BookingConversationFlow {
     conversation: ConversationState
   }) {
     if (!input.conversation.selectedServiceId || !input.conversation.selectedDate) {
-      await this.restartBooking(input.phone)
+      await this.restartBooking(input.phone, input.businessId)
 
       return this.buildServicesReply('Me falta confirmar servicio y fecha, asi que volvemos un paso y lo ordenamos.', input.businessId)
     }
@@ -991,12 +998,12 @@ export class BookingConversationFlow {
       })
 
       if (!selectedService) {
-        await this.restartBooking(input.phone)
+        await this.restartBooking(input.phone, input.businessId)
 
         return this.buildServicesReply('Ese servicio ya no aparece disponible. ¿Elegimos otro?', input.businessId)
       }
 
-      await this.updateConversation(input.phone, {
+      await this.updateConversation(input.phone, input.businessId, {
         currentStep: 'ASK_PROFESSIONAL',
         selectedProfessionalId: null,
         selectedTime: null,
@@ -1016,7 +1023,7 @@ export class BookingConversationFlow {
       !readLastAvailabilityOptions(input.conversation.lastAvailability)
 
     if (waitingForNoAvailabilityChoice && (noAvailabilityChoice === '1' || wantsAnotherDay(input.message))) {
-      await this.updateConversation(input.phone, {
+      await this.updateConversation(input.phone, input.businessId, {
         currentStep: 'ASK_DATE',
         selectedDate: null,
         selectedTime: null,
@@ -1031,6 +1038,7 @@ export class BookingConversationFlow {
     if (waitingForNoAvailabilityChoice && noAvailabilityChoice === '2') {
       return this.buildAvailabilityReply({
         phone: input.phone,
+        businessId: input.businessId,
         serviceId: input.conversation.selectedServiceId,
         professionalId: null,
         date: input.conversation.selectedDate,
@@ -1039,7 +1047,7 @@ export class BookingConversationFlow {
     }
 
     if (wantsAnotherDay(input.message)) {
-      await this.updateConversation(input.phone, {
+      await this.updateConversation(input.phone, input.businessId, {
         currentStep: 'ASK_DATE',
         selectedDate: null,
         selectedTime: null,
@@ -1056,6 +1064,7 @@ export class BookingConversationFlow {
     if (changedDate && changedDate !== input.conversation.selectedDate) {
       return this.buildAvailabilityReply({
         phone: input.phone,
+        businessId: input.businessId,
         serviceId: input.conversation.selectedServiceId,
         professionalId: input.conversation.selectedProfessionalId,
         date: changedDate,
@@ -1075,6 +1084,7 @@ export class BookingConversationFlow {
 
       return this.buildAvailabilityReply({
         phone: input.phone,
+        businessId: input.businessId,
         serviceId: input.conversation.selectedServiceId,
         professionalId: input.conversation.selectedProfessionalId,
         date: input.conversation.selectedDate,
@@ -1124,7 +1134,7 @@ export class BookingConversationFlow {
     }
 
     if (input.conversation.selectedCustomerName) {
-      await this.updateConversation(input.phone, {
+            await this.updateConversation(input.phone, input.businessId, {
         currentStep: 'CONFIRM',
         selectedTime: selectedAvailability.time,
         selectedProfessionalId: selectedAvailability.professionalId
@@ -1139,7 +1149,7 @@ export class BookingConversationFlow {
       })
     }
 
-    await this.updateConversation(input.phone, {
+            await this.updateConversation(input.phone, input.businessId, {
       currentStep: 'ASK_CUSTOMER_NAME',
       selectedTime: selectedAvailability.time,
       selectedProfessionalId: selectedAvailability.professionalId
@@ -1174,7 +1184,7 @@ export class BookingConversationFlow {
       !input.conversation.selectedDate &&
       !input.conversation.selectedTime
     ) {
-      await this.updateConversation(input.phone, {
+            await this.updateConversation(input.phone, input.businessId, {
         currentStep: 'ASK_SERVICE',
         selectedCustomerName: customerName
       })
@@ -1199,7 +1209,7 @@ export class BookingConversationFlow {
       return this.buildServicesReply(buildNameReceivedPrefix(customerName, input.message), input.businessId)
     }
 
-    await this.updateConversation(input.phone, {
+    await this.updateConversation(input.phone, input.businessId, {
       currentStep: input.conversation.selectedServiceId && input.conversation.selectedDate && input.conversation.selectedProfessionalId
         ? 'ASK_TIME'
         : input.conversation.selectedServiceId
@@ -1220,7 +1230,7 @@ export class BookingConversationFlow {
       })
 
       if (!selectedService) {
-        await this.restartBooking(input.phone)
+        await this.restartBooking(input.phone, input.businessId)
 
         return this.buildServicesReply('Ese servicio ya no aparece disponible. ¿Elegimos otro?', input.businessId)
       }
@@ -1241,6 +1251,7 @@ export class BookingConversationFlow {
 
       return this.buildAvailabilityReply({
         phone: input.phone,
+        businessId: input.businessId,
         serviceId: input.conversation.selectedServiceId,
         professionalId: input.conversation.selectedProfessionalId,
         date: input.conversation.selectedDate,
@@ -1264,7 +1275,7 @@ export class BookingConversationFlow {
       })
 
       if (!selectedService) {
-        await this.restartBooking(input.phone)
+        await this.restartBooking(input.phone, input.businessId)
 
         return this.buildServicesReply('Ese servicio ya no aparece disponible. ¿Elegimos otro?', input.businessId)
       }
@@ -1275,7 +1286,7 @@ export class BookingConversationFlow {
         }
       }
 
-      await this.updateConversation(input.phone, {
+      await this.updateConversation(input.phone, input.businessId, {
         currentStep: 'ASK_DATE',
         selectedServiceId: selectedService.id,
         selectedProfessionalId: null,
@@ -1305,7 +1316,7 @@ export class BookingConversationFlow {
 
     if (isChangeTimeQuestion(input.message) || isTimeFilterRequest(input.message)) {
       if (!input.conversation.selectedServiceId || !input.conversation.selectedDate) {
-        await this.restartBooking(input.phone)
+        await this.restartBooking(input.phone, input.businessId)
 
         return this.buildServicesReply('Me falta confirmar servicio y fecha, así que volvemos un paso y lo ordenamos.', input.businessId)
       }
@@ -1314,6 +1325,7 @@ export class BookingConversationFlow {
 
       return this.buildAvailabilityReply({
         phone: input.phone,
+        businessId: input.businessId,
         serviceId: input.conversation.selectedServiceId,
         professionalId: input.conversation.selectedProfessionalId,
         date: input.conversation.selectedDate,
@@ -1332,6 +1344,7 @@ export class BookingConversationFlow {
       if (requestedDate && requestedDate !== input.conversation.selectedDate) {
         return this.buildAvailabilityReply({
           phone: input.phone,
+          businessId: input.businessId,
           serviceId: input.conversation.selectedServiceId,
           professionalId: input.conversation.selectedProfessionalId,
           date: requestedDate,
@@ -1355,6 +1368,7 @@ export class BookingConversationFlow {
         if (requestedProfessional && requestedProfessional.id !== input.conversation.selectedProfessionalId) {
           return this.buildAvailabilityReply({
             phone: input.phone,
+            businessId: input.businessId,
             serviceId: input.conversation.selectedServiceId,
             professionalId: requestedProfessional.id,
             date: input.conversation.selectedDate,
@@ -1377,6 +1391,7 @@ export class BookingConversationFlow {
         if (requestedService && requestedService.id !== input.conversation.selectedServiceId) {
           return this.buildAvailabilityReply({
             phone: input.phone,
+            businessId: input.businessId,
             serviceId: requestedService.id,
             professionalId: input.conversation.selectedProfessionalId,
             date: input.conversation.selectedDate,
@@ -1409,7 +1424,7 @@ export class BookingConversationFlow {
       !input.conversation.selectedTime ||
       !input.conversation.selectedCustomerName
     ) {
-      await this.restartBooking(input.phone)
+      await this.restartBooking(input.phone, input.businessId)
 
       return this.buildServicesReply('Me faltan datos para confirmar el turno. Volvemos un paso y lo dejamos bien.', input.businessId)
     }
@@ -1423,7 +1438,7 @@ export class BookingConversationFlow {
     })
 
     if (!appointment.ok) {
-        await this.updateConversation(input.phone, {
+        await this.updateConversation(input.phone, input.businessId, {
           currentStep: 'ASK_DATE',
           selectedDate: null,
           selectedTime: null,
@@ -1435,7 +1450,7 @@ export class BookingConversationFlow {
       }
     }
 
-    await this.updateConversation(input.phone, {
+    await this.updateConversation(input.phone, input.businessId, {
       currentStep: 'COMPLETED'
     })
 
@@ -1454,7 +1469,7 @@ export class BookingConversationFlow {
     conversation: ConversationState
   }): Promise<HandleBookingResult> {
     if (input.conversation.currentStep === 'CONFIRM' && input.conversation.selectedServiceId && input.conversation.selectedDate) {
-      await this.updateConversation(input.phone, {
+      await this.updateConversation(input.phone, input.businessId, {
         currentStep: 'ASK_TIME',
         selectedTime: null,
         lastAvailability: null
@@ -1462,6 +1477,7 @@ export class BookingConversationFlow {
 
       return this.buildAvailabilityReply({
         phone: input.phone,
+        businessId: input.businessId,
         serviceId: input.conversation.selectedServiceId,
         professionalId: input.conversation.selectedProfessionalId,
         date: input.conversation.selectedDate,
@@ -1470,7 +1486,7 @@ export class BookingConversationFlow {
     }
 
     if (input.conversation.currentStep === 'ASK_TIME' && input.conversation.selectedProfessionalId) {
-      await this.updateConversation(input.phone, {
+      await this.updateConversation(input.phone, input.businessId, {
         currentStep: 'ASK_DATE',
         selectedDate: null,
         selectedTime: null,
@@ -1490,7 +1506,7 @@ export class BookingConversationFlow {
       })
 
       if (selectedService) {
-        await this.updateConversation(input.phone, {
+        await this.updateConversation(input.phone, input.businessId, {
           currentStep: 'ASK_PROFESSIONAL',
           selectedProfessionalId: null,
           selectedDate: null,
@@ -1503,12 +1519,12 @@ export class BookingConversationFlow {
     }
 
     if (input.conversation.currentStep === 'ASK_PROFESSIONAL' || input.conversation.currentStep === 'ASK_DATE') {
-      await this.restartBooking(input.phone)
+      await this.restartBooking(input.phone, input.businessId)
 
       return this.buildServicesReply('Dale, volvemos al servicio.', input.businessId)
     }
 
-    await this.updateConversation(input.phone, {
+    await this.updateConversation(input.phone, input.businessId, {
       currentStep: 'START',
       selectedServiceId: null,
       selectedProfessionalId: null,
@@ -1701,7 +1717,7 @@ export class BookingConversationFlow {
           ? professionals[agentDecision.selectedProfessionalIndex - 1] ?? null
           : null
 
-      await this.updateConversation(input.phone, {
+      await this.updateConversation(input.phone, input.businessId, {
         currentStep: 'ASK_SERVICE',
         selectedServiceId: null,
         selectedProfessionalId: selectedProfessional?.id ?? null,
@@ -1745,7 +1761,7 @@ export class BookingConversationFlow {
     const selectedProfessionalId = selectedProfessional?.id ?? null
 
     if (!intentDate) {
-      await this.updateConversation(input.phone, {
+      await this.updateConversation(input.phone, input.businessId, {
         currentStep: 'ASK_DATE',
         selectedServiceId: selectedService.id,
         selectedProfessionalId,
@@ -1776,7 +1792,7 @@ export class BookingConversationFlow {
       })
 
       if (!dayAvailability.ok) {
-        await this.updateConversation(input.phone, {
+        await this.updateConversation(input.phone, input.businessId, {
           currentStep: 'ASK_DATE',
           selectedServiceId: selectedService.id,
           selectedProfessionalId: null,
@@ -1791,7 +1807,7 @@ export class BookingConversationFlow {
       }
 
       if (dayAvailability.options.length === 0) {
-        await this.updateConversation(input.phone, {
+        await this.updateConversation(input.phone, input.businessId, {
           currentStep: 'ASK_DATE',
           selectedServiceId: selectedService.id,
           selectedProfessionalId: null,
@@ -1807,7 +1823,7 @@ export class BookingConversationFlow {
         }
       }
 
-      await this.updateConversation(input.phone, {
+      await this.updateConversation(input.phone, input.businessId, {
         currentStep: 'ASK_PROFESSIONAL',
         selectedServiceId: selectedService.id,
         selectedProfessionalId: null,
@@ -1825,7 +1841,7 @@ export class BookingConversationFlow {
     const intentTime = parseAfterTimeFromMessage(input.message) ? null : intent.time
 
     if (!selectedProfessionalId && !anyProfessional && intentTime) {
-      await this.updateConversation(input.phone, {
+      await this.updateConversation(input.phone, input.businessId, {
         currentStep: 'ASK_PROFESSIONAL',
         selectedServiceId: selectedService.id,
         selectedProfessionalId: null,
@@ -1846,6 +1862,7 @@ export class BookingConversationFlow {
     )
     const availabilityReply = await this.buildAvailabilityReply({
       phone: input.phone,
+      businessId: input.businessId,
       serviceId: selectedService.id,
       professionalId: selectedProfessionalId,
       date: intentDate,
@@ -1974,6 +1991,7 @@ export class BookingConversationFlow {
 
   private async buildAvailabilityReply(input: {
     phone: string
+    businessId: string | null
     serviceId: string
     professionalId: string | null
     date: string
@@ -2009,7 +2027,7 @@ export class BookingConversationFlow {
       })
 
       if (service) {
-        await this.updateConversation(input.phone, {
+        await this.updateConversation(input.phone, input.businessId, {
           currentStep: 'ASK_PROFESSIONAL',
           selectedServiceId: input.serviceId,
           selectedProfessionalId: null,
@@ -2031,7 +2049,7 @@ export class BookingConversationFlow {
         ?? options.find((option) => option.time === toAfternoonTime(requestedTime))
 
       if (selectedAvailability) {
-        await this.updateConversation(input.phone, {
+        await this.updateConversation(input.phone, input.businessId, {
           currentStep: 'CONFIRM',
           selectedServiceId: input.serviceId,
           selectedProfessionalId: selectedAvailability.professionalId,
@@ -2050,7 +2068,7 @@ export class BookingConversationFlow {
           selectedProfessionalId: selectedAvailability.professionalId,
           selectedDate: input.date,
           selectedTime: selectedAvailability.time,
-          selectedCustomerName: await this.findCustomerName(input.phone)
+          selectedCustomerName: await this.findCustomerName(input.phone, input.businessId)
         })
       }
     }
@@ -2059,7 +2077,7 @@ export class BookingConversationFlow {
       const professionalName = await this.findProfessionalName(input.professionalId)
 
       if (input.professionalId && professionalName && isToday(input.date)) {
-        await this.updateConversation(input.phone, {
+        await this.updateConversation(input.phone, input.businessId, {
           currentStep: 'ASK_TIME',
           selectedServiceId: input.serviceId,
           selectedProfessionalId: input.professionalId,
@@ -2075,7 +2093,7 @@ export class BookingConversationFlow {
         }
       }
 
-      await this.updateConversation(input.phone, {
+      await this.updateConversation(input.phone, input.businessId, {
         currentStep: 'ASK_DATE',
         selectedServiceId: input.serviceId,
         selectedProfessionalId: input.professionalId,
@@ -2096,7 +2114,7 @@ export class BookingConversationFlow {
       }
     }
 
-    await this.updateConversation(input.phone, {
+    await this.updateConversation(input.phone, input.businessId, {
       currentStep: 'ASK_TIME',
       selectedServiceId: input.serviceId,
       selectedProfessionalId: input.professionalId,
@@ -2406,12 +2424,22 @@ export class BookingConversationFlow {
     return options.find((option) => option.time === afternoonTime) ?? null
   }
 
-  private async findCustomerName(phone: string) {
-    const conversation = await prisma.conversation.findUnique({
-      where: {
-        phone
-      }
-    })
+  private async findCustomerName(phone: string, businessId: string | null) {
+    const conversation = businessId
+      ? await prisma.conversation.findUnique({
+          where: {
+            businessId_phone: {
+              businessId,
+              phone
+            }
+          }
+        })
+      : await prisma.conversation.findFirst({
+          where: {
+            businessId: null,
+            phone
+          }
+        })
 
     return conversation?.selectedCustomerName ?? 'Cliente'
   }
@@ -2474,8 +2502,8 @@ export class BookingConversationFlow {
     })
   }
 
-  private async restartBooking(phone: string) {
-    return this.updateConversation(phone, {
+  private async restartBooking(phone: string, businessId: string | null) {
+    return this.updateConversation(phone, businessId, {
       currentStep: 'ASK_SERVICE',
       selectedServiceId: null,
       selectedProfessionalId: null,
@@ -2487,6 +2515,7 @@ export class BookingConversationFlow {
 
   private async updateConversation(
     phone: string,
+    businessId: string | null,
     data: {
       currentStep:
         | 'START'
@@ -2516,9 +2545,16 @@ export class BookingConversationFlow {
             : lastAvailability as Prisma.InputJsonValue
         }
 
+    if (!businessId) {
+      throw new Error('No se puede actualizar una conversacion sin comercio')
+    }
+
     return prisma.conversation.update({
       where: {
-        phone
+        businessId_phone: {
+          businessId,
+          phone
+        }
       },
       data: dataToUpdate
     })

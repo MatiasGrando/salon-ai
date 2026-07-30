@@ -1112,7 +1112,7 @@ async function main() {
           }
         })
 
-        await prisma.conversation.update({
+        await prisma.conversation.updateMany({
           where: {
             phone: `${testPhonePrefix}expired`
           },
@@ -1144,7 +1144,7 @@ async function main() {
           }
         })
 
-        await prisma.conversation.update({
+        await prisma.conversation.updateMany({
           where: {
             phone: `${testPhonePrefix}expired-no-name`
           },
@@ -1219,7 +1219,7 @@ async function assertConversationStep(phone: string, step: Step) {
     return
   }
 
-  const conversation = await prisma.conversation.findUnique({
+  const conversation = await prisma.conversation.findFirst({
     where: {
       phone
     },
