@@ -134,7 +134,8 @@ export async function professionalRoutes(app: FastifyInstance) {
     }
     const name = body.name?.trim()
     const description = normalizeDescription(body.description)
-    const avatarUrl = normalizeAvatarUrl(body.avatarUrl)
+    const avatarUrlWasProvided = Object.prototype.hasOwnProperty.call(body, 'avatarUrl')
+    const avatarUrl = avatarUrlWasProvided ? normalizeAvatarUrl(body.avatarUrl) : undefined
 
     if (!name) {
       return reply.status(400).send({
@@ -197,7 +198,7 @@ export async function professionalRoutes(app: FastifyInstance) {
         data: {
           name,
           description,
-          avatarUrl,
+          ...(avatarUrlWasProvided ? { avatarUrl: avatarUrl ?? null } : {}),
           isActive: typeof body.isActive === 'boolean' ? body.isActive : existing.isActive,
           deactivatedAt: typeof body.isActive === 'boolean'
             ? body.isActive ? null : new Date()

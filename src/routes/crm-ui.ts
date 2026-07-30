@@ -14234,6 +14234,7 @@ const crmHtml = `<!doctype html>
       professionalStatusFilter: 'all',
       professionalViewMode: 'cards',
       professionalAvatarUrl: null,
+      professionalAvatarChanged: false,
       serviceImageUrl: null,
       serviceEstimateOptions: [],
       businessLogoUrl: null,
@@ -18270,19 +18271,23 @@ const crmHtml = `<!doctype html>
 
       if (!setButtonLoading(els.professionalSubmit, true, id ? 'Guardando...' : 'Creando...')) return
       try {
+        const payload = {
+          name,
+          description: description || null,
+          businessId: state.businessId,
+          isActive: els.professionalStatus.value === 'active',
+          serviceIds,
+          workingHours,
+          ...(options.conflictStrategy ? { conflictStrategy: options.conflictStrategy } : {})
+        }
+        if (!id || state.professionalAvatarChanged) {
+          payload.avatarUrl = state.professionalAvatarUrl
+        }
+
         await getJson(id ? '/professionals/' + id : '/professionals', {
           method: id ? 'PATCH' : 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name,
-            description: description || null,
-            businessId: state.businessId,
-            avatarUrl: state.professionalAvatarUrl,
-            isActive: els.professionalStatus.value === 'active',
-            serviceIds,
-            workingHours,
-            ...(options.conflictStrategy ? { conflictStrategy: options.conflictStrategy } : {})
-          })
+          body: JSON.stringify(payload)
         })
         els.professionalFeedback.textContent = id ? 'Profesional actualizado.' : 'Profesional creado.'
         hideProfessionalImpact()
@@ -18322,7 +18327,7 @@ const crmHtml = `<!doctype html>
       els.professionalName.value = professional.name
       els.professionalDescription.value = professional.description || ''
       els.professionalStatus.value = professional.isActive === false ? 'inactive' : 'active'
-      setProfessionalAvatar(professional.avatarUrl || null)
+      setProfessionalAvatar(professional.avatarUrl || null, false)
       setProfessionalWorkingHours(professional.workingHours || [])
       renderProfessionalServiceOptions((professional.services || []).map((service) => service.id))
       els.professionalCancel.hidden = false
@@ -18378,7 +18383,7 @@ const crmHtml = `<!doctype html>
       els.professionalName.value = ''
       els.professionalDescription.value = ''
       els.professionalStatus.value = 'active'
-      setProfessionalAvatar(null)
+      setProfessionalAvatar(null, false)
       els.professionalCancel.hidden = false
       els.professionalFormTitle.textContent = 'Nuevo profesional'
       els.professionalSubmit.textContent = 'Guardar profesional'
@@ -19887,8 +19892,9 @@ const crmHtml = `<!doctype html>
         : '<div class="professional-form-help">No hay servicios cargados</div>'
     }
 
-    function setProfessionalAvatar(avatarUrl) {
+    function setProfessionalAvatar(avatarUrl, changed = false) {
       state.professionalAvatarUrl = avatarUrl
+      state.professionalAvatarChanged = changed
       els.professionalPhotoPreview.src = avatarUrl || ''
       els.professionalPhotoPicker.classList.toggle('has-image', Boolean(avatarUrl))
       if (!avatarUrl) {
@@ -19904,13 +19910,19 @@ const crmHtml = `<!doctype html>
 
       if (!file.type.startsWith('image/')) {
         els.professionalFeedback.textContent = 'Elegí una imagen valida.'
-        setProfessionalAvatar(null)
+        setProfessionalAvatar(null, true)
+        return
+      }
+
+      if (file.size > 2 * 1024 * 1024) {
+        els.professionalFeedback.textContent = 'La foto no puede superar los 2 MB.'
+        event.target.value = ''
         return
       }
 
       const reader = new FileReader()
       reader.addEventListener('load', () => {
-        setProfessionalAvatar(String(reader.result || ''))
+        setProfessionalAvatar(String(reader.result || ''), true)
       })
       reader.readAsDataURL(file)
     }
