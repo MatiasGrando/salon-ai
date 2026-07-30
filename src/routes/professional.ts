@@ -254,6 +254,9 @@ export async function professionalRoutes(app: FastifyInstance) {
       })
 
       return serializeProfessional(professional)
+    }, {
+      maxWait: 10_000,
+      timeout: 20_000
     })
   })
 
