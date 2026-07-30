@@ -530,9 +530,29 @@ export class AppointmentService {
           : {})
       },
       include: {
-        customer: true,
-        professional: true,
-        service: true
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            phone: true
+          }
+        },
+        professional: {
+          select: {
+            id: true,
+            name: true,
+            businessId: true,
+            isActive: true
+          }
+        },
+        service: {
+          select: {
+            id: true,
+            name: true,
+            duration: true,
+            price: true
+          }
+        }
       },
       orderBy: {
         startAt: 'asc'

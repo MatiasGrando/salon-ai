@@ -150,6 +150,9 @@ export async function professionalRoutes(app: FastifyInstance) {
     const existing = await prisma.professional.findUnique({
       where: {
         id: params.id
+      },
+      include: {
+        workingHours: true
       }
     })
 
@@ -162,6 +165,8 @@ export async function professionalRoutes(app: FastifyInstance) {
     const serviceIdsResult = body.serviceIds
       ? await resolveServiceIdsForBusiness(existing.businessId, body.serviceIds)
       : null
+    const workingHoursChanged = workingHours !== undefined &&
+      !sameWorkingHours(workingHours, existing.workingHours)
 
     if (serviceIdsResult && !serviceIdsResult.ok) {
       return reply.status(serviceIdsResult.statusCode).send({
@@ -169,7 +174,7 @@ export async function professionalRoutes(app: FastifyInstance) {
       })
     }
 
-    if (workingHours) {
+    if (workingHoursChanged) {
       const businessHoursValidation = await validateWorkingHoursWithinBusinessHours(existing.businessId, workingHours)
       if (!businessHoursValidation.ok) {
         return reply.status(409).send({
@@ -179,7 +184,7 @@ export async function professionalRoutes(app: FastifyInstance) {
       }
     }
 
-    if (workingHours) {
+    if (workingHoursChanged) {
       const impact = await getProfessionalAppointmentImpact(params.id, workingHours)
       if (impact.outsideWorkingHours.length > 0 && body.conflictStrategy !== 'KEEP_EXISTING') {
         return reply.status(409).send({
@@ -206,7 +211,7 @@ export async function professionalRoutes(app: FastifyInstance) {
         }
       })
 
-      if (workingHours) {
+      if (workingHoursChanged) {
         await tx.professionalHours.deleteMany({
           where: {
             professionalId: params.id
@@ -504,6 +509,15 @@ function normalizeWorkingHours(hours: WorkingHourInput[]) {
   return Array.from(
     new Map(validHours.map((hour) => [hour.dayOfWeek, hour])).values()
   )
+}
+
+function sameWorkingHours(left: WorkingHourInput[], right: WorkingHourInput[]) {
+  const canonical = (hours: WorkingHourInput[]) => hours
+    .map((hour) => `${hour.dayOfWeek}:${hour.startTime}-${hour.endTime}`)
+    .sort()
+    .join('|')
+
+  return canonical(left) === canonical(right)
 }
 
 async function validateWorkingHoursWithinBusinessHours(businessId: string, workingHours: WorkingHourInput[]) {

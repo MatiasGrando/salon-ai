@@ -11,6 +11,16 @@ const businessId = 'business-test'
 const serviceId = 'service-test'
 const originalAvatar = 'data:image/jpeg;base64,existing-large-avatar'
 const updatePayloads: Array<Record<string, unknown>> = []
+let professionalHoursDeleteCount = 0
+const existingWorkingHours = [
+  { dayOfWeek: 1, startTime: '13:00', endTime: '20:00' },
+  { dayOfWeek: 2, startTime: '13:00', endTime: '20:00' },
+  { dayOfWeek: 3, startTime: '13:00', endTime: '20:00' },
+  { dayOfWeek: 4, startTime: '13:00', endTime: '20:00' },
+  { dayOfWeek: 5, startTime: '13:00', endTime: '20:00' },
+  { dayOfWeek: 6, startTime: '09:00', endTime: '14:00' },
+  { dayOfWeek: 0, startTime: '10:00', endTime: '13:00' }
+]
 
 const prismaClient = prisma as any
 const originals = {
@@ -29,7 +39,7 @@ const professional = {
   businessId,
   createdAt: new Date(),
   updatedAt: new Date(),
-  workingHours: [],
+  workingHours: existingWorkingHours,
   serviceLinks: [],
   _count: { appointments: 0 }
 }
@@ -50,7 +60,10 @@ try {
       createMany: async () => ({ count: 1 })
     },
     professionalHours: {
-      deleteMany: async () => ({ count: 0 }),
+      deleteMany: async () => {
+        professionalHoursDeleteCount += 1
+        return { count: 0 }
+      },
       createMany: async () => ({ count: 0 })
     }
   })
@@ -60,7 +73,8 @@ try {
     url: `/professionals/${professionalId}`,
     payload: {
       name: 'Lucas',
-      serviceIds: [serviceId]
+      serviceIds: [serviceId],
+      workingHours: existingWorkingHours
     }
   })
 
@@ -69,6 +83,11 @@ try {
     Object.prototype.hasOwnProperty.call(updatePayloads[0], 'avatarUrl'),
     false,
     'Editar servicios no debe reenviar ni reemplazar el avatar existente'
+  )
+  assert.equal(
+    professionalHoursDeleteCount,
+    0,
+    'Editar servicios no debe reprocesar horarios que no cambiaron'
   )
 
   const removeAvatarResponse = await app.inject({
