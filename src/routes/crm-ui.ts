@@ -20756,13 +20756,13 @@ const crmHtml = `<!doctype html>
       const service = appointment.service?.name || 'Servicio'
       const professional = appointment.professional?.name || 'Profesional'
       const time = formatTimeOnly(start)
-      return '<article class="agenda-gcal-event' + (noShow ? ' no-show' : '') + (pending ? ' is-pending' : '') + '" data-appointment-id="' + appointment.id + '" data-overlap-count="' + columns + '" style="top:' + top + 'px;height:' + height + 'px;left:' + left + ';right:auto;width:' + width + ';--agenda-event-color:' + color + '" title="' + escapeAttribute(time + ' - ' + customer + ' - ' + service + ' con ' + professional) + '">' +
+      return '<article class="agenda-gcal-event' + (noShow ? ' no-show' : '') + (pending ? ' is-pending' : '') + '" data-appointment-id="' + appointment.id + '" data-overlap-count="' + columns + '" style="top:' + top + 'px;height:' + height + 'px;left:' + left + ';right:auto;width:' + width + ';--agenda-event-color:' + color + '" title="' + escapeHtml(time + ' - ' + customer + ' - ' + service + ' con ' + professional) + '">' +
         '<button class="agenda-gcal-event-main" type="button" data-agenda-edit-appointment>' +
           '<strong>' + escapeHtml(customer) + '</strong>' +
           '<span>' + escapeHtml(time + ' - ' + service) + '</span>' +
           '<span class="agenda-gcal-event-professional">' + escapeHtml(professional) + '</span>' +
         '</button>' +
-        (canCreateAppointments() ? '<button class="agenda-gcal-event-add" type="button" data-agenda-new-at aria-label="Crear otro turno a las ' + escapeAttribute(time) + '" title="Crear otro turno en este horario"><span aria-hidden="true">+</span><span class="agenda-gcal-event-add-label">Otro</span></button>' : '') +
+        (canCreateAppointments() ? '<button class="agenda-gcal-event-add" type="button" data-agenda-new-at aria-label="Crear otro turno a las ' + escapeHtml(time) + '" title="Crear otro turno en este horario"><span aria-hidden="true">+</span><span class="agenda-gcal-event-add-label">Otro</span></button>' : '') +
       '</article>'
     }
 
