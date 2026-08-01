@@ -11944,6 +11944,88 @@ const crmHtml = `<!doctype html>
       user-select: none;
     }
 
+    .agenda-gcal-event {
+      padding: 0;
+      overflow: visible;
+    }
+
+    .agenda-gcal-event-main {
+      width: 100%;
+      height: 100%;
+      min-height: 28px;
+      padding: 6px 70px 6px 7px;
+      display: block;
+      overflow: hidden;
+      border: 0;
+      border-radius: inherit;
+      color: inherit;
+      background: transparent;
+      text-align: left;
+      cursor: inherit;
+    }
+
+    .agenda-gcal-event-main:hover,
+    .agenda-gcal-event-main:focus-visible {
+      background: color-mix(in srgb, var(--agenda-event-color, #60a5fa) 12%, transparent);
+      outline: none;
+    }
+
+    .agenda-gcal-event-add {
+      position: absolute;
+      top: 5px;
+      right: 5px;
+      z-index: 8;
+      width: auto;
+      min-width: 24px;
+      height: 24px;
+      min-height: 24px;
+      padding: 0 7px;
+      border: 1px solid color-mix(in srgb, var(--agenda-event-color, #60a5fa) 55%, #fff);
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      color: #0f172a;
+      background: rgba(255, 255, 255, .9);
+      font-size: 18px;
+      line-height: 1;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 2px 7px rgba(15, 23, 42, .16);
+    }
+
+    .agenda-gcal-event .agenda-gcal-event-add span { display: inline; margin: 0; }
+    .agenda-gcal-event .agenda-gcal-event-add-label { font-size: 10px; line-height: 1; }
+
+    .agenda-gcal-event-add:hover,
+    .agenda-gcal-event-add:focus-visible {
+      color: #1d4ed8;
+      background: #fff;
+      transform: scale(1.06);
+      outline: 2px solid rgba(37, 99, 235, .25);
+    }
+
+    .agenda-gcal-event[data-overlap-count]:not([data-overlap-count="1"]) .agenda-gcal-event-main {
+      padding-right: 30px;
+    }
+
+    .agenda-gcal-event[data-overlap-count]:not([data-overlap-count="1"]) .agenda-gcal-event-add {
+      width: 24px;
+      padding: 0;
+    }
+
+    .agenda-gcal-event[data-overlap-count]:not([data-overlap-count="1"]) .agenda-gcal-event-add-label {
+      display: none;
+    }
+
+    .agenda-gcal-event-professional {
+      font-weight: 700;
+      color: color-mix(in srgb, var(--agenda-event-color, #2563eb) 75%, #0f172a);
+    }
+
+    .agenda-gcal-event.no-show .agenda-gcal-event-professional { color: #fff; }
+
     .agenda-gcal-event.dragging { opacity: .22; cursor: grabbing; }
     .agenda-gcal-event.is-pending { opacity: .72; cursor: progress; }
     .agenda-gcal-block { z-index: 3; color: #334155; background: #e2e8f0; border-left-color: #64748b; cursor: pointer; }
@@ -20645,8 +20727,10 @@ const crmHtml = `<!doctype html>
         const closed = isClosedAgendaSlot(day, minute)
         return '<div class="agenda-gcal-hour-cell' + (closed ? ' closed' : '') + '" data-cell-date="' + key + '" data-cell-minute="' + minute + '"></div>'
       }).join('')
-      const events = filteredAgendaAppointmentsForRange(day, addDays(day, 1))
-        .map((appointment) => renderAgendaMobileEvent(appointment, hourHeight))
+      const dayAppointments = filteredAgendaAppointmentsForRange(day, addDays(day, 1))
+      const eventLayout = buildAgendaEventLayout(dayAppointments)
+      const events = dayAppointments
+        .map((appointment) => renderAgendaMobileEvent(appointment, hourHeight, eventLayout.get(appointment.id)))
         .join('')
       const dayBlocks = filteredAgendaBlocksForRange(day, addDays(day, 1))
         .map((block) => renderAgendaMobileBlock(block, hourHeight))
@@ -20654,7 +20738,7 @@ const crmHtml = `<!doctype html>
       return '<div class="agenda-gcal-day-column" data-gcal-day="' + key + '">' + cells + events + dayBlocks + '</div>'
     }
 
-    function renderAgendaMobileEvent(appointment, hourHeight) {
+    function renderAgendaMobileEvent(appointment, hourHeight, placement = { column: 0, columns: 1 }) {
       const start = new Date(appointment.startAt)
       const duration = appointment.service?.duration || 30
       const startMinute = start.getHours() * 60 + start.getMinutes()
@@ -20664,10 +20748,22 @@ const crmHtml = `<!doctype html>
       const color = agendaProfessionalColor(appointment.professionalId, professionalIndex)
       const noShow = appointment.status === 'NO_SHOW'
       const pending = state.agendaPendingAppointmentIds.has(appointment.id)
-      return '<button class="agenda-gcal-event' + (noShow ? ' no-show' : '') + (pending ? ' is-pending' : '') + '" type="button" data-appointment-id="' + appointment.id + '" style="top:' + top + 'px;height:' + height + 'px;--agenda-event-color:' + color + '">' +
-        '<strong>' + escapeHtml(appointment.customer?.name || 'Cliente') + '</strong>' +
-        '<span>' + escapeHtml(formatTimeOnly(start) + ' - ' + (appointment.service?.name || 'Servicio')) + '</span>' +
-      '</button>'
+      const columns = Math.max(1, placement?.columns || 1)
+      const column = Math.max(0, placement?.column || 0)
+      const left = 'calc(' + ((column * 100) / columns) + '% + 4px)'
+      const width = 'calc(' + (100 / columns) + '% - 8px)'
+      const customer = appointment.customer?.name || 'Cliente'
+      const service = appointment.service?.name || 'Servicio'
+      const professional = appointment.professional?.name || 'Profesional'
+      const time = formatTimeOnly(start)
+      return '<article class="agenda-gcal-event' + (noShow ? ' no-show' : '') + (pending ? ' is-pending' : '') + '" data-appointment-id="' + appointment.id + '" data-overlap-count="' + columns + '" style="top:' + top + 'px;height:' + height + 'px;left:' + left + ';right:auto;width:' + width + ';--agenda-event-color:' + color + '" title="' + escapeAttribute(time + ' - ' + customer + ' - ' + service + ' con ' + professional) + '">' +
+        '<button class="agenda-gcal-event-main" type="button" data-agenda-edit-appointment>' +
+          '<strong>' + escapeHtml(customer) + '</strong>' +
+          '<span>' + escapeHtml(time + ' - ' + service) + '</span>' +
+          '<span class="agenda-gcal-event-professional">' + escapeHtml(professional) + '</span>' +
+        '</button>' +
+        (canCreateAppointments() ? '<button class="agenda-gcal-event-add" type="button" data-agenda-new-at aria-label="Crear otro turno a las ' + escapeAttribute(time) + '" title="Crear otro turno en este horario"><span aria-hidden="true">+</span><span class="agenda-gcal-event-add-label">Otro</span></button>' : '') +
+      '</article>'
     }
 
     function renderAgendaMobileBlock(block, hourHeight) {
@@ -20814,15 +20910,32 @@ const crmHtml = `<!doctype html>
         })
       }
 
-      for (const button of els.agendaGridWrap.querySelectorAll('[data-appointment-id]')) {
-        button.addEventListener('click', (event) => {
+      for (const eventNode of els.agendaGridWrap.querySelectorAll('[data-appointment-id]')) {
+        const appointment = state.agendaAppointments.find((item) => item.id === eventNode.dataset.appointmentId)
+        eventNode.querySelector('[data-agenda-edit-appointment]')?.addEventListener('click', (event) => {
           event.stopPropagation()
           if (state.agendaDidDrag) return
-          const appointment = state.agendaAppointments.find((item) => item.id === button.dataset.appointmentId)
           if (appointment) openAppointmentDialog({ appointment })
         })
-        button.addEventListener('pointerdown', (event) => {
-          startAgendaPointerDrag(event, button, button.dataset.appointmentId)
+        eventNode.querySelector('[data-agenda-new-at]')?.addEventListener('click', (event) => {
+          event.stopPropagation()
+          if (!appointment || state.agendaDidDrag) return
+          if (!canCreateAppointments()) {
+            showCrmToast('No tenes permiso para cargar turnos.', 'error')
+            return
+          }
+          const start = new Date(appointment.startAt)
+          openAppointmentDialog({
+            date: start,
+            minute: start.getHours() * 60 + start.getMinutes(),
+            professionalId: appointment.professionalId,
+            serviceId: appointment.serviceId,
+            additionalAtOccupiedTime: true
+          })
+        })
+        eventNode.addEventListener('pointerdown', (event) => {
+          if (event.target.closest('[data-agenda-new-at]')) return
+          startAgendaPointerDrag(event, eventNode, eventNode.dataset.appointmentId)
         })
       }
 
@@ -21260,6 +21373,7 @@ const crmHtml = `<!doctype html>
       const ghost = drag.eventNode.cloneNode(true)
       ghost.classList.remove('dragging', 'is-pending')
       ghost.classList.add('agenda-drag-ghost')
+      ghost.querySelector('[data-agenda-new-at]')?.remove()
       ghost.style.width = drag.width + 'px'
       ghost.style.height = drag.height + 'px'
       ghost.removeAttribute('data-appointment-id')
@@ -21577,12 +21691,14 @@ const crmHtml = `<!doctype html>
         const minute = Number.isFinite(input.minute) ? input.minute : 9 * 60
         els.appointmentStart.value = toDatetimeLocalValue(addMinutes(startOfDay(date), minute))
 
-        const selectedProfessionalId = els.agendaProfessional.value
-        const selectedServiceId = els.agendaService.value
+        const selectedProfessionalId = input.professionalId || els.agendaProfessional.value
+        const selectedServiceId = input.serviceId || els.agendaService.value
         els.appointmentProfessional.value = selectedProfessionalId || activeProfessionals()[0]?.id || ''
         const compatibleServices = renderAppointmentServiceOptions(selectedServiceId)
         if (compatibleServices.length === 0) {
           els.appointmentFeedback.textContent = 'Este profesional no tiene servicios asignados.'
+        } else if (input.additionalAtOccupiedTime) {
+          els.appointmentFeedback.textContent = 'Nuevo turno en un horario ocupado: podes elegir otro profesional o habilitar el sobreturno.'
         }
         els.appointmentCustomer.value = ''
         els.appointmentCustomerName.value = ''
