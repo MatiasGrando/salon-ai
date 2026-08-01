@@ -190,6 +190,25 @@ export class BookingV2Engine {
         option.attentionMode === 'GUIDED_ESTIMATE'
       )
       if (service && initialState.guidedEstimate.stage === 'awaiting_option') {
+        if (!(service.estimateOptions?.length) && service.price !== null && service.price > 0) {
+          const state: BookingV2State = {
+            ...initialState,
+            guidedEstimate: {
+              serviceId: service.id,
+              stage: 'awaiting_decision',
+              optionId: null,
+              optionLabel: null,
+              priceMin: service.price,
+              priceMax: null
+            },
+            misunderstandingCount: 0
+          }
+          return this.guidedEstimateResult(state, {
+            type: 'show_base_estimate',
+            priceMin: service.price,
+            allowsBooking: service.estimateAllowsBooking !== false
+          }, catalog, 'accepted')
+        }
         const option = resolveEstimateOption(input.message, service.estimateOptions ?? [])
         if (!option) {
           return this.guidedEstimateResult(initialState, {
@@ -486,6 +505,24 @@ export class BookingV2Engine {
         )
       : null
     if (guidedService && state.guidedEstimate?.stage === 'awaiting_option') {
+      if (!(guidedService.estimateOptions?.length) && guidedService.price !== null && guidedService.price > 0) {
+        const estimateState: BookingV2State = {
+          ...state,
+          guidedEstimate: {
+            serviceId: guidedService.id,
+            stage: 'awaiting_decision',
+            optionId: null,
+            optionLabel: null,
+            priceMin: guidedService.price,
+            priceMax: null
+          }
+        }
+        return this.guidedEstimateResult(estimateState, {
+          type: 'show_base_estimate',
+          priceMin: guidedService.price,
+          allowsBooking: guidedService.estimateAllowsBooking !== false
+        }, catalog, 'no_change')
+      }
       return this.guidedEstimateResult(state, {
         type: 'ask_estimate_option',
         reason: 'missing'
@@ -568,23 +605,45 @@ export class BookingV2Engine {
         effectiveInterpretation.state.guidedEstimate?.serviceId !== selectedService.id ||
         effectiveInterpretation.state.guidedEstimate.stage !== 'completed'
       ) {
-        effectiveInterpretation = {
-          ...effectiveInterpretation,
-          state: {
-            ...effectiveInterpretation.state,
-            guidedEstimate: {
-              serviceId: selectedService.id,
-              stage: 'awaiting_option',
-              optionId: null,
-              optionLabel: null,
-              priceMin: null,
-              priceMax: null
+        if (!(selectedService.estimateOptions?.length) && selectedService.price !== null && selectedService.price > 0) {
+          effectiveInterpretation = {
+            ...effectiveInterpretation,
+            state: {
+              ...effectiveInterpretation.state,
+              guidedEstimate: {
+                serviceId: selectedService.id,
+                stage: 'awaiting_decision',
+                optionId: null,
+                optionLabel: null,
+                priceMin: selectedService.price,
+                priceMax: null
+              }
             }
           }
-        }
-        plan = {
-          type: 'ask_estimate_option',
-          reason: 'missing'
+          plan = {
+            type: 'show_base_estimate',
+            priceMin: selectedService.price,
+            allowsBooking: selectedService.estimateAllowsBooking !== false
+          }
+        } else {
+          effectiveInterpretation = {
+            ...effectiveInterpretation,
+            state: {
+              ...effectiveInterpretation.state,
+              guidedEstimate: {
+                serviceId: selectedService.id,
+                stage: 'awaiting_option',
+                optionId: null,
+                optionLabel: null,
+                priceMin: null,
+                priceMax: null
+              }
+            }
+          }
+          plan = {
+            type: 'ask_estimate_option',
+            reason: 'missing'
+          }
         }
       }
     } else if (
@@ -1118,7 +1177,7 @@ function discardUngroundedCatalogSelections(
     !nameCollidesWithCatalog(extraction.name.value, catalog)
   const groundedService = !extraction.service.value || catalog.services.some((service) =>
     service.id === extraction.service.value &&
-    [service.name, ...service.aliases].some((label) => messageGroundsLabel(message, label))
+    messageGroundsService(message, service)
   )
   const groundedProfessional =
     !extraction.professional.value ||
@@ -1133,9 +1192,7 @@ function discardUngroundedCatalogSelections(
       extraction.correction.field === 'service'
         ? catalog.services.some((service) =>
             service.id === extraction.correction.newValue &&
-            [service.name, ...service.aliases].some((label) =>
-              messageGroundsLabel(message, label)
-            )
+            messageGroundsService(message, service)
           )
         : catalog.professionals.some((professional) =>
             professional.id === extraction.correction.newValue &&
@@ -1207,6 +1264,32 @@ function messageGroundsLabel(message: string, label: string) {
       commonPrefixLength(labelToken, messageToken) >= 4
     )
   )
+}
+
+function messageGroundsService(
+  message: string,
+  service: BookingV2DomainCatalog['services'][number]
+) {
+  if ([service.name, ...service.aliases].some((label) => messageGroundsLabel(message, label))) {
+    return true
+  }
+  if (!service.description?.trim()) return false
+
+  const ignoredTokens = new Set([
+    'para', 'como', 'este', 'esta', 'esto', 'servicio', 'incluye', 'ideal',
+    'recomendado', 'recomendada', 'personalizado', 'personalizada'
+  ])
+  const messageTokens = new Set(
+    normalize(message)
+      .split(' ')
+      .filter((token) => token.length >= 4 && !ignoredTokens.has(token))
+  )
+  const matchingDescriptionTokens = new Set(
+    normalize(service.description)
+      .split(' ')
+      .filter((token) => token.length >= 4 && !ignoredTokens.has(token) && messageTokens.has(token))
+  )
+  return matchingDescriptionTokens.size >= 2
 }
 
 function commonPrefixLength(left: string, right: string) {

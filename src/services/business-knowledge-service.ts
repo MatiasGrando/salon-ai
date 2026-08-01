@@ -21,6 +21,7 @@ export type BusinessKnowledge = {
   }>
   services: Array<{
     name: string
+    description?: string | null
     duration: number
     price: number | null
     priceMode?: 'FIXED' | 'STARTING_AT'
@@ -60,6 +61,7 @@ export class BusinessKnowledgeService {
           orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
           select: {
             name: true,
+            description: true,
             duration: true,
             price: true,
             priceMode: true,
@@ -92,6 +94,7 @@ export class BusinessKnowledgeService {
         name: service.parentService
           ? `${service.parentService.name} — ${service.name}`
           : service.name,
+        description: service.description,
         duration: service.duration,
         price: service.price,
         priceMode: service.priceMode
@@ -170,7 +173,10 @@ function answerTopic(business: BusinessKnowledge, topic: BusinessInformationTopi
       const price = service.price === null
         ? 'precio a consultar'
         : `${service.priceMode === 'STARTING_AT' ? 'Desde ' : ''}${formatMoney(service.price)}`
-      return `• ${service.name} (${service.duration} min)${topic === 'prices' ? ` — ${price}` : ''}`
+      return [
+        `• ${service.name} (${service.duration} min)${topic === 'prices' ? ` — ${price}` : ''}`,
+        service.description ? `  ${service.description}` : null
+      ].filter(Boolean).join('\n')
     })
     return [
       topic === 'prices' ? 'Estos son los precios de nuestros servicios:' : 'Estos son los servicios disponibles:',

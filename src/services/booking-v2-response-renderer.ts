@@ -113,6 +113,18 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
     ].join('\n\n')
   }
 
+  if (input.plan.type === 'show_base_estimate') {
+    const service = input.catalog?.services.find((option) => option.id === input.draft.service)
+    return [
+      `El valor estimado de ${service?.name ?? 'este servicio'} es desde ${formatMoney(input.plan.priceMin)}.`,
+      ...(service?.estimateExplanation?.trim() ? [service.estimateExplanation.trim()] : []),
+      ...(service?.estimateDisclaimer?.trim() ? [service.estimateDisclaimer.trim()] : []),
+      input.plan.allowsBooking
+        ? '¿Querés continuar con la reserva o preferís que el equipo prepare un presupuesto exacto?'
+        : '¿Querés que el equipo prepare un presupuesto exacto?'
+    ].join('\n\n')
+  }
+
   if (input.plan.type === 'ask_estimate_decision') {
     return input.plan.allowsBooking
       ? '¿Preferís continuar con la reserva o pedir un presupuesto exacto?'

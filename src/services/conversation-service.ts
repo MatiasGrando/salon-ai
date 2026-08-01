@@ -1509,6 +1509,7 @@ function conversationStepFromBookingV2Plan(plan: BookingV2MessagePlan) {
     plan.type === 'ask_category_advice_confirmation' ||
     plan.type === 'ask_estimate_option' ||
     plan.type === 'show_estimate' ||
+    plan.type === 'show_base_estimate' ||
     plan.type === 'ask_estimate_decision'
   ) {
     return 'ASK_SERVICE'

@@ -9,6 +9,7 @@ import {
 type MatchableOption = {
   id: string
   name: string
+  description?: string | null
   category?: string | null
   aliases?: Array<{ name: string }>
 }
@@ -418,6 +419,7 @@ export class AiMessageUnderstandingService {
         services: input.services.map((service, index) => ({
           index: index + 1,
           name: service.name,
+          description: service.description ?? null,
           category: service.category ?? null,
           aliases: service.aliases?.map((alias) => alias.name) ?? []
         })),

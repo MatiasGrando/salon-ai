@@ -10,6 +10,7 @@ type PrismaClientLike = typeof defaultPrisma
 export type BookingV2ServiceOption = {
   id: string
   name: string
+  description?: string | null
   aliases: string[]
   duration: number
   price: number | null
@@ -117,6 +118,7 @@ export class BookingV2DomainService {
           name: service.parentService
             ? `${service.parentService.name} — ${service.name}`
             : service.name,
+          description: service.description,
           aliases: Array.from(new Set([
             service.name,
             ...service.aliases.map((alias) => alias.name),
@@ -169,7 +171,8 @@ export class BookingV2DomainService {
       services: catalog.services.map((service) => ({
         id: service.id,
         name: service.name,
-        aliases: service.aliases
+        aliases: service.aliases,
+        ...(service.description === undefined ? {} : { description: service.description })
       })),
       professionals: catalog.professionals.map((professional) => ({
         id: professional.id,

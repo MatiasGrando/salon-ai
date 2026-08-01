@@ -6,6 +6,42 @@ export async function crmUiRoutes(app: FastifyInstance) {
   })
 }
 
+const weeklyScheduleDays = [
+  { key: 'monday', label: 'Lunes', dayOfWeek: 1, weekend: false },
+  { key: 'tuesday', label: 'Martes', dayOfWeek: 2, weekend: false },
+  { key: 'wednesday', label: 'Mi&eacute;rcoles', dayOfWeek: 3, weekend: false },
+  { key: 'thursday', label: 'Jueves', dayOfWeek: 4, weekend: false },
+  { key: 'friday', label: 'Viernes', dayOfWeek: 5, weekend: false },
+  { key: 'saturday', label: 'S&aacute;bado', dayOfWeek: 6, weekend: true },
+  { key: 'sunday', label: 'Domingo', dayOfWeek: 0, weekend: true }
+] as const
+
+export function weeklyScheduleRows(input: {
+  prefix: string
+  rowClass: string
+  weekdayEnd: string
+  weekendEnd: string
+}) {
+  return weeklyScheduleDays.map((day) => {
+    const endTime = day.weekend ? input.weekendEnd : input.weekdayEnd
+    return `<div class="${input.rowClass}" data-weekly-schedule-day="${day.dayOfWeek}">
+      <label><input id="${input.prefix}-${day.key}-enabled" type="checkbox"> ${day.label}</label>
+      <input class="field" id="${input.prefix}-${day.key}-start" type="time" value="09:00">
+      <span class="schedule-separator">-</span>
+      <input class="field" id="${input.prefix}-${day.key}-end" type="time" value="${endTime}">
+    </div>`
+  }).join('')
+}
+
+export function filterAssignedServices<T extends { id: string }>(
+  professional: { services?: Array<{ id: string }> } | null | undefined,
+  services: T[]
+) {
+  if (!professional) return []
+  const assignedServiceIds = new Set((professional.services || []).map((service) => service.id))
+  return services.filter((service) => assignedServiceIds.has(service.id))
+}
+
 const crmHtml = `<!doctype html>
 <html lang="es">
 <head>
@@ -5981,6 +6017,18 @@ const crmHtml = `<!doctype html>
       font-weight: 850;
     }
 
+    .service-card-description {
+      margin-top: 5px;
+      max-width: 720px;
+      color: #66738f;
+      font-size: 12px;
+      line-height: 1.4;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
     .service-card-meta {
       margin-top: 10px;
       display: flex;
@@ -7643,8 +7691,8 @@ const crmHtml = `<!doctype html>
     }
 
     .professional-form .schedule-row {
-      grid-template-columns: minmax(132px, 1fr) 86px 16px 86px;
-      gap: 8px;
+      grid-template-columns: minmax(96px, 1fr) 92px 10px 92px;
+      gap: 6px;
       align-items: center;
     }
 
@@ -7655,7 +7703,7 @@ const crmHtml = `<!doctype html>
     }
 
     .professional-form .schedule-row input[type="time"] {
-      padding: 0 10px;
+      padding: 0 6px;
     }
 
     .schedule-separator {
@@ -11588,6 +11636,365 @@ const crmHtml = `<!doctype html>
         min-width: 0;
       }
     }
+
+    /* Agenda unificada: la misma grilla desplazable se usa en escritorio y movil. */
+    .agenda-board {
+      grid-template-rows: minmax(0, 1fr);
+    }
+
+    .agenda-toolbar {
+      display: none;
+    }
+
+    .agenda-gcal {
+      height: 100%;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      color: #0f172a;
+      background: #f8fafc;
+    }
+
+    .agenda-gcal-top {
+      z-index: 12;
+      min-height: 64px;
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid #dbe4f0;
+      background: #f8fafc;
+    }
+
+    .agenda-gcal-nav,
+    .agenda-gcal-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .agenda-gcal-actions {
+      margin-left: auto;
+    }
+
+    .agenda-gcal-icon,
+    .agenda-gcal-control,
+    .agenda-gcal-title,
+    .agenda-gcal-filter,
+    .agenda-gcal-view-select {
+      min-height: 38px;
+      border: 1px solid #dbe4f0;
+      border-radius: 10px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: #0f172a;
+      background: #fff;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .agenda-gcal-icon {
+      width: 38px;
+      padding: 0;
+      font-size: 18px;
+    }
+
+    .agenda-gcal-control,
+    .agenda-gcal-filter {
+      padding: 0 12px;
+    }
+
+    .agenda-gcal-title {
+      min-width: 150px;
+      max-width: 260px;
+      padding: 0 12px;
+      justify-content: flex-start;
+      border-color: transparent;
+      background: transparent;
+      font-size: 20px;
+      text-transform: capitalize;
+    }
+
+    .agenda-gcal-title span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .agenda-gcal-title i {
+      width: 0;
+      height: 0;
+      margin-left: 8px;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-top: 6px solid #334155;
+    }
+
+    .agenda-gcal-view-select {
+      min-width: 94px;
+      padding: 0 10px;
+    }
+
+    .agenda-gcal-filter.active,
+    .agenda-gcal-control.active {
+      color: #1d4ed8;
+      border-color: #93c5fd;
+      background: #eff6ff;
+    }
+
+    .agenda-gcal-month-panel,
+    .agenda-gcal-filter-panel {
+      z-index: 11;
+      border-bottom: 1px solid #dbe4f0;
+      background: #fff;
+    }
+
+    .agenda-gcal-month-panel {
+      padding: 14px;
+    }
+
+    .agenda-gcal-month-grid {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(30px, 1fr));
+      gap: 5px;
+    }
+
+    .agenda-gcal-month-weekday,
+    .agenda-gcal-month-day {
+      min-height: 32px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      color: #0f172a;
+      background: transparent;
+      font-size: 12px;
+    }
+
+    .agenda-gcal-month-day.outside { color: #94a3b8; }
+    .agenda-gcal-month-day.selected { color: #fff; background: #2563eb; }
+    .agenda-gcal-month-day.has-items:not(.selected) { color: #1d4ed8; font-weight: 800; }
+
+    .agenda-gcal-month-strip {
+      margin-top: 10px;
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+    }
+
+    .agenda-gcal-month-strip button {
+      min-height: 32px;
+      padding: 0 10px;
+      border: 1px solid #dbe4f0;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .agenda-gcal-month-strip button.active { color: #1d4ed8; background: #eff6ff; }
+
+    .agenda-gcal-filter-panel {
+      padding: 12px 14px;
+      display: flex;
+      gap: 12px;
+    }
+
+    .agenda-gcal-filter-panel label {
+      flex: 1 1 220px;
+      display: grid;
+      gap: 5px;
+      color: #475569;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .agenda-gcal-filter-panel select {
+      width: 100%;
+      min-height: 38px;
+      border: 1px solid #dbe4f0;
+      border-radius: 9px;
+      padding: 0 10px;
+      background: #fff;
+    }
+
+    .agenda-gcal-frame {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      overflow: hidden;
+      --agenda-time-width: 62px;
+      --agenda-day-width: calc((100% - var(--agenda-time-width)) / 3);
+      --agenda-mobile-x: 0px;
+    }
+
+    .agenda-gcal-days-head,
+    .agenda-gcal-grid {
+      display: grid;
+      grid-template-columns: var(--agenda-time-width) minmax(0, 1fr);
+    }
+
+    .agenda-gcal-days-head {
+      z-index: 7;
+      min-height: 62px;
+      border-bottom: 1px solid #dbe4f0;
+      background: #f8fafc;
+    }
+
+    .agenda-gcal-days-viewport,
+    .agenda-gcal-columns-viewport {
+      min-width: 0;
+      overflow: hidden;
+      touch-action: pan-y;
+    }
+
+    .agenda-gcal-days-track,
+    .agenda-gcal-columns-track {
+      display: flex;
+      width: max-content;
+      position: relative;
+      transform: translate3d(var(--agenda-mobile-x), 0, 0);
+      will-change: transform;
+    }
+
+    .agenda-gcal-columns-track,
+    .agenda-gcal-grid,
+    .agenda-gcal-time-axis,
+    .agenda-gcal-day-column {
+      min-height: calc(24 * var(--agenda-hour-height, 88px));
+    }
+
+    .agenda-gcal-frame.is-snapping .agenda-gcal-days-track,
+    .agenda-gcal-frame.is-snapping .agenda-gcal-columns-track {
+      transition: transform 190ms cubic-bezier(.2, 0, 0, 1);
+    }
+
+    .agenda-gcal-day-head,
+    .agenda-gcal-day-column {
+      flex: 0 0 var(--agenda-day-width);
+      width: var(--agenda-day-width);
+      min-width: var(--agenda-day-width);
+    }
+
+    .agenda-gcal-day-head {
+      display: grid;
+      place-items: center;
+      gap: 2px;
+      color: #0f172a;
+      background: transparent;
+      text-align: center;
+    }
+
+    .agenda-gcal-day-head strong { color: #64748b; font-size: 12px; text-transform: uppercase; }
+    .agenda-gcal-day-head span { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; font-size: 18px; }
+    .agenda-gcal-day-head.today span { color: #fff; background: #2563eb; }
+
+    .agenda-gcal-scroll {
+      min-height: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+      background: #f8fafc;
+      touch-action: pan-y;
+    }
+
+    .agenda-gcal-time-axis,
+    .agenda-gcal-day-column { position: relative; }
+    .agenda-gcal-day-column { border-left: 1px solid #dbe4f0; }
+
+    .agenda-gcal-hour-label {
+      position: absolute;
+      right: 8px;
+      height: 24px;
+      transform: translateY(-10px);
+      color: #475569;
+      font-size: 12px;
+    }
+
+    .agenda-gcal-hour-cell {
+      position: relative;
+      height: var(--agenda-slot-height, 44px);
+      border-bottom: 1px solid #e5eaf2;
+      background: #fff;
+    }
+
+    .agenda-gcal-hour-cell:nth-child(2n) { border-bottom-color: #cbd5e1; }
+    .agenda-gcal-hour-cell.closed { background: #f1f5f9; }
+    .agenda-gcal-hour-cell.drag-target:not(.closed) { background: #eaf2ff; box-shadow: inset 0 0 0 2px #2563eb; }
+    .agenda-gcal-hour-cell.drag-invalid { background: #fff1f2; box-shadow: inset 0 0 0 2px #ef4444; }
+
+    .agenda-gcal-event,
+    .agenda-gcal-block {
+      position: absolute;
+      left: 5px;
+      right: 5px;
+      z-index: 4;
+      min-height: 28px;
+      padding: 6px 7px;
+      border-radius: 7px;
+      border-left: 4px solid var(--agenda-event-color, #60a5fa);
+      overflow: hidden;
+      color: #0f172a;
+      background: color-mix(in srgb, var(--agenda-event-color, #60a5fa) 24%, #fff);
+      text-align: left;
+      box-shadow: 0 5px 12px rgba(37, 99, 235, .12);
+      touch-action: none;
+      cursor: grab;
+      user-select: none;
+    }
+
+    .agenda-gcal-event.dragging { opacity: .22; cursor: grabbing; }
+    .agenda-gcal-event.is-pending { opacity: .72; cursor: progress; }
+    .agenda-gcal-block { z-index: 3; color: #334155; background: #e2e8f0; border-left-color: #64748b; cursor: pointer; }
+    .agenda-gcal-event.no-show { color: #fff; background: #64748b; border-left-color: #94a3b8; }
+    .agenda-gcal-event strong, .agenda-gcal-event span, .agenda-gcal-block strong, .agenda-gcal-block span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .agenda-gcal-event strong, .agenda-gcal-block strong { font-size: 12px; }
+    .agenda-gcal-event span, .agenda-gcal-block span { margin-top: 2px; font-size: 11px; }
+
+    .agenda-gcal-now-line {
+      position: absolute;
+      left: calc(var(--agenda-now-index, 0) * var(--agenda-day-width));
+      width: var(--agenda-day-width);
+      z-index: 6;
+      height: 1px;
+      background: #ef4444;
+      pointer-events: none;
+    }
+
+    .agenda-gcal-now-line::before { content:""; position:absolute; left:-6px; top:-4px; width:9px; height:9px; border-radius:50%; background:#ef4444; }
+    .agenda-gcal-fab { display: none; }
+    .agenda-gcal-today { display: none; }
+    .agenda-block-popover .agenda-block-panel-head .icon-button { width: 34px; min-width: 34px; height: 34px; padding: 0; }
+
+    @media (min-width: 761px) {
+      [data-agenda-mobile-menu] { display: none; }
+    }
+
+    .agenda-block-popover[hidden] { display: none !important; }
+    .agenda-block-popover { position: fixed; inset: 0; z-index: 120; display: grid; place-items: start end; padding: 78px 22px 22px; }
+    .agenda-block-backdrop { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: rgba(15, 23, 42, .3); }
+    .agenda-block-popover .agenda-block-panel { position: relative; z-index: 1; width: min(390px, calc(100vw - 32px)); max-height: calc(100dvh - 100px); margin: 0; padding: 18px; overflow: auto; border-color: #dbe4f0; border-radius: 14px; box-shadow: 0 24px 60px rgba(15, 23, 42, .24); }
+    .agenda-block-popover .agenda-block-panel .block-grid { grid-template-columns: 1fr 1fr; }
+
+    @media (max-width: 760px) {
+      .agenda-gcal-top { min-height: 58px; padding: 8px 10px; flex-wrap: wrap; }
+      [data-agenda-mobile-menu] { order: 1; }
+      .agenda-gcal-title { order: 2; flex: 1 1 120px; min-width: 0; padding: 0 4px; font-size: 20px; }
+      .agenda-gcal-nav { order: 3; }
+      .agenda-gcal-actions { order: 3; width: 100%; margin-left: 0; overflow-x: auto; }
+      .agenda-gcal-control, .agenda-gcal-filter { padding: 0 10px; }
+      .agenda-gcal-view-select { min-width: 82px; }
+      .agenda-gcal-frame { --agenda-time-width: 54px; }
+      .agenda-gcal-day-head strong { font-size: 11px; }
+      .agenda-gcal-day-head span { width: 38px; height: 38px; font-size: 20px; }
+      .agenda-gcal-fab { display: grid; width: 58px; height: 58px; right: 18px; bottom: calc(74px + env(safe-area-inset-bottom)); border-radius: 17px; place-items: center; color: #fff; background: #2563eb; font-size: 34px; box-shadow: 0 16px 34px rgba(37, 99, 235, .28); }
+      .agenda-gcal-filter-panel { flex-direction: column; }
+      .agenda-gcal-filter-panel label { flex-basis: auto; }
+      .agenda-block-popover { place-items: end center; padding: 12px; }
+      .agenda-block-popover .agenda-block-panel { width: 100%; max-height: min(82dvh, 720px); border-radius: 18px 18px 10px 10px; }
+      .agenda-block-popover .agenda-block-panel .block-grid { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body data-mobile-view="inbox" data-current-section="conversations" data-auth="checking">
@@ -11931,13 +12338,41 @@ const crmHtml = `<!doctype html>
         </div>
 
         <div class="agenda-legend" id="agenda-legend"></div>
-        <section class="agenda-block-panel">
+      </aside>
+
+      <section class="agenda-board">
+        <div class="agenda-toolbar">
+          <div class="agenda-toolbar-actions">
+            <button class="agenda-week-button" id="agenda-prev" type="button" title="Semana anterior" data-icon="arrow-left"></button>
+            <button class="agenda-today-button" id="agenda-today" type="button">Hoy</button>
+            <button class="agenda-week-button" id="agenda-next" type="button" title="Semana siguiente" data-icon="arrow-right"></button>
+          </div>
+          <div class="agenda-range" id="agenda-range">Semana</div>
+          <div class="agenda-toolbar-actions">
+            <button class="primary" id="agenda-new-appointment" type="button">Nuevo turno</button>
+            <button class="icon-button" id="agenda-refresh" type="button" title="Actualizar">R</button>
+            <select id="agenda-step">
+              <option value="15">15 min</option>
+              <option value="30" selected>30 min</option>
+              <option value="60">60 min</option>
+            </select>
+          </div>
+          <div class="agenda-professional-tabs" id="agenda-professional-tabs"></div>
+        </div>
+        <div class="agenda-grid-wrap" id="agenda-grid-wrap">
+          <div class="agenda-empty">Cargando agenda...</div>
+        </div>
+      </section>
+
+      <div class="agenda-block-popover" id="agenda-block-popover" hidden>
+        <button class="agenda-block-backdrop" id="agenda-block-backdrop" type="button" aria-label="Cerrar bloqueo de agenda"></button>
+        <section class="agenda-block-panel" role="dialog" aria-modal="true" aria-labelledby="agenda-block-title">
           <div class="agenda-block-panel-head">
             <div>
-              <h3>Bloquear agenda</h3>
+              <h3 id="agenda-block-title">Bloquear agenda</h3>
               <p>Feriados, vacaciones o ausencias</p>
             </div>
-            <span class="chip warn">Manual</span>
+            <button class="icon-button" id="agenda-block-close" type="button" aria-label="Cerrar">X</button>
           </div>
           <form class="block-form" id="block-form">
             <select id="block-reason">
@@ -11970,31 +12405,7 @@ const crmHtml = `<!doctype html>
           </form>
           <div class="agenda-block-list" id="agenda-block-list"></div>
         </section>
-      </aside>
-
-      <section class="agenda-board">
-        <div class="agenda-toolbar">
-          <div class="agenda-toolbar-actions">
-            <button class="agenda-week-button" id="agenda-prev" type="button" title="Semana anterior" data-icon="arrow-left"></button>
-            <button class="agenda-today-button" id="agenda-today" type="button">Hoy</button>
-            <button class="agenda-week-button" id="agenda-next" type="button" title="Semana siguiente" data-icon="arrow-right"></button>
-          </div>
-          <div class="agenda-range" id="agenda-range">Semana</div>
-          <div class="agenda-toolbar-actions">
-            <button class="primary" id="agenda-new-appointment" type="button">Nuevo turno</button>
-            <button class="icon-button" id="agenda-refresh" type="button" title="Actualizar">R</button>
-            <select id="agenda-step">
-              <option value="15">15 min</option>
-              <option value="30">30 min</option>
-              <option value="60">60 min</option>
-            </select>
-          </div>
-          <div class="agenda-professional-tabs" id="agenda-professional-tabs"></div>
-        </div>
-        <div class="agenda-grid-wrap" id="agenda-grid-wrap">
-          <div class="agenda-empty">Cargando agenda...</div>
-        </div>
-      </section>
+      </div>
     </section>
 
     <div class="dialog-backdrop" id="appointment-dialog" hidden>
@@ -12003,7 +12414,7 @@ const crmHtml = `<!doctype html>
           <h3 id="appointment-dialog-title">Nuevo turno</h3>
           <button class="icon-button" id="appointment-close" type="button" title="Cerrar">X</button>
         </header>
-        <form class="appointment-form" id="appointment-form">
+        <form class="appointment-form" id="appointment-form" novalidate>
           <div class="form-row">
             <label for="appointment-start">Fecha y hora</label>
             <input class="field" id="appointment-start" type="datetime-local" required>
@@ -12322,24 +12733,13 @@ const crmHtml = `<!doctype html>
               </div>
               <div class="professional-form-group">
                 <div class="professional-schedule-title">Horarios de disponibilidad</div>
-                <div class="schedule-row">
-                  <label><input id="professional-weekdays-enabled" type="checkbox" checked> Lunes a viernes</label>
-                  <input class="field" id="professional-weekdays-start" type="time" value="09:00">
-                  <span class="schedule-separator">-</span>
-                  <input class="field" id="professional-weekdays-end" type="time" value="18:00">
-                </div>
-                <div class="schedule-row">
-                  <label><input id="professional-saturday-enabled" type="checkbox"> Sabado</label>
-                  <input class="field" id="professional-saturday-start" type="time" value="09:00">
-                  <span class="schedule-separator">-</span>
-                  <input class="field" id="professional-saturday-end" type="time" value="14:00">
-                </div>
-                <div class="schedule-row">
-                  <label><input id="professional-sunday-enabled" type="checkbox"> Domingo</label>
-                  <input class="field" id="professional-sunday-start" type="time" value="09:00">
-                  <span class="schedule-separator">-</span>
-                  <input class="field" id="professional-sunday-end" type="time" value="14:00">
-                </div>
+                ${weeklyScheduleRows({
+                  prefix: 'professional',
+                  rowClass: 'schedule-row',
+                  weekdayEnd: '18:00',
+                  weekendEnd: '14:00'
+                })}
+                <div class="professional-form-help">Cada d&iacute;a se configura por separado y debe quedar dentro del horario de atenci&oacute;n del comercio.</div>
               </div>
               <div class="professional-form-group">
                 <label for="professional-status">Estado</label>
@@ -12390,6 +12790,11 @@ const crmHtml = `<!doctype html>
               <div class="service-form-group">
                 <label for="service-name">Nombre</label>
                 <input class="field" id="service-name" placeholder="Ej: Corte Hombre">
+              </div>
+              <div class="service-form-group">
+                <label for="service-description">Descripci&oacute;n del servicio (opcional)</label>
+                <textarea id="service-description" maxlength="1000" placeholder="Ej: Incluye lavado, corte personalizado y finalizaci&oacute;n. Recomendado para..."></textarea>
+                <div class="service-form-help">La IA usar&aacute; esta informaci&oacute;n para explicar el servicio y comprender mejor lo que necesita el cliente.</div>
               </div>
               <div class="service-form-group" hidden style="display: none;">
                 <label for="service-item-type">Tipo de elemento</label>
@@ -12445,13 +12850,14 @@ const crmHtml = `<!doctype html>
                     <textarea id="service-estimate-explanation" placeholder="El precio depende del largo y de la cantidad de producto necesaria."></textarea>
                   </div>
                   <div class="service-form-group">
-                    <label for="service-estimate-question">Pregunta para calcular el estimativo</label>
+                    <label for="service-estimate-question">Pregunta para calcular el estimativo (solo si agreg&aacute;s opciones)</label>
                     <input class="field" id="service-estimate-question" placeholder="&iquest;Qu&eacute; largo tiene tu cabello?">
                   </div>
                   <div class="service-form-group">
-                    <label>Opciones y rangos</label>
+                    <label>Opciones y rangos (opcional)</label>
                     <div id="service-estimate-options"></div>
                     <button class="secondary" id="service-estimate-add-option" type="button">Agregar opci&oacute;n</button>
+                    <div class="service-form-help">Si no agreg&aacute;s opciones, el bot mostrar&aacute; directamente el precio base configurado como &ldquo;Desde&rdquo;.</div>
                   </div>
                   <div class="service-form-group">
                     <label for="service-estimate-disclaimer">Aclaraci&oacute;n final</label>
@@ -13031,48 +13437,12 @@ const crmHtml = `<!doctype html>
 
             <div class="business-hours-grid">
               <div class="business-hours-title">Horarios de atenci&oacute;n</div>
-              <div class="business-hours-row">
-                <label><input id="business-monday-enabled" type="checkbox"> Lunes</label>
-                <input class="field" id="business-monday-start" type="time" value="09:00">
-                <span>-</span>
-                <input class="field" id="business-monday-end" type="time" value="19:00">
-              </div>
-              <div class="business-hours-row">
-                <label><input id="business-tuesday-enabled" type="checkbox"> Martes</label>
-                <input class="field" id="business-tuesday-start" type="time" value="09:00">
-                <span>-</span>
-                <input class="field" id="business-tuesday-end" type="time" value="19:00">
-              </div>
-              <div class="business-hours-row">
-                <label><input id="business-wednesday-enabled" type="checkbox"> Mi&eacute;rcoles</label>
-                <input class="field" id="business-wednesday-start" type="time" value="09:00">
-                <span>-</span>
-                <input class="field" id="business-wednesday-end" type="time" value="19:00">
-              </div>
-              <div class="business-hours-row">
-                <label><input id="business-thursday-enabled" type="checkbox"> Jueves</label>
-                <input class="field" id="business-thursday-start" type="time" value="09:00">
-                <span>-</span>
-                <input class="field" id="business-thursday-end" type="time" value="19:00">
-              </div>
-              <div class="business-hours-row">
-                <label><input id="business-friday-enabled" type="checkbox"> Viernes</label>
-                <input class="field" id="business-friday-start" type="time" value="09:00">
-                <span>-</span>
-                <input class="field" id="business-friday-end" type="time" value="19:00">
-              </div>
-              <div class="business-hours-row">
-                <label><input id="business-saturday-enabled" type="checkbox"> S&aacute;bado</label>
-                <input class="field" id="business-saturday-start" type="time" value="09:00">
-                <span>-</span>
-                <input class="field" id="business-saturday-end" type="time" value="14:00">
-              </div>
-              <div class="business-hours-row">
-                <label><input id="business-sunday-enabled" type="checkbox"> Domingo</label>
-                <input class="field" id="business-sunday-start" type="time" value="09:00">
-                <span>-</span>
-                <input class="field" id="business-sunday-end" type="time" value="14:00">
-              </div>
+              ${weeklyScheduleRows({
+                prefix: 'business',
+                rowClass: 'business-hours-row',
+                weekdayEnd: '19:00',
+                weekendEnd: '14:00'
+              })}
             </div>
 
             <div class="settings-actions">
@@ -14094,6 +14464,7 @@ const crmHtml = `<!doctype html>
 
   <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@1/index.js"></script>
   <script>
+    const filterAssignedServices = ${filterAssignedServices.toString()}
     const WHATSAPP_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000
 
     function notifyOpenerFromMetaOAuthRedirect() {
@@ -14192,6 +14563,8 @@ const crmHtml = `<!doctype html>
       agendaBlocks: [],
       agendaSelectedDate: new Date(),
       agendaMonthDate: new Date(),
+      agendaViewDays: 3,
+      agendaBlockOpen: false,
       agendaMobileMonthOpen: false,
       agendaMobileFiltersOpen: false,
       agendaMobileTouchStartX: null,
@@ -14512,19 +14885,13 @@ const crmHtml = `<!doctype html>
       blockTitle: document.getElementById('block-title'),
       blockFeedback: document.getElementById('block-feedback'),
       agendaBlockList: document.getElementById('agenda-block-list'),
+      agendaBlockPopover: document.getElementById('agenda-block-popover'),
+      agendaBlockBackdrop: document.getElementById('agenda-block-backdrop'),
+      agendaBlockClose: document.getElementById('agenda-block-close'),
       professionalForm: document.getElementById('professional-form'),
       professionalId: document.getElementById('professional-id'),
       professionalName: document.getElementById('professional-name'),
       professionalDescription: document.getElementById('professional-description'),
-      professionalWeekdaysEnabled: document.getElementById('professional-weekdays-enabled'),
-      professionalWeekdaysStart: document.getElementById('professional-weekdays-start'),
-      professionalWeekdaysEnd: document.getElementById('professional-weekdays-end'),
-      professionalSaturdayEnabled: document.getElementById('professional-saturday-enabled'),
-      professionalSaturdayStart: document.getElementById('professional-saturday-start'),
-      professionalSaturdayEnd: document.getElementById('professional-saturday-end'),
-      professionalSundayEnabled: document.getElementById('professional-sunday-enabled'),
-      professionalSundayStart: document.getElementById('professional-sunday-start'),
-      professionalSundayEnd: document.getElementById('professional-sunday-end'),
       professionalCancel: document.getElementById('professional-cancel'),
       professionalSubmit: document.getElementById('professional-submit'),
       professionalFormTitle: document.getElementById('professional-form-title'),
@@ -14560,6 +14927,7 @@ const crmHtml = `<!doctype html>
       serviceFormTitle: document.getElementById('service-form-title'),
       serviceId: document.getElementById('service-id'),
       serviceName: document.getElementById('service-name'),
+      serviceDescription: document.getElementById('service-description'),
       serviceDuration: document.getElementById('service-duration'),
       servicePrice: document.getElementById('service-price'),
       servicePriceMode: document.getElementById('service-price-mode'),
@@ -14878,27 +15246,6 @@ const crmHtml = `<!doctype html>
       businessLogoPreview: document.getElementById('business-logo-preview'),
       businessLogoRemove: document.getElementById('business-logo-remove'),
       businessName: document.getElementById('business-name'),
-      businessMondayEnabled: document.getElementById('business-monday-enabled'),
-      businessMondayStart: document.getElementById('business-monday-start'),
-      businessMondayEnd: document.getElementById('business-monday-end'),
-      businessTuesdayEnabled: document.getElementById('business-tuesday-enabled'),
-      businessTuesdayStart: document.getElementById('business-tuesday-start'),
-      businessTuesdayEnd: document.getElementById('business-tuesday-end'),
-      businessWednesdayEnabled: document.getElementById('business-wednesday-enabled'),
-      businessWednesdayStart: document.getElementById('business-wednesday-start'),
-      businessWednesdayEnd: document.getElementById('business-wednesday-end'),
-      businessThursdayEnabled: document.getElementById('business-thursday-enabled'),
-      businessThursdayStart: document.getElementById('business-thursday-start'),
-      businessThursdayEnd: document.getElementById('business-thursday-end'),
-      businessFridayEnabled: document.getElementById('business-friday-enabled'),
-      businessFridayStart: document.getElementById('business-friday-start'),
-      businessFridayEnd: document.getElementById('business-friday-end'),
-      businessSaturdayEnabled: document.getElementById('business-saturday-enabled'),
-      businessSaturdayStart: document.getElementById('business-saturday-start'),
-      businessSaturdayEnd: document.getElementById('business-saturday-end'),
-      businessSundayEnabled: document.getElementById('business-sunday-enabled'),
-      businessSundayStart: document.getElementById('business-sunday-start'),
-      businessSundayEnd: document.getElementById('business-sunday-end'),
       businessSettingsSubmit: document.getElementById('business-settings-submit'),
       businessSettingsFeedback: document.getElementById('business-settings-feedback'),
       businessEmail: document.getElementById('business-email'),
@@ -16985,15 +17332,12 @@ const crmHtml = `<!doctype html>
       els.serviceEstimateEditor.hidden = !isGuidedEstimate
       els.serviceEstimateEditor.style.display = isGuidedEstimate ? '' : 'none'
       if (!isGuidedEstimate) els.serviceRequiresPhoto.checked = false
-      if (isGuidedEstimate && state.serviceEstimateOptions.length === 0) {
-        addServiceEstimateOption()
-      }
       els.serviceAttentionHelp.textContent = mode === 'QUOTE'
         ? 'El bot derivar\u00e1 la consulta para preparar el presupuesto. Si el cliente lo acepta, continuar\u00e1 con profesional, d\u00eda, horario y se\u00f1a si est\u00e1 configurada.'
         : mode === 'ADVISOR'
           ? 'El bot no ofrecer\u00e1 horarios: derivar\u00e1 al equipo para asesorar al cliente.'
           : mode === 'GUIDED_ESTIMATE'
-            ? 'El bot har\u00e1 una pregunta, mostrar\u00e1 un rango estimado y ofrecer\u00e1 reservar o pedir un presupuesto exacto.'
+            ? 'Con opciones, el bot har\u00e1 una pregunta y mostrar\u00e1 el rango elegido. Sin opciones, mostrar\u00e1 directamente el precio base "Desde".'
           : els.serviceRequiresPhoto.checked
             ? 'Al pedir fotos, el bot pausar\u00e1 la reserva autom\u00e1tica y derivar\u00e1 el caso al equipo.'
             : 'El bot mostrar\u00e1 profesionales y horarios disponibles para confirmar el turno.'
@@ -17087,6 +17431,7 @@ const crmHtml = `<!doctype html>
         const aliases = (service.aliases || []).map((alias) => alias.name).join(' ')
         const haystack = [
           service.name,
+          service.description,
           service.parentService?.name,
           service.catalogCategory?.name,
           service.category,
@@ -17143,6 +17488,7 @@ const crmHtml = `<!doctype html>
               '<div>' +
                 '<div class="service-card-category">' + escapeHtml(categoryLabel + ' · ' + hierarchyLabel) + '</div>' +
                 '<div class="service-card-title">' + escapeHtml(serviceLabel) + '</div>' +
+                (service.description ? '<div class="service-card-description">' + escapeHtml(service.description) + '</div>' : '') +
                 '<div class="service-card-meta">' + serviceMeta + '</div>' +
               '</div>' +
               '<div class="service-card-actions">' +
@@ -18203,6 +18549,8 @@ const crmHtml = `<!doctype html>
           : 'Bloqueo creado.'
         els.blockTitle.value = ''
         await loadAgenda()
+        closeAgendaBlockPopover()
+        showCrmToast('Bloqueo creado.', 'success')
         if (affectedAppointments.length > 0) {
           state.pendingImpactContext = 'schedule-block'
           setSection('professionals')
@@ -18252,6 +18600,7 @@ const crmHtml = `<!doctype html>
       const name = els.professionalName.value.trim()
       const description = els.professionalDescription.value.trim()
       const serviceIds = getSelectedProfessionalServiceIds()
+      const invalidScheduleDay = invalidWeeklyScheduleDay(professionalDayInputs())
       const workingHours = buildProfessionalWorkingHours()
       if (!name) {
         els.professionalFeedback.textContent = 'Escribi un nombre.'
@@ -18260,6 +18609,11 @@ const crmHtml = `<!doctype html>
 
       if (state.services.length > 0 && serviceIds.length === 0) {
         els.professionalFeedback.textContent = 'Selecciona al menos un servicio.'
+        return
+      }
+
+      if (invalidScheduleDay) {
+        els.professionalFeedback.textContent = 'Revisa el horario de ' + invalidScheduleDay.label + '.'
         return
       }
 
@@ -18338,7 +18692,8 @@ const crmHtml = `<!doctype html>
       openProfessionalPanel()
       setSection('professionals')
       if (options.focusHours) {
-        els.professionalWeekdaysStart.focus()
+        const firstEnabledDay = professionalDayInputs().find((day) => day.enabled.checked && !day.enabled.disabled)
+        ;(firstEnabledDay || professionalDayInputs()[0])?.start.focus()
       } else {
         els.professionalName.focus()
       }
@@ -18568,35 +18923,76 @@ const crmHtml = `<!doctype html>
     }
 
     function buildProfessionalWorkingHours() {
-      const hours = []
+      return readWeeklySchedule(professionalDayInputs())
+    }
 
-      if (els.professionalWeekdaysEnabled.checked) {
-        for (const dayOfWeek of [1, 2, 3, 4, 5]) {
-          hours.push({
-            dayOfWeek,
-            startTime: els.professionalWeekdaysStart.value,
-            endTime: els.professionalWeekdaysEnd.value
-          })
-        }
+    function weeklyScheduleInputs(prefix, defaults) {
+      return [
+        { key: 'monday', dayOfWeek: 1, label: 'lunes', weekend: false },
+        { key: 'tuesday', dayOfWeek: 2, label: 'martes', weekend: false },
+        { key: 'wednesday', dayOfWeek: 3, label: 'miercoles', weekend: false },
+        { key: 'thursday', dayOfWeek: 4, label: 'jueves', weekend: false },
+        { key: 'friday', dayOfWeek: 5, label: 'viernes', weekend: false },
+        { key: 'saturday', dayOfWeek: 6, label: 'sabado', weekend: true },
+        { key: 'sunday', dayOfWeek: 0, label: 'domingo', weekend: true }
+      ].map((day) => ({
+        ...day,
+        enabled: document.getElementById(prefix + '-' + day.key + '-enabled'),
+        start: document.getElementById(prefix + '-' + day.key + '-start'),
+        end: document.getElementById(prefix + '-' + day.key + '-end'),
+        defaultStart: defaults.start,
+        defaultEnd: day.weekend ? defaults.weekendEnd : defaults.weekdayEnd
+      }))
+    }
+
+    function professionalDayInputs() {
+      return weeklyScheduleInputs('professional', {
+        start: '09:00',
+        weekdayEnd: '18:00',
+        weekendEnd: '14:00'
+      })
+    }
+
+    function businessDayInputs() {
+      return weeklyScheduleInputs('business', {
+        start: '09:00',
+        weekdayEnd: '19:00',
+        weekendEnd: '14:00'
+      })
+    }
+
+    function readWeeklySchedule(days) {
+      return days
+        .filter((day) => day.enabled.checked)
+        .map((day) => ({
+          dayOfWeek: day.dayOfWeek,
+          startTime: day.start.value,
+          endTime: day.end.value
+        }))
+    }
+
+    function invalidWeeklyScheduleDay(days) {
+      return days.find((day) =>
+        day.enabled.checked &&
+        (!day.start.value || !day.end.value || day.start.value >= day.end.value)
+      )
+    }
+
+    function syncWeeklyScheduleDay(day) {
+      const disabled = day.enabled.disabled || !day.enabled.checked
+      day.start.disabled = disabled
+      day.end.disabled = disabled
+    }
+
+    function setWeeklySchedule(days, hours) {
+      const byDay = new Map((hours || []).map((hour) => [hour.dayOfWeek, hour]))
+      for (const day of days) {
+        const hour = byDay.get(day.dayOfWeek)
+        day.enabled.checked = Boolean(hour) && !day.enabled.disabled
+        day.start.value = hour?.startTime || day.defaultStart
+        day.end.value = hour?.endTime || day.defaultEnd
+        syncWeeklyScheduleDay(day)
       }
-
-      if (els.professionalSaturdayEnabled.checked) {
-        hours.push({
-          dayOfWeek: 6,
-          startTime: els.professionalSaturdayStart.value,
-          endTime: els.professionalSaturdayEnd.value
-        })
-      }
-
-      if (els.professionalSundayEnabled.checked) {
-        hours.push({
-          dayOfWeek: 0,
-          startTime: els.professionalSundayStart.value,
-          endTime: els.professionalSundayEnd.value
-        })
-      }
-
-      return hours
     }
 
     function businessHoursForDay(dayOfWeek) {
@@ -18623,58 +19019,18 @@ const crmHtml = `<!doctype html>
     }
 
     function applyProfessionalBusinessHourLimits() {
-      const weekdayHours = [1, 2, 3, 4, 5].flatMap(businessHoursForDay)
-      applyTimeRangeLimits({
-        enabled: els.professionalWeekdaysEnabled,
-        start: els.professionalWeekdaysStart,
-        end: els.professionalWeekdaysEnd,
-        hours: weekdayHours,
-        requireEveryDay: [1, 2, 3, 4, 5].every((day) => businessHoursForDay(day).length > 0)
-      })
-      applyTimeRangeLimits({
-        enabled: els.professionalSaturdayEnabled,
-        start: els.professionalSaturdayStart,
-        end: els.professionalSaturdayEnd,
-        hours: businessHoursForDay(6),
-        requireEveryDay: businessHoursForDay(6).length > 0
-      })
-      applyTimeRangeLimits({
-        enabled: els.professionalSundayEnabled,
-        start: els.professionalSundayStart,
-        end: els.professionalSundayEnd,
-        hours: businessHoursForDay(0),
-        requireEveryDay: businessHoursForDay(0).length > 0
-      })
-    }
-
-    function applyTimeRangeLimits(input) {
-      const starts = input.hours.map((hour) => hour.startTime)
-      const ends = input.hours.map((hour) => hour.endTime)
-      const sortedStarts = starts.sort()
-      const minStart = sortedStarts.length ? sortedStarts[sortedStarts.length - 1] : ''
-      const maxEnd = ends.length ? ends.sort()[0] : ''
-
-      input.enabled.disabled = !input.requireEveryDay
-      if (!input.requireEveryDay) {
-        input.enabled.checked = false
+      for (const day of professionalDayInputs()) {
+        const localHours = businessHoursForDay(day.dayOfWeek)
+        day.enabled.disabled = localHours.length === 0
+        if (day.enabled.disabled) {
+          day.enabled.checked = false
+        }
+        day.start.min = ''
+        day.start.max = ''
+        day.end.min = ''
+        day.end.max = ''
+        syncWeeklyScheduleDay(day)
       }
-
-      input.start.min = minStart
-      input.start.max = maxEnd
-      input.end.min = minStart
-      input.end.max = maxEnd
-    }
-
-    function businessDayInputs() {
-      return [
-        { dayOfWeek: 1, label: 'lunes', enabled: els.businessMondayEnabled, start: els.businessMondayStart, end: els.businessMondayEnd, defaultStart: '09:00', defaultEnd: '19:00' },
-        { dayOfWeek: 2, label: 'martes', enabled: els.businessTuesdayEnabled, start: els.businessTuesdayStart, end: els.businessTuesdayEnd, defaultStart: '09:00', defaultEnd: '19:00' },
-        { dayOfWeek: 3, label: 'miercoles', enabled: els.businessWednesdayEnabled, start: els.businessWednesdayStart, end: els.businessWednesdayEnd, defaultStart: '09:00', defaultEnd: '19:00' },
-        { dayOfWeek: 4, label: 'jueves', enabled: els.businessThursdayEnabled, start: els.businessThursdayStart, end: els.businessThursdayEnd, defaultStart: '09:00', defaultEnd: '19:00' },
-        { dayOfWeek: 5, label: 'viernes', enabled: els.businessFridayEnabled, start: els.businessFridayStart, end: els.businessFridayEnd, defaultStart: '09:00', defaultEnd: '19:00' },
-        { dayOfWeek: 6, label: 'sabado', enabled: els.businessSaturdayEnabled, start: els.businessSaturdayStart, end: els.businessSaturdayEnd, defaultStart: '09:00', defaultEnd: '14:00' },
-        { dayOfWeek: 0, label: 'domingo', enabled: els.businessSundayEnabled, start: els.businessSundayStart, end: els.businessSundayEnd, defaultStart: '09:00', defaultEnd: '14:00' }
-      ]
     }
 
     function renderBusinessSettings() {
@@ -18693,13 +19049,7 @@ const crmHtml = `<!doctype html>
       setBusinessLogo(state.business?.logoUrl || null)
       updateBusinessBrand()
       renderLandingSettings()
-      const byDay = new Map(state.businessHours.map((hour) => [hour.dayOfWeek, hour]))
-      for (const day of businessDayInputs()) {
-        const hour = byDay.get(day.dayOfWeek)
-        day.enabled.checked = Boolean(hour)
-        day.start.value = hour?.startTime || day.defaultStart
-        day.end.value = hour?.endTime || day.defaultEnd
-      }
+      setWeeklySchedule(businessDayInputs(), state.businessHours)
     }
 
     function renderLandingSettings() {
@@ -19605,26 +19955,14 @@ const crmHtml = `<!doctype html>
         return
       }
 
-      const schedules = businessDayInputs().map((day) => ({
-        dayOfWeek: day.dayOfWeek,
-        label: day.label,
-        enabled: day.enabled.checked,
-        startTime: day.start.value,
-        endTime: day.end.value
-      }))
-      const invalid = schedules.find((schedule) => schedule.enabled && (!schedule.startTime || !schedule.endTime || schedule.startTime >= schedule.endTime))
-      if (invalid) {
-        showBusinessSettingsFeedback('Revisa el horario de ' + invalid.label + '.', 'error')
+      const businessDays = businessDayInputs()
+      const invalidScheduleDay = invalidWeeklyScheduleDay(businessDays)
+      if (invalidScheduleDay) {
+        showBusinessSettingsFeedback('Revisa el horario de ' + invalidScheduleDay.label + '.', 'error')
         return
       }
 
-      const requestedHours = schedules
-        .filter((schedule) => schedule.enabled)
-        .map((schedule) => ({
-          dayOfWeek: schedule.dayOfWeek,
-          startTime: schedule.startTime,
-          endTime: schedule.endTime
-        }))
+      const requestedHours = readWeeklySchedule(businessDays)
 
       const hoursChanged = businessHoursKey(requestedHours) !== businessHoursKey(state.businessHours)
       const nameChanged = name !== state.business?.name
@@ -19691,21 +20029,7 @@ const crmHtml = `<!doctype html>
     }
 
     function setProfessionalWorkingHours(hours) {
-      const byDay = new Map((hours || []).map((hour) => [hour.dayOfWeek, hour]))
-      const weekdays = [1, 2, 3, 4, 5].map((day) => byDay.get(day)).filter(Boolean)
-      const firstWeekday = weekdays[0]
-      const saturday = byDay.get(6)
-      const sunday = byDay.get(0)
-
-      els.professionalWeekdaysEnabled.checked = weekdays.length > 0
-      els.professionalWeekdaysStart.value = firstWeekday?.startTime || '09:00'
-      els.professionalWeekdaysEnd.value = firstWeekday?.endTime || '18:00'
-      els.professionalSaturdayEnabled.checked = Boolean(saturday)
-      els.professionalSaturdayStart.value = saturday?.startTime || '09:00'
-      els.professionalSaturdayEnd.value = saturday?.endTime || '13:00'
-      els.professionalSundayEnabled.checked = Boolean(sunday)
-      els.professionalSundayStart.value = sunday?.startTime || '09:00'
-      els.professionalSundayEnd.value = sunday?.endTime || '13:00'
+      setWeeklySchedule(professionalDayInputs(), hours)
     }
 
     function summarizeWorkingHours(hours) {
@@ -19993,29 +20317,54 @@ const crmHtml = `<!doctype html>
         '<div class="agenda-legend-item"><span class="agenda-dot" style="--agenda-color:#64748b"></span><span>No disponible</span></div>'
     }
 
+    function appointmentServicesForProfessional(professionalId) {
+      const professional = state.professionals.find((item) => item.id === professionalId)
+      return filterAssignedServices(professional, bookableServices())
+    }
+
+    function renderAppointmentServiceOptions(preferredServiceId = '') {
+      const services = appointmentServicesForProfessional(els.appointmentProfessional.value)
+      els.appointmentService.innerHTML = services.length
+        ? services.map((service) => {
+            return '<option value="' + service.id + '">' + escapeHtml(serviceCatalogLabel(service)) + ' · ' + service.duration + ' min</option>'
+          }).join('')
+        : '<option value="">Sin servicios asignados</option>'
+      els.appointmentService.disabled = services.length === 0
+      els.appointmentService.value = services.some((service) => service.id === preferredServiceId)
+        ? preferredServiceId
+        : services[0]?.id || ''
+      return services
+    }
+
     function renderAppointmentFormOptions() {
+      const selectedProfessionalId = els.appointmentProfessional.value
+      const selectedServiceId = els.appointmentService.value
+      const selectedCustomerId = els.appointmentCustomer.value
       els.appointmentProfessional.innerHTML = activeProfessionals().map((professional) => {
         return '<option value="' + professional.id + '">' + escapeHtml(professional.name) + '</option>'
       }).join('')
-
-      els.appointmentService.innerHTML = bookableServices().map((service) => {
-        return '<option value="' + service.id + '">' + escapeHtml(serviceCatalogLabel(service)) + ' · ' + service.duration + ' min</option>'
-      }).join('')
+      els.appointmentProfessional.value = activeProfessionals().some((professional) => professional.id === selectedProfessionalId)
+        ? selectedProfessionalId
+        : activeProfessionals()[0]?.id || ''
+      renderAppointmentServiceOptions(selectedServiceId)
 
       els.appointmentCustomer.innerHTML = ['<option value="">Crear cliente nuevo</option>']
         .concat(state.customers.map((customer) => {
           return '<option value="' + customer.id + '">' + escapeHtml(customer.name + ' · ' + customer.phone) + '</option>'
         }))
         .join('')
+      els.appointmentCustomer.value = state.customers.some((customer) => customer.id === selectedCustomerId)
+        ? selectedCustomerId
+        : ''
     }
 
     async function loadAgenda(options = {}) {
-      const mobileMonthRange = isMobile() && options.monthView
+      const monthRange = options.monthView
       const monthStart = new Date(state.agendaMonthDate.getFullYear(), state.agendaMonthDate.getMonth(), 1)
-      const rangeStart = mobileMonthRange
+      const rangeStart = monthRange
         ? startOfMondayWeek(monthStart)
-        : isMobile() ? addDays(startOfDay(state.agendaSelectedDate), -14) : startOfWeek(state.agendaSelectedDate)
-      const rangeEnd = addDays(rangeStart, mobileMonthRange ? 42 : isMobile() ? 42 : 7)
+        : addDays(startOfDay(state.agendaSelectedDate), -14)
+      const rangeEnd = addDays(rangeStart, 42)
       const params = new URLSearchParams({
         from: rangeStart.toISOString(),
         to: rangeEnd.toISOString()
@@ -20115,11 +20464,24 @@ const crmHtml = `<!doctype html>
       }
     }
 
-    function renderAgendaGrid() {
-      if (isMobile()) {
-        renderAgendaMobileThreeDay()
+    function openAgendaBlockPopover() {
+      if (!canManageScheduleBlocks()) {
+        showCrmToast('No tenes permiso para bloquear la agenda.', 'error')
         return
       }
+      state.agendaBlockOpen = true
+      els.agendaBlockPopover.hidden = false
+      els.blockStart.focus()
+    }
+
+    function closeAgendaBlockPopover() {
+      state.agendaBlockOpen = false
+      els.agendaBlockPopover.hidden = true
+    }
+
+    function renderAgendaGrid() {
+      renderAgendaMobileThreeDay()
+      return
 
       const step = Number(els.agendaStep.value || 15)
       const weekStart = startOfWeek(state.agendaSelectedDate)
@@ -20196,17 +20558,18 @@ const crmHtml = `<!doctype html>
 
     function renderAgendaMobileThreeDay() {
       const hourHeight = 88
+      const viewDays = [1, 3, 7].includes(Number(state.agendaViewDays)) ? Number(state.agendaViewDays) : 3
       const startDate = startOfDay(state.agendaSelectedDate)
       const monthPanel = state.agendaMobileMonthOpen ? renderAgendaMobileMonthPanel() : ''
       const filtersPanel = state.agendaMobileFiltersOpen ? renderAgendaMobileFilterPanel() : ''
       const monthTitle = formatAgendaMobileTitle(state.agendaMobileMonthOpen ? state.agendaMonthDate : state.agendaSelectedDate)
       const filtersActive = state.agendaMobileFiltersOpen || Boolean(els.agendaProfessional.value || els.agendaService.value)
       const today = new Date()
-      const currentDays = Array.from({ length: 3 }, (_, index) => addDays(startDate, index))
+      const currentDays = Array.from({ length: viewDays }, (_, index) => addDays(startDate, index))
       const visibleToday = currentDays.some((day) => dateKey(day) === dateKey(today))
       const bufferBefore = 7
       const bufferAfter = 21
-      const renderedDays = Array.from({ length: bufferBefore + 3 + bufferAfter }, (_, index) => addDays(startDate, index - bufferBefore))
+      const renderedDays = Array.from({ length: bufferBefore + viewDays + bufferAfter }, (_, index) => addDays(startDate, index - bufferBefore))
       const hourLabels = Array.from({ length: 24 }, (_, hour) => {
         return '<span class="agenda-gcal-hour-label" style="top:' + (hour * hourHeight) + 'px">' + String(hour).padStart(2, '0') + ':00</span>'
       }).join('')
@@ -20215,19 +20578,30 @@ const crmHtml = `<!doctype html>
       const todayIndex = renderedDays.findIndex((day) => dateKey(day) === dateKey(today))
       const nowTop = ((today.getHours() * 60 + today.getMinutes()) / 60) * hourHeight
 
-      els.agendaRange.textContent = formatAgendaRange(currentDays[0], currentDays[2])
+      els.agendaRange.textContent = formatAgendaRange(currentDays[0], currentDays[currentDays.length - 1])
       els.agendaToday.textContent = visibleToday ? 'Hoy' : 'Ir a hoy'
       els.agendaGridWrap.innerHTML =
         '<div class="agenda-gcal">' +
           '<header class="agenda-gcal-top">' +
+            '<div class="agenda-gcal-nav">' +
+              '<button class="agenda-gcal-icon" type="button" data-agenda-prev aria-label="Periodo anterior">&#8249;</button>' +
+              '<button class="agenda-gcal-control" type="button" data-agenda-mobile-today>' + (visibleToday ? 'Hoy' : 'Ir a hoy') + '</button>' +
+              '<button class="agenda-gcal-icon" type="button" data-agenda-next aria-label="Periodo siguiente">&#8250;</button>' +
+            '</div>' +
             '<button class="agenda-gcal-icon" type="button" data-agenda-mobile-menu aria-label="Menu">☰</button>' +
             '<button class="agenda-gcal-title" type="button" data-agenda-mobile-month-toggle aria-expanded="' + String(state.agendaMobileMonthOpen) + '"><span>' + escapeHtml(monthTitle) + '</span><i aria-hidden="true"></i></button>' +
+            '<div class="agenda-gcal-actions">' +
+              '<select class="agenda-gcal-view-select" data-agenda-view-days aria-label="Dias visibles">' +
+                [1, 3, 7].map((count) => '<option value="' + count + '"' + (count === viewDays ? ' selected' : '') + '>' + count + (count === 1 ? ' dia' : ' dias') + '</option>').join('') +
+              '</select>' +
             '<button class="agenda-gcal-filter' + (filtersActive ? ' active' : '') + '" type="button" data-agenda-mobile-filters aria-expanded="' + String(state.agendaMobileFiltersOpen) + '">Filtros</button>' +
+            (canManageScheduleBlocks() ? '<button class="agenda-gcal-control' + (state.agendaBlockOpen ? ' active' : '') + '" type="button" data-agenda-block-toggle>Bloquear</button>' : '') +
+            '</div>' +
             '<button class="agenda-gcal-icon agenda-gcal-today" type="button" data-agenda-mobile-today aria-label="Hoy">' + today.getDate() + '</button>' +
           '</header>' +
           monthPanel +
           filtersPanel +
-          '<div class="agenda-gcal-frame" data-agenda-mobile-frame data-agenda-base-index="' + bufferBefore + '" data-agenda-day-count="' + renderedDays.length + '" style="--agenda-hour-height:' + hourHeight + 'px">' +
+          '<div class="agenda-gcal-frame" data-agenda-mobile-frame data-agenda-base-index="' + bufferBefore + '" data-agenda-day-count="' + renderedDays.length + '" data-agenda-view-days="' + viewDays + '" style="--agenda-hour-height:' + hourHeight + 'px;--agenda-slot-height:' + (hourHeight / 2) + 'px">' +
             '<div class="agenda-gcal-days-head">' +
               '<div></div>' +
               '<div class="agenda-gcal-days-viewport" data-agenda-mobile-gesture>' +
@@ -20266,9 +20640,10 @@ const crmHtml = `<!doctype html>
 
     function renderAgendaMobileDayColumn(day, hourHeight) {
       const key = dateKey(day)
-      const cells = Array.from({ length: 24 }, (_, hour) => {
-        const closed = isClosedAgendaSlot(day, hour * 60)
-        return '<div class="agenda-gcal-hour-cell' + (closed ? ' closed' : '') + '" data-cell-date="' + key + '" data-cell-minute="' + (hour * 60) + '"></div>'
+      const cells = Array.from({ length: 48 }, (_, slot) => {
+        const minute = slot * 30
+        const closed = isClosedAgendaSlot(day, minute)
+        return '<div class="agenda-gcal-hour-cell' + (closed ? ' closed' : '') + '" data-cell-date="' + key + '" data-cell-minute="' + minute + '"></div>'
       }).join('')
       const events = filteredAgendaAppointmentsForRange(day, addDays(day, 1))
         .map((appointment) => renderAgendaMobileEvent(appointment, hourHeight))
@@ -20288,7 +20663,8 @@ const crmHtml = `<!doctype html>
       const professionalIndex = activeProfessionals().findIndex((item) => item.id === appointment.professionalId)
       const color = agendaProfessionalColor(appointment.professionalId, professionalIndex)
       const noShow = appointment.status === 'NO_SHOW'
-      return '<button class="agenda-gcal-event' + (noShow ? ' no-show' : '') + '" type="button" data-appointment-id="' + appointment.id + '" style="top:' + top + 'px;height:' + height + 'px;--agenda-event-color:' + color + '">' +
+      const pending = state.agendaPendingAppointmentIds.has(appointment.id)
+      return '<button class="agenda-gcal-event' + (noShow ? ' no-show' : '') + (pending ? ' is-pending' : '') + '" type="button" data-appointment-id="' + appointment.id + '" style="top:' + top + 'px;height:' + height + 'px;--agenda-event-color:' + color + '">' +
         '<strong>' + escapeHtml(appointment.customer?.name || 'Cliente') + '</strong>' +
         '<span>' + escapeHtml(formatTimeOnly(start) + ' - ' + (appointment.service?.name || 'Servicio')) + '</span>' +
       '</button>'
@@ -20359,6 +20735,21 @@ const crmHtml = `<!doctype html>
 
     function bindAgendaMobileControls() {
       els.agendaGridWrap.querySelector('[data-agenda-mobile-menu]')?.addEventListener('click', openMobileDrawer)
+      els.agendaGridWrap.querySelector('[data-agenda-prev]')?.addEventListener('click', async () => {
+        state.agendaSelectedDate = addDays(state.agendaSelectedDate, -state.agendaViewDays)
+        state.agendaMonthDate = new Date(state.agendaSelectedDate)
+        await loadAgenda()
+      })
+      els.agendaGridWrap.querySelector('[data-agenda-next]')?.addEventListener('click', async () => {
+        state.agendaSelectedDate = addDays(state.agendaSelectedDate, state.agendaViewDays)
+        state.agendaMonthDate = new Date(state.agendaSelectedDate)
+        await loadAgenda()
+      })
+      els.agendaGridWrap.querySelector('[data-agenda-view-days]')?.addEventListener('change', (event) => {
+        state.agendaViewDays = Number(event.target.value || 3)
+        renderAgenda()
+      })
+      els.agendaGridWrap.querySelector('[data-agenda-block-toggle]')?.addEventListener('click', openAgendaBlockPopover)
       els.agendaGridWrap.querySelector('[data-agenda-mobile-month-toggle]')?.addEventListener('click', async () => {
         state.agendaMobileMonthOpen = !state.agendaMobileMonthOpen
         if (state.agendaMobileMonthOpen) state.agendaMobileFiltersOpen = false
@@ -20430,6 +20821,9 @@ const crmHtml = `<!doctype html>
           const appointment = state.agendaAppointments.find((item) => item.id === button.dataset.appointmentId)
           if (appointment) openAppointmentDialog({ appointment })
         })
+        button.addEventListener('pointerdown', (event) => {
+          startAgendaPointerDrag(event, button, button.dataset.appointmentId)
+        })
       }
 
       for (const button of els.agendaGridWrap.querySelectorAll('[data-block-id]')) {
@@ -20450,13 +20844,14 @@ const crmHtml = `<!doctype html>
       if (frame) {
         const baseIndex = Number(frame.dataset.agendaBaseIndex || 0)
         const dayCount = Number(frame.dataset.agendaDayCount || 0)
+        const viewDays = Number(frame.dataset.agendaViewDays || 3)
         const columnsViewport = frame.querySelector('.agenda-gcal-columns-viewport')
         const applyTransform = (value) => {
           state.agendaMobileCurrentTranslate = value
           frame.style.setProperty('--agenda-mobile-x', value + 'px')
         }
         const syncMeasurements = () => {
-          const dayWidth = Math.max(1, (columnsViewport?.clientWidth || frame.clientWidth || 1) / 3)
+          const dayWidth = Math.max(1, (columnsViewport?.clientWidth || frame.clientWidth || 1) / viewDays)
           state.agendaMobileDayWidth = dayWidth
           state.agendaMobileBaseIndex = baseIndex
           frame.style.setProperty('--agenda-day-width', dayWidth + 'px')
@@ -20464,7 +20859,7 @@ const crmHtml = `<!doctype html>
         }
         const finishDrag = (dayOffset) => {
           if (!state.agendaMobileDayWidth || state.agendaMobilePaging) return
-          const maxOffset = Math.max(0, dayCount - baseIndex - 3)
+          const maxOffset = Math.max(0, dayCount - baseIndex - viewDays)
           const safeOffset = Math.max(-baseIndex, Math.min(maxOffset, dayOffset))
           const targetTranslate = -(baseIndex + safeOffset) * state.agendaMobileDayWidth
           frame.classList.add('is-snapping')
@@ -20518,6 +20913,7 @@ const crmHtml = `<!doctype html>
         for (const surface of els.agendaGridWrap.querySelectorAll('[data-agenda-mobile-gesture]')) {
           surface.addEventListener('pointerdown', (event) => {
             if (event.button !== undefined && event.button !== 0) return
+            if (event.target.closest('[data-appointment-id], [data-block-id]')) return
             if (state.agendaMobilePaging) return
             state.agendaMobilePointerId = event.pointerId
             state.agendaMobileTouchStartX = event.clientX
@@ -20543,7 +20939,7 @@ const crmHtml = `<!doctype html>
               surface.setPointerCapture?.(event.pointerId)
             }
             event.preventDefault()
-            const minTranslate = -(Math.max(0, dayCount - 3)) * state.agendaMobileDayWidth
+            const minTranslate = -(Math.max(0, dayCount - viewDays)) * state.agendaMobileDayWidth
             const nextTranslate = Math.max(minTranslate, Math.min(0, state.agendaMobileStartTranslate + deltaX))
             applyTransform(nextTranslate)
           })
@@ -20562,7 +20958,8 @@ const crmHtml = `<!doctype html>
         return
       }
       const now = new Date()
-      const visibleToday = [0, 1, 2].some((index) => dateKey(addDays(startOfDay(state.agendaSelectedDate), index)) === dateKey(now))
+      const visibleToday = Array.from({ length: state.agendaViewDays }, (_, index) => index)
+        .some((index) => dateKey(addDays(startOfDay(state.agendaSelectedDate), index)) === dateKey(now))
       const targetHour = visibleToday ? Math.max(0, now.getHours() - 2) : Math.max(0, Math.floor(getAgendaDisplayRange().start / 60) - 1)
       scroll.scrollTop = targetHour * hourHeight
     }
@@ -20946,9 +21343,9 @@ const crmHtml = `<!doctype html>
 
       const target = parseDateKey(targetDateKey)
       target.setHours(Math.floor(targetMinute / 60), targetMinute % 60, 0, 0)
-      const duration = appointment.service?.duration || Number(els.agendaStep.value || 15)
+      const duration = appointment.service?.duration || Number(els.agendaStep.value || 30)
       const displayRange = getAgendaDisplayRange()
-      const pixelsPerMinute = 28 / 15
+      const pixelsPerMinute = els.agendaGridWrap.querySelector('.agenda-gcal-frame') ? 88 / 60 : 28 / 15
       const height = Math.max(24, duration * pixelsPerMinute - 4)
       const customer = appointment.customer?.name || 'Cliente'
       const service = appointment.service?.name || 'Servicio'
@@ -21019,7 +21416,7 @@ const crmHtml = `<!doctype html>
       for (const appointment of appointments) {
         const start = new Date(appointment.startAt)
         const startMinute = start.getHours() * 60 + start.getMinutes()
-        const duration = appointment.service?.duration || Number(els.agendaStep.value || 15)
+        const duration = appointment.service?.duration || Number(els.agendaStep.value || 30)
         const item = {
           id: appointment.id,
           start: startMinute,
@@ -21164,7 +21561,11 @@ const crmHtml = `<!doctype html>
       if (appointment) {
         els.appointmentStart.value = toDatetimeLocalValue(new Date(appointment.startAt))
         els.appointmentProfessional.value = appointment.professionalId || ''
-        els.appointmentService.value = appointment.serviceId || ''
+        const compatibleServices = renderAppointmentServiceOptions(appointment.serviceId || '')
+        if (!compatibleServices.some((service) => service.id === appointment.serviceId)) {
+          els.appointmentFeedback.textContent = 'El servicio del turno ya no está asignado a este profesional. Selecciona uno compatible.'
+          els.appointmentService.value = ''
+        }
         els.appointmentCustomer.value = appointment.customerId || ''
         els.appointmentCustomerName.value = appointment.customer?.name || ''
         els.appointmentCustomerPhone.value = appointment.customer?.phone || ''
@@ -21179,7 +21580,10 @@ const crmHtml = `<!doctype html>
         const selectedProfessionalId = els.agendaProfessional.value
         const selectedServiceId = els.agendaService.value
         els.appointmentProfessional.value = selectedProfessionalId || activeProfessionals()[0]?.id || ''
-        els.appointmentService.value = selectedServiceId || state.services[0]?.id || ''
+        const compatibleServices = renderAppointmentServiceOptions(selectedServiceId)
+        if (compatibleServices.length === 0) {
+          els.appointmentFeedback.textContent = 'Este profesional no tiene servicios asignados.'
+        }
         els.appointmentCustomer.value = ''
         els.appointmentCustomerName.value = ''
         els.appointmentCustomerPhone.value = ''
@@ -21318,6 +21722,11 @@ const crmHtml = `<!doctype html>
 
       if (!startAt || !professionalId || !serviceId) {
         els.appointmentFeedback.textContent = 'Completa fecha, profesional y servicio.'
+        return
+      }
+
+      if (!appointmentServicesForProfessional(professionalId).some((service) => service.id === serviceId)) {
+        els.appointmentFeedback.textContent = 'El profesional seleccionado no realiza ese servicio.'
         return
       }
 
@@ -23573,6 +23982,7 @@ const crmHtml = `<!doctype html>
 
       const id = els.serviceId.value
       const name = els.serviceName.value.trim()
+      const description = els.serviceDescription.value.trim()
       const itemType = id ? els.serviceItemType.value : 'SERVICE'
       const isGroup = itemType === 'GROUP'
       const isVariant = itemType === 'VARIANT'
@@ -23643,17 +24053,21 @@ const crmHtml = `<!doctype html>
       if (
         attentionMode === 'GUIDED_ESTIMATE' &&
         (
-          !estimateQuestion ||
-          estimateOptions.length === 0 ||
-          estimateOptions.some((option) =>
-            !option.label ||
-            !Number.isFinite(option.priceMin) ||
-            option.priceMin < 0 ||
-            (option.priceMax !== null && (!Number.isFinite(option.priceMax) || option.priceMax < option.priceMin))
-          )
+          (estimateOptions.length === 0 && priceMode !== 'STARTING_AT') ||
+          (estimateOptions.length > 0 && (
+            !estimateQuestion ||
+            estimateOptions.some((option) =>
+              !option.label ||
+              !Number.isFinite(option.priceMin) ||
+              option.priceMin < 0 ||
+              (option.priceMax !== null && (!Number.isFinite(option.priceMax) || option.priceMax < option.priceMin))
+            )
+          ))
         )
       ) {
-        els.serviceFeedback.textContent = 'Complet\u00e1 la pregunta y revis\u00e1 los rangos del estimativo.'
+        els.serviceFeedback.textContent = estimateOptions.length === 0
+          ? 'Sin opciones, configur\u00e1 el precio como "Desde".'
+          : 'Complet\u00e1 la pregunta y revis\u00e1 los rangos del estimativo.'
         return
       }
       if (validationEnabled && !validationMessage) {
@@ -23692,6 +24106,7 @@ const crmHtml = `<!doctype html>
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             name,
+            description: description || null,
             duration,
             businessId: state.businessId,
             price,
@@ -23740,6 +24155,7 @@ const crmHtml = `<!doctype html>
       els.serviceItemType.value = getServiceItemType(service)
       renderServiceCatalogControls()
       els.serviceName.value = service.name
+      els.serviceDescription.value = service.description || ''
       els.serviceDuration.value = service.duration
       els.servicePrice.value = hasServicePrice(service) ? service.price : ''
       els.servicePriceMode.value = service.priceMode || 'FIXED'
@@ -23797,6 +24213,7 @@ const crmHtml = `<!doctype html>
     function resetServiceForm() {
       els.serviceId.value = ''
       els.serviceName.value = ''
+      els.serviceDescription.value = ''
       els.serviceDuration.value = ''
       els.servicePrice.value = ''
       els.servicePriceMode.value = 'FIXED'
@@ -24084,6 +24501,12 @@ const crmHtml = `<!doctype html>
       els.replyForm.requestSubmit()
     })
     els.blockForm.addEventListener('submit', createBlock)
+    els.agendaBlockBackdrop.addEventListener('click', closeAgendaBlockPopover)
+    els.agendaBlockClose.addEventListener('click', closeAgendaBlockPopover)
+    for (const day of [...businessDayInputs(), ...professionalDayInputs()]) {
+      day.enabled.addEventListener('change', () => syncWeeklyScheduleDay(day))
+      syncWeeklyScheduleDay(day)
+    }
     els.professionalForm.addEventListener('submit', saveProfessional)
     els.professionalCancel.addEventListener('click', closeProfessionalPanel)
     els.professionalPanelClose?.addEventListener('click', closeProfessionalPanel)
@@ -24740,6 +25163,13 @@ const crmHtml = `<!doctype html>
     els.detailWhatsapp.addEventListener('click', openWhatsappAppLink)
     els.appointmentOpenChat.addEventListener('click', openAppointmentCustomerChat)
     els.appointmentStart.addEventListener('change', () => updateAppointmentContactActions(editingAgendaAppointment()))
+    els.appointmentProfessional.addEventListener('change', () => {
+      const services = renderAppointmentServiceOptions(els.appointmentService.value)
+      els.appointmentFeedback.textContent = services.length
+        ? ''
+        : 'Este profesional no tiene servicios asignados.'
+      updateAppointmentContactActions(editingAgendaAppointment())
+    })
     els.appointmentService.addEventListener('change', () => updateAppointmentContactActions(editingAgendaAppointment()))
     els.appointmentCustomerName.addEventListener('input', () => updateAppointmentContactActions(editingAgendaAppointment()))
     els.appointmentCustomerPhone.addEventListener('input', () => updateAppointmentContactActions(editingAgendaAppointment()))

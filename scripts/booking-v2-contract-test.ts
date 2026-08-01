@@ -1602,6 +1602,63 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'estimativo guiado sin bandas muestra el precio base y permite continuar',
+    run: async () => {
+      const catalog = createBookingV2DomainCatalog({
+        services: [{
+          id: 'treatment',
+          name: 'Tratamiento',
+          aliases: ['tratamiento'],
+          duration: 90,
+          price: 50000,
+          priceMode: 'STARTING_AT',
+          category: 'Nutricion',
+          attentionMode: 'GUIDED_ESTIMATE',
+          requiresPhoto: false,
+          estimateExplanation: 'El precio final depende del diagnóstico.',
+          estimateQuestion: null,
+          estimateOptions: [],
+          estimateDisclaimer: 'Es un valor estimativo.',
+          estimateAllowsBooking: true
+        }],
+        professionals: [{
+          id: 'professional-1',
+          name: 'Tamara',
+          serviceIds: ['treatment']
+        }]
+      })
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog }), fakeExtractor(null))
+      const selected = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Mati',
+          selectedServiceId: null,
+          selectedProfessionalId: null,
+          selectedDate: null,
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: 'tratamiento'
+      })
+
+      assert.equal(selected.plan.type, 'show_base_estimate')
+      assert.equal(selected.reply.includes('desde'), true)
+      assert.equal(selected.reply.includes('50.000'), true)
+      assert.equal(selected.reply.includes('continuar con la reserva'), true)
+      assert.equal(selected.state.guidedEstimate?.stage, 'awaiting_decision')
+      assert.equal(selected.state.guidedEstimate?.priceMin, 50000)
+
+      const continued = await engine.process({
+        businessId: 'business-1',
+        conversation: selected.conversationPatch,
+        message: 'quiero reservar'
+      })
+      assert.equal(continued.plan.type, 'ask_field')
+      assert.equal(continued.plan.type === 'ask_field' ? continued.plan.field : null, 'professional')
+    }
+  },
+  {
     name: 'estimativo guiado deriva con contexto si piden presupuesto exacto',
     run: async () => {
       const catalog = createBookingV2DomainCatalog({
@@ -1778,6 +1835,11 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         (extractor.calls[0] as { expectedField?: string } | undefined)?.expectedField,
         'professional'
       )
+      assert.equal(
+        (extractor.calls[0] as { services?: BookingV2CatalogOption[] } | undefined)
+          ?.services?.find((service) => service.id === 'haircut')?.description,
+        'Incluye lavado, corte personalizado y finalización.'
+      )
     }
   },
   {
@@ -1949,6 +2011,34 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(result.reply.includes('• Corte'), true)
       assert.equal(result.reply.includes('• Barba'), true)
       assert.equal(result.reply.includes('¿Querés reservar Corte?'), false)
+    }
+  },
+  {
+    name: 'la descripcion aporta contexto para interpretar el servicio pedido',
+    run: async () => {
+      const engine = new BookingV2Engine(
+        fakeDomainPort(),
+        fakeExtractor(extraction({
+          service: field('haircut', 0.9, 'lavado y finalización')
+        }))
+      )
+
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Matias',
+          selectedServiceId: null,
+          selectedProfessionalId: null,
+          selectedDate: null,
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: 'quiero algo con lavado y finalización'
+      })
+
+      assert.equal(result.state.draft.service, 'haircut')
+      assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'professional')
     }
   },
   {
@@ -3101,9 +3191,13 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           { dayOfWeek: 1, startTime: '09:00', endTime: '18:00' },
           { dayOfWeek: 6, startTime: '10:00', endTime: '14:00' }
         ],
-        services: [
-          { name: 'Corte', duration: 30, price: 15000, priceMode: 'STARTING_AT' }
-        ],
+        services: [{
+          name: 'Corte',
+          description: 'Incluye lavado, corte personalizado y finalización.',
+          duration: 30,
+          price: 15000,
+          priceMode: 'STARTING_AT'
+        }],
         professionals: [
           { name: 'Nico', services: ['Corte'] }
         ]
@@ -3118,6 +3212,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(replies[5]?.includes('Corte (30 min)'), true)
       assert.equal(replies[5]?.includes('15.000'), true)
       assert.equal(replies[5]?.includes('Desde'), true)
+      assert.equal(replies[5]?.includes('Incluye lavado, corte personalizado y finalización.'), true)
 
       const professionalReplies = renderBusinessKnowledgeAnswers({
         name: 'Salon Demo',
@@ -3275,7 +3370,8 @@ function fakeDomainPort(input?: {
         services: domainCatalog.services.map((service): BookingV2CatalogOption => ({
           id: service.id,
           name: service.name,
-          aliases: service.aliases
+          aliases: service.aliases,
+          ...(service.description === undefined ? {} : { description: service.description })
         })),
         professionals: domainCatalog.professionals.map((professional): BookingV2CatalogOption => ({
           id: professional.id,
@@ -3302,7 +3398,15 @@ function fakeDomainPort(input?: {
 function fakeDomainCatalog() {
   return createBookingV2DomainCatalog({
     services: [
-      { id: 'haircut', name: 'Corte', aliases: ['corte de pelo'], duration: 30, price: 15000, category: null },
+      {
+        id: 'haircut',
+        name: 'Corte',
+        description: 'Incluye lavado, corte personalizado y finalización.',
+        aliases: ['corte de pelo'],
+        duration: 30,
+        price: 15000,
+        category: null
+      },
       { id: 'beard', name: 'Barba', aliases: [], duration: 20, price: null, category: null }
     ],
     professionals: [

@@ -7,6 +7,7 @@ export type BookingV2CatalogOption = {
   id: string
   name: string
   aliases?: string[]
+  description?: string | null
 }
 
 export type ExtractedBookingField = {
@@ -57,6 +58,7 @@ export class BookingV2Extractor {
           'Si expectedField es professional y el mensaje coincide con un profesional, nunca lo extraigas como name.',
           'Si expectedField es time, interpreta formatos como 1830, 18hs, 18.30 o a las seis como horarios, nunca como fechas.',
           'Para service y professional usa exclusivamente IDs presentes en las listas recibidas.',
+          'La descripcion de cada servicio aporta contexto sobre lo que incluye y para que casos sirve. Usala para interpretar el pedido del cliente sin inventar prestaciones.',
           'Si no hay evidencia de un campo, usa value null, confidence 0 y evidence vacio.',
           'No supongas datos por el paso actual ni copies datos existentes si no aparecen en el mensaje.',
           'Interpreta fechas relativas usando currentDate y timezone.',

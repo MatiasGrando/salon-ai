@@ -36,6 +36,11 @@ export type BookingV2MessagePlan =
       allowsBooking: boolean
     }
   | {
+      type: 'show_base_estimate'
+      priceMin: number
+      allowsBooking: boolean
+    }
+  | {
       type: 'ask_estimate_decision'
       allowsBooking: boolean
     }

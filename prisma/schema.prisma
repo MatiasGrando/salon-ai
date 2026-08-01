@@ -346,6 +346,7 @@ model Service {
   id String @id @default(cuid())
 
   name                  String
+  description           String?
   duration              Int
   category              String?
   price                 Int?

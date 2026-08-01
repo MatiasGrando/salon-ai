@@ -137,6 +137,7 @@ export async function serviceRoutes(app: FastifyInstance) {
 
     const body = request.body as {
       name: string
+      description?: string | null
       duration: number
       businessId: string
       category?: string
@@ -163,6 +164,7 @@ export async function serviceRoutes(app: FastifyInstance) {
       depositHoldMinutes?: number | string
     }
     const name = body.name?.trim()
+    const description = normalizeOptionalText(body.description)
     const duration = Number(body.duration)
     const businessId = body.businessId?.trim()
     const category = body.category?.trim()
@@ -251,10 +253,20 @@ export async function serviceRoutes(app: FastifyInstance) {
     }
     if (
       attentionMode === 'GUIDED_ESTIMATE' &&
-      (!body.estimateQuestion?.trim() || !estimateOptions?.length)
+      estimateOptions?.length &&
+      !body.estimateQuestion?.trim()
     ) {
       return reply.status(400).send({
-        message: 'El estimativo necesita una pregunta y al menos una opcion'
+        message: 'El estimativo necesita una pregunta cuando tiene opciones'
+      })
+    }
+    if (
+      attentionMode === 'GUIDED_ESTIMATE' &&
+      !estimateOptions?.length &&
+      priceMode !== 'STARTING_AT'
+    ) {
+      return reply.status(400).send({
+        message: 'Un estimativo sin opciones debe mostrar el precio como Desde'
       })
     }
     if (validationEnabled && !validationMessage) {
@@ -307,6 +319,7 @@ export async function serviceRoutes(app: FastifyInstance) {
 
     const data = {
       name,
+      description,
       duration,
       businessId,
       price,
@@ -390,6 +403,7 @@ export async function serviceRoutes(app: FastifyInstance) {
     }
     const body = request.body as {
       name?: string
+      description?: string | null
       duration?: number
       category?: string | null
       price?: number | string | null
@@ -452,6 +466,7 @@ export async function serviceRoutes(app: FastifyInstance) {
       where: { id: params.id },
       select: {
         id: true,
+        description: true,
         businessId: true,
         catalogCategoryId: true,
         parentServiceId: true,
@@ -541,9 +556,18 @@ export async function serviceRoutes(app: FastifyInstance) {
         message: 'Revisa las opciones del estimativo'
       })
     }
-    if (attentionMode === 'GUIDED_ESTIMATE' && (!estimateQuestion || !estimateOptions?.length)) {
+    if (attentionMode === 'GUIDED_ESTIMATE' && estimateOptions?.length && !estimateQuestion) {
       return reply.status(400).send({
-        message: 'El estimativo necesita una pregunta y al menos una opcion'
+        message: 'El estimativo necesita una pregunta cuando tiene opciones'
+      })
+    }
+    if (
+      attentionMode === 'GUIDED_ESTIMATE' &&
+      !estimateOptions?.length &&
+      priceMode !== 'STARTING_AT'
+    ) {
+      return reply.status(400).send({
+        message: 'Un estimativo sin opciones debe mostrar el precio como Desde'
       })
     }
     if (isBookable && validationEnabled && !validationMessage) {
@@ -625,6 +649,9 @@ export async function serviceRoutes(app: FastifyInstance) {
         },
         data: {
           name,
+          description: body.description === undefined
+            ? existing.description
+            : normalizeOptionalText(body.description),
           duration,
           category: hierarchy.categoryName ?? body.category?.trim() ?? null,
           catalogCategoryId: categoryId,
@@ -928,6 +955,9 @@ function validatePercentageDepositBase(input: {
 }) {
   if (input.mode !== 'PERCENTAGE') return { ok: true as const }
   if (input.attentionMode === 'GUIDED_ESTIMATE') {
+    if (input.estimateOptions.length === 0 && input.price !== null && input.price > 0) {
+      return { ok: true as const }
+    }
     if (
       input.estimateOptions.length > 0 &&
       input.estimateOptions.every((option) => option !== null && option.priceMin > 0)
@@ -936,7 +966,7 @@ function validatePercentageDepositBase(input: {
     }
     return {
       ok: false as const,
-      message: 'Para calcular la seña porcentual, todos los estimativos deben tener un minimo mayor a 0'
+      message: 'Para calcular la seña porcentual, carga un precio base o un minimo mayor a 0 en todos los estimativos'
     }
   }
   if (input.attentionMode === 'QUOTE' || input.requiresPhoto) {
