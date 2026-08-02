@@ -20912,8 +20912,9 @@ const crmHtml = `<!doctype html>
 
       for (const eventNode of els.agendaGridWrap.querySelectorAll('[data-appointment-id]')) {
         const appointment = state.agendaAppointments.find((item) => item.id === eventNode.dataset.appointmentId)
-        eventNode.querySelector('[data-agenda-edit-appointment]')?.addEventListener('click', (event) => {
+        eventNode.addEventListener('click', (event) => {
           event.stopPropagation()
+          if (event.target.closest('[data-agenda-new-at]')) return
           if (state.agendaDidDrag) return
           if (appointment) openAppointmentDialog({ appointment })
         })
