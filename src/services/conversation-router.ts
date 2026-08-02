@@ -1,6 +1,13 @@
 import { openAiConfig } from '../config/openai.js'
 import { getOpenAiClient } from '../integrations/openai-client.js'
 import { isAiExecutionEnabled } from './ai-execution-context.js'
+import {
+  bookingExtractionSchema,
+  normalizeExtraction,
+  type BookingV2CatalogOption,
+  type BookingV2Extraction
+} from './booking-v2-extractor.js'
+import { nextMissingField } from './booking-v2-state.js'
 import { normalizeText } from './message-understanding-service.js'
 
 export const CONVERSATION_INTENTS = [
@@ -48,6 +55,7 @@ export type RoutedIntent = {
 export type ConversationRouting = {
   intents: RoutedIntent[]
   bookingMessage: string | null
+  bookingExtraction?: BookingV2Extraction | null
   source: 'ai' | 'deterministic'
 }
 
@@ -70,6 +78,10 @@ export type ConversationRouterInput = {
     name: string
     availableInformation: BusinessInformationTopic[]
   }
+  catalog: {
+    services: BookingV2CatalogOption[]
+    professionals: BookingV2CatalogOption[]
+  }
 }
 
 type AiConversationRouting = {
@@ -80,6 +92,7 @@ type AiConversationRouting = {
     evidence: string
   }>
   bookingMessage: string | null
+  bookingExtraction?: BookingV2Extraction | null
 }
 
 export class ConversationRouter {
@@ -113,6 +126,16 @@ export class ConversationRouter {
           'Usa stop_flow cuando dice que no necesita nada mas o quiere terminar la conversacion, incluso con respuestas informales como no gracias, nada mas, era eso, joya o estamos.',
           'bookingMessage debe contener solamente la parte util para continuar o modificar la reserva.',
           'Si el mensaje es solo informativo, social o ajeno a la reserva, bookingMessage debe ser null.',
+          'Ademas de clasificar, extrae en bookingExtraction todos los datos de reserva visibles en customerMessage.',
+          'Evalua name, service, professional, date y time por separado con value, confidence y evidence.',
+          'expectedField indica el dato que el flujo espera, pero no impide extraer datos adelantados.',
+          'Para service y professional usa exclusivamente IDs presentes en catalog.',
+          'Usa nombres, alias y descripciones del catalogo para comprender expresiones naturales del cliente.',
+          'Si no hay evidencia de un campo, usa value null, confidence 0 y evidence vacio.',
+          'No copies valores de currentDraft si no aparecen en customerMessage.',
+          'Interpreta fechas relativas usando currentDate y timezone. date usa YYYY-MM-DD y time HH:mm.',
+          'Detecta correction solo cuando el cliente expresa que quiere cambiar un dato existente.',
+          'Si bookingMessage es null, bookingExtraction debe ser null.',
           'evidence debe ser un fragmento textual exacto de customerMessage.',
           'Si no esta claro, usa unknown con confianza baja.'
         ].join('\n'),
@@ -122,7 +145,11 @@ export class ConversationRouter {
           lastBotMessage: input.lastBotMessage,
           recentMessages: input.recentMessages,
           currentDraft: input.draft,
-          business: input.business
+          expectedField: nextMissingField(input.draft),
+          currentDate: formatDate(new Date()),
+          timezone: 'America/Buenos_Aires',
+          business: input.business,
+          catalog: input.catalog
         }),
         text: {
           format: {
@@ -174,7 +201,10 @@ export function normalizeConversationRouting(input: AiConversationRouting): Omit
 
   return {
     intents,
-    bookingMessage: cleanNullableText(input.bookingMessage)
+    bookingMessage: cleanNullableText(input.bookingMessage),
+    bookingExtraction: input.bookingExtraction
+      ? normalizeExtraction(input.bookingExtraction)
+      : null
   }
 }
 
@@ -204,6 +234,7 @@ export function deterministicConversationRouting(
   return {
     intents,
     bookingMessage: hasBookingSignal ? message.trim() || null : null,
+    bookingExtraction: null,
     source: 'deterministic'
   }
 }
@@ -268,7 +299,10 @@ export function mergeConversationRouting(
       ? null
       : aiRouting.bookingMessage
         ?? deterministic.bookingMessage
-        ?? (hasBookingRelatedIntent ? originalMessage.trim() || null : null)
+        ?? (hasBookingRelatedIntent ? originalMessage.trim() || null : null),
+    bookingExtraction: standaloneBusinessInformationQuestion
+      ? null
+      : aiRouting.bookingExtraction ?? deterministic.bookingExtraction ?? null
   }
 }
 
@@ -345,8 +379,12 @@ function containsAny(value: string, phrases: string[]) {
 function hasExplicitBookingIntent(normalized: string) {
   return containsAny(normalized, [
     'quiero reservar',
+    'queria reservar',
+    'quisiera reservar',
     'necesito reservar',
     'quiero un turno',
+    'queria un turno',
+    'quisiera un turno',
     'necesito un turno',
     'sacar turno',
     'sacame un turno',
@@ -356,6 +394,8 @@ function hasExplicitBookingIntent(normalized: string) {
     'quiero venir',
     'necesito venir',
     'quiero hacerme',
+    'queria hacerme',
+    'quisiera hacerme',
     'me quiero hacer',
     'me quiero cortar',
     'necesito un corte',
@@ -413,7 +453,7 @@ function cleanNullableText(value: string | null) {
 const conversationRoutingSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['intents', 'bookingMessage'],
+  required: ['intents', 'bookingMessage', 'bookingExtraction'],
   properties: {
     intents: {
       type: 'array',
@@ -443,6 +483,21 @@ const conversationRoutingSchema = {
         { type: 'string' },
         { type: 'null' }
       ]
+    },
+    bookingExtraction: {
+      anyOf: [
+        bookingExtractionSchema,
+        { type: 'null' }
+      ]
     }
   }
+}
+
+function formatDate(date: Date) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Buenos_Aires',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(date)
 }

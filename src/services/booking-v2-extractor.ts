@@ -133,7 +133,7 @@ const extractedFieldSchema = {
   }
 }
 
-const bookingExtractionSchema = {
+export const bookingExtractionSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['name', 'service', 'professional', 'date', 'time', 'correction'],

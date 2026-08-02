@@ -45,6 +45,7 @@ export type BookingV2ProcessInput = {
   conversation: BookingV2ConversationSnapshot | null
   message: string
   currentDate?: Date
+  understandingExtraction?: BookingV2Extraction | null
 }
 
 export type BookingV2ProcessResult = {
@@ -446,14 +447,16 @@ export class BookingV2Engine {
     }
 
     const extractionCatalog = this.domain.toExtractionCatalog(catalog)
-    const rawExtraction = await this.extractor.extract({
-      message: input.message,
-      draft: initialState.draft,
-      expectedField: nextMissingField(initialState.draft),
-      services: extractionCatalog.services,
-      professionals: extractionCatalog.professionals,
-      ...(input.currentDate ? { currentDate: input.currentDate } : {})
-    })
+    const rawExtraction = input.understandingExtraction === undefined
+      ? await this.extractor.extract({
+          message: input.message,
+          draft: initialState.draft,
+          expectedField: nextMissingField(initialState.draft),
+          services: extractionCatalog.services,
+          professionals: extractionCatalog.professionals,
+          ...(input.currentDate ? { currentDate: input.currentDate } : {})
+        })
+      : input.understandingExtraction
 
     if (!rawExtraction) {
       return this.fromInterpretation({
@@ -579,7 +582,11 @@ export class BookingV2Engine {
       effectiveInterpretation.state.advisorQuote?.serviceId === selectedService.id &&
       effectiveInterpretation.state.advisorQuote.status === 'accepted'
     )
+    const canEvaluateSelectedService = Boolean(
+      selectedService && effectiveInterpretation.state.draft.name
+    )
     if (
+      canEvaluateSelectedService &&
       selectedService?.validationEnabled &&
       (
         effectiveInterpretation.state.serviceValidation?.serviceId !== selectedService.id ||
@@ -600,7 +607,7 @@ export class BookingV2Engine {
         type: 'ask_service_validation',
         reason: 'missing'
       }
-    } else if (selectedService?.attentionMode === 'GUIDED_ESTIMATE') {
+    } else if (canEvaluateSelectedService && selectedService?.attentionMode === 'GUIDED_ESTIMATE') {
       if (
         effectiveInterpretation.state.guidedEstimate?.serviceId !== selectedService.id ||
         effectiveInterpretation.state.guidedEstimate.stage !== 'completed'
@@ -648,6 +655,7 @@ export class BookingV2Engine {
       }
     } else if (
       selectedService &&
+      canEvaluateSelectedService &&
       !hasAcceptedAdvisorQuote &&
       (selectedService.requiresPhoto || (
         selectedService.attentionMode !== undefined &&
@@ -1174,30 +1182,44 @@ function discardUngroundedCatalogSelections(
   catalog: BookingV2DomainCatalog
 ): BookingV2Extraction {
   const groundedName = !extraction.name.value ||
-    !nameCollidesWithCatalog(extraction.name.value, catalog)
+    (
+      !nameCollidesWithCatalog(extraction.name.value, catalog) &&
+      messageGroundsEvidence(message, extraction.name.evidence)
+    )
   const groundedService = !extraction.service.value || catalog.services.some((service) =>
     service.id === extraction.service.value &&
+    messageGroundsEvidence(message, extraction.service.evidence) &&
     messageGroundsService(message, service)
   )
   const groundedProfessional =
     !extraction.professional.value ||
     catalog.professionals.some((professional) =>
       professional.id === extraction.professional.value &&
+      messageGroundsEvidence(message, extraction.professional.evidence) &&
       messageGroundsLabel(message, professional.name)
     )
-  const groundedCorrection = !extraction.correction.newValue ||
-    extraction.correction.field === null ||
-    !['service', 'professional'].includes(extraction.correction.field) ||
+  const groundedDate = !extraction.date.value ||
+    messageGroundsEvidence(message, extraction.date.evidence)
+  const groundedTime = !extraction.time.value ||
+    messageGroundsEvidence(message, extraction.time.evidence)
+  const groundedCorrection = extraction.correction.field === null ||
     (
-      extraction.correction.field === 'service'
-        ? catalog.services.some((service) =>
-            service.id === extraction.correction.newValue &&
-            messageGroundsService(message, service)
-          )
-        : catalog.professionals.some((professional) =>
-            professional.id === extraction.correction.newValue &&
-            messageGroundsLabel(message, professional.name)
-          )
+      messageGroundsEvidence(message, extraction.correction.evidence) &&
+      (
+        !extraction.correction.newValue ||
+        !['service', 'professional'].includes(extraction.correction.field) ||
+        (
+        extraction.correction.field === 'service'
+          ? catalog.services.some((service) =>
+              service.id === extraction.correction.newValue &&
+              messageGroundsService(message, service)
+            )
+          : catalog.professionals.some((professional) =>
+              professional.id === extraction.correction.newValue &&
+              messageGroundsLabel(message, professional.name)
+            )
+        )
+      )
     )
 
   return {
@@ -1211,10 +1233,21 @@ function discardUngroundedCatalogSelections(
     professional: groundedProfessional
       ? extraction.professional
       : { value: null, confidence: 0, evidence: '' },
+    date: groundedDate
+      ? extraction.date
+      : { value: null, confidence: 0, evidence: '' },
+    time: groundedTime
+      ? extraction.time
+      : { value: null, confidence: 0, evidence: '' },
     correction: groundedCorrection
       ? extraction.correction
       : { ...extraction.correction, newValue: null }
   }
+}
+
+function messageGroundsEvidence(message: string, evidence: string) {
+  const normalizedEvidence = normalize(evidence)
+  return Boolean(normalizedEvidence) && normalize(message).includes(normalizedEvidence)
 }
 
 function sanitizeCatalogNameCollision(

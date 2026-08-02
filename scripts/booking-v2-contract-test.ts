@@ -47,6 +47,7 @@ import {
   isPostBookingWellbeingQuestion,
   isPositiveAdvisorQuoteDecision,
   isPositiveBookingV2Confirmation,
+  pendingRequestFromRouting,
   shouldShowBookingV2IntentFallback,
   withBusinessInformationFollowUp
 } from '../src/services/conversation-service.js'
@@ -671,6 +672,83 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(result.reply.includes('• Nico'), true)
       assert.equal(result.reply.includes('• Cualquier profesional'), true)
       assert.equal(result.reply.includes('Ana'), false)
+    }
+  },
+  {
+    name: 'comprension estructurada conserva un servicio adelantado mientras pide el nombre',
+    run: async () => {
+      const catalog = createBookingV2DomainCatalog({
+        services: [{
+          id: 'illumination',
+          name: 'Iluminación',
+          aliases: ['iluminaciones'],
+          duration: 90,
+          price: 150000,
+          category: 'Coloración',
+          attentionMode: 'QUOTE',
+          requiresPhoto: true
+        }],
+        professionals: [{
+          id: 'professional-1',
+          name: 'Tamara',
+          serviceIds: ['illumination']
+        }]
+      })
+      const extractor = fakeExtractor(null)
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog }), extractor)
+      const first = await engine.process({
+        businessId: 'business-1',
+        conversation: null,
+        message: 'Quería hacerme unas iluminaciones, saber presupuestos y horarios.',
+        understandingExtraction: extraction({
+          service: field('illumination', 0.98, 'iluminaciones')
+        })
+      })
+
+      assert.equal(first.state.draft.service, 'illumination')
+      assert.equal(first.state.draft.name, null)
+      assert.deepEqual(first.plan, {
+        type: 'ask_field',
+        field: 'name',
+        reason: 'missing',
+        misunderstandingCount: 0
+      })
+      assert.equal(extractor.calls.length, 0)
+
+      const pendingRequest = pendingRequestFromRouting({
+        currentStep: 'START',
+        state: first.state,
+        now: new Date('2026-08-01T12:00:00.000Z'),
+        routing: {
+          intents: [
+            { type: 'book_appointment', topic: null, confidence: 0.98, evidence: 'hacerme unas iluminaciones' },
+            { type: 'request_quote', topic: null, confidence: 0.96, evidence: 'saber presupuestos' },
+            { type: 'availability_preference', topic: null, confidence: 0.9, evidence: 'horarios' }
+          ],
+          bookingMessage: 'Quería hacerme unas iluminaciones, saber presupuestos y horarios.',
+          source: 'ai'
+        }
+      })
+      assert.ok(pendingRequest)
+
+      const persisted = conversationPatchFromState({
+        ...first.state,
+        pendingRequest
+      })
+      const restored = stateFromConversation(persisted)
+      assert.equal(restored.pendingRequest?.message.includes('iluminaciones'), true)
+
+      const second = await engine.process({
+        businessId: 'business-1',
+        conversation: persisted,
+        message: 'Caro'
+      })
+      assert.equal(second.state.draft.name, 'Caro')
+      assert.equal(second.state.draft.service, 'illumination')
+      assert.deepEqual(second.plan, {
+        type: 'handoff',
+        reason: 'photo_required'
+      })
     }
   },
   {
@@ -2783,6 +2861,50 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'router normaliza intenciones y datos de reserva en una sola comprension',
+    run: () => {
+      const routing = normalizeConversationRouting({
+        intents: [
+          {
+            type: 'book_appointment',
+            topic: null,
+            confidence: 0.97,
+            evidence: 'hacerme unas iluminaciones'
+          },
+          {
+            type: 'request_quote',
+            topic: null,
+            confidence: 0.95,
+            evidence: 'saber presupuestos'
+          },
+          {
+            type: 'availability_preference',
+            topic: null,
+            confidence: 0.91,
+            evidence: 'horarios'
+          }
+        ],
+        bookingMessage: 'hacerme unas iluminaciones, saber presupuestos y horarios',
+        bookingExtraction: extraction({
+          service: field('illumination', 0.98, 'iluminaciones')
+        })
+      })
+
+      assert.equal(routing.bookingExtraction?.service.value, 'illumination')
+      assert.equal(routing.bookingExtraction?.service.evidence, 'iluminaciones')
+      assert.deepEqual(
+        routing.intents.map((intent) => intent.type),
+        ['book_appointment', 'request_quote', 'availability_preference']
+      )
+      assert.equal(
+        deterministicConversationRouting(
+          'Quería hacerme unas iluminaciones, saber presupuestos y horarios.'
+        ).bookingMessage !== null,
+        true
+      )
+    }
+  },
+  {
     name: 'confirmacion critica requiere evidencia determinista explicita',
     run: () => {
       assert.equal(isPositiveBookingV2Confirmation('okey perfecto quedamos asi'), true)
@@ -3026,10 +3148,14 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
             evidence: 'un corte'
           }
         ],
-        bookingMessage: 'un corte'
+        bookingMessage: 'un corte',
+        bookingExtraction: extraction({
+          service: field('haircut', 0.7, 'un corte')
+        })
       }, deterministic, message)
 
       assert.equal(merged.bookingMessage, null)
+      assert.equal(merged.bookingExtraction, null)
       assert.equal(
         merged.intents.some((intent) => intent.type === 'book_appointment'),
         false

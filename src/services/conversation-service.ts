@@ -7,9 +7,13 @@ import { BookingConversationFlow, isBookingStartMessage, isMenuStep } from './bo
 import { BotCopyService } from './bot-copy-service.js'
 import { normalizeText } from './message-understanding-service.js'
 import { runWithAiEnabled } from './ai-execution-context.js'
-import { BookingV2Engine } from './booking-v2-engine.js'
+import { BookingV2Engine, type BookingV2ProcessResult } from './booking-v2-engine.js'
 import type { BookingV2MessagePlan } from './booking-v2-dialogue.js'
-import type { BookingField } from './booking-v2-state.js'
+import type {
+  BookingField,
+  BookingV2PendingRequest,
+  BookingV2State
+} from './booking-v2-state.js'
 import {
   conversationPatchFromState,
   stateFromConversation
@@ -691,13 +695,45 @@ export class ConversationService {
       }
     }
 
-    const result = await bookingV2Engine.process({
+    const storedState = stateFromConversation(input.conversation)
+    const pendingRequest = storedState.pendingRequest ?? pendingRequestFromRouting({
+      currentStep: input.conversation.currentStep,
+      state: storedState,
+      routing: input.routing
+    })
+
+    let result = await bookingV2Engine.process({
       businessId: input.businessId,
       conversation: input.conversation,
       message: input.conversation.bookingV2State
         ? input.message
-        : input.routing.bookingMessage ?? input.message
+        : input.routing.bookingMessage ?? input.message,
+      ...(input.routing.bookingExtraction
+        ? { understandingExtraction: input.routing.bookingExtraction }
+        : {})
     })
+
+    if (!result.state.draft.name && pendingRequest) {
+      result = withPendingBookingRequest(result, pendingRequest)
+    } else if (
+      result.state.draft.name &&
+      storedState.pendingRequest &&
+      !result.state.draft.service
+    ) {
+      const replayState: BookingV2State = {
+        ...result.state,
+        pendingRequest: null
+      }
+      result = await bookingV2Engine.process({
+        businessId: input.businessId,
+        conversation: conversationPatchFromState(replayState),
+        message: storedState.pendingRequest.message
+      })
+    }
+
+    if (result.state.draft.name && result.state.pendingRequest) {
+      result = withPendingBookingRequest(result, null)
+    }
 
     const nextStep = conversationStepFromBookingV2Plan(result.plan)
     const isHandoff = result.plan.type === 'handoff'
@@ -1700,6 +1736,48 @@ export function shouldShowBookingV2IntentFallback(
 
 export function withBusinessInformationFollowUp(informationReply: string) {
   return `${informationReply.trim()}\n\n¿Te puedo ayudar en algo más?`
+}
+
+export function pendingRequestFromRouting(input: {
+  currentStep: string
+  state: BookingV2State
+  routing: ConversationRouting
+  now?: Date
+}): BookingV2PendingRequest | null {
+  if (input.state.draft.name || !input.routing.bookingMessage) return null
+  if (!['START', 'ASK_CUSTOMER_NAME'].includes(input.currentStep)) return null
+
+  const intents = input.routing.intents
+    .filter((intent) => intent.confidence >= 0.65)
+    .map((intent) => intent.type)
+    .filter((intent) => [
+      'book_appointment',
+      'edit_booking',
+      'availability_preference',
+      'professional_preference',
+      'request_quote'
+    ].includes(intent))
+
+  return {
+    message: input.routing.bookingMessage.trim().slice(0, 1200),
+    intents: Array.from(new Set(intents)),
+    createdAt: (input.now ?? new Date()).toISOString()
+  }
+}
+
+function withPendingBookingRequest(
+  result: BookingV2ProcessResult,
+  pendingRequest: BookingV2PendingRequest | null
+): BookingV2ProcessResult {
+  const state: BookingV2State = {
+    ...result.state,
+    pendingRequest
+  }
+  return {
+    ...result,
+    state,
+    conversationPatch: conversationPatchFromState(state)
+  }
 }
 
 function isActiveBookingV2Step(currentStep: string) {

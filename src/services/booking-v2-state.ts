@@ -39,6 +39,12 @@ export type BookingV2CategoryAdvice = {
   stage: 'offered' | 'awaiting_confirmation' | 'requested'
 }
 
+export type BookingV2PendingRequest = {
+  message: string
+  intents: string[]
+  createdAt: string
+}
+
 export type BookingV2PendingDeposit = {
   depositId: string
   appointmentId: string
@@ -62,6 +68,7 @@ export type BookingV2AdvisorQuote = {
 export type BookingV2State = {
   draft: BookingDraft
   pendingProposal: BookingProposal | null
+  pendingRequest: BookingV2PendingRequest | null
   categoryAdvice: BookingV2CategoryAdvice | null
   serviceValidation: BookingV2ServiceValidation | null
   guidedEstimate: BookingV2GuidedEstimate | null
@@ -90,6 +97,7 @@ export function createEmptyBookingV2State(): BookingV2State {
       time: null
     },
     pendingProposal: null,
+    pendingRequest: null,
     categoryAdvice: null,
     serviceValidation: null,
     guidedEstimate: null,

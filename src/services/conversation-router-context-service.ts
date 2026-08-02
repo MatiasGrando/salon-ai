@@ -33,13 +33,26 @@ export class ConversationRouterContextService {
           },
           services: {
             where: { isBookable: true },
-            select: { id: true },
-            take: 1
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              category: true,
+              aliases: { select: { name: true } },
+              catalogCategory: { select: { name: true } },
+              parentService: {
+                select: {
+                  name: true,
+                  aliases: { select: { name: true } }
+                }
+              }
+            },
+            orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }]
           },
           professionals: {
             where: { isActive: true },
-            select: { id: true },
-            take: 1
+            select: { id: true, name: true, description: true },
+            orderBy: { name: 'asc' }
           }
         }
       }),
@@ -67,6 +80,37 @@ export class ConversationRouterContextService {
       business: {
         name: business?.name ?? 'el local',
         availableInformation: availableInformationForBusiness(business)
+      },
+      catalog: {
+        services: business?.services.map((service) => {
+          const category = service.catalogCategory?.name ?? service.category
+          return {
+            id: service.id,
+            name: service.parentService
+              ? `${service.parentService.name} — ${service.name}`
+              : service.name,
+            description: service.description,
+            aliases: Array.from(new Set([
+              service.name,
+              ...service.aliases.map((alias) => alias.name),
+              ...(category ? [category] : []),
+              ...(service.parentService
+                ? [
+                    service.parentService.name,
+                    `${service.parentService.name} ${service.name}`,
+                    ...service.parentService.aliases.map((alias) =>
+                      `${alias.name} ${service.name}`
+                    )
+                  ]
+                : [])
+            ]))
+          }
+        }) ?? [],
+        professionals: business?.professionals.map((professional) => ({
+          id: professional.id,
+          name: professional.name,
+          description: professional.description
+        })) ?? []
       }
     }
   }
