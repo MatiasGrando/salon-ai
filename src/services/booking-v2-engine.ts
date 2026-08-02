@@ -364,17 +364,24 @@ export class BookingV2Engine {
       }, null, catalog)
     }
 
+    let stateForExtraction = initialState
     const deterministicService = resolveExpectedService(input.message, initialState, catalog)
     if (deterministicService?.kind === 'selected') {
       const state = acceptField(initialState, 'service', deterministicService.serviceId)
-      return this.fromInterpretation({
-        state,
-        nextField: nextMissingField(state.draft),
-        outcome: 'accepted',
-        affectedField: 'service'
-      }, null, catalog)
+      if (nextMissingField(initialState.draft) === 'service') {
+        return this.fromInterpretation({
+          state,
+          nextField: nextMissingField(state.draft),
+          outcome: 'accepted',
+          affectedField: 'service'
+        }, null, catalog)
+      }
+      stateForExtraction = state
     }
-    if (deterministicService?.kind === 'ambiguous') {
+    if (
+      deterministicService?.kind === 'ambiguous' &&
+      nextMissingField(initialState.draft) === 'service'
+    ) {
       const serviceSuggestions = catalog.services.filter((service) =>
         deterministicService.serviceIds.includes(service.id)
       )
@@ -400,7 +407,7 @@ export class BookingV2Engine {
 
     const deterministicProfessional = resolveExpectedProfessional(
       input.message,
-      initialState,
+      stateForExtraction,
       catalog
     )
     if (deterministicProfessional) {
@@ -415,7 +422,7 @@ export class BookingV2Engine {
 
     const deterministicDate = resolveExpectedDate(
       input.message,
-      initialState,
+      stateForExtraction,
       input.currentDate ?? new Date()
     )
     if (deterministicDate) {
@@ -430,7 +437,7 @@ export class BookingV2Engine {
 
     const deterministicTime = await this.resolveExpectedTime(
       input.message,
-      initialState,
+      stateForExtraction,
       catalog
     )
     if (deterministicTime) {
@@ -450,8 +457,8 @@ export class BookingV2Engine {
     const rawExtraction = input.understandingExtraction === undefined
       ? await this.extractor.extract({
           message: input.message,
-          draft: initialState.draft,
-          expectedField: nextMissingField(initialState.draft),
+          draft: stateForExtraction.draft,
+          expectedField: nextMissingField(stateForExtraction.draft),
           services: extractionCatalog.services,
           professionals: extractionCatalog.professionals,
           ...(input.currentDate ? { currentDate: input.currentDate } : {})
@@ -460,10 +467,10 @@ export class BookingV2Engine {
 
     if (!rawExtraction) {
       return this.fromInterpretation({
-        state: initialState,
-        nextField: nextMissingField(initialState.draft),
+        state: stateForExtraction,
+        nextField: nextMissingField(stateForExtraction.draft),
         outcome: 'no_change',
-        affectedField: null
+        affectedField: deterministicService?.kind === 'selected' ? 'service' : null
       }, null, catalog)
     }
     const extraction = discardUngroundedCatalogSelections(
@@ -474,7 +481,7 @@ export class BookingV2Engine {
 
     return this.fromInterpretation(
       applyBookingV2Extraction(
-        initialState,
+        stateForExtraction,
         extraction,
         this.domain.toInterpreterCatalog(catalog)
       ),
@@ -585,7 +592,19 @@ export class BookingV2Engine {
     const canEvaluateSelectedService = Boolean(
       selectedService && effectiveInterpretation.state.draft.name
     )
-    if (
+    const assistedSelectedService = Boolean(
+      selectedService && (
+        selectedService.requiresPhoto || (
+          selectedService.attentionMode !== undefined &&
+          selectedService.attentionMode !== 'DIRECT_BOOKING'
+        )
+      )
+    )
+    if (selectedService && !effectiveInterpretation.state.draft.name && assistedSelectedService) {
+      plan = {
+        type: 'show_service_preview_and_ask_name'
+      }
+    } else if (
       canEvaluateSelectedService &&
       selectedService?.validationEnabled &&
       (
@@ -851,15 +870,26 @@ function reconcileBookingV2Agenda(
   if (!state.agenda.length) return state
 
   const acceptedQuote = state.advisorQuote?.status === 'accepted'
+  const selectedServiceId = state.draft.service
   const waitingForQuote = plan.type === 'handoff' && [
     'photo_required',
     'quote_required',
     'estimate_quote_requested'
   ].includes(plan.reason)
 
-  const agenda = state.agenda.map((item): typeof item => {
+  const agenda = state.agenda.map((originalItem): typeof originalItem => {
+    const item = originalItem.serviceId || !selectedServiceId
+      ? originalItem
+      : { ...originalItem, serviceId: selectedServiceId }
+
     if (item.intent === 'request_quote') {
-      if (acceptedQuote) return { ...item, status: 'completed', blockedBy: null }
+      const quoteMatchesService = !item.serviceId || state.advisorQuote?.serviceId === item.serviceId
+      if (acceptedQuote && quoteMatchesService) {
+        return { ...item, status: 'completed', blockedBy: null }
+      }
+      if (plan.type === 'show_service_preview_and_ask_name') {
+        return { ...item, serviceInformationProvided: true }
+      }
       if (waitingForQuote) return { ...item, status: 'pending', blockedBy: null }
       return item
     }
@@ -1147,7 +1177,7 @@ function resolveExpectedService(
   state: BookingV2State,
   catalog: BookingV2DomainCatalog
 ) {
-  if (nextMissingField(state.draft) !== 'service') return null
+  if (state.draft.service) return null
   return resolveCatalogServiceSelection(message, catalog)
 }
 
@@ -1168,13 +1198,21 @@ function resolveCatalogServiceSelection(
     }
   }
 
-  const requestedTokens = new Set(signature.split(' '))
-  const partialMatches = catalog.services.filter((service) =>
-    [service.name, ...service.aliases].some((label) => {
-      const labelTokens = new Set(selectionSignature(label).split(' '))
-      return Array.from(requestedTokens).every((token) => labelTokens.has(token))
-    })
-  )
+  const messageTokens = serviceSelectionTokens(message)
+  const scoredMatches = catalog.services
+    .map((service) => ({
+      service,
+      score: Math.max(...[service.name, ...service.aliases].map((label) =>
+        serviceLabelMatchScore(messageTokens, serviceSelectionTokens(label))
+      ))
+    }))
+    .filter((candidate) => candidate.score >= 0.5)
+    .sort((left, right) => right.score - left.score)
+
+  const bestScore = scoredMatches[0]?.score ?? 0
+  const partialMatches = scoredMatches
+    .filter((candidate) => bestScore - candidate.score < 0.08)
+    .map((candidate) => candidate.service)
 
   if (partialMatches.length === 1) {
     return {
@@ -1223,11 +1261,73 @@ function resolveExpectedDate(message: string, state: BookingV2State, currentDate
 }
 
 function selectionSignature(value: string) {
-  return normalize(value)
-    .split(' ')
-    .filter((token) => token && !['y', 'de', 'del', 'el', 'la'].includes(token))
+  return serviceSelectionTokens(value)
     .sort()
     .join(' ')
+}
+
+function serviceSelectionTokens(value: string) {
+  return normalize(value)
+    .split(' ')
+    .filter((token) => token && ![
+      'a', 'al', 'con', 'de', 'del', 'el', 'en', 'hacer', 'hacerme', 'la', 'las',
+      'los', 'me', 'para', 'por', 'querer', 'queria', 'quiero', 'un', 'una', 'unas',
+      'unos', 'y'
+    ].includes(token))
+}
+
+function serviceLabelMatchScore(messageTokens: string[], labelTokens: string[]) {
+  if (!labelTokens.length || !messageTokens.length) return 0
+  const matched = labelTokens.filter((labelToken) =>
+    messageTokens.some((messageToken) => serviceTokensMatch(labelToken, messageToken))
+  ).length
+  if (!matched) return 0
+
+  const coverage = matched / labelTokens.length
+  const specificity = Math.min(1, labelTokens.length / Math.max(1, messageTokens.length))
+  return coverage * 0.9 + specificity * 0.1
+}
+
+function serviceTokensMatch(left: string, right: string) {
+  if (left === right) return true
+  const canonicalLeft = singularServiceToken(left)
+  const canonicalRight = singularServiceToken(right)
+  if (canonicalLeft === canonicalRight) return true
+  if (left.length < 6 || right.length < 6) return false
+  return editDistanceAtMostOne(left, right)
+}
+
+function singularServiceToken(token: string) {
+  if (token.length >= 7 && token.endsWith('ciones')) return `${token.slice(0, -6)}cion`
+  if (token.length >= 6 && token.endsWith('es')) return token.slice(0, -2)
+  if (token.length >= 5 && token.endsWith('s')) return token.slice(0, -1)
+  return token
+}
+
+function editDistanceAtMostOne(left: string, right: string) {
+  if (Math.abs(left.length - right.length) > 1) return false
+  let differences = 0
+  let leftIndex = 0
+  let rightIndex = 0
+
+  while (leftIndex < left.length && rightIndex < right.length) {
+    if (left[leftIndex] === right[rightIndex]) {
+      leftIndex += 1
+      rightIndex += 1
+      continue
+    }
+    differences += 1
+    if (differences > 1) return false
+    if (left.length > right.length) leftIndex += 1
+    else if (right.length > left.length) rightIndex += 1
+    else {
+      leftIndex += 1
+      rightIndex += 1
+    }
+  }
+
+  if (leftIndex < left.length || rightIndex < right.length) differences += 1
+  return differences <= 1
 }
 
 function discardUngroundedCatalogSelections(

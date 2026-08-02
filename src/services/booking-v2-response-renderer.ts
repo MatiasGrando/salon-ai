@@ -19,6 +19,15 @@ export type BookingV2RenderInput = {
 }
 
 export function renderBookingV2Response(input: BookingV2RenderInput): string {
+  if (input.plan.type === 'show_service_preview_and_ask_name') {
+    const service = input.catalog?.services.find((option) => option.id === input.draft.service)
+    if (!service) return '¿Me decís tu nombre?'
+    return renderAssistedServicePreview({
+      service,
+      agenda: input.agenda ?? []
+    })
+  }
+
   if (input.plan.type === 'handoff') {
     const service = input.catalog?.services.find((option) => option.id === input.draft.service)
     const waitNotice = 'La respuesta puede demorar unos minutos, pero van a continuar con vos por acá.'
@@ -202,10 +211,17 @@ function renderAssistedServiceHandoff(input: {
   const requestedAvailability = input.agenda.some((item) =>
     item.intent === 'check_availability' && item.status !== 'completed'
   )
+  const serviceInformationAlreadyProvided = input.agenda.some((item) =>
+    item.intent === 'request_quote' &&
+    item.serviceId === input.service.id &&
+    item.serviceInformationProvided
+  )
 
   return [
     greeting,
-    [price, explanation].filter(Boolean).join(' '),
+    ...(!serviceInformationAlreadyProvided
+      ? [[price, explanation].filter(Boolean).join(' ')]
+      : []),
     input.requiresPhotos
       ? `Para darte un presupuesto más preciso, enviame una foto clara del estado actual y, si tenés, otra del resultado que buscás.`
       : `Te derivo con una persona del local para que pueda preparar un presupuesto personalizado y preciso.`,
@@ -213,6 +229,35 @@ function renderAssistedServiceHandoff(input: {
     ...(requestedAvailability
       ? ['Después de confirmar el presupuesto, seguimos con los profesionales y horarios disponibles.']
       : [])
+  ].join('\n\n')
+}
+
+function renderAssistedServicePreview(input: {
+  service: BookingV2DomainCatalog['services'][number]
+  agenda: BookingV2AgendaItem[]
+}) {
+  const price = input.service.price === null
+    ? `${input.service.name} requiere un presupuesto personalizado.`
+    : input.service.priceMode === 'STARTING_AT'
+      ? `Para ${input.service.name}, el precio comienza desde ${formatMoney(input.service.price)}.`
+      : `Para ${input.service.name}, el precio es ${formatMoney(input.service.price)}.`
+  const explanation = input.service.estimateExplanation?.trim() ||
+    (input.service.priceMode === 'STARTING_AT'
+      ? 'El valor final puede variar después de evaluar el trabajo necesario.'
+      : null)
+  const requestedAvailability = input.agenda.some((item) =>
+    item.intent === 'check_availability' && item.status !== 'completed'
+  )
+
+  return [
+    [price, explanation].filter(Boolean).join(' '),
+    ...(input.service.requiresPhoto
+      ? ['Para darte un presupuesto más preciso, después te voy a pedir una foto clara de tu cabello actual y, si tenés, otra del resultado que buscás.']
+      : ['El equipo puede preparar un presupuesto preciso para tu caso.']),
+    ...(requestedAvailability
+      ? ['Después de confirmar el presupuesto, seguimos con los profesionales y horarios disponibles.']
+      : []),
+    '¿Me decís tu nombre?'
   ].join('\n\n')
 }
 

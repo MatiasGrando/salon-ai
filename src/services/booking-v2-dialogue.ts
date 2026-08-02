@@ -24,6 +24,9 @@ export type BookingV2MessagePlan =
       type: 'confirm_booking'
     }
   | {
+      type: 'show_service_preview_and_ask_name'
+    }
+  | {
       type: 'ask_estimate_option'
       reason: 'missing' | 'not_understood'
     }

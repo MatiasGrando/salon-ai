@@ -113,6 +113,10 @@ function readAgenda(value: unknown): BookingV2AgendaItem[] {
       intent: item.intent,
       status: item.status as BookingV2AgendaItem['status'],
       evidence: item.evidence.trim().slice(0, 500),
+      serviceId: typeof item.serviceId === 'string' && item.serviceId.trim()
+        ? item.serviceId.trim()
+        : null,
+      serviceInformationProvided: item.serviceInformationProvided === true,
       blockedBy: item.blockedBy,
       createdAt: item.createdAt
     })

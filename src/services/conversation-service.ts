@@ -56,6 +56,7 @@ type HandleMessageInput = {
 
 type HandleMessageResult = {
   reply: string
+  messages?: string[]
   skipMisunderstandingTracking?: boolean
   skipHumanize?: boolean
 }
@@ -69,13 +70,13 @@ export class ConversationService {
       }
 
       if (result.skipHumanize) {
-        return { reply: result.reply }
+        return withOutboundMessages(result)
       }
 
-      return this.humanizeResult({
+      return withOutboundMessages(await this.humanizeResult({
         result,
         message: input.message.trim()
-      })
+      }))
     })
   }
 
@@ -767,14 +768,16 @@ export class ConversationService {
       informationReply ? `${informationReply}\n\n${result.reply}` : result.reply,
       assistantPersonality
     )
+    const composedReply = await this.composeBookingV2Reply({
+      customerMessage: input.message,
+      requiredReply,
+      currentStep: nextStep,
+      customerName: result.state.draft.name,
+      personality: assistantPersonality
+    })
     return {
-      reply: await this.composeBookingV2Reply({
-        customerMessage: input.message,
-        requiredReply,
-        currentStep: nextStep,
-        customerName: result.state.draft.name,
-        personality: assistantPersonality
-      }),
+      reply: composedReply,
+      messages: splitWhatsAppReply(composedReply),
       skipMisunderstandingTracking: true,
       skipHumanize: true
     }
@@ -1545,6 +1548,7 @@ export function isExplicitResetRequest(message: string) {
 
 function conversationStepFromBookingV2Plan(plan: BookingV2MessagePlan) {
   if (plan.type === 'handoff') return 'HUMAN_HANDOFF'
+  if (plan.type === 'show_service_preview_and_ask_name') return 'ASK_CUSTOMER_NAME'
   if (
     plan.type === 'ask_service_validation' ||
     plan.type === 'ask_category_advice_confirmation' ||
@@ -1774,6 +1778,8 @@ export function mergeBookingV2AgendaFromRouting(input: {
       intent: candidate.intent,
       status: 'pending',
       evidence: candidate.evidence.trim().slice(0, 500),
+      serviceId: input.routing.bookingExtraction?.service.value ?? input.state.draft.service,
+      serviceInformationProvided: false,
       blockedBy: null,
       createdAt: (input.now ?? new Date()).toISOString()
     }
@@ -1788,6 +1794,71 @@ export function mergeBookingV2AgendaFromRouting(input: {
   return {
     ...input.state,
     agenda
+  }
+}
+
+export function splitWhatsAppReply(reply: string, maxLength = 650) {
+  const normalizedReply = reply.trim()
+  if (!normalizedReply) return []
+  if (normalizedReply.length <= maxLength) return [normalizedReply]
+
+  const paragraphs = normalizedReply.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean)
+  const messages: string[] = []
+  let current = ''
+
+  const pushCurrent = () => {
+    if (!current) return
+    messages.push(current)
+    current = ''
+  }
+
+  for (const paragraph of paragraphs) {
+    if (paragraph.length <= maxLength) {
+      const candidate = current ? `${current}\n\n${paragraph}` : paragraph
+      if (candidate.length <= maxLength) {
+        current = candidate
+      } else {
+        pushCurrent()
+        current = paragraph
+      }
+      continue
+    }
+
+    pushCurrent()
+    const lines = paragraph.split('\n').map((line) => line.trim()).filter(Boolean)
+    for (const line of lines) {
+      if (line.length <= maxLength) {
+        const candidate = current ? `${current}\n${line}` : line
+        if (candidate.length <= maxLength) current = candidate
+        else {
+          pushCurrent()
+          current = line
+        }
+        continue
+      }
+
+      pushCurrent()
+      let remaining = line
+      while (remaining.length > maxLength) {
+        let splitAt = remaining.lastIndexOf(' ', maxLength)
+        if (splitAt < Math.floor(maxLength * 0.6)) splitAt = maxLength
+        messages.push(remaining.slice(0, splitAt).trim())
+        remaining = remaining.slice(splitAt).trim()
+      }
+      current = remaining
+    }
+  }
+
+  pushCurrent()
+  return messages
+}
+
+function withOutboundMessages(result: HandleMessageResult): HandleMessageResult {
+  const messages = result.messages?.map((message) => message.trim()).filter(Boolean) ??
+    splitWhatsAppReply(result.reply)
+  return {
+    ...result,
+    messages
   }
 }
 

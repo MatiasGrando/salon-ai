@@ -383,69 +383,83 @@ export class WhatsAppWebhookService {
       })
 
       const gate = conversation.businessId ? await assertBusinessCanSendWhatsApp(conversation.businessId, 'BOT') : null
-      const deliveryResult = gate?.allowed
-        ? await whatsappCloudApi.sendTextMessage({
-            businessId: conversation.businessId,
-            to: message.from,
-            text: conversationResult.reply
-          })
-        : { sent: false as const, to: message.from, reason: gate?.message || 'La conversacion no tiene comercio asociado para resolver WhatsApp.' }
+      const outboundReplies = conversationResult.messages?.length
+        ? conversationResult.messages
+        : [conversationResult.reply]
+      const deliveryResults: Array<Awaited<ReturnType<WhatsAppCloudApi['sendTextMessage']>>> = []
 
-      const outgoingProviderMessageId = getOutgoingProviderMessageId(deliveryResult)
-      const outboundMessageData: {
-        conversationId: string
-        phone: string
-        direction: 'OUTBOUND'
-        body: string
-        providerMessageId?: string
-        status: string
-        providerStatusCode?: number
-        providerErrorCode?: string
-        providerErrorMessage?: string
-        metadata: Awaited<ReturnType<WhatsAppCloudApi['sendTextMessage']>>
-      } = {
-        conversationId: conversation.id,
-        phone: message.from,
-        direction: 'OUTBOUND',
-        body: conversationResult.reply,
-        status: deliveryResult.sent ? 'sent' : 'failed',
-        metadata: deliveryResult
-      }
+      for (const replyText of outboundReplies) {
+        const deliveryResult = gate?.allowed
+          ? await whatsappCloudApi.sendTextMessage({
+              businessId: conversation.businessId,
+              to: message.from,
+              text: replyText
+            })
+          : { sent: false as const, to: message.from, reason: gate?.message || 'La conversacion no tiene comercio asociado para resolver WhatsApp.' }
 
-      if (outgoingProviderMessageId) {
-        outboundMessageData.providerMessageId = outgoingProviderMessageId
-      }
-
-      if (!deliveryResult.sent) {
-        if ('status' in deliveryResult && deliveryResult.status) {
-          outboundMessageData.providerStatusCode = deliveryResult.status
+        deliveryResults.push(deliveryResult)
+        const outgoingProviderMessageId = getOutgoingProviderMessageId(deliveryResult)
+        const outboundMessageData: {
+          conversationId: string
+          phone: string
+          direction: 'OUTBOUND'
+          body: string
+          providerMessageId?: string
+          status: string
+          providerStatusCode?: number
+          providerErrorCode?: string
+          providerErrorMessage?: string
+          metadata: Awaited<ReturnType<WhatsAppCloudApi['sendTextMessage']>>
+        } = {
+          conversationId: conversation.id,
+          phone: message.from,
+          direction: 'OUTBOUND',
+          body: replyText,
+          status: deliveryResult.sent ? 'sent' : 'failed',
+          metadata: deliveryResult
         }
 
-        if ('errorCode' in deliveryResult && deliveryResult.errorCode) {
-          outboundMessageData.providerErrorCode = deliveryResult.errorCode
+        if (outgoingProviderMessageId) {
+          outboundMessageData.providerMessageId = outgoingProviderMessageId
         }
 
-        if ('errorMessage' in deliveryResult && deliveryResult.errorMessage) {
-          outboundMessageData.providerErrorMessage = deliveryResult.errorMessage
+        if (!deliveryResult.sent) {
+          if ('status' in deliveryResult && deliveryResult.status) {
+            outboundMessageData.providerStatusCode = deliveryResult.status
+          }
+
+          if ('errorCode' in deliveryResult && deliveryResult.errorCode) {
+            outboundMessageData.providerErrorCode = deliveryResult.errorCode
+          }
+
+          if ('errorMessage' in deliveryResult && deliveryResult.errorMessage) {
+            outboundMessageData.providerErrorMessage = deliveryResult.errorMessage
+          }
         }
+
+        await prisma.message.create({
+          data: outboundMessageData
+        })
+
+        console.info('[whatsapp-webhook] saved outbound reply', {
+          messageId: outgoingProviderMessageId,
+          to: message.from,
+          sent: deliveryResult.sent,
+          conversationId: conversation.id
+        })
+
+        if (!deliveryResult.sent) break
       }
 
-      await prisma.message.create({
-        data: outboundMessageData
-      })
-
-      console.info('[whatsapp-webhook] saved outbound reply', {
-        messageId: outgoingProviderMessageId,
-        to: message.from,
-        sent: deliveryResult.sent,
-        conversationId: conversation.id
-      })
+      const deliveryResult = deliveryResults[deliveryResults.length - 1]
 
       results.push({
         messageId: message.id,
         from: message.from,
         reply: conversationResult.reply,
-        delivery: deliveryResult
+        messages: outboundReplies,
+        delivery: deliveryResult,
+        deliveries: deliveryResults
       })
     }
 

@@ -52,6 +52,8 @@ export type BookingV2AgendaItem = {
   intent: BookingV2AgendaIntent
   status: BookingV2AgendaStatus
   evidence: string
+  serviceId: string | null
+  serviceInformationProvided: boolean
   blockedBy: 'quote_pending' | null
   createdAt: string
 }

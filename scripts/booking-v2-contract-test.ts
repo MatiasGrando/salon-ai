@@ -50,6 +50,7 @@ import {
   isPositiveBookingV2Confirmation,
   mergeBookingV2AgendaFromRouting,
   pendingRequestFromRouting,
+  splitWhatsAppReply,
   shouldShowBookingV2IntentFallback,
   withBusinessInformationFollowUp
 } from '../src/services/conversation-service.js'
@@ -683,7 +684,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         services: [{
           id: 'illumination',
           name: 'Iluminación',
-          aliases: ['iluminaciones'],
+          aliases: ['iluminacion'],
           duration: 90,
           price: 50000,
           priceMode: 'STARTING_AT',
@@ -718,19 +719,37 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         businessId: 'business-1',
         conversation: conversationPatchFromState(initialState),
         message: 'Quería hacerme unas iluminaciones, saber presupuestos y horarios.',
-        understandingExtraction: extraction({
-          service: field('illumination', 0.98, 'iluminaciones')
-        })
+        understandingExtraction: null
       })
 
       assert.equal(first.state.draft.service, 'illumination')
       assert.equal(first.state.draft.name, null)
       assert.deepEqual(first.plan, {
-        type: 'ask_field',
-        field: 'name',
-        reason: 'missing',
-        misunderstandingCount: 0
+        type: 'show_service_preview_and_ask_name'
       })
+      assert.equal(first.reply.includes('precio comienza desde'), true)
+      assert.equal(first.reply.includes('$ 50.000') || first.reply.includes('$ 50.000'), true)
+      assert.equal(first.reply.includes('¿Me decís tu nombre?'), true)
+      assert.equal(first.reply.includes('servicios disponibles'), false)
+      assert.deepEqual(
+        first.state.agenda.map((item) => ({
+          intent: item.intent,
+          serviceId: item.serviceId,
+          serviceInformationProvided: item.serviceInformationProvided
+        })),
+        [
+          {
+            intent: 'request_quote',
+            serviceId: 'illumination',
+            serviceInformationProvided: true
+          },
+          {
+            intent: 'check_availability',
+            serviceId: 'illumination',
+            serviceInformationProvided: false
+          }
+        ]
+      )
       assert.equal(extractor.calls.length, 0)
 
       const pendingRequest = pendingRequestFromRouting({
@@ -760,9 +779,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         reason: 'photo_required'
       })
       assert.equal(second.reply.includes('¡Perfecto, Caro!'), true)
-      assert.equal(second.reply.includes('precio comienza desde'), true)
-      assert.equal(second.reply.includes('$ 50.000') || second.reply.includes('$ 50.000'), true)
-      assert.equal(second.reply.includes('cantidad de cabello'), true)
+      assert.equal(second.reply.includes('precio comienza desde'), false)
       assert.equal(second.reply.includes('foto clara del estado actual'), true)
       assert.equal(second.reply.includes('puede demorar unos minutos'), true)
       assert.equal(second.reply.includes('horarios disponibles'), true)
@@ -776,6 +793,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           intent: 'check_availability',
           status: 'blocked',
           evidence: 'horarios',
+          serviceId: 'illumination',
+          serviceInformationProvided: false,
           blockedBy: 'quote_pending',
           createdAt: '2026-08-01T12:00:00.000Z'
         }
@@ -822,6 +841,21 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         'completed'
       )
       assert.equal(availabilityShown.reply.includes('horarios disponibles'), true)
+    }
+  },
+  {
+    name: 'divide respuestas largas sin romper parrafos ni listas',
+    run: () => {
+      const reply = [
+        'Los horarios del local son:\nLunes: 09:00 a 20:00\nMartes: 09:00 a 20:00',
+        'Para Iluminación, el precio comienza desde $ 50.000 y puede variar según el trabajo necesario.',
+        '¿Me decís tu nombre?'
+      ].join('\n\n')
+      const messages = splitWhatsAppReply(reply, 100)
+      assert.equal(messages.length, 3)
+      assert.equal(messages.every((message) => message.length <= 100), true)
+      assert.equal(messages.join('\n\n'), reply)
+      assert.equal(messages[2], '¿Me decís tu nombre?')
     }
   },
   {
