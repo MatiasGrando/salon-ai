@@ -13,7 +13,7 @@ const resendApiUrl = 'https://api.resend.com/emails'
 export async function sendTamaraContactEmail(input: TamaraContactEmailInput): Promise<TamaraContactEmailResult> {
   const apiKey = process.env.RESEND_API_KEY?.trim()
   const from = process.env.TAMARA_CONTACT_EMAIL_FROM?.trim() || process.env.BOOKING_EMAIL_FROM?.trim()
-  const recipient = process.env.TAMARA_CONTACT_EMAIL?.trim() || 'concienciadirecta@gmail.com'
+  const recipient = process.env.TAMARA_CONTACT_EMAIL?.trim() || 'soytamaragrando@gmail.com'
   if (!apiKey || !from) {
     return { ok: false, skipped: true, message: 'El envío de consultas todavía no está configurado.' }
   }
