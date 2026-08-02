@@ -1,7 +1,12 @@
 import type { BookingV2DomainCatalog } from './booking-v2-domain.js'
 import type { BookingV2AvailabilityOption } from './booking-v2-domain.js'
 import type { BookingV2MessagePlan } from './booking-v2-dialogue.js'
-import { ANY_PROFESSIONAL_ID, type BookingDraft, type BookingField } from './booking-v2-state.js'
+import {
+  ANY_PROFESSIONAL_ID,
+  type BookingDraft,
+  type BookingField,
+  type BookingV2AgendaItem
+} from './booking-v2-state.js'
 
 export type BookingV2RenderInput = {
   plan: BookingV2MessagePlan
@@ -10,6 +15,7 @@ export type BookingV2RenderInput = {
   availabilityOptions?: BookingV2AvailabilityOption[]
   unavailableDate?: string | null
   serviceSuggestions?: BookingV2DomainCatalog['services']
+  agenda?: BookingV2AgendaItem[]
 }
 
 export function renderBookingV2Response(input: BookingV2RenderInput): string {
@@ -21,12 +27,22 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
     }
     if (input.plan.reason === 'photo_required') {
       return service
-        ? `Para evaluar ${service.name}, enviame una foto clara del estado actual y, si tenés, otra del resultado que buscás. Cuando la recibamos, te voy a derivar con una persona del equipo para que la revise. ${waitNotice}`
+        ? renderAssistedServiceHandoff({
+            service,
+            customerName: input.draft.name,
+            agenda: input.agenda ?? [],
+            requiresPhotos: true
+          })
         : `Enviame una foto clara del estado actual y, si tenés, otra del resultado que buscás. Cuando la recibamos, te voy a derivar con una persona del equipo para que la revise. ${waitNotice}`
     }
     if (input.plan.reason === 'quote_required') {
       return service
-        ? `${service.name} requiere un presupuesto personalizado. Te derivo con una persona del local para que pueda prepararlo. ${waitNotice}`
+        ? renderAssistedServiceHandoff({
+            service,
+            customerName: input.draft.name,
+            agenda: input.agenda ?? [],
+            requiresPhotos: false
+          })
         : `Este servicio requiere un presupuesto personalizado. Te derivo con una persona del local para que pueda prepararlo. ${waitNotice}`
     }
     if (input.plan.reason === 'advisor_required') {
@@ -163,6 +179,41 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
   }
 
   return bookingConfirmation(input.draft, input.catalog)
+}
+
+function renderAssistedServiceHandoff(input: {
+  service: BookingV2DomainCatalog['services'][number]
+  customerName: string | null
+  agenda: BookingV2AgendaItem[]
+  requiresPhotos: boolean
+}) {
+  const greeting = input.customerName
+    ? `¡Perfecto, ${input.customerName}! 😊`
+    : '¡Perfecto! 😊'
+  const price = input.service.price === null
+    ? `${input.service.name} requiere un presupuesto personalizado.`
+    : input.service.priceMode === 'STARTING_AT'
+      ? `Para ${input.service.name}, el precio comienza desde ${formatMoney(input.service.price)}.`
+      : `Para ${input.service.name}, el precio es ${formatMoney(input.service.price)}.`
+  const explanation = input.service.estimateExplanation?.trim() ||
+    (input.service.priceMode === 'STARTING_AT'
+      ? 'El valor final puede variar después de evaluar el trabajo necesario.'
+      : null)
+  const requestedAvailability = input.agenda.some((item) =>
+    item.intent === 'check_availability' && item.status !== 'completed'
+  )
+
+  return [
+    greeting,
+    [price, explanation].filter(Boolean).join(' '),
+    input.requiresPhotos
+      ? `Para darte un presupuesto más preciso, enviame una foto clara del estado actual y, si tenés, otra del resultado que buscás.`
+      : `Te derivo con una persona del local para que pueda preparar un presupuesto personalizado y preciso.`,
+    'El equipo lo revisará y puede demorar unos minutos en responderte por acá.',
+    ...(requestedAvailability
+      ? ['Después de confirmar el presupuesto, seguimos con los profesionales y horarios disponibles.']
+      : [])
+  ].join('\n\n')
 }
 
 function questionForField(

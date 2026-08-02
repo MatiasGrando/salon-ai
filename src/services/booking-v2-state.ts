@@ -45,6 +45,17 @@ export type BookingV2PendingRequest = {
   createdAt: string
 }
 
+export type BookingV2AgendaIntent = 'request_quote' | 'check_availability'
+export type BookingV2AgendaStatus = 'pending' | 'blocked' | 'completed'
+
+export type BookingV2AgendaItem = {
+  intent: BookingV2AgendaIntent
+  status: BookingV2AgendaStatus
+  evidence: string
+  blockedBy: 'quote_pending' | null
+  createdAt: string
+}
+
 export type BookingV2PendingDeposit = {
   depositId: string
   appointmentId: string
@@ -69,6 +80,7 @@ export type BookingV2State = {
   draft: BookingDraft
   pendingProposal: BookingProposal | null
   pendingRequest: BookingV2PendingRequest | null
+  agenda: BookingV2AgendaItem[]
   categoryAdvice: BookingV2CategoryAdvice | null
   serviceValidation: BookingV2ServiceValidation | null
   guidedEstimate: BookingV2GuidedEstimate | null
@@ -98,6 +110,7 @@ export function createEmptyBookingV2State(): BookingV2State {
     },
     pendingProposal: null,
     pendingRequest: null,
+    agenda: [],
     categoryAdvice: null,
     serviceValidation: null,
     guidedEstimate: null,

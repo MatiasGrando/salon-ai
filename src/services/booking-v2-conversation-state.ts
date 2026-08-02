@@ -3,6 +3,7 @@ import {
   createEmptyBookingV2State,
   type BookingField,
   type BookingV2AdvisorQuote,
+  type BookingV2AgendaItem,
   type BookingV2CategoryAdvice,
   type BookingV2GuidedEstimate,
   type BookingV2PendingRequest,
@@ -36,6 +37,7 @@ export type BookingV2PersistedState = {
   version: 1
   pendingProposal: BookingProposal | null
   pendingRequest?: BookingV2PendingRequest | null
+  agenda?: BookingV2AgendaItem[]
   categoryAdvice?: BookingV2CategoryAdvice | null
   serviceValidation?: BookingV2ServiceValidation | null
   guidedEstimate?: BookingV2GuidedEstimate | null
@@ -58,6 +60,7 @@ export function stateFromConversation(
     },
     pendingProposal: readPendingProposal(conversation.bookingV2State),
     pendingRequest: readPendingRequest(conversation.bookingV2State),
+    agenda: readAgenda(conversation.bookingV2State),
     categoryAdvice: readCategoryAdvice(conversation.bookingV2State),
     serviceValidation: readServiceValidation(conversation.bookingV2State),
     guidedEstimate: readGuidedEstimate(conversation.bookingV2State),
@@ -75,11 +78,12 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
     selectedDate: state.draft.date,
     selectedTime: state.draft.time,
     misunderstandingCount: state.misunderstandingCount,
-    bookingV2State: state.pendingProposal || state.pendingRequest || state.categoryAdvice || state.serviceValidation || state.guidedEstimate || state.advisorQuote || state.pendingDeposit
+    bookingV2State: state.pendingProposal || state.pendingRequest || state.agenda.length || state.categoryAdvice || state.serviceValidation || state.guidedEstimate || state.advisorQuote || state.pendingDeposit
       ? {
           version: 1,
           pendingProposal: state.pendingProposal,
           ...(state.pendingRequest ? { pendingRequest: state.pendingRequest } : {}),
+          ...(state.agenda.length ? { agenda: state.agenda } : {}),
           ...(state.categoryAdvice ? { categoryAdvice: state.categoryAdvice } : {}),
           ...(state.serviceValidation ? { serviceValidation: state.serviceValidation } : {}),
           ...(state.guidedEstimate ? { guidedEstimate: state.guidedEstimate } : {}),
@@ -88,6 +92,32 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
         }
       : null
   }
+}
+
+function readAgenda(value: unknown): BookingV2AgendaItem[] {
+  if (!value || typeof value !== 'object') return []
+  const persisted = value as { version?: unknown; agenda?: unknown }
+  if (persisted.version !== 1 || !Array.isArray(persisted.agenda)) return []
+
+  const items: BookingV2AgendaItem[] = []
+  for (const rawItem of persisted.agenda.slice(0, 8)) {
+    if (!rawItem || typeof rawItem !== 'object') continue
+    const item = rawItem as Partial<BookingV2AgendaItem>
+    if (item.intent !== 'request_quote' && item.intent !== 'check_availability') continue
+    if (!['pending', 'blocked', 'completed'].includes(item.status ?? '')) continue
+    if (typeof item.evidence !== 'string') continue
+    if (item.blockedBy !== null && item.blockedBy !== 'quote_pending') continue
+    if (typeof item.createdAt !== 'string' || Number.isNaN(new Date(item.createdAt).getTime())) continue
+    if (items.some((existing) => existing.intent === item.intent)) continue
+    items.push({
+      intent: item.intent,
+      status: item.status as BookingV2AgendaItem['status'],
+      evidence: item.evidence.trim().slice(0, 500),
+      blockedBy: item.blockedBy,
+      createdAt: item.createdAt
+    })
+  }
+  return items
 }
 
 function readPendingRequest(value: unknown): BookingV2PendingRequest | null {

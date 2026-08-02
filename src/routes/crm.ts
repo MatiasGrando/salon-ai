@@ -851,6 +851,15 @@ export async function crmRoutes(app: FastifyInstance) {
     const state = stateFromConversation(conversation)
     const quotedState = {
       ...state,
+      agenda: state.agenda.map((item) => {
+        if (item.intent === 'request_quote') {
+          return { ...item, status: 'completed' as const, blockedBy: null }
+        }
+        if (item.intent === 'check_availability') {
+          return { ...item, status: 'blocked' as const, blockedBy: 'quote_pending' as const }
+        }
+        return item
+      }),
       advisorQuote: {
         serviceId: service.id,
         amount,

@@ -756,6 +756,16 @@ export class BookingV2Engine {
       }
     }
 
+    const reconciledState = reconcileBookingV2Agenda(
+      effectiveInterpretation.state,
+      plan,
+      availabilityOptions
+    )
+    effectiveInterpretation = {
+      ...effectiveInterpretation,
+      state: reconciledState
+    }
+
     const serviceSuggestions = renderContext?.serviceSuggestions ??
       offeredCategoryServices(effectiveInterpretation.state, catalog)
 
@@ -766,6 +776,7 @@ export class BookingV2Engine {
       reply: renderBookingV2Response({
         plan,
         draft: effectiveInterpretation.state.draft,
+        agenda: effectiveInterpretation.state.agenda,
         catalog,
         availabilityOptions,
         unavailableDate,
@@ -783,13 +794,15 @@ export class BookingV2Engine {
     catalog: BookingV2DomainCatalog,
     outcome: BookingV2ProcessResult['outcome']
   ): BookingV2ProcessResult {
+    const reconciledState = reconcileBookingV2Agenda(state, plan, [])
     return {
-      state,
-      conversationPatch: conversationPatchFromState(state),
+      state: reconciledState,
+      conversationPatch: conversationPatchFromState(reconciledState),
       plan,
       reply: renderBookingV2Response({
         plan,
-        draft: state.draft,
+        draft: reconciledState.draft,
+        agenda: reconciledState.agenda,
         catalog,
         availabilityOptions: []
       }),
@@ -828,6 +841,47 @@ export class BookingV2Engine {
       .map((time) => availability.options.find((option) => option.time === time))
       .find((option) => option !== undefined) ?? null
   }
+}
+
+function reconcileBookingV2Agenda(
+  state: BookingV2State,
+  plan: BookingV2MessagePlan,
+  availabilityOptions: BookingV2AvailabilityOption[]
+): BookingV2State {
+  if (!state.agenda.length) return state
+
+  const acceptedQuote = state.advisorQuote?.status === 'accepted'
+  const waitingForQuote = plan.type === 'handoff' && [
+    'photo_required',
+    'quote_required',
+    'estimate_quote_requested'
+  ].includes(plan.reason)
+
+  const agenda = state.agenda.map((item): typeof item => {
+    if (item.intent === 'request_quote') {
+      if (acceptedQuote) return { ...item, status: 'completed', blockedBy: null }
+      if (waitingForQuote) return { ...item, status: 'pending', blockedBy: null }
+      return item
+    }
+
+    if (item.intent === 'check_availability') {
+      if (
+        (plan.type === 'ask_field' && plan.field === 'time' && availabilityOptions.length > 0) ||
+        plan.type === 'confirm_booking'
+      ) {
+        return { ...item, status: 'completed', blockedBy: null }
+      }
+      if (waitingForQuote || state.advisorQuote?.status === 'awaiting_acceptance') {
+        return { ...item, status: 'blocked', blockedBy: 'quote_pending' }
+      }
+      if (acceptedQuote && item.status === 'blocked') {
+        return { ...item, status: 'pending', blockedBy: null }
+      }
+    }
+    return item
+  })
+
+  return { ...state, agenda }
 }
 
 function isCategoryAdviceIntent(message: string) {

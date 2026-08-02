@@ -41,12 +41,14 @@ import {
 import { renderBusinessKnowledgeAnswers } from '../src/services/business-knowledge-service.js'
 import {
   acceptedAdvisorQuoteAmount,
+  composeBusinessInformationResumeReply,
   isBookingV2ConversationClosing,
   isBookingV2GreetingOnlyMessage,
   isNegativeAdvisorQuoteDecision,
   isPostBookingWellbeingQuestion,
   isPositiveAdvisorQuoteDecision,
   isPositiveBookingV2Confirmation,
+  mergeBookingV2AgendaFromRouting,
   pendingRequestFromRouting,
   shouldShowBookingV2IntentFallback,
   withBusinessInformationFollowUp
@@ -683,10 +685,12 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           name: 'Iluminación',
           aliases: ['iluminaciones'],
           duration: 90,
-          price: 150000,
+          price: 50000,
+          priceMode: 'STARTING_AT',
           category: 'Coloración',
           attentionMode: 'QUOTE',
-          requiresPhoto: true
+          requiresPhoto: true,
+          estimateExplanation: 'El precio puede variar según el largo, la cantidad de cabello y el resultado buscado.'
         }],
         professionals: [{
           id: 'professional-1',
@@ -696,9 +700,23 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       })
       const extractor = fakeExtractor(null)
       const engine = new BookingV2Engine(fakeDomainPort({ catalog }), extractor)
+      const routing = {
+        intents: [
+          { type: 'book_appointment' as const, topic: null, confidence: 0.98, evidence: 'hacerme unas iluminaciones' },
+          { type: 'request_quote' as const, topic: null, confidence: 0.96, evidence: 'saber presupuestos' },
+          { type: 'availability_preference' as const, topic: null, confidence: 0.9, evidence: 'horarios' }
+        ],
+        bookingMessage: 'Quería hacerme unas iluminaciones, saber presupuestos y horarios.',
+        source: 'ai' as const
+      }
+      const initialState = mergeBookingV2AgendaFromRouting({
+        state: createEmptyBookingV2State(),
+        routing,
+        now: new Date('2026-08-01T12:00:00.000Z')
+      })
       const first = await engine.process({
         businessId: 'business-1',
-        conversation: null,
+        conversation: conversationPatchFromState(initialState),
         message: 'Quería hacerme unas iluminaciones, saber presupuestos y horarios.',
         understandingExtraction: extraction({
           service: field('illumination', 0.98, 'iluminaciones')
@@ -719,15 +737,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         currentStep: 'START',
         state: first.state,
         now: new Date('2026-08-01T12:00:00.000Z'),
-        routing: {
-          intents: [
-            { type: 'book_appointment', topic: null, confidence: 0.98, evidence: 'hacerme unas iluminaciones' },
-            { type: 'request_quote', topic: null, confidence: 0.96, evidence: 'saber presupuestos' },
-            { type: 'availability_preference', topic: null, confidence: 0.9, evidence: 'horarios' }
-          ],
-          bookingMessage: 'Quería hacerme unas iluminaciones, saber presupuestos y horarios.',
-          source: 'ai'
-        }
+        routing
       })
       assert.ok(pendingRequest)
 
@@ -749,6 +759,69 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         type: 'handoff',
         reason: 'photo_required'
       })
+      assert.equal(second.reply.includes('¡Perfecto, Caro!'), true)
+      assert.equal(second.reply.includes('precio comienza desde'), true)
+      assert.equal(second.reply.includes('$ 50.000') || second.reply.includes('$ 50.000'), true)
+      assert.equal(second.reply.includes('cantidad de cabello'), true)
+      assert.equal(second.reply.includes('foto clara del estado actual'), true)
+      assert.equal(second.reply.includes('puede demorar unos minutos'), true)
+      assert.equal(second.reply.includes('horarios disponibles'), true)
+      assert.equal(
+        second.state.agenda.find((item) => item.intent === 'request_quote')?.status,
+        'pending'
+      )
+      assert.deepEqual(
+        second.state.agenda.find((item) => item.intent === 'check_availability'),
+        {
+          intent: 'check_availability',
+          status: 'blocked',
+          evidence: 'horarios',
+          blockedBy: 'quote_pending',
+          createdAt: '2026-08-01T12:00:00.000Z'
+        }
+      )
+
+      const quoteAccepted = await engine.resume({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState({
+          ...second.state,
+          advisorQuote: {
+            serviceId: 'illumination',
+            amount: 75000,
+            note: null,
+            status: 'accepted',
+            quotedAt: '2026-08-01T12:10:00.000Z'
+          }
+        })
+      })
+      assert.equal(
+        quoteAccepted.state.agenda.find((item) => item.intent === 'request_quote')?.status,
+        'completed'
+      )
+      assert.deepEqual(
+        quoteAccepted.state.agenda.find((item) => item.intent === 'check_availability')?.status,
+        'pending'
+      )
+      assert.equal(
+        quoteAccepted.plan.type === 'ask_field' ? quoteAccepted.plan.field : null,
+        'professional'
+      )
+
+      let availabilityState = acceptField(
+        quoteAccepted.state,
+        'professional',
+        'professional-1'
+      )
+      availabilityState = acceptField(availabilityState, 'date', '2026-08-03')
+      const availabilityShown = await engine.resume({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(availabilityState)
+      })
+      assert.equal(
+        availabilityShown.state.agenda.find((item) => item.intent === 'check_availability')?.status,
+        'completed'
+      )
+      assert.equal(availabilityShown.reply.includes('horarios disponibles'), true)
     }
   },
   {
@@ -3360,6 +3433,64 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
       assert.equal(professionalReplies[0]?.includes('Nico'), true)
       assert.equal(professionalReplies[0]?.includes('Corte'), true)
+    }
+  },
+  {
+    name: 'consulta de horarios del local responde y retoma cada etapa sin perder datos',
+    run: async () => {
+      const engine = new BookingV2Engine(fakeDomainPort(), fakeExtractor(null))
+      const states = [
+        createEmptyBookingV2State(),
+        acceptField(createEmptyBookingV2State(), 'name', 'Caro'),
+        acceptField(acceptField(createEmptyBookingV2State(), 'name', 'Caro'), 'service', 'haircut'),
+        acceptField(
+          acceptField(acceptField(createEmptyBookingV2State(), 'name', 'Caro'), 'service', 'haircut'),
+          'professional',
+          'professional-1'
+        ),
+        acceptField(
+          acceptField(
+            acceptField(acceptField(createEmptyBookingV2State(), 'name', 'Caro'), 'service', 'haircut'),
+            'professional',
+            'professional-1'
+          ),
+          'date',
+          '2026-07-10'
+        ),
+        completeDraft()
+      ]
+      const currentSteps = [
+        'ASK_CUSTOMER_NAME',
+        'ASK_SERVICE',
+        'ASK_PROFESSIONAL',
+        'ASK_DATE',
+        'ASK_TIME',
+        'CONFIRM'
+      ]
+
+      for (const [index, state] of states.entries()) {
+        const currentStep = currentSteps[index]
+        assert.ok(currentStep)
+        const routing = deterministicConversationRouting(
+          '¿Cuáles son los horarios del local?',
+          { currentStep }
+        )
+        assert.deepEqual(businessInformationTopicsFromRouting(routing), ['opening_hours'])
+        assert.equal(routing.bookingMessage, null)
+
+        const resumed = await engine.resume({
+          businessId: 'business-1',
+          conversation: conversationPatchFromState(state)
+        })
+        const reply = composeBusinessInformationResumeReply(
+          'Los horarios del local son de 09:00 a 20:00.',
+          resumed.reply
+        )
+
+        assert.equal(reply.startsWith('Los horarios del local son de 09:00 a 20:00.'), true)
+        assert.equal(reply.endsWith(resumed.reply), true)
+        assert.deepEqual(resumed.state.draft, state.draft)
+      }
     }
   },
   {

@@ -11,6 +11,7 @@ import { BookingV2Engine, type BookingV2ProcessResult } from './booking-v2-engin
 import type { BookingV2MessagePlan } from './booking-v2-dialogue.js'
 import type {
   BookingField,
+  BookingV2AgendaItem,
   BookingV2PendingRequest,
   BookingV2State
 } from './booking-v2-state.js'
@@ -656,7 +657,7 @@ export class ConversationService {
       })
 
       const requiredReply = applyAssistantPersonalityToReply(
-        `${informationReply}\n\n${resumed.reply}`,
+        composeBusinessInformationResumeReply(informationReply, resumed.reply),
         assistantPersonality
       )
       return {
@@ -696,6 +697,10 @@ export class ConversationService {
     }
 
     const storedState = stateFromConversation(input.conversation)
+    const stateWithAgenda = mergeBookingV2AgendaFromRouting({
+      state: storedState,
+      routing: input.routing
+    })
     const pendingRequest = storedState.pendingRequest ?? pendingRequestFromRouting({
       currentStep: input.conversation.currentStep,
       state: storedState,
@@ -704,7 +709,7 @@ export class ConversationService {
 
     let result = await bookingV2Engine.process({
       businessId: input.businessId,
-      conversation: input.conversation,
+      conversation: conversationPatchFromState(stateWithAgenda),
       message: input.conversation.bookingV2State
         ? input.message
         : input.routing.bookingMessage ?? input.message,
@@ -1736,6 +1741,54 @@ export function shouldShowBookingV2IntentFallback(
 
 export function withBusinessInformationFollowUp(informationReply: string) {
   return `${informationReply.trim()}\n\n¿Te puedo ayudar en algo más?`
+}
+
+export function composeBusinessInformationResumeReply(
+  informationReply: string,
+  resumedReply: string
+) {
+  return `${informationReply.trim()}\n\n${resumedReply.trim()}`
+}
+
+export function mergeBookingV2AgendaFromRouting(input: {
+  state: BookingV2State
+  routing: ConversationRouting
+  now?: Date
+}): BookingV2State {
+  const candidates: Array<Pick<BookingV2AgendaItem, 'intent' | 'evidence'>> = []
+  for (const intent of input.routing.intents) {
+    if (intent.confidence < 0.65) continue
+    if (intent.type === 'request_quote') {
+      candidates.push({ intent: 'request_quote', evidence: intent.evidence })
+    }
+    if (intent.type === 'availability_preference') {
+      candidates.push({ intent: 'check_availability', evidence: intent.evidence })
+    }
+  }
+  if (!candidates.length) return input.state
+
+  const agenda = input.state.agenda.slice()
+  for (const candidate of candidates) {
+    const existingIndex = agenda.findIndex((item) => item.intent === candidate.intent)
+    const item: BookingV2AgendaItem = {
+      intent: candidate.intent,
+      status: 'pending',
+      evidence: candidate.evidence.trim().slice(0, 500),
+      blockedBy: null,
+      createdAt: (input.now ?? new Date()).toISOString()
+    }
+    if (existingIndex >= 0) {
+      const existing = agenda[existingIndex]
+      if (existing?.status === 'completed') agenda[existingIndex] = item
+    } else {
+      agenda.push(item)
+    }
+  }
+
+  return {
+    ...input.state,
+    agenda
+  }
 }
 
 export function pendingRequestFromRouting(input: {

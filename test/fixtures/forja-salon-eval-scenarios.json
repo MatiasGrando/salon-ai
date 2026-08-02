@@ -18,14 +18,14 @@
     "category": "business-information",
     "message": "¿qué servicios tienen?",
     "expectedTopics": ["services"],
-    "expectsBookingMessage": true
+    "expectsBookingMessage": false
   },
   {
     "id": "faq-precios",
     "category": "business-information",
     "message": "¿cuánto cuesta un corte?",
     "expectedTopics": ["prices"],
-    "expectsBookingMessage": true
+    "expectsBookingMessage": false
   },
   {
     "id": "faq-multiples-datos",
