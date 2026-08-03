@@ -259,38 +259,19 @@
 
   /* METODO MODO 9 */
   .metodo-head{
-    display:grid;grid-template-columns:minmax(260px,360px) 1fr;gap:70px;align-items:center;
-    max-width:1040px;margin:0 auto 64px;
+    max-width:880px;margin:0 auto 64px;text-align:center;
   }
-  .metodo-emblem{
-    position:relative;border-radius:28px;
-    filter:drop-shadow(0 24px 48px rgba(0,0,0,.5));
-  }
-  .metodo-emblem::before{
-    content:'';position:absolute;inset:12%;z-index:-1;border-radius:50%;
-    background:radial-gradient(circle,rgba(228,34,43,.24),rgba(201,255,62,.08) 38%,transparent 72%);
-    filter:blur(34px);
-  }
-  .metodo-emblem img{
-    width:100%;display:block;border-radius:28px;
-    border:1px solid rgba(245,244,241,.15);
-  }
-  .metodo-copy .eyebrow{margin-bottom:18px;}
-  .metodo-copy h2{font-size:clamp(38px,5vw,62px);margin-bottom:22px;}
+  .metodo-copy h2{font-size:clamp(40px,5.7vw,78px);margin-bottom:22px;}
   .metodo-copy h2 .modo9-name{
-    display:block;color:var(--lime);font-size:1.15em;letter-spacing:.04em;
-    text-shadow:3px 3px 0 rgba(228,34,43,.85);
+    display:block;color:var(--lime);letter-spacing:.04em;
   }
-  .metodo-copy p{max-width:590px;color:var(--muted);font-size:17px;}
+  .metodo-copy p{max-width:680px;margin-inline:auto;color:var(--muted);font-size:17px;}
   .method-signature{
     display:inline-flex;margin-top:28px;padding:9px 16px;border-left:3px solid var(--red);
     background:linear-gradient(90deg,rgba(228,34,43,.13),transparent);
     color:var(--text);font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
   }
   @media(max-width:820px){
-    .metodo-head{grid-template-columns:1fr;gap:38px;text-align:center;}
-    .metodo-emblem{width:min(78vw,330px);margin:0 auto;}
-    .metodo-copy .eyebrow{justify-content:center;}
     .metodo-copy p{margin-inline:auto;}
   }
   .phases{display:flex;gap:14px;justify-content:center;margin-bottom:50px;flex-wrap:wrap;}
@@ -323,7 +304,10 @@
     color:var(--lime);border:1px solid rgba(201,255,62,.35);font-size:12.5px;font-weight:700;
     letter-spacing:.06em;text-transform:uppercase;padding:7px 16px;border-radius:30px;margin-bottom:20px;
   }
-  .aura h2{font-size:clamp(28px,3.6vw,40px);margin-bottom:18px;}
+  .aura h2{font-size:clamp(28px,3.6vw,40px);line-height:.95;margin-bottom:18px;}
+  .aura h2 .aura-name{
+    display:block;color:var(--lime);font-size:clamp(40px,5.7vw,78px);letter-spacing:.02em;
+  }
   .aura p.lead{color:var(--muted);font-size:16.5px;margin-bottom:28px;}
   .aura-list{list-style:none;display:flex;flex-direction:column;gap:16px;margin-bottom:34px;}
   .aura-list li{display:flex;gap:14px;align-items:flex-start;font-size:15px;color:var(--text);}
@@ -597,11 +581,7 @@
 <section id="metodo" class="section-alt">
   <div class="container">
     <div class="metodo-head">
-      <div class="metodo-emblem">
-        <img src="branding/modo9-emblem-web.jpg" alt="Identidad visual del Método Modo 9">
-      </div>
       <div class="metodo-copy">
-        <div class="eyebrow">Metodología propia</div>
         <h2><span class="modo9-name">Modo 9</span></h2>
         <p>Un sistema de 9 pasos, en 3 fases, para pasar del bloqueo mental al rendimiento sostenido dentro y fuera de la cancha.</p>
         <div class="method-signature">9 pasos · 3 fases · rendimiento sostenido</div>
@@ -631,7 +611,7 @@
     <div class="aura">
       <div>
         <span class="aura-badge">✦ Comunidad gratuita</span>
-        <h2>Sumate a Aura</h2>
+        <h2>Sumate a <span class="aura-name">Aura</span></h2>
         <p class="lead">Un espacio gratuito para conocernos, aprender y empezar a trabajar tu mente antes de dar el siguiente paso.</p>
         <ul class="aura-list">
           <li><span class="dot"></span><div>Mentorías grupales<span class="desc">Encuentros en vivo para trabajar bloqueos comunes entre atletas.</span></div></li>
