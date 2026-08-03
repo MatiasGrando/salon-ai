@@ -1839,7 +1839,15 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           serviceIds: ['highlights']
         }]
       })
-      const engine = new BookingV2Engine(fakeDomainPort({ catalog }), fakeExtractor(null))
+      const engine = new BookingV2Engine(
+        fakeDomainPort({ catalog }),
+        fakeExtractor(null),
+        fakeServiceValidationClassifier(),
+        fakeEstimateDecisionExtractor(() => ({
+          decision: 'continue_booking',
+          confidence: 0.96
+        }))
+      )
       const selected = await engine.process({
         businessId: 'business-1',
         conversation: {
@@ -1926,7 +1934,15 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           serviceIds: ['treatment']
         }]
       })
-      const engine = new BookingV2Engine(fakeDomainPort({ catalog }), fakeExtractor(null))
+      const engine = new BookingV2Engine(
+        fakeDomainPort({ catalog }),
+        fakeExtractor(null),
+        fakeServiceValidationClassifier(),
+        fakeEstimateDecisionExtractor(() => ({
+          decision: 'continue_booking',
+          confidence: 0.96
+        }))
+      )
       const selected = await engine.process({
         businessId: 'business-1',
         conversation: {
@@ -1978,7 +1994,15 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         }],
         professionals: []
       })
-      const engine = new BookingV2Engine(fakeDomainPort({ catalog }), fakeExtractor(null))
+      const engine = new BookingV2Engine(
+        fakeDomainPort({ catalog }),
+        fakeExtractor(null),
+        fakeServiceValidationClassifier(),
+        fakeEstimateDecisionExtractor(() => ({
+          decision: 'request_exact_quote',
+          confidence: 0.98
+        }))
+      )
       const state = {
         selectedCustomerName: 'Mati',
         selectedServiceId: 'highlights',
@@ -4055,6 +4079,27 @@ function fakeExtractor(result: BookingV2Extraction | null) {
     async extract(input: unknown) {
       calls.push(input)
       return result
+    }
+  }
+}
+
+function fakeServiceValidationClassifier() {
+  return {
+    async classify() {
+      return { decision: null, confidence: 0 }
+    }
+  }
+}
+
+function fakeEstimateDecisionExtractor(
+  classify: (message: string) => {
+    decision: 'continue_booking' | 'request_exact_quote' | 'unclear'
+    confidence: number
+  }
+) {
+  return {
+    async extract(input: { message: string }) {
+      return classify(input.message)
     }
   }
 }

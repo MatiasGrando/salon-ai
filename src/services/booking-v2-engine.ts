@@ -10,6 +10,10 @@ import {
   type ServiceValidationClassification
 } from './booking-v2-service-validation.js'
 import {
+  BookingV2EstimateDecisionExtractor,
+  type EstimateDecisionExtraction
+} from './booking-v2-estimate-decision-extractor.js'
+import {
   ANY_PROFESSIONAL_ID,
   acceptField,
   clearFieldAndDependents,
@@ -40,6 +44,14 @@ type BookingV2ServiceValidationPort = {
     validationQuestion: string
   }): Promise<ServiceValidationClassification>
 }
+type BookingV2EstimateDecisionPort = {
+  extract(input: {
+    message: string
+    serviceName: string
+    allowsBooking: boolean
+    requiresPhoto: boolean
+  }): Promise<EstimateDecisionExtraction>
+}
 
 export type BookingV2ProcessInput = {
   businessId: string
@@ -64,7 +76,9 @@ export class BookingV2Engine {
     private readonly domain: BookingV2DomainPort = new BookingV2DomainService(),
     private readonly extractor: BookingV2ExtractorPort = new BookingV2Extractor(),
     private readonly serviceValidationClassifier: BookingV2ServiceValidationPort =
-      new BookingV2ServiceValidationClassifier()
+      new BookingV2ServiceValidationClassifier(),
+    private readonly estimateDecisionExtractor: BookingV2EstimateDecisionPort =
+      new BookingV2EstimateDecisionExtractor()
   ) {}
 
   async process(input: BookingV2ProcessInput): Promise<BookingV2ProcessResult> {
@@ -240,13 +254,23 @@ export class BookingV2Engine {
         }, catalog, 'accepted')
       }
       if (service && initialState.guidedEstimate.stage === 'awaiting_decision') {
-        if (isExactQuoteRequest(input.message, service.estimateAllowsBooking !== false)) {
+        const decision = await this.estimateDecisionExtractor.extract({
+          message: input.message,
+          serviceName: service.name,
+          allowsBooking: service.estimateAllowsBooking !== false,
+          requiresPhoto: service.requiresPhoto === true
+        })
+        if (decision.confidence >= 0.65 && decision.decision === 'request_exact_quote') {
           return this.guidedEstimateResult(initialState, {
             type: 'handoff',
             reason: service.requiresPhoto ? 'photo_required' : 'estimate_quote_requested'
           }, catalog, 'accepted')
         }
-        if (service.estimateAllowsBooking !== false && isContinueBookingRequest(input.message)) {
+        if (
+          decision.confidence >= 0.65 &&
+          decision.decision === 'continue_booking' &&
+          service.estimateAllowsBooking !== false
+        ) {
           const state: BookingV2State = {
             ...initialState,
             guidedEstimate: {
@@ -1605,40 +1629,6 @@ function resolveEstimateOption(
     normalize(option.label).includes(normalized)
   )
   return embedded.length === 1 ? embedded[0] ?? null : null
-}
-
-function isExactQuoteRequest(message: string, allowsBooking: boolean) {
-  const normalized = normalize(message)
-  if (!allowsBooking && ['si', 'dale', 'ok', 'quiero', 'por favor'].includes(normalized)) return true
-  return [
-    'presupuesto',
-    'presupuesto exacto',
-    'cotizacion',
-    'cotizar',
-    'que lo vea',
-    'que me lo vean',
-    'hablar con alguien',
-    'hablar con una persona',
-    'prefiero presupuesto'
-  ].some((phrase) => normalized.includes(phrase))
-}
-
-function isContinueBookingRequest(message: string) {
-  const normalized = normalize(message)
-  return [
-    'reservar',
-    'reserva',
-    'reservo',
-    'quiero reservar',
-    'continuar',
-    'continuo',
-    'seguir',
-    'sigamos',
-    'seguir con la reserva',
-    'continuar con la reserva',
-    'sacar turno',
-    'quiero un turno'
-  ].some((phrase) => normalized.includes(phrase))
 }
 
 function shouldValidateAvailability(plan: BookingV2MessagePlan) {
