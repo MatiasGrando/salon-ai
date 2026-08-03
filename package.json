@@ -16,6 +16,7 @@
     "test:manual-appointment-filter": "tsx scripts/manual-appointment-service-filter-contract-test.ts",
     "test:appointment-payload": "tsx scripts/appointment-payload-contract-test.ts",
     "test:conversation": "tsx scripts/conversation-smoke-test.ts",
+    "test:instagram-hybrid": "tsx scripts/instagram-hybrid-contract-test.ts",
     "test:forja-salon": "tsx scripts/forja-salon-eval-contract-test.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

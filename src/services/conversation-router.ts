@@ -613,7 +613,7 @@ function detectBusinessInformationTopics(
   ])) add('website')
 
   if (containsAny(normalized, [
-    'por donde reservo', 'donde reservo', 'como puedo reservar', 'como reservo',
+    'por donde reservo', 'por donde puedo reservar', 'donde reservo', 'como puedo reservar', 'como reservo',
     'link para reservar', 'enlace para reservar', 'pagina para reservar'
   ])) add('booking_channels')
 

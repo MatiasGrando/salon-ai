@@ -19316,9 +19316,9 @@ const crmHtml = `<!doctype html>
         : 'Instagram no conectado'
       els.instagramSettingsCopy.textContent = connection.lastError
         || (ready
-          ? 'La cuenta puede recibir mensajes y derivar reservas a WhatsApp.'
+          ? 'La cuenta puede responder consultas y derivar reservas a WhatsApp conservando el contexto.'
           : connected
-            ? 'La cuenta esta conectada, pero falta cargar el WhatsApp publico del comercio.'
+            ? 'La cuenta puede responder consultas, pero falta cargar el WhatsApp publico para derivar reservas.'
             : 'Carga el Instagram Account ID y el token generado en Meta.')
       els.instagramSettingsBadge.textContent = ready ? 'Listo' : connected ? 'Incompleto' : 'Pendiente'
       els.instagramSettingsBadge.classList.toggle('connected', ready)
