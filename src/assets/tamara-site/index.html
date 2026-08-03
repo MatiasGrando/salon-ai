@@ -261,7 +261,7 @@
   .metodo-head{
     max-width:880px;margin:0 auto 64px;text-align:center;
   }
-  .metodo-copy h2{font-size:clamp(40px,5.7vw,78px);margin-bottom:22px;}
+  .metodo-copy h2{font-size:clamp(80px,11.4vw,156px);line-height:.86;margin-bottom:28px;}
   .metodo-copy h2 .modo9-name{
     display:block;color:var(--lime);letter-spacing:.04em;
   }
@@ -304,9 +304,12 @@
     color:var(--lime);border:1px solid rgba(201,255,62,.35);font-size:12.5px;font-weight:700;
     letter-spacing:.06em;text-transform:uppercase;padding:7px 16px;border-radius:30px;margin-bottom:20px;
   }
-  .aura h2{font-size:clamp(28px,3.6vw,40px);line-height:.95;margin-bottom:18px;}
+  .aura h2{
+    display:flex;align-items:baseline;gap:clamp(10px,1vw,20px);white-space:nowrap;
+    font-size:clamp(28px,3.6vw,40px);line-height:.86;margin-bottom:22px;
+  }
   .aura h2 .aura-name{
-    display:block;color:var(--lime);font-size:clamp(40px,5.7vw,78px);letter-spacing:.02em;
+    display:inline;color:var(--lime);font-size:clamp(80px,11.4vw,156px);letter-spacing:.02em;
   }
   .aura p.lead{color:var(--muted);font-size:16.5px;margin-bottom:28px;}
   .aura-list{list-style:none;display:flex;flex-direction:column;gap:16px;margin-bottom:34px;}
@@ -611,7 +614,7 @@
     <div class="aura">
       <div>
         <span class="aura-badge">✦ Comunidad gratuita</span>
-        <h2>Sumate a <span class="aura-name">Aura</span></h2>
+        <h2>Sumate a <span class="aura-name">AURA</span></h2>
         <p class="lead">Un espacio gratuito para conocernos, aprender y empezar a trabajar tu mente antes de dar el siguiente paso.</p>
         <ul class="aura-list">
           <li><span class="dot"></span><div>Mentorías grupales<span class="desc">Encuentros en vivo para trabajar bloqueos comunes entre atletas.</span></div></li>
