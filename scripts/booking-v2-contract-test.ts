@@ -38,7 +38,10 @@ import {
   mergeConversationRouting,
   normalizeConversationRouting
 } from '../src/services/conversation-router.js'
-import { renderBusinessKnowledgeAnswers } from '../src/services/business-knowledge-service.js'
+import {
+  renderBusinessKnowledgeAnswers,
+  renderCatalogServiceQuery
+} from '../src/services/business-knowledge-service.js'
 import {
   acceptedAdvisorQuoteAmount,
   composeBusinessInformationResumeReply,
@@ -3404,6 +3407,140 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           ['professionals']
         )
       }
+    }
+  },
+  {
+    name: 'router comprende consultas puntuales sin exigir palabras literales',
+    run: () => {
+      const catalog = {
+        services: [
+          {
+            id: 'treatment',
+            name: 'Tratamiento',
+            description: 'Tratamiento capilar personalizado.',
+            aliases: ['tratamientos']
+          },
+          {
+            id: 'haircut',
+            name: 'Corte Hombre',
+            description: 'Corte de pelo.',
+            aliases: ['corte', 'corte de pelo']
+          }
+        ],
+        professionals: []
+      }
+      const treatment = deterministicConversationRouting(
+        'dame informacion sobre tratamiento',
+        { currentStep: 'START', catalog }
+      )
+      assert.deepEqual(businessInformationTopicsFromRouting(treatment), ['services'])
+      assert.equal(treatment.catalogQuery?.serviceId, 'treatment')
+      assert.deepEqual(treatment.catalogQuery?.requestedInformation, ['general'])
+      assert.equal(treatment.bookingMessage, null)
+
+      const haircutPrice = deterministicConversationRouting(
+        'decime el precio del corte de pelo',
+        { currentStep: 'ASK_PROFESSIONAL', catalog }
+      )
+      assert.deepEqual(businessInformationTopicsFromRouting(haircutPrice), ['prices'])
+      assert.equal(haircutPrice.catalogQuery?.serviceId, 'haircut')
+      assert.deepEqual(haircutPrice.catalogQuery?.requestedInformation, ['price'])
+      assert.equal(haircutPrice.bookingMessage, null)
+    }
+  },
+  {
+    name: 'router conserva la consulta de ia cuando esta respaldada por el catalogo',
+    run: () => {
+      const message = 'contame un poco sobre tratamiento'
+      const catalog = {
+        services: [{
+          id: 'treatment',
+          name: 'Tratamiento',
+          description: 'Tratamiento capilar personalizado.',
+          aliases: ['tratamientos']
+        }],
+        professionals: []
+      }
+      const merged = mergeConversationRouting({
+        intents: [{
+          type: 'business_information',
+          topic: 'services',
+          confidence: 0.96,
+          evidence: 'contame un poco sobre tratamiento'
+        }],
+        bookingMessage: null,
+        bookingExtraction: null,
+        catalogQuery: {
+          serviceId: 'treatment',
+          requestedInformation: ['general'],
+          confidence: 0.96,
+          evidence: 'tratamiento'
+        }
+      }, deterministicConversationRouting(message), message, catalog)
+
+      assert.deepEqual(
+        businessInformationTopicsFromRouting({ ...merged, source: 'ai' }),
+        ['services']
+      )
+      assert.equal(merged.catalogQuery?.serviceId, 'treatment')
+      assert.equal(merged.bookingMessage, null)
+    }
+  },
+  {
+    name: 'conocimiento del negocio responde sobre el servicio solicitado',
+    run: () => {
+      const business = {
+        name: 'Salon Demo',
+        slug: 'salon-demo',
+        landingEnabled: true,
+        publicWhatsapp: null,
+        contactEmail: null,
+        publicAddress: null,
+        publicAddressArea: null,
+        publicMapsUrl: null,
+        instagramUrl: null,
+        facebookUrl: null,
+        businessHours: [],
+        services: [
+          {
+            id: 'treatment',
+            name: 'Tratamiento',
+            description: 'Nutre y repara el cabello.',
+            duration: 30,
+            price: 25000,
+            priceMode: 'STARTING_AT' as const
+          },
+          {
+            id: 'haircut',
+            name: 'Corte Hombre',
+            description: 'Corte personalizado.',
+            duration: 30,
+            price: 15000,
+            priceMode: 'FIXED' as const
+          }
+        ],
+        professionals: [{ name: 'Tamara', services: ['Tratamiento'] }]
+      }
+      const treatment = renderCatalogServiceQuery(business, {
+        serviceId: 'treatment',
+        requestedInformation: ['general'],
+        confidence: 0.96,
+        evidence: 'tratamiento'
+      })
+      assert.equal(treatment?.includes('Nutre y repara el cabello.'), true)
+      assert.equal(treatment?.includes('Duración: 30 min.'), true)
+      assert.equal(treatment?.includes('desde $'), true)
+      assert.equal(treatment?.includes('Corte Hombre'), false)
+
+      const haircut = renderCatalogServiceQuery(business, {
+        serviceId: 'haircut',
+        requestedInformation: ['price'],
+        confidence: 0.96,
+        evidence: 'precio del corte de pelo'
+      })
+      assert.equal(haircut?.includes('$'), true)
+      assert.equal(haircut?.includes('15.000'), true)
+      assert.equal(haircut?.includes('Tratamiento'), false)
     }
   },
   {

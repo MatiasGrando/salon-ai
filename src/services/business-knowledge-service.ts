@@ -1,5 +1,5 @@
 import { prisma as defaultPrisma } from '../config/prisma.js'
-import type { BusinessInformationTopic } from './conversation-router.js'
+import type { BusinessInformationTopic, CatalogQuery } from './conversation-router.js'
 
 type PrismaClientLike = typeof defaultPrisma
 
@@ -20,6 +20,7 @@ export type BusinessKnowledge = {
     endTime: string
   }>
   services: Array<{
+    id?: string
     name: string
     description?: string | null
     duration: number
@@ -38,6 +39,7 @@ export class BusinessKnowledgeService {
   async answer(input: {
     businessId: string
     topics: BusinessInformationTopic[]
+    catalogQuery?: CatalogQuery | null
   }) {
     const business = await this.db.business.findUnique({
       where: { id: input.businessId },
@@ -60,6 +62,7 @@ export class BusinessKnowledgeService {
           where: { isBookable: true },
           orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
           select: {
+            id: true,
             name: true,
             description: true,
             duration: true,
@@ -88,9 +91,10 @@ export class BusinessKnowledgeService {
     })
 
     if (!business) return null
-    return renderBusinessKnowledgeAnswers({
+    const knowledge: BusinessKnowledge = {
       ...business,
       services: business.services.map((service) => ({
+        id: service.id,
         name: service.parentService
           ? `${service.parentService.name} — ${service.name}`
           : service.name,
@@ -103,8 +107,64 @@ export class BusinessKnowledgeService {
         name: professional.name,
         services: professional.serviceLinks.map((link) => link.service.name)
       }))
-    }, input.topics).join('\n\n') || null
+    }
+    const catalogAnswer = input.catalogQuery
+      ? renderCatalogServiceQuery(knowledge, input.catalogQuery)
+      : null
+    const handledTopics = new Set<BusinessInformationTopic>()
+    if (catalogAnswer && input.catalogQuery) {
+      if (input.catalogQuery.requestedInformation.includes('price')) handledTopics.add('prices')
+      if (input.catalogQuery.requestedInformation.includes('professionals')) handledTopics.add('professionals')
+      if (input.catalogQuery.requestedInformation.some((item) => ['general', 'duration'].includes(item))) {
+        handledTopics.add('services')
+      }
+    }
+    return [
+      catalogAnswer,
+      ...renderBusinessKnowledgeAnswers(
+        knowledge,
+        input.topics.filter((topic) => !handledTopics.has(topic))
+      )
+    ].filter(Boolean).join('\n\n') || null
   }
+}
+
+export function renderCatalogServiceQuery(
+  business: BusinessKnowledge,
+  query: CatalogQuery
+) {
+  const service = business.services.find((option) => option.id === query.serviceId)
+  if (!service) return null
+
+  const requested = new Set(query.requestedInformation)
+  const general = requested.has('general')
+  const lines: string[] = []
+
+  if (general && service.description?.trim()) lines.push(service.description.trim())
+  if (general || requested.has('duration')) {
+    lines.push(`Duración: ${service.duration} min.`)
+  }
+  if (general || requested.has('price')) {
+    const price = service.price === null
+      ? 'Precio a consultar.'
+      : service.priceMode === 'STARTING_AT'
+        ? `Precio: desde ${formatMoney(service.price)}.`
+        : `Precio: ${formatMoney(service.price)}.`
+    lines.push(price)
+  }
+  if (requested.has('professionals')) {
+    const rawServiceName = service.name.split(' — ').at(-1)?.trim() ?? service.name
+    const professionals = business.professionals.filter((professional) =>
+      professional.services.some((serviceName) =>
+        normalizeKnowledgeLabel(serviceName) === normalizeKnowledgeLabel(rawServiceName)
+      )
+    )
+    lines.push(professionals.length
+      ? `Profesionales: ${professionals.map((professional) => professional.name).join(', ')}.`
+      : 'No tengo profesionales confirmados para este servicio.')
+  }
+
+  return [`Sobre ${service.name}:`, ...lines].join('\n')
 }
 
 export function renderBusinessKnowledgeAnswers(
@@ -207,6 +267,14 @@ function formatBusinessHours(hours: BusinessKnowledge['businessHours']) {
     .sort((left, right) => dayOrder(left.dayOfWeek) - dayOrder(right.dayOfWeek))
     .map((hoursForDay) => `${dayLabel(hoursForDay.dayOfWeek)}: ${hoursForDay.startTime} a ${hoursForDay.endTime}`)
     .join('\n')
+}
+
+function normalizeKnowledgeLabel(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
 }
 
 function publicWebsiteUrl(slug: string | null, baseDomain: string) {

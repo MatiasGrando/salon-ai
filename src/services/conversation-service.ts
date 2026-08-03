@@ -468,7 +468,10 @@ export class ConversationService {
       const informationReply = informationTopics.length
         ? await businessKnowledgeService.answer({
             businessId: input.businessId,
-            topics: informationTopics
+            topics: informationTopics,
+            ...(input.routing?.catalogQuery
+              ? { catalogQuery: input.routing.catalogQuery }
+              : {})
           })
         : null
       return {
@@ -567,7 +570,10 @@ export class ConversationService {
     const informationReply = informationTopics.length
       ? await businessKnowledgeService.answer({
           businessId: input.businessId,
-          topics: informationTopics
+          topics: informationTopics,
+          ...(input.routing.catalogQuery
+            ? { catalogQuery: input.routing.catalogQuery }
+            : {})
         })
       : null
 

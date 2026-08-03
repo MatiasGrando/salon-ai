@@ -52,10 +52,27 @@ export type RoutedIntent = {
   evidence: string
 }
 
+export const CATALOG_QUERY_INFORMATION = [
+  'general',
+  'price',
+  'duration',
+  'professionals'
+] as const
+
+export type CatalogQueryInformation = (typeof CATALOG_QUERY_INFORMATION)[number]
+
+export type CatalogQuery = {
+  serviceId: string
+  requestedInformation: CatalogQueryInformation[]
+  confidence: number
+  evidence: string
+}
+
 export type ConversationRouting = {
   intents: RoutedIntent[]
   bookingMessage: string | null
   bookingExtraction?: BookingV2Extraction | null
+  catalogQuery?: CatalogQuery | null
   source: 'ai' | 'deterministic'
 }
 
@@ -93,12 +110,14 @@ type AiConversationRouting = {
   }>
   bookingMessage: string | null
   bookingExtraction?: BookingV2Extraction | null
+  catalogQuery?: CatalogQuery | null
 }
 
 export class ConversationRouter {
   async route(input: ConversationRouterInput): Promise<ConversationRouting> {
     const deterministic = deterministicConversationRouting(input.message, {
-      currentStep: input.currentStep
+      currentStep: input.currentStep,
+      catalog: input.catalog
     })
     if (!isAiExecutionEnabled()) return deterministic
 
@@ -121,6 +140,10 @@ export class ConversationRouter {
           'Si dos servicios son realmente posibles, no adivines: deja service.value en null para que el flujo muestre una aclaracion acotada.',
           'No respondas al cliente, no ejecutes acciones y no inventes datos.',
           'Usa business_information para preguntas sobre horarios del local, direccion, web, formas de reservar, contacto, redes, servicios, profesionales o precios.',
+          'Para consultas sobre un servicio puntual, completa catalogQuery con su ID y la informacion pedida aunque el cliente no use palabras literales como servicio o precio.',
+          'Ejemplos de consulta puntual: "contame sobre tratamiento", "dame informacion de las iluminaciones", "cuanto vale el corte" o "quien hace color".',
+          'Usa catalogQuery.general cuando pide informacion o detalles generales; price para precio; duration para duracion; professionals para quien lo realiza.',
+          'Una consulta puntual no inicia ni modifica una reserva: bookingMessage debe ser null salvo que tambien exprese claramente que quiere reservar o cambiar.',
           'Si currentStep es START y preguntan genericamente por los horarios, interpretalo como opening_hours del negocio, no como disponibilidad para reservar.',
           'Si currentStep es ASK_TIME, una pregunta por horarios se refiere a disponibilidad de turnos, salvo que mencione explicitamente abrir, cerrar u horario del local.',
           'Usa availability_preference para dias o franjas como despues de las 18, por la manana o solo sabados.',
@@ -169,7 +192,7 @@ export class ConversationRouter {
 
       const aiRouting = normalizeConversationRouting(JSON.parse(response.output_text) as AiConversationRouting)
       if (aiRouting.intents.length === 0) return deterministic
-      const routing = mergeConversationRouting(aiRouting, deterministic, input.message)
+      const routing = mergeConversationRouting(aiRouting, deterministic, input.message, input.catalog)
 
       console.info('[conversation-router] routed message', {
         currentStep: input.currentStep,
@@ -209,13 +232,17 @@ export function normalizeConversationRouting(input: AiConversationRouting): Omit
     bookingMessage: cleanNullableText(input.bookingMessage),
     bookingExtraction: input.bookingExtraction
       ? normalizeExtraction(input.bookingExtraction)
-      : null
+      : null,
+    catalogQuery: normalizeCatalogQuery(input.catalogQuery)
   }
 }
 
 export function deterministicConversationRouting(
   message: string,
-  context?: { currentStep?: string }
+  context?: {
+    currentStep?: string
+    catalog?: ConversationRouterInput['catalog']
+  }
 ): ConversationRouting {
   const normalized = normalizeText(message)
   const topics = detectBusinessInformationTopics(normalized, context?.currentStep)
@@ -226,6 +253,18 @@ export function deterministicConversationRouting(
     confidence: 0.95,
     evidence: message.trim()
   }))
+
+  const catalogQuery = context?.catalog
+    ? deterministicCatalogQuery(message, context.catalog)
+    : null
+  if (catalogQuery) {
+    intents.push({
+      type: 'business_information',
+      topic: catalogQuery.requestedInformation.includes('price') ? 'prices' : 'services',
+      confidence: catalogQuery.confidence,
+      evidence: catalogQuery.evidence
+    })
+  }
 
   if (intents.length === 0) {
     intents.push({
@@ -240,6 +279,7 @@ export function deterministicConversationRouting(
     intents,
     bookingMessage: hasBookingSignal ? message.trim() || null : null,
     bookingExtraction: null,
+    catalogQuery,
     source: 'deterministic'
   }
 }
@@ -256,11 +296,21 @@ export function businessInformationTopicsFromRouting(routing: ConversationRoutin
 export function mergeConversationRouting(
   aiRouting: Omit<ConversationRouting, 'source'>,
   deterministic: ConversationRouting,
-  originalMessage: string
+  originalMessage: string,
+  catalog?: ConversationRouterInput['catalog']
 ): Omit<ConversationRouting, 'source'> {
+  const catalogQuery = groundedCatalogQuery(
+    aiRouting.catalogQuery ?? null,
+    originalMessage,
+    catalog
+  ) ?? groundedCatalogQuery(
+    deterministic.catalogQuery ?? null,
+    originalMessage,
+    catalog
+  )
   const deterministicTopics = new Set(businessInformationTopicsFromRouting(deterministic))
   const standaloneBusinessInformationQuestion =
-    deterministicTopics.size > 0 &&
+    (deterministicTopics.size > 0 || catalogQuery !== null) &&
     deterministic.bookingMessage === null
   const intents = aiRouting.intents.filter((intent) => {
     if (
@@ -278,7 +328,8 @@ export function mergeConversationRouting(
         intent.topic !== null &&
         (
           deterministicTopics.has(intent.topic) ||
-          isGroundedBusinessInformationIntent(intent, originalMessage)
+          isGroundedBusinessInformationIntent(intent, originalMessage) ||
+          catalogQuerySupportsTopic(catalogQuery, intent.topic)
         )
       )
   })
@@ -307,8 +358,111 @@ export function mergeConversationRouting(
         ?? (hasBookingRelatedIntent ? originalMessage.trim() || null : null),
     bookingExtraction: standaloneBusinessInformationQuestion
       ? null
-      : aiRouting.bookingExtraction ?? deterministic.bookingExtraction ?? null
+      : aiRouting.bookingExtraction ?? deterministic.bookingExtraction ?? null,
+    catalogQuery
   }
+}
+
+function normalizeCatalogQuery(value: CatalogQuery | null | undefined): CatalogQuery | null {
+  if (!value || typeof value !== 'object') return null
+  if (typeof value.serviceId !== 'string' || !value.serviceId.trim()) return null
+  if (!Array.isArray(value.requestedInformation)) return null
+  const requestedInformation = Array.from(new Set(
+    value.requestedInformation.filter((item): item is CatalogQueryInformation =>
+      CATALOG_QUERY_INFORMATION.includes(item as CatalogQueryInformation)
+    )
+  ))
+  if (!requestedInformation.length) return null
+  if (typeof value.evidence !== 'string' || !value.evidence.trim()) return null
+  return {
+    serviceId: value.serviceId.trim(),
+    requestedInformation,
+    confidence: normalizeConfidence(value.confidence),
+    evidence: value.evidence.trim()
+  }
+}
+
+function deterministicCatalogQuery(
+  message: string,
+  catalog: ConversationRouterInput['catalog']
+): CatalogQuery | null {
+  const normalized = normalizeEvidenceText(message)
+  const requestedInformation: CatalogQueryInformation[] = []
+  if (containsAny(normalized, ['precio', 'precios', 'cuanto cuesta', 'cuanto sale', 'cuanto vale', 'valor'])) {
+    requestedInformation.push('price')
+  }
+  if (containsAny(normalized, ['cuanto dura', 'duracion', 'demora'])) {
+    requestedInformation.push('duration')
+  }
+  if (containsAny(normalized, ['quien lo hace', 'quien hace', 'profesional', 'profesionales', 'quien atiende'])) {
+    requestedInformation.push('professionals')
+  }
+  if (containsAny(normalized, ['informacion', 'info', 'contame', 'explicame', 'detalle', 'detalles', 'de que se trata'])) {
+    requestedInformation.push('general')
+  }
+  if (!requestedInformation.length) return null
+
+  const matches = catalog.services.filter((service) =>
+    [service.name, ...(service.aliases ?? [])].some((label) =>
+      catalogLabelIsMentioned(normalized, normalizeEvidenceText(label))
+    )
+  )
+  if (matches.length !== 1) return null
+
+  return {
+    serviceId: matches[0]?.id ?? '',
+    requestedInformation: Array.from(new Set(requestedInformation)),
+    confidence: 0.95,
+    evidence: message.trim()
+  }
+}
+
+function groundedCatalogQuery(
+  query: CatalogQuery | null,
+  message: string,
+  catalog?: ConversationRouterInput['catalog']
+) {
+  if (!query || query.confidence < 0.65) return null
+  const normalizedMessage = normalizeEvidenceText(message)
+  const normalizedEvidence = normalizeEvidenceText(query.evidence)
+  if (!normalizedEvidence || !normalizedMessage.includes(normalizedEvidence)) return null
+  if (!catalog) return query
+  const service = catalog.services.find((option) => option.id === query.serviceId)
+  if (!service) return null
+  const serviceIsMentioned = [service.name, ...(service.aliases ?? [])].some((label) =>
+    catalogLabelIsMentioned(normalizedMessage, normalizeEvidenceText(label))
+  )
+  return serviceIsMentioned ? query : null
+}
+
+function catalogQuerySupportsTopic(
+  query: CatalogQuery | null,
+  topic: BusinessInformationTopic
+) {
+  if (!query) return false
+  if (topic === 'prices') return query.requestedInformation.includes('price')
+  if (topic === 'professionals') return query.requestedInformation.includes('professionals')
+  return topic === 'services'
+}
+
+function catalogLabelIsMentioned(message: string, label: string) {
+  if (!label) return false
+  const messageTokens = message.split(' ').filter(Boolean)
+  const labelTokens = label.split(' ').filter((token) =>
+    token && !['de', 'del', 'el', 'la', 'las', 'los', 'y'].includes(token)
+  )
+  return labelTokens.length > 0 && labelTokens.every((labelToken) =>
+    messageTokens.some((messageToken) =>
+      labelToken === messageToken || singularCatalogToken(labelToken) === singularCatalogToken(messageToken)
+    )
+  )
+}
+
+function singularCatalogToken(token: string) {
+  if (token.length >= 7 && token.endsWith('ciones')) return `${token.slice(0, -6)}cion`
+  if (token.length >= 6 && token.endsWith('es')) return token.slice(0, -2)
+  if (token.length >= 5 && token.endsWith('s')) return token.slice(0, -1)
+  return token
 }
 
 function detectBusinessInformationTopics(
@@ -458,7 +612,7 @@ function cleanNullableText(value: string | null) {
 const conversationRoutingSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['intents', 'bookingMessage', 'bookingExtraction'],
+  required: ['intents', 'bookingMessage', 'bookingExtraction', 'catalogQuery'],
   properties: {
     intents: {
       type: 'array',
@@ -492,6 +646,27 @@ const conversationRoutingSchema = {
     bookingExtraction: {
       anyOf: [
         bookingExtractionSchema,
+        { type: 'null' }
+      ]
+    },
+    catalogQuery: {
+      anyOf: [
+        {
+          type: 'object',
+          additionalProperties: false,
+          required: ['serviceId', 'requestedInformation', 'confidence', 'evidence'],
+          properties: {
+            serviceId: { type: 'string' },
+            requestedInformation: {
+              type: 'array',
+              minItems: 1,
+              uniqueItems: true,
+              items: { type: 'string', enum: CATALOG_QUERY_INFORMATION }
+            },
+            confidence: { type: 'number', minimum: 0, maximum: 1 },
+            evidence: { type: 'string' }
+          }
+        },
         { type: 'null' }
       ]
     }
