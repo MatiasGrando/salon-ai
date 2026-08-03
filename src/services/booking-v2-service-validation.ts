@@ -16,8 +16,6 @@ export class BookingV2ServiceValidationClassifier {
     validationMessage: string
     validationQuestion: string
   }): Promise<ServiceValidationClassification> {
-    const deterministic = deterministicServiceValidationDecision(input.message)
-    if (deterministic) return { decision: deterministic, confidence: 1 }
     if (!isAiExecutionEnabled()) return { decision: null, confidence: 0 }
 
     const client = getOpenAiClient()
@@ -73,92 +71,6 @@ export class BookingV2ServiceValidationClassifier {
   }
 }
 
-export function deterministicServiceValidationDecision(
-  message: string
-): ServiceValidationDecision | null {
-  const normalized = normalize(message)
-
-  if (
-    [
-      'no se',
-      'no estoy seguro',
-      'no estoy segura',
-      'tengo dudas',
-      'necesito ayuda',
-      'necesito asesoramiento',
-      'quiero asesoramiento',
-      'que me recomiendan',
-      'que me recomendas',
-      'no se cual necesito',
-      'no se si es'
-    ].some((phrase) => normalized.includes(phrase))
-  ) {
-    return 'uncertain'
-  }
-
-  const exactRejections = [
-    'no',
-    'nop',
-    'negativo',
-    'mejor no'
-  ]
-  const rejectionPhrases = [
-    'no es',
-    'no era eso',
-    'quiero cambiar',
-    'elegir otro',
-    'elegir otra',
-    'volver a elegir'
-  ]
-  if (
-    exactRejections.includes(normalized) ||
-    rejectionPhrases.some((phrase) => normalized.includes(phrase))
-  ) {
-    return 'reject'
-  }
-
-  const confirmationPhrases = [
-    'si',
-    'dale',
-    'ok',
-    'okay',
-    'correcto',
-    'confirmo',
-    'esta bien',
-    'exacto',
-    'ese',
-    'esa',
-    'ese quiero',
-    'esa quiero',
-    'sigamos',
-    'seguimos',
-    'continuar',
-    'continuemos',
-    'mandale'
-  ]
-  if (
-    confirmationPhrases.includes(normalized) ||
-    confirmationPhrases.some((phrase) =>
-      phrase.length >= 4 && normalized.includes(phrase)
-    ) ||
-    /\bsi\b/.test(normalized)
-  ) {
-    return 'confirm'
-  }
-
-  return null
-}
-
 function isDecision(value: unknown): value is ServiceValidationDecision {
   return value === 'confirm' || value === 'reject' || value === 'uncertain'
-}
-
-function normalize(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '')
-    .replace(/[^\p{Letter}\p{Number}\s]/gu, ' ')
-    .replace(/\s+/g, ' ')
 }

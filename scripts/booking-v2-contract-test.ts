@@ -44,17 +44,18 @@ import {
 } from '../src/services/business-knowledge-service.js'
 import {
   acceptedAdvisorQuoteAmount,
+  bookingV2StateAfterGoingBack,
+  clearBookingV2StateFromField,
   composeBusinessInformationResumeReply,
+  freshBookingV2State,
   isBookingV2ConversationClosing,
   isBookingV2GreetingOnlyMessage,
-  isNegativeAdvisorQuoteDecision,
   isPostBookingWellbeingQuestion,
-  isPositiveAdvisorQuoteDecision,
-  isPositiveBookingV2Confirmation,
   mergeBookingV2AgendaFromRouting,
   pendingRequestFromRouting,
   splitWhatsAppReply,
   shouldShowBookingV2IntentFallback,
+  shouldRouteBookingV2HumanHandoff,
   withBusinessInformationFollowUp
 } from '../src/services/conversation-service.js'
 import { BotCopyService } from '../src/services/bot-copy-service.js'
@@ -648,6 +649,104 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'cancelar una reserva en curso conserva el cliente y limpia todo el borrador',
+    run: () => {
+      const cancelled = freshBookingV2State('Mati')
+      assert.deepEqual(cancelled.draft, {
+        name: 'Mati',
+        service: null,
+        professional: null,
+        date: null,
+        time: null
+      })
+      assert.equal(cancelled.pendingProposal, null)
+      assert.equal(cancelled.guidedEstimate, null)
+      assert.equal(cancelled.advisorQuote, null)
+      assert.equal(cancelled.pendingDeposit, null)
+    }
+  },
+  {
+    name: 'volver retrocede exactamente un paso sin dejar estados que traben el flujo',
+    run: () => {
+      const initial = completeDraft()
+      const cases = [
+        ['CONFIRM', 'time'],
+        ['ASK_TIME', 'date'],
+        ['ASK_DATE', 'professional'],
+        ['ASK_PROFESSIONAL', 'service']
+      ] as const
+
+      for (const [step, expectedField] of cases) {
+        const previous = bookingV2StateAfterGoingBack(initial, step)
+        assert.equal(nextMissingField(previous.draft), expectedField, step)
+        assert.equal(previous.pendingProposal, null, step)
+        assert.equal(previous.pendingDeposit, null, step)
+      }
+
+      const guided = {
+        ...initial,
+        guidedEstimate: {
+          serviceId: 'haircut',
+          stage: 'awaiting_decision' as const,
+          optionId: 'short',
+          optionLabel: 'Corto',
+          priceMin: 10000,
+          priceMax: 15000
+        }
+      }
+      const previousGuided = bookingV2StateAfterGoingBack(guided, 'ASK_SERVICE')
+      assert.equal(previousGuided.draft.service, null)
+      assert.equal(previousGuided.guidedEstimate, null)
+    }
+  },
+  {
+    name: 'router acepta navegacion y pedido de ayuda semanticos sin palabras reservadas',
+    run: () => {
+      const cases = [
+        ['cancel_booking', 'dejemos esta gestión acá'],
+        ['go_back', 'mejor regresemos a lo que elegí antes'],
+        ['restart_booking', 'arranquemos una nueva desde cero'],
+        ['request_human', 'estoy perdido con cuál me conviene']
+      ] as const
+      for (const [type, evidence] of cases) {
+        const routing = normalizeConversationRouting({
+          intents: [{ type, topic: null, confidence: 0.94, evidence }],
+          bookingMessage: null,
+          bookingExtraction: null,
+          catalogQuery: null
+        })
+        assert.equal(routing.intents[0]?.type, type)
+        assert.equal(routing.intents[0]?.confidence, 0.94)
+      }
+    }
+  },
+  {
+    name: 'una consulta informativa no deriva por una sospecha debil de pedir humano',
+    run: () => {
+      const informative = normalizeConversationRouting({
+        intents: [
+          { type: 'business_information', topic: 'prices', confidence: 0.8, evidence: 'qué inversión requiere' },
+          { type: 'request_human', topic: null, confidence: 0.6, evidence: 'qué inversión requiere' }
+        ],
+        bookingMessage: null,
+        bookingExtraction: null,
+        catalogQuery: null
+      })
+      const explicitHuman = normalizeConversationRouting({
+        intents: [
+          { type: 'business_information', topic: 'prices', confidence: 0.8, evidence: 'precio' },
+          { type: 'request_human', topic: null, confidence: 0.9, evidence: 'quiero hablar con alguien' }
+        ],
+        bookingMessage: null,
+        bookingExtraction: null,
+        catalogQuery: null
+      })
+
+      assert.equal(shouldRouteBookingV2HumanHandoff({ ...informative, source: 'ai' }), false)
+      assert.equal(shouldRouteBookingV2HumanHandoff({ ...explicitHuman, source: 'ai' }), true)
+    }
+  },
+  {
     name: 'motor carga catalogo extrae aplica reglas y devuelve patch',
     run: async () => {
       const engine = new BookingV2Engine(
@@ -699,7 +798,11 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       })
       const engine = new BookingV2Engine(
         fakeDomainPort({ catalog: nicknameCatalog }),
-        fakeExtractor(null)
+        fakeExtractor(null),
+        fakeServiceValidationClassifier(),
+        fakeEstimateDecisionExtractor(),
+        fakeEstimateOptionExtractor(),
+        fakeChoiceExtractor()
       )
       const conversation = {
         selectedCustomerName: 'Mati',
@@ -978,28 +1081,6 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
-    name: 'si no sabe que servicio elegir deriva inmediatamente a un asesor',
-    run: async () => {
-      const engine = new BookingV2Engine(fakeDomainPort(), fakeExtractor(null))
-      const state = acceptField(createEmptyBookingV2State(), 'name', 'Mati')
-
-      const result = await engine.process({
-        businessId: 'business-1',
-        conversation: conversationPatchFromState(state),
-        message: 'no sé cuál necesito'
-      })
-
-      assert.deepEqual(result.plan, {
-        type: 'handoff',
-        reason: 'service_selection_uncertain'
-      })
-      assert.equal(result.state.draft.name, 'Mati')
-      assert.equal(result.state.draft.service, null)
-      assert.equal(result.reply.includes('ayudarte a elegir'), true)
-      assert.equal(result.reply.includes('demorar unos minutos'), true)
-    }
-  },
-  {
     name: 'el catalogo ofrece explicitamente pedir ayuda para elegir',
     run: () => {
       const reply = renderBookingV2Response({
@@ -1060,7 +1141,14 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           serviceIds: ['nutrition-1', 'nutrition-2', 'haircut']
         }]
       })
-      const engine = new BookingV2Engine(fakeDomainPort({ catalog }), fakeExtractor(null))
+      const engine = new BookingV2Engine(
+        fakeDomainPort({ catalog }),
+        fakeExtractor(null),
+        fakeServiceValidationClassifier(),
+        fakeEstimateDecisionExtractor(),
+        fakeEstimateOptionExtractor(),
+        fakeChoiceExtractor()
+      )
       const namedState = acceptField(createEmptyBookingV2State(), 'name', 'Mati')
 
       const categoryMenu = await engine.process({
@@ -1133,7 +1221,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       })
       const engine = new BookingV2Engine(
         fakeDomainPort({ catalog: validationCatalog }),
-        fakeExtractor(null)
+        fakeExtractor(null),
+        fakeServiceValidationClassifier()
       )
 
       const selected = await engine.process({
@@ -1195,7 +1284,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       })
       const engine = new BookingV2Engine(
         fakeDomainPort({ catalog: validationCatalog }),
-        fakeExtractor(null)
+        fakeExtractor(null),
+        fakeServiceValidationClassifier()
       )
       const state = {
         ...createEmptyBookingV2State(),
@@ -1253,7 +1343,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       })
       const engine = new BookingV2Engine(
         fakeDomainPort({ catalog: validationCatalog }),
-        fakeExtractor(null)
+        fakeExtractor(null),
+        fakeServiceValidationClassifier()
       )
       const state = {
         ...createEmptyBookingV2State(),
@@ -1299,7 +1390,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       })
       const engine = new BookingV2Engine(
         fakeDomainPort({ catalog: validationCatalog }),
-        fakeExtractor(null)
+        fakeExtractor(null),
+        fakeServiceValidationClassifier()
       )
       const state = {
         ...createEmptyBookingV2State(),
@@ -1348,7 +1440,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       })
       const engine = new BookingV2Engine(
         fakeDomainPort({ catalog: validationCatalog }),
-        fakeExtractor(null)
+        fakeExtractor(null),
+        fakeServiceValidationClassifier()
       )
       const state = {
         ...createEmptyBookingV2State(),
@@ -1417,6 +1510,132 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         })
         assert.equal(reply.includes('demorar unos minutos'), true, reason)
       }
+    }
+  },
+  {
+    name: 'matriz cubre los cuatro modos de atencion y todas sus salidas principales',
+    run: async () => {
+      const catalog = createBookingV2DomainCatalog({
+        services: [
+          {
+            id: 'direct',
+            name: 'Corte directo',
+            aliases: ['corte directo'],
+            duration: 30,
+            price: 15000,
+            category: null,
+            attentionMode: 'DIRECT_BOOKING'
+          },
+          {
+            id: 'quote',
+            name: 'Color personalizado',
+            aliases: ['color personalizado'],
+            duration: 90,
+            price: 60000,
+            category: null,
+            attentionMode: 'QUOTE'
+          },
+          {
+            id: 'advisor',
+            name: 'Diagnostico experto',
+            aliases: ['diagnostico experto'],
+            duration: 45,
+            price: null,
+            category: null,
+            attentionMode: 'ADVISOR'
+          },
+          {
+            id: 'guided',
+            name: 'Iluminacion guiada',
+            aliases: ['iluminacion guiada'],
+            duration: 180,
+            price: 80000,
+            category: null,
+            attentionMode: 'GUIDED_ESTIMATE',
+            estimateQuestion: '¿Qué largo tiene tu cabello?',
+            estimateOptions: [
+              { id: 'short', label: 'Hasta los hombros', priceMin: 80000, priceMax: 100000, note: null },
+              { id: 'long', label: 'Más largo que los hombros', priceMin: 110000, priceMax: 140000, note: null }
+            ],
+            estimateAllowsBooking: true
+          }
+        ],
+        professionals: [{
+          id: 'professional-1',
+          name: 'Tamara',
+          serviceIds: ['direct', 'guided']
+        }]
+      })
+      const engine = new BookingV2Engine(
+        fakeDomainPort({ catalog }),
+        fakeExtractor(null),
+        fakeServiceValidationClassifier(),
+        fakeEstimateDecisionExtractor((message) =>
+          message.includes('revisen')
+            ? { decision: 'request_exact_quote', confidence: 0.93 }
+            : { decision: 'continue_booking', confidence: 0.94 }
+        ),
+        fakeEstimateOptionExtractor((message) => ({
+          optionId: message.includes('espalda') ? 'long' : null,
+          confidence: message.includes('espalda') ? 0.95 : 0
+        }))
+      )
+      const namedConversation = conversationPatchFromState(
+        acceptField(createEmptyBookingV2State(), 'name', 'Mati')
+      )
+
+      const direct = await engine.process({
+        businessId: 'business-1',
+        conversation: namedConversation,
+        message: 'corte directo'
+      })
+      assert.equal(direct.plan.type === 'ask_field' ? direct.plan.field : null, 'professional')
+
+      const quote = await engine.process({
+        businessId: 'business-1',
+        conversation: namedConversation,
+        message: 'color personalizado'
+      })
+      assert.deepEqual(quote.plan, { type: 'handoff', reason: 'quote_required' })
+
+      const advisor = await engine.process({
+        businessId: 'business-1',
+        conversation: namedConversation,
+        message: 'diagnostico experto'
+      })
+      assert.deepEqual(advisor.plan, { type: 'handoff', reason: 'advisor_required' })
+
+      const guided = await engine.process({
+        businessId: 'business-1',
+        conversation: namedConversation,
+        message: 'iluminacion guiada'
+      })
+      assert.equal(guided.plan.type, 'ask_estimate_option')
+
+      const band = await engine.process({
+        businessId: 'business-1',
+        conversation: guided.conversationPatch,
+        message: 'me llega casi a media espalda'
+      })
+      assert.equal(band.plan.type, 'show_estimate')
+      assert.equal(band.state.guidedEstimate?.optionId, 'long')
+
+      const continueBooking = await engine.process({
+        businessId: 'business-1',
+        conversation: band.conversationPatch,
+        message: 'me sirve, avancemos'
+      })
+      assert.equal(
+        continueBooking.plan.type === 'ask_field' ? continueBooking.plan.field : null,
+        'professional'
+      )
+
+      const exactQuote = await engine.process({
+        businessId: 'business-1',
+        conversation: band.conversationPatch,
+        message: 'prefiero que lo revisen bien antes'
+      })
+      assert.deepEqual(exactQuote.plan, { type: 'handoff', reason: 'estimate_quote_requested' })
     }
   },
   {
@@ -1520,20 +1739,6 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'professional')
       assert.equal(result.reply.includes('Tamara'), true)
       assert.equal(result.reply.includes('foto'), false)
-    }
-  },
-  {
-    name: 'aceptacion y rechazo del presupuesto entienden respuestas naturales',
-    run: () => {
-      assert.equal(isPositiveAdvisorQuoteDecision('si dale, reservemos'), true)
-      assert.equal(isPositiveAdvisorQuoteDecision('de una'), true)
-      assert.equal(isPositiveAdvisorQuoteDecision('me sirve'), true)
-      assert.equal(isPositiveAdvisorQuoteDecision('mandale'), true)
-      assert.equal(isNegativeAdvisorQuoteDecision('no gracias'), true)
-      assert.equal(isNegativeAdvisorQuoteDecision('lo voy a pensar'), true)
-      assert.equal(isNegativeAdvisorQuoteDecision('ni ahi'), true)
-      assert.equal(isPositiveAdvisorQuoteDecision('cuanto demora?'), false)
-      assert.equal(isNegativeAdvisorQuoteDecision('cuanto demora?'), false)
     }
   },
   {
@@ -1846,6 +2051,10 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         fakeEstimateDecisionExtractor(() => ({
           decision: 'continue_booking',
           confidence: 0.96
+        })),
+        fakeEstimateOptionExtractor((message) => ({
+          optionId: message === '2' ? 'long' : null,
+          confidence: message === '2' ? 0.98 : 0
         }))
       )
       const selected = await engine.process({
@@ -2138,7 +2347,14 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     name: 'extractor recibe explicitamente el campo esperado del flujo',
     run: async () => {
       const extractor = fakeExtractor(null)
-      const engine = new BookingV2Engine(fakeDomainPort(), extractor)
+      const engine = new BookingV2Engine(
+        fakeDomainPort(),
+        extractor,
+        fakeServiceValidationClassifier(),
+        fakeEstimateDecisionExtractor(),
+        fakeEstimateOptionExtractor(),
+        fakeChoiceExtractor()
+      )
 
       await engine.process({
         businessId: 'business-1',
@@ -2203,7 +2419,14 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       const extractor = fakeExtractor(extraction({
         name: field('Ana', 0.7, 'Ana')
       }))
-      const engine = new BookingV2Engine(fakeDomainPort(), extractor)
+      const engine = new BookingV2Engine(
+        fakeDomainPort(),
+        extractor,
+        fakeServiceValidationClassifier(),
+        fakeEstimateDecisionExtractor(),
+        fakeEstimateOptionExtractor(),
+        fakeChoiceExtractor()
+      )
 
       const result = await engine.process({
         businessId: 'business-1',
@@ -2546,38 +2769,22 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
-    name: 'motor permite cambiar la hora desde la confirmacion final',
-    run: async () => {
-      const extractor = fakeExtractor(null)
-      const engine = new BookingV2Engine(
-        fakeDomainPort({
-          availabilityOptions: [
-            { time: '18:00', professionalId: 'professional-1', professionalName: 'Nico' },
-            { time: '18:30', professionalId: 'professional-1', professionalName: 'Nico' }
-          ]
-        }),
-        extractor
-      )
+    name: 'cambiar el horario desde la confirmacion limpia solo la hora',
+    run: () => {
+      let state = acceptField(createEmptyBookingV2State(), 'name', 'Mati')
+      state = acceptField(state, 'service', 'haircut')
+      state = acceptField(state, 'professional', 'professional-1')
+      state = acceptField(state, 'date', '2026-07-28')
+      state = acceptField(state, 'time', '18:30')
 
-      const result = await engine.process({
-        businessId: 'business-1',
-        conversation: {
-          selectedCustomerName: 'Mati',
-          selectedServiceId: 'haircut',
-          selectedProfessionalId: 'professional-1',
-          selectedDate: '2026-07-28',
-          selectedTime: '18:30',
-          misunderstandingCount: 0,
-          bookingV2State: null
-        },
-        message: 'quiero cambiar la hora'
-      })
+      const changed = clearBookingV2StateFromField(state, 'time')
 
-      assert.equal(result.state.draft.time, null)
-      assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'time')
-      assert.equal(result.reply.includes('• Nico: 18:00, 18:30'), true)
-      assert.equal(result.reply.includes('Confirmás la reserva'), false)
-      assert.equal(extractor.calls.length, 0)
+      assert.equal(changed.draft.name, 'Mati')
+      assert.equal(changed.draft.service, 'haircut')
+      assert.equal(changed.draft.professional, 'professional-1')
+      assert.equal(changed.draft.date, '2026-07-28')
+      assert.equal(changed.draft.time, null)
+      assert.equal(nextMissingField(changed.draft), 'time')
     }
   },
   {
@@ -2591,7 +2798,14 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         evidence: 'quiero un corte'
       }))
       const extractor = fakeExtractor(null)
-      const engine = new BookingV2Engine(fakeDomainPort(), extractor)
+      const engine = new BookingV2Engine(
+        fakeDomainPort(),
+        extractor,
+        fakeServiceValidationClassifier(),
+        fakeEstimateDecisionExtractor(),
+        fakeEstimateOptionExtractor(),
+        fakeChoiceExtractor()
+      )
 
       const result = await engine.process({
         businessId: 'business-1',
@@ -2624,7 +2838,14 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         evidence: 'quiero un corte'
       }))
       const extractor = fakeExtractor(null)
-      const engine = new BookingV2Engine(fakeDomainPort(), extractor)
+      const engine = new BookingV2Engine(
+        fakeDomainPort(),
+        extractor,
+        fakeServiceValidationClassifier(),
+        fakeEstimateDecisionExtractor(),
+        fakeEstimateOptionExtractor(),
+        fakeChoiceExtractor()
+      )
 
       const result = await engine.process({
         businessId: 'business-1',
@@ -3147,15 +3368,6 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         ).bookingMessage !== null,
         true
       )
-    }
-  },
-  {
-    name: 'confirmacion critica requiere evidencia determinista explicita',
-    run: () => {
-      assert.equal(isPositiveBookingV2Confirmation('okey perfecto quedamos asi'), true)
-      assert.equal(isPositiveBookingV2Confirmation('si confirmo y pasame la direccion'), true)
-      assert.equal(isPositiveBookingV2Confirmation('pasame la direccion'), false)
-      assert.equal(isPositiveBookingV2Confirmation('creo que podria estar bien'), false)
     }
   },
   {
@@ -3893,6 +4105,90 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'consultas informativas interrumpen y retoman cualquier modo sin perder estado',
+    run: async () => {
+      const catalog = createBookingV2DomainCatalog({
+        services: [
+          { id: 'direct', name: 'Corte', aliases: ['corte'], duration: 30, price: 15000, category: null, attentionMode: 'DIRECT_BOOKING' },
+          { id: 'quote', name: 'Color', aliases: ['color'], duration: 90, price: 60000, category: null, attentionMode: 'QUOTE' },
+          { id: 'advisor', name: 'Diagnostico', aliases: ['diagnostico'], duration: 45, price: null, category: null, attentionMode: 'ADVISOR' },
+          {
+            id: 'guided',
+            name: 'Iluminacion',
+            aliases: ['iluminacion'],
+            duration: 180,
+            price: 80000,
+            category: null,
+            attentionMode: 'GUIDED_ESTIMATE',
+            estimateOptions: [{ id: 'short', label: 'Corto', priceMin: 80000, priceMax: 100000, note: null }],
+            estimateAllowsBooking: true
+          }
+        ],
+        professionals: [{
+          id: 'professional-1',
+          name: 'Tamara',
+          serviceIds: ['direct', 'quote', 'guided']
+        }]
+      })
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog }), fakeExtractor(null))
+      const base = acceptField(createEmptyBookingV2State(), 'name', 'Mati')
+      const direct = acceptField(base, 'service', 'direct')
+      const quote = {
+        ...acceptField(base, 'service', 'quote'),
+        advisorQuote: {
+          serviceId: 'quote',
+          amount: 70000,
+          note: null,
+          status: 'accepted' as const,
+          quotedAt: '2026-08-03T12:00:00.000Z'
+        }
+      }
+      const advisor = acceptField(base, 'service', 'advisor')
+      const guided = {
+        ...acceptField(base, 'service', 'guided'),
+        guidedEstimate: {
+          serviceId: 'guided',
+          stage: 'awaiting_option' as const,
+          optionId: null,
+          optionLabel: null,
+          priceMin: null,
+          priceMax: null
+        }
+      }
+      const states = [direct, quote, advisor, guided]
+      const topics = [
+        ['opening_hours', '¿en qué momento suelen atender?'],
+        ['prices', '¿qué inversión requiere?'],
+        ['professionals', '¿quiénes forman parte del equipo?'],
+        ['services', 'contame un poco más de lo que hacen']
+      ] as const
+
+      for (const state of states) {
+        for (const [topic, evidence] of topics) {
+          const routing = normalizeConversationRouting({
+            intents: [{ type: 'business_information', topic, confidence: 0.92, evidence }],
+            bookingMessage: null,
+            bookingExtraction: null,
+            catalogQuery: null
+          })
+          assert.deepEqual(businessInformationTopicsFromRouting({ ...routing, source: 'ai' }), [topic])
+
+          const resumed = await engine.resume({
+            businessId: 'business-1',
+            conversation: conversationPatchFromState(state)
+          })
+          const combined = composeBusinessInformationResumeReply(
+            `Respuesta informativa sobre ${topic}.`,
+            resumed.reply
+          )
+          assert.equal(combined.includes(`Respuesta informativa sobre ${topic}.`), true)
+          assert.equal(combined.endsWith(resumed.reply), true)
+          assert.deepEqual(resumed.state.draft, state.draft)
+        }
+      }
+    }
+  },
+  {
     name: 'motor puede retomar sin consumir extractor ni modificar borrador',
     run: async () => {
       const extractor = fakeExtractor(null)
@@ -4085,7 +4381,17 @@ function fakeExtractor(result: BookingV2Extraction | null) {
 
 function fakeServiceValidationClassifier() {
   return {
-    async classify() {
+    async classify(input: { message: string }) {
+      const message = input.message.toLowerCase()
+      if (message.includes('no sé') || message.includes('no se')) {
+        return { decision: 'uncertain' as const, confidence: 0.95 }
+      }
+      if (message.startsWith('no')) {
+        return { decision: 'reject' as const, confidence: 0.95 }
+      }
+      if (message.includes('dale') || message.includes('sí') || message.includes('si')) {
+        return { decision: 'confirm' as const, confidence: 0.95 }
+      }
       return { decision: null, confidence: 0 }
     }
   }
@@ -4095,11 +4401,52 @@ function fakeEstimateDecisionExtractor(
   classify: (message: string) => {
     decision: 'continue_booking' | 'request_exact_quote' | 'unclear'
     confidence: number
-  }
+  } = () => ({ decision: 'unclear', confidence: 0 })
 ) {
   return {
     async extract(input: { message: string }) {
       return classify(input.message)
+    }
+  }
+}
+
+function fakeEstimateOptionExtractor(
+  extract: (message: string) => {
+    optionId: string | null
+    confidence: number
+  } = () => ({ optionId: null, confidence: 0 })
+) {
+  return {
+    async extract(input: { message: string }) {
+      return extract(input.message)
+    }
+  }
+}
+
+function fakeChoiceExtractor() {
+  return {
+    async extract(input: { message: string; choices: Array<{ id: string }> }) {
+      const message = input.message.toLowerCase()
+      const available = new Set(input.choices.map((choice) => choice.id))
+      if (
+        available.has('request_service_advice') &&
+        (message.includes('asesoramiento') || message.includes('no sé') || message.includes('no se'))
+      ) {
+        return { choiceId: 'request_service_advice', confidence: 0.95 }
+      }
+      if (available.has('request_advice') && (message.includes('sí') || message.includes('hablar'))) {
+        return { choiceId: 'request_advice', confidence: 0.95 }
+      }
+      if (available.has('back_to_services') && message.includes('volver')) {
+        return { choiceId: 'back_to_services', confidence: 0.95 }
+      }
+      if (available.has('reject') && message.startsWith('no')) {
+        return { choiceId: 'reject', confidence: 0.95 }
+      }
+      if (available.has('confirm')) {
+        return { choiceId: 'confirm', confidence: 0.95 }
+      }
+      return { choiceId: null, confidence: 0 }
     }
   }
 }

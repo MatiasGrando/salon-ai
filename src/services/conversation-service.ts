@@ -16,6 +16,10 @@ import type {
   BookingV2State
 } from './booking-v2-state.js'
 import {
+  clearFieldAndDependents,
+  createEmptyBookingV2State
+} from './booking-v2-state.js'
+import {
   conversationPatchFromState,
   stateFromConversation
 } from './booking-v2-conversation-state.js'
@@ -36,6 +40,7 @@ import {
   getBusinessAssistantPersonality,
   type AssistantPersonality
 } from './assistant-personality-service.js'
+import { BookingV2ChoiceExtractor } from './booking-v2-choice-extractor.js'
 
 const bookingConversationFlow = new BookingConversationFlow()
 const bookingProvider = new InternalBookingProvider()
@@ -46,6 +51,7 @@ const bookingV2Engine = new BookingV2Engine()
 const conversationRouter = new ConversationRouter()
 const conversationRouterContextService = new ConversationRouterContextService()
 const businessKnowledgeService = new BusinessKnowledgeService()
+const bookingV2ChoiceExtractor = new BookingV2ChoiceExtractor()
 
 type HandleMessageInput = {
   phone: string
@@ -174,6 +180,17 @@ export class ConversationService {
         }))
       : null
 
+    if (bookingV2Enabled && businessId && bookingV2Routing) {
+      const navigationResult = await this.handleBookingV2Navigation({
+        phone: input.phone,
+        message,
+        businessId,
+        conversation,
+        routing: bookingV2Routing
+      })
+      if (navigationResult) return navigationResult
+    }
+
     if (conversation.currentStep === 'CANCEL_SELECT_APPOINTMENT') {
       return this.cancelAppointmentByMessage(input.phone, message, businessId)
     }
@@ -186,7 +203,12 @@ export class ConversationService {
       return this.buildMyAppointmentsReply(input.phone, businessId)
     }
 
-    if (isCancelAppointmentMessage(message, conversation.currentStep)) {
+    if (
+      (bookingV2Routing?.intents.some((intent) =>
+        intent.type === 'cancel_appointment' && intent.confidence >= 0.65
+      ) ?? false) ||
+      (!bookingV2Enabled && isCancelAppointmentMessage(message, conversation.currentStep))
+    ) {
       await this.updateConversation(input.phone, businessId, {
         currentStep: 'CANCEL_SELECT_APPOINTMENT'
       })
@@ -243,7 +265,10 @@ export class ConversationService {
       }
     }
 
-    if (isHumanHandoffMessage(message)) {
+    if (
+      (bookingV2Enabled && shouldRouteBookingV2HumanHandoff(bookingV2Routing)) ||
+      (!bookingV2Enabled && isHumanHandoffMessage(message))
+    ) {
       await this.updateConversation(input.phone, businessId, {
         currentStep: 'HUMAN_HANDOFF',
         aiEnabled: false,
@@ -437,8 +462,16 @@ export class ConversationService {
     })
     const serviceName = service?.name ?? 'el servicio'
     const personality = await getBusinessAssistantPersonality(input.businessId)
+    const quoteChoice = await bookingV2ChoiceExtractor.extract({
+      message: input.message,
+      question: `El presupuesto de ${serviceName} es ${formatMoneyForConversation(quote.amount)}. ¿Querés continuar con la reserva?`,
+      choices: [
+        { id: 'accept_quote', meaning: 'Acepta el presupuesto y quiere continuar reservando.' },
+        { id: 'reject_quote', meaning: 'Rechaza el presupuesto o decide no continuar.' }
+      ]
+    })
 
-    if (isNegativeAdvisorQuoteDecision(input.message)) {
+    if (quoteChoice.confidence >= 0.65 && quoteChoice.choiceId === 'reject_quote') {
       await this.updateConversation(input.phone, input.businessId, {
         currentStep: 'START',
         aiEnabled: true,
@@ -461,7 +494,7 @@ export class ConversationService {
       }
     }
 
-    if (!isPositiveAdvisorQuoteDecision(input.message)) {
+    if (!(quoteChoice.confidence >= 0.65 && quoteChoice.choiceId === 'accept_quote')) {
       const informationTopics = input.routing
         ? businessInformationTopicsFromRouting(input.routing)
         : []
@@ -548,6 +581,126 @@ export class ConversationService {
     }
   }
 
+  private async handleBookingV2Navigation(input: {
+    phone: string
+    message: string
+    businessId: string
+    conversation: {
+      currentStep: string
+      selectedCustomerName: string | null
+      selectedServiceId: string | null
+      selectedProfessionalId: string | null
+      selectedDate: string | null
+      selectedTime: string | null
+      misunderstandingCount: number
+      bookingV2State?: unknown
+    }
+    routing: ConversationRouting
+  }): Promise<HandleMessageResult | null> {
+    const routedNavigationIntent = input.routing.intents
+      .filter((intent) =>
+        ['cancel_booking', 'go_back', 'restart_booking'].includes(intent.type) &&
+        intent.confidence >= 0.65
+      )
+      .sort((left, right) => right.confidence - left.confidence)[0]?.type
+    if (!routedNavigationIntent) return null
+
+    // Cancelar o retroceder muta el borrador. Una segunda comprension acotada
+    // evita que una consulta informativa mal clasificada borre la reserva.
+    const navigationChoice = await bookingV2ChoiceExtractor.extract({
+      message: input.message,
+      question: 'Dentro de la reserva en curso, ¿el cliente quiere cancelarla, volver un paso, reiniciarla o solamente está diciendo otra cosa?',
+      choices: [
+        { id: 'cancel_booking', meaning: 'Quiere abandonar la reserva en curso sin cancelar un turno confirmado.' },
+        { id: 'go_back', meaning: 'Quiere volver al paso o elección anterior de la reserva.' },
+        { id: 'restart_booking', meaning: 'Quiere borrar el avance y comenzar una nueva reserva desde cero.' },
+        { id: 'not_navigation', meaning: 'Es una consulta, respuesta o pedido distinto; no quiere navegar ni borrar la reserva.' }
+      ]
+    })
+    if (navigationChoice.confidence < 0.65 || navigationChoice.choiceId === 'not_navigation') {
+      return null
+    }
+    const navigationIntent = navigationChoice.choiceId
+
+    // La navegacion de una reserva en armado no debe interceptar la gestion de
+    // turnos que ya fueron confirmados. Esos pasos tienen su propio flujo.
+    if (
+      input.conversation.currentStep === 'CANCEL_SELECT_APPOINTMENT' ||
+      input.conversation.currentStep === 'EDIT_SELECT_APPOINTMENT' ||
+      input.conversation.currentStep === 'COMPLETED'
+    ) {
+      return null
+    }
+
+    const currentState = stateFromConversation(input.conversation)
+    const hasBookingInProgress = Boolean(
+      currentState.draft.service ||
+      currentState.draft.professional ||
+      currentState.draft.date ||
+      currentState.draft.time ||
+      currentState.pendingProposal ||
+      currentState.categoryAdvice ||
+      currentState.serviceValidation ||
+      currentState.guidedEstimate
+    )
+
+    if (navigationIntent === 'cancel_booking') {
+      if (!hasBookingInProgress) return null
+      const cancelledState = freshBookingV2State(currentState.draft.name)
+      await this.updateConversation(input.phone, input.businessId, {
+        currentStep: 'START',
+        ...conversationPatchFromState(cancelledState),
+        lastAvailability: null
+      })
+      return {
+        reply: [
+          'Listo, cancelé la reserva que estábamos armando.',
+          '¿Qué querés hacer ahora?',
+          '• Empezar otra reserva',
+          '• Consultar servicios, precios u horarios',
+          '• No necesito nada más'
+        ].join('\n'),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+
+    if (navigationIntent === 'restart_booking') {
+      const restartedState = freshBookingV2State(currentState.draft.name)
+      const resumed = await bookingV2Engine.resume({
+        businessId: input.businessId,
+        conversation: conversationPatchFromState(restartedState)
+      })
+      await this.updateConversation(input.phone, input.businessId, {
+        currentStep: conversationStepFromBookingV2Plan(resumed.plan),
+        ...resumed.conversationPatch,
+        lastAvailability: null
+      })
+      return {
+        reply: `Perfecto, empezamos una nueva reserva.\n\n${resumed.reply}`,
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+
+    if (!hasBookingInProgress) return null
+    const previousState = bookingV2StateAfterGoingBack(currentState, input.conversation.currentStep)
+    const resumed = await bookingV2Engine.resume({
+      businessId: input.businessId,
+      conversation: conversationPatchFromState(previousState)
+    })
+    await this.updateConversation(input.phone, input.businessId, {
+      currentStep: conversationStepFromBookingV2Plan(resumed.plan),
+      ...resumed.conversationPatch,
+      lastAvailability: null
+    })
+    return {
+      reply: `Dale, volvemos al paso anterior.\n\n${resumed.reply}`,
+      skipMisunderstandingTracking: true,
+      skipHumanize: true
+    }
+  }
+
   private async handleBookingV2(input: {
     phone: string
     message: string
@@ -576,10 +729,26 @@ export class ConversationService {
             : {})
         })
       : null
+    const bookingConfirmationChoice = input.conversation.currentStep === 'CONFIRM'
+      ? await bookingV2ChoiceExtractor.extract({
+          message: input.message,
+          question: '¿Confirmás definitivamente esta reserva con el servicio, profesional, fecha y horario indicados?',
+          choices: [
+            { id: 'confirm_booking', meaning: 'Confirma la reserva completa y autoriza crear el turno.' },
+            { id: 'change_service', meaning: 'Quiere cambiar o volver a elegir el servicio.' },
+            { id: 'change_professional', meaning: 'Quiere cambiar o volver a elegir el profesional.' },
+            { id: 'change_date', meaning: 'Quiere cambiar o volver a elegir el día o fecha.' },
+            { id: 'change_time', meaning: 'Quiere cambiar o volver a elegir el horario.' },
+            { id: 'cancel_booking', meaning: 'Quiere abandonar esta reserva sin crear el turno.' },
+            { id: 'review_options', meaning: 'No confirma pero tampoco indica qué dato quiere cambiar.' }
+          ]
+        })
+      : null
 
     if (
       input.conversation.currentStep === 'CONFIRM' &&
-      isPositiveBookingV2Confirmation(input.message) &&
+      bookingConfirmationChoice?.confidence >= 0.65 &&
+      bookingConfirmationChoice.choiceId === 'confirm_booking' &&
       input.conversation.selectedCustomerName &&
       input.conversation.selectedServiceId &&
       input.conversation.selectedProfessionalId &&
@@ -628,6 +797,78 @@ export class ConversationService {
             reply: `${informationReply}\n\n${confirmation.reply}`
           }
         : confirmation
+    }
+
+    const confirmationChangeField = bookingConfirmationChoice?.choiceId === 'change_service'
+      ? 'service'
+      : bookingConfirmationChoice?.choiceId === 'change_professional'
+        ? 'professional'
+        : bookingConfirmationChoice?.choiceId === 'change_date'
+          ? 'date'
+          : bookingConfirmationChoice?.choiceId === 'change_time'
+            ? 'time'
+            : null
+    if (
+      input.conversation.currentStep === 'CONFIRM' &&
+      bookingConfirmationChoice?.confidence >= 0.65 &&
+      confirmationChangeField
+    ) {
+      const changedState = clearBookingV2StateFromField(
+        stateFromConversation(input.conversation),
+        confirmationChangeField
+      )
+      const resumed = await bookingV2Engine.resume({
+        businessId: input.businessId,
+        conversation: conversationPatchFromState(changedState)
+      })
+      await this.updateConversation(input.phone, input.businessId, {
+        currentStep: conversationStepFromBookingV2Plan(resumed.plan),
+        ...resumed.conversationPatch,
+        lastAvailability: null
+      })
+      return {
+        reply: `Dale, lo cambiamos.\n\n${resumed.reply}`,
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+
+    if (
+      input.conversation.currentStep === 'CONFIRM' &&
+      bookingConfirmationChoice?.confidence >= 0.65 &&
+      bookingConfirmationChoice.choiceId === 'cancel_booking'
+    ) {
+      const cancelledState = freshBookingV2State(input.conversation.selectedCustomerName)
+      await this.updateConversation(input.phone, input.businessId, {
+        currentStep: 'START',
+        ...conversationPatchFromState(cancelledState),
+        lastAvailability: null
+      })
+      return {
+        reply: 'Listo, cancelé la reserva antes de confirmarla. Si querés, podemos empezar otra o hacer una consulta.',
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+
+    if (
+      input.conversation.currentStep === 'CONFIRM' &&
+      bookingConfirmationChoice?.confidence >= 0.65 &&
+      bookingConfirmationChoice.choiceId === 'review_options'
+    ) {
+      return {
+        reply: [
+          'No confirmé la reserva.',
+          '¿Qué querés hacer?',
+          '• Cambiar el servicio',
+          '• Cambiar el profesional',
+          '• Cambiar el día',
+          '• Cambiar el horario',
+          '• Cancelar esta reserva'
+        ].join('\n'),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
     }
 
     if (
@@ -1586,89 +1827,97 @@ export function acceptedAdvisorQuoteAmount(state: ReturnType<typeof stateFromCon
     : null
 }
 
+export function freshBookingV2State(customerName: string | null): BookingV2State {
+  const state = createEmptyBookingV2State()
+  return {
+    ...state,
+    draft: {
+      ...state.draft,
+      name: customerName
+    }
+  }
+}
+
+export function bookingV2StateAfterGoingBack(
+  state: BookingV2State,
+  currentStep: string
+): BookingV2State {
+  if (
+    state.guidedEstimate ||
+    state.serviceValidation ||
+    state.categoryAdvice ||
+    currentStep === 'ASK_SERVICE'
+  ) {
+    return clearBookingV2StateFromField(state, 'service')
+  }
+  if (currentStep === 'ASK_PROFESSIONAL') {
+    return clearBookingV2StateFromField(state, 'service')
+  }
+  if (currentStep === 'ASK_DATE') {
+    return clearBookingV2StateFromField(state, 'professional')
+  }
+  if (currentStep === 'ASK_TIME') {
+    return clearBookingV2StateFromField(state, 'date')
+  }
+  if (currentStep === 'CONFIRM') {
+    return clearBookingV2StateFromField(state, 'time')
+  }
+  if (currentStep === 'ASK_CUSTOMER_NAME') {
+    return freshBookingV2State(null)
+  }
+
+  const latestField = state.draft.time
+    ? 'time'
+    : state.draft.date
+      ? 'date'
+      : state.draft.professional
+        ? 'professional'
+        : 'service'
+  return clearBookingV2StateFromField(state, latestField)
+}
+
+export function clearBookingV2StateFromField(
+  state: BookingV2State,
+  field: BookingField
+): BookingV2State {
+  return {
+    ...state,
+    draft: clearFieldAndDependents(state.draft, field),
+    pendingProposal: null,
+    categoryAdvice: field === 'service' ? null : state.categoryAdvice,
+    serviceValidation: field === 'service' ? null : state.serviceValidation,
+    guidedEstimate: field === 'service' ? null : state.guidedEstimate,
+    advisorQuote: field === 'service' ? null : state.advisorQuote,
+    pendingDeposit: null,
+    misunderstandingCount: 0
+  }
+}
+
+export function shouldRouteBookingV2HumanHandoff(
+  routing: ConversationRouting | null
+) {
+  const humanConfidence = Math.max(
+    0,
+    ...(routing?.intents
+      .filter((intent) => intent.type === 'request_human')
+      .map((intent) => intent.confidence) ?? [])
+  )
+  const informationConfidence = Math.max(
+    0,
+    ...(routing?.intents
+      .filter((intent) => intent.type === 'business_information')
+      .map((intent) => intent.confidence) ?? [])
+  )
+  return humanConfidence >= 0.65 &&
+    (informationConfidence < 0.65 || humanConfidence >= 0.85)
+}
+
 function formatMoneyForConversation(value: number) {
   return new Intl.NumberFormat('es-AR', {
     style: 'currency',
     currency: 'ARS',
     maximumFractionDigits: 0
   }).format(value)
-}
-
-export function isPositiveBookingV2Confirmation(message: string) {
-  const normalizedMessage = normalizeText(message)
-  const exactConfirmations = [
-    'si',
-    'dale',
-    'ok',
-    'okey',
-    'okay',
-    'correcto',
-    'confirmo',
-    'confirmar',
-    'confirmalo',
-    'esta bien',
-    'exacto',
-    'listo',
-    'perfecto',
-    'quedamos asi',
-    'asi esta bien',
-    'okey perfecto quedamos asi'
-  ]
-
-  if (exactConfirmations.includes(normalizedMessage)) return true
-  return /\b(confirmo|confirmar|confirmalo)\b/.test(normalizedMessage)
-}
-
-export function isPositiveAdvisorQuoteDecision(message: string) {
-  const normalizedMessage = normalizeText(message)
-    .replace(/[^\p{Letter}\p{Number}\s]/gu, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-  if (isPositiveBookingV2Confirmation(normalizedMessage)) return true
-  if ([
-    'de una',
-    'mandale',
-    'joya',
-    'avancemos',
-    'reservemos',
-    'hagamoslo'
-  ].includes(normalizedMessage)) return true
-  return [
-    'si quiero',
-    'si dale',
-    'me sirve',
-    'me parece bien',
-    'quiero reservar',
-    'quiero el turno'
-  ].some((phrase) => normalizedMessage.includes(phrase))
-}
-
-export function isNegativeAdvisorQuoteDecision(message: string) {
-  const normalizedMessage = normalizeText(message)
-    .replace(/[^\p{Letter}\p{Number}\s]/gu, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-  if (/^(?:no+|nop|nono|nah|na)(?: gracias| por ahora| mejor no)?$/.test(normalizedMessage)) {
-    return true
-  }
-  if ([
-    'dejemoslo',
-    'dejalo ahi',
-    'ni ahi',
-    'paso',
-    'se me va'
-  ].includes(normalizedMessage)) return true
-  return [
-    'no gracias',
-    'no quiero',
-    'no me sirve',
-    'no por ahora',
-    'lo voy a pensar',
-    'lo pienso',
-    'muy caro',
-    'me parece caro',
-    'no llego'
-  ].some((phrase) => normalizedMessage.includes(phrase))
 }
 
 export function isBookingV2GreetingOnlyMessage(message: string) {
@@ -1696,10 +1945,10 @@ export function isBookingV2ConversationClosing(
   message: string,
   routing?: ConversationRouting
 ) {
-  if (routing?.intents.some((intent) =>
-    intent.type === 'stop_flow' && intent.confidence >= 0.65
-  )) {
-    return true
+  if (routing) {
+    return routing.intents.some((intent) =>
+      intent.type === 'stop_flow' && intent.confidence >= 0.65
+    )
   }
 
   const normalizedMessage = normalizeText(message)

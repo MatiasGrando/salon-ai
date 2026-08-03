@@ -14,6 +14,9 @@ export const CONVERSATION_INTENTS = [
   'book_appointment',
   'edit_booking',
   'confirm_booking',
+  'cancel_booking',
+  'go_back',
+  'restart_booking',
   'cancel_appointment',
   'business_information',
   'availability_preference',
@@ -141,6 +144,9 @@ export class ConversationRouter {
           'Si dos servicios son realmente posibles, no adivines: deja service.value en null para que el flujo muestre una aclaracion acotada.',
           'No respondas al cliente, no ejecutes acciones y no inventes datos.',
           'Usa business_information para preguntas sobre horarios del local, direccion, web, formas de reservar, contacto, redes, servicios, profesionales o precios.',
+          'Modismos como "cuando levantan la persiana", "cuando abren las puertas" o "desde que hora atienden" preguntan opening_hours; nunca significan volver de paso.',
+          'Una consulta por costo, valor, inversion o cuanto sale es business_information con topic prices, aunque no use la palabra precio.',
+          'Usa request_quote solo cuando pide un presupuesto personalizado o exacto; no lo uses para una consulta general de precio.',
           'Para consultas sobre un servicio puntual, completa catalogQuery con su ID y la informacion pedida aunque el cliente no use palabras literales como servicio o precio.',
           'En catalogQuery usa serviceId para una coincidencia unica y candidateServiceIds con todos los candidatos cuando la referencia es ambigua; no elijas uno arbitrariamente.',
           'Ejemplos de consulta puntual: "contame sobre tratamiento", "dame informacion de las iluminaciones", "cuanto vale el corte" o "quien hace color".',
@@ -149,12 +155,20 @@ export class ConversationRouter {
           'Si currentStep es START y preguntan genericamente por los horarios, interpretalo como opening_hours del negocio, no como disponibilidad para reservar.',
           'Si currentStep es ASK_TIME, una pregunta por horarios se refiere a disponibilidad de turnos, salvo que mencione explicitamente abrir, cerrar u horario del local.',
           'Usa availability_preference para dias o franjas como despues de las 18, por la manana o solo sabados.',
-          'Usa professional_preference cuando nombra, pregunta o cambia profesional.',
+          'Usa professional_preference cuando selecciona, nombra como preferencia o cambia profesional para su reserva.',
+          'Si pregunta quienes realizan, conocen o "tienen mano" para un servicio, usa business_information con topic professionals y catalogQuery.professionals; no lo tomes como una eleccion.',
+          'Usa cancel_booking cuando quiere abandonar o cancelar la reserva que esta armando, sin cancelar un turno ya confirmado.',
+          'Si currentDraft contiene un servicio, profesional, fecha u hora y el cliente quiere dejar, abandonar o frenar lo que esta haciendo, cancel_booking tiene prioridad sobre stop_flow.',
+          'Usa cancel_appointment solamente cuando quiere cancelar un turno ya confirmado o existente.',
+          'Usa go_back cuando quiere regresar al paso anterior de la reserva actual, cambiar la eleccion anterior o volver atras.',
+          'Usa go_back solo si pide semanticamente retroceder, regresar o recuperar una eleccion previa dentro de la reserva. No lo infieras de una pregunta informativa.',
+          'Usa restart_booking cuando quiere comenzar otra vez, iniciar una nueva reserva o confirma que quiere reservar nuevamente despues de cancelar.',
+          'Usa el estado actual y lastBotMessage para entender respuestas breves como si, mejor volvamos o empecemos otra vez.',
           'Usa request_quote cuando pide precio estimado o presupuesto personalizado.',
           'No uses request_quote para una consulta comun de precio; reservalo para presupuesto, cotizacion o estimacion personalizada.',
           'Usa submit_media cuando afirma enviar una foto, imagen o comprobante.',
           'Usa request_human cuando pide una persona o la consulta requiere criterio humano.',
-          'Usa stop_flow cuando dice que no necesita nada mas o quiere terminar la conversacion, incluso con respuestas informales como no gracias, nada mas, era eso, joya o estamos.',
+          'Usa stop_flow cuando dice que no necesita nada mas o quiere terminar la conversacion y no esta cancelando una reserva en curso, incluso con respuestas informales como no gracias, nada mas, era eso, joya o estamos.',
           'bookingMessage debe contener solamente la parte util para continuar o modificar la reserva.',
           'Si el mensaje es solo informativo, social o ajeno a la reserva, bookingMessage debe ser null.',
           'Ademas de clasificar, extrae en bookingExtraction todos los datos de reserva visibles en customerMessage.',
@@ -692,24 +706,7 @@ function isGroundedBusinessInformationIntent(
   if (intent.type !== 'business_information' || !intent.topic) return false
   const message = normalizeEvidenceText(originalMessage)
   const evidence = normalizeEvidenceText(intent.evidence)
-  if (!evidence || !message.includes(evidence)) return false
-
-  const topicSignals: Record<BusinessInformationTopic, string[]> = {
-    opening_hours: ['horario', 'horarios', 'abren', 'abrir', 'cierran', 'cerrar', 'abierto'],
-    address: ['direccion', 'ubicacion', 'donde', 'llegar', 'llego', 'local', 'mapa', 'maps'],
-    website: ['web', 'pagina', 'sitio', 'internet'],
-    booking_channels: ['reservar', 'reservo', 'turno', 'link', 'enlace'],
-    phone: ['telefono', 'numero', 'whatsapp'],
-    email: ['email', 'mail', 'correo'],
-    instagram: ['instagram', 'insta', 'ig'],
-    facebook: ['facebook'],
-    services: ['servicio', 'servicios', 'hacen', 'ofrecen'],
-    professionals: ['profesional', 'profesionales', 'atiende', 'atienden'],
-    prices: ['precio', 'precios', 'sale', 'cuesta', 'valor'],
-    other: []
-  }
-
-  return containsAny(message, topicSignals[intent.topic])
+  return intent.confidence >= 0.65 && Boolean(evidence) && message.includes(evidence)
 }
 
 function normalizeEvidenceText(value: string) {

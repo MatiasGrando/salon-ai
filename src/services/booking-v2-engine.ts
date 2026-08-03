@@ -6,13 +6,20 @@ import { renderBookingV2Response } from './booking-v2-response-renderer.js'
 import { applyBookingV2Extraction, type BookingV2Interpretation } from './booking-v2-interpreter.js'
 import {
   BookingV2ServiceValidationClassifier,
-  deterministicServiceValidationDecision,
   type ServiceValidationClassification
 } from './booking-v2-service-validation.js'
 import {
   BookingV2EstimateDecisionExtractor,
   type EstimateDecisionExtraction
 } from './booking-v2-estimate-decision-extractor.js'
+import {
+  BookingV2EstimateOptionExtractor,
+  type EstimateOptionExtraction
+} from './booking-v2-estimate-option-extractor.js'
+import {
+  BookingV2ChoiceExtractor,
+  type BookingV2ChoiceExtraction
+} from './booking-v2-choice-extractor.js'
 import {
   ANY_PROFESSIONAL_ID,
   acceptField,
@@ -52,6 +59,20 @@ type BookingV2EstimateDecisionPort = {
     requiresPhoto: boolean
   }): Promise<EstimateDecisionExtraction>
 }
+type BookingV2EstimateOptionPort = {
+  extract(input: {
+    message: string
+    serviceName: string
+    options: Array<{ id: string; label: string; note: string | null }>
+  }): Promise<EstimateOptionExtraction>
+}
+type BookingV2ChoicePort = {
+  extract(input: {
+    message: string
+    question: string
+    choices: Array<{ id: string; meaning: string }>
+  }): Promise<BookingV2ChoiceExtraction>
+}
 
 export type BookingV2ProcessInput = {
   businessId: string
@@ -78,7 +99,11 @@ export class BookingV2Engine {
     private readonly serviceValidationClassifier: BookingV2ServiceValidationPort =
       new BookingV2ServiceValidationClassifier(),
     private readonly estimateDecisionExtractor: BookingV2EstimateDecisionPort =
-      new BookingV2EstimateDecisionExtractor()
+      new BookingV2EstimateDecisionExtractor(),
+    private readonly estimateOptionExtractor: BookingV2EstimateOptionPort =
+      new BookingV2EstimateOptionExtractor(),
+    private readonly choiceExtractor: BookingV2ChoicePort =
+      new BookingV2ChoiceExtractor()
   ) {}
 
   async process(input: BookingV2ProcessInput): Promise<BookingV2ProcessResult> {
@@ -87,8 +112,15 @@ export class BookingV2Engine {
     const initialState = sanitizeCatalogNameCollision(storedState, catalog)
 
     if (initialState.categoryAdvice?.stage === 'awaiting_confirmation') {
-      const confirmation = readCategoryAdviceConfirmation(input.message)
-      if (confirmation === 'yes') {
+      const choice = await this.choiceExtractor.extract({
+        message: input.message,
+        question: `¿Querés hablar con un profesional para elegir un servicio de ${initialState.categoryAdvice.categoryName} o volver a los tratamientos?`,
+        choices: [
+          { id: 'request_advice', meaning: 'Quiere hablar con un profesional o pedir asesoramiento.' },
+          { id: 'back_to_services', meaning: 'Prefiere volver a ver o elegir tratamientos.' }
+        ]
+      })
+      if (choice.confidence >= 0.65 && choice.choiceId === 'request_advice') {
         const categoryName = initialState.categoryAdvice.categoryName
         const state: BookingV2State = {
           ...initialState,
@@ -104,7 +136,7 @@ export class BookingV2Engine {
           categoryName
         }, catalog, 'accepted')
       }
-      if (confirmation === 'no') {
+      if (choice.confidence >= 0.65 && choice.choiceId === 'back_to_services') {
         const categoryName = initialState.categoryAdvice.categoryName
         const state: BookingV2State = {
           ...initialState,
@@ -225,7 +257,18 @@ export class BookingV2Engine {
             allowsBooking: service.estimateAllowsBooking !== false
           }, catalog, 'accepted')
         }
-        const option = resolveEstimateOption(input.message, service.estimateOptions ?? [])
+        const optionExtraction = await this.estimateOptionExtractor.extract({
+          message: input.message,
+          serviceName: service.name,
+          options: (service.estimateOptions ?? []).map((option) => ({
+            id: option.id,
+            label: option.label,
+            note: option.note
+          }))
+        })
+        const option = optionExtraction.confidence >= 0.65
+          ? service.estimateOptions?.find((candidate) => candidate.id === optionExtraction.optionId)
+          : null
         if (!option) {
           return this.guidedEstimateResult(initialState, {
             type: 'ask_estimate_option',
@@ -293,35 +336,19 @@ export class BookingV2Engine {
       }
     }
 
-    if (initialState.draft.time && isTimeChangeRequest(input.message)) {
-      const stateWithoutTime = {
-        ...initialState,
-        draft: clearFieldAndDependents(initialState.draft, 'time'),
-        pendingProposal: null
-      }
-      const requestedTime = await this.resolveExpectedTime(
-        input.message,
-        stateWithoutTime,
-        catalog
-      )
-      const state = requestedTime
-        ? acceptField(stateWithoutTime, 'time', requestedTime.time)
-        : stateWithoutTime
-
-      return this.fromInterpretation({
-        state,
-        nextField: nextMissingField(state.draft),
-        outcome: requestedTime ? 'accepted' : 'no_change',
-        affectedField: 'time'
-      }, null, catalog)
-    }
-
     if (initialState.pendingProposal) {
-      const confirmation = readConfirmation(input.message)
-      if (confirmation === 'yes') {
+      const choice = await this.choiceExtractor.extract({
+        message: input.message,
+        question: '¿Confirmás la opción propuesta para continuar con la reserva?',
+        choices: [
+          { id: 'confirm', meaning: 'Acepta o confirma la propuesta.' },
+          { id: 'reject', meaning: 'Rechaza la propuesta o quiere elegir otra opción.' }
+        ]
+      })
+      if (choice.confidence >= 0.65 && choice.choiceId === 'confirm') {
         return this.fromState(confirmProposal(initialState), 'proposal_confirmed', null, catalog)
       }
-      if (confirmation === 'no') {
+      if (choice.confidence >= 0.65 && choice.choiceId === 'reject') {
         return this.fromState(rejectProposal(initialState), 'proposal_rejected', null, catalog)
       }
       return this.fromInterpretation({
@@ -332,11 +359,20 @@ export class BookingV2Engine {
       }, null, catalog)
     }
 
-    if (
+    const serviceChoice =
       nextMissingField(initialState.draft) === 'service' &&
-      isCategoryAdviceIntent(input.message)
-    ) {
-      const adviceCategory = resolveCategoryAdviceCategory(input.message, initialState, catalog)
+      initialState.categoryAdvice?.stage === 'offered'
+      ? await this.choiceExtractor.extract({
+          message: input.message,
+          question: '¿El cliente pide ayuda humana porque no sabe qué servicio elegir o está intentando continuar la selección por su cuenta?',
+          choices: [
+            { id: 'request_service_advice', meaning: 'No sabe qué servicio necesita o pide asesoramiento de una persona para elegir.' },
+            { id: 'continue_service_selection', meaning: 'Elige, consulta o describe un servicio sin pedir ayuda humana para decidir.' }
+          ]
+        })
+      : null
+    if (serviceChoice?.confidence >= 0.65 && serviceChoice.choiceId === 'request_service_advice') {
+      const adviceCategory = initialState.categoryAdvice.categoryName
       if (adviceCategory) {
         const state: BookingV2State = {
           ...initialState,
@@ -353,29 +389,6 @@ export class BookingV2Engine {
         }, catalog, 'accepted')
       }
 
-      const adviceServices = catalog.services.filter((service) =>
-        service.categoryAdviceEnabled === true
-      )
-      if (adviceServices.length) {
-        return this.fromInterpretation({
-          state: initialState,
-          nextField: 'service',
-          outcome: 'no_change',
-          affectedField: 'service'
-        }, null, catalog, 'no_change', {
-          serviceSuggestions: adviceServices
-        })
-      }
-    }
-
-    if (
-      nextMissingField(initialState.draft) === 'service' &&
-      deterministicServiceValidationDecision(input.message) === 'uncertain'
-    ) {
-      return this.guidedEstimateResult(initialState, {
-        type: 'handoff',
-        reason: 'service_selection_uncertain'
-      }, catalog, 'accepted')
     }
 
     const deterministicName = resolveExpectedName(input.message, initialState, catalog)
@@ -953,52 +966,6 @@ function reconcileBookingV2Agenda(
   return { ...state, agenda }
 }
 
-function isCategoryAdviceIntent(message: string) {
-  const normalized = normalize(message)
-  return deterministicServiceValidationDecision(message) === 'uncertain' ||
-    [
-      'hablar con un profesional',
-      'hablar con una persona',
-      'asesoramiento profesional',
-      'ayuda para elegir',
-      'ayudarme a elegir'
-    ].some((phrase) => normalized.includes(phrase))
-}
-
-function resolveCategoryAdviceCategory(
-  message: string,
-  state: BookingV2State,
-  catalog: BookingV2DomainCatalog
-) {
-  const categories = adviceCategories(catalog)
-  const normalizedMessage = normalize(message)
-  const mentioned = categories.filter((category) =>
-    normalizedMessage.includes(normalize(category))
-  )
-  if (mentioned.length === 1) return mentioned[0] ?? null
-
-  const offeredCategory = state.categoryAdvice?.stage === 'offered'
-    ? state.categoryAdvice.categoryName
-    : null
-  if (
-    offeredCategory &&
-    categories.some((category) => normalize(category) === normalize(offeredCategory))
-  ) {
-    return offeredCategory
-  }
-
-  return categories.length === 1 ? categories[0] ?? null : null
-}
-
-function adviceCategories(catalog: BookingV2DomainCatalog) {
-  return Array.from(new Set(
-    catalog.services
-      .filter((service) => service.categoryAdviceEnabled === true)
-      .map((service) => service.category?.trim())
-      .filter((category): category is string => Boolean(category))
-  ))
-}
-
 function sharedAdviceCategory(services: BookingV2DomainCatalog['services']) {
   const categories = Array.from(new Set(
     services
@@ -1023,62 +990,6 @@ function offeredCategoryServices(
   if (!catalog || state.categoryAdvice?.stage !== 'offered') return undefined
   const services = servicesForCategory(catalog, state.categoryAdvice.categoryName)
   return services.length ? services : undefined
-}
-
-function readCategoryAdviceConfirmation(message: string): 'yes' | 'no' | null {
-  const confirmation = readConfirmation(message)
-  if (confirmation) return confirmation
-  const normalized = normalize(message)
-  if ([
-    'volver',
-    'volver a los tratamientos',
-    'ver tratamientos',
-    'reservar directamente',
-    'seguir reservando'
-  ].includes(normalized)) {
-    return 'no'
-  }
-  if ([
-    'hablar con un profesional',
-    'si hablar con un profesional',
-    'quiero hablar con un profesional'
-  ].includes(normalized)) {
-    return 'yes'
-  }
-  return null
-}
-
-function readConfirmation(message: string): 'yes' | 'no' | null {
-  const normalized = normalize(message)
-  if ([
-    'si',
-    'sí',
-    'dale',
-    'ok',
-    'okay',
-    'correcto',
-    'confirmo',
-    'esta bien',
-    'está bien',
-    'exacto'
-  ].includes(normalized)) {
-    return 'yes'
-  }
-
-  if ([
-    'no',
-    'nop',
-    'no gracias',
-    'negativo',
-    'cancelalo',
-    'cancela',
-    'cancelar',
-    'mejor no'
-  ].includes(normalized)) {
-    return 'no'
-  }
-
-  return null
 }
 
 function normalize(value: string) {
@@ -1597,38 +1508,6 @@ function parseTime(message: string) {
   const minute = Number(match[2] ?? '0')
   if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
-}
-
-function isTimeChangeRequest(message: string) {
-  const normalized = normalize(message)
-  return [
-    'cambiar la hora',
-    'cambiar el horario',
-    'cambio la hora',
-    'cambio el horario',
-    'modificar la hora',
-    'modificar el horario',
-    'otra hora',
-    'otro horario'
-  ].some((phrase) => normalized.includes(phrase))
-}
-
-function resolveEstimateOption(
-  message: string,
-  options: NonNullable<BookingV2DomainCatalog['services'][number]['estimateOptions']>
-) {
-  const normalized = normalize(message)
-  const numericMatch = /^(?:opcion\s*)?(\d{1,2})$/.exec(normalized)
-  if (numericMatch?.[1]) {
-    return options[Number(numericMatch[1]) - 1] ?? null
-  }
-  const exact = options.filter((option) => normalize(option.label) === normalized)
-  if (exact.length === 1) return exact[0] ?? null
-  const embedded = options.filter((option) =>
-    normalized.includes(normalize(option.label)) ||
-    normalize(option.label).includes(normalized)
-  )
-  return embedded.length === 1 ? embedded[0] ?? null : null
 }
 
 function shouldValidateAvailability(plan: BookingV2MessagePlan) {
