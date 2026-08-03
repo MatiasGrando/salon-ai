@@ -180,6 +180,13 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
   }
 
   if (input.plan.type === 'confirm_field') {
+    if (input.plan.field === 'professional') {
+      return professionalSuggestionConfirmation(
+        input.plan.value,
+        input.draft.service,
+        input.catalog
+      )
+    }
     return confirmationForField(input.plan.field, input.plan.value, input.catalog)
   }
 
@@ -387,6 +394,24 @@ function professionalQuestion(
     ...professionals.map((professional) => `• ${professional.name}`),
     '• Cualquier profesional',
     '¿Con quién preferís?'
+  ].join('\n')
+}
+
+function professionalSuggestionConfirmation(
+  professionalId: string,
+  serviceId: string | null,
+  catalog?: BookingV2DomainCatalog | null
+) {
+  const suggestedName = labelForProfessional(professionalId, catalog)
+  const professionals = catalog?.professionals.filter((professional) =>
+    !serviceId || professional.serviceIds.includes(serviceId)
+  ) ?? []
+
+  return [
+    'Podés atenderte con:',
+    ...professionals.map((professional) => `• ${professional.name}`),
+    '• Cualquier profesional',
+    `¿Te agendo con ${suggestedName}?`
   ].join('\n')
 }
 

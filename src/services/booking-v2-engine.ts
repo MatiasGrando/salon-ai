@@ -15,6 +15,7 @@ import {
   clearFieldAndDependents,
   confirmProposal,
   nextMissingField,
+  proposeField,
   rejectProposal,
   type BookingV2State
 } from './booking-v2-state.js'
@@ -410,12 +411,26 @@ export class BookingV2Engine {
       stateForExtraction,
       catalog
     )
-    if (deterministicProfessional) {
-      const state = acceptField(initialState, 'professional', deterministicProfessional)
+    if (deterministicProfessional?.kind === 'selected') {
+      const state = acceptField(initialState, 'professional', deterministicProfessional.professionalId)
       return this.fromInterpretation({
         state,
         nextField: nextMissingField(state.draft),
         outcome: 'accepted',
+        affectedField: 'professional'
+      }, null, catalog)
+    }
+    if (deterministicProfessional?.kind === 'probable') {
+      const state = proposeField(initialState, {
+        field: 'professional',
+        value: deterministicProfessional.professionalId,
+        confidence: 0.7,
+        evidence: input.message.trim()
+      })
+      return this.fromInterpretation({
+        state,
+        nextField: nextMissingField(state.draft),
+        outcome: 'confirmation_required',
         affectedField: 'professional'
       }, null, catalog)
     }
@@ -1162,14 +1177,56 @@ function resolveExpectedProfessional(
     'el que este disponible',
     'la que este disponible'
   ].includes(normalizedMessage)) {
-    return ANY_PROFESSIONAL_ID
+    return {
+      kind: 'selected' as const,
+      professionalId: ANY_PROFESSIONAL_ID
+    }
   }
 
   const matches = compatibleProfessionals.filter((professional) =>
     normalize(professional.name) === normalizedMessage
   )
+  if (matches.length === 1) {
+    return {
+      kind: 'selected' as const,
+      professionalId: matches[0]?.id ?? ''
+    }
+  }
 
-  return matches.length === 1 ? matches[0]?.id ?? null : null
+  const probableMatches = compatibleProfessionals.filter((professional) =>
+    isProbableProfessionalNickname(normalizedMessage, professional.name)
+  )
+
+  return probableMatches.length === 1
+    ? {
+        kind: 'probable' as const,
+        professionalId: probableMatches[0]?.id ?? ''
+      }
+    : null
+}
+
+function isProbableProfessionalNickname(candidate: string, professionalName: string) {
+  if (!candidate || candidate.includes(' ')) return false
+  const firstName = normalize(professionalName).split(' ')[0] ?? ''
+  if (candidate.length < 4 || firstName.length < 4 || candidate === firstName) return false
+
+  // Truncamientos frecuentes: Nico -> Nicolas, Cami -> Camila.
+  if (firstName.startsWith(candidate)) return true
+
+  // Apodos terminados en i/y: Tami -> Tamara, Mili -> Milagros.
+  if (
+    /^[a-z]+[iy]$/.test(candidate) &&
+    candidate.length <= 6 &&
+    firstName.startsWith(candidate.slice(0, -1))
+  ) {
+    return true
+  }
+
+  // Diminutivos espanoles: Marquitos -> Marcos, Carlitos -> Carlos.
+  const diminutiveStem = candidate
+    .replace(/(?:citos|citas|itos|itas|cito|cita|ito|ita)$/, '')
+    .replace(/qu$/, 'c')
+  return diminutiveStem.length >= 3 && firstName.startsWith(diminutiveStem)
 }
 
 function resolveExpectedService(
@@ -1571,7 +1628,12 @@ function isContinueBookingRequest(message: string) {
   return [
     'reservar',
     'reserva',
+    'reservo',
     'quiero reservar',
+    'continuar',
+    'continuo',
+    'seguir',
+    'sigamos',
     'seguir con la reserva',
     'continuar con la reserva',
     'sacar turno',

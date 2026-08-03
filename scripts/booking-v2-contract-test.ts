@@ -681,6 +681,101 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'propone profesional ante apodo probable y espera confirmacion',
+    run: async () => {
+      const nicknameCatalog = createBookingV2DomainCatalog({
+        services: [{
+          id: 'roots',
+          name: 'Raices',
+          aliases: ['raices'],
+          duration: 60,
+          price: 40000,
+          category: null
+        }],
+        professionals: [
+          { id: 'tamara', name: 'Tamara', serviceIds: ['roots'] },
+          { id: 'lucas', name: 'Lucas', serviceIds: ['roots'] }
+        ]
+      })
+      const engine = new BookingV2Engine(
+        fakeDomainPort({ catalog: nicknameCatalog }),
+        fakeExtractor(null)
+      )
+      const conversation = {
+        selectedCustomerName: 'Mati',
+        selectedServiceId: 'roots',
+        selectedProfessionalId: null,
+        selectedDate: null,
+        selectedTime: null,
+        misunderstandingCount: 0,
+        bookingV2State: null
+      }
+
+      const proposed = await engine.process({
+        businessId: 'business-1',
+        conversation,
+        message: 'con tami'
+      })
+
+      assert.equal(proposed.state.draft.professional, null)
+      assert.equal(proposed.state.pendingProposal?.field, 'professional')
+      assert.equal(proposed.state.pendingProposal?.value, 'tamara')
+      assert.equal(proposed.plan.type, 'confirm_field')
+      assert.equal(proposed.reply.includes('• Tamara'), true)
+      assert.equal(proposed.reply.includes('• Lucas'), true)
+      assert.equal(proposed.reply.includes('• Cualquier profesional'), true)
+      assert.equal(proposed.reply.includes('¿Te agendo con Tamara?'), true)
+
+      const confirmed = await engine.process({
+        businessId: 'business-1',
+        conversation: proposed.conversationPatch,
+        message: 'si'
+      })
+      assert.equal(confirmed.state.draft.professional, 'tamara')
+      assert.equal(confirmed.state.pendingProposal, null)
+      assert.equal(confirmed.plan.type === 'ask_field' ? confirmed.plan.field : null, 'date')
+    }
+  },
+  {
+    name: 'propone profesional ante diminutivo espanol',
+    run: async () => {
+      const nicknameCatalog = createBookingV2DomainCatalog({
+        services: [{
+          id: 'haircut',
+          name: 'Corte',
+          aliases: ['corte'],
+          duration: 30,
+          price: 15000,
+          category: null
+        }],
+        professionals: [
+          { id: 'marcos', name: 'Marcos', serviceIds: ['haircut'] },
+          { id: 'lucas', name: 'Lucas', serviceIds: ['haircut'] }
+        ]
+      })
+      const engine = new BookingV2Engine(
+        fakeDomainPort({ catalog: nicknameCatalog }),
+        fakeExtractor(null)
+      )
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Mati',
+          selectedServiceId: 'haircut',
+          selectedProfessionalId: null,
+          selectedDate: null,
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: 'Marquitos'
+      })
+
+      assert.equal(result.state.pendingProposal?.value, 'marcos')
+      assert.equal(result.reply.includes('¿Te agendo con Marcos?'), true)
+    }
+  },
+  {
     name: 'comprension estructurada conserva un servicio adelantado mientras pide el nombre',
     run: async () => {
       const catalog = createBookingV2DomainCatalog({
@@ -1787,6 +1882,22 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(continued.plan.type, 'ask_field')
       assert.equal(continued.plan.type === 'ask_field' ? continued.plan.field : null, 'professional')
       assert.equal(continued.reply.includes('Tamara'), true)
+
+      for (const naturalAnswer of ['Continuar', 'Reservo', 'Sigamos']) {
+        const naturalContinuation = await engine.process({
+          businessId: 'business-1',
+          conversation: estimated.conversationPatch,
+          message: naturalAnswer
+        })
+        assert.equal(naturalContinuation.plan.type, 'ask_field', naturalAnswer)
+        assert.equal(
+          naturalContinuation.plan.type === 'ask_field'
+            ? naturalContinuation.plan.field
+            : null,
+          'professional',
+          naturalAnswer
+        )
+      }
     }
   },
   {
