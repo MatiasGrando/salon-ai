@@ -62,7 +62,8 @@ export const CATALOG_QUERY_INFORMATION = [
 export type CatalogQueryInformation = (typeof CATALOG_QUERY_INFORMATION)[number]
 
 export type CatalogQuery = {
-  serviceId: string
+  serviceId: string | null
+  candidateServiceIds?: string[]
   requestedInformation: CatalogQueryInformation[]
   confidence: number
   evidence: string
@@ -141,6 +142,7 @@ export class ConversationRouter {
           'No respondas al cliente, no ejecutes acciones y no inventes datos.',
           'Usa business_information para preguntas sobre horarios del local, direccion, web, formas de reservar, contacto, redes, servicios, profesionales o precios.',
           'Para consultas sobre un servicio puntual, completa catalogQuery con su ID y la informacion pedida aunque el cliente no use palabras literales como servicio o precio.',
+          'En catalogQuery usa serviceId para una coincidencia unica y candidateServiceIds con todos los candidatos cuando la referencia es ambigua; no elijas uno arbitrariamente.',
           'Ejemplos de consulta puntual: "contame sobre tratamiento", "dame informacion de las iluminaciones", "cuanto vale el corte" o "quien hace color".',
           'Usa catalogQuery.general cuando pide informacion o detalles generales; price para precio; duration para duracion; professionals para quien lo realiza.',
           'Una consulta puntual no inicia ni modifica una reserva: bookingMessage debe ser null salvo que tambien exprese claramente que quiere reservar o cambiar.',
@@ -149,6 +151,7 @@ export class ConversationRouter {
           'Usa availability_preference para dias o franjas como despues de las 18, por la manana o solo sabados.',
           'Usa professional_preference cuando nombra, pregunta o cambia profesional.',
           'Usa request_quote cuando pide precio estimado o presupuesto personalizado.',
+          'No uses request_quote para una consulta comun de precio; reservalo para presupuesto, cotizacion o estimacion personalizada.',
           'Usa submit_media cuando afirma enviar una foto, imagen o comprobante.',
           'Usa request_human cuando pide una persona o la consulta requiere criterio humano.',
           'Usa stop_flow cuando dice que no necesita nada mas o quiere terminar la conversacion, incluso con respuestas informales como no gracias, nada mas, era eso, joya o estamos.',
@@ -299,15 +302,19 @@ export function mergeConversationRouting(
   originalMessage: string,
   catalog?: ConversationRouterInput['catalog']
 ): Omit<ConversationRouting, 'source'> {
-  const catalogQuery = groundedCatalogQuery(
+  const aiCatalogQuery = groundedCatalogQuery(
     aiRouting.catalogQuery ?? null,
     originalMessage,
     catalog
-  ) ?? groundedCatalogQuery(
+  )
+  const deterministicCatalogQuery = groundedCatalogQuery(
     deterministic.catalogQuery ?? null,
     originalMessage,
     catalog
   )
+  const catalogQuery = (deterministicCatalogQuery?.candidateServiceIds?.length ?? 0) > 1
+    ? deterministicCatalogQuery
+    : aiCatalogQuery ?? deterministicCatalogQuery
   const deterministicTopics = new Set(businessInformationTopicsFromRouting(deterministic))
   const standaloneBusinessInformationQuestion =
     (deterministicTopics.size > 0 || catalogQuery !== null) &&
@@ -320,6 +327,13 @@ export function mergeConversationRouting(
         'availability_preference',
         'professional_preference'
       ].includes(intent.type)
+    ) {
+      return false
+    }
+    if (
+      standaloneBusinessInformationQuestion &&
+      intent.type === 'request_quote' &&
+      !hasExplicitQuoteRequest(normalizeEvidenceText(originalMessage))
     ) {
       return false
     }
@@ -365,7 +379,18 @@ export function mergeConversationRouting(
 
 function normalizeCatalogQuery(value: CatalogQuery | null | undefined): CatalogQuery | null {
   if (!value || typeof value !== 'object') return null
-  if (typeof value.serviceId !== 'string' || !value.serviceId.trim()) return null
+  const serviceId = typeof value.serviceId === 'string' && value.serviceId.trim()
+    ? value.serviceId.trim()
+    : null
+  const candidateServiceIds = Array.from(new Set(
+    Array.isArray(value.candidateServiceIds)
+      ? value.candidateServiceIds
+          .filter((item): item is string => typeof item === 'string' && Boolean(item.trim()))
+          .map((item) => item.trim())
+      : []
+  ))
+  if (serviceId && !candidateServiceIds.includes(serviceId)) candidateServiceIds.unshift(serviceId)
+  if (!serviceId && candidateServiceIds.length < 2) return null
   if (!Array.isArray(value.requestedInformation)) return null
   const requestedInformation = Array.from(new Set(
     value.requestedInformation.filter((item): item is CatalogQueryInformation =>
@@ -375,7 +400,8 @@ function normalizeCatalogQuery(value: CatalogQuery | null | undefined): CatalogQ
   if (!requestedInformation.length) return null
   if (typeof value.evidence !== 'string' || !value.evidence.trim()) return null
   return {
-    serviceId: value.serviceId.trim(),
+    serviceId,
+    candidateServiceIds,
     requestedInformation,
     confidence: normalizeConfidence(value.confidence),
     evidence: value.evidence.trim()
@@ -402,19 +428,43 @@ function deterministicCatalogQuery(
   }
   if (!requestedInformation.length) return null
 
-  const matches = catalog.services.filter((service) =>
-    [service.name, ...(service.aliases ?? [])].some((label) =>
-      catalogLabelIsMentioned(normalized, normalizeEvidenceText(label))
-    )
-  )
-  if (matches.length !== 1) return null
+  const matches = resolveCatalogQueryServices(normalized, catalog)
+  if (!matches.length) return null
 
   return {
-    serviceId: matches[0]?.id ?? '',
+    serviceId: matches.length === 1 ? matches[0]?.id ?? null : null,
+    candidateServiceIds: matches.map((service) => service.id),
     requestedInformation: Array.from(new Set(requestedInformation)),
-    confidence: 0.95,
+    confidence: matches.length === 1 ? 0.95 : 0.82,
     evidence: message.trim()
   }
+}
+
+function resolveCatalogQueryServices(
+  normalizedMessage: string,
+  catalog: ConversationRouterInput['catalog']
+) {
+  const fullLabelMatches = catalog.services.filter((service) =>
+    [service.name, ...(service.aliases ?? [])].some((label) =>
+      catalogLabelIsMentioned(normalizedMessage, normalizeEvidenceText(label))
+    )
+  )
+  if (fullLabelMatches.length) return fullLabelMatches
+
+  const messageTokens = catalogQuerySubjectTokens(normalizedMessage)
+  const scoredMatches = catalog.services
+    .map((service) => ({
+      service,
+      score: Math.max(...[service.name, ...(service.aliases ?? [])].map((label) =>
+        catalogLabelMatchScore(messageTokens, catalogQuerySubjectTokens(normalizeEvidenceText(label)))
+      ))
+    }))
+    .filter((candidate) => candidate.score >= 0.5)
+    .sort((left, right) => right.score - left.score)
+  const bestScore = scoredMatches[0]?.score ?? 0
+  return scoredMatches
+    .filter((candidate) => bestScore - candidate.score < 0.08)
+    .map((candidate) => candidate.service)
 }
 
 function groundedCatalogQuery(
@@ -427,12 +477,19 @@ function groundedCatalogQuery(
   const normalizedEvidence = normalizeEvidenceText(query.evidence)
   if (!normalizedEvidence || !normalizedMessage.includes(normalizedEvidence)) return null
   if (!catalog) return query
-  const service = catalog.services.find((option) => option.id === query.serviceId)
-  if (!service) return null
-  const serviceIsMentioned = [service.name, ...(service.aliases ?? [])].some((label) =>
-    catalogLabelIsMentioned(normalizedMessage, normalizeEvidenceText(label))
-  )
-  return serviceIsMentioned ? query : null
+  const resolvedServiceIds = resolveCatalogQueryServices(normalizedMessage, catalog)
+    .map((service) => service.id)
+  if (query.serviceId) {
+    return resolvedServiceIds.length === 1 && resolvedServiceIds[0] === query.serviceId
+      ? query
+      : null
+  }
+  const candidateServiceIds = query.candidateServiceIds ?? []
+  return resolvedServiceIds.length > 1 &&
+    resolvedServiceIds.length === candidateServiceIds.length &&
+    resolvedServiceIds.every((serviceId) => candidateServiceIds.includes(serviceId))
+    ? query
+    : null
 }
 
 function catalogQuerySupportsTopic(
@@ -453,9 +510,37 @@ function catalogLabelIsMentioned(message: string, label: string) {
   )
   return labelTokens.length > 0 && labelTokens.every((labelToken) =>
     messageTokens.some((messageToken) =>
-      labelToken === messageToken || singularCatalogToken(labelToken) === singularCatalogToken(messageToken)
+      catalogTokensMatch(labelToken, messageToken)
     )
   )
+}
+
+function catalogQuerySubjectTokens(value: string) {
+  const ignored = new Set([
+    'a', 'al', 'algo', 'cual', 'cuales', 'cuanto', 'cuesta', 'dame', 'de', 'decime',
+    'del', 'detalle', 'detalles', 'duracion', 'el', 'es', 'explicame', 'informacion',
+    'info', 'la', 'las', 'lo', 'los', 'precio', 'precios', 'que', 'quien', 'quienes',
+    'sobre', 'un', 'una', 'valor', 'y'
+  ])
+  return value.split(' ').filter((token) => token && !ignored.has(token))
+}
+
+function catalogLabelMatchScore(messageTokens: string[], labelTokens: string[]) {
+  if (!labelTokens.length || !messageTokens.length) return 0
+  const matched = labelTokens.filter((labelToken) =>
+    messageTokens.some((messageToken) => catalogTokensMatch(labelToken, messageToken))
+  ).length
+  if (!matched) return 0
+  const coverage = matched / labelTokens.length
+  const specificity = Math.min(1, labelTokens.length / messageTokens.length)
+  return coverage * 0.9 + specificity * 0.1
+}
+
+function catalogTokensMatch(left: string, right: string) {
+  if (left === right) return true
+  if (singularCatalogToken(left) === singularCatalogToken(right)) return true
+  if (left.length < 4 || right.length < 4) return false
+  return editDistanceAtMostOne(left, right)
 }
 
 function singularCatalogToken(token: string) {
@@ -463,6 +548,30 @@ function singularCatalogToken(token: string) {
   if (token.length >= 6 && token.endsWith('es')) return token.slice(0, -2)
   if (token.length >= 5 && token.endsWith('s')) return token.slice(0, -1)
   return token
+}
+
+function editDistanceAtMostOne(left: string, right: string) {
+  if (Math.abs(left.length - right.length) > 1) return false
+  let differences = 0
+  let leftIndex = 0
+  let rightIndex = 0
+  while (leftIndex < left.length && rightIndex < right.length) {
+    if (left[leftIndex] === right[rightIndex]) {
+      leftIndex += 1
+      rightIndex += 1
+      continue
+    }
+    differences += 1
+    if (differences > 1) return false
+    if (left.length > right.length) leftIndex += 1
+    else if (right.length > left.length) rightIndex += 1
+    else {
+      leftIndex += 1
+      rightIndex += 1
+    }
+  }
+  if (leftIndex < left.length || rightIndex < right.length) differences += 1
+  return differences <= 1
 }
 
 function detectBusinessInformationTopics(
@@ -565,6 +674,17 @@ function hasExplicitBookingIntent(normalized: string) {
   ])
 }
 
+function hasExplicitQuoteRequest(normalized: string) {
+  return containsAny(normalized, [
+    'presupuesto',
+    'presupuestar',
+    'cotizacion',
+    'cotizar',
+    'estimacion personalizada',
+    'precio exacto'
+  ])
+}
+
 function isGroundedBusinessInformationIntent(
   intent: RoutedIntent,
   originalMessage: string
@@ -654,13 +774,21 @@ const conversationRoutingSchema = {
         {
           type: 'object',
           additionalProperties: false,
-          required: ['serviceId', 'requestedInformation', 'confidence', 'evidence'],
+          required: ['serviceId', 'candidateServiceIds', 'requestedInformation', 'confidence', 'evidence'],
           properties: {
-            serviceId: { type: 'string' },
+            serviceId: {
+              anyOf: [
+                { type: 'string' },
+                { type: 'null' }
+              ]
+            },
+            candidateServiceIds: {
+              type: 'array',
+              items: { type: 'string' }
+            },
             requestedInformation: {
               type: 'array',
               minItems: 1,
-              uniqueItems: true,
               items: { type: 'string', enum: CATALOG_QUERY_INFORMATION }
             },
             confidence: { type: 'number', minimum: 0, maximum: 1 },

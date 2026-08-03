@@ -3256,6 +3256,12 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
             topic: null,
             confidence: 0.7,
             evidence: 'un corte'
+          },
+          {
+            type: 'request_quote',
+            topic: null,
+            confidence: 0.7,
+            evidence: 'cuanto cuesta un corte'
           }
         ],
         bookingMessage: 'un corte',
@@ -3268,6 +3274,10 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(merged.bookingExtraction, null)
       assert.equal(
         merged.intents.some((intent) => intent.type === 'book_appointment'),
+        false
+      )
+      assert.equal(
+        merged.intents.some((intent) => intent.type === 'request_quote'),
         false
       )
     }
@@ -3487,6 +3497,41 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'router tolera un typo y aclara una referencia ambigua a corte',
+    run: () => {
+      const catalog = {
+        services: [
+          { id: 'haircut', name: 'Corte Hombre', description: 'Corte de pelo.' },
+          { id: 'haircut-color', name: 'Corte y color', description: 'Corte con color.' },
+          { id: 'roots', name: 'Raíces', description: 'Coloración de raíces.' }
+        ],
+        professionals: []
+      }
+
+      const typo = deterministicConversationRouting(
+        'precio de corto hombre',
+        { currentStep: 'START', catalog }
+      )
+      assert.equal(typo.catalogQuery?.serviceId, 'haircut')
+      assert.deepEqual(typo.catalogQuery?.candidateServiceIds, ['haircut'])
+      assert.deepEqual(typo.catalogQuery?.requestedInformation, ['price'])
+      assert.equal(typo.bookingMessage, null)
+
+      const ambiguous = deterministicConversationRouting(
+        'cual es el precio del corte',
+        { currentStep: 'START', catalog }
+      )
+      assert.equal(ambiguous.catalogQuery?.serviceId, null)
+      assert.deepEqual(
+        new Set(ambiguous.catalogQuery?.candidateServiceIds),
+        new Set(['haircut', 'haircut-color'])
+      )
+      assert.deepEqual(ambiguous.catalogQuery?.requestedInformation, ['price'])
+      assert.deepEqual(businessInformationTopicsFromRouting(ambiguous), ['prices'])
+      assert.equal(ambiguous.bookingMessage, null)
+    }
+  },
+  {
     name: 'conocimiento del negocio responde sobre el servicio solicitado',
     run: () => {
       const business = {
@@ -3541,6 +3586,54 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(haircut?.includes('$'), true)
       assert.equal(haircut?.includes('15.000'), true)
       assert.equal(haircut?.includes('Tratamiento'), false)
+    }
+  },
+  {
+    name: 'conocimiento del negocio muestra candidatos cuando corte es ambiguo',
+    run: () => {
+      const answer = renderCatalogServiceQuery({
+        name: 'Salon Demo',
+        slug: 'salon-demo',
+        landingEnabled: true,
+        publicWhatsapp: null,
+        contactEmail: null,
+        publicAddress: null,
+        publicAddressArea: null,
+        publicMapsUrl: null,
+        instagramUrl: null,
+        facebookUrl: null,
+        businessHours: [],
+        services: [
+          {
+            id: 'haircut',
+            name: 'Corte Hombre',
+            description: 'Corte clásico.',
+            duration: 30,
+            price: 15000,
+            priceMode: 'FIXED'
+          },
+          {
+            id: 'haircut-color',
+            name: 'Corte y color',
+            description: 'Corte con color.',
+            duration: 60,
+            price: 40000,
+            priceMode: 'FIXED'
+          }
+        ],
+        professionals: []
+      }, {
+        serviceId: null,
+        candidateServiceIds: ['haircut', 'haircut-color'],
+        requestedInformation: ['price'],
+        confidence: 0.82,
+        evidence: 'corte'
+      })
+
+      assert.match(answer ?? '', /más de un servicio relacionado/i)
+      assert.match(answer ?? '', /Corte Hombre — \$\s15\.000/)
+      assert.match(answer ?? '', /Corte y color — \$\s40\.000/)
+      assert.match(answer ?? '', /¿Sobre cuál querés más información\?/)
     }
   },
   {

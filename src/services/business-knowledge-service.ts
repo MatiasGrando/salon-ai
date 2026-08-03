@@ -133,6 +133,35 @@ export function renderCatalogServiceQuery(
   business: BusinessKnowledge,
   query: CatalogQuery
 ) {
+  const candidateServiceIds = query.serviceId
+    ? [query.serviceId]
+    : query.candidateServiceIds ?? []
+  const candidateServices = candidateServiceIds
+    .map((serviceId) => business.services.find((option) => option.id === serviceId))
+    .filter((service): service is BusinessKnowledge['services'][number] => Boolean(service))
+  if (!query.serviceId && candidateServices.length > 1) {
+    const requested = new Set(query.requestedInformation)
+    return [
+      'Encontré más de un servicio relacionado con tu consulta:',
+      ...candidateServices.map((service) => {
+        const details: string[] = []
+        if (requested.has('general') && service.description?.trim()) {
+          details.push(service.description.trim())
+        }
+        if (requested.has('general') || requested.has('duration')) {
+          details.push(`${service.duration} min`)
+        }
+        if (requested.has('general') || requested.has('price')) {
+          details.push(service.price === null
+            ? 'precio a consultar'
+            : `${service.priceMode === 'STARTING_AT' ? 'desde ' : ''}${formatMoney(service.price)}`)
+        }
+        return `• ${service.name}${details.length ? ` — ${details.join(' — ')}` : ''}`
+      }),
+      '¿Sobre cuál querés más información?'
+    ].join('\n')
+  }
+
   const service = business.services.find((option) => option.id === query.serviceId)
   if (!service) return null
 
