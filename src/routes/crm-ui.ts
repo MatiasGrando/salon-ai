@@ -17127,7 +17127,7 @@ const crmHtml = `<!doctype html>
           state.selectedCustomerId = created.id
           await loadCustomerOverview({ page: 1 })
           renderAppointmentFormOptions()
-          if (created.wasExisting) showCrmToast('Ese telÃ©fono ya pertenecÃ­a a un cliente. Reutilizamos su ficha existente.', 'success')
+          if (created.wasExisting) showCrmToast('Ese telÃ©fono ya pertenecÃ­a a ' + created.name + '. Reutilizamos su ficha existente.', 'success')
         } else if (isNote) {
           await getJson('/customers/' + customer.id + '/notes', {
             method: 'POST',
@@ -22109,6 +22109,9 @@ const crmHtml = `<!doctype html>
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name, phone, businessId: state.businessId })
           })
+          if (customer.wasExisting) {
+            showCrmToast('Ese telÃ©fono ya pertenece a ' + customer.name + '. El turno se cargarÃ¡ en su ficha existente.', 'success')
+          }
           customerId = customer.id
           state.customers = await getJson('/customers')
           renderAppointmentFormOptions()

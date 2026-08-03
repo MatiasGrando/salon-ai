@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { normalizeArgentineMobilePhone, normalizeCustomerPhone } from '../src/services/phone-normalization-service.js'
+import { customerNamesDiffer } from '../src/services/customer-identity-service.js'
 
 const equivalentPhones = [
   '+54 9 11 1234-5678',
@@ -26,17 +27,51 @@ const international = normalizeCustomerPhone('+598 99 123 456')
 assert.equal(international.ok, true, 'un cliente internacional con prefijo explícito debe aceptarse')
 if (international.ok) assert.equal(international.phone, '59899123456')
 
+assert.equal(customerNamesDiffer('María López', ' maria   lopez '), false, 'acentos, mayúsculas y espacios no generan conflicto')
+assert.equal(customerNamesDiffer('María López', 'Carla Pérez'), true, 'un nombre realmente diferente debe advertirse')
+
+const customersByPhone = new Map<string, { id: string; name: string }>()
+const appointments: Array<{ customerId: string }> = []
+function simulateNewCustomerAppointment(name: string, phone: string, defaultAreaCode = '11') {
+  const normalized = normalizeCustomerPhone(phone, { defaultAreaCode })
+  assert.equal(normalized.ok, true)
+  if (!normalized.ok) throw new Error(normalized.message)
+  let customer = customersByPhone.get(normalized.phone)
+  if (!customer) {
+    customer = { id: `customer-${customersByPhone.size + 1}`, name }
+    customersByPhone.set(normalized.phone, customer)
+  }
+  appointments.push({ customerId: customer.id })
+  return customer
+}
+
+const first = simulateNewCustomerAppointment('Tamara', '11 1234-5678')
+const second = simulateNewCustomerAppointment('Nombre equivocado', '+54 9 11 1234-5678')
+assert.equal(first.id, second.id, 'dos turnos con el mismo teléfono deben apuntar a la misma ficha')
+assert.equal(second.name, 'Tamara', 'el segundo alta no debe renombrar silenciosamente al cliente')
+assert.equal(customersByPhone.size, 1, 'no debe crearse un segundo cliente')
+assert.equal(appointments.length, 2, 'ambos turnos pueden existir')
+assert.ok(appointments.every((appointment) => appointment.customerId === first.id), 'ambos turnos deben compartir customerId')
+
+const anotherAreaCode = simulateNewCustomerAppointment('Otra persona', '351 123-4567', '351')
+assert.notEqual(anotherAreaCode.id, first.id, 'dos números nacionales con distinta característica pertenecen a identidades diferentes')
+
 const service = readFileSync(new URL('../src/services/customer-identity-service.ts', import.meta.url), 'utf8')
 assert.ok(service.includes('pg_advisory_xact_lock'), 'las altas concurrentes deben serializarse por teléfono')
 assert.ok(service.includes('normalizedPhone: canonicalPhone'), 'la identidad canónica debe persistirse')
 assert.ok(service.includes('customerMarketingPreference.upsert'), 'reutilizar un cliente debe conservar la preferencia del negocio')
 assert.ok(service.includes('defaultAreaCodeForBusiness'), 'los números locales deben usar la característica del local')
+assert.ok(service.includes('data: { phone: canonicalPhone, normalizedPhone: canonicalPhone }'), 'un nombre distinto no debe sobrescribir la ficha existente')
 
 const schema = readFileSync(new URL('../prisma/schema.prisma', import.meta.url), 'utf8')
 assert.ok(schema.includes('normalizedPhone String? @unique'), 'la base debe impedir dos identidades canónicas iguales')
 
 const customerRoute = readFileSync(new URL('../src/routes/customer.ts', import.meta.url), 'utf8')
 assert.ok(customerRoute.includes('findOrCreateCustomerByPhone'), 'el alta manual debe reutilizar la identidad central')
+
+const crmUi = readFileSync(new URL('../src/routes/crm-ui.ts', import.meta.url), 'utf8')
+assert.ok(crmUi.includes("customerId = customer.id"), 'el turno manual debe usar el id de la ficha reutilizada')
+assert.ok(crmUi.includes("customer.wasExisting"), 'el operador debe ser informado cuando se reutiliza una ficha')
 
 for (const file of ['conversation-service.ts', 'booking-conversation-flow.ts']) {
   const source = readFileSync(new URL(`../src/services/${file}`, import.meta.url), 'utf8')

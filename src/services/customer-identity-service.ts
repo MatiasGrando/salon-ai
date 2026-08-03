@@ -53,10 +53,13 @@ export async function findOrCreateCustomerByPhone(input: FindOrCreateCustomerInp
     }
 
     const wasExisting = Boolean(customer)
+    const nameConflict = customer && customerNamesDiffer(customer.name, name)
+      ? { existingName: customer.name, requestedName: name }
+      : null
     customer = customer
       ? await transaction.customer.update({
           where: { id: customer.id },
-          data: { name, phone: canonicalPhone, normalizedPhone: canonicalPhone }
+          data: { phone: canonicalPhone, normalizedPhone: canonicalPhone }
         })
       : await transaction.customer.create({
           data: { name, phone: canonicalPhone, normalizedPhone: canonicalPhone }
@@ -76,8 +79,16 @@ export async function findOrCreateCustomerByPhone(input: FindOrCreateCustomerInp
       })
     }
 
-    return { customer, wasExisting, canonicalPhone }
+    return { customer, wasExisting, nameConflict, canonicalPhone }
   })
+}
+
+export function customerNamesDiffer(existingName: string, requestedName: string) {
+  return normalizeCustomerName(existingName) !== normalizeCustomerName(requestedName)
+}
+
+function normalizeCustomerName(value: string) {
+  return value.trim().toLocaleLowerCase('es').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ')
 }
 
 async function defaultAreaCodeForBusiness(businessId?: string | null) {

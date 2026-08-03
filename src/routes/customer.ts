@@ -348,7 +348,7 @@ export async function customerRoutes(app: FastifyInstance) {
         phone: body.phone || '',
         businessId: body.businessId?.trim() || null
       })
-      return { ...result.customer, wasExisting: result.wasExisting }
+      return { ...result.customer, wasExisting: result.wasExisting, nameConflict: result.nameConflict }
     } catch (error) {
       if (error instanceof CustomerPhoneValidationError) return reply.status(400).send({ message: error.message })
       throw error
