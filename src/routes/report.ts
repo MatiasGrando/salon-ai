@@ -522,14 +522,16 @@ export async function reportRoutes(app: FastifyInstance) {
           : numberValue(visitGap.averageDays),
         sampleSize: numberValue(visitGap?.sampleSize)
       },
-      revenue: {
-        total: revenueTotal,
-        pricedAppointments: sum(pricedRows.map((row) => row.count)),
-        missingAppointments: sum(serviceRows
-          .filter((row) => serviceById.get(row.id)?.price === null)
-          .map((row) => row.count)),
-        missingServices
-      },
+      revenue: request.auth?.user.role === 'STAFF' && !request.auth.user.canViewFinancialAmounts
+        ? null
+        : {
+            total: revenueTotal,
+            pricedAppointments: sum(pricedRows.map((row) => row.count)),
+            missingAppointments: sum(serviceRows
+              .filter((row) => serviceById.get(row.id)?.price === null)
+              .map((row) => row.count)),
+            missingServices
+          },
       services: serviceRows.slice(0, 6),
       professionals: professionalRows,
       futureAgenda: {

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
+import { staffCanUseProfessional } from '../services/staff-permission-service.js'
 
 const scheduleBlockReasons = [
   'ABSENCE',
@@ -35,6 +36,10 @@ export async function scheduleBlockRoutes(app: FastifyInstance) {
       return reply.status(400).send({
         message: 'businessId, reason, startAt y endAt son requeridos'
       })
+    }
+
+    if (request.auth?.user.role === 'STAFF' && !staffCanUseProfessional(request.auth.user, body.professionalId)) {
+      return reply.status(403).send({ message: 'Tu perfil solo puede bloquear la agenda profesional asignada' })
     }
 
     if (!isScheduleBlockReason(body.reason)) {
@@ -210,6 +215,10 @@ export async function scheduleBlockRoutes(app: FastifyInstance) {
       return reply.status(404).send({
         message: 'No encontre ese bloqueo'
       })
+    }
+
+    if (request.auth?.user.role === 'STAFF' && !staffCanUseProfessional(request.auth.user, existingBlock.professionalId)) {
+      return reply.status(403).send({ message: 'Tu perfil no puede eliminar ese bloqueo' })
     }
 
     await prisma.scheduleBlock.delete({

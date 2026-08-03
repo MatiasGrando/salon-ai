@@ -1,5 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { AppointmentService } from '../services/appointment-service.js'
+import { prisma } from '../config/prisma.js'
+import { staffCanUseProfessional } from '../services/staff-permission-service.js'
 
 const service = new AppointmentService()
 
@@ -16,6 +18,12 @@ export async function appointmentRoutes(app: FastifyInstance) {
       serviceId: string
       startAt: string
       force?: boolean
+    }
+    if (!await canUseProfessional(request.auth?.user, body.professionalId)) {
+      return reply.status(403).send({ message: 'Tu perfil solo puede gestionar la agenda profesional asignada' })
+    }
+    if (body.force && request.auth?.user.role === 'STAFF' && !request.auth.user.canForceAppointments) {
+      return reply.status(403).send({ message: 'No tenes permiso para forzar turnos fuera de disponibilidad' })
     }
 
     const result = await service.create({
@@ -65,6 +73,10 @@ export async function appointmentRoutes(app: FastifyInstance) {
       status: 'PENDING' | 'CONFIRMED' | 'CANCELLED' | 'COMPLETED' | 'NO_SHOW'
     }
 
+    if (!await canAccessAppointment(request.auth?.user, params.id)) {
+      return reply.status(403).send({ message: 'Tu perfil no puede modificar ese turno' })
+    }
+
     const allowedStatuses = ['PENDING', 'CONFIRMED', 'CANCELLED', 'COMPLETED', 'NO_SHOW']
 
     if (!allowedStatuses.includes(body.status)) {
@@ -101,6 +113,16 @@ export async function appointmentRoutes(app: FastifyInstance) {
       force?: boolean
     }
 
+    if (!await canAccessAppointment(request.auth?.user, params.id)) {
+      return reply.status(403).send({ message: 'Tu perfil no puede modificar ese turno' })
+    }
+    if (!await canUseProfessional(request.auth?.user, body.professionalId)) {
+      return reply.status(403).send({ message: 'Tu perfil solo puede gestionar la agenda profesional asignada' })
+    }
+    if (body.force && request.auth?.user.role === 'STAFF' && !request.auth.user.canForceAppointments) {
+      return reply.status(403).send({ message: 'No tenes permiso para forzar turnos fuera de disponibilidad' })
+    }
+
     const result = await service.update({
       id: params.id,
       ...body
@@ -124,6 +146,10 @@ export async function appointmentRoutes(app: FastifyInstance) {
       id: string
     }
 
+    if (!await canAccessAppointment(request.auth?.user, params.id)) {
+      return reply.status(403).send({ message: 'Tu perfil no puede cancelar ese turno' })
+    }
+
     const result = await service.cancel(params.id)
 
     if (!result.ok) {
@@ -134,6 +160,23 @@ export async function appointmentRoutes(app: FastifyInstance) {
 
     return result.appointment
   })
+}
+
+async function canAccessAppointment(user: (Parameters<typeof staffCanUseProfessional>[0] & { businessId?: string | null }) | undefined, appointmentId: string) {
+  if (!user) return false
+  if (user.role !== 'STAFF') return true
+  const appointment = await prisma.appointment.findUnique({
+    where: { id: appointmentId },
+    select: { professionalId: true, professional: { select: { businessId: true } } }
+  })
+  return Boolean(appointment && appointment.professional.businessId === user.businessId && staffCanUseProfessional(user, appointment.professionalId))
+}
+
+async function canUseProfessional(user: Parameters<typeof staffCanUseProfessional>[0] & { businessId?: string | null } | undefined, professionalId: string) {
+  if (!user) return false
+  if (user.role !== 'STAFF') return true
+  const professional = await prisma.professional.findUnique({ where: { id: professionalId }, select: { businessId: true } })
+  return professional?.businessId === user.businessId && staffCanUseProfessional(user, professionalId)
 }
 
 function hasAgendaPermission(

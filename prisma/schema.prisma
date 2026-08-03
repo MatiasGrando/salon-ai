@@ -178,6 +178,20 @@ model User {
   canEditAppointments     Boolean       @default(true)
   canCancelAppointments   Boolean       @default(true)
   canManageScheduleBlocks Boolean       @default(true)
+  staffProfile            String        @default("PROFESSIONAL")
+  permissionPreset        String        @default("PROFESSIONAL_DEFAULT")
+  agendaScope             String        @default("OWN")
+  canForceAppointments    Boolean       @default(false)
+  canViewCustomers        Boolean       @default(false)
+  canCreateCustomers      Boolean       @default(false)
+  canEditCustomers        Boolean       @default(false)
+  canManageCustomerNotes  Boolean       @default(false)
+  canManageCustomerMarketing Boolean    @default(false)
+  canViewConversations    Boolean       @default(false)
+  canReplyConversations   Boolean       @default(false)
+  canManageDeposits       Boolean       @default(false)
+  canViewOperationalReports Boolean     @default(false)
+  canViewFinancialAmounts Boolean       @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -185,6 +199,22 @@ model User {
   @@index([businessId])
   @@index([professionalId])
   @@index([role])
+}
+
+model StaffAuditLog {
+  id String @id @default(cuid())
+
+  businessId String
+  userId     String
+  action     String
+  entityType String
+  entityId   String?
+  method     String
+  path       String
+  createdAt  DateTime @default(now())
+
+  @@index([businessId, createdAt])
+  @@index([userId, createdAt])
 }
 
 model UserSession {

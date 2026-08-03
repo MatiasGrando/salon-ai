@@ -13732,7 +13732,7 @@ const crmHtml = `<!doctype html>
 
         <section class="settings-panel" id="staff-accounts-panel" data-settings-panel="staff" hidden>
           <h3>Cuentas staff</h3>
-          <p>Cre&aacute; accesos para profesionales del local y asign&aacute; cada cuenta a su agenda.</p>
+          <p>Cre&aacute; accesos para profesionales o secretar&iacute;a. Eleg&iacute; un preset explicado y, si el negocio lo necesita, personaliz&aacute; cada permiso.</p>
           <form class="settings-form" id="staff-user-form">
             <input id="staff-user-id" type="hidden">
             <div class="staff-account-grid">
@@ -13749,6 +13749,17 @@ const crmHtml = `<!doctype html>
                 <input class="field" id="staff-user-password" type="password" autocomplete="new-password" placeholder="M&iacute;nimo 8 caracteres">
               </div>
               <div class="settings-field">
+                <label for="staff-user-profile">Tipo de acceso</label>
+                <select class="field" id="staff-user-profile">
+                  <option value="PROFESSIONAL">Profesional</option>
+                  <option value="SECRETARY">Secretaria</option>
+                </select>
+              </div>
+              <div class="settings-field">
+                <label for="staff-user-preset">Preset de permisos</label>
+                <select class="field" id="staff-user-preset"></select>
+              </div>
+              <div class="settings-field" id="staff-professional-field">
                 <label for="staff-user-professional">Profesional asignado</label>
                 <select class="field" id="staff-user-professional"></select>
               </div>
@@ -13759,14 +13770,30 @@ const crmHtml = `<!doctype html>
                   <option value="inactive">Inactivo</option>
                 </select>
               </div>
-              <div class="staff-permissions">
-                <strong>Permisos de agenda</strong>
+              <div class="staff-permissions full">
+                <strong id="staff-preset-title">Detalle del preset</strong>
+                <p id="staff-preset-description"></p>
+              </div>
+              <div class="staff-permissions full">
+                <strong>Permisos editables</strong>
                 <div class="staff-permission-grid">
                   <label><input id="staff-can-create-appointments" type="checkbox" checked> Cargar turnos</label>
                   <label><input id="staff-can-edit-appointments" type="checkbox" checked> Editar turnos</label>
                   <label><input id="staff-can-cancel-appointments" type="checkbox" checked> Cancelar turnos</label>
                   <label><input id="staff-can-manage-blocks" type="checkbox" checked> Bloquear agenda</label>
+                  <label><input id="staff-can-force-appointments" type="checkbox"> Forzar horarios, bloqueos o superposiciones</label>
+                  <label><input id="staff-can-view-customers" type="checkbox"> Ver clientes</label>
+                  <label><input id="staff-can-create-customers" type="checkbox"> Crear clientes</label>
+                  <label><input id="staff-can-edit-customers" type="checkbox"> Editar clientes</label>
+                  <label><input id="staff-can-manage-notes" type="checkbox"> Gestionar notas de clientes</label>
+                  <label><input id="staff-can-manage-marketing" type="checkbox"> Preferencias de promociones</label>
+                  <label><input id="staff-can-view-conversations" type="checkbox"> Ver conversaciones</label>
+                  <label><input id="staff-can-reply-conversations" type="checkbox"> Responder conversaciones</label>
+                  <label><input id="staff-can-manage-deposits" type="checkbox"> Aprobar o rechazar se&ntilde;as</label>
+                  <label><input id="staff-can-view-reports" type="checkbox"> Ver reportes operativos</label>
+                  <label><input id="staff-can-view-financial" type="checkbox"> Ver importes financieros</label>
                 </div>
+                <small>Secretar&iacute;a siempre ve la agenda completa. Profesionales y servicios son de solo lectura; ajustes, marketing masivo y cuentas quedan reservados al administrador.</small>
               </div>
             </div>
             <div class="settings-actions">
@@ -14671,6 +14698,7 @@ const crmHtml = `<!doctype html>
       appointments: [],
       professionals: [],
       staffUsers: [],
+      staffPresets: [],
       services: [],
       serviceCategories: [],
       customers: [],
@@ -14922,12 +14950,28 @@ const crmHtml = `<!doctype html>
       staffUserName: document.getElementById('staff-user-name'),
       staffUserEmail: document.getElementById('staff-user-email'),
       staffUserPassword: document.getElementById('staff-user-password'),
+      staffUserProfile: document.getElementById('staff-user-profile'),
+      staffUserPreset: document.getElementById('staff-user-preset'),
+      staffProfessionalField: document.getElementById('staff-professional-field'),
       staffUserProfessional: document.getElementById('staff-user-professional'),
       staffUserStatus: document.getElementById('staff-user-status'),
       staffCanCreateAppointments: document.getElementById('staff-can-create-appointments'),
       staffCanEditAppointments: document.getElementById('staff-can-edit-appointments'),
       staffCanCancelAppointments: document.getElementById('staff-can-cancel-appointments'),
       staffCanManageBlocks: document.getElementById('staff-can-manage-blocks'),
+      staffCanForceAppointments: document.getElementById('staff-can-force-appointments'),
+      staffCanViewCustomers: document.getElementById('staff-can-view-customers'),
+      staffCanCreateCustomers: document.getElementById('staff-can-create-customers'),
+      staffCanEditCustomers: document.getElementById('staff-can-edit-customers'),
+      staffCanManageNotes: document.getElementById('staff-can-manage-notes'),
+      staffCanManageMarketing: document.getElementById('staff-can-manage-marketing'),
+      staffCanViewConversations: document.getElementById('staff-can-view-conversations'),
+      staffCanReplyConversations: document.getElementById('staff-can-reply-conversations'),
+      staffCanManageDeposits: document.getElementById('staff-can-manage-deposits'),
+      staffCanViewReports: document.getElementById('staff-can-view-reports'),
+      staffCanViewFinancial: document.getElementById('staff-can-view-financial'),
+      staffPresetTitle: document.getElementById('staff-preset-title'),
+      staffPresetDescription: document.getElementById('staff-preset-description'),
       staffUserCancel: document.getElementById('staff-user-cancel'),
       staffUserSubmit: document.getElementById('staff-user-submit'),
       staffUserFeedback: document.getElementById('staff-user-feedback'),
@@ -15556,8 +15600,12 @@ const crmHtml = `<!doctype html>
       const nav = document.querySelector('.workspace-nav')
       if (!nav) return
 
+      const visibleSections = staffVisibleSections()
+      const currentSection = visibleSections.includes(els.appShell?.dataset.section) ? els.appShell.dataset.section : visibleSections[0] || 'agenda'
+      if (els.appShell) els.appShell.dataset.section = currentSection
+      document.body.dataset.currentSection = currentSection
       const items = [
-        { section: 'conversations', label: 'Conversaciones', icon: 'message', active: true },
+        { section: 'conversations', label: 'Conversaciones', icon: 'message' },
         { section: 'agenda', label: 'Agenda', icon: 'calendar' },
         { section: 'customers', label: 'Clientes', icon: 'users' },
         { section: 'professionals', label: 'Profesionales', icon: 'professional' },
@@ -15565,7 +15613,7 @@ const crmHtml = `<!doctype html>
         { section: 'campaigns', label: 'Marketing', icon: 'megaphone', marketingView: 'templates' },
         { section: 'reports', label: 'Reportes', icon: 'chart' },
         { section: 'settings', label: 'Ajustes', icon: 'settings' }
-      ]
+      ].filter((item) => visibleSections.includes(item.section)).map((item) => ({ ...item, active: item.section === currentSection }))
 
       nav.innerHTML =
         '<div class="crm-brand">' +
@@ -15604,6 +15652,22 @@ const crmHtml = `<!doctype html>
       hydrateIcons(nav)
       els.logoutButton = document.getElementById('logout-button')
       bindLogoutButton()
+      nav.querySelectorAll('button[data-nav-section]').forEach((button) => {
+        button.addEventListener('click', () => {
+          if (button.dataset.marketingNav) setMarketingView(button.dataset.marketingNav)
+          setSection(button.dataset.navSection)
+        })
+      })
+    }
+
+    function staffVisibleSections() {
+      if (state.currentUser?.role !== 'STAFF') return ['conversations', 'agenda', 'customers', 'professionals', 'services', 'campaigns', 'reports', 'settings']
+      return [
+        state.currentUser.canViewConversations ? 'conversations' : null,
+        'agenda',
+        state.currentUser.canViewCustomers ? 'customers' : null,
+        state.currentUser.canViewOperationalReports ? 'reports' : null
+      ].filter(Boolean)
     }
 
     async function getJson(url, options) {
@@ -15730,6 +15794,10 @@ const crmHtml = `<!doctype html>
         els.staffAccountsPanel.hidden = state.settingsView !== 'staff' || !canManageStaffUsers()
       }
       applyAgendaPermissions()
+      const isStaff = state.currentUser?.role === 'STAFF'
+      if (els.customerNewButton) els.customerNewButton.hidden = isStaff && !state.currentUser?.canCreateCustomers
+      if (els.customerEdit) els.customerEdit.hidden = isStaff && !state.currentUser?.canEditCustomers
+      if (els.customerAddNote) els.customerAddNote.hidden = isStaff && !state.currentUser?.canManageCustomerNotes
       updateBusinessBrand()
     }
 
@@ -15829,14 +15897,69 @@ const crmHtml = `<!doctype html>
       els.staffUserPassword.value = ''
       els.staffUserPassword.placeholder = 'Minimo 8 caracteres'
       els.staffUserStatus.value = 'active'
+      els.staffUserProfile.value = 'PROFESSIONAL'
       els.staffUserProfessional.value = activeProfessionals()[0]?.id || ''
-      els.staffCanCreateAppointments.checked = true
-      els.staffCanEditAppointments.checked = true
-      els.staffCanCancelAppointments.checked = true
-      els.staffCanManageBlocks.checked = true
+      renderStaffPresetOptions('PROFESSIONAL', 'PROFESSIONAL_DEFAULT')
+      applyStaffPreset('PROFESSIONAL_DEFAULT')
+      syncStaffProfileFields()
       els.staffUserSubmit.textContent = 'Crear cuenta staff'
       els.staffUserCancel.hidden = true
       clearStaffUserFeedback()
+    }
+
+    function staffPermissionFields() {
+      return {
+        canCreateAppointments: els.staffCanCreateAppointments,
+        canEditAppointments: els.staffCanEditAppointments,
+        canCancelAppointments: els.staffCanCancelAppointments,
+        canManageScheduleBlocks: els.staffCanManageBlocks,
+        canForceAppointments: els.staffCanForceAppointments,
+        canViewCustomers: els.staffCanViewCustomers,
+        canCreateCustomers: els.staffCanCreateCustomers,
+        canEditCustomers: els.staffCanEditCustomers,
+        canManageCustomerNotes: els.staffCanManageNotes,
+        canManageCustomerMarketing: els.staffCanManageMarketing,
+        canViewConversations: els.staffCanViewConversations,
+        canReplyConversations: els.staffCanReplyConversations,
+        canManageDeposits: els.staffCanManageDeposits,
+        canViewOperationalReports: els.staffCanViewReports,
+        canViewFinancialAmounts: els.staffCanViewFinancial
+      }
+    }
+
+    function renderStaffPresetOptions(profile, selected) {
+      const options = state.staffPresets.filter((preset) => preset.profile === profile)
+      els.staffUserPreset.innerHTML = options.map((preset) => '<option value="' + preset.id + '">' + escapeHtml(preset.label) + '</option>').join('') +
+        '<option value="CUSTOM">Personalizado</option>'
+      els.staffUserPreset.value = options.some((preset) => preset.id === selected) || selected === 'CUSTOM'
+        ? selected
+        : profile === 'SECRETARY' ? 'SECRETARY_STANDARD' : 'PROFESSIONAL_DEFAULT'
+      renderStaffPresetDescription()
+    }
+
+    function renderStaffPresetDescription() {
+      const preset = state.staffPresets.find((item) => item.id === els.staffUserPreset.value)
+      els.staffPresetTitle.textContent = preset?.label || 'Permisos personalizados'
+      els.staffPresetDescription.textContent = preset?.description || 'ConfiguraciÃ³n adaptada a las reglas de este negocio. RevisÃ¡ cada permiso antes de guardar.'
+    }
+
+    function applyStaffPreset(presetId) {
+      const preset = state.staffPresets.find((item) => item.id === presetId)
+      if (preset) {
+        for (const [key, field] of Object.entries(staffPermissionFields())) field.checked = preset.permissions[key] === true
+      }
+      renderStaffPresetDescription()
+    }
+
+    function syncStaffProfileFields() {
+      const isSecretary = els.staffUserProfile.value === 'SECRETARY'
+      els.staffProfessionalField.hidden = isSecretary
+      if (isSecretary) els.staffUserProfessional.value = ''
+    }
+
+    function markStaffPermissionsCustom() {
+      if (els.staffUserPreset.value !== 'CUSTOM') els.staffUserPreset.value = 'CUSTOM'
+      renderStaffPresetDescription()
     }
 
     function renderStaffProfessionalOptions() {
@@ -15868,7 +15991,7 @@ const crmHtml = `<!doctype html>
       }
 
       els.staffUserList.innerHTML = state.staffUsers.map((user) => {
-        const professionalName = user.professional?.name || 'Sin profesional'
+        const professionalName = user.staffProfile === 'SECRETARY' ? 'Secretaria Â· agenda completa' : user.professional?.name || 'Sin profesional'
         const status = user.isActive === false ? 'Inactivo' : 'Activo'
         const permissions = staffPermissionLabels(user)
         return '<article class="staff-account-item">' +
@@ -15892,6 +16015,10 @@ const crmHtml = `<!doctype html>
       if (user.canEditAppointments !== false) labels.push('Edita turnos')
       if (user.canCancelAppointments !== false) labels.push('Cancela turnos')
       if (user.canManageScheduleBlocks !== false) labels.push('Bloquea agenda')
+      if (user.canViewCustomers) labels.push('Clientes')
+      if (user.canViewConversations) labels.push('Conversaciones')
+      if (user.canManageDeposits) labels.push('SeÃ±as')
+      if (user.canViewOperationalReports) labels.push('Reportes')
       return labels.length ? labels : ['Solo consulta']
     }
 
@@ -15901,8 +16028,10 @@ const crmHtml = `<!doctype html>
         renderStaffUsers()
         return
       }
+      if (!state.staffPresets.length) state.staffPresets = await getJson('/staff-users/presets')
       state.staffUsers = await getJson('/staff-users?businessId=' + encodeURIComponent(state.businessId))
       renderStaffUsers()
+      if (!els.staffUserId.value) resetStaffUserForm()
     }
 
     async function saveStaffUser(event) {
@@ -15917,10 +16046,11 @@ const crmHtml = `<!doctype html>
       const name = els.staffUserName.value.trim()
       const email = els.staffUserEmail.value.trim()
       const password = els.staffUserPassword.value
-      const professionalId = els.staffUserProfessional.value
+      const staffProfile = els.staffUserProfile.value
+      const professionalId = staffProfile === 'SECRETARY' ? null : els.staffUserProfessional.value
 
-      if (!name || !email || !professionalId) {
-        showStaffUserFeedback('Completa nombre, usuario y profesional.', 'error')
+      if (!name || !email || (staffProfile === 'PROFESSIONAL' && !professionalId)) {
+        showStaffUserFeedback('Completa nombre, usuario y el profesional cuando corresponda.', 'error')
         return
       }
       if (!id && !password.trim()) {
@@ -15939,11 +16069,10 @@ const crmHtml = `<!doctype html>
             email,
             ...(password.trim() ? { password } : {}),
             professionalId,
+            staffProfile,
+            permissionPreset: els.staffUserPreset.value,
             isActive: els.staffUserStatus.value === 'active',
-            canCreateAppointments: els.staffCanCreateAppointments.checked,
-            canEditAppointments: els.staffCanEditAppointments.checked,
-            canCancelAppointments: els.staffCanCancelAppointments.checked,
-            canManageScheduleBlocks: els.staffCanManageBlocks.checked
+            ...Object.fromEntries(Object.entries(staffPermissionFields()).map(([key, field]) => [key, field.checked]))
           })
         })
         renderStaffUsers()
@@ -15966,12 +16095,16 @@ const crmHtml = `<!doctype html>
       els.staffUserEmail.value = user.email || ''
       els.staffUserPassword.value = ''
       els.staffUserPassword.placeholder = 'Dejar vacio para no cambiar'
+      els.staffUserProfile.value = user.staffProfile || 'PROFESSIONAL'
+      renderStaffPresetOptions(els.staffUserProfile.value, user.permissionPreset || 'CUSTOM')
+      syncStaffProfileFields()
       els.staffUserProfessional.value = user.professionalId || ''
       els.staffUserStatus.value = user.isActive === false ? 'inactive' : 'active'
       els.staffCanCreateAppointments.checked = user.canCreateAppointments !== false
       els.staffCanEditAppointments.checked = user.canEditAppointments !== false
       els.staffCanCancelAppointments.checked = user.canCancelAppointments !== false
       els.staffCanManageBlocks.checked = user.canManageScheduleBlocks !== false
+      for (const [key, field] of Object.entries(staffPermissionFields())) field.checked = user[key] === true
       els.staffUserSubmit.textContent = 'Guardar cambios'
       els.staffUserCancel.hidden = false
       els.staffUserName.focus()
@@ -16024,6 +16157,7 @@ const crmHtml = `<!doctype html>
     }
 
     async function loadBasics() {
+      hydrateWorkspaceNav()
       const businesses = await getJson('/businesses')
       state.businesses = businesses
       state.business = state.currentSessionBusiness || businesses[0] || null
@@ -16049,21 +16183,24 @@ const crmHtml = `<!doctype html>
       state.businessHours = state.businessId
         ? await getJson('/business-hours?businessId=' + encodeURIComponent(state.businessId))
         : []
-      state.paymentSettings = state.businessId
+      const isStaff = state.currentUser?.role === 'STAFF'
+      state.paymentSettings = state.businessId && !isStaff
         ? await getJson('/businesses/' + state.businessId + '/payment-settings')
         : null
-      state.whatsappSettings = state.businessId
+      state.whatsappSettings = state.businessId && !isStaff
         ? await getJson('/businesses/' + state.businessId + '/whatsapp-settings')
         : null
-      state.instagramSettings = state.businessId
+      state.instagramSettings = state.businessId && !isStaff
         ? await getJson('/businesses/' + state.businessId + '/instagram-settings')
         : null
-      state.aiSettings = await getJson('/crm/ai-settings' + businessQuery)
+      if (!isStaff) state.aiSettings = await getJson('/crm/ai-settings' + businessQuery)
       state.professionals = await getJson('/professionals' + businessQuery)
       await loadStaffUsers()
       state.serviceCategories = await getJson('/service-categories' + businessQuery)
       state.services = await getJson('/services' + businessQuery)
-      state.customers = await getJson('/customers' + businessQuery)
+      state.customers = !isStaff || state.currentUser?.canViewCustomers
+        ? await getJson('/customers' + businessQuery)
+        : []
     }
 
     function businessScopedPath(path) {
@@ -16127,7 +16264,7 @@ const crmHtml = `<!doctype html>
 
     async function startCrm() {
       await loadBasics()
-      await loadConversations()
+      if (state.currentUser?.role !== 'STAFF' || state.currentUser?.canViewConversations) await loadConversations()
       if (isMobile()) setMobileView('inbox')
     }
 
@@ -16266,7 +16403,10 @@ const crmHtml = `<!doctype html>
           : customer.marketingStatus === 'DECLINED'
             ? 'Se consulto y rechazo recibir promociones.'
             : 'Las promociones estan desactivadas.'
-      const marketingActions = marketingEnabled
+      const canManageMarketing = state.currentUser?.role !== 'STAFF' || state.currentUser?.canManageCustomerMarketing
+      const marketingActions = !canManageMarketing
+        ? ''
+        : marketingEnabled
         ? '<button class="secondary" type="button" data-mobile-customer-id="' + customer.id + '" data-mobile-marketing-status="OPTED_OUT">Dar de baja</button>'
         : '<div class="customer-mobile-marketing-actions">' +
             '<button class="primary" type="button" data-mobile-customer-id="' + customer.id + '" data-mobile-marketing-status="ACTIVE">Activar promociones</button>' +
@@ -16362,11 +16502,11 @@ const crmHtml = `<!doctype html>
               '<a class="customer-contact-action whatsapp" href="' + whatsappAppUrl(customer.phone) + '" title="Abrir WhatsApp" aria-label="Abrir WhatsApp">' + icon('whatsapp') + '</a>' +
               '<button class="customer-contact-action conversation" type="button" data-open-customer-conversation title="' + (customer.conversation ? 'Abrir conversacion en el CRM' : 'Este cliente no tiene una conversacion') + '" aria-label="Abrir conversacion en el CRM" ' + (customer.conversation ? '' : 'disabled') + '>' + icon('mail') + '</button>' +
             '</div>' +
-            '<button class="primary" type="button" data-schedule-customer>' + icon('calendar') + 'Agendar turno</button>' +
-            '<details class="customer-profile-menu">' +
+            (canCreateAppointments() ? '<button class="primary" type="button" data-schedule-customer>' + icon('calendar') + 'Agendar turno</button>' : '') +
+            (state.currentUser?.role === 'STAFF' ? '' : '<details class="customer-profile-menu">' +
               '<summary title="Mas opciones" aria-label="Mas opciones">' + icon('more') + '</summary>' +
               '<div class="customer-profile-menu-popover"><button type="button" data-delete-customer>' + icon('trash') + 'Eliminar cliente</button></div>' +
-            '</details>' +
+            '</details>') +
           '</div>' +
         '</header>' +
         '<div class="customer-profile-stats">' +
@@ -16383,7 +16523,9 @@ const crmHtml = `<!doctype html>
         '</div>' +
         marketingCard +
         '<section class="customer-profile-section"><h4 class="customer-section-title">' + icon('calendar') + 'Actividad</h4>' + openConversation + '<div class="customer-history">' + history + '</div></section>' +
-        '<section class="customer-profile-section"><div class="row"><h4 class="customer-section-title">' + icon('document') + 'Notas</h4><button class="details-link" type="button" data-add-customer-note>+ Agregar nota</button></div><div class="customer-profile-notes">' + notes + '</div></section>' +
+        '<section class="customer-profile-section"><div class="row"><h4 class="customer-section-title">' + icon('document') + 'Notas</h4>' +
+          (state.currentUser?.role !== 'STAFF' || state.currentUser?.canManageCustomerNotes ? '<button class="details-link" type="button" data-add-customer-note>+ Agregar nota</button>' : '') +
+        '</div><div class="customer-profile-notes">' + notes + '</div></section>' +
       '</div>'
 
       els.customerProfilePanel.querySelector('[data-schedule-customer]')?.addEventListener('click', () => openOverviewCustomerAppointment(customer))
@@ -16415,6 +16557,7 @@ const crmHtml = `<!doctype html>
     }
 
     function formatEstimatedSpend(customer) {
+      if (customer.estimatedSpend === null || customer.estimatedSpend === undefined) return '--'
       return customer.visitCount > 0 ? formatCurrency(customer.estimatedSpend) : '--'
     }
 
@@ -17014,6 +17157,8 @@ const crmHtml = `<!doctype html>
       els.stepChip.className = conversationStepChipClass(selected.currentStep, selected.aiEnabled)
       const deposit = selected.bookingDeposits?.[0] || null
       const activeDeposit = deposit && ['PENDING_PROOF', 'PROOF_RECEIVED'].includes(deposit.status)
+      const canReplyConversation = state.currentUser?.role !== 'STAFF' || state.currentUser?.canReplyConversations
+      const canManageDeposits = state.currentUser?.role !== 'STAFF' || state.currentUser?.canManageDeposits
       const canResolveHandoff = selected.currentStep === 'HUMAN_HANDOFF' || selected.aiEnabled === false
       const selectedService = state.services.find((service) => service.id === selected.selectedServiceId) || null
       const canSendAdvisorQuote = Boolean(
@@ -17026,21 +17171,21 @@ const crmHtml = `<!doctype html>
           selectedService.attentionMode === 'GUIDED_ESTIMATE'
         )
       )
-      els.depositApprove.hidden = !activeDeposit
+      els.depositApprove.hidden = !activeDeposit || !canManageDeposits
       els.depositApprove.disabled = deposit?.status !== 'PROOF_RECEIVED'
       els.depositApprove.textContent = deposit?.status === 'PROOF_RECEIVED'
         ? 'Aprobar seña de ' + formatCurrency(deposit.amount)
         : 'Esperando comprobante'
-      els.depositReject.hidden = !activeDeposit
+      els.depositReject.hidden = !activeDeposit || !canManageDeposits
       els.depositReject.disabled = !activeDeposit
-      els.advisorQuote.hidden = !canSendAdvisorQuote
+      els.advisorQuote.hidden = !canSendAdvisorQuote || !canReplyConversation
       els.advisorQuote.disabled = !canSendAdvisorQuote
-      els.resolveHandoff.hidden = !canResolveHandoff || Boolean(activeDeposit)
+      els.resolveHandoff.hidden = !canReplyConversation || !canResolveHandoff || Boolean(activeDeposit)
       els.resolveHandoff.disabled = !canResolveHandoff || Boolean(activeDeposit)
       els.resolveHandoff.textContent = selected.selectedServiceId
         ? 'Marcar como resuelto'
         : 'Definir servicio'
-      els.conversationAiToggle.hidden = canResolveHandoff
+      els.conversationAiToggle.hidden = !canReplyConversation || canResolveHandoff
       els.conversationAiToggle.disabled = canResolveHandoff
       els.conversationAiToggle.textContent = 'Atender manualmente'
       els.conversationAiToggle.className = 'secondary'
@@ -17055,6 +17200,7 @@ const crmHtml = `<!doctype html>
       els.detailMarketingStatus.className = 'chip'
       els.detailUpdated.textContent = formatDateTime(latestConversationActivityValue(selected))
       els.customerEdit.disabled = !customer
+      els.archiveConversation.hidden = !canReplyConversation
       els.archiveConversation.disabled = canResolveHandoff && !selected.archivedAt
       els.archiveConversation.textContent = selected.archivedAt ? 'Restaurar chat' : 'Archivar chat'
       if (customer) loadConversationMarketingStatus(customer, selected.id)
@@ -17118,7 +17264,8 @@ const crmHtml = `<!doctype html>
 
     function updateComposerAvailability() {
       const windowState = whatsappReplyWindowState()
-      const isLocked = !windowState.canReply
+      const lacksPermission = state.currentUser?.role === 'STAFF' && !state.currentUser?.canReplyConversations
+      const isLocked = lacksPermission || !windowState.canReply
       els.replyForm.classList.toggle('is-locked', isLocked)
       els.replyText.disabled = isLocked
       els.sendButton.disabled = isLocked
@@ -17133,8 +17280,10 @@ const crmHtml = `<!doctype html>
 
       if (isLocked) {
         els.replyText.value = ''
-        els.replyText.placeholder = 'Respuesta deshabilitada: pasaron mas de 24 hs.'
-        els.composerWindowText.textContent = 'Pasaron mas de 24 hs desde el ultimo mensaje del cliente. Espera que vuelva a escribir para responder desde el CRM.'
+        els.replyText.placeholder = lacksPermission ? 'Tu perfil es de solo lectura.' : 'Respuesta deshabilitada: pasaron mas de 24 hs.'
+        els.composerWindowText.textContent = lacksPermission
+          ? 'PodÃ©s consultar esta conversaciÃ³n, pero tu perfil no permite responderla.'
+          : 'Pasaron mas de 24 hs desde el ultimo mensaje del cliente. Espera que vuelva a escribir para responder desde el CRM.'
       } else {
         els.replyText.placeholder = 'Escribir mensaje...'
         els.composerWindowText.textContent = windowState.expiresAt
@@ -17967,6 +18116,10 @@ const crmHtml = `<!doctype html>
     }
 
     function renderRevenue(revenue) {
+      if (!revenue) {
+        els.reportRevenueNote.innerHTML = '<div class="revenue-box"><strong>Importes protegidos</strong><p>Este perfil puede consultar la operaciÃ³n, pero no tiene acceso a informaciÃ³n financiera.</p></div>'
+        return
+      }
       const missingNames = revenue.missingServices.map((service) => service.name).slice(0, 3).join(', ')
       const missingCopy = revenue.missingAppointments > 0
         ? revenue.missingAppointments + ' turnos sin precio' + (missingNames ? ': ' + missingNames : '') + '.'
@@ -24666,12 +24819,6 @@ const crmHtml = `<!doctype html>
       }
     })
     document.getElementById('mobile-nav-overlay')?.addEventListener('click', closeMobileDrawer)
-    document.querySelectorAll('.workspace-nav button[data-nav-section]').forEach((button) => {
-      button.addEventListener('click', () => {
-        if (button.dataset.marketingNav) setMarketingView(button.dataset.marketingNav)
-        setSection(button.dataset.navSection)
-      })
-    })
     document.querySelectorAll('[data-mobile-section]').forEach((button) => {
       button.addEventListener('click', () => {
         if (button.dataset.marketingNav) setMarketingView(button.dataset.marketingNav)
@@ -25074,6 +25221,13 @@ const crmHtml = `<!doctype html>
     })
     els.staffUserForm?.addEventListener('submit', saveStaffUser)
     els.staffUserCancel?.addEventListener('click', resetStaffUserForm)
+    els.staffUserProfile?.addEventListener('change', () => {
+      renderStaffPresetOptions(els.staffUserProfile.value, els.staffUserProfile.value === 'SECRETARY' ? 'SECRETARY_STANDARD' : 'PROFESSIONAL_DEFAULT')
+      applyStaffPreset(els.staffUserPreset.value)
+      syncStaffProfileFields()
+    })
+    els.staffUserPreset?.addEventListener('change', () => applyStaffPreset(els.staffUserPreset.value))
+    for (const field of Object.values(staffPermissionFields())) field?.addEventListener('change', markStaffPermissionsCustom)
     els.staffUserList?.addEventListener('click', (event) => {
       const editButton = event.target.closest('[data-edit-staff-user]')
       if (editButton) {

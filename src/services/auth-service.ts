@@ -14,10 +14,24 @@ export type AuthUser = {
   role: 'SUPER_ADMIN' | 'BUSINESS_ADMIN' | 'STAFF'
   businessId: string | null
   professionalId: string | null
+  staffProfile: string
+  permissionPreset: string
+  agendaScope: 'OWN' | 'ALL'
   canCreateAppointments: boolean
   canEditAppointments: boolean
   canCancelAppointments: boolean
   canManageScheduleBlocks: boolean
+  canForceAppointments: boolean
+  canViewCustomers: boolean
+  canCreateCustomers: boolean
+  canEditCustomers: boolean
+  canManageCustomerNotes: boolean
+  canManageCustomerMarketing: boolean
+  canViewConversations: boolean
+  canReplyConversations: boolean
+  canManageDeposits: boolean
+  canViewOperationalReports: boolean
+  canViewFinancialAmounts: boolean
 }
 
 export type AuthContext = {
@@ -81,10 +95,24 @@ export async function getAuthFromRequest(request: FastifyRequest): Promise<AuthC
       role: session.user.role,
       businessId: session.user.businessId,
       professionalId: session.user.professionalId,
+      staffProfile: session.user.staffProfile,
+      permissionPreset: session.user.permissionPreset,
+      agendaScope: session.user.agendaScope === 'ALL' ? 'ALL' : 'OWN',
       canCreateAppointments: session.user.canCreateAppointments,
       canEditAppointments: session.user.canEditAppointments,
       canCancelAppointments: session.user.canCancelAppointments,
-      canManageScheduleBlocks: session.user.canManageScheduleBlocks
+      canManageScheduleBlocks: session.user.canManageScheduleBlocks,
+      canForceAppointments: session.user.canForceAppointments,
+      canViewCustomers: session.user.canViewCustomers,
+      canCreateCustomers: session.user.canCreateCustomers,
+      canEditCustomers: session.user.canEditCustomers,
+      canManageCustomerNotes: session.user.canManageCustomerNotes,
+      canManageCustomerMarketing: session.user.canManageCustomerMarketing,
+      canViewConversations: session.user.canViewConversations,
+      canReplyConversations: session.user.canReplyConversations,
+      canManageDeposits: session.user.canManageDeposits,
+      canViewOperationalReports: session.user.canViewOperationalReports,
+      canViewFinancialAmounts: session.user.canViewFinancialAmounts
     }
   }
 }

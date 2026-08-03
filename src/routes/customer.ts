@@ -307,10 +307,12 @@ export async function customerRoutes(app: FastifyInstance) {
         })
       }
     }
+    const canViewFinancialAmounts = request.auth?.user.role !== 'STAFF' || request.auth.user.canViewFinancialAmounts
     const items = pageItems.map((customer) => {
       const marketing = marketingByCustomerId.get(customer.id)
       return {
         ...customer,
+        estimatedSpend: canViewFinancialAmounts ? customer.estimatedSpend : null,
         marketingStatus: marketing?.status ?? customer.marketingStatus,
         marketingSource: marketing?.source ?? customer.marketingSource,
         notes: notesByCustomerId.get(customer.id) ?? []
@@ -392,6 +394,10 @@ export async function customerRoutes(app: FastifyInstance) {
     const body = request.body as { name?: string }
     const name = body.name?.trim()
 
+    if (!await canStaffAccessCustomer(request.auth?.user, params.id)) {
+      return reply.status(403).send({ message: 'Ese cliente no pertenece a tu comercio' })
+    }
+
     if (!name) {
       return reply.status(400).send({ message: 'El nombre del cliente es requerido' })
     }
@@ -439,8 +445,11 @@ export async function customerRoutes(app: FastifyInstance) {
     }
   })
 
-  app.get('/customers/:id/notes', async (request) => {
+  app.get('/customers/:id/notes', async (request, reply) => {
     const params = request.params as { id: string }
+    if (!await canStaffAccessCustomer(request.auth?.user, params.id)) {
+      return reply.status(403).send({ message: 'Ese cliente no pertenece a tu comercio' })
+    }
     return prisma.customerNote.findMany({
       where: { customerId: params.id },
       orderBy: { createdAt: 'desc' }
@@ -451,6 +460,10 @@ export async function customerRoutes(app: FastifyInstance) {
     const params = request.params as { id: string }
     const body = request.body as { body?: string }
     const noteBody = body.body?.trim()
+
+    if (!await canStaffAccessCustomer(request.auth?.user, params.id)) {
+      return reply.status(403).send({ message: 'Ese cliente no pertenece a tu comercio' })
+    }
 
     if (!noteBody || noteBody.length > 1000) {
       return reply.status(400).send({ message: 'La nota debe tener entre 1 y 1000 caracteres' })
@@ -469,6 +482,23 @@ export async function customerRoutes(app: FastifyInstance) {
     })
   })
 
+}
+
+async function canStaffAccessCustomer(user: { role: string; businessId: string | null } | undefined, customerId: string) {
+  if (!user) return false
+  if (user.role !== 'STAFF') return true
+  if (!user.businessId) return false
+  const customer = await prisma.customer.findFirst({
+    where: {
+      id: customerId,
+      OR: [
+        { appointments: { some: { professional: { businessId: user.businessId } } } },
+        { marketingPreferences: { some: { businessId: user.businessId } } }
+      ]
+    },
+    select: { id: true }
+  })
+  return Boolean(customer)
 }
 
 function normalizePhone(value: string) {

@@ -122,6 +122,20 @@ function publicUser(user: {
   canEditAppointments?: boolean
   canCancelAppointments?: boolean
   canManageScheduleBlocks?: boolean
+  staffProfile?: string
+  permissionPreset?: string
+  agendaScope?: string
+  canForceAppointments?: boolean
+  canViewCustomers?: boolean
+  canCreateCustomers?: boolean
+  canEditCustomers?: boolean
+  canManageCustomerNotes?: boolean
+  canManageCustomerMarketing?: boolean
+  canViewConversations?: boolean
+  canReplyConversations?: boolean
+  canManageDeposits?: boolean
+  canViewOperationalReports?: boolean
+  canViewFinancialAmounts?: boolean
 }) {
   return {
     id: user.id,
@@ -131,9 +145,23 @@ function publicUser(user: {
     businessId: user.businessId,
     professionalId: user.professionalId ?? null,
     professional: user.professional ?? null,
+    staffProfile: user.role === 'STAFF' ? user.staffProfile || 'PROFESSIONAL' : null,
+    permissionPreset: user.role === 'STAFF' ? user.permissionPreset || 'PROFESSIONAL_DEFAULT' : null,
+    agendaScope: user.role === 'STAFF' && user.agendaScope === 'ALL' ? 'ALL' : 'OWN',
     canCreateAppointments: user.role === 'STAFF' ? user.canCreateAppointments !== false : true,
     canEditAppointments: user.role === 'STAFF' ? user.canEditAppointments !== false : true,
     canCancelAppointments: user.role === 'STAFF' ? user.canCancelAppointments !== false : true,
-    canManageScheduleBlocks: user.role === 'STAFF' ? user.canManageScheduleBlocks !== false : true
+    canManageScheduleBlocks: user.role === 'STAFF' ? user.canManageScheduleBlocks !== false : true,
+    canForceAppointments: user.role === 'STAFF' ? user.canForceAppointments === true : true,
+    canViewCustomers: user.role === 'STAFF' ? user.canViewCustomers === true : true,
+    canCreateCustomers: user.role === 'STAFF' ? user.canCreateCustomers === true : true,
+    canEditCustomers: user.role === 'STAFF' ? user.canEditCustomers === true : true,
+    canManageCustomerNotes: user.role === 'STAFF' ? user.canManageCustomerNotes === true : true,
+    canManageCustomerMarketing: user.role === 'STAFF' ? user.canManageCustomerMarketing === true : true,
+    canViewConversations: user.role === 'STAFF' ? user.canViewConversations === true : true,
+    canReplyConversations: user.role === 'STAFF' ? user.canReplyConversations === true : true,
+    canManageDeposits: user.role === 'STAFF' ? user.canManageDeposits === true : true,
+    canViewOperationalReports: user.role === 'STAFF' ? user.canViewOperationalReports === true : true,
+    canViewFinancialAmounts: user.role === 'STAFF' ? user.canViewFinancialAmounts === true : true
   }
 }

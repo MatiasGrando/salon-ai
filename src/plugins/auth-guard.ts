@@ -1,5 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { getAuthFromRequest, type AuthContext } from '../services/auth-service.js'
+import { prisma } from '../config/prisma.js'
+import { canStaffAccessRoute, staffAuditAction } from '../services/staff-permission-service.js'
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -15,9 +17,32 @@ export async function authGuard(app: FastifyInstance) {
     if (!auth) return reply.status(401).send({ message: 'Necesitas iniciar sesion' })
     request.auth = auth
     injectUserBusinessId(request, auth)
+    injectStaffAgendaScope(request, auth)
     if (!canAccessRequestedBusiness(request, auth)) {
       return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
     }
+    if (!canStaffAccessRoute(auth.user, request.method, request.url)) {
+      return reply.status(403).send({ message: 'Tu perfil no tiene permiso para realizar esta accion' })
+    }
+  })
+
+  app.addHook('onResponse', async (request, reply) => {
+    const user = request.auth?.user
+    if (!user || user.role !== 'STAFF' || !user.businessId || request.method.toUpperCase() === 'GET' || reply.statusCode >= 400) return
+    const params = request.params as { id?: string; customerId?: string } | undefined
+    const path = request.url.split('?')[0] || '/'
+    const entityType = path.split('/').filter(Boolean)[0] || 'unknown'
+    await prisma.staffAuditLog.create({
+      data: {
+        businessId: user.businessId,
+        userId: user.id,
+        action: staffAuditAction(request.method, path),
+        entityType,
+        entityId: params?.id || params?.customerId || null,
+        method: request.method.toUpperCase(),
+        path
+      }
+    }).catch((error) => request.log.error(error, 'No se pudo registrar la auditoria del staff'))
   })
 }
 
@@ -27,6 +52,15 @@ export function requireSuperAdmin(request: FastifyRequest, reply: FastifyReply) 
     return false
   }
   return true
+}
+
+function injectStaffAgendaScope(request: FastifyRequest, auth: AuthContext) {
+  if (auth.user.role !== 'STAFF' || auth.user.agendaScope !== 'OWN' || !auth.user.professionalId) return
+  const path = request.url.split('?')[0] || ''
+  if (request.method.toUpperCase() !== 'GET' || !['/appointments', '/schedule-blocks', '/schedule-blocks/impact'].includes(path)) return
+  if (request.query && typeof request.query === 'object') {
+    ;(request.query as { professionalId?: string }).professionalId = auth.user.professionalId
+  }
 }
 
 function injectUserBusinessId(request: FastifyRequest, auth: AuthContext) {
