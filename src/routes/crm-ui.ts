@@ -6943,6 +6943,10 @@ const crmHtml = `<!doctype html>
       font-weight: 700;
     }
 
+    .staff-permission-grid label[hidden] {
+      display: none;
+    }
+
     .staff-permission-grid input {
       width: auto;
     }
@@ -13775,25 +13779,25 @@ const crmHtml = `<!doctype html>
                 <p id="staff-preset-description"></p>
               </div>
               <div class="staff-permissions full">
-                <strong>Permisos editables</strong>
+                <strong id="staff-permissions-title">Permisos de agenda</strong>
                 <div class="staff-permission-grid">
                   <label><input id="staff-can-create-appointments" type="checkbox" checked> Cargar turnos</label>
                   <label><input id="staff-can-edit-appointments" type="checkbox" checked> Editar turnos</label>
                   <label><input id="staff-can-cancel-appointments" type="checkbox" checked> Cancelar turnos</label>
                   <label><input id="staff-can-manage-blocks" type="checkbox" checked> Bloquear agenda</label>
                   <label><input id="staff-can-force-appointments" type="checkbox"> Forzar horarios, bloqueos o superposiciones</label>
-                  <label><input id="staff-can-view-customers" type="checkbox"> Ver clientes</label>
-                  <label><input id="staff-can-create-customers" type="checkbox"> Crear clientes</label>
-                  <label><input id="staff-can-edit-customers" type="checkbox"> Editar clientes</label>
-                  <label><input id="staff-can-manage-notes" type="checkbox"> Gestionar notas de clientes</label>
-                  <label><input id="staff-can-manage-marketing" type="checkbox"> Preferencias de promociones</label>
-                  <label><input id="staff-can-view-conversations" type="checkbox"> Ver conversaciones</label>
-                  <label><input id="staff-can-reply-conversations" type="checkbox"> Responder conversaciones</label>
-                  <label><input id="staff-can-manage-deposits" type="checkbox"> Aprobar o rechazar se&ntilde;as</label>
-                  <label><input id="staff-can-view-reports" type="checkbox"> Ver reportes operativos</label>
-                  <label><input id="staff-can-view-financial" type="checkbox"> Ver importes financieros</label>
+                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-customers" type="checkbox"> Ver clientes</label>
+                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-create-customers" type="checkbox"> Crear clientes</label>
+                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-edit-customers" type="checkbox"> Editar clientes</label>
+                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-notes" type="checkbox"> Gestionar notas de clientes</label>
+                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-marketing" type="checkbox"> Preferencias de promociones</label>
+                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-conversations" type="checkbox"> Ver conversaciones</label>
+                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-reply-conversations" type="checkbox"> Responder conversaciones</label>
+                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-deposits" type="checkbox"> Aprobar o rechazar se&ntilde;as</label>
+                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-reports" type="checkbox"> Ver reportes operativos</label>
+                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-financial" type="checkbox"> Ver importes financieros</label>
                 </div>
-                <small>Secretar&iacute;a siempre ve la agenda completa. Profesionales y servicios son de solo lectura; ajustes, marketing masivo y cuentas quedan reservados al administrador.</small>
+                <small id="staff-permissions-help">El profesional solo accede a su propia agenda.</small>
               </div>
             </div>
             <div class="settings-actions">
@@ -14972,6 +14976,8 @@ const crmHtml = `<!doctype html>
       staffCanViewFinancial: document.getElementById('staff-can-view-financial'),
       staffPresetTitle: document.getElementById('staff-preset-title'),
       staffPresetDescription: document.getElementById('staff-preset-description'),
+      staffPermissionsTitle: document.getElementById('staff-permissions-title'),
+      staffPermissionsHelp: document.getElementById('staff-permissions-help'),
       staffUserCancel: document.getElementById('staff-user-cancel'),
       staffUserSubmit: document.getElementById('staff-user-submit'),
       staffUserFeedback: document.getElementById('staff-user-feedback'),
@@ -15955,6 +15961,13 @@ const crmHtml = `<!doctype html>
       const isSecretary = els.staffUserProfile.value === 'SECRETARY'
       els.staffProfessionalField.hidden = isSecretary
       if (isSecretary) els.staffUserProfessional.value = ''
+      for (const field of els.staffUserForm.querySelectorAll('[data-staff-permission-scope="SECRETARY"]')) {
+        field.hidden = !isSecretary
+      }
+      els.staffPermissionsTitle.textContent = isSecretary ? 'Permisos de secretarÃ­a' : 'Permisos de agenda'
+      els.staffPermissionsHelp.textContent = isSecretary
+        ? 'SecretarÃ­a siempre ve la agenda completa. Profesionales y servicios son de solo lectura; ajustes, marketing masivo y cuentas quedan reservados al administrador.'
+        : 'El profesional solo accede a su propia agenda y no ve clientes, conversaciones, seÃ±as ni reportes.'
     }
 
     function markStaffPermissionsCustom() {
