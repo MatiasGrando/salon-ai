@@ -14344,7 +14344,7 @@ const crmHtml = `<!doctype html>
           <div class="campaign-form-field">
             <label for="campaign-segment">Segmento</label>
             <select id="campaign-segment">
-              <option value="ALL">Todos los autorizados</option>
+              <option value="ALL">Todos con promociones activas</option>
               <option value="AT_RISK">Clientes en riesgo</option>
               <option value="INACTIVE">Inactivos por cantidad de d&iacute;as</option>
               <option value="ONE_TIME_VISITOR">Visit&oacute; una sola vez</option>
@@ -16260,19 +16260,16 @@ const crmHtml = `<!doctype html>
         : null
       const marketingEnabled = customer.marketingStatus === 'ACTIVE'
       const marketingStatusCopy = marketingEnabled
-        ? 'Autorizado para recibir campanas.'
+        ? 'Promociones activas para este cliente.'
         : customer.marketingStatus === 'OPTED_OUT'
           ? 'El cliente solicito la baja de promociones.'
           : customer.marketingStatus === 'DECLINED'
             ? 'Se consulto y rechazo recibir promociones.'
-            : 'Todavia no autorizo el envio de promociones.'
+            : 'Las promociones estan desactivadas.'
       const marketingActions = marketingEnabled
-        ? '<button class="secondary" type="button" data-mobile-customer-id="' + customer.id + '" data-mobile-marketing-status="OPTED_OUT">Revocar autorizacion</button>'
+        ? '<button class="secondary" type="button" data-mobile-customer-id="' + customer.id + '" data-mobile-marketing-status="OPTED_OUT">Dar de baja</button>'
         : '<div class="customer-mobile-marketing-actions">' +
-            '<button class="primary" type="button" data-mobile-customer-id="' + customer.id + '" data-mobile-marketing-status="ACTIVE">Autorizar promociones</button>' +
-            (customer.marketingStatus === 'NOT_AUTHORIZED'
-              ? '<button class="secondary" type="button" data-mobile-customer-id="' + customer.id + '" data-mobile-marketing-status="DECLINED">Registrar rechazo</button>'
-              : '') +
+            '<button class="primary" type="button" data-mobile-customer-id="' + customer.id + '" data-mobile-marketing-status="ACTIVE">Activar promociones</button>' +
           '</div>'
       const conversationButton = customer.openConversation
         ? '<button class="customer-mobile-conversation" type="button" data-mobile-open-customer-conversation="' + customer.id + '"><span>Conversacion abierta</span><span>Ver</span></button>'
@@ -16339,19 +16336,16 @@ const crmHtml = `<!doctype html>
         : '<div class="customer-profile-note"><span>Todavia no hay notas.</span></div>'
       const marketingEnabled = customer.marketingStatus === 'ACTIVE'
       const marketingStatusCopy = marketingEnabled
-        ? 'Autorizado para recibir campa&ntilde;as.'
+        ? 'Promociones activas para este cliente.'
         : customer.marketingStatus === 'OPTED_OUT'
           ? 'El cliente solicit&oacute; la baja de promociones.'
           : customer.marketingStatus === 'DECLINED'
             ? 'Se consult&oacute; y el cliente rechaz&oacute; recibir promociones.'
-          : 'Todav&iacute;a no autoriz&oacute; el env&iacute;o de promociones.'
+            : 'Las promociones est&aacute;n desactivadas.'
       const marketingActions = marketingEnabled
-        ? '<button class="secondary" type="button" data-marketing-status="OPTED_OUT">Revocar autorizaci&oacute;n</button>'
+        ? '<button class="secondary" type="button" data-marketing-status="OPTED_OUT">Dar de baja</button>'
         : '<div class="customer-marketing-actions">' +
-            '<button class="primary" type="button" data-marketing-status="ACTIVE">Autorizar promociones</button>' +
-            (customer.marketingStatus === 'NOT_AUTHORIZED'
-              ? '<button class="secondary" type="button" data-marketing-status="DECLINED">Registrar rechazo</button>'
-              : '') +
+            '<button class="primary" type="button" data-marketing-status="ACTIVE">Activar promociones</button>' +
           '</div>'
       const marketingCard = '<section class="customer-profile-section"><div class="row">' +
         '<div><h4 class="customer-section-title">' + icon('mail') + 'Promociones</h4>' +
@@ -16508,18 +16502,18 @@ const crmHtml = `<!doctype html>
       state.pendingMarketingChange = { customerId: customer.id, targetStatus }
       els.marketingConfirmName.textContent = customer.name
       els.marketingConfirmCopy.textContent = targetStatus === 'ACTIVE'
-        ? 'Quedará autorizado para recibir campañas promocionales del comercio.'
+        ? 'Se activarán las campañas promocionales para este cliente.'
         : targetStatus === 'DECLINED'
           ? 'Se registrará que el cliente rechazó recibir promociones.'
           : 'Dejará de recibir todas las campañas promocionales del comercio.'
       els.marketingConfirmWarning.innerHTML = targetStatus === 'ACTIVE'
-        ? '<strong>Al confirmar:</strong><ul><li>Se registrar&aacute; una autorizaci&oacute;n manual.</li><li>Podr&aacute; aparecer en los segmentos compatibles.</li></ul>'
+        ? '<strong>Al confirmar:</strong><ul><li>Se reactivar&aacute;n las promociones.</li><li>Podr&aacute; aparecer en los segmentos compatibles.</li></ul>'
         : targetStatus === 'DECLINED'
           ? '<strong>Al confirmar:</strong><ul><li>Quedar&aacute; excluido de todas las campa&ntilde;as.</li><li>Se guardar&aacute; el rechazo como decisi&oacute;n presencial.</li></ul><small>Los recordatorios de turnos no se modifican.</small>'
-          : '<strong>Al confirmar:</strong><ul><li>Se revocar&aacute; la autorizaci&oacute;n anterior.</li><li>Quedar&aacute; excluido de campa&ntilde;as autom&aacute;ticas y puntuales.</li></ul><small>Los recordatorios de turnos no se modifican.</small>'
+          : '<strong>Al confirmar:</strong><ul><li>Se registrar&aacute; la baja de promociones.</li><li>Quedar&aacute; excluido de campa&ntilde;as autom&aacute;ticas y puntuales.</li></ul><small>Los recordatorios de turnos no se modifican.</small>'
       els.marketingConfirmSubmit.textContent = targetStatus === 'ACTIVE'
-        ? 'Autorizar promociones'
-        : targetStatus === 'DECLINED' ? 'Registrar rechazo' : 'Revocar autorizaci&oacute;n'
+        ? 'Activar promociones'
+        : targetStatus === 'DECLINED' ? 'Registrar rechazo' : 'Dar de baja'
       els.marketingConfirmSubmit.className = targetStatus === 'ACTIVE' ? 'primary' : 'danger customer-delete-confirm'
       els.marketingConfirmFeedback.textContent = ''
       els.marketingConfirmDialog.hidden = false
@@ -16971,7 +16965,7 @@ const crmHtml = `<!doctype html>
           const created = await getJson('/customers', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: value, phone })
+            body: JSON.stringify({ name: value, phone, businessId: state.businessId })
           })
           state.customers = await getJson('/customers')
           state.selectedCustomerId = created.id
@@ -17077,10 +17071,10 @@ const crmHtml = `<!doctype html>
         if (state.selected?.id !== conversationId) return
         const authorized = preference.status === 'ACTIVE'
         els.detailMarketingStatus.textContent = authorized
-          ? 'Promociones autorizadas'
+          ? 'Promociones activas'
           : preference.status === 'OPTED_OUT'
             ? 'Baja de promociones'
-            : preference.status === 'DECLINED' ? 'Promociones rechazadas' : 'Sin autorización'
+            : preference.status === 'DECLINED' ? 'Promociones rechazadas' : 'Promociones desactivadas'
         els.detailMarketingStatus.className = 'chip ' + (authorized ? 'success' : 'warn')
       } catch {
         if (state.selected?.id !== conversationId) return
@@ -21946,7 +21940,7 @@ const crmHtml = `<!doctype html>
           const customer = await getJson('/customers', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, phone })
+            body: JSON.stringify({ name, phone, businessId: state.businessId })
           })
           customerId = customer.id
           state.customers = await getJson('/customers')
@@ -22053,7 +22047,7 @@ const crmHtml = `<!doctype html>
     const campaignChannelLabels = { WHATSAPP: 'WhatsApp', EMAIL: 'Email', BOTH: 'Ambos' }
     const campaignStatusLabels = { DRAFT: 'Borrador', SCHEDULED: 'Programada', ACTIVE: 'Activa', PAUSED: 'Pausada', FINISHED: 'Finalizada' }
     const campaignSegmentLabels = {
-      ALL: 'Todos los autorizados',
+      ALL: 'Todos con promociones activas',
       AT_RISK: 'Clientes en riesgo',
       INACTIVE: 'Inactivos',
       ONE_TIME_VISITOR: 'Visit&oacute; una sola vez',
@@ -23109,7 +23103,7 @@ const crmHtml = `<!doctype html>
       const exclusionLabels = {
         missingPhone: 'tel&eacute;fono inv&aacute;lido',
         withFutureAppointment: 'con pr&oacute;ximo turno',
-        marketingNotAuthorized: 'sin autorizaci&oacute;n de marketing',
+        marketingNotAuthorized: 'sin promociones activas',
         higherPriorityCampaign: 'otra campa&ntilde;a prioritaria',
         promotionCooldown: 'descanso desde otra promoci&oacute;n',
         retryWindow: 'espera entre intentos',
@@ -23150,7 +23144,7 @@ const crmHtml = `<!doctype html>
                   '<div class="manual-send-message">' + escapeHtml(manualCurrent.message) + '</div>' +
                   '<div class="manual-send-actions"><button class="campaign-outline-button" type="button" data-manual-recipient-action="SKIPPED" data-manual-recipient-id="' + escapeHtml(manualCurrent.id) + '">Omitir</button><a class="manual-send-whatsapp" href="' + escapeHtml(manualCurrent.whatsappUrl) + '" target="_blank" rel="noopener" data-manual-open data-manual-recipient-id="' + escapeHtml(manualCurrent.id) + '">Abrir WhatsApp</a><button class="campaigns-new" type="button" data-manual-recipient-action="SENT" data-manual-recipient-id="' + escapeHtml(manualCurrent.id) + '">Marcar enviado</button></div></div>'
               : '<div class="campaign-rule-note">Cola finalizada. Los contactos marcados como enviados ya participan del descanso entre promociones.</div>')
-          : '<div class="campaign-rule-note">Se aplicar&aacute;n nuevamente autorizaciones, tel&eacute;fonos v&aacute;lidos y descanso de ' + (campaign.cooldownDays ?? 30) + ' d&iacute;as antes de crear la cola.</div><div class="manual-send-actions"><button class="campaigns-new" type="button" data-campaign-action="manual-start">Preparar env&iacute;o manual</button></div>') +
+          : '<div class="campaign-rule-note">Se aplicar&aacute;n nuevamente las bajas, tel&eacute;fonos v&aacute;lidos y descanso de ' + (campaign.cooldownDays ?? 30) + ' d&iacute;as antes de crear la cola.</div><div class="manual-send-actions"><button class="campaigns-new" type="button" data-campaign-action="manual-start">Preparar env&iacute;o manual</button></div>') +
       '</div>'
       const budget = campaign.budgetLimit === null || campaign.budgetLimit === undefined
         ? 'Sin l&iacute;mite definido'
@@ -23585,7 +23579,7 @@ const crmHtml = `<!doctype html>
       const exclusionLabels = {
         missingPhone: 'teléfono inválido',
         withFutureAppointment: 'con próximo turno',
-        marketingNotAuthorized: 'sin autorización de marketing',
+        marketingNotAuthorized: 'sin promociones activas',
         higherPriorityCampaign: 'otra campaña prioritaria',
         promotionCooldown: 'descanso desde otra promoción',
         retryWindow: 'espera entre intentos',

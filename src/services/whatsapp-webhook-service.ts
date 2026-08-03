@@ -6,6 +6,8 @@ import { ConversationService } from './conversation-service.js'
 import { reopenClosedConversationOpportunity } from './conversation-opportunity-service.js'
 import { bookingDepositService } from './booking-deposit-service.js'
 import { capturePostSaleResponse } from './post-sale-service.js'
+import { AiMessageUnderstandingService } from './ai-message-understanding-service.js'
+import { shouldApplyMarketingOptOut } from './marketing-preference-service.js'
 import {
   PHOTO_QUOTE_ACKNOWLEDGEMENT,
   photoQuoteAcknowledgementService
@@ -16,6 +18,8 @@ type VerifyWebhookInput = {
   token: string | undefined
   challenge: string | undefined
 }
+
+const marketingUnderstandingService = new AiMessageUnderstandingService()
 
 export type IncomingWhatsAppMedia = {
   type: 'image' | 'document'
@@ -589,7 +593,6 @@ export class WhatsAppWebhookService {
   }
 
   private async applyMarketingOptOut(input: { businessId: string | null; phone: string; text: string }) {
-    if (!isMarketingOptOutMessage(input.text)) return false
     const customers = await prisma.customer.findMany({
       select: {
         id: true,
@@ -603,6 +606,11 @@ export class WhatsAppWebhookService {
     })
     const customer = customers.find((item) => normalizeMarketingPhone(item.phone) === normalizeMarketingPhone(input.phone))
     if (!customer) return false
+    const directOptOut = shouldApplyMarketingOptOut(input.text)
+    const understanding = directOptOut
+      ? null
+      : await marketingUnderstandingService.understandMarketingPreference(input.text)
+    if (!shouldApplyMarketingOptOut(input.text, understanding)) return false
     const customerBusinessIds = customer.appointments.map((appointment) => appointment.professional.businessId)
     const businessId = input.businessId && customerBusinessIds.includes(input.businessId)
       ? input.businessId
@@ -721,19 +729,6 @@ export function isSupportedDepositProof(media?: IncomingWhatsAppMedia) {
 
   const extension = media.filename?.split('.').pop()?.trim().toLowerCase()
   return Boolean(extension && SUPPORTED_DEPOSIT_PROOF_EXTENSIONS.has(extension))
-}
-
-function isMarketingOptOutMessage(text: string) {
-  const normalized = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('es')
-    .replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
-  return [
-    'baja',
-    'stop',
-    'no quiero recibir promociones',
-    'no recibir promociones',
-    'dejar de recibir promociones',
-    'cancelar promociones'
-  ].includes(normalized)
 }
 
 function normalizeMarketingPhone(phone: string) {

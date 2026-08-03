@@ -335,12 +335,25 @@ export async function customerRoutes(app: FastifyInstance) {
     const body = request.body as {
       name: string
       phone: string
+      businessId?: string
     }
 
     return prisma.customer.create({
       data: {
         name: body.name,
-        phone: body.phone
+        phone: body.phone,
+        ...(body.businessId?.trim()
+          ? {
+              marketingPreferences: {
+                create: {
+                  businessId: body.businessId.trim(),
+                  status: 'ACTIVE',
+                  source: 'DEFAULT',
+                  optedInAt: new Date()
+                }
+              }
+            }
+          : {})
       }
     })
   })

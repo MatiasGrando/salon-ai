@@ -930,7 +930,7 @@ model CustomerMarketingPreference {
   customerId String
   customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
-  status     String    @default("NOT_AUTHORIZED")
+  status     String    @default("ACTIVE")
   source     String    @default("DEFAULT")
   optedInAt  DateTime?
   declinedAt DateTime?

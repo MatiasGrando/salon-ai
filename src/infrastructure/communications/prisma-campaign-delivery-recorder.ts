@@ -20,7 +20,7 @@ export class PrismaCampaignDeliveryRecorder implements CampaignDeliveryRecorder 
       })
     ])
     if (!campaign) throw new Error('No encontré esa campaña')
-    if (preference?.status !== 'ACTIVE') throw new Error('El cliente no tiene autorización comercial activa')
+    if (preference?.status !== 'ACTIVE') throw new Error('El cliente tiene las promociones desactivadas')
     if (campaign.respectCooldown && isWithinCommunicationCooldown(lastDelivery?.sentAt ?? null, input.sentAt, campaign.cooldownDays)) {
       throw new Error('El cliente recibió una promoción dentro del período de descanso')
     }

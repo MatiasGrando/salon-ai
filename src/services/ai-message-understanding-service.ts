@@ -34,6 +34,12 @@ type AiReplyStyleResult = {
   reply: string
 }
 
+export type AiMarketingPreferenceResult = {
+  action: 'opt_out' | 'none'
+  confidence: number
+  evidence: string
+}
+
 export type AiConversationIntent =
   | 'book_appointment'
   | 'my_appointments'
@@ -79,6 +85,33 @@ const minimumClarificationConfidence = 0.35
 export class AiMessageUnderstandingService {
   isEnabled() {
     return isAiExecutionEnabled() && Boolean(getOpenAiClient())
+  }
+
+  async understandMarketingPreference(message: string) {
+    if (!message.trim()) return null
+    return this.askJson<AiMarketingPreferenceResult>({
+      instructions: [
+        'Clasifica si el cliente pide dejar de recibir promociones o mensajes comerciales.',
+        'Comprende lenguaje natural, modismos, errores de escritura y pedidos indirectos claros.',
+        'Usa opt_out solo si expresa una voluntad clara de no recibir mas marketing.',
+        'No confundas cancelar un turno, una reserva o un servicio con cancelar promociones.',
+        'Respuestas vagas como no, despues, gracias o ahora no deben ser none.',
+        'evidence debe ser un fragmento textual exacto del mensaje que respalde la decision.',
+        'No respondas ni ejecutes acciones.'
+      ].join('\n'),
+      input: { message },
+      schemaName: 'marketing_preference_understanding',
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['action', 'confidence', 'evidence'],
+        properties: {
+          action: { type: 'string', enum: ['opt_out', 'none'] },
+          confidence: { type: 'number', minimum: 0, maximum: 1 },
+          evidence: { type: 'string' }
+        }
+      }
+    })
   }
 
   async humanizeReply(input: {

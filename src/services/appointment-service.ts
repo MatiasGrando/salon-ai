@@ -4,6 +4,7 @@ import {
   reopenConversationOpportunityForInvalidatedAppointment
 } from './conversation-opportunity-service.js'
 import { bookingDepositService } from './booking-deposit-service.js'
+import { ensureDefaultMarketingPreference } from './marketing-preference-service.js'
 
 const availabilitySlotInterval = 30
 
@@ -192,6 +193,11 @@ export class AppointmentService {
         message: 'Ese horario ya no esta disponible'
       }
     }
+
+    await ensureDefaultMarketingPreference({
+      businessId: professional.businessId,
+      customerId: input.customerId
+    })
 
     const appointment = await prisma.appointment.create({
       data: {
