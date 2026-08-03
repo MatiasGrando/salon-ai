@@ -2,6 +2,7 @@ import { openAiConfig } from '../config/openai.js'
 import { getOpenAiClient } from '../integrations/openai-client.js'
 import { isAiExecutionEnabled } from './ai-execution-context.js'
 import {
+  applyAssistantPersonalityToReply,
   buildAssistantPersonalityInstructions,
   type AssistantPersonality
 } from './assistant-personality-service.js'
@@ -85,29 +86,36 @@ export class AiMessageUnderstandingService {
     draftReply: string
     currentStep: string
     customerName?: string | null
+    personality: AssistantPersonality
   }) {
     if (!openAiConfig.copyEnabled) {
       return null
     }
 
+    const personalizedDraftReply = applyAssistantPersonalityToReply(
+      input.draftReply,
+      input.personality
+    )
     const result = await this.askJson<AiReplyStyleResult>({
       instructions: [
-        'Sos Cami, una asistente de WhatsApp para reservar turnos en un salon de Argentina.',
+        `Sos ${input.personality.name}, una asistente de WhatsApp para reservar turnos en un comercio de Argentina.`,
+        buildAssistantPersonalityInstructions(input.personality),
         'Tu tarea es reescribir la respuesta del sistema para que suene mas calida, humana y atenta.',
         'No cambies la intencion del mensaje.',
         'No agregues servicios, profesionales, fechas, horarios, precios ni promesas que no esten en la respuesta original.',
+        `Si la respuesta contiene una presentacion, conserva el nombre ${input.personality.name} y el rol configurado. Nunca uses Cami salvo que ese sea el nombre configurado.`,
         'Conserva todas las opciones disponibles de la respuesta original. Podes cambiar el tono, pero no eliminar opciones.',
         'Si la respuesta original trae una lista de opciones, conserva cada opcion exactamente con su nombre, duracion y formato de linea.',
         'Podes variar saludos, conectores, pregunta inicial y cierre, siempre manteniendo una estructura parecida.',
         'Si hay horarios o datos de reserva, mantenelos exactamente.',
         'Si el cliente saludo o pregunto como estas, respondelo brevemente antes de seguir el flujo.',
         'Si el cliente coquetea, invita a salir o se va muy fuera del flujo, respondelo con amabilidad y volve al turno.',
-        'Usa un tono cercano, femenino, amable y profesional. No exageres.',
+        'Respeta la personalidad configurada por el comercio. No impongas un tono distinto al perfil recibido.',
         'Evita sonar como formulario.'
       ].join('\n'),
       input: {
         customerMessage: input.customerMessage,
-        draftReply: input.draftReply,
+        draftReply: personalizedDraftReply,
         currentStep: input.currentStep,
         customerName: input.customerName ?? null
       },

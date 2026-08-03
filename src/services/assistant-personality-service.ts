@@ -169,11 +169,17 @@ export function applyAssistantPersonalityToReply(
 
   if (profile.treatment === 'tu') {
     styled = replaceTerms(styled, [
+      ['Querés', 'Quieres'],
       ['querés', 'quieres'],
+      ['Podés', 'Puedes'],
       ['podés', 'puedes'],
+      ['Preferís', 'Prefieres'],
       ['preferís', 'prefieres'],
+      ['Confirmás', 'Confirmas'],
       ['confirmás', 'confirmas'],
+      ['Decís', 'Dices'],
       ['decís', 'dices'],
+      ['Tenés', 'Tienes'],
       ['tenés', 'tienes']
     ])
   }

@@ -81,7 +81,8 @@ export class ConversationService {
 
       return withOutboundMessages(await this.humanizeResult({
         result,
-        message: input.message.trim()
+        message: input.message.trim(),
+        businessId: input.businessId
       }))
     })
   }
@@ -1258,27 +1259,37 @@ export class ConversationService {
   private async humanizeResult(input: {
     result: HandleMessageResult
     message: string
+    businessId?: string
   }): Promise<HandleMessageResult> {
-    if (!canHumanizeSafely(input.result.reply)) {
-      return input.result
+    const businessId = await this.resolveBusinessId(input.businessId)
+    if (!businessId) return input.result
+    const personality = await getBusinessAssistantPersonality(businessId)
+    const personalizedReply = applyAssistantPersonalityToReply(
+      input.result.reply,
+      personality
+    )
+    if (!canHumanizeSafely(personalizedReply)) {
+      return { ...input.result, reply: personalizedReply }
     }
 
     const styledReply = await aiMessageUnderstandingService.humanizeReply({
       customerMessage: input.message,
       draftReply: input.result.reply,
-      currentStep: 'UNKNOWN'
+      currentStep: 'UNKNOWN',
+      personality
     })
 
-    if (styledReply && !preservesRequiredLines(input.result.reply, styledReply)) {
-      return input.result
+    if (styledReply && !preservesRequiredLines(personalizedReply, styledReply)) {
+      return { ...input.result, reply: personalizedReply }
     }
 
-    if (styledReply && !preservesRequiredBotName(input.result.reply, styledReply)) {
-      return input.result
+    if (styledReply && !preservesRequiredBotName(personalizedReply, styledReply, personality.name)) {
+      return { ...input.result, reply: personalizedReply }
     }
 
     return {
-      reply: styledReply ?? input.result.reply
+      ...input.result,
+      reply: styledReply ?? personalizedReply
     }
   }
 
@@ -2476,9 +2487,13 @@ function preservesRequiredLines(originalReply: string, styledReply: string) {
   return requiredLines.every((line) => styledReply.includes(line))
 }
 
-function preservesRequiredBotName(originalReply: string, styledReply: string) {
-  const originalHasBotName = originalReply.includes('Cami')
-  const styledHasBotName = styledReply.includes('Cami')
+function preservesRequiredBotName(
+  originalReply: string,
+  styledReply: string,
+  assistantName: string
+) {
+  const originalHasBotName = originalReply.includes(assistantName)
+  const styledHasBotName = styledReply.includes(assistantName)
 
   return originalHasBotName === styledHasBotName
 }

@@ -9,6 +9,8 @@
     "prisma:generate": "prisma generate",
     "test:booking-v2": "tsx scripts/booking-v2-contract-test.ts",
     "test:booking-v2:understanding-live": "tsx scripts/booking-v2-understanding-live-test.ts",
+    "test:assistant-personality": "tsx scripts/assistant-personality-contract-test.ts",
+    "test:assistant-personality:live": "tsx scripts/assistant-personality-live-test.ts",
     "test:deposits": "tsx scripts/deposit-flow-contract-test.ts",
     "test:post-sale": "tsx scripts/post-sale-mode-contract-test.ts",
     "test:reminders": "tsx scripts/reminder-mode-contract-test.ts",

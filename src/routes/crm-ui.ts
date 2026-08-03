@@ -42,6 +42,31 @@ export function filterAssignedServices<T extends { id: string }>(
   return services.filter((service) => assignedServiceIds.has(service.id))
 }
 
+export function appendPreferredEmoji(
+  currentValue: string,
+  emoji: string,
+  maxItems = 6,
+  maxLength = 80
+) {
+  const normalizedEmoji = typeof emoji === 'string' ? emoji.trim() : ''
+  const items = currentValue
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+  if (!normalizedEmoji) return { value: items.join(', '), added: false, reason: 'invalid' as const }
+  if (items.includes(normalizedEmoji)) {
+    return { value: items.join(', '), added: false, reason: 'duplicate' as const }
+  }
+  if (items.length >= maxItems) {
+    return { value: items.join(', '), added: false, reason: 'limit' as const }
+  }
+  const value = [...items, normalizedEmoji].join(', ')
+  if (value.length > maxLength) {
+    return { value: items.join(', '), added: false, reason: 'length' as const }
+  }
+  return { value, added: true, reason: null }
+}
+
 const crmHtml = `<!doctype html>
 <html lang="es">
 <head>
@@ -6830,6 +6855,23 @@ const crmHtml = `<!doctype html>
       grid-column: 1 / -1;
     }
 
+    .assistant-emoji-input-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 9px;
+      align-items: center;
+    }
+
+    .assistant-emoji-input-row .campaign-message-tool {
+      min-height: 42px;
+      white-space: nowrap;
+    }
+
+    emoji-picker.assistant-emoji-picker {
+      margin: 9px 0 0;
+      height: 320px;
+    }
+
     .assistant-preview {
       padding: 16px;
       border: 1px solid #e5e7eb;
@@ -9787,6 +9829,8 @@ const crmHtml = `<!doctype html>
       .template-variable-row { grid-template-columns: 1fr; }
       .assistant-personality-grid { grid-template-columns: 1fr; }
       .assistant-personality-grid .settings-field.full { grid-column: auto; }
+      .assistant-emoji-input-row { grid-template-columns: 1fr; }
+      .assistant-emoji-input-row .campaign-message-tool { width: 100%; }
       .template-preview-panel { position: static; }
 
       .crm-top,
@@ -13819,7 +13863,11 @@ const crmHtml = `<!doctype html>
               </div>
               <div class="settings-field full">
                 <label for="assistant-emojis">Emojis preferidos</label>
-                <input class="field" id="assistant-emojis" maxlength="80" placeholder="😊, ✨, 💖">
+                <div class="assistant-emoji-input-row">
+                  <input class="field" id="assistant-emojis" maxlength="80" placeholder="😊, ✨, 💖">
+                  <button class="campaign-message-tool" id="assistant-emoji-toggle" type="button" aria-expanded="false">🙂 Agregar emoji</button>
+                </div>
+                <emoji-picker class="template-emoji-picker assistant-emoji-picker light" id="assistant-emoji-picker" locale="es" hidden></emoji-picker>
                 <small>Separalos con comas. Se usar&aacute;n seg&uacute;n el nivel elegido.</small>
               </div>
               <div class="settings-field full">
@@ -14547,6 +14595,7 @@ const crmHtml = `<!doctype html>
   <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@1/index.js"></script>
   <script>
     const filterAssignedServices = ${filterAssignedServices.toString()}
+    const appendPreferredEmojiValue = ${appendPreferredEmoji.toString()}
     const WHATSAPP_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000
 
     function notifyOpenerFromMetaOAuthRedirect() {
@@ -14825,6 +14874,8 @@ const crmHtml = `<!doctype html>
       assistantEmojiLevel: document.getElementById('assistant-emoji-level'),
       assistantResponseLength: document.getElementById('assistant-response-length'),
       assistantEmojis: document.getElementById('assistant-emojis'),
+      assistantEmojiToggle: document.getElementById('assistant-emoji-toggle'),
+      assistantEmojiPicker: document.getElementById('assistant-emoji-picker'),
       assistantCustomInstructions: document.getElementById('assistant-custom-instructions'),
       assistantPersonalityPreview: document.getElementById('assistant-personality-preview'),
       assistantPersonalitySubmit: document.getElementById('assistant-personality-submit'),
@@ -17655,6 +17706,30 @@ const crmHtml = `<!doctype html>
           ? '¿En qué puedo ayudarte?'
           : '¿En qué te puedo ayudar?'
       els.assistantPersonalityPreview.textContent = greeting + '\\n\\n' + followUp
+    }
+
+    function toggleAssistantEmojiPicker() {
+      const willOpen = els.assistantEmojiPicker.hidden
+      els.assistantEmojiPicker.hidden = !willOpen
+      els.assistantEmojiToggle.setAttribute('aria-expanded', String(willOpen))
+    }
+
+    function insertAssistantPreferredEmoji(emoji) {
+      const result = appendPreferredEmojiValue(els.assistantEmojis.value, emoji)
+      els.assistantEmojis.value = result.value
+      if (result.added) {
+        renderAssistantPersonalityPreview()
+        showAssistantPersonalityFeedback('Emoji agregado a las preferencias.', 'success')
+        return
+      }
+      const message = result.reason === 'duplicate'
+        ? 'Ese emoji ya estÃ¡ agregado.'
+        : result.reason === 'limit'
+          ? 'PodÃ©s elegir hasta 6 emojis preferidos.'
+          : result.reason === 'length'
+            ? 'Los emojis preferidos no pueden superar los 80 caracteres.'
+            : 'No se pudo agregar ese emoji.'
+      showAssistantPersonalityFeedback(message, 'error')
     }
 
     function applyAssistantPersonalityPreset() {
@@ -25057,6 +25132,10 @@ const crmHtml = `<!doctype html>
     els.bookingV2Toggle.addEventListener('change', toggleBookingV2)
     els.assistantPersonalityForm.addEventListener('submit', saveAssistantPersonality)
     els.assistantPreset.addEventListener('change', applyAssistantPersonalityPreset)
+    els.assistantEmojiToggle.addEventListener('click', toggleAssistantEmojiPicker)
+    els.assistantEmojiPicker.addEventListener('emoji-click', (event) => {
+      insertAssistantPreferredEmoji(event.detail && event.detail.unicode)
+    })
     for (const field of [
       els.assistantName,
       els.assistantRole,
