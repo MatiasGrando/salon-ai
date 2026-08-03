@@ -17127,6 +17127,7 @@ const crmHtml = `<!doctype html>
           state.selectedCustomerId = created.id
           await loadCustomerOverview({ page: 1 })
           renderAppointmentFormOptions()
+          if (created.wasExisting) showCrmToast('Ese telÃ©fono ya pertenecÃ­a a un cliente. Reutilizamos su ficha existente.', 'success')
         } else if (isNote) {
           await getJson('/customers/' + customer.id + '/notes', {
             method: 'POST',

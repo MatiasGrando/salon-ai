@@ -28,6 +28,7 @@ import {
   renderBookingV2DepositRequest
 } from './booking-v2-deposit.js'
 import { reopenClosedConversationOpportunity } from './conversation-opportunity-service.js'
+import { findOrCreateCustomerByPhone } from './customer-identity-service.js'
 import {
   businessInformationTopicsFromRouting,
   ConversationRouter,
@@ -1054,7 +1055,7 @@ export class ConversationService {
       bookingV2State?: unknown
     }
   }): Promise<HandleMessageResult> {
-    const customer = await this.findOrCreateCustomer(input.phone, input.conversation.selectedCustomerName)
+    const customer = await this.findOrCreateCustomer(input.phone, input.conversation.selectedCustomerName, input.businessId)
     const state = stateFromConversation({
       selectedCustomerName: input.conversation.selectedCustomerName,
       selectedServiceId: input.conversation.selectedServiceId,
@@ -1164,7 +1165,8 @@ export class ConversationService {
 
     const customer = await this.findOrCreateCustomer(
       input.phone,
-      input.conversation.selectedCustomerName
+      input.conversation.selectedCustomerName,
+      input.businessId
     )
     const appointment = await appointmentService.create({
       customerId: customer.id,
@@ -1634,30 +1636,9 @@ export class ConversationService {
     })
   }
 
-  private async findOrCreateCustomer(phone: string, name: string) {
-    const customer = await prisma.customer.findFirst({
-      where: {
-        phone
-      }
-    })
-
-    if (customer) {
-      return prisma.customer.update({
-        where: {
-          id: customer.id
-        },
-        data: {
-          name
-        }
-      })
-    }
-
-    return prisma.customer.create({
-      data: {
-        phone,
-        name
-      }
-    })
+  private async findOrCreateCustomer(phone: string, name: string, businessId?: string | null) {
+    const result = await findOrCreateCustomerByPhone({ name, phone, businessId })
+    return result.customer
   }
 
   private async isBookingV2Enabled(businessId: string) {

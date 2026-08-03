@@ -465,6 +465,7 @@ model Customer {
 
   name  String
   phone String
+  normalizedPhone String? @unique
 
   appointments             Appointment[]
   notes                    CustomerNote[]
@@ -478,6 +479,8 @@ model Customer {
   weexLinks                WeexCustomerLink[]
 
   createdAt DateTime @default(now())
+
+  @@index([phone])
 }
 
 model WeexAccount {

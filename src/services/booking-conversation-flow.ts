@@ -4,6 +4,7 @@ import { InternalBookingProvider } from '../providers/internal-booking-provider.
 import { AiMessageUnderstandingService, type AiBookingIntentResult } from './ai-message-understanding-service.js'
 import { BotCopyService, getFirstName } from './bot-copy-service.js'
 import { MessageUnderstandingService, normalizeText } from './message-understanding-service.js'
+import { findOrCreateCustomerByPhone } from './customer-identity-service.js'
 
 const bookingProvider = new InternalBookingProvider()
 const botCopyService = new BotCopyService()
@@ -1176,7 +1177,7 @@ export class BookingConversationFlow {
       }
     }
 
-    await this.findOrCreateCustomer(input.phone, customerName)
+    await this.findOrCreateCustomer(input.phone, customerName, input.businessId)
 
     if (
       !input.conversation.selectedServiceId &&
@@ -1429,7 +1430,7 @@ export class BookingConversationFlow {
       return this.buildServicesReply('Me faltan datos para confirmar el turno. Volvemos un paso y lo dejamos bien.', input.businessId)
     }
 
-    const customer = await this.findOrCreateCustomer(input.phone, input.conversation.selectedCustomerName)
+    const customer = await this.findOrCreateCustomer(input.phone, input.conversation.selectedCustomerName, input.businessId)
     const appointment = await bookingProvider.createAppointment({
       customerId: customer.id,
       professionalId: input.conversation.selectedProfessionalId,
@@ -2472,34 +2473,9 @@ export class BookingConversationFlow {
     return aiMessageUnderstandingService.parseDate(message)
   }
 
-  private async findOrCreateCustomer(phone: string, name: string) {
-    const customer = await prisma.customer.findFirst({
-      where: {
-        phone
-      }
-    })
-
-    if (customer) {
-      if (customer.name === name) {
-        return customer
-      }
-
-      return prisma.customer.update({
-        where: {
-          id: customer.id
-        },
-        data: {
-          name
-        }
-      })
-    }
-
-    return prisma.customer.create({
-      data: {
-        name,
-        phone
-      }
-    })
+  private async findOrCreateCustomer(phone: string, name: string, businessId?: string | null) {
+    const result = await findOrCreateCustomerByPhone({ name, phone, businessId })
+    return result.customer
   }
 
   private async restartBooking(phone: string, businessId: string | null) {

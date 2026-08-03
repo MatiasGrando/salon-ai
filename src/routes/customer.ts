@@ -1,5 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
+import { CustomerPhoneValidationError, findOrCreateCustomerByPhone } from '../services/customer-identity-service.js'
+import { normalizePhone } from '../services/phone-normalization-service.js'
 
 type CustomerOverviewAppointment = {
   customerId: string
@@ -332,7 +334,7 @@ export async function customerRoutes(app: FastifyInstance) {
     }
   })
 
-  app.post('/customers', async (request) => {
+  app.post('/customers', async (request, reply) => {
 
     const body = request.body as {
       name: string
@@ -340,24 +342,17 @@ export async function customerRoutes(app: FastifyInstance) {
       businessId?: string
     }
 
-    return prisma.customer.create({
-      data: {
-        name: body.name,
-        phone: body.phone,
-        ...(body.businessId?.trim()
-          ? {
-              marketingPreferences: {
-                create: {
-                  businessId: body.businessId.trim(),
-                  status: 'ACTIVE',
-                  source: 'DEFAULT',
-                  optedInAt: new Date()
-                }
-              }
-            }
-          : {})
-      }
-    })
+    try {
+      const result = await findOrCreateCustomerByPhone({
+        name: body.name || '',
+        phone: body.phone || '',
+        businessId: body.businessId?.trim() || null
+      })
+      return { ...result.customer, wasExisting: result.wasExisting }
+    } catch (error) {
+      if (error instanceof CustomerPhoneValidationError) return reply.status(400).send({ message: error.message })
+      throw error
+    }
   })
 
   app.get('/customers', async (request) => {
@@ -499,10 +494,6 @@ async function canStaffAccessCustomer(user: { role: string; businessId: string |
     select: { id: true }
   })
   return Boolean(customer)
-}
-
-function normalizePhone(value: string) {
-  return String(value || '').replace(/\D/g, '')
 }
 
 function isActiveAppointment(appointment: { status: string }) {

@@ -55,6 +55,25 @@ export function normalizeArgentineMobilePhone(value?: string | null, options: No
   }
 }
 
+export function normalizeCustomerPhone(value?: string | null, options: NormalizePhoneOptions = {}): NormalizedPhoneResult {
+  const raw = String(value || '').trim()
+  let internationalDigits = raw.replace(/\D/g, '')
+  const hasInternationalPrefix = raw.startsWith('+') || internationalDigits.startsWith('00')
+  if (internationalDigits.startsWith('00')) internationalDigits = internationalDigits.slice(2)
+  if (hasInternationalPrefix && !internationalDigits.startsWith('54')) {
+    if (internationalDigits.length < 8 || internationalDigits.length > 15) {
+      return { ok: false, message: 'Ingresa un telefono internacional valido' }
+    }
+    return {
+      ok: true,
+      phone: internationalDigits,
+      display: `+${internationalDigits}`,
+      local: `+${internationalDigits}`
+    }
+  }
+  return normalizeArgentineMobilePhone(value, options)
+}
+
 export function phoneSearchVariants(value?: string | null, options: NormalizePhoneOptions = {}) {
   const normalized = normalizeArgentineMobilePhone(value, options)
   const digits = String(value || '').replace(/\D/g, '')

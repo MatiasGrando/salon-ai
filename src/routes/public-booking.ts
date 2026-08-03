@@ -4,6 +4,7 @@ import { AppointmentService } from '../services/appointment-service.js'
 import { BusinessService } from '../services/business-service.js'
 import { sendBookingConfirmationEmail } from '../services/booking-confirmation-email-service.js'
 import { inferDefaultAreaCodeFromPhone, normalizePhone, phoneSearchVariants } from '../services/phone-normalization-service.js'
+import { findOrCreateCustomerByPhone } from '../services/customer-identity-service.js'
 import {
   createGoogleCalendarEventForAppointment,
   getWeexAuthFromRequest,
@@ -322,61 +323,8 @@ async function professionalsForService(businessId: string, serviceId: string, pr
 }
 
 async function findOrCreatePublicCustomer(input: { businessId: string; name: string; phone: string }) {
-  const phoneVariants = phoneSearchVariants(input.phone)
-  const existingAppointments = await prisma.appointment.findMany({
-    where: {
-      professional: {
-        businessId: input.businessId
-      },
-      customer: {
-        phone: {
-          in: phoneVariants
-        }
-      }
-    },
-    select: {
-      customer: true
-    },
-    take: 1
-  })
-  const existing = existingAppointments[0]?.customer
-
-  if (existing) {
-    return prisma.customer.update({
-      where: {
-        id: existing.id
-      },
-      data: {
-        name: input.name
-      }
-    })
-  }
-
-  const customer = await prisma.customer.findFirst({
-    where: {
-      phone: {
-        in: phoneVariants
-      }
-    }
-  })
-
-  if (customer) {
-    return prisma.customer.update({
-      where: {
-        id: customer.id
-      },
-      data: {
-        name: input.name
-      }
-    })
-  }
-
-  return prisma.customer.create({
-    data: {
-      name: input.name,
-      phone: input.phone
-    }
-  })
+  const result = await findOrCreateCustomerByPhone(input)
+  return result.customer
 }
 
 type PublicBookingBusiness = NonNullable<Awaited<ReturnType<BusinessService['findPublicBySlug']>>>
