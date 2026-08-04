@@ -21,6 +21,10 @@ export type BookingV2MessagePlan =
       evidence: string
     }
   | {
+      type: 'clarify_professional'
+      professionalIds: string[]
+    }
+  | {
       type: 'confirm_booking'
     }
   | {

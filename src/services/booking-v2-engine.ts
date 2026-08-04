@@ -371,8 +371,12 @@ export class BookingV2Engine {
           ]
         })
       : null
-    if (serviceChoice?.confidence >= 0.65 && serviceChoice.choiceId === 'request_service_advice') {
-      const adviceCategory = initialState.categoryAdvice.categoryName
+    if (
+      serviceChoice &&
+      (serviceChoice.confidence ?? 0) >= 0.65 &&
+      serviceChoice.choiceId === 'request_service_advice'
+    ) {
+      const adviceCategory = initialState.categoryAdvice?.categoryName
       if (adviceCategory) {
         const state: BookingV2State = {
           ...initialState,
@@ -448,6 +452,12 @@ export class BookingV2Engine {
       stateForExtraction,
       catalog
     )
+    if (deterministicProfessional?.kind === 'ambiguous') {
+      return this.guidedEstimateResult(initialState, {
+        type: 'clarify_professional',
+        professionalIds: deterministicProfessional.professionalIds
+      }, catalog, 'no_change')
+    }
     if (deterministicProfessional?.kind === 'selected') {
       const state = acceptField(initialState, 'professional', deterministicProfessional.professionalId)
       return this.fromInterpretation({
@@ -528,7 +538,8 @@ export class BookingV2Engine {
     const extraction = discardUngroundedCatalogSelections(
       rawExtraction,
       input.message,
-      catalog
+      catalog,
+      stateForExtraction
     )
 
     return this.fromInterpretation(
@@ -1118,26 +1129,98 @@ function resolveExpectedProfessional(
     }
   }
 
-  const matches = compatibleProfessionals.filter((professional) =>
-    normalize(professional.name) === normalizedMessage
+  return resolveProfessionalReference(message, compatibleProfessionals)
+}
+
+function resolveProfessionalReference(
+  message: string,
+  professionals: BookingV2DomainCatalog['professionals']
+) {
+  if (!professionals.length) return null
+
+  const normalizedMessage = normalize(message)
+  const messageTokens = professionalReferenceTokens(normalizedMessage)
+  if (!messageTokens.length) return null
+
+  const fullNameMatches = professionals
+    .map((professional) => ({
+      professional,
+      nameTokens: professionalNameTokens(professional.name)
+    }))
+    .filter(({ nameTokens }) =>
+      nameTokens.length >= 2 && nameTokens.every((token) => messageTokens.includes(token))
+    )
+  const mostSpecificFullNameLength = Math.max(
+    0,
+    ...fullNameMatches.map(({ nameTokens }) => nameTokens.length)
   )
-  if (matches.length === 1) {
+  const mostSpecificFullNameMatches = fullNameMatches.filter(({ nameTokens }) =>
+    nameTokens.length === mostSpecificFullNameLength
+  )
+  if (mostSpecificFullNameMatches.length === 1) {
     return {
       kind: 'selected' as const,
-      professionalId: matches[0]?.id ?? ''
+      professionalId: mostSpecificFullNameMatches[0]?.professional.id ?? ''
+    }
+  }
+  if (mostSpecificFullNameMatches.length > 1) {
+    return {
+      kind: 'ambiguous' as const,
+      professionalIds: mostSpecificFullNameMatches.map(({ professional }) => professional.id)
     }
   }
 
-  const probableMatches = compatibleProfessionals.filter((professional) =>
-    isProbableProfessionalNickname(normalizedMessage, professional.name)
+  const exactTokenMatches = professionals.filter((professional) =>
+    professionalNameTokens(professional.name).some((token) => messageTokens.includes(token))
   )
+  if (exactTokenMatches.length === 1) {
+    return {
+      kind: 'selected' as const,
+      professionalId: exactTokenMatches[0]?.id ?? ''
+    }
+  }
+  if (exactTokenMatches.length > 1) {
+    return {
+      kind: 'ambiguous' as const,
+      professionalIds: exactTokenMatches.map((professional) => professional.id)
+    }
+  }
 
-  return probableMatches.length === 1
-    ? {
-        kind: 'probable' as const,
-        professionalId: probableMatches[0]?.id ?? ''
-      }
-    : null
+  const probableMatches = professionals.filter((professional) =>
+    messageTokens.some((token) => isProbableProfessionalNickname(token, professional.name))
+  )
+  if (probableMatches.length === 1) {
+    return {
+      kind: 'probable' as const,
+      professionalId: probableMatches[0]?.id ?? ''
+    }
+  }
+  if (probableMatches.length > 1) {
+    return {
+      kind: 'ambiguous' as const,
+      professionalIds: probableMatches.map((professional) => professional.id)
+    }
+  }
+
+  return null
+}
+
+const PROFESSIONAL_REFERENCE_STOP_WORDS = new Set([
+  'a', 'al', 'con', 'de', 'del', 'el', 'ella', 'la', 'las', 'lo', 'los',
+  'me', 'mi', 'para', 'por', 'puede', 'preferiria', 'prefiero', 'que',
+  'quiero', 'ser', 'si', 'un', 'una', 'y'
+])
+
+function professionalReferenceTokens(value: string) {
+  return value
+    .split(' ')
+    .filter((token) => token.length >= 2 && !PROFESSIONAL_REFERENCE_STOP_WORDS.has(token))
+}
+
+function professionalNameTokens(value: string) {
+  return normalize(value)
+    .split(' ')
+    .filter((token) => token.length >= 2 && !['de', 'del', 'la', 'las', 'los', 'y'].includes(token))
 }
 
 function isProbableProfessionalNickname(candidate: string, professionalName: string) {
@@ -1325,7 +1408,8 @@ function editDistanceAtMostOne(left: string, right: string) {
 function discardUngroundedCatalogSelections(
   extraction: BookingV2Extraction,
   message: string,
-  catalog: BookingV2DomainCatalog
+  catalog: BookingV2DomainCatalog,
+  state: BookingV2State
 ): BookingV2Extraction {
   const groundedName = !extraction.name.value ||
     (
@@ -1337,12 +1421,17 @@ function discardUngroundedCatalogSelections(
     messageGroundsEvidence(message, extraction.service.evidence) &&
     messageGroundsService(message, service)
   )
+  const compatibleProfessionals = catalog.professionals.filter((professional) =>
+    !state.draft.service || professional.serviceIds.includes(state.draft.service)
+  )
+  const professionalResolution = resolveProfessionalReference(message, compatibleProfessionals)
   const groundedProfessional =
     !extraction.professional.value ||
-    catalog.professionals.some((professional) =>
-      professional.id === extraction.professional.value &&
-      messageGroundsEvidence(message, extraction.professional.evidence) &&
-      messageGroundsLabel(message, professional.name)
+    (
+      professionalResolution !== null &&
+      professionalResolution.kind !== 'ambiguous' &&
+      professionalResolution.professionalId === extraction.professional.value &&
+      messageGroundsEvidence(message, extraction.professional.evidence)
     )
   const groundedDate = !extraction.date.value ||
     messageGroundsEvidence(message, extraction.date.evidence)
@@ -1360,10 +1449,9 @@ function discardUngroundedCatalogSelections(
               service.id === extraction.correction.newValue &&
               messageGroundsService(message, service)
             )
-          : catalog.professionals.some((professional) =>
-              professional.id === extraction.correction.newValue &&
-              messageGroundsLabel(message, professional.name)
-            )
+          : professionalResolution !== null &&
+            professionalResolution.kind !== 'ambiguous' &&
+            professionalResolution.professionalId === extraction.correction.newValue
         )
       )
     )

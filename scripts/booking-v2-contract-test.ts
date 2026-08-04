@@ -2449,6 +2449,162 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'motor reconoce un profesional por nombre apellido o nombre completo',
+    run: async () => {
+      const domainCatalog = createBookingV2DomainCatalog({
+        services: [
+          { id: 'haircut', name: 'Corte', aliases: [], duration: 30, price: 15000, category: null }
+        ],
+        professionals: [
+          { id: 'tamara-grando', name: 'Tamara Grando', serviceIds: ['haircut'] },
+          { id: 'lucas-perez', name: 'Lucas Pérez', serviceIds: ['haircut'] }
+        ]
+      })
+      const extractor = fakeExtractor(null)
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog: domainCatalog }), extractor)
+      const conversation = {
+        selectedCustomerName: 'Mati',
+        selectedServiceId: 'haircut',
+        selectedProfessionalId: null,
+        selectedDate: null,
+        selectedTime: null,
+        misunderstandingCount: 0,
+        bookingV2State: null
+      }
+
+      for (const message of ['Tamara', 'Grando', 'Con Tamara Grando puede ser?']) {
+        const result = await engine.process({
+          businessId: 'business-1',
+          conversation,
+          message
+        })
+        assert.equal(result.state.draft.professional, 'tamara-grando', message)
+        assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'date', message)
+      }
+      assert.equal(extractor.calls.length, 0)
+    }
+  },
+  {
+    name: 'motor interpreta con Sebas puede ser como apodo de Sebastian',
+    run: async () => {
+      const domainCatalog = createBookingV2DomainCatalog({
+        services: [
+          { id: 'haircut', name: 'Corte', aliases: [], duration: 30, price: 15000, category: null }
+        ],
+        professionals: [
+          { id: 'sebastian-gomez', name: 'Sebastián Gómez', serviceIds: ['haircut'] },
+          { id: 'lucas-perez', name: 'Lucas Pérez', serviceIds: ['haircut'] }
+        ]
+      })
+      const extractor = fakeExtractor(null)
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog: domainCatalog }), extractor)
+
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Mati',
+          selectedServiceId: 'haircut',
+          selectedProfessionalId: null,
+          selectedDate: null,
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: '¿Con Sebas puede ser?'
+      })
+
+      assert.equal(result.state.draft.professional, null)
+      assert.equal(result.state.pendingProposal?.value, 'sebastian-gomez')
+      assert.equal(result.plan.type, 'confirm_field')
+      assert.match(result.reply, /Sebastián Gómez/)
+      assert.equal(extractor.calls.length, 0)
+    }
+  },
+  {
+    name: 'motor pide el nombre completo cuando varios profesionales comparten nombre',
+    run: async () => {
+      const domainCatalog = createBookingV2DomainCatalog({
+        services: [
+          { id: 'haircut', name: 'Corte', aliases: [], duration: 30, price: 15000, category: null }
+        ],
+        professionals: [
+          { id: 'tamara-grando', name: 'Tamara Grando', serviceIds: ['haircut'] },
+          { id: 'tamara-lopez', name: 'Tamara López', serviceIds: ['haircut'] }
+        ]
+      })
+      const extractor = fakeExtractor(null)
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog: domainCatalog }), extractor)
+      const conversation = {
+        selectedCustomerName: 'Mati',
+        selectedServiceId: 'haircut',
+        selectedProfessionalId: null,
+        selectedDate: null,
+        selectedTime: null,
+        misunderstandingCount: 0,
+        bookingV2State: null
+      }
+
+      const ambiguous = await engine.process({
+        businessId: 'business-1',
+        conversation,
+        message: 'Tamara'
+      })
+      assert.equal(ambiguous.state.draft.professional, null)
+      assert.deepEqual(ambiguous.plan, {
+        type: 'clarify_professional',
+        professionalIds: ['tamara-grando', 'tamara-lopez']
+      })
+      assert.match(ambiguous.reply, /Tamara Grando/)
+      assert.match(ambiguous.reply, /Tamara López/)
+      assert.match(ambiguous.reply, /nombre completo/i)
+
+      const resolved = await engine.process({
+        businessId: 'business-1',
+        conversation,
+        message: 'Con Tamara López'
+      })
+      assert.equal(resolved.state.draft.professional, 'tamara-lopez')
+      assert.equal(resolved.plan.type === 'ask_field' ? resolved.plan.field : null, 'date')
+      assert.equal(extractor.calls.length, 0)
+    }
+  },
+  {
+    name: 'motor pide aclaracion cuando varios profesionales comparten apellido',
+    run: async () => {
+      const domainCatalog = createBookingV2DomainCatalog({
+        services: [
+          { id: 'haircut', name: 'Corte', aliases: [], duration: 30, price: 15000, category: null }
+        ],
+        professionals: [
+          { id: 'tamara-grando', name: 'Tamara Grando', serviceIds: ['haircut'] },
+          { id: 'lucas-grando', name: 'Lucas Grando', serviceIds: ['haircut'] }
+        ]
+      })
+      const extractor = fakeExtractor(null)
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog: domainCatalog }), extractor)
+
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Mati',
+          selectedServiceId: 'haircut',
+          selectedProfessionalId: null,
+          selectedDate: null,
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: 'Con Grando'
+      })
+
+      assert.equal(result.state.draft.professional, null)
+      assert.equal(result.plan.type, 'clarify_professional')
+      assert.match(result.reply, /Tamara Grando/)
+      assert.match(result.reply, /Lucas Grando/)
+      assert.equal(extractor.calls.length, 0)
+    }
+  },
+  {
     name: 'motor acepta cualquier profesional y asigna uno al elegir horario',
     run: async () => {
       const extractor = fakeExtractor(null)

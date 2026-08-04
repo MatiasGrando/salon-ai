@@ -179,6 +179,16 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
     return question
   }
 
+  if (input.plan.type === 'clarify_professional') {
+    const professionalNames = input.plan.professionalIds
+      .map((professionalId) => labelForProfessional(professionalId, input.catalog))
+    return [
+      'Encontré más de un profesional que coincide con ese nombre.',
+      ...professionalNames.map((professionalName) => `• ${professionalName}`),
+      '¿Con cuál preferís atenderte? Decime el nombre completo.'
+    ].join('\n')
+  }
+
   if (input.plan.type === 'confirm_field') {
     if (input.plan.field === 'professional') {
       return professionalSuggestionConfirmation(

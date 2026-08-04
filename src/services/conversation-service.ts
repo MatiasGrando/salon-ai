@@ -1799,6 +1799,7 @@ function conversationStepFromBookingV2Plan(plan: BookingV2MessagePlan) {
     return 'ASK_SERVICE'
   }
   if (plan.type === 'confirm_booking') return 'CONFIRM'
+  if (plan.type === 'clarify_professional') return 'ASK_PROFESSIONAL'
   if (plan.type === 'confirm_field' || plan.type === 'confirm_correction') {
     return stepForBookingV2Field(plan.field)
   }
