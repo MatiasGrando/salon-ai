@@ -11978,13 +11978,23 @@ const crmHtml = `<!doctype html>
     .agenda-gcal-day-head span { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; font-size: 18px; }
     .agenda-gcal-day-head.today span { color: #fff; background: #2563eb; }
 
+    .agenda-gcal-professional-frame {
+      grid-template-rows: auto 12px minmax(0, 1fr);
+    }
+
     .agenda-gcal-professional-frame .agenda-gcal-days-viewport,
     .agenda-gcal-professional-frame .agenda-gcal-columns-viewport {
-      overflow-x: auto;
       overscroll-behavior-x: contain;
       touch-action: pan-x pan-y;
-      scrollbar-color: #94a3b8 #eef2f7;
-      scrollbar-width: thin;
+    }
+
+    .agenda-gcal-professional-frame .agenda-gcal-days-viewport {
+      overflow-x: hidden;
+    }
+
+    .agenda-gcal-professional-frame .agenda-gcal-columns-viewport {
+      overflow-x: auto;
+      scrollbar-width: none;
     }
 
     .agenda-gcal-professional-frame .agenda-gcal-days-track,
@@ -11993,13 +12003,40 @@ const crmHtml = `<!doctype html>
       will-change: auto;
     }
 
-    .agenda-gcal-professional-frame .agenda-gcal-days-viewport::-webkit-scrollbar,
-    .agenda-gcal-professional-frame .agenda-gcal-columns-viewport::-webkit-scrollbar {
-      height: 10px;
+    .agenda-gcal-professional-frame .agenda-gcal-days-track,
+    .agenda-gcal-professional-frame .agenda-gcal-professional-head {
+      min-height: 62px;
     }
 
-    .agenda-gcal-professional-frame .agenda-gcal-days-viewport::-webkit-scrollbar-thumb,
-    .agenda-gcal-professional-frame .agenda-gcal-columns-viewport::-webkit-scrollbar-thumb {
+    .agenda-gcal-professional-frame .agenda-gcal-columns-viewport::-webkit-scrollbar {
+      display: none;
+    }
+
+    .agenda-gcal-professional-scroll-row {
+      display: grid;
+      grid-template-columns: var(--agenda-time-width) minmax(0, 1fr);
+      border-bottom: 1px solid #dbe4f0;
+      background: #f8fafc;
+    }
+
+    .agenda-gcal-professional-scroll {
+      min-width: 0;
+      height: 12px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scrollbar-color: #94a3b8 #eef2f7;
+      scrollbar-width: thin;
+    }
+
+    .agenda-gcal-professional-scroll > div {
+      height: 1px;
+    }
+
+    .agenda-gcal-professional-scroll::-webkit-scrollbar {
+      height: 11px;
+    }
+
+    .agenda-gcal-professional-scroll::-webkit-scrollbar-thumb {
       border: 2px solid #eef2f7;
       border-radius: 999px;
       background: #94a3b8;
@@ -14924,6 +14961,7 @@ const crmHtml = `<!doctype html>
       agendaMobilePageTimer: null,
       agendaMobilePaging: false,
       agendaMobileScrollTop: null,
+      agendaProfessionalResizeObserver: null,
       agendaLoadedRangeStart: null,
       agendaLoadedRangeEnd: null,
       agendaDraggingAppointmentId: null,
@@ -21264,6 +21302,8 @@ const crmHtml = `<!doctype html>
     }
 
     function renderAgendaMobileThreeDay() {
+      state.agendaProfessionalResizeObserver?.disconnect()
+      state.agendaProfessionalResizeObserver = null
       const hourHeight = 88
       const viewDays = [1, 3, 7].includes(Number(state.agendaViewDays)) ? Number(state.agendaViewDays) : 3
       const professionalDayView = viewDays === 1 && !els.agendaProfessional.value
@@ -21323,6 +21363,9 @@ const crmHtml = `<!doctype html>
                 '<div class="agenda-gcal-days-track" data-agenda-mobile-track>' + dayHeaders + '</div>' +
               '</div>' +
             '</div>' +
+            (professionalDayView
+              ? '<div class="agenda-gcal-professional-scroll-row"><div></div><div class="agenda-gcal-professional-scroll" data-agenda-professional-scroll><div data-agenda-professional-scroll-spacer></div></div></div>'
+              : '') +
             '<div class="agenda-gcal-scroll" data-agenda-mobile-scroll>' +
               '<div class="agenda-gcal-grid">' +
                 '<div class="agenda-gcal-time-axis">' + hourLabels + '</div>' +
@@ -21633,23 +21676,29 @@ const crmHtml = `<!doctype html>
         const columnsViewport = frame.querySelector('.agenda-gcal-columns-viewport')
         const daysViewport = frame.querySelector('.agenda-gcal-days-viewport')
         if (frame.dataset.agendaProfessionalColumns === 'true') {
+          const professionalScrollbar = frame.querySelector('[data-agenda-professional-scroll]')
+          const professionalScrollSpacer = frame.querySelector('[data-agenda-professional-scroll-spacer]')
           const syncProfessionalColumnWidths = () => {
-            const viewportWidth = columnsViewport?.clientWidth || frame.clientWidth || 1
+            const viewportWidth = columnsViewport?.clientWidth || 0
+            if (viewportWidth < 2) return
             const minimumWidth = window.matchMedia('(max-width: 760px)').matches ? 240 : 260
             const columnWidth = Math.max(minimumWidth, viewportWidth / Math.max(1, dayCount))
             frame.style.setProperty('--agenda-day-width', columnWidth + 'px')
+            if (professionalScrollSpacer) professionalScrollSpacer.style.width = (columnWidth * dayCount) + 'px'
           }
           let syncingProfessionalScroll = false
-          const syncHorizontalScroll = (source, target) => {
-            if (!source || !target || syncingProfessionalScroll) return
+          const syncHorizontalScroll = (source) => {
+            if (!source || syncingProfessionalScroll) return
             syncingProfessionalScroll = true
-            target.scrollLeft = source.scrollLeft
+            for (const target of [daysViewport, columnsViewport, professionalScrollbar]) {
+              if (target && target !== source) target.scrollLeft = source.scrollLeft
+            }
             requestAnimationFrame(() => {
               syncingProfessionalScroll = false
             })
           }
-          daysViewport?.addEventListener('scroll', () => syncHorizontalScroll(daysViewport, columnsViewport), { passive: true })
-          columnsViewport?.addEventListener('scroll', () => syncHorizontalScroll(columnsViewport, daysViewport), { passive: true })
+          columnsViewport?.addEventListener('scroll', () => syncHorizontalScroll(columnsViewport), { passive: true })
+          professionalScrollbar?.addEventListener('scroll', () => syncHorizontalScroll(professionalScrollbar), { passive: true })
           for (const button of frame.querySelectorAll('[data-agenda-professional-column]')) {
             button.addEventListener('click', async () => {
               els.agendaProfessional.value = button.dataset.agendaProfessionalColumn || ''
@@ -21657,7 +21706,14 @@ const crmHtml = `<!doctype html>
               await loadAgenda()
             })
           }
-          requestAnimationFrame(syncProfessionalColumnWidths)
+          if (columnsViewport && typeof ResizeObserver !== 'undefined') {
+            state.agendaProfessionalResizeObserver = new ResizeObserver(syncProfessionalColumnWidths)
+            state.agendaProfessionalResizeObserver.observe(columnsViewport)
+          }
+          requestAnimationFrame(() => {
+            syncProfessionalColumnWidths()
+            requestAnimationFrame(syncProfessionalColumnWidths)
+          })
           return
         }
         const applyTransform = (value) => {
