@@ -11979,7 +11979,7 @@ const crmHtml = `<!doctype html>
     .agenda-gcal-day-head.today span { color: #fff; background: #2563eb; }
 
     .agenda-gcal-professional-frame {
-      grid-template-rows: auto 12px minmax(0, 1fr);
+      grid-template-rows: 62px 12px minmax(0, 1fr);
     }
 
     .agenda-gcal-professional-frame .agenda-gcal-days-viewport,
@@ -12003,8 +12003,12 @@ const crmHtml = `<!doctype html>
       will-change: auto;
     }
 
+    .agenda-gcal-professional-frame .agenda-gcal-days-head,
+    .agenda-gcal-professional-frame .agenda-gcal-days-viewport,
     .agenda-gcal-professional-frame .agenda-gcal-days-track,
+    .agenda-gcal-professional-frame .agenda-gcal-professional-date,
     .agenda-gcal-professional-frame .agenda-gcal-professional-head {
+      height: 62px;
       min-height: 62px;
     }
 
@@ -12064,9 +12068,9 @@ const crmHtml = `<!doctype html>
     }
 
     .agenda-gcal-professional-head {
-      grid-template-columns: auto minmax(0, 1fr);
-      justify-items: start;
-      align-content: center;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
       column-gap: 8px;
       padding: 0 14px;
       border-left: 1px solid #dbe4f0;
