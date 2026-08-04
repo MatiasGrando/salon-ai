@@ -217,6 +217,21 @@ for (const [message, expected] of routerCases) {
 
 const screenshotRouterCases = [
   {
+    message: 'quiero un turno',
+    currentStep: 'START',
+    lastBotMessage: '¿En qué te puedo ayudar?',
+    expectedIntent: 'book_appointment',
+    expectsBooking: true
+  },
+  {
+    message: 'queiro un turno de alisado molecular',
+    currentStep: 'START',
+    lastBotMessage: '¿En qué te puedo ayudar?',
+    expectedIntent: 'book_appointment',
+    expectedService: 'ordenador',
+    expectsBooking: true
+  },
+  {
     message: '¿Qué horarios tiene Tamara?',
     currentStep: 'ASK_PROFESSIONAL',
     lastBotMessage: '¿Con quién preferís atenderte?',
@@ -271,7 +286,7 @@ for (const test of screenshotRouterCases) {
     lastBotMessage: test.lastBotMessage,
     recentMessages: [],
     draft: {
-      name: 'Mati',
+      name: test.currentStep === 'START' ? null : 'Mati',
       service: 'draftService' in test
         ? test.draftService
         : test.currentStep === 'ASK_PROFESSIONAL' ? 'iluminacion' : null,
@@ -316,4 +331,4 @@ console.log(`OTHER QUERY VERIFY | ${otherQueryDecision.choiceId} | ${otherQueryD
 assert.equal(otherQueryDecision.choiceId, 'other_query')
 assert.ok(otherQueryDecision.confidence >= 0.85)
 
-console.log('\n47 pruebas reales adicionales de comprensión pasaron.')
+console.log('\n49 pruebas reales adicionales de comprensión pasaron.')

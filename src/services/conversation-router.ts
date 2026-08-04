@@ -23,6 +23,7 @@ export const CONVERSATION_INTENTS = [
   'professional_preference',
   'professional_schedule',
   'service_detail',
+  'unsupported_service',
   'request_quote',
   'submit_media',
   'request_human',
@@ -174,6 +175,10 @@ export class ConversationRouter {
           'Nunca uses professional_schedule si no pregunta por horarios, días o disponibilidad laboral de un profesional.',
           'Usa service_detail cuando pregunta qué incluye, cómo se realiza, cuál es el proceso, si lavan o preparan el cabello, o qué pasos tiene el servicio que ya está conversando.',
           'service_detail usa currentDraft.service como contexto y bookingMessage null; no necesita que el cliente repita el nombre del servicio.',
+          'Usa unsupported_service cuando el cliente pide, selecciona o consulta por un servicio concreto que no coincide con ningún nombre, alias ni descripción del catalogo.',
+          'Ejemplos: responde "lavado de pelo" al elegir servicio, pregunta "hacen depilacion?" o dice "quiero reservar reflexologia" y esos servicios no existen en catalog.services.',
+          'No uses unsupported_service para saludos, frases sin sentido, consultas genericas sobre todos los servicios ni cuando exista una coincidencia razonable en el catalogo.',
+          'Para unsupported_service usa bookingMessage null, bookingExtraction.service.value null, catalogQuery null y copia como evidence el fragmento exacto del servicio pedido.',
           'Si pregunta quienes realizan, conocen o "tienen mano" para un servicio, usa business_information con topic professionals y catalogQuery.professionals; no lo tomes como una eleccion.',
           'Usa cancel_booking cuando quiere abandonar o cancelar la reserva que esta armando, sin cancelar un turno ya confirmado.',
           'Si currentDraft contiene un servicio, profesional, fecha u hora y el cliente quiere dejar, abandonar o frenar lo que esta haciendo, cancel_booking tiene prioridad sobre stop_flow.',
@@ -268,7 +273,14 @@ export function applyExpectedFieldCatalogFallback(
     intent.confidence >= 0.65
   )) return routing
 
-  const isService = input.currentStep === 'ASK_SERVICE'
+  const isService = input.currentStep === 'ASK_SERVICE' ||
+    (
+      ['START', 'ASK_CUSTOMER_NAME'].includes(input.currentStep) &&
+      Boolean(routing.bookingMessage) &&
+      routing.intents.some((intent) =>
+        intent.type === 'book_appointment' && intent.confidence >= 0.65
+      )
+    )
   const isProfessional = input.currentStep === 'ASK_PROFESSIONAL'
   if (!isService && !isProfessional) return routing
   const options = isService ? input.catalog.services : input.catalog.professionals
@@ -727,6 +739,20 @@ function singularCatalogToken(token: string) {
 
 function editDistanceAtMostOne(left: string, right: string) {
   if (Math.abs(left.length - right.length) > 1) return false
+  if (left.length === right.length) {
+    const mismatches: number[] = []
+    for (let index = 0; index < left.length; index += 1) {
+      if (left[index] !== right[index]) mismatches.push(index)
+    }
+    if (
+      mismatches.length === 2 &&
+      mismatches[1] === mismatches[0]! + 1 &&
+      left[mismatches[0]!] === right[mismatches[1]!] &&
+      left[mismatches[1]!] === right[mismatches[0]!]
+    ) {
+      return true
+    }
+  }
   let differences = 0
   let leftIndex = 0
   let rightIndex = 0
@@ -847,7 +873,16 @@ function hasExplicitBookingIntent(normalized: string) {
     'quiero corte',
     'quiero con',
     'prefiero con'
-  ])
+  ]) || hasApproximateBookingTurnRequest(normalized)
+}
+
+function hasApproximateBookingTurnRequest(normalized: string) {
+  const tokens = normalized.split(' ').filter(Boolean)
+  if (!tokens.some((token) => token === 'turno' || token === 'turnos')) return false
+  const bookingVerbs = ['quiero', 'queria', 'quisiera', 'necesito', 'reservar', 'agendar']
+  return tokens.some((token) =>
+    token.length >= 4 && bookingVerbs.some((verb) => editDistanceAtMostOne(token, verb))
+  )
 }
 
 function hasExplicitQuoteRequest(normalized: string) {

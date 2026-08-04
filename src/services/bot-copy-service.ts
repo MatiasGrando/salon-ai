@@ -279,6 +279,23 @@ export class BotCopyService {
       : 'Claro, decime qué querés consultar y te ayudo.'
   }
 
+  unsupportedService(hasBookingInProgress = false) {
+    return [
+      'No encuentro ese servicio entre los que tenemos cargados.',
+      'Puede que esté incluido dentro de otro tratamiento o que el equipo necesite confirmarlo.',
+      hasBookingInProgress
+        ? 'Tu reserva queda pausada en este punto. ¿Querés ver los servicios disponibles o consultar con el equipo?'
+        : '¿Querés ver los servicios disponibles o consultar con el equipo?'
+    ].join('\n\n')
+  }
+
+  unsupportedServiceHandoff() {
+    return [
+      'No pude relacionar ese pedido con un servicio cargado.',
+      'Te voy a derivar con el equipo para que confirme si pueden ayudarte. La respuesta puede demorar unos minutos.'
+    ].join('\n')
+  }
+
   repeatedMisunderstandingHandoff() {
     return [
       'No estoy pudiendo interpretar correctamente tu consulta.',

@@ -928,7 +928,9 @@ export class ConversationService {
       }
     }
     const serviceDetailIntent = input.routing.intents.find((intent) =>
-      intent.type === 'service_detail' && intent.confidence >= 0.65
+      intent.type === 'service_detail' &&
+      intent.confidence >= 0.65 &&
+      !isGroundedUnsupportedServiceRequest(input.message, input.routing)
     )
     if (serviceDetailIntent) {
       const serviceId = input.conversation.selectedServiceId
@@ -965,15 +967,62 @@ export class ConversationService {
         skipHumanize: true
       }
     }
+    if (isGroundedUnsupportedServiceRequest(input.message, input.routing)) {
+      const state = stateFromConversation(input.conversation)
+      const normalizedRequest = normalizeText(input.message)
+      const unsupportedServiceCount = state.unsupportedServiceRequest?.normalizedRequest === normalizedRequest
+        ? state.unsupportedServiceRequest.count + 1
+        : 1
+      const unsupportedState: BookingV2State = {
+        ...state,
+        unsupportedServiceRequest: {
+          normalizedRequest,
+          count: unsupportedServiceCount
+        }
+      }
+      const unsupportedPatch = conversationPatchFromState(unsupportedState)
+      if (unsupportedServiceCount >= 2) {
+        await this.updateConversation(input.phone, input.businessId, {
+          ...unsupportedPatch,
+          currentStep: 'HUMAN_HANDOFF',
+          aiEnabled: false,
+          misunderstandingCount: 0,
+          humanHandoffAt: new Date(),
+          humanHandoffResolvedAt: null
+        })
+        return {
+          reply: applyAssistantPersonalityToReply(
+            botCopyService.unsupportedServiceHandoff(),
+            assistantPersonality
+          ),
+          skipMisunderstandingTracking: true,
+          skipHumanize: true
+        }
+      }
+
+      await this.updateConversation(input.phone, input.businessId, {
+        ...unsupportedPatch,
+        currentStep: conversationStepValue(input.conversation.currentStep),
+        misunderstandingCount: input.conversation.misunderstandingCount
+      })
+      return {
+        reply: applyAssistantPersonalityToReply(
+          botCopyService.unsupportedService(isActiveBookingV2Step(input.conversation.currentStep)),
+          assistantPersonality
+        ),
+        replyButtons: unsupportedServiceDecisionButtons(input.conversation.id),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
     const routedOtherQueryConfidence = Math.max(
       0,
       ...input.routing.intents
         .filter((intent) => intent.type === 'other_query')
         .map((intent) => intent.confidence)
     )
-    let confirmedOtherQuery = routedOtherQueryConfidence >= 0.85
+    let confirmedOtherQuery = false
     if (
-      !confirmedOtherQuery &&
       routedOtherQueryConfidence >= 0.4 &&
       !input.routing.bookingMessage &&
       informationTopics.length === 0
@@ -1296,7 +1345,10 @@ export class ConversationService {
       }
     }
 
-    const storedState = stateFromConversation(input.conversation)
+    const storedState = {
+      ...stateFromConversation(input.conversation),
+      unsupportedServiceRequest: null
+    }
     const stateWithAgenda = mergeBookingV2AgendaFromRouting({
       state: storedState,
       routing: input.routing
@@ -1315,7 +1367,15 @@ export class ConversationService {
         : input.routing.bookingMessage ?? input.message,
       ...(input.routing.bookingExtraction
         ? { understandingExtraction: input.routing.bookingExtraction }
-        : {})
+        : {}),
+      acceptMissingExpectedField: ['START', 'ASK_CUSTOMER_NAME'].includes(input.conversation.currentStep) &&
+        Boolean(input.routing.bookingMessage) &&
+        input.routing.intents.some((intent) => [
+          'book_appointment',
+          'availability_preference',
+          'professional_preference',
+          'request_quote'
+        ].includes(intent.type) && intent.confidence >= 0.65)
     })
 
     if (!result.state.draft.name && pendingRequest) {
@@ -2693,6 +2753,27 @@ export function recoveryDecisionButtons(conversationId: string) {
     { id: `recovery_other:${conversationId}`, title: 'Otra consulta' },
     { id: `recovery_handoff:${conversationId}`, title: 'Hablar con equipo' }
   ]
+}
+
+export function unsupportedServiceDecisionButtons(conversationId: string) {
+  return [
+    { id: `recovery_resume:${conversationId}`, title: 'Ver servicios' },
+    { id: `recovery_other:${conversationId}`, title: 'Otra consulta' },
+    { id: `recovery_handoff:${conversationId}`, title: 'Hablar con equipo' }
+  ]
+}
+
+export function isGroundedUnsupportedServiceRequest(
+  message: string,
+  routing: ConversationRouting
+) {
+  if (routing.bookingExtraction?.service.value) return false
+  const normalizedMessage = normalizeText(message)
+  return routing.intents.some((intent) => {
+    if (intent.type !== 'unsupported_service') return false
+    const normalizedEvidence = normalizeText(intent.evidence)
+    return Boolean(normalizedEvidence) && normalizedMessage.includes(normalizedEvidence)
+  })
 }
 
 export function recoveryActionFromInteractiveReply(replyId: string | undefined, conversationId: string) {

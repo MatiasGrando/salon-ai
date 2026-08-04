@@ -83,6 +83,11 @@ export type BookingV2ContextPause = {
   expiresAt: string
 }
 
+export type BookingV2UnsupportedServiceRequest = {
+  normalizedRequest: string
+  count: number
+}
+
 export type BookingV2State = {
   draft: BookingDraft
   pendingProposal: BookingProposal | null
@@ -94,6 +99,7 @@ export type BookingV2State = {
   advisorQuote: BookingV2AdvisorQuote | null
   pendingDeposit: BookingV2PendingDeposit | null
   contextPause?: BookingV2ContextPause | null
+  unsupportedServiceRequest?: BookingV2UnsupportedServiceRequest | null
   misunderstandingCount: number
 }
 
@@ -125,6 +131,7 @@ export function createEmptyBookingV2State(): BookingV2State {
     advisorQuote: null,
     pendingDeposit: null,
     contextPause: null,
+    unsupportedServiceRequest: null,
     misunderstandingCount: 0
   }
 }

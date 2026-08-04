@@ -10,14 +10,17 @@ import {
 import {
   businessInformationNeedsHuman,
   formatProfessionalWorkingHours,
+  isGroundedUnsupportedServiceRequest,
   professionalChangeRoutingMode,
   recoveryActionFromInteractiveReply,
-  recoveryDecisionButtons
+  recoveryDecisionButtons,
+  unsupportedServiceDecisionButtons
 } from '../src/services/conversation-service.js'
 import {
   renderCatalogServiceQuery,
   type BusinessKnowledge
 } from '../src/services/business-knowledge-service.js'
+import type { BookingV2Extraction } from '../src/services/booking-v2-extractor.js'
 
 const catalog = {
   services: [{ id: 'illumination', name: 'Iluminación', aliases: ['balayage'] }],
@@ -119,6 +122,37 @@ const groundedTypo = applyExpectedFieldCatalogFallback({
 assert.equal(groundedTypo.bookingExtraction?.professional.value, 'tamara')
 assert.equal(groundedTypo.intents[0]?.type, 'professional_preference')
 
+const bookingCatalog = {
+  services: [
+    { id: 'molecular', name: 'Alisado molecular', aliases: [] },
+    { id: 'formol-free', name: 'Alisado sin formol', aliases: [] }
+  ],
+  professionals: []
+}
+const typoBooking = deterministicConversationRouting(
+  'queiro un turno de alisado molecular',
+  { currentStep: 'START', catalog: bookingCatalog }
+)
+assert.equal(typoBooking.bookingMessage, 'queiro un turno de alisado molecular')
+const groundedBookingAtStart = applyExpectedFieldCatalogFallback({
+  intents: [
+    { type: 'book_appointment', topic: null, confidence: 0.92, evidence: 'quiero un turno' },
+    { type: 'business_information', topic: 'services', confidence: 0.8, evidence: 'alisado molecular' }
+  ],
+  bookingMessage: 'quiero un turno para alisado molecular',
+  bookingExtraction: null,
+  catalogQuery: null
+}, {
+  message: 'quiero un turno para alisado molecular',
+  currentStep: 'START',
+  catalog: bookingCatalog
+})
+assert.equal(groundedBookingAtStart.bookingExtraction?.service.value, 'molecular')
+assert.equal(
+  groundedBookingAtStart.intents.some((intent) => intent.type === 'business_information' && intent.topic === 'services'),
+  false
+)
+
 assert.equal(
   deterministicConversationRouting('¿Me agendás para esta semana?').bookingMessage,
   '¿Me agendás para esta semana?'
@@ -131,6 +165,34 @@ const otherQuery = normalizeConversationRouting({
   catalogQuery: null
 })
 assert.equal(otherQuery.intents[0]?.type, 'other_query')
+
+const unsupportedService = normalizeConversationRouting({
+  intents: [{
+    type: 'unsupported_service',
+    topic: null,
+    confidence: 0.96,
+    evidence: 'lavado de pelo'
+  }],
+  bookingMessage: null,
+  bookingExtraction: extraction(),
+  catalogQuery: null
+})
+assert.equal(unsupportedService.intents[0]?.type, 'unsupported_service')
+assert.equal(unsupportedService.bookingMessage, null)
+assert.equal(unsupportedService.bookingExtraction?.service.value, null)
+assert.equal(isGroundedUnsupportedServiceRequest('lavado de pelo', {
+  ...unsupportedService,
+  source: 'ai'
+}), true)
+assert.equal(isGroundedUnsupportedServiceRequest('otra consulta', {
+  ...unsupportedService,
+  source: 'ai'
+}), false)
+assert.equal(isGroundedUnsupportedServiceRequest('lavado de pelo', {
+  ...unsupportedService,
+  bookingExtraction: extraction({ service: field('illumination', 0.9, 'lavado de pelo') }),
+  source: 'ai'
+}), false)
 
 const changeProfessionalRouting = normalizeConversationRouting({
   intents: [{ type: 'professional_preference', topic: null, confidence: 0.94, evidence: 'cambiar de profesional' }],
@@ -188,6 +250,21 @@ assert.equal(recoveryActionFromInteractiveReply(buttons[1]?.id, 'conversation-1'
 assert.equal(recoveryActionFromInteractiveReply(buttons[2]?.id, 'conversation-1'), 'handoff')
 assert.equal(recoveryActionFromInteractiveReply(buttons[2]?.id, 'conversation-2'), null)
 
+const unsupportedButtons = unsupportedServiceDecisionButtons('conversation-unsupported')
+assert.deepEqual(
+  unsupportedButtons.map((button) => button.title),
+  ['Ver servicios', 'Otra consulta', 'Hablar con equipo']
+)
+assert.ok(unsupportedButtons.every((button) => button.title.length <= 20))
+assert.equal(
+  recoveryActionFromInteractiveReply(unsupportedButtons[0]?.id, 'conversation-unsupported'),
+  'resume'
+)
+assert.equal(
+  recoveryActionFromInteractiveReply(unsupportedButtons[2]?.id, 'conversation-unsupported'),
+  'handoff'
+)
+
 assert.deepEqual(formatProfessionalWorkingHours([
   { dayOfWeek: 2, startTime: '10:00', endTime: '18:00' },
   { dayOfWeek: 4, startTime: '12:00', endTime: '20:00' }
@@ -242,8 +319,12 @@ assert.match(serviceSource, /misunderstandingCount >= 3/)
 assert.match(serviceSource, /recoveryDecisionButtons/)
 assert.match(serviceSource, /professionalScheduleReply/)
 assert.match(serviceSource, /bookingV2MisunderstandingButtons/)
+assert.match(serviceSource, /unsupportedServiceDecisionButtons/)
 const routerSource = await readFile(new URL('../src/services/conversation-router.ts', import.meta.url), 'utf8')
 for (const phrase of ['qué horarios tiene Tamara', 'sede, sucursal, barrio', 'agenden o reserven esta semana']) {
+  assert.equal(routerSource.includes(phrase), true, phrase)
+}
+for (const phrase of ['unsupported_service', 'lavado de pelo', 'hacen depilacion']) {
   assert.equal(routerSource.includes(phrase), true, phrase)
 }
 
@@ -253,11 +334,11 @@ function field(value: string | null = null, confidence = 0, evidence = '') {
   return { value, confidence, evidence }
 }
 
-function extraction(overrides: Partial<ReturnType<typeof emptyExtraction>> = {}) {
+function extraction(overrides: Partial<BookingV2Extraction> = {}) {
   return { ...emptyExtraction(), ...overrides }
 }
 
-function emptyExtraction() {
+function emptyExtraction(): BookingV2Extraction {
   return {
     name: field(),
     service: field(),

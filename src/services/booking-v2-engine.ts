@@ -81,6 +81,7 @@ export type BookingV2ProcessInput = {
   message: string
   currentDate?: Date
   understandingExtraction?: BookingV2Extraction | null
+  acceptMissingExpectedField?: boolean
 }
 
 export type BookingV2ProcessResult = {
@@ -530,7 +531,7 @@ export class BookingV2Engine {
 
     if (!rawExtraction) {
       const expectedField = nextMissingField(stateForExtraction.draft)
-      if (expectedField !== 'confirmation') {
+      if (expectedField !== 'confirmation' && !input.acceptMissingExpectedField) {
         const state = recordLowConfidence(stateForExtraction)
         return this.fromInterpretation({
           state,
@@ -559,7 +560,9 @@ export class BookingV2Engine {
       this.domain.toInterpreterCatalog(catalog)
     )
     const expectedField = nextMissingField(stateForExtraction.draft)
-    const effectiveInterpretation = interpretation.outcome === 'no_change' && expectedField !== 'confirmation'
+    const effectiveInterpretation = interpretation.outcome === 'no_change' &&
+      expectedField !== 'confirmation' &&
+      !input.acceptMissingExpectedField
       ? {
           state: recordLowConfidence(interpretation.state),
           nextField: expectedField,

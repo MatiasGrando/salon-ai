@@ -5,9 +5,11 @@ type Check = {
   includes?: string[]
   includesAny?: string[]
   excludes?: string[]
+  replyButtonTitles?: string[]
   currentStep?: string
   customerName?: string
   resetStateCleared?: boolean
+  misunderstandingCount?: number
 }
 
 type Step = Check & {
@@ -60,6 +62,9 @@ async function main() {
   }
 
   const secondProfessional = business.professionals[1] ?? professional
+  const molecularService = business.services.find((item) =>
+    item.name.toLocaleLowerCase('es').includes('alisado molecular')
+  ) ?? service
   const typoProfessional = business.professionals.find((item) =>
     item.name.toLocaleLowerCase('es').startsWith('lucas')
   ) ?? professional
@@ -141,6 +146,35 @@ async function main() {
           message: 'Hola soy Manola',
           includes: ['Manola', service.name],
           customerName: 'Manola'
+        }
+      ]
+    },
+    {
+      name: 'servicio no cargado ofrece opciones y deriva si insisten',
+      phone: `${testPhonePrefix}unsupported-service`,
+      steps: [
+        {
+          message: 'reset total',
+          includes: ['Cami']
+        },
+        {
+          message: 'quiero reservar un turno',
+          includes: ['nombre']
+        },
+        {
+          message: 'Mati',
+          includes: [service.name]
+        },
+        {
+          message: 'lavado de pelo',
+          includes: ['No encuentro ese servicio', 'servicios disponibles', 'consultar con el equipo'],
+          replyButtonTitles: ['Ver servicios', 'Otra consulta', 'Hablar con equipo'],
+          currentStep: 'ASK_SERVICE'
+        },
+        {
+          message: 'lavado de pelo',
+          includes: ['derivar', 'equipo', 'demorar'],
+          currentStep: 'HUMAN_HANDOFF'
         }
       ]
     },
@@ -1009,6 +1043,31 @@ async function main() {
       ]
     },
     {
+      name: 'pedido de turno sin nombre pregunta el dato sin fingir incomprension',
+      phone: `${testPhonePrefix}booking-without-name`,
+      steps: [{
+        message: 'quiero un turno',
+        includes: ['¿Me decís tu nombre?'],
+        excludes: ['no te entendí', 'No estoy segura'],
+        currentStep: 'ASK_CUSTOMER_NAME',
+        misunderstandingCount: 0
+      }]
+    },
+    {
+      name: 'typo en quiero conserva turno y servicio sin mostrar todo el catalogo',
+      phone: `${testPhonePrefix}booking-verb-typo`,
+      steps: [{
+        message: `queiro un turno de ${molecularService.name}`,
+        includes: ['¿Me decís tu nombre?'],
+        excludes: [
+          'No estoy segura',
+          ...business.services.filter((item) => item.id !== molecularService.id).slice(0, 1).map((item) => item.name)
+        ],
+        currentStep: 'ASK_CUSTOMER_NAME',
+        misunderstandingCount: 0
+      }]
+    },
+    {
       name: 'typo de profesional propone la coincidencia y no repite la lista',
       phone: `${testPhonePrefix}professional-one-letter-typo`,
       setup: async () => {
@@ -1307,13 +1366,28 @@ async function runScenario(scenario: Scenario) {
       console.log(`Cami: ${result.reply}`)
 
       assertReply(result.reply, step)
+      assertReplyButtons(result.replyButtons, step)
       await assertConversationStep(scenario.phone, step)
       await assertCustomerName(scenario.phone, step)
       await assertResetStateCleared(scenario.phone, step)
+      await assertMisunderstandingCount(scenario.phone, step)
     }
   } finally {
     await cleanupTestScheduleBlocks()
     restoreDate?.()
+  }
+}
+
+function assertReplyButtons(
+  replyButtons: Array<{ id: string; title: string }> | undefined,
+  step: Step
+) {
+  if (!step.replyButtonTitles) return
+  const titles = replyButtons?.map((button) => button.title) ?? []
+  if (JSON.stringify(titles) !== JSON.stringify(step.replyButtonTitles)) {
+    throw new Error(
+      `Esperaba botones ${JSON.stringify(step.replyButtonTitles)} pero recibí ${JSON.stringify(titles)}.`
+    )
   }
 }
 
@@ -1396,6 +1470,19 @@ async function assertResetStateCleared(phone: string, step: Step) {
 
   if (JSON.stringify(conversation) !== JSON.stringify(expected)) {
     throw new Error(`El reset total dejó estado residual: ${JSON.stringify(conversation)}`)
+  }
+}
+
+async function assertMisunderstandingCount(phone: string, step: Step) {
+  if (step.misunderstandingCount === undefined) return
+  const conversation = await prisma.conversation.findFirst({
+    where: { phone },
+    select: { misunderstandingCount: true }
+  })
+  if (conversation?.misunderstandingCount !== step.misunderstandingCount) {
+    throw new Error(
+      `Esperaba misunderstandingCount ${step.misunderstandingCount}, recibí ${conversation?.misunderstandingCount ?? 'sin conversación'}.`
+    )
   }
 }
 

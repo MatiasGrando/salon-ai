@@ -881,6 +881,28 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'pedido de turno sin nombre pide el dato faltante sin marcar incomprension',
+    run: async () => {
+      const engine = new BookingV2Engine(fakeDomainPort(), fakeExtractor(null))
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: null,
+        message: 'quiero un turno',
+        acceptMissingExpectedField: true
+      })
+
+      assert.equal(result.outcome, 'no_change')
+      assert.equal(result.state.misunderstandingCount, 0)
+      assert.deepEqual(result.plan, {
+        type: 'ask_field',
+        field: 'name',
+        reason: 'missing',
+        misunderstandingCount: 0
+      })
+      assert.equal(result.reply, '¿Me decís tu nombre?')
+    }
+  },
+  {
     name: 'cuenta falta de avance y deriva al tercer intento desconocido',
     run: async () => {
       const engine = new BookingV2Engine(fakeDomainPort(), fakeExtractor(null))

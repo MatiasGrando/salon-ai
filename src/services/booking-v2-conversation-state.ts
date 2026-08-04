@@ -9,6 +9,7 @@ import {
   type BookingV2GuidedEstimate,
   type BookingV2PendingRequest,
   type BookingV2ServiceValidation,
+  type BookingV2UnsupportedServiceRequest,
   type BookingV2PendingDeposit,
   type BookingProposal,
   type BookingV2State
@@ -45,6 +46,7 @@ export type BookingV2PersistedState = {
   advisorQuote?: BookingV2AdvisorQuote | null
   pendingDeposit?: BookingV2PendingDeposit | null
   contextPause?: BookingV2ContextPause | null
+  unsupportedServiceRequest?: BookingV2UnsupportedServiceRequest | null
 }
 
 export function stateFromConversation(
@@ -69,6 +71,7 @@ export function stateFromConversation(
     advisorQuote: readAdvisorQuote(conversation.bookingV2State),
     pendingDeposit: readPendingDeposit(conversation.bookingV2State),
     contextPause: readContextPause(conversation.bookingV2State),
+    unsupportedServiceRequest: readUnsupportedServiceRequest(conversation.bookingV2State),
     misunderstandingCount: conversation.misunderstandingCount
   }
 }
@@ -81,7 +84,7 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
     selectedDate: state.draft.date,
     selectedTime: state.draft.time,
     misunderstandingCount: state.misunderstandingCount,
-    bookingV2State: state.pendingProposal || state.pendingRequest || state.agenda.length || state.categoryAdvice || state.serviceValidation || state.guidedEstimate || state.advisorQuote || state.pendingDeposit || state.contextPause
+    bookingV2State: state.pendingProposal || state.pendingRequest || state.agenda.length || state.categoryAdvice || state.serviceValidation || state.guidedEstimate || state.advisorQuote || state.pendingDeposit || state.contextPause || state.unsupportedServiceRequest
       ? {
           version: 1,
           pendingProposal: state.pendingProposal,
@@ -92,9 +95,33 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
           ...(state.guidedEstimate ? { guidedEstimate: state.guidedEstimate } : {}),
           ...(state.advisorQuote ? { advisorQuote: state.advisorQuote } : {}),
           ...(state.pendingDeposit ? { pendingDeposit: state.pendingDeposit } : {}),
-          ...(state.contextPause ? { contextPause: state.contextPause } : {})
+          ...(state.contextPause ? { contextPause: state.contextPause } : {}),
+          ...(state.unsupportedServiceRequest
+            ? { unsupportedServiceRequest: state.unsupportedServiceRequest }
+            : {})
         }
       : null
+  }
+}
+
+function readUnsupportedServiceRequest(value: unknown): BookingV2UnsupportedServiceRequest | null {
+  if (!value || typeof value !== 'object') return null
+  const persisted = value as { unsupportedServiceRequest?: unknown }
+  const request = persisted.unsupportedServiceRequest
+  if (!request || typeof request !== 'object') return null
+  const candidate = request as { normalizedRequest?: unknown; count?: unknown }
+  if (
+    typeof candidate.normalizedRequest !== 'string' ||
+    !candidate.normalizedRequest.trim() ||
+    typeof candidate.count !== 'number' ||
+    !Number.isInteger(candidate.count) ||
+    candidate.count < 1
+  ) {
+    return null
+  }
+  return {
+    normalizedRequest: candidate.normalizedRequest,
+    count: candidate.count
   }
 }
 
