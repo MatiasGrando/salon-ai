@@ -1061,6 +1061,13 @@ async function main() {
           currentStep: 'ASK_SERVICE',
           selectedCustomerName: 'Matias',
           misunderstandingCount: 0
+        },
+        {
+          message: 'color completo',
+          includes: ['Podés atenderte con'],
+          excludes: ['conocer el proceso', 'Sobre cuál querés consultar', 'servicios disponibles'],
+          currentStep: 'ASK_PROFESSIONAL',
+          misunderstandingCount: 0
         }
       ]
     },

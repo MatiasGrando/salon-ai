@@ -268,11 +268,6 @@ export function applyExpectedFieldCatalogFallback(
   input: Pick<ConversationRouterInput, 'message' | 'currentStep' | 'catalog'>
 ): Omit<ConversationRouting, 'source'> {
   if (looksLikeInformationQuestion(input.message)) return routing
-  if (routing.intents.some((intent) =>
-    ['professional_schedule', 'service_detail', 'other_query', 'request_human'].includes(intent.type) &&
-    intent.confidence >= 0.65
-  )) return routing
-
   const isService = input.currentStep === 'ASK_SERVICE' ||
     (
       ['START', 'ASK_CUSTOMER_NAME'].includes(input.currentStep) &&
@@ -285,6 +280,16 @@ export function applyExpectedFieldCatalogFallback(
   if (!isService && !isProfessional) return routing
   const options = isService ? input.catalog.services : input.catalog.professionals
   const matches = resolveCatalogOptionMatches(normalizeEvidenceText(input.message), options)
+  const isExactServiceSelection = isService && matches.length === 1 &&
+    isBareCatalogOptionSelection(input.message, matches[0]!)
+  if (routing.intents.some((intent) =>
+    ['professional_schedule', 'other_query', 'request_human'].includes(intent.type) &&
+    intent.confidence >= 0.65
+  )) return routing
+  if (
+    !isExactServiceSelection &&
+    routing.intents.some((intent) => intent.type === 'service_detail' && intent.confidence >= 0.65)
+  ) return routing
   if (matches.length !== 1) return routing
 
   const match = matches[0]!
@@ -293,6 +298,7 @@ export function applyExpectedFieldCatalogFallback(
   const intentType = isService ? 'book_appointment' as const : 'professional_preference' as const
   const intents = routing.intents.filter((intent) =>
     !['unknown', 'go_back'].includes(intent.type) &&
+    !(isExactServiceSelection && intent.type === 'service_detail') &&
     !(intent.type === 'business_information' && ['services', 'professionals'].includes(intent.topic ?? ''))
   )
   if (!intents.some((intent) => intent.type === intentType)) {
@@ -308,6 +314,17 @@ export function applyExpectedFieldCatalogFallback(
     },
     catalogQuery: null
   }
+}
+
+function isBareCatalogOptionSelection(
+  message: string,
+  option: { name: string; aliases?: string[] }
+) {
+  const normalizedMessage = normalizeEvidenceText(message)
+    .replace(/^(?:elijo|me interesa|prefiero|quiero)\s+/, '')
+    .replace(/\s+por favor$/, '')
+  return [option.name, ...(option.aliases ?? [])]
+    .some((label) => normalizeEvidenceText(label) === normalizedMessage)
 }
 
 export function applyContextualRoutingPriorities(

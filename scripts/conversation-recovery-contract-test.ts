@@ -154,6 +154,39 @@ assert.equal(
   false
 )
 
+const exactServiceBeatsWrongDetailIntent = applyExpectedFieldCatalogFallback({
+  intents: [{ type: 'service_detail', topic: null, confidence: 0.94, evidence: 'Color Completo' }],
+  bookingMessage: null,
+  bookingExtraction: null,
+  catalogQuery: null
+}, {
+  message: 'Color Completo',
+  currentStep: 'ASK_SERVICE',
+  catalog: {
+    services: [{ id: 'full-color', name: 'Color Completo', aliases: ['color total'] }],
+    professionals: []
+  }
+})
+assert.equal(exactServiceBeatsWrongDetailIntent.bookingExtraction?.service.value, 'full-color')
+assert.equal(exactServiceBeatsWrongDetailIntent.intents.some((intent) => intent.type === 'service_detail'), false)
+assert.equal(exactServiceBeatsWrongDetailIntent.intents.some((intent) => intent.type === 'book_appointment'), true)
+
+const realServiceDetailQuestion = applyExpectedFieldCatalogFallback({
+  intents: [{ type: 'service_detail', topic: null, confidence: 0.94, evidence: 'qué incluye' }],
+  bookingMessage: null,
+  bookingExtraction: null,
+  catalogQuery: null
+}, {
+  message: '¿Qué incluye Color Completo?',
+  currentStep: 'ASK_SERVICE',
+  catalog: {
+    services: [{ id: 'full-color', name: 'Color Completo', aliases: [] }],
+    professionals: []
+  }
+})
+assert.equal(realServiceDetailQuestion.intents[0]?.type, 'service_detail')
+assert.equal(realServiceDetailQuestion.bookingMessage, null)
+
 assert.equal(
   deterministicConversationRouting('¿Me agendás para esta semana?').bookingMessage,
   '¿Me agendás para esta semana?'
