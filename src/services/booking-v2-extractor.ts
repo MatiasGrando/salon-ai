@@ -29,6 +29,7 @@ export type BookingV2Extraction = {
   professional: ExtractedBookingField
   date: ExtractedBookingField
   time: ExtractedBookingField
+  additionalServices?: ExtractedBookingField[]
   correction: BookingCorrectionIntent
 }
 
@@ -58,6 +59,8 @@ export class BookingV2Extractor {
           'Si expectedField es professional y el mensaje coincide con un profesional, nunca lo extraigas como name.',
           'Si expectedField es time, interpreta formatos como 1830, 18hs, 18.30 o a las seis como horarios, nunca como fechas.',
           'Para service y professional usa exclusivamente IDs presentes en las listas recibidas.',
+          'Si el cliente pide varios servicios, coloca el primero en service y los restantes, en el orden mencionado, en additionalServices.',
+          'No repitas el servicio principal dentro de additionalServices y no agregues servicios que el cliente no haya solicitado.',
           'La descripcion de cada servicio aporta contexto sobre lo que incluye y para que casos sirve. Usala para interpretar el pedido del cliente sin inventar prestaciones.',
           'Si no hay evidencia de un campo, usa value null, confidence 0 y evidence vacio.',
           'No supongas datos por el paso actual ni copies datos existentes si no aparecen en el mensaje.',
@@ -106,6 +109,7 @@ export function normalizeExtraction(extraction: BookingV2Extraction): BookingV2E
     professional: normalizeField(extraction.professional),
     date: normalizeDateField(extraction.date),
     time: normalizeTimeField(extraction.time),
+    additionalServices: normalizeAdditionalServices(extraction.additionalServices),
     correction: {
       field: isBookingField(extraction.correction.field) ? extraction.correction.field : null,
       newValue: cleanValue(extraction.correction.newValue),
@@ -136,13 +140,18 @@ const extractedFieldSchema = {
 export const bookingExtractionSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['name', 'service', 'professional', 'date', 'time', 'correction'],
+  required: ['name', 'service', 'professional', 'date', 'time', 'additionalServices', 'correction'],
   properties: {
     name: extractedFieldSchema,
     service: extractedFieldSchema,
     professional: extractedFieldSchema,
     date: extractedFieldSchema,
     time: extractedFieldSchema,
+    additionalServices: {
+      type: 'array',
+      maxItems: 4,
+      items: extractedFieldSchema
+    },
     correction: {
       type: 'object',
       additionalProperties: false,
@@ -160,6 +169,11 @@ export const bookingExtractionSchema = {
       }
     }
   }
+}
+
+function normalizeAdditionalServices(value: unknown): ExtractedBookingField[] {
+  if (!Array.isArray(value)) return []
+  return value.slice(0, 4).map((field) => normalizeField(field as ExtractedBookingField))
 }
 
 function normalizeField(field: ExtractedBookingField): ExtractedBookingField {

@@ -9,6 +9,7 @@ import {
   type BookingV2CatalogNavigation,
   type BookingV2GuidedEstimate,
   type BookingV2PendingRequest,
+  type BookingV2QueuedService,
   type BookingV2ServiceValidation,
   type BookingV2UnsupportedServiceRequest,
   type BookingV2PendingDeposit,
@@ -49,6 +50,7 @@ export type BookingV2PersistedState = {
   pendingDeposit?: BookingV2PendingDeposit | null
   contextPause?: BookingV2ContextPause | null
   unsupportedServiceRequest?: BookingV2UnsupportedServiceRequest | null
+  queuedServices?: BookingV2QueuedService[]
 }
 
 export function stateFromConversation(
@@ -75,6 +77,7 @@ export function stateFromConversation(
     pendingDeposit: readPendingDeposit(conversation.bookingV2State),
     contextPause: readContextPause(conversation.bookingV2State),
     unsupportedServiceRequest: readUnsupportedServiceRequest(conversation.bookingV2State),
+    queuedServices: readQueuedServices(conversation.bookingV2State),
     misunderstandingCount: conversation.misunderstandingCount
   }
 }
@@ -87,7 +90,7 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
     selectedDate: state.draft.date,
     selectedTime: state.draft.time,
     misunderstandingCount: state.misunderstandingCount,
-    bookingV2State: state.pendingProposal || state.pendingRequest || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.advisorQuote || state.pendingDeposit || state.contextPause || state.unsupportedServiceRequest
+    bookingV2State: state.pendingProposal || state.pendingRequest || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.advisorQuote || state.pendingDeposit || state.contextPause || state.unsupportedServiceRequest || state.queuedServices.length
       ? {
           version: 1,
           pendingProposal: state.pendingProposal,
@@ -102,10 +105,31 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
           ...(state.contextPause ? { contextPause: state.contextPause } : {}),
           ...(state.unsupportedServiceRequest
             ? { unsupportedServiceRequest: state.unsupportedServiceRequest }
-            : {})
+            : {}),
+          ...(state.queuedServices.length ? { queuedServices: state.queuedServices } : {})
         }
       : null
   }
+}
+
+function readQueuedServices(value: unknown): BookingV2QueuedService[] {
+  if (!value || typeof value !== 'object') return []
+  const persisted = value as { version?: unknown; queuedServices?: unknown }
+  if (persisted.version !== 1 || !Array.isArray(persisted.queuedServices)) return []
+  const seen = new Set<string>()
+  const services: BookingV2QueuedService[] = []
+  for (const item of persisted.queuedServices) {
+    if (!item || typeof item !== 'object') continue
+    const candidate = item as Partial<BookingV2QueuedService>
+    const serviceId = candidate.serviceId?.trim()
+    if (!serviceId || seen.has(serviceId)) continue
+    seen.add(serviceId)
+    services.push({
+      serviceId,
+      evidence: candidate.evidence?.trim() || ''
+    })
+  }
+  return services.slice(0, 5)
 }
 
 function readUnsupportedServiceRequest(value: unknown): BookingV2UnsupportedServiceRequest | null {

@@ -20,6 +20,7 @@
     "test:professional-schedule": "tsx scripts/professional-weekly-schedule-contract-test.ts",
     "test:service-duration": "tsx scripts/service-duration-contract-test.ts",
     "test:service-catalog-display": "tsx scripts/service-catalog-display-contract-test.ts",
+    "test:multi-service-booking": "tsx scripts/multi-service-booking-contract-test.ts",
     "test:manual-appointment-filter": "tsx scripts/manual-appointment-service-filter-contract-test.ts",
     "test:manual-appointment-customer-search": "tsx scripts/manual-appointment-customer-search-contract-test.ts",
     "test:text-encoding": "tsx scripts/text-encoding-contract-test.ts",

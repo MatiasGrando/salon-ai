@@ -96,6 +96,11 @@ export type BookingV2UnsupportedServiceRequest = {
   count: number
 }
 
+export type BookingV2QueuedService = {
+  serviceId: string
+  evidence: string
+}
+
 export type BookingV2State = {
   draft: BookingDraft
   pendingProposal: BookingProposal | null
@@ -109,6 +114,7 @@ export type BookingV2State = {
   pendingDeposit: BookingV2PendingDeposit | null
   contextPause?: BookingV2ContextPause | null
   unsupportedServiceRequest?: BookingV2UnsupportedServiceRequest | null
+  queuedServices: BookingV2QueuedService[]
   misunderstandingCount: number
 }
 
@@ -142,7 +148,40 @@ export function createEmptyBookingV2State(): BookingV2State {
     pendingDeposit: null,
     contextPause: null,
     unsupportedServiceRequest: null,
+    queuedServices: [],
     misunderstandingCount: 0
+  }
+}
+
+export function queueAdditionalServices(
+  state: BookingV2State,
+  services: BookingV2QueuedService[]
+): BookingV2State {
+  const seen = new Set([
+    state.draft.service,
+    ...state.queuedServices.map((service) => service.serviceId)
+  ].filter((serviceId): serviceId is string => Boolean(serviceId)))
+  const queuedServices = [...state.queuedServices]
+  for (const service of services) {
+    if (!service.serviceId || seen.has(service.serviceId)) continue
+    seen.add(service.serviceId)
+    queuedServices.push(service)
+  }
+  return { ...state, queuedServices }
+}
+
+export function advanceToNextQueuedService(state: BookingV2State) {
+  const [nextService, ...remainingServices] = state.queuedServices
+  if (!nextService) return null
+  let nextState = createEmptyBookingV2State()
+  if (state.draft.name) nextState = acceptField(nextState, 'name', state.draft.name)
+  nextState = acceptField(nextState, 'service', nextService.serviceId)
+  return {
+    nextService,
+    state: {
+      ...nextState,
+      queuedServices: remainingServices
+    }
   }
 }
 
@@ -191,6 +230,9 @@ export function acceptField(
     advisorQuote: field === 'service' && state.draft[field] !== value
       ? null
       : state.advisorQuote,
+    queuedServices: field === 'service'
+      ? state.queuedServices.filter((service) => service.serviceId !== value)
+      : state.queuedServices,
     pendingDeposit: state.draft[field] !== value ? null : state.pendingDeposit,
     misunderstandingCount: 0
   }

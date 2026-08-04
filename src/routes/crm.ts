@@ -22,6 +22,7 @@ import {
 import { BookingV2Engine } from '../services/booking-v2-engine.js'
 import {
   acceptField,
+  advanceToNextQueuedService,
   clearFieldAndDependents,
   nextMissingField,
   type BookingV2State
@@ -971,6 +972,16 @@ export async function crmRoutes(app: FastifyInstance) {
     }
 
     const reviewedAt = new Date()
+    const queuedContinuation = advanceToNextQueuedService(
+      stateFromConversation(deposit.conversation)
+    )
+    const resumedContinuation = queuedContinuation
+      ? await bookingV2Engine.resume({
+          businessId: deposit.businessId,
+          conversation: conversationPatchFromState(queuedContinuation.state)
+        })
+      : null
+    const continuationRequiresHandoff = resumedContinuation?.plan.type === 'handoff'
     const approved = await prisma.$transaction(async (tx) => {
       const heldAppointment = await tx.appointment.findUnique({
         where: { id: deposit.appointmentId },
@@ -996,13 +1007,34 @@ export async function crmRoutes(app: FastifyInstance) {
       })
       await tx.conversation.update({
         where: { id: deposit.conversationId },
-        data: {
-          currentStep: 'COMPLETED',
-          aiEnabled: true,
-          humanHandoffResolvedAt: reviewedAt,
-          bookingV2State: Prisma.JsonNull,
-          lastAvailability: Prisma.JsonNull
-        }
+        data: resumedContinuation
+          ? {
+              currentStep: continuationRequiresHandoff
+                ? 'HUMAN_HANDOFF'
+                : conversationStepForPersistedBookingState(resumedContinuation.state),
+              aiEnabled: !continuationRequiresHandoff,
+              humanHandoffAt: continuationRequiresHandoff ? reviewedAt : deposit.conversation.humanHandoffAt,
+              humanHandoffResolvedAt: continuationRequiresHandoff ? null : reviewedAt,
+              ...resumedContinuation.conversationPatch,
+              bookingV2State: resumedContinuation.conversationPatch.bookingV2State
+                ? resumedContinuation.conversationPatch.bookingV2State as Prisma.InputJsonValue
+                : Prisma.JsonNull,
+              lastAvailability: resumedContinuation.availabilityOptions.length
+                ? {
+                    serviceId: resumedContinuation.state.draft.service,
+                    professionalId: resumedContinuation.state.draft.professional,
+                    date: resumedContinuation.state.draft.date,
+                    options: resumedContinuation.availabilityOptions
+                  } as Prisma.InputJsonValue
+                : Prisma.JsonNull
+            }
+          : {
+              currentStep: 'COMPLETED',
+              aiEnabled: true,
+              humanHandoffResolvedAt: reviewedAt,
+              bookingV2State: Prisma.JsonNull,
+              lastAvailability: Prisma.JsonNull
+            }
       })
       return true
     })
@@ -1018,11 +1050,27 @@ export async function crmRoutes(app: FastifyInstance) {
     } catch (error) {
       console.error('No pude vincular el turno confirmado por seña con la oportunidad', error)
     }
+    const confirmationText = `¡Listo! Confirmamos tu seña y el turno de ${deposit.appointment.service.name} para ${formatDepositAppointmentDate(deposit.appointment.startAt)} con ${deposit.appointment.professional.name}.`
+    const nextService = queuedContinuation
+      ? await prisma.service.findFirst({
+          where: {
+            id: queuedContinuation.nextService.serviceId,
+            businessId: deposit.businessId
+          },
+          select: { name: true }
+        })
+      : null
     await sendCrmAutomatedMessage({
       conversationId: deposit.conversationId,
       businessId: deposit.businessId,
       phone: deposit.conversation.phone,
-      text: `¡Listo! Confirmamos tu seña y el turno de ${deposit.appointment.service.name} para ${formatDepositAppointmentDate(deposit.appointment.startAt)} con ${deposit.appointment.professional.name}.`,
+      text: resumedContinuation && nextService
+        ? [
+            confirmationText,
+            `Ahora seguimos con la reserva de ${nextService.name}.`,
+            resumedContinuation.reply
+          ].join('\n\n')
+        : confirmationText,
       provider: 'crm_deposit_review'
     })
     return conversationWithLatestDeposit(deposit.conversationId)

@@ -32,6 +32,7 @@ import {
   createEmptyBookingV2State,
   nextMissingField,
   proposeField,
+  queueAdditionalServices,
   recordLowConfidence,
   rejectProposal,
   type BookingField,
@@ -402,11 +403,31 @@ export class BookingV2Engine {
 
     }
 
-    const catalogNavigationResult = await this.handleCatalogNavigation({
-      message: input.message,
-      state: initialState,
-      catalog
-    })
+    const explicitServices = resolveExplicitMultipleServices(input.message, catalog)
+    if (!initialState.draft.service && explicitServices.length >= 2) {
+      let state = acceptField(initialState, 'service', explicitServices[0]!.serviceId)
+      state = queueAdditionalServices(state, explicitServices.slice(1))
+      const result = await this.fromInterpretation({
+        state,
+        nextField: nextMissingField(state.draft),
+        outcome: 'accepted',
+        affectedField: 'service'
+      }, null, catalog)
+      return withMultipleServicesAcknowledgement(result, catalog)
+    }
+    const hasStructuredMultipleServices = Boolean(
+      input.understandingExtraction?.additionalServices?.some((service) =>
+        service.value && service.confidence >= 0.55
+      )
+    )
+
+    const catalogNavigationResult = hasStructuredMultipleServices
+      ? null
+      : await this.handleCatalogNavigation({
+          message: input.message,
+          state: initialState,
+          catalog
+        })
     if (catalogNavigationResult) return catalogNavigationResult
 
     const deterministicName = resolveExpectedName(input.message, initialState, catalog)
@@ -421,7 +442,9 @@ export class BookingV2Engine {
     }
 
     let stateForExtraction = initialState
-    const deterministicService = resolveExpectedService(input.message, initialState, catalog)
+    const deterministicService = hasStructuredMultipleServices
+      ? null
+      : resolveExpectedService(input.message, initialState, catalog)
     if (deterministicService?.kind === 'selected') {
       const state = acceptField(initialState, 'service', deterministicService.serviceId)
       if (nextMissingField(initialState.draft) === 'service') {
@@ -570,8 +593,13 @@ export class BookingV2Engine {
       stateForExtraction
     )
 
-    const interpretation = applyBookingV2Extraction(
+    const stateWithQueuedServices = queueServicesFromExtraction(
       stateForExtraction,
+      extraction,
+      catalog
+    )
+    const interpretation = applyBookingV2Extraction(
+      stateWithQueuedServices,
       extraction,
       this.domain.toInterpreterCatalog(catalog)
     )
@@ -587,11 +615,14 @@ export class BookingV2Engine {
         }
       : interpretation
 
-    return this.fromInterpretation(
+    const result = await this.fromInterpretation(
       effectiveInterpretation,
       extraction,
       catalog
     )
+    return stateWithQueuedServices.queuedServices.length > stateForExtraction.queuedServices.length
+      ? withMultipleServicesAcknowledgement(result, catalog)
+      : result
   }
 
   private async handleCatalogNavigation(input: {
@@ -1787,6 +1818,14 @@ function discardUngroundedCatalogSelections(
     )
   const groundedTime = !extraction.time.value ||
     messageGroundsEvidence(message, extraction.time.evidence)
+  const groundedAdditionalServices = (extraction.additionalServices ?? []).filter((field) =>
+    Boolean(field.value) &&
+    catalog.services.some((service) =>
+      service.id === field.value &&
+      messageGroundsEvidence(message, field.evidence) &&
+      messageGroundsService(message, service)
+    )
+  )
   const groundedCorrection = extraction.correction.field === null ||
     (
       messageGroundsEvidence(message, extraction.correction.evidence) &&
@@ -1825,9 +1864,87 @@ function discardUngroundedCatalogSelections(
     time: groundedTime
       ? extraction.time
       : { value: null, confidence: 0, evidence: '' },
+    additionalServices: groundedAdditionalServices,
     correction: groundedCorrection
       ? extraction.correction
       : { ...extraction.correction, newValue: null }
+  }
+}
+
+function queueServicesFromExtraction(
+  state: BookingV2State,
+  extraction: BookingV2Extraction,
+  catalog: BookingV2DomainCatalog
+) {
+  if (state.draft.service) return state
+  const primaryServiceId = extraction.service.value
+  if (!primaryServiceId || extraction.service.confidence < 0.85) return state
+  const services = (extraction.additionalServices ?? [])
+    .filter((field) =>
+      field.value &&
+      field.confidence >= 0.85 &&
+      field.evidence &&
+      field.value !== primaryServiceId &&
+      catalog.serviceIds.has(field.value)
+    )
+    .map((field) => ({
+      serviceId: field.value!,
+      evidence: field.evidence
+    }))
+  return queueAdditionalServices(state, services)
+}
+
+function resolveExplicitMultipleServices(
+  message: string,
+  catalog: BookingV2DomainCatalog
+) {
+  const normalizedMessage = ` ${normalize(message)} `
+  if (!hasMultipleServiceSignal(message)) return []
+  const matches = catalog.services.flatMap((service) => {
+    const labels = [
+      service.name,
+      ...service.aliases.filter((label) =>
+        normalize(label) !== normalize(service.category ?? '') &&
+        normalize(label) !== normalize(service.parentServiceName ?? '')
+      )
+    ]
+      .sort((left, right) => normalize(right).length - normalize(left).length)
+    const label = labels.find((candidate) => {
+      const normalizedLabel = normalize(candidate)
+      return normalizedLabel.length >= 3 && normalizedMessage.includes(` ${normalizedLabel} `)
+    })
+    return label
+      ? [{ serviceId: service.id, evidence: label }]
+      : []
+  })
+  return matches.slice(0, 5)
+}
+
+function hasMultipleServiceSignal(message: string) {
+  return /\b(?:y|tambien|ademas|mas)\b/.test(normalize(message))
+}
+
+function withMultipleServicesAcknowledgement(
+  result: BookingV2ProcessResult,
+  catalog: BookingV2DomainCatalog
+): BookingV2ProcessResult {
+  const serviceIds = [
+    result.state.draft.service,
+    ...result.state.queuedServices.map((service) => service.serviceId)
+  ].filter((serviceId): serviceId is string => Boolean(serviceId))
+  const names = serviceIds.map((serviceId) =>
+    catalog.services.find((service) => service.id === serviceId)?.name ?? serviceId
+  )
+  const firstService = names[0]
+  if (!firstService || names.length < 2) return result
+  return {
+    ...result,
+    reply: [
+      'Perfecto, vamos a reservar los servicios uno por uno:',
+      ...names.map((name) => `• ${name}`),
+      `Empezamos con ${firstService}.`,
+      result.reply
+    ].join('\n')
   }
 }
 
@@ -1840,19 +1957,43 @@ function sanitizeCatalogNameCollision(
   state: BookingV2State,
   catalog: BookingV2DomainCatalog
 ): BookingV2State {
-  if (!state.draft.name || !nameCollidesWithCatalog(state.draft.name, catalog)) {
-    return state
+  const queuedServices = state.queuedServices.filter((service, index, services) =>
+    catalog.serviceIds.has(service.serviceId) &&
+    service.serviceId !== state.draft.service &&
+    services.findIndex((candidate) => candidate.serviceId === service.serviceId) === index
+  )
+  let sanitizedState = queuedServices.length === state.queuedServices.length
+    ? state
+    : { ...state, queuedServices }
+  if (sanitizedState.draft.service && !catalog.serviceIds.has(sanitizedState.draft.service)) {
+    sanitizedState = {
+      ...sanitizedState,
+      draft: clearFieldAndDependents(sanitizedState.draft, 'service'),
+      pendingProposal: sanitizedState.pendingProposal?.field === 'service'
+        ? null
+        : sanitizedState.pendingProposal,
+      serviceValidation: null,
+      guidedEstimate: null,
+      advisorQuote: null,
+      pendingDeposit: null
+    }
+  }
+  if (
+    !sanitizedState.draft.name ||
+    !nameCollidesWithCatalog(sanitizedState.draft.name, catalog)
+  ) {
+    return sanitizedState
   }
 
   return {
-    ...state,
+    ...sanitizedState,
     draft: {
-      ...state.draft,
+      ...sanitizedState.draft,
       name: null
     },
-    pendingProposal: state.pendingProposal?.field === 'name'
+    pendingProposal: sanitizedState.pendingProposal?.field === 'name'
       ? null
-      : state.pendingProposal
+      : sanitizedState.pendingProposal
   }
 }
 

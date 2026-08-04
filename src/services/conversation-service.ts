@@ -17,7 +17,8 @@ import type {
 } from './booking-v2-state.js'
 import {
   clearFieldAndDependents,
-  createEmptyBookingV2State
+  createEmptyBookingV2State,
+  advanceToNextQueuedService
 } from './booking-v2-state.js'
 import {
   conversationPatchFromState,
@@ -860,7 +861,8 @@ export class ConversationService {
       currentState.pendingProposal ||
       currentState.categoryAdvice ||
       currentState.serviceValidation ||
-      currentState.guidedEstimate
+      currentState.guidedEstimate ||
+      currentState.queuedServices.length
     )
 
     if (navigationIntent === 'cancel_booking') {
@@ -873,7 +875,9 @@ export class ConversationService {
       })
       return {
         reply: [
-          'Listo, cancelé la reserva que estábamos armando.',
+          currentState.queuedServices.length
+            ? 'Listo, cancelé la reserva que estábamos armando y los demás servicios pendientes.'
+            : 'Listo, cancelé la reserva que estábamos armando.',
           '¿Qué querés hacer ahora?',
           '• Empezar otra reserva',
           '• Consultar servicios, precios u horarios',
@@ -1260,6 +1264,7 @@ export class ConversationService {
       bookingConfirmationChoice?.confidence >= 0.65 &&
       bookingConfirmationChoice.choiceId === 'cancel_booking'
     ) {
+      const stateBeforeCancellation = stateFromConversation(input.conversation)
       const cancelledState = freshBookingV2State(input.conversation.selectedCustomerName)
       await this.updateConversation(input.phone, input.businessId, {
         currentStep: 'START',
@@ -1267,7 +1272,9 @@ export class ConversationService {
         lastAvailability: null
       })
       return {
-        reply: 'Listo, cancelé la reserva antes de confirmarla. Si querés, podemos empezar otra o hacer una consulta.',
+        reply: stateBeforeCancellation.queuedServices.length
+          ? 'Listo, cancelé esta reserva y los demás servicios pendientes. Si querés, podemos empezar otra o hacer una consulta.'
+          : 'Listo, cancelé la reserva antes de confirmarla. Si querés, podemos empezar otra o hacer una consulta.',
         skipMisunderstandingTracking: true,
         skipHumanize: true
       }
@@ -1624,6 +1631,54 @@ export class ConversationService {
         reply: `No pude confirmar el turno: ${appointment.message}. Probemos con otro día u horario.`,
         skipMisunderstandingTracking: true,
         skipHumanize: true
+      }
+    }
+
+    const nextBooking = advanceToNextQueuedService(state)
+    if (nextBooking) {
+      const nextService = await prisma.service.findFirst({
+        where: { id: nextBooking.nextService.serviceId, businessId: input.businessId },
+        select: { name: true }
+      })
+      if (nextService) {
+        const resumed = await bookingV2Engine.resume({
+          businessId: input.businessId,
+          conversation: conversationPatchFromState(nextBooking.state)
+        })
+        const isHandoff = resumed.plan.type === 'handoff'
+        await this.updateConversation(input.phone, input.businessId, {
+          currentStep: conversationStepFromBookingV2Plan(resumed.plan),
+          ...resumed.conversationPatch,
+          aiEnabled: !isHandoff,
+          ...(isHandoff
+            ? {
+                humanHandoffAt: new Date(),
+                humanHandoffResolvedAt: null
+              }
+            : {}),
+          lastAvailability: resumed.availabilityOptions.length
+            ? {
+                serviceId: resumed.state.draft.service,
+                professionalId: resumed.state.draft.professional,
+                date: resumed.state.draft.date,
+                options: resumed.availabilityOptions
+              }
+            : null
+        })
+        const confirmedReply = botCopyService.appointmentConfirmed({
+          customerName: input.conversation.selectedCustomerName,
+          date: formatDateForBookingV2(input.conversation.selectedDate),
+          time: input.conversation.selectedTime
+        })
+        return {
+          reply: [
+            confirmedReply,
+            `Ahora seguimos con la reserva de ${nextService.name}.`,
+            resumed.reply
+          ].join('\n\n'),
+          skipMisunderstandingTracking: true,
+          skipHumanize: true
+        }
       }
     }
 

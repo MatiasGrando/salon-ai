@@ -201,6 +201,7 @@ export class ConversationRouter {
           'bookingMessage debe contener solamente la parte util para continuar o modificar la reserva.',
           'Si el mensaje es solo informativo, social o ajeno a la reserva, bookingMessage debe ser null.',
           'Ademas de clasificar, extrae en bookingExtraction todos los datos de reserva visibles en customerMessage.',
+          'Si pide varios servicios para reservar, coloca el primero en bookingExtraction.service y los siguientes, en orden y sin repetir, en bookingExtraction.additionalServices.',
           'Evalua name, service, professional, date y time por separado con value, confidence y evidence.',
           'expectedField indica el dato que el flujo espera, pero no impide extraer datos adelantados.',
           'Para service y professional usa exclusivamente IDs presentes en catalog.',
@@ -948,6 +949,7 @@ function emptyBookingExtraction(): BookingV2Extraction {
     professional: { ...emptyField },
     date: { ...emptyField },
     time: { ...emptyField },
+    additionalServices: [],
     correction: { field: null, newValue: null, confidence: 0, evidence: '' }
   }
 }
