@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
-import { CustomerPhoneValidationError, findOrCreateCustomerByPhone } from '../services/customer-identity-service.js'
+import { CustomerPhoneConflictError, CustomerPhoneValidationError, findOrCreateCustomerByPhone, updateCustomerIdentity } from '../services/customer-identity-service.js'
 import { normalizePhone } from '../services/phone-normalization-service.js'
 
 type CustomerOverviewAppointment = {
@@ -386,7 +386,7 @@ export async function customerRoutes(app: FastifyInstance) {
 
   app.patch('/customers/:id', async (request, reply) => {
     const params = request.params as { id: string }
-    const body = request.body as { name?: string }
+    const body = request.body as { name?: string; phone?: string; businessId?: string }
     const name = body.name?.trim()
 
     if (!await canStaffAccessCustomer(request.auth?.user, params.id)) {
@@ -402,10 +402,21 @@ export async function customerRoutes(app: FastifyInstance) {
       return reply.status(404).send({ message: 'No encontre ese cliente' })
     }
 
-    return prisma.customer.update({
-      where: { id: params.id },
-      data: { name }
-    })
+    if (!body.phone?.trim()) {
+      return prisma.customer.update({ where: { id: params.id }, data: { name } })
+    }
+    try {
+      return await updateCustomerIdentity({
+        customerId: params.id,
+        name,
+        phone: body.phone,
+        businessId: body.businessId?.trim() || request.auth?.user.businessId || null
+      })
+    } catch (error) {
+      if (error instanceof CustomerPhoneConflictError) return reply.status(409).send({ message: error.message })
+      if (error instanceof CustomerPhoneValidationError) return reply.status(400).send({ message: error.message })
+      throw error
+    }
   })
 
   app.delete('/customers/:id', async (request, reply) => {

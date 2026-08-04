@@ -62,16 +62,25 @@ assert.ok(service.includes('normalizedPhone: canonicalPhone'), 'la identidad can
 assert.ok(service.includes('customerMarketingPreference.upsert'), 'reutilizar un cliente debe conservar la preferencia del negocio')
 assert.ok(service.includes('defaultAreaCodeForBusiness'), 'los números locales deben usar la característica del local')
 assert.ok(service.includes('data: { phone: canonicalPhone, normalizedPhone: canonicalPhone }'), 'un nombre distinto no debe sobrescribir la ficha existente')
+assert.ok(service.includes('updateCustomerIdentity'), 'la edición debe pasar por la identidad normalizada')
+assert.ok(service.includes('CustomerPhoneConflictError'), 'editar hacia un teléfono ocupado debe bloquearse')
+assert.ok(service.includes('id: { not: input.customerId }'), 'la edición no debe confundirse consigo misma')
 
 const schema = readFileSync(new URL('../prisma/schema.prisma', import.meta.url), 'utf8')
 assert.ok(schema.includes('normalizedPhone String? @unique'), 'la base debe impedir dos identidades canónicas iguales')
 
 const customerRoute = readFileSync(new URL('../src/routes/customer.ts', import.meta.url), 'utf8')
 assert.ok(customerRoute.includes('findOrCreateCustomerByPhone'), 'el alta manual debe reutilizar la identidad central')
+assert.ok(customerRoute.includes('updateCustomerIdentity'), 'la edición de teléfono debe usar la validación central')
+assert.ok(customerRoute.includes('reply.status(409)'), 'una colisión de teléfono debe responder conflicto')
 
 const crmUi = readFileSync(new URL('../src/routes/crm-ui.ts', import.meta.url), 'utf8')
 assert.ok(crmUi.includes("customerId = customer.id"), 'el turno manual debe usar el id de la ficha reutilizada')
 assert.ok(crmUi.includes("customer.wasExisting"), 'el operador debe ser informado cuando se reutiliza una ficha')
+assert.ok(crmUi.includes('data-edit-customer'), 'la ficha de escritorio debe mostrar Editar cliente')
+assert.ok(crmUi.includes('data-mobile-edit-customer'), 'la ficha móvil debe mostrar Editar cliente')
+assert.ok(crmUi.includes('els.customerPhoneField.hidden = isNote'), 'el teléfono debe mostrarse al editar')
+assert.ok(crmUi.includes('JSON.stringify({ name: value, phone, businessId: state.businessId })'), 'nombre y teléfono deben enviarse juntos')
 
 for (const file of ['conversation-service.ts', 'booking-conversation-flow.ts']) {
   const source = readFileSync(new URL(`../src/services/${file}`, import.meta.url), 'utf8')

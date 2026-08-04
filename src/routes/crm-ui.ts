@@ -16384,6 +16384,13 @@ const crmHtml = `<!doctype html>
           if (customer) openCustomerDialog('note', customer)
         })
       }
+      for (const button of els.customerTableBody.querySelectorAll('[data-mobile-edit-customer]')) {
+        button.addEventListener('click', (event) => {
+          event.stopPropagation()
+          const customer = findOverviewCustomer(button.dataset.mobileEditCustomer)
+          if (customer) openCustomerDialog('edit', customer)
+        })
+      }
       if (customerMobileLayout) return
       renderCustomerProfile()
     }
@@ -16417,6 +16424,7 @@ const crmHtml = `<!doctype html>
             ? 'Se consulto y rechazo recibir promociones.'
             : 'Las promociones estan desactivadas.'
       const canManageMarketing = state.currentUser?.role !== 'STAFF' || state.currentUser?.canManageCustomerMarketing
+      const canEditCustomer = state.currentUser?.role !== 'STAFF' || state.currentUser?.canEditCustomers
       const marketingActions = !canManageMarketing
         ? ''
         : marketingEnabled
@@ -16433,6 +16441,7 @@ const crmHtml = `<!doctype html>
           '<a class="customer-contact-action whatsapp" href="' + whatsappAppUrl(customer.phone) + '">' + icon('whatsapp') + 'WhatsApp</a>' +
           '<button class="customer-contact-action" type="button" data-mobile-open-customer-conversation="' + customer.id + '" ' + (customer.conversation ? '' : 'disabled') + '>' + icon('mail') + 'CRM</button>' +
           '<button class="primary" type="button" data-mobile-schedule-customer="' + customer.id + '">' + icon('calendar') + 'Agendar turno</button>' +
+          (canEditCustomer ? '<button class="secondary" type="button" data-mobile-edit-customer="' + customer.id + '">' + icon('edit') + 'Editar</button>' : '') +
         '</div>' +
         (next
           ? '<div class="customer-mobile-next-card"><span class="customer-next-icon">' + icon('calendar') + '</span><div><span>Proximo turno</span><strong>' + escapeHtml(formatCustomerDateTime(next.startAt)) + '</strong><small>' + escapeHtml(next.service.name) + ' - ' + escapeHtml(next.professional.name) + '</small></div></div>'
@@ -16488,6 +16497,17 @@ const crmHtml = `<!doctype html>
           }).join('')
         : '<div class="customer-profile-note"><span>Todavia no hay notas.</span></div>'
       const marketingEnabled = customer.marketingStatus === 'ACTIVE'
+      const canEditCustomer = state.currentUser?.role !== 'STAFF' || state.currentUser?.canEditCustomers
+      const canDeleteCustomer = state.currentUser?.role !== 'STAFF'
+      const customerMenu = canEditCustomer || canDeleteCustomer
+        ? '<details class="customer-profile-menu">' +
+            '<summary title="Mas opciones" aria-label="Mas opciones">' + icon('more') + '</summary>' +
+            '<div class="customer-profile-menu-popover">' +
+              (canEditCustomer ? '<button type="button" data-edit-customer>' + icon('edit') + 'Editar cliente</button>' : '') +
+              (canDeleteCustomer ? '<button type="button" data-delete-customer>' + icon('trash') + 'Eliminar cliente</button>' : '') +
+            '</div>' +
+          '</details>'
+        : ''
       const marketingStatusCopy = marketingEnabled
         ? 'Promociones activas para este cliente.'
         : customer.marketingStatus === 'OPTED_OUT'
@@ -16516,10 +16536,7 @@ const crmHtml = `<!doctype html>
               '<button class="customer-contact-action conversation" type="button" data-open-customer-conversation title="' + (customer.conversation ? 'Abrir conversacion en el CRM' : 'Este cliente no tiene una conversacion') + '" aria-label="Abrir conversacion en el CRM" ' + (customer.conversation ? '' : 'disabled') + '>' + icon('mail') + '</button>' +
             '</div>' +
             (canCreateAppointments() ? '<button class="primary" type="button" data-schedule-customer>' + icon('calendar') + 'Agendar turno</button>' : '') +
-            (state.currentUser?.role === 'STAFF' ? '' : '<details class="customer-profile-menu">' +
-              '<summary title="Mas opciones" aria-label="Mas opciones">' + icon('more') + '</summary>' +
-              '<div class="customer-profile-menu-popover"><button type="button" data-delete-customer>' + icon('trash') + 'Eliminar cliente</button></div>' +
-            '</details>') +
+            customerMenu +
           '</div>' +
         '</header>' +
         '<div class="customer-profile-stats">' +
@@ -16550,6 +16567,7 @@ const crmHtml = `<!doctype html>
         button.addEventListener('click', () => openOverviewCustomerConversation(customer))
       }
       els.customerProfilePanel.querySelector('[data-delete-customer]')?.addEventListener('click', () => deleteOverviewCustomer(customer))
+      els.customerProfilePanel.querySelector('[data-edit-customer]')?.addEventListener('click', () => openCustomerDialog('edit', customer))
     }
 
     function selectedOverviewCustomer() {
@@ -17066,10 +17084,10 @@ const crmHtml = `<!doctype html>
         ? 'Guarda informacion util para la proxima atencion de ' + customer.name + '.'
         : isCreate ? 'Carga los datos basicos para agregarlo al salon.' : 'Actualiza los datos visibles de este cliente.'
       els.customerNameField.hidden = isNote
-      els.customerPhoneField.hidden = !isCreate
+      els.customerPhoneField.hidden = isNote
       els.customerNoteField.hidden = !isNote
       els.customerDialogName.value = customer?.name || ''
-      els.customerDialogPhone.value = ''
+      els.customerDialogPhone.value = isCreate ? '' : customer?.phone || ''
       els.customerDialogNote.value = ''
       els.customerDialogFeedback.textContent = ''
       els.customerDialogSubmit.textContent = isNote ? 'Guardar nota' : isCreate ? 'Crear cliente' : 'Guardar cambios'
@@ -17100,12 +17118,12 @@ const crmHtml = `<!doctype html>
       }
 
       const phone = els.customerDialogPhone.value.trim()
-      if (isCreate && !phone) {
+      if (!isNote && !phone) {
         els.customerDialogFeedback.textContent = 'El telefono es requerido.'
         return
       }
 
-      if (!isNote && !isCreate && value === customer.name) {
+      if (!isNote && !isCreate && value === customer.name && phone === customer.phone) {
         closeCustomerDialog()
         return
       }
@@ -17140,7 +17158,7 @@ const crmHtml = `<!doctype html>
           const updated = await getJson('/customers/' + customer.id, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: value })
+            body: JSON.stringify({ name: value, phone, businessId: state.businessId })
           })
           state.customers = state.customers.map((item) => item.id === updated.id ? updated : item)
           if (els.appShell.dataset.section === 'customers') await loadCustomerOverview()
