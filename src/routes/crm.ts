@@ -25,6 +25,7 @@ import {
   nextMissingField,
   type BookingV2State
 } from '../services/booking-v2-state.js'
+import { normalizeConversationContextSettings } from '../services/conversation-context-settings.js'
 
 const whatsappCloudApi = new WhatsAppCloudApi()
 const bookingV2Engine = new BookingV2Engine()
@@ -334,6 +335,8 @@ export async function crmRoutes(app: FastifyInstance) {
           where: { businessId: business.id },
           select: {
             bookingV2Enabled: true,
+            conversationPauseAfterMinutes: true,
+            conversationExpireAfterMinutes: true,
             assistantPersonality: true
           }
         })
@@ -341,12 +344,15 @@ export async function crmRoutes(app: FastifyInstance) {
     const assistantPersonality = normalizeAssistantPersonality(
       featureSettings?.assistantPersonality
     )
+    const contextSettings = normalizeConversationContextSettings(featureSettings)
 
     return {
       businessId: business?.id ?? null,
       botEnabled: business?.botEnabled ?? true,
       aiEnabled: business?.aiEnabled ?? true,
       bookingV2Enabled: Boolean(featureSettings?.bookingV2Enabled),
+      conversationPauseAfterMinutes: contextSettings.pauseAfterMinutes,
+      conversationExpireAfterMinutes: contextSettings.expireAfterMinutes,
       assistantPersonality,
       assistantPersonalityPreview: assistantPersonalityPreview(assistantPersonality)
     }
@@ -358,6 +364,8 @@ export async function crmRoutes(app: FastifyInstance) {
       botEnabled?: boolean
       aiEnabled?: boolean
       bookingV2Enabled?: boolean
+      conversationPauseAfterMinutes?: number
+      conversationExpireAfterMinutes?: number
       assistantPersonality?: unknown
     }
 
@@ -365,6 +373,8 @@ export async function crmRoutes(app: FastifyInstance) {
       typeof body.botEnabled !== 'boolean' &&
       typeof body.aiEnabled !== 'boolean' &&
       typeof body.bookingV2Enabled !== 'boolean' &&
+      body.conversationPauseAfterMinutes === undefined &&
+      body.conversationExpireAfterMinutes === undefined &&
       body.assistantPersonality === undefined
     ) {
       return reply.status(400).send({
@@ -378,6 +388,24 @@ export async function crmRoutes(app: FastifyInstance) {
       return reply.status(404).send({
         message: 'No encontre un negocio cargado'
       })
+    }
+
+    const hasContextSettings = body.conversationPauseAfterMinutes !== undefined ||
+      body.conversationExpireAfterMinutes !== undefined
+    if (hasContextSettings) {
+      if (
+        !Number.isInteger(body.conversationPauseAfterMinutes) ||
+        !Number.isInteger(body.conversationExpireAfterMinutes) ||
+        body.conversationPauseAfterMinutes! < 15 ||
+        body.conversationPauseAfterMinutes! > 720 ||
+        body.conversationExpireAfterMinutes! < 60 ||
+        body.conversationExpireAfterMinutes! > 10080 ||
+        body.conversationExpireAfterMinutes! <= body.conversationPauseAfterMinutes!
+      ) {
+        return reply.status(400).send({
+          message: 'La pausa debe ser de 15 minutos a 12 horas y el reinicio debe ocurrir después, hasta 7 días.'
+        })
+      }
     }
 
     const updatedBusiness = await prisma.business.update({
@@ -397,6 +425,7 @@ export async function crmRoutes(app: FastifyInstance) {
 
     if (
       typeof body.bookingV2Enabled === 'boolean' ||
+      hasContextSettings ||
       body.assistantPersonality !== undefined
     ) {
       const assistantPersonality = body.assistantPersonality === undefined
@@ -409,6 +438,10 @@ export async function crmRoutes(app: FastifyInstance) {
           ...(typeof body.bookingV2Enabled === 'boolean'
             ? { bookingV2Enabled: body.bookingV2Enabled }
             : {}),
+          ...(hasContextSettings ? {
+            conversationPauseAfterMinutes: body.conversationPauseAfterMinutes!,
+            conversationExpireAfterMinutes: body.conversationExpireAfterMinutes!
+          } : {}),
           ...(assistantPersonality
             ? { assistantPersonality: assistantPersonality as Prisma.InputJsonValue }
             : {})
@@ -417,6 +450,10 @@ export async function crmRoutes(app: FastifyInstance) {
           ...(typeof body.bookingV2Enabled === 'boolean'
             ? { bookingV2Enabled: body.bookingV2Enabled }
             : {}),
+          ...(hasContextSettings ? {
+            conversationPauseAfterMinutes: body.conversationPauseAfterMinutes!,
+            conversationExpireAfterMinutes: body.conversationExpireAfterMinutes!
+          } : {}),
           ...(assistantPersonality
             ? { assistantPersonality: assistantPersonality as Prisma.InputJsonValue }
             : {})
@@ -428,16 +465,21 @@ export async function crmRoutes(app: FastifyInstance) {
       where: { businessId: business.id },
       select: {
         bookingV2Enabled: true,
+        conversationPauseAfterMinutes: true,
+        conversationExpireAfterMinutes: true,
         assistantPersonality: true
       }
     })
     const assistantPersonality = normalizeAssistantPersonality(
       featureSettings?.assistantPersonality
     )
+    const contextSettings = normalizeConversationContextSettings(featureSettings)
 
     return {
       ...updatedBusiness,
       bookingV2Enabled: Boolean(featureSettings?.bookingV2Enabled),
+      conversationPauseAfterMinutes: contextSettings.pauseAfterMinutes,
+      conversationExpireAfterMinutes: contextSettings.expireAfterMinutes,
       assistantPersonality,
       assistantPersonalityPreview: assistantPersonalityPreview(assistantPersonality)
     }

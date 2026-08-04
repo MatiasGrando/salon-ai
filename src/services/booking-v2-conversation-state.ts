@@ -3,6 +3,7 @@ import {
   createEmptyBookingV2State,
   type BookingField,
   type BookingV2AdvisorQuote,
+  type BookingV2ContextPause,
   type BookingV2AgendaItem,
   type BookingV2CategoryAdvice,
   type BookingV2GuidedEstimate,
@@ -43,6 +44,7 @@ export type BookingV2PersistedState = {
   guidedEstimate?: BookingV2GuidedEstimate | null
   advisorQuote?: BookingV2AdvisorQuote | null
   pendingDeposit?: BookingV2PendingDeposit | null
+  contextPause?: BookingV2ContextPause | null
 }
 
 export function stateFromConversation(
@@ -66,6 +68,7 @@ export function stateFromConversation(
     guidedEstimate: readGuidedEstimate(conversation.bookingV2State),
     advisorQuote: readAdvisorQuote(conversation.bookingV2State),
     pendingDeposit: readPendingDeposit(conversation.bookingV2State),
+    contextPause: readContextPause(conversation.bookingV2State),
     misunderstandingCount: conversation.misunderstandingCount
   }
 }
@@ -78,7 +81,7 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
     selectedDate: state.draft.date,
     selectedTime: state.draft.time,
     misunderstandingCount: state.misunderstandingCount,
-    bookingV2State: state.pendingProposal || state.pendingRequest || state.agenda.length || state.categoryAdvice || state.serviceValidation || state.guidedEstimate || state.advisorQuote || state.pendingDeposit
+    bookingV2State: state.pendingProposal || state.pendingRequest || state.agenda.length || state.categoryAdvice || state.serviceValidation || state.guidedEstimate || state.advisorQuote || state.pendingDeposit || state.contextPause
       ? {
           version: 1,
           pendingProposal: state.pendingProposal,
@@ -88,10 +91,21 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
           ...(state.serviceValidation ? { serviceValidation: state.serviceValidation } : {}),
           ...(state.guidedEstimate ? { guidedEstimate: state.guidedEstimate } : {}),
           ...(state.advisorQuote ? { advisorQuote: state.advisorQuote } : {}),
-          ...(state.pendingDeposit ? { pendingDeposit: state.pendingDeposit } : {})
+          ...(state.pendingDeposit ? { pendingDeposit: state.pendingDeposit } : {}),
+          ...(state.contextPause ? { contextPause: state.contextPause } : {})
         }
       : null
   }
+}
+
+function readContextPause(value: unknown): BookingV2ContextPause | null {
+  if (!value || typeof value !== 'object') return null
+  const persisted = value as { version?: unknown; contextPause?: unknown }
+  if (persisted.version !== 1 || !persisted.contextPause || typeof persisted.contextPause !== 'object') return null
+  const candidate = persisted.contextPause as Partial<BookingV2ContextPause>
+  if (typeof candidate.pausedAt !== 'string' || Number.isNaN(new Date(candidate.pausedAt).getTime())) return null
+  if (typeof candidate.expiresAt !== 'string' || Number.isNaN(new Date(candidate.expiresAt).getTime())) return null
+  return { pausedAt: candidate.pausedAt, expiresAt: candidate.expiresAt }
 }
 
 function readAgenda(value: unknown): BookingV2AgendaItem[] {

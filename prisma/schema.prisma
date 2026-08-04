@@ -343,6 +343,8 @@ model BusinessFeatureSettings {
   remindersEnabled      Boolean      @default(false)
   realWhatsappEnabled   Boolean      @default(false)
   bookingV2Enabled      Boolean      @default(false)
+  conversationPauseAfterMinutes  Int @default(120)
+  conversationExpireAfterMinutes Int @default(1440)
   assistantPersonality  Json?
   billingOwner          BillingOwner @default(CLIENT)
   campaignSendingLocked Boolean      @default(true)

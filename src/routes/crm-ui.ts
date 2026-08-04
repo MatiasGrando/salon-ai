@@ -13889,6 +13889,23 @@ const crmHtml = `<!doctype html>
               <span class="automation-switch" aria-hidden="true"></span>
             </label>
           </div>
+          <form class="assistant-personality-form" id="conversation-context-form">
+            <div class="assistant-personality-grid">
+              <div class="settings-field">
+                <label for="conversation-pause-hours">Pausar contexto despu&eacute;s de</label>
+                <input class="field" id="conversation-pause-hours" type="number" min="0.25" max="12" step="0.25" value="2">
+                <small>Horas sin actividad antes de pedir si desea continuar.</small>
+              </div>
+              <div class="settings-field">
+                <label for="conversation-expire-hours">Reiniciar contexto despu&eacute;s de</label>
+                <input class="field" id="conversation-expire-hours" type="number" min="1" max="168" step="0.5" value="24">
+                <small>Horas sin actividad antes de comenzar una consulta nueva.</small>
+              </div>
+            </div>
+            <div class="settings-actions">
+              <button class="primary" id="conversation-context-submit" type="submit">Guardar tiempos</button>
+            </div>
+          </form>
           <p class="settings-feedback" id="automation-settings-feedback" role="status" aria-live="polite"></p>
         </section>
 
@@ -14805,6 +14822,8 @@ const crmHtml = `<!doctype html>
         botEnabled: true,
         aiEnabled: true,
         bookingV2Enabled: false,
+        conversationPauseAfterMinutes: 120,
+        conversationExpireAfterMinutes: 1440,
         assistantPersonality: {
           preset: 'warm',
           name: 'Cami',
@@ -14949,6 +14968,10 @@ const crmHtml = `<!doctype html>
       globalAiStatus: document.getElementById('global-ai-status'),
       bookingV2Status: document.getElementById('booking-v2-status'),
       automationSettingsFeedback: document.getElementById('automation-settings-feedback'),
+      conversationContextForm: document.getElementById('conversation-context-form'),
+      conversationPauseHours: document.getElementById('conversation-pause-hours'),
+      conversationExpireHours: document.getElementById('conversation-expire-hours'),
+      conversationContextSubmit: document.getElementById('conversation-context-submit'),
       assistantPersonalityForm: document.getElementById('assistant-personality-form'),
       assistantPreset: document.getElementById('assistant-preset'),
       assistantName: document.getElementById('assistant-name'),
@@ -17895,6 +17918,8 @@ const crmHtml = `<!doctype html>
       els.globalAiStatus.className = state.aiSettings.aiEnabled === false ? 'basic' : ''
       els.bookingV2Status.textContent = state.aiSettings.bookingV2Enabled === true ? 'Booking V2' : 'Bot actual'
       els.bookingV2Status.className = state.aiSettings.bookingV2Enabled === true ? '' : 'basic'
+      els.conversationPauseHours.value = String((state.aiSettings.conversationPauseAfterMinutes || 120) / 60)
+      els.conversationExpireHours.value = String((state.aiSettings.conversationExpireAfterMinutes || 1440) / 60)
       renderAssistantPersonality()
     }
 
@@ -18657,6 +18682,35 @@ const crmHtml = `<!doctype html>
         showAutomationSettingsFeedback(error.message, 'error')
       } finally {
         els.bookingV2Toggle.disabled = false
+      }
+    }
+
+    async function saveConversationContextSettings(event) {
+      event.preventDefault()
+      const pauseMinutes = Math.round(Number(els.conversationPauseHours.value) * 60)
+      const expireMinutes = Math.round(Number(els.conversationExpireHours.value) * 60)
+      if (!Number.isInteger(pauseMinutes) || !Number.isInteger(expireMinutes) || expireMinutes <= pauseMinutes) {
+        showAutomationSettingsFeedback('El reinicio debe ocurrir después de la pausa.', 'error')
+        return
+      }
+      if (!setButtonLoading(els.conversationContextSubmit, true, 'Guardando...')) return
+      try {
+        state.aiSettings = await getJson('/crm/ai-settings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            businessId: state.businessId,
+            conversationPauseAfterMinutes: pauseMinutes,
+            conversationExpireAfterMinutes: expireMinutes
+          })
+        })
+        renderAiControls()
+        showAutomationSettingsFeedback('Tiempos de conversación guardados.', 'success')
+      } catch (error) {
+        renderAiControls()
+        showAutomationSettingsFeedback(error.message, 'error')
+      } finally {
+        setButtonLoading(els.conversationContextSubmit, false)
       }
     }
 
@@ -25446,6 +25500,7 @@ const crmHtml = `<!doctype html>
     els.globalBotToggle.addEventListener('change', toggleGlobalBot)
     els.globalAiToggle.addEventListener('change', toggleGlobalAi)
     els.bookingV2Toggle.addEventListener('change', toggleBookingV2)
+    els.conversationContextForm.addEventListener('submit', saveConversationContextSettings)
     els.assistantPersonalityForm.addEventListener('submit', saveAssistantPersonality)
     els.assistantPreset.addEventListener('change', applyAssistantPersonalityPreset)
     els.assistantEmojiToggle.addEventListener('click', toggleAssistantEmojiPicker)

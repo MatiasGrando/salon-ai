@@ -9,6 +9,33 @@ type SendTextMessageInput = {
   text: string
 }
 
+type SendReplyButtonsMessageInput = SendTextMessageInput & {
+  buttons: Array<{ id: string; title: string }>
+}
+
+export function buildWhatsAppReplyButtonsPayload(input: SendReplyButtonsMessageInput) {
+  const buttons = input.buttons.slice(0, 3)
+  if (!buttons.length) throw new Error('Se necesita al menos un botón de respuesta')
+  if (buttons.some((button) => !button.id.trim() || !button.title.trim() || button.title.length > 20)) {
+    throw new Error('Los botones de WhatsApp requieren id, título y un máximo de 20 caracteres')
+  }
+  return {
+    messaging_product: 'whatsapp',
+    to: input.to,
+    type: 'interactive',
+    interactive: {
+      type: 'button',
+      body: { text: input.text },
+      action: {
+        buttons: buttons.map((button) => ({
+          type: 'reply',
+          reply: { id: button.id, title: button.title }
+        }))
+      }
+    }
+  }
+}
+
 type SendTemplateMessageInput = {
   businessId?: string | null
   to: string
@@ -335,6 +362,45 @@ export class WhatsAppCloudApi {
       to: recipientPhone,
       response: await response.json()
     }
+  }
+
+  async sendReplyButtonsMessage(input: SendReplyButtonsMessageInput) {
+    const config = await resolveBusinessWhatsAppCredentials(input.businessId)
+    const recipientPhone = formatRecipientPhone(input.to, config)
+
+    if (!config.accessToken || !config.phoneNumberId) {
+      return { sent: false, to: recipientPhone, reason: 'WHATSAPP_ACCESS_TOKEN o WHATSAPP_PHONE_NUMBER_ID no configurado' }
+    }
+
+    const response = await fetch(
+      `https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/messages`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${config.accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(buildWhatsAppReplyButtonsPayload({ ...input, to: recipientPhone }))
+      }
+    )
+
+    if (!response.ok) {
+      const errorBody = await response.text()
+      const parsedError = parseWhatsAppError(errorBody)
+      return {
+        sent: false,
+        to: recipientPhone,
+        status: response.status,
+        error: errorBody,
+        errorType: parsedError.type,
+        errorCode: parsedError.code,
+        errorSubcode: parsedError.subcode,
+        fbtraceId: parsedError.fbtraceId,
+        errorMessage: parsedError.message
+      }
+    }
+
+    return { sent: true, to: recipientPhone, response: await response.json() }
   }
 
   async sendTemplateMessage(input: SendTemplateMessageInput) {

@@ -78,6 +78,11 @@ export type BookingV2AdvisorQuote = {
   quotedAt: string
 }
 
+export type BookingV2ContextPause = {
+  pausedAt: string
+  expiresAt: string
+}
+
 export type BookingV2State = {
   draft: BookingDraft
   pendingProposal: BookingProposal | null
@@ -88,6 +93,7 @@ export type BookingV2State = {
   guidedEstimate: BookingV2GuidedEstimate | null
   advisorQuote: BookingV2AdvisorQuote | null
   pendingDeposit: BookingV2PendingDeposit | null
+  contextPause?: BookingV2ContextPause | null
   misunderstandingCount: number
 }
 
@@ -118,6 +124,7 @@ export function createEmptyBookingV2State(): BookingV2State {
     guidedEstimate: null,
     advisorQuote: null,
     pendingDeposit: null,
+    contextPause: null,
     misunderstandingCount: 0
   }
 }

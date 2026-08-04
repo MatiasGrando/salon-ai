@@ -48,6 +48,10 @@ type WhatsAppWebhookPayload = {
           text?: {
             body?: string
           }
+          interactive?: {
+            type?: string
+            button_reply?: { id?: string; title?: string }
+          }
           image?: {
             id?: string
             mime_type?: string
@@ -185,6 +189,7 @@ export class WhatsAppWebhookService {
           phoneNumberId?: string
           displayPhoneNumber?: string
           media?: IncomingWhatsAppMedia
+          interactiveReplyId?: string
         }
       } = {
         conversationId: conversation.id,
@@ -196,7 +201,8 @@ export class WhatsAppWebhookService {
           provider: 'whatsapp',
           ...(message.phoneNumberId ? { phoneNumberId: message.phoneNumberId } : {}),
           ...(message.displayPhoneNumber ? { displayPhoneNumber: message.displayPhoneNumber } : {}),
-          ...(message.media ? { media: message.media } : {})
+          ...(message.media ? { media: message.media } : {}),
+          ...(message.interactiveReplyId ? { interactiveReplyId: message.interactiveReplyId } : {})
         }
       }
 
@@ -428,22 +434,34 @@ export class WhatsAppWebhookService {
         phone: message.from,
         message: message.text,
         ...(conversation.businessId ? { businessId: conversation.businessId } : {}),
+        ...(message.interactiveReplyId ? { interactiveReplyId: message.interactiveReplyId } : {}),
+        previousActivityAt: conversation.updatedAt,
         useAi: businessAiEnabled
       })
 
       const gate = conversation.businessId ? await assertBusinessCanSendWhatsApp(conversation.businessId, 'BOT') : null
-      const outboundReplies = conversationResult.messages?.length
-        ? conversationResult.messages
-        : [conversationResult.reply]
+      const hasReplyButtons = Boolean(conversationResult.replyButtons?.length)
+      const outboundReplies = hasReplyButtons
+        ? [conversationResult.reply]
+        : conversationResult.messages?.length
+          ? conversationResult.messages
+          : [conversationResult.reply]
       const deliveryResults: Array<Awaited<ReturnType<WhatsAppCloudApi['sendTextMessage']>>> = []
 
       for (const replyText of outboundReplies) {
         const deliveryResult = gate?.allowed
-          ? await whatsappCloudApi.sendTextMessage({
-              businessId: conversation.businessId,
-              to: message.from,
-              text: replyText
-            })
+          ? hasReplyButtons
+            ? await whatsappCloudApi.sendReplyButtonsMessage({
+                businessId: conversation.businessId,
+                to: message.from,
+                text: replyText,
+                buttons: conversationResult.replyButtons!
+              })
+            : await whatsappCloudApi.sendTextMessage({
+                businessId: conversation.businessId,
+                to: message.from,
+                text: replyText
+              })
           : { sent: false as const, to: message.from, reason: gate?.message || 'La conversacion no tiene comercio asociado para resolver WhatsApp.' }
 
         deliveryResults.push(deliveryResult)
@@ -527,6 +545,7 @@ export class WhatsAppWebhookService {
       phoneNumberId?: string
       displayPhoneNumber?: string
       media?: IncomingWhatsAppMedia
+      interactiveReplyId?: string
     }> = []
 
     for (const entry of payload.entry ?? []) {
@@ -539,7 +558,10 @@ export class WhatsAppWebhookService {
           const isText = message.type === 'text' && Boolean(message.text?.body)
           const isImage = message.type === 'image' && Boolean(message.image?.id)
           const isDocument = message.type === 'document' && Boolean(message.document?.id)
-          if (!isText && !isImage && !isDocument) continue
+          const isInteractiveReply = message.type === 'interactive' &&
+            message.interactive?.type === 'button_reply' &&
+            Boolean(message.interactive.button_reply?.id && message.interactive.button_reply?.title)
+          if (!isText && !isImage && !isDocument && !isInteractiveReply) continue
 
           const textMessage: {
             id?: string
@@ -548,16 +570,22 @@ export class WhatsAppWebhookService {
             phoneNumberId?: string
             displayPhoneNumber?: string
             media?: IncomingWhatsAppMedia
+            interactiveReplyId?: string
           } = {
             from: message.from,
             text: isText
               ? message.text?.body ?? ''
-              : isImage
+              : isInteractiveReply
+                ? message.interactive?.button_reply?.title ?? ''
+                : isImage
                 ? message.image?.caption?.trim() || 'Foto recibida'
                 : message.document?.caption?.trim() ||
                   `Archivo recibido${message.document?.filename ? `: ${message.document.filename}` : ''}`,
             ...(metadata?.phone_number_id ? { phoneNumberId: metadata.phone_number_id } : {}),
             ...(metadata?.display_phone_number ? { displayPhoneNumber: metadata.display_phone_number } : {}),
+            ...(isInteractiveReply && message.interactive?.button_reply?.id
+              ? { interactiveReplyId: message.interactive.button_reply.id }
+              : {}),
             ...(isImage && message.image?.id
               ? {
                   media: {

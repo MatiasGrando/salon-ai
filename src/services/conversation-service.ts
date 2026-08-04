@@ -42,6 +42,12 @@ import {
   type AssistantPersonality
 } from './assistant-personality-service.js'
 import { BookingV2ChoiceExtractor } from './booking-v2-choice-extractor.js'
+import {
+  DEFAULT_CONVERSATION_EXPIRE_MINUTES,
+  DEFAULT_CONVERSATION_PAUSE_MINUTES,
+  normalizeConversationContextSettings,
+  type ConversationContextSettings
+} from './conversation-context-settings.js'
 
 const bookingConversationFlow = new BookingConversationFlow()
 const bookingProvider = new InternalBookingProvider()
@@ -59,11 +65,14 @@ type HandleMessageInput = {
   message: string
   businessId?: string
   useAi?: boolean
+  interactiveReplyId?: string
+  previousActivityAt?: Date
 }
 
 type HandleMessageResult = {
   reply: string
   messages?: string[]
+  replyButtons?: Array<{ id: string; title: string }>
   skipMisunderstandingTracking?: boolean
   skipHumanize?: boolean
 }
@@ -83,7 +92,7 @@ export class ConversationService {
       return withOutboundMessages(await this.humanizeResult({
         result,
         message: input.message.trim(),
-        businessId: input.businessId
+        ...(input.businessId ? { businessId: input.businessId } : {})
       }))
     })
   }
@@ -109,10 +118,100 @@ export class ConversationService {
     if (existingConversation?.opportunityStatus === 'CLOSED') {
       await reopenClosedConversationOpportunity(existingConversation.id)
     }
-    const shouldResetExpiredFlow = existingConversation
-      ? isExpiredInProgressConversation(existingConversation.currentStep, existingConversation.updatedAt)
-      : false
-    const bookingV2Enabled = Boolean(businessId && await this.isBookingV2Enabled(businessId))
+    const runtimeSettings = businessId
+      ? await this.getConversationRuntimeSettings(businessId)
+      : {
+          bookingV2Enabled: false,
+          context: normalizeConversationContextSettings()
+        }
+    const bookingV2Enabled = runtimeSettings.bookingV2Enabled
+    const previousActivityAt = input.previousActivityAt ?? existingConversation?.updatedAt ?? new Date()
+    const contextWindow = existingConversation
+      ? conversationContextWindow(existingConversation.currentStep, previousActivityAt, runtimeSettings.context)
+      : 'active'
+    const storedBookingState = existingConversation ? stateFromConversation(existingConversation) : null
+    const hasPendingContextDecision = Boolean(storedBookingState?.contextPause)
+    let contextAction: 'continue' | 'new' | 'handoff' | 'unclear' | null = null
+
+    if (
+      existingConversation &&
+      bookingV2Enabled &&
+      businessId &&
+      contextWindow !== 'expired' &&
+      (contextWindow === 'paused' || hasPendingContextDecision)
+    ) {
+      contextAction = contextActionFromInteractiveReply(input.interactiveReplyId, existingConversation.id)
+      if (!contextAction) {
+        const choice = await bookingV2ChoiceExtractor.extract({
+          message,
+          question: 'La reserva anterior quedó pausada. ¿Quiere continuarla, iniciar una consulta nueva o hablar con el equipo?',
+          choices: [
+            { id: 'continue', meaning: 'Quiere retomar o continuar la reserva incompleta anterior.' },
+            { id: 'new', meaning: 'Quiere abandonar el contexto anterior e iniciar una reserva o consulta nueva.' },
+            { id: 'handoff', meaning: 'Quiere hablar con una persona del equipo.' }
+          ]
+        })
+        contextAction = contextActionFromChoice(choice)
+      }
+
+      if (contextAction === 'unclear') {
+        const pausedState = {
+          ...storedBookingState!,
+          contextPause: storedBookingState?.contextPause ?? {
+            pausedAt: new Date().toISOString(),
+            expiresAt: new Date(
+              previousActivityAt.getTime() + runtimeSettings.context.expireAfterMinutes * 60 * 1000
+            ).toISOString()
+          }
+        }
+        await prisma.conversation.update({
+          where: { id: existingConversation.id },
+          data: {
+            lastMessage: message,
+            archivedAt: null,
+            ...this.prismaConversationData(conversationPatchFromState(pausedState))
+          }
+        })
+        const serviceName = existingConversation.selectedServiceId
+          ? (await prisma.service.findFirst({
+              where: { id: existingConversation.selectedServiceId, businessId },
+              select: { name: true }
+            }))?.name
+          : null
+        return {
+          reply: serviceName
+            ? `La conversación anterior quedó pausada mientras reservábamos ${serviceName}. ¿Cómo querés seguir?`
+            : 'La conversación anterior quedó pausada. ¿Cómo querés seguir?',
+          replyButtons: contextDecisionButtons(existingConversation.id),
+          skipMisunderstandingTracking: true,
+          skipHumanize: true
+        }
+      }
+
+      if (contextAction === 'handoff') {
+        await prisma.conversation.update({
+          where: { id: existingConversation.id },
+          data: {
+            lastMessage: message,
+            currentStep: 'HUMAN_HANDOFF',
+            aiEnabled: false,
+            humanHandoffAt: new Date(),
+            humanHandoffResolvedAt: null,
+            bookingV2State: Prisma.JsonNull
+          }
+        })
+        return {
+          reply: botCopyService.humanHandoffQueued(),
+          skipMisunderstandingTracking: true,
+          skipHumanize: true
+        }
+      }
+    }
+
+    const shouldResetExpiredFlow = contextWindow === 'expired' || contextAction === 'new'
+    const continuedState = contextAction === 'continue' && storedBookingState
+      ? { ...storedBookingState, contextPause: null }
+      : null
 
     const conversation = existingConversation
       ? await prisma.conversation.update({
@@ -132,6 +231,12 @@ export class ConversationService {
                 lastAvailability: Prisma.JsonNull,
                 bookingV2State: Prisma.JsonNull
               }
+            : continuedState
+              ? {
+                  lastMessage: message,
+                  archivedAt: null,
+                  ...this.prismaConversationData(conversationPatchFromState(continuedState))
+                }
             : {
                 lastMessage: message,
                 archivedAt: null
@@ -145,30 +250,24 @@ export class ConversationService {
           }
         })
 
-    if (shouldResetExpiredFlow) {
-      if (!conversation.selectedCustomerName) {
-        if (bookingV2Enabled && businessId) {
-          await this.updateConversation(input.phone, businessId, {
-            currentStep: 'START'
-          })
-          const personality = await getBusinessAssistantPersonality(businessId)
-          return {
-            reply: applyAssistantPersonalityToReply(botCopyService.welcome(), personality),
-            skipHumanize: true
-          }
-        }
-
-        await this.updateConversation(input.phone, businessId, {
-          currentStep: 'ASK_CUSTOMER_NAME'
-        })
-
-        return {
-          reply: botCopyService.askInitialName()
-        }
-      }
-
+    if (contextAction === 'continue' && bookingV2Enabled && businessId) {
+      const resumed = await bookingV2Engine.resume({ businessId, conversation })
+      await this.updateConversation(input.phone, businessId, {
+        currentStep: conversationStepFromBookingV2Plan(resumed.plan),
+        ...resumed.conversationPatch,
+        lastAvailability: resumed.availabilityOptions.length
+          ? {
+              serviceId: resumed.state.draft.service,
+              professionalId: resumed.state.draft.professional,
+              date: resumed.state.draft.date,
+              options: resumed.availabilityOptions
+            }
+          : null
+      })
       return {
-        reply: botCopyService.mainMenu(conversation.selectedCustomerName)
+        reply: resumed.reply,
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
       }
     }
 
@@ -1641,17 +1740,20 @@ export class ConversationService {
     return result.customer
   }
 
-  private async isBookingV2Enabled(businessId: string) {
+  private async getConversationRuntimeSettings(businessId: string) {
     const settings = await prisma.businessFeatureSettings.findUnique({
-      where: {
-        businessId
-      },
+      where: { businessId },
       select: {
-        bookingV2Enabled: true
+        bookingV2Enabled: true,
+        conversationPauseAfterMinutes: true,
+        conversationExpireAfterMinutes: true
       }
     })
 
-    return Boolean(settings?.bookingV2Enabled)
+    return {
+      bookingV2Enabled: Boolean(settings?.bookingV2Enabled),
+      context: normalizeConversationContextSettings(settings)
+    }
   }
 
   private async resolveBusinessId(businessId?: string) {
@@ -2181,14 +2283,48 @@ function isMisunderstandingReply(reply: string) {
   ].some((phrase) => normalizedReply.includes(phrase))
 }
 
-function isExpiredInProgressConversation(currentStep: string, updatedAt: Date) {
+export function conversationContextWindow(
+  currentStep: string,
+  updatedAt: Date,
+  settings: ConversationContextSettings = {
+    pauseAfterMinutes: DEFAULT_CONVERSATION_PAUSE_MINUTES,
+    expireAfterMinutes: DEFAULT_CONVERSATION_EXPIRE_MINUTES
+  },
+  now = new Date()
+): 'active' | 'paused' | 'expired' {
   if (currentStep === 'START' || currentStep === 'COMPLETED' || currentStep === 'HUMAN_HANDOFF') {
-    return false
+    return 'active'
   }
 
-  const expirationMs = 24 * 60 * 60 * 1000
+  const inactivityMs = Math.max(0, now.getTime() - updatedAt.getTime())
+  if (inactivityMs >= settings.expireAfterMinutes * 60 * 1000) return 'expired'
+  if (inactivityMs >= settings.pauseAfterMinutes * 60 * 1000) return 'paused'
+  return 'active'
+}
 
-  return Date.now() - updatedAt.getTime() >= expirationMs
+export function contextDecisionButtons(conversationId: string) {
+  return [
+    { id: `context_continue:${conversationId}`, title: 'Continuar reserva' },
+    { id: `context_new:${conversationId}`, title: 'Nueva consulta' },
+    { id: `context_handoff:${conversationId}`, title: 'Hablar con equipo' }
+  ]
+}
+
+export function contextActionFromInteractiveReply(replyId: string | undefined, conversationId: string) {
+  if (replyId === `context_continue:${conversationId}`) return 'continue' as const
+  if (replyId === `context_new:${conversationId}`) return 'new' as const
+  if (replyId === `context_handoff:${conversationId}`) return 'handoff' as const
+  return null
+}
+
+export function contextActionFromChoice(choice: { choiceId: string | null; confidence: number }) {
+  if (
+    choice.confidence >= 0.85 &&
+    (choice.choiceId === 'continue' || choice.choiceId === 'new' || choice.choiceId === 'handoff')
+  ) {
+    return choice.choiceId
+  }
+  return 'unclear' as const
 }
 
 export function isHumanHandoffMessage(message: string) {
