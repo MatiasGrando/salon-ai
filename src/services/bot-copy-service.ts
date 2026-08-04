@@ -268,8 +268,21 @@ export class BotCopyService {
   humanHandoffQueued() {
     return [
       'Dale 😊',
-      'Ya le avisé a una de las chicas del equipo para que siga la conversación por acá.',
-      'En un ratito te responde 💖'
+      'Ya le avisé al equipo para que siga la conversación por acá.',
+      'La respuesta puede demorar unos minutos, pero te van a responder por este mismo chat.'
+    ].join('\n')
+  }
+
+  otherQueryPrompt(hasBookingInProgress = false) {
+    return hasBookingInProgress
+      ? 'Claro, decime qué querés consultar. Tu reserva queda pausada en este punto y después la retomamos.'
+      : 'Claro, decime qué querés consultar y te ayudo.'
+  }
+
+  repeatedMisunderstandingHandoff() {
+    return [
+      'No estoy pudiendo interpretar correctamente tu consulta.',
+      'Te voy a derivar con el equipo para que pueda ayudarte. La respuesta puede demorar unos minutos.'
     ].join('\n')
   }
 

@@ -173,7 +173,7 @@ const routerCases = [
   ['¿En qué momento suelen levantar la persiana?', 'business_information'],
   ['¿Qué inversión requiere hacerse color?', 'business_information'],
   ['¿Quiénes tienen mano para este trabajo?', 'business_information'],
-  ['Contame bien qué incluye lo que hacen', 'business_information']
+  ['Contame bien qué incluye lo que hacen', 'service_detail']
 ] as const
 
 for (const [message, expected] of routerCases) {
@@ -203,4 +203,105 @@ for (const [message, expected] of routerCases) {
   assert.ok(match && match.confidence >= 0.65, message)
 }
 
-console.log('\n40 pruebas reales adicionales de comprensión pasaron.')
+const screenshotRouterCases = [
+  {
+    message: '¿Qué horarios tiene Tamara?',
+    currentStep: 'ASK_PROFESSIONAL',
+    lastBotMessage: '¿Con quién preferís atenderte?',
+    expectedIntent: 'professional_schedule',
+    expectedProfessional: 'tamara',
+    expectsBooking: false
+  },
+  {
+    message: 'Si solicito un turno, ¿cuáles son los pasos? ¿Me lavan el cabello en el lugar?',
+    currentStep: 'ASK_SERVICE',
+    lastBotMessage: '¿Querés continuar con la reserva o pedir un presupuesto exacto?',
+    expectedIntent: 'service_detail',
+    draftService: 'ordenador',
+    expectsBooking: false
+  },
+  {
+    message: 'Iluminación',
+    currentStep: 'ASK_SERVICE',
+    lastBotMessage: '¿Cuál te interesa?',
+    expectedIntent: 'book_appointment',
+    expectedService: 'iluminacion',
+    expectsBooking: true
+  },
+  {
+    message: '¿Me agendás para esta semana?',
+    currentStep: 'ASK_SERVICE',
+    lastBotMessage: '¿Qué servicio querés reservar?',
+    expectedIntent: 'book_appointment',
+    expectsBooking: true
+  },
+  {
+    message: '¿Es para sede Cañitas?',
+    currentStep: 'ASK_PROFESSIONAL',
+    lastBotMessage: '¿Con quién preferís atenderte?',
+    expectedIntent: 'business_information',
+    expectedTopic: 'address',
+    expectsBooking: false
+  },
+  {
+    message: 'Antes de seguir te quería preguntar otra cosa',
+    currentStep: 'ASK_PROFESSIONAL',
+    lastBotMessage: '¿Con quién preferís atenderte?',
+    expectedIntent: 'other_query',
+    expectsBooking: false
+  }
+] as const
+
+for (const test of screenshotRouterCases) {
+  const result = await router.route({
+    message: test.message,
+    currentStep: test.currentStep,
+    lastBotMessage: test.lastBotMessage,
+    recentMessages: [],
+    draft: {
+      name: 'Mati',
+      service: 'draftService' in test
+        ? test.draftService
+        : test.currentStep === 'ASK_PROFESSIONAL' ? 'iluminacion' : null,
+      professional: null,
+      date: null,
+      time: null
+    },
+    business: {
+      name: 'Glow',
+      availableInformation: ['address', 'booking_channels', 'services', 'professionals', 'prices']
+    },
+    catalog: {
+      services: [
+        { id: 'iluminacion', name: 'Iluminación', aliases: ['balayage'], description: 'Iluminación y balayage.' },
+        { id: 'ordenador', name: 'Ordenador molecular', aliases: ['alisado molecular'], description: 'Incluye nutrición, lavado, secado y planchado.' }
+      ],
+      professionals: [
+        { id: 'tamara', name: 'Tamara', aliases: ['Tami'] },
+        { id: 'cristian', name: 'Cristian' }
+      ]
+    }
+  })
+  const match = result.intents.find((intent) => intent.type === test.expectedIntent)
+  console.log(`SCREENSHOT | ${test.message} | ${result.intents.map((intent) => intent.type).join(',')} | booking=${Boolean(result.bookingMessage)}`)
+  const minimumConfidence = test.expectedIntent === 'other_query' ? 0.4 : 0.65
+  assert.ok(match && match.confidence >= minimumConfidence, test.message)
+  assert.equal(Boolean(result.bookingMessage), test.expectsBooking, test.message)
+  if ('expectedTopic' in test) assert.equal(match.topic, test.expectedTopic, test.message)
+  if ('expectedProfessional' in test) assert.equal(result.bookingExtraction?.professional.value, test.expectedProfessional, test.message)
+  if ('expectedService' in test) assert.equal(result.bookingExtraction?.service.value, test.expectedService, test.message)
+}
+
+const otherQueryDecision = await choiceExtractor.extract({
+  message: 'Antes de seguir te quería preguntar otra cosa',
+  question: '¿El cliente está anunciando otra consulta sin haber escrito todavía cuál es?',
+  choices: [
+    { id: 'other_query', meaning: 'Anuncia una consulta nueva pero todavía no expresa la pregunta concreta.' },
+    { id: 'concrete_query', meaning: 'Ya expresó una pregunta, selección o acción concreta.' }
+  ]
+})
+console.log(`OTHER QUERY VERIFY | ${otherQueryDecision.choiceId} | ${otherQueryDecision.confidence.toFixed(2)}`)
+assert.equal(otherQueryDecision.choiceId, 'other_query')
+assert.ok(otherQueryDecision.confidence >= 0.85)
+
+console.log('\n47 pruebas reales adicionales de comprensión pasaron.')

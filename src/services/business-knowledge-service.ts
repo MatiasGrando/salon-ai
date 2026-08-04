@@ -169,7 +169,11 @@ export function renderCatalogServiceQuery(
   const general = requested.has('general')
   const lines: string[] = []
 
-  if (general && service.description?.trim()) lines.push(service.description.trim())
+  if (general && service.description?.trim()) {
+    lines.push(service.description.trim())
+  } else if (general) {
+    lines.push('No tengo el detalle del procedimiento cargado de forma confiable. Si querés, te derivo con el equipo.')
+  }
   if (general || requested.has('duration')) {
     lines.push(`Duración: ${service.duration} min.`)
   }

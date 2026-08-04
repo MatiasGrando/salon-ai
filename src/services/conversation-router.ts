@@ -21,9 +21,12 @@ export const CONVERSATION_INTENTS = [
   'business_information',
   'availability_preference',
   'professional_preference',
+  'professional_schedule',
+  'service_detail',
   'request_quote',
   'submit_media',
   'request_human',
+  'other_query',
   'social_message',
   'stop_flow',
   'unknown'
@@ -123,10 +126,20 @@ export class ConversationRouter {
       currentStep: input.currentStep,
       catalog: input.catalog
     })
-    if (!isAiExecutionEnabled()) return deterministic
+    if (!isAiExecutionEnabled()) {
+      return {
+        ...applyExpectedFieldCatalogFallback(deterministic, input),
+        source: 'deterministic'
+      }
+    }
 
     const client = getOpenAiClient()
-    if (!client) return deterministic
+    if (!client) {
+      return {
+        ...applyExpectedFieldCatalogFallback(deterministic, input),
+        source: 'deterministic'
+      }
+    }
 
     try {
       const response = await client.responses.create({
@@ -156,6 +169,11 @@ export class ConversationRouter {
           'Si currentStep es ASK_TIME, una pregunta por horarios se refiere a disponibilidad de turnos, salvo que mencione explicitamente abrir, cerrar u horario del local.',
           'Usa availability_preference para dias o franjas como despues de las 18, por la manana o solo sabados.',
           'Usa professional_preference cuando selecciona, nombra como preferencia o cambia profesional para su reserva.',
+          'Usa professional_schedule cuando pregunta qué días u horarios trabaja o atiende un profesional específico. Es una consulta informativa: no lo tomes como elección y bookingMessage debe ser null.',
+          'Ejemplos de professional_schedule: "qué horarios tiene Tamara", "cuándo atiende Tami" o "qué días trabaja Marcos". Extrae el ID del profesional mencionado en bookingExtraction.professional.',
+          'Nunca uses professional_schedule si no pregunta por horarios, días o disponibilidad laboral de un profesional.',
+          'Usa service_detail cuando pregunta qué incluye, cómo se realiza, cuál es el proceso, si lavan o preparan el cabello, o qué pasos tiene el servicio que ya está conversando.',
+          'service_detail usa currentDraft.service como contexto y bookingMessage null; no necesita que el cliente repita el nombre del servicio.',
           'Si pregunta quienes realizan, conocen o "tienen mano" para un servicio, usa business_information con topic professionals y catalogQuery.professionals; no lo tomes como una eleccion.',
           'Usa cancel_booking cuando quiere abandonar o cancelar la reserva que esta armando, sin cancelar un turno ya confirmado.',
           'Si currentDraft contiene un servicio, profesional, fecha u hora y el cliente quiere dejar, abandonar o frenar lo que esta haciendo, cancel_booking tiene prioridad sobre stop_flow.',
@@ -168,6 +186,12 @@ export class ConversationRouter {
           'No uses request_quote para una consulta comun de precio; reservalo para presupuesto, cotizacion o estimacion personalizada.',
           'Usa submit_media cuando afirma enviar una foto, imagen o comprobante.',
           'Usa request_human cuando pide una persona o la consulta requiere criterio humano.',
+          'Usa other_query cuando anuncia que quiere hacer otra pregunta pero todavía no expresa cuál, por ejemplo "te quería consultar otra cosa" o "antes de seguir tengo otra duda".',
+          'Si la otra consulta ya está escrita, clasifica la consulta concreta en lugar de usar other_query.',
+          'Si pregunta por una sede, sucursal, barrio o si la atención corresponde a una ubicación determinada, usa business_information con topic address y bookingMessage null.',
+          'Si responde solamente con el nombre o alias de un servicio después de que el bot pidió elegir uno, trátalo como selección para la reserva; no como pedido de descripción ni de catálogo.',
+          'Si pide que lo agenden o reserven esta semana sin indicar servicio, inicia book_appointment y deja que el flujo pida solamente el dato faltante; no respondas con el catálogo como consulta informativa.',
+          'Nunca respondas booking_channels a una pregunta sobre cómo se realiza un servicio. Para proceso, lavado, preparación o procedimiento usa business_information de services con catalogQuery.general.',
           'Usa stop_flow cuando dice que no necesita nada mas o quiere terminar la conversacion y no esta cancelando una reserva en curso, incluso con respuestas informales como no gracias, nada mas, era eso, joya o estamos.',
           'bookingMessage debe contener solamente la parte util para continuar o modificar la reserva.',
           'Si el mensaje es solo informativo, social o ajeno a la reserva, bookingMessage debe ser null.',
@@ -180,7 +204,7 @@ export class ConversationRouter {
           'No copies valores de currentDraft si no aparecen en customerMessage.',
           'Interpreta fechas relativas usando currentDate y timezone. date usa YYYY-MM-DD y time HH:mm.',
           'Detecta correction solo cuando el cliente expresa que quiere cambiar un dato existente.',
-          'Si bookingMessage es null, bookingExtraction debe ser null.',
+          'Si bookingMessage es null, bookingExtraction debe ser null, salvo professional_schedule: en ese caso puede contener solamente el profesional consultado.',
           'evidence debe ser un fragmento textual exacto de customerMessage.',
           'Si no esta claro, usa unknown con confianza baja.'
         ].join('\n'),
@@ -210,22 +234,116 @@ export class ConversationRouter {
       const aiRouting = normalizeConversationRouting(JSON.parse(response.output_text) as AiConversationRouting)
       if (aiRouting.intents.length === 0) return deterministic
       const routing = mergeConversationRouting(aiRouting, deterministic, input.message, input.catalog)
+      const prioritizedRouting = applyContextualRoutingPriorities(routing, input)
+      const groundedRouting = applyExpectedFieldCatalogFallback(prioritizedRouting, input)
 
       console.info('[conversation-router] routed message', {
         currentStep: input.currentStep,
         source: 'ai',
-        intents: routing.intents.map((intent) => ({
+        intents: groundedRouting.intents.map((intent) => ({
           type: intent.type,
           topic: intent.topic,
           confidence: intent.confidence
         }))
       })
 
-      return { ...routing, source: 'ai' }
+      return { ...groundedRouting, source: 'ai' }
     } catch (error) {
       console.warn('[conversation-router] AI routing failed; using deterministic fallback', error)
-      return deterministic
+      return {
+        ...applyExpectedFieldCatalogFallback(deterministic, input),
+        source: 'deterministic'
+      }
     }
+  }
+}
+
+export function applyExpectedFieldCatalogFallback(
+  routing: Omit<ConversationRouting, 'source'>,
+  input: Pick<ConversationRouterInput, 'message' | 'currentStep' | 'catalog'>
+): Omit<ConversationRouting, 'source'> {
+  if (looksLikeInformationQuestion(input.message)) return routing
+  if (routing.intents.some((intent) =>
+    ['professional_schedule', 'service_detail', 'other_query', 'request_human'].includes(intent.type) &&
+    intent.confidence >= 0.65
+  )) return routing
+
+  const isService = input.currentStep === 'ASK_SERVICE'
+  const isProfessional = input.currentStep === 'ASK_PROFESSIONAL'
+  if (!isService && !isProfessional) return routing
+  const options = isService ? input.catalog.services : input.catalog.professionals
+  const matches = resolveCatalogOptionMatches(normalizeEvidenceText(input.message), options)
+  if (matches.length !== 1) return routing
+
+  const match = matches[0]!
+  const bookingExtraction = routing.bookingExtraction ?? emptyBookingExtraction()
+  const groundedField = { value: match.id, confidence: 0.92, evidence: input.message.trim() }
+  const intentType = isService ? 'book_appointment' as const : 'professional_preference' as const
+  const intents = routing.intents.filter((intent) =>
+    !['unknown', 'go_back'].includes(intent.type) &&
+    !(intent.type === 'business_information' && ['services', 'professionals'].includes(intent.topic ?? ''))
+  )
+  if (!intents.some((intent) => intent.type === intentType)) {
+    intents.push({ type: intentType, topic: null, confidence: 0.92, evidence: input.message.trim() })
+  }
+  return {
+    ...routing,
+    intents,
+    bookingMessage: input.message.trim() || null,
+    bookingExtraction: {
+      ...bookingExtraction,
+      ...(isService ? { service: groundedField } : { professional: groundedField })
+    },
+    catalogQuery: null
+  }
+}
+
+export function applyContextualRoutingPriorities(
+  routing: Omit<ConversationRouting, 'source'>,
+  input: Pick<ConversationRouterInput, 'message' | 'currentStep'>
+): Omit<ConversationRouting, 'source'> {
+  if (routing.intents.some((intent) =>
+    intent.type === 'professional_schedule' && intent.confidence >= 0.65
+  )) {
+    return { ...routing, bookingMessage: null, catalogQuery: null }
+  }
+  if (routing.intents.some((intent) =>
+    intent.type === 'service_detail' && intent.confidence >= 0.65
+  )) {
+    return { ...routing, bookingMessage: null }
+  }
+
+  if (looksLikeInformationQuestion(input.message)) return routing
+  const selection = input.currentStep === 'ASK_SERVICE'
+    ? {
+        field: routing.bookingExtraction?.service,
+        intent: 'book_appointment' as const
+      }
+    : input.currentStep === 'ASK_PROFESSIONAL'
+      ? {
+          field: routing.bookingExtraction?.professional,
+          intent: 'professional_preference' as const
+        }
+      : null
+  if (!selection?.field?.value || selection.field.confidence < 0.85) return routing
+
+  const intents = routing.intents.filter((intent) =>
+    intent.type !== 'unknown' &&
+    !(intent.type === 'business_information' && ['services', 'professionals'].includes(intent.topic ?? ''))
+  )
+  if (!intents.some((intent) => intent.type === selection.intent)) {
+    intents.push({
+      type: selection.intent,
+      topic: null,
+      confidence: selection.field.confidence,
+      evidence: selection.field.evidence
+    })
+  }
+  return {
+    ...routing,
+    intents,
+    bookingMessage: input.message.trim() || null,
+    catalogQuery: null
   }
 }
 
@@ -330,8 +448,22 @@ export function mergeConversationRouting(
     ? deterministicCatalogQuery
     : aiCatalogQuery ?? deterministicCatalogQuery
   const deterministicTopics = new Set(businessInformationTopicsFromRouting(deterministic))
+  const hasGroundedAiInformation = aiRouting.intents.some((intent) =>
+    intent.type === 'business_information' &&
+    isGroundedBusinessInformationIntent(intent, originalMessage)
+  )
+  const hasProfessionalScheduleQuestion = aiRouting.intents.some((intent) =>
+    intent.type === 'professional_schedule' &&
+    intent.confidence >= 0.65 &&
+    normalizeEvidenceText(originalMessage).includes(normalizeEvidenceText(intent.evidence))
+  )
   const standaloneBusinessInformationQuestion =
-    (deterministicTopics.size > 0 || catalogQuery !== null) &&
+    (
+      deterministicTopics.size > 0 ||
+      catalogQuery !== null ||
+      hasGroundedAiInformation ||
+      hasProfessionalScheduleQuestion
+    ) &&
     deterministic.bookingMessage === null
   const intents = aiRouting.intents.filter((intent) => {
     if (
@@ -384,9 +516,11 @@ export function mergeConversationRouting(
       : aiRouting.bookingMessage
         ?? deterministic.bookingMessage
         ?? (hasBookingRelatedIntent ? originalMessage.trim() || null : null),
-    bookingExtraction: standaloneBusinessInformationQuestion
-      ? null
-      : aiRouting.bookingExtraction ?? deterministic.bookingExtraction ?? null,
+    bookingExtraction: hasProfessionalScheduleQuestion
+      ? aiRouting.bookingExtraction ?? null
+      : standaloneBusinessInformationQuestion
+        ? null
+        : aiRouting.bookingExtraction ?? deterministic.bookingExtraction ?? null,
     catalogQuery
   }
 }
@@ -479,6 +613,33 @@ function resolveCatalogQueryServices(
   return scoredMatches
     .filter((candidate) => bestScore - candidate.score < 0.08)
     .map((candidate) => candidate.service)
+}
+
+function resolveCatalogOptionMatches(
+  normalizedMessage: string,
+  options: BookingV2CatalogOption[]
+) {
+  const fullLabelMatches = options.filter((option) =>
+    [option.name, ...(option.aliases ?? [])].some((label) =>
+      catalogLabelIsMentioned(normalizedMessage, normalizeEvidenceText(label))
+    )
+  )
+  if (fullLabelMatches.length) return fullLabelMatches
+
+  const messageTokens = catalogQuerySubjectTokens(normalizedMessage)
+  const scoredMatches = options
+    .map((option) => ({
+      option,
+      score: Math.max(...[option.name, ...(option.aliases ?? [])].map((label) =>
+        catalogLabelMatchScore(messageTokens, catalogQuerySubjectTokens(normalizeEvidenceText(label)))
+      ))
+    }))
+    .filter((candidate) => candidate.score >= 0.82)
+    .sort((left, right) => right.score - left.score)
+  const bestScore = scoredMatches[0]?.score ?? 0
+  return scoredMatches
+    .filter((candidate) => bestScore - candidate.score < 0.05)
+    .map((candidate) => candidate.option)
 }
 
 function groundedCatalogQuery(
@@ -672,6 +833,7 @@ function hasExplicitBookingIntent(normalized: string) {
     'sacame un turno',
     'agendar turno',
     'agendame',
+    'me agendas',
     'reservame',
     'quiero venir',
     'necesito venir',
@@ -724,6 +886,23 @@ function normalizeConfidence(value: number) {
 function cleanNullableText(value: string | null) {
   const cleaned = value?.trim()
   return cleaned ? cleaned : null
+}
+
+function emptyBookingExtraction(): BookingV2Extraction {
+  const emptyField = { value: null, confidence: 0, evidence: '' }
+  return {
+    name: { ...emptyField },
+    service: { ...emptyField },
+    professional: { ...emptyField },
+    date: { ...emptyField },
+    time: { ...emptyField },
+    correction: { field: null, newValue: null, confidence: 0, evidence: '' }
+  }
+}
+
+function looksLikeInformationQuestion(message: string) {
+  const normalized = normalizeEvidenceText(message)
+  return message.includes('?') || /^(?:que|cual|cuales|como|cuando|donde|cuanto|quien|quienes|por que)\b/.test(normalized)
 }
 
 const conversationRoutingSchema = {

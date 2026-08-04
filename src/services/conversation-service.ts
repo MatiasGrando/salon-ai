@@ -77,6 +77,19 @@ type HandleMessageResult = {
   skipHumanize?: boolean
 }
 
+type ConversationStepValue =
+  | 'START'
+  | 'ASK_SERVICE'
+  | 'ASK_PROFESSIONAL'
+  | 'ASK_DATE'
+  | 'ASK_TIME'
+  | 'CONFIRM'
+  | 'ASK_CUSTOMER_NAME'
+  | 'CANCEL_SELECT_APPOINTMENT'
+  | 'EDIT_SELECT_APPOINTMENT'
+  | 'HUMAN_HANDOFF'
+  | 'COMPLETED'
+
 export class ConversationService {
   async handleMessage(input: HandleMessageInput): Promise<HandleMessageResult> {
     return runWithAiEnabled(input.useAi !== false, async () => {
@@ -196,8 +209,7 @@ export class ConversationService {
             currentStep: 'HUMAN_HANDOFF',
             aiEnabled: false,
             humanHandoffAt: new Date(),
-            humanHandoffResolvedAt: null,
-            bookingV2State: Prisma.JsonNull
+            humanHandoffResolvedAt: null
           }
         })
         return {
@@ -266,6 +278,56 @@ export class ConversationService {
       })
       return {
         reply: resumed.reply,
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+
+    const recoveryAction = recoveryActionFromInteractiveReply(input.interactiveReplyId, conversation.id)
+    if (recoveryAction === 'handoff') {
+      await this.updateConversation(input.phone, businessId, {
+        currentStep: 'HUMAN_HANDOFF',
+        aiEnabled: false,
+        misunderstandingCount: 0,
+        humanHandoffAt: new Date(),
+        humanHandoffResolvedAt: null
+      })
+      return {
+        reply: botCopyService.humanHandoffQueued(),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+    if (recoveryAction === 'other_query') {
+      await this.updateConversation(input.phone, businessId, {
+        currentStep: conversation.currentStep,
+        misunderstandingCount: 0
+      })
+      return {
+        reply: botCopyService.otherQueryPrompt(isActiveBookingV2Step(conversation.currentStep)),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+    if (recoveryAction === 'resume') {
+      const clearedConversation = await this.updateConversation(input.phone, businessId, {
+        currentStep: conversation.currentStep,
+        misunderstandingCount: 0
+      })
+      if (bookingV2Enabled && businessId && isActiveBookingV2Step(clearedConversation.currentStep)) {
+        const resumed = await bookingV2Engine.resume({ businessId, conversation: clearedConversation })
+        await this.updateConversation(input.phone, businessId, {
+          currentStep: conversationStepFromBookingV2Plan(resumed.plan),
+          ...resumed.conversationPatch
+        })
+        return {
+          reply: resumed.reply,
+          skipMisunderstandingTracking: true,
+          skipHumanize: true
+        }
+      }
+      return {
+        reply: botCopyService.intentNotUnderstood(),
         skipMisunderstandingTracking: true,
         skipHumanize: true
       }
@@ -376,8 +438,7 @@ export class ConversationService {
         misunderstandingCount: 0,
         humanHandoffAt: new Date(),
         humanHandoffResolvedAt: null,
-        photoQuoteAcknowledgedAt: null,
-        bookingV2State: null
+        photoQuoteAcknowledgedAt: null
       })
 
       return {
@@ -830,6 +891,112 @@ export class ConversationService {
             : {})
         })
       : null
+    const professionalScheduleIntent = input.routing.intents.find((intent) =>
+      intent.type === 'professional_schedule' && intent.confidence >= 0.65
+    )
+    const professionalId = input.routing.bookingExtraction?.professional.value ?? null
+    if (professionalScheduleIntent && (professionalId || informationTopics.length === 0)) {
+      const scheduleReply = professionalId
+        ? await this.professionalScheduleReply(input.businessId, professionalId)
+        : 'Entendí que querés consultar los horarios de un profesional. ¿De quién querés saberlos?'
+      const resumedReply = isActiveBookingV2Step(input.conversation.currentStep)
+        ? (await bookingV2Engine.resume({
+            businessId: input.businessId,
+            conversation: input.conversation
+          })).reply
+        : null
+      await this.updateConversation(input.phone, input.businessId, {
+        currentStep: conversationStepValue(input.conversation.currentStep),
+        misunderstandingCount: 0
+      })
+      return {
+        reply: applyAssistantPersonalityToReply(
+          resumedReply ? composeBusinessInformationResumeReply(scheduleReply, resumedReply) : scheduleReply,
+          assistantPersonality
+        ),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+    const serviceDetailIntent = input.routing.intents.find((intent) =>
+      intent.type === 'service_detail' && intent.confidence >= 0.65
+    )
+    if (serviceDetailIntent) {
+      const serviceId = input.conversation.selectedServiceId
+      const detailReply = serviceId
+        ? await businessKnowledgeService.answer({
+            businessId: input.businessId,
+            topics: ['services'],
+            catalogQuery: {
+              serviceId,
+              requestedInformation: ['general'],
+              confidence: serviceDetailIntent.confidence,
+              evidence: serviceDetailIntent.evidence
+            }
+          })
+        : 'Entendí que querés conocer el proceso de un servicio. ¿Sobre cuál querés consultar?'
+      const resumedReply = isActiveBookingV2Step(input.conversation.currentStep)
+        ? (await bookingV2Engine.resume({
+            businessId: input.businessId,
+            conversation: input.conversation
+          })).reply
+        : null
+      const requiredReply = applyAssistantPersonalityToReply(
+        resumedReply && detailReply
+          ? composeBusinessInformationResumeReply(detailReply, resumedReply)
+          : detailReply ?? 'No tengo ese detalle cargado de forma confiable.',
+        assistantPersonality
+      )
+      return {
+        reply: requiredReply,
+        ...(businessInformationNeedsHuman(requiredReply)
+          ? { replyButtons: recoveryDecisionButtons(input.conversation.id) }
+          : {}),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+    const routedOtherQueryConfidence = Math.max(
+      0,
+      ...input.routing.intents
+        .filter((intent) => intent.type === 'other_query')
+        .map((intent) => intent.confidence)
+    )
+    let confirmedOtherQuery = routedOtherQueryConfidence >= 0.85
+    if (
+      !confirmedOtherQuery &&
+      routedOtherQueryConfidence >= 0.4 &&
+      !input.routing.bookingMessage &&
+      informationTopics.length === 0
+    ) {
+      const decision = await bookingV2ChoiceExtractor.extract({
+        message: input.message,
+        question: '¿El cliente está anunciando que quiere hacer otra consulta, pero todavía no escribió cuál es?',
+        choices: [
+          { id: 'other_query', meaning: 'Anuncia una pregunta o duda nueva sin expresar todavía la consulta concreta.' },
+          { id: 'concrete_query', meaning: 'Ya escribió una pregunta concreta, una selección o una acción para ejecutar.' }
+        ]
+      })
+      confirmedOtherQuery = decision.choiceId === 'other_query' && decision.confidence >= 0.85
+    }
+    if (
+      confirmedOtherQuery &&
+      !input.routing.bookingMessage &&
+      informationTopics.length === 0
+    ) {
+      await this.updateConversation(input.phone, input.businessId, {
+        currentStep: conversationStepValue(input.conversation.currentStep),
+        misunderstandingCount: 0
+      })
+      return {
+        reply: applyAssistantPersonalityToReply(
+          botCopyService.otherQueryPrompt(isActiveBookingV2Step(input.conversation.currentStep)),
+          assistantPersonality
+        ),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
     const bookingConfirmationChoice = input.conversation.currentStep === 'CONFIRM'
       ? await bookingV2ChoiceExtractor.extract({
           message: input.message,
@@ -995,6 +1162,9 @@ export class ConversationService {
         )
         return {
           reply: requiredReply,
+          ...(businessInformationNeedsHuman(informationReply)
+            ? { replyButtons: recoveryDecisionButtons(input.conversation.id) }
+            : {}),
           skipMisunderstandingTracking: true,
           skipHumanize: true
         }
@@ -1011,6 +1181,9 @@ export class ConversationService {
       )
       return {
         reply: requiredReply,
+        ...(businessInformationNeedsHuman(informationReply)
+          ? { replyButtons: recoveryDecisionButtons(input.conversation.id) }
+          : {}),
         skipMisunderstandingTracking: true,
         skipHumanize: true
       }
@@ -1035,11 +1208,36 @@ export class ConversationService {
       input.conversation.currentStep,
       input.routing
     )) {
+      const misunderstandingCount = input.conversation.misunderstandingCount + 1
+      if (misunderstandingCount >= 3) {
+        await this.updateConversation(input.phone, input.businessId, {
+          currentStep: 'HUMAN_HANDOFF',
+          aiEnabled: false,
+          misunderstandingCount: 0,
+          humanHandoffAt: new Date(),
+          humanHandoffResolvedAt: null
+        })
+        return {
+          reply: applyAssistantPersonalityToReply(
+            botCopyService.repeatedMisunderstandingHandoff(),
+            assistantPersonality
+          ),
+          skipMisunderstandingTracking: true,
+          skipHumanize: true
+        }
+      }
+      await this.updateConversation(input.phone, input.businessId, {
+        currentStep: conversationStepValue(input.conversation.currentStep),
+        misunderstandingCount
+      })
       return {
         reply: applyAssistantPersonalityToReply(
           botCopyService.intentNotUnderstood(),
           assistantPersonality
         ),
+        ...(misunderstandingCount >= 2
+          ? { replyButtons: recoveryDecisionButtons(input.conversation.id) }
+          : {}),
         skipMisunderstandingTracking: true,
         skipHumanize: true
       }
@@ -1126,6 +1324,11 @@ export class ConversationService {
     return {
       reply: composedReply,
       messages: splitWhatsAppReply(composedReply),
+      ...(result.plan.type === 'ask_field' &&
+        result.plan.reason === 'not_understood' &&
+        result.state.misunderstandingCount >= 2
+        ? { replyButtons: recoveryDecisionButtons(input.conversation.id) }
+        : {}),
       skipMisunderstandingTracking: true,
       skipHumanize: true
     }
@@ -1140,6 +1343,27 @@ export class ConversationService {
   }) {
     return await aiMessageUnderstandingService.composeBookingV2Reply(input)
       ?? input.requiredReply
+  }
+
+  private async professionalScheduleReply(businessId: string, professionalId: string) {
+    const professional = await prisma.professional.findFirst({
+      where: { id: professionalId, businessId, isActive: true },
+      select: {
+        name: true,
+        workingHours: {
+          orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }],
+          select: { dayOfWeek: true, startTime: true, endTime: true }
+        }
+      }
+    })
+    if (!professional) return 'No encontré ese profesional en el equipo actual.'
+    if (!professional.workingHours.length) {
+      return `No tengo los horarios de ${professional.name} cargados de forma confiable. Si querés, te derivo con el equipo.`
+    }
+    return [
+      `${professional.name} atiende:`,
+      ...formatProfessionalWorkingHours(professional.workingHours)
+    ].join('\n')
   }
 
   private async confirmBookingV2Appointment(input: {
@@ -1774,18 +1998,7 @@ export class ConversationService {
     phone: string,
     businessId: string | null,
     data: {
-      currentStep:
-        | 'START'
-        | 'ASK_SERVICE'
-        | 'ASK_PROFESSIONAL'
-        | 'ASK_DATE'
-        | 'ASK_TIME'
-        | 'CONFIRM'
-        | 'ASK_CUSTOMER_NAME'
-        | 'CANCEL_SELECT_APPOINTMENT'
-        | 'EDIT_SELECT_APPOINTMENT'
-        | 'HUMAN_HANDOFF'
-        | 'COMPLETED'
+      currentStep: ConversationStepValue
       selectedServiceId?: string | null
       selectedProfessionalId?: string | null
       selectedDate?: string | null
@@ -1906,6 +2119,25 @@ function conversationStepFromBookingV2Plan(plan: BookingV2MessagePlan) {
     return stepForBookingV2Field(plan.field)
   }
   return stepForBookingV2Field(plan.field)
+}
+
+function conversationStepValue(value: string): ConversationStepValue {
+  const allowed: ConversationStepValue[] = [
+    'START',
+    'ASK_SERVICE',
+    'ASK_PROFESSIONAL',
+    'ASK_DATE',
+    'ASK_TIME',
+    'CONFIRM',
+    'ASK_CUSTOMER_NAME',
+    'CANCEL_SELECT_APPOINTMENT',
+    'EDIT_SELECT_APPOINTMENT',
+    'HUMAN_HANDOFF',
+    'COMPLETED'
+  ]
+  return allowed.includes(value as ConversationStepValue)
+    ? value as ConversationStepValue
+    : 'START'
 }
 
 function stepForBookingV2Field(field: BookingField) {
@@ -2325,6 +2557,38 @@ export function contextActionFromChoice(choice: { choiceId: string | null; confi
     return choice.choiceId
   }
   return 'unclear' as const
+}
+
+export function recoveryDecisionButtons(conversationId: string) {
+  return [
+    { id: `recovery_resume:${conversationId}`, title: 'Continuar reserva' },
+    { id: `recovery_other:${conversationId}`, title: 'Otra consulta' },
+    { id: `recovery_handoff:${conversationId}`, title: 'Hablar con equipo' }
+  ]
+}
+
+export function recoveryActionFromInteractiveReply(replyId: string | undefined, conversationId: string) {
+  if (replyId === `recovery_resume:${conversationId}`) return 'resume' as const
+  if (replyId === `recovery_other:${conversationId}`) return 'other_query' as const
+  if (replyId === `recovery_handoff:${conversationId}`) return 'handoff' as const
+  return null
+}
+
+export function businessInformationNeedsHuman(reply: string) {
+  const normalized = normalizeText(reply)
+  return normalized.includes('no tengo') &&
+    (normalized.includes('derivo') || normalized.includes('persona') || normalized.includes('equipo'))
+}
+
+export function formatProfessionalWorkingHours(hours: Array<{
+  dayOfWeek: number
+  startTime: string
+  endTime: string
+}>) {
+  const labels = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
+  return hours.map((item) =>
+    `• ${labels[item.dayOfWeek] ?? `Día ${item.dayOfWeek}`}: ${item.startTime} a ${item.endTime}`
+  )
 }
 
 export function isHumanHandoffMessage(message: string) {
