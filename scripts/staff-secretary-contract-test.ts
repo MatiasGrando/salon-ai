@@ -109,7 +109,7 @@ for (const id of [
 assert.equal((ui.match(/<label data-staff-permission-scope="SECRETARY">/g) || []).length, 10, 'los permisos exclusivos de secretaría deben estar identificados')
 assert.ok(ui.includes("field.hidden = !isSecretary"), 'los permisos de secretaría deben ocultarse para profesionales')
 assert.ok(ui.includes("els.staffProfessionalField.hidden = isSecretary"), 'el profesional asignado debe ocultarse para secretaría')
-assert.ok(ui.includes("'Permisos de secretarÃ­a' : 'Permisos de agenda'"), 'el título debe explicar el conjunto visible')
+assert.ok(ui.includes("'Permisos de secretaría' : 'Permisos de agenda'"), 'el título debe explicar el conjunto visible')
 assert.ok(ui.includes("state.currentUser?.canViewConversations"), 'la UI no debe cargar conversaciones sin permiso')
 
 const guard = readFileSync(new URL('../src/plugins/auth-guard.ts', import.meta.url), 'utf8')

@@ -2442,7 +2442,7 @@ function canHumanizeSafely(reply: string) {
     /c[oó]mo te llam/i,
     /a nombre de qui[eé]n/i,
     /avis/i,
-    /avis[eÃ©]/i,
+    /avis[eé]/i,
     /avisado/i,
     /no hay problema/i,
     /cancel[eé] ese turno/i,
@@ -2461,8 +2461,7 @@ function preservesRequiredLines(originalReply: string, styledReply: string) {
     .filter((line) => {
       return line.startsWith('* ') ||
         line.startsWith('- ') ||
-        line.startsWith('• ') ||
-        line.startsWith('â€¢ ')
+        line.startsWith('• ')
     })
 
   return requiredLines.every((line) => styledReply.includes(line))

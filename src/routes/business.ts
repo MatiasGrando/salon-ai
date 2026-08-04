@@ -205,7 +205,7 @@ export async function businessRoutes(app: FastifyInstance) {
 
     if (body.landingGalleryImages !== undefined && landingGalleryImages === undefined) {
       return reply.status(400).send({
-        message: 'La galerÃ­a permite hasta 6 imÃ¡genes PNG, JPG, WEBP o GIF de hasta 3 MB'
+        message: 'La galería permite hasta 6 imágenes PNG, JPG, WEBP o GIF de hasta 3 MB'
       })
     }
 

@@ -1182,7 +1182,7 @@ async function main() {
     process.exit(1)
   }
 
-  console.log('\nTodas las pruebas de conversaciÃ³n pasaron.')
+  console.log('\nTodas las pruebas de conversación pasaron.')
 }
 
 async function runScenario(scenario: Scenario) {
@@ -1229,7 +1229,7 @@ async function assertConversationStep(phone: string, step: Step) {
   })
 
   if (conversation?.currentStep !== step.currentStep) {
-    throw new Error(`Esperaba currentStep ${step.currentStep}, recibÃƒÂ­ ${conversation?.currentStep ?? 'sin conversaciÃƒÂ³n'}.`)
+    throw new Error(`Esperaba currentStep ${step.currentStep}, recibí ${conversation?.currentStep ?? 'sin conversación'}.`)
   }
 }
 

@@ -12604,7 +12604,7 @@ const crmHtml = `<!doctype html>
             <label for="appointment-customer-search">Buscar cliente existente</label>
             <div class="appointment-customer-combobox">
               <input id="appointment-customer" type="hidden">
-              <input class="field" id="appointment-customer-search" autocomplete="off" placeholder="EscribÃ­ nombre o telÃ©fono" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="appointment-customer-results">
+              <input class="field" id="appointment-customer-search" autocomplete="off" placeholder="Escrib&iacute; nombre o tel&eacute;fono" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="appointment-customer-results">
               <div class="appointment-customer-results" id="appointment-customer-results" role="listbox" hidden></div>
             </div>
           </div>
@@ -12614,8 +12614,8 @@ const crmHtml = `<!doctype html>
               <input class="field" id="appointment-customer-name" placeholder="Nombre del cliente">
             </div>
             <div class="form-row">
-              <label for="appointment-customer-phone">Telefono</label>
-              <input class="field" id="appointment-customer-phone" placeholder="Telefono">
+              <label for="appointment-customer-phone">Tel&eacute;fono</label>
+              <input class="field" id="appointment-customer-phone" placeholder="Tel&eacute;fono">
             </div>
           </div>
           <div class="appointment-contact-actions" id="appointment-contact-actions" hidden>
@@ -15994,7 +15994,7 @@ const crmHtml = `<!doctype html>
     function renderStaffPresetDescription() {
       const preset = state.staffPresets.find((item) => item.id === els.staffUserPreset.value)
       els.staffPresetTitle.textContent = preset?.label || 'Permisos personalizados'
-      els.staffPresetDescription.textContent = preset?.description || 'ConfiguraciÃ³n adaptada a las reglas de este negocio. RevisÃ¡ cada permiso antes de guardar.'
+      els.staffPresetDescription.textContent = preset?.description || 'Configuración adaptada a las reglas de este negocio. Revisá cada permiso antes de guardar.'
     }
 
     function applyStaffPreset(presetId) {
@@ -16012,10 +16012,10 @@ const crmHtml = `<!doctype html>
       for (const field of els.staffUserForm.querySelectorAll('[data-staff-permission-scope="SECRETARY"]')) {
         field.hidden = !isSecretary
       }
-      els.staffPermissionsTitle.textContent = isSecretary ? 'Permisos de secretarÃ­a' : 'Permisos de agenda'
+      els.staffPermissionsTitle.textContent = isSecretary ? 'Permisos de secretaría' : 'Permisos de agenda'
       els.staffPermissionsHelp.textContent = isSecretary
-        ? 'SecretarÃ­a siempre ve la agenda completa. Profesionales y servicios son de solo lectura; ajustes, marketing masivo y cuentas quedan reservados al administrador.'
-        : 'El profesional solo accede a su propia agenda y no ve clientes, conversaciones, seÃ±as ni reportes.'
+        ? 'Secretaría siempre ve la agenda completa. Profesionales y servicios son de solo lectura; ajustes, marketing masivo y cuentas quedan reservados al administrador.'
+        : 'El profesional solo accede a su propia agenda y no ve clientes, conversaciones, señas ni reportes.'
     }
 
     function markStaffPermissionsCustom() {
@@ -16052,7 +16052,7 @@ const crmHtml = `<!doctype html>
       }
 
       els.staffUserList.innerHTML = state.staffUsers.map((user) => {
-        const professionalName = user.staffProfile === 'SECRETARY' ? 'Secretaria Â· agenda completa' : user.professional?.name || 'Sin profesional'
+        const professionalName = user.staffProfile === 'SECRETARY' ? 'Secretaria · agenda completa' : user.professional?.name || 'Sin profesional'
         const status = user.isActive === false ? 'Inactivo' : 'Activo'
         const permissions = staffPermissionLabels(user)
         return '<article class="staff-account-item">' +
@@ -16078,7 +16078,7 @@ const crmHtml = `<!doctype html>
       if (user.canManageScheduleBlocks !== false) labels.push('Bloquea agenda')
       if (user.canViewCustomers) labels.push('Clientes')
       if (user.canViewConversations) labels.push('Conversaciones')
-      if (user.canManageDeposits) labels.push('SeÃ±as')
+      if (user.canManageDeposits) labels.push('Señas')
       if (user.canViewOperationalReports) labels.push('Reportes')
       return labels.length ? labels : ['Solo consulta']
     }
@@ -17193,7 +17193,7 @@ const crmHtml = `<!doctype html>
           state.selectedCustomerId = created.id
           await loadCustomerOverview({ page: 1 })
           renderAppointmentFormOptions()
-          if (created.wasExisting) showCrmToast('Ese telÃ©fono ya pertenecÃ­a a ' + created.name + '. Reutilizamos su ficha existente.', 'success')
+          if (created.wasExisting) showCrmToast('Ese teléfono ya pertenecía a ' + created.name + '. Reutilizamos su ficha existente.', 'success')
         } else if (isNote) {
           await getJson('/customers/' + customer.id + '/notes', {
             method: 'POST',
@@ -17362,7 +17362,7 @@ const crmHtml = `<!doctype html>
         els.replyText.value = ''
         els.replyText.placeholder = lacksPermission ? 'Tu perfil es de solo lectura.' : 'Respuesta deshabilitada: pasaron mas de 24 hs.'
         els.composerWindowText.textContent = lacksPermission
-          ? 'PodÃ©s consultar esta conversaciÃ³n, pero tu perfil no permite responderla.'
+          ? 'Podés consultar esta conversación, pero tu perfil no permite responderla.'
           : 'Pasaron mas de 24 hs desde el ultimo mensaje del cliente. Espera que vuelva a escribir para responder desde el CRM.'
       } else {
         els.replyText.placeholder = 'Escribir mensaje...'
@@ -17946,9 +17946,9 @@ const crmHtml = `<!doctype html>
         return
       }
       const message = result.reason === 'duplicate'
-        ? 'Ese emoji ya estÃ¡ agregado.'
+        ? 'Ese emoji ya está agregado.'
         : result.reason === 'limit'
-          ? 'PodÃ©s elegir hasta 6 emojis preferidos.'
+          ? 'Podés elegir hasta 6 emojis preferidos.'
           : result.reason === 'length'
             ? 'Los emojis preferidos no pueden superar los 80 caracteres.'
             : 'No se pudo agregar ese emoji.'
@@ -18197,7 +18197,7 @@ const crmHtml = `<!doctype html>
 
     function renderRevenue(revenue) {
       if (!revenue) {
-        els.reportRevenueNote.innerHTML = '<div class="revenue-box"><strong>Importes protegidos</strong><p>Este perfil puede consultar la operaciÃ³n, pero no tiene acceso a informaciÃ³n financiera.</p></div>'
+        els.reportRevenueNote.innerHTML = '<div class="revenue-box"><strong>Importes protegidos</strong><p>Este perfil puede consultar la operación, pero no tiene acceso a información financiera.</p></div>'
         return
       }
       const missingNames = revenue.missingServices.map((service) => service.name).slice(0, 3).join(', ')
@@ -20764,7 +20764,7 @@ const crmHtml = `<!doctype html>
                 '<strong>' + escapeHtml(customer.name) + '</strong><span>' + escapeHtml(formatCustomerPhone(customer.phone)) + '</span>' +
               '</button>'
             }).join('')
-          : '<div class="appointment-customer-result-empty">No encontramos clientes con esa bÃºsqueda.</div>')
+          : '<div class="appointment-customer-result-empty">No encontramos clientes con esa b&uacute;squeda.</div>')
       els.appointmentCustomerResults.hidden = false
       els.appointmentCustomerSearch.setAttribute('aria-expanded', 'true')
     }
@@ -20773,7 +20773,7 @@ const crmHtml = `<!doctype html>
       if (!state.businessId) return
       if (query.length === 1) {
         state.appointmentCustomerResultsData = []
-        els.appointmentCustomerResults.innerHTML = '<div class="appointment-customer-result-empty">EscribÃ­ al menos 2 caracteres para buscar.</div>'
+        els.appointmentCustomerResults.innerHTML = '<div class="appointment-customer-result-empty">Escrib&iacute; al menos 2 caracteres para buscar.</div>'
         els.appointmentCustomerResults.hidden = false
         els.appointmentCustomerSearch.setAttribute('aria-expanded', 'true')
         return
@@ -22244,7 +22244,7 @@ const crmHtml = `<!doctype html>
             body: JSON.stringify({ name, phone, businessId: state.businessId })
           })
           if (customer.wasExisting) {
-            showCrmToast('Ese telÃ©fono ya pertenece a ' + customer.name + '. El turno se cargarÃ¡ en su ficha existente.', 'success')
+            showCrmToast('Ese teléfono ya pertenece a ' + customer.name + '. El turno se cargará en su ficha existente.', 'success')
           }
           customerId = customer.id
           state.customers = await getJson('/customers')

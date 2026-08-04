@@ -20,6 +20,7 @@
     "test:professional-schedule": "tsx scripts/professional-weekly-schedule-contract-test.ts",
     "test:manual-appointment-filter": "tsx scripts/manual-appointment-service-filter-contract-test.ts",
     "test:manual-appointment-customer-search": "tsx scripts/manual-appointment-customer-search-contract-test.ts",
+    "test:text-encoding": "tsx scripts/text-encoding-contract-test.ts",
     "test:appointment-payload": "tsx scripts/appointment-payload-contract-test.ts",
     "test:staff-secretary": "tsx scripts/staff-secretary-contract-test.ts",
     "test:customer-phone-identity": "tsx scripts/customer-phone-identity-contract-test.ts",

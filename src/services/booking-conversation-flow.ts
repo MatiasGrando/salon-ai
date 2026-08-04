@@ -3133,7 +3133,7 @@ function isConfirmAppointmentMessage(message: string) {
     'esta bien',
     'todo bien',
     'quedamos asi',
-    'quedamos asÃ­',
+    'quedamos así',
     'si esta bien',
     'si perfecto',
     'de una'
@@ -3497,7 +3497,7 @@ function parseCustomerIntro(message: string) {
 
 function parseMisaddressedBotGreeting(message: string) {
   const normalizedMessage = message.trim().replace(/\s+/g, ' ')
-  const match = normalizedMessage.match(/^(?:hola|holaa|buenas|buen dia|buenas tardes|buenas noches)\s+([a-zA-ZÃ¡Ã©Ã­Ã³ÃºÃÃ‰ÃÃ“ÃšÃ±Ã‘]+)\b(.*)$/i)
+  const match = normalizedMessage.match(/^(?:hola|holaa|buenas|buen dia|buenas tardes|buenas noches)\s+([a-zA-ZáéíóúÁÉÍÓÚñÑ]+)\b(.*)$/i)
 
   if (!match?.[1]) {
     return null
