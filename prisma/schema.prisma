@@ -102,6 +102,11 @@ enum BillingOwner {
   SALON_AI
 }
 
+enum ServiceCatalogDisplayMode {
+  ALL_SERVICES
+  CATEGORIES_FIRST
+}
+
 enum UserRole {
   SUPER_ADMIN
   BUSINESS_ADMIN
@@ -343,6 +348,7 @@ model BusinessFeatureSettings {
   remindersEnabled      Boolean      @default(false)
   realWhatsappEnabled   Boolean      @default(false)
   bookingV2Enabled      Boolean      @default(false)
+  serviceCatalogDisplayMode ServiceCatalogDisplayMode @default(ALL_SERVICES)
   conversationPauseAfterMinutes  Int @default(120)
   conversationExpireAfterMinutes Int @default(1440)
   assistantPersonality  Json?

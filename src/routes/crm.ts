@@ -14,6 +14,7 @@ import {
   assistantPersonalityPreview,
   normalizeAssistantPersonality
 } from '../services/assistant-personality-service.js'
+import { normalizeCatalogDisplayMode } from '../services/booking-v2-domain.js'
 import {
   conversationPatchFromState,
   stateFromConversation
@@ -335,6 +336,7 @@ export async function crmRoutes(app: FastifyInstance) {
           where: { businessId: business.id },
           select: {
             bookingV2Enabled: true,
+            serviceCatalogDisplayMode: true,
             conversationPauseAfterMinutes: true,
             conversationExpireAfterMinutes: true,
             assistantPersonality: true
@@ -351,6 +353,9 @@ export async function crmRoutes(app: FastifyInstance) {
       botEnabled: business?.botEnabled ?? true,
       aiEnabled: business?.aiEnabled ?? true,
       bookingV2Enabled: Boolean(featureSettings?.bookingV2Enabled),
+      serviceCatalogDisplayMode: normalizeCatalogDisplayMode(
+        featureSettings?.serviceCatalogDisplayMode
+      ),
       conversationPauseAfterMinutes: contextSettings.pauseAfterMinutes,
       conversationExpireAfterMinutes: contextSettings.expireAfterMinutes,
       assistantPersonality,
@@ -364,6 +369,7 @@ export async function crmRoutes(app: FastifyInstance) {
       botEnabled?: boolean
       aiEnabled?: boolean
       bookingV2Enabled?: boolean
+      serviceCatalogDisplayMode?: string
       conversationPauseAfterMinutes?: number
       conversationExpireAfterMinutes?: number
       assistantPersonality?: unknown
@@ -373,6 +379,7 @@ export async function crmRoutes(app: FastifyInstance) {
       typeof body.botEnabled !== 'boolean' &&
       typeof body.aiEnabled !== 'boolean' &&
       typeof body.bookingV2Enabled !== 'boolean' &&
+      body.serviceCatalogDisplayMode === undefined &&
       body.conversationPauseAfterMinutes === undefined &&
       body.conversationExpireAfterMinutes === undefined &&
       body.assistantPersonality === undefined
@@ -387,6 +394,15 @@ export async function crmRoutes(app: FastifyInstance) {
     if (!business) {
       return reply.status(404).send({
         message: 'No encontre un negocio cargado'
+      })
+    }
+
+    if (
+      body.serviceCatalogDisplayMode !== undefined &&
+      !['ALL_SERVICES', 'CATEGORIES_FIRST'].includes(body.serviceCatalogDisplayMode)
+    ) {
+      return reply.status(400).send({
+        message: 'Seleccioná una forma válida de mostrar el catálogo.'
       })
     }
 
@@ -425,6 +441,7 @@ export async function crmRoutes(app: FastifyInstance) {
 
     if (
       typeof body.bookingV2Enabled === 'boolean' ||
+      body.serviceCatalogDisplayMode !== undefined ||
       hasContextSettings ||
       body.assistantPersonality !== undefined
     ) {
@@ -438,6 +455,9 @@ export async function crmRoutes(app: FastifyInstance) {
           ...(typeof body.bookingV2Enabled === 'boolean'
             ? { bookingV2Enabled: body.bookingV2Enabled }
             : {}),
+          ...(body.serviceCatalogDisplayMode !== undefined
+            ? { serviceCatalogDisplayMode: body.serviceCatalogDisplayMode as 'ALL_SERVICES' | 'CATEGORIES_FIRST' }
+            : {}),
           ...(hasContextSettings ? {
             conversationPauseAfterMinutes: body.conversationPauseAfterMinutes!,
             conversationExpireAfterMinutes: body.conversationExpireAfterMinutes!
@@ -449,6 +469,9 @@ export async function crmRoutes(app: FastifyInstance) {
         update: {
           ...(typeof body.bookingV2Enabled === 'boolean'
             ? { bookingV2Enabled: body.bookingV2Enabled }
+            : {}),
+          ...(body.serviceCatalogDisplayMode !== undefined
+            ? { serviceCatalogDisplayMode: body.serviceCatalogDisplayMode as 'ALL_SERVICES' | 'CATEGORIES_FIRST' }
             : {}),
           ...(hasContextSettings ? {
             conversationPauseAfterMinutes: body.conversationPauseAfterMinutes!,
@@ -465,6 +488,7 @@ export async function crmRoutes(app: FastifyInstance) {
       where: { businessId: business.id },
       select: {
         bookingV2Enabled: true,
+        serviceCatalogDisplayMode: true,
         conversationPauseAfterMinutes: true,
         conversationExpireAfterMinutes: true,
         assistantPersonality: true
@@ -478,6 +502,9 @@ export async function crmRoutes(app: FastifyInstance) {
     return {
       ...updatedBusiness,
       bookingV2Enabled: Boolean(featureSettings?.bookingV2Enabled),
+      serviceCatalogDisplayMode: normalizeCatalogDisplayMode(
+        featureSettings?.serviceCatalogDisplayMode
+      ),
       conversationPauseAfterMinutes: contextSettings.pauseAfterMinutes,
       conversationExpireAfterMinutes: contextSettings.expireAfterMinutes,
       assistantPersonality,

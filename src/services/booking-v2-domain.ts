@@ -51,6 +51,7 @@ export type BookingV2ProfessionalOption = {
 }
 
 export type BookingV2DomainCatalog = {
+  displayMode: BookingV2CatalogDisplayMode
   services: BookingV2ServiceOption[]
   professionals: BookingV2ProfessionalOption[]
   serviceIds: ReadonlySet<string>
@@ -58,10 +59,18 @@ export type BookingV2DomainCatalog = {
   professionalServiceIds: ReadonlyMap<string, ReadonlySet<string>>
 }
 
+export type BookingV2CatalogDisplayMode = 'ALL_SERVICES' | 'CATEGORIES_FIRST'
+
 export type BookingV2AvailabilityOption = {
   time: string
   professionalId: string
   professionalName: string
+}
+
+export type BookingV2CategoryOption = {
+  key: string
+  name: string
+  serviceIds: string[]
 }
 
 export type BookingV2AvailabilityResult =
@@ -81,7 +90,12 @@ export class BookingV2DomainService {
   ) {}
 
   async loadCatalog(businessId: string): Promise<BookingV2DomainCatalog> {
-    const [services, professionals] = await Promise.all([
+    const settingsModel = (this.db as unknown as {
+      businessFeatureSettings?: {
+        findUnique(input: unknown): Promise<{ serviceCatalogDisplayMode?: string } | null>
+      }
+    }).businessFeatureSettings
+    const [services, professionals, featureSettings] = await Promise.all([
       this.db.service.findMany({
         where: {
           businessId,
@@ -109,10 +123,17 @@ export class BookingV2DomainService {
           }
         },
         orderBy: { name: 'asc' }
-      })
+      }),
+      settingsModel?.findUnique
+        ? settingsModel.findUnique({
+            where: { businessId },
+            select: { serviceCatalogDisplayMode: true }
+          })
+        : Promise.resolve(null)
     ])
 
     return createBookingV2DomainCatalog({
+      displayMode: normalizeCatalogDisplayMode(featureSettings?.serviceCatalogDisplayMode),
       services: services.map((service) => {
         const category = service.catalogCategory?.name ?? service.category
         return {
@@ -281,10 +302,12 @@ function readEstimateOptions(value: unknown): BookingV2EstimateOption[] {
 }
 
 export function createBookingV2DomainCatalog(input: {
+  displayMode?: BookingV2CatalogDisplayMode
   services: BookingV2ServiceOption[]
   professionals: BookingV2ProfessionalOption[]
 }): BookingV2DomainCatalog {
   return {
+    displayMode: input.displayMode ?? 'ALL_SERVICES',
     services: input.services,
     professionals: input.professionals,
     serviceIds: new Set(input.services.map((service) => service.id)),
@@ -296,4 +319,45 @@ export function createBookingV2DomainCatalog(input: {
       ])
     )
   }
+}
+
+export function normalizeCatalogDisplayMode(value: unknown): BookingV2CatalogDisplayMode {
+  return value === 'CATEGORIES_FIRST' ? 'CATEGORIES_FIRST' : 'ALL_SERVICES'
+}
+
+export function catalogCategoryOptions(
+  catalog: Pick<BookingV2DomainCatalog, 'services'>
+): BookingV2CategoryOption[] {
+  const categories = new Map<string, BookingV2CategoryOption>()
+  for (const service of catalog.services) {
+    const name = service.category?.trim() || 'Otros'
+    const key = service.categoryId
+      ? `id:${service.categoryId}`
+      : name === 'Otros'
+        ? 'uncategorized'
+        : `name:${normalizeCategoryKey(name)}`
+    const category = categories.get(key) ?? { key, name, serviceIds: [] }
+    category.serviceIds.push(service.id)
+    categories.set(key, category)
+  }
+  return Array.from(categories.values())
+}
+
+export function catalogServicesForCategory(
+  catalog: Pick<BookingV2DomainCatalog, 'services'>,
+  categoryKey: string
+) {
+  const category = catalogCategoryOptions(catalog).find((option) => option.key === categoryKey)
+  if (!category) return []
+  const serviceIds = new Set(category.serviceIds)
+  return catalog.services.filter((service) => serviceIds.has(service.id))
+}
+
+function normalizeCategoryKey(value: string) {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
 }

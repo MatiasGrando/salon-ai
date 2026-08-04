@@ -13915,6 +13915,21 @@ const crmHtml = `<!doctype html>
               <span class="automation-switch" aria-hidden="true"></span>
             </label>
           </div>
+          <form class="assistant-personality-form" id="service-catalog-settings-form">
+            <div class="assistant-personality-grid">
+              <div class="settings-field full">
+                <label for="service-catalog-display-mode">C&oacute;mo mostrar el cat&aacute;logo</label>
+                <select class="field" id="service-catalog-display-mode">
+                  <option value="ALL_SERVICES">Mostrar todos los servicios</option>
+                  <option value="CATEGORIES_FIRST">Mostrar primero las categor&iacute;as</option>
+                </select>
+                <small id="service-catalog-display-help">El cliente ver&aacute; el cat&aacute;logo completo, agrupado por categor&iacute;a cuando corresponda.</small>
+              </div>
+            </div>
+            <div class="settings-actions">
+              <button class="primary" id="service-catalog-settings-submit" type="submit">Guardar cat&aacute;logo</button>
+            </div>
+          </form>
           <form class="assistant-personality-form" id="conversation-context-form">
             <div class="assistant-personality-grid">
               <div class="settings-field">
@@ -14848,6 +14863,7 @@ const crmHtml = `<!doctype html>
         botEnabled: true,
         aiEnabled: true,
         bookingV2Enabled: false,
+        serviceCatalogDisplayMode: 'ALL_SERVICES',
         conversationPauseAfterMinutes: 120,
         conversationExpireAfterMinutes: 1440,
         assistantPersonality: {
@@ -14993,6 +15009,10 @@ const crmHtml = `<!doctype html>
       globalBotStatus: document.getElementById('global-bot-status'),
       globalAiStatus: document.getElementById('global-ai-status'),
       bookingV2Status: document.getElementById('booking-v2-status'),
+      serviceCatalogSettingsForm: document.getElementById('service-catalog-settings-form'),
+      serviceCatalogDisplayMode: document.getElementById('service-catalog-display-mode'),
+      serviceCatalogDisplayHelp: document.getElementById('service-catalog-display-help'),
+      serviceCatalogSettingsSubmit: document.getElementById('service-catalog-settings-submit'),
       automationSettingsFeedback: document.getElementById('automation-settings-feedback'),
       conversationContextForm: document.getElementById('conversation-context-form'),
       conversationPauseHours: document.getElementById('conversation-pause-hours'),
@@ -17980,9 +18000,44 @@ const crmHtml = `<!doctype html>
       els.globalAiStatus.className = state.aiSettings.aiEnabled === false ? 'basic' : ''
       els.bookingV2Status.textContent = state.aiSettings.bookingV2Enabled === true ? 'Booking V2' : 'Bot actual'
       els.bookingV2Status.className = state.aiSettings.bookingV2Enabled === true ? '' : 'basic'
+      els.serviceCatalogDisplayMode.value = state.aiSettings.serviceCatalogDisplayMode || 'ALL_SERVICES'
+      updateServiceCatalogDisplayHelp()
       els.conversationPauseHours.value = String((state.aiSettings.conversationPauseAfterMinutes || 120) / 60)
       els.conversationExpireHours.value = String((state.aiSettings.conversationExpireAfterMinutes || 1440) / 60)
       renderAssistantPersonality()
+    }
+
+    function updateServiceCatalogDisplayHelp() {
+      const categoriesFirst = els.serviceCatalogDisplayMode.value === 'CATEGORIES_FIRST'
+      els.serviceCatalogDisplayHelp.textContent = categoriesFirst
+        ? 'El cliente verá categorías y, después de elegir una, únicamente sus servicios. Si no hay categorías, se mostrará todo.'
+        : 'El cliente verá el catálogo completo, agrupado por categoría cuando corresponda.'
+    }
+
+    async function saveServiceCatalogSettings(event) {
+      event.preventDefault()
+      if (!state.businessId) {
+        showAutomationSettingsFeedback('Seleccioná un comercio antes de guardar.', 'error')
+        return
+      }
+      if (!setButtonLoading(els.serviceCatalogSettingsSubmit, true, 'Guardando...')) return
+      try {
+        state.aiSettings = await getJson('/crm/ai-settings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            businessId: state.businessId,
+            serviceCatalogDisplayMode: els.serviceCatalogDisplayMode.value
+          })
+        })
+        renderAiControls()
+        showAutomationSettingsFeedback('Forma de mostrar el catálogo guardada.', 'success')
+      } catch (error) {
+        renderAiControls()
+        showAutomationSettingsFeedback(error.message, 'error')
+      } finally {
+        setButtonLoading(els.serviceCatalogSettingsSubmit, false)
+      }
     }
 
     function renderAssistantPersonality() {
@@ -25602,6 +25657,8 @@ const crmHtml = `<!doctype html>
     els.globalBotToggle.addEventListener('change', toggleGlobalBot)
     els.globalAiToggle.addEventListener('change', toggleGlobalAi)
     els.bookingV2Toggle.addEventListener('change', toggleBookingV2)
+    els.serviceCatalogSettingsForm.addEventListener('submit', saveServiceCatalogSettings)
+    els.serviceCatalogDisplayMode.addEventListener('change', updateServiceCatalogDisplayHelp)
     els.conversationContextForm.addEventListener('submit', saveConversationContextSettings)
     els.assistantPersonalityForm.addEventListener('submit', saveAssistantPersonality)
     els.assistantPreset.addEventListener('change', applyAssistantPersonalityPreset)

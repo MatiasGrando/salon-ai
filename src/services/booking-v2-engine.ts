@@ -1,4 +1,8 @@
-import { BookingV2DomainService } from './booking-v2-domain.js'
+import {
+  BookingV2DomainService,
+  catalogCategoryOptions,
+  catalogServicesForCategory
+} from './booking-v2-domain.js'
 import type { BookingV2AvailabilityOption, BookingV2DomainCatalog } from './booking-v2-domain.js'
 import { BookingV2Extractor, type BookingV2Extraction } from './booking-v2-extractor.js'
 import { buildBookingV2MessagePlan, type BookingV2MessagePlan } from './booking-v2-dialogue.js'
@@ -25,6 +29,7 @@ import {
   acceptField,
   clearFieldAndDependents,
   confirmProposal,
+  createEmptyBookingV2State,
   nextMissingField,
   proposeField,
   recordLowConfidence,
@@ -397,6 +402,13 @@ export class BookingV2Engine {
 
     }
 
+    const catalogNavigationResult = await this.handleCatalogNavigation({
+      message: input.message,
+      state: initialState,
+      catalog
+    })
+    if (catalogNavigationResult) return catalogNavigationResult
+
     const deterministicName = resolveExpectedName(input.message, initialState, catalog)
     if (deterministicName) {
       const state = acceptField(initialState, 'name', deterministicName)
@@ -531,13 +543,17 @@ export class BookingV2Engine {
 
     if (!rawExtraction) {
       const expectedField = nextMissingField(stateForExtraction.draft)
-      if (shouldCountFailedProfessionalSelection(input.message, expectedField)) {
+      if (
+        shouldCountFailedProfessionalSelection(input.message, expectedField) ||
+        shouldCountFailedCatalogSelection(input.message, expectedField, catalog)
+      ) {
         const state = recordLowConfidence(stateForExtraction)
+        const affectedField = expectedField === 'confirmation' ? null : expectedField
         return this.fromInterpretation({
           state,
           nextField: expectedField,
           outcome: 'not_understood',
-          affectedField: expectedField
+          affectedField
         }, null, catalog)
       }
       return this.fromInterpretation({
@@ -560,13 +576,14 @@ export class BookingV2Engine {
       this.domain.toInterpreterCatalog(catalog)
     )
     const expectedField = nextMissingField(stateForExtraction.draft)
+    const affectedField = expectedField === 'confirmation' ? null : expectedField
     const effectiveInterpretation = interpretation.outcome === 'no_change' &&
       shouldCountFailedProfessionalSelection(input.message, expectedField)
       ? {
           state: recordLowConfidence(interpretation.state),
           nextField: expectedField,
           outcome: 'not_understood' as const,
-          affectedField: expectedField
+          affectedField
         }
       : interpretation
 
@@ -575,6 +592,210 @@ export class BookingV2Engine {
       extraction,
       catalog
     )
+  }
+
+  private async handleCatalogNavigation(input: {
+    message: string
+    state: BookingV2State
+    catalog: BookingV2DomainCatalog
+  }): Promise<BookingV2ProcessResult | null> {
+    if (
+      input.catalog.displayMode !== 'CATEGORIES_FIRST' ||
+      nextMissingField(input.state.draft) !== 'service'
+    ) {
+      return null
+    }
+    const categories = catalogCategoryOptions(input.catalog)
+    if (!categories.some((category) => category.name !== 'Otros')) return null
+
+    const directService = resolveCatalogServiceSelection(input.message, input.catalog)
+    if (directService?.kind === 'selected') return null
+
+    const pendingCategory = input.state.catalogNavigation?.pendingCategoryKey
+      ? categories.find((category) =>
+          category.key === input.state.catalogNavigation?.pendingCategoryKey
+        )
+      : null
+    if (pendingCategory) {
+      const confirmation = await this.choiceExtractor.extract({
+        message: input.message,
+        question: `¿Te referís a la categoría ${pendingCategory.name}?`,
+        choices: [
+          { id: 'confirm_category', meaning: 'Confirma que esa es la categoría que quiere.' },
+          { id: 'reject_category', meaning: 'No quiere esa categoría y prefiere volver a elegir.' }
+        ]
+      })
+      if (confirmation.confidence >= 0.65 && confirmation.choiceId === 'confirm_category') {
+        return this.openCatalogCategory(input.state, input.catalog, pendingCategory)
+      }
+      if (confirmation.confidence >= 0.65 && confirmation.choiceId === 'reject_category') {
+        const state: BookingV2State = {
+          ...input.state,
+          catalogNavigation: null,
+          misunderstandingCount: 0
+        }
+        return this.fromInterpretation({
+          state,
+          nextField: 'service',
+          outcome: 'no_change',
+          affectedField: 'service'
+        }, null, input.catalog)
+      }
+      return this.fromInterpretation({
+        state: input.state,
+        nextField: 'service',
+        outcome: 'no_change',
+        affectedField: 'service'
+      }, null, input.catalog)
+    }
+
+    const normalizedMessage = normalize(input.message)
+    if (isShowAllServicesMessage(normalizedMessage)) {
+      const state: BookingV2State = {
+        ...input.state,
+        catalogNavigation: {
+          view: 'ALL_SERVICES',
+          categoryKey: null,
+          categoryName: null,
+          pendingCategoryKey: null,
+          pendingCategoryName: null
+        },
+        misunderstandingCount: 0
+      }
+      return this.fromInterpretation({
+        state,
+        nextField: 'service',
+        outcome: 'no_change',
+        affectedField: 'service'
+      }, null, input.catalog)
+    }
+    if (isBackToCategoriesMessage(normalizedMessage)) {
+      const state: BookingV2State = {
+        ...input.state,
+        catalogNavigation: null,
+        misunderstandingCount: 0
+      }
+      return this.fromInterpretation({
+        state,
+        nextField: 'service',
+        outcome: 'no_change',
+        affectedField: 'service'
+      }, null, input.catalog)
+    }
+
+    const ambiguousCategory = directService?.kind === 'ambiguous'
+      ? categoryForServiceIds(categories, directService.serviceIds)
+      : null
+    if (ambiguousCategory) {
+      return this.openCatalogCategory(input.state, input.catalog, ambiguousCategory)
+    }
+
+    const exactCategory = categories.find((category) =>
+      selectionSignature(category.name) === selectionSignature(input.message)
+    )
+    if (exactCategory) {
+      return this.openCatalogCategory(input.state, input.catalog, exactCategory)
+    }
+
+    const categoryChoice = await this.choiceExtractor.extract({
+      message: input.message,
+      question: '¿Qué categoría de servicios quiere elegir el cliente?',
+      choices: [
+        ...categories.map((category) => ({
+          id: `category:${category.key}`,
+          meaning: `Quiere ver servicios de la categoría ${category.name}.`
+        })),
+        { id: 'show_all_services', meaning: 'Quiere ver el catálogo completo o todos los servicios.' },
+        { id: 'restart_booking', meaning: 'Quiere volver a empezar la reserva.' },
+        { id: 'human_handoff', meaning: 'Quiere hablar con una persona del equipo.' }
+      ]
+    })
+    if (categoryChoice.confidence >= 0.65 && categoryChoice.choiceId === 'show_all_services') {
+      const state: BookingV2State = {
+        ...input.state,
+        catalogNavigation: {
+          view: 'ALL_SERVICES',
+          categoryKey: null,
+          categoryName: null,
+          pendingCategoryKey: null,
+          pendingCategoryName: null
+        },
+        misunderstandingCount: 0
+      }
+      return this.fromInterpretation({
+        state,
+        nextField: 'service',
+        outcome: 'no_change',
+        affectedField: 'service'
+      }, null, input.catalog)
+    }
+    if (categoryChoice.confidence >= 0.65 && categoryChoice.choiceId === 'human_handoff') {
+      return this.guidedEstimateResult(input.state, {
+        type: 'handoff',
+        reason: 'service_selection_uncertain'
+      }, input.catalog, 'accepted')
+    }
+    if (categoryChoice.confidence >= 0.65 && categoryChoice.choiceId === 'restart_booking') {
+      const state = createCatalogRestartState(input.state.draft.name)
+      return this.fromInterpretation({
+        state,
+        nextField: nextMissingField(state.draft),
+        outcome: 'no_change',
+        affectedField: 'service'
+      }, null, input.catalog)
+    }
+
+    const selectedCategory = categoryChoice.choiceId?.startsWith('category:')
+      ? categories.find((category) => `category:${category.key}` === categoryChoice.choiceId)
+      : null
+    if (selectedCategory && categoryChoice.confidence >= 0.85) {
+      return this.openCatalogCategory(input.state, input.catalog, selectedCategory)
+    }
+    if (selectedCategory && categoryChoice.confidence >= 0.55) {
+      const state: BookingV2State = {
+        ...input.state,
+        catalogNavigation: {
+          view: 'CATEGORY',
+          categoryKey: null,
+          categoryName: null,
+          pendingCategoryKey: selectedCategory.key,
+          pendingCategoryName: selectedCategory.name
+        }
+      }
+      return this.fromInterpretation({
+        state,
+        nextField: 'service',
+        outcome: 'confirmation_required',
+        affectedField: 'service'
+      }, null, input.catalog)
+    }
+    return null
+  }
+
+  private openCatalogCategory(
+    initialState: BookingV2State,
+    catalog: BookingV2DomainCatalog,
+    category: { key: string; name: string }
+  ) {
+    const state: BookingV2State = {
+      ...initialState,
+      catalogNavigation: {
+        view: 'CATEGORY',
+        categoryKey: category.key,
+        categoryName: category.name,
+        pendingCategoryKey: null,
+        pendingCategoryName: null
+      },
+      misunderstandingCount: 0
+    }
+    return this.fromInterpretation({
+      state,
+      nextField: 'service',
+      outcome: 'no_change',
+      affectedField: 'service'
+    }, null, catalog, 'no_change', {
+      serviceSuggestions: catalogServicesForCategory(catalog, category.key)
+    })
   }
 
   async resume(input: Omit<BookingV2ProcessInput, 'message'>): Promise<BookingV2ProcessResult> {
@@ -883,6 +1104,7 @@ export class BookingV2Engine {
         plan,
         draft: effectiveInterpretation.state.draft,
         agenda: effectiveInterpretation.state.agenda,
+        catalogNavigation: effectiveInterpretation.state.catalogNavigation,
         catalog,
         availabilityOptions,
         unavailableDate,
@@ -909,6 +1131,7 @@ export class BookingV2Engine {
         plan,
         draft: reconciledState.draft,
         agenda: reconciledState.agenda,
+        catalogNavigation: reconciledState.catalogNavigation,
         catalog,
         availabilityOptions: []
       }),
@@ -1022,9 +1245,64 @@ function offeredCategoryServices(
   state: BookingV2State,
   catalog: BookingV2DomainCatalog | null
 ) {
-  if (!catalog || state.categoryAdvice?.stage !== 'offered') return undefined
+  if (!catalog) return undefined
+  if (state.catalogNavigation?.view === 'CATEGORY' && state.catalogNavigation.categoryKey) {
+    const services = catalogServicesForCategory(catalog, state.catalogNavigation.categoryKey)
+    return services.length ? services : undefined
+  }
+  if (state.categoryAdvice?.stage !== 'offered') return undefined
   const services = servicesForCategory(catalog, state.categoryAdvice.categoryName)
   return services.length ? services : undefined
+}
+
+function categoryForServiceIds(
+  categories: ReturnType<typeof catalogCategoryOptions>,
+  serviceIds: string[]
+) {
+  if (!serviceIds.length) return null
+  const requested = new Set(serviceIds)
+  const matches = categories.filter((category) =>
+    serviceIds.every((serviceId) => category.serviceIds.includes(serviceId)) &&
+    category.serviceIds.some((serviceId) => requested.has(serviceId))
+  )
+  return matches.length === 1 ? matches[0] ?? null : null
+}
+
+function isShowAllServicesMessage(normalizedMessage: string) {
+  return [
+    'ver todos',
+    'ver todos los servicios',
+    'mostrar todos',
+    'mostrar todos los servicios',
+    'todos los servicios',
+    'catalogo completo'
+  ].includes(normalizedMessage)
+}
+
+function isBackToCategoriesMessage(normalizedMessage: string) {
+  return [
+    'volver',
+    'volver a categorias',
+    'ver categorias',
+    'mostrar categorias',
+    'categorias'
+  ].includes(normalizedMessage)
+}
+
+function createCatalogRestartState(customerName: string | null) {
+  const state = createEmptyBookingV2State()
+  return customerName ? acceptField(state, 'name', customerName) : state
+}
+
+function shouldCountFailedCatalogSelection(
+  message: string,
+  expectedField: BookingField | 'confirmation',
+  catalog: BookingV2DomainCatalog
+) {
+  if (expectedField !== 'service' || catalog.displayMode !== 'CATEGORIES_FIRST') return false
+  const normalizedMessage = normalize(message)
+  if (!normalizedMessage) return false
+  return !['hola', 'buenas', 'buen dia', 'buenas tardes', 'buenas noches'].includes(normalizedMessage)
 }
 
 function normalize(value: string) {

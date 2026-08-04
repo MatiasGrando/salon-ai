@@ -6,6 +6,7 @@ import {
   type BookingV2ContextPause,
   type BookingV2AgendaItem,
   type BookingV2CategoryAdvice,
+  type BookingV2CatalogNavigation,
   type BookingV2GuidedEstimate,
   type BookingV2PendingRequest,
   type BookingV2ServiceValidation,
@@ -41,6 +42,7 @@ export type BookingV2PersistedState = {
   pendingRequest?: BookingV2PendingRequest | null
   agenda?: BookingV2AgendaItem[]
   categoryAdvice?: BookingV2CategoryAdvice | null
+  catalogNavigation?: BookingV2CatalogNavigation | null
   serviceValidation?: BookingV2ServiceValidation | null
   guidedEstimate?: BookingV2GuidedEstimate | null
   advisorQuote?: BookingV2AdvisorQuote | null
@@ -66,6 +68,7 @@ export function stateFromConversation(
     pendingRequest: readPendingRequest(conversation.bookingV2State),
     agenda: readAgenda(conversation.bookingV2State),
     categoryAdvice: readCategoryAdvice(conversation.bookingV2State),
+    catalogNavigation: readCatalogNavigation(conversation.bookingV2State),
     serviceValidation: readServiceValidation(conversation.bookingV2State),
     guidedEstimate: readGuidedEstimate(conversation.bookingV2State),
     advisorQuote: readAdvisorQuote(conversation.bookingV2State),
@@ -84,13 +87,14 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
     selectedDate: state.draft.date,
     selectedTime: state.draft.time,
     misunderstandingCount: state.misunderstandingCount,
-    bookingV2State: state.pendingProposal || state.pendingRequest || state.agenda.length || state.categoryAdvice || state.serviceValidation || state.guidedEstimate || state.advisorQuote || state.pendingDeposit || state.contextPause || state.unsupportedServiceRequest
+    bookingV2State: state.pendingProposal || state.pendingRequest || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.advisorQuote || state.pendingDeposit || state.contextPause || state.unsupportedServiceRequest
       ? {
           version: 1,
           pendingProposal: state.pendingProposal,
           ...(state.pendingRequest ? { pendingRequest: state.pendingRequest } : {}),
           ...(state.agenda.length ? { agenda: state.agenda } : {}),
           ...(state.categoryAdvice ? { categoryAdvice: state.categoryAdvice } : {}),
+          ...(state.catalogNavigation ? { catalogNavigation: state.catalogNavigation } : {}),
           ...(state.serviceValidation ? { serviceValidation: state.serviceValidation } : {}),
           ...(state.guidedEstimate ? { guidedEstimate: state.guidedEstimate } : {}),
           ...(state.advisorQuote ? { advisorQuote: state.advisorQuote } : {}),
@@ -204,6 +208,31 @@ function readCategoryAdvice(value: unknown): BookingV2CategoryAdvice | null {
   return {
     categoryName: candidate.categoryName.trim(),
     stage: candidate.stage as BookingV2CategoryAdvice['stage']
+  }
+}
+
+function readCatalogNavigation(value: unknown): BookingV2CatalogNavigation | null {
+  if (!value || typeof value !== 'object') return null
+  const persisted = value as { version?: unknown; catalogNavigation?: unknown }
+  if (
+    persisted.version !== 1 ||
+    !persisted.catalogNavigation ||
+    typeof persisted.catalogNavigation !== 'object'
+  ) {
+    return null
+  }
+  const candidate = persisted.catalogNavigation as Partial<BookingV2CatalogNavigation>
+  if (candidate.view !== 'CATEGORY' && candidate.view !== 'ALL_SERVICES') return null
+  if (candidate.categoryKey !== null && typeof candidate.categoryKey !== 'string') return null
+  if (candidate.categoryName !== null && typeof candidate.categoryName !== 'string') return null
+  if (candidate.pendingCategoryKey !== null && typeof candidate.pendingCategoryKey !== 'string') return null
+  if (candidate.pendingCategoryName !== null && typeof candidate.pendingCategoryName !== 'string') return null
+  return {
+    view: candidate.view,
+    categoryKey: candidate.categoryKey?.trim() || null,
+    categoryName: candidate.categoryName?.trim() || null,
+    pendingCategoryKey: candidate.pendingCategoryKey?.trim() || null,
+    pendingCategoryName: candidate.pendingCategoryName?.trim() || null
   }
 }
 

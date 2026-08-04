@@ -335,6 +335,54 @@ export class ConversationService {
       }
     }
 
+    const catalogRecoveryAction = catalogRecoveryActionFromInteractiveReply(
+      input.interactiveReplyId,
+      conversation.id
+    )
+    if (catalogRecoveryAction === 'handoff') {
+      await this.updateConversation(input.phone, businessId, {
+        currentStep: 'HUMAN_HANDOFF',
+        aiEnabled: false,
+        misunderstandingCount: 0,
+        humanHandoffAt: new Date(),
+        humanHandoffResolvedAt: null
+      })
+      return {
+        reply: botCopyService.humanHandoffQueued(),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+    if (catalogRecoveryAction && bookingV2Enabled && businessId) {
+      const currentState = stateFromConversation(conversation)
+      const nextState = catalogRecoveryAction === 'restart'
+        ? freshBookingV2State(currentState.draft.name)
+        : {
+            ...currentState,
+            catalogNavigation: {
+              view: 'ALL_SERVICES' as const,
+              categoryKey: null,
+              categoryName: null,
+              pendingCategoryKey: null,
+              pendingCategoryName: null
+            },
+            misunderstandingCount: 0
+          }
+      const resumed = await bookingV2Engine.resume({
+        businessId,
+        conversation: conversationPatchFromState(nextState)
+      })
+      await this.updateConversation(input.phone, businessId, {
+        currentStep: conversationStepFromBookingV2Plan(resumed.plan),
+        ...resumed.conversationPatch
+      })
+      return {
+        reply: resumed.reply,
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+
     // El reinicio total es una orden de sistema y debe resolverse antes del
     // router semantico. De otro modo puede interpretarse como restart_booking,
     // conservar el nombre y abrir inmediatamente otra reserva.
@@ -1456,6 +1504,15 @@ export class ConversationService {
     field: string | null
     serviceId: string | null
   }) {
+    if (input.field === 'service') {
+      const featureSettings = await prisma.businessFeatureSettings.findUnique({
+        where: { businessId: input.businessId },
+        select: { serviceCatalogDisplayMode: true }
+      }).catch(() => null)
+      if (featureSettings?.serviceCatalogDisplayMode === 'CATEGORIES_FIRST') {
+        return catalogRecoveryDecisionButtons(input.conversationId)
+      }
+    }
     if (input.field !== 'professional') {
       return recoveryDecisionButtons(input.conversationId)
     }
@@ -2749,6 +2806,24 @@ export function recoveryDecisionButtons(conversationId: string) {
     { id: `recovery_other:${conversationId}`, title: 'Otra consulta' },
     { id: `recovery_handoff:${conversationId}`, title: 'Hablar con equipo' }
   ]
+}
+
+export function catalogRecoveryDecisionButtons(conversationId: string) {
+  return [
+    { id: `catalog_show_all:${conversationId}`, title: 'Ver todos' },
+    { id: `catalog_handoff:${conversationId}`, title: 'Hablar con equipo' },
+    { id: `catalog_restart:${conversationId}`, title: 'Volver a empezar' }
+  ]
+}
+
+export function catalogRecoveryActionFromInteractiveReply(
+  replyId: string | undefined,
+  conversationId: string
+) {
+  if (replyId === `catalog_show_all:${conversationId}`) return 'show_all' as const
+  if (replyId === `catalog_handoff:${conversationId}`) return 'handoff' as const
+  if (replyId === `catalog_restart:${conversationId}`) return 'restart' as const
+  return null
 }
 
 export function unsupportedServiceDecisionButtons(conversationId: string) {

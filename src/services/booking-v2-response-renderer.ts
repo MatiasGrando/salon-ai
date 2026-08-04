@@ -1,4 +1,5 @@
 import type { BookingV2DomainCatalog } from './booking-v2-domain.js'
+import { catalogCategoryOptions } from './booking-v2-domain.js'
 import type { BookingV2AvailabilityOption } from './booking-v2-domain.js'
 import type { BookingV2MessagePlan } from './booking-v2-dialogue.js'
 import { formatCustomerDuration } from './service-duration.js'
@@ -6,7 +7,8 @@ import {
   ANY_PROFESSIONAL_ID,
   type BookingDraft,
   type BookingField,
-  type BookingV2AgendaItem
+  type BookingV2AgendaItem,
+  type BookingV2CatalogNavigation
 } from './booking-v2-state.js'
 
 export type BookingV2RenderInput = {
@@ -17,6 +19,7 @@ export type BookingV2RenderInput = {
   unavailableDate?: string | null
   serviceSuggestions?: BookingV2DomainCatalog['services']
   agenda?: BookingV2AgendaItem[]
+  catalogNavigation?: BookingV2CatalogNavigation | null
 }
 
 export function renderBookingV2Response(input: BookingV2RenderInput): string {
@@ -172,9 +175,17 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
       input.plan.field,
       input.draft,
       input.catalog,
-      input.serviceSuggestions
+      input.serviceSuggestions,
+      input.catalogNavigation,
+      input.plan.misunderstandingCount
     )
     if (input.plan.reason === 'not_understood') {
+      if (
+        input.plan.field === 'service' &&
+        input.catalog?.displayMode === 'CATEGORIES_FIRST'
+      ) {
+        return question
+      }
       return `Disculpame, no te entendí bien. ${question}`
     }
     return question
@@ -283,10 +294,14 @@ function questionForField(
   field: BookingField,
   draft: BookingDraft,
   catalog?: BookingV2DomainCatalog | null,
-  serviceSuggestions?: BookingV2DomainCatalog['services']
+  serviceSuggestions?: BookingV2DomainCatalog['services'],
+  catalogNavigation?: BookingV2CatalogNavigation | null,
+  misunderstandingCount = 0
 ) {
   if (field === 'name') return '¿Me decís tu nombre?'
-  if (field === 'service') return serviceQuestion(catalog, serviceSuggestions)
+  if (field === 'service') {
+    return serviceQuestion(catalog, serviceSuggestions, catalogNavigation, misunderstandingCount)
+  }
   if (field === 'professional') return professionalQuestion(draft.service, catalog)
   if (field === 'date') return 'Perfecto 😊 ¿Qué día te gustaría venir? Puede ser hoy, mañana o una fecha específica.'
   return '¿Qué horario preferís?'
@@ -294,9 +309,42 @@ function questionForField(
 
 function serviceQuestion(
   catalog?: BookingV2DomainCatalog | null,
-  serviceSuggestions?: BookingV2DomainCatalog['services']
+  serviceSuggestions?: BookingV2DomainCatalog['services'],
+  catalogNavigation?: BookingV2CatalogNavigation | null,
+  misunderstandingCount = 0
 ) {
   if (!catalog?.services.length) return '¿Qué servicio querés reservar?'
+  const categories = catalogCategoryOptions(catalog)
+  const categoriesFirst = catalog.displayMode === 'CATEGORIES_FIRST' && categories.some((category) =>
+    category.name !== 'Otros'
+  )
+
+  if (categoriesFirst && catalogNavigation?.pendingCategoryName) {
+    return `¿Te referís a la categoría ${catalogNavigation.pendingCategoryName}?`
+  }
+  if (categoriesFirst && misunderstandingCount >= 2) {
+    return [
+      'No estoy pudiendo identificar qué opción necesitás.',
+      '• Ver todos los servicios',
+      '• Hablar con el equipo',
+      '• Volver a empezar'
+    ].join('\n')
+  }
+
+  if (
+    categoriesFirst &&
+    !serviceSuggestions?.length &&
+    catalogNavigation?.view !== 'ALL_SERVICES'
+  ) {
+    return [
+      misunderstandingCount === 1
+        ? 'No estoy segura de qué categoría buscás. ¿Cuál de estas opciones se acerca más?'
+        : '¿Qué tipo de servicio buscás? 😊',
+      ...categories.map((category) => `• ${category.name}`),
+      '• Ver todos los servicios',
+      '¿Cuál te interesa?'
+    ].join('\n')
+  }
   const services = serviceSuggestions?.length ? serviceSuggestions : catalog.services
   const suggestionCategory = serviceSuggestions?.length
     ? sharedCategory(services)

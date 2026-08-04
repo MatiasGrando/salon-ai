@@ -39,6 +39,14 @@ export type BookingV2CategoryAdvice = {
   stage: 'offered' | 'awaiting_confirmation' | 'requested'
 }
 
+export type BookingV2CatalogNavigation = {
+  view: 'CATEGORY' | 'ALL_SERVICES'
+  categoryKey: string | null
+  categoryName: string | null
+  pendingCategoryKey: string | null
+  pendingCategoryName: string | null
+}
+
 export type BookingV2PendingRequest = {
   message: string
   intents: string[]
@@ -94,6 +102,7 @@ export type BookingV2State = {
   pendingRequest: BookingV2PendingRequest | null
   agenda: BookingV2AgendaItem[]
   categoryAdvice: BookingV2CategoryAdvice | null
+  catalogNavigation: BookingV2CatalogNavigation | null
   serviceValidation: BookingV2ServiceValidation | null
   guidedEstimate: BookingV2GuidedEstimate | null
   advisorQuote: BookingV2AdvisorQuote | null
@@ -126,6 +135,7 @@ export function createEmptyBookingV2State(): BookingV2State {
     pendingRequest: null,
     agenda: [],
     categoryAdvice: null,
+    catalogNavigation: null,
     serviceValidation: null,
     guidedEstimate: null,
     advisorQuote: null,
@@ -171,6 +181,7 @@ export function acceptField(
     draft,
     pendingProposal: null,
     categoryAdvice: field === 'service' ? null : state.categoryAdvice,
+    catalogNavigation: field === 'service' ? null : state.catalogNavigation,
     serviceValidation: field === 'service' && state.draft[field] !== value
       ? null
       : state.serviceValidation,
@@ -227,6 +238,7 @@ export function confirmProposal(state: BookingV2State): BookingV2State {
       draft: clearFieldAndDependents(state.draft, proposal.field),
       pendingProposal: null,
       categoryAdvice: proposal.field === 'service' ? null : state.categoryAdvice,
+      catalogNavigation: proposal.field === 'service' ? null : state.catalogNavigation,
       serviceValidation: proposal.field === 'service' ? null : state.serviceValidation,
       guidedEstimate: proposal.field === 'service' ? null : state.guidedEstimate,
       advisorQuote: proposal.field === 'service' ? null : state.advisorQuote,
