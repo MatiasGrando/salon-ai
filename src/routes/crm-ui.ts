@@ -11978,6 +11978,78 @@ const crmHtml = `<!doctype html>
     .agenda-gcal-day-head span { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; font-size: 18px; }
     .agenda-gcal-day-head.today span { color: #fff; background: #2563eb; }
 
+    .agenda-gcal-professional-frame .agenda-gcal-days-viewport,
+    .agenda-gcal-professional-frame .agenda-gcal-columns-viewport {
+      overflow-x: auto;
+      overscroll-behavior-x: contain;
+      touch-action: pan-x pan-y;
+      scrollbar-color: #94a3b8 #eef2f7;
+      scrollbar-width: thin;
+    }
+
+    .agenda-gcal-professional-frame .agenda-gcal-days-track,
+    .agenda-gcal-professional-frame .agenda-gcal-columns-track {
+      transform: none;
+      will-change: auto;
+    }
+
+    .agenda-gcal-professional-frame .agenda-gcal-days-viewport::-webkit-scrollbar,
+    .agenda-gcal-professional-frame .agenda-gcal-columns-viewport::-webkit-scrollbar {
+      height: 10px;
+    }
+
+    .agenda-gcal-professional-frame .agenda-gcal-days-viewport::-webkit-scrollbar-thumb,
+    .agenda-gcal-professional-frame .agenda-gcal-columns-viewport::-webkit-scrollbar-thumb {
+      border: 2px solid #eef2f7;
+      border-radius: 999px;
+      background: #94a3b8;
+    }
+
+    .agenda-gcal-professional-date {
+      display: grid;
+      place-items: center;
+      align-content: center;
+      gap: 2px;
+      border-right: 1px solid #dbe4f0;
+      color: #0f172a;
+      text-align: center;
+    }
+
+    .agenda-gcal-professional-date strong {
+      color: #64748b;
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+
+    .agenda-gcal-professional-date span {
+      font-size: 20px;
+      font-weight: 800;
+    }
+
+    .agenda-gcal-professional-head {
+      grid-template-columns: auto minmax(0, 1fr);
+      justify-items: start;
+      align-content: center;
+      column-gap: 8px;
+      padding: 0 14px;
+      border-left: 1px solid #dbe4f0;
+      text-align: left;
+    }
+
+    .agenda-gcal-professional-head .agenda-dot {
+      width: 10px;
+      height: 10px;
+    }
+
+    .agenda-gcal-professional-head strong {
+      overflow: hidden;
+      color: #0f172a;
+      font-size: 13px;
+      text-overflow: ellipsis;
+      text-transform: none;
+      white-space: nowrap;
+    }
+
     .agenda-gcal-scroll {
       min-height: 0;
       overflow-y: auto;
@@ -12134,6 +12206,7 @@ const crmHtml = `<!doctype html>
     }
 
     .agenda-gcal-now-line::before { content:""; position:absolute; left:-6px; top:-4px; width:9px; height:9px; border-radius:50%; background:#ef4444; }
+    .agenda-gcal-professional-now-line { left: 0; width: 100%; }
     .agenda-gcal-fab { display: none; }
     .agenda-gcal-today { display: none; }
     .agenda-block-popover .agenda-block-panel-head .icon-button { width: 34px; min-width: 34px; height: 34px; padding: 0; }
@@ -21193,6 +21266,8 @@ const crmHtml = `<!doctype html>
     function renderAgendaMobileThreeDay() {
       const hourHeight = 88
       const viewDays = [1, 3, 7].includes(Number(state.agendaViewDays)) ? Number(state.agendaViewDays) : 3
+      const professionalDayView = viewDays === 1 && !els.agendaProfessional.value
+      const columnProfessionals = professionalDayView ? activeProfessionals() : []
       const startDate = startOfDay(state.agendaSelectedDate)
       const monthPanel = state.agendaMobileMonthOpen ? renderAgendaMobileMonthPanel() : ''
       const filtersPanel = state.agendaMobileFiltersOpen ? renderAgendaMobileFilterPanel() : ''
@@ -21203,13 +21278,19 @@ const crmHtml = `<!doctype html>
       const visibleToday = currentDays.some((day) => dateKey(day) === dateKey(today))
       const bufferBefore = 7
       const bufferAfter = 21
-      const renderedDays = Array.from({ length: bufferBefore + viewDays + bufferAfter }, (_, index) => addDays(startDate, index - bufferBefore))
+      const renderedDays = professionalDayView
+        ? currentDays
+        : Array.from({ length: bufferBefore + viewDays + bufferAfter }, (_, index) => addDays(startDate, index - bufferBefore))
       const hourLabels = Array.from({ length: 24 }, (_, hour) => {
         return '<span class="agenda-gcal-hour-label" style="top:' + (hour * hourHeight) + 'px">' + String(hour).padStart(2, '0') + ':00</span>'
       }).join('')
-      const dayHeaders = renderedDays.map((day) => renderAgendaMobileDayHeader(day)).join('')
-      const dayColumns = renderedDays.map((day) => renderAgendaMobileDayColumn(day, hourHeight)).join('')
-      const todayIndex = renderedDays.findIndex((day) => dateKey(day) === dateKey(today))
+      const dayHeaders = professionalDayView
+        ? columnProfessionals.map((professional, index) => renderAgendaProfessionalDayHeader(professional, index)).join('')
+        : renderedDays.map((day) => renderAgendaMobileDayHeader(day)).join('')
+      const dayColumns = professionalDayView
+        ? columnProfessionals.map((professional) => renderAgendaProfessionalDayColumn(startDate, professional, hourHeight)).join('')
+        : renderedDays.map((day) => renderAgendaMobileDayColumn(day, hourHeight)).join('')
+      const todayIndex = professionalDayView ? -1 : renderedDays.findIndex((day) => dateKey(day) === dateKey(today))
       const nowTop = ((today.getHours() * 60 + today.getMinutes()) / 60) * hourHeight
 
       els.agendaRange.textContent = formatAgendaRange(currentDays[0], currentDays[currentDays.length - 1])
@@ -21235,9 +21316,9 @@ const crmHtml = `<!doctype html>
           '</header>' +
           monthPanel +
           filtersPanel +
-          '<div class="agenda-gcal-frame" data-agenda-mobile-frame data-agenda-base-index="' + bufferBefore + '" data-agenda-day-count="' + renderedDays.length + '" data-agenda-view-days="' + viewDays + '" style="--agenda-hour-height:' + hourHeight + 'px;--agenda-slot-height:' + (hourHeight / 2) + 'px">' +
+          '<div class="agenda-gcal-frame' + (professionalDayView ? ' agenda-gcal-professional-frame' : '') + '" data-agenda-mobile-frame data-agenda-base-index="' + (professionalDayView ? 0 : bufferBefore) + '" data-agenda-day-count="' + (professionalDayView ? columnProfessionals.length : renderedDays.length) + '" data-agenda-view-days="' + viewDays + '"' + (professionalDayView ? ' data-agenda-professional-columns="true"' : '') + ' style="--agenda-hour-height:' + hourHeight + 'px;--agenda-slot-height:' + (hourHeight / 2) + 'px;--agenda-professional-count:' + Math.max(1, columnProfessionals.length) + '">' +
             '<div class="agenda-gcal-days-head">' +
-              '<div></div>' +
+              (professionalDayView ? renderAgendaProfessionalDateCorner(startDate) : '<div></div>') +
               '<div class="agenda-gcal-days-viewport" data-agenda-mobile-gesture>' +
                 '<div class="agenda-gcal-days-track" data-agenda-mobile-track>' + dayHeaders + '</div>' +
               '</div>' +
@@ -21259,6 +21340,43 @@ const crmHtml = `<!doctype html>
 
       bindAgendaMobileControls()
       scrollAgendaMobileToWorkingTime(hourHeight)
+    }
+
+    function renderAgendaProfessionalDateCorner(day) {
+      const weekday = new Intl.DateTimeFormat('es-AR', { weekday: 'short' }).format(day)
+      return '<div class="agenda-gcal-professional-date"><strong>' + escapeHtml(weekday) + '</strong><span>' + day.getDate() + '</span></div>'
+    }
+
+    function renderAgendaProfessionalDayHeader(professional, index) {
+      const color = agendaProfessionalColor(professional.id, index)
+      return '<button class="agenda-gcal-day-head agenda-gcal-professional-head" type="button" data-agenda-professional-column="' + professional.id + '" title="Ver solo la agenda de ' + escapeHtml(professional.name) + '">' +
+        '<span class="agenda-dot" style="--agenda-color:' + color + '"></span>' +
+        '<strong>' + escapeHtml(professional.name) + '</strong>' +
+      '</button>'
+    }
+
+    function renderAgendaProfessionalDayColumn(day, professional, hourHeight) {
+      const key = dateKey(day)
+      const cells = Array.from({ length: 48 }, (_, slot) => {
+        const minute = slot * 30
+        const closed = isClosedAgendaSlotForProfessional(day, minute, professional.id)
+        return '<div class="agenda-gcal-hour-cell' + (closed ? ' closed' : '') + '" data-cell-date="' + key + '" data-cell-minute="' + minute + '" data-cell-professional-id="' + professional.id + '"></div>'
+      }).join('')
+      const appointments = filteredAgendaAppointmentsForRange(day, addDays(day, 1))
+        .filter((appointment) => appointment.professionalId === professional.id)
+      const eventLayout = buildAgendaEventLayout(appointments)
+      const events = appointments
+        .map((appointment) => renderAgendaMobileEvent(appointment, hourHeight, eventLayout.get(appointment.id)))
+        .join('')
+      const blocks = filteredAgendaBlocksForRange(day, addDays(day, 1))
+        .filter((block) => !block.professionalId || block.professionalId === professional.id)
+        .map((block) => renderAgendaMobileBlock(block, hourHeight))
+        .join('')
+      const now = new Date()
+      const nowLine = dateKey(day) === dateKey(now)
+        ? '<div class="agenda-gcal-now-line agenda-gcal-professional-now-line" style="top:' + (((now.getHours() * 60 + now.getMinutes()) / 60) * hourHeight) + 'px"></div>'
+        : ''
+      return '<div class="agenda-gcal-day-column agenda-gcal-professional-column" data-gcal-day="' + key + '" data-gcal-professional="' + professional.id + '">' + cells + events + blocks + nowLine + '</div>'
     }
 
     function renderAgendaMobileDayHeader(day) {
@@ -21457,7 +21575,8 @@ const crmHtml = `<!doctype html>
           }
           openAppointmentDialog({
             date: parseDateKey(cell.dataset.cellDate),
-            minute: Number(cell.dataset.cellMinute || 9 * 60)
+            minute: Number(cell.dataset.cellMinute || 9 * 60),
+            professionalId: cell.dataset.cellProfessionalId || undefined
           })
         })
       }
@@ -21512,6 +21631,35 @@ const crmHtml = `<!doctype html>
         const dayCount = Number(frame.dataset.agendaDayCount || 0)
         const viewDays = Number(frame.dataset.agendaViewDays || 3)
         const columnsViewport = frame.querySelector('.agenda-gcal-columns-viewport')
+        const daysViewport = frame.querySelector('.agenda-gcal-days-viewport')
+        if (frame.dataset.agendaProfessionalColumns === 'true') {
+          const syncProfessionalColumnWidths = () => {
+            const viewportWidth = columnsViewport?.clientWidth || frame.clientWidth || 1
+            const minimumWidth = window.matchMedia('(max-width: 760px)').matches ? 240 : 260
+            const columnWidth = Math.max(minimumWidth, viewportWidth / Math.max(1, dayCount))
+            frame.style.setProperty('--agenda-day-width', columnWidth + 'px')
+          }
+          let syncingProfessionalScroll = false
+          const syncHorizontalScroll = (source, target) => {
+            if (!source || !target || syncingProfessionalScroll) return
+            syncingProfessionalScroll = true
+            target.scrollLeft = source.scrollLeft
+            requestAnimationFrame(() => {
+              syncingProfessionalScroll = false
+            })
+          }
+          daysViewport?.addEventListener('scroll', () => syncHorizontalScroll(daysViewport, columnsViewport), { passive: true })
+          columnsViewport?.addEventListener('scroll', () => syncHorizontalScroll(columnsViewport, daysViewport), { passive: true })
+          for (const button of frame.querySelectorAll('[data-agenda-professional-column]')) {
+            button.addEventListener('click', async () => {
+              els.agendaProfessional.value = button.dataset.agendaProfessionalColumn || ''
+              renderAgendaProfessionalControls()
+              await loadAgenda()
+            })
+          }
+          requestAnimationFrame(syncProfessionalColumnWidths)
+          return
+        }
         const applyTransform = (value) => {
           state.agendaMobileCurrentTranslate = value
           frame.style.setProperty('--agenda-mobile-x', value + 'px')
@@ -21952,10 +22100,16 @@ const crmHtml = `<!doctype html>
         return
       }
 
-      const closed = cell.classList.contains('closed')
-      cell.classList.toggle('drag-invalid', closed)
-      cell.classList.toggle('drag-target', !closed)
-      if (closed) {
+      const appointment = state.agendaAppointments.find((item) => item.id === drag.appointmentId)
+      const differentProfessional = Boolean(
+        cell.dataset.cellProfessionalId &&
+        appointment?.professionalId &&
+        cell.dataset.cellProfessionalId !== appointment.professionalId
+      )
+      const invalidTarget = cell.classList.contains('closed') || differentProfessional
+      cell.classList.toggle('drag-invalid', invalidTarget)
+      cell.classList.toggle('drag-target', !invalidTarget)
+      if (invalidTarget) {
         drag.targetCell = null
         clearAgendaDropPreview()
         return
@@ -22205,12 +22359,19 @@ const crmHtml = `<!doctype html>
         return false
       }
 
-      return !professionals.some((professional) => {
-        return (professional.workingHours || []).some((hour) => {
-          return hour.dayOfWeek === day.getDay() &&
-            minute >= timeToMinutes(hour.startTime) &&
-            minute < timeToMinutes(hour.endTime)
-        })
+      return !professionals.some((professional) => professionalWorksAt(professional, day, minute))
+    }
+
+    function isClosedAgendaSlotForProfessional(day, minute, professionalId) {
+      const professional = state.professionals.find((item) => item.id === professionalId)
+      return professional ? !professionalWorksAt(professional, day, minute) : false
+    }
+
+    function professionalWorksAt(professional, day, minute) {
+      return (professional.workingHours || []).some((hour) => {
+        return hour.dayOfWeek === day.getDay() &&
+          minute >= timeToMinutes(hour.startTime) &&
+          minute < timeToMinutes(hour.endTime)
       })
     }
 

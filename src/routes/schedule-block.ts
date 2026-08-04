@@ -183,7 +183,14 @@ export async function scheduleBlockRoutes(app: FastifyInstance) {
     return prisma.scheduleBlock.findMany({
       where: {
         ...(query.businessId ? { businessId: query.businessId } : {}),
-        ...(query.professionalId ? { professionalId: query.professionalId } : {}),
+        ...(query.professionalId
+          ? {
+              OR: [
+                { professionalId: query.professionalId },
+                { professionalId: null }
+              ]
+            }
+          : {}),
         ...(from && !Number.isNaN(from.getTime()) ? { endAt: { gt: from } } : {}),
         ...(to && !Number.isNaN(to.getTime()) ? { startAt: { lt: to } } : {})
       },
