@@ -731,6 +731,8 @@ model Message {
   metadata             Json?
 
   createdAt DateTime @default(now())
+
+  @@index([conversationId, createdAt(sort: Desc), id(sort: Desc)])
 }
 
 model ScheduleBlock {

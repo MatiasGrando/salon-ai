@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
-import { Prisma } from '../generated/prisma/client.js'
+import { Prisma, type Message } from '../generated/prisma/client.js'
 import { WhatsAppCloudApi } from '../integrations/whatsapp-cloud-api.js'
 import { assertBusinessCanSendWhatsApp } from '../services/business-whatsapp-settings.js'
 import {
@@ -261,12 +261,6 @@ export async function crmRoutes(app: FastifyInstance) {
     const conversations = await prisma.conversation.findMany({
       where,
       include: {
-        messages: {
-          orderBy: {
-            createdAt: 'desc'
-          },
-          take: 1
-        },
         bookingDeposits: {
           include: {
             appointment: {
@@ -288,8 +282,18 @@ export async function crmRoutes(app: FastifyInstance) {
       ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {})
     })
 
-    const hasMore = conversations.length > take
-    const items = conversations.slice(0, take).sort((left, right) => {
+    const latestMessages = await latestMessagesByConversationId(
+      conversations.map((conversation) => conversation.id)
+    )
+    const conversationsWithLatestMessage = conversations.map((conversation) => ({
+      ...conversation,
+      messages: latestMessages.has(conversation.id)
+        ? [latestMessages.get(conversation.id)!]
+        : []
+    }))
+
+    const hasMore = conversationsWithLatestMessage.length > take
+    const items = conversationsWithLatestMessage.slice(0, take).sort((left, right) => {
       return latestConversationActivityAt(right) - latestConversationActivityAt(left)
     })
     const itemsWithReplyWindow = await attachConversationReplyWindow(items)
@@ -1425,28 +1429,53 @@ async function findActiveConversationDeposit(conversationId: string) {
 }
 
 async function conversationWithLatestDeposit(conversationId: string) {
-  return prisma.conversation.findUnique({
-    where: { id: conversationId },
-    include: {
-      messages: {
-        orderBy: { createdAt: 'desc' },
-        take: 1
-      },
-      bookingDeposits: {
-        include: {
-          appointment: {
-            include: {
-              customer: true,
-              professional: true,
-              service: true
+  const [conversation, latestMessage] = await Promise.all([
+    prisma.conversation.findUnique({
+      where: { id: conversationId },
+      include: {
+        bookingDeposits: {
+          include: {
+            appointment: {
+              include: {
+                customer: true,
+                professional: true,
+                service: true
+              }
             }
-          }
-        },
-        orderBy: { createdAt: 'desc' },
-        take: 1
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 1
+        }
       }
-    }
-  })
+    }),
+    prisma.message.findFirst({
+      where: { conversationId },
+      orderBy: [
+        { createdAt: 'desc' },
+        { id: 'desc' }
+      ]
+    })
+  ])
+
+  if (!conversation) return null
+
+  return {
+    ...conversation,
+    messages: latestMessage ? [latestMessage] : []
+  }
+}
+
+async function latestMessagesByConversationId(conversationIds: string[]) {
+  if (conversationIds.length === 0) return new Map<string, Message>()
+
+  const messages = await prisma.$queryRaw<Message[]>(Prisma.sql`
+    SELECT DISTINCT ON ("conversationId") "Message".*
+    FROM "Message"
+    WHERE "conversationId" IN (${Prisma.join(conversationIds)})
+    ORDER BY "conversationId", "createdAt" DESC, "id" DESC
+  `)
+
+  return new Map(messages.map((message) => [message.conversationId, message]))
 }
 
 async function sendCrmAutomatedMessage(input: {
