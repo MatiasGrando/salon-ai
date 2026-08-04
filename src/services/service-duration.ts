@@ -21,6 +21,24 @@ export function formatCustomerDuration(service: ServiceDurationInput) {
     : `${range.min} a ${range.max} min`
 }
 
+export function reservationDurationLimits(service: ServiceDurationInput) {
+  return {
+    professional: service.duration,
+    business: Math.max(service.duration, customerDurationRange(service).max)
+  }
+}
+
+export function reservationFitsAvailabilityWindow(input: {
+  service: ServiceDurationInput
+  startMinutes: number
+  professionalEndMinutes: number
+  businessEndMinutes: number
+}) {
+  const limits = reservationDurationLimits(input.service)
+  return input.startMinutes + limits.professional <= input.professionalEndMinutes &&
+    input.startMinutes + limits.business <= input.businessEndMinutes
+}
+
 export function normalizeCustomerDuration(
   minValue?: number | string | null,
   maxValue?: number | string | null

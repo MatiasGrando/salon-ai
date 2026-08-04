@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { customerDurationRange, formatCustomerDuration, normalizeCustomerDuration } from '../src/services/service-duration.js'
+import {
+  customerDurationRange,
+  formatCustomerDuration,
+  normalizeCustomerDuration,
+  reservationDurationLimits,
+  reservationFitsAvailabilityWindow
+} from '../src/services/service-duration.js'
 
 const inherited = customerDurationRange({ duration: 60 })
 assert.deepEqual(inherited, { min: 60, max: 60, differsFromAgenda: false })
@@ -25,10 +31,38 @@ assert.equal(normalizeCustomerDuration(0, 120).ok, false)
 assert.equal(normalizeCustomerDuration(120, 90).ok, false)
 assert.equal(normalizeCustomerDuration(90.5, 120).ok, false)
 
+const colorService = { duration: 60, customerDurationMin: 120, customerDurationMax: 120 }
+assert.deepEqual(reservationDurationLimits(colorService), { professional: 60, business: 120 })
+assert.equal(reservationFitsAvailabilityWindow({
+  service: colorService,
+  startMinutes: 14 * 60,
+  professionalEndMinutes: 15 * 60,
+  businessEndMinutes: 16 * 60
+}), true)
+assert.equal(reservationFitsAvailabilityWindow({
+  service: colorService,
+  startMinutes: 14 * 60 + 30,
+  professionalEndMinutes: 15 * 60,
+  businessEndMinutes: 16 * 60
+}), false)
+assert.equal(reservationFitsAvailabilityWindow({
+  service: colorService,
+  startMinutes: 19 * 60,
+  professionalEndMinutes: 20 * 60,
+  businessEndMinutes: 20 * 60
+}), false)
+
 const appointmentSource = await readFile('src/services/appointment-service.ts', 'utf8')
-assert.match(appointmentSource, /addMinutes\(startAt, service\.duration\)/)
-assert.match(appointmentSource, /slotStartMinutes \+ service\.duration <= window\.end/)
-assert.doesNotMatch(appointmentSource, /customerDuration/)
+assert.equal(
+  appointmentSource.match(/const professionalEndAt = addMinutes\(startAt, durationLimits\.professional\)/g)?.length,
+  2
+)
+assert.equal(appointmentSource.match(/endAt: customerEndAt/g)?.length, 2)
+assert.equal(appointmentSource.match(/endAt: professionalEndAt/g)?.length, 6)
+assert.match(
+  appointmentSource,
+  /reservationFitsAvailabilityWindow\(\{/
+)
 
 const crmSource = await readFile('src/routes/crm-ui.ts', 'utf8')
 assert.match(crmSource, /Tiempo que bloquea la agenda/)
@@ -44,4 +78,4 @@ assert.match(rendererSource, /formatCustomerDuration\(service\)/)
 const postSaleSource = await readFile('src/services/post-sale-service.ts', 'utf8')
 assert.match(postSaleSource, /customerDurationRange\(appointment\.service\)\.max/)
 
-console.log('OK: agenda conserva el tiempo operativo y los canales al cliente usan la duración real configurada.')
+console.log('OK: agenda usa el tiempo operativo y el cierre contempla la duración máxima del cliente.')

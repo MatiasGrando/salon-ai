@@ -5,6 +5,10 @@ import {
 } from './conversation-opportunity-service.js'
 import { bookingDepositService } from './booking-deposit-service.js'
 import { ensureDefaultMarketingPreference } from './marketing-preference-service.js'
+import {
+  reservationDurationLimits,
+  reservationFitsAvailabilityWindow
+} from './service-duration.js'
 
 const availabilitySlotInterval = 30
 
@@ -136,11 +140,13 @@ export class AppointmentService {
       }
     }
 
-    const endAt = addMinutes(startAt, service.duration)
+    const durationLimits = reservationDurationLimits(service)
+    const professionalEndAt = addMinutes(startAt, durationLimits.professional)
+    const customerEndAt = addMinutes(startAt, durationLimits.business)
     const isInsideBusinessHours = await this.isInsideBusinessHours({
       businessId: professional.businessId,
       startAt,
-      endAt
+      endAt: customerEndAt
     })
 
     if (!isInsideBusinessHours && !input.force) {
@@ -154,7 +160,7 @@ export class AppointmentService {
     const isInsideProfessionalHours = await this.isInsideProfessionalHours({
       professionalId: input.professionalId,
       startAt,
-      endAt
+      endAt: professionalEndAt
     })
 
     if (!isInsideProfessionalHours && !input.force) {
@@ -169,7 +175,7 @@ export class AppointmentService {
       businessId: professional.businessId,
       professionalId: input.professionalId,
       startAt,
-      endAt
+      endAt: professionalEndAt
     })
 
     if (hasScheduleBlock && !input.force) {
@@ -183,7 +189,7 @@ export class AppointmentService {
     const hasOverlap = await this.hasAppointmentOverlap({
       professionalId: input.professionalId,
       startAt,
-      endAt
+      endAt: professionalEndAt
     })
 
     if (hasOverlap && !input.force) {
@@ -322,11 +328,13 @@ export class AppointmentService {
       }
     }
 
-    const endAt = addMinutes(startAt, service.duration)
+    const durationLimits = reservationDurationLimits(service)
+    const professionalEndAt = addMinutes(startAt, durationLimits.professional)
+    const customerEndAt = addMinutes(startAt, durationLimits.business)
     const isInsideBusinessHours = await this.isInsideBusinessHours({
       businessId: professional.businessId,
       startAt,
-      endAt
+      endAt: customerEndAt
     })
 
     if (!isInsideBusinessHours && !input.force) {
@@ -340,7 +348,7 @@ export class AppointmentService {
     const isInsideProfessionalHours = await this.isInsideProfessionalHours({
       professionalId: input.professionalId,
       startAt,
-      endAt
+      endAt: professionalEndAt
     })
 
     if (!isInsideProfessionalHours && !input.force) {
@@ -355,7 +363,7 @@ export class AppointmentService {
       businessId: professional.businessId,
       professionalId: input.professionalId,
       startAt,
-      endAt
+      endAt: professionalEndAt
     })
 
     if (hasScheduleBlock && !input.force) {
@@ -369,7 +377,7 @@ export class AppointmentService {
     const hasOverlap = await this.hasAppointmentOverlap({
       professionalId: input.professionalId,
       startAt,
-      endAt,
+      endAt: professionalEndAt,
       excludeAppointmentId: input.id
     })
 
@@ -688,7 +696,12 @@ export class AppointmentService {
     for (const window of windows) {
       for (
         let slotStartMinutes = window.start;
-        slotStartMinutes + service.duration <= window.end;
+        reservationFitsAvailabilityWindow({
+          service,
+          startMinutes: slotStartMinutes,
+          professionalEndMinutes: window.professionalEnd,
+          businessEndMinutes: window.businessEnd
+        });
         slotStartMinutes += availabilitySlotInterval
       ) {
         const startAt = setMinutesSinceMidnight(dayStart, slotStartMinutes)
@@ -909,13 +922,11 @@ function getAvailabilityWindows(
       const professionalEnd = parseTimeToMinutes(professionalSchedule.endTime)
 
       const start = Math.max(businessStart, professionalStart)
-      const end = Math.min(businessEnd, professionalEnd)
-
-      if (start >= end) {
+      if (start >= businessEnd || start >= professionalEnd) {
         return []
       }
 
-      return [{ start, end }]
+      return [{ start, businessEnd, professionalEnd }]
     })
   })
 }

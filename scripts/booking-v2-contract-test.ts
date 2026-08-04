@@ -78,6 +78,7 @@ import {
   PhotoQuoteAcknowledgementService
 } from '../src/services/photo-quote-acknowledgement-service.js'
 import { conversationCompletionPatchFromAppointment } from '../src/services/conversation-opportunity-service.js'
+import { reservationFitsAvailabilityWindow } from '../src/services/service-duration.js'
 
 const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
   {
@@ -2512,6 +2513,68 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(result.reply.includes('• Nico: 15:00, 15:30'), true)
       assert.equal(result.reply.includes('todos los horarios disponibles'), true)
       assert.equal(result.reply.includes('¿Cuál te queda mejor?'), true)
+    }
+  },
+  {
+    name: 'conversacion no ofrece un horario si el cliente terminaria despues del cierre',
+    run: async () => {
+      const colorService = {
+        duration: 60,
+        customerDurationMin: 120,
+        customerDurationMax: 120
+      }
+      const availabilityOptions = [
+        { time: '18:00', startMinutes: 18 * 60 },
+        { time: '19:00', startMinutes: 19 * 60 }
+      ]
+        .filter((option) => reservationFitsAvailabilityWindow({
+          service: colorService,
+          startMinutes: option.startMinutes,
+          professionalEndMinutes: 20 * 60,
+          businessEndMinutes: 20 * 60
+        }))
+        .map((option) => ({
+          time: option.time,
+          professionalId: 'professional-1',
+          professionalName: 'Nico'
+        }))
+      const catalog = createBookingV2DomainCatalog({
+        services: [{
+          id: 'color',
+          name: 'Color',
+          aliases: [],
+          duration: colorService.duration,
+          customerDurationMin: colorService.customerDurationMin,
+          customerDurationMax: colorService.customerDurationMax,
+          price: 30000,
+          category: null
+        }],
+        professionals: [{ id: 'professional-1', name: 'Nico', serviceIds: ['color'] }]
+      })
+      const engine = new BookingV2Engine(
+        fakeDomainPort({ catalog, availabilityOptions }),
+        fakeExtractor(extraction({
+          date: field('2026-07-10', 0.95, 'el viernes')
+        }))
+      )
+
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Juan',
+          selectedServiceId: 'color',
+          selectedProfessionalId: 'professional-1',
+          selectedDate: null,
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: 'el viernes'
+      })
+
+      assert.deepEqual(result.availabilityOptions.map((option) => option.time), ['18:00'])
+      assert.equal(result.reply.includes('18:00'), true)
+      assert.equal(result.reply.includes('19:00'), false)
     }
   },
   {
