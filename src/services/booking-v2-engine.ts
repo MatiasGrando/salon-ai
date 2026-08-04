@@ -1328,11 +1328,47 @@ function resolveCatalogServiceSelection(
 function resolveExpectedDate(message: string, state: BookingV2State, currentDate: Date) {
   if (nextMissingField(state.draft) !== 'date') return null
   const normalized = normalize(message)
-  if (normalized !== 'hoy' && normalized !== 'manana') return null
-
   const date = dateInTimeZone(currentDate, 'America/Buenos_Aires')
-  if (normalized === 'manana') date.setUTCDate(date.getUTCDate() + 1)
+  const tokens = new Set(normalized.split(' ').filter(Boolean))
+  if (tokens.has('hoy')) return date.toISOString().slice(0, 10)
+  if (tokens.has('manana')) {
+    date.setUTCDate(date.getUTCDate() + 1)
+    return date.toISOString().slice(0, 10)
+  }
+
+  const requestedWeekday = weekdayMentionedInMessage(normalized)
+  if (requestedWeekday === null) return null
+
+  const daysUntilRequested = (requestedWeekday - date.getUTCDay() + 7) % 7
+  date.setUTCDate(date.getUTCDate() + (daysUntilRequested || 7))
   return date.toISOString().slice(0, 10)
+}
+
+const WEEKDAYS_BY_NAME = new Map([
+  ['domingo', 0],
+  ['lunes', 1],
+  ['martes', 2],
+  ['miercoles', 3],
+  ['jueves', 4],
+  ['viernes', 5],
+  ['sabado', 6]
+])
+
+function weekdayMentionedInMessage(normalizedMessage: string) {
+  const tokens = new Set(normalizedMessage.split(' ').filter(Boolean))
+  for (const [weekday, day] of WEEKDAYS_BY_NAME) {
+    if (tokens.has(weekday)) return day
+  }
+  return null
+}
+
+function dateMatchesRequestedWeekday(message: string, dateValue: string) {
+  const requestedWeekday = weekdayMentionedInMessage(normalize(message))
+  if (requestedWeekday === null) return true
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateValue)) return false
+
+  const parsedDate = new Date(`${dateValue}T12:00:00.000Z`)
+  return !Number.isNaN(parsedDate.getTime()) && parsedDate.getUTCDay() === requestedWeekday
 }
 
 function selectionSignature(value: string) {
@@ -1434,7 +1470,10 @@ function discardUngroundedCatalogSelections(
       messageGroundsEvidence(message, extraction.professional.evidence)
     )
   const groundedDate = !extraction.date.value ||
-    messageGroundsEvidence(message, extraction.date.evidence)
+    (
+      messageGroundsEvidence(message, extraction.date.evidence) &&
+      dateMatchesRequestedWeekday(message, extraction.date.value)
+    )
   const groundedTime = !extraction.time.value ||
     messageGroundsEvidence(message, extraction.time.evidence)
   const groundedCorrection = extraction.correction.field === null ||
@@ -1442,16 +1481,18 @@ function discardUngroundedCatalogSelections(
       messageGroundsEvidence(message, extraction.correction.evidence) &&
       (
         !extraction.correction.newValue ||
-        !['service', 'professional'].includes(extraction.correction.field) ||
+        !['service', 'professional', 'date'].includes(extraction.correction.field) ||
         (
         extraction.correction.field === 'service'
           ? catalog.services.some((service) =>
               service.id === extraction.correction.newValue &&
               messageGroundsService(message, service)
             )
-          : professionalResolution !== null &&
-            professionalResolution.kind !== 'ambiguous' &&
-            professionalResolution.professionalId === extraction.correction.newValue
+          : extraction.correction.field === 'professional'
+            ? professionalResolution !== null &&
+              professionalResolution.kind !== 'ambiguous' &&
+              professionalResolution.professionalId === extraction.correction.newValue
+            : dateMatchesRequestedWeekday(message, extraction.correction.newValue)
         )
       )
     )

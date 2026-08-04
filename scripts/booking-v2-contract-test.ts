@@ -2414,6 +2414,65 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'motor convierte domingo en el proximo domingo sin confiar en una fecha incorrecta de IA',
+    run: async () => {
+      const domain = fakeDomainPort()
+      const engine = new BookingV2Engine(
+        domain,
+        fakeExtractor(extraction({
+          date: field('2026-08-07', 0.99, 'Domingo puede ser?')
+        }))
+      )
+
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Rami',
+          selectedServiceId: 'haircut',
+          selectedProfessionalId: 'professional-1',
+          selectedDate: null,
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: 'Domingo puede ser?',
+        currentDate: new Date('2026-08-04T01:05:47.138Z')
+      })
+
+      assert.equal(result.state.draft.date, '2026-08-09')
+      assert.deepEqual(domain.availabilityCalls, ['2026-08-09'])
+      assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'time')
+    }
+  },
+  {
+    name: 'motor rechaza el domingo cerrado y nunca lo sustituye por el viernes',
+    run: async () => {
+      const domain = fakeDomainPort({ availabilityOptions: [] })
+      const engine = new BookingV2Engine(domain, fakeExtractor(null))
+
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Rami',
+          selectedServiceId: 'haircut',
+          selectedProfessionalId: 'professional-1',
+          selectedDate: null,
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: 'Domingo puede ser?',
+        currentDate: new Date('2026-08-04T01:05:47.138Z')
+      })
+
+      assert.equal(result.state.draft.date, null)
+      assert.deepEqual(domain.availabilityCalls, ['2026-08-09'])
+      assert.equal(domain.availabilityCalls.includes('2026-08-07'), false)
+      assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'date')
+      assert.equal(result.reply.includes('09/08/2026 no tiene horarios disponibles'), true)
+    }
+  },
+  {
     name: 'motor prioriza el profesional esperado y no lo confunde con el nombre',
     run: async () => {
       const extractor = fakeExtractor(extraction({
@@ -4468,8 +4527,10 @@ function fakeDomainPort(input?: {
     { time: '15:00', professionalId: 'professional-1', professionalName: 'Nico' },
     { time: '15:30', professionalId: 'professional-1', professionalName: 'Nico' }
   ]
+  const availabilityCalls: string[] = []
 
   return {
+    availabilityCalls,
     async loadCatalog() {
       return domainCatalog
     },
@@ -4494,7 +4555,8 @@ function fakeDomainPort(input?: {
         professionalServiceIds: domainCatalog.professionalServiceIds
       }
     },
-    async findAvailabilityOptions() {
+    async findAvailabilityOptions(request: { date: string }) {
+      availabilityCalls.push(request.date)
       return {
         ok: true as const,
         options: availabilityOptions
