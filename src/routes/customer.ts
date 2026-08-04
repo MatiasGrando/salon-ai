@@ -53,6 +53,37 @@ type CustomerOverviewConversation = {
 
 export async function customerRoutes(app: FastifyInstance) {
 
+  app.get('/customers/search', async (request, reply) => {
+    const query = request.query as { businessId?: string; q?: string; take?: string }
+    const businessId = query.businessId?.trim()
+    if (!businessId) return reply.status(400).send({ message: 'businessId es requerido' })
+    const search = query.q?.trim() || ''
+    const digits = search.replace(/\D/g, '')
+    const take = Math.min(20, Math.max(1, Number(query.take) || 12))
+    return prisma.customer.findMany({
+      where: {
+        OR: [
+          { appointments: { some: { professional: { businessId } } } },
+          { marketingPreferences: { some: { businessId } } }
+        ],
+        ...(search
+          ? {
+              AND: {
+                OR: [
+                  { name: { contains: search, mode: 'insensitive' as const } },
+                  { phone: { contains: digits || search } },
+                  ...(digits ? [{ normalizedPhone: { contains: digits } }] : [])
+                ]
+              }
+            }
+          : {})
+      },
+      select: { id: true, name: true, phone: true },
+      orderBy: { createdAt: 'desc' },
+      take
+    })
+  })
+
   app.get('/customers/overview', async (request) => {
     const query = request.query as {
       q?: string

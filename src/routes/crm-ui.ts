@@ -9444,6 +9444,47 @@ const crmHtml = `<!doctype html>
       gap: 10px;
     }
 
+    .appointment-customer-combobox { position: relative; }
+
+    .appointment-customer-results {
+      position: absolute;
+      z-index: 30;
+      top: calc(100% + 5px);
+      left: 0;
+      right: 0;
+      max-height: 240px;
+      overflow-y: auto;
+      padding: 5px;
+      border: 1px solid #d9e1ec;
+      border-radius: 9px;
+      background: #fff;
+      box-shadow: 0 14px 35px rgba(15, 23, 42, .16);
+    }
+
+    .appointment-customer-results[hidden] { display: none; }
+
+    .appointment-customer-results button,
+    .appointment-customer-result-empty {
+      width: 100%;
+      min-height: 42px;
+      padding: 8px 10px;
+      border: 0;
+      border-radius: 7px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background: #fff;
+      color: #1f2937;
+      text-align: left;
+    }
+
+    .appointment-customer-results button:hover,
+    .appointment-customer-results button:focus-visible { background: #eef5ff; outline: none; }
+    .appointment-customer-results button strong { color: #1d4ed8; }
+    .appointment-customer-results button span,
+    .appointment-customer-result-empty { color: #667085; font-size: 12px; }
+
     .appointment-contact-actions {
       display: flex;
       align-items: center;
@@ -12560,10 +12601,12 @@ const crmHtml = `<!doctype html>
             </div>
           </div>
           <div class="form-row">
-            <label for="appointment-customer">Cliente existente</label>
-            <select id="appointment-customer">
-              <option value="">Crear cliente nuevo</option>
-            </select>
+            <label for="appointment-customer-search">Buscar cliente existente</label>
+            <div class="appointment-customer-combobox">
+              <input id="appointment-customer" type="hidden">
+              <input class="field" id="appointment-customer-search" autocomplete="off" placeholder="EscribÃ­ nombre o telÃ©fono" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="appointment-customer-results">
+              <div class="appointment-customer-results" id="appointment-customer-results" role="listbox" hidden></div>
+            </div>
           </div>
           <div class="split-row">
             <div class="form-row">
@@ -14706,6 +14749,9 @@ const crmHtml = `<!doctype html>
       services: [],
       serviceCategories: [],
       customers: [],
+      appointmentCustomerSearchTimer: null,
+      appointmentCustomerSearchRequest: 0,
+      appointmentCustomerResultsData: [],
       businesses: [],
       customerOverview: [],
       currentUser: null,
@@ -15416,6 +15462,8 @@ const crmHtml = `<!doctype html>
       appointmentProfessional: document.getElementById('appointment-professional'),
       appointmentService: document.getElementById('appointment-service'),
       appointmentCustomer: document.getElementById('appointment-customer'),
+      appointmentCustomerSearch: document.getElementById('appointment-customer-search'),
+      appointmentCustomerResults: document.getElementById('appointment-customer-results'),
       appointmentCustomerName: document.getElementById('appointment-customer-name'),
       appointmentCustomerPhone: document.getElementById('appointment-customer-phone'),
       appointmentContactActions: document.getElementById('appointment-contact-actions'),
@@ -20684,14 +20732,76 @@ const crmHtml = `<!doctype html>
         : activeProfessionals()[0]?.id || ''
       renderAppointmentServiceOptions(selectedServiceId)
 
-      els.appointmentCustomer.innerHTML = ['<option value="">Crear cliente nuevo</option>']
-        .concat(state.customers.map((customer) => {
-          return '<option value="' + customer.id + '">' + escapeHtml(customer.name + ' · ' + customer.phone) + '</option>'
-        }))
-        .join('')
-      els.appointmentCustomer.value = state.customers.some((customer) => customer.id === selectedCustomerId)
-        ? selectedCustomerId
-        : ''
+      const selectedCustomer = state.customers.find((customer) => customer.id === selectedCustomerId)
+      els.appointmentCustomerSearch.value = selectedCustomer ? appointmentCustomerLabel(selectedCustomer) : ''
+    }
+
+    function appointmentCustomerLabel(customer) {
+      return customer.name + ' - ' + formatCustomerPhone(customer.phone)
+    }
+
+    function closeAppointmentCustomerResults() {
+      els.appointmentCustomerResults.hidden = true
+      els.appointmentCustomerSearch.setAttribute('aria-expanded', 'false')
+    }
+
+    function selectAppointmentCustomer(customer) {
+      els.appointmentCustomer.value = customer?.id || ''
+      els.appointmentCustomerSearch.value = customer ? appointmentCustomerLabel(customer) : ''
+      if (customer && !state.customers.some((item) => item.id === customer.id)) state.customers.push(customer)
+      syncAppointmentCustomerFields()
+      closeAppointmentCustomerResults()
+    }
+
+    function renderAppointmentCustomerResults(customers, query) {
+      state.appointmentCustomerResultsData = customers
+      const createLabel = query ? 'Crear cliente nuevo con estos datos' : 'Crear cliente nuevo'
+      els.appointmentCustomerResults.innerHTML =
+        '<button type="button" data-create-appointment-customer><strong>+ ' + createLabel + '</strong></button>' +
+        (customers.length
+          ? customers.map((customer) => {
+              return '<button type="button" role="option" data-appointment-customer-id="' + customer.id + '">' +
+                '<strong>' + escapeHtml(customer.name) + '</strong><span>' + escapeHtml(formatCustomerPhone(customer.phone)) + '</span>' +
+              '</button>'
+            }).join('')
+          : '<div class="appointment-customer-result-empty">No encontramos clientes con esa bÃºsqueda.</div>')
+      els.appointmentCustomerResults.hidden = false
+      els.appointmentCustomerSearch.setAttribute('aria-expanded', 'true')
+    }
+
+    async function loadAppointmentCustomerResults(query = '') {
+      if (!state.businessId) return
+      if (query.length === 1) {
+        state.appointmentCustomerResultsData = []
+        els.appointmentCustomerResults.innerHTML = '<div class="appointment-customer-result-empty">EscribÃ­ al menos 2 caracteres para buscar.</div>'
+        els.appointmentCustomerResults.hidden = false
+        els.appointmentCustomerSearch.setAttribute('aria-expanded', 'true')
+        return
+      }
+      const requestId = ++state.appointmentCustomerSearchRequest
+      els.appointmentCustomerResults.innerHTML = '<div class="appointment-customer-result-empty">Buscando clientes...</div>'
+      els.appointmentCustomerResults.hidden = false
+      els.appointmentCustomerSearch.setAttribute('aria-expanded', 'true')
+      const params = new URLSearchParams({ businessId: state.businessId, q: query, take: '12' })
+      try {
+        const customers = await getJson('/customers/search?' + params.toString())
+        if (requestId !== state.appointmentCustomerSearchRequest) return
+        renderAppointmentCustomerResults(customers, query)
+      } catch (error) {
+        if (requestId !== state.appointmentCustomerSearchRequest) return
+        els.appointmentCustomerResults.innerHTML = '<div class="appointment-customer-result-empty">' + escapeHtml(error.message) + '</div>'
+      }
+    }
+
+    function scheduleAppointmentCustomerSearch() {
+      const query = els.appointmentCustomerSearch.value.trim()
+      if (els.appointmentCustomer.value) {
+        els.appointmentCustomer.value = ''
+        els.appointmentCustomerName.value = ''
+        els.appointmentCustomerPhone.value = ''
+      }
+      clearTimeout(state.appointmentCustomerSearchTimer)
+      state.appointmentCustomerSearchTimer = setTimeout(() => loadAppointmentCustomerResults(query), 250)
     }
 
     async function loadAgenda(options = {}) {
@@ -21928,6 +22038,9 @@ const crmHtml = `<!doctype html>
       els.appointmentNoShow.hidden = !appointment || appointment.status === 'CANCELLED'
 
       if (appointment) {
+        if (appointment.customer && !state.customers.some((customer) => customer.id === appointment.customerId)) {
+          state.customers.push({ ...appointment.customer, id: appointment.customerId })
+        }
         els.appointmentStart.value = toDatetimeLocalValue(new Date(appointment.startAt))
         els.appointmentProfessional.value = appointment.professionalId || ''
         const compatibleServices = renderAppointmentServiceOptions(appointment.serviceId || '')
@@ -21956,6 +22069,7 @@ const crmHtml = `<!doctype html>
           els.appointmentFeedback.textContent = 'Nuevo turno en un horario ocupado: podes elegir otro profesional o habilitar el sobreturno.'
         }
         els.appointmentCustomer.value = ''
+        els.appointmentCustomerSearch.value = ''
         els.appointmentCustomerName.value = ''
         els.appointmentCustomerPhone.value = ''
       }
@@ -21973,6 +22087,7 @@ const crmHtml = `<!doctype html>
       state.editingAppointmentId = null
       els.appointmentDelete.hidden = true
       els.appointmentNoShow.hidden = true
+      closeAppointmentCustomerResults()
       updateAppointmentContactActions(null)
     }
 
@@ -21983,6 +22098,7 @@ const crmHtml = `<!doctype html>
     function syncAppointmentCustomerFields() {
       const customer = state.customers.find((item) => item.id === els.appointmentCustomer.value)
       if (customer) {
+        els.appointmentCustomerSearch.value = appointmentCustomerLabel(customer)
         els.appointmentCustomerName.value = customer.name
         els.appointmentCustomerPhone.value = customer.phone
       } else if (!els.appointmentCustomer.value) {
@@ -25537,6 +25653,38 @@ const crmHtml = `<!doctype html>
     els.appointmentDelete.addEventListener('click', deleteManualAppointment)
     els.appointmentNoShow.addEventListener('click', toggleManualAppointmentNoShow)
     els.appointmentCustomer.addEventListener('change', syncAppointmentCustomerFields)
+    els.appointmentCustomerSearch.addEventListener('input', scheduleAppointmentCustomerSearch)
+    els.appointmentCustomerSearch.addEventListener('focus', () => {
+      if (!els.appointmentCustomer.value) loadAppointmentCustomerResults(els.appointmentCustomerSearch.value.trim())
+    })
+    els.appointmentCustomerSearch.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') closeAppointmentCustomerResults()
+      if (event.key === 'ArrowDown' && !els.appointmentCustomerResults.hidden) {
+        event.preventDefault()
+        els.appointmentCustomerResults.querySelector('[data-appointment-customer-id], [data-create-appointment-customer]')?.focus()
+      }
+      if (event.key === 'Enter' && !els.appointmentCustomerResults.hidden) {
+        event.preventDefault()
+        els.appointmentCustomerResults.querySelector('[data-appointment-customer-id], [data-create-appointment-customer]')?.click()
+      }
+    })
+    els.appointmentCustomerSearch.addEventListener('blur', () => setTimeout(closeAppointmentCustomerResults, 120))
+    els.appointmentCustomerResults.addEventListener('mousedown', (event) => event.preventDefault())
+    els.appointmentCustomerResults.addEventListener('click', (event) => {
+      const createButton = event.target.closest('[data-create-appointment-customer]')
+      if (createButton) {
+        const query = els.appointmentCustomerSearch.value.trim()
+        selectAppointmentCustomer(null)
+        if (/\d/.test(query)) els.appointmentCustomerPhone.value = query
+        else els.appointmentCustomerName.value = query
+        ;(/\d/.test(query) ? els.appointmentCustomerPhone : els.appointmentCustomerName).focus()
+        return
+      }
+      const button = event.target.closest('[data-appointment-customer-id]')
+      if (!button) return
+      const customer = state.appointmentCustomerResultsData.find((item) => item.id === button.dataset.appointmentCustomerId)
+      if (customer) selectAppointmentCustomer(customer)
+    })
     els.appointmentWhatsapp.addEventListener('click', openAppointmentWhatsapp)
     els.composerWindowWhatsapp.addEventListener('click', openWhatsappAppLink)
     els.detailWhatsapp.addEventListener('click', openWhatsappAppLink)
