@@ -11746,6 +11746,7 @@ const crmHtml = `<!doctype html>
 
     .agenda-gcal-top {
       z-index: 12;
+      flex: 0 0 auto;
       min-height: 64px;
       padding: 10px 14px;
       display: flex;
@@ -11836,6 +11837,7 @@ const crmHtml = `<!doctype html>
     .agenda-gcal-month-panel,
     .agenda-gcal-filter-panel {
       z-index: 11;
+      flex: 0 0 auto;
       border-bottom: 1px solid #dbe4f0;
       background: #fff;
     }
