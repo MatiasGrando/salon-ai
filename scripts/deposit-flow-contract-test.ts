@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict'
-import { BookingDepositService } from '../src/services/booking-deposit-service.js'
+import { readFileSync } from 'node:fs'
+import {
+  BookingDepositService,
+  DEPOSIT_PROOF_RECEIVED_ACKNOWLEDGEMENT
+} from '../src/services/booking-deposit-service.js'
 import {
   calculateBookingV2Deposit,
   renderBookingV2DepositRequest,
@@ -148,6 +152,45 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'el acuse informa que el horario sigue reservado hasta la revision',
+    run: () => {
+      assert.equal(
+        DEPOSIT_PROOF_RECEIVED_ACKNOWLEDGEMENT,
+        'Recibimos tu comprobante. El horario continúa reservado mientras el equipo verifica el pago. Te avisamos por acá cuando quede confirmado.'
+      )
+      const webhook = readFileSync(new URL('../src/services/whatsapp-webhook-service.ts', import.meta.url), 'utf8')
+      assert.ok(webhook.includes('if (depositProof)'))
+      assert.ok(webhook.includes("automation: 'deposit_proof_received'"))
+    }
+  },
+  {
+    name: 'un comprobante recibido detiene el vencimiento y mantiene el horario',
+    run: async () => {
+      const fixture = fakeDepositDb({
+        deposits: [{
+          id: 'deposit-1',
+          appointmentId: 'appointment-1',
+          conversationId: 'conversation-1',
+          status: 'PROOF_RECEIVED',
+          expiresAt: new Date('2026-07-28T19:00:00.000Z'),
+          proofMessageId: 'message-image-1'
+        }],
+        appointments: [{ id: 'appointment-1', status: 'PENDING' }]
+      })
+      const service = new BookingDepositService(fixture.db as never)
+      const result = await service.expireOverdue(new Date('2026-07-28T20:00:00.000Z'))
+      assert.equal(result.expired, 0)
+      assert.equal(fixture.deposits[0]?.status, 'PROOF_RECEIVED')
+      assert.equal(fixture.appointments[0]?.status, 'PENDING')
+
+      const crmRoute = readFileSync(new URL('../src/routes/crm.ts', import.meta.url), 'utf8')
+      const approveStart = crmRoute.indexOf("app.post('/crm/conversations/:id/deposit/approve'")
+      const rejectStart = crmRoute.indexOf("app.post('/crm/conversations/:id/deposit/reject'", approveStart)
+      const approveRoute = crmRoute.slice(approveStart, rejectStart)
+      assert.equal(approveRoute.includes('expiresAt: { gt: reviewedAt }'), false)
+    }
+  },
+  {
     name: 'una retencion vencida libera el horario',
     run: async () => {
       const fixture = fakeDepositDb({
@@ -164,6 +207,31 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       const service = new BookingDepositService(fixture.db as never)
       const result = await service.expireOverdue(new Date('2026-07-28T20:00:00.000Z'))
       assert.equal(result.expired, 1)
+      assert.equal(fixture.deposits[0]?.status, 'EXPIRED')
+      assert.equal(fixture.appointments[0]?.status, 'CANCELLED')
+    }
+  },
+  {
+    name: 'un comprobante enviado despues del vencimiento no recupera el horario',
+    run: async () => {
+      const fixture = fakeDepositDb({
+        deposits: [{
+          id: 'deposit-1',
+          appointmentId: 'appointment-1',
+          conversationId: 'conversation-1',
+          status: 'PENDING_PROOF',
+          expiresAt: new Date('2026-07-28T19:00:00.000Z'),
+          proofMessageId: null
+        }],
+        appointments: [{ id: 'appointment-1', status: 'PENDING' }]
+      })
+      const service = new BookingDepositService(fixture.db as never)
+      const result = await service.markProofReceived({
+        conversationId: 'conversation-1',
+        messageId: 'message-image-late',
+        receivedAt: new Date('2026-07-28T20:00:00.000Z')
+      })
+      assert.equal(result, null)
       assert.equal(fixture.deposits[0]?.status, 'EXPIRED')
       assert.equal(fixture.appointments[0]?.status, 'CANCELLED')
     }
@@ -190,7 +258,9 @@ function fakeDepositDb(input: {
         const now = args.where.expiresAt.lte as Date
         return deposits
           .filter((deposit) =>
-            args.where.status.in.includes(deposit.status) &&
+            (typeof args.where.status === 'string'
+              ? deposit.status === args.where.status
+              : args.where.status.in.includes(deposit.status)) &&
             deposit.expiresAt <= now
           )
           .map(({ id, appointmentId }) => ({ id, appointmentId }))

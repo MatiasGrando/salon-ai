@@ -2,7 +2,10 @@ import { prisma as defaultPrisma } from '../config/prisma.js'
 
 type PrismaClientLike = typeof defaultPrisma
 
-const ACTIVE_DEPOSIT_STATUSES = ['PENDING_PROOF', 'PROOF_RECEIVED'] as const
+const EXPIRABLE_DEPOSIT_STATUS = 'PENDING_PROOF' as const
+
+export const DEPOSIT_PROOF_RECEIVED_ACKNOWLEDGEMENT =
+  'Recibimos tu comprobante. El horario continúa reservado mientras el equipo verifica el pago. Te avisamos por acá cuando quede confirmado.'
 
 export class BookingDepositService {
   constructor(private readonly db: PrismaClientLike = defaultPrisma) {}
@@ -10,7 +13,7 @@ export class BookingDepositService {
   async expireOverdue(now = new Date()) {
     const overdue = await this.db.bookingDeposit.findMany({
       where: {
-        status: { in: [...ACTIVE_DEPOSIT_STATUSES] },
+        status: EXPIRABLE_DEPOSIT_STATUS,
         expiresAt: { lte: now }
       },
       select: {
@@ -26,7 +29,7 @@ export class BookingDepositService {
         const claimed = await tx.bookingDeposit.updateMany({
           where: {
             id: deposit.id,
-            status: { in: [...ACTIVE_DEPOSIT_STATUSES] },
+            status: EXPIRABLE_DEPOSIT_STATUS,
             expiresAt: { lte: now }
           },
           data: {

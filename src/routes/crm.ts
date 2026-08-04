@@ -911,8 +911,7 @@ export async function crmRoutes(app: FastifyInstance) {
       const claimed = await tx.bookingDeposit.updateMany({
         where: {
           id: deposit.id,
-          status: 'PROOF_RECEIVED',
-          expiresAt: { gt: reviewedAt }
+          status: 'PROOF_RECEIVED'
         },
         data: {
           status: 'APPROVED',
@@ -979,8 +978,7 @@ export async function crmRoutes(app: FastifyInstance) {
       const claimed = await tx.bookingDeposit.updateMany({
         where: {
           id: deposit.id,
-          status: { in: ['PENDING_PROOF', 'PROOF_RECEIVED'] },
-          expiresAt: { gt: reviewedAt }
+          status: { in: ['PENDING_PROOF', 'PROOF_RECEIVED'] }
         },
         data: {
           status: 'REJECTED',
