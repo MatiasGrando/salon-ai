@@ -12345,6 +12345,7 @@ const crmHtml = `<!doctype html>
             <strong id="detail-name">Seleccion&aacute; un cliente</strong>
             <span class="customer-type">Cliente</span>
             <a id="detail-phone" href="#">--</a>
+            <a id="detail-email" href="#" hidden>--</a>
           </div>
           <a class="customer-whatsapp" id="detail-whatsapp" href="#" title="Abrir en WhatsApp" aria-label="Abrir en WhatsApp" data-icon="whatsapp"></a>
         </div>
@@ -12723,6 +12724,10 @@ const crmHtml = `<!doctype html>
           <div class="customer-dialog-field" id="customer-phone-field" hidden>
             <label for="customer-dialog-phone">Tel&eacute;fono</label>
             <input id="customer-dialog-phone" autocomplete="tel" maxlength="40" placeholder="Ej: +54 9 11 4582-3106">
+          </div>
+          <div class="customer-dialog-field" id="customer-email-field" hidden>
+            <label for="customer-dialog-email">Correo electr&oacute;nico (opcional)</label>
+            <input id="customer-dialog-email" type="email" autocomplete="email" maxlength="254" placeholder="Ej: cliente@gmail.com">
           </div>
           <div class="customer-dialog-field" id="customer-note-field" hidden>
             <label for="customer-dialog-note">Nota</label>
@@ -15049,6 +15054,7 @@ const crmHtml = `<!doctype html>
       detailAvatar: document.getElementById('detail-avatar'),
       detailName: document.getElementById('detail-name'),
       detailPhone: document.getElementById('detail-phone'),
+      detailEmail: document.getElementById('detail-email'),
       detailWhatsapp: document.getElementById('detail-whatsapp'),
       detailStep: document.getElementById('detail-step'),
       detailMarketingStatus: document.getElementById('detail-marketing-status'),
@@ -15073,9 +15079,11 @@ const crmHtml = `<!doctype html>
       customerDialogFeedback: document.getElementById('customer-dialog-feedback'),
       customerNameField: document.getElementById('customer-name-field'),
       customerPhoneField: document.getElementById('customer-phone-field'),
+      customerEmailField: document.getElementById('customer-email-field'),
       customerNoteField: document.getElementById('customer-note-field'),
       customerDialogName: document.getElementById('customer-dialog-name'),
       customerDialogPhone: document.getElementById('customer-dialog-phone'),
+      customerDialogEmail: document.getElementById('customer-dialog-email'),
       customerDialogNote: document.getElementById('customer-dialog-note'),
       customerDeleteDialog: document.getElementById('customer-delete-dialog'),
       customerDeleteName: document.getElementById('customer-delete-name'),
@@ -16377,7 +16385,8 @@ const crmHtml = `<!doctype html>
           return '<tr class="' + (isSelected ? 'active' : '') + '" data-customer-id="' + customer.id + '">' +
             '<td><div class="customer-cell">' +
               '<div class="customer-list-avatar tone-' + avatarTone + '">' + escapeHtml(contactInitials(customer.name, customer.phone)) + '</div>' +
-              '<div class="customer-cell-copy"><strong>' + escapeHtml(customer.name) + '</strong><span>' + escapeHtml(formatCustomerPhone(customer.phone)) + '</span></div>' +
+              '<div class="customer-cell-copy"><strong>' + escapeHtml(customer.name) + '</strong><span>' + escapeHtml(formatCustomerPhone(customer.phone)) + '</span>' +
+                (customer.email ? '<span>' + escapeHtml(customer.email) + '</span>' : '') + '</div>' +
             '</div></td>' +
             '<td>' + escapeHtml(customer.lastVisit ? formatCustomerDate(customer.lastVisit) : '--') + '</td>' +
             '<td>' + escapeHtml(nextAppointment ? formatCustomerDateTime(nextAppointment.startAt) : '--') + '</td>' +
@@ -16487,6 +16496,7 @@ const crmHtml = `<!doctype html>
       return '<td class="customer-mobile-detail" colspan="6">' +
         '<div class="customer-mobile-actions">' +
           '<a class="customer-contact-action whatsapp" href="' + whatsappAppUrl(customer.phone) + '">' + icon('whatsapp') + 'WhatsApp</a>' +
+          (customer.email ? '<a class="customer-contact-action" href="mailto:' + escapeHtml(customer.email) + '">' + icon('mail') + 'Email</a>' : '') +
           '<button class="customer-contact-action" type="button" data-mobile-open-customer-conversation="' + customer.id + '" ' + (customer.conversation ? '' : 'disabled') + '>' + icon('mail') + 'CRM</button>' +
           '<button class="primary" type="button" data-mobile-schedule-customer="' + customer.id + '">' + icon('calendar') + 'Agendar turno</button>' +
           (canEditCustomer ? '<button class="secondary" type="button" data-mobile-edit-customer="' + customer.id + '">' + icon('edit') + 'Editar</button>' : '') +
@@ -16577,7 +16587,8 @@ const crmHtml = `<!doctype html>
       els.customerProfilePanel.innerHTML = '<div class="customer-profile-content">' +
         '<header class="customer-profile-head">' +
           '<div class="customer-profile-avatar tone-' + avatarTone + '">' + escapeHtml(contactInitials(customer.name, customer.phone)) + '</div>' +
-          '<div><h3>' + escapeHtml(customer.name) + '</h3><a href="tel:' + escapeHtml(customer.phone) + '">' + escapeHtml(formatCustomerPhone(customer.phone)) + '</a></div>' +
+          '<div><h3>' + escapeHtml(customer.name) + '</h3><a href="tel:' + escapeHtml(customer.phone) + '">' + escapeHtml(formatCustomerPhone(customer.phone)) + '</a>' +
+            (customer.email ? '<a href="mailto:' + escapeHtml(customer.email) + '">' + escapeHtml(customer.email) + '</a>' : '') + '</div>' +
           '<div class="customer-profile-actions">' +
             '<div class="customer-profile-contact-row">' +
               '<a class="customer-contact-action whatsapp" href="' + whatsappAppUrl(customer.phone) + '" title="Abrir WhatsApp" aria-label="Abrir WhatsApp">' + icon('whatsapp') + '</a>' +
@@ -17133,9 +17144,11 @@ const crmHtml = `<!doctype html>
         : isCreate ? 'Carga los datos basicos para agregarlo al salon.' : 'Actualiza los datos visibles de este cliente.'
       els.customerNameField.hidden = isNote
       els.customerPhoneField.hidden = isNote
+      els.customerEmailField.hidden = isNote
       els.customerNoteField.hidden = !isNote
       els.customerDialogName.value = customer?.name || ''
       els.customerDialogPhone.value = isCreate ? '' : customer?.phone || ''
+      els.customerDialogEmail.value = isCreate ? '' : customer?.email || ''
       els.customerDialogNote.value = ''
       els.customerDialogFeedback.textContent = ''
       els.customerDialogSubmit.textContent = isNote ? 'Guardar nota' : isCreate ? 'Crear cliente' : 'Guardar cambios'
@@ -17166,12 +17179,13 @@ const crmHtml = `<!doctype html>
       }
 
       const phone = els.customerDialogPhone.value.trim()
+      const email = els.customerDialogEmail.value.trim()
       if (!isNote && !phone) {
         els.customerDialogFeedback.textContent = 'El telefono es requerido.'
         return
       }
 
-      if (!isNote && !isCreate && value === customer.name && phone === customer.phone) {
+      if (!isNote && !isCreate && value === customer.name && phone === customer.phone && email === (customer.email || '')) {
         closeCustomerDialog()
         return
       }
@@ -17187,7 +17201,7 @@ const crmHtml = `<!doctype html>
           const created = await getJson('/customers', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: value, phone, businessId: state.businessId })
+            body: JSON.stringify({ name: value, phone, email, businessId: state.businessId })
           })
           state.customers = await getJson('/customers')
           state.selectedCustomerId = created.id
@@ -17206,7 +17220,7 @@ const crmHtml = `<!doctype html>
           const updated = await getJson('/customers/' + customer.id, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: value, phone, businessId: state.businessId })
+            body: JSON.stringify({ name: value, phone, email, businessId: state.businessId })
           })
           state.customers = state.customers.map((item) => item.id === updated.id ? updated : item)
           if (els.appShell.dataset.section === 'customers') await loadCustomerOverview()
@@ -17273,6 +17287,9 @@ const crmHtml = `<!doctype html>
       els.detailName.textContent = name
       els.detailPhone.textContent = selected.phone
       els.detailPhone.href = 'tel:' + selected.phone
+      els.detailEmail.textContent = customer?.email || ''
+      els.detailEmail.href = customer?.email ? 'mailto:' + customer.email : '#'
+      els.detailEmail.hidden = !customer?.email
       els.detailWhatsapp.href = whatsappAppUrl(selected.phone)
       els.detailStep.textContent = conversationStepLabel(selected.currentStep, selected.aiEnabled, selected)
       els.detailStep.className = conversationStepChipClass(selected.currentStep, selected.aiEnabled)

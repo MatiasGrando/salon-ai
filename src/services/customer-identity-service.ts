@@ -4,10 +4,12 @@ import { inferDefaultAreaCodeFromPhone, normalizeCustomerPhone, phoneSearchVaria
 
 export class CustomerPhoneValidationError extends Error {}
 export class CustomerPhoneConflictError extends Error {}
+export class CustomerEmailValidationError extends Error {}
 
 type FindOrCreateCustomerInput = {
   name: string
   phone: string
+  email?: string | null | undefined
   businessId?: string | null | undefined
   defaultAreaCode?: string | null | undefined
 }
@@ -16,6 +18,7 @@ export async function findOrCreateCustomerByPhone(input: FindOrCreateCustomerInp
   const name = input.name.trim()
   const defaultAreaCode = input.defaultAreaCode || await defaultAreaCodeForBusiness(input.businessId)
   const normalized = normalizeCustomerPhone(input.phone, { defaultAreaCode })
+  const email = normalizeCustomerEmail(input.email)
   if (!name) throw new CustomerPhoneValidationError('El nombre del cliente es requerido')
   if (!normalized.ok) throw new CustomerPhoneValidationError(normalized.message)
 
@@ -63,10 +66,14 @@ export async function findOrCreateCustomerByPhone(input: FindOrCreateCustomerInp
     customer = customer
       ? await transaction.customer.update({
           where: { id: customer.id },
-          data: { phone: canonicalPhone, normalizedPhone: canonicalPhone }
+          data: {
+            phone: canonicalPhone,
+            normalizedPhone: canonicalPhone,
+            ...(email && !customer.email ? { email } : {})
+          }
         })
       : await transaction.customer.create({
-          data: { name, phone: canonicalPhone, normalizedPhone: canonicalPhone }
+          data: { name, phone: canonicalPhone, normalizedPhone: canonicalPhone, email: email ?? null }
         })
 
     if (input.businessId) {
@@ -91,6 +98,7 @@ export async function updateCustomerIdentity(input: FindOrCreateCustomerInput & 
   const name = input.name.trim()
   const defaultAreaCode = input.defaultAreaCode || await defaultAreaCodeForBusiness(input.businessId)
   const normalized = normalizeCustomerPhone(input.phone, { defaultAreaCode })
+  const email = normalizeCustomerEmail(input.email)
   if (!name) throw new CustomerPhoneValidationError('El nombre del cliente es requerido')
   if (!normalized.ok) throw new CustomerPhoneValidationError(normalized.message)
 
@@ -130,9 +138,24 @@ export async function updateCustomerIdentity(input: FindOrCreateCustomerInput & 
 
     return transaction.customer.update({
       where: { id: input.customerId },
-      data: { name, phone: canonicalPhone, normalizedPhone: canonicalPhone }
+      data: {
+        name,
+        phone: canonicalPhone,
+        normalizedPhone: canonicalPhone,
+        ...(email !== undefined ? { email } : {})
+      }
     })
   })
+}
+
+export function normalizeCustomerEmail(value?: string | null) {
+  if (value === undefined) return undefined
+  const email = value?.trim().toLowerCase() || null
+  if (!email) return null
+  if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new CustomerEmailValidationError('Ingresa un correo electronico valido')
+  }
+  return email
 }
 
 export function customerNamesDiffer(existingName: string, requestedName: string) {

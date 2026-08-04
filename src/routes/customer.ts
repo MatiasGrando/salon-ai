@@ -1,6 +1,13 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
-import { CustomerPhoneConflictError, CustomerPhoneValidationError, findOrCreateCustomerByPhone, updateCustomerIdentity } from '../services/customer-identity-service.js'
+import {
+  CustomerEmailValidationError,
+  CustomerPhoneConflictError,
+  CustomerPhoneValidationError,
+  findOrCreateCustomerByPhone,
+  normalizeCustomerEmail,
+  updateCustomerIdentity
+} from '../services/customer-identity-service.js'
 import { normalizePhone } from '../services/phone-normalization-service.js'
 
 type CustomerOverviewAppointment = {
@@ -21,6 +28,7 @@ type CustomerOverviewSummary = {
   id: string
   name: string
   phone: string
+  email: string | null
   marketingStatus: string
   marketingSource: string
   createdAt: Date
@@ -78,7 +86,7 @@ export async function customerRoutes(app: FastifyInstance) {
             }
           : {})
       },
-      select: { id: true, name: true, phone: true },
+      select: { id: true, name: true, phone: true, email: true },
       orderBy: { createdAt: 'desc' },
       take
     })
@@ -132,6 +140,7 @@ export async function customerRoutes(app: FastifyInstance) {
         id: true,
         name: true,
         phone: true,
+        email: true,
         createdAt: true
       }
     })
@@ -235,6 +244,7 @@ export async function customerRoutes(app: FastifyInstance) {
         id: customer.id,
         name: customer.name,
         phone: customer.phone,
+        email: customer.email,
         marketingStatus: 'NOT_AUTHORIZED',
         marketingSource: 'DEFAULT',
         createdAt: customer.createdAt,
@@ -265,7 +275,9 @@ export async function customerRoutes(app: FastifyInstance) {
     const filtered = summaries
       .filter((customer) => {
         if (!search) return true
-        return customer.name.toLocaleLowerCase('es').includes(search) || normalizePhone(customer.phone).includes(normalizePhone(search))
+        return customer.name.toLocaleLowerCase('es').includes(search) ||
+          normalizePhone(customer.phone).includes(normalizePhone(search)) ||
+          customer.email?.toLocaleLowerCase('es').includes(search)
       })
       .filter((customer) => {
         if (status === 'new') return customer.isNew
@@ -370,6 +382,7 @@ export async function customerRoutes(app: FastifyInstance) {
     const body = request.body as {
       name: string
       phone: string
+      email?: string | null
       businessId?: string
     }
 
@@ -377,11 +390,14 @@ export async function customerRoutes(app: FastifyInstance) {
       const result = await findOrCreateCustomerByPhone({
         name: body.name || '',
         phone: body.phone || '',
+        email: body.email,
         businessId: body.businessId?.trim() || null
       })
       return { ...result.customer, wasExisting: result.wasExisting, nameConflict: result.nameConflict }
     } catch (error) {
-      if (error instanceof CustomerPhoneValidationError) return reply.status(400).send({ message: error.message })
+      if (error instanceof CustomerPhoneValidationError || error instanceof CustomerEmailValidationError) {
+        return reply.status(400).send({ message: error.message })
+      }
       throw error
     }
   })
@@ -417,7 +433,7 @@ export async function customerRoutes(app: FastifyInstance) {
 
   app.patch('/customers/:id', async (request, reply) => {
     const params = request.params as { id: string }
-    const body = request.body as { name?: string; phone?: string; businessId?: string }
+    const body = request.body as { name?: string; phone?: string; email?: string | null; businessId?: string }
     const name = body.name?.trim()
 
     if (!await canStaffAccessCustomer(request.auth?.user, params.id)) {
@@ -434,18 +450,30 @@ export async function customerRoutes(app: FastifyInstance) {
     }
 
     if (!body.phone?.trim()) {
-      return prisma.customer.update({ where: { id: params.id }, data: { name } })
+      try {
+        const email = normalizeCustomerEmail(body.email)
+        return prisma.customer.update({
+          where: { id: params.id },
+          data: { name, ...(email !== undefined ? { email } : {}) }
+        })
+      } catch (error) {
+        if (error instanceof CustomerEmailValidationError) return reply.status(400).send({ message: error.message })
+        throw error
+      }
     }
     try {
       return await updateCustomerIdentity({
         customerId: params.id,
         name,
         phone: body.phone,
+        email: body.email,
         businessId: body.businessId?.trim() || request.auth?.user.businessId || null
       })
     } catch (error) {
       if (error instanceof CustomerPhoneConflictError) return reply.status(409).send({ message: error.message })
-      if (error instanceof CustomerPhoneValidationError) return reply.status(400).send({ message: error.message })
+      if (error instanceof CustomerPhoneValidationError || error instanceof CustomerEmailValidationError) {
+        return reply.status(400).send({ message: error.message })
+      }
       throw error
     }
   })
@@ -454,7 +482,7 @@ export async function customerRoutes(app: FastifyInstance) {
     const params = request.params as { id: string }
     const customer = await prisma.customer.findUnique({
       where: { id: params.id },
-      select: { id: true, name: true, phone: true }
+      select: { id: true, name: true, phone: true, email: true }
     })
     if (!customer) {
       return reply.status(404).send({ message: 'No encontre ese cliente' })

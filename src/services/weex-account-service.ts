@@ -301,12 +301,17 @@ export async function updateWeexPhone(accountId: string, phoneInput: string, def
 export async function linkExistingCustomersByPhone(accountId: string, phone: string, defaultAreaCode?: string | null) {
   const normalizedPhone = normalizePhone(phone, { defaultAreaCode })
   const phoneVariants = phoneSearchVariants(phone, { defaultAreaCode })
+  const account = await prisma.weexAccount.findUnique({
+    where: { id: accountId },
+    select: { email: true, emailVerified: true }
+  })
   const appointments = await prisma.appointment.findMany({
     where: {
       customer: {
-        phone: {
-          in: phoneVariants
-        }
+        OR: [
+          { normalizedPhone },
+          { phone: { in: phoneVariants } }
+        ]
       }
     },
     select: {
@@ -345,6 +350,18 @@ export async function linkExistingCustomersByPhone(accountId: string, phone: str
         customerId: link.customerId,
         businessId: link.businessId,
         phone: normalizedPhone
+      }
+    })
+  }
+
+  if (account?.emailVerified && uniqueLinks.size) {
+    await prisma.customer.updateMany({
+      where: {
+        id: { in: [...new Set([...uniqueLinks.values()].map((link) => link.customerId))] },
+        email: null
+      },
+      data: {
+        email: account.email.trim().toLowerCase()
       }
     })
   }

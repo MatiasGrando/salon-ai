@@ -158,7 +158,8 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     const customer = await findOrCreatePublicCustomer({
       businessId: business.id,
       name: customerName,
-      phone: customerPhone
+      phone: customerPhone,
+      email: weexAuth?.account.emailVerified ? weexAuth.account.email : null
     })
     const result = await appointmentService.create({
       customerId: customer.id,
@@ -322,7 +323,12 @@ async function professionalsForService(businessId: string, serviceId: string, pr
   return links.map((link) => link.professional)
 }
 
-async function findOrCreatePublicCustomer(input: { businessId: string; name: string; phone: string }) {
+async function findOrCreatePublicCustomer(input: {
+  businessId: string
+  name: string
+  phone: string
+  email?: string | null
+}) {
   const result = await findOrCreateCustomerByPhone(input)
   return result.customer
 }
