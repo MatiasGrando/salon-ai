@@ -82,6 +82,18 @@ for (const [message, expected] of [
   assert.ok(result.confidence >= 0.65, message)
 }
 
+const changeProfessionalDecision = await choiceExtractor.extract({
+  message: 'quiero cambiar de profesional',
+  question: '¿El cliente quiere descartar el profesional elegido y volver a seleccionar quién lo atenderá?',
+  choices: [
+    { id: 'change_professional', meaning: 'Quiere cambiar o volver a elegir el profesional de esta reserva.' },
+    { id: 'keep_professional', meaning: 'No quiere cambiar el profesional; está haciendo otra consulta o respondiendo otra cosa.' }
+  ]
+})
+console.log(`CHANGE PROFESSIONAL | ${changeProfessionalDecision.choiceId} | ${changeProfessionalDecision.confidence.toFixed(2)}`)
+assert.equal(changeProfessionalDecision.choiceId, 'change_professional')
+assert.ok(changeProfessionalDecision.confidence >= 0.85)
+
 const navigationChoices = [
   { id: 'cancel_booking', meaning: 'Abandona la reserva en curso.' },
   { id: 'go_back', meaning: 'Vuelve al paso anterior de la reserva.' },

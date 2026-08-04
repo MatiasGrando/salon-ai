@@ -27,6 +27,7 @@ import {
   confirmProposal,
   nextMissingField,
   proposeField,
+  recordLowConfidence,
   rejectProposal,
   type BookingV2State
 } from './booking-v2-state.js'
@@ -528,6 +529,16 @@ export class BookingV2Engine {
       : input.understandingExtraction
 
     if (!rawExtraction) {
+      const expectedField = nextMissingField(stateForExtraction.draft)
+      if (expectedField !== 'confirmation') {
+        const state = recordLowConfidence(stateForExtraction)
+        return this.fromInterpretation({
+          state,
+          nextField: expectedField,
+          outcome: 'not_understood',
+          affectedField: expectedField
+        }, null, catalog)
+      }
       return this.fromInterpretation({
         state: stateForExtraction,
         nextField: nextMissingField(stateForExtraction.draft),
@@ -542,12 +553,23 @@ export class BookingV2Engine {
       stateForExtraction
     )
 
+    const interpretation = applyBookingV2Extraction(
+      stateForExtraction,
+      extraction,
+      this.domain.toInterpreterCatalog(catalog)
+    )
+    const expectedField = nextMissingField(stateForExtraction.draft)
+    const effectiveInterpretation = interpretation.outcome === 'no_change' && expectedField !== 'confirmation'
+      ? {
+          state: recordLowConfidence(interpretation.state),
+          nextField: expectedField,
+          outcome: 'not_understood' as const,
+          affectedField: expectedField
+        }
+      : interpretation
+
     return this.fromInterpretation(
-      applyBookingV2Extraction(
-        stateForExtraction,
-        extraction,
-        this.domain.toInterpreterCatalog(catalog)
-      ),
+      effectiveInterpretation,
       extraction,
       catalog
     )
@@ -1227,6 +1249,9 @@ function isProbableProfessionalNickname(candidate: string, professionalName: str
   if (!candidate || candidate.includes(' ')) return false
   const firstName = normalize(professionalName).split(' ')[0] ?? ''
   if (candidate.length < 4 || firstName.length < 4 || candidate === firstName) return false
+
+  // Errores de tipeo inequívocos: Lcas -> Lucas, Tamra -> Tamara.
+  if (editDistanceAtMostOne(candidate, firstName)) return true
 
   // Truncamientos frecuentes: Nico -> Nicolas, Cami -> Camila.
   if (firstName.startsWith(candidate)) return true

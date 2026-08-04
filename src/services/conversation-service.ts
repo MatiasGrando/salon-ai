@@ -1006,6 +1006,50 @@ export class ConversationService {
         skipHumanize: true
       }
     }
+
+    const professionalChangeMode = professionalChangeRoutingMode({
+      message: input.message,
+      currentStep: input.conversation.currentStep,
+      hasSelectedProfessional: Boolean(input.conversation.selectedProfessionalId),
+      routing: input.routing
+    })
+    let shouldChangeProfessional = professionalChangeMode === 'confirmed'
+    if (professionalChangeMode === 'verify') {
+      const decision = await bookingV2ChoiceExtractor.extract({
+        message: input.message,
+        question: '¿El cliente quiere descartar el profesional elegido y volver a seleccionar quién lo atenderá?',
+        choices: [
+          { id: 'change_professional', meaning: 'Quiere cambiar o volver a elegir el profesional de esta reserva.' },
+          { id: 'keep_professional', meaning: 'No quiere cambiar el profesional; está haciendo otra consulta o respondiendo otra cosa.' }
+        ]
+      })
+      shouldChangeProfessional = decision.choiceId === 'change_professional' && decision.confidence >= 0.85
+    }
+    if (shouldChangeProfessional) {
+      const changedState = clearBookingV2StateFromField(
+        stateFromConversation(input.conversation),
+        'professional'
+      )
+      const resumed = await bookingV2Engine.resume({
+        businessId: input.businessId,
+        conversation: conversationPatchFromState(changedState)
+      })
+      await this.updateConversation(input.phone, input.businessId, {
+        currentStep: conversationStepFromBookingV2Plan(resumed.plan),
+        ...resumed.conversationPatch,
+        misunderstandingCount: 0,
+        lastAvailability: null
+      })
+      return {
+        reply: applyAssistantPersonalityToReply(
+          `Dale, cambiamos el profesional.\n\n${resumed.reply}`,
+          assistantPersonality
+        ),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+
     const bookingConfirmationChoice = input.conversation.currentStep === 'CONFIRM'
       ? await bookingV2ChoiceExtractor.extract({
           message: input.message,
@@ -1330,17 +1374,57 @@ export class ConversationService {
       customerName: result.state.draft.name,
       personality: assistantPersonality
     })
+    const needsRecoveryButtons = result.plan.type === 'ask_field' &&
+      result.plan.reason === 'not_understood' &&
+      result.state.misunderstandingCount >= 2
+    const replyButtons = needsRecoveryButtons
+      ? await this.bookingV2MisunderstandingButtons({
+          businessId: input.businessId,
+          conversationId: input.conversation.id,
+          field: result.plan.type === 'ask_field' ? result.plan.field : null,
+          serviceId: result.state.draft.service
+        })
+      : null
     return {
       reply: composedReply,
       messages: splitWhatsAppReply(composedReply),
-      ...(result.plan.type === 'ask_field' &&
-        result.plan.reason === 'not_understood' &&
-        result.state.misunderstandingCount >= 2
-        ? { replyButtons: recoveryDecisionButtons(input.conversation.id) }
-        : {}),
+      ...(replyButtons ? { replyButtons } : {}),
       skipMisunderstandingTracking: true,
       skipHumanize: true
     }
+  }
+
+  private async bookingV2MisunderstandingButtons(input: {
+    businessId: string
+    conversationId: string
+    field: string | null
+    serviceId: string | null
+  }) {
+    if (input.field !== 'professional') {
+      return recoveryDecisionButtons(input.conversationId)
+    }
+
+    const professionals = await prisma.professional.findMany({
+      where: {
+        businessId: input.businessId,
+        isActive: true,
+        ...(input.serviceId
+          ? { serviceLinks: { some: { serviceId: input.serviceId } } }
+          : {})
+      },
+      select: { id: true, name: true },
+      orderBy: [{ createdAt: 'asc' }, { name: 'asc' }],
+      take: 2
+    })
+    const buttons = professionals.map((professional) => ({
+      id: `professional:${input.conversationId}:${professional.id}`,
+      title: professional.name.trim().slice(0, 20)
+    }))
+    buttons.push({
+      id: `professional:${input.conversationId}:any`,
+      title: 'Sin preferencia'
+    })
+    return buttons.slice(0, 3)
   }
 
   private async composeBookingV2Reply(input: {
@@ -2332,6 +2416,41 @@ export function shouldShowBookingV2IntentFallback(
   return routing.intents.length === 0 || routing.intents.every((intent) =>
     ['unknown', 'social_message'].includes(intent.type)
   )
+}
+
+export function professionalChangeRoutingMode(input: {
+  message: string
+  currentStep: string
+  hasSelectedProfessional: boolean
+  routing: ConversationRouting
+}): 'confirmed' | 'verify' | null {
+  if (
+    !input.hasSelectedProfessional ||
+    !['ASK_DATE', 'ASK_TIME'].includes(input.currentStep)
+  ) {
+    return null
+  }
+
+  const correction = input.routing.bookingExtraction?.correction
+  const groundedCorrectionEvidence = correction?.evidence.trim()
+    ? normalizeText(input.message).includes(normalizeText(correction.evidence))
+    : false
+  if (
+    correction?.field === 'professional' &&
+    correction.confidence >= 0.65 &&
+    groundedCorrectionEvidence
+  ) {
+    return 'confirmed'
+  }
+
+  const selectsConcreteProfessional = Boolean(
+    input.routing.bookingExtraction?.professional.value &&
+    input.routing.bookingExtraction.professional.confidence >= 0.55
+  )
+  const professionalIntent = input.routing.intents.some((intent) =>
+    intent.type === 'professional_preference' && intent.confidence >= 0.65
+  )
+  return professionalIntent && !selectsConcreteProfessional ? 'verify' : null
 }
 
 export function withBusinessInformationFollowUp(informationReply: string) {

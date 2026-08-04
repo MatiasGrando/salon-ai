@@ -10,6 +10,7 @@ import {
 import {
   businessInformationNeedsHuman,
   formatProfessionalWorkingHours,
+  professionalChangeRoutingMode,
   recoveryActionFromInteractiveReply,
   recoveryDecisionButtons
 } from '../src/services/conversation-service.js'
@@ -131,6 +132,45 @@ const otherQuery = normalizeConversationRouting({
 })
 assert.equal(otherQuery.intents[0]?.type, 'other_query')
 
+const changeProfessionalRouting = normalizeConversationRouting({
+  intents: [{ type: 'professional_preference', topic: null, confidence: 0.94, evidence: 'cambiar de profesional' }],
+  bookingMessage: 'quiero cambiar de profesional',
+  bookingExtraction: extraction({
+    correction: {
+      field: 'professional',
+      newValue: null,
+      confidence: 0.96,
+      evidence: 'cambiar de profesional'
+    }
+  }),
+  catalogQuery: null
+})
+assert.equal(professionalChangeRoutingMode({
+  message: 'quiero cambiar de profesional',
+  currentStep: 'ASK_DATE',
+  hasSelectedProfessional: true,
+  routing: { ...changeProfessionalRouting, source: 'ai' }
+}), 'confirmed')
+assert.equal(professionalChangeRoutingMode({
+  message: 'quiero cambiar de profesional',
+  currentStep: 'ASK_PROFESSIONAL',
+  hasSelectedProfessional: false,
+  routing: { ...changeProfessionalRouting, source: 'ai' }
+}), null)
+
+const genericProfessionalChange = normalizeConversationRouting({
+  intents: [{ type: 'professional_preference', topic: null, confidence: 0.9, evidence: 'otra persona' }],
+  bookingMessage: 'prefiero que me atienda otra persona',
+  bookingExtraction: extraction(),
+  catalogQuery: null
+})
+assert.equal(professionalChangeRoutingMode({
+  message: 'prefiero que me atienda otra persona',
+  currentStep: 'ASK_TIME',
+  hasSelectedProfessional: true,
+  routing: { ...genericProfessionalChange, source: 'ai' }
+}), 'verify')
+
 const serviceDetail = applyContextualRoutingPriorities(normalizeConversationRouting({
   intents: [{ type: 'service_detail', topic: null, confidence: 0.94, evidence: 'me lavan el cabello' }],
   bookingMessage: 'me lavan el cabello',
@@ -201,6 +241,7 @@ const serviceSource = await readFile(new URL('../src/services/conversation-servi
 assert.match(serviceSource, /misunderstandingCount >= 3/)
 assert.match(serviceSource, /recoveryDecisionButtons/)
 assert.match(serviceSource, /professionalScheduleReply/)
+assert.match(serviceSource, /bookingV2MisunderstandingButtons/)
 const routerSource = await readFile(new URL('../src/services/conversation-router.ts', import.meta.url), 'utf8')
 for (const phrase of ['qué horarios tiene Tamara', 'sede, sucursal, barrio', 'agenden o reserven esta semana']) {
   assert.equal(routerSource.includes(phrase), true, phrase)

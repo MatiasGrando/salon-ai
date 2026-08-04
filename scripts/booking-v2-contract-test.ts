@@ -840,6 +840,86 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'propone profesional ante typo de una letra sin entrar en loop',
+    run: async () => {
+      const typoCatalog = createBookingV2DomainCatalog({
+        services: [{
+          id: 'haircut',
+          name: 'Corte',
+          aliases: ['corte'],
+          duration: 30,
+          price: 15000,
+          category: null
+        }],
+        professionals: [
+          { id: 'lucas', name: 'Lucas', serviceIds: ['haircut'] },
+          { id: 'tamara', name: 'Tamara', serviceIds: ['haircut'] }
+        ]
+      })
+      const engine = new BookingV2Engine(
+        fakeDomainPort({ catalog: typoCatalog }),
+        fakeExtractor(null)
+      )
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Mati',
+          selectedServiceId: 'haircut',
+          selectedProfessionalId: null,
+          selectedDate: null,
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: 'con lcas'
+      })
+
+      assert.equal(result.state.pendingProposal?.field, 'professional')
+      assert.equal(result.state.pendingProposal?.value, 'lucas')
+      assert.equal(result.plan.type, 'confirm_field')
+      assert.match(result.reply, /agendo con Lucas/i)
+    }
+  },
+  {
+    name: 'cuenta falta de avance y deriva al tercer intento desconocido',
+    run: async () => {
+      const engine = new BookingV2Engine(fakeDomainPort(), fakeExtractor(null))
+      let conversation = {
+        selectedCustomerName: 'Mati',
+        selectedServiceId: 'haircut',
+        selectedProfessionalId: null,
+        selectedDate: null,
+        selectedTime: null,
+        misunderstandingCount: 0,
+        bookingV2State: null as unknown
+      }
+
+      const first = await engine.process({
+        businessId: 'business-1',
+        conversation,
+        message: 'con zzz'
+      })
+      assert.equal(first.outcome, 'not_understood')
+      assert.equal(first.state.misunderstandingCount, 1)
+
+      const second = await engine.process({
+        businessId: 'business-1',
+        conversation: first.conversationPatch,
+        message: 'con zzz'
+      })
+      assert.equal(second.state.misunderstandingCount, 2)
+      assert.equal(second.plan.type, 'ask_field')
+
+      const third = await engine.process({
+        businessId: 'business-1',
+        conversation: second.conversationPatch,
+        message: 'con zzz'
+      })
+      assert.equal(third.state.misunderstandingCount, 3)
+      assert.deepEqual(third.plan, { type: 'handoff', reason: 'repeated_misunderstanding' })
+    }
+  },
+  {
     name: 'propone profesional ante diminutivo espanol',
     run: async () => {
       const nicknameCatalog = createBookingV2DomainCatalog({

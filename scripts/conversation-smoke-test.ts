@@ -60,6 +60,12 @@ async function main() {
   }
 
   const secondProfessional = business.professionals[1] ?? professional
+  const typoProfessional = business.professionals.find((item) =>
+    item.name.toLocaleLowerCase('es').startsWith('lucas')
+  ) ?? professional
+  const typoProfessionalName = typoProfessional.name.length >= 5
+    ? `${typoProfessional.name[0]}${typoProfessional.name.slice(2)}`
+    : `${typoProfessional.name}x`
 
   const scenarios: Scenario[] = [
     {
@@ -1001,6 +1007,50 @@ async function main() {
           excludes: ['Horarios disponibles', 'confirmo', 'Fecha:', 'Horario:']
         }
       ]
+    },
+    {
+      name: 'typo de profesional propone la coincidencia y no repite la lista',
+      phone: `${testPhonePrefix}professional-one-letter-typo`,
+      setup: async () => {
+        await prisma.conversation.create({
+          data: {
+            phone: `${testPhonePrefix}professional-one-letter-typo`,
+            businessId: business.id,
+            currentStep: 'ASK_PROFESSIONAL',
+            aiEnabled: true,
+            selectedCustomerName: 'Mati QA',
+            selectedServiceId: service.id
+          }
+        })
+      },
+      steps: [{
+        message: `con ${typoProfessionalName}`,
+        includes: [typoProfessional.name, 'agendo'],
+        excludes: ['¿Con quién preferís?']
+      }]
+    },
+    {
+      name: 'cambiar profesional desde la fecha vuelve a elegir sin loop',
+      phone: `${testPhonePrefix}change-professional-from-date`,
+      setup: async () => {
+        await prisma.conversation.create({
+          data: {
+            phone: `${testPhonePrefix}change-professional-from-date`,
+            businessId: business.id,
+            currentStep: 'ASK_DATE',
+            aiEnabled: true,
+            selectedCustomerName: 'Mati QA',
+            selectedServiceId: service.id,
+            selectedProfessionalId: professional.id
+          }
+        })
+      },
+      steps: [{
+        message: 'quiero cambiar de profesional',
+        includes: ['cambiamos el profesional', '¿Con quién preferís?'],
+        excludes: ['¿Qué día te gustaría venir?'],
+        currentStep: 'ASK_PROFESSIONAL'
+      }]
     },
     {
       name: 'reset total tiene prioridad y sale por completo de una reserva activa',
