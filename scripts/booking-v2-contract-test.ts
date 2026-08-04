@@ -50,6 +50,7 @@ import {
   freshBookingV2State,
   isBookingV2ConversationClosing,
   isBookingV2GreetingOnlyMessage,
+  isBookingV2InitialGreeting,
   isPostBookingWellbeingQuestion,
   mergeBookingV2AgendaFromRouting,
   pendingRequestFromRouting,
@@ -3757,6 +3758,9 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(isBookingV2GreetingOnlyMessage('hola como estas?'), true)
       assert.equal(isBookingV2GreetingOnlyMessage('Hola, hasta que hora estan abiertos?'), false)
       assert.equal(isBookingV2GreetingOnlyMessage('hola quiero reservar'), false)
+      assert.equal(isBookingV2InitialGreeting('START', 'Hola'), true)
+      assert.equal(isBookingV2InitialGreeting('ASK_SERVICE', 'Hola'), false)
+      assert.equal(isBookingV2InitialGreeting('START', 'Hola, hasta que hora estan abiertos?'), false)
     }
   },
   {
@@ -4220,6 +4224,40 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       )
       assert.equal(merged.catalogQuery?.serviceId, 'treatment')
       assert.equal(merged.bookingMessage, null)
+    }
+  },
+  {
+    name: 'detalle informativo resuelve el servicio nombrado aunque no haya una reserva activa',
+    run: () => {
+      const catalog = {
+        services: [
+          { id: 'mentoring', name: 'SESIÓN DE MENTORÍA', description: 'Mentoría personalizada.' },
+          { id: 'massage', name: 'Sesión de masaje', description: 'Masaje corporal.' }
+        ],
+        professionals: []
+      }
+      for (const [message, expectedServiceId] of [
+        ['Me das más información sobre mentorias', 'mentoring'],
+        ['Mentorias', 'mentoring'],
+        ['SESIÓN DE MENTORIA', 'mentoring'],
+        ['Masaje', 'massage']
+      ] as const) {
+        const merged = mergeConversationRouting({
+          intents: [{
+            type: 'service_detail',
+            topic: null,
+            confidence: 0.95,
+            evidence: message
+          }],
+          bookingMessage: null,
+          bookingExtraction: null,
+          catalogQuery: null
+        }, deterministicConversationRouting(message), message, catalog)
+
+        assert.equal(merged.catalogQuery?.serviceId, expectedServiceId)
+        assert.deepEqual(merged.catalogQuery?.requestedInformation, ['general'])
+        assert.equal(merged.bookingMessage, null)
+      }
     }
   },
   {

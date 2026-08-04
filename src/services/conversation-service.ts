@@ -415,6 +415,25 @@ export class ConversationService {
       }
     }
 
+    // Un saludo puro al inicio no necesita interpretacion semantica. Resolverlo
+    // antes del router evita que una clasificacion probabilistica lo convierta
+    // por error en una consulta de horarios u otra informacion del negocio.
+    if (
+      bookingV2Enabled &&
+      businessId &&
+      isBookingV2InitialGreeting(conversation.currentStep, message)
+    ) {
+      const personality = await getBusinessAssistantPersonality(businessId)
+      return {
+        reply: applyAssistantPersonalityToReply(
+          botCopyService.welcome(),
+          personality
+        ),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+
     const bookingV2Routing = bookingV2Enabled && businessId
       ? await conversationRouter.route(await conversationRouterContextService.load({
           businessId,
@@ -985,16 +1004,25 @@ export class ConversationService {
       !isGroundedUnsupportedServiceRequest(input.message, input.routing)
     )
     if (serviceDetailIntent) {
-      const serviceId = input.conversation.selectedServiceId
-      const detailReply = serviceId
+      const explicitServiceId = input.routing.catalogQuery?.serviceId ??
+        input.routing.bookingExtraction?.service.value ??
+        input.conversation.selectedServiceId
+      const detailCatalogQuery = input.routing.catalogQuery ?? (explicitServiceId
+        ? {
+            serviceId: explicitServiceId,
+            candidateServiceIds: [explicitServiceId],
+            requestedInformation: ['general'] as const,
+            confidence: serviceDetailIntent.confidence,
+            evidence: serviceDetailIntent.evidence
+          }
+        : null)
+      const detailReply = detailCatalogQuery
         ? await businessKnowledgeService.answer({
             businessId: input.businessId,
             topics: ['services'],
             catalogQuery: {
-              serviceId,
+              ...detailCatalogQuery,
               requestedInformation: ['general'],
-              confidence: serviceDetailIntent.confidence,
-              evidence: serviceDetailIntent.evidence
             }
           })
         : 'Entendí que querés conocer el proceso de un servicio. ¿Sobre cuál querés consultar?'
@@ -1345,21 +1373,6 @@ export class ConversationService {
         ...(businessInformationNeedsHuman(informationReply)
           ? { replyButtons: recoveryDecisionButtons(input.conversation.id) }
           : {}),
-        skipMisunderstandingTracking: true,
-        skipHumanize: true
-      }
-    }
-
-    if (
-      input.conversation.currentStep === 'START' &&
-      !input.routing.bookingMessage &&
-      isBookingV2GreetingOnlyMessage(input.message)
-    ) {
-      return {
-        reply: applyAssistantPersonalityToReply(
-          botCopyService.welcome(),
-          assistantPersonality
-        ),
         skipMisunderstandingTracking: true,
         skipHumanize: true
       }
@@ -2527,6 +2540,10 @@ export function isBookingV2GreetingOnlyMessage(message: string) {
     'que tal',
     'todo bien'
   ].includes(normalizedMessage)
+}
+
+export function isBookingV2InitialGreeting(currentStep: string, message: string) {
+  return currentStep === 'START' && isBookingV2GreetingOnlyMessage(message)
 }
 
 export function isBookingV2ConversationClosing(

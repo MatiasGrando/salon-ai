@@ -474,9 +474,27 @@ export function mergeConversationRouting(
     originalMessage,
     catalog
   )
-  const catalogQuery = (deterministicCatalogQuery?.candidateServiceIds?.length ?? 0) > 1
+  let catalogQuery = (deterministicCatalogQuery?.candidateServiceIds?.length ?? 0) > 1
     ? deterministicCatalogQuery
     : aiCatalogQuery ?? deterministicCatalogQuery
+  const serviceDetailIntent = aiRouting.intents.find((intent) =>
+    intent.type === 'service_detail' && intent.confidence >= 0.65
+  )
+  if (!catalogQuery && serviceDetailIntent && catalog) {
+    const serviceMatches = resolveCatalogQueryServices(
+      normalizeEvidenceText(originalMessage),
+      catalog
+    )
+    if (serviceMatches.length) {
+      catalogQuery = {
+        serviceId: serviceMatches.length === 1 ? serviceMatches[0]?.id ?? null : null,
+        candidateServiceIds: serviceMatches.map((service) => service.id),
+        requestedInformation: ['general'],
+        confidence: serviceMatches.length === 1 ? 0.95 : 0.82,
+        evidence: originalMessage.trim()
+      }
+    }
+  }
   const deterministicTopics = new Set(businessInformationTopicsFromRouting(deterministic))
   const hasGroundedAiInformation = aiRouting.intents.some((intent) =>
     intent.type === 'business_information' &&
