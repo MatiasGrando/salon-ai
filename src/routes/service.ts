@@ -4,6 +4,8 @@ import { Prisma } from '../generated/prisma/client.js'
 import { serviceCanContinueToBooking } from '../services/booking-v2-deposit.js'
 import { normalizeCustomerDuration } from '../services/service-duration.js'
 
+const SERVICE_WRITE_TRANSACTION_TIMEOUT_MS = 15_000
+
 export async function serviceRoutes(app: FastifyInstance) {
   app.post('/service-categories', async (request, reply) => {
     const body = request.body as {
@@ -390,7 +392,7 @@ export async function serviceRoutes(app: FastifyInstance) {
         where: { id: created.id },
         include: serviceCatalogInclude
       })
-    })
+    }, { timeout: SERVICE_WRITE_TRANSACTION_TIMEOUT_MS })
   })
 
   app.get('/services', async (request) => {
@@ -755,7 +757,7 @@ export async function serviceRoutes(app: FastifyInstance) {
         },
         include: serviceCatalogInclude
       })
-    })
+    }, { timeout: SERVICE_WRITE_TRANSACTION_TIMEOUT_MS })
   })
 
   app.delete('/services/:id', async (request, reply) => {
