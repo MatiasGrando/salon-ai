@@ -887,8 +887,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       const result = await engine.process({
         businessId: 'business-1',
         conversation: null,
-        message: 'quiero un turno',
-        acceptMissingExpectedField: true
+        message: 'quiero un turno'
       })
 
       assert.equal(result.outcome, 'no_change')

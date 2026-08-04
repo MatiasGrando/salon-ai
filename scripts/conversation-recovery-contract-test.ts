@@ -11,6 +11,7 @@ import {
   businessInformationNeedsHuman,
   formatProfessionalWorkingHours,
   isGroundedUnsupportedServiceRequest,
+  looksLikeExpectedCustomerName,
   professionalChangeRoutingMode,
   recoveryActionFromInteractiveReply,
   recoveryDecisionButtons,
@@ -188,6 +189,11 @@ assert.equal(isGroundedUnsupportedServiceRequest('otra consulta', {
   ...unsupportedService,
   source: 'ai'
 }), false)
+
+assert.equal(looksLikeExpectedCustomerName('matias', 'ASK_CUSTOMER_NAME'), true)
+assert.equal(looksLikeExpectedCustomerName('María José', 'ASK_CUSTOMER_NAME'), true)
+assert.equal(looksLikeExpectedCustomerName('otra consulta', 'ASK_CUSTOMER_NAME'), false)
+assert.equal(looksLikeExpectedCustomerName('matias', 'ASK_SERVICE'), false)
 assert.equal(isGroundedUnsupportedServiceRequest('lavado de pelo', {
   ...unsupportedService,
   bookingExtraction: extraction({ service: field('illumination', 0.9, 'lavado de pelo') }),

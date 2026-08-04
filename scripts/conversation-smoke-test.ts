@@ -8,6 +8,7 @@ type Check = {
   replyButtonTitles?: string[]
   currentStep?: string
   customerName?: string
+  selectedCustomerName?: string
   resetStateCleared?: boolean
   misunderstandingCount?: number
 }
@@ -1045,13 +1046,23 @@ async function main() {
     {
       name: 'pedido de turno sin nombre pregunta el dato sin fingir incomprension',
       phone: `${testPhonePrefix}booking-without-name`,
-      steps: [{
-        message: 'quiero un turno',
-        includes: ['¿Me decís tu nombre?'],
-        excludes: ['no te entendí', 'No estoy segura'],
-        currentStep: 'ASK_CUSTOMER_NAME',
-        misunderstandingCount: 0
-      }]
+      steps: [
+        {
+          message: 'hola quería un turno',
+          includes: ['¿Me decís tu nombre?'],
+          excludes: ['no te entendí', 'No estoy segura'],
+          currentStep: 'ASK_CUSTOMER_NAME',
+          misunderstandingCount: 0
+        },
+        {
+          message: 'matias',
+          includes: ['servicios disponibles'],
+          excludes: ['no te entendí', 'No estoy segura'],
+          currentStep: 'ASK_SERVICE',
+          selectedCustomerName: 'Matias',
+          misunderstandingCount: 0
+        }
+      ]
     },
     {
       name: 'typo en quiero conserva turno y servicio sin mostrar todo el catalogo',
@@ -1369,6 +1380,7 @@ async function runScenario(scenario: Scenario) {
       assertReplyButtons(result.replyButtons, step)
       await assertConversationStep(scenario.phone, step)
       await assertCustomerName(scenario.phone, step)
+      await assertSelectedCustomerName(scenario.phone, step)
       await assertResetStateCleared(scenario.phone, step)
       await assertMisunderstandingCount(scenario.phone, step)
     }
@@ -1426,6 +1438,19 @@ async function assertCustomerName(phone: string, step: Step) {
 
   if (customer?.name !== step.customerName) {
     throw new Error(`Esperaba cliente ${step.customerName}, recibi ${customer?.name ?? 'sin cliente'}.`)
+  }
+}
+
+async function assertSelectedCustomerName(phone: string, step: Step) {
+  if (!step.selectedCustomerName) return
+  const conversation = await prisma.conversation.findFirst({
+    where: { phone },
+    select: { selectedCustomerName: true }
+  })
+  if (conversation?.selectedCustomerName !== step.selectedCustomerName) {
+    throw new Error(
+      `Esperaba nombre seleccionado ${step.selectedCustomerName}, recibí ${conversation?.selectedCustomerName ?? 'sin nombre'}.`
+    )
   }
 }
 

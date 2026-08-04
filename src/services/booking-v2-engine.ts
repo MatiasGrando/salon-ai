@@ -29,6 +29,7 @@ import {
   proposeField,
   recordLowConfidence,
   rejectProposal,
+  type BookingField,
   type BookingV2State
 } from './booking-v2-state.js'
 import {
@@ -81,7 +82,6 @@ export type BookingV2ProcessInput = {
   message: string
   currentDate?: Date
   understandingExtraction?: BookingV2Extraction | null
-  acceptMissingExpectedField?: boolean
 }
 
 export type BookingV2ProcessResult = {
@@ -531,7 +531,7 @@ export class BookingV2Engine {
 
     if (!rawExtraction) {
       const expectedField = nextMissingField(stateForExtraction.draft)
-      if (expectedField !== 'confirmation' && !input.acceptMissingExpectedField) {
+      if (shouldCountFailedProfessionalSelection(input.message, expectedField)) {
         const state = recordLowConfidence(stateForExtraction)
         return this.fromInterpretation({
           state,
@@ -561,8 +561,7 @@ export class BookingV2Engine {
     )
     const expectedField = nextMissingField(stateForExtraction.draft)
     const effectiveInterpretation = interpretation.outcome === 'no_change' &&
-      expectedField !== 'confirmation' &&
-      !input.acceptMissingExpectedField
+      shouldCountFailedProfessionalSelection(input.message, expectedField)
       ? {
           state: recordLowConfidence(interpretation.state),
           nextField: expectedField,
@@ -1036,6 +1035,12 @@ function normalize(value: string) {
     .replace(/\p{Diacritic}/gu, '')
     .replace(/[^\p{Letter}\p{Number}\s]/gu, '')
     .replace(/\s+/g, ' ')
+}
+
+function shouldCountFailedProfessionalSelection(message: string, expectedField: BookingField | 'confirmation') {
+  if (expectedField !== 'professional') return false
+  const normalizedMessage = normalize(message)
+  return /^(?:con|con la|con el|prefiero|quiero con|elijo a)\s+\S+/.test(normalizedMessage)
 }
 
 function resolveExpectedName(

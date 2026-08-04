@@ -1025,7 +1025,11 @@ export class ConversationService {
     if (
       routedOtherQueryConfidence >= 0.4 &&
       !input.routing.bookingMessage &&
-      informationTopics.length === 0
+      informationTopics.length === 0 &&
+      !looksLikeExpectedCustomerName(
+        input.message,
+        input.conversation.currentStep
+      )
     ) {
       const decision = await bookingV2ChoiceExtractor.extract({
         message: input.message,
@@ -1367,15 +1371,7 @@ export class ConversationService {
         : input.routing.bookingMessage ?? input.message,
       ...(input.routing.bookingExtraction
         ? { understandingExtraction: input.routing.bookingExtraction }
-        : {}),
-      acceptMissingExpectedField: ['START', 'ASK_CUSTOMER_NAME'].includes(input.conversation.currentStep) &&
-        Boolean(input.routing.bookingMessage) &&
-        input.routing.intents.some((intent) => [
-          'book_appointment',
-          'availability_preference',
-          'professional_preference',
-          'request_quote'
-        ].includes(intent.type) && intent.confidence >= 0.65)
+        : {})
     })
 
     if (!result.state.draft.name && pendingRequest) {
@@ -3012,6 +3008,27 @@ export function isPostBookingWellbeingQuestion(message: string) {
     'como va',
     'todo bien'
   ].includes(normalizedMessage)
+}
+
+export function looksLikeExpectedCustomerName(message: string, currentStep: string) {
+  if (currentStep !== 'ASK_CUSTOMER_NAME') return false
+  const candidate = message.trim().replace(/\s+/g, ' ')
+  if (
+    candidate.length < 2 ||
+    candidate.length > 60 ||
+    !/^\p{Letter}+(?:[ '-]\p{Letter}+){0,2}$/u.test(candidate)
+  ) {
+    return false
+  }
+
+  const normalized = normalizeText(candidate)
+  const rejected = new Set([
+    'cancelar', 'consulta', 'direccion', 'equipo', 'gracias', 'hola',
+    'horario', 'horarios', 'precio', 'profesional', 'profesionales',
+    'reservar', 'reserva', 'servicio', 'servicios', 'turno', 'volver'
+  ])
+  return !normalized.split(' ').some((token) => rejected.has(token)) &&
+    !['no', 'si', 'no se', 'otra consulta', 'por favor'].includes(normalized)
 }
 
 function formatDate(date: Date) {
