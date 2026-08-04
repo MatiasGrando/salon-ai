@@ -22,6 +22,7 @@
     "test:appointment-payload": "tsx scripts/appointment-payload-contract-test.ts",
     "test:staff-secretary": "tsx scripts/staff-secretary-contract-test.ts",
     "test:customer-phone-identity": "tsx scripts/customer-phone-identity-contract-test.ts",
+    "test:customer-phone-identity:live": "tsx scripts/customer-phone-lock-live-test.ts",
     "test:conversation": "tsx scripts/conversation-smoke-test.ts",
     "test:instagram-hybrid": "tsx scripts/instagram-hybrid-contract-test.ts",
     "test:forja-salon": "tsx scripts/forja-salon-eval-contract-test.ts",

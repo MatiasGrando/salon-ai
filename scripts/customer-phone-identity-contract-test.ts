@@ -58,6 +58,8 @@ assert.notEqual(anotherAreaCode.id, first.id, 'dos números nacionales con disti
 
 const service = readFileSync(new URL('../src/services/customer-identity-service.ts', import.meta.url), 'utf8')
 assert.ok(service.includes('pg_advisory_xact_lock'), 'las altas concurrentes deben serializarse por teléfono')
+assert.equal(service.includes('SELECT pg_advisory_xact_lock'), false, 'Prisma no debe intentar deserializar el valor void del bloqueo')
+assert.equal((service.match(/SELECT 1 AS "locked"/g) || []).length, 2, 'creación y edición deben devolver un entero compatible desde el bloqueo')
 assert.ok(service.includes('normalizedPhone: canonicalPhone'), 'la identidad canónica debe persistirse')
 assert.ok(service.includes('customerMarketingPreference.upsert'), 'reutilizar un cliente debe conservar la preferencia del negocio')
 assert.ok(service.includes('defaultAreaCodeForBusiness'), 'los números locales deben usar la característica del local')

@@ -30,7 +30,10 @@ export async function findOrCreateCustomerByPhone(input: FindOrCreateCustomerInp
   ].filter(Boolean))]
 
   return prisma.$transaction(async (transaction) => {
-    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${canonicalPhone}))`
+    await transaction.$queryRaw<Array<{ locked: number }>>`
+      SELECT 1 AS "locked"
+      FROM pg_advisory_xact_lock(hashtext(${canonicalPhone}))
+    `
 
     let customer = await transaction.customer.findFirst({
       where: {
@@ -96,7 +99,10 @@ export async function updateCustomerIdentity(input: FindOrCreateCustomerInput & 
   const literalVariants = [...new Set([input.phone.trim(), canonicalPhone, `+${canonicalPhone}`, normalized.display, ...digitVariants].filter(Boolean))]
 
   return prisma.$transaction(async (transaction) => {
-    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${canonicalPhone}))`
+    await transaction.$queryRaw<Array<{ locked: number }>>`
+      SELECT 1 AS "locked"
+      FROM pg_advisory_xact_lock(hashtext(${canonicalPhone}))
+    `
     const current = await transaction.customer.findUnique({ where: { id: input.customerId } })
     if (!current) throw new CustomerPhoneValidationError('No encontre ese cliente')
 
