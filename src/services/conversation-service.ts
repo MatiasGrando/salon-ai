@@ -144,9 +144,11 @@ export class ConversationService {
       : 'active'
     const storedBookingState = existingConversation ? stateFromConversation(existingConversation) : null
     const hasPendingContextDecision = Boolean(storedBookingState?.contextPause)
+    const hardResetRequested = isHardResetMessage(message)
     let contextAction: 'continue' | 'new' | 'handoff' | 'unclear' | null = null
 
     if (
+      !hardResetRequested &&
       existingConversation &&
       bookingV2Enabled &&
       businessId &&
@@ -333,6 +335,37 @@ export class ConversationService {
       }
     }
 
+    // El reinicio total es una orden de sistema y debe resolverse antes del
+    // router semantico. De otro modo puede interpretarse como restart_booking,
+    // conservar el nombre y abrir inmediatamente otra reserva.
+    if (hardResetRequested) {
+      await this.updateConversation(input.phone, businessId, {
+        currentStep: bookingV2Enabled ? 'START' : 'ASK_CUSTOMER_NAME',
+        aiEnabled: true,
+        selectedServiceId: null,
+        selectedProfessionalId: null,
+        selectedDate: null,
+        selectedTime: null,
+        selectedCustomerName: null,
+        misunderstandingCount: 0,
+        lastAvailability: null,
+        bookingV2State: null,
+        humanHandoffAt: null,
+        humanHandoffResolvedAt: null,
+        photoQuoteAcknowledgedAt: null
+      })
+
+      const resetReply = bookingV2Enabled
+        ? botCopyService.welcome()
+        : botCopyService.askInitialName()
+      if (!bookingV2Enabled || !businessId) return { reply: resetReply }
+      const personality = await getBusinessAssistantPersonality(businessId)
+      return {
+        reply: applyAssistantPersonalityToReply(resetReply, personality),
+        skipHumanize: true
+      }
+    }
+
     const bookingV2Routing = bookingV2Enabled && businessId
       ? await conversationRouter.route(await conversationRouterContextService.load({
           businessId,
@@ -385,30 +418,6 @@ export class ConversationService {
       })
 
       return this.buildMyAppointmentsReply(input.phone, businessId, botCopyService.editAppointmentIntro())
-    }
-
-    if (isHardResetMessage(message)) {
-      await this.updateConversation(input.phone, businessId, {
-        currentStep: bookingV2Enabled ? 'START' : 'ASK_CUSTOMER_NAME',
-        selectedServiceId: null,
-        selectedProfessionalId: null,
-        selectedDate: null,
-        selectedTime: null,
-        selectedCustomerName: null,
-        misunderstandingCount: 0,
-        lastAvailability: null,
-        bookingV2State: null
-      })
-
-      const resetReply = bookingV2Enabled
-        ? botCopyService.welcome()
-        : botCopyService.askInitialName()
-      if (!bookingV2Enabled || !businessId) return { reply: resetReply }
-      const personality = await getBusinessAssistantPersonality(businessId)
-      return {
-        reply: applyAssistantPersonalityToReply(resetReply, personality),
-        skipHumanize: true
-      }
     }
 
     if (isResetMessage(message)) {

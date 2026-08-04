@@ -7,6 +7,7 @@ type Check = {
   excludes?: string[]
   currentStep?: string
   customerName?: string
+  resetStateCleared?: boolean
 }
 
 type Step = Check & {
@@ -1002,6 +1003,48 @@ async function main() {
       ]
     },
     {
+      name: 'reset total tiene prioridad y sale por completo de una reserva activa',
+      phone: `${testPhonePrefix}hard-reset-priority`,
+      setup: async () => {
+        await prisma.conversation.create({
+          data: {
+            phone: `${testPhonePrefix}hard-reset-priority`,
+            businessId: business.id,
+            currentStep: 'ASK_DATE',
+            aiEnabled: true,
+            selectedCustomerName: 'Mati QA',
+            selectedServiceId: service.id,
+            selectedProfessionalId: professional.id,
+            selectedDate: '2026-08-10',
+            selectedTime: '14:00',
+            misunderstandingCount: 2,
+            lastAvailability: { options: ['14:00'] },
+            bookingV2State: {
+              version: 2,
+              draft: {
+                name: 'Mati QA',
+                service: service.id,
+                professional: professional.id,
+                date: '2026-08-10',
+                time: '14:00'
+              }
+            },
+            humanHandoffAt: new Date(),
+            photoQuoteAcknowledgedAt: new Date()
+          }
+        })
+      },
+      steps: [
+        {
+          message: 'reset total',
+          includes: ['Cami', 'ayudar'],
+          excludes: ['empezamos una nueva reserva', service.name],
+          currentStep: 'START',
+          resetStateCleared: true
+        }
+      ]
+    },
+    {
       name: 'ia reactivada desde crm no queda en bucle de reset',
       phone: `${testPhonePrefix}reactivated-ai-start-menu`,
       setup: async () => {
@@ -1164,9 +1207,18 @@ async function main() {
     }
   ]
 
+  const scenarioFilter = process.env.CONVERSATION_SCENARIO?.trim().toLocaleLowerCase('es')
+  const scenariosToRun = scenarioFilter
+    ? scenarios.filter((scenario) => scenario.name.toLocaleLowerCase('es').includes(scenarioFilter))
+    : scenarios
+
+  if (scenariosToRun.length === 0) {
+    throw new Error(`No encontré escenarios que coincidan con "${process.env.CONVERSATION_SCENARIO}".`)
+  }
+
   let failures = 0
 
-  for (const scenario of scenarios) {
+  for (const scenario of scenariosToRun) {
     try {
       await runScenario(scenario)
     } catch (error) {
@@ -1207,6 +1259,7 @@ async function runScenario(scenario: Scenario) {
       assertReply(result.reply, step)
       await assertConversationStep(scenario.phone, step)
       await assertCustomerName(scenario.phone, step)
+      await assertResetStateCleared(scenario.phone, step)
     }
   } finally {
     await cleanupTestScheduleBlocks()
@@ -1249,6 +1302,50 @@ async function assertCustomerName(phone: string, step: Step) {
 
   if (customer?.name !== step.customerName) {
     throw new Error(`Esperaba cliente ${step.customerName}, recibi ${customer?.name ?? 'sin cliente'}.`)
+  }
+}
+
+async function assertResetStateCleared(phone: string, step: Step) {
+  if (!step.resetStateCleared) return
+
+  const conversation = await prisma.conversation.findFirst({
+    where: { phone },
+    select: {
+      currentStep: true,
+      aiEnabled: true,
+      selectedCustomerName: true,
+      selectedServiceId: true,
+      selectedProfessionalId: true,
+      selectedDate: true,
+      selectedTime: true,
+      misunderstandingCount: true,
+      lastAvailability: true,
+      bookingV2State: true,
+      humanHandoffAt: true,
+      humanHandoffResolvedAt: true,
+      photoQuoteAcknowledgedAt: true
+    }
+  })
+
+  if (!conversation) throw new Error('La conversación desapareció durante el reset total.')
+  const expected = {
+    currentStep: 'START',
+    aiEnabled: true,
+    selectedCustomerName: null,
+    selectedServiceId: null,
+    selectedProfessionalId: null,
+    selectedDate: null,
+    selectedTime: null,
+    misunderstandingCount: 0,
+    lastAvailability: null,
+    bookingV2State: null,
+    humanHandoffAt: null,
+    humanHandoffResolvedAt: null,
+    photoQuoteAcknowledgedAt: null
+  }
+
+  if (JSON.stringify(conversation) !== JSON.stringify(expected)) {
+    throw new Error(`El reset total dejó estado residual: ${JSON.stringify(conversation)}`)
   }
 }
 
