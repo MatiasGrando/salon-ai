@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
 import { Prisma } from '../generated/prisma/client.js'
 import { serviceCanContinueToBooking } from '../services/booking-v2-deposit.js'
+import { normalizeCustomerDuration } from '../services/service-duration.js'
 
 export async function serviceRoutes(app: FastifyInstance) {
   app.post('/service-categories', async (request, reply) => {
@@ -139,6 +140,8 @@ export async function serviceRoutes(app: FastifyInstance) {
       name: string
       description?: string | null
       duration: number
+      customerDurationMin?: number | string | null
+      customerDurationMax?: number | string | null
       businessId: string
       category?: string
       price?: number | string | null
@@ -166,6 +169,10 @@ export async function serviceRoutes(app: FastifyInstance) {
     const name = body.name?.trim()
     const description = normalizeOptionalText(body.description)
     const duration = Number(body.duration)
+    const customerDuration = normalizeCustomerDuration(
+      body.customerDurationMin,
+      body.customerDurationMax
+    )
     const businessId = body.businessId?.trim()
     const category = body.category?.trim()
     const imageUrl = normalizeServiceImageUrl(body.imageUrl)
@@ -205,6 +212,9 @@ export async function serviceRoutes(app: FastifyInstance) {
       return reply.status(400).send({
         message: 'duration debe ser mayor a 0'
       })
+    }
+    if (!customerDuration.ok) {
+      return reply.status(400).send({ message: customerDuration.message })
     }
 
     if (price !== null && (!Number.isFinite(price) || price < 0)) {
@@ -321,6 +331,8 @@ export async function serviceRoutes(app: FastifyInstance) {
       name,
       description,
       duration,
+      customerDurationMin: customerDuration.min,
+      customerDurationMax: customerDuration.max,
       businessId,
       price,
       priceMode: isBookable ? priceMode ?? 'FIXED' : 'FIXED',
@@ -405,6 +417,8 @@ export async function serviceRoutes(app: FastifyInstance) {
       name?: string
       description?: string | null
       duration?: number
+      customerDurationMin?: number | string | null
+      customerDurationMax?: number | string | null
       category?: string | null
       price?: number | string | null
       priceMode?: string
@@ -467,6 +481,8 @@ export async function serviceRoutes(app: FastifyInstance) {
       select: {
         id: true,
         description: true,
+        customerDurationMin: true,
+        customerDurationMax: true,
         businessId: true,
         catalogCategoryId: true,
         parentServiceId: true,
@@ -551,6 +567,17 @@ export async function serviceRoutes(app: FastifyInstance) {
     const depositHoldMinutes = body.depositHoldMinutes === undefined
       ? existing.depositHoldMinutes
       : normalizeDepositHoldMinutes(body.depositHoldMinutes)
+    const customerDuration = body.customerDurationMin === undefined &&
+      body.customerDurationMax === undefined
+      ? {
+          ok: true as const,
+          min: existing.customerDurationMin,
+          max: existing.customerDurationMax
+        }
+      : normalizeCustomerDuration(body.customerDurationMin, body.customerDurationMax)
+    if (!customerDuration.ok) {
+      return reply.status(400).send({ message: customerDuration.message })
+    }
     if (estimateOptions === null) {
       return reply.status(400).send({
         message: 'Revisa las opciones del estimativo'
@@ -653,6 +680,8 @@ export async function serviceRoutes(app: FastifyInstance) {
             ? existing.description
             : normalizeOptionalText(body.description),
           duration,
+          customerDurationMin: customerDuration.min,
+          customerDurationMax: customerDuration.max,
           category: hierarchy.categoryName ?? body.category?.trim() ?? null,
           catalogCategoryId: categoryId,
           parentServiceId,

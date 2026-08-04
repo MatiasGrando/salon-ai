@@ -13,6 +13,8 @@ export type BookingV2ServiceOption = {
   description?: string | null
   aliases: string[]
   duration: number
+  customerDurationMin?: number | null
+  customerDurationMax?: number | null
   price: number | null
   priceMode?: 'FIXED' | 'STARTING_AT'
   category: string | null
@@ -134,6 +136,8 @@ export class BookingV2DomainService {
               : [])
           ])),
           duration: service.duration,
+          customerDurationMin: service.customerDurationMin,
+          customerDurationMax: service.customerDurationMax,
           price: service.price,
           priceMode: service.priceMode,
           category,

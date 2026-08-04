@@ -5,6 +5,7 @@ import { siFacebook, siInstagram, siWhatsapp, type SimpleIcon } from 'simple-ico
 import { BusinessService, normalizeBusinessSlug } from '../services/business-service.js'
 import { formatArgentineMobilePhone, inferDefaultAreaCodeFromPhone } from '../services/phone-normalization-service.js'
 import { weexGoogleCalendarEnabled, weexGoogleClientId } from '../services/weex-account-service.js'
+import { formatCustomerDuration } from '../services/service-duration.js'
 
 const businessService = new BusinessService()
 const baseDomain = (process.env.PUBLIC_BASE_DOMAIN || 'weex.com.ar').toLowerCase()
@@ -492,7 +493,7 @@ function renderLanding(business: LandingBusiness, basePath = '', templateOverrid
                           ${renderServiceImage(service, business, index)}
                         </div>
                         <div class="service-name">${escapeHtml(service.name)}</div>
-                        <div class="service-meta">${escapeHtml(formatServiceMeta(service.duration, service.category))}</div>
+                        <div class="service-meta">${escapeHtml(formatServiceMeta(formatCustomerDuration(service), service.category))}</div>
                         <div class="service-price">${formatPrice(service.price, service.priceMode)}</div>
                       </div>
                     `).join('') : `<p class="muted">Este comercio todavia no cargo servicios visibles.</p>`}
@@ -848,7 +849,7 @@ function renderSalonWhiteLanding(business: LandingBusiness, basePath = '') {
                 <div class="sw-service-body">
                   <div class="sw-service-icon" aria-hidden="true">✦</div>
                   <h3>${escapeHtml(service.name)}</h3>
-                  <div class="sw-service-meta"><span>${escapeHtml(formatServiceMeta(service.duration, service.category))}</span><strong>${formatPrice(service.price, service.priceMode)}</strong></div>
+                  <div class="sw-service-meta"><span>${escapeHtml(formatServiceMeta(formatCustomerDuration(service), service.category))}</span><strong>${formatPrice(service.price, service.priceMode)}</strong></div>
                 </div>
               </article>
             `).join('') : '<p>Todavía no hay servicios publicados.</p>'}
@@ -1374,8 +1375,8 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             }
             els.content.innerHTML = '<div class="fresha-options">' + services.map((service) => {
               return '<button class="fresha-option ' + (state.service?.id === service.id ? 'selected' : '') + '" type="button" data-service-id="' + escapeHtml(service.id) + '">' +
-                '<span class="option-left"><span class="radio"></span><span><strong>' + escapeHtml(service.name) + '</strong><small>' + escapeHtml(service.category || (service.duration + ' min')) + '</small></span></span>' +
-                '<span class="option-right"><span>' + escapeHtml(service.duration + ' min') + '</span><strong>' + escapeHtml(service.price ? formatPrice(service.price, service.priceMode) : 'Consultar') + '</strong></span>' +
+                '<span class="option-left"><span class="radio"></span><span><strong>' + escapeHtml(service.name) + '</strong><small>' + escapeHtml(service.category || service.displayDuration || (service.duration + ' min')) + '</small></span></span>' +
+                '<span class="option-right"><span>' + escapeHtml(service.displayDuration || (service.duration + ' min')) + '</span><strong>' + escapeHtml(service.price ? formatPrice(service.price, service.priceMode) : 'Consultar') + '</strong></span>' +
               '</button>'
             }).join('') + '</div>'
             updateContinue(Boolean(state.service))
@@ -1520,7 +1521,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             if (state.service) {
               lines.push(
                 '<div class="summary-card-line primary-line">' +
-                  '<div><strong>' + escapeHtml(state.service.name) + '</strong><span>' + escapeHtml(state.service.duration + ' min') + '</span></div>' +
+                  '<div><strong>' + escapeHtml(state.service.name) + '</strong><span>' + escapeHtml(state.service.displayDuration || (state.service.duration + ' min')) + '</span></div>' +
                   '<b>' + escapeHtml(state.service.price ? formatPrice(state.service.price, state.service.priceMode) : 'Consultar') + '</b>' +
                 '</div>'
               )
@@ -2509,7 +2510,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
                 '<span class="appointment-card-head"><strong>' + escapeHtml(appointment.service.name) + '</strong><i>' + statusLabel(appointment.status) + '</i></span>' +
                 '<small>' + escapeHtml(date.short) + '</small>' +
                 '<span class="appointment-meta">' +
-                  '<small><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>' + escapeHtml(appointment.service.duration + ' min') + '</small>' +
+                  '<small><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>' + escapeHtml(appointment.service.displayDuration || (appointment.service.duration + ' min')) + '</small>' +
                   '<small><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 12V8a2 2 0 0 0-2-2h-6l-2-2H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"></path></svg>' + escapeHtml(formatPriceLine(appointment.service.price)) + '</small>' +
                 '</span>' +
                 '<em>Volver a reservar</em>' +
@@ -2529,7 +2530,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
               '<div class="detail-body">' +
               '<span class="status-pill">' + statusLabel(appointment.status) + '</span>' +
               '<h2>' + escapeHtml(date.long) + '</h2>' +
-              '<p><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>' + escapeHtml(appointment.service.duration + ' minutos de duracion') + ' · Reserva #' + escapeHtml(appointment.id.slice(-6).toUpperCase()) + '</p>' +
+              '<p><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>' + escapeHtml(appointment.service.displayDuration || (appointment.service.duration + ' min')) + ' de duraci&oacute;n · Reserva #' + escapeHtml(appointment.id.slice(-6).toUpperCase()) + '</p>' +
               '<div class="detail-facts">' +
                 '<span><b>Servicio</b><strong>' + escapeHtml(appointment.service.name) + '</strong></span>' +
                 '<span><b>Profesional</b><strong>' + escapeHtml(appointment.professional.name) + '</strong></span>' +
@@ -5791,8 +5792,9 @@ function formatHeroTitle(name: string) {
   return `${escapeHtml(firstLine)}<br>${escapeHtml(secondLine)}`
 }
 
-function formatServiceMeta(duration: number, category?: string | null) {
-  return [category, `${duration} min`].filter(Boolean).join(' - ')
+function formatServiceMeta(duration: number | string, category?: string | null) {
+  const durationLabel = typeof duration === 'number' ? `${duration} min` : duration
+  return [category, durationLabel].filter(Boolean).join(' - ')
 }
 
 function formatPrice(price?: number | null, priceMode?: 'FIXED' | 'STARTING_AT') {

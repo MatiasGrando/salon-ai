@@ -12985,7 +12985,7 @@ const crmHtml = `<!doctype html>
               </div>
               <div class="service-form-grid" id="service-commercial-fields">
                 <div class="service-form-group">
-                  <label for="service-duration"><span data-icon="clock"></span>Duraci&oacute;n</label>
+                  <label for="service-duration"><span data-icon="clock"></span>Tiempo que bloquea la agenda</label>
                   <div class="service-input-addon">
                     <input id="service-duration" type="number" min="1" step="1" placeholder="Ej: 30">
                     <span class="addon">min</span>
@@ -12997,6 +12997,32 @@ const crmHtml = `<!doctype html>
                     <span class="addon">$</span>
                     <input id="service-price" type="number" min="0" step="1" placeholder="Ej: 15000">
                   </div>
+                </div>
+                <div class="service-form-group" style="grid-column: 1 / -1;">
+                  <label class="service-photo-option">
+                    <input id="service-customer-duration-different" type="checkbox">
+                    <span>La duraci&oacute;n informada al cliente es diferente</span>
+                  </label>
+                  <div class="service-form-help">La agenda seguir&aacute; usando el tiempo operativo configurado arriba.</div>
+                </div>
+                <div class="service-form-group" id="service-customer-duration-editor" style="grid-column: 1 / -1;" hidden>
+                  <div class="service-form-grid">
+                    <div class="service-form-group">
+                      <label for="service-customer-duration-min">Duraci&oacute;n para el cliente</label>
+                      <div class="service-input-addon">
+                        <input id="service-customer-duration-min" type="number" min="1" step="1" placeholder="Ej: 120">
+                        <span class="addon">min</span>
+                      </div>
+                    </div>
+                    <div class="service-form-group">
+                      <label for="service-customer-duration-max">M&aacute;ximo (opcional)</label>
+                      <div class="service-input-addon">
+                        <input id="service-customer-duration-max" type="number" min="1" step="1" placeholder="Ej: 150">
+                        <span class="addon">min</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="service-form-help" id="service-customer-duration-preview"></div>
                 </div>
                 <div class="service-form-group" style="grid-column: 1 / -1;">
                   <label for="service-price-mode">C&oacute;mo mostrar el precio</label>
@@ -15189,6 +15215,11 @@ const crmHtml = `<!doctype html>
       serviceName: document.getElementById('service-name'),
       serviceDescription: document.getElementById('service-description'),
       serviceDuration: document.getElementById('service-duration'),
+      serviceCustomerDurationDifferent: document.getElementById('service-customer-duration-different'),
+      serviceCustomerDurationEditor: document.getElementById('service-customer-duration-editor'),
+      serviceCustomerDurationMin: document.getElementById('service-customer-duration-min'),
+      serviceCustomerDurationMax: document.getElementById('service-customer-duration-max'),
+      serviceCustomerDurationPreview: document.getElementById('service-customer-duration-preview'),
       servicePrice: document.getElementById('service-price'),
       servicePriceMode: document.getElementById('service-price-mode'),
       servicePriceModeHelp: document.getElementById('service-price-mode-help'),
@@ -17688,6 +17719,7 @@ const crmHtml = `<!doctype html>
       els.serviceCommercialFields.hidden = isGroup
       els.serviceAttentionPanel.hidden = isGroup
       els.serviceDuration.disabled = isGroup
+      els.serviceCustomerDurationDifferent.disabled = isGroup
       els.servicePrice.disabled = isGroup
       els.servicePriceMode.disabled = isGroup
       els.serviceAttentionMode.disabled = isGroup
@@ -17709,6 +17741,28 @@ const crmHtml = `<!doctype html>
       updateServicePriceModeHelp()
       updateServiceDepositFields()
       updateServiceValidationFields()
+      updateServiceCustomerDurationFields()
+    }
+
+    function updateServiceCustomerDurationFields() {
+      const enabled = els.serviceItemType.value !== 'GROUP' &&
+        els.serviceCustomerDurationDifferent.checked
+      els.serviceCustomerDurationEditor.hidden = !enabled
+      els.serviceCustomerDurationEditor.style.display = enabled ? '' : 'none'
+      els.serviceCustomerDurationMin.disabled = !enabled
+      els.serviceCustomerDurationMax.disabled = !enabled
+
+      const agendaMinutes = Number(els.serviceDuration.value)
+      const minMinutes = Number(els.serviceCustomerDurationMin.value)
+      const maxValue = els.serviceCustomerDurationMax.value.trim()
+      const maxMinutes = maxValue ? Number(maxValue) : minMinutes
+      els.serviceCustomerDurationPreview.textContent = enabled &&
+        Number.isFinite(agendaMinutes) && agendaMinutes > 0 &&
+        Number.isFinite(minMinutes) && minMinutes > 0 &&
+        Number.isFinite(maxMinutes) && maxMinutes >= minMinutes
+        ? 'La agenda bloqueará ' + agendaMinutes + ' min. Al cliente se le informará ' +
+          (minMinutes === maxMinutes ? minMinutes + ' min.' : 'entre ' + minMinutes + ' y ' + maxMinutes + ' min.')
+        : 'Completá la duración que recibirá el cliente.'
     }
 
     function updateServiceValidationFields() {
@@ -17867,9 +17921,17 @@ const crmHtml = `<!doctype html>
                   : attentionMode === 'GUIDED_ESTIMATE'
                     ? 'Estimativo guiado'
                   : 'Reserva autom\u00e1tica'
+            const customerDurationMin = Number(service.customerDurationMin || service.duration)
+            const customerDurationMax = Number(service.customerDurationMax || customerDurationMin)
+            const hasDifferentCustomerDuration = customerDurationMin !== Number(service.duration) ||
+              customerDurationMax !== Number(service.duration)
+            const customerDurationLabel = customerDurationMin === customerDurationMax
+              ? customerDurationMin + ' min'
+              : customerDurationMin + ' a ' + customerDurationMax + ' min'
             const serviceMeta = itemType === 'GROUP'
               ? '<span>Grupo de variantes</span>'
-              : '<span>' + icon('clock') + escapeHtml(service.duration + ' min') + '</span>' +
+              : '<span>' + icon('clock') + escapeHtml((hasDifferentCustomerDuration ? 'Agenda: ' : '') + service.duration + ' min') + '</span>' +
+                (hasDifferentCustomerDuration ? '<span>Cliente: ' + escapeHtml(customerDurationLabel) + '</span>' : '') +
                 '<span>' + icon('tag') + escapeHtml(priceLabel) + '</span>' +
                 '<span>' + escapeHtml(attentionLabel) + '</span>' +
                 (service.validationEnabled ? '<span>Validaci\u00f3n previa</span>' : '') +
@@ -24548,6 +24610,16 @@ const crmHtml = `<!doctype html>
       const isGroup = itemType === 'GROUP'
       const isVariant = itemType === 'VARIANT'
       const duration = isGroup ? 1 : Number(els.serviceDuration.value)
+      const hasDifferentCustomerDuration = !isGroup && els.serviceCustomerDurationDifferent.checked
+      const customerDurationMin = hasDifferentCustomerDuration
+        ? Number(els.serviceCustomerDurationMin.value)
+        : null
+      const customerDurationMaxValue = hasDifferentCustomerDuration
+        ? els.serviceCustomerDurationMax.value.trim()
+        : ''
+      const customerDurationMax = hasDifferentCustomerDuration
+        ? customerDurationMaxValue ? Number(customerDurationMaxValue) : customerDurationMin
+        : null
       const priceValue = els.servicePrice.value.trim()
       const price = isGroup ? null : priceValue ? Number(priceValue) : null
       const priceMode = isGroup ? 'FIXED' : els.servicePriceMode.value
@@ -24591,6 +24663,18 @@ const crmHtml = `<!doctype html>
 
       if (!name || (!isGroup && (!Number.isFinite(duration) || duration <= 0))) {
         els.serviceFeedback.textContent = isGroup ? 'Completá el nombre.' : 'Completá nombre y duración.'
+        return
+      }
+      if (
+        hasDifferentCustomerDuration &&
+        (
+          !Number.isInteger(customerDurationMin) ||
+          customerDurationMin <= 0 ||
+          !Number.isInteger(customerDurationMax) ||
+          customerDurationMax < customerDurationMin
+        )
+      ) {
+        els.serviceFeedback.textContent = 'Revisá la duración informada al cliente. El máximo no puede ser menor que el mínimo.'
         return
       }
 
@@ -24669,6 +24753,8 @@ const crmHtml = `<!doctype html>
             name,
             description: description || null,
             duration,
+            customerDurationMin,
+            customerDurationMax,
             businessId: state.businessId,
             price,
             priceMode,
@@ -24718,6 +24804,13 @@ const crmHtml = `<!doctype html>
       els.serviceName.value = service.name
       els.serviceDescription.value = service.description || ''
       els.serviceDuration.value = service.duration
+      els.serviceCustomerDurationDifferent.checked = service.customerDurationMin !== null &&
+        service.customerDurationMin !== undefined
+      els.serviceCustomerDurationMin.value = service.customerDurationMin ?? ''
+      els.serviceCustomerDurationMax.value = service.customerDurationMax &&
+        service.customerDurationMax !== service.customerDurationMin
+        ? service.customerDurationMax
+        : ''
       els.servicePrice.value = hasServicePrice(service) ? service.price : ''
       els.servicePriceMode.value = service.priceMode || 'FIXED'
       els.serviceCategory.value = service.catalogCategoryId || ''
@@ -24741,6 +24834,7 @@ const crmHtml = `<!doctype html>
       renderServiceEstimateOptions()
       updateServiceDepositFields()
       updateServiceValidationFields()
+      updateServiceCustomerDurationFields()
       els.serviceAliases.value = (service.aliases || []).map((alias) => alias.name).join(', ')
       updateServiceTypeFields()
       setServiceImage(service.imageUrl || null)
@@ -24776,6 +24870,9 @@ const crmHtml = `<!doctype html>
       els.serviceName.value = ''
       els.serviceDescription.value = ''
       els.serviceDuration.value = ''
+      els.serviceCustomerDurationDifferent.checked = false
+      els.serviceCustomerDurationMin.value = ''
+      els.serviceCustomerDurationMax.value = ''
       els.servicePrice.value = ''
       els.servicePriceMode.value = 'FIXED'
       els.serviceCategory.value = ''
@@ -24798,6 +24895,7 @@ const crmHtml = `<!doctype html>
       renderServiceEstimateOptions()
       updateServiceDepositFields()
       updateServiceValidationFields()
+      updateServiceCustomerDurationFields()
       els.serviceAliases.value = ''
       setServiceImage(null)
       els.serviceCancel.hidden = true
@@ -25103,6 +25201,10 @@ const crmHtml = `<!doctype html>
     els.serviceDepositMode.addEventListener('change', updateServiceDepositFields)
     els.serviceEstimateAllowsBooking.addEventListener('change', updateServiceDepositFields)
     els.serviceValidationEnabled.addEventListener('change', updateServiceValidationFields)
+    els.serviceCustomerDurationDifferent.addEventListener('change', updateServiceCustomerDurationFields)
+    els.serviceDuration.addEventListener('input', updateServiceCustomerDurationFields)
+    els.serviceCustomerDurationMin.addEventListener('input', updateServiceCustomerDurationFields)
+    els.serviceCustomerDurationMax.addEventListener('input', updateServiceCustomerDurationFields)
     els.serviceEstimateAddOption.addEventListener('click', () => addServiceEstimateOption())
     els.serviceCategoryOpen.addEventListener('click', () => openServiceCategoryDialog())
     els.serviceCategoryClose.addEventListener('click', closeServiceCategoryDialog)

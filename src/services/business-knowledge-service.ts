@@ -1,5 +1,6 @@
 import { prisma as defaultPrisma } from '../config/prisma.js'
 import type { BusinessInformationTopic, CatalogQuery } from './conversation-router.js'
+import { formatCustomerDuration } from './service-duration.js'
 
 type PrismaClientLike = typeof defaultPrisma
 
@@ -24,6 +25,8 @@ export type BusinessKnowledge = {
     name: string
     description?: string | null
     duration: number
+    customerDurationMin?: number | null
+    customerDurationMax?: number | null
     price: number | null
     priceMode?: 'FIXED' | 'STARTING_AT'
   }>
@@ -66,6 +69,8 @@ export class BusinessKnowledgeService {
             name: true,
             description: true,
             duration: true,
+            customerDurationMin: true,
+            customerDurationMax: true,
             price: true,
             priceMode: true,
             parentService: {
@@ -100,6 +105,8 @@ export class BusinessKnowledgeService {
           : service.name,
         description: service.description,
         duration: service.duration,
+        customerDurationMin: service.customerDurationMin,
+        customerDurationMax: service.customerDurationMax,
         price: service.price,
         priceMode: service.priceMode
       })),
@@ -149,7 +156,7 @@ export function renderCatalogServiceQuery(
           details.push(service.description.trim())
         }
         if (requested.has('general') || requested.has('duration')) {
-          details.push(`${service.duration} min`)
+          details.push(formatCustomerDuration(service))
         }
         if (requested.has('general') || requested.has('price')) {
           details.push(service.price === null
@@ -175,7 +182,7 @@ export function renderCatalogServiceQuery(
     lines.push('No tengo el detalle del procedimiento cargado de forma confiable. Si querés, te derivo con el equipo.')
   }
   if (general || requested.has('duration')) {
-    lines.push(`Duración: ${service.duration} min.`)
+    lines.push(`Duración: ${formatCustomerDuration(service)}.`)
   }
   if (general || requested.has('price')) {
     const price = service.price === null
@@ -267,7 +274,7 @@ function answerTopic(business: BusinessKnowledge, topic: BusinessInformationTopi
         ? 'precio a consultar'
         : `${service.priceMode === 'STARTING_AT' ? 'Desde ' : ''}${formatMoney(service.price)}`
       return [
-        `• ${service.name} (${service.duration} min)${topic === 'prices' ? ` — ${price}` : ''}`,
+        `• ${service.name} (${formatCustomerDuration(service)})${topic === 'prices' ? ` — ${price}` : ''}`,
         service.description ? `  ${service.description}` : null
       ].filter(Boolean).join('\n')
     })

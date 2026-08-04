@@ -60,10 +60,18 @@ export class BotCopyService {
 
   servicesList(input: {
     prefix?: string
-    services: Array<{ name: string; duration: number }>
+    services: Array<{
+      name: string
+      duration: number
+      customerDurationMin?: number | null
+      customerDurationMax?: number | null
+    }>
   }) {
     const options = input.services.map((service) => {
-      return `* ${service.name} (${service.duration} min)`
+      const min = service.customerDurationMin ?? service.duration
+      const max = service.customerDurationMax ?? min
+      const duration = min === max ? `${min} min` : `${min} a ${max} min`
+      return `* ${service.name} (${duration})`
     })
 
     return [

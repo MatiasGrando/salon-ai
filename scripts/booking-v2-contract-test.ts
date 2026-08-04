@@ -4215,6 +4215,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
             name: 'Tratamiento',
             description: 'Nutre y repara el cabello.',
             duration: 30,
+            customerDurationMin: 90,
+            customerDurationMax: 120,
             price: 25000,
             priceMode: 'STARTING_AT' as const
           },
@@ -4236,7 +4238,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         evidence: 'tratamiento'
       })
       assert.equal(treatment?.includes('Nutre y repara el cabello.'), true)
-      assert.equal(treatment?.includes('Duración: 30 min.'), true)
+      assert.equal(treatment?.includes('Duración: 90 a 120 min.'), true)
       assert.equal(treatment?.includes('desde $'), true)
       assert.equal(treatment?.includes('Corte Hombre'), false)
 

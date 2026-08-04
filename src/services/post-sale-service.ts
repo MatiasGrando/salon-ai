@@ -6,6 +6,7 @@ import { PrismaCommunicationAttemptRepository } from '../infrastructure/communic
 import { CommunicationService } from '../application/communications/communication-service.js'
 import { PrismaCommunicationRepository } from '../infrastructure/communications/prisma-communication-repository.js'
 import { assertPostSaleManualTransition, canAutomaticPostSaleSend, partitionLatestPostSales, type PostSaleManualStatus } from '../domain/communications/post-sale.js'
+import { customerDurationRange } from './service-duration.js'
 
 const whatsappCloudApi = new WhatsAppCloudApi()
 const recordCommunicationAttempt = new RecordCommunicationAttempt(new PrismaCommunicationAttemptRepository())
@@ -46,7 +47,15 @@ export async function prepareDuePostSales(input: { businessId?: string; limit?: 
       },
       include: {
         customer: { select: { id: true, name: true, phone: true } },
-        service: { select: { id: true, name: true, duration: true } },
+        service: {
+          select: {
+            id: true,
+            name: true,
+            duration: true,
+            customerDurationMin: true,
+            customerDurationMax: true
+          }
+        },
         professional: { select: { id: true, name: true } }
       },
       orderBy: { startAt: 'desc' },
@@ -65,7 +74,7 @@ export async function prepareDuePostSales(input: { businessId?: string; limit?: 
       const visitDate = localDateKey(appointment.startAt)
       const scheduledFor = new Date(
         appointment.startAt.getTime() +
-        (appointment.service.duration + automation.delayMinutes) * 60_000
+        (customerDurationRange(appointment.service).max + automation.delayMinutes) * 60_000
       )
       if (scheduledFor > now) continue
 
@@ -201,7 +210,15 @@ export async function processDuePostSales(input: { businessId?: string; limit?: 
         appointment: {
           include: {
             customer: { select: { id: true, name: true, phone: true } },
-            service: { select: { id: true, name: true, duration: true } },
+            service: {
+              select: {
+                id: true,
+                name: true,
+                duration: true,
+                customerDurationMin: true,
+                customerDurationMax: true
+              }
+            },
             professional: { select: { id: true, name: true } }
           }
         }

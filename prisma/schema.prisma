@@ -380,6 +380,8 @@ model Service {
   name                  String
   description           String?
   duration              Int
+  customerDurationMin   Int?
+  customerDurationMax   Int?
   category              String?
   price                 Int?
   priceMode             ServicePriceMode     @default(FIXED)

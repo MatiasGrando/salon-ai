@@ -5,6 +5,7 @@ import { BusinessService } from '../services/business-service.js'
 import { sendBookingConfirmationEmail } from '../services/booking-confirmation-email-service.js'
 import { inferDefaultAreaCodeFromPhone, normalizePhone, phoneSearchVariants } from '../services/phone-normalization-service.js'
 import { findOrCreateCustomerByPhone } from '../services/customer-identity-service.js'
+import { customerDurationRange, formatCustomerDuration } from '../services/service-duration.js'
 import {
   createGoogleCalendarEventForAppointment,
   getWeexAuthFromRequest,
@@ -52,6 +53,9 @@ export async function publicBookingRoutes(app: FastifyInstance) {
         id: service.id,
         name: service.name,
         duration: service.duration,
+        customerDurationMin: service.customerDurationMin,
+        customerDurationMax: service.customerDurationMax,
+        displayDuration: formatCustomerDuration(service),
         category: service.category,
         price: service.price,
         priceMode: service.priceMode,
@@ -213,7 +217,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
         serviceName: appointment.service.name,
         professionalName: appointment.professional.name,
         startAt: appointment.startAt,
-        durationMinutes: appointment.service.duration
+        durationMinutes: customerDurationRange(appointment.service).max
       }).catch((error) => {
         request.log.error({ error, appointmentId: appointment.id }, 'No se pudo enviar el correo de confirmacion')
       })
@@ -267,6 +271,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
           id: appointment.service.id,
           name: appointment.service.name,
           duration: appointment.service.duration,
+          displayDuration: formatCustomerDuration(appointment.service),
           price: appointment.service.price
         },
         professional: {

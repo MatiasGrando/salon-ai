@@ -1,6 +1,7 @@
 import type { BookingV2DomainCatalog } from './booking-v2-domain.js'
 import type { BookingV2AvailabilityOption } from './booking-v2-domain.js'
 import type { BookingV2MessagePlan } from './booking-v2-dialogue.js'
+import { formatCustomerDuration } from './service-duration.js'
 import {
   ANY_PROFESSIONAL_ID,
   type BookingDraft,
@@ -381,7 +382,7 @@ function formatServiceOption(service: BookingV2DomainCatalog['services'][number]
       : service.attentionMode === 'ADVISOR'
         ? 'asesoramiento previo'
         : null
-  return `• ${service.name} — ${service.duration} min — ${price}${attention ? ` — ${attention}` : ''}`
+  return `• ${service.name} — ${formatCustomerDuration(service)} — ${price}${attention ? ` — ${attention}` : ''}`
 }
 
 function professionalQuestion(
