@@ -14,6 +14,7 @@ import {
   type BookingV2CatalogNavigation,
   type BookingV2GuidedEstimate,
   type BookingV2PendingRequest,
+  type BookingV2PendingInformationSelection,
   type BookingV2PendingServiceDisambiguation,
   type BookingV2ServiceDisambiguationGroup,
   type BookingV2QueuedService,
@@ -48,6 +49,7 @@ export type BookingV2PersistedState = {
   version: 1
   pendingProposal: BookingProposal | null
   pendingRequest?: BookingV2PendingRequest | null
+  pendingInformationSelection?: BookingV2PendingInformationSelection | null
   pendingServiceDisambiguation?: BookingV2PendingServiceDisambiguation | null
   agenda?: BookingV2AgendaItem[]
   categoryAdvice?: BookingV2CategoryAdvice | null
@@ -82,6 +84,7 @@ export function stateFromConversation(
     },
     pendingProposal: readPendingProposal(conversation.bookingV2State),
     pendingRequest: readPendingRequest(conversation.bookingV2State),
+    pendingInformationSelection: readPendingInformationSelection(conversation.bookingV2State),
     pendingServiceDisambiguation: readPendingServiceDisambiguation(conversation.bookingV2State),
     agenda: readAgenda(conversation.bookingV2State),
     categoryAdvice: readCategoryAdvice(conversation.bookingV2State),
@@ -111,11 +114,14 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
     selectedDate: state.draft.date,
     selectedTime: state.draft.time,
     misunderstandingCount: state.misunderstandingCount,
-    bookingV2State: state.pendingProposal || state.pendingRequest || state.pendingServiceDisambiguation || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.advisorQuote || state.pendingDeposit || state.contextPause || state.unsupportedServiceRequest || state.queuedServices.length || state.combinedServices.length || state.addonSuggestion || state.addonOfferCompletedServiceId || state.pendingCombinedAvailability || state.pendingServiceSeparation || state.pendingServiceReplacement
+    bookingV2State: state.pendingProposal || state.pendingRequest || state.pendingInformationSelection || state.pendingServiceDisambiguation || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.advisorQuote || state.pendingDeposit || state.contextPause || state.unsupportedServiceRequest || state.queuedServices.length || state.combinedServices.length || state.addonSuggestion || state.addonOfferCompletedServiceId || state.pendingCombinedAvailability || state.pendingServiceSeparation || state.pendingServiceReplacement
       ? {
           version: 1,
           pendingProposal: state.pendingProposal,
           ...(state.pendingRequest ? { pendingRequest: state.pendingRequest } : {}),
+          ...(state.pendingInformationSelection
+            ? { pendingInformationSelection: state.pendingInformationSelection }
+            : {}),
           ...(state.pendingServiceDisambiguation
             ? { pendingServiceDisambiguation: state.pendingServiceDisambiguation }
             : {}),
@@ -382,6 +388,33 @@ function readPendingRequest(value: unknown): BookingV2PendingRequest | null {
     intents: Array.from(new Set(candidate.intents.map((intent) => intent.trim()).filter(Boolean))).slice(0, 8),
     createdAt: candidate.createdAt
   }
+}
+
+function readPendingInformationSelection(value: unknown): BookingV2PendingInformationSelection | null {
+  if (!value || typeof value !== 'object') return null
+  const persisted = value as { version?: unknown; pendingInformationSelection?: unknown }
+  if (
+    persisted.version !== 1 ||
+    !persisted.pendingInformationSelection ||
+    typeof persisted.pendingInformationSelection !== 'object'
+  ) {
+    return null
+  }
+  const candidate = persisted.pendingInformationSelection as Partial<BookingV2PendingInformationSelection>
+  if (!Array.isArray(candidate.serviceIds) || !Array.isArray(candidate.requestedInformation)) return null
+  const serviceIds = Array.from(new Set(
+    candidate.serviceIds
+      .filter((serviceId): serviceId is string => typeof serviceId === 'string' && Boolean(serviceId.trim()))
+      .map((serviceId) => serviceId.trim())
+  )).slice(0, 5)
+  const requestedInformation = Array.from(new Set(
+    candidate.requestedInformation.filter((item): item is BookingV2PendingInformationSelection['requestedInformation'][number] =>
+      ['general', 'price', 'duration', 'professionals'].includes(item)
+    )
+  ))
+  return serviceIds.length > 1 && requestedInformation.length
+    ? { serviceIds, requestedInformation }
+    : null
 }
 
 function readCategoryAdvice(value: unknown): BookingV2CategoryAdvice | null {

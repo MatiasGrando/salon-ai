@@ -1003,6 +1003,42 @@ export class ConversationService {
     routing: ConversationRouting
   }): Promise<HandleMessageResult> {
     const assistantPersonality = await getBusinessAssistantPersonality(input.businessId)
+    const storedInformationState = stateFromConversation(input.conversation)
+    const pendingInformationSelection = storedInformationState.pendingInformationSelection
+    if (pendingInformationSelection && !hasExplicitBookingRequest(input.message)) {
+      const selectedServiceId = input.routing.catalogQuery?.serviceId ??
+        input.routing.bookingExtraction?.service.value ??
+        null
+      if (selectedServiceId && pendingInformationSelection.serviceIds.includes(selectedServiceId)) {
+        const detailReply = await businessKnowledgeService.answer({
+          businessId: input.businessId,
+          topics: ['services'],
+          catalogQuery: {
+            serviceId: selectedServiceId,
+            candidateServiceIds: [selectedServiceId],
+            requestedInformation: pendingInformationSelection.requestedInformation,
+            confidence: 1,
+            evidence: input.message.trim()
+          }
+        })
+        const nextState: BookingV2State = {
+          ...storedInformationState,
+          pendingInformationSelection: null
+        }
+        await this.updateConversation(input.phone, input.businessId, {
+          currentStep: conversationStepValue(input.conversation.currentStep),
+          ...conversationPatchFromState(nextState)
+        })
+        return {
+          reply: applyAssistantPersonalityToReply(
+            withBusinessInformationFollowUp(detailReply ?? 'No encontré información para esa opción.'),
+            assistantPersonality
+          ),
+          skipMisunderstandingTracking: true,
+          skipHumanize: true
+        }
+      }
+    }
     const informationTopics = businessInformationTopicsFromRouting(input.routing)
     let informationReply = informationTopics.length
       ? await businessKnowledgeService.answer({
@@ -1431,6 +1467,25 @@ export class ConversationService {
     }
 
     if (informationReply && !input.routing.bookingMessage) {
+      const candidateServiceIds = input.routing.catalogQuery?.candidateServiceIds ?? []
+      if (!input.routing.catalogQuery?.serviceId && candidateServiceIds.length > 1) {
+        const nextState: BookingV2State = {
+          ...storedInformationState,
+          pendingInformationSelection: {
+            serviceIds: candidateServiceIds,
+            requestedInformation: input.routing.catalogQuery.requestedInformation
+          }
+        }
+        await this.updateConversation(input.phone, input.businessId, {
+          currentStep: conversationStepValue(input.conversation.currentStep),
+          ...conversationPatchFromState(nextState)
+        })
+        return {
+          reply: applyAssistantPersonalityToReply(informationReply, assistantPersonality),
+          skipMisunderstandingTracking: true,
+          skipHumanize: true
+        }
+      }
       if (!isActiveBookingV2Step(input.conversation.currentStep)) {
         const requiredReply = applyAssistantPersonalityToReply(
           withBusinessInformationFollowUp(informationReply),
@@ -1506,7 +1561,8 @@ export class ConversationService {
 
     const storedState = {
       ...stateFromConversation(input.conversation),
-      unsupportedServiceRequest: null
+      unsupportedServiceRequest: null,
+      pendingInformationSelection: null
     }
     const stateWithAgenda = mergeBookingV2AgendaFromRouting({
       state: storedState,
@@ -2889,6 +2945,11 @@ export function isBookingV2GreetingOnlyMessage(message: string) {
 
 export function isBookingV2InitialGreeting(currentStep: string, message: string) {
   return currentStep === 'START' && isBookingV2GreetingOnlyMessage(message)
+}
+
+function hasExplicitBookingRequest(message: string) {
+  const normalizedMessage = normalizeText(message)
+  return /\b(?:reserv(?:ar|ame|alo)?|agend(?:ar|ame|alo)?|sacar turno|quiero un turno|necesito un turno)\b/.test(normalizedMessage)
 }
 
 export function isUnambiguousBookingConfirmation(message: string) {

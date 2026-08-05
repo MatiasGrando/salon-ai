@@ -669,6 +669,25 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'persiste la selección pendiente de una consulta informativa',
+    run: () => {
+      const state = {
+        ...createEmptyBookingV2State(),
+        pendingInformationSelection: {
+          serviceIds: ['mentoring-group', 'mentoring-individual'],
+          requestedInformation: ['general'] as const
+        }
+      }
+      const patch = conversationPatchFromState(state)
+      const restored = stateFromConversation({
+        ...patch,
+        bookingV2State: patch.bookingV2State
+      })
+
+      assert.deepEqual(restored.pendingInformationSelection, state.pendingInformationSelection)
+    }
+  },
+  {
     name: 'persiste el presupuesto del asesor y su aceptacion',
     run: () => {
       const state = {

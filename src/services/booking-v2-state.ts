@@ -54,6 +54,11 @@ export type BookingV2PendingRequest = {
   createdAt: string
 }
 
+export type BookingV2PendingInformationSelection = {
+  serviceIds: string[]
+  requestedInformation: Array<'general' | 'price' | 'duration' | 'professionals'>
+}
+
 export type BookingV2ServiceDisambiguationGroup = {
   serviceIds: string[]
   evidence: string
@@ -146,6 +151,7 @@ export type BookingV2State = {
   draft: BookingDraft
   pendingProposal: BookingProposal | null
   pendingRequest: BookingV2PendingRequest | null
+  pendingInformationSelection: BookingV2PendingInformationSelection | null
   pendingServiceDisambiguation: BookingV2PendingServiceDisambiguation | null
   agenda: BookingV2AgendaItem[]
   categoryAdvice: BookingV2CategoryAdvice | null
@@ -187,6 +193,7 @@ export function createEmptyBookingV2State(): BookingV2State {
     },
     pendingProposal: null,
     pendingRequest: null,
+    pendingInformationSelection: null,
     pendingServiceDisambiguation: null,
     agenda: [],
     categoryAdvice: null,
