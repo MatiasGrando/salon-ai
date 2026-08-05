@@ -54,9 +54,13 @@ export type BookingV2PendingRequest = {
   createdAt: string
 }
 
-export type BookingV2PendingServiceDisambiguation = {
+export type BookingV2ServiceDisambiguationGroup = {
   serviceIds: string[]
   evidence: string
+}
+
+export type BookingV2PendingServiceDisambiguation = BookingV2ServiceDisambiguationGroup & {
+  remainingGroups?: BookingV2ServiceDisambiguationGroup[]
 }
 
 export type BookingV2AgendaIntent = 'request_quote' | 'check_availability'

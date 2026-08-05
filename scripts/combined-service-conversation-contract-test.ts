@@ -220,6 +220,22 @@ function namedState() {
   return acceptField(createEmptyBookingV2State(), 'name', 'Rodrigo')
 }
 
+function ambiguousFamiliesCatalog() {
+  return createBookingV2DomainCatalog({
+    services: [
+      { id: 'molecular', name: 'Alisado molecular', aliases: [], duration: 30, price: 30000, category: 'Nutrición' },
+      { id: 'sin-formol', name: 'Alisado sin formol', aliases: [], duration: 30, price: 29000, category: 'Nutrición' },
+      { id: 'corte-hombre', name: 'Corte Hombre', aliases: [], duration: 30, price: 15000, category: 'Cortes' },
+      { id: 'corte-barba', name: 'Corte y barba', aliases: [], duration: 60, price: 40000, category: 'Cortes' }
+    ],
+    professionals: [{
+      id: 'tamara',
+      name: 'Tamara',
+      serviceIds: ['molecular', 'sin-formol', 'corte-hombre', 'corte-barba']
+    }]
+  })
+}
+
 async function test(name: string, run: () => Promise<void> | void) {
   await run()
   console.log(`OK: ${name}`)
@@ -237,6 +253,81 @@ await test('dos servicios explícitos se conservan como una sola reserva con dur
   assert.match(result.reply, /Duración total: 120 min/i)
   assert.match(result.reply, /Ana/)
   assert.doesNotMatch(result.reply, /Bea/)
+})
+
+await test('dos familias ambiguas se preguntan en orden y se combinan al resolver ambas', async () => {
+  const domainCatalog = ambiguousFamiliesCatalog()
+  const first = await engine(domainCatalog).process({
+    businessId: 'business-1',
+    conversation: conversationPatchFromState(namedState()),
+    message: 'Quiero un alisado y un corte'
+  })
+  assert.equal(first.state.draft.service, null)
+  assert.deepEqual(first.state.combinedServices, [])
+  assert.deepEqual(first.state.pendingServiceDisambiguation?.serviceIds, ['molecular', 'sin-formol'])
+  assert.deepEqual(
+    first.state.pendingServiceDisambiguation?.remainingGroups?.map((group) => group.serviceIds),
+    [['corte-hombre', 'corte-barba']]
+  )
+  assert.match(first.reply, /Alisado molecular/)
+  assert.match(first.reply, /Alisado sin formol/)
+  assert.doesNotMatch(first.reply, /Corte Hombre/)
+
+  const alisado = await engine(domainCatalog).process({
+    businessId: 'business-1',
+    conversation: first.conversationPatch,
+    message: 'Alisado sin formol'
+  })
+  assert.equal(alisado.state.draft.service, 'sin-formol')
+  assert.deepEqual(alisado.state.pendingServiceDisambiguation?.serviceIds, ['corte-hombre', 'corte-barba'])
+  assert.match(alisado.reply, /Corte Hombre/)
+  assert.match(alisado.reply, /Corte y barba/)
+  assert.doesNotMatch(alisado.reply, /Alisado molecular/)
+
+  const corte = await engine(domainCatalog).process({
+    businessId: 'business-1',
+    conversation: alisado.conversationPatch,
+    message: 'Corte Hombre'
+  })
+  assert.equal(corte.state.draft.service, 'sin-formol')
+  assert.deepEqual(corte.state.combinedServices.map((item) => item.serviceId), ['corte-hombre'])
+  assert.equal(corte.state.pendingServiceDisambiguation, null)
+  assert.match(corte.reply, /Alisado sin formol/)
+  assert.match(corte.reply, /Corte Hombre/)
+})
+
+await test('dos familias ambiguas aceptan ambas elecciones en una sola respuesta', async () => {
+  const domainCatalog = ambiguousFamiliesCatalog()
+  const first = await engine(domainCatalog).process({
+    businessId: 'business-1',
+    conversation: conversationPatchFromState(namedState()),
+    message: 'Quiero un alisado y un corte'
+  })
+  const selected = await engine(domainCatalog).process({
+    businessId: 'business-1',
+    conversation: first.conversationPatch,
+    message: 'Alisado molecular y Corte y barba'
+  })
+  assert.equal(selected.state.draft.service, 'molecular')
+  assert.deepEqual(selected.state.combinedServices.map((item) => item.serviceId), ['corte-barba'])
+  assert.equal(selected.state.pendingServiceDisambiguation, null)
+  assert.match(selected.reply, /Alisado molecular/)
+  assert.match(selected.reply, /Corte y barba/)
+})
+
+await test('un servicio específico no genera otra variante al combinarlo con una familia ambigua', async () => {
+  const domainCatalog = ambiguousFamiliesCatalog()
+  const result = await engine(domainCatalog).process({
+    businessId: 'business-1',
+    conversation: conversationPatchFromState(namedState()),
+    message: 'Quiero un corte y un alisado sin formol'
+  })
+  assert.equal(result.state.draft.service, 'sin-formol')
+  assert.deepEqual(result.state.combinedServices, [])
+  assert.deepEqual(result.state.pendingServiceDisambiguation?.serviceIds, ['corte-hombre', 'corte-barba'])
+  assert.match(result.reply, /Corte Hombre/)
+  assert.match(result.reply, /Corte y barba/)
+  assert.doesNotMatch(result.reply, /Alisado molecular/)
 })
 
 await test('el estado combinado sobrevive a persistir y recuperar la conversación', async () => {
@@ -826,4 +917,4 @@ await test('la búsqueda futura respeta el horizonte de 14 días y no ofrece el 
   assert.equal(visitedDates.includes('2026-10-16'), false)
 })
 
-console.log('\n23 pruebas específicas de conversaciones con servicios combinados pasaron.')
+console.log('\n26 pruebas específicas de conversaciones con servicios combinados pasaron.')

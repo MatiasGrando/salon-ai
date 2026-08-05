@@ -509,24 +509,35 @@ export class WhatsAppWebhookService {
     const deliveryResults: Array<Awaited<ReturnType<WhatsAppCloudApi['sendTextMessage']>>> = []
 
     for (const replyText of outboundReplies) {
-      const deliveryResult = gate?.allowed
-        ? hasReplyButtons
-          ? await whatsappCloudApi.sendReplyButtonsMessage({
-              businessId: firstMessage.businessId!,
+      let deliveryResult: Awaited<ReturnType<WhatsAppCloudApi['sendTextMessage']>>
+      try {
+        deliveryResult = gate?.allowed
+          ? hasReplyButtons
+            ? await whatsappCloudApi.sendReplyButtonsMessage({
+                businessId: firstMessage.businessId!,
+                to: firstMessage.phone,
+                text: replyText,
+                buttons: conversationResult.replyButtons!
+              })
+            : await whatsappCloudApi.sendTextMessage({
+                businessId: firstMessage.businessId!,
+                to: firstMessage.phone,
+                text: replyText
+              })
+          : {
+              sent: false as const,
               to: firstMessage.phone,
-              text: replyText,
-              buttons: conversationResult.replyButtons!
-            })
-          : await whatsappCloudApi.sendTextMessage({
-              businessId: firstMessage.businessId!,
-              to: firstMessage.phone,
-              text: replyText
-            })
-        : {
-            sent: false as const,
-            to: firstMessage.phone,
-            reason: gate?.message || 'La conversacion no tiene comercio asociado para resolver WhatsApp.'
-          }
+              reason: gate?.message || 'La conversacion no tiene comercio asociado para resolver WhatsApp.'
+            }
+      } catch (error) {
+        deliveryResult = {
+          sent: false,
+          to: firstMessage.phone,
+          reason: error instanceof Error
+            ? `No se pudo enviar el mensaje: ${error.message}`
+            : 'No se pudo enviar el mensaje por un error desconocido.'
+        }
+      }
 
       deliveryResults.push(deliveryResult)
       const outgoingProviderMessageId = getOutgoingProviderMessageId(deliveryResult)
@@ -579,6 +590,18 @@ export class WhatsAppWebhookService {
         inboundBatchSize: batch.length
       })
       if (!deliveryResult.sent) break
+    }
+
+    if (
+      conversationResult.depositRequestId &&
+      deliveryResults.some((delivery) => !delivery.sent) &&
+      firstMessage.businessId
+    ) {
+      await conversationService.handleDepositRequestDeliveryFailure({
+        phone: firstMessage.phone,
+        businessId: firstMessage.businessId,
+        depositId: conversationResult.depositRequestId
+      })
     }
 
     return {

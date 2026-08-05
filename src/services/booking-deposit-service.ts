@@ -84,6 +84,38 @@ export class BookingDepositService {
       ? this.db.bookingDeposit.findUnique({ where: { id: deposit.id } })
       : null
   }
+
+  async cancelPendingProof(input: {
+    depositId: string
+    reason: string
+    cancelledAt?: Date
+  }) {
+    const cancelledAt = input.cancelledAt ?? new Date()
+    return this.db.$transaction(async (tx) => {
+      const deposit = await tx.bookingDeposit.findUnique({
+        where: { id: input.depositId },
+        select: { appointmentId: true }
+      })
+      if (!deposit) return false
+      const cancelled = await tx.bookingDeposit.updateMany({
+        where: {
+          id: input.depositId,
+          status: EXPIRABLE_DEPOSIT_STATUS
+        },
+        data: {
+          status: 'REJECTED',
+          reviewedAt: cancelledAt,
+          rejectionReason: input.reason
+        }
+      })
+      if (!cancelled.count) return false
+      await tx.appointment.updateMany({
+        where: { id: deposit.appointmentId, status: 'PENDING' },
+        data: { status: 'CANCELLED' }
+      })
+      return true
+    })
+  }
 }
 
 export const bookingDepositService = new BookingDepositService()

@@ -18,6 +18,8 @@ type DepositRecord = {
   status: 'PENDING_PROOF' | 'PROOF_RECEIVED' | 'APPROVED' | 'REJECTED' | 'EXPIRED'
   expiresAt: Date
   proofMessageId: string | null
+  reviewedAt?: Date | null
+  rejectionReason?: string | null
 }
 
 type AppointmentRecord = {
@@ -234,6 +236,45 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(result, null)
       assert.equal(fixture.deposits[0]?.status, 'EXPIRED')
       assert.equal(fixture.appointments[0]?.status, 'CANCELLED')
+    }
+  },
+  {
+    name: 'un fallo al enviar la solicitud de seña libera la retención',
+    run: async () => {
+      const fixture = fakeDepositDb({
+        deposits: [{
+          id: 'deposit-1',
+          appointmentId: 'appointment-1',
+          conversationId: 'conversation-1',
+          status: 'PENDING_PROOF',
+          expiresAt: new Date('2026-07-28T21:00:00.000Z'),
+          proofMessageId: null
+        }],
+        appointments: [{ id: 'appointment-1', status: 'PENDING' }]
+      })
+      const service = new BookingDepositService(fixture.db as never)
+      const cancelled = await service.cancelPendingProof({
+        depositId: 'deposit-1',
+        reason: 'No se pudo enviar la solicitud de seña.',
+        cancelledAt: new Date('2026-07-28T20:00:00.000Z')
+      })
+
+      assert.equal(cancelled, true)
+      assert.equal(fixture.deposits[0]?.status, 'REJECTED')
+      assert.equal(fixture.deposits[0]?.rejectionReason, 'No se pudo enviar la solicitud de seña.')
+      assert.equal(fixture.appointments[0]?.status, 'CANCELLED')
+    }
+  },
+  {
+    name: 'webhook registra el fallo de envío y reset total cancela la seña pendiente',
+    run: () => {
+      const webhook = readFileSync(new URL('../src/services/whatsapp-webhook-service.ts', import.meta.url), 'utf8')
+      const conversation = readFileSync(new URL('../src/services/conversation-service.ts', import.meta.url), 'utf8')
+
+      assert.ok(webhook.includes('catch (error)'))
+      assert.ok(webhook.includes('handleDepositRequestDeliveryFailure'))
+      assert.ok(conversation.includes('depositRequestId: deposit.id'))
+      assert.ok(conversation.includes("La reserva se reinició antes de recibir el comprobante."))
     }
   }
 ]

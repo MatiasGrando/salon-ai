@@ -39,6 +39,8 @@ import {
   recordLowConfidence,
   rejectProposal,
   type BookingField,
+  type BookingV2PendingServiceDisambiguation,
+  type BookingV2ServiceDisambiguationGroup,
   type BookingV2State
 } from './booking-v2-state.js'
 import {
@@ -764,17 +766,85 @@ export class BookingV2Engine {
 
     }
 
-    const explicitServices = resolveExplicitMultipleServices(input.message, catalog)
-    if (!initialState.draft.service && explicitServices.length >= 2) {
-      let state = acceptField(initialState, 'service', explicitServices[0]!.serviceId)
-      state = addCombinedServices(state, explicitServices.slice(1))
+    const pendingGroupResolution = resolvePendingServiceDisambiguation(
+      input.message,
+      initialState.pendingServiceDisambiguation,
+      catalog
+    )
+    if (pendingGroupResolution.selections.length) {
+      let state = applyResolvedServiceSelections(
+        initialState,
+        pendingGroupResolution.selections
+      )
+      state = {
+        ...state,
+        pendingServiceDisambiguation: pendingServiceDisambiguationFromGroups(
+          pendingGroupResolution.remainingGroups
+        )
+      }
+      const nextField = state.pendingServiceDisambiguation && state.draft.name
+        ? 'service'
+        : nextMissingField(state.draft, catalog.bookingFlowOrder)
       const result = await this.fromInterpretation({
         state,
-        nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
+        nextField,
         outcome: 'accepted',
         affectedField: 'service'
-      }, null, catalog)
-      return withMultipleServicesAcknowledgement(result, catalog)
+      }, null, catalog, 'accepted', nextField === 'service'
+        ? { serviceSuggestions: pendingServiceDisambiguationOptions(state, catalog) ?? [] }
+        : undefined)
+      return state.pendingServiceDisambiguation
+        ? result
+        : withMultipleServicesAcknowledgement(result, catalog)
+    }
+    if (
+      initialState.pendingServiceDisambiguation &&
+      (
+        Boolean(initialState.draft.name) ||
+        nextMissingField(initialState.draft, catalog.bookingFlowOrder) === 'service'
+      )
+    ) {
+      return this.fromInterpretation({
+        state: initialState,
+        nextField: 'service',
+        outcome: 'no_change',
+        affectedField: 'service'
+      }, null, catalog, 'no_change', {
+        serviceSuggestions: pendingServiceDisambiguationOptions(initialState, catalog) ?? []
+      })
+    }
+
+    const explicitServiceGroups = resolveExplicitServiceGroups(input.message, catalog)
+    if (!initialState.draft.service && explicitServiceGroups.length >= 2) {
+      const selections = explicitServiceGroups.flatMap((group) =>
+        group.kind === 'selected'
+          ? [{ serviceId: group.serviceId, evidence: group.evidence }]
+          : []
+      )
+      const ambiguousGroups = explicitServiceGroups.flatMap((group) =>
+        group.kind === 'ambiguous'
+          ? [{ serviceIds: group.serviceIds, evidence: group.evidence }]
+          : []
+      )
+      let state = applyResolvedServiceSelections(initialState, selections)
+      state = {
+        ...state,
+        pendingServiceDisambiguation: pendingServiceDisambiguationFromGroups(ambiguousGroups)
+      }
+      const nextField = state.pendingServiceDisambiguation && state.draft.name
+        ? 'service'
+        : nextMissingField(state.draft, catalog.bookingFlowOrder)
+      const result = await this.fromInterpretation({
+        state,
+        nextField,
+        outcome: selections.length ? 'accepted' : 'no_change',
+        affectedField: 'service'
+      }, null, catalog, selections.length ? 'accepted' : 'no_change', nextField === 'service'
+        ? { serviceSuggestions: pendingServiceDisambiguationOptions(state, catalog) ?? [] }
+        : undefined)
+      return state.pendingServiceDisambiguation
+        ? result
+        : withMultipleServicesAcknowledgement(result, catalog)
     }
     const hasStructuredMultipleServices = Boolean(
       input.understandingExtraction?.additionalServices?.some((service) =>
@@ -964,7 +1034,8 @@ export class BookingV2Engine {
     const extraction = stateForExtraction.pendingServiceDisambiguation
       ? withoutServiceSelection(
           groundedExtraction,
-          stateForExtraction.pendingServiceDisambiguation.serviceIds
+          pendingServiceDisambiguationGroups(stateForExtraction.pendingServiceDisambiguation)
+            .flatMap((group) => group.serviceIds)
         )
       : groundedExtraction
 
@@ -2619,30 +2690,139 @@ function queueServicesFromExtraction(
   return addCombinedServices(state, services)
 }
 
-function resolveExplicitMultipleServices(
+type ExplicitServiceGroup =
+  | { kind: 'selected'; serviceId: string; evidence: string }
+  | { kind: 'ambiguous'; serviceIds: string[]; evidence: string }
+
+function resolveExplicitServiceGroups(
   message: string,
   catalog: BookingV2DomainCatalog
-) {
-  const normalizedMessage = ` ${normalize(message)} `
+): ExplicitServiceGroup[] {
   if (!hasMultipleServiceSignal(message)) return []
-  const matches = catalog.services.flatMap((service) => {
-    const labels = [
-      service.name,
-      ...service.aliases.filter((label) =>
-        normalize(label) !== normalize(service.category ?? '') &&
-        normalize(label) !== normalize(service.parentServiceName ?? '')
-      )
-    ]
-      .sort((left, right) => normalize(right).length - normalize(left).length)
-    const label = labels.find((candidate) => {
-      const normalizedLabel = normalize(candidate)
-      return normalizedLabel.length >= 3 && normalizedMessage.includes(` ${normalizedLabel} `)
+  let protectedMessage = ` ${normalize(message.replace(/[,;]/g, ' servicecomma '))} `
+  const protectedServices: Array<{ marker: string; serviceId: string; evidence: string }> = []
+  const labelsWithConjunction = catalog.services.flatMap((service) =>
+    selectableServiceLabels(service)
+      .filter((label) => /\by\b/.test(normalize(label)))
+      .map((label) => ({ serviceId: service.id, label, normalizedLabel: normalize(label) }))
+  ).sort((left, right) => right.normalizedLabel.length - left.normalizedLabel.length)
+
+  for (const candidate of labelsWithConjunction) {
+    const phrase = ` ${candidate.normalizedLabel} `
+    if (!protectedMessage.includes(phrase)) continue
+    const marker = `serviceref${protectedServices.length}`
+    protectedMessage = protectedMessage.split(phrase).join(` ${marker} `)
+    protectedServices.push({
+      marker,
+      serviceId: candidate.serviceId,
+      evidence: candidate.label
     })
-    return label
-      ? [{ serviceId: service.id, evidence: label }]
-      : []
-  })
-  return matches.slice(0, 5)
+  }
+
+  const groups = protectedMessage.trim()
+    .split(/\b(?:servicecomma|y|tambien|ademas|mas)\b/)
+    .flatMap((clause): ExplicitServiceGroup[] => {
+      const protectedMatches = protectedServices.filter((service) => clause.includes(service.marker))
+      const unprotectedClause = protectedMatches.reduce(
+        (value, service) => value.replaceAll(service.marker, ' '),
+        clause
+      ).trim()
+      const resolved = unprotectedClause
+        ? resolveCatalogServiceSelection(unprotectedClause, catalog)
+        : null
+      return [
+        ...protectedMatches.map((service) => ({
+          kind: 'selected' as const,
+          serviceId: service.serviceId,
+          evidence: service.evidence
+        })),
+        ...(resolved?.kind === 'selected'
+          ? [{ kind: 'selected' as const, serviceId: resolved.serviceId, evidence: clause.trim() }]
+          : resolved?.kind === 'ambiguous'
+            ? [{ kind: 'ambiguous' as const, serviceIds: resolved.serviceIds, evidence: clause.trim() }]
+            : [])
+      ]
+    })
+
+  const seen = new Set<string>()
+  return groups.filter((group) => {
+    const key = group.kind === 'selected'
+      ? `selected:${group.serviceId}`
+      : `ambiguous:${group.serviceIds.join(':')}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  }).slice(0, 5)
+}
+
+function selectableServiceLabels(service: BookingV2DomainCatalog['services'][number]) {
+  return [
+    service.name,
+    ...service.aliases.filter((label) =>
+      normalize(label) !== normalize(service.category ?? '') &&
+      normalize(label) !== normalize(service.parentServiceName ?? '')
+    )
+  ]
+}
+
+function pendingServiceDisambiguationGroups(
+  pending: BookingV2PendingServiceDisambiguation
+): BookingV2ServiceDisambiguationGroup[] {
+  return [
+    { serviceIds: pending.serviceIds, evidence: pending.evidence },
+    ...(pending.remainingGroups ?? [])
+  ]
+}
+
+function pendingServiceDisambiguationFromGroups(
+  groups: BookingV2ServiceDisambiguationGroup[]
+): BookingV2PendingServiceDisambiguation | null {
+  const [current, ...remainingGroups] = groups
+  if (!current) return null
+  return {
+    ...current,
+    ...(remainingGroups.length ? { remainingGroups } : {})
+  }
+}
+
+function resolvePendingServiceDisambiguation(
+  message: string,
+  pending: BookingV2PendingServiceDisambiguation | null,
+  catalog: BookingV2DomainCatalog
+) {
+  if (!pending) return { selections: [], remainingGroups: [] }
+  const selections: Array<{ serviceId: string; evidence: string }> = []
+  const remainingGroups: BookingV2ServiceDisambiguationGroup[] = []
+  for (const group of pendingServiceDisambiguationGroups(pending)) {
+    const serviceIds = new Set(group.serviceIds)
+    const groupCatalog = {
+      ...catalog,
+      services: catalog.services.filter((service) => serviceIds.has(service.id))
+    }
+    const resolution = resolveCatalogServiceSelection(message, groupCatalog)
+    if (resolution?.kind === 'selected' && serviceIds.has(resolution.serviceId)) {
+      selections.push({ serviceId: resolution.serviceId, evidence: message.trim() })
+    } else {
+      remainingGroups.push(group)
+    }
+  }
+  return { selections, remainingGroups }
+}
+
+function applyResolvedServiceSelections(
+  initialState: BookingV2State,
+  selections: Array<{ serviceId: string; evidence: string }>
+) {
+  let state = initialState
+  for (const selection of selections) {
+    if (!state.draft.service) {
+      state = acceptField(state, 'service', selection.serviceId)
+      continue
+    }
+    if (combinedServiceIds(state).includes(selection.serviceId)) continue
+    state = addCombinedServices(state, [selection])
+  }
+  return state
 }
 
 function hasMultipleServiceSignal(message: string) {
@@ -2773,14 +2953,17 @@ function sanitizeCatalogNameCollision(
     ? state
     : { ...state, queuedServices, combinedServices }
   if (sanitizedState.pendingServiceDisambiguation) {
-    const serviceIds = sanitizedState.pendingServiceDisambiguation.serviceIds.filter((serviceId, index, ids) =>
-      catalog.serviceIds.has(serviceId) && ids.indexOf(serviceId) === index
-    )
+    const groups = pendingServiceDisambiguationGroups(sanitizedState.pendingServiceDisambiguation)
+      .map((group) => ({
+        ...group,
+        serviceIds: group.serviceIds.filter((serviceId, index, ids) =>
+          catalog.serviceIds.has(serviceId) && ids.indexOf(serviceId) === index
+        )
+      }))
+      .filter((group) => group.serviceIds.length > 1)
     sanitizedState = {
       ...sanitizedState,
-      pendingServiceDisambiguation: serviceIds.length > 1
-        ? { ...sanitizedState.pendingServiceDisambiguation, serviceIds }
-        : null
+      pendingServiceDisambiguation: pendingServiceDisambiguationFromGroups(groups)
     }
   }
   if (sanitizedState.pendingServiceSeparation && combinedServices.length === 0) {

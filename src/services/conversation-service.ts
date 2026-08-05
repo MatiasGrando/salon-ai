@@ -78,6 +78,7 @@ type HandleMessageResult = {
   reply: string
   messages?: string[]
   replyButtons?: Array<{ id: string; title: string }>
+  depositRequestId?: string
   skipMisunderstandingTracking?: boolean
   skipHumanize?: boolean
 }
@@ -393,6 +394,12 @@ export class ConversationService {
     // router semantico. De otro modo puede interpretarse como restart_booking,
     // conservar el nombre y abrir inmediatamente otra reserva.
     if (hardResetRequested) {
+      if (storedBookingState?.pendingDeposit) {
+        await bookingDepositService.cancelPendingProof({
+          depositId: storedBookingState.pendingDeposit.depositId,
+          reason: 'La reserva se reinició antes de recibir el comprobante.'
+        })
+      }
       await this.updateConversation(input.phone, businessId, {
         currentStep: bookingV2Enabled ? 'START' : 'ASK_CUSTOMER_NAME',
         aiEnabled: true,
@@ -1940,9 +1947,51 @@ export class ConversationService {
         paymentSettings: service.business.paymentSettings,
         expiresAt
       }),
+      depositRequestId: deposit.id,
       skipMisunderstandingTracking: true,
       skipHumanize: true
     }
+  }
+
+  async handleDepositRequestDeliveryFailure(input: {
+    phone: string
+    businessId: string
+    depositId: string
+  }) {
+    const conversation = await prisma.conversation.findUnique({
+      where: {
+        businessId_phone: {
+          businessId: input.businessId,
+          phone: input.phone
+        }
+      }
+    })
+    if (!conversation) return false
+
+    const state = stateFromConversation(conversation)
+    if (state.pendingDeposit?.depositId !== input.depositId) return false
+    const cancelled = await bookingDepositService.cancelPendingProof({
+      depositId: input.depositId,
+      reason: 'No se pudo enviar la solicitud de seña por WhatsApp.'
+    })
+    if (!cancelled) return false
+
+    const retryState: BookingV2State = {
+      ...state,
+      draft: {
+        ...state.draft,
+        date: null,
+        time: null
+      },
+      pendingProposal: null,
+      pendingDeposit: null
+    }
+    await this.updateConversation(input.phone, input.businessId, {
+      currentStep: 'ASK_DATE',
+      ...conversationPatchFromState(retryState),
+      lastAvailability: null
+    })
+    return true
   }
 
   private async handlePendingDepositServiceAddition(input: {

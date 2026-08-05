@@ -15,6 +15,7 @@ import {
   type BookingV2GuidedEstimate,
   type BookingV2PendingRequest,
   type BookingV2PendingServiceDisambiguation,
+  type BookingV2ServiceDisambiguationGroup,
   type BookingV2QueuedService,
   type BookingV2ServiceValidation,
   type BookingV2UnsupportedServiceRequest,
@@ -153,7 +154,24 @@ function readPendingServiceDisambiguation(value: unknown): BookingV2PendingServi
   if (!value || typeof value !== 'object') return null
   const candidate = (value as { pendingServiceDisambiguation?: unknown }).pendingServiceDisambiguation
   if (!candidate || typeof candidate !== 'object') return null
-  const pending = candidate as { serviceIds?: unknown; evidence?: unknown }
+  const pending = readServiceDisambiguationGroup(candidate)
+  if (!pending) return null
+  const rawRemainingGroups = (candidate as { remainingGroups?: unknown }).remainingGroups
+  const remainingGroups = Array.isArray(rawRemainingGroups)
+    ? rawRemainingGroups
+        .map(readServiceDisambiguationGroup)
+        .filter((group): group is BookingV2ServiceDisambiguationGroup => Boolean(group))
+        .slice(0, 4)
+    : []
+  return {
+    ...pending,
+    ...(remainingGroups.length ? { remainingGroups } : {})
+  }
+}
+
+function readServiceDisambiguationGroup(value: unknown): BookingV2ServiceDisambiguationGroup | null {
+  if (!value || typeof value !== 'object') return null
+  const pending = value as { serviceIds?: unknown; evidence?: unknown }
   if (!Array.isArray(pending.serviceIds)) return null
   const serviceIds = Array.from(new Set(
     pending.serviceIds
