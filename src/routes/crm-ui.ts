@@ -5674,6 +5674,69 @@ const crmHtml = `<!doctype html>
       gap: 18px;
     }
 
+    .service-association-list {
+      overflow: hidden;
+      border: 1px solid #dfe6f1;
+      border-radius: 10px;
+      background: #fff;
+    }
+
+    .service-association-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 98px 155px;
+      gap: 12px;
+      align-items: center;
+      padding: 11px 12px;
+      border-bottom: 1px solid #edf1f7;
+    }
+
+    .service-association-row:last-child { border-bottom: 0; }
+
+    .service-association-head {
+      color: #667594;
+      background: #f8fbff;
+      font-size: 11px;
+      font-weight: 850;
+      text-transform: uppercase;
+      letter-spacing: .03em;
+    }
+
+    .service-association-name {
+      min-width: 0;
+      overflow: hidden;
+      color: #263958;
+      font-size: 13px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .service-association-extra {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: #405176;
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .service-association-extra input {
+      width: 16px;
+      height: 16px;
+      margin: 0;
+    }
+
+    .service-form .service-association-policy {
+      height: 36px;
+      padding: 0 8px;
+      font-size: 12px;
+    }
+
+    .service-association-empty {
+      padding: 14px;
+      color: #77849d;
+      font-size: 12px;
+    }
+
     .service-attention-panel {
       padding: 15px;
       display: grid;
@@ -13260,24 +13323,9 @@ const crmHtml = `<!doctype html>
                 <input class="field" id="service-aliases" placeholder="Ej: corte, corte hombre, haircut">
               </div>
               <div class="service-form-group service-combination-setting" id="service-combination-settings">
-                <label for="service-suggested-addons">Extras que ofrecer&aacute; el bot</label>
-                <select id="service-suggested-addons" multiple size="4"></select>
-                <div class="service-form-help">Cuando el cliente elija este servicio, el bot podr&aacute; ofrecer estos adicionales para reservarlos juntos.</div>
-              </div>
-              <div class="service-form-group service-combination-setting">
-                <label for="service-allowed-combinations">Combinaciones permitidas expl&iacute;citamente</label>
-                <select id="service-allowed-combinations" multiple size="4"></select>
-                <div class="service-form-help">Permite reservar juntos incluso servicios que normalmente necesitar&iacute;an validaci&oacute;n previa.</div>
-              </div>
-              <div class="service-form-group service-combination-setting">
-                <label for="service-review-combinations">Combinaciones que requieren revisi&oacute;n</label>
-                <select id="service-review-combinations" multiple size="4"></select>
-                <div class="service-form-help">El bot reconocer&aacute; ambos servicios, pero derivar&aacute; la consulta al equipo antes de reservar.</div>
-              </div>
-              <div class="service-form-group service-combination-setting">
-                <label for="service-blocked-combinations">Combinaciones no permitidas</label>
-                <select id="service-blocked-combinations" multiple size="4"></select>
-                <div class="service-form-help">El bot no los reservar&aacute; juntos y ofrecer&aacute; buscarlos como turnos separados.</div>
+                <label>Servicios asociados</label>
+                <div class="service-association-list" id="service-association-list"></div>
+                <div class="service-form-help">Marc&aacute; los servicios que el bot debe ofrecer como extra y eleg&iacute; c&oacute;mo puede combinarlos. Para quitar una relaci&oacute;n, desmarc&aacute; el extra y seleccion&aacute; &quot;Sin regla espec&iacute;fica&quot;.</div>
               </div>
               <div class="service-form-group">
                 <label for="service-image">Imagen del servicio (opcional)</label>
@@ -15039,6 +15087,7 @@ const crmHtml = `<!doctype html>
       professionalAvatarChanged: false,
       serviceImageUrl: null,
       serviceEstimateOptions: [],
+      serviceAssociationConfig: {},
       businessLogoUrl: null,
       businessId: null,
       business: null,
@@ -15439,10 +15488,7 @@ const crmHtml = `<!doctype html>
       serviceCategoryFeedback: document.getElementById('service-category-feedback'),
       serviceCategoryList: document.getElementById('service-category-list'),
       serviceAliases: document.getElementById('service-aliases'),
-      serviceSuggestedAddons: document.getElementById('service-suggested-addons'),
-      serviceAllowedCombinations: document.getElementById('service-allowed-combinations'),
-      serviceReviewCombinations: document.getElementById('service-review-combinations'),
-      serviceBlockedCombinations: document.getElementById('service-blocked-combinations'),
+      serviceAssociationList: document.getElementById('service-association-list'),
       serviceImage: document.getElementById('service-image'),
       serviceImagePreview: document.getElementById('service-image-preview'),
       serviceImagePreviewImg: document.getElementById('service-image-preview-img'),
@@ -17847,10 +17893,6 @@ const crmHtml = `<!doctype html>
     function renderServiceCatalogControls() {
       const selectedCategory = els.serviceCategory.value
       const selectedParent = els.serviceParent.value
-      const selectedSuggestedAddons = selectedValues(els.serviceSuggestedAddons)
-      const selectedAllowedCombinations = selectedValues(els.serviceAllowedCombinations)
-      const selectedReviewCombinations = selectedValues(els.serviceReviewCombinations)
-      const selectedBlockedCombinations = selectedValues(els.serviceBlockedCombinations)
       els.serviceCategory.innerHTML = '<option value="">Seleccionar categor&iacute;a</option>' +
         state.serviceCategories
           .filter((category) => category.isActive !== false)
@@ -17872,18 +17914,7 @@ const crmHtml = `<!doctype html>
           .join('')
       els.serviceParent.value = selectedParent
 
-      const combinationOptions = state.services
-        .filter((service) => service.isBookable !== false && service.id !== currentServiceId)
-        .map((service) => '<option value="' + escapeHtml(service.id) + '">' + escapeHtml(service.name) + '</option>')
-        .join('')
-      els.serviceSuggestedAddons.innerHTML = combinationOptions
-      els.serviceAllowedCombinations.innerHTML = combinationOptions
-      els.serviceReviewCombinations.innerHTML = combinationOptions
-      els.serviceBlockedCombinations.innerHTML = combinationOptions
-      setSelectedValues(els.serviceSuggestedAddons, selectedSuggestedAddons)
-      setSelectedValues(els.serviceAllowedCombinations, selectedAllowedCombinations)
-      setSelectedValues(els.serviceReviewCombinations, selectedReviewCombinations)
-      setSelectedValues(els.serviceBlockedCombinations, selectedBlockedCombinations)
+      renderServiceAssociations()
 
       els.serviceCategoryList.innerHTML = state.serviceCategories.length
         ? state.serviceCategories.map((category) =>
@@ -17905,15 +17936,79 @@ const crmHtml = `<!doctype html>
       }
     }
 
-    function selectedValues(select) {
-      return Array.from(select?.selectedOptions || []).map((option) => option.value)
+    function renderServiceAssociations() {
+      const currentServiceId = els.serviceId.value
+      const relatedServices = state.services.filter((service) =>
+        service.isBookable !== false && service.id !== currentServiceId
+      )
+      if (!relatedServices.length) {
+        els.serviceAssociationList.innerHTML = '<div class="service-association-empty">No hay otros servicios reservables para asociar.</div>'
+        return
+      }
+
+      const policyOptions = [
+        ['DEFAULT', 'Sin regla espec&iacute;fica'],
+        ['ALLOWED', 'Permitida'],
+        ['REVIEW_REQUIRED', 'Revisi&oacute;n requerida'],
+        ['BLOCKED', 'No permitida']
+      ]
+      els.serviceAssociationList.innerHTML =
+        '<div class="service-association-row service-association-head">' +
+          '<span>Servicio</span><span>Ofrecer extra</span><span>Pol&iacute;tica</span>' +
+        '</div>' +
+        relatedServices.map((service) => {
+          const config = state.serviceAssociationConfig[service.id] || {
+            suggestedAddon: false,
+            policy: 'DEFAULT'
+          }
+          const options = policyOptions.map(([value, label]) =>
+            '<option value="' + value + '"' + (config.policy === value ? ' selected' : '') + '>' + label + '</option>'
+          ).join('')
+          return '<div class="service-association-row">' +
+            '<strong class="service-association-name" title="' + escapeHtml(service.name) + '">' + escapeHtml(service.name) + '</strong>' +
+            '<label class="service-association-extra">' +
+              '<input type="checkbox" data-service-addon="' + escapeHtml(service.id) + '"' + (config.suggestedAddon ? ' checked' : '') + '>' +
+              '<span>S&iacute;</span>' +
+            '</label>' +
+            '<select class="service-association-policy" data-service-policy="' + escapeHtml(service.id) + '">' + options + '</select>' +
+          '</div>'
+        }).join('')
+
+      for (const checkbox of els.serviceAssociationList.querySelectorAll('[data-service-addon]')) {
+        checkbox.addEventListener('change', () => {
+          const serviceId = checkbox.dataset.serviceAddon
+          const current = state.serviceAssociationConfig[serviceId] || { suggestedAddon: false, policy: 'DEFAULT' }
+          updateServiceAssociationConfig(serviceId, {
+            suggestedAddon: checkbox.checked,
+            policy: checkbox.checked && current.policy === 'BLOCKED' ? 'DEFAULT' : current.policy
+          })
+          renderServiceAssociations()
+        })
+      }
+      for (const select of els.serviceAssociationList.querySelectorAll('[data-service-policy]')) {
+        select.addEventListener('change', () => {
+          const serviceId = select.dataset.servicePolicy
+          const current = state.serviceAssociationConfig[serviceId] || { suggestedAddon: false, policy: 'DEFAULT' }
+          updateServiceAssociationConfig(serviceId, {
+            suggestedAddon: select.value === 'BLOCKED' ? false : current.suggestedAddon,
+            policy: select.value
+          })
+          renderServiceAssociations()
+        })
+      }
     }
 
-    function setSelectedValues(select, values) {
-      const selected = new Set(values || [])
-      for (const option of select?.options || []) {
-        option.selected = selected.has(option.value)
+    function updateServiceAssociationConfig(serviceId, patch) {
+      const current = state.serviceAssociationConfig[serviceId] || {
+        suggestedAddon: false,
+        policy: 'DEFAULT'
       }
+      const next = { ...current, ...patch }
+      if (!next.suggestedAddon && next.policy === 'DEFAULT') {
+        delete state.serviceAssociationConfig[serviceId]
+        return
+      }
+      state.serviceAssociationConfig[serviceId] = next
     }
 
     function getServiceItemType(service) {
@@ -25040,10 +25135,19 @@ const crmHtml = `<!doctype html>
       const depositHoldMinutes = depositMode === 'NONE'
         ? 60
         : Number(els.serviceDepositHoldMinutes.value)
-      const suggestedAddonIds = isGroup ? [] : selectedValues(els.serviceSuggestedAddons)
-      const allowedCombinationServiceIds = isGroup ? [] : selectedValues(els.serviceAllowedCombinations)
-      const reviewCombinationServiceIds = isGroup ? [] : selectedValues(els.serviceReviewCombinations)
-      const blockedCombinationServiceIds = isGroup ? [] : selectedValues(els.serviceBlockedCombinations)
+      const associationEntries = isGroup ? [] : Object.entries(state.serviceAssociationConfig)
+      const suggestedAddonIds = associationEntries
+        .filter(([, config]) => config.suggestedAddon)
+        .map(([serviceId]) => serviceId)
+      const allowedCombinationServiceIds = associationEntries
+        .filter(([, config]) => config.policy === 'ALLOWED')
+        .map(([serviceId]) => serviceId)
+      const reviewCombinationServiceIds = associationEntries
+        .filter(([, config]) => config.policy === 'REVIEW_REQUIRED')
+        .map(([serviceId]) => serviceId)
+      const blockedCombinationServiceIds = associationEntries
+        .filter(([, config]) => config.policy === 'BLOCKED')
+        .map(([serviceId]) => serviceId)
 
       const combinationPolicyIds = [
         ...allowedCombinationServiceIds,
@@ -25200,6 +25304,30 @@ const crmHtml = `<!doctype html>
     function editService(id) {
       const service = state.services.find((item) => item.id === id)
       if (!service) return
+      const combinationRules = [
+        ...(service.combinationRulesA || []),
+        ...(service.combinationRulesB || [])
+      ]
+      const suggestedAddonIds = new Set(
+        (service.suggestedAddons || []).map((relation) => relation.addonServiceId)
+      )
+      state.serviceAssociationConfig = Object.fromEntries(
+        state.services
+          .filter((relatedService) => relatedService.isBookable !== false && relatedService.id !== service.id)
+          .flatMap((relatedService) => {
+            const rule = combinationRules.find((candidate) =>
+              (candidate.serviceAId === service.id && candidate.serviceBId === relatedService.id) ||
+              (candidate.serviceBId === service.id && candidate.serviceAId === relatedService.id)
+            )
+            const config = {
+              suggestedAddon: suggestedAddonIds.has(relatedService.id),
+              policy: rule?.policy || 'DEFAULT'
+            }
+            return config.suggestedAddon || config.policy !== 'DEFAULT'
+              ? [[relatedService.id, config]]
+              : []
+          })
+      )
       els.serviceId.value = service.id
       els.serviceItemType.value = getServiceItemType(service)
       renderServiceCatalogControls()
@@ -25238,32 +25366,6 @@ const crmHtml = `<!doctype html>
       updateServiceValidationFields()
       updateServiceCustomerDurationFields()
       els.serviceAliases.value = (service.aliases || []).map((alias) => alias.name).join(', ')
-      const combinationRules = [
-        ...(service.combinationRulesA || []),
-        ...(service.combinationRulesB || [])
-      ]
-      setSelectedValues(
-        els.serviceSuggestedAddons,
-        (service.suggestedAddons || []).map((relation) => relation.addonServiceId)
-      )
-      setSelectedValues(
-        els.serviceAllowedCombinations,
-        combinationRules
-          .filter((rule) => rule.policy === 'ALLOWED')
-          .map((rule) => rule.serviceAId === service.id ? rule.serviceBId : rule.serviceAId)
-      )
-      setSelectedValues(
-        els.serviceReviewCombinations,
-        combinationRules
-          .filter((rule) => rule.policy === 'REVIEW_REQUIRED')
-          .map((rule) => rule.serviceAId === service.id ? rule.serviceBId : rule.serviceAId)
-      )
-      setSelectedValues(
-        els.serviceBlockedCombinations,
-        combinationRules
-          .filter((rule) => rule.policy === 'BLOCKED')
-          .map((rule) => rule.serviceAId === service.id ? rule.serviceBId : rule.serviceAId)
-      )
       updateServiceTypeFields()
       setServiceImage(service.imageUrl || null)
       els.serviceCancel.hidden = false
@@ -25320,15 +25422,12 @@ const crmHtml = `<!doctype html>
       els.serviceDepositValue.value = ''
       els.serviceDepositHoldMinutes.value = '60'
       state.serviceEstimateOptions = []
+      state.serviceAssociationConfig = {}
       renderServiceEstimateOptions()
       updateServiceDepositFields()
       updateServiceValidationFields()
       updateServiceCustomerDurationFields()
       els.serviceAliases.value = ''
-      setSelectedValues(els.serviceSuggestedAddons, [])
-      setSelectedValues(els.serviceAllowedCombinations, [])
-      setSelectedValues(els.serviceReviewCombinations, [])
-      setSelectedValues(els.serviceBlockedCombinations, [])
       setServiceImage(null)
       els.serviceCancel.hidden = true
       els.serviceFeedback.textContent = ''
