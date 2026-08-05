@@ -1,7 +1,8 @@
 import {
   BookingV2DomainService,
   catalogCategoryOptions,
-  catalogServicesForCategory
+  catalogServicesForCategory,
+  combinationRuleFor
 } from './booking-v2-domain.js'
 import type { BookingV2AvailabilityOption, BookingV2DomainCatalog } from './booking-v2-domain.js'
 import { BookingV2Extractor, type BookingV2Extraction } from './booking-v2-extractor.js'
@@ -26,10 +27,12 @@ import {
 } from './booking-v2-choice-extractor.js'
 import {
   ANY_PROFESSIONAL_ID,
+  addCombinedServices,
   acceptField,
   clearFieldAndDependents,
   confirmProposal,
   createEmptyBookingV2State,
+  combinedServiceIds,
   nextMissingField,
   proposeField,
   queueAdditionalServices,
@@ -48,7 +51,7 @@ import {
 type BookingV2DomainPort = Pick<
   BookingV2DomainService,
   'loadCatalog' | 'toExtractionCatalog' | 'toInterpreterCatalog' | 'findAvailabilityOptions'
->
+> & Partial<Pick<BookingV2DomainService, 'findNextAvailabilityOptions'>>
 
 type BookingV2ExtractorPort = Pick<BookingV2Extractor, 'extract'>
 type BookingV2ServiceValidationPort = {
@@ -95,6 +98,7 @@ export type BookingV2ProcessResult = {
   conversationPatch: BookingV2ConversationPatch
   plan: BookingV2MessagePlan
   reply: string
+  messages?: string[]
   availabilityOptions: BookingV2AvailabilityOption[]
   extraction: BookingV2Extraction | null
   outcome: BookingV2Interpretation['outcome'] | 'proposal_confirmed' | 'proposal_rejected'
@@ -118,6 +122,199 @@ export class BookingV2Engine {
     const storedState = stateFromConversation(input.conversation)
     const catalog = await this.domain.loadCatalog(input.businessId)
     const initialState = sanitizeCatalogNameCollision(storedState, catalog)
+
+    if (initialState.pendingServiceSeparation) {
+      const pending = initialState.pendingServiceSeparation
+      const choice = await this.choiceExtractor.extract({
+        message: input.message,
+        question: '¿Quiere buscar un turno separado para cada servicio o prefiere que el equipo revise si pueden hacerse juntos?',
+        choices: [
+          { id: 'separate', meaning: 'Buscar y reservar cada servicio por separado.' },
+          { id: 'review_together', meaning: 'Mantener el pedido conjunto y pedir que lo revise una persona del equipo.' }
+        ]
+      })
+      if (choice.confidence >= 0.7 && choice.choiceId === 'separate') {
+        const queuedServices = queueAdditionalServices(
+          { ...initialState, queuedServices: [] },
+          initialState.combinedServices
+        ).queuedServices
+        const state: BookingV2State = {
+          ...initialState,
+          draft: {
+            ...initialState.draft,
+            professional: null,
+            ...(catalog.bookingFlowOrder === 'PROFESSIONAL_FIRST'
+              ? { date: null, time: null }
+              : {})
+          },
+          queuedServices,
+          combinedServices: [],
+          pendingServiceSeparation: null,
+          addonSuggestion: null,
+          misunderstandingCount: 0
+        }
+        return this.fromInterpretation({
+          state,
+          nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
+          outcome: 'accepted',
+          affectedField: 'service'
+        }, null, catalog)
+      }
+      if (choice.confidence >= 0.7 && choice.choiceId === 'review_together') {
+        return this.guidedEstimateResult({
+          ...initialState,
+          pendingServiceSeparation: null
+        }, {
+          type: 'handoff',
+          reason: 'combination_review_required'
+        }, catalog, 'accepted')
+      }
+      return this.guidedEstimateResult(initialState, {
+        type: 'offer_separate_services',
+        reason: pending.reason
+      }, catalog, 'no_change')
+    }
+
+    if (initialState.pendingCombinedAvailability) {
+      const pending = initialState.pendingCombinedAvailability
+      const choice = await this.choiceExtractor.extract({
+        message: input.message,
+        question: '¿Preferís una de las próximas disponibilidades conjuntas o buscar cada servicio por separado?',
+        choices: [
+          ...pending.options.map((option, index) => ({
+            id: `joint:${index}`,
+            meaning: `Reservar todos los servicios juntos el ${option.date} a las ${option.time} con ${option.professionalName}.`
+          })),
+          {
+            id: 'separate',
+            meaning: 'Buscar los servicios por separado, aunque sean distintos días, horarios o turnos.'
+          }
+        ]
+      })
+      if (choice.confidence >= 0.7 && choice.choiceId === 'separate') {
+        let state: BookingV2State = {
+          ...initialState,
+          queuedServices: queueAdditionalServices(
+            { ...initialState, queuedServices: [] },
+            initialState.combinedServices
+          ).queuedServices,
+          combinedServices: [],
+          pendingCombinedAvailability: null,
+          addonSuggestion: null,
+          addonOfferCompletedServiceId: initialState.draft.service,
+          draft: {
+            ...initialState.draft,
+            professional: catalog.bookingFlowOrder === 'PROFESSIONAL_FIRST'
+              ? ANY_PROFESSIONAL_ID
+              : null,
+            date: pending.requestedDate,
+            time: null
+          },
+          misunderstandingCount: 0
+        }
+        return this.fromInterpretation({
+          state,
+          nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
+          outcome: 'accepted',
+          affectedField: 'date'
+        }, null, catalog)
+      }
+      const jointIndex = choice.choiceId?.startsWith('joint:')
+        ? Number(choice.choiceId.slice('joint:'.length))
+        : -1
+      const selectedOption = Number.isInteger(jointIndex) ? pending.options[jointIndex] : null
+      if (choice.confidence >= 0.7 && selectedOption) {
+        let state: BookingV2State = {
+          ...initialState,
+          pendingCombinedAvailability: null,
+          misunderstandingCount: 0
+        }
+        state = acceptField(state, 'professional', selectedOption.professionalId)
+        state = acceptField(state, 'date', selectedOption.date)
+        state = acceptField(state, 'time', selectedOption.time)
+        return this.fromInterpretation({
+          state,
+          nextField: 'confirmation',
+          outcome: 'accepted',
+          affectedField: 'time'
+        }, null, catalog)
+      }
+      return this.guidedEstimateResult(initialState, {
+        type: 'offer_combined_availability',
+        requestedDate: pending.requestedDate,
+        options: pending.options
+      }, catalog, 'no_change')
+    }
+
+    if (initialState.addonSuggestion) {
+      const suggestion = initialState.addonSuggestion
+      const mentionedServiceIds = selectedAddonIdsFromMessage(
+        input.message,
+        suggestion.candidateServiceIds,
+        catalog,
+        input.understandingExtraction
+      )
+      if (mentionedServiceIds.length) {
+        const state = addCombinedServices(initialState, mentionedServiceIds.map((serviceId) => ({
+          serviceId,
+          evidence: input.message.trim()
+        })))
+        return this.fromInterpretation({
+          state,
+          nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
+          outcome: 'accepted',
+          affectedField: 'service'
+        }, null, catalog)
+      }
+      const choice = await this.choiceExtractor.extract({
+        message: input.message,
+        question: '¿Querés sumar alguno de los servicios sugeridos o continuar sin extras?',
+        choices: [
+          ...suggestion.candidateServiceIds.map((serviceId) => ({
+            id: `addon:${serviceId}`,
+            meaning: `Agregar ${catalog.services.find((service) => service.id === serviceId)?.name ?? serviceId} a la misma reserva.`
+          })),
+          { id: 'continue', meaning: 'No agregar extras y continuar con la reserva.' }
+        ]
+      })
+      if (choice.confidence >= 0.7 && choice.choiceId === 'continue') {
+        const state: BookingV2State = {
+          ...initialState,
+          addonSuggestion: null,
+          addonOfferCompletedServiceId: suggestion.sourceServiceId,
+          misunderstandingCount: 0
+        }
+        return this.fromInterpretation({
+          state,
+          nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
+          outcome: 'accepted',
+          affectedField: 'service'
+        }, null, catalog)
+      }
+      const selectedServiceId = choice.choiceId?.startsWith('addon:')
+        ? choice.choiceId.slice('addon:'.length)
+        : null
+      if (
+        choice.confidence >= 0.7 &&
+        selectedServiceId &&
+        suggestion.candidateServiceIds.includes(selectedServiceId)
+      ) {
+        const state = addCombinedServices(initialState, [{
+          serviceId: selectedServiceId,
+          evidence: input.message.trim()
+        }])
+        return this.fromInterpretation({
+          state,
+          nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
+          outcome: 'accepted',
+          affectedField: 'service'
+        }, null, catalog)
+      }
+      return this.guidedEstimateResult(initialState, {
+        type: 'ask_service_addons',
+        serviceIds: suggestion.candidateServiceIds
+      }, catalog, 'no_change')
+    }
 
     if (initialState.categoryAdvice?.stage === 'awaiting_confirmation') {
       const choice = await this.choiceExtractor.extract({
@@ -406,7 +603,7 @@ export class BookingV2Engine {
     const explicitServices = resolveExplicitMultipleServices(input.message, catalog)
     if (!initialState.draft.service && explicitServices.length >= 2) {
       let state = acceptField(initialState, 'service', explicitServices[0]!.serviceId)
-      state = queueAdditionalServices(state, explicitServices.slice(1))
+      state = addCombinedServices(state, explicitServices.slice(1))
       const result = await this.fromInterpretation({
         state,
         nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
@@ -597,16 +794,20 @@ export class BookingV2Engine {
       stateForExtraction
     )
 
-    const stateWithQueuedServices = queueServicesFromExtraction(
+    const baseInterpretation = applyBookingV2Extraction(
       stateForExtraction,
-      extraction,
-      catalog
-    )
-    const interpretation = applyBookingV2Extraction(
-      stateWithQueuedServices,
       extraction,
       this.domain.toInterpreterCatalog(catalog)
     )
+    const stateWithCombinedServices = queueServicesFromExtraction(
+      baseInterpretation.state,
+      extraction,
+      catalog
+    )
+    const interpretation = {
+      ...baseInterpretation,
+      state: stateWithCombinedServices
+    }
     const expectedField = nextMissingField(stateForExtraction.draft, catalog.bookingFlowOrder)
     const affectedField = expectedField === 'confirmation' ? null : expectedField
     const effectiveInterpretation = interpretation.outcome === 'no_change' &&
@@ -624,7 +825,7 @@ export class BookingV2Engine {
       extraction,
       catalog
     )
-    return stateWithQueuedServices.queuedServices.length > stateForExtraction.queuedServices.length
+    return stateWithCombinedServices.combinedServices.length > stateForExtraction.combinedServices.length
       ? withMultipleServicesAcknowledgement(result, catalog)
       : result
   }
@@ -1034,18 +1235,76 @@ export class BookingV2Engine {
       }
     }
 
+    const selectedServiceIds = combinedServiceIds(effectiveInterpretation.state)
+    if (catalog && selectedServiceIds.length > 1 && !isServiceDecisionPlan(plan)) {
+      const combinationDecision = evaluateServiceCombination(selectedServiceIds, catalog)
+      if (combinationDecision === 'REVIEW_REQUIRED') {
+        plan = { type: 'handoff', reason: 'combination_review_required' }
+      } else if (combinationDecision === 'BLOCKED') {
+        effectiveInterpretation = {
+          ...effectiveInterpretation,
+          state: {
+            ...effectiveInterpretation.state,
+            pendingServiceSeparation: { reason: 'blocked_combination' }
+          }
+        }
+        plan = { type: 'offer_separate_services', reason: 'blocked_combination' }
+      }
+    }
+
+    if (
+      catalog &&
+      selectedServiceIds.length === 1 &&
+      selectedService &&
+      effectiveInterpretation.state.addonOfferCompletedServiceId !== selectedService.id &&
+      !effectiveInterpretation.state.addonSuggestion &&
+      plan.type === 'ask_field' &&
+      ['professional', 'date'].includes(plan.field)
+    ) {
+      const addonIds = (selectedService.suggestedAddonIds ?? []).filter((addonServiceId) =>
+        catalog.serviceIds.has(addonServiceId) &&
+        combinationRuleFor(catalog, selectedService.id, addonServiceId)?.policy !== 'BLOCKED' &&
+        catalog.professionals.some((professional) =>
+          [selectedService.id, addonServiceId].every((serviceId) =>
+            professional.serviceIds.includes(serviceId)
+          )
+        )
+      )
+      if (addonIds.length) {
+        effectiveInterpretation = {
+          ...effectiveInterpretation,
+          state: {
+            ...effectiveInterpretation.state,
+            addonSuggestion: {
+              sourceServiceId: selectedService.id,
+              candidateServiceIds: addonIds.slice(0, 4)
+            }
+          }
+        }
+        plan = { type: 'ask_service_addons', serviceIds: addonIds.slice(0, 4) }
+      }
+    }
+
     if (
       catalog &&
       plan.type === 'ask_field' &&
       plan.field === 'professional' &&
       effectiveInterpretation.state.draft.service &&
       !catalog.professionals.some((professional) =>
-        professional.serviceIds.includes(effectiveInterpretation.state.draft.service ?? '')
+        selectedServiceIds.every((serviceId) => professional.serviceIds.includes(serviceId))
       )
     ) {
-      plan = {
-        type: 'handoff',
-        reason: 'no_compatible_professional'
+      if (selectedServiceIds.length > 1) {
+        effectiveInterpretation = {
+          ...effectiveInterpretation,
+          state: {
+            ...effectiveInterpretation.state,
+            pendingServiceSeparation: { reason: 'no_common_professional' }
+          }
+        }
+        plan = { type: 'offer_separate_services', reason: 'no_common_professional' }
+      } else {
+        plan = { type: 'handoff', reason: 'no_compatible_professional' }
       }
     }
 
@@ -1058,6 +1317,7 @@ export class BookingV2Engine {
       const availability = await this.domain.findAvailabilityOptions({
         catalog,
         serviceId: effectiveInterpretation.state.draft.service,
+        serviceIds: selectedServiceIds,
         professionalId: effectiveInterpretation.state.draft.professional,
         date: effectiveInterpretation.state.draft.date
       })
@@ -1066,18 +1326,53 @@ export class BookingV2Engine {
 
       if (availabilityOptions.length === 0) {
         unavailableDate = effectiveInterpretation.state.draft.date
-        const state = {
-          ...effectiveInterpretation.state,
-          draft: clearFieldAndDependents(effectiveInterpretation.state.draft, 'date'),
-          pendingProposal: null
+        const nextOptions = selectedServiceIds.length > 1 && this.domain.findNextAvailabilityOptions
+          ? await this.domain.findNextAvailabilityOptions({
+              catalog,
+              serviceId: effectiveInterpretation.state.draft.service,
+              serviceIds: selectedServiceIds,
+              professionalId: effectiveInterpretation.state.draft.professional,
+              afterDate: unavailableDate,
+              horizonDays: 14,
+              maxDates: 3,
+              maxSlotsPerDate: 3
+            })
+          : []
+        if (nextOptions.length) {
+          const state: BookingV2State = {
+            ...effectiveInterpretation.state,
+            draft: clearFieldAndDependents(effectiveInterpretation.state.draft, 'date'),
+            pendingProposal: null,
+            pendingCombinedAvailability: {
+              requestedDate: unavailableDate,
+              options: nextOptions
+            }
+          }
+          effectiveInterpretation = {
+            state,
+            nextField: 'date',
+            outcome: 'no_change',
+            affectedField: 'date'
+          }
+          plan = {
+            type: 'offer_combined_availability',
+            requestedDate: unavailableDate,
+            options: nextOptions
+          }
+        } else {
+          const state = {
+            ...effectiveInterpretation.state,
+            draft: clearFieldAndDependents(effectiveInterpretation.state.draft, 'date'),
+            pendingProposal: null
+          }
+          effectiveInterpretation = {
+            state,
+            nextField: 'date',
+            outcome: 'no_change',
+            affectedField: 'date'
+          }
+          plan = buildBookingV2MessagePlan(effectiveInterpretation, catalog.bookingFlowOrder)
         }
-        effectiveInterpretation = {
-          state,
-          nextField: 'date',
-          outcome: 'no_change',
-          affectedField: 'date'
-        }
-        plan = buildBookingV2MessagePlan(effectiveInterpretation, catalog.bookingFlowOrder)
       } else {
         const proposedTime = timeToValidate(plan, effectiveInterpretation.state)
         if (proposedTime && !availabilityOptions.some((option) => option.time === proposedTime)) {
@@ -1131,20 +1426,25 @@ export class BookingV2Engine {
     const serviceSuggestions = renderContext?.serviceSuggestions ??
       offeredCategoryServices(effectiveInterpretation.state, catalog)
 
+    const reply = renderBookingV2Response({
+      plan,
+      draft: effectiveInterpretation.state.draft,
+      agenda: effectiveInterpretation.state.agenda,
+      catalogNavigation: effectiveInterpretation.state.catalogNavigation,
+      catalog,
+      availabilityOptions,
+      unavailableDate,
+      combinedServices: effectiveInterpretation.state.combinedServices,
+      ...(serviceSuggestions ? { serviceSuggestions } : {})
+    })
     return {
       state: effectiveInterpretation.state,
       conversationPatch: conversationPatchFromState(effectiveInterpretation.state),
       plan,
-      reply: renderBookingV2Response({
-        plan,
-        draft: effectiveInterpretation.state.draft,
-        agenda: effectiveInterpretation.state.agenda,
-        catalogNavigation: effectiveInterpretation.state.catalogNavigation,
-        catalog,
-        availabilityOptions,
-        unavailableDate,
-        ...(serviceSuggestions ? { serviceSuggestions } : {})
-      }),
+      reply,
+      ...(plan.type === 'offer_combined_availability'
+        ? { messages: combinedAvailabilityMessages(reply) }
+        : {}),
       availabilityOptions,
       extraction,
       outcome
@@ -1158,18 +1458,23 @@ export class BookingV2Engine {
     outcome: BookingV2ProcessResult['outcome']
   ): BookingV2ProcessResult {
     const reconciledState = reconcileBookingV2Agenda(state, plan, [])
+    const reply = renderBookingV2Response({
+      plan,
+      draft: reconciledState.draft,
+      agenda: reconciledState.agenda,
+      catalogNavigation: reconciledState.catalogNavigation,
+      catalog,
+      availabilityOptions: [],
+      combinedServices: reconciledState.combinedServices
+    })
     return {
       state: reconciledState,
       conversationPatch: conversationPatchFromState(reconciledState),
       plan,
-      reply: renderBookingV2Response({
-        plan,
-        draft: reconciledState.draft,
-        agenda: reconciledState.agenda,
-        catalogNavigation: reconciledState.catalogNavigation,
-        catalog,
-        availabilityOptions: []
-      }),
+      reply,
+      ...(plan.type === 'offer_combined_availability'
+        ? { messages: combinedAvailabilityMessages(reply) }
+        : {}),
       availabilityOptions: [],
       extraction: null,
       outcome
@@ -1190,6 +1495,7 @@ export class BookingV2Engine {
     const availability = await this.domain.findAvailabilityOptions({
       catalog,
       serviceId: state.draft.service,
+      serviceIds: combinedServiceIds(state),
       professionalId: state.draft.professional,
       date: state.draft.date
     })
@@ -1468,8 +1774,11 @@ function resolveExpectedProfessional(
   if (nextMissingField(state.draft, catalog.bookingFlowOrder) !== 'professional') return null
 
   const selectedService = state.draft.service
+  const selectedServiceIds = combinedServiceIds(state)
   const compatibleProfessionals = catalog.professionals.filter((professional) =>
-    !selectedService || professional.serviceIds.includes(selectedService)
+    !selectedService || selectedServiceIds.every((serviceId) =>
+      professional.serviceIds.includes(serviceId)
+    )
   )
   if (compatibleProfessionals.length === 0) return null
 
@@ -1902,8 +2211,7 @@ function queueServicesFromExtraction(
   extraction: BookingV2Extraction,
   catalog: BookingV2DomainCatalog
 ) {
-  if (state.draft.service) return state
-  const primaryServiceId = extraction.service.value
+  const primaryServiceId = state.draft.service ?? extraction.service.value
   if (!primaryServiceId || extraction.service.confidence < 0.85) return state
   const services = (extraction.additionalServices ?? [])
     .filter((field) =>
@@ -1917,7 +2225,7 @@ function queueServicesFromExtraction(
       serviceId: field.value!,
       evidence: field.evidence
     }))
-  return queueAdditionalServices(state, services)
+  return addCombinedServices(state, services)
 }
 
 function resolveExplicitMultipleServices(
@@ -1950,13 +2258,88 @@ function hasMultipleServiceSignal(message: string) {
   return /\b(?:y|tambien|ademas|mas)\b/.test(normalize(message))
 }
 
+function selectedAddonIdsFromMessage(
+  message: string,
+  candidateServiceIds: string[],
+  catalog: BookingV2DomainCatalog,
+  extraction?: BookingV2Extraction | null
+) {
+  const candidates = new Set(candidateServiceIds)
+  const extractedIds = [
+    extraction?.service,
+    ...(extraction?.additionalServices ?? [])
+  ].flatMap((field) =>
+    field?.value && field.confidence >= 0.85 && candidates.has(field.value)
+      ? [field.value]
+      : []
+  )
+  const normalizedMessage = ` ${normalize(message)} `
+  const deterministicIds = catalog.services.flatMap((service) => {
+    if (!candidates.has(service.id)) return []
+    const matched = [service.name, ...service.aliases].some((label) => {
+      const normalizedLabel = normalize(label)
+      return normalizedLabel.length >= 3 && normalizedMessage.includes(` ${normalizedLabel} `)
+    })
+    return matched ? [service.id] : []
+  })
+  return Array.from(new Set([...extractedIds, ...deterministicIds]))
+}
+
+function evaluateServiceCombination(
+  serviceIds: string[],
+  catalog: BookingV2DomainCatalog
+): 'ALLOWED' | 'REVIEW_REQUIRED' | 'BLOCKED' {
+  let requiresReview = false
+  for (let left = 0; left < serviceIds.length; left += 1) {
+    for (let right = left + 1; right < serviceIds.length; right += 1) {
+      const leftId = serviceIds[left]!
+      const rightId = serviceIds[right]!
+      const rule = combinationRuleFor(catalog, leftId, rightId)
+      if (rule?.policy === 'BLOCKED') return 'BLOCKED'
+      if (rule?.policy === 'REVIEW_REQUIRED') requiresReview = true
+      if (rule?.policy === 'ALLOWED') continue
+      const additionalService = catalog.services.find((service) => service.id === rightId)
+      if (
+        additionalService &&
+        (
+          additionalService.requiresPhoto ||
+          additionalService.validationEnabled ||
+          (additionalService.attentionMode && additionalService.attentionMode !== 'DIRECT_BOOKING')
+        )
+      ) {
+        requiresReview = true
+      }
+    }
+  }
+  return requiresReview ? 'REVIEW_REQUIRED' : 'ALLOWED'
+}
+
+function isServiceDecisionPlan(plan: BookingV2MessagePlan) {
+  return [
+    'show_service_preview_and_ask_name',
+    'ask_estimate_option',
+    'show_estimate',
+    'show_base_estimate',
+    'ask_estimate_decision',
+    'ask_service_validation',
+    'ask_category_advice_confirmation',
+    'handoff'
+  ].includes(plan.type)
+}
+
+function combinedAvailabilityMessages(reply: string) {
+  const parts = reply.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean)
+  if (parts.length < 3) return [reply]
+  return [parts.slice(0, 2).join('\n\n'), parts.slice(2).join('\n\n')]
+}
+
 function withMultipleServicesAcknowledgement(
   result: BookingV2ProcessResult,
   catalog: BookingV2DomainCatalog
 ): BookingV2ProcessResult {
   const serviceIds = [
     result.state.draft.service,
-    ...result.state.queuedServices.map((service) => service.serviceId)
+    ...result.state.combinedServices.map((service) => service.serviceId)
   ].filter((serviceId): serviceId is string => Boolean(serviceId))
   const names = serviceIds.map((serviceId) =>
     catalog.services.find((service) => service.id === serviceId)?.name ?? serviceId
@@ -1966,9 +2349,10 @@ function withMultipleServicesAcknowledgement(
   return {
     ...result,
     reply: [
-      'Perfecto, vamos a reservar los servicios uno por uno:',
+      'Perfecto, vamos a reservar estos servicios juntos:',
       ...names.map((name) => `• ${name}`),
-      `Empezamos con ${firstService}.`,
+      `Duración total: ${serviceIds.reduce((total, serviceId) =>
+        total + (catalog.services.find((service) => service.id === serviceId)?.duration ?? 0), 0)} min.`,
       result.reply
     ].join('\n')
   }
@@ -1988,9 +2372,18 @@ function sanitizeCatalogNameCollision(
     service.serviceId !== state.draft.service &&
     services.findIndex((candidate) => candidate.serviceId === service.serviceId) === index
   )
-  let sanitizedState = queuedServices.length === state.queuedServices.length
+  const combinedServices = state.combinedServices.filter((service, index, services) =>
+    catalog.serviceIds.has(service.serviceId) &&
+    service.serviceId !== state.draft.service &&
+    services.findIndex((candidate) => candidate.serviceId === service.serviceId) === index
+  )
+  let sanitizedState = queuedServices.length === state.queuedServices.length &&
+    combinedServices.length === state.combinedServices.length
     ? state
-    : { ...state, queuedServices }
+    : { ...state, queuedServices, combinedServices }
+  if (sanitizedState.pendingServiceSeparation && combinedServices.length === 0) {
+    sanitizedState = { ...sanitizedState, pendingServiceSeparation: null }
+  }
   if (sanitizedState.draft.service && !catalog.serviceIds.has(sanitizedState.draft.service)) {
     sanitizedState = {
       ...sanitizedState,
@@ -2001,7 +2394,8 @@ function sanitizeCatalogNameCollision(
       serviceValidation: null,
       guidedEstimate: null,
       advisorQuote: null,
-      pendingDeposit: null
+      pendingDeposit: null,
+      pendingServiceSeparation: null
     }
   }
   if (

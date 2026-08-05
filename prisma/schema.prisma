@@ -112,6 +112,12 @@ enum BookingFlowOrder {
   DATE_TIME_FIRST
 }
 
+enum ServiceCombinationPolicy {
+  ALLOWED
+  REVIEW_REQUIRED
+  BLOCKED
+}
+
 enum UserRole {
   SUPER_ADMIN
   BUSINESS_ADMIN
@@ -147,6 +153,7 @@ model Business {
   professionals           Professional[]
   serviceCategories       ServiceCategory[]
   services                Service[]
+  serviceCombinationRules ServiceCombinationRule[]
   businessHours           BusinessHours[]
   scheduleBlocks          ScheduleBlock[]
   conversations           Conversation[]
@@ -179,29 +186,29 @@ model User {
   role         UserRole @default(BUSINESS_ADMIN)
   isActive     Boolean  @default(true)
 
-  businessId              String?
-  business                Business?     @relation(fields: [businessId], references: [id], onDelete: SetNull)
-  professionalId          String?
-  professional            Professional? @relation(fields: [professionalId], references: [id], onDelete: SetNull)
-  sessions                UserSession[]
-  canCreateAppointments   Boolean       @default(true)
-  canEditAppointments     Boolean       @default(true)
-  canCancelAppointments   Boolean       @default(true)
-  canManageScheduleBlocks Boolean       @default(true)
-  staffProfile            String        @default("PROFESSIONAL")
-  permissionPreset        String        @default("PROFESSIONAL_DEFAULT")
-  agendaScope             String        @default("OWN")
-  canForceAppointments    Boolean       @default(false)
-  canViewCustomers        Boolean       @default(false)
-  canCreateCustomers      Boolean       @default(false)
-  canEditCustomers        Boolean       @default(false)
-  canManageCustomerNotes  Boolean       @default(false)
-  canManageCustomerMarketing Boolean    @default(false)
-  canViewConversations    Boolean       @default(false)
-  canReplyConversations   Boolean       @default(false)
-  canManageDeposits       Boolean       @default(false)
-  canViewOperationalReports Boolean     @default(false)
-  canViewFinancialAmounts Boolean       @default(false)
+  businessId                 String?
+  business                   Business?     @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  professionalId             String?
+  professional               Professional? @relation(fields: [professionalId], references: [id], onDelete: SetNull)
+  sessions                   UserSession[]
+  canCreateAppointments      Boolean       @default(true)
+  canEditAppointments        Boolean       @default(true)
+  canCancelAppointments      Boolean       @default(true)
+  canManageScheduleBlocks    Boolean       @default(true)
+  staffProfile               String        @default("PROFESSIONAL")
+  permissionPreset           String        @default("PROFESSIONAL_DEFAULT")
+  agendaScope                String        @default("OWN")
+  canForceAppointments       Boolean       @default(false)
+  canViewCustomers           Boolean       @default(false)
+  canCreateCustomers         Boolean       @default(false)
+  canEditCustomers           Boolean       @default(false)
+  canManageCustomerNotes     Boolean       @default(false)
+  canManageCustomerMarketing Boolean       @default(false)
+  canViewConversations       Boolean       @default(false)
+  canReplyConversations      Boolean       @default(false)
+  canManageDeposits          Boolean       @default(false)
+  canViewOperationalReports  Boolean       @default(false)
+  canViewFinancialAmounts    Boolean       @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -347,33 +354,33 @@ model BusinessFeatureSettings {
   businessId String   @unique
   business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
-  botEnabled            Boolean      @default(true)
-  aiEnabled             Boolean      @default(true)
-  campaignsEnabled      Boolean      @default(false)
-  remindersEnabled      Boolean      @default(false)
-  realWhatsappEnabled   Boolean      @default(false)
-  bookingV2Enabled      Boolean      @default(false)
-  serviceCatalogDisplayMode ServiceCatalogDisplayMode @default(ALL_SERVICES)
-  bookingFlowOrder      BookingFlowOrder @default(PROFESSIONAL_FIRST)
-  conversationPauseAfterMinutes  Int @default(120)
-  conversationExpireAfterMinutes Int @default(1440)
-  assistantPersonality  Json?
-  billingOwner          BillingOwner @default(CLIENT)
-  campaignSendingLocked Boolean      @default(true)
-  reminderSendingLocked Boolean      @default(true)
+  botEnabled                     Boolean                   @default(true)
+  aiEnabled                      Boolean                   @default(true)
+  campaignsEnabled               Boolean                   @default(false)
+  remindersEnabled               Boolean                   @default(false)
+  realWhatsappEnabled            Boolean                   @default(false)
+  bookingV2Enabled               Boolean                   @default(false)
+  serviceCatalogDisplayMode      ServiceCatalogDisplayMode @default(ALL_SERVICES)
+  bookingFlowOrder               BookingFlowOrder          @default(PROFESSIONAL_FIRST)
+  conversationPauseAfterMinutes  Int                       @default(120)
+  conversationExpireAfterMinutes Int                       @default(1440)
+  assistantPersonality           Json?
+  billingOwner                   BillingOwner              @default(CLIENT)
+  campaignSendingLocked          Boolean                   @default(true)
+  reminderSendingLocked          Boolean                   @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
 model Professional {
-  id            String    @id @default(cuid())
-  name          String
-  description   String?
-  avatarUrl     String?
-  isActive      Boolean   @default(true)
-  acceptsBotBookings Boolean @default(true)
-  deactivatedAt DateTime?
+  id                 String    @id @default(cuid())
+  name               String
+  description        String?
+  avatarUrl          String?
+  isActive           Boolean   @default(true)
+  acceptsBotBookings Boolean   @default(true)
+  deactivatedAt      DateTime?
 
   businessId String
   business   Business @relation(fields: [businessId], references: [id])
@@ -426,8 +433,13 @@ model Service {
   variants        Service[] @relation("ServiceVariants")
 
   appointments      Appointment[]
+  appointmentItems  AppointmentServiceItem[]
   aliases           ServiceAlias[]
   professionalLinks ProfessionalService[]
+  suggestedAddons   ServiceAddon[]           @relation("ServiceAddonSource")
+  suggestedFor      ServiceAddon[]           @relation("ServiceAddonTarget")
+  combinationRulesA ServiceCombinationRule[] @relation("ServiceCombinationA")
+  combinationRulesB ServiceCombinationRule[] @relation("ServiceCombinationB")
 
   createdAt DateTime @default(now())
 
@@ -480,9 +492,9 @@ model ServiceAlias {
 model Customer {
   id String @id @default(cuid())
 
-  name  String
-  phone String
-  email String?
+  name            String
+  phone           String
+  email           String?
   normalizedPhone String? @unique
 
   appointments             Appointment[]
@@ -585,18 +597,60 @@ model Appointment {
   serviceId String
   service   Service @relation(fields: [serviceId], references: [id])
 
-  startAt     DateTime
-  quotedPrice Int?
+  startAt              DateTime
+  quotedPrice          Int?
+  totalDurationMinutes Int
 
-  status                  AppointmentStatus  @default(CONFIRMED)
+  status                  AppointmentStatus        @default(CONFIRMED)
   reminderDeliveries      ReminderDelivery[]
-  convertedConversation   Conversation?      @relation("ConversationOpportunityAppointment")
+  convertedConversation   Conversation?            @relation("ConversationOpportunityAppointment")
   postSaleDeliveries      PostSaleDelivery[]
   bookingDeposit          BookingDeposit?
+  serviceItems            AppointmentServiceItem[]
   googleCalendarEventId   String?
   googleCalendarAccountId String?
 
   createdAt DateTime @default(now())
+}
+
+model AppointmentServiceItem {
+  appointmentId   String
+  appointment     Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  serviceId       String
+  service         Service     @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  sortOrder       Int
+  durationMinutes Int
+  price           Int?
+
+  @@id([appointmentId, serviceId])
+  @@index([serviceId])
+}
+
+model ServiceAddon {
+  sourceServiceId String
+  sourceService   Service @relation("ServiceAddonSource", fields: [sourceServiceId], references: [id], onDelete: Cascade)
+  addonServiceId  String
+  addonService    Service @relation("ServiceAddonTarget", fields: [addonServiceId], references: [id], onDelete: Cascade)
+  sortOrder       Int     @default(0)
+
+  @@id([sourceServiceId, addonServiceId])
+  @@index([addonServiceId])
+}
+
+model ServiceCombinationRule {
+  id         String                   @id @default(cuid())
+  businessId String
+  business   Business                 @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  serviceAId String
+  serviceA   Service                  @relation("ServiceCombinationA", fields: [serviceAId], references: [id], onDelete: Cascade)
+  serviceBId String
+  serviceB   Service                  @relation("ServiceCombinationB", fields: [serviceBId], references: [id], onDelete: Cascade)
+  policy     ServiceCombinationPolicy
+  note       String?
+
+  @@unique([businessId, serviceAId, serviceBId])
+  @@index([serviceAId])
+  @@index([serviceBId])
 }
 
 model BusinessHours {

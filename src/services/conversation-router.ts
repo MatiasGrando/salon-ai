@@ -216,6 +216,7 @@ export class ConversationRouter {
           'Si el mensaje es solo informativo, social o ajeno a la reserva, bookingMessage debe ser null.',
           'Ademas de clasificar, extrae en bookingExtraction todos los datos de reserva visibles en customerMessage.',
           'Si pide varios servicios para reservar, coloca el primero en bookingExtraction.service y los siguientes, en orden y sin repetir, en bookingExtraction.additionalServices.',
+          'Si currentDraft ya tiene un servicio y el cliente pide sumar, agregar o hacer otro servicio en el mismo turno, conserva el servicio actual como contexto y coloca cada nuevo servicio solicitado en bookingExtraction.additionalServices. No lo clasifiques como correccion ni reemplazo.',
           'Evalua name, service, professional, date y time por separado con value, confidence y evidence.',
           'expectedField indica el dato que el flujo espera, pero no impide extraer datos adelantados.',
           'Para service y professional usa exclusivamente IDs presentes en catalog.',

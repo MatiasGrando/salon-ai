@@ -8,7 +8,8 @@ import {
   type BookingDraft,
   type BookingField,
   type BookingV2AgendaItem,
-  type BookingV2CatalogNavigation
+  type BookingV2CatalogNavigation,
+  type BookingV2CombinedService
 } from './booking-v2-state.js'
 
 export type BookingV2RenderInput = {
@@ -20,9 +21,43 @@ export type BookingV2RenderInput = {
   serviceSuggestions?: BookingV2DomainCatalog['services']
   agenda?: BookingV2AgendaItem[]
   catalogNavigation?: BookingV2CatalogNavigation | null
+  combinedServices?: BookingV2CombinedService[]
 }
 
 export function renderBookingV2Response(input: BookingV2RenderInput): string {
+  if (input.plan.type === 'ask_service_addons') {
+    const services = input.plan.serviceIds
+      .map((serviceId) => input.catalog?.services.find((service) => service.id === serviceId))
+      .filter((service): service is NonNullable<typeof service> => Boolean(service))
+    return [
+      '¿Querés sumar alguno de estos servicios a la misma reserva?',
+      ...services.map((service) => `• ${service.name} — agrega ${service.duration} min`),
+      '• No, continuar'
+    ].join('\n')
+  }
+
+  if (input.plan.type === 'offer_combined_availability') {
+    return [
+      `Para el ${formatDate(input.plan.requestedDate)} no encontré un bloque continuo disponible para realizar todos los servicios juntos.`,
+      [
+        'La próxima disponibilidad conjunta es:',
+        ...formatDatedAvailabilityOptions(input.plan.options)
+      ].join('\n'),
+      [
+        'Si necesitás atenderte antes, también puedo buscar los servicios por separado.',
+        '¿Qué preferís?',
+        '• Elegir una disponibilidad conjunta',
+        '• Buscar cada servicio por separado'
+      ].join('\n')
+    ].join('\n\n')
+  }
+
+  if (input.plan.type === 'offer_separate_services') {
+    return input.plan.reason === 'blocked_combination'
+      ? 'Estos servicios no están habilitados para realizarse juntos. ¿Querés que busque un turno para cada servicio por separado?'
+      : 'No encontré un profesional habilitado para realizar todos estos servicios. ¿Querés que busque cada servicio por separado?'
+  }
+
   if (input.plan.type === 'show_service_preview_and_ask_name') {
     const service = input.catalog?.services.find((option) => option.id === input.draft.service)
     if (!service) return '¿Me decís tu nombre?'
@@ -37,6 +72,9 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
     const waitNotice = 'La respuesta puede demorar unos minutos, pero van a continuar con vos por acá.'
     if (input.plan.reason === 'category_advice_requested') {
       return `Perfecto. Te derivo con una persona del equipo para ayudarte a elegir el servicio de ${input.plan.categoryName ?? 'esta categoría'}. ${waitNotice}`
+    }
+    if (input.plan.reason === 'combination_review_required') {
+      return `Esta combinación de servicios necesita que el equipo la revise antes de reservar. Conservo todos los servicios de tu solicitud y te derivo para evaluarlos. ${waitNotice}`
     }
     if (input.plan.reason === 'photo_required') {
       return service
@@ -174,6 +212,7 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
     const question = questionForField(
       input.plan.field,
       input.draft,
+      input.combinedServices ?? [],
       input.catalog,
       input.serviceSuggestions,
       input.catalogNavigation,
@@ -217,7 +256,7 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
     return correctionConfirmationForField(input.plan.field, input.plan.value, input.catalog)
   }
 
-  return bookingConfirmation(input.draft, input.catalog)
+  return bookingConfirmation(input.draft, input.catalog, input.combinedServices)
 }
 
 function renderAssistedServiceHandoff(input: {
@@ -294,6 +333,7 @@ function renderAssistedServicePreview(input: {
 function questionForField(
   field: BookingField,
   draft: BookingDraft,
+  combinedServices: BookingV2CombinedService[],
   catalog?: BookingV2DomainCatalog | null,
   serviceSuggestions?: BookingV2DomainCatalog['services'],
   catalogNavigation?: BookingV2CatalogNavigation | null,
@@ -305,7 +345,13 @@ function questionForField(
     return serviceQuestion(catalog, serviceSuggestions, catalogNavigation, misunderstandingCount)
   }
   if (field === 'professional') {
-    return professionalQuestion(draft.service, draft.time, catalog, availabilityOptions)
+    return professionalQuestion(
+      [draft.service, ...combinedServices.map((service) => service.serviceId)]
+        .filter((serviceId): serviceId is string => Boolean(serviceId)),
+      draft.time,
+      catalog,
+      availabilityOptions
+    )
   }
   if (field === 'date') return 'Perfecto 😊 ¿Qué día te gustaría venir? Puede ser hoy, mañana o una fecha específica.'
   return '¿Qué horario preferís?'
@@ -438,7 +484,7 @@ function formatServiceOption(service: BookingV2DomainCatalog['services'][number]
 }
 
 function professionalQuestion(
-  serviceId: string | null,
+  serviceIds: string[],
   selectedTime: string | null,
   catalog?: BookingV2DomainCatalog | null,
   availabilityOptions?: BookingV2AvailabilityOption[]
@@ -451,12 +497,14 @@ function professionalQuestion(
       )
     : null
   const professionals = catalog?.professionals.filter((professional) =>
-    (!serviceId || professional.serviceIds.includes(serviceId)) &&
+    (serviceIds.length === 0 || serviceIds.every((serviceId) =>
+      professional.serviceIds.includes(serviceId)
+    )) &&
     (!availableProfessionalIds || availableProfessionalIds.has(professional.id))
   ) ?? []
 
   if (!professionals.length) {
-    const service = catalog?.services.find((option) => option.id === serviceId)
+    const service = catalog?.services.find((option) => option.id === serviceIds[0])
     return service
       ? `Por el momento no tengo profesionales habilitados para ${service.name}. Si querés, puedo derivarte con una persona del local para revisarlo.`
       : 'Por el momento no tengo profesionales disponibles. Si querés, puedo derivarte con una persona del local.'
@@ -513,14 +561,34 @@ function correctionConfirmationForField(
   return '¿Querés modificar tu nombre?'
 }
 
-function bookingConfirmation(draft: BookingDraft, catalog?: BookingV2DomainCatalog | null) {
+function bookingConfirmation(
+  draft: BookingDraft,
+  catalog?: BookingV2DomainCatalog | null,
+  combinedServices: BookingV2CombinedService[] = []
+) {
+  const services = [draft.service, ...combinedServices.map((service) => service.serviceId)]
+    .map((serviceId) => catalog?.services.find((service) => service.id === serviceId))
+    .filter((service): service is NonNullable<typeof service> => Boolean(service))
+  const serviceLabel = services.length
+    ? services.map((service) => service.name).join(' + ')
+    : 'el servicio elegido'
+  const duration = services.reduce((total, service) => total + service.duration, 0)
   return [
     'Perfecto.',
-    `¿Confirmás la reserva para ${labelForService(draft.service, catalog)}`,
+    `¿Confirmás la reserva para ${serviceLabel}`,
+    ...(services.length > 1 && duration ? [`(${duration} min en total)`] : []),
     `con ${labelForProfessional(draft.professional, catalog)}`,
     `el ${formatDate(draft.date)}`,
     `a las ${draft.time}?`
   ].join(' ')
+}
+
+function formatDatedAvailabilityOptions(
+  options: Array<{ date: string; time: string; professionalName: string }>
+) {
+  return options.map((option) =>
+    `• ${formatDate(option.date)} a las ${option.time} con ${option.professionalName}`
+  )
 }
 
 function labelForService(serviceId: string | null, catalog?: BookingV2DomainCatalog | null) {

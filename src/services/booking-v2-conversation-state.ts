@@ -4,6 +4,10 @@ import {
   type BookingField,
   type BookingV2AdvisorQuote,
   type BookingV2ContextPause,
+  type BookingV2AddonSuggestion,
+  type BookingV2CombinedService,
+  type BookingV2PendingCombinedAvailability,
+  type BookingV2PendingServiceSeparation,
   type BookingV2AgendaItem,
   type BookingV2CategoryAdvice,
   type BookingV2CatalogNavigation,
@@ -51,6 +55,11 @@ export type BookingV2PersistedState = {
   contextPause?: BookingV2ContextPause | null
   unsupportedServiceRequest?: BookingV2UnsupportedServiceRequest | null
   queuedServices?: BookingV2QueuedService[]
+  combinedServices?: BookingV2CombinedService[]
+  addonSuggestion?: BookingV2AddonSuggestion | null
+  addonOfferCompletedServiceId?: string | null
+  pendingCombinedAvailability?: BookingV2PendingCombinedAvailability | null
+  pendingServiceSeparation?: BookingV2PendingServiceSeparation | null
 }
 
 export function stateFromConversation(
@@ -78,6 +87,11 @@ export function stateFromConversation(
     contextPause: readContextPause(conversation.bookingV2State),
     unsupportedServiceRequest: readUnsupportedServiceRequest(conversation.bookingV2State),
     queuedServices: readQueuedServices(conversation.bookingV2State),
+    combinedServices: readCombinedServices(conversation.bookingV2State),
+    addonSuggestion: readAddonSuggestion(conversation.bookingV2State),
+    addonOfferCompletedServiceId: readAddonOfferCompletedServiceId(conversation.bookingV2State),
+    pendingCombinedAvailability: readPendingCombinedAvailability(conversation.bookingV2State),
+    pendingServiceSeparation: readPendingServiceSeparation(conversation.bookingV2State),
     misunderstandingCount: conversation.misunderstandingCount
   }
 }
@@ -90,7 +104,7 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
     selectedDate: state.draft.date,
     selectedTime: state.draft.time,
     misunderstandingCount: state.misunderstandingCount,
-    bookingV2State: state.pendingProposal || state.pendingRequest || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.advisorQuote || state.pendingDeposit || state.contextPause || state.unsupportedServiceRequest || state.queuedServices.length
+    bookingV2State: state.pendingProposal || state.pendingRequest || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.advisorQuote || state.pendingDeposit || state.contextPause || state.unsupportedServiceRequest || state.queuedServices.length || state.combinedServices.length || state.addonSuggestion || state.addonOfferCompletedServiceId || state.pendingCombinedAvailability || state.pendingServiceSeparation
       ? {
           version: 1,
           pendingProposal: state.pendingProposal,
@@ -106,10 +120,94 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
           ...(state.unsupportedServiceRequest
             ? { unsupportedServiceRequest: state.unsupportedServiceRequest }
             : {}),
-          ...(state.queuedServices.length ? { queuedServices: state.queuedServices } : {})
+          ...(state.queuedServices.length ? { queuedServices: state.queuedServices } : {}),
+          ...(state.combinedServices.length ? { combinedServices: state.combinedServices } : {}),
+          ...(state.addonSuggestion ? { addonSuggestion: state.addonSuggestion } : {}),
+          ...(state.addonOfferCompletedServiceId
+            ? { addonOfferCompletedServiceId: state.addonOfferCompletedServiceId }
+            : {}),
+          ...(state.pendingCombinedAvailability
+            ? { pendingCombinedAvailability: state.pendingCombinedAvailability }
+            : {}),
+          ...(state.pendingServiceSeparation
+            ? { pendingServiceSeparation: state.pendingServiceSeparation }
+            : {})
         }
       : null
   }
+}
+
+function readCombinedServices(value: unknown): BookingV2CombinedService[] {
+  if (!value || typeof value !== 'object') return []
+  const persisted = value as { version?: unknown; combinedServices?: unknown }
+  if (persisted.version !== 1 || !Array.isArray(persisted.combinedServices)) return []
+  const seen = new Set<string>()
+  return persisted.combinedServices.flatMap((item) => {
+    if (!item || typeof item !== 'object') return []
+    const candidate = item as Partial<BookingV2CombinedService>
+    const serviceId = candidate.serviceId?.trim()
+    if (!serviceId || seen.has(serviceId)) return []
+    seen.add(serviceId)
+    return [{ serviceId, evidence: candidate.evidence?.trim() || '' }]
+  }).slice(0, 4)
+}
+
+function readAddonSuggestion(value: unknown): BookingV2AddonSuggestion | null {
+  if (!value || typeof value !== 'object') return null
+  const candidate = (value as { addonSuggestion?: unknown }).addonSuggestion
+  if (!candidate || typeof candidate !== 'object') return null
+  const suggestion = candidate as Partial<BookingV2AddonSuggestion>
+  if (typeof suggestion.sourceServiceId !== 'string' || !Array.isArray(suggestion.candidateServiceIds)) {
+    return null
+  }
+  const candidateServiceIds = suggestion.candidateServiceIds
+    .filter((serviceId): serviceId is string => typeof serviceId === 'string' && Boolean(serviceId.trim()))
+    .map((serviceId) => serviceId.trim())
+    .slice(0, 4)
+  return candidateServiceIds.length
+    ? { sourceServiceId: suggestion.sourceServiceId, candidateServiceIds }
+    : null
+}
+
+function readAddonOfferCompletedServiceId(value: unknown) {
+  if (!value || typeof value !== 'object') return null
+  const candidate = (value as { addonOfferCompletedServiceId?: unknown }).addonOfferCompletedServiceId
+  return typeof candidate === 'string' && candidate.trim() ? candidate.trim() : null
+}
+
+function readPendingCombinedAvailability(value: unknown): BookingV2PendingCombinedAvailability | null {
+  if (!value || typeof value !== 'object') return null
+  const candidate = (value as { pendingCombinedAvailability?: unknown }).pendingCombinedAvailability
+  if (!candidate || typeof candidate !== 'object') return null
+  const pending = candidate as Partial<BookingV2PendingCombinedAvailability>
+  if (typeof pending.requestedDate !== 'string' || !Array.isArray(pending.options)) return null
+  const options = pending.options.flatMap((item) => {
+    if (!item || typeof item !== 'object') return []
+    const option = item as Record<string, unknown>
+    if (
+      typeof option.date !== 'string' ||
+      typeof option.time !== 'string' ||
+      typeof option.professionalId !== 'string' ||
+      typeof option.professionalName !== 'string'
+    ) return []
+    return [{
+      date: option.date,
+      time: option.time,
+      professionalId: option.professionalId,
+      professionalName: option.professionalName
+    }]
+  }).slice(0, 9)
+  return options.length ? { requestedDate: pending.requestedDate, options } : null
+}
+
+function readPendingServiceSeparation(value: unknown): BookingV2PendingServiceSeparation | null {
+  if (!value || typeof value !== 'object') return null
+  const candidate = (value as { pendingServiceSeparation?: unknown }).pendingServiceSeparation
+  if (!candidate || typeof candidate !== 'object') return null
+  const reason = (candidate as { reason?: unknown }).reason
+  return reason === 'blocked_combination' || reason === 'no_common_professional'
+    ? { reason }
+    : null
 }
 
 function readQueuedServices(value: unknown): BookingV2QueuedService[] {

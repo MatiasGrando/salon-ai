@@ -102,6 +102,29 @@ export type BookingV2QueuedService = {
   evidence: string
 }
 
+export type BookingV2CombinedService = BookingV2QueuedService
+
+export type BookingV2AddonSuggestion = {
+  sourceServiceId: string
+  candidateServiceIds: string[]
+}
+
+export type BookingV2CombinedAvailabilityOption = {
+  date: string
+  time: string
+  professionalId: string
+  professionalName: string
+}
+
+export type BookingV2PendingCombinedAvailability = {
+  requestedDate: string
+  options: BookingV2CombinedAvailabilityOption[]
+}
+
+export type BookingV2PendingServiceSeparation = {
+  reason: 'blocked_combination' | 'no_common_professional'
+}
+
 export type BookingV2State = {
   draft: BookingDraft
   pendingProposal: BookingProposal | null
@@ -116,6 +139,11 @@ export type BookingV2State = {
   contextPause?: BookingV2ContextPause | null
   unsupportedServiceRequest?: BookingV2UnsupportedServiceRequest | null
   queuedServices: BookingV2QueuedService[]
+  combinedServices: BookingV2CombinedService[]
+  addonSuggestion: BookingV2AddonSuggestion | null
+  addonOfferCompletedServiceId: string | null
+  pendingCombinedAvailability: BookingV2PendingCombinedAvailability | null
+  pendingServiceSeparation: BookingV2PendingServiceSeparation | null
   misunderstandingCount: number
 }
 
@@ -150,6 +178,11 @@ export function createEmptyBookingV2State(): BookingV2State {
     contextPause: null,
     unsupportedServiceRequest: null,
     queuedServices: [],
+    combinedServices: [],
+    addonSuggestion: null,
+    addonOfferCompletedServiceId: null,
+    pendingCombinedAvailability: null,
+    pendingServiceSeparation: null,
     misunderstandingCount: 0
   }
 }
@@ -169,6 +202,37 @@ export function queueAdditionalServices(
     queuedServices.push(service)
   }
   return { ...state, queuedServices }
+}
+
+export function addCombinedServices(
+  state: BookingV2State,
+  services: BookingV2CombinedService[]
+): BookingV2State {
+  const seen = new Set([
+    state.draft.service,
+    ...state.combinedServices.map((service) => service.serviceId)
+  ].filter((serviceId): serviceId is string => Boolean(serviceId)))
+  const combinedServices = [...state.combinedServices]
+  for (const service of services) {
+    if (!service.serviceId || seen.has(service.serviceId)) continue
+    seen.add(service.serviceId)
+    combinedServices.push(service)
+  }
+  return {
+    ...state,
+    combinedServices: combinedServices.slice(0, 4),
+    addonSuggestion: null,
+    addonOfferCompletedServiceId: state.draft.service,
+    pendingCombinedAvailability: null,
+    pendingServiceSeparation: null
+  }
+}
+
+export function combinedServiceIds(state: BookingV2State) {
+  return [
+    state.draft.service,
+    ...state.combinedServices.map((service) => service.serviceId)
+  ].filter((serviceId): serviceId is string => Boolean(serviceId))
 }
 
 export function advanceToNextQueuedService(state: BookingV2State) {
@@ -247,6 +311,21 @@ export function acceptField(
     queuedServices: field === 'service'
       ? state.queuedServices.filter((service) => service.serviceId !== value)
       : state.queuedServices,
+    combinedServices: field === 'service' && state.draft[field] !== value
+      ? []
+      : state.combinedServices,
+    addonSuggestion: field === 'service' && state.draft[field] !== value
+      ? null
+      : state.addonSuggestion,
+    addonOfferCompletedServiceId: field === 'service' && state.draft[field] !== value
+      ? null
+      : state.addonOfferCompletedServiceId,
+    pendingCombinedAvailability: state.draft[field] !== value
+      ? null
+      : state.pendingCombinedAvailability,
+    pendingServiceSeparation: state.draft[field] !== value
+      ? null
+      : state.pendingServiceSeparation,
     pendingDeposit: state.draft[field] !== value ? null : state.pendingDeposit,
     misunderstandingCount: 0
   }

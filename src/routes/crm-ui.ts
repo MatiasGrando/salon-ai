@@ -13259,6 +13259,26 @@ const crmHtml = `<!doctype html>
                 <div class="service-form-help">Alias opcionales separados por coma (ej: corte, corte hombre)</div>
                 <input class="field" id="service-aliases" placeholder="Ej: corte, corte hombre, haircut">
               </div>
+              <div class="service-form-group service-combination-setting" id="service-combination-settings">
+                <label for="service-suggested-addons">Extras que ofrecer&aacute; el bot</label>
+                <select id="service-suggested-addons" multiple size="4"></select>
+                <div class="service-form-help">Cuando el cliente elija este servicio, el bot podr&aacute; ofrecer estos adicionales para reservarlos juntos.</div>
+              </div>
+              <div class="service-form-group service-combination-setting">
+                <label for="service-allowed-combinations">Combinaciones permitidas expl&iacute;citamente</label>
+                <select id="service-allowed-combinations" multiple size="4"></select>
+                <div class="service-form-help">Permite reservar juntos incluso servicios que normalmente necesitar&iacute;an validaci&oacute;n previa.</div>
+              </div>
+              <div class="service-form-group service-combination-setting">
+                <label for="service-review-combinations">Combinaciones que requieren revisi&oacute;n</label>
+                <select id="service-review-combinations" multiple size="4"></select>
+                <div class="service-form-help">El bot reconocer&aacute; ambos servicios, pero derivar&aacute; la consulta al equipo antes de reservar.</div>
+              </div>
+              <div class="service-form-group service-combination-setting">
+                <label for="service-blocked-combinations">Combinaciones no permitidas</label>
+                <select id="service-blocked-combinations" multiple size="4"></select>
+                <div class="service-form-help">El bot no los reservar&aacute; juntos y ofrecer&aacute; buscarlos como turnos separados.</div>
+              </div>
               <div class="service-form-group">
                 <label for="service-image">Imagen del servicio (opcional)</label>
                 <div class="service-image-field">
@@ -15419,6 +15439,10 @@ const crmHtml = `<!doctype html>
       serviceCategoryFeedback: document.getElementById('service-category-feedback'),
       serviceCategoryList: document.getElementById('service-category-list'),
       serviceAliases: document.getElementById('service-aliases'),
+      serviceSuggestedAddons: document.getElementById('service-suggested-addons'),
+      serviceAllowedCombinations: document.getElementById('service-allowed-combinations'),
+      serviceReviewCombinations: document.getElementById('service-review-combinations'),
+      serviceBlockedCombinations: document.getElementById('service-blocked-combinations'),
       serviceImage: document.getElementById('service-image'),
       serviceImagePreview: document.getElementById('service-image-preview'),
       serviceImagePreviewImg: document.getElementById('service-image-preview-img'),
@@ -16753,7 +16777,7 @@ const crmHtml = `<!doctype html>
             return '<div class="customer-history-row">' +
               '<span class="customer-history-icon">' + icon('calendar') + '</span>' +
               '<span>' + escapeHtml(formatCustomerDateTime(appointment.startAt)) + '</span>' +
-              '<strong>' + escapeHtml(appointment.service?.name || 'Servicio') + '</strong>' +
+              '<strong>' + escapeHtml(appointmentServiceLabel(appointment)) + '</strong>' +
               '<span>' + escapeHtml(appointment.professional?.name || 'Profesional') + '</span>' +
               '<span class="customer-history-price" title="Precio actual">' + escapeHtml(formatAppointmentCurrentPrice(appointment)) + '</span>' +
             '</div>'
@@ -17689,7 +17713,7 @@ const crmHtml = `<!doctype html>
         return '<div class="item appointment-card">' +
           '<div class="appointment-date-tile"><strong>' + escapeHtml(day) + '</strong><span>' + escapeHtml(month) + '</span></div>' +
           '<div class="appointment-card-copy">' +
-            '<div class="item-title">' + escapeHtml(appointment.service?.name || 'Servicio') + '</div>' +
+            '<div class="item-title">' + escapeHtml(appointmentServiceLabel(appointment)) + '</div>' +
             '<p>Profesional: ' + escapeHtml(appointment.professional?.name || 'Profesional') + '</p>' +
             '<p>' + escapeHtml(time) + '</p>' +
             '<span class="chip step-completed">Confirmado</span>' +
@@ -17823,6 +17847,10 @@ const crmHtml = `<!doctype html>
     function renderServiceCatalogControls() {
       const selectedCategory = els.serviceCategory.value
       const selectedParent = els.serviceParent.value
+      const selectedSuggestedAddons = selectedValues(els.serviceSuggestedAddons)
+      const selectedAllowedCombinations = selectedValues(els.serviceAllowedCombinations)
+      const selectedReviewCombinations = selectedValues(els.serviceReviewCombinations)
+      const selectedBlockedCombinations = selectedValues(els.serviceBlockedCombinations)
       els.serviceCategory.innerHTML = '<option value="">Seleccionar categor&iacute;a</option>' +
         state.serviceCategories
           .filter((category) => category.isActive !== false)
@@ -17844,6 +17872,19 @@ const crmHtml = `<!doctype html>
           .join('')
       els.serviceParent.value = selectedParent
 
+      const combinationOptions = state.services
+        .filter((service) => service.isBookable !== false && service.id !== currentServiceId)
+        .map((service) => '<option value="' + escapeHtml(service.id) + '">' + escapeHtml(service.name) + '</option>')
+        .join('')
+      els.serviceSuggestedAddons.innerHTML = combinationOptions
+      els.serviceAllowedCombinations.innerHTML = combinationOptions
+      els.serviceReviewCombinations.innerHTML = combinationOptions
+      els.serviceBlockedCombinations.innerHTML = combinationOptions
+      setSelectedValues(els.serviceSuggestedAddons, selectedSuggestedAddons)
+      setSelectedValues(els.serviceAllowedCombinations, selectedAllowedCombinations)
+      setSelectedValues(els.serviceReviewCombinations, selectedReviewCombinations)
+      setSelectedValues(els.serviceBlockedCombinations, selectedBlockedCombinations)
+
       els.serviceCategoryList.innerHTML = state.serviceCategories.length
         ? state.serviceCategories.map((category) =>
             '<span class="service-category-chip">' +
@@ -17861,6 +17902,17 @@ const crmHtml = `<!doctype html>
       }
       for (const button of els.serviceCategoryList.querySelectorAll('[data-delete-service-category]')) {
         button.addEventListener('click', () => deleteServiceCategory(button.dataset.deleteServiceCategory))
+      }
+    }
+
+    function selectedValues(select) {
+      return Array.from(select?.selectedOptions || []).map((option) => option.value)
+    }
+
+    function setSelectedValues(select, values) {
+      const selected = new Set(values || [])
+      for (const option of select?.options || []) {
+        option.selected = selected.has(option.value)
       }
     }
 
@@ -17889,6 +17941,9 @@ const crmHtml = `<!doctype html>
       els.serviceRequiresPhoto.disabled = isGroup
       els.serviceValidationEnabled.disabled = isGroup
       els.serviceDepositEnabled.disabled = isGroup
+      for (const setting of els.serviceForm.querySelectorAll('.service-combination-setting')) {
+        setting.hidden = isGroup
+      }
       els.serviceParentGroup.hidden = !isVariant
 
       if (!isVariant) els.serviceParent.value = ''
@@ -18779,7 +18834,19 @@ const crmHtml = `<!doctype html>
       return state.services.find((service) => service.id === appointment.serviceId) || appointment.service || null
     }
 
+    function appointmentServiceLabel(appointment) {
+      const items = Array.isArray(appointment?.serviceItems) ? appointment.serviceItems : []
+      const names = items
+        .map((item) => item.service?.name)
+        .filter(Boolean)
+      return names.length ? names.join(' + ') : appointment?.service?.name || 'Servicio'
+    }
+
     function getAppointmentServicePrice(appointment) {
+      const items = Array.isArray(appointment?.serviceItems) ? appointment.serviceItems : []
+      if (items.length > 1 && items.every((item) => item.price !== null && item.price !== undefined)) {
+        return items.reduce((total, item) => total + Number(item.price), 0)
+      }
       const service = getServiceForAppointment(appointment)
       return hasServicePrice(service) ? Number(service.price) : null
     }
@@ -19540,7 +19607,7 @@ const crmHtml = `<!doctype html>
         ? input.appointments.map((appointment) => {
             const customer = appointment.customer?.name || 'Cliente'
             const phone = appointment.customer?.phone || 'Sin telefono'
-            const service = appointment.service?.name || 'Servicio'
+            const service = appointmentServiceLabel(appointment)
             return '<button class="item" type="button" data-impact-appointment="' + appointment.id + '">' +
               '<div class="item-title">' + escapeHtml(customer + ' - ' + service) + '</div>' +
               '<p>' + escapeHtml(formatAppointment(appointment.startAt) + ' · ' + phone) + '</p>' +
@@ -19602,7 +19669,7 @@ const crmHtml = `<!doctype html>
       const blockStart = new Date(block.startAt)
       const blockEnd = new Date(block.endAt)
       const appointmentStart = new Date(appointment.startAt)
-      const duration = appointment.service?.duration || Number(els.agendaStep?.value || 15)
+      const duration = appointment.totalDurationMinutes || appointment.service?.duration || Number(els.agendaStep?.value || 15)
       const appointmentEnd = addMinutes(appointmentStart, duration)
       return appointmentStart < blockEnd && appointmentEnd > blockStart
     }
@@ -21490,7 +21557,7 @@ const crmHtml = `<!doctype html>
 
     function renderAgendaMobileEvent(appointment, hourHeight, placement = { column: 0, columns: 1 }) {
       const start = new Date(appointment.startAt)
-      const duration = appointment.service?.duration || 30
+      const duration = appointment.totalDurationMinutes || appointment.service?.duration || 30
       const startMinute = start.getHours() * 60 + start.getMinutes()
       const top = (startMinute / 60) * hourHeight + 2
       const height = Math.max(34, (duration / 60) * hourHeight - 4)
@@ -21503,7 +21570,7 @@ const crmHtml = `<!doctype html>
       const left = 'calc(' + ((column * 100) / columns) + '% + 4px)'
       const width = 'calc(' + (100 / columns) + '% - 8px)'
       const customer = appointment.customer?.name || 'Cliente'
-      const service = appointment.service?.name || 'Servicio'
+      const service = appointmentServiceLabel(appointment)
       const professional = appointment.professional?.name || 'Profesional'
       const time = formatTimeOnly(start)
       return '<article class="agenda-gcal-event' + (noShow ? ' no-show' : '') + (pending ? ' is-pending' : '') + '" data-appointment-id="' + appointment.id + '" data-overlap-count="' + columns + '" style="top:' + top + 'px;height:' + height + 'px;left:' + left + ';right:auto;width:' + width + ';--agenda-event-color:' + color + '" title="' + escapeHtml(time + ' - ' + customer + ' - ' + service + ' con ' + professional) + '">' +
@@ -21887,13 +21954,13 @@ const crmHtml = `<!doctype html>
         const dayBlocks = blocks.filter((block) => dateKey(new Date(block.startAt)) === key)
         const items = dayAppointments.map((appointment) => {
           const start = new Date(appointment.startAt)
-          const duration = appointment.service?.duration || 30
+          const duration = appointment.totalDurationMinutes || appointment.service?.duration || 30
           const professionalIndex = activeProfessionals().findIndex((item) => item.id === appointment.professionalId)
           const color = agendaProfessionalColor(appointment.professionalId, professionalIndex)
           const noShow = appointment.status === 'NO_SHOW'
           return '<button class="agenda-mobile-item' + (noShow ? ' no-show' : '') + '" type="button" data-appointment-id="' + appointment.id + '" style="--agenda-event-color:' + color + '">' +
             '<span class="agenda-mobile-time">' + escapeHtml(formatTimeOnly(start)) + '<small>' + escapeHtml(formatTimeOnly(addMinutes(start, duration))) + '</small></span>' +
-            '<span class="agenda-mobile-copy"><strong>' + escapeHtml(appointment.customer?.name || 'Cliente') + '</strong><span>' + escapeHtml((appointment.service?.name || 'Servicio') + ' · ' + (appointment.professional?.name || 'Profesional')) + '</span></span>' +
+            '<span class="agenda-mobile-copy"><strong>' + escapeHtml(appointment.customer?.name || 'Cliente') + '</strong><span>' + escapeHtml(appointmentServiceLabel(appointment) + ' · ' + (appointment.professional?.name || 'Profesional')) + '</span></span>' +
             '<span class="agenda-mobile-status">' + (noShow ? 'Ausente' : 'Turno') + '</span>' +
           '</button>'
         })
@@ -22030,12 +22097,12 @@ const crmHtml = `<!doctype html>
         const cell = cells.get(dateKey(start) + ':' + roundedMinute)
         if (!cell) continue
 
-        const duration = appointment.service?.duration || input.step
+        const duration = appointment.totalDurationMinutes || appointment.service?.duration || input.step
         const height = Math.max(24, duration * input.pixelsPerMinute - 4)
         const top = Math.max(2, (minute - roundedMinute) * input.pixelsPerMinute + 2)
         const customer = appointment.customer?.name || 'Cliente'
         const professional = appointment.professional?.name || 'Profesional'
-        const service = appointment.service?.name || 'Servicio'
+        const service = appointmentServiceLabel(appointment)
         const professionalIndex = activeProfessionals().findIndex((item) => item.id === appointment.professionalId)
         const eventColor = agendaProfessionalColor(appointment.professionalId, professionalIndex)
         const placement = layout.get(appointment.id) || { column: 0, columns: 1 }
@@ -22257,12 +22324,12 @@ const crmHtml = `<!doctype html>
 
       const target = parseDateKey(targetDateKey)
       target.setHours(Math.floor(targetMinute / 60), targetMinute % 60, 0, 0)
-      const duration = appointment.service?.duration || Number(els.agendaStep.value || 30)
+      const duration = appointment.totalDurationMinutes || appointment.service?.duration || Number(els.agendaStep.value || 30)
       const displayRange = getAgendaDisplayRange()
       const pixelsPerMinute = els.agendaGridWrap.querySelector('.agenda-gcal-frame') ? 88 / 60 : 28 / 15
       const height = Math.max(24, duration * pixelsPerMinute - 4)
       const customer = appointment.customer?.name || 'Cliente'
-      const service = appointment.service?.name || 'Servicio'
+      const service = appointmentServiceLabel(appointment)
       const professionalIndex = activeProfessionals().findIndex((item) => item.id === appointment.professionalId)
       const eventColor = agendaProfessionalColor(appointment.professionalId, professionalIndex)
 
@@ -22330,7 +22397,7 @@ const crmHtml = `<!doctype html>
       for (const appointment of appointments) {
         const start = new Date(appointment.startAt)
         const startMinute = start.getHours() * 60 + start.getMinutes()
-        const duration = appointment.service?.duration || Number(els.agendaStep.value || 30)
+        const duration = appointment.totalDurationMinutes || appointment.service?.duration || Number(els.agendaStep.value || 30)
         const item = {
           id: appointment.id,
           start: startMinute,
@@ -22404,7 +22471,11 @@ const crmHtml = `<!doctype html>
           return start >= from && start < to
         })
         .filter((appointment) => !professionalId || appointment.professionalId === professionalId)
-        .filter((appointment) => !serviceId || appointment.serviceId === serviceId)
+        .filter((appointment) =>
+          !serviceId ||
+          appointment.serviceId === serviceId ||
+          (appointment.serviceItems || []).some((item) => item.serviceId === serviceId)
+        )
         .sort((left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime())
     }
 
@@ -24969,6 +25040,24 @@ const crmHtml = `<!doctype html>
       const depositHoldMinutes = depositMode === 'NONE'
         ? 60
         : Number(els.serviceDepositHoldMinutes.value)
+      const suggestedAddonIds = isGroup ? [] : selectedValues(els.serviceSuggestedAddons)
+      const allowedCombinationServiceIds = isGroup ? [] : selectedValues(els.serviceAllowedCombinations)
+      const reviewCombinationServiceIds = isGroup ? [] : selectedValues(els.serviceReviewCombinations)
+      const blockedCombinationServiceIds = isGroup ? [] : selectedValues(els.serviceBlockedCombinations)
+
+      const combinationPolicyIds = [
+        ...allowedCombinationServiceIds,
+        ...reviewCombinationServiceIds,
+        ...blockedCombinationServiceIds
+      ]
+      if (combinationPolicyIds.some((serviceId, index) => combinationPolicyIds.indexOf(serviceId) !== index)) {
+        els.serviceFeedback.textContent = 'Cada servicio asociado debe tener una sola política de combinación.'
+        return
+      }
+      if (suggestedAddonIds.some((serviceId) => blockedCombinationServiceIds.includes(serviceId))) {
+        els.serviceFeedback.textContent = 'Un extra sugerido no puede estar bloqueado para combinarse.'
+        return
+      }
 
       if (!name || (!isGroup && (!Number.isFinite(duration) || duration <= 0))) {
         els.serviceFeedback.textContent = isGroup ? 'Completá el nombre.' : 'Completá nombre y duración.'
@@ -25089,6 +25178,10 @@ const crmHtml = `<!doctype html>
             depositMode,
             depositValue,
             depositHoldMinutes,
+            suggestedAddonIds,
+            allowedCombinationServiceIds,
+            reviewCombinationServiceIds,
+            blockedCombinationServiceIds,
             imageUrl: state.serviceImageUrl,
             aliases
           })
@@ -25145,6 +25238,32 @@ const crmHtml = `<!doctype html>
       updateServiceValidationFields()
       updateServiceCustomerDurationFields()
       els.serviceAliases.value = (service.aliases || []).map((alias) => alias.name).join(', ')
+      const combinationRules = [
+        ...(service.combinationRulesA || []),
+        ...(service.combinationRulesB || [])
+      ]
+      setSelectedValues(
+        els.serviceSuggestedAddons,
+        (service.suggestedAddons || []).map((relation) => relation.addonServiceId)
+      )
+      setSelectedValues(
+        els.serviceAllowedCombinations,
+        combinationRules
+          .filter((rule) => rule.policy === 'ALLOWED')
+          .map((rule) => rule.serviceAId === service.id ? rule.serviceBId : rule.serviceAId)
+      )
+      setSelectedValues(
+        els.serviceReviewCombinations,
+        combinationRules
+          .filter((rule) => rule.policy === 'REVIEW_REQUIRED')
+          .map((rule) => rule.serviceAId === service.id ? rule.serviceBId : rule.serviceAId)
+      )
+      setSelectedValues(
+        els.serviceBlockedCombinations,
+        combinationRules
+          .filter((rule) => rule.policy === 'BLOCKED')
+          .map((rule) => rule.serviceAId === service.id ? rule.serviceBId : rule.serviceAId)
+      )
       updateServiceTypeFields()
       setServiceImage(service.imageUrl || null)
       els.serviceCancel.hidden = false
@@ -25206,6 +25325,10 @@ const crmHtml = `<!doctype html>
       updateServiceValidationFields()
       updateServiceCustomerDurationFields()
       els.serviceAliases.value = ''
+      setSelectedValues(els.serviceSuggestedAddons, [])
+      setSelectedValues(els.serviceAllowedCombinations, [])
+      setSelectedValues(els.serviceReviewCombinations, [])
+      setSelectedValues(els.serviceBlockedCombinations, [])
       setServiceImage(null)
       els.serviceCancel.hidden = true
       els.serviceFeedback.textContent = ''
@@ -25376,6 +25499,7 @@ const crmHtml = `<!doctype html>
         ASK_TIME: 'Preguntando horario',
         ASK_CUSTOMER_NAME: 'Solicitando nombre',
         CONFIRM: 'Confirmando turno',
+        AWAITING_DEPOSIT: 'Esperando seña',
         COMPLETED: 'Completado',
         CANCEL_SELECT_APPOINTMENT: 'Cancelando turno',
         EDIT_SELECT_APPOINTMENT: 'Cambiando turno',

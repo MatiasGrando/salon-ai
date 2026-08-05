@@ -6,8 +6,7 @@ import {
 import { bookingDepositService } from './booking-deposit-service.js'
 import { ensureDefaultMarketingPreference } from './marketing-preference-service.js'
 import {
-  reservationDurationLimits,
-  reservationFitsAvailabilityWindow
+  reservationDurationLimits
 } from './service-duration.js'
 
 const availabilitySlotInterval = 30
@@ -16,6 +15,7 @@ type CreateAppointmentInput = {
   customerId: string
   professionalId: string
   serviceId: string
+  serviceIds?: string[]
   startAt: string
   force?: boolean
   status?: 'PENDING' | 'CONFIRMED'
@@ -42,6 +42,7 @@ type AppointmentStatusInput = 'PENDING' | 'CONFIRMED' | 'CANCELLED' | 'COMPLETED
 type FindAvailabilityInput = {
   professionalId: string
   serviceId: string
+  serviceIds?: string[]
   date: string
 }
 
@@ -78,16 +79,15 @@ export class AppointmentService {
       }
     }
 
-    const [professional, service, customer] = await Promise.all([
+    const serviceIds = normalizedServiceIds(input.serviceId, input.serviceIds)
+    const [professional, services, customer] = await Promise.all([
       prisma.professional.findUnique({
         where: {
           id: input.professionalId
         }
       }),
-      prisma.service.findUnique({
-        where: {
-          id: input.serviceId
-        }
+      prisma.service.findMany({
+        where: { id: { in: serviceIds } }
       }),
       prisma.customer.findUnique({ where: { id: input.customerId } })
     ])
@@ -108,7 +108,7 @@ export class AppointmentService {
       }
     }
 
-    if (!service) {
+    if (services.length !== serviceIds.length) {
       return {
         ok: false,
         statusCode: 404,
@@ -124,7 +124,7 @@ export class AppointmentService {
       }
     }
 
-    if (professional.businessId !== service.businessId) {
+    if (services.some((service) => professional.businessId !== service.businessId)) {
       return {
         ok: false,
         statusCode: 400,
@@ -132,17 +132,26 @@ export class AppointmentService {
       }
     }
 
-    if (!(await this.professionalOffersService(input.professionalId, input.serviceId))) {
+    if (!(await this.professionalOffersServices(input.professionalId, serviceIds))) {
       return {
         ok: false,
         statusCode: 409,
-        message: 'Ese profesional no realiza ese servicio'
+        message: 'Ese profesional no realiza todos los servicios seleccionados'
       }
     }
 
-    const durationLimits = reservationDurationLimits(service)
-    const professionalEndAt = addMinutes(startAt, durationLimits.professional)
-    const customerEndAt = addMinutes(startAt, durationLimits.business)
+    const servicesById = new Map(services.map((service) => [service.id, service]))
+    const orderedServices = serviceIds.map((serviceId) => servicesById.get(serviceId)!)
+    const professionalDuration = orderedServices.reduce(
+      (total, service) => total + reservationDurationLimits(service).professional,
+      0
+    )
+    const customerDuration = orderedServices.reduce(
+      (total, service) => total + reservationDurationLimits(service).business,
+      0
+    )
+    const professionalEndAt = addMinutes(startAt, professionalDuration)
+    const customerEndAt = addMinutes(startAt, customerDuration)
     const isInsideBusinessHours = await this.isInsideBusinessHours({
       businessId: professional.businessId,
       startAt,
@@ -211,9 +220,19 @@ export class AppointmentService {
         professionalId: input.professionalId,
         serviceId: input.serviceId,
         startAt,
+        totalDurationMinutes: professionalDuration,
         status: input.status ?? 'CONFIRMED',
-        quotedPrice: normalizeQuotedPrice(input.quotedPrice)
-      }
+        quotedPrice: normalizeQuotedPrice(input.quotedPrice),
+        serviceItems: {
+          create: orderedServices.map((service, sortOrder) => ({
+            serviceId: service.id,
+            sortOrder,
+            durationMinutes: service.duration,
+            price: service.price
+          }))
+        }
+      },
+      include: { serviceItems: { include: { service: true }, orderBy: { sortOrder: 'asc' } } }
     })
 
     if (appointment.status === 'CONFIRMED') {
@@ -233,6 +252,108 @@ export class AppointmentService {
       ok: true,
       appointment
     }
+  }
+
+  async replacePendingDepositServices(input: {
+    appointmentId: string
+    serviceIds: string[]
+  }): Promise<AppointmentMutationResult> {
+    await bookingDepositService.expireOverdue()
+    const appointment = await prisma.appointment.findUnique({
+      where: { id: input.appointmentId },
+      include: {
+        professional: true,
+        bookingDeposit: true
+      }
+    })
+    if (!appointment || appointment.status !== 'PENDING') {
+      return { ok: false, statusCode: 404, message: 'No encontre una reserva pendiente para modificar' }
+    }
+    if (appointment.bookingDeposit?.status !== 'PENDING_PROOF') {
+      return {
+        ok: false,
+        statusCode: 409,
+        message: 'El comprobante ya fue recibido; el equipo debe revisar cualquier cambio'
+      }
+    }
+
+    const serviceIds = normalizedServiceIds(appointment.serviceId, input.serviceIds)
+    const services = await prisma.service.findMany({ where: { id: { in: serviceIds } } })
+    if (
+      services.length !== serviceIds.length ||
+      services.some((service) => service.businessId !== appointment.professional.businessId)
+    ) {
+      return { ok: false, statusCode: 400, message: 'No pude validar todos los servicios seleccionados' }
+    }
+    if (!(await this.professionalOffersServices(appointment.professionalId, serviceIds))) {
+      return {
+        ok: false,
+        statusCode: 409,
+        message: 'El profesional elegido no realiza todos esos servicios'
+      }
+    }
+
+    const servicesById = new Map(services.map((service) => [service.id, service]))
+    const orderedServices = serviceIds.map((serviceId) => servicesById.get(serviceId)!)
+    const professionalDuration = orderedServices.reduce(
+      (total, service) => total + reservationDurationLimits(service).professional,
+      0
+    )
+    const customerDuration = orderedServices.reduce(
+      (total, service) => total + reservationDurationLimits(service).business,
+      0
+    )
+    const professionalEndAt = addMinutes(appointment.startAt, professionalDuration)
+    const customerEndAt = addMinutes(appointment.startAt, customerDuration)
+    const [insideBusinessHours, insideProfessionalHours, hasBlock, hasOverlap] = await Promise.all([
+      this.isInsideBusinessHours({
+        businessId: appointment.professional.businessId,
+        startAt: appointment.startAt,
+        endAt: customerEndAt
+      }),
+      this.isInsideProfessionalHours({
+        professionalId: appointment.professionalId,
+        startAt: appointment.startAt,
+        endAt: professionalEndAt
+      }),
+      this.hasScheduleBlockOverlap({
+        businessId: appointment.professional.businessId,
+        professionalId: appointment.professionalId,
+        startAt: appointment.startAt,
+        endAt: professionalEndAt
+      }),
+      this.hasAppointmentOverlap({
+        professionalId: appointment.professionalId,
+        startAt: appointment.startAt,
+        endAt: professionalEndAt,
+        excludeAppointmentId: appointment.id
+      })
+    ])
+    if (!insideBusinessHours || !insideProfessionalHours || hasBlock || hasOverlap) {
+      return {
+        ok: false,
+        statusCode: 409,
+        message: 'El horario retenido no tiene tiempo suficiente para sumar esos servicios'
+      }
+    }
+
+    const updated = await prisma.appointment.update({
+      where: { id: appointment.id },
+      data: {
+        totalDurationMinutes: professionalDuration,
+        serviceItems: {
+          deleteMany: {},
+          create: orderedServices.map((service, sortOrder) => ({
+            serviceId: service.id,
+            sortOrder,
+            durationMinutes: service.duration,
+            price: service.price
+          }))
+        }
+      },
+      include: { serviceItems: { include: { service: true }, orderBy: { sortOrder: 'asc' } } }
+    })
+    return { ok: true, appointment: updated }
   }
 
   async update(input: UpdateAppointmentInput): Promise<AppointmentMutationResult> {
@@ -398,6 +519,16 @@ export class AppointmentService {
         professionalId: input.professionalId,
         serviceId: input.serviceId,
         startAt,
+        totalDurationMinutes: service.duration,
+        serviceItems: {
+          deleteMany: {},
+          create: {
+            serviceId: service.id,
+            sortOrder: 0,
+            durationMinutes: service.duration,
+            price: service.price
+          }
+        },
         status: 'CONFIRMED'
       }
     })
@@ -566,6 +697,14 @@ export class AppointmentService {
             duration: true,
             price: true
           }
+        },
+        serviceItems: {
+          include: {
+            service: {
+              select: { id: true, name: true, duration: true, price: true }
+            }
+          },
+          orderBy: { sortOrder: 'asc' }
         }
       },
       orderBy: {
@@ -586,16 +725,15 @@ export class AppointmentService {
       }
     }
 
-    const [professional, service] = await Promise.all([
+    const serviceIds = normalizedServiceIds(input.serviceId, input.serviceIds)
+    const [professional, services] = await Promise.all([
       prisma.professional.findUnique({
         where: {
           id: input.professionalId
         }
       }),
-      prisma.service.findUnique({
-        where: {
-          id: input.serviceId
-        }
+      prisma.service.findMany({
+        where: { id: { in: serviceIds } }
       })
     ])
 
@@ -615,7 +753,7 @@ export class AppointmentService {
       }
     }
 
-    if (!service) {
+    if (services.length !== serviceIds.length) {
       return {
         ok: false,
         statusCode: 404,
@@ -623,7 +761,7 @@ export class AppointmentService {
       }
     }
 
-    if (professional.businessId !== service.businessId) {
+    if (services.some((service) => professional.businessId !== service.businessId)) {
       return {
         ok: false,
         statusCode: 400,
@@ -631,14 +769,22 @@ export class AppointmentService {
       }
     }
 
-    if (!(await this.professionalOffersService(input.professionalId, input.serviceId))) {
+    if (!(await this.professionalOffersServices(input.professionalId, serviceIds))) {
       return {
         ok: false,
         statusCode: 409,
-        message: 'Ese profesional no realiza ese servicio'
+        message: 'Ese profesional no realiza todos los servicios seleccionados'
       }
     }
 
+    const professionalDuration = services.reduce(
+      (total, service) => total + reservationDurationLimits(service).professional,
+      0
+    )
+    const customerDuration = services.reduce(
+      (total, service) => total + reservationDurationLimits(service).business,
+      0
+    )
     const dayOfWeek = dayStart.getDay()
     const dayEnd = addDays(dayStart, 1)
     const [businessHours, professionalHours, scheduleBlocks, appointments] = await Promise.all([
@@ -696,16 +842,12 @@ export class AppointmentService {
     for (const window of windows) {
       for (
         let slotStartMinutes = window.start;
-        reservationFitsAvailabilityWindow({
-          service,
-          startMinutes: slotStartMinutes,
-          professionalEndMinutes: window.professionalEnd,
-          businessEndMinutes: window.businessEnd
-        });
+        slotStartMinutes + professionalDuration <= window.professionalEnd &&
+          slotStartMinutes + customerDuration <= window.businessEnd;
         slotStartMinutes += availabilitySlotInterval
       ) {
         const startAt = setMinutesSinceMidnight(dayStart, slotStartMinutes)
-        const endAt = addMinutes(startAt, service.duration)
+        const endAt = addMinutes(startAt, professionalDuration)
 
         if (startAt <= new Date()) {
           continue
@@ -813,7 +955,10 @@ export class AppointmentService {
 
     return appointments.some((appointment) => {
       const existingStart = appointment.startAt
-      const existingEnd = addMinutes(existingStart, appointment.service.duration)
+      const existingEnd = addMinutes(
+        existingStart,
+        appointment.totalDurationMinutes ?? appointment.service.duration
+      )
 
       return existingStart < input.endAt && existingEnd > input.startAt
     })
@@ -828,6 +973,16 @@ export class AppointmentService {
     })
 
     return serviceCount > 0
+  }
+
+  private async professionalOffersServices(professionalId: string, serviceIds: string[]) {
+    const serviceCount = await prisma.professionalService.count({
+      where: {
+        professionalId,
+        serviceId: { in: serviceIds }
+      }
+    })
+    return serviceCount === serviceIds.length
   }
 
   private async hasScheduleBlockOverlap(input: {
@@ -942,13 +1097,20 @@ function hasBlockedIntervalOverlap(
 }
 
 function hasAppointmentIntervalOverlap(
-  appointments: Array<{ startAt: Date; service: { duration: number } }>,
+  appointments: Array<{
+    startAt: Date
+    totalDurationMinutes: number
+    service: { duration: number }
+  }>,
   startAt: Date,
   endAt: Date
 ) {
   return appointments.some((appointment) => {
     const existingStart = appointment.startAt
-    const existingEnd = addMinutes(existingStart, appointment.service.duration)
+    const existingEnd = addMinutes(
+      existingStart,
+      appointment.totalDurationMinutes ?? appointment.service.duration
+    )
 
     return existingStart < endAt && existingEnd > startAt
   })
@@ -1010,4 +1172,11 @@ function formatDisplayDate(date: Date) {
 function normalizeQuotedPrice(value: number | null | undefined) {
   if (value === null || value === undefined) return null
   return Number.isInteger(value) && value > 0 ? value : null
+}
+
+function normalizedServiceIds(primaryServiceId: string, serviceIds?: string[]) {
+  return Array.from(new Set([
+    primaryServiceId,
+    ...(serviceIds ?? [])
+  ].map((serviceId) => serviceId.trim()).filter(Boolean))).slice(0, 5)
 }

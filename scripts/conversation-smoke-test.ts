@@ -1525,6 +1525,7 @@ async function seedAppointment(input: {
   professionalId: string
   startAt?: Date
 }) {
+  const service = await prisma.service.findUniqueOrThrow({ where: { id: input.serviceId } })
   const customer = await prisma.customer.create({
     data: {
       phone: input.phone,
@@ -1537,7 +1538,16 @@ async function seedAppointment(input: {
       customerId: customer.id,
       serviceId: input.serviceId,
       professionalId: input.professionalId,
-      startAt: input.startAt ?? nextFutureAppointmentDate()
+      startAt: input.startAt ?? nextFutureAppointmentDate(),
+      totalDurationMinutes: service.duration,
+      serviceItems: {
+        create: {
+          serviceId: service.id,
+          sortOrder: 0,
+          durationMinutes: service.duration,
+          price: service.price
+        }
+      }
     }
   })
 }

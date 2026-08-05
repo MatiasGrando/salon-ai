@@ -1,6 +1,7 @@
 export type BookingAvailabilityInput = {
   professionalId: string
   serviceId: string
+  serviceIds?: string[]
   date: string
 }
 
@@ -20,6 +21,7 @@ export type BookingCreateAppointmentInput = {
   customerId: string
   professionalId: string
   serviceId: string
+  serviceIds?: string[]
   startAt: string
   quotedPrice?: number | null
 }

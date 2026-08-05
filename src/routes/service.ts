@@ -167,6 +167,10 @@ export async function serviceRoutes(app: FastifyInstance) {
       depositMode?: string
       depositValue?: number | string | null
       depositHoldMinutes?: number | string
+      suggestedAddonIds?: unknown
+      allowedCombinationServiceIds?: unknown
+      reviewCombinationServiceIds?: unknown
+      blockedCombinationServiceIds?: unknown
     }
     const name = body.name?.trim()
     const description = normalizeOptionalText(body.description)
@@ -197,11 +201,15 @@ export async function serviceRoutes(app: FastifyInstance) {
     const depositMode = normalizeServiceDepositMode(body.depositMode)
     const depositValue = normalizeNullableNumber(body.depositValue)
     const depositHoldMinutes = normalizeDepositHoldMinutes(body.depositHoldMinutes)
+    const combinationConfiguration = normalizeServiceCombinationConfiguration(body)
 
     if (!businessId) {
       return reply.status(400).send({
         message: 'businessId es requerido'
       })
+    }
+    if (!combinationConfiguration.ok) {
+      return reply.status(400).send({ message: combinationConfiguration.message })
     }
 
     if (!name) {
@@ -328,6 +336,13 @@ export async function serviceRoutes(app: FastifyInstance) {
     if (!hierarchy.ok) {
       return reply.status(400).send({ message: hierarchy.message })
     }
+    const relatedServices = await validateRelatedServices({
+      businessId,
+      serviceIds: combinationConfiguration.serviceIds
+    })
+    if (!relatedServices.ok) {
+      return reply.status(400).send({ message: relatedServices.message })
+    }
 
     const data = {
       name,
@@ -372,6 +387,11 @@ export async function serviceRoutes(app: FastifyInstance) {
       const created = await tx.service.create({
         data: data as any,
         include: serviceCatalogInclude
+      })
+      await replaceServiceCombinationConfiguration(tx, {
+        businessId,
+        serviceId: created.id,
+        configuration: combinationConfiguration
       })
       if (parentServiceId) {
         const parentLinks = await tx.professionalService.findMany({
@@ -443,6 +463,10 @@ export async function serviceRoutes(app: FastifyInstance) {
       depositMode?: string
       depositValue?: number | string | null
       depositHoldMinutes?: number | string
+      suggestedAddonIds?: unknown
+      allowedCombinationServiceIds?: unknown
+      reviewCombinationServiceIds?: unknown
+      blockedCombinationServiceIds?: unknown
     }
     const name = body.name?.trim()
     const duration = Number(body.duration)
@@ -512,6 +536,10 @@ export async function serviceRoutes(app: FastifyInstance) {
     })
     if (!existing) {
       return reply.status(404).send({ message: 'No encontre el servicio' })
+    }
+    const combinationConfiguration = normalizeServiceCombinationConfiguration(body, true)
+    if (!combinationConfiguration.ok) {
+      return reply.status(400).send({ message: combinationConfiguration.message })
     }
 
     const categoryId = body.categoryId === undefined
@@ -670,6 +698,14 @@ export async function serviceRoutes(app: FastifyInstance) {
     if (!hierarchy.ok) {
       return reply.status(400).send({ message: hierarchy.message })
     }
+    const relatedServices = await validateRelatedServices({
+      businessId: existing.businessId,
+      serviceIds: combinationConfiguration.serviceIds,
+      excludedServiceId: existing.id
+    })
+    if (!relatedServices.ok) {
+      return reply.status(400).send({ message: relatedServices.message })
+    }
 
     return prisma.$transaction(async (tx) => {
       const service = await tx.service.update({
@@ -718,6 +754,13 @@ export async function serviceRoutes(app: FastifyInstance) {
         } as any,
         include: serviceCatalogInclude
       })
+      if (combinationConfiguration.provided) {
+        await replaceServiceCombinationConfiguration(tx, {
+          businessId: existing.businessId,
+          serviceId: service.id,
+          configuration: combinationConfiguration
+        })
+      }
       if (parentServiceId) {
         const parentLinks = await tx.professionalService.findMany({
           where: { serviceId: parentServiceId },
@@ -837,6 +880,27 @@ export async function serviceRoutes(app: FastifyInstance) {
 
 const serviceCatalogInclude = {
   aliases: true,
+  suggestedAddons: {
+    select: {
+      addonServiceId: true,
+      sortOrder: true
+    },
+    orderBy: { sortOrder: 'asc' as const }
+  },
+  combinationRulesA: {
+    select: {
+      serviceAId: true,
+      serviceBId: true,
+      policy: true
+    }
+  },
+  combinationRulesB: {
+    select: {
+      serviceAId: true,
+      serviceBId: true,
+      policy: true
+    }
+  },
   catalogCategory: true,
   parentService: {
     select: {
@@ -851,6 +915,164 @@ const serviceCatalogInclude = {
     }
   }
 } as const
+
+type ServiceCombinationConfiguration = {
+  ok: true
+  provided: boolean
+  suggestedAddonIds: string[]
+  allowedCombinationServiceIds: string[]
+  reviewCombinationServiceIds: string[]
+  blockedCombinationServiceIds: string[]
+  serviceIds: string[]
+}
+
+function normalizeServiceCombinationConfiguration(
+  body: {
+    suggestedAddonIds?: unknown
+    allowedCombinationServiceIds?: unknown
+    reviewCombinationServiceIds?: unknown
+    blockedCombinationServiceIds?: unknown
+  },
+  optional = false
+): ServiceCombinationConfiguration | { ok: false, message: string } {
+  const provided = body.suggestedAddonIds !== undefined ||
+    body.allowedCombinationServiceIds !== undefined ||
+    body.reviewCombinationServiceIds !== undefined ||
+    body.blockedCombinationServiceIds !== undefined
+  if (optional && !provided) {
+    return {
+      ok: true,
+      provided: false,
+      suggestedAddonIds: [],
+      allowedCombinationServiceIds: [],
+      reviewCombinationServiceIds: [],
+      blockedCombinationServiceIds: [],
+      serviceIds: []
+    }
+  }
+
+  const suggestedAddonIds = normalizeIdArray(body.suggestedAddonIds)
+  const allowedCombinationServiceIds = normalizeIdArray(body.allowedCombinationServiceIds)
+  const reviewCombinationServiceIds = normalizeIdArray(body.reviewCombinationServiceIds)
+  const blockedCombinationServiceIds = normalizeIdArray(body.blockedCombinationServiceIds)
+  if (!suggestedAddonIds || !allowedCombinationServiceIds || !reviewCombinationServiceIds || !blockedCombinationServiceIds) {
+    return { ok: false, message: 'Revisa la configuracion de servicios asociados' }
+  }
+  const policyIds = [
+    ...allowedCombinationServiceIds,
+    ...reviewCombinationServiceIds,
+    ...blockedCombinationServiceIds
+  ]
+  const duplicatedPolicy = policyIds.find((serviceId, index) => policyIds.indexOf(serviceId) !== index)
+  if (duplicatedPolicy) {
+    return {
+      ok: false,
+      message: 'Cada servicio asociado debe tener una sola politica de combinacion'
+    }
+  }
+  if (suggestedAddonIds.some((serviceId) => blockedCombinationServiceIds.includes(serviceId))) {
+    return {
+      ok: false,
+      message: 'Un extra sugerido no puede estar bloqueado para combinarse'
+    }
+  }
+  return {
+    ok: true,
+    provided,
+    suggestedAddonIds,
+    allowedCombinationServiceIds,
+    reviewCombinationServiceIds,
+    blockedCombinationServiceIds,
+    serviceIds: [...new Set([
+      ...suggestedAddonIds,
+      ...allowedCombinationServiceIds,
+      ...reviewCombinationServiceIds,
+      ...blockedCombinationServiceIds
+    ])]
+  }
+}
+
+function normalizeIdArray(value: unknown) {
+  if (value === undefined) return []
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) return null
+  return [...new Set(value.map((item) => item.trim()).filter(Boolean))]
+}
+
+async function validateRelatedServices(input: {
+  businessId: string
+  serviceIds: string[]
+  excludedServiceId?: string
+}) {
+  if (input.excludedServiceId && input.serviceIds.includes(input.excludedServiceId)) {
+    return { ok: false as const, message: 'Un servicio no puede asociarse consigo mismo' }
+  }
+  if (!input.serviceIds.length) return { ok: true as const }
+  const count = await prisma.service.count({
+    where: {
+      businessId: input.businessId,
+      id: { in: input.serviceIds },
+      isBookable: true
+    }
+  })
+  return count === input.serviceIds.length
+    ? { ok: true as const }
+    : { ok: false as const, message: 'Selecciona servicios reservables del mismo negocio' }
+}
+
+async function replaceServiceCombinationConfiguration(
+  tx: Prisma.TransactionClient,
+  input: {
+    businessId: string
+    serviceId: string
+    configuration: ServiceCombinationConfiguration
+  }
+) {
+  await tx.serviceAddon.deleteMany({ where: { sourceServiceId: input.serviceId } })
+  await tx.serviceCombinationRule.deleteMany({
+    where: {
+      businessId: input.businessId,
+      OR: [{ serviceAId: input.serviceId }, { serviceBId: input.serviceId }]
+    }
+  })
+  if (input.configuration.suggestedAddonIds.length) {
+    await tx.serviceAddon.createMany({
+      data: input.configuration.suggestedAddonIds.map((addonServiceId, sortOrder) => ({
+        sourceServiceId: input.serviceId,
+        addonServiceId,
+        sortOrder
+      }))
+    })
+  }
+  const rules = [
+    ...input.configuration.allowedCombinationServiceIds.map((serviceId) => ({
+      serviceId,
+      policy: 'ALLOWED' as const
+    })),
+    ...input.configuration.reviewCombinationServiceIds.map((serviceId) => ({
+      serviceId,
+      policy: 'REVIEW_REQUIRED' as const
+    })),
+    ...input.configuration.blockedCombinationServiceIds.map((serviceId) => ({
+      serviceId,
+      policy: 'BLOCKED' as const
+    }))
+  ]
+  if (rules.length) {
+    await tx.serviceCombinationRule.createMany({
+      data: rules.map((rule) => {
+        const orderedServiceIds = [input.serviceId, rule.serviceId].sort()
+        const serviceAId = orderedServiceIds[0]!
+        const serviceBId = orderedServiceIds[1]!
+        return {
+          businessId: input.businessId,
+          serviceAId,
+          serviceBId,
+          policy: rule.policy
+        }
+      })
+    })
+  }
+}
 
 async function validateServiceHierarchy(input: {
   businessId: string

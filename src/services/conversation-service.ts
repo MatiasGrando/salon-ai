@@ -18,6 +18,8 @@ import type {
 } from './booking-v2-state.js'
 import {
   clearFieldAndDependents,
+  addCombinedServices,
+  combinedServiceIds,
   createEmptyBookingV2State,
   advanceToNextQueuedService
 } from './booking-v2-state.js'
@@ -29,6 +31,7 @@ import {
   calculateBookingV2Deposit,
   renderBookingV2DepositRequest
 } from './booking-v2-deposit.js'
+import { bookingDepositService } from './booking-deposit-service.js'
 import { reopenClosedConversationOpportunity } from './conversation-opportunity-service.js'
 import { findOrCreateCustomerByPhone } from './customer-identity-service.js'
 import {
@@ -86,6 +89,7 @@ type ConversationStepValue =
   | 'ASK_DATE'
   | 'ASK_TIME'
   | 'CONFIRM'
+  | 'AWAITING_DEPOSIT'
   | 'ASK_CUSTOMER_NAME'
   | 'CANCEL_SELECT_APPOINTMENT'
   | 'EDIT_SELECT_APPOINTMENT'
@@ -524,6 +528,16 @@ export class ConversationService {
       }
     }
 
+    if (bookingV2Enabled && businessId && bookingV2Routing) {
+      const pendingDepositAddition = await this.handlePendingDepositServiceAddition({
+        phone: input.phone,
+        businessId,
+        conversation,
+        routing: bookingV2Routing
+      })
+      if (pendingDepositAddition) return pendingDepositAddition
+    }
+
     const advisorQuoteState = stateFromConversation(conversation)
     if (
       bookingV2Enabled &&
@@ -885,8 +899,19 @@ export class ConversationService {
       currentState.queuedServices.length
     )
 
+    if (currentState.pendingDeposit && navigationIntent === 'go_back') {
+      return {
+        reply: 'El horario ya está retenido mientras esperamos la seña. Puedo sumar un servicio si entra en ese bloque; para cambiar día, horario o profesional primero tenés que cancelar esta reserva.',
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+
     if (navigationIntent === 'cancel_booking') {
       if (!hasBookingInProgress) return null
+      if (currentState.pendingDeposit) {
+        await appointmentService.cancel(currentState.pendingDeposit.appointmentId)
+      }
       const cancelledState = freshBookingV2State(currentState.draft.name)
       await this.updateConversation(input.phone, input.businessId, {
         currentStep: 'START',
@@ -909,6 +934,9 @@ export class ConversationService {
     }
 
     if (navigationIntent === 'restart_booking') {
+      if (currentState.pendingDeposit) {
+        await appointmentService.cancel(currentState.pendingDeposit.appointmentId)
+      }
       const restartedState = freshBookingV2State(currentState.draft.name)
       const resumed = await bookingV2Engine.resume({
         businessId: input.businessId,
@@ -1559,7 +1587,12 @@ export class ConversationService {
       : null
     return {
       reply: composedReply,
-      messages: splitWhatsAppReply(composedReply),
+      messages: result.messages
+        ? result.messages.map((message, index) => applyAssistantPersonalityToReply(
+            index === 0 && informationReply ? `${informationReply}\n\n${message}` : message,
+            assistantPersonality
+          ))
+        : splitWhatsAppReply(composedReply),
       ...(replyButtons ? { replyButtons } : {}),
       skipMisunderstandingTracking: true,
       skipHumanize: true
@@ -1668,6 +1701,7 @@ export class ConversationService {
       customerId: customer.id,
       professionalId: input.conversation.selectedProfessionalId,
       serviceId: input.conversation.selectedServiceId,
+      serviceIds: combinedServiceIds(state),
       startAt: `${input.conversation.selectedDate}T${input.conversation.selectedTime}:00`,
       quotedPrice
     })
@@ -1797,6 +1831,14 @@ export class ConversationService {
     if (!service || service.depositMode === 'NONE') return null
 
     const state = stateFromConversation(input.conversation)
+    const selectedServiceIds = combinedServiceIds(state)
+    const selectedServices = await prisma.service.findMany({
+      where: { id: { in: selectedServiceIds }, businessId: input.businessId },
+      select: { id: true, name: true }
+    })
+    const selectedServiceNames = selectedServiceIds.map((serviceId) =>
+      selectedServices.find((selected) => selected.id === serviceId)?.name ?? serviceId
+    )
     const estimateMinimum = acceptedAdvisorQuoteAmount(state, service.id) ??
       (state.guidedEstimate?.serviceId === service.id
         ? state.guidedEstimate.priceMin
@@ -1818,6 +1860,7 @@ export class ConversationService {
       customerId: customer.id,
       professionalId: input.conversation.selectedProfessionalId,
       serviceId: input.conversation.selectedServiceId,
+      serviceIds: selectedServiceIds,
       startAt: `${input.conversation.selectedDate}T${input.conversation.selectedTime}:00`,
       status: 'PENDING',
       quotedPrice: acceptedAdvisorQuoteAmount(state, service.id)
@@ -1883,22 +1926,179 @@ export class ConversationService {
       }
     }
     await this.updateConversation(input.phone, input.businessId, {
-      currentStep: 'HUMAN_HANDOFF',
+      currentStep: 'AWAITING_DEPOSIT',
       ...conversationPatchFromState(nextState),
-      aiEnabled: false,
-      humanHandoffAt: new Date(),
-      humanHandoffResolvedAt: null,
+      aiEnabled: true,
       photoQuoteAcknowledgedAt: null,
       lastAvailability: null
     })
 
     return {
       reply: renderBookingV2DepositRequest({
-        serviceName: service.name,
+        serviceName: selectedServiceNames.join(' + ') || service.name,
         calculation,
         paymentSettings: service.business.paymentSettings,
         expiresAt
       }),
+      skipMisunderstandingTracking: true,
+      skipHumanize: true
+    }
+  }
+
+  private async handlePendingDepositServiceAddition(input: {
+    phone: string
+    businessId: string
+    conversation: {
+      id: string
+      currentStep: string
+      selectedCustomerName: string | null
+      selectedServiceId: string | null
+      selectedProfessionalId: string | null
+      selectedDate: string | null
+      selectedTime: string | null
+      misunderstandingCount: number
+      bookingV2State?: unknown
+    }
+    routing: ConversationRouting
+  }): Promise<HandleMessageResult | null> {
+    const state = stateFromConversation(input.conversation)
+    if (!state.pendingDeposit || !state.draft.service) return null
+    await bookingDepositService.expireOverdue()
+    const deposit = await prisma.bookingDeposit.findUnique({
+      where: { id: state.pendingDeposit.depositId },
+      select: { status: true }
+    })
+    if (!deposit || !['PENDING_PROOF', 'PROOF_RECEIVED'].includes(deposit.status)) {
+      const expiredState: BookingV2State = {
+        ...state,
+        draft: {
+          ...state.draft,
+          date: null,
+          time: null
+        },
+        pendingDeposit: null,
+        pendingCombinedAvailability: null
+      }
+      await this.updateConversation(input.phone, input.businessId, {
+        currentStep: 'ASK_DATE',
+        ...conversationPatchFromState(expiredState),
+        lastAvailability: null
+      })
+      return {
+        reply: 'La retención anterior ya no está activa. Conservé los servicios elegidos para que busquemos un nuevo día y horario.',
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+
+    const existingServiceIds = new Set(combinedServiceIds(state))
+    const extractedServices = [
+      ...(input.routing.bookingExtraction?.additionalServices ?? []),
+      ...(input.routing.bookingExtraction?.service.value &&
+      input.routing.bookingExtraction.service.value !== state.draft.service
+        ? [input.routing.bookingExtraction.service]
+        : [])
+    ]
+    const additions = extractedServices
+      .filter((field) =>
+        field.value &&
+        field.confidence >= 0.75 &&
+        !existingServiceIds.has(field.value)
+      )
+      .map((field) => ({ serviceId: field.value!, evidence: field.evidence }))
+      .filter((field, index, all) =>
+        all.findIndex((candidate) => candidate.serviceId === field.serviceId) === index
+      )
+    if (!additions.length) {
+      if (businessInformationTopicsFromRouting(input.routing).length) return null
+      return {
+        reply: 'La reserva sigue retenida mientras esperamos o revisamos el comprobante. También podés seguir consultándome por acá.',
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+
+    const allServiceIds = [...existingServiceIds, ...additions.map((addition) => addition.serviceId)]
+    const [services, rules] = await Promise.all([
+      prisma.service.findMany({
+        where: { id: { in: allServiceIds }, businessId: input.businessId, isBookable: true },
+        select: {
+          id: true,
+          name: true,
+          attentionMode: true,
+          requiresPhoto: true,
+          validationEnabled: true
+        }
+      }),
+      prisma.serviceCombinationRule.findMany({
+        where: {
+          businessId: input.businessId,
+          serviceAId: { in: allServiceIds },
+          serviceBId: { in: allServiceIds },
+        },
+        select: { serviceAId: true, serviceBId: true, policy: true }
+      })
+    ])
+    if (services.length !== allServiceIds.length) return null
+    const additionNames = additions.map((addition) =>
+      services.find((service) => service.id === addition.serviceId)?.name ?? addition.serviceId
+    )
+    if (rules.some((rule) => rule.policy === 'BLOCKED')) {
+      return {
+        reply: `No puedo agregar ${additionNames.join(' + ')} al mismo turno porque esa combinación está bloqueada. Si querés, puedo ayudarte a reservarlo por separado cuando termine esta confirmación.`,
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+    const explicitlyAllowedAdvancedServices = new Set(additions
+      .filter((addition) => [...existingServiceIds].every((existingServiceId) =>
+        rules.some((rule) =>
+          rule.policy === 'ALLOWED' &&
+          [rule.serviceAId, rule.serviceBId].includes(addition.serviceId) &&
+          [rule.serviceAId, rule.serviceBId].includes(existingServiceId)
+        )
+      ))
+      .map((addition) => addition.serviceId))
+    if (
+      rules.some((rule) => rule.policy === 'REVIEW_REQUIRED') ||
+      services.some((service) =>
+        additions.some((addition) => addition.serviceId === service.id) &&
+        !explicitlyAllowedAdvancedServices.has(service.id) &&
+        (
+          service.attentionMode !== 'DIRECT_BOOKING' ||
+          service.requiresPhoto ||
+          service.validationEnabled
+        )
+      )
+    ) {
+      return {
+        reply: `Entendí que querés sumar ${additionNames.join(' + ')}. Esa combinación necesita que la revise el equipo antes de modificar el turno; la reserva y la seña actuales siguen retenidas.`,
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+
+    const updated = await appointmentService.replacePendingDepositServices({
+      appointmentId: state.pendingDeposit.appointmentId,
+      serviceIds: allServiceIds
+    })
+    if (!updated.ok) {
+      return {
+        reply: `${updated.message}. La reserva original sigue retenida sin cambios. Si querés, después podemos buscar ${additionNames.join(' + ')} como un turno separado.`,
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+
+    const nextState = addCombinedServices(state, additions)
+    await this.updateConversation(input.phone, input.businessId, {
+      currentStep: 'AWAITING_DEPOSIT',
+      ...conversationPatchFromState(nextState),
+      aiEnabled: true,
+      lastAvailability: null
+    })
+    return {
+      reply: `Listo, agregué ${additionNames.join(' + ')} al mismo turno. La reserva ahora bloquea ${updated.appointment.totalDurationMinutes} minutos y la seña pendiente sigue vigente.`,
       skipMisunderstandingTracking: true,
       skipHumanize: true
     }
@@ -2425,6 +2625,10 @@ export function isExplicitResetRequest(message: string) {
 
 function conversationStepFromBookingV2Plan(plan: BookingV2MessagePlan) {
   if (plan.type === 'handoff') return 'HUMAN_HANDOFF'
+  if (plan.type === 'ask_service_addons' || plan.type === 'offer_separate_services') {
+    return 'ASK_SERVICE'
+  }
+  if (plan.type === 'offer_combined_availability') return 'ASK_DATE'
   if (plan.type === 'show_service_preview_and_ask_name') return 'ASK_CUSTOMER_NAME'
   if (
     plan.type === 'ask_service_validation' ||
@@ -2452,6 +2656,7 @@ function conversationStepValue(value: string): ConversationStepValue {
     'ASK_DATE',
     'ASK_TIME',
     'CONFIRM',
+    'AWAITING_DEPOSIT',
     'ASK_CUSTOMER_NAME',
     'CANCEL_SELECT_APPOINTMENT',
     'EDIT_SELECT_APPOINTMENT',
@@ -2551,6 +2756,13 @@ export function clearBookingV2StateFromField(
     serviceValidation: field === 'service' ? null : state.serviceValidation,
     guidedEstimate: field === 'service' ? null : state.guidedEstimate,
     advisorQuote: field === 'service' ? null : state.advisorQuote,
+    combinedServices: field === 'service' ? [] : state.combinedServices,
+    addonSuggestion: field === 'service' ? null : state.addonSuggestion,
+    addonOfferCompletedServiceId: field === 'service'
+      ? null
+      : state.addonOfferCompletedServiceId,
+    pendingCombinedAvailability: null,
+    pendingServiceSeparation: null,
     pendingDeposit: null,
     misunderstandingCount: 0
   }

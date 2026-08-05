@@ -55,14 +55,15 @@ assert.equal(reservationFitsAvailabilityWindow({
 const appointmentSource = await readFile('src/services/appointment-service.ts', 'utf8')
 assert.equal(
   appointmentSource.match(/const professionalEndAt = addMinutes\(startAt, durationLimits\.professional\)/g)?.length,
-  2
+  1
 )
-assert.equal(appointmentSource.match(/endAt: customerEndAt/g)?.length, 2)
-assert.equal(appointmentSource.match(/endAt: professionalEndAt/g)?.length, 6)
+assert.ok((appointmentSource.match(/endAt: customerEndAt/g)?.length ?? 0) >= 2)
+assert.ok((appointmentSource.match(/endAt: professionalEndAt/g)?.length ?? 0) >= 6)
 assert.match(
   appointmentSource,
-  /reservationFitsAvailabilityWindow\(\{/
+  /totalDurationMinutes: professionalDuration/
 )
+assert.match(appointmentSource, /total \+ reservationDurationLimits\(service\)\.professional/)
 
 const crmSource = await readFile('src/routes/crm-ui.ts', 'utf8')
 assert.match(crmSource, /Tiempo que bloquea la agenda/)

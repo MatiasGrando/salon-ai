@@ -8,6 +8,7 @@ import {
 } from '../src/services/booking-v2-conversation-state.js'
 import {
   acceptField,
+  addCombinedServices,
   advanceToNextQueuedService,
   createEmptyBookingV2State,
   queueAdditionalServices
@@ -109,11 +110,11 @@ const explicit = await engine().process({
 })
 assert.equal(explicit.state.draft.service, 'corte')
 assert.deepEqual(
-  explicit.state.queuedServices.map((service) => service.serviceId),
+  explicit.state.combinedServices.map((service) => service.serviceId),
   ['color', 'nutricion']
 )
-assert.match(explicit.reply, /vamos a reservar los servicios uno por uno/i)
-assert.match(explicit.reply, /Empezamos con Corte/)
+assert.match(explicit.reply, /reservar estos servicios juntos/i)
+assert.match(explicit.reply, /Duración total: 150 min/i)
 
 const singleServiceWithSeveralQuestions = await engine().process({
   businessId: 'business-1',
@@ -122,10 +123,10 @@ const singleServiceWithSeveralQuestions = await engine().process({
   understandingExtraction: null
 })
 assert.equal(singleServiceWithSeveralQuestions.state.draft.service, 'corte')
-assert.deepEqual(singleServiceWithSeveralQuestions.state.queuedServices, [])
+assert.deepEqual(singleServiceWithSeveralQuestions.state.combinedServices, [])
 
 const restored = stateFromConversation(explicit.conversationPatch)
-assert.deepEqual(restored.queuedServices, explicit.state.queuedServices)
+assert.deepEqual(restored.combinedServices, explicit.state.combinedServices)
 
 const semantic = await engine().process({
   businessId: 'business-1',
@@ -144,7 +145,7 @@ const semantic = await engine().process({
   }
 })
 assert.equal(semantic.state.draft.service, 'corte')
-assert.deepEqual(semantic.state.queuedServices, [
+assert.deepEqual(semantic.state.combinedServices, [
   { serviceId: 'color', evidence: 'cubrir las canas' }
 ])
 assert.match(semantic.reply, /Color completo/)
@@ -172,7 +173,7 @@ const semanticWithCategories = await engine(categoriesFirstCatalog).process({
 })
 assert.equal(semanticWithCategories.state.draft.service, 'corte')
 assert.deepEqual(
-  semanticWithCategories.state.queuedServices.map((service) => service.serviceId),
+  semanticWithCategories.state.combinedServices.map((service) => service.serviceId),
   ['color']
 )
 
@@ -192,9 +193,70 @@ const lowConfidenceAdditional = await engine().process({
     correction: { field: null, newValue: null, confidence: 0, evidence: '' }
   }
 })
-assert.deepEqual(lowConfidenceAdditional.state.queuedServices, [])
+assert.deepEqual(lowConfidenceAdditional.state.combinedServices, [])
 
-const deduplicated = queueAdditionalServices(explicit.state, [
+const blockedCatalog = createBookingV2DomainCatalog({
+  services: catalog.services,
+  professionals: catalog.professionals,
+  combinationRules: [{ serviceAId: 'color', serviceBId: 'corte', policy: 'BLOCKED' }]
+})
+const blockedCombination = await engine(blockedCatalog).process({
+  businessId: 'business-1',
+  conversation: conversationPatchFromState(namedState),
+  message: 'Quiero corte y color completo'
+})
+assert.equal(blockedCombination.plan.type, 'offer_separate_services')
+assert.match(blockedCombination.reply, /no están habilitados para realizarse juntos/i)
+const blockedSeparateEngine = new BookingV2Engine(
+  fakeDomain(blockedCatalog),
+  nullExtractor,
+  unusedClassifier,
+  unusedDecision,
+  unusedOption,
+  {
+    async extract() {
+      return { choiceId: 'separate', confidence: 0.97 }
+    }
+  }
+)
+const blockedSeparate = await blockedSeparateEngine.process({
+  businessId: 'business-1',
+  conversation: blockedCombination.conversationPatch,
+  message: 'Sí, buscámelos por separado'
+})
+assert.deepEqual(blockedSeparate.state.combinedServices, [])
+assert.deepEqual(blockedSeparate.state.queuedServices.map((item) => item.serviceId), ['color'])
+
+const reviewCatalog = createBookingV2DomainCatalog({
+  services: catalog.services,
+  professionals: catalog.professionals,
+  combinationRules: [{ serviceAId: 'color', serviceBId: 'corte', policy: 'REVIEW_REQUIRED' }]
+})
+const reviewCombination = await engine(reviewCatalog).process({
+  businessId: 'business-1',
+  conversation: conversationPatchFromState(namedState),
+  message: 'Quiero corte y color completo'
+})
+assert.equal(reviewCombination.plan.type, 'handoff')
+assert.match(reviewCombination.reply, /equipo la revise/i)
+
+const explicitlyAllowedCatalog = createBookingV2DomainCatalog({
+  services: catalog.services.map((service) => service.id === 'color'
+    ? { ...service, attentionMode: 'GUIDED_ESTIMATE' as const }
+    : service),
+  professionals: catalog.professionals,
+  combinationRules: [{ serviceAId: 'color', serviceBId: 'corte', policy: 'ALLOWED' }]
+})
+const explicitlyAllowed = await engine(explicitlyAllowedCatalog).process({
+  businessId: 'business-1',
+  conversation: conversationPatchFromState(namedState),
+  message: 'Quiero corte y color completo'
+})
+assert.notEqual(explicitlyAllowed.plan.type, 'handoff')
+assert.deepEqual(explicitlyAllowed.state.combinedServices.map((item) => item.serviceId), ['color'])
+
+const separatePrimaryState = acceptField(namedState, 'service', 'corte')
+const deduplicated = queueAdditionalServices(separatePrimaryState, [
   { serviceId: 'color', evidence: 'repetido' },
   { serviceId: 'corte', evidence: 'servicio actual' },
   { serviceId: 'nutricion', evidence: 'repetido' }
@@ -204,7 +266,7 @@ assert.deepEqual(
   ['color', 'nutricion']
 )
 
-const firstContinuation = advanceToNextQueuedService(explicit.state)
+const firstContinuation = advanceToNextQueuedService(deduplicated)
 assert.ok(firstContinuation)
 assert.equal(firstContinuation.state.draft.name, 'Mati')
 assert.equal(firstContinuation.state.draft.service, 'color')
@@ -237,15 +299,134 @@ assert.deepEqual(sanitized.state.queuedServices, [
   { serviceId: 'color', evidence: 'color' }
 ])
 
+const addonCatalog = createBookingV2DomainCatalog({
+  services: catalog.services.map((service) => service.id === 'corte'
+    ? { ...service, suggestedAddonIds: ['nutricion'] }
+    : service),
+  professionals: catalog.professionals
+})
+const addonOffer = await engine(addonCatalog).resume({
+  businessId: 'business-1',
+  conversation: conversationPatchFromState(acceptField(namedState, 'service', 'corte'))
+})
+assert.equal(addonOffer.plan.type, 'ask_service_addons')
+assert.match(addonOffer.reply, /Nutrición — agrega 30 min/)
+
+const addonAccepted = await engine(addonCatalog).process({
+  businessId: 'business-1',
+  conversation: addonOffer.conversationPatch,
+  message: 'Sí, sumá una nutrición',
+  understandingExtraction: {
+    name: { value: null, confidence: 0, evidence: '' },
+    service: { value: null, confidence: 0, evidence: '' },
+    professional: { value: null, confidence: 0, evidence: '' },
+    date: { value: null, confidence: 0, evidence: '' },
+    time: { value: null, confidence: 0, evidence: '' },
+    additionalServices: [
+      { value: 'nutricion', confidence: 0.95, evidence: 'nutrición' }
+    ],
+    correction: { field: null, newValue: null, confidence: 0, evidence: '' }
+  }
+})
+assert.deepEqual(addonAccepted.state.combinedServices.map((item) => item.serviceId), ['nutricion'])
+
+const nextJointOption = {
+  date: '2026-10-09',
+  time: '10:00',
+  professionalId: 'profesional-1',
+  professionalName: 'Tamara'
+}
+const unavailableDomain = {
+  ...fakeDomain(),
+  async findAvailabilityOptions(input: { date: string }) {
+    return {
+      ok: true as const,
+      options: input.date === nextJointOption.date
+        ? [{
+            time: nextJointOption.time,
+            professionalId: nextJointOption.professionalId,
+            professionalName: nextJointOption.professionalName
+          }]
+        : []
+    }
+  },
+  async findNextAvailabilityOptions() {
+    return [nextJointOption]
+  }
+}
+const naturalChoice = {
+  async extract(input: { message: string }) {
+    if (/separado/i.test(input.message)) {
+      return { choiceId: 'separate', confidence: 0.96 }
+    }
+    if (/viernes\s+9.*10/i.test(input.message)) {
+      return { choiceId: 'joint:0', confidence: 0.96 }
+    }
+    return { choiceId: null, confidence: 0 }
+  }
+}
+const combinedAvailabilityEngine = new BookingV2Engine(
+  unavailableDomain,
+  nullExtractor,
+  unusedClassifier,
+  unusedDecision,
+  unusedOption,
+  naturalChoice
+)
+let unavailableState = addCombinedServices(
+  acceptField(acceptField(namedState, 'service', 'corte'), 'professional', 'profesional-1'),
+  [{ serviceId: 'color', evidence: 'color' }]
+)
+unavailableState = acceptField(unavailableState, 'date', '2026-10-05')
+const alternatives = await combinedAvailabilityEngine.resume({
+  businessId: 'business-1',
+  conversation: conversationPatchFromState(unavailableState)
+})
+assert.equal(alternatives.plan.type, 'offer_combined_availability')
+assert.equal(alternatives.messages?.length, 2)
+assert.match(alternatives.messages?.[0] ?? '', /próxima disponibilidad conjunta/i)
+assert.match(alternatives.messages?.[1] ?? '', /por separado/i)
+
+const selectedNaturalSlot = await combinedAvailabilityEngine.process({
+  businessId: 'business-1',
+  conversation: alternatives.conversationPatch,
+  message: 'El viernes 9 a las 10'
+})
+assert.equal(selectedNaturalSlot.plan.type, 'confirm_booking')
+assert.equal(selectedNaturalSlot.state.draft.date, '2026-10-09')
+assert.equal(selectedNaturalSlot.state.draft.time, '10:00')
+assert.deepEqual(selectedNaturalSlot.state.combinedServices.map((item) => item.serviceId), ['color'])
+
+const separateSearch = await combinedAvailabilityEngine.process({
+  businessId: 'business-1',
+  conversation: alternatives.conversationPatch,
+  message: 'Prefiero que los busques por separado'
+})
+assert.deepEqual(separateSearch.state.combinedServices, [])
+assert.deepEqual(separateSearch.state.queuedServices.map((item) => item.serviceId), ['color'])
+
 const extractorSource = readFileSync('src/services/booking-v2-extractor.ts', 'utf8')
 const conversationSource = readFileSync('src/services/conversation-service.ts', 'utf8')
 const crmSource = readFileSync('src/routes/crm.ts', 'utf8')
+const serviceRouteSource = readFileSync('src/routes/service.ts', 'utf8')
+const crmUiSource = readFileSync('src/routes/crm-ui.ts', 'utf8')
+const appointmentSource = readFileSync('src/services/appointment-service.ts', 'utf8')
 assert.match(extractorSource, /additionalServices/)
 assert.match(extractorSource, /los restantes, en el orden mencionado/)
 assert.match(conversationSource, /Ahora seguimos con la reserva de/)
 assert.match(conversationSource, /advanceToNextQueuedService\(state\)/)
 assert.match(conversationSource, /los demás servicios pendientes/)
+assert.match(conversationSource, /handlePendingDepositServiceAddition/)
+assert.match(conversationSource, /currentStep: 'AWAITING_DEPOSIT'/)
+assert.match(appointmentSource, /replacePendingDepositServices/)
+assert.match(appointmentSource, /totalDurationMinutes: professionalDuration/)
 assert.match(crmSource, /advanceToNextQueuedService/)
 assert.match(crmSource, /resumedContinuation/)
+assert.match(serviceRouteSource, /suggestedAddonIds/)
+assert.match(serviceRouteSource, /allowedCombinationServiceIds/)
+assert.match(serviceRouteSource, /ServiceCombinationConfiguration/)
+assert.match(crmUiSource, /service-suggested-addons/)
+assert.match(crmUiSource, /service-allowed-combinations/)
+assert.match(crmUiSource, /service-blocked-combinations/)
 
 console.log('multi-service-booking-contract-test: OK')

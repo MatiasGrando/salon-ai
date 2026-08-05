@@ -1097,7 +1097,10 @@ export async function crmRoutes(app: FastifyInstance) {
     } catch (error) {
       console.error('No pude vincular el turno confirmado por seña con la oportunidad', error)
     }
-    const confirmationText = `¡Listo! Confirmamos tu seña y el turno de ${deposit.appointment.service.name} para ${formatDepositAppointmentDate(deposit.appointment.startAt)} con ${deposit.appointment.professional.name}.`
+    const confirmedServiceNames = deposit.appointment.serviceItems.length
+      ? deposit.appointment.serviceItems.map((item) => item.service.name).join(' + ')
+      : deposit.appointment.service.name
+    const confirmationText = `¡Listo! Confirmamos tu seña y el turno de ${confirmedServiceNames} para ${formatDepositAppointmentDate(deposit.appointment.startAt)} con ${deposit.appointment.professional.name}.`
     const nextService = queuedContinuation
       ? await prisma.service.findFirst({
           where: {
@@ -1463,7 +1466,11 @@ async function findActiveConversationDeposit(conversationId: string) {
         include: {
           customer: true,
           professional: true,
-          service: true
+          service: true,
+          serviceItems: {
+            include: { service: true },
+            orderBy: { sortOrder: 'asc' }
+          }
         }
       }
     },

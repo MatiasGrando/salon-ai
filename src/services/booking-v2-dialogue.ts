@@ -1,5 +1,6 @@
 import { nextMissingField, type BookingField, type BookingFlowOrder, type BookingV2State } from './booking-v2-state.js'
 import type { BookingV2Interpretation } from './booking-v2-interpreter.js'
+import type { BookingV2CombinedAvailabilityOption } from './booking-v2-state.js'
 
 export type BookingV2MessagePlan =
   | {
@@ -26,6 +27,19 @@ export type BookingV2MessagePlan =
     }
   | {
       type: 'confirm_booking'
+    }
+  | {
+      type: 'ask_service_addons'
+      serviceIds: string[]
+    }
+  | {
+      type: 'offer_combined_availability'
+      requestedDate: string
+      options: BookingV2CombinedAvailabilityOption[]
+    }
+  | {
+      type: 'offer_separate_services'
+      reason: 'blocked_combination' | 'no_common_professional'
     }
   | {
       type: 'show_service_preview_and_ask_name'
@@ -72,6 +86,7 @@ export type BookingV2MessagePlan =
         | 'category_advice_requested'
         | 'service_selection_uncertain'
         | 'service_validation_uncertain'
+        | 'combination_review_required'
       categoryName?: string
     }
 

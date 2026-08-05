@@ -60,6 +60,7 @@ export class BookingV2Extractor {
           'Si expectedField es time, interpreta formatos como 1830, 18hs, 18.30 o a las seis como horarios, nunca como fechas.',
           'Para service y professional usa exclusivamente IDs presentes en las listas recibidas.',
           'Si el cliente pide varios servicios, coloca el primero en service y los restantes, en el orden mencionado, en additionalServices.',
+          'Si currentDraft ya contiene un servicio y el cliente pide sumar otro al mismo turno, coloca el nuevo exclusivamente en additionalServices. No reemplaces el servicio actual ni lo marques como correction.',
           'No repitas el servicio principal dentro de additionalServices y no agregues servicios que el cliente no haya solicitado.',
           'La descripcion de cada servicio aporta contexto sobre lo que incluye y para que casos sirve. Usala para interpretar el pedido del cliente sin inventar prestaciones.',
           'Si no hay evidencia de un campo, usa value null, confidence 0 y evidence vacio.',

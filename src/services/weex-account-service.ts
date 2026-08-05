@@ -148,6 +148,10 @@ export async function createGoogleCalendarEventForAppointment(input: { accountId
     include: {
       customer: true,
       service: true,
+      serviceItems: {
+        include: { service: true },
+        orderBy: { sortOrder: 'asc' }
+      },
       professional: {
         include: {
           business: true
@@ -190,13 +194,16 @@ export async function createGoogleCalendarEventForAppointment(input: { accountId
   })
 
   const startAt = appointment.startAt
-  const endAt = new Date(startAt.getTime() + appointment.service.duration * 60_000)
+  const endAt = new Date(startAt.getTime() + appointment.totalDurationMinutes * 60_000)
+  const serviceName = appointment.serviceItems.length
+    ? appointment.serviceItems.map((item) => item.service.name).join(' + ')
+    : appointment.service.name
   const businessName = appointment.professional.business.name
   const response = await client.request<{ id?: string }>({
     url: 'https://www.googleapis.com/calendar/v3/calendars/primary/events',
     method: 'POST',
     data: {
-      summary: `${appointment.service.name} en ${businessName}`,
+      summary: `${serviceName} en ${businessName}`,
       description: [
         `Turno reservado en ${businessName}.`,
         `Profesional: ${appointment.professional.name}`,
@@ -452,7 +459,7 @@ export async function getWeexAppointmentsForBusiness(accountId: string, business
       service: {
         id: appointment.service.id,
         name: appointment.service.name,
-        duration: appointment.service.duration,
+        duration: appointment.totalDurationMinutes,
         price: appointment.quotedPrice ?? appointment.service.price
       },
       professional: {

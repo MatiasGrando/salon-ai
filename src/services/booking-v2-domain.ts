@@ -34,6 +34,7 @@ export type BookingV2ServiceOption = {
   validationQuestion?: string | null
   depositMode?: 'NONE' | 'FIXED' | 'PERCENTAGE'
   depositValue?: number | null
+  suggestedAddonIds?: string[]
 }
 
 export type BookingV2EstimateOption = {
@@ -58,6 +59,7 @@ export type BookingV2DomainCatalog = {
   serviceIds: ReadonlySet<string>
   professionalIds: ReadonlySet<string>
   professionalServiceIds: ReadonlyMap<string, ReadonlySet<string>>
+  combinationRules: ReadonlyMap<string, BookingV2CombinationRule>
 }
 
 export type BookingV2CatalogDisplayMode = 'ALL_SERVICES' | 'CATEGORIES_FIRST'
@@ -66,6 +68,19 @@ export type BookingV2AvailabilityOption = {
   time: string
   professionalId: string
   professionalName: string
+}
+
+export type BookingV2DatedAvailabilityOption = BookingV2AvailabilityOption & {
+  date: string
+}
+
+export type BookingV2CombinationPolicy = 'ALLOWED' | 'REVIEW_REQUIRED' | 'BLOCKED'
+
+export type BookingV2CombinationRule = {
+  serviceAId: string
+  serviceBId: string
+  policy: BookingV2CombinationPolicy
+  note: string | null
 }
 
 export type BookingV2CategoryOption = {
@@ -99,7 +114,7 @@ export class BookingV2DomainService {
         } | null>
       }
     }).businessFeatureSettings
-    const [services, professionals, featureSettings] = await Promise.all([
+    const [services, professionals, featureSettings, combinationRules] = await Promise.all([
       this.db.service.findMany({
         where: {
           businessId,
@@ -107,6 +122,10 @@ export class BookingV2DomainService {
         },
         include: {
           aliases: true,
+          suggestedAddons: {
+            select: { addonServiceId: true },
+            orderBy: { sortOrder: 'asc' }
+          },
           catalogCategory: true,
           parentService: {
             include: {
@@ -134,7 +153,23 @@ export class BookingV2DomainService {
             where: { businessId },
             select: { serviceCatalogDisplayMode: true, bookingFlowOrder: true }
           })
-        : Promise.resolve(null)
+        : Promise.resolve(null),
+      (this.db as unknown as {
+        serviceCombinationRule?: {
+          findMany(input: unknown): Promise<Array<{
+            serviceAId: string
+            serviceBId: string
+            policy: BookingV2CombinationPolicy
+            note: string | null
+          }>>
+        }
+      }).serviceCombinationRule?.findMany
+        ? (this.db as unknown as {
+            serviceCombinationRule: {
+              findMany(input: unknown): Promise<BookingV2CombinationRule[]>
+            }
+          }).serviceCombinationRule.findMany({ where: { businessId } })
+        : Promise.resolve([])
     ])
 
     return createBookingV2DomainCatalog({
@@ -183,14 +218,16 @@ export class BookingV2DomainService {
           validationMessage: service.validationMessage,
           validationQuestion: service.validationQuestion,
           depositMode: service.depositMode,
-          depositValue: service.depositValue
+          depositValue: service.depositValue,
+          suggestedAddonIds: (service.suggestedAddons ?? []).map((addon) => addon.addonServiceId)
         }
       }),
       professionals: professionals.map((professional) => ({
         id: professional.id,
         name: professional.name,
         serviceIds: professional.serviceLinks.map((link) => link.serviceId)
-      }))
+      })),
+      combinationRules
     })
   }
 
@@ -232,10 +269,15 @@ export class BookingV2DomainService {
   async findAvailabilityOptions(input: {
     catalog: BookingV2DomainCatalog
     serviceId: string
+    serviceIds?: string[]
     date: string
     professionalId?: string | null
   }): Promise<BookingV2AvailabilityResult> {
-    if (!input.catalog.serviceIds.has(input.serviceId)) {
+    const serviceIds = Array.from(new Set([
+      input.serviceId,
+      ...(input.serviceIds ?? [])
+    ]))
+    if (serviceIds.some((serviceId) => !input.catalog.serviceIds.has(serviceId))) {
       return { ok: false, message: 'No encontre ese servicio para este comercio' }
     }
 
@@ -244,7 +286,9 @@ export class BookingV2DomainService {
       : input.catalog.professionals
 
     const compatibleProfessionals = professionals.filter((professional) =>
-      this.professionalOffersService(input.catalog, professional.id, input.serviceId)
+      serviceIds.every((serviceId) =>
+        this.professionalOffersService(input.catalog, professional.id, serviceId)
+      )
     )
 
     if (
@@ -260,6 +304,7 @@ export class BookingV2DomainService {
       const availability = await this.bookingProvider.getAvailability({
         professionalId: professional.id,
         serviceId: input.serviceId,
+        serviceIds,
         date: input.date
       })
       if (!availability.ok) continue
@@ -279,6 +324,41 @@ export class BookingV2DomainService {
     )
 
     return { ok: true, options }
+  }
+
+  async findNextAvailabilityOptions(input: {
+    catalog: BookingV2DomainCatalog
+    serviceId: string
+    serviceIds?: string[]
+    afterDate: string
+    professionalId?: string | null
+    horizonDays?: number
+    maxDates?: number
+    maxSlotsPerDate?: number
+  }): Promise<BookingV2DatedAvailabilityOption[]> {
+    const horizonDays = Math.max(1, Math.min(input.horizonDays ?? 14, 30))
+    const maxDates = Math.max(1, Math.min(input.maxDates ?? 3, 5))
+    const maxSlotsPerDate = Math.max(1, Math.min(input.maxSlotsPerDate ?? 3, 5))
+    const result: BookingV2DatedAvailabilityOption[] = []
+    let datesWithOptions = 0
+    for (let offset = 1; offset <= horizonDays && datesWithOptions < maxDates; offset += 1) {
+      const date = addIsoDays(input.afterDate, offset)
+      if (!date) break
+      const availability = await this.findAvailabilityOptions({
+        catalog: input.catalog,
+        serviceId: input.serviceId,
+        ...(input.serviceIds === undefined ? {} : { serviceIds: input.serviceIds }),
+        ...(input.professionalId === undefined ? {} : { professionalId: input.professionalId }),
+        date
+      })
+      if (!availability.ok || availability.options.length === 0) continue
+      datesWithOptions += 1
+      result.push(...availability.options.slice(0, maxSlotsPerDate).map((option) => ({
+        ...option,
+        date
+      })))
+    }
+    return result
   }
 }
 
@@ -313,6 +393,7 @@ export function createBookingV2DomainCatalog(input: {
   bookingFlowOrder?: BookingFlowOrder
   services: BookingV2ServiceOption[]
   professionals: BookingV2ProfessionalOption[]
+  combinationRules?: BookingV2CombinationRule[]
 }): BookingV2DomainCatalog {
   return {
     displayMode: input.displayMode ?? 'ALL_SERVICES',
@@ -326,8 +407,33 @@ export function createBookingV2DomainCatalog(input: {
         professional.id,
         new Set(professional.serviceIds)
       ])
+    ),
+    combinationRules: new Map(
+      (input.combinationRules ?? []).map((rule) => [
+        combinationRuleKey(rule.serviceAId, rule.serviceBId),
+        rule
+      ])
     )
   }
+}
+
+export function combinationRuleKey(serviceAId: string, serviceBId: string) {
+  return [serviceAId, serviceBId].sort().join(':')
+}
+
+export function combinationRuleFor(
+  catalog: BookingV2DomainCatalog,
+  serviceAId: string,
+  serviceBId: string
+) {
+  return catalog.combinationRules.get(combinationRuleKey(serviceAId, serviceBId)) ?? null
+}
+
+function addIsoDays(value: string, days: number) {
+  const date = new Date(`${value}T12:00:00.000Z`)
+  if (Number.isNaN(date.getTime())) return null
+  date.setUTCDate(date.getUTCDate() + days)
+  return date.toISOString().slice(0, 10)
 }
 
 export function normalizeCatalogDisplayMode(value: unknown): BookingV2CatalogDisplayMode {
