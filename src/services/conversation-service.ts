@@ -2758,6 +2758,9 @@ export function clearBookingV2StateFromField(
       ? { ...clearedDraft, time: state.draft.time }
       : clearedDraft,
     pendingProposal: null,
+    pendingServiceDisambiguation: field === 'service'
+      ? null
+      : state.pendingServiceDisambiguation,
     categoryAdvice: field === 'service' ? null : state.categoryAdvice,
     serviceValidation: field === 'service' ? null : state.serviceValidation,
     guidedEstimate: field === 'service' ? null : state.guidedEstimate,

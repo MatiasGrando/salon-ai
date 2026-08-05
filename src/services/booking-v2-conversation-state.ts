@@ -14,6 +14,7 @@ import {
   type BookingV2CatalogNavigation,
   type BookingV2GuidedEstimate,
   type BookingV2PendingRequest,
+  type BookingV2PendingServiceDisambiguation,
   type BookingV2QueuedService,
   type BookingV2ServiceValidation,
   type BookingV2UnsupportedServiceRequest,
@@ -46,6 +47,7 @@ export type BookingV2PersistedState = {
   version: 1
   pendingProposal: BookingProposal | null
   pendingRequest?: BookingV2PendingRequest | null
+  pendingServiceDisambiguation?: BookingV2PendingServiceDisambiguation | null
   agenda?: BookingV2AgendaItem[]
   categoryAdvice?: BookingV2CategoryAdvice | null
   catalogNavigation?: BookingV2CatalogNavigation | null
@@ -79,6 +81,7 @@ export function stateFromConversation(
     },
     pendingProposal: readPendingProposal(conversation.bookingV2State),
     pendingRequest: readPendingRequest(conversation.bookingV2State),
+    pendingServiceDisambiguation: readPendingServiceDisambiguation(conversation.bookingV2State),
     agenda: readAgenda(conversation.bookingV2State),
     categoryAdvice: readCategoryAdvice(conversation.bookingV2State),
     catalogNavigation: readCatalogNavigation(conversation.bookingV2State),
@@ -107,11 +110,14 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
     selectedDate: state.draft.date,
     selectedTime: state.draft.time,
     misunderstandingCount: state.misunderstandingCount,
-    bookingV2State: state.pendingProposal || state.pendingRequest || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.advisorQuote || state.pendingDeposit || state.contextPause || state.unsupportedServiceRequest || state.queuedServices.length || state.combinedServices.length || state.addonSuggestion || state.addonOfferCompletedServiceId || state.pendingCombinedAvailability || state.pendingServiceSeparation || state.pendingServiceReplacement
+    bookingV2State: state.pendingProposal || state.pendingRequest || state.pendingServiceDisambiguation || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.advisorQuote || state.pendingDeposit || state.contextPause || state.unsupportedServiceRequest || state.queuedServices.length || state.combinedServices.length || state.addonSuggestion || state.addonOfferCompletedServiceId || state.pendingCombinedAvailability || state.pendingServiceSeparation || state.pendingServiceReplacement
       ? {
           version: 1,
           pendingProposal: state.pendingProposal,
           ...(state.pendingRequest ? { pendingRequest: state.pendingRequest } : {}),
+          ...(state.pendingServiceDisambiguation
+            ? { pendingServiceDisambiguation: state.pendingServiceDisambiguation }
+            : {}),
           ...(state.agenda.length ? { agenda: state.agenda } : {}),
           ...(state.categoryAdvice ? { categoryAdvice: state.categoryAdvice } : {}),
           ...(state.catalogNavigation ? { catalogNavigation: state.catalogNavigation } : {}),
@@ -140,6 +146,24 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
             : {})
         }
       : null
+  }
+}
+
+function readPendingServiceDisambiguation(value: unknown): BookingV2PendingServiceDisambiguation | null {
+  if (!value || typeof value !== 'object') return null
+  const candidate = (value as { pendingServiceDisambiguation?: unknown }).pendingServiceDisambiguation
+  if (!candidate || typeof candidate !== 'object') return null
+  const pending = candidate as { serviceIds?: unknown; evidence?: unknown }
+  if (!Array.isArray(pending.serviceIds)) return null
+  const serviceIds = Array.from(new Set(
+    pending.serviceIds
+      .filter((serviceId): serviceId is string => typeof serviceId === 'string' && Boolean(serviceId.trim()))
+      .map((serviceId) => serviceId.trim())
+  )).slice(0, 5)
+  if (serviceIds.length < 2) return null
+  return {
+    serviceIds,
+    evidence: typeof pending.evidence === 'string' ? pending.evidence.trim().slice(0, 500) : ''
   }
 }
 

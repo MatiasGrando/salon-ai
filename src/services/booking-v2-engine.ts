@@ -818,16 +818,17 @@ export class BookingV2Engine {
       }
       stateForExtraction = state
     }
-    if (
-      deterministicService?.kind === 'ambiguous' &&
-      nextMissingField(initialState.draft, catalog.bookingFlowOrder) === 'service'
-    ) {
+    if (deterministicService?.kind === 'ambiguous') {
       const serviceSuggestions = catalog.services.filter((service) =>
         deterministicService.serviceIds.includes(service.id)
       )
       const adviceCategory = sharedAdviceCategory(serviceSuggestions)
       const state: BookingV2State = {
         ...initialState,
+        pendingServiceDisambiguation: {
+          serviceIds: deterministicService.serviceIds,
+          evidence: input.message.trim()
+        },
         categoryAdvice: adviceCategory
           ? {
               categoryName: adviceCategory,
@@ -835,14 +836,17 @@ export class BookingV2Engine {
             }
           : null
       }
-      return this.fromInterpretation({
-        state,
-        nextField: 'service',
-        outcome: 'no_change',
-        affectedField: 'service'
-      }, null, catalog, 'no_change', {
-        serviceSuggestions
-      })
+      if (nextMissingField(initialState.draft, catalog.bookingFlowOrder) === 'service') {
+        return this.fromInterpretation({
+          state,
+          nextField: 'service',
+          outcome: 'no_change',
+          affectedField: 'service'
+        }, null, catalog, 'no_change', {
+          serviceSuggestions
+        })
+      }
+      stateForExtraction = state
     }
 
     const deterministicProfessional = resolveExpectedProfessional(
@@ -951,12 +955,18 @@ export class BookingV2Engine {
         affectedField: deterministicService?.kind === 'selected' ? 'service' : null
       }, null, catalog)
     }
-    const extraction = discardUngroundedCatalogSelections(
+    const groundedExtraction = discardUngroundedCatalogSelections(
       rawExtraction,
       input.message,
       catalog,
       stateForExtraction
     )
+    const extraction = stateForExtraction.pendingServiceDisambiguation
+      ? withoutServiceSelection(
+          groundedExtraction,
+          stateForExtraction.pendingServiceDisambiguation.serviceIds
+        )
+      : groundedExtraction
 
     const baseInterpretation = applyBookingV2Extraction(
       stateForExtraction,
@@ -1616,6 +1626,7 @@ export class BookingV2Engine {
     }
 
     const serviceSuggestions = renderContext?.serviceSuggestions ??
+      pendingServiceDisambiguationOptions(effectiveInterpretation.state, catalog) ??
       offeredCategoryServices(effectiveInterpretation.state, catalog)
 
     const reply = renderBookingV2Response({
@@ -1786,6 +1797,31 @@ function offeredCategoryServices(
   if (state.categoryAdvice?.stage !== 'offered') return undefined
   const services = servicesForCategory(catalog, state.categoryAdvice.categoryName)
   return services.length ? services : undefined
+}
+
+function pendingServiceDisambiguationOptions(
+  state: BookingV2State,
+  catalog: BookingV2DomainCatalog | null
+) {
+  if (!catalog || !state.pendingServiceDisambiguation) return undefined
+  const services = state.pendingServiceDisambiguation.serviceIds
+    .map((serviceId) => catalog.services.find((service) => service.id === serviceId))
+    .filter((service): service is BookingV2DomainCatalog['services'][number] => Boolean(service))
+  return services.length > 1 ? services : undefined
+}
+
+function withoutServiceSelection(
+  extraction: BookingV2Extraction,
+  ambiguousServiceIds: string[]
+): BookingV2Extraction {
+  const ambiguousIds = new Set(ambiguousServiceIds)
+  return {
+    ...extraction,
+    service: { value: null, confidence: 0, evidence: '' },
+    additionalServices: extraction.additionalServices?.filter((service) =>
+      !service.value || !ambiguousIds.has(service.value)
+    ) ?? []
+  }
 }
 
 function categoryForServiceIds(
@@ -2269,8 +2305,37 @@ function resolveCatalogServiceSelection(
       serviceId: exactMatches[0]?.id ?? ''
     }
   }
+  if (exactMatches.length > 1) {
+    return {
+      kind: 'ambiguous' as const,
+      serviceIds: exactMatches.map((service) => service.id)
+    }
+  }
 
   const messageTokens = serviceSelectionTokens(message)
+  const catalogTokens = catalog.services.flatMap((service) =>
+    [service.name, ...service.aliases].flatMap(serviceSelectionTokens)
+  )
+  const relevantMessageTokens = messageTokens.filter((messageToken) =>
+    catalogTokens.some((catalogToken) => serviceTokensMatch(messageToken, catalogToken))
+  )
+  const sharedPartialMatches = relevantMessageTokens.length
+    ? catalog.services.filter((service) =>
+        [service.name, ...service.aliases].some((label) => {
+          const labelTokens = serviceSelectionTokens(label)
+          return relevantMessageTokens.every((messageToken) =>
+            labelTokens.some((labelToken) => serviceTokensMatch(messageToken, labelToken))
+          )
+        })
+      )
+    : []
+  if (sharedPartialMatches.length > 1) {
+    return {
+      kind: 'ambiguous' as const,
+      serviceIds: sharedPartialMatches.map((service) => service.id)
+    }
+  }
+
   const scoredMatches = catalog.services
     .map((service) => ({
       service,
@@ -2707,6 +2772,17 @@ function sanitizeCatalogNameCollision(
     combinedServices.length === state.combinedServices.length
     ? state
     : { ...state, queuedServices, combinedServices }
+  if (sanitizedState.pendingServiceDisambiguation) {
+    const serviceIds = sanitizedState.pendingServiceDisambiguation.serviceIds.filter((serviceId, index, ids) =>
+      catalog.serviceIds.has(serviceId) && ids.indexOf(serviceId) === index
+    )
+    sanitizedState = {
+      ...sanitizedState,
+      pendingServiceDisambiguation: serviceIds.length > 1
+        ? { ...sanitizedState.pendingServiceDisambiguation, serviceIds }
+        : null
+    }
+  }
   if (sanitizedState.pendingServiceSeparation && combinedServices.length === 0) {
     sanitizedState = { ...sanitizedState, pendingServiceSeparation: null }
   }
@@ -2721,6 +2797,7 @@ function sanitizeCatalogNameCollision(
       guidedEstimate: null,
       advisorQuote: null,
       pendingDeposit: null,
+      pendingServiceDisambiguation: null,
       pendingServiceSeparation: null,
       pendingServiceReplacement: null
     }

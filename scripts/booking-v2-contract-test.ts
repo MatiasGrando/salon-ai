@@ -3183,6 +3183,56 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'servicio ambiguo adelantado espera el nombre y se desambigua antes del profesional',
+    run: async () => {
+      const domainCatalog = createBookingV2DomainCatalog({
+        services: [
+          { id: 'molecular', name: 'Alisado molecular', aliases: [], duration: 30, price: 30000, category: 'Alisados' },
+          { id: 'sin-formol', name: 'Alisado sin formol', aliases: [], duration: 30, price: 35000, category: 'Alisados' }
+        ],
+        professionals: [
+          { id: 'tamara', name: 'Tamara', serviceIds: ['molecular', 'sin-formol'] }
+        ]
+      })
+      const extractor = fakeExtractor(extraction({
+        service: field('molecular', 0.96, 'alisado')
+      }))
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog: domainCatalog }), extractor)
+
+      const initial = await engine.process({
+        businessId: 'business-1',
+        conversation: null,
+        message: 'hola quiero un alisado'
+      })
+      assert.equal(initial.state.draft.name, null)
+      assert.equal(initial.state.draft.service, null)
+      assert.equal(initial.plan.type === 'ask_field' ? initial.plan.field : null, 'name')
+      assert.deepEqual(initial.state.pendingServiceDisambiguation?.serviceIds, ['molecular', 'sin-formol'])
+      assert.equal(extractor.calls.length, 1)
+
+      const named = await engine.process({
+        businessId: 'business-1',
+        conversation: initial.conversationPatch,
+        message: 'Matias'
+      })
+      assert.equal(named.state.draft.name, 'Matias')
+      assert.equal(named.state.draft.service, null)
+      assert.equal(named.plan.type === 'ask_field' ? named.plan.field : null, 'service')
+      assert.equal(named.reply.includes('Alisado molecular'), true)
+      assert.equal(named.reply.includes('Alisado sin formol'), true)
+      assert.deepEqual(named.state.pendingServiceDisambiguation, initial.state.pendingServiceDisambiguation)
+
+      const selected = await engine.process({
+        businessId: 'business-1',
+        conversation: named.conversationPatch,
+        message: 'Alisado sin formol'
+      })
+      assert.equal(selected.state.draft.service, 'sin-formol')
+      assert.equal(selected.state.pendingServiceDisambiguation, null)
+      assert.equal(selected.plan.type === 'ask_field' ? selected.plan.field : null, 'professional')
+    }
+  },
+  {
     name: 'motor no pide horario cuando el dia elegido no tiene disponibilidad',
     run: async () => {
       const extractor = fakeExtractor(extraction({
@@ -4683,6 +4733,13 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       const engine = new BookingV2Engine(fakeDomainPort(), fakeExtractor(null))
       const states = [
         createEmptyBookingV2State(),
+        {
+          ...createEmptyBookingV2State(),
+          pendingServiceDisambiguation: {
+            serviceIds: ['haircut', 'beard'],
+            evidence: 'quiero ese servicio'
+          }
+        },
         acceptField(createEmptyBookingV2State(), 'name', 'Caro'),
         acceptField(acceptField(createEmptyBookingV2State(), 'name', 'Caro'), 'service', 'haircut'),
         acceptField(
@@ -4702,6 +4759,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         completeDraft()
       ]
       const currentSteps = [
+        'ASK_CUSTOMER_NAME',
         'ASK_CUSTOMER_NAME',
         'ASK_SERVICE',
         'ASK_PROFESSIONAL',
@@ -4732,6 +4790,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         assert.equal(reply.startsWith('Los horarios del local son de 09:00 a 20:00.'), true)
         assert.equal(reply.endsWith(resumed.reply), true)
         assert.deepEqual(resumed.state.draft, state.draft)
+        assert.deepEqual(resumed.state.pendingServiceDisambiguation, state.pendingServiceDisambiguation)
       }
     }
   },

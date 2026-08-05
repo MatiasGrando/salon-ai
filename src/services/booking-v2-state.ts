@@ -54,6 +54,11 @@ export type BookingV2PendingRequest = {
   createdAt: string
 }
 
+export type BookingV2PendingServiceDisambiguation = {
+  serviceIds: string[]
+  evidence: string
+}
+
 export type BookingV2AgendaIntent = 'request_quote' | 'check_availability'
 export type BookingV2AgendaStatus = 'pending' | 'blocked' | 'completed'
 
@@ -137,6 +142,7 @@ export type BookingV2State = {
   draft: BookingDraft
   pendingProposal: BookingProposal | null
   pendingRequest: BookingV2PendingRequest | null
+  pendingServiceDisambiguation: BookingV2PendingServiceDisambiguation | null
   agenda: BookingV2AgendaItem[]
   categoryAdvice: BookingV2CategoryAdvice | null
   catalogNavigation: BookingV2CatalogNavigation | null
@@ -177,6 +183,7 @@ export function createEmptyBookingV2State(): BookingV2State {
     },
     pendingProposal: null,
     pendingRequest: null,
+    pendingServiceDisambiguation: null,
     agenda: [],
     categoryAdvice: null,
     catalogNavigation: null,
@@ -308,6 +315,9 @@ export function acceptField(
     ...state,
     draft,
     pendingProposal: null,
+    pendingServiceDisambiguation: field === 'service'
+      ? null
+      : state.pendingServiceDisambiguation,
     categoryAdvice: field === 'service' ? null : state.categoryAdvice,
     catalogNavigation: field === 'service' ? null : state.catalogNavigation,
     serviceValidation: field === 'service' && state.draft[field] !== value
