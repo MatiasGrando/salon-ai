@@ -116,6 +116,31 @@ export class BookingDepositService {
       return true
     })
   }
+
+  async cancelPendingProofsForConversation(input: {
+    conversationId: string
+    reason: string
+    cancelledAt?: Date
+  }) {
+    const pendingDeposits = await this.db.bookingDeposit.findMany({
+      where: {
+        conversationId: input.conversationId,
+        status: EXPIRABLE_DEPOSIT_STATUS
+      },
+      select: { id: true }
+    })
+    let cancelled = 0
+    for (const deposit of pendingDeposits) {
+      if (await this.cancelPendingProof({
+        depositId: deposit.id,
+        reason: input.reason,
+        cancelledAt: input.cancelledAt
+      })) {
+        cancelled += 1
+      }
+    }
+    return cancelled
+  }
 }
 
 export const bookingDepositService = new BookingDepositService()

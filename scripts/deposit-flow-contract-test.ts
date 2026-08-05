@@ -266,6 +266,32 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'reset total libera señas pendientes aunque el estado de conversación se haya perdido',
+    run: async () => {
+      const fixture = fakeDepositDb({
+        deposits: [{
+          id: 'deposit-1',
+          appointmentId: 'appointment-1',
+          conversationId: 'conversation-1',
+          status: 'PENDING_PROOF',
+          expiresAt: new Date('2026-07-28T21:00:00.000Z'),
+          proofMessageId: null
+        }],
+        appointments: [{ id: 'appointment-1', status: 'PENDING' }]
+      })
+      const service = new BookingDepositService(fixture.db as never)
+      const cancelled = await service.cancelPendingProofsForConversation({
+        conversationId: 'conversation-1',
+        reason: 'La reserva se reinició antes de recibir el comprobante.',
+        cancelledAt: new Date('2026-07-28T20:00:00.000Z')
+      })
+
+      assert.equal(cancelled, 1)
+      assert.equal(fixture.deposits[0]?.status, 'REJECTED')
+      assert.equal(fixture.appointments[0]?.status, 'CANCELLED')
+    }
+  },
+  {
     name: 'webhook registra el fallo de envío y reset total cancela la seña pendiente',
     run: () => {
       const webhook = readFileSync(new URL('../src/services/whatsapp-webhook-service.ts', import.meta.url), 'utf8')
@@ -275,6 +301,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.ok(webhook.includes('handleDepositRequestDeliveryFailure'))
       assert.ok(conversation.includes('depositRequestId: deposit.id'))
       assert.ok(conversation.includes("La reserva se reinició antes de recibir el comprobante."))
+      assert.ok(conversation.includes('No se pudo guardar el estado de espera del comprobante.'))
+      assert.match(readFileSync(new URL('../prisma/schema.prisma', import.meta.url), 'utf8'), /AWAITING_DEPOSIT/)
     }
   }
 ]
@@ -296,15 +324,18 @@ function fakeDepositDb(input: {
   const db = {
     bookingDeposit: {
       async findMany(args: any) {
-        const now = args.where.expiresAt.lte as Date
+        const now = args.where.expiresAt?.lte as Date | undefined
         return deposits
           .filter((deposit) =>
             (typeof args.where.status === 'string'
               ? deposit.status === args.where.status
               : args.where.status.in.includes(deposit.status)) &&
-            deposit.expiresAt <= now
+            (!args.where.conversationId || deposit.conversationId === args.where.conversationId) &&
+            (!now || deposit.expiresAt <= now)
           )
-          .map(({ id, appointmentId }) => ({ id, appointmentId }))
+          .map((deposit) => args.select?.id && !args.select.appointmentId
+            ? { id: deposit.id }
+            : { id: deposit.id, appointmentId: deposit.appointmentId })
       },
       async updateMany(args: any) {
         let count = 0

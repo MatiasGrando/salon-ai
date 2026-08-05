@@ -394,12 +394,10 @@ export class ConversationService {
     // router semantico. De otro modo puede interpretarse como restart_booking,
     // conservar el nombre y abrir inmediatamente otra reserva.
     if (hardResetRequested) {
-      if (storedBookingState?.pendingDeposit) {
-        await bookingDepositService.cancelPendingProof({
-          depositId: storedBookingState.pendingDeposit.depositId,
-          reason: 'La reserva se reinició antes de recibir el comprobante.'
-        })
-      }
+      await bookingDepositService.cancelPendingProofsForConversation({
+        conversationId: conversation.id,
+        reason: 'La reserva se reinició antes de recibir el comprobante.'
+      })
       await this.updateConversation(input.phone, businessId, {
         currentStep: bookingV2Enabled ? 'START' : 'ASK_CUSTOMER_NAME',
         aiEnabled: true,
@@ -1932,13 +1930,21 @@ export class ConversationService {
         expiresAt: expiresAt.toISOString()
       }
     }
-    await this.updateConversation(input.phone, input.businessId, {
-      currentStep: 'AWAITING_DEPOSIT',
-      ...conversationPatchFromState(nextState),
-      aiEnabled: true,
-      photoQuoteAcknowledgedAt: null,
-      lastAvailability: null
-    })
+    try {
+      await this.updateConversation(input.phone, input.businessId, {
+        currentStep: 'AWAITING_DEPOSIT',
+        ...conversationPatchFromState(nextState),
+        aiEnabled: true,
+        photoQuoteAcknowledgedAt: null,
+        lastAvailability: null
+      })
+    } catch (error) {
+      await bookingDepositService.cancelPendingProof({
+        depositId: deposit.id,
+        reason: 'No se pudo guardar el estado de espera del comprobante.'
+      })
+      throw error
+    }
 
     return {
       reply: renderBookingV2DepositRequest({
