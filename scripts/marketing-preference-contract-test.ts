@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import {
   defaultMarketingPreferenceData,
+  hasMarketingOptOutCandidate,
   shouldApplyMarketingOptOut,
+  shouldDeferMarketingOptOutReply,
   type MarketingOptOutUnderstanding
 } from '../src/services/marketing-preference-service.js'
 
@@ -30,6 +32,12 @@ for (const message of [
   '¿Tienen promociones?'
 ]) {
   assert.equal(shouldApplyMarketingOptOut(message), false, message)
+  assert.equal(hasMarketingOptOutCandidate(message), false, message)
+}
+
+for (const message of ['Sí', 'Sí por favor', 'Dale', 'Confirmo', 'Reservar']) {
+  assert.equal(shouldApplyMarketingOptOut(message), false, message)
+  assert.equal(hasMarketingOptOutCandidate(message), false, message)
 }
 
 const semanticOptOut: MarketingOptOutUnderstanding = {
@@ -47,5 +55,9 @@ assert.equal(shouldApplyMarketingOptOut('Por favor, bórrenme de esa lista', {
   confidence: 0.6
 }), false)
 assert.equal(shouldApplyMarketingOptOut('Un mensaje sin esa evidencia', semanticOptOut), false)
+
+assert.equal(shouldDeferMarketingOptOutReply('CONFIRM'), true)
+assert.equal(shouldDeferMarketingOptOutReply('AWAITING_DEPOSIT'), true)
+assert.equal(shouldDeferMarketingOptOutReply('START'), false)
 
 console.log('Marketing preference contract tests passed')

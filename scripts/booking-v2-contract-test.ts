@@ -2274,6 +2274,29 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(selected.reply.includes('¿Qué largo'), true)
       assert.equal(selected.reply.includes('2. Hasta media espalda'), true)
 
+      const selectedWithAvailabilityPreference = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Mati',
+          selectedServiceId: null,
+          selectedProfessionalId: null,
+          selectedDate: null,
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: 'iluminacion el sabado a las 1130',
+        currentDate: new Date('2026-08-05T12:00:00.000Z'),
+        understandingExtraction: extraction({
+          service: field('highlights', 0.98, 'iluminacion'),
+          date: field('2026-08-08', 0.98, 'sabado'),
+          time: field('11:30', 0.98, '1130')
+        })
+      })
+      assert.equal(selectedWithAvailabilityPreference.plan.type, 'ask_estimate_option')
+      assert.equal(selectedWithAvailabilityPreference.state.draft.date, '2026-08-08')
+      assert.equal(selectedWithAvailabilityPreference.state.draft.time, '11:30')
+
       const estimated = await engine.process({
         businessId: 'business-1',
         conversation: selected.conversationPatch,
@@ -4525,6 +4548,46 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(haircutPrice.catalogQuery?.serviceId, 'haircut')
       assert.deepEqual(haircutPrice.catalogQuery?.requestedInformation, ['price'])
       assert.equal(haircutPrice.bookingMessage, null)
+    }
+  },
+  {
+    name: 'consulta informativa con fecha y hora no inicia ni guarda una reserva',
+    run: () => {
+      const message = 'Quiero información sobre alisado para mañana a las 11:30'
+      const catalog = {
+        services: [{
+          id: 'straightening',
+          name: 'Alisado sin formol',
+          description: 'Alisado profesional.',
+          aliases: ['alisado']
+        }],
+        professionals: []
+      }
+      const routing = mergeConversationRouting({
+        intents: [{
+          type: 'business_information',
+          topic: 'services',
+          confidence: 0.96,
+          evidence: 'información sobre alisado'
+        }],
+        bookingMessage: null,
+        bookingExtraction: extraction({
+          service: field('straightening', 0.98, 'alisado'),
+          date: field('2026-08-06', 0.98, 'mañana'),
+          time: field('11:30', 0.98, '11:30')
+        }),
+        catalogQuery: {
+          serviceId: 'straightening',
+          requestedInformation: ['general'],
+          confidence: 0.96,
+          evidence: 'alisado'
+        }
+      }, deterministicConversationRouting(message, { currentStep: 'START', catalog }), message, catalog)
+
+      assert.equal(routing.bookingMessage, null)
+      assert.equal(routing.bookingExtraction, null)
+      assert.equal(routing.catalogQuery?.serviceId, 'straightening')
+      assert.deepEqual(routing.catalogQuery?.requestedInformation, ['general'])
     }
   },
   {

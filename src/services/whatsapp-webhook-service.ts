@@ -10,7 +10,11 @@ import {
 } from './booking-deposit-service.js'
 import { capturePostSaleResponse } from './post-sale-service.js'
 import { AiMessageUnderstandingService } from './ai-message-understanding-service.js'
-import { shouldApplyMarketingOptOut } from './marketing-preference-service.js'
+import {
+  hasMarketingOptOutCandidate,
+  shouldApplyMarketingOptOut,
+  shouldDeferMarketingOptOutReply
+} from './marketing-preference-service.js'
 import {
   PHOTO_QUOTE_ACKNOWLEDGEMENT,
   photoQuoteAcknowledgementService
@@ -254,7 +258,7 @@ export class WhatsAppWebhookService {
         phone: message.from,
         text: message.text
       })
-      if (marketingOptOutApplied) {
+      if (marketingOptOutApplied && !shouldDeferMarketingOptOutReply(conversation.currentStep)) {
         const replyText = 'Listo. No vas a recibir más promociones. Los mensajes relacionados con tus turnos seguirán funcionando.'
         const gate = conversation.businessId ? await assertBusinessCanSendWhatsApp(conversation.businessId, 'BOT') : null
         const deliveryResult = gate?.allowed
@@ -758,7 +762,9 @@ export class WhatsAppWebhookService {
     const directOptOut = shouldApplyMarketingOptOut(input.text)
     const understanding = directOptOut
       ? null
-      : await marketingUnderstandingService.understandMarketingPreference(input.text)
+      : hasMarketingOptOutCandidate(input.text)
+        ? await marketingUnderstandingService.understandMarketingPreference(input.text)
+        : null
     if (!shouldApplyMarketingOptOut(input.text, understanding)) return false
     const customerBusinessIds = customer.appointments.map((appointment) => appointment.professional.businessId)
     const businessId = input.businessId && customerBusinessIds.includes(input.businessId)

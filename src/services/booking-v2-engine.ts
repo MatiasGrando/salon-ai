@@ -878,7 +878,19 @@ export class BookingV2Engine {
       : resolveExpectedService(input.message, initialState, catalog)
     if (deterministicService?.kind === 'selected') {
       const state = acceptField(initialState, 'service', deterministicService.serviceId)
-      if (nextMissingField(initialState.draft, catalog.bookingFlowOrder) === 'service') {
+      const hasAheadAvailabilityPreference = Boolean(
+        input.understandingExtraction?.date.value &&
+        input.understandingExtraction.date.evidence &&
+        input.understandingExtraction.date.confidence >= 0.65
+      ) || Boolean(
+        input.understandingExtraction?.time.value &&
+        input.understandingExtraction.time.evidence &&
+        input.understandingExtraction.time.confidence >= 0.65
+      )
+      if (
+        nextMissingField(initialState.draft, catalog.bookingFlowOrder) === 'service' &&
+        !hasAheadAvailabilityPreference
+      ) {
         return this.fromInterpretation({
           state,
           nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
@@ -3107,7 +3119,6 @@ function shouldValidateAvailability(plan: BookingV2MessagePlan) {
 
 function timeToValidate(plan: BookingV2MessagePlan, state: BookingV2State) {
   if (plan.type === 'confirm_booking') return state.draft.time
-  if (plan.type === 'ask_field' && plan.field === 'professional') return state.draft.time
   if (plan.type === 'confirm_field' && plan.field === 'time') return plan.value
   return null
 }
