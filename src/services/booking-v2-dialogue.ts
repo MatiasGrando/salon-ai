@@ -42,6 +42,20 @@ export type BookingV2MessagePlan =
       reason: 'blocked_combination' | 'no_common_professional'
     }
   | {
+      type: 'ask_service_edit_target'
+      action: 'change' | 'remove'
+      serviceIds: string[]
+    }
+  | {
+      type: 'confirm_service_edit'
+      action: 'change' | 'remove'
+      serviceIds: string[]
+    }
+  | {
+      type: 'ask_service_replacement'
+      selectedServiceIds: string[]
+    }
+  | {
       type: 'show_service_preview_and_ask_name'
     }
   | {

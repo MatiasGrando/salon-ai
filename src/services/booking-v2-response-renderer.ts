@@ -58,6 +58,40 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
       : 'No encontré un profesional habilitado para realizar todos estos servicios. ¿Querés que busque cada servicio por separado?'
   }
 
+  if (input.plan.type === 'ask_service_edit_target') {
+    const labels = input.plan.serviceIds.map((serviceId) =>
+      labelForService(serviceId, input.catalog)
+    )
+    const action = input.plan.action === 'change' ? 'cambiar' : 'quitar'
+    return [
+      `¿Cuál servicio querés ${action}?`,
+      ...labels.map((label) => `• ${label}`),
+      ...(labels.length > 1 ? [`• ${input.plan.action === 'change' ? 'Cambiar' : 'Quitar'} ambos servicios`] : []),
+      'Todavía no modifiqué tu selección.'
+    ].join('\n')
+  }
+
+  if (input.plan.type === 'confirm_service_edit') {
+    const labels = input.plan.serviceIds.map((serviceId) =>
+      labelForService(serviceId, input.catalog)
+    ).join(' y ')
+    return input.plan.action === 'change'
+      ? `¿Confirmás que querés cambiar ${labels}? Todavía no modifiqué tu selección.`
+      : `¿Confirmás que querés quitar ${labels} de la reserva? Todavía no modifiqué tu selección.`
+  }
+
+  if (input.plan.type === 'ask_service_replacement') {
+    const selectedServiceIds = input.plan.selectedServiceIds
+    const availableServices = (input.catalog?.services ?? []).filter((service) =>
+      !selectedServiceIds.includes(service.id)
+    )
+    return [
+      'Listo, conservé los demás servicios.',
+      '¿Qué servicio querés elegir en reemplazo?',
+      ...formatServiceOptions(availableServices)
+    ].join('\n')
+  }
+
   if (input.plan.type === 'show_service_preview_and_ask_name') {
     const service = input.catalog?.services.find((option) => option.id === input.draft.service)
     if (!service) return '¿Me decís tu nombre?'

@@ -125,14 +125,102 @@ export class BookingV2Engine {
 
     if (initialState.pendingServiceSeparation) {
       const pending = initialState.pendingServiceSeparation
-      const choice = await this.choiceExtractor.extract({
+      const selectedServiceIds = combinedServiceIds(initialState)
+
+      if (pending.edit?.serviceIds?.length) {
+        const deterministicDecision = explicitConfirmationChoice(input.message)
+        const decision = deterministicDecision
+          ? { choiceId: deterministicDecision, confidence: 1 }
+          : await this.choiceExtractor.extract({
+              message: input.message,
+              question: pending.edit.action === 'change'
+                ? '¿Confirma que quiere cambiar los servicios indicados?'
+                : '¿Confirma que quiere quitar los servicios indicados de la reserva?',
+              choices: [
+                { id: 'confirm_edit', meaning: 'Confirma la modificación solicitada.' },
+                { id: 'cancel_edit', meaning: 'No confirma; quiere conservar los servicios actuales.' }
+              ]
+            })
+        if (decision.confidence >= 0.7 && decision.choiceId === 'cancel_edit') {
+          const state: BookingV2State = {
+            ...initialState,
+            pendingServiceSeparation: { reason: pending.reason },
+            misunderstandingCount: 0
+          }
+          return this.guidedEstimateResult(state, {
+            type: 'offer_separate_services',
+            reason: pending.reason
+          }, catalog, 'proposal_rejected')
+        }
+        if (decision.confidence >= 0.7 && decision.choiceId === 'confirm_edit') {
+          const state = applyConfirmedServiceEdit(
+            initialState,
+            pending.edit.action,
+            pending.edit.serviceIds
+          )
+          if (pending.edit.action === 'change' && state.draft.service) {
+            const replacementState: BookingV2State = {
+              ...state,
+              pendingServiceReplacement: { removedServiceIds: pending.edit.serviceIds }
+            }
+            return this.guidedEstimateResult(
+              replacementState,
+              {
+                type: 'ask_service_replacement',
+                selectedServiceIds: combinedServiceIds(replacementState)
+              },
+              catalog,
+              'proposal_confirmed'
+            )
+          }
+          return this.fromInterpretation({
+            state,
+            nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
+            outcome: 'accepted',
+            affectedField: 'service'
+          }, null, catalog)
+        }
+        const state = {
+          ...initialState,
+          misunderstandingCount: initialState.misunderstandingCount + 1
+        }
+        return state.misunderstandingCount >= 3
+          ? this.guidedEstimateResult(state, {
+              type: 'handoff',
+              reason: 'repeated_misunderstanding'
+            }, catalog, 'no_change')
+          : this.guidedEstimateResult(state, {
+              type: 'confirm_service_edit',
+              action: pending.edit.action,
+              serviceIds: pending.edit.serviceIds
+            }, catalog, 'no_change')
+      }
+
+      const deterministicChoice = pendingServiceChoiceFromMessage({
         message: input.message,
-        question: '¿Quiere buscar un turno separado para cada servicio o prefiere que el equipo revise si pueden hacerse juntos?',
-        choices: [
-          { id: 'separate', meaning: 'Buscar y reservar cada servicio por separado.' },
-          { id: 'review_together', meaning: 'Mantener el pedido conjunto y pedir que lo revise una persona del equipo.' }
-        ]
+        catalog,
+        selectedServiceIds,
+        ...(pending.edit?.action ? { actionHint: pending.edit.action } : {})
       })
+      const choices = pending.edit?.action
+        ? serviceTargetChoices(pending.edit.action, selectedServiceIds, catalog)
+        : [
+            { id: 'separate', meaning: 'Buscar y reservar cada servicio por separado.' },
+            { id: 'review_together', meaning: 'Mantener el pedido conjunto y pedir que lo revise una persona del equipo.' },
+            { id: 'change_services', meaning: 'Cambiar o reemplazar uno o todos los servicios elegidos.' },
+            { id: 'remove_services', meaning: 'Quitar uno o todos los servicios elegidos sin reemplazarlos.' },
+            ...serviceTargetChoices('change', selectedServiceIds, catalog),
+            ...serviceTargetChoices('remove', selectedServiceIds, catalog)
+          ]
+      const choice = deterministicChoice
+        ? { choiceId: deterministicChoice, confidence: 1 }
+        : await this.choiceExtractor.extract({
+            message: input.message,
+            question: pending.edit?.action
+              ? `¿Cuál de los servicios elegidos quiere ${pending.edit.action === 'change' ? 'cambiar' : 'quitar'}?`
+              : '¿Quiere separar, revisar, cambiar o quitar alguno de los servicios elegidos?',
+            choices
+          })
       if (choice.confidence >= 0.7 && choice.choiceId === 'separate') {
         const queuedServices = queueAdditionalServices(
           { ...initialState, queuedServices: [] },
@@ -169,9 +257,85 @@ export class BookingV2Engine {
           reason: 'combination_review_required'
         }, catalog, 'accepted')
       }
-      return this.guidedEstimateResult(initialState, {
+
+      const editChoice = parseServiceEditChoice(choice.choiceId, selectedServiceIds)
+      if (choice.confidence >= 0.7 && editChoice) {
+        const state: BookingV2State = {
+          ...initialState,
+          pendingServiceSeparation: {
+            reason: pending.reason,
+            edit: editChoice
+          },
+          misunderstandingCount: 0
+        }
+        return this.guidedEstimateResult(state, editChoice.serviceIds
+          ? {
+              type: 'confirm_service_edit',
+              action: editChoice.action,
+              serviceIds: editChoice.serviceIds
+            }
+          : {
+              type: 'ask_service_edit_target',
+              action: editChoice.action,
+              serviceIds: selectedServiceIds
+            }, catalog, 'confirmation_required')
+      }
+
+      const state = {
+        ...initialState,
+        misunderstandingCount: initialState.misunderstandingCount + 1
+      }
+      if (state.misunderstandingCount >= 3) {
+        return this.guidedEstimateResult(state, {
+          type: 'handoff',
+          reason: 'repeated_misunderstanding'
+        }, catalog, 'no_change')
+      }
+      return this.guidedEstimateResult(state, {
         type: 'offer_separate_services',
         reason: pending.reason
+      }, catalog, 'no_change')
+    }
+
+    if (initialState.pendingServiceReplacement) {
+      const selectedServiceIds = combinedServiceIds(initialState)
+      const selection = resolveCatalogServiceSelection(input.message, catalog)
+      if (
+        selection?.kind === 'selected' &&
+        !selectedServiceIds.includes(selection.serviceId)
+      ) {
+        let state = initialState.draft.service
+          ? addCombinedServices(initialState, [{
+              serviceId: selection.serviceId,
+              evidence: input.message.trim()
+            }])
+          : acceptField(initialState, 'service', selection.serviceId)
+        state = {
+          ...state,
+          pendingServiceReplacement: null,
+          misunderstandingCount: 0
+        }
+        return this.fromInterpretation({
+          state,
+          nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
+          outcome: 'accepted',
+          affectedField: 'service'
+        }, null, catalog)
+      }
+
+      const state = {
+        ...initialState,
+        misunderstandingCount: initialState.misunderstandingCount + 1
+      }
+      if (state.misunderstandingCount >= 3) {
+        return this.guidedEstimateResult(state, {
+          type: 'handoff',
+          reason: 'repeated_misunderstanding'
+        }, catalog, 'no_change')
+      }
+      return this.guidedEstimateResult(state, {
+        type: 'ask_service_replacement',
+        selectedServiceIds
       }, catalog, 'no_change')
     }
 
@@ -1040,6 +1204,34 @@ export class BookingV2Engine {
       stateFromConversation(input.conversation),
       catalog
     )
+    if (state.pendingServiceSeparation) {
+      const pending = state.pendingServiceSeparation
+      const selectedServiceIds = combinedServiceIds(state)
+      if (pending.edit?.serviceIds?.length) {
+        return this.guidedEstimateResult(state, {
+          type: 'confirm_service_edit',
+          action: pending.edit.action,
+          serviceIds: pending.edit.serviceIds
+        }, catalog, 'no_change')
+      }
+      if (pending.edit?.action) {
+        return this.guidedEstimateResult(state, {
+          type: 'ask_service_edit_target',
+          action: pending.edit.action,
+          serviceIds: selectedServiceIds
+        }, catalog, 'no_change')
+      }
+      return this.guidedEstimateResult(state, {
+        type: 'offer_separate_services',
+        reason: pending.reason
+      }, catalog, 'no_change')
+    }
+    if (state.pendingServiceReplacement) {
+      return this.guidedEstimateResult(state, {
+        type: 'ask_service_replacement',
+        selectedServiceIds: combinedServiceIds(state)
+      }, catalog, 'no_change')
+    }
     const validationService = state.serviceValidation
       ? catalog.services.find((service) =>
           service.id === state.serviceValidation?.serviceId &&
@@ -1644,6 +1836,139 @@ function shouldCountFailedCatalogSelection(
   const normalizedMessage = normalize(message)
   if (!normalizedMessage) return false
   return !['hola', 'buenas', 'buen dia', 'buenas tardes', 'buenas noches'].includes(normalizedMessage)
+}
+
+function serviceTargetChoices(
+  action: 'change' | 'remove',
+  serviceIds: string[],
+  catalog: BookingV2DomainCatalog
+) {
+  const verb = action === 'change' ? 'Cambiar o reemplazar' : 'Quitar o eliminar'
+  return [
+    ...serviceIds.map((serviceId) => ({
+      id: `${action}_service:${serviceId}`,
+      meaning: `${verb} solamente ${catalog.services.find((service) => service.id === serviceId)?.name ?? serviceId}.`
+    })),
+    ...(serviceIds.length > 1
+      ? [{
+          id: `${action}_all_services`,
+          meaning: `${verb} todos los servicios elegidos.`
+        }]
+      : [])
+  ]
+}
+
+function pendingServiceChoiceFromMessage(input: {
+  message: string
+  catalog: BookingV2DomainCatalog
+  selectedServiceIds: string[]
+  actionHint?: 'change' | 'remove'
+}) {
+  const normalizedMessage = normalize(input.message)
+  if (!input.actionHint && /\b(?:por separado|separados|separadas)\b/.test(normalizedMessage)) {
+    return 'separate'
+  }
+  if (!input.actionHint && /\b(?:revise|revisar|revision|equipo|persona del local)\b/.test(normalizedMessage)) {
+    return 'review_together'
+  }
+
+  const action = input.actionHint ?? (
+    /\b(?:cambiar|cambio|modificar|modifico|reemplazar|reemplazo)\b/.test(normalizedMessage)
+      ? 'change'
+      : /\b(?:quitar|quito|sacar|saco|eliminar|elimino|borrar|borro)\b/.test(normalizedMessage)
+        ? 'remove'
+        : null
+  )
+  if (!action) return null
+
+  if (/\b(?:ambos|ambas|los dos|las dos|todos|todas)\b/.test(normalizedMessage)) {
+    return `${action}_all_services`
+  }
+
+  const matchingServiceIds = input.selectedServiceIds.filter((serviceId) => {
+    const service = input.catalog.services.find((candidate) => candidate.id === serviceId)
+    if (!service) return false
+    return [service.name, ...service.aliases].some((label) => {
+      const normalizedLabel = normalize(label)
+      return Boolean(normalizedLabel) && normalizedMessage.includes(normalizedLabel)
+    })
+  })
+  if (matchingServiceIds.length === 1) {
+    return `${action}_service:${matchingServiceIds[0]}`
+  }
+  if (matchingServiceIds.length > 1) {
+    return `${action}_all_services`
+  }
+  return `${action}_services`
+}
+
+function parseServiceEditChoice(choiceId: string | null, selectedServiceIds: string[]) {
+  if (choiceId === 'change_services') return { action: 'change' as const, serviceIds: null }
+  if (choiceId === 'remove_services') return { action: 'remove' as const, serviceIds: null }
+  if (choiceId === 'change_all_services') {
+    return { action: 'change' as const, serviceIds: selectedServiceIds }
+  }
+  if (choiceId === 'remove_all_services') {
+    return { action: 'remove' as const, serviceIds: selectedServiceIds }
+  }
+  const match = choiceId?.match(/^(change|remove)_service:(.+)$/)
+  if (!match) return null
+  const action = match[1] === 'change' ? 'change' as const : 'remove' as const
+  const serviceId = match[2]
+  return serviceId && selectedServiceIds.includes(serviceId)
+    ? { action, serviceIds: [serviceId] }
+    : null
+}
+
+function explicitConfirmationChoice(message: string): 'confirm_edit' | 'cancel_edit' | null {
+  const normalizedMessage = normalize(message)
+  if (/^(?:no|no quiero|mejor no|dejalo|dejemoslo|conservalos|mantener)(?:\b|$)/.test(normalizedMessage)) {
+    return 'cancel_edit'
+  }
+  if (/^(?:si|confirmo|confirmado|dale|ok|okay|correcto|hacelo|sacalo|quitalo|cambialo)(?:\b|$)/.test(normalizedMessage)) {
+    return 'confirm_edit'
+  }
+  return null
+}
+
+function applyConfirmedServiceEdit(
+  state: BookingV2State,
+  action: 'change' | 'remove',
+  serviceIds: string[]
+): BookingV2State {
+  const selectedServices = [
+    ...(state.draft.service
+      ? [{ serviceId: state.draft.service, evidence: '' }]
+      : []),
+    ...state.combinedServices
+  ]
+  const removedIds = new Set(serviceIds)
+  const remainingServices = selectedServices.filter((service) => !removedIds.has(service.serviceId))
+  const primaryService = remainingServices[0] ?? null
+  return {
+    ...state,
+    draft: {
+      ...state.draft,
+      service: primaryService?.serviceId ?? null,
+      professional: null,
+      time: null
+    },
+    pendingProposal: null,
+    categoryAdvice: null,
+    catalogNavigation: null,
+    serviceValidation: null,
+    guidedEstimate: null,
+    advisorQuote: null,
+    pendingDeposit: null,
+    combinedServices: remainingServices.slice(1),
+    queuedServices: state.queuedServices.filter((service) => !removedIds.has(service.serviceId)),
+    addonSuggestion: null,
+    addonOfferCompletedServiceId: action === 'change' ? primaryService?.serviceId ?? null : null,
+    pendingCombinedAvailability: null,
+    pendingServiceSeparation: null,
+    pendingServiceReplacement: null,
+    misunderstandingCount: 0
+  }
 }
 
 function normalize(value: string) {
@@ -2396,7 +2721,8 @@ function sanitizeCatalogNameCollision(
       guidedEstimate: null,
       advisorQuote: null,
       pendingDeposit: null,
-      pendingServiceSeparation: null
+      pendingServiceSeparation: null,
+      pendingServiceReplacement: null
     }
   }
   if (

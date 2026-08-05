@@ -373,6 +373,213 @@ await test('si no existe profesional común también ofrece separar sin inventar
   assert.match(result.reply, /No encontré un profesional habilitado/i)
 })
 
+await test('pedir cambiar un servicio durante la separación sale del bucle sin borrar la selección', async () => {
+  const noCommonCatalog = catalog({
+    professionals: [
+      { id: 'alisadora', name: 'Alisadora', serviceIds: ['alisado'] },
+      { id: 'cortadora', name: 'Cortadora', serviceIds: ['corte'] }
+    ]
+  })
+  const offered = await engine(noCommonCatalog).process({
+    businessId: 'business-1',
+    conversation: conversationPatchFromState(namedState()),
+    message: 'Quiero alisado y corte'
+  })
+
+  const edit = await engine(noCommonCatalog).process({
+    businessId: 'business-1',
+    conversation: offered.conversationPatch,
+    message: 'Quiero cambiar el servicio'
+  })
+
+  assert.equal(edit.plan.type, 'ask_service_edit_target')
+  assert.equal(edit.state.pendingServiceSeparation?.edit?.action, 'change')
+  assert.equal(edit.state.pendingServiceSeparation?.edit?.serviceIds, null)
+  assert.equal(edit.state.draft.service, 'alisado')
+  assert.deepEqual(edit.state.combinedServices.map((item) => item.serviceId), ['corte'])
+  assert.match(edit.reply, /Alisado/)
+  assert.match(edit.reply, /Corte/)
+})
+
+await test('cambiar uno de dos servicios pide confirmación y conserva el otro', async () => {
+  const noCommonCatalog = catalog({
+    professionals: [
+      { id: 'alisadora', name: 'Alisadora', serviceIds: ['alisado'] },
+      { id: 'cortadora', name: 'Cortadora', serviceIds: ['corte'] }
+    ]
+  })
+  const offered = await engine(noCommonCatalog).process({
+    businessId: 'business-1',
+    conversation: conversationPatchFromState(namedState()),
+    message: 'Quiero alisado y corte'
+  })
+  const target = await engine(noCommonCatalog).process({
+    businessId: 'business-1',
+    conversation: offered.conversationPatch,
+    message: 'Quiero cambiar el corte'
+  })
+
+  assert.equal(target.plan.type, 'confirm_service_edit')
+  assert.deepEqual(target.state.pendingServiceSeparation?.edit?.serviceIds, ['corte'])
+  assert.equal(target.state.draft.service, 'alisado')
+  assert.deepEqual(target.state.combinedServices.map((item) => item.serviceId), ['corte'])
+
+  const confirmed = await engine(noCommonCatalog).process({
+    businessId: 'business-1',
+    conversation: target.conversationPatch,
+    message: 'Sí'
+  })
+  assert.equal(confirmed.plan.type, 'ask_service_replacement')
+  assert.equal(confirmed.state.draft.service, 'alisado')
+  assert.deepEqual(confirmed.state.combinedServices, [])
+  assert.equal(confirmed.state.draft.professional, null)
+
+  const replaced = await engine(noCommonCatalog).process({
+    businessId: 'business-1',
+    conversation: confirmed.conversationPatch,
+    message: 'Color completo'
+  })
+  assert.equal(replaced.state.draft.service, 'alisado')
+  assert.deepEqual(replaced.state.combinedServices.map((item) => item.serviceId), ['color'])
+  assert.equal(replaced.state.pendingServiceReplacement, null)
+})
+
+await test('quitar un servicio pide confirmación y recién entonces lo elimina', async () => {
+  const noCommonCatalog = catalog({
+    professionals: [
+      { id: 'alisadora', name: 'Alisadora', serviceIds: ['alisado'] },
+      { id: 'cortadora', name: 'Cortadora', serviceIds: ['corte'] }
+    ]
+  })
+  const offered = await engine(noCommonCatalog).process({
+    businessId: 'business-1',
+    conversation: conversationPatchFromState(namedState()),
+    message: 'Quiero alisado y corte'
+  })
+  const target = await engine(noCommonCatalog).process({
+    businessId: 'business-1',
+    conversation: offered.conversationPatch,
+    message: 'Quiero sacar el alisado'
+  })
+
+  assert.equal(target.plan.type, 'confirm_service_edit')
+  assert.equal(target.state.draft.service, 'alisado')
+
+  const cancelled = await engine(noCommonCatalog).process({
+    businessId: 'business-1',
+    conversation: target.conversationPatch,
+    message: 'No, dejalo como estaba'
+  })
+  assert.equal(cancelled.plan.type, 'offer_separate_services')
+  assert.equal(cancelled.state.draft.service, 'alisado')
+  assert.deepEqual(cancelled.state.combinedServices.map((item) => item.serviceId), ['corte'])
+
+  const confirmed = await engine(noCommonCatalog).process({
+    businessId: 'business-1',
+    conversation: target.conversationPatch,
+    message: 'Sí, sacalo'
+  })
+  assert.equal(confirmed.state.draft.service, 'corte')
+  assert.deepEqual(confirmed.state.combinedServices, [])
+  assert.equal(confirmed.state.pendingServiceSeparation, null)
+})
+
+await test('quitar ambos servicios requiere confirmación y vuelve a elegir servicio', async () => {
+  const noCommonCatalog = catalog({
+    professionals: [
+      { id: 'alisadora', name: 'Alisadora', serviceIds: ['alisado'] },
+      { id: 'cortadora', name: 'Cortadora', serviceIds: ['corte'] }
+    ]
+  })
+  const offered = await engine(noCommonCatalog).process({
+    businessId: 'business-1',
+    conversation: conversationPatchFromState(namedState()),
+    message: 'Quiero alisado y corte'
+  })
+  const target = await engine(noCommonCatalog).process({
+    businessId: 'business-1',
+    conversation: offered.conversationPatch,
+    message: 'Quiero quitar ambos servicios'
+  })
+
+  assert.equal(target.plan.type, 'confirm_service_edit')
+  assert.deepEqual(target.state.pendingServiceSeparation?.edit?.serviceIds, ['alisado', 'corte'])
+
+  const confirmed = await engine(noCommonCatalog).process({
+    businessId: 'business-1',
+    conversation: target.conversationPatch,
+    message: 'Confirmo'
+  })
+  assert.equal(confirmed.plan.type, 'ask_field')
+  assert.equal(confirmed.plan.field, 'service')
+  assert.equal(confirmed.state.draft.service, null)
+  assert.deepEqual(confirmed.state.combinedServices, [])
+})
+
+await test('una consulta informativa retoma cada subestado de edición sin perder la decisión', async () => {
+  const noCommonCatalog = catalog({
+    professionals: [
+      { id: 'alisadora', name: 'Alisadora', serviceIds: ['alisado'] },
+      { id: 'cortadora', name: 'Cortadora', serviceIds: ['corte'] }
+    ]
+  })
+  const engineInstance = engine(noCommonCatalog)
+  const selected = addCombinedServices(
+    acceptField(namedState(), 'service', 'alisado'),
+    [{ serviceId: 'corte', evidence: 'corte' }]
+  )
+  const states: Array<{
+    state: BookingV2State
+    expectedPlan: 'offer_separate_services' | 'ask_service_edit_target' | 'confirm_service_edit' | 'ask_service_replacement'
+  }> = [
+    {
+      state: {
+        ...selected,
+        pendingServiceSeparation: { reason: 'no_common_professional' }
+      },
+      expectedPlan: 'offer_separate_services'
+    },
+    {
+      state: {
+        ...selected,
+        pendingServiceSeparation: {
+          reason: 'no_common_professional',
+          edit: { action: 'change', serviceIds: null }
+        }
+      },
+      expectedPlan: 'ask_service_edit_target'
+    },
+    {
+      state: {
+        ...selected,
+        pendingServiceSeparation: {
+          reason: 'no_common_professional',
+          edit: { action: 'remove', serviceIds: ['corte'] }
+        }
+      },
+      expectedPlan: 'confirm_service_edit'
+    },
+    {
+      state: {
+        ...acceptField(namedState(), 'service', 'alisado'),
+        pendingServiceReplacement: { removedServiceIds: ['corte'] }
+      },
+      expectedPlan: 'ask_service_replacement'
+    }
+  ]
+
+  for (const { state, expectedPlan } of states) {
+    const resumed = await engineInstance.resume({
+      businessId: 'business-1',
+      conversation: conversationPatchFromState(state)
+    })
+    assert.equal(resumed.plan.type, expectedPlan)
+    assert.deepEqual(resumed.state.draft, state.draft)
+    assert.deepEqual(resumed.state.pendingServiceSeparation, state.pendingServiceSeparation)
+    assert.deepEqual(resumed.state.pendingServiceReplacement, state.pendingServiceReplacement)
+  }
+})
+
 await test('una combinación que requiere revisión deriva conservando ambos servicios', async () => {
   const reviewCatalog = catalog({
     combinationRules: [{ serviceAId: 'alisado', serviceBId: 'color', policy: 'REVIEW_REQUIRED' }]
@@ -619,4 +826,4 @@ await test('la búsqueda futura respeta el horizonte de 14 días y no ofrece el 
   assert.equal(visitedDates.includes('2026-10-16'), false)
 })
 
-console.log('\n18 pruebas específicas de conversaciones con servicios combinados pasaron.')
+console.log('\n23 pruebas específicas de conversaciones con servicios combinados pasaron.')

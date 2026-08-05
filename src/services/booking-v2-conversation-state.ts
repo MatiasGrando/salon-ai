@@ -8,6 +8,7 @@ import {
   type BookingV2CombinedService,
   type BookingV2PendingCombinedAvailability,
   type BookingV2PendingServiceSeparation,
+  type BookingV2PendingServiceReplacement,
   type BookingV2AgendaItem,
   type BookingV2CategoryAdvice,
   type BookingV2CatalogNavigation,
@@ -60,6 +61,7 @@ export type BookingV2PersistedState = {
   addonOfferCompletedServiceId?: string | null
   pendingCombinedAvailability?: BookingV2PendingCombinedAvailability | null
   pendingServiceSeparation?: BookingV2PendingServiceSeparation | null
+  pendingServiceReplacement?: BookingV2PendingServiceReplacement | null
 }
 
 export function stateFromConversation(
@@ -92,6 +94,7 @@ export function stateFromConversation(
     addonOfferCompletedServiceId: readAddonOfferCompletedServiceId(conversation.bookingV2State),
     pendingCombinedAvailability: readPendingCombinedAvailability(conversation.bookingV2State),
     pendingServiceSeparation: readPendingServiceSeparation(conversation.bookingV2State),
+    pendingServiceReplacement: readPendingServiceReplacement(conversation.bookingV2State),
     misunderstandingCount: conversation.misunderstandingCount
   }
 }
@@ -104,7 +107,7 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
     selectedDate: state.draft.date,
     selectedTime: state.draft.time,
     misunderstandingCount: state.misunderstandingCount,
-    bookingV2State: state.pendingProposal || state.pendingRequest || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.advisorQuote || state.pendingDeposit || state.contextPause || state.unsupportedServiceRequest || state.queuedServices.length || state.combinedServices.length || state.addonSuggestion || state.addonOfferCompletedServiceId || state.pendingCombinedAvailability || state.pendingServiceSeparation
+    bookingV2State: state.pendingProposal || state.pendingRequest || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.advisorQuote || state.pendingDeposit || state.contextPause || state.unsupportedServiceRequest || state.queuedServices.length || state.combinedServices.length || state.addonSuggestion || state.addonOfferCompletedServiceId || state.pendingCombinedAvailability || state.pendingServiceSeparation || state.pendingServiceReplacement
       ? {
           version: 1,
           pendingProposal: state.pendingProposal,
@@ -131,6 +134,9 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
             : {}),
           ...(state.pendingServiceSeparation
             ? { pendingServiceSeparation: state.pendingServiceSeparation }
+            : {}),
+          ...(state.pendingServiceReplacement
+            ? { pendingServiceReplacement: state.pendingServiceReplacement }
             : {})
         }
       : null
@@ -204,10 +210,34 @@ function readPendingServiceSeparation(value: unknown): BookingV2PendingServiceSe
   if (!value || typeof value !== 'object') return null
   const candidate = (value as { pendingServiceSeparation?: unknown }).pendingServiceSeparation
   if (!candidate || typeof candidate !== 'object') return null
-  const reason = (candidate as { reason?: unknown }).reason
-  return reason === 'blocked_combination' || reason === 'no_common_professional'
-    ? { reason }
-    : null
+  const pending = candidate as { reason?: unknown; edit?: unknown }
+  const reason = pending.reason
+  if (reason !== 'blocked_combination' && reason !== 'no_common_professional') return null
+  if (!pending.edit || typeof pending.edit !== 'object') return { reason }
+  const edit = pending.edit as { action?: unknown; serviceIds?: unknown }
+  if (edit.action !== 'change' && edit.action !== 'remove') return { reason }
+  const serviceIds = edit.serviceIds === null
+    ? null
+    : Array.isArray(edit.serviceIds)
+      ? edit.serviceIds
+          .filter((serviceId): serviceId is string => typeof serviceId === 'string' && Boolean(serviceId.trim()))
+          .map((serviceId) => serviceId.trim())
+          .slice(0, 5)
+      : null
+  return { reason, edit: { action: edit.action, serviceIds } }
+}
+
+function readPendingServiceReplacement(value: unknown): BookingV2PendingServiceReplacement | null {
+  if (!value || typeof value !== 'object') return null
+  const candidate = (value as { pendingServiceReplacement?: unknown }).pendingServiceReplacement
+  if (!candidate || typeof candidate !== 'object') return null
+  const removedServiceIds = (candidate as { removedServiceIds?: unknown }).removedServiceIds
+  if (!Array.isArray(removedServiceIds)) return null
+  const validIds = removedServiceIds
+    .filter((serviceId): serviceId is string => typeof serviceId === 'string' && Boolean(serviceId.trim()))
+    .map((serviceId) => serviceId.trim())
+    .slice(0, 5)
+  return validIds.length ? { removedServiceIds: validIds } : null
 }
 
 function readQueuedServices(value: unknown): BookingV2QueuedService[] {

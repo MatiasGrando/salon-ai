@@ -123,6 +123,14 @@ export type BookingV2PendingCombinedAvailability = {
 
 export type BookingV2PendingServiceSeparation = {
   reason: 'blocked_combination' | 'no_common_professional'
+  edit?: {
+    action: 'change' | 'remove'
+    serviceIds: string[] | null
+  } | null
+}
+
+export type BookingV2PendingServiceReplacement = {
+  removedServiceIds: string[]
 }
 
 export type BookingV2State = {
@@ -144,6 +152,7 @@ export type BookingV2State = {
   addonOfferCompletedServiceId: string | null
   pendingCombinedAvailability: BookingV2PendingCombinedAvailability | null
   pendingServiceSeparation: BookingV2PendingServiceSeparation | null
+  pendingServiceReplacement: BookingV2PendingServiceReplacement | null
   misunderstandingCount: number
 }
 
@@ -183,6 +192,7 @@ export function createEmptyBookingV2State(): BookingV2State {
     addonOfferCompletedServiceId: null,
     pendingCombinedAvailability: null,
     pendingServiceSeparation: null,
+    pendingServiceReplacement: null,
     misunderstandingCount: 0
   }
 }
@@ -224,7 +234,8 @@ export function addCombinedServices(
     addonSuggestion: null,
     addonOfferCompletedServiceId: state.draft.service,
     pendingCombinedAvailability: null,
-    pendingServiceSeparation: null
+    pendingServiceSeparation: null,
+    pendingServiceReplacement: null
   }
 }
 
@@ -326,6 +337,9 @@ export function acceptField(
     pendingServiceSeparation: state.draft[field] !== value
       ? null
       : state.pendingServiceSeparation,
+    pendingServiceReplacement: state.draft[field] !== value
+      ? null
+      : state.pendingServiceReplacement,
     pendingDeposit: state.draft[field] !== value ? null : state.pendingDeposit,
     misunderstandingCount: 0
   }

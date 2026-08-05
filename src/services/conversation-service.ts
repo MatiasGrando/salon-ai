@@ -2625,7 +2625,13 @@ export function isExplicitResetRequest(message: string) {
 
 function conversationStepFromBookingV2Plan(plan: BookingV2MessagePlan) {
   if (plan.type === 'handoff') return 'HUMAN_HANDOFF'
-  if (plan.type === 'ask_service_addons' || plan.type === 'offer_separate_services') {
+  if (
+    plan.type === 'ask_service_addons' ||
+    plan.type === 'offer_separate_services' ||
+    plan.type === 'ask_service_edit_target' ||
+    plan.type === 'confirm_service_edit' ||
+    plan.type === 'ask_service_replacement'
+  ) {
     return 'ASK_SERVICE'
   }
   if (plan.type === 'offer_combined_availability') return 'ASK_DATE'
@@ -2763,6 +2769,7 @@ export function clearBookingV2StateFromField(
       : state.addonOfferCompletedServiceId,
     pendingCombinedAvailability: null,
     pendingServiceSeparation: null,
+    pendingServiceReplacement: null,
     pendingDeposit: null,
     misunderstandingCount: 0
   }
