@@ -1,5 +1,9 @@
 ﻿import { prisma } from '../src/config/prisma.js'
-import { ConversationService, isExplicitResetRequest } from '../src/services/conversation-service.js'
+import {
+  ConversationService,
+  isExplicitResetRequest,
+  isUnambiguousBookingConfirmation
+} from '../src/services/conversation-service.js'
 
 type Check = {
   includes?: string[]
@@ -32,6 +36,7 @@ const workingDayLateNight = new Date('2026-07-06T23:00:00')
 
 async function main() {
   assertResetIntentGuard()
+  assertBookingConfirmationGuard()
 
   const business = await prisma.business.findFirst({
     include: {
@@ -1728,6 +1733,28 @@ function assertResetIntentGuard() {
   for (const message of resetMessages) {
     if (!isExplicitResetRequest(message)) {
       throw new Error(`Esperaba que "${message}" cuente como reinicio.`)
+    }
+  }
+}
+
+function assertBookingConfirmationGuard() {
+  const confirmations = ['si', 'sisi dale', 'de una', 'mandale', 'joya confirmalo']
+  const nonConfirmations = [
+    'si, pero cambia el horario',
+    'dale, una consulta sobre el pago',
+    'quiero cambiar el profesional',
+    'no, mejor otro dia'
+  ]
+
+  for (const message of confirmations) {
+    if (!isUnambiguousBookingConfirmation(message)) {
+      throw new Error(`Esperaba que "${message}" confirme inequívocamente la reserva.`)
+    }
+  }
+
+  for (const message of nonConfirmations) {
+    if (isUnambiguousBookingConfirmation(message)) {
+      throw new Error(`No esperaba que "${message}" confirme la reserva.`)
     }
   }
 }

@@ -1151,9 +1151,13 @@ export class ConversationService {
         .filter((intent) => intent.type === 'other_query')
         .map((intent) => intent.confidence)
     )
+    const deterministicBookingConfirmation =
+      input.conversation.currentStep === 'CONFIRM' &&
+      isUnambiguousBookingConfirmation(input.message)
     let confirmedOtherQuery = false
     if (
       routedOtherQueryConfidence >= 0.4 &&
+      !deterministicBookingConfirmation &&
       !input.routing.bookingMessage &&
       informationTopics.length === 0 &&
       !looksLikeExpectedCustomerName(
@@ -1234,19 +1238,21 @@ export class ConversationService {
     }
 
     const bookingConfirmationChoice = input.conversation.currentStep === 'CONFIRM'
-      ? await bookingV2ChoiceExtractor.extract({
-          message: input.message,
-          question: '¿Confirmás definitivamente esta reserva con el servicio, profesional, fecha y horario indicados?',
-          choices: [
-            { id: 'confirm_booking', meaning: 'Confirma la reserva completa y autoriza crear el turno.' },
-            { id: 'change_service', meaning: 'Quiere cambiar o volver a elegir el servicio.' },
-            { id: 'change_professional', meaning: 'Quiere cambiar o volver a elegir el profesional.' },
-            { id: 'change_date', meaning: 'Quiere cambiar o volver a elegir el día o fecha.' },
-            { id: 'change_time', meaning: 'Quiere cambiar o volver a elegir el horario.' },
-            { id: 'cancel_booking', meaning: 'Quiere abandonar esta reserva sin crear el turno.' },
-            { id: 'review_options', meaning: 'No confirma pero tampoco indica qué dato quiere cambiar.' }
-          ]
-        })
+      ? deterministicBookingConfirmation
+        ? { choiceId: 'confirm_booking', confidence: 1 }
+        : await bookingV2ChoiceExtractor.extract({
+            message: input.message,
+            question: '¿Confirmás definitivamente esta reserva con el servicio, profesional, fecha y horario indicados?',
+            choices: [
+              { id: 'confirm_booking', meaning: 'Confirma la reserva completa y autoriza crear el turno.' },
+              { id: 'change_service', meaning: 'Quiere cambiar o volver a elegir el servicio.' },
+              { id: 'change_professional', meaning: 'Quiere cambiar o volver a elegir el profesional.' },
+              { id: 'change_date', meaning: 'Quiere cambiar o volver a elegir el día o fecha.' },
+              { id: 'change_time', meaning: 'Quiere cambiar o volver a elegir el horario.' },
+              { id: 'cancel_booking', meaning: 'Quiere abandonar esta reserva sin crear el turno.' },
+              { id: 'review_options', meaning: 'No confirma pero tampoco indica qué dato quiere cambiar.' }
+            ]
+          })
       : null
 
     if (
@@ -2883,6 +2889,32 @@ export function isBookingV2GreetingOnlyMessage(message: string) {
 
 export function isBookingV2InitialGreeting(currentStep: string, message: string) {
   return currentStep === 'START' && isBookingV2GreetingOnlyMessage(message)
+}
+
+export function isUnambiguousBookingConfirmation(message: string) {
+  const normalizedMessage = normalizeText(message)
+    .replace(/(.)\1{2,}/gu, '$1')
+    .replace(/\b(?:si){2,}\b/gu, 'si')
+    .replace(/[^\p{Letter}\p{Number}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!normalizedMessage) return false
+
+  const tokens = normalizedMessage.split(' ')
+  const blockers = new Set([
+    'cambiar', 'cambiame', 'cambiemos', 'cambio', 'cancelar', 'consulta',
+    'duda', 'espera', 'fecha', 'horario', 'no', 'otro', 'otra', 'pero',
+    'pregunta', 'profesional', 'servicio'
+  ])
+  if (tokens.some((token) => blockers.has(token))) return false
+
+  const confirmationTokens = new Set([
+    'si', 'dale', 'de', 'una', 'mandale', 'mandalo', 'confirmalo',
+    'confirmame', 'confirmar', 'confirmo', 'joya', 'listo', 'hacelo',
+    'hagamoslo', 'avancemos', 'ok', 'okay', 'esta', 'bien', 'quedamos',
+    'asi', 'por', 'favor'
+  ])
+  return tokens.every((token) => confirmationTokens.has(token))
 }
 
 export function isBookingV2ConversationClosing(
