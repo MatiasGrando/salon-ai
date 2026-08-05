@@ -14,7 +14,10 @@ import {
   assistantPersonalityPreview,
   normalizeAssistantPersonality
 } from '../services/assistant-personality-service.js'
-import { normalizeCatalogDisplayMode } from '../services/booking-v2-domain.js'
+import {
+  normalizeBookingFlowOrder,
+  normalizeCatalogDisplayMode
+} from '../services/booking-v2-domain.js'
 import {
   conversationPatchFromState,
   stateFromConversation
@@ -25,6 +28,7 @@ import {
   advanceToNextQueuedService,
   clearFieldAndDependents,
   nextMissingField,
+  type BookingFlowOrder,
   type BookingV2State
 } from '../services/booking-v2-state.js'
 import { normalizeConversationContextSettings } from '../services/conversation-context-settings.js'
@@ -33,7 +37,10 @@ const whatsappCloudApi = new WhatsAppCloudApi()
 const bookingV2Engine = new BookingV2Engine()
 const WHATSAPP_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000
 
-function conversationStepForPersistedBookingState(state: BookingV2State) {
+function conversationStepForPersistedBookingState(
+  state: BookingV2State,
+  bookingFlowOrder: BookingFlowOrder = 'PROFESSIONAL_FIRST'
+) {
   if (state.serviceValidation?.stage === 'awaiting_confirmation') {
     return 'ASK_SERVICE'
   }
@@ -44,7 +51,7 @@ function conversationStepForPersistedBookingState(state: BookingV2State) {
     return 'ASK_SERVICE'
   }
 
-  const nextField = nextMissingField(state.draft)
+  const nextField = nextMissingField(state.draft, bookingFlowOrder)
   if (nextField === 'name') return 'ASK_CUSTOMER_NAME'
   if (nextField === 'service') return 'ASK_SERVICE'
   if (nextField === 'professional') return 'ASK_PROFESSIONAL'
@@ -342,6 +349,7 @@ export async function crmRoutes(app: FastifyInstance) {
           select: {
             bookingV2Enabled: true,
             serviceCatalogDisplayMode: true,
+            bookingFlowOrder: true,
             conversationPauseAfterMinutes: true,
             conversationExpireAfterMinutes: true,
             assistantPersonality: true
@@ -361,6 +369,7 @@ export async function crmRoutes(app: FastifyInstance) {
       serviceCatalogDisplayMode: normalizeCatalogDisplayMode(
         featureSettings?.serviceCatalogDisplayMode
       ),
+      bookingFlowOrder: normalizeBookingFlowOrder(featureSettings?.bookingFlowOrder),
       conversationPauseAfterMinutes: contextSettings.pauseAfterMinutes,
       conversationExpireAfterMinutes: contextSettings.expireAfterMinutes,
       assistantPersonality,
@@ -375,6 +384,7 @@ export async function crmRoutes(app: FastifyInstance) {
       aiEnabled?: boolean
       bookingV2Enabled?: boolean
       serviceCatalogDisplayMode?: string
+      bookingFlowOrder?: string
       conversationPauseAfterMinutes?: number
       conversationExpireAfterMinutes?: number
       assistantPersonality?: unknown
@@ -385,6 +395,7 @@ export async function crmRoutes(app: FastifyInstance) {
       typeof body.aiEnabled !== 'boolean' &&
       typeof body.bookingV2Enabled !== 'boolean' &&
       body.serviceCatalogDisplayMode === undefined &&
+      body.bookingFlowOrder === undefined &&
       body.conversationPauseAfterMinutes === undefined &&
       body.conversationExpireAfterMinutes === undefined &&
       body.assistantPersonality === undefined
@@ -408,6 +419,15 @@ export async function crmRoutes(app: FastifyInstance) {
     ) {
       return reply.status(400).send({
         message: 'Seleccioná una forma válida de mostrar el catálogo.'
+      })
+    }
+
+    if (
+      body.bookingFlowOrder !== undefined &&
+      !['PROFESSIONAL_FIRST', 'DATE_TIME_FIRST'].includes(body.bookingFlowOrder)
+    ) {
+      return reply.status(400).send({
+        message: 'Seleccioná un orden válido para solicitar los datos de la reserva.'
       })
     }
 
@@ -447,6 +467,7 @@ export async function crmRoutes(app: FastifyInstance) {
     if (
       typeof body.bookingV2Enabled === 'boolean' ||
       body.serviceCatalogDisplayMode !== undefined ||
+      body.bookingFlowOrder !== undefined ||
       hasContextSettings ||
       body.assistantPersonality !== undefined
     ) {
@@ -463,6 +484,9 @@ export async function crmRoutes(app: FastifyInstance) {
           ...(body.serviceCatalogDisplayMode !== undefined
             ? { serviceCatalogDisplayMode: body.serviceCatalogDisplayMode as 'ALL_SERVICES' | 'CATEGORIES_FIRST' }
             : {}),
+          ...(body.bookingFlowOrder !== undefined
+            ? { bookingFlowOrder: body.bookingFlowOrder as 'PROFESSIONAL_FIRST' | 'DATE_TIME_FIRST' }
+            : {}),
           ...(hasContextSettings ? {
             conversationPauseAfterMinutes: body.conversationPauseAfterMinutes!,
             conversationExpireAfterMinutes: body.conversationExpireAfterMinutes!
@@ -477,6 +501,9 @@ export async function crmRoutes(app: FastifyInstance) {
             : {}),
           ...(body.serviceCatalogDisplayMode !== undefined
             ? { serviceCatalogDisplayMode: body.serviceCatalogDisplayMode as 'ALL_SERVICES' | 'CATEGORIES_FIRST' }
+            : {}),
+          ...(body.bookingFlowOrder !== undefined
+            ? { bookingFlowOrder: body.bookingFlowOrder as 'PROFESSIONAL_FIRST' | 'DATE_TIME_FIRST' }
             : {}),
           ...(hasContextSettings ? {
             conversationPauseAfterMinutes: body.conversationPauseAfterMinutes!,
@@ -494,6 +521,7 @@ export async function crmRoutes(app: FastifyInstance) {
       select: {
         bookingV2Enabled: true,
         serviceCatalogDisplayMode: true,
+        bookingFlowOrder: true,
         conversationPauseAfterMinutes: true,
         conversationExpireAfterMinutes: true,
         assistantPersonality: true
@@ -510,6 +538,7 @@ export async function crmRoutes(app: FastifyInstance) {
       serviceCatalogDisplayMode: normalizeCatalogDisplayMode(
         featureSettings?.serviceCatalogDisplayMode
       ),
+      bookingFlowOrder: normalizeBookingFlowOrder(featureSettings?.bookingFlowOrder),
       conversationPauseAfterMinutes: contextSettings.pauseAfterMinutes,
       conversationExpireAfterMinutes: contextSettings.expireAfterMinutes,
       assistantPersonality,
@@ -691,6 +720,12 @@ export async function crmRoutes(app: FastifyInstance) {
     }
 
     const isEnablingAi = body.aiEnabled
+    const bookingFlowOrder = isEnablingAi
+      ? normalizeBookingFlowOrder((await prisma.businessFeatureSettings.findUnique({
+          where: { businessId: conversation.businessId },
+          select: { bookingFlowOrder: true }
+        }))?.bookingFlowOrder)
+      : 'PROFESSIONAL_FIRST'
     const preservedState = isEnablingAi
       ? stateFromConversation(conversation)
       : null
@@ -719,7 +754,7 @@ export async function crmRoutes(app: FastifyInstance) {
       data: body.aiEnabled
         ? {
             aiEnabled: true,
-            currentStep: conversationStepForPersistedBookingState(preservedState!),
+            currentStep: conversationStepForPersistedBookingState(preservedState!, bookingFlowOrder),
             ...preservedPatch!,
             bookingV2State: preservedPatch?.bookingV2State
               ? preservedPatch.bookingV2State as Prisma.InputJsonValue
@@ -841,10 +876,14 @@ export async function crmRoutes(app: FastifyInstance) {
     }
 
     const patch = resumed.conversationPatch
+    const bookingFlowOrder = normalizeBookingFlowOrder((await prisma.businessFeatureSettings.findUnique({
+      where: { businessId: conversation.businessId },
+      select: { bookingFlowOrder: true }
+    }))?.bookingFlowOrder)
     await prisma.conversation.update({
       where: { id: conversation.id },
       data: {
-        currentStep: conversationStepForPersistedBookingState(resumed.state),
+        currentStep: conversationStepForPersistedBookingState(resumed.state, bookingFlowOrder),
         aiEnabled: true,
         lastMessage: resumed.reply,
         humanHandoffResolvedAt: new Date(),
@@ -986,6 +1025,10 @@ export async function crmRoutes(app: FastifyInstance) {
         })
       : null
     const continuationRequiresHandoff = resumedContinuation?.plan.type === 'handoff'
+    const bookingFlowOrder = normalizeBookingFlowOrder((await prisma.businessFeatureSettings.findUnique({
+      where: { businessId: deposit.businessId },
+      select: { bookingFlowOrder: true }
+    }))?.bookingFlowOrder)
     const approved = await prisma.$transaction(async (tx) => {
       const heldAppointment = await tx.appointment.findUnique({
         where: { id: deposit.appointmentId },
@@ -1015,7 +1058,7 @@ export async function crmRoutes(app: FastifyInstance) {
           ? {
               currentStep: continuationRequiresHandoff
                 ? 'HUMAN_HANDOFF'
-                : conversationStepForPersistedBookingState(resumedContinuation.state),
+                : conversationStepForPersistedBookingState(resumedContinuation.state, bookingFlowOrder),
               aiEnabled: !continuationRequiresHandoff,
               humanHandoffAt: continuationRequiresHandoff ? reviewedAt : deposit.conversation.humanHandoffAt,
               humanHandoffResolvedAt: continuationRequiresHandoff ? null : reviewedAt,

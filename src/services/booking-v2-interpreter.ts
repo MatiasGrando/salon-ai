@@ -7,11 +7,13 @@ import {
   proposeField,
   recordLowConfidence,
   type BookingField,
+  type BookingFlowOrder,
   type BookingV2State
 } from './booking-v2-state.js'
 import type { BookingV2Extraction, ExtractedBookingField } from './booking-v2-extractor.js'
 
 export type BookingV2Catalog = {
+  bookingFlowOrder?: BookingFlowOrder
   serviceIds: ReadonlySet<string>
   professionalIds: ReadonlySet<string>
   professionalServiceIds?: ReadonlyMap<string, ReadonlySet<string>>
@@ -42,12 +44,12 @@ export function applyBookingV2Extraction(
       validValue(extraction.correction.field, extraction.correction.newValue, catalog, initialState),
       extraction.correction.confidence
     )
-    return result(state, 'confirmation_required', extraction.correction.field)
+    return result(state, 'confirmation_required', extraction.correction.field, catalog.bookingFlowOrder)
   }
 
   let state = initialState
   let acceptedField: BookingField | null = null
-  const missingBefore = nextMissingField(initialState.draft)
+  const missingBefore = nextMissingField(initialState.draft, catalog.bookingFlowOrder)
 
   for (const field of BOOKING_FIELDS) {
     const extracted = extraction[field]
@@ -74,30 +76,31 @@ export function applyBookingV2Extraction(
       confidence: extracted.confidence,
       evidence: extracted.evidence
     })
-    return result(state, 'confirmation_required', field)
+    return result(state, 'confirmation_required', field, catalog.bookingFlowOrder)
   }
 
-  if (acceptedField) return result(state, 'accepted', acceptedField)
+  if (acceptedField) return result(state, 'accepted', acceptedField, catalog.bookingFlowOrder)
 
   if (missingBefore !== 'confirmation') {
     const currentExtraction = extraction[missingBefore]
     if (hasLowConfidenceEvidence(currentExtraction)) {
       state = recordLowConfidence(state)
-      return result(state, 'not_understood', missingBefore)
+      return result(state, 'not_understood', missingBefore, catalog.bookingFlowOrder)
     }
   }
 
-  return result(state, 'no_change', null)
+  return result(state, 'no_change', null, catalog.bookingFlowOrder)
 }
 
 function result(
   state: BookingV2State,
   outcome: BookingV2Interpretation['outcome'],
-  affectedField: BookingField | null
+  affectedField: BookingField | null,
+  bookingFlowOrder?: BookingFlowOrder
 ): BookingV2Interpretation {
   return {
     state,
-    nextField: nextMissingField(state.draft),
+    nextField: nextMissingField(state.draft, bookingFlowOrder),
     outcome,
     affectedField
   }

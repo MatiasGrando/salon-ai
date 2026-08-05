@@ -3,7 +3,7 @@ import { InternalBookingProvider } from '../providers/internal-booking-provider.
 import type { BookingProvider } from '../providers/booking-provider.js'
 import type { BookingV2Catalog } from './booking-v2-interpreter.js'
 import type { BookingV2CatalogOption } from './booking-v2-extractor.js'
-import { ANY_PROFESSIONAL_ID } from './booking-v2-state.js'
+import { ANY_PROFESSIONAL_ID, type BookingFlowOrder } from './booking-v2-state.js'
 
 type PrismaClientLike = typeof defaultPrisma
 
@@ -52,6 +52,7 @@ export type BookingV2ProfessionalOption = {
 
 export type BookingV2DomainCatalog = {
   displayMode: BookingV2CatalogDisplayMode
+  bookingFlowOrder: BookingFlowOrder
   services: BookingV2ServiceOption[]
   professionals: BookingV2ProfessionalOption[]
   serviceIds: ReadonlySet<string>
@@ -92,7 +93,10 @@ export class BookingV2DomainService {
   async loadCatalog(businessId: string): Promise<BookingV2DomainCatalog> {
     const settingsModel = (this.db as unknown as {
       businessFeatureSettings?: {
-        findUnique(input: unknown): Promise<{ serviceCatalogDisplayMode?: string } | null>
+        findUnique(input: unknown): Promise<{
+          serviceCatalogDisplayMode?: string
+          bookingFlowOrder?: string
+        } | null>
       }
     }).businessFeatureSettings
     const [services, professionals, featureSettings] = await Promise.all([
@@ -128,13 +132,14 @@ export class BookingV2DomainService {
       settingsModel?.findUnique
         ? settingsModel.findUnique({
             where: { businessId },
-            select: { serviceCatalogDisplayMode: true }
+            select: { serviceCatalogDisplayMode: true, bookingFlowOrder: true }
           })
         : Promise.resolve(null)
     ])
 
     return createBookingV2DomainCatalog({
       displayMode: normalizeCatalogDisplayMode(featureSettings?.serviceCatalogDisplayMode),
+      bookingFlowOrder: normalizeBookingFlowOrder(featureSettings?.bookingFlowOrder),
       services: services.map((service) => {
         const category = service.catalogCategory?.name ?? service.category
         return {
@@ -209,6 +214,7 @@ export class BookingV2DomainService {
 
   toInterpreterCatalog(catalog: BookingV2DomainCatalog): BookingV2Catalog {
     return {
+      bookingFlowOrder: catalog.bookingFlowOrder,
       serviceIds: catalog.serviceIds,
       professionalIds: catalog.professionalIds,
       professionalServiceIds: catalog.professionalServiceIds
@@ -304,11 +310,13 @@ function readEstimateOptions(value: unknown): BookingV2EstimateOption[] {
 
 export function createBookingV2DomainCatalog(input: {
   displayMode?: BookingV2CatalogDisplayMode
+  bookingFlowOrder?: BookingFlowOrder
   services: BookingV2ServiceOption[]
   professionals: BookingV2ProfessionalOption[]
 }): BookingV2DomainCatalog {
   return {
     displayMode: input.displayMode ?? 'ALL_SERVICES',
+    bookingFlowOrder: input.bookingFlowOrder ?? 'PROFESSIONAL_FIRST',
     services: input.services,
     professionals: input.professionals,
     serviceIds: new Set(input.services.map((service) => service.id)),
@@ -324,6 +332,10 @@ export function createBookingV2DomainCatalog(input: {
 
 export function normalizeCatalogDisplayMode(value: unknown): BookingV2CatalogDisplayMode {
   return value === 'CATEGORIES_FIRST' ? 'CATEGORIES_FIRST' : 'ALL_SERVICES'
+}
+
+export function normalizeBookingFlowOrder(value: unknown): BookingFlowOrder {
+  return value === 'DATE_TIME_FIRST' ? 'DATE_TIME_FIRST' : 'PROFESSIONAL_FIRST'
 }
 
 export function catalogCategoryOptions(

@@ -109,6 +109,83 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'permite pedir dia y hora antes del profesional segun la configuracion',
+    run: async () => {
+      let state = createEmptyBookingV2State()
+      state = acceptField(state, 'name', 'Juan')
+      state = acceptField(state, 'service', 'haircut')
+      assert.equal(nextMissingField(state.draft, 'DATE_TIME_FIRST'), 'date')
+
+      const catalog = createBookingV2DomainCatalog({
+        bookingFlowOrder: 'DATE_TIME_FIRST',
+        services: [{
+          id: 'haircut',
+          name: 'Corte',
+          aliases: ['corte de pelo'],
+          duration: 30,
+          price: 15000,
+          category: null
+        }],
+        professionals: [
+          { id: 'professional-1', name: 'Nico', serviceIds: ['haircut'] },
+          { id: 'professional-2', name: 'Ana', serviceIds: ['haircut'] }
+        ]
+      })
+      const engine = new BookingV2Engine(
+        fakeDomainPort({
+          catalog,
+          availabilityOptions: [
+            { time: '15:00', professionalId: 'professional-1', professionalName: 'Nico' }
+          ]
+        }),
+        fakeExtractor(null)
+      )
+      const conversation = conversationPatchFromState(state)
+
+      const date = await engine.process({
+        businessId: 'business-1',
+        conversation,
+        message: 'mañana',
+        currentDate: new Date('2026-08-05T15:00:00.000Z')
+      })
+      assert.equal(date.plan.type === 'ask_field' ? date.plan.field : null, 'time')
+
+      const time = await engine.process({
+        businessId: 'business-1',
+        conversation: date.conversationPatch,
+        message: '15hs'
+      })
+      assert.equal(time.plan.type === 'ask_field' ? time.plan.field : null, 'professional')
+      assert.equal(time.state.draft.time, '15:00')
+      assert.equal(time.reply.includes('Nico'), true)
+      assert.equal(time.reply.includes('Ana'), false)
+
+      const professional = await engine.process({
+        businessId: 'business-1',
+        conversation: time.conversationPatch,
+        message: 'Nico'
+      })
+      assert.equal(professional.plan.type, 'confirm_booking')
+      assert.equal(professional.state.draft.professional, 'professional-1')
+      assert.equal(professional.state.draft.time, '15:00')
+
+      const backFromProfessional = bookingV2StateAfterGoingBack(
+        time.state,
+        'ASK_PROFESSIONAL',
+        'DATE_TIME_FIRST'
+      )
+      assert.equal(backFromProfessional.draft.date, '2026-08-06')
+      assert.equal(backFromProfessional.draft.time, null)
+      const backFromConfirmation = bookingV2StateAfterGoingBack(
+        professional.state,
+        'CONFIRM',
+        'DATE_TIME_FIRST'
+      )
+      assert.equal(backFromConfirmation.draft.professional, null)
+      assert.equal(backFromConfirmation.draft.time, '15:00')
+    }
+  },
+  {
     name: 'clasifica confianza alta media y baja',
     run: () => {
       assert.equal(confidenceLevel(0.95), 'high')
@@ -4923,6 +5000,7 @@ function fakeDomainPort(input?: {
     },
     toInterpreterCatalog(): BookingV2Catalog {
       return {
+        bookingFlowOrder: domainCatalog.bookingFlowOrder,
         serviceIds: domainCatalog.serviceIds,
         professionalIds: domainCatalog.professionalIds,
         professionalServiceIds: domainCatalog.professionalServiceIds

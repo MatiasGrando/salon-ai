@@ -107,6 +107,11 @@ enum ServiceCatalogDisplayMode {
   CATEGORIES_FIRST
 }
 
+enum BookingFlowOrder {
+  PROFESSIONAL_FIRST
+  DATE_TIME_FIRST
+}
+
 enum UserRole {
   SUPER_ADMIN
   BUSINESS_ADMIN
@@ -349,6 +354,7 @@ model BusinessFeatureSettings {
   realWhatsappEnabled   Boolean      @default(false)
   bookingV2Enabled      Boolean      @default(false)
   serviceCatalogDisplayMode ServiceCatalogDisplayMode @default(ALL_SERVICES)
+  bookingFlowOrder      BookingFlowOrder @default(PROFESSIONAL_FIRST)
   conversationPauseAfterMinutes  Int @default(120)
   conversationExpireAfterMinutes Int @default(1440)
   assistantPersonality  Json?

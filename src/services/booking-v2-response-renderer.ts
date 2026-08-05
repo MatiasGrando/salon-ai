@@ -177,7 +177,8 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
       input.catalog,
       input.serviceSuggestions,
       input.catalogNavigation,
-      input.plan.misunderstandingCount
+      input.plan.misunderstandingCount,
+      input.availabilityOptions
     )
     if (input.plan.reason === 'not_understood') {
       if (
@@ -296,13 +297,16 @@ function questionForField(
   catalog?: BookingV2DomainCatalog | null,
   serviceSuggestions?: BookingV2DomainCatalog['services'],
   catalogNavigation?: BookingV2CatalogNavigation | null,
-  misunderstandingCount = 0
+  misunderstandingCount = 0,
+  availabilityOptions?: BookingV2AvailabilityOption[]
 ) {
   if (field === 'name') return '¿Me decís tu nombre?'
   if (field === 'service') {
     return serviceQuestion(catalog, serviceSuggestions, catalogNavigation, misunderstandingCount)
   }
-  if (field === 'professional') return professionalQuestion(draft.service, catalog)
+  if (field === 'professional') {
+    return professionalQuestion(draft.service, draft.time, catalog, availabilityOptions)
+  }
   if (field === 'date') return 'Perfecto 😊 ¿Qué día te gustaría venir? Puede ser hoy, mañana o una fecha específica.'
   return '¿Qué horario preferís?'
 }
@@ -435,10 +439,20 @@ function formatServiceOption(service: BookingV2DomainCatalog['services'][number]
 
 function professionalQuestion(
   serviceId: string | null,
-  catalog?: BookingV2DomainCatalog | null
+  selectedTime: string | null,
+  catalog?: BookingV2DomainCatalog | null,
+  availabilityOptions?: BookingV2AvailabilityOption[]
 ) {
+  const availableProfessionalIds = selectedTime && availabilityOptions
+    ? new Set(
+        availabilityOptions
+          .filter((option) => option.time === selectedTime)
+          .map((option) => option.professionalId)
+      )
+    : null
   const professionals = catalog?.professionals.filter((professional) =>
-    !serviceId || professional.serviceIds.includes(serviceId)
+    (!serviceId || professional.serviceIds.includes(serviceId)) &&
+    (!availableProfessionalIds || availableProfessionalIds.has(professional.id))
   ) ?? []
 
   if (!professionals.length) {

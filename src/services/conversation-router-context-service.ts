@@ -31,6 +31,9 @@ export class ConversationRouterContextService {
           businessHours: {
             select: { dayOfWeek: true, startTime: true, endTime: true }
           },
+          featureSettings: {
+            select: { bookingFlowOrder: true }
+          },
           services: {
             where: { isBookable: true },
             select: {
@@ -82,6 +85,7 @@ export class ConversationRouterContextService {
         availableInformation: availableInformationForBusiness(business)
       },
       catalog: {
+        bookingFlowOrder: business?.featureSettings?.bookingFlowOrder ?? 'PROFESSIONAL_FIRST',
         services: business?.services.map((service) => {
           const category = service.catalogCategory?.name ?? service.category
           return {

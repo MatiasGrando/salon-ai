@@ -2,6 +2,7 @@ export const BOOKING_FIELDS = ['name', 'service', 'professional', 'date', 'time'
 export const ANY_PROFESSIONAL_ID = '__any_professional__'
 
 export type BookingField = (typeof BOOKING_FIELDS)[number]
+export type BookingFlowOrder = 'PROFESSIONAL_FIRST' | 'DATE_TIME_FIRST'
 export type ConfidenceLevel = 'high' | 'medium' | 'low'
 
 export type BookingDraft = {
@@ -194,8 +195,17 @@ export function confidenceLevel(
   return 'low'
 }
 
-export function nextMissingField(draft: BookingDraft): BookingField | 'confirmation' {
-  for (const field of BOOKING_FIELDS) {
+export function bookingFieldsForOrder(order: BookingFlowOrder = 'PROFESSIONAL_FIRST') {
+  return order === 'DATE_TIME_FIRST'
+    ? ['name', 'service', 'date', 'time', 'professional'] as const
+    : BOOKING_FIELDS
+}
+
+export function nextMissingField(
+  draft: BookingDraft,
+  order: BookingFlowOrder = 'PROFESSIONAL_FIRST'
+): BookingField | 'confirmation' {
+  for (const field of bookingFieldsForOrder(order)) {
     if (!draft[field]) return field
   }
   return 'confirmation'
@@ -206,7 +216,8 @@ export function acceptField(
   field: BookingField,
   value: string
 ): BookingV2State {
-  const draft = invalidateDependents(
+  const timeBeforeProfessionalSelection = field === 'professional' ? state.draft.time : null
+  let draft = invalidateDependents(
     {
       ...state.draft,
       [field]: value
@@ -214,6 +225,9 @@ export function acceptField(
     field,
     state.draft[field] !== value
   )
+  if (timeBeforeProfessionalSelection) {
+    draft = { ...draft, time: timeBeforeProfessionalSelection }
+  }
 
   return {
     ...state,

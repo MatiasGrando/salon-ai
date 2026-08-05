@@ -14049,9 +14049,17 @@ const crmHtml = `<!doctype html>
                 </select>
                 <small id="service-catalog-display-help">El cliente ver&aacute; el cat&aacute;logo completo, agrupado por categor&iacute;a cuando corresponda.</small>
               </div>
+              <div class="settings-field full">
+                <label for="booking-flow-order">Orden de la reserva autom&aacute;tica</label>
+                <select class="field" id="booking-flow-order">
+                  <option value="PROFESSIONAL_FIRST">Servicio &rarr; profesional &rarr; d&iacute;a y hora</option>
+                  <option value="DATE_TIME_FIRST">Servicio &rarr; d&iacute;a y hora &rarr; profesional</option>
+                </select>
+                <small>Define cu&aacute;ndo el bot consulta la preferencia de profesional.</small>
+              </div>
             </div>
             <div class="settings-actions">
-              <button class="primary" id="service-catalog-settings-submit" type="submit">Guardar cat&aacute;logo</button>
+              <button class="primary" id="service-catalog-settings-submit" type="submit">Guardar configuraci&oacute;n</button>
             </div>
           </form>
           <form class="assistant-personality-form" id="conversation-context-form">
@@ -14989,6 +14997,7 @@ const crmHtml = `<!doctype html>
         aiEnabled: true,
         bookingV2Enabled: false,
         serviceCatalogDisplayMode: 'ALL_SERVICES',
+        bookingFlowOrder: 'PROFESSIONAL_FIRST',
         conversationPauseAfterMinutes: 120,
         conversationExpireAfterMinutes: 1440,
         assistantPersonality: {
@@ -15136,6 +15145,7 @@ const crmHtml = `<!doctype html>
       bookingV2Status: document.getElementById('booking-v2-status'),
       serviceCatalogSettingsForm: document.getElementById('service-catalog-settings-form'),
       serviceCatalogDisplayMode: document.getElementById('service-catalog-display-mode'),
+      bookingFlowOrder: document.getElementById('booking-flow-order'),
       serviceCatalogDisplayHelp: document.getElementById('service-catalog-display-help'),
       serviceCatalogSettingsSubmit: document.getElementById('service-catalog-settings-submit'),
       automationSettingsFeedback: document.getElementById('automation-settings-feedback'),
@@ -18134,6 +18144,7 @@ const crmHtml = `<!doctype html>
       els.bookingV2Status.textContent = state.aiSettings.bookingV2Enabled === true ? 'Booking V2' : 'Bot actual'
       els.bookingV2Status.className = state.aiSettings.bookingV2Enabled === true ? '' : 'basic'
       els.serviceCatalogDisplayMode.value = state.aiSettings.serviceCatalogDisplayMode || 'ALL_SERVICES'
+      els.bookingFlowOrder.value = state.aiSettings.bookingFlowOrder || 'PROFESSIONAL_FIRST'
       updateServiceCatalogDisplayHelp()
       els.conversationPauseHours.value = String((state.aiSettings.conversationPauseAfterMinutes || 120) / 60)
       els.conversationExpireHours.value = String((state.aiSettings.conversationExpireAfterMinutes || 1440) / 60)
@@ -18160,11 +18171,12 @@ const crmHtml = `<!doctype html>
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             businessId: state.businessId,
-            serviceCatalogDisplayMode: els.serviceCatalogDisplayMode.value
+            serviceCatalogDisplayMode: els.serviceCatalogDisplayMode.value,
+            bookingFlowOrder: els.bookingFlowOrder.value
           })
         })
         renderAiControls()
-        showAutomationSettingsFeedback('Forma de mostrar el catálogo guardada.', 'success')
+        showAutomationSettingsFeedback('Configuración del catálogo y la reserva guardada.', 'success')
       } catch (error) {
         renderAiControls()
         showAutomationSettingsFeedback(error.message, 'error')

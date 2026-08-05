@@ -1,4 +1,4 @@
-import type { BookingField, BookingV2State } from './booking-v2-state.js'
+import { nextMissingField, type BookingField, type BookingFlowOrder, type BookingV2State } from './booking-v2-state.js'
 import type { BookingV2Interpretation } from './booking-v2-interpreter.js'
 
 export type BookingV2MessagePlan =
@@ -76,7 +76,8 @@ export type BookingV2MessagePlan =
     }
 
 export function buildBookingV2MessagePlan(
-  interpretation: BookingV2Interpretation
+  interpretation: BookingV2Interpretation,
+  bookingFlowOrder: BookingFlowOrder = 'PROFESSIONAL_FIRST'
 ): BookingV2MessagePlan {
   const state = interpretation.state
 
@@ -90,7 +91,7 @@ export function buildBookingV2MessagePlan(
 
     return {
       type: 'ask_field',
-      field: interpretation.affectedField ?? firstMissingField(state),
+      field: interpretation.affectedField ?? firstMissingField(state, bookingFlowOrder),
       reason: 'not_understood',
       misunderstandingCount: state.misunderstandingCount
     }
@@ -126,10 +127,7 @@ export function buildBookingV2MessagePlan(
   }
 }
 
-function firstMissingField(state: BookingV2State): BookingField {
-  if (!state.draft.name) return 'name'
-  if (!state.draft.service) return 'service'
-  if (!state.draft.professional) return 'professional'
-  if (!state.draft.date) return 'date'
-  return 'time'
+function firstMissingField(state: BookingV2State, bookingFlowOrder: BookingFlowOrder): BookingField {
+  const field = nextMissingField(state.draft, bookingFlowOrder)
+  return field === 'confirmation' ? 'time' : field
 }

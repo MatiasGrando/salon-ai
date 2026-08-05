@@ -1,0 +1,4 @@
+CREATE TYPE "BookingFlowOrder" AS ENUM ('PROFESSIONAL_FIRST', 'DATE_TIME_FIRST');
+
+ALTER TABLE "BusinessFeatureSettings"
+ADD COLUMN "bookingFlowOrder" "BookingFlowOrder" NOT NULL DEFAULT 'PROFESSIONAL_FIRST';

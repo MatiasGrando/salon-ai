@@ -11,6 +11,7 @@ import { BookingV2Engine, type BookingV2ProcessResult } from './booking-v2-engin
 import type { BookingV2MessagePlan } from './booking-v2-dialogue.js'
 import type {
   BookingField,
+  BookingFlowOrder,
   BookingV2AgendaItem,
   BookingV2PendingRequest,
   BookingV2State
@@ -926,7 +927,15 @@ export class ConversationService {
     }
 
     if (!hasBookingInProgress) return null
-    const previousState = bookingV2StateAfterGoingBack(currentState, input.conversation.currentStep)
+    const featureSettings = await prisma.businessFeatureSettings.findUnique({
+      where: { businessId: input.businessId },
+      select: { bookingFlowOrder: true }
+    })
+    const previousState = bookingV2StateAfterGoingBack(
+      currentState,
+      input.conversation.currentStep,
+      featureSettings?.bookingFlowOrder ?? 'PROFESSIONAL_FIRST'
+    )
     const resumed = await bookingV2Engine.resume({
       businessId: input.businessId,
       conversation: conversationPatchFromState(previousState)
@@ -2481,7 +2490,8 @@ export function freshBookingV2State(customerName: string | null): BookingV2State
 
 export function bookingV2StateAfterGoingBack(
   state: BookingV2State,
-  currentStep: string
+  currentStep: string,
+  bookingFlowOrder: BookingFlowOrder = 'PROFESSIONAL_FIRST'
 ): BookingV2State {
   if (
     state.guidedEstimate ||
@@ -2492,16 +2502,24 @@ export function bookingV2StateAfterGoingBack(
     return clearBookingV2StateFromField(state, 'service')
   }
   if (currentStep === 'ASK_PROFESSIONAL') {
-    return clearBookingV2StateFromField(state, 'service')
+    return clearBookingV2StateFromField(
+      state,
+      bookingFlowOrder === 'DATE_TIME_FIRST' ? 'time' : 'service'
+    )
   }
   if (currentStep === 'ASK_DATE') {
-    return clearBookingV2StateFromField(state, 'professional')
+    return clearBookingV2StateFromField(
+      state,
+      bookingFlowOrder === 'DATE_TIME_FIRST' ? 'service' : 'professional'
+    )
   }
   if (currentStep === 'ASK_TIME') {
     return clearBookingV2StateFromField(state, 'date')
   }
   if (currentStep === 'CONFIRM') {
-    return clearBookingV2StateFromField(state, 'time')
+    return bookingFlowOrder === 'DATE_TIME_FIRST'
+      ? clearBookingV2StateFromField(state, 'professional', { preserveTime: true })
+      : clearBookingV2StateFromField(state, 'time')
   }
   if (currentStep === 'ASK_CUSTOMER_NAME') {
     return freshBookingV2State(null)
@@ -2519,11 +2537,15 @@ export function bookingV2StateAfterGoingBack(
 
 export function clearBookingV2StateFromField(
   state: BookingV2State,
-  field: BookingField
+  field: BookingField,
+  options?: { preserveTime?: boolean }
 ): BookingV2State {
+  const clearedDraft = clearFieldAndDependents(state.draft, field)
   return {
     ...state,
-    draft: clearFieldAndDependents(state.draft, field),
+    draft: options?.preserveTime
+      ? { ...clearedDraft, time: state.draft.time }
+      : clearedDraft,
     pendingProposal: null,
     categoryAdvice: field === 'service' ? null : state.categoryAdvice,
     serviceValidation: field === 'service' ? null : state.serviceValidation,

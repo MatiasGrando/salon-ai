@@ -181,7 +181,7 @@ export class BookingV2Engine {
           const state = acceptField(initialState, 'service', alternative.serviceId)
           return this.fromInterpretation({
             state,
-            nextField: nextMissingField(state.draft),
+            nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
             outcome: 'accepted',
             affectedField: 'service'
           }, null, catalog)
@@ -204,7 +204,7 @@ export class BookingV2Engine {
           }
           return this.fromInterpretation({
             state,
-            nextField: nextMissingField(state.draft),
+            nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
             outcome: 'accepted',
             affectedField: 'service'
           }, null, catalog)
@@ -332,7 +332,7 @@ export class BookingV2Engine {
           }
           return this.fromInterpretation({
             state,
-            nextField: nextMissingField(state.draft),
+            nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
             outcome: 'accepted',
             affectedField: null
           }, null, catalog)
@@ -361,14 +361,14 @@ export class BookingV2Engine {
       }
       return this.fromInterpretation({
         state: initialState,
-        nextField: nextMissingField(initialState.draft),
+        nextField: nextMissingField(initialState.draft, catalog.bookingFlowOrder),
         outcome: 'confirmation_required',
         affectedField: initialState.pendingProposal.field
       }, null, catalog)
     }
 
     const serviceChoice =
-      nextMissingField(initialState.draft) === 'service' &&
+      nextMissingField(initialState.draft, catalog.bookingFlowOrder) === 'service' &&
       initialState.categoryAdvice?.stage === 'offered'
       ? await this.choiceExtractor.extract({
           message: input.message,
@@ -409,7 +409,7 @@ export class BookingV2Engine {
       state = queueAdditionalServices(state, explicitServices.slice(1))
       const result = await this.fromInterpretation({
         state,
-        nextField: nextMissingField(state.draft),
+        nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
         outcome: 'accepted',
         affectedField: 'service'
       }, null, catalog)
@@ -435,7 +435,7 @@ export class BookingV2Engine {
       const state = acceptField(initialState, 'name', deterministicName)
       return this.fromInterpretation({
         state,
-        nextField: nextMissingField(state.draft),
+        nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
         outcome: 'accepted',
         affectedField: 'name'
       }, null, catalog)
@@ -447,10 +447,10 @@ export class BookingV2Engine {
       : resolveExpectedService(input.message, initialState, catalog)
     if (deterministicService?.kind === 'selected') {
       const state = acceptField(initialState, 'service', deterministicService.serviceId)
-      if (nextMissingField(initialState.draft) === 'service') {
+      if (nextMissingField(initialState.draft, catalog.bookingFlowOrder) === 'service') {
         return this.fromInterpretation({
           state,
-          nextField: nextMissingField(state.draft),
+          nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
           outcome: 'accepted',
           affectedField: 'service'
         }, null, catalog)
@@ -459,7 +459,7 @@ export class BookingV2Engine {
     }
     if (
       deterministicService?.kind === 'ambiguous' &&
-      nextMissingField(initialState.draft) === 'service'
+      nextMissingField(initialState.draft, catalog.bookingFlowOrder) === 'service'
     ) {
       const serviceSuggestions = catalog.services.filter((service) =>
         deterministicService.serviceIds.includes(service.id)
@@ -499,7 +499,7 @@ export class BookingV2Engine {
       const state = acceptField(initialState, 'professional', deterministicProfessional.professionalId)
       return this.fromInterpretation({
         state,
-        nextField: nextMissingField(state.draft),
+        nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
         outcome: 'accepted',
         affectedField: 'professional'
       }, null, catalog)
@@ -513,7 +513,7 @@ export class BookingV2Engine {
       })
       return this.fromInterpretation({
         state,
-        nextField: nextMissingField(state.draft),
+        nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
         outcome: 'confirmation_required',
         affectedField: 'professional'
       }, null, catalog)
@@ -522,13 +522,14 @@ export class BookingV2Engine {
     const deterministicDate = resolveExpectedDate(
       input.message,
       stateForExtraction,
-      input.currentDate ?? new Date()
+      input.currentDate ?? new Date(),
+      catalog.bookingFlowOrder
     )
     if (deterministicDate) {
       const state = acceptField(initialState, 'date', deterministicDate)
       return this.fromInterpretation({
         state,
-        nextField: nextMissingField(state.draft),
+        nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
         outcome: 'accepted',
         affectedField: 'date'
       }, null, catalog)
@@ -546,7 +547,7 @@ export class BookingV2Engine {
       const state = acceptField(stateWithProfessional, 'time', deterministicTime.time)
       return this.fromInterpretation({
         state,
-        nextField: nextMissingField(state.draft),
+        nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
         outcome: 'accepted',
         affectedField: 'time'
       }, null, catalog)
@@ -557,7 +558,7 @@ export class BookingV2Engine {
       ? await this.extractor.extract({
           message: input.message,
           draft: stateForExtraction.draft,
-          expectedField: nextMissingField(stateForExtraction.draft),
+          expectedField: nextMissingField(stateForExtraction.draft, catalog.bookingFlowOrder),
           services: extractionCatalog.services,
           professionals: extractionCatalog.professionals,
           ...(input.currentDate ? { currentDate: input.currentDate } : {})
@@ -565,7 +566,7 @@ export class BookingV2Engine {
       : input.understandingExtraction
 
     if (!rawExtraction) {
-      const expectedField = nextMissingField(stateForExtraction.draft)
+      const expectedField = nextMissingField(stateForExtraction.draft, catalog.bookingFlowOrder)
       if (
         shouldCountFailedExpectedFieldAnswer(
           input.message,
@@ -584,7 +585,7 @@ export class BookingV2Engine {
       }
       return this.fromInterpretation({
         state: stateForExtraction,
-        nextField: nextMissingField(stateForExtraction.draft),
+        nextField: nextMissingField(stateForExtraction.draft, catalog.bookingFlowOrder),
         outcome: 'no_change',
         affectedField: deterministicService?.kind === 'selected' ? 'service' : null
       }, null, catalog)
@@ -606,7 +607,7 @@ export class BookingV2Engine {
       extraction,
       this.domain.toInterpreterCatalog(catalog)
     )
-    const expectedField = nextMissingField(stateForExtraction.draft)
+    const expectedField = nextMissingField(stateForExtraction.draft, catalog.bookingFlowOrder)
     const affectedField = expectedField === 'confirmation' ? null : expectedField
     const effectiveInterpretation = interpretation.outcome === 'no_change' &&
       shouldCountFailedExpectedFieldAnswer(input.message, expectedField, catalog)
@@ -635,7 +636,7 @@ export class BookingV2Engine {
   }): Promise<BookingV2ProcessResult | null> {
     if (
       input.catalog.displayMode !== 'CATEGORIES_FIRST' ||
-      nextMissingField(input.state.draft) !== 'service'
+      nextMissingField(input.state.draft, input.catalog.bookingFlowOrder) !== 'service'
     ) {
       return null
     }
@@ -773,7 +774,7 @@ export class BookingV2Engine {
       const state = createCatalogRestartState(input.state.draft.name)
       return this.fromInterpretation({
         state,
-        nextField: nextMissingField(state.draft),
+        nextField: nextMissingField(state.draft, input.catalog.bookingFlowOrder),
         outcome: 'no_change',
         affectedField: 'service'
       }, null, input.catalog)
@@ -889,7 +890,7 @@ export class BookingV2Engine {
 
     return this.fromInterpretation({
       state,
-      nextField: nextMissingField(state.draft),
+      nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
       outcome: 'no_change',
       affectedField: null
     }, null, catalog)
@@ -903,7 +904,7 @@ export class BookingV2Engine {
   ): Promise<BookingV2ProcessResult> {
     return this.fromInterpretation({
       state,
-      nextField: nextMissingField(state.draft),
+      nextField: nextMissingField(state.draft, catalog?.bookingFlowOrder),
       outcome: outcome === 'proposal_confirmed' ? 'accepted' : 'no_change',
       affectedField: null
     }, extraction, catalog, outcome)
@@ -919,7 +920,7 @@ export class BookingV2Engine {
     }
   ): Promise<BookingV2ProcessResult> {
     let effectiveInterpretation = interpretation
-    let plan = buildBookingV2MessagePlan(effectiveInterpretation)
+    let plan = buildBookingV2MessagePlan(effectiveInterpretation, catalog?.bookingFlowOrder)
     let availabilityOptions: BookingV2AvailabilityOption[] = []
     let unavailableDate: string | null = null
 
@@ -1076,7 +1077,7 @@ export class BookingV2Engine {
           outcome: 'no_change',
           affectedField: 'date'
         }
-        plan = buildBookingV2MessagePlan(effectiveInterpretation)
+        plan = buildBookingV2MessagePlan(effectiveInterpretation, catalog.bookingFlowOrder)
       } else {
         const proposedTime = timeToValidate(plan, effectiveInterpretation.state)
         if (proposedTime && !availabilityOptions.some((option) => option.time === proposedTime)) {
@@ -1091,7 +1092,7 @@ export class BookingV2Engine {
             outcome: 'no_change',
             affectedField: 'time'
           }
-          plan = buildBookingV2MessagePlan(effectiveInterpretation)
+          plan = buildBookingV2MessagePlan(effectiveInterpretation, catalog.bookingFlowOrder)
         } else if (
           proposedTime &&
           plan.type === 'confirm_booking' &&
@@ -1111,7 +1112,7 @@ export class BookingV2Engine {
               outcome: 'accepted',
               affectedField: 'time'
             }
-            plan = buildBookingV2MessagePlan(effectiveInterpretation)
+            plan = buildBookingV2MessagePlan(effectiveInterpretation, catalog.bookingFlowOrder)
           }
         }
       }
@@ -1180,7 +1181,7 @@ export class BookingV2Engine {
     state: BookingV2State,
     catalog: BookingV2DomainCatalog
   ) {
-    if (nextMissingField(state.draft) !== 'time') return null
+    if (nextMissingField(state.draft, catalog.bookingFlowOrder) !== 'time') return null
     if (!state.draft.service || !state.draft.date) return null
 
     const requestedTime = parseTime(message)
@@ -1377,7 +1378,7 @@ function resolveExpectedName(
   state: BookingV2State,
   catalog: BookingV2DomainCatalog
 ) {
-  if (nextMissingField(state.draft) !== 'name') return null
+  if (nextMissingField(state.draft, catalog.bookingFlowOrder) !== 'name') return null
 
   const candidate = message.trim().replace(/\s+/g, ' ')
   if (
@@ -1464,7 +1465,7 @@ function resolveExpectedProfessional(
   state: BookingV2State,
   catalog: BookingV2DomainCatalog
 ) {
-  if (nextMissingField(state.draft) !== 'professional') return null
+  if (nextMissingField(state.draft, catalog.bookingFlowOrder) !== 'professional') return null
 
   const selectedService = state.draft.service
   const compatibleProfessionals = catalog.professionals.filter((professional) =>
@@ -1687,8 +1688,13 @@ function resolveCatalogServiceSelection(
   return null
 }
 
-function resolveExpectedDate(message: string, state: BookingV2State, currentDate: Date) {
-  if (nextMissingField(state.draft) !== 'date') return null
+function resolveExpectedDate(
+  message: string,
+  state: BookingV2State,
+  currentDate: Date,
+  bookingFlowOrder: BookingV2DomainCatalog['bookingFlowOrder']
+) {
+  if (nextMissingField(state.draft, bookingFlowOrder) !== 'date') return null
   const normalized = normalize(message)
   const date = dateInTimeZone(currentDate, 'America/Buenos_Aires')
   const tokens = new Set(normalized.split(' ').filter(Boolean))
@@ -2114,11 +2120,13 @@ function parseTime(message: string) {
 function shouldValidateAvailability(plan: BookingV2MessagePlan) {
   return plan.type === 'confirm_booking' ||
     (plan.type === 'ask_field' && plan.field === 'time') ||
+    (plan.type === 'ask_field' && plan.field === 'professional') ||
     (plan.type === 'confirm_field' && plan.field === 'time')
 }
 
 function timeToValidate(plan: BookingV2MessagePlan, state: BookingV2State) {
   if (plan.type === 'confirm_booking') return state.draft.time
+  if (plan.type === 'ask_field' && plan.field === 'professional') return state.draft.time
   if (plan.type === 'confirm_field' && plan.field === 'time') return plan.value
   return null
 }

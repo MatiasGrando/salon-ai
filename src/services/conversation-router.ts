@@ -8,6 +8,7 @@ import {
   type BookingV2Extraction
 } from './booking-v2-extractor.js'
 import { nextMissingField } from './booking-v2-state.js'
+import type { BookingFlowOrder } from './booking-v2-state.js'
 import { normalizeText } from './message-understanding-service.js'
 
 export const CONVERSATION_INTENTS = [
@@ -104,6 +105,7 @@ export type ConversationRouterInput = {
     availableInformation: BusinessInformationTopic[]
   }
   catalog: {
+    bookingFlowOrder?: BookingFlowOrder
     services: BookingV2CatalogOption[]
     professionals: BookingV2CatalogOption[]
   }
@@ -232,7 +234,7 @@ export class ConversationRouter {
           lastBotMessage: input.lastBotMessage,
           recentMessages: input.recentMessages,
           currentDraft: input.draft,
-          expectedField: nextMissingField(input.draft),
+          expectedField: nextMissingField(input.draft, input.catalog.bookingFlowOrder),
           currentDate: formatDate(new Date()),
           timezone: 'America/Buenos_Aires',
           business: input.business,
