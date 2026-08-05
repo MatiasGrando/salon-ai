@@ -508,7 +508,8 @@ export function deterministicConversationRouting(
 ): ConversationRouting {
   const normalized = normalizeText(message)
   const topics = detectBusinessInformationTopics(normalized, context?.currentStep)
-  const hasBookingSignal = hasExplicitBookingIntent(normalized)
+  const hasBookingSignal = hasExplicitBookingIntent(normalized) ||
+    hasCatalogGroundedBookingIntent(normalized, context?.catalog)
   const intents: RoutedIntent[] = topics.map((topic) => ({
     type: 'business_information',
     topic,
@@ -599,6 +600,10 @@ export function mergeConversationRouting(
     }
   }
   const deterministicTopics = new Set(businessInformationTopicsFromRouting(deterministic))
+  const catalogGroundedBookingRequest = Boolean(catalog) &&
+    hasCatalogGroundedBookingIntent(normalizeEvidenceText(originalMessage), catalog)
+  const suppressGenericCatalogInformation = catalogGroundedBookingRequest &&
+    !looksLikeInformationQuestion(originalMessage)
   const hasGroundedAiInformation = aiRouting.intents.some((intent) =>
     intent.type === 'business_information' &&
     isGroundedBusinessInformationIntent(intent, originalMessage)
@@ -618,6 +623,18 @@ export function mergeConversationRouting(
     deterministic.bookingMessage === null &&
     !hasGroundedAiBookingTask
   const intents = aiRouting.intents.filter((intent) => {
+    if (
+      suppressGenericCatalogInformation &&
+      (
+        intent.type === 'service_detail' ||
+        (
+          intent.type === 'business_information' &&
+          ['services', 'prices'].includes(intent.topic ?? '')
+        )
+      )
+    ) {
+      return false
+    }
     if (isBookingTaskIntent(intent) && !isGroundedIntentEvidence(intent, originalMessage)) {
       return false
     }
@@ -882,6 +899,25 @@ function resolveCatalogQueryServices(
   if (fullLabelMatches.length) return fullLabelMatches
 
   const messageTokens = catalogQuerySubjectTokens(normalizedMessage)
+  const catalogTokens = catalog.services.flatMap((service) =>
+    [service.name, ...(service.aliases ?? [])]
+      .flatMap((label) => catalogQuerySubjectTokens(normalizeEvidenceText(label)))
+  )
+  const relevantMessageTokens = messageTokens.filter((messageToken) =>
+    catalogTokens.some((catalogToken) => catalogTokensMatch(messageToken, catalogToken))
+  )
+  const sharedPartialMatches = relevantMessageTokens.length
+    ? catalog.services.filter((service) =>
+        [service.name, ...(service.aliases ?? [])].some((label) => {
+          const labelTokens = catalogQuerySubjectTokens(normalizeEvidenceText(label))
+          return relevantMessageTokens.every((messageToken) =>
+            labelTokens.some((labelToken) => catalogTokensMatch(messageToken, labelToken))
+          )
+        })
+      )
+    : []
+  if (sharedPartialMatches.length) return sharedPartialMatches
+
   const scoredMatches = catalog.services
     .map((service) => ({
       service,
@@ -1144,6 +1180,19 @@ function hasExplicitBookingIntent(normalized: string) {
     'quiero con',
     'prefiero con'
   ]) || hasApproximateBookingTurnRequest(normalized)
+}
+
+function hasCatalogGroundedBookingIntent(
+  normalizedMessage: string,
+  catalog: ConversationRouterInput['catalog'] | undefined
+) {
+  if (!catalog?.services.length) return false
+  const expressesServiceChoice = [
+    /\b(?:quiero|queria|quisiera|necesito|prefiero)\s+(?!(?:(?:el|la|los|las|un|una|unos|unas)\s+)?(?:averiguar|consultar|conocer|costo|costos|cuanto|duracion|horario|horarios|informacion|info|precio|precios|preguntar|saber|valor|ver)\b)/,
+    /\bme gustaria\s+(?!(?:(?:el|la|los|las|un|una|unos|unas)\s+)?(?:averiguar|consultar|conocer|costo|costos|cuanto|duracion|horario|horarios|informacion|info|precio|precios|preguntar|saber|valor|ver)\b)/
+  ].some((pattern) => pattern.test(normalizedMessage))
+  if (!expressesServiceChoice) return false
+  return resolveCatalogQueryServices(normalizedMessage, catalog).length > 0
 }
 
 function hasApproximateBookingTurnRequest(normalized: string) {

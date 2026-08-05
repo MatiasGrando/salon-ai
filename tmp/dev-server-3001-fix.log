@@ -1,0 +1,235 @@
+
+> salon-ai@1.0.0 dev
+> tsx src/server.ts
+
+└── / (GET, HEAD) {"host":"tamaragrando.weex.com.ar"}
+    / (GET, HEAD)
+    ├── health (GET, HEAD)
+    ├── a
+    │   ├── uth/
+    │   │   ├── log
+    │   │   │   ├── in (POST)
+    │   │   │   └── out (POST)
+    │   │   └── me (GET, HEAD)
+    │   ├── dmin/businesses (POST)
+    │   ├── ppointments (POST, GET, HEAD)
+    │   │   └── /
+    │   │       └── :id (PATCH, DELETE)
+    │   │           └── /status (PATCH)
+    │   └── vailability (GET, HEAD)
+    ├── c
+    │   ├── rm (GET, HEAD)
+    │   │   └── /
+    │   │       ├── m
+    │   │       │   ├── aintenance/delete-qa-
+    │   │       │   │   ├── data (POST)
+    │   │       │   │   └── conversations (GET, HEAD)
+    │   │       │   └── essages/
+    │   │       │       └── :id
+    │   │       │           └── /media (GET, HEAD)
+    │   │       ├── conversations (GET, HEAD)
+    │   │       │   └── /
+    │   │       │       ├── summary (GET, HEAD)
+    │   │       │       └── :id
+    │   │       │           └── /
+    │   │       │               ├── m
+    │   │       │               │   ├── essages (GET, HEAD)
+    │   │       │               │   └── anual-replies (POST)
+    │   │       │               ├── a
+    │   │       │               │   ├── rchive (PATCH)
+    │   │       │               │   ├── i (PATCH)
+    │   │       │               │   └── dvisor-quote (POST)
+    │   │       │               ├── opportunity/close (PATCH)
+    │   │       │               ├── service-resolution (POST)
+    │   │       │               └── deposit/
+    │   │       │                   ├── approve (POST)
+    │   │       │                   └── reject (POST)
+    │   │       └── ai-settings (GET, HEAD, PATCH)
+    │   ├── ontacto (POST) {"host":"tamaragrando.weex.com.ar"}
+    │   ├── u
+    │   │   ├── enta (GET, HEAD)
+    │   │   └── stomers (POST, GET, HEAD)
+    │   │       └── /
+    │   │           ├── search (GET, HEAD)
+    │   │           ├── overview (GET, HEAD)
+    │   │           └── :id|:customerId (PATCH, DELETE)
+    │   │               └── /
+    │   │                   ├── notes (GET, HEAD, POST)
+    │   │                   └── marketing-preference (PATCH, GET, HEAD)
+    │   ├── hat (POST)
+    │   └── ampaign
+    │       ├── s (GET, HEAD, POST)
+    │       │   └── /
+    │       │       └── :id|:campaignId (PATCH, DELETE)
+    │       │           └── /
+    │       │               ├── template/sync (POST)
+    │       │               ├── d
+    │       │               │   ├── uplicate (POST)
+    │       │               │   └── eliveries (GET, HEAD, POST)
+    │       │               ├── audience-preview (GET, HEAD)
+    │       │               ├── manual-executions (POST)
+    │       │               │   └── /
+    │       │               │       ├── latest (GET, HEAD)
+    │       │               │       └── :executionId
+    │       │               │           └── /recipients/
+    │       │               │               └── :recipientId (PATCH)
+    │       │               ├── execute-one-time (POST)
+    │       │               ├── process-automated (POST)
+    │       │               └── simulat
+    │       │                   ├── ions/latest (GET, HEAD)
+    │       │                   └── e (POST)
+    │       └── -
+    │           ├── customer-options (GET, HEAD)
+    │           ├── jobs/process-retries (POST)
+    │           └── deliveries/
+    │               └── :id (PATCH)
+    ├── t
+    │   ├── amara-
+    │   │   ├── grando-profile-dark.png (GET, HEAD) {"host":"tamaragrando.weex.com.ar"}
+    │   │   └── hero-
+    │   │       ├── v1.png (GET, HEAD) {"host":"tamaragrando.weex.com.ar"}
+    │   │       └── portrait.jpeg (GET, HEAD) {"host":"tamaragrando.weex.com.ar"}
+    │   └── e
+    │       ├── stimonials/
+    │       │   ├── juan-m-avatar.jpg (GET, HEAD) {"host":"tamaragrando.weex.com.ar"}
+    │       │   ├── florencia-l-avatar.jpg (GET, HEAD) {"host":"tamaragrando.weex.com.ar"}
+    │       │   ├── ramiro-s-avatar.jpg (GET, HEAD) {"host":"tamaragrando.weex.com.ar"}
+    │       │   ├── agustin-p-avatar.jpg (GET, HEAD) {"host":"tamaragrando.weex.com.ar"}
+    │       │   ├── camila-r-avatar.jpg (GET, HEAD) {"host":"tamaragrando.weex.com.ar"}
+    │       │   └── nicolas-t-avatar.jpg (GET, HEAD) {"host":"tamaragrando.weex.com.ar"}
+    │       └── rminos (GET, HEAD)
+    ├── experience-0
+    │   ├── 1.jpeg (GET, HEAD) {"host":"tamaragrando.weex.com.ar"}
+    │   ├── 2.jpeg (GET, HEAD) {"host":"tamaragrando.weex.com.ar"}
+    │   ├── 3.jpeg (GET, HEAD) {"host":"tamaragrando.weex.com.ar"}
+    │   ├── 4.jpeg (GET, HEAD) {"host":"tamaragrando.weex.com.ar"}
+    │   └── 5.jpeg (GET, HEAD) {"host":"tamaragrando.weex.com.ar"}
+    ├── b
+    │   ├── randing/modo9-emblem-web.jpg (GET, HEAD) {"host":"tamaragrando.weex.com.ar"}
+    │   └── usiness
+    │       ├── es (POST, GET, HEAD)
+    │       │   └── /
+    │       │       └── :id (PATCH)
+    │       │           └── /
+    │       │               ├── payment-settings (GET, HEAD, PATCH)
+    │       │               ├── whatsapp
+    │       │               │   ├── -
+    │       │               │   │   ├── settings (GET, HEAD, PATCH)
+    │       │               │   │   └── embedded-signup-config (GET, HEAD)
+    │       │               │   └── /embedded-signup-callback (POST)
+    │       │               └── instagram-settings (GET, HEAD, PATCH)
+    │       │                   └── /test (POST)
+    │       └── -hours (POST, GET, HEAD)
+    │           └── /setup (POST)
+    ├── p
+    │   ├── artners/
+    │   │   ├── all-boys.png (GET, HEAD) {"host":"tamaragrando.weex.com.ar"}
+    │   │   ├── c
+    │   │   │   ├── entro-espanol.png (GET, HEAD) {"host":"tamaragrando.weex.com.ar"}
+    │   │   │   └── hacarita-juniors.
+    │   │   │       ├── png (GET, HEAD) {"host":"tamaragrando.weex.com.ar"}
+    │   │   │       └── svg (GET, HEAD) {"host":"tamaragrando.weex.com.ar"}
+    │   │   ├── deportivo-
+    │   │   │   ├── espanol.
+    │   │   │   │   ├── png (GET, HEAD) {"host":"tamaragrando.weex.com.ar"}
+    │   │   │   │   └── svg (GET, HEAD) {"host":"tamaragrando.weex.com.ar"}
+    │   │   │   └── riestra.
+    │   │   │       ├── png (GET, HEAD) {"host":"tamaragrando.weex.com.ar"}
+    │   │   │       └── svg (GET, HEAD) {"host":"tamaragrando.weex.com.ar"}
+    │   │   ├── san-
+    │   │   │   ├── martin-burzaco.png (GET, HEAD) {"host":"tamaragrando.weex.com.ar"}
+    │   │   │   └── telmo.png (GET, HEAD) {"host":"tamaragrando.weex.com.ar"}
+    │   │   └── talleres-remedios-escalada.png (GET, HEAD) {"host":"tamaragrando.weex.com.ar"}
+    │   ├── r
+    │   │   ├── ivacidad (GET, HEAD)
+    │   │   └── ofessional
+    │   │       ├── s (POST, GET, HEAD)
+    │   │       │   └── /
+    │   │       │       └── :id (PATCH, DELETE)
+    │   │       │           └── /
+    │   │       │               ├── appointments-impact (GET, HEAD)
+    │   │       │               └── status (PATCH)
+    │   │       └── -hours (POST, GET, HEAD)
+    │   │           └── /setup (POST)
+    │   ├── o
+    │   │   ├── liticas (GET, HEAD)
+    │   │   └── st-sale/
+    │   │       ├── settings (GET, HEAD, PATCH)
+    │   │       ├── process-due (POST)
+    │   │       └── deliveries/
+    │   │           └── :id
+    │   │               └── /manual-status (PATCH)
+    │   └── ublic/
+    │       ├── booking/
+    │       │   └── :slug
+    │       │       └── /
+    │       │           ├── catalog (GET, HEAD)
+    │       │           ├── availability (GET, HEAD)
+    │       │           ├── book (POST)
+    │       │           └── history (GET, HEAD)
+    │       └── weex/
+    │           ├── config (GET, HEAD)
+    │           ├── a
+    │           │   ├── uth/google (POST)
+    │           │   │   └── -code (POST)
+    │           │   └── ppointments (GET, HEAD)
+    │           ├── me (GET, HEAD)
+    │           ├── profile/phone (POST)
+    │           └── logout (POST)
+    ├── landing-assets/
+    │   └── :asset (GET, HEAD)
+    ├── re
+    │   ├── gistro (GET, HEAD)
+    │   ├── servar (GET, HEAD)
+    │   ├── minder-automations (GET, HEAD, POST)
+    │   │   └── /
+    │   │       ├── process-due (POST)
+    │   │       └── :id|:automationId (PATCH, DELETE)
+    │   │           └── /deliveries (GET, HEAD)
+    │   │               └── /
+    │   │                   └── :deliveryId
+    │   │                       └── /manual-status (PATCH)
+    │   └── ports/
+    │       ├── professional-production (GET, HEAD)
+    │       └── overview (GET, HEAD)
+    ├── w
+    │   ├── ebhooks/
+    │   │   ├── whatsapp (GET, HEAD, POST)
+    │   │   └── instagram (GET, HEAD, POST)
+    │   └── hatsapp
+    │       ├── -
+    │       │   ├── pricing (GET, HEAD)
+    │       │   └── templates (GET, HEAD, POST)
+    │       │       └── /
+    │       │           └── :id (PATCH, DELETE)
+    │       │               └── /
+    │       │                   ├── s
+    │       │                   │   ├── ubmit (POST)
+    │       │                   │   └── ync (POST)
+    │       │                   ├── meta-diagnosis (GET, HEAD)
+    │       │                   ├── test-send (POST)
+    │       │                   └── variable-preview (POST)
+    │       └── /message-templates (POST)
+    ├── s
+    │   ├── ervice
+    │   │   ├── -categories (POST, GET, HEAD)
+    │   │   │   └── /
+    │   │   │       └── :id (PATCH, DELETE)
+    │   │   └── s (POST, GET, HEAD)
+    │   │       └── /
+    │   │           └── :id|:serviceId (PATCH, DELETE)
+    │   │               └── /aliases (POST)
+    │   ├── chedule-blocks (POST, GET, HEAD)
+    │   │   └── /
+    │   │       ├── impact (GET, HEAD)
+    │   │       └── :id (DELETE)
+    │   └── taff-users (GET, HEAD, POST)
+    │       └── /
+    │           ├── presets (GET, HEAD)
+    │           └── :id (PATCH, DELETE)
+    └── :slug (GET, HEAD)
+        └── /
+            ├── reservar (GET, HEAD)
+            └── cuenta (GET, HEAD)
+
+Servidor iniciado en http://127.0.0.1:3001

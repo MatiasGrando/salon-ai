@@ -4181,6 +4181,63 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'router trata querer un servicio ambiguo del catalogo como reserva',
+    run: () => {
+      const catalog = {
+        services: [
+          { id: 'molecular', name: 'Alisado molecular', aliases: [] },
+          { id: 'sin-formol', name: 'Alisado sin formol', aliases: [] }
+        ],
+        professionals: []
+      }
+      const message = 'hola queria un alisado'
+      const routing = deterministicConversationRouting(message, {
+        currentStep: 'START',
+        catalog
+      })
+
+      assert.equal(routing.bookingMessage, message)
+      assert.deepEqual(businessInformationTopicsFromRouting(routing), [])
+
+      const merged = mergeConversationRouting({
+        intents: [{
+          type: 'business_information',
+          topic: 'services',
+          confidence: 0.94,
+          evidence: message
+        }],
+        bookingMessage: null,
+        bookingExtraction: null,
+        catalogQuery: null
+      }, routing, message, catalog)
+      assert.equal(merged.bookingMessage, message)
+      assert.deepEqual(
+        businessInformationTopicsFromRouting({ ...merged, source: 'ai' }),
+        []
+      )
+
+      for (const priceMessage of [
+        'quiero saber cuanto cuesta un alisado',
+        'quiero el precio de un alisado'
+      ]) {
+        const price = deterministicConversationRouting(priceMessage, {
+          currentStep: 'START',
+          catalog
+        })
+        assert.equal(price.bookingMessage, null, priceMessage)
+        assert.deepEqual(businessInformationTopicsFromRouting(price), ['prices'], priceMessage)
+      }
+
+      const mixedMessage = 'a que hora abren y queria un alisado'
+      const mixed = deterministicConversationRouting(mixedMessage, {
+        currentStep: 'START',
+        catalog
+      })
+      assert.equal(mixed.bookingMessage, mixedMessage)
+      assert.deepEqual(businessInformationTopicsFromRouting(mixed), ['opening_hours'])
+    }
+  },
+  {
     name: 'router no deja que la ia convierta horarios del local en una reserva',
     run: () => {
       const message = 'queria saber los horarios'
