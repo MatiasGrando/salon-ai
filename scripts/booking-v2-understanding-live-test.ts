@@ -319,6 +319,53 @@ for (const test of screenshotRouterCases) {
   if ('expectedService' in test) assert.equal(result.bookingExtraction?.service.value, test.expectedService, test.message)
 }
 
+for (const test of [
+  {
+    message: 'quiero saber la dirección del local y hacerme raíces',
+    topic: 'address' as const,
+    expectedService: 'roots'
+  },
+  {
+    message: 'hola quería saber el horario y un corte',
+    topic: 'opening_hours' as const,
+    expectedService: 'haircut'
+  }
+]) {
+  const result = await router.route({
+    message: test.message,
+    currentStep: 'START',
+    lastBotMessage: '¿En qué te puedo ayudar?',
+    recentMessages: [],
+    draft: {
+      name: null,
+      service: null,
+      professional: null,
+      date: null,
+      time: null
+    },
+    business: {
+      name: 'La Pelu',
+      availableInformation: ['opening_hours', 'address', 'services', 'prices']
+    },
+    catalog: {
+      services: [
+        { id: 'roots', name: 'Tintura raíces', aliases: ['raíces'], description: 'Coloración de raíces.' },
+        { id: 'haircut', name: 'Corte', aliases: ['corte de pelo'], description: 'Corte personalizado.' }
+      ],
+      professionals: []
+    }
+  })
+  console.log(`MULTI TASK | ${test.message} | ${result.intents.map((intent) => `${intent.type}:${intent.topic ?? '-'}`).join(',')} | booking=${Boolean(result.bookingMessage)}`)
+  assert.equal(result.intents.some((intent) =>
+    intent.type === 'business_information' && intent.topic === test.topic && intent.confidence >= 0.65
+  ), true, test.message)
+  assert.equal(result.intents.some((intent) =>
+    intent.type === 'book_appointment' && intent.confidence >= 0.65
+  ), true, test.message)
+  assert.equal(Boolean(result.bookingMessage), true, test.message)
+  assert.equal(result.bookingExtraction?.service.value, test.expectedService, test.message)
+}
+
 const otherQueryDecision = await choiceExtractor.extract({
   message: 'Antes de seguir te quería preguntar otra cosa',
   question: '¿El cliente está anunciando otra consulta sin haber escrito todavía cuál es?',
@@ -331,4 +378,4 @@ console.log(`OTHER QUERY VERIFY | ${otherQueryDecision.choiceId} | ${otherQueryD
 assert.equal(otherQueryDecision.choiceId, 'other_query')
 assert.ok(otherQueryDecision.confidence >= 0.85)
 
-console.log('\n49 pruebas reales adicionales de comprensión pasaron.')
+console.log('\n51 pruebas reales adicionales de comprensión pasaron.')

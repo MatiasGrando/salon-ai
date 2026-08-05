@@ -121,6 +121,13 @@ type AiConversationRouting = {
   catalogQuery?: CatalogQuery | null
 }
 
+type NaturalBookingRecovery = {
+  decision: 'booking' | 'information_only' | 'unclear'
+  serviceId: string | null
+  confidence: number
+  evidence: string
+}
+
 export class ConversationRouter {
   async route(input: ConversationRouterInput): Promise<ConversationRouting> {
     const deterministic = deterministicConversationRouting(input.message, {
@@ -153,6 +160,10 @@ export class ConversationRouter {
           'Podes devolver varias intenciones cuando el mensaje mezcla pedidos.',
           'Interpreta el mensaje como un pedido completo: conserva cada tarea solicitada y asociala al servicio mencionado.',
           'Ejemplo: "quiero iluminaciones, presupuesto y horarios" combina reserva, presupuesto y disponibilidad para Iluminacion; no descartes ninguna parte.',
+          'Ejemplo: "quiero saber la direccion y hacerme raices" combina business_information address y book_appointment para Raices, aunque no diga turno, reservar ni agendar.',
+          'Ejemplo: "decime el horario del local y un corte" combina business_information opening_hours y book_appointment; si Corte es ambiguo conserva la reserva y deja service.value null para aclararlo.',
+          'Expresiones como "hacerme", "quiero", "necesito", "me gustaria" o la mencion natural de un servicio pueden expresar una reserva segun el contexto; comprende su significado, no exijas palabras predeterminadas.',
+          'Cada intencion debe conservar como evidence el fragmento exacto que expresa solamente esa tarea siempre que sea posible.',
           'Comprende singular, plural, errores ortograficos comunes y alias del catalogo antes de concluir que falta el servicio.',
           'Si un unico servicio del catalogo coincide con suficiente claridad, devolve su ID aunque el cliente use una variante plural o informal.',
           'Si dos servicios son realmente posibles, no adivines: deja service.value en null para que el flujo muestre una aclaracion acotada.',
@@ -173,7 +184,8 @@ export class ConversationRouter {
           'Usa professional_schedule cuando pregunta qué días u horarios trabaja o atiende un profesional específico. Es una consulta informativa: no lo tomes como elección y bookingMessage debe ser null.',
           'Ejemplos de professional_schedule: "qué horarios tiene Tamara", "cuándo atiende Tami" o "qué días trabaja Marcos". Extrae el ID del profesional mencionado en bookingExtraction.professional.',
           'Nunca uses professional_schedule si no pregunta por horarios, días o disponibilidad laboral de un profesional.',
-          'Usa service_detail cuando pregunta qué incluye, cómo se realiza, cuál es el proceso, si lavan o preparan el cabello, o qué pasos tiene el servicio que ya está conversando.',
+          'Usa service_detail solamente cuando pregunta qué incluye, cómo se realiza, cuál es el proceso, si lavan o preparan el cabello, o qué pasos tiene el servicio que ya está conversando.',
+          'Nunca uses service_detail por la sola mencion de un servicio dentro de un deseo de hacerlo, elegirlo o reservarlo.',
           'service_detail usa currentDraft.service como contexto y bookingMessage null; no necesita que el cliente repita el nombre del servicio.',
           'Usa unsupported_service cuando el cliente pide, selecciona o consulta por un servicio concreto que no coincide con ningún nombre, alias ni descripción del catalogo.',
           'Ejemplos: responde "lavado de pelo" al elegir servicio, pregunta "hacen depilacion?" o dice "quiero reservar reflexologia" y esos servicios no existen en catalog.services.',
@@ -240,7 +252,8 @@ export class ConversationRouter {
       const aiRouting = normalizeConversationRouting(JSON.parse(response.output_text) as AiConversationRouting)
       if (aiRouting.intents.length === 0) return deterministic
       const routing = mergeConversationRouting(aiRouting, deterministic, input.message, input.catalog)
-      const prioritizedRouting = applyContextualRoutingPriorities(routing, input)
+      const recoveredRouting = await this.recoverNaturalMixedBooking(routing, input)
+      const prioritizedRouting = applyContextualRoutingPriorities(recoveredRouting, input)
       const groundedRouting = applyExpectedFieldCatalogFallback(prioritizedRouting, input)
 
       console.info('[conversation-router] routed message', {
@@ -260,6 +273,75 @@ export class ConversationRouter {
         ...applyExpectedFieldCatalogFallback(deterministic, input),
         source: 'deterministic'
       }
+    }
+  }
+
+  private async recoverNaturalMixedBooking(
+    routing: Omit<ConversationRouting, 'source'>,
+    input: ConversationRouterInput
+  ) {
+    if (routing.bookingMessage) return routing
+    const hasInformationTask = routing.intents.some((intent) =>
+      intent.confidence >= 0.65 && [
+        'business_information',
+        'professional_schedule',
+        'service_detail'
+      ].includes(intent.type)
+    )
+    if (!hasInformationTask) return routing
+
+    const candidates = resolveCatalogQueryServices(
+      normalizeEvidenceText(input.message),
+      input.catalog
+    )
+    if (!candidates.length) return routing
+    const client = getOpenAiClient()
+    if (!client) return routing
+
+    try {
+      const response = await client.responses.create({
+        model: openAiConfig.model,
+        instructions: [
+          'Analiza semanticamente si el cliente, ademas de pedir informacion, tambien quiere realizar, elegir o reservar un servicio.',
+          'No dependas de verbos ni frases predeterminadas: interpreta el significado completo del mensaje.',
+          'Distingue una accion adicional de una consulta donde el servicio es solamente el tema.',
+          'Ejemplo de booking: "quiero saber la direccion y hacerme raices".',
+          'Ejemplo de booking: "decime el horario del local y un corte".',
+          'Ejemplo de information_only: "cuanto cuesta un corte".',
+          'Ejemplo de information_only: "que incluye raices".',
+          'evidence debe ser el fragmento textual exacto que expresa el deseo de realizar o reservar el servicio; si no existe usa una cadena vacia.',
+          'serviceId debe pertenecer a serviceCandidates. Si quiere reservar pero la referencia es ambigua, usa null.',
+          'No respondas al cliente ni inventes datos.'
+        ].join('\n'),
+        input: JSON.stringify({
+          customerMessage: input.message,
+          currentStep: input.currentStep,
+          lastBotMessage: input.lastBotMessage,
+          serviceCandidates: candidates.map((service) => ({
+            id: service.id,
+            name: service.name,
+            aliases: service.aliases
+          }))
+        }),
+        text: {
+          format: {
+            type: 'json_schema',
+            name: 'natural_mixed_booking_recovery',
+            strict: true,
+            schema: naturalBookingRecoverySchema
+          }
+        },
+        store: false
+      })
+      return applyNaturalBookingRecovery(
+        routing,
+        JSON.parse(response.output_text) as NaturalBookingRecovery,
+        input.message,
+        new Set(candidates.map((service) => service.id))
+      )
+    } catch (error) {
+      console.warn('[conversation-router] natural mixed booking recovery failed', error)
+      return routing
     }
   }
 }
@@ -341,14 +423,17 @@ export function applyContextualRoutingPriorities(
   routing: Omit<ConversationRouting, 'source'>,
   input: Pick<ConversationRouterInput, 'message' | 'currentStep'>
 ): Omit<ConversationRouting, 'source'> {
+  const hasBookingTask = Boolean(routing.bookingMessage) && routing.intents.some((intent) =>
+    isBookingTaskIntent(intent) && intent.confidence >= 0.65
+  )
   if (routing.intents.some((intent) =>
     intent.type === 'professional_schedule' && intent.confidence >= 0.65
-  )) {
+  ) && !hasBookingTask) {
     return { ...routing, bookingMessage: null, catalogQuery: null }
   }
   if (routing.intents.some((intent) =>
     intent.type === 'service_detail' && intent.confidence >= 0.65
-  )) {
+  ) && !hasBookingTask) {
     return { ...routing, bookingMessage: null }
   }
 
@@ -473,6 +558,12 @@ export function mergeConversationRouting(
   originalMessage: string,
   catalog?: ConversationRouterInput['catalog']
 ): Omit<ConversationRouting, 'source'> {
+  const groundedAiBookingMessage = groundedBookingMessage(
+    aiRouting.bookingMessage,
+    originalMessage
+  )
+  const hasGroundedAiBookingTask = Boolean(groundedAiBookingMessage) &&
+    hasDistinctGroundedBookingEvidence(aiRouting, originalMessage)
   const aiCatalogQuery = groundedCatalogQuery(
     aiRouting.catalogQuery ?? null,
     originalMessage,
@@ -521,8 +612,12 @@ export function mergeConversationRouting(
       hasGroundedAiInformation ||
       hasProfessionalScheduleQuestion
     ) &&
-    deterministic.bookingMessage === null
+    deterministic.bookingMessage === null &&
+    !hasGroundedAiBookingTask
   const intents = aiRouting.intents.filter((intent) => {
+    if (isBookingTaskIntent(intent) && !isGroundedIntentEvidence(intent, originalMessage)) {
+      return false
+    }
     if (
       standaloneBusinessInformationQuestion &&
       [
@@ -570,7 +665,7 @@ export function mergeConversationRouting(
     intents,
     bookingMessage: standaloneBusinessInformationQuestion
       ? null
-      : aiRouting.bookingMessage
+      : groundedAiBookingMessage
         ?? deterministic.bookingMessage
         ?? (hasBookingRelatedIntent ? originalMessage.trim() || null : null),
     bookingExtraction: hasProfessionalScheduleQuestion
@@ -579,6 +674,133 @@ export function mergeConversationRouting(
         ? null
         : aiRouting.bookingExtraction ?? deterministic.bookingExtraction ?? null,
     catalogQuery
+  }
+}
+
+function groundedBookingMessage(value: string | null, originalMessage: string) {
+  const normalizedValue = normalizeEvidenceText(value ?? '')
+  if (!normalizedValue) return null
+  return normalizeEvidenceText(originalMessage).includes(normalizedValue)
+    ? value?.trim() || null
+    : null
+}
+
+function isBookingTaskIntent(intent: RoutedIntent) {
+  return [
+    'book_appointment',
+    'edit_booking',
+    'availability_preference',
+    'professional_preference'
+  ].includes(intent.type)
+}
+
+function isGroundedIntentEvidence(intent: RoutedIntent, originalMessage: string) {
+  const evidence = normalizeEvidenceText(intent.evidence)
+  return intent.confidence >= 0.65 &&
+    Boolean(evidence) &&
+    normalizeEvidenceText(originalMessage).includes(evidence)
+}
+
+function hasDistinctGroundedBookingEvidence(
+  routing: Omit<ConversationRouting, 'source'>,
+  originalMessage: string
+) {
+  const informationEvidence = routing.intents
+    .filter((intent) => [
+      'business_information',
+      'professional_schedule',
+      'service_detail'
+    ].includes(intent.type) && isGroundedIntentEvidence(intent, originalMessage))
+    .map((intent) => normalizeEvidenceText(intent.evidence))
+  const bookingEvidence = [
+    ...routing.intents
+      .filter((intent) =>
+        intent.type === 'book_appointment' &&
+        isGroundedIntentEvidence(intent, originalMessage)
+      )
+      .map((intent) => normalizeEvidenceText(intent.evidence)),
+    ...(['service', 'professional', 'date', 'time'] as const)
+      .map((field) => routing.bookingExtraction?.[field])
+      .filter((field) =>
+        Boolean(field?.value) &&
+        (field?.confidence ?? 0) >= 0.55 &&
+        Boolean(field?.evidence) &&
+        normalizeEvidenceText(originalMessage).includes(
+          normalizeEvidenceText(field?.evidence ?? '')
+        )
+      )
+      .map((field) => normalizeEvidenceText(field?.evidence ?? ''))
+  ]
+
+  return bookingEvidence.some((evidence) =>
+    Boolean(evidence) &&
+    !informationEvidence.some((information) =>
+      information === evidence || information.includes(evidence)
+    )
+  )
+}
+
+export function applyNaturalBookingRecovery(
+  routing: Omit<ConversationRouting, 'source'>,
+  recovery: NaturalBookingRecovery,
+  originalMessage: string,
+  candidateServiceIds: ReadonlySet<string>
+): Omit<ConversationRouting, 'source'> {
+  if (
+    recovery.decision !== 'booking' ||
+    normalizeConfidence(recovery.confidence) < 0.75
+  ) {
+    return routing
+  }
+  const evidence = recovery.evidence.trim()
+  const normalizedEvidence = normalizeEvidenceText(evidence)
+  if (
+    !normalizedEvidence ||
+    !normalizeEvidenceText(originalMessage).includes(normalizedEvidence)
+  ) {
+    return routing
+  }
+  const serviceId = recovery.serviceId && candidateServiceIds.has(recovery.serviceId)
+    ? recovery.serviceId
+    : null
+  if (recovery.serviceId && !serviceId) return routing
+
+  const bookingExtraction = routing.bookingExtraction ?? emptyBookingExtraction()
+  const intents = routing.intents.filter((intent) => {
+    if (intent.type !== 'service_detail') return intent.type !== 'unknown'
+    const detailEvidence = normalizeEvidenceText(intent.evidence)
+    return !detailEvidence || (
+      detailEvidence !== normalizedEvidence &&
+      !detailEvidence.includes(normalizedEvidence) &&
+      !normalizedEvidence.includes(detailEvidence)
+    )
+  })
+  intents.push({
+    type: 'book_appointment',
+    topic: null,
+    confidence: normalizeConfidence(recovery.confidence),
+    evidence
+  })
+
+  return {
+    ...routing,
+    intents,
+    bookingMessage: evidence,
+    bookingExtraction: {
+      ...bookingExtraction,
+      ...(serviceId
+        ? {
+            service: {
+              value: serviceId,
+              confidence: normalizeConfidence(recovery.confidence),
+              evidence
+            }
+          }
+        : {})
+    },
+    ...(serviceId && routing.catalogQuery?.requestedInformation.includes('general')
+      ? { catalogQuery: null }
+      : {})
   }
 }
 
@@ -985,6 +1207,26 @@ function looksLikeInformationQuestion(message: string) {
   const normalized = normalizeEvidenceText(message)
   return message.includes('?') || /^(?:que|cual|cuales|como|cuando|donde|cuanto|quien|quienes|por que)\b/.test(normalized)
 }
+
+const naturalBookingRecoverySchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['decision', 'serviceId', 'confidence', 'evidence'],
+  properties: {
+    decision: {
+      type: 'string',
+      enum: ['booking', 'information_only', 'unclear']
+    },
+    serviceId: {
+      anyOf: [
+        { type: 'string' },
+        { type: 'null' }
+      ]
+    },
+    confidence: { type: 'number', minimum: 0, maximum: 1 },
+    evidence: { type: 'string' }
+  }
+} as const
 
 const conversationRoutingSchema = {
   type: 'object',

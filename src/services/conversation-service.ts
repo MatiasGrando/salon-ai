@@ -962,7 +962,7 @@ export class ConversationService {
   }): Promise<HandleMessageResult> {
     const assistantPersonality = await getBusinessAssistantPersonality(input.businessId)
     const informationTopics = businessInformationTopicsFromRouting(input.routing)
-    const informationReply = informationTopics.length
+    let informationReply = informationTopics.length
       ? await businessKnowledgeService.answer({
           businessId: input.businessId,
           topics: informationTopics,
@@ -979,23 +979,27 @@ export class ConversationService {
       const scheduleReply = professionalId
         ? await this.professionalScheduleReply(input.businessId, professionalId)
         : 'Entendí que querés consultar los horarios de un profesional. ¿De quién querés saberlos?'
-      const resumedReply = isActiveBookingV2Step(input.conversation.currentStep)
-        ? (await bookingV2Engine.resume({
-            businessId: input.businessId,
-            conversation: input.conversation
-          })).reply
-        : null
-      await this.updateConversation(input.phone, input.businessId, {
-        currentStep: conversationStepValue(input.conversation.currentStep),
-        misunderstandingCount: 0
-      })
-      return {
-        reply: applyAssistantPersonalityToReply(
-          resumedReply ? composeBusinessInformationResumeReply(scheduleReply, resumedReply) : scheduleReply,
-          assistantPersonality
-        ),
-        skipMisunderstandingTracking: true,
-        skipHumanize: true
+      if (input.routing.bookingMessage) {
+        informationReply = appendBusinessInformationReply(informationReply, scheduleReply)
+      } else {
+        const resumedReply = isActiveBookingV2Step(input.conversation.currentStep)
+          ? (await bookingV2Engine.resume({
+              businessId: input.businessId,
+              conversation: input.conversation
+            })).reply
+          : null
+        await this.updateConversation(input.phone, input.businessId, {
+          currentStep: conversationStepValue(input.conversation.currentStep),
+          misunderstandingCount: 0
+        })
+        return {
+          reply: applyAssistantPersonalityToReply(
+            resumedReply ? composeBusinessInformationResumeReply(scheduleReply, resumedReply) : scheduleReply,
+            assistantPersonality
+          ),
+          skipMisunderstandingTracking: true,
+          skipHumanize: true
+        }
       }
     }
     const serviceDetailIntent = input.routing.intents.find((intent) =>
@@ -1026,25 +1030,29 @@ export class ConversationService {
             }
           })
         : 'Entendí que querés conocer el proceso de un servicio. ¿Sobre cuál querés consultar?'
-      const resumedReply = isActiveBookingV2Step(input.conversation.currentStep)
-        ? (await bookingV2Engine.resume({
-            businessId: input.businessId,
-            conversation: input.conversation
-          })).reply
-        : null
-      const requiredReply = applyAssistantPersonalityToReply(
-        resumedReply && detailReply
-          ? composeBusinessInformationResumeReply(detailReply, resumedReply)
-          : detailReply ?? 'No tengo ese detalle cargado de forma confiable.',
-        assistantPersonality
-      )
-      return {
-        reply: requiredReply,
-        ...(businessInformationNeedsHuman(requiredReply)
-          ? { replyButtons: recoveryDecisionButtons(input.conversation.id) }
-          : {}),
-        skipMisunderstandingTracking: true,
-        skipHumanize: true
+      if (input.routing.bookingMessage) {
+        informationReply = appendBusinessInformationReply(informationReply, detailReply)
+      } else {
+        const resumedReply = isActiveBookingV2Step(input.conversation.currentStep)
+          ? (await bookingV2Engine.resume({
+              businessId: input.businessId,
+              conversation: input.conversation
+            })).reply
+          : null
+        const requiredReply = applyAssistantPersonalityToReply(
+          resumedReply && detailReply
+            ? composeBusinessInformationResumeReply(detailReply, resumedReply)
+            : detailReply ?? 'No tengo ese detalle cargado de forma confiable.',
+          assistantPersonality
+        )
+        return {
+          reply: requiredReply,
+          ...(businessInformationNeedsHuman(requiredReply)
+            ? { replyButtons: recoveryDecisionButtons(input.conversation.id) }
+            : {}),
+          skipMisunderstandingTracking: true,
+          skipHumanize: true
+        }
       }
     }
     if (isGroundedUnsupportedServiceRequest(input.message, input.routing)) {
@@ -2647,6 +2655,21 @@ export function composeBusinessInformationResumeReply(
   resumedReply: string
 ) {
   return `${informationReply.trim()}\n\n${resumedReply.trim()}`
+}
+
+export function appendBusinessInformationReply(
+  currentReply: string | null,
+  nextReply: string | null
+) {
+  const current = currentReply?.trim()
+  const next = nextReply?.trim()
+  if (!current) return next || null
+  if (!next) return current
+  const normalizedCurrent = normalizeText(current)
+  const normalizedNext = normalizeText(next)
+  if (normalizedCurrent.includes(normalizedNext)) return current
+  if (normalizedNext.includes(normalizedCurrent)) return next
+  return `${current}\n\n${next}`
 }
 
 export function mergeBookingV2AgendaFromRouting(input: {

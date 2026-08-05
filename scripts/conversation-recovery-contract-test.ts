@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import {
+  applyNaturalBookingRecovery,
   applyContextualRoutingPriorities,
   applyExpectedFieldCatalogFallback,
   deterministicConversationRouting,
@@ -8,6 +9,7 @@ import {
   normalizeConversationRouting
 } from '../src/services/conversation-router.js'
 import {
+  appendBusinessInformationReply,
   businessInformationNeedsHuman,
   formatProfessionalWorkingHours,
   isGroundedUnsupportedServiceRequest,
@@ -27,6 +29,151 @@ const catalog = {
   services: [{ id: 'illumination', name: 'Iluminación', aliases: ['balayage'] }],
   professionals: [{ id: 'tamara', name: 'Tamara', aliases: ['Tami'] }]
 }
+
+const naturalMixedCatalog = {
+  services: [
+    { id: 'roots', name: 'Tintura raíces', aliases: ['raíces'] },
+    { id: 'haircut', name: 'Corte', aliases: [] }
+  ],
+  professionals: []
+}
+
+for (const test of [
+  {
+    message: 'quiero saber la dirección del local y hacerme raíces',
+    topic: 'address' as const,
+    evidence: 'hacerme raíces',
+    serviceId: 'roots'
+  },
+  {
+    message: 'hola quería saber el horario y un corte',
+    topic: 'opening_hours' as const,
+    evidence: 'un corte',
+    serviceId: 'haircut'
+  }
+]) {
+  const aiRouting = normalizeConversationRouting({
+    intents: [
+      {
+        type: 'business_information',
+        topic: test.topic,
+        confidence: 0.97,
+        evidence: test.topic === 'address' ? 'dirección del local' : 'horario del local'
+      },
+      {
+        type: 'book_appointment',
+        topic: null,
+        confidence: 0.96,
+        evidence: test.evidence
+      }
+    ],
+    bookingMessage: test.evidence,
+    bookingExtraction: extraction({
+      service: field(test.serviceId, 0.96, test.evidence)
+    }),
+    catalogQuery: null
+  })
+  const merged = mergeConversationRouting(
+    aiRouting,
+    deterministicConversationRouting(test.message, {
+      currentStep: 'START',
+      catalog: naturalMixedCatalog
+    }),
+    test.message,
+    naturalMixedCatalog
+  )
+
+  assert.equal(merged.bookingMessage, test.evidence, test.message)
+  assert.equal(merged.bookingExtraction?.service.value, test.serviceId, test.message)
+  assert.equal(merged.intents.some((intent) =>
+    intent.type === 'business_information' && intent.topic === test.topic
+  ), true, test.message)
+  assert.equal(merged.intents.some((intent) =>
+    intent.type === 'book_appointment'
+  ), true, test.message)
+}
+
+const ungroundedNaturalBooking = mergeConversationRouting(
+  normalizeConversationRouting({
+    intents: [
+      { type: 'business_information', topic: 'address', confidence: 0.97, evidence: 'dirección' },
+      { type: 'book_appointment', topic: null, confidence: 0.99, evidence: 'quiero depilarme' }
+    ],
+    bookingMessage: 'hacerme raíces',
+    bookingExtraction: extraction({ service: field('roots', 0.99, 'hacerme raíces') }),
+    catalogQuery: null
+  }),
+  deterministicConversationRouting('¿Cuál es la dirección?', {
+    currentStep: 'START',
+    catalog: naturalMixedCatalog
+  }),
+  '¿Cuál es la dirección?',
+  naturalMixedCatalog
+)
+assert.equal(ungroundedNaturalBooking.bookingMessage, null)
+assert.equal(ungroundedNaturalBooking.intents.some((intent) => intent.type === 'book_appointment'), false)
+
+const recoveredNaturalBooking = applyNaturalBookingRecovery(
+  ungroundedNaturalBooking,
+  {
+    decision: 'booking',
+    serviceId: 'roots',
+    confidence: 0.94,
+    evidence: 'hacerme raíces'
+  },
+  'quiero saber la dirección del local y hacerme raíces',
+  new Set(['roots'])
+)
+assert.equal(recoveredNaturalBooking.bookingMessage, 'hacerme raíces')
+assert.equal(recoveredNaturalBooking.bookingExtraction?.service.value, 'roots')
+assert.equal(recoveredNaturalBooking.intents.some((intent) => intent.type === 'book_appointment'), true)
+
+const rejectedInventedRecovery = applyNaturalBookingRecovery(
+  ungroundedNaturalBooking,
+  {
+    decision: 'booking',
+    serviceId: 'invented-service',
+    confidence: 0.99,
+    evidence: 'hacerme raíces'
+  },
+  'quiero saber la dirección del local y hacerme raíces',
+  new Set(['roots'])
+)
+assert.deepEqual(rejectedInventedRecovery, ungroundedNaturalBooking)
+
+const informationOnlyRecovery = applyNaturalBookingRecovery(
+  ungroundedNaturalBooking,
+  {
+    decision: 'information_only',
+    serviceId: 'haircut',
+    confidence: 0.98,
+    evidence: ''
+  },
+  'cuánto cuesta un corte',
+  new Set(['haircut'])
+)
+assert.deepEqual(informationOnlyRecovery, ungroundedNaturalBooking)
+
+const mixedDetailAndBooking = applyContextualRoutingPriorities(normalizeConversationRouting({
+  intents: [
+    { type: 'service_detail', topic: null, confidence: 0.95, evidence: 'qué incluye raíces' },
+    { type: 'book_appointment', topic: null, confidence: 0.96, evidence: 'quiero reservarlo' }
+  ],
+  bookingMessage: 'quiero reservarlo',
+  bookingExtraction: extraction({ service: field('roots', 0.95, 'raíces') }),
+  catalogQuery: null
+}), {
+  message: '¿Qué incluye raíces? Quiero reservarlo',
+  currentStep: 'START'
+})
+assert.equal(mixedDetailAndBooking.bookingMessage, 'quiero reservarlo')
+assert.equal(mixedDetailAndBooking.intents.some((intent) => intent.type === 'service_detail'), true)
+assert.equal(mixedDetailAndBooking.intents.some((intent) => intent.type === 'book_appointment'), true)
+
+assert.equal(
+  appendBusinessInformationReply('La dirección es Calle 123.', 'Atendemos de 09:00 a 20:00.'),
+  'La dirección es Calle 123.\n\nAtendemos de 09:00 a 20:00.'
+)
 
 const professionalSchedule = normalizeConversationRouting({
   intents: [{
