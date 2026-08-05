@@ -3358,6 +3358,7 @@ export function isGroundedUnsupportedServiceRequest(
   routing: ConversationRouting
 ) {
   if (routing.bookingExtraction?.service.value) return false
+  if (routing.catalogQuery?.serviceId || routing.catalogQuery?.candidateServiceIds?.length) return false
   const normalizedMessage = normalizeText(message)
   return routing.intents.some((intent) => {
     if (intent.type !== 'unsupported_service') return false

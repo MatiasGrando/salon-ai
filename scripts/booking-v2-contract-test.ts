@@ -51,6 +51,7 @@ import {
   isBookingV2ConversationClosing,
   isBookingV2GreetingOnlyMessage,
   isBookingV2InitialGreeting,
+  isGroundedUnsupportedServiceRequest,
   isPostBookingWellbeingQuestion,
   mergeBookingV2AgendaFromRouting,
   pendingRequestFromRouting,
@@ -4570,6 +4571,33 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.match(answer ?? '', /¿Sobre cuál querés consultar\?/)
       assert.doesNotMatch(answer ?? '', /Entrevista estratégica/)
       assert.doesNotMatch(answer ?? '', /Acompañamiento personalizado/)
+    }
+  },
+  {
+    name: 'una consulta con candidatos válidos no se trata como servicio no soportado',
+    run: () => {
+      const message = 'hola quiero info de mentorías'
+      const catalog = {
+        services: [
+          { id: 'individual', name: 'Mentoría individual', aliases: ['Mentorías'] },
+          { id: 'group', name: 'Mentoría grupal', aliases: ['Mentorías'] }
+        ],
+        professionals: []
+      }
+      const routing = mergeConversationRouting({
+        intents: [{
+          type: 'unsupported_service',
+          topic: null,
+          confidence: 0.91,
+          evidence: 'mentorías'
+        }],
+        bookingMessage: null,
+        bookingExtraction: null,
+        catalogQuery: null
+      }, deterministicConversationRouting(message, { currentStep: 'START', catalog }), message, catalog)
+
+      assert.deepEqual(routing.catalogQuery?.candidateServiceIds, ['individual', 'group'])
+      assert.equal(isGroundedUnsupportedServiceRequest(message, { ...routing, source: 'ai' }), false)
     }
   },
   {
