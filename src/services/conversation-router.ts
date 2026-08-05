@@ -882,7 +882,10 @@ function deterministicCatalogQuery(
   if (containsAny(normalized, ['quien lo hace', 'quien hace', 'profesional', 'profesionales', 'quien atiende'])) {
     requestedInformation.push('professionals')
   }
-  if (containsAny(normalized, ['informacion', 'info', 'contame', 'explicame', 'detalle', 'detalles', 'de que se trata'])) {
+  if (containsAny(normalized, [
+    'informacion', 'info', 'contame', 'consultar', 'consulta', 'explicame',
+    'detalle', 'detalles', 'de que se trata'
+  ])) {
     requestedInformation.push('general')
   }
   if (!requestedInformation.length) return null
@@ -1058,7 +1061,7 @@ function catalogLabelIsMentioned(message: string, label: string) {
 
 function catalogQuerySubjectTokens(value: string) {
   const ignored = new Set([
-    'a', 'al', 'algo', 'cual', 'cuales', 'cuanto', 'cuesta', 'dame', 'de', 'decime',
+    'a', 'al', 'algo', 'cual', 'cuales', 'consultar', 'consulta', 'cuanto', 'cuesta', 'dame', 'de', 'decime',
     'del', 'detalle', 'detalles', 'duracion', 'el', 'es', 'explicame', 'informacion',
     'info', 'la', 'las', 'lo', 'los', 'precio', 'precios', 'que', 'quien', 'quienes',
     'sobre', 'un', 'una', 'valor', 'y'

@@ -148,6 +148,13 @@ export function renderCatalogServiceQuery(
     .filter((service): service is BusinessKnowledge['services'][number] => Boolean(service))
   if (!query.serviceId && candidateServices.length > 1) {
     const requested = new Set(query.requestedInformation)
+    if (requested.size === 1 && requested.has('general')) {
+      return [
+        'Encontré varias opciones relacionadas con tu consulta:',
+        ...candidateServices.map((service) => `• ${service.name}`),
+        '¿Sobre cuál querés consultar?'
+      ].join('\n')
+    }
     return [
       'Encontré más de un servicio relacionado con tu consulta:',
       ...candidateServices.map((service) => {

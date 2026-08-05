@@ -4508,6 +4508,52 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'router usa las categorías para aclarar consultas informativas ambiguas',
+    run: () => {
+      const catalog = {
+        services: [
+          { id: 'individual', name: 'Mentoría individual', aliases: ['Mentorías'] },
+          { id: 'group', name: 'Mentoría grupal', aliases: ['Mentorías'] },
+          { id: 'interview', name: 'Entrevista estratégica', aliases: ['Entrevistas'] }
+        ],
+        professionals: []
+      }
+      const routing = deterministicConversationRouting(
+        'Me gustaría consultar sobre mentorías',
+        { currentStep: 'START', catalog }
+      )
+
+      assert.equal(routing.catalogQuery?.serviceId, null)
+      assert.deepEqual(routing.catalogQuery?.candidateServiceIds, ['individual', 'group'])
+      assert.deepEqual(routing.catalogQuery?.requestedInformation, ['general'])
+
+      const answer = renderCatalogServiceQuery({
+        name: 'Mentorías Demo',
+        slug: null,
+        landingEnabled: false,
+        publicWhatsapp: null,
+        contactEmail: null,
+        publicAddress: null,
+        publicAddressArea: null,
+        publicMapsUrl: null,
+        instagramUrl: null,
+        facebookUrl: null,
+        businessHours: [],
+        services: [
+          { id: 'individual', name: 'Mentoría individual', description: 'Acompañamiento personalizado.', duration: 60, price: 500000 },
+          { id: 'group', name: 'Mentoría grupal', description: 'Encuentros grupales.', duration: 60, price: 600000 },
+          { id: 'interview', name: 'Entrevista estratégica', description: 'Orientación inicial.', duration: 60, price: 100000 }
+        ],
+        professionals: []
+      }, routing.catalogQuery!)
+      assert.match(answer ?? '', /Mentoría individual/)
+      assert.match(answer ?? '', /Mentoría grupal/)
+      assert.match(answer ?? '', /¿Sobre cuál querés consultar\?/)
+      assert.doesNotMatch(answer ?? '', /Entrevista estratégica/)
+      assert.doesNotMatch(answer ?? '', /Acompañamiento personalizado/)
+    }
+  },
+  {
     name: 'router conserva la consulta de ia cuando esta respaldada por el catalogo',
     run: () => {
       const message = 'contame un poco sobre tratamiento'
