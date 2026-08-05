@@ -122,6 +122,31 @@ export function removeCurrentInboundFromHistory(
 ) {
   const result = messages.slice()
   const normalizedCurrent = normalizeForComparison(currentMessage)
+  const batchParts = currentMessage
+    .split(/\r?\n/)
+    .map(normalizeForComparison)
+    .filter(Boolean)
+
+  if (batchParts.length > 1) {
+    const matchedIndexes: number[] = []
+    let historyIndex = result.length - 1
+    for (let partIndex = batchParts.length - 1; partIndex >= 0; partIndex -= 1) {
+      const candidate = result[historyIndex]
+      if (
+        candidate?.direction !== 'INBOUND' ||
+        normalizeForComparison(candidate.body) !== batchParts[partIndex]
+      ) {
+        matchedIndexes.length = 0
+        break
+      }
+      matchedIndexes.push(historyIndex)
+      historyIndex -= 1
+    }
+    if (matchedIndexes.length === batchParts.length) {
+      const matched = new Set(matchedIndexes)
+      return result.filter((_, index) => !matched.has(index))
+    }
+  }
 
   for (let index = result.length - 1; index >= 0; index -= 1) {
     const candidate = result[index]

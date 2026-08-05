@@ -324,8 +324,17 @@ function isBareCatalogOptionSelection(
   const normalizedMessage = normalizeEvidenceText(message)
     .replace(/^(?:elijo|me interesa|prefiero|quiero)\s+/, '')
     .replace(/\s+por favor$/, '')
-  return [option.name, ...(option.aliases ?? [])]
+  return catalogOptionSelectionLabels(option)
     .some((label) => normalizeEvidenceText(label) === normalizedMessage)
+}
+
+function catalogOptionSelectionLabels(option: { name: string; aliases?: string[] }) {
+  const primaryName = option.name.split('(')[0]?.trim()
+  return Array.from(new Set([
+    option.name,
+    ...(primaryName && primaryName !== option.name ? [primaryName] : []),
+    ...(option.aliases ?? [])
+  ]))
 }
 
 export function applyContextualRoutingPriorities(
@@ -668,7 +677,7 @@ function resolveCatalogOptionMatches(
   options: BookingV2CatalogOption[]
 ) {
   const fullLabelMatches = options.filter((option) =>
-    [option.name, ...(option.aliases ?? [])].some((label) =>
+    catalogOptionSelectionLabels(option).some((label) =>
       catalogLabelIsMentioned(normalizedMessage, normalizeEvidenceText(label))
     )
   )
@@ -678,7 +687,7 @@ function resolveCatalogOptionMatches(
   const scoredMatches = options
     .map((option) => ({
       option,
-      score: Math.max(...[option.name, ...(option.aliases ?? [])].map((label) =>
+      score: Math.max(...catalogOptionSelectionLabels(option).map((label) =>
         catalogLabelMatchScore(messageTokens, catalogQuerySubjectTokens(normalizeEvidenceText(label)))
       ))
     }))

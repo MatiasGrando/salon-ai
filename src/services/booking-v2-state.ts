@@ -290,7 +290,21 @@ export function confirmProposal(state: BookingV2State): BookingV2State {
   }
 
   if (proposal.value === null) return rejectProposal(state)
-  return acceptField(state, proposal.field, proposal.value)
+  const aheadTime = proposal.kind === 'field' &&
+    proposal.field === 'date' &&
+    state.draft.date === null
+    ? state.draft.time
+    : null
+  const acceptedState = acceptField(state, proposal.field, proposal.value)
+  return aheadTime
+    ? {
+        ...acceptedState,
+        draft: {
+          ...acceptedState.draft,
+          time: aheadTime
+        }
+      }
+    : acceptedState
 }
 
 export function rejectProposal(state: BookingV2State): BookingV2State {

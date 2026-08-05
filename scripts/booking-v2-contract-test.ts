@@ -2873,6 +2873,101 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'motor conserva fecha y hora recibidas juntas y confirma sin repreguntar el dia',
+    run: async () => {
+      const engine = new BookingV2Engine(
+        fakeDomainPort({
+          availabilityOptions: [
+            { time: '15:00', professionalId: 'professional-1', professionalName: 'Nico' }
+          ]
+        }),
+        fakeExtractor(null),
+        fakeServiceValidationClassifier(),
+        fakeEstimateDecisionExtractor(),
+        fakeEstimateOptionExtractor(),
+        fakeChoiceExtractor()
+      )
+      const conversation = {
+        selectedCustomerName: 'Cristian',
+        selectedServiceId: 'haircut',
+        selectedProfessionalId: 'professional-1',
+        selectedDate: null,
+        selectedTime: null,
+        misunderstandingCount: 0,
+        bookingV2State: null
+      }
+      const proposed = await engine.process({
+        businessId: 'business-1',
+        conversation,
+        message: 'El 22 de agosto\nA las 15hs',
+        currentDate: new Date('2026-08-04T20:00:00.000Z'),
+        understandingExtraction: extraction({
+          date: field('2026-08-22', 0.7, 'El 22 de agosto'),
+          time: field('15:00', 0.95, '15hs')
+        })
+      })
+
+      assert.equal(proposed.state.draft.date, null)
+      assert.equal(proposed.state.draft.time, '15:00')
+      assert.equal(proposed.state.pendingProposal?.field, 'date')
+      assert.equal(proposed.plan.type, 'confirm_field')
+      assert.match(proposed.reply, /22\/08\/2026/)
+
+      const confirmed = await engine.process({
+        businessId: 'business-1',
+        conversation: proposed.conversationPatch,
+        message: 'Sí',
+        currentDate: new Date('2026-08-04T20:00:00.000Z')
+      })
+
+      assert.equal(confirmed.state.draft.date, '2026-08-22')
+      assert.equal(confirmed.state.draft.time, '15:00')
+      assert.equal(confirmed.plan.type, 'confirm_booking')
+      assert.doesNotMatch(confirmed.reply, /Qué día te gustaría venir/i)
+    }
+  },
+  {
+    name: 'motor corta el loop de fecha despues de tres respuestas sin avance',
+    run: async () => {
+      const engine = new BookingV2Engine(fakeDomainPort(), fakeExtractor(null))
+      let conversation = {
+        selectedCustomerName: 'Cristian',
+        selectedServiceId: 'haircut',
+        selectedProfessionalId: 'professional-1',
+        selectedDate: null,
+        selectedTime: null,
+        misunderstandingCount: 0,
+        bookingV2State: null as unknown
+      }
+
+      for (const message of ['Sí', 'Ya te dije la fecha']) {
+        const result = await engine.process({
+          businessId: 'business-1',
+          conversation,
+          message
+        })
+        conversation = {
+          selectedCustomerName: result.conversationPatch.selectedCustomerName,
+          selectedServiceId: result.conversationPatch.selectedServiceId,
+          selectedProfessionalId: result.conversationPatch.selectedProfessionalId,
+          selectedDate: result.conversationPatch.selectedDate,
+          selectedTime: result.conversationPatch.selectedTime,
+          misunderstandingCount: result.conversationPatch.misunderstandingCount,
+          bookingV2State: result.conversationPatch.bookingV2State
+        }
+      }
+
+      const third = await engine.process({
+        businessId: 'business-1',
+        conversation,
+        message: 'Cualquier fecha'
+      })
+      assert.equal(third.state.misunderstandingCount, 3)
+      assert.deepEqual(third.plan, { type: 'handoff', reason: 'repeated_misunderstanding' })
+      assert.match(third.reply, /persona|equipo/i)
+    }
+  },
+  {
     name: 'motor acepta un servicio equivalente sin confirmacion innecesaria',
     run: async () => {
       const domainCatalog = createBookingV2DomainCatalog({
@@ -4128,6 +4223,21 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'contexto del router excluye todos los fragmentos del lote actual',
+    run: () => {
+      const history = removeCurrentInboundFromHistory([
+        { direction: 'OUTBOUND', body: '¿En qué te puedo ayudar?' },
+        { direction: 'INBOUND', body: 'Quisiera agendar un turno' },
+        { direction: 'INBOUND', body: 'De color' },
+        { direction: 'INBOUND', body: 'Y corte' }
+      ], 'Quisiera agendar un turno\nDe color\nY corte')
+
+      assert.deepEqual(history, [
+        { direction: 'OUTBOUND', body: '¿En qué te puedo ayudar?' }
+      ])
+    }
+  },
+  {
     name: 'router determinista reconoce formas naturales de pedir servicios',
     run: () => {
       for (const message of ['Cuales servicios hay?', 'Que servicios hay?', 'Mostrame los servicios']) {
@@ -4521,6 +4631,40 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         assert.equal(reply.endsWith(resumed.reply), true)
         assert.deepEqual(resumed.state.draft, state.draft)
       }
+    }
+  },
+  {
+    name: 'consulta intermedia de direccion no suma una incomprension',
+    run: async () => {
+      const routing = deterministicConversationRouting('¿Cuál es la dirección?', {
+        currentStep: 'ASK_DATE'
+      })
+      assert.deepEqual(businessInformationTopicsFromRouting(routing), ['address'])
+      assert.equal(routing.bookingMessage, null)
+
+      const state = {
+        ...acceptField(
+          acceptField(
+            acceptField(createEmptyBookingV2State(), 'name', 'Cristian'),
+            'service',
+            'haircut'
+          ),
+          'professional',
+          'professional-1'
+        ),
+        misunderstandingCount: 1
+      }
+      const resumed = await new BookingV2Engine(
+        fakeDomainPort(),
+        fakeExtractor(null)
+      ).resume({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(state)
+      })
+
+      assert.equal(resumed.state.misunderstandingCount, 1)
+      assert.deepEqual(resumed.state.draft, state.draft)
+      assert.equal(resumed.plan.type === 'ask_field' ? resumed.plan.field : null, 'date')
     }
   },
   {

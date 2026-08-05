@@ -171,6 +171,27 @@ assert.equal(exactServiceBeatsWrongDetailIntent.bookingExtraction?.service.value
 assert.equal(exactServiceBeatsWrongDetailIntent.intents.some((intent) => intent.type === 'service_detail'), false)
 assert.equal(exactServiceBeatsWrongDetailIntent.intents.some((intent) => intent.type === 'book_appointment'), true)
 
+const conciseParentheticalServiceSelection = applyExpectedFieldCatalogFallback({
+  intents: [{ type: 'service_detail', topic: null, confidence: 0.94, evidence: 'Iluminación' }],
+  bookingMessage: null,
+  bookingExtraction: null,
+  catalogQuery: null
+}, {
+  message: 'Iluminación',
+  currentStep: 'ASK_SERVICE',
+  catalog: {
+    services: [{
+      id: 'illumination',
+      name: 'Iluminación (baby lights, balayage, contouring, etc)',
+      aliases: []
+    }],
+    professionals: []
+  }
+})
+assert.equal(conciseParentheticalServiceSelection.bookingExtraction?.service.value, 'illumination')
+assert.equal(conciseParentheticalServiceSelection.intents.some((intent) => intent.type === 'service_detail'), false)
+assert.equal(conciseParentheticalServiceSelection.intents.some((intent) => intent.type === 'book_appointment'), true)
+
 const realServiceDetailQuestion = applyExpectedFieldCatalogFallback({
   intents: [{ type: 'service_detail', topic: null, confidence: 0.94, evidence: 'qué incluye' }],
   bookingMessage: null,

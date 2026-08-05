@@ -567,8 +567,11 @@ export class BookingV2Engine {
     if (!rawExtraction) {
       const expectedField = nextMissingField(stateForExtraction.draft)
       if (
-        shouldCountFailedProfessionalSelection(input.message, expectedField) ||
-        shouldCountFailedCatalogSelection(input.message, expectedField, catalog)
+        shouldCountFailedExpectedFieldAnswer(
+          input.message,
+          expectedField,
+          catalog
+        )
       ) {
         const state = recordLowConfidence(stateForExtraction)
         const affectedField = expectedField === 'confirmation' ? null : expectedField
@@ -606,7 +609,7 @@ export class BookingV2Engine {
     const expectedField = nextMissingField(stateForExtraction.draft)
     const affectedField = expectedField === 'confirmation' ? null : expectedField
     const effectiveInterpretation = interpretation.outcome === 'no_change' &&
-      shouldCountFailedProfessionalSelection(input.message, expectedField)
+      shouldCountFailedExpectedFieldAnswer(input.message, expectedField, catalog)
       ? {
           state: recordLowConfidence(interpretation.state),
           nextField: expectedField,
@@ -1350,6 +1353,23 @@ function shouldCountFailedProfessionalSelection(message: string, expectedField: 
   if (expectedField !== 'professional') return false
   const normalizedMessage = normalize(message)
   return /^(?:con|con la|con el|prefiero|quiero con|elijo a)\s+\S+/.test(normalizedMessage)
+}
+
+function shouldCountFailedExpectedFieldAnswer(
+  message: string,
+  expectedField: BookingField | 'confirmation',
+  catalog: BookingV2DomainCatalog
+) {
+  if (
+    shouldCountFailedProfessionalSelection(message, expectedField) ||
+    shouldCountFailedCatalogSelection(message, expectedField, catalog)
+  ) {
+    return true
+  }
+  if (!['date', 'time'].includes(expectedField)) return false
+  const normalizedMessage = normalize(message)
+  if (!normalizedMessage) return false
+  return !['hola', 'buenas', 'buen dia', 'buenas tardes', 'buenas noches'].includes(normalizedMessage)
 }
 
 function resolveExpectedName(

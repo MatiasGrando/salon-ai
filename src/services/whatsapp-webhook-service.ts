@@ -15,6 +15,7 @@ import {
   PHOTO_QUOTE_ACKNOWLEDGEMENT,
   photoQuoteAcknowledgementService
 } from './photo-quote-acknowledgement-service.js'
+import { InboundMessageBatcher } from './inbound-message-batcher.js'
 
 type VerifyWebhookInput = {
   mode: string | undefined
@@ -71,8 +72,21 @@ type WhatsAppWebhookPayload = {
   }>
 }
 
+type AutomaticInboundMessage = {
+  conversationId: string
+  phone: string
+  text: string
+  businessId: string | null
+  previousActivityAt: Date
+  interactiveReplyId?: string
+}
+
 const conversationService = new ConversationService()
 const whatsappCloudApi = new WhatsAppCloudApi()
+const inboundMessageBatcher = new InboundMessageBatcher(
+  whatsappConfig.messageBatchDelayMs,
+  whatsappConfig.messageBatchMaxWaitMs
+)
 
 export function buildIncomingConversationUpsert(businessId: string | null, phone: string) {
   if (!businessId) return null
@@ -116,6 +130,7 @@ export class WhatsAppWebhookService {
   async handleWebhook(payload: WhatsAppWebhookPayload = {}) {
     const messages = this.extractIncomingMessages(payload)
     const results = []
+    const automaticTasks: Array<Promise<void>> = []
 
     console.info('[whatsapp-webhook] received payload', {
       entries: payload.entry?.length ?? 0,
@@ -430,110 +445,148 @@ export class WhatsAppWebhookService {
         continue
       }
 
-      const conversationResult = await conversationService.handleMessage({
+      const automaticMessage: AutomaticInboundMessage = {
+        conversationId: conversation.id,
         phone: message.from,
-        message: message.text,
-        ...(conversation.businessId ? { businessId: conversation.businessId } : {}),
-        ...(message.interactiveReplyId ? { interactiveReplyId: message.interactiveReplyId } : {}),
+        text: message.text,
+        businessId: conversation.businessId,
         previousActivityAt: conversation.updatedAt,
-        useAi: businessAiEnabled
-      })
-
-      const gate = conversation.businessId ? await assertBusinessCanSendWhatsApp(conversation.businessId, 'BOT') : null
-      const hasReplyButtons = Boolean(conversationResult.replyButtons?.length)
-      const outboundReplies = hasReplyButtons
-        ? [conversationResult.reply]
-        : conversationResult.messages?.length
-          ? conversationResult.messages
-          : [conversationResult.reply]
-      const deliveryResults: Array<Awaited<ReturnType<WhatsAppCloudApi['sendTextMessage']>>> = []
-
-      for (const replyText of outboundReplies) {
-        const deliveryResult = gate?.allowed
-          ? hasReplyButtons
-            ? await whatsappCloudApi.sendReplyButtonsMessage({
-                businessId: conversation.businessId,
-                to: message.from,
-                text: replyText,
-                buttons: conversationResult.replyButtons!
-              })
-            : await whatsappCloudApi.sendTextMessage({
-                businessId: conversation.businessId,
-                to: message.from,
-                text: replyText
-              })
-          : { sent: false as const, to: message.from, reason: gate?.message || 'La conversacion no tiene comercio asociado para resolver WhatsApp.' }
-
-        deliveryResults.push(deliveryResult)
-        const outgoingProviderMessageId = getOutgoingProviderMessageId(deliveryResult)
-        const outboundMessageData: {
-          conversationId: string
-          phone: string
-          direction: 'OUTBOUND'
-          body: string
-          providerMessageId?: string
-          status: string
-          providerStatusCode?: number
-          providerErrorCode?: string
-          providerErrorMessage?: string
-          metadata: Awaited<ReturnType<WhatsAppCloudApi['sendTextMessage']>>
-        } = {
-          conversationId: conversation.id,
-          phone: message.from,
-          direction: 'OUTBOUND',
-          body: replyText,
-          status: deliveryResult.sent ? 'sent' : 'failed',
-          metadata: deliveryResult
-        }
-
-        if (outgoingProviderMessageId) {
-          outboundMessageData.providerMessageId = outgoingProviderMessageId
-        }
-
-        if (!deliveryResult.sent) {
-          if ('status' in deliveryResult && deliveryResult.status) {
-            outboundMessageData.providerStatusCode = deliveryResult.status
-          }
-
-          if ('errorCode' in deliveryResult && deliveryResult.errorCode) {
-            outboundMessageData.providerErrorCode = deliveryResult.errorCode
-          }
-
-          if ('errorMessage' in deliveryResult && deliveryResult.errorMessage) {
-            outboundMessageData.providerErrorMessage = deliveryResult.errorMessage
-          }
-        }
-
-        await prisma.message.create({
-          data: outboundMessageData
-        })
-
-        console.info('[whatsapp-webhook] saved outbound reply', {
-          messageId: outgoingProviderMessageId,
-          to: message.from,
-          sent: deliveryResult.sent,
-          conversationId: conversation.id
-        })
-
-        if (!deliveryResult.sent) break
+        ...(message.interactiveReplyId
+          ? { interactiveReplyId: message.interactiveReplyId }
+          : {})
       }
-
-      const deliveryResult = deliveryResults[deliveryResults.length - 1]
-
-      results.push({
-        messageId: message.id,
-        from: message.from,
-        reply: conversationResult.reply,
-        messages: outboundReplies,
-        delivery: deliveryResult,
-        deliveries: deliveryResults
+      const automaticTask = inboundMessageBatcher.enqueue({
+        key: conversation.id,
+        item: automaticMessage,
+        immediate: Boolean(message.interactiveReplyId || message.media),
+        process: (batch) => this.processAutomaticInboundBatch(batch, businessAiEnabled)
+      }).then((automaticResult) => {
+        results.push({
+          messageId: message.id,
+          from: message.from,
+          ...automaticResult
+        })
       })
+      automaticTasks.push(automaticTask)
     }
+
+    await Promise.all(automaticTasks)
 
     return {
       status: 'ok',
       processed: results.length,
       results
+    }
+  }
+
+  private async processAutomaticInboundBatch(
+    batch: AutomaticInboundMessage[],
+    useAi: boolean
+  ) {
+    const firstMessage = batch[0]
+    if (!firstMessage) throw new Error('No hay mensajes para procesar')
+    const combinedMessage = batch.map((message) => message.text.trim()).filter(Boolean).join('\n')
+    const conversationResult = await conversationService.handleMessage({
+      phone: firstMessage.phone,
+      message: combinedMessage,
+      ...(firstMessage.businessId ? { businessId: firstMessage.businessId } : {}),
+      ...(firstMessage.interactiveReplyId
+        ? { interactiveReplyId: firstMessage.interactiveReplyId }
+        : {}),
+      previousActivityAt: firstMessage.previousActivityAt,
+      useAi
+    })
+
+    const gate = firstMessage.businessId
+      ? await assertBusinessCanSendWhatsApp(firstMessage.businessId, 'BOT')
+      : null
+    const hasReplyButtons = Boolean(conversationResult.replyButtons?.length)
+    const outboundReplies = hasReplyButtons
+      ? [conversationResult.reply]
+      : conversationResult.messages?.length
+        ? conversationResult.messages
+        : [conversationResult.reply]
+    const deliveryResults: Array<Awaited<ReturnType<WhatsAppCloudApi['sendTextMessage']>>> = []
+
+    for (const replyText of outboundReplies) {
+      const deliveryResult = gate?.allowed
+        ? hasReplyButtons
+          ? await whatsappCloudApi.sendReplyButtonsMessage({
+              businessId: firstMessage.businessId!,
+              to: firstMessage.phone,
+              text: replyText,
+              buttons: conversationResult.replyButtons!
+            })
+          : await whatsappCloudApi.sendTextMessage({
+              businessId: firstMessage.businessId!,
+              to: firstMessage.phone,
+              text: replyText
+            })
+        : {
+            sent: false as const,
+            to: firstMessage.phone,
+            reason: gate?.message || 'La conversacion no tiene comercio asociado para resolver WhatsApp.'
+          }
+
+      deliveryResults.push(deliveryResult)
+      const outgoingProviderMessageId = getOutgoingProviderMessageId(deliveryResult)
+      const outboundMessageData: {
+        conversationId: string
+        phone: string
+        direction: 'OUTBOUND'
+        body: string
+        providerMessageId?: string
+        status: string
+        providerStatusCode?: number
+        providerErrorCode?: string
+        providerErrorMessage?: string
+        metadata: Awaited<ReturnType<WhatsAppCloudApi['sendTextMessage']>> & {
+          inboundBatchSize?: number
+        }
+      } = {
+        conversationId: firstMessage.conversationId,
+        phone: firstMessage.phone,
+        direction: 'OUTBOUND',
+        body: replyText,
+        status: deliveryResult.sent ? 'sent' : 'failed',
+        metadata: {
+          ...deliveryResult,
+          ...(batch.length > 1 ? { inboundBatchSize: batch.length } : {})
+        }
+      }
+
+      if (outgoingProviderMessageId) {
+        outboundMessageData.providerMessageId = outgoingProviderMessageId
+      }
+      if (!deliveryResult.sent) {
+        if ('status' in deliveryResult && deliveryResult.status) {
+          outboundMessageData.providerStatusCode = deliveryResult.status
+        }
+        if ('errorCode' in deliveryResult && deliveryResult.errorCode) {
+          outboundMessageData.providerErrorCode = deliveryResult.errorCode
+        }
+        if ('errorMessage' in deliveryResult && deliveryResult.errorMessage) {
+          outboundMessageData.providerErrorMessage = deliveryResult.errorMessage
+        }
+      }
+
+      await prisma.message.create({ data: outboundMessageData })
+      console.info('[whatsapp-webhook] saved outbound reply', {
+        messageId: outgoingProviderMessageId,
+        to: firstMessage.phone,
+        sent: deliveryResult.sent,
+        conversationId: firstMessage.conversationId,
+        inboundBatchSize: batch.length
+      })
+      if (!deliveryResult.sent) break
+    }
+
+    return {
+      reply: conversationResult.reply,
+      messages: outboundReplies,
+      delivery: deliveryResults[deliveryResults.length - 1],
+      deliveries: deliveryResults,
+      inboundBatchSize: batch.length
     }
   }
 
