@@ -578,9 +578,19 @@ export function mergeConversationRouting(
     originalMessage,
     catalog
   )
+  const highConfidenceAiCatalogQuery = catalog
+    ? highConfidenceAiCatalogQueryFromIntent(aiRouting, originalMessage, catalog)
+    : null
+  // Una mención inequívoca del nombre o alias en el catálogo es más confiable
+  // que una lista ambigua generada por IA. La IA conserva prioridad cuando el
+  // resolutor determinista no pudo identificar un único servicio.
   let catalogQuery = (deterministicCatalogQuery?.candidateServiceIds?.length ?? 0) > 1
     ? deterministicCatalogQuery
-    : aiCatalogQuery ?? deterministicCatalogQuery
+    : highConfidenceAiCatalogQuery ?? (
+        deterministicCatalogQuery?.serviceId
+          ? deterministicCatalogQuery
+          : aiCatalogQuery ?? deterministicCatalogQuery
+      )
   const serviceDetailIntent = aiRouting.intents.find((intent) =>
     intent.type === 'service_detail' && intent.confidence >= 0.65
   )
@@ -861,7 +871,9 @@ function deterministicCatalogQuery(
 ): CatalogQuery | null {
   const normalized = normalizeEvidenceText(message)
   const requestedInformation: CatalogQueryInformation[] = []
-  if (containsAny(normalized, ['precio', 'precios', 'cuanto cuesta', 'cuanto sale', 'cuanto vale', 'valor'])) {
+  if (containsAny(normalized, [
+    'precio', 'precios', 'cuanto cuesta', 'cuanto sale', 'cuanto me sale', 'cuanto vale', 'valor'
+  ])) {
     requestedInformation.push('price')
   }
   if (containsAny(normalized, ['cuanto dura', 'duracion', 'demora'])) {
@@ -983,6 +995,42 @@ function groundedCatalogQuery(
     resolvedServiceIds.every((serviceId) => candidateServiceIds.includes(serviceId))
     ? query
     : null
+}
+
+function highConfidenceAiCatalogQueryFromIntent(
+  aiRouting: Omit<ConversationRouting, 'source'>,
+  originalMessage: string,
+  catalog: NonNullable<ConversationRouterInput['catalog']>
+): CatalogQuery | null {
+  const requestedInformation = new Set<CatalogQueryInformation>()
+  let confidence = 0
+  for (const intent of aiRouting.intents) {
+    if (intent.confidence < 0.85 || !isGroundedIntentEvidence(intent, originalMessage)) continue
+    if (intent.type === 'service_detail') {
+      requestedInformation.add('general')
+      confidence = Math.max(confidence, intent.confidence)
+      continue
+    }
+    if (intent.type !== 'business_information') continue
+    if (intent.topic === 'prices') requestedInformation.add('price')
+    if (intent.topic === 'services') requestedInformation.add('general')
+    if (intent.topic === 'professionals') requestedInformation.add('professionals')
+    confidence = Math.max(confidence, intent.confidence)
+  }
+  if (!requestedInformation.size) return null
+
+  const matches = resolveCatalogQueryServices(normalizeEvidenceText(originalMessage), catalog)
+  if (matches.length !== 1) return null
+  const service = matches[0]
+  if (!service) return null
+
+  return {
+    serviceId: service.id,
+    candidateServiceIds: [service.id],
+    requestedInformation: [...requestedInformation],
+    confidence,
+    evidence: originalMessage.trim()
+  }
 }
 
 function catalogQuerySupportsTopic(

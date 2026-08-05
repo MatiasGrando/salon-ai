@@ -4580,6 +4580,98 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'la coincidencia exacta del catálogo prevalece sobre una ambigüedad de la IA',
+    run: () => {
+      const catalog = {
+        services: [
+          { id: 'group', name: 'Mentorías grupales', aliases: [] },
+          { id: 'session', name: 'SESIÓN DE MENTORÍA', aliases: [] }
+        ],
+        professionals: []
+      }
+      const message = 'dame información sobre la sesión de mentoría'
+      const deterministic = deterministicConversationRouting(message, {
+        currentStep: 'ASK_DATE',
+        catalog
+      })
+      const merged = mergeConversationRouting({
+        intents: [{
+          type: 'business_information',
+          topic: 'services',
+          confidence: 0.96,
+          evidence: message
+        }],
+        bookingMessage: null,
+        bookingExtraction: null,
+        catalogQuery: {
+          serviceId: null,
+          candidateServiceIds: ['group', 'session'],
+          requestedInformation: ['general'],
+          confidence: 0.96,
+          evidence: message
+        }
+      }, deterministic, message, catalog)
+
+      assert.equal(deterministic.catalogQuery?.serviceId, 'session')
+      assert.equal(merged.catalogQuery?.serviceId, 'session')
+      assert.deepEqual(merged.catalogQuery?.candidateServiceIds, ['session'])
+    }
+  },
+  {
+    name: 'cuánto me sale identifica el precio del servicio puntual',
+    run: () => {
+      const catalog = {
+        services: [
+          { id: 'group', name: 'Mentorías grupales', aliases: [] },
+          { id: 'session', name: 'SESIÓN DE MENTORÍA', aliases: [] }
+        ],
+        professionals: []
+      }
+      const routing = deterministicConversationRouting('¿Cuánto me sale la sesión de mentoría?', {
+        currentStep: 'ASK_DATE',
+        catalog
+      })
+
+      assert.deepEqual(businessInformationTopicsFromRouting(routing), ['prices'])
+      assert.equal(routing.catalogQuery?.serviceId, 'session')
+      assert.deepEqual(routing.catalogQuery?.requestedInformation, ['price'])
+      assert.equal(routing.bookingMessage, null)
+    }
+  },
+  {
+    name: 'una intención de precio de IA con alta confianza pasa aunque no haya frase determinista',
+    run: () => {
+      const catalog = {
+        services: [
+          { id: 'group', name: 'Mentorías grupales', aliases: [] },
+          { id: 'session', name: 'SESIÓN DE MENTORÍA', aliases: [] }
+        ],
+        professionals: []
+      }
+      const message = '¿Qué me cobran por la sesión de mentoría?'
+      const deterministic = deterministicConversationRouting(message, {
+        currentStep: 'ASK_DATE',
+        catalog
+      })
+      const merged = mergeConversationRouting({
+        intents: [{
+          type: 'business_information',
+          topic: 'prices',
+          confidence: 0.94,
+          evidence: 'Qué me cobran por la sesión de mentoría'
+        }],
+        bookingMessage: null,
+        bookingExtraction: null,
+        catalogQuery: null
+      }, deterministic, message, catalog)
+
+      assert.equal(deterministic.catalogQuery, null)
+      assert.equal(merged.catalogQuery?.serviceId, 'session')
+      assert.deepEqual(merged.catalogQuery?.requestedInformation, ['price'])
+      assert.equal(merged.bookingMessage, null)
+    }
+  },
+  {
     name: 'router tolera un typo y aclara una referencia ambigua a corte',
     run: () => {
       const catalog = {
