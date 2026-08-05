@@ -273,6 +273,44 @@ await test('el bot ofrece extras configurados una sola vez y acepta uno menciona
   assert.notEqual(resumed.plan.type, 'ask_service_addons')
 })
 
+await test('pedir el servicio antes del nombre no marca sus extras como ya ofrecidos', async () => {
+  const serviceSelected = await engine().process({
+    businessId: 'business-1',
+    conversation: conversationPatchFromState(createEmptyBookingV2State()),
+    message: 'Hola, quería un alisado sin formol',
+    understandingExtraction: {
+      name: { value: null, confidence: 0, evidence: '' },
+      service: { value: 'alisado', confidence: 0.98, evidence: 'alisado sin formol' },
+      professional: { value: null, confidence: 0, evidence: '' },
+      date: { value: null, confidence: 0, evidence: '' },
+      time: { value: null, confidence: 0, evidence: '' },
+      additionalServices: [],
+      correction: { field: null, newValue: null, confidence: 0, evidence: '' }
+    }
+  })
+  assert.equal(serviceSelected.plan.type, 'ask_field')
+  assert.equal(serviceSelected.plan.field, 'name')
+  assert.equal(serviceSelected.state.addonOfferCompletedServiceId, null)
+
+  const named = await engine().process({
+    businessId: 'business-1',
+    conversation: serviceSelected.conversationPatch,
+    message: 'Matias',
+    understandingExtraction: {
+      name: { value: 'Matias', confidence: 0.98, evidence: 'Matias' },
+      service: { value: null, confidence: 0, evidence: '' },
+      professional: { value: null, confidence: 0, evidence: '' },
+      date: { value: null, confidence: 0, evidence: '' },
+      time: { value: null, confidence: 0, evidence: '' },
+      additionalServices: [],
+      correction: { field: null, newValue: null, confidence: 0, evidence: '' }
+    }
+  })
+  assert.equal(named.plan.type, 'ask_service_addons')
+  assert.match(named.reply, /Corte — agrega 30 min/)
+  assert.match(named.reply, /Lavado — agrega 20 min/)
+})
+
 await test('rechazar extras con lenguaje natural continúa sin modificar los servicios', async () => {
   const offered = await engine(catalog(), undefined, semanticChoice()).resume({
     businessId: 'business-1',
@@ -581,4 +619,4 @@ await test('la búsqueda futura respeta el horizonte de 14 días y no ofrece el 
   assert.equal(visitedDates.includes('2026-10-16'), false)
 })
 
-console.log('\n17 pruebas específicas de conversaciones con servicios combinados pasaron.')
+console.log('\n18 pruebas específicas de conversaciones con servicios combinados pasaron.')

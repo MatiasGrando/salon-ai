@@ -2225,6 +2225,7 @@ function queueServicesFromExtraction(
       serviceId: field.value!,
       evidence: field.evidence
     }))
+  if (!services.length) return state
   return addCombinedServices(state, services)
 }
 
