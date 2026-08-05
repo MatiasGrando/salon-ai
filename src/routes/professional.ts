@@ -15,6 +15,7 @@ export async function professionalRoutes(app: FastifyInstance) {
       businessId: string
       avatarUrl?: string | null
       isActive?: boolean
+      acceptsBotBookings?: boolean
       workingHours?: WorkingHourInput[]
       serviceIds?: string[]
     }
@@ -60,6 +61,7 @@ export async function professionalRoutes(app: FastifyInstance) {
         description,
         avatarUrl,
         isActive: body.isActive === false ? false : true,
+        acceptsBotBookings: body.acceptsBotBookings !== false,
         deactivatedAt: body.isActive === false ? new Date() : null,
         businessId,
         ...(workingHours.length > 0
@@ -128,6 +130,7 @@ export async function professionalRoutes(app: FastifyInstance) {
       description?: string | null
       avatarUrl?: string | null
       isActive?: boolean
+      acceptsBotBookings?: boolean
       workingHours?: WorkingHourInput[]
       serviceIds?: string[]
       conflictStrategy?: 'KEEP_EXISTING'
@@ -205,6 +208,9 @@ export async function professionalRoutes(app: FastifyInstance) {
           description,
           ...(avatarUrlWasProvided ? { avatarUrl: avatarUrl ?? null } : {}),
           isActive: typeof body.isActive === 'boolean' ? body.isActive : existing.isActive,
+          acceptsBotBookings: typeof body.acceptsBotBookings === 'boolean'
+            ? body.acceptsBotBookings
+            : existing.acceptsBotBookings,
           deactivatedAt: typeof body.isActive === 'boolean'
             ? body.isActive ? null : new Date()
             : existing.deactivatedAt

@@ -79,7 +79,7 @@ export class BusinessKnowledgeService {
           }
         },
         professionals: {
-          where: { isActive: true },
+          where: { isActive: true, acceptsBotBookings: true },
           orderBy: { name: 'asc' },
           select: {
             name: true,

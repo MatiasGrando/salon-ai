@@ -1431,6 +1431,40 @@ export class BookingConversationFlow {
       return this.buildServicesReply('Me faltan datos para confirmar el turno. Volvemos un paso y lo dejamos bien.', input.businessId)
     }
 
+    const professionalAcceptsBotBookings = await prisma.professional.findFirst({
+      where: {
+        id: input.conversation.selectedProfessionalId,
+        isActive: true,
+        acceptsBotBookings: true,
+        serviceLinks: { some: { serviceId: input.conversation.selectedServiceId } }
+      },
+      select: {
+        id: true,
+        businessId: true
+      }
+    })
+    if (!professionalAcceptsBotBookings) {
+      await this.updateConversation(input.phone, input.businessId, {
+        currentStep: 'ASK_PROFESSIONAL',
+        selectedProfessionalId: null,
+        selectedTime: null,
+        lastAvailability: null
+      })
+      const service = await prisma.service.findUnique({
+        where: { id: input.conversation.selectedServiceId },
+        select: { businessId: true }
+      })
+      if (!service) {
+        await this.restartBooking(input.phone, input.businessId)
+        return this.buildServicesReply('Ese servicio ya no está disponible. Elegimos otro.', input.businessId)
+      }
+      return this.buildProfessionalsReply(
+        service.businessId,
+        'Ese profesional ya no recibe reservas automáticas. Elegí otra opción para continuar.',
+        input.conversation.selectedServiceId
+      )
+    }
+
     const customer = await this.findOrCreateCustomer(input.phone, input.conversation.selectedCustomerName, input.businessId)
     const appointment = await bookingProvider.createAppointment({
       customerId: customer.id,
@@ -1610,6 +1644,8 @@ export class BookingConversationFlow {
     const professionals = await prisma.professional.findMany({
       where: {
         businessId,
+        isActive: true,
+        acceptsBotBookings: true,
         ...(serviceId
           ? {
               serviceLinks: {
@@ -1680,10 +1716,7 @@ export class BookingConversationFlow {
     }
 
     const services = await prisma.service.findMany({
-      where: {
-        ...(input.businessId ? { businessId: input.businessId } : {}),
-        isBookable: true
-      },
+      where: input.businessId ? { businessId: input.businessId } : {},
       include: {
         aliases: true
       },
@@ -1699,7 +1732,8 @@ export class BookingConversationFlow {
     const professionals = await prisma.professional.findMany({
       where: {
         ...(input.businessId ? { businessId: input.businessId } : {}),
-        isBookable: true
+        isActive: true,
+        acceptsBotBookings: true
       },
       orderBy: {
         name: 'asc'
@@ -1891,7 +1925,10 @@ export class BookingConversationFlow {
     }
 
     const services = await prisma.service.findMany({
-      where: input.businessId ? { businessId: input.businessId } : {},
+      where: {
+        ...(input.businessId ? { businessId: input.businessId } : {}),
+        isBookable: true
+      },
       include: {
         aliases: true
       },
@@ -1905,7 +1942,11 @@ export class BookingConversationFlow {
     }
 
     const professionals = await prisma.professional.findMany({
-      where: input.businessId ? { businessId: input.businessId } : {},
+      where: {
+        ...(input.businessId ? { businessId: input.businessId } : {}),
+        isActive: true,
+        acceptsBotBookings: true
+      },
       orderBy: {
         name: 'asc'
       }
@@ -1977,7 +2018,9 @@ export class BookingConversationFlow {
 
     const professionals = await prisma.professional.findMany({
       where: {
-        businessId: input.businessId
+        businessId: input.businessId,
+        isActive: true,
+        acceptsBotBookings: true
       },
       orderBy: {
         name: 'asc'
@@ -2185,7 +2228,9 @@ export class BookingConversationFlow {
   private async findProfessionalByMessage(message: string, businessId: string) {
     const professionals = await prisma.professional.findMany({
       where: {
-        businessId
+        businessId,
+        isActive: true,
+        acceptsBotBookings: true
       },
       orderBy: {
         name: 'asc'
@@ -2213,7 +2258,9 @@ export class BookingConversationFlow {
 
     const professionalsCount = await prisma.professional.count({
       where: {
-        businessId
+        businessId,
+        isActive: true,
+        acceptsBotBookings: true
       }
     })
 
@@ -2223,7 +2270,9 @@ export class BookingConversationFlow {
   private async findProfessionalMentionedInMessage(message: string, businessId: string) {
     const professionals = await prisma.professional.findMany({
       where: {
-        businessId
+        businessId,
+        isActive: true,
+        acceptsBotBookings: true
       },
       orderBy: {
         name: 'asc'
@@ -2256,7 +2305,7 @@ export class BookingConversationFlow {
         }
       })
 
-      if (!professional) {
+      if (!professional || !professional.isActive || !professional.acceptsBotBookings) {
         return {
           ok: false,
           message: 'Profesional no encontrado'
@@ -2309,6 +2358,8 @@ export class BookingConversationFlow {
     const professionals = await prisma.professional.findMany({
       where: {
         businessId: service.businessId,
+        isActive: true,
+        acceptsBotBookings: true,
         serviceLinks: {
           some: {
             serviceId: input.serviceId

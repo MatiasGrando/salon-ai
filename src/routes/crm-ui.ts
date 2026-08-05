@@ -13042,6 +13042,14 @@ const crmHtml = `<!doctype html>
                   <option value="inactive">Inactivo</option>
                 </select>
               </div>
+              <div class="professional-form-group">
+                <label for="professional-bot-bookings">Reservas autom&aacute;ticas</label>
+                <select id="professional-bot-bookings" required>
+                  <option value="accept">Aceptar reservas desde el bot</option>
+                  <option value="manual_only">No aceptar reservas desde el bot (solo agenda manual)</option>
+                </select>
+                <div class="professional-form-help">La agenda manual siempre podr&aacute; usar este profesional mientras est&eacute; activo.</div>
+              </div>
               <div class="config-actions">
                 <button class="secondary" id="professional-cancel" type="button" hidden>Cancelar</button>
                 <button class="primary" id="professional-submit" type="submit">Guardar profesional</button>
@@ -15343,6 +15351,7 @@ const crmHtml = `<!doctype html>
       professionalStatusFilter: document.getElementById('professional-status-filter'),
       professionalServices: document.getElementById('professional-services'),
       professionalStatus: document.getElementById('professional-status'),
+      professionalBotBookings: document.getElementById('professional-bot-bookings'),
       professionalAvatar: document.getElementById('professional-avatar'),
       professionalPhotoPicker: document.getElementById('professional-photo-picker'),
       professionalPhotoPreview: document.getElementById('professional-photo-preview'),
@@ -17743,6 +17752,13 @@ const crmHtml = `<!doctype html>
                   '</div>' +
                 '</div>' +
                 '<div class="professional-info-row">' +
+                  icon('calendar') +
+                  '<div>' +
+                    '<div class="professional-info-title">Reservas del bot</div>' +
+                    '<div class="professional-info-copy">' + (professional.acceptsBotBookings === false ? 'Solo agenda manual' : 'Acepta reservas autom&aacute;ticas') + '</div>' +
+                  '</div>' +
+                '</div>' +
+                '<div class="professional-info-row">' +
                   icon('clock') +
                   '<div>' +
                     '<div class="professional-info-title">Turnos historicos</div>' +
@@ -19319,6 +19335,7 @@ const crmHtml = `<!doctype html>
           description: description || null,
           businessId: state.businessId,
           isActive: els.professionalStatus.value === 'active',
+          acceptsBotBookings: els.professionalBotBookings.value === 'accept',
           serviceIds,
           workingHours,
           ...(options.conflictStrategy ? { conflictStrategy: options.conflictStrategy } : {})
@@ -19370,6 +19387,7 @@ const crmHtml = `<!doctype html>
       els.professionalName.value = professional.name
       els.professionalDescription.value = professional.description || ''
       els.professionalStatus.value = professional.isActive === false ? 'inactive' : 'active'
+      els.professionalBotBookings.value = professional.acceptsBotBookings === false ? 'manual_only' : 'accept'
       setProfessionalAvatar(professional.avatarUrl || null, false)
       setProfessionalWorkingHours(professional.workingHours || [])
       renderProfessionalServiceOptions((professional.services || []).map((service) => service.id))
@@ -19427,6 +19445,7 @@ const crmHtml = `<!doctype html>
       els.professionalName.value = ''
       els.professionalDescription.value = ''
       els.professionalStatus.value = 'active'
+      els.professionalBotBookings.value = 'accept'
       setProfessionalAvatar(null, false)
       els.professionalCancel.hidden = false
       els.professionalFormTitle.textContent = 'Nuevo profesional'

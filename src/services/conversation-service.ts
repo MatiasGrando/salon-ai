@@ -1217,6 +1217,37 @@ export class ConversationService {
       input.conversation.selectedDate &&
       input.conversation.selectedTime
     ) {
+      const professionalAcceptsBotBookings = await prisma.professional.findFirst({
+        where: {
+          id: input.conversation.selectedProfessionalId,
+          businessId: input.businessId,
+          isActive: true,
+          acceptsBotBookings: true,
+          serviceLinks: { some: { serviceId: input.conversation.selectedServiceId } }
+        },
+        select: { id: true }
+      })
+      if (!professionalAcceptsBotBookings) {
+        const changedState = clearBookingV2StateFromField(
+          stateFromConversation(input.conversation),
+          'professional'
+        )
+        const resumed = await bookingV2Engine.resume({
+          businessId: input.businessId,
+          conversation: conversationPatchFromState(changedState)
+        })
+        await this.updateConversation(input.phone, input.businessId, {
+          currentStep: conversationStepFromBookingV2Plan(resumed.plan),
+          ...resumed.conversationPatch,
+          lastAvailability: null
+        })
+        return {
+          reply: `Ese profesional ya no recibe reservas automáticas. Elegí otra opción para continuar.\n\n${resumed.reply}`,
+          skipMisunderstandingTracking: true,
+          skipHumanize: true
+        }
+      }
+
       const depositRequest = await this.requestBookingV2DepositIfNeeded({
         phone: input.phone,
         businessId: input.businessId,
@@ -1549,6 +1580,7 @@ export class ConversationService {
       where: {
         businessId: input.businessId,
         isActive: true,
+        acceptsBotBookings: true,
         ...(input.serviceId
           ? { serviceLinks: { some: { serviceId: input.serviceId } } }
           : {})

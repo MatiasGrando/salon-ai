@@ -11,6 +11,7 @@ const businessId = 'business-test'
 const serviceId = 'service-test'
 const originalAvatar = 'data:image/jpeg;base64,existing-large-avatar'
 const updatePayloads: Array<Record<string, unknown>> = []
+const createPayloads: Array<Record<string, unknown>> = []
 let professionalHoursDeleteCount = 0
 const existingWorkingHours = [
   { dayOfWeek: 1, startTime: '13:00', endTime: '20:00' },
@@ -25,6 +26,7 @@ const existingWorkingHours = [
 const prismaClient = prisma as any
 const originals = {
   findProfessional: prismaClient.professional.findUnique,
+  createProfessional: prismaClient.professional.create,
   findServices: prismaClient.service.findMany,
   transaction: prismaClient.$transaction
 }
@@ -35,6 +37,7 @@ const professional = {
   description: null,
   avatarUrl: originalAvatar,
   isActive: true,
+  acceptsBotBookings: true,
   deactivatedAt: null,
   businessId,
   createdAt: new Date(),
@@ -46,6 +49,16 @@ const professional = {
 
 try {
   prismaClient.professional.findUnique = async () => professional
+  prismaClient.professional.create = async ({ data }: { data: Record<string, unknown> }) => {
+    createPayloads.push(data)
+    return {
+      ...professional,
+      id: 'professional-created',
+      name: data.name,
+      acceptsBotBookings: data.acceptsBotBookings,
+      serviceLinks: []
+    }
+  }
   prismaClient.service.findMany = async () => [{ id: serviceId }]
   prismaClient.$transaction = async (callback: (tx: any) => unknown) => callback({
     professional: {
@@ -89,6 +102,11 @@ try {
     0,
     'Editar servicios no debe reprocesar horarios que no cambiaron'
   )
+  assert.equal(
+    updatePayloads[0]?.acceptsBotBookings,
+    true,
+    'Omitir la configuracion del bot debe conservar el valor existente'
+  )
 
   const removeAvatarResponse = await app.inject({
     method: 'PATCH',
@@ -101,9 +119,35 @@ try {
 
   assert.equal(removeAvatarResponse.statusCode, 200)
   assert.equal(updatePayloads[1]?.avatarUrl, null)
+
+  const disableBotBookingsResponse = await app.inject({
+    method: 'PATCH',
+    url: `/professionals/${professionalId}`,
+    payload: {
+      name: 'Lucas',
+      acceptsBotBookings: false
+    }
+  })
+
+  assert.equal(disableBotBookingsResponse.statusCode, 200)
+  assert.equal(updatePayloads[2]?.acceptsBotBookings, false)
+
+  const createManualOnlyResponse = await app.inject({
+    method: 'POST',
+    url: '/professionals',
+    payload: {
+      name: 'Profesional manual',
+      businessId,
+      acceptsBotBookings: false
+    }
+  })
+
+  assert.equal(createManualOnlyResponse.statusCode, 200)
+  assert.equal(createPayloads[0]?.acceptsBotBookings, false)
   console.log('OK: el PATCH conserva el avatar omitido y permite quitarlo explícitamente.')
 } finally {
   prismaClient.professional.findUnique = originals.findProfessional
+  prismaClient.professional.create = originals.createProfessional
   prismaClient.service.findMany = originals.findServices
   prismaClient.$transaction = originals.transaction
   await app.close()

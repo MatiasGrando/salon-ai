@@ -115,7 +115,8 @@ export class BookingV2DomainService {
       this.db.professional.findMany({
         where: {
           businessId,
-          isActive: true
+          isActive: true,
+          acceptsBotBookings: true
         },
         include: {
           serviceLinks: {

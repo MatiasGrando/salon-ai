@@ -50,7 +50,7 @@ export class ConversationRouterContextService {
             orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }]
           },
           professionals: {
-            where: { isActive: true },
+            where: { isActive: true, acceptsBotBookings: true },
             select: { id: true, name: true, description: true },
             orderBy: { name: 'asc' }
           }

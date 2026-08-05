@@ -17,6 +17,7 @@
     "test:post-sale": "tsx scripts/post-sale-mode-contract-test.ts",
     "test:reminders": "tsx scripts/reminder-mode-contract-test.ts",
     "test:professional-avatar": "tsx scripts/professional-avatar-update-contract-test.ts",
+    "test:professional-bot-bookings": "tsx scripts/professional-bot-booking-contract-test.ts",
     "test:professional-schedule": "tsx scripts/professional-weekly-schedule-contract-test.ts",
     "test:service-duration": "tsx scripts/service-duration-contract-test.ts",
     "test:service-catalog-display": "tsx scripts/service-catalog-display-contract-test.ts",

@@ -101,7 +101,7 @@ export class InstagramWebhookService {
                 }
               },
               professionals: {
-                where: { isActive: true },
+                where: { isActive: true, acceptsBotBookings: true },
                 orderBy: { name: 'asc' },
                 select: { id: true, name: true, description: true }
               }

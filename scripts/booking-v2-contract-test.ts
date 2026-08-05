@@ -3436,6 +3436,31 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'dominio ofrece al bot solo profesionales habilitados para reservas automaticas',
+    run: async () => {
+      let professionalQuery: unknown = null
+      const domain = new BookingV2DomainService({
+        service: {
+          findMany: async () => []
+        },
+        professional: {
+          findMany: async (query: unknown) => {
+            professionalQuery = query
+            return []
+          }
+        }
+      } as never)
+
+      await domain.loadCatalog('business-1')
+
+      assert.deepEqual((professionalQuery as { where?: unknown })?.where, {
+        businessId: 'business-1',
+        isActive: true,
+        acceptsBotBookings: true
+      })
+    }
+  },
+  {
     name: 'catalogo diferencia precio fijo de precio desde',
     run: () => {
       const lines = formatServiceOptions([

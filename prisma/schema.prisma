@@ -366,6 +366,7 @@ model Professional {
   description   String?
   avatarUrl     String?
   isActive      Boolean   @default(true)
+  acceptsBotBookings Boolean @default(true)
   deactivatedAt DateTime?
 
   businessId String
