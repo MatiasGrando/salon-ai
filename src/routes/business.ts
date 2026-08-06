@@ -144,6 +144,7 @@ export async function businessRoutes(app: FastifyInstance) {
       landingEnabled?: boolean
       landingTemplate?: string
       landingSubtitle?: string | null
+      landingFeature?: string | null
       landingOpeningYear?: number | string | null
       landingDescription?: string | null
       coverImageUrl?: string | null
@@ -162,6 +163,7 @@ export async function businessRoutes(app: FastifyInstance) {
     const coverImageUrl = normalizeCoverImageUrl(body.coverImageUrl)
     const landingTemplate = normalizeLandingTemplate(body.landingTemplate)
     const landingSubtitle = normalizeOptionalText(body.landingSubtitle)
+    const landingFeature = normalizeOptionalText(body.landingFeature)
     const landingOpeningYear = normalizeOpeningYear(body.landingOpeningYear)
     const landingDescription = normalizeOptionalText(body.landingDescription)
     const landingGalleryImages = normalizeGalleryImages(body.landingGalleryImages)
@@ -246,6 +248,7 @@ export async function businessRoutes(app: FastifyInstance) {
       body.landingEnabled === undefined &&
       landingTemplate === undefined &&
       landingSubtitle === undefined &&
+      landingFeature === undefined &&
       landingOpeningYear === undefined &&
       landingDescription === undefined &&
       coverImageUrl === undefined &&
@@ -272,6 +275,7 @@ export async function businessRoutes(app: FastifyInstance) {
         ...(body.landingEnabled !== undefined ? { landingEnabled: Boolean(body.landingEnabled) } : {}),
         ...(landingTemplate !== undefined ? { landingTemplate } : {}),
         ...(landingSubtitle !== undefined ? { landingSubtitle } : {}),
+        ...(landingFeature !== undefined ? { landingFeature } : {}),
         ...(landingOpeningYear !== undefined ? { landingOpeningYear } : {}),
         ...(landingDescription !== undefined ? { landingDescription } : {}),
         ...(coverImageUrl !== undefined ? { coverImageUrl } : {}),

@@ -39,6 +39,7 @@ import {
   ConversationRouter,
   hasGroundedDepositInformationIntent,
   isDepositInformationRequest,
+  isQuoteOnlyRouting,
   type CatalogQuery,
   type ConversationRouting
 } from './conversation-router.js'
@@ -1007,6 +1008,70 @@ export class ConversationService {
   }): Promise<HandleMessageResult> {
     const assistantPersonality = await getBusinessAssistantPersonality(input.businessId)
     const storedInformationState = stateFromConversation(input.conversation)
+    const quoteOnlyRequest = isQuoteOnlyRouting(input.routing, input.message)
+    if (quoteOnlyRequest && !storedInformationState.quoteOnly) {
+      const serviceIds = Array.from(new Set([
+        input.routing.bookingExtraction?.service.value,
+        ...(input.routing.bookingExtraction?.additionalServices ?? []).map((service) => service.value)
+      ].filter((serviceId): serviceId is string => Boolean(serviceId))))
+      const primaryServiceId = serviceIds[0]
+      if (!primaryServiceId) {
+        return {
+          reply: applyAssistantPersonalityToReply(
+            '¿Sobre qué servicio querés pedir el presupuesto?',
+            assistantPersonality
+          ),
+          skipMisunderstandingTracking: true,
+          skipHumanize: true
+        }
+      }
+      const quoteState: BookingV2State = {
+        ...storedInformationState,
+        draft: {
+          ...storedInformationState.draft,
+          service: primaryServiceId,
+          professional: null,
+          date: null,
+          time: null
+        },
+        combinedServices: [],
+        guidedEstimate: null,
+        quoteOnly: { remainingServiceIds: serviceIds.slice(1), estimates: [] },
+        pendingProposal: null,
+        pendingDeposit: null,
+        misunderstandingCount: 0
+      }
+      const estimated = await bookingV2Engine.resume({
+        businessId: input.businessId,
+        conversation: conversationPatchFromState(quoteState)
+      })
+      await this.updateConversation(input.phone, input.businessId, {
+        currentStep: conversationStepValue(input.conversation.currentStep),
+        ...estimated.conversationPatch,
+        lastAvailability: null
+      })
+      return {
+        reply: applyAssistantPersonalityToReply(estimated.reply, assistantPersonality),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+    if (storedInformationState.quoteOnly && hasExplicitBookingRequest(input.message)) {
+      const bookingState: BookingV2State = {
+        ...storedInformationState,
+        quoteOnly: null,
+        guidedEstimate: null,
+        combinedServices: []
+      }
+      await this.updateConversation(input.phone, input.businessId, {
+        currentStep: conversationStepValue(input.conversation.currentStep),
+        ...conversationPatchFromState(bookingState)
+      })
+      input.conversation = {
+        ...input.conversation,
+        ...conversationPatchFromState(bookingState)
+      }
+    }
     const pendingInformationSelection = storedInformationState.pendingInformationSelection
     if (pendingInformationSelection && !hasExplicitBookingRequest(input.message)) {
       const selectedServiceId = input.routing.catalogQuery?.serviceId ??

@@ -133,6 +133,7 @@ model Business {
   landingEnabled       Boolean                  @default(true)
   landingTemplate      String                   @default("classic")
   landingSubtitle      String?
+  landingFeature       String?
   landingOpeningYear   Int?
   landingDescription   String?
   coverImageUrl        String?

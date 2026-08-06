@@ -3,6 +3,7 @@ import {
   createEmptyBookingV2State,
   type BookingField,
   type BookingV2AdvisorQuote,
+  type BookingV2QuoteOnly,
   type BookingV2ContextPause,
   type BookingV2AddonSuggestion,
   type BookingV2CombinedService,
@@ -58,6 +59,7 @@ export type BookingV2PersistedState = {
   serviceValidation?: BookingV2ServiceValidation | null
   guidedEstimate?: BookingV2GuidedEstimate | null
   advisorQuote?: BookingV2AdvisorQuote | null
+  quoteOnly?: BookingV2QuoteOnly | null
   pendingDeposit?: BookingV2PendingDeposit | null
   contextPause?: BookingV2ContextPause | null
   unsupportedServiceRequest?: BookingV2UnsupportedServiceRequest | null
@@ -94,6 +96,7 @@ export function stateFromConversation(
     serviceValidation: readServiceValidation(conversation.bookingV2State),
     guidedEstimate: readGuidedEstimate(conversation.bookingV2State),
     advisorQuote: readAdvisorQuote(conversation.bookingV2State),
+    quoteOnly: readQuoteOnly(conversation.bookingV2State),
     pendingDeposit: readPendingDeposit(conversation.bookingV2State),
     contextPause: readContextPause(conversation.bookingV2State),
     unsupportedServiceRequest: readUnsupportedServiceRequest(conversation.bookingV2State),
@@ -116,7 +119,7 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
     selectedDate: state.draft.date,
     selectedTime: state.draft.time,
     misunderstandingCount: state.misunderstandingCount,
-    bookingV2State: state.pendingProposal || state.pendingRequest || state.pendingInformationSelection || state.lastInformationServiceId || state.pendingServiceDisambiguation || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.advisorQuote || state.pendingDeposit || state.contextPause || state.unsupportedServiceRequest || state.queuedServices.length || state.combinedServices.length || state.addonSuggestion || state.addonOfferCompletedServiceId || state.pendingCombinedAvailability || state.pendingServiceSeparation || state.pendingServiceReplacement
+    bookingV2State: state.pendingProposal || state.pendingRequest || state.pendingInformationSelection || state.lastInformationServiceId || state.pendingServiceDisambiguation || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.advisorQuote || state.quoteOnly || state.pendingDeposit || state.contextPause || state.unsupportedServiceRequest || state.queuedServices.length || state.combinedServices.length || state.addonSuggestion || state.addonOfferCompletedServiceId || state.pendingCombinedAvailability || state.pendingServiceSeparation || state.pendingServiceReplacement
       ? {
           version: 1,
           pendingProposal: state.pendingProposal,
@@ -134,6 +137,7 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
           ...(state.serviceValidation ? { serviceValidation: state.serviceValidation } : {}),
           ...(state.guidedEstimate ? { guidedEstimate: state.guidedEstimate } : {}),
           ...(state.advisorQuote ? { advisorQuote: state.advisorQuote } : {}),
+          ...(state.quoteOnly ? { quoteOnly: state.quoteOnly } : {}),
           ...(state.pendingDeposit ? { pendingDeposit: state.pendingDeposit } : {}),
           ...(state.contextPause ? { contextPause: state.contextPause } : {}),
           ...(state.unsupportedServiceRequest
@@ -561,6 +565,34 @@ function readAdvisorQuote(value: unknown): BookingV2AdvisorQuote | null {
     status: candidate.status,
     quotedAt: candidate.quotedAt
   }
+}
+
+function readQuoteOnly(value: unknown): BookingV2QuoteOnly | null {
+  if (!value || typeof value !== 'object') return null
+  const persisted = value as { version?: unknown; quoteOnly?: unknown }
+  if (persisted.version !== 1 || !persisted.quoteOnly || typeof persisted.quoteOnly !== 'object') return null
+  const remainingServiceIds = Array.from(new Set(
+    Array.isArray((persisted.quoteOnly as { remainingServiceIds?: unknown }).remainingServiceIds)
+      ? (persisted.quoteOnly as { remainingServiceIds: unknown[] }).remainingServiceIds
+          .filter((serviceId): serviceId is string => typeof serviceId === 'string' && Boolean(serviceId.trim()))
+          .map((serviceId) => serviceId.trim())
+      : []
+  )).slice(0, 4)
+  const estimates = Array.isArray((persisted.quoteOnly as { estimates?: unknown }).estimates)
+    ? (persisted.quoteOnly as { estimates: unknown[] }).estimates.flatMap((estimate) => {
+        if (!estimate || typeof estimate !== 'object') return []
+        const candidate = estimate as { serviceId?: unknown; priceMin?: unknown; priceMax?: unknown }
+        if (typeof candidate.serviceId !== 'string' || !candidate.serviceId.trim()) return []
+        if (typeof candidate.priceMin !== 'number' || !Number.isFinite(candidate.priceMin) || candidate.priceMin < 0) return []
+        if (candidate.priceMax !== null && (typeof candidate.priceMax !== 'number' || !Number.isFinite(candidate.priceMax))) return []
+        return [{
+          serviceId: candidate.serviceId.trim(),
+          priceMin: candidate.priceMin,
+          priceMax: candidate.priceMax ?? null
+        }]
+      }).slice(0, 4)
+    : []
+  return { remainingServiceIds, estimates }
 }
 
 function readPendingDeposit(value: unknown): BookingV2PendingDeposit | null {

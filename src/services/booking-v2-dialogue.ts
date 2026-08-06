@@ -80,6 +80,9 @@ export type BookingV2MessagePlan =
       allowsBooking: boolean
     }
   | {
+      type: 'quote_complete'
+    }
+  | {
       type: 'ask_service_validation'
       reason: 'missing' | 'not_understood'
     }

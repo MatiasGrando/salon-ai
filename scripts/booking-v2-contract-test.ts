@@ -36,6 +36,7 @@ import {
   businessInformationTopicsFromRouting,
   deterministicConversationRouting,
   hasGroundedDepositInformationIntent,
+  isQuoteOnlyRouting,
   isDepositInformationRequest,
   mergeConversationRouting,
   normalizeConversationRouting
@@ -2217,6 +2218,90 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(sends.length, 1)
       assert.equal(outboundMessages.length, 1)
       assert.equal(outboundMessages[0]?.body, PHOTO_QUOTE_ACKNOWLEDGEMENT)
+    }
+  },
+  {
+    name: 'presupuesto explícito sin reserva no inicia una reserva',
+    run: () => {
+      const message = 'Quería averiguar el presupuesto para hacerme un color y cortarme'
+      const deterministic = deterministicConversationRouting(message, { currentStep: 'START' })
+      const routing = mergeConversationRouting({
+        intents: [
+          { type: 'request_quote', topic: null, confidence: 0.97, evidence: 'presupuesto' },
+          { type: 'book_appointment', topic: null, confidence: 0.92, evidence: 'hacerme un color y cortarme' }
+        ],
+        bookingMessage: message,
+        bookingExtraction: extraction({
+          service: field('color', 0.98, 'color'),
+          additionalServices: [field('cut', 0.98, 'cortarme')]
+        })
+      }, deterministic, message)
+
+      assert.equal(isQuoteOnlyRouting(routing, message), true)
+      assert.equal(routing.bookingMessage, null)
+      assert.equal(routing.intents.some((intent) => intent.type === 'book_appointment'), false)
+      assert.equal(routing.bookingExtraction?.service.value, 'color')
+      assert.equal(routing.bookingExtraction?.additionalServices?.[0]?.value, 'cut')
+    }
+  },
+  {
+    name: 'presupuesto guiado encadena servicios sin derivar a reserva',
+    run: async () => {
+      const catalog = createBookingV2DomainCatalog({
+        services: [
+          {
+            id: 'color', name: 'Color', aliases: ['color'], duration: 90, price: 80000,
+            attentionMode: 'GUIDED_ESTIMATE', requiresPhoto: false,
+            estimateExplanation: null, estimateQuestion: '¿Qué largo tiene tu cabello?',
+            estimateOptions: [{ id: 'long', label: 'Largo', priceMin: 80000, priceMax: 100000, note: null }],
+            estimateDisclaimer: null, estimateAllowsBooking: true
+          },
+          {
+            id: 'cut', name: 'Corte', aliases: ['corte'], duration: 30, price: 30000,
+            attentionMode: 'GUIDED_ESTIMATE', requiresPhoto: false,
+            estimateExplanation: null, estimateQuestion: '¿Qué estilo de corte buscás?',
+            estimateOptions: [{ id: 'classic', label: 'Clásico', priceMin: 30000, priceMax: null, note: null }],
+            estimateDisclaimer: null, estimateAllowsBooking: true
+          }
+        ],
+        professionals: []
+      })
+      const engine = new BookingV2Engine(
+        fakeDomainPort({ catalog }),
+        fakeExtractor(null),
+        fakeServiceValidationClassifier(),
+        fakeEstimateDecisionExtractor(() => ({ decision: 'continue_booking', confidence: 0.96 })),
+        fakeEstimateOptionExtractor(() => ({ optionId: 'long', confidence: 0.98 }))
+      )
+      const quoteState = {
+        ...createEmptyBookingV2State(),
+        draft: { name: null, service: 'color', professional: null, date: null, time: null },
+        quoteOnly: { remainingServiceIds: ['cut'], estimates: [] }
+      }
+      const initial = await engine.resume({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(quoteState)
+      })
+      assert.equal(initial.plan.type, 'ask_estimate_option')
+
+      const colorEstimate = await engine.process({
+        businessId: 'business-1',
+        conversation: initial.conversationPatch,
+        message: '1'
+      })
+      assert.equal(colorEstimate.plan.type, 'show_estimate')
+      assert.match(colorEstimate.reply, /estimativo de Corte/)
+      assert.doesNotMatch(colorEstimate.reply, /continuar con la reserva/)
+
+      const cutQuestion = await engine.process({
+        businessId: 'business-1',
+        conversation: colorEstimate.conversationPatch,
+        message: 'sí'
+      })
+      assert.equal(cutQuestion.plan.type, 'ask_estimate_option')
+      assert.equal(cutQuestion.state.draft.service, 'cut')
+      assert.equal(cutQuestion.state.quoteOnly?.remainingServiceIds.length, 0)
+      assert.notEqual(cutQuestion.plan.type, 'handoff')
     }
   },
   {

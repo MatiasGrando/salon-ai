@@ -685,6 +685,57 @@ export class BookingV2Engine {
           decision.decision === 'continue_booking' &&
           service.estimateAllowsBooking !== false
         ) {
+          if (initialState.quoteOnly) {
+            const [nextServiceId, ...remainingServiceIds] = initialState.quoteOnly.remainingServiceIds
+            const completedEstimate = initialState.guidedEstimate.priceMin === null
+              ? []
+              : [{
+                  serviceId: service.id,
+                  priceMin: initialState.guidedEstimate.priceMin,
+                  priceMax: initialState.guidedEstimate.priceMax
+                }]
+            const estimates = [
+              ...initialState.quoteOnly.estimates,
+              ...completedEstimate
+            ]
+            if (nextServiceId) {
+              const state: BookingV2State = {
+                ...initialState,
+                draft: {
+                  ...initialState.draft,
+                  service: nextServiceId,
+                  professional: null,
+                  date: null,
+                  time: null
+                },
+                combinedServices: [],
+                guidedEstimate: null,
+                quoteOnly: { remainingServiceIds, estimates },
+                misunderstandingCount: 0
+              }
+              return this.fromInterpretation({
+                state,
+                nextField: 'service',
+                outcome: 'accepted',
+                affectedField: null
+              }, null, catalog)
+            }
+            const state: BookingV2State = {
+              ...initialState,
+              draft: {
+                ...initialState.draft,
+                service: null,
+                professional: null,
+                date: null,
+                time: null
+              },
+              combinedServices: [],
+              guidedEstimate: null,
+              quoteOnly: null,
+              misunderstandingCount: 0
+            }
+            return this.guidedEstimateResult(state, { type: 'quote_complete' }, catalog, 'accepted')
+          }
           const state: BookingV2State = {
             ...initialState,
             guidedEstimate: {
@@ -1419,7 +1470,10 @@ export class BookingV2Engine {
       effectiveInterpretation.state.advisorQuote.status === 'accepted'
     )
     const canEvaluateSelectedService = Boolean(
-      selectedService && effectiveInterpretation.state.draft.name
+      selectedService && (
+        effectiveInterpretation.state.draft.name ||
+        effectiveInterpretation.state.quoteOnly
+      )
     )
     const assistedSelectedService = Boolean(
       selectedService && (
@@ -1429,7 +1483,7 @@ export class BookingV2Engine {
         )
       )
     )
-    if (selectedService && !effectiveInterpretation.state.draft.name && assistedSelectedService) {
+    if (selectedService && !effectiveInterpretation.state.draft.name && assistedSelectedService && !effectiveInterpretation.state.quoteOnly) {
       plan = {
         type: 'show_service_preview_and_ask_name'
       }
@@ -1521,7 +1575,7 @@ export class BookingV2Engine {
     }
 
     const selectedServiceIds = combinedServiceIds(effectiveInterpretation.state)
-    if (catalog && selectedServiceIds.length > 1 && !isServiceDecisionPlan(plan)) {
+    if (catalog && !effectiveInterpretation.state.quoteOnly && selectedServiceIds.length > 1 && !isServiceDecisionPlan(plan)) {
       const combinationDecision = evaluateServiceCombination(selectedServiceIds, catalog)
       if (combinationDecision === 'REVIEW_REQUIRED') {
         plan = { type: 'handoff', reason: 'combination_review_required' }
@@ -1721,6 +1775,7 @@ export class BookingV2Engine {
       availabilityOptions,
       unavailableDate,
       combinedServices: effectiveInterpretation.state.combinedServices,
+      quoteOnly: effectiveInterpretation.state.quoteOnly,
       ...(serviceSuggestions ? { serviceSuggestions } : {})
     })
     return {
@@ -1751,7 +1806,8 @@ export class BookingV2Engine {
       catalogNavigation: reconciledState.catalogNavigation,
       catalog,
       availabilityOptions: [],
-      combinedServices: reconciledState.combinedServices
+      combinedServices: reconciledState.combinedServices,
+      quoteOnly: reconciledState.quoteOnly
     })
     return {
       state: reconciledState,

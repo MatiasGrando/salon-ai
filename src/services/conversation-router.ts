@@ -519,6 +519,14 @@ export function deterministicConversationRouting(
     confidence: 0.95,
     evidence: message.trim()
   }))
+  if (hasExplicitQuoteRequest(normalized)) {
+    intents.push({
+      type: 'request_quote',
+      topic: null,
+      confidence: 0.95,
+      evidence: message.trim()
+    })
+  }
 
   const catalogQuery = context?.catalog
     ? deterministicCatalogQuery(message, context.catalog)
@@ -631,6 +639,9 @@ export function mergeConversationRouting(
     intent.confidence >= 0.65 &&
     normalizeEvidenceText(originalMessage).includes(normalizeEvidenceText(intent.evidence))
   )
+  const standaloneQuoteRequest = isQuoteOnlyRouting({
+    intents: [...aiRouting.intents, ...deterministic.intents]
+  }, originalMessage)
   const standaloneBusinessInformationQuestion =
     (
       deterministicTopics.size > 0 ||
@@ -667,6 +678,7 @@ export function mergeConversationRouting(
     ) {
       return false
     }
+    if (standaloneQuoteRequest && isBookingTaskIntent(intent)) return false
     if (
       standaloneBusinessInformationQuestion &&
       intent.type === 'request_quote' &&
@@ -702,7 +714,7 @@ export function mergeConversationRouting(
 
   return {
     intents,
-    bookingMessage: standaloneBusinessInformationQuestion
+    bookingMessage: standaloneBusinessInformationQuestion || standaloneQuoteRequest
       ? null
       : groundedAiBookingMessage
         ?? deterministic.bookingMessage
@@ -714,6 +726,18 @@ export function mergeConversationRouting(
         : aiRouting.bookingExtraction ?? deterministic.bookingExtraction ?? null,
     catalogQuery
   }
+}
+
+export function isQuoteOnlyRouting(
+  routing: Pick<ConversationRouting, 'intents'>,
+  message: string
+) {
+  const normalized = normalizeEvidenceText(message)
+  return hasExplicitQuoteRequest(normalized) &&
+    !hasExplicitBookingIntent(normalized) &&
+    routing.intents.some((intent) =>
+      intent.type === 'request_quote' && isGroundedIntentEvidence(intent, message)
+    )
 }
 
 function groundedBookingMessage(value: string | null, originalMessage: string) {

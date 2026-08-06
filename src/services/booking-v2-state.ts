@@ -101,6 +101,15 @@ export type BookingV2AdvisorQuote = {
   quotedAt: string
 }
 
+export type BookingV2QuoteOnly = {
+  remainingServiceIds: string[]
+  estimates: Array<{
+    serviceId: string
+    priceMin: number
+    priceMax: number | null
+  }>
+}
+
 export type BookingV2ContextPause = {
   pausedAt: string
   expiresAt: string
@@ -160,6 +169,7 @@ export type BookingV2State = {
   serviceValidation: BookingV2ServiceValidation | null
   guidedEstimate: BookingV2GuidedEstimate | null
   advisorQuote: BookingV2AdvisorQuote | null
+  quoteOnly: BookingV2QuoteOnly | null
   pendingDeposit: BookingV2PendingDeposit | null
   contextPause?: BookingV2ContextPause | null
   unsupportedServiceRequest?: BookingV2UnsupportedServiceRequest | null
@@ -203,6 +213,7 @@ export function createEmptyBookingV2State(): BookingV2State {
     serviceValidation: null,
     guidedEstimate: null,
     advisorQuote: null,
+    quoteOnly: null,
     pendingDeposit: null,
     contextPause: null,
     unsupportedServiceRequest: null,

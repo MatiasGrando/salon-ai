@@ -339,6 +339,7 @@ function renderLanding(business: LandingBusiness, basePath = '', templateOverrid
   }
   const description = business.landingDescription || `Reserva tu turno en ${business.name} de forma simple y rapida.`
   const subtitle = business.landingSubtitle || 'Oficio de navaja y tijera'
+  const landingFeature = business.landingFeature || 'Barbería de autor'
   const openingLabel = business.landingOpeningYear ? `Desde ${business.landingOpeningYear}` : ''
   const services = business.services.slice(0, 6)
   const professionals = business.professionals.slice(0, 4)
@@ -441,7 +442,7 @@ function renderLanding(business: LandingBusiness, basePath = '', templateOverrid
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
                   <path d="M4 20v-2a5 5 0 0 1 5-5h6a5 5 0 0 1 5 5v2"></path><circle cx="12" cy="7" r="3.4"></circle>
                 </svg>
-                <span>Barberia<br>de autor</span>
+                <span>${formatLandingFeature(landingFeature)}</span>
               </div>
               <div class="feature">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
@@ -5783,6 +5784,16 @@ const serviceVisuals: ServiceVisual[] = [
 function formatHeroTitle(name: string) {
   const words = name.trim().split(/\s+/).filter(Boolean)
   if (words.length <= 1) return escapeHtml(name)
+
+  const midpoint = Math.ceil(words.length / 2)
+  const firstLine = words.slice(0, midpoint).join(' ')
+  const secondLine = words.slice(midpoint).join(' ')
+  return `${escapeHtml(firstLine)}<br>${escapeHtml(secondLine)}`
+}
+
+function formatLandingFeature(value: string) {
+  const words = value.trim().split(/\s+/).filter(Boolean)
+  if (words.length <= 1) return escapeHtml(value)
 
   const midpoint = Math.ceil(words.length / 2)
   const firstLine = words.slice(0, midpoint).join(' ')

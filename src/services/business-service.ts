@@ -41,6 +41,7 @@ export class BusinessService {
     landingEnabled?: boolean
     landingTemplate?: string
     landingSubtitle?: string | null
+    landingFeature?: string | null
     landingOpeningYear?: number | null
     landingDescription?: string | null
     coverImageUrl?: string | null

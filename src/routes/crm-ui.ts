@@ -13914,6 +13914,12 @@ const crmHtml = `<!doctype html>
             </div>
 
             <div class="settings-field">
+              <label for="landing-feature">Texto del primer beneficio</label>
+              <input class="field" id="landing-feature" maxlength="60" placeholder="Ej: Barber&iacute;a de autor">
+              <small>Aparece junto al primer &iacute;cono en la portada.</small>
+            </div>
+
+            <div class="settings-field">
               <label for="landing-opening-year">A&ntilde;o de apertura</label>
               <input class="field" id="landing-opening-year" type="number" min="1900" placeholder="Ej: 2018">
               <small>Opcional. Si lo complet&aacute;s, la portada muestra &ldquo;Desde 2018&rdquo;.</small>
@@ -15785,6 +15791,7 @@ const crmHtml = `<!doctype html>
       landingLocalLink: document.getElementById('landing-local-link'),
       landingDomainLink: document.getElementById('landing-domain-link'),
       landingSubtitle: document.getElementById('landing-subtitle'),
+      landingFeature: document.getElementById('landing-feature'),
       landingOpeningYear: document.getElementById('landing-opening-year'),
       landingDescription: document.getElementById('landing-description'),
       landingAddress: document.getElementById('landing-address'),
@@ -19942,6 +19949,7 @@ const crmHtml = `<!doctype html>
       if (landingTemplateInput) landingTemplateInput.checked = true
       els.landingSlug.value = slug
       els.landingSubtitle.value = state.business?.landingSubtitle || ''
+      els.landingFeature.value = state.business?.landingFeature || ''
       els.landingOpeningYear.value = state.business?.landingOpeningYear || ''
       els.landingDescription.value = state.business?.landingDescription || ''
       els.landingAddress.value = state.business?.publicAddress || ''
@@ -20810,6 +20818,7 @@ const crmHtml = `<!doctype html>
             landingTemplate: document.querySelector('input[name="landing-template"]:checked')?.value || 'classic',
             slug,
             landingSubtitle: els.landingSubtitle.value.trim() || null,
+            landingFeature: els.landingFeature.value.trim() || null,
             landingOpeningYear: openingYear,
             landingDescription: els.landingDescription.value.trim() || null,
             publicAddress: publicAddress || null,

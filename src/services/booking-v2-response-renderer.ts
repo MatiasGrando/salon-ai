@@ -22,6 +22,10 @@ export type BookingV2RenderInput = {
   agenda?: BookingV2AgendaItem[]
   catalogNavigation?: BookingV2CatalogNavigation | null
   combinedServices?: BookingV2CombinedService[]
+  quoteOnly?: {
+    remainingServiceIds: string[]
+    estimates: Array<{ serviceId: string; priceMin: number; priceMax: number | null }>
+  } | null
 }
 
 export function renderBookingV2Response(input: BookingV2RenderInput): string {
@@ -208,7 +212,12 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
       `Para ${input.plan.optionLabel}, el valor estimado de ${service?.name ?? 'este servicio'} es ${estimate}.`,
       ...(input.plan.note ? [input.plan.note] : []),
       ...(service?.estimateDisclaimer?.trim() ? [service.estimateDisclaimer.trim()] : []),
-      input.plan.allowsBooking
+      ...(input.quoteOnly
+        ? [quoteOnlyTotal(input.quoteOnly.estimates, input.plan.priceMin, input.plan.priceMax)]
+        : []),
+      input.quoteOnly
+        ? quoteOnlyFollowUp(input.quoteOnly.remainingServiceIds, input.catalog)
+        : input.plan.allowsBooking
         ? '¿Querés continuar con la reserva o preferís que el equipo prepare un presupuesto exacto?'
         : '¿Querés que el equipo prepare un presupuesto exacto?'
     ].join('\n\n')
@@ -220,16 +229,26 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
       `El valor estimado de ${service?.name ?? 'este servicio'} es desde ${formatMoney(input.plan.priceMin)}.`,
       ...(service?.estimateExplanation?.trim() ? [service.estimateExplanation.trim()] : []),
       ...(service?.estimateDisclaimer?.trim() ? [service.estimateDisclaimer.trim()] : []),
-      input.plan.allowsBooking
+      ...(input.quoteOnly
+        ? [quoteOnlyTotal(input.quoteOnly.estimates, input.plan.priceMin, null)]
+        : []),
+      input.quoteOnly
+        ? quoteOnlyFollowUp(input.quoteOnly.remainingServiceIds, input.catalog)
+        : input.plan.allowsBooking
         ? '¿Querés continuar con la reserva o preferís que el equipo prepare un presupuesto exacto?'
         : '¿Querés que el equipo prepare un presupuesto exacto?'
     ].join('\n\n')
   }
 
   if (input.plan.type === 'ask_estimate_decision') {
+    if (input.quoteOnly) return quoteOnlyFollowUp(input.quoteOnly.remainingServiceIds, input.catalog)
     return input.plan.allowsBooking
       ? '¿Preferís continuar con la reserva o pedir un presupuesto exacto?'
       : '¿Querés que el equipo prepare un presupuesto exacto?'
+  }
+
+  if (input.plan.type === 'quote_complete') {
+    return 'Listo, ya revisamos los estimativos solicitados. Si querés reservar, decímelo y avanzamos con el turno.'
   }
 
   if (input.plan.type === 'ask_field') {
@@ -291,6 +310,31 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
   }
 
   return bookingConfirmation(input.draft, input.catalog, input.combinedServices)
+}
+
+function quoteOnlyFollowUp(remainingServiceIds: string[], catalog?: BookingV2DomainCatalog | null) {
+  const nextServiceId = remainingServiceIds[0]
+  const nextService = nextServiceId
+    ? catalog?.services.find((service) => service.id === nextServiceId)
+    : null
+  return nextService
+    ? `¿Querés seguir con el estimativo de ${nextService.name}?`
+    : 'Si querés un presupuesto exacto, puedo derivarte con el equipo.'
+}
+
+function quoteOnlyTotal(
+  estimates: Array<{ priceMin: number; priceMax: number | null }>,
+  priceMin: number,
+  priceMax: number | null
+) {
+  if (!estimates.length) return ''
+  const totalMin = estimates.reduce((total, estimate) => total + estimate.priceMin, priceMin)
+  const totalMax = estimates.some((estimate) => estimate.priceMax === null) || priceMax === null
+    ? null
+    : estimates.reduce((total, estimate) => total + (estimate.priceMax ?? estimate.priceMin), priceMax)
+  return totalMax !== null && totalMax !== totalMin
+    ? `El total estimado hasta ahora es entre ${formatMoney(totalMin)} y ${formatMoney(totalMax)}.`
+    : `El total estimado hasta ahora es ${formatMoney(totalMin)}.`
 }
 
 function renderAssistedServiceHandoff(input: {
