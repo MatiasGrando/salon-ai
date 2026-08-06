@@ -944,12 +944,20 @@ function resolveCatalogQueryServices(
   normalizedMessage: string,
   catalog: ConversationRouterInput['catalog']
 ) {
-  const fullLabelMatches = catalog.services.filter((service) =>
-    [service.name, ...(service.aliases ?? [])].some((label) =>
-      catalogLabelIsMentioned(normalizedMessage, normalizeEvidenceText(label))
-    )
-  )
-  if (fullLabelMatches.length) return fullLabelMatches
+  const fullLabelMatches = catalog.services
+    .map((service) => ({
+      service,
+      specificity: Math.max(0, ...[service.name, ...(service.aliases ?? [])]
+        .filter((label) => catalogLabelIsMentioned(normalizedMessage, normalizeEvidenceText(label)))
+        .map((label) => catalogQuerySubjectTokens(normalizeEvidenceText(label)).length))
+    }))
+    .filter((candidate) => candidate.specificity > 0)
+  if (fullLabelMatches.length) {
+    const bestSpecificity = Math.max(...fullLabelMatches.map((candidate) => candidate.specificity))
+    return fullLabelMatches
+      .filter((candidate) => candidate.specificity === bestSpecificity)
+      .map((candidate) => candidate.service)
+  }
 
   const messageTokens = catalogQuerySubjectTokens(normalizedMessage)
   const catalogTokens = catalog.services.flatMap((service) =>

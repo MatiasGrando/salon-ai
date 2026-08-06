@@ -4722,6 +4722,13 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.deepEqual(routing.catalogQuery?.candidateServiceIds, ['individual', 'group'])
       assert.deepEqual(routing.catalogQuery?.requestedInformation, ['general'])
 
+      const specific = deterministicConversationRouting(
+        'Quiero info sobre mentoría grupal',
+        { currentStep: 'START', catalog }
+      )
+      assert.equal(specific.catalogQuery?.serviceId, 'group')
+      assert.equal(specific.catalogQuery?.candidateServiceIds?.includes('individual'), false)
+
       const answer = renderCatalogServiceQuery({
         name: 'Mentorías Demo',
         slug: null,
