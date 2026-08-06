@@ -17818,7 +17818,7 @@ const crmHtml = `<!doctype html>
               '</div>' +
               '<div class="professional-card-body">' +
                 '<div class="professional-info-row">' +
-                  icon('scissors') +
+                  icon('grid') +
                   '<div>' +
                     '<div class="professional-info-title">Servicios</div>' +
                     '<div class="professional-info-copy">' + escapeHtml(services) + '</div>' +

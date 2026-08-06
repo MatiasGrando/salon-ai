@@ -371,9 +371,8 @@ function renderLanding(business: LandingBusiness, basePath = '', templateOverrid
         <div class="wrap">
           <a class="brand" href="${escapeAttribute(basePath || '/')}">
             <svg class="brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
-              <circle cx="6" cy="6" r="2.6"></circle><circle cx="6" cy="18" r="2.6"></circle>
-              <line x1="8.1" y1="7.6" x2="20" y2="18"></line>
-              <line x1="8.1" y1="16.4" x2="20" y2="6"></line>
+              <rect x="4" y="4" width="6" height="6" rx="1"></rect><rect x="14" y="4" width="6" height="6" rx="1"></rect>
+              <rect x="4" y="14" width="6" height="6" rx="1"></rect><rect x="14" y="14" width="6" height="6" rx="1"></rect>
             </svg>
               <span class="brand-text">
                 <span class="name">${escapeHtml(business.name)}</span>
@@ -574,9 +573,8 @@ function renderLanding(business: LandingBusiness, basePath = '', templateOverrid
             <div class="footer-grid">
               <section class="footer-brand" aria-label="Marca">
                 <svg class="footer-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-                  <circle cx="6" cy="6" r="2.6"></circle><circle cx="6" cy="18" r="2.6"></circle>
-                  <line x1="8.1" y1="7.6" x2="20" y2="18"></line>
-                  <line x1="8.1" y1="16.4" x2="20" y2="6"></line>
+                  <rect x="4" y="4" width="6" height="6" rx="1"></rect><rect x="14" y="4" width="6" height="6" rx="1"></rect>
+                  <rect x="4" y="14" width="6" height="6" rx="1"></rect><rect x="14" y="14" width="6" height="6" rx="1"></rect>
                 </svg>
                 <h2>${escapeHtml(business.name)}</h2>
                 <p>${escapeHtml(subtitle)}</p>
