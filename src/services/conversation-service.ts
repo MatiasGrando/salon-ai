@@ -1016,13 +1016,19 @@ export class ConversationService {
     const assistantPersonality = await getBusinessAssistantPersonality(input.businessId)
     const storedInformationState = stateFromConversation(input.conversation)
     const quoteOnlyRequest = isQuoteOnlyRouting(input.routing, input.message)
-    if (shouldStartQuoteOnlyRequest(storedInformationState, quoteOnlyRequest)) {
-      const serviceIds = Array.from(new Set([
-        input.routing.bookingExtraction?.service.value,
-        ...(input.routing.bookingExtraction?.additionalServices ?? []).map((service) => service.value),
-        input.routing.catalogQuery?.serviceId
-      ].filter((serviceId): serviceId is string => Boolean(serviceId))))
-      const primaryServiceId = serviceIds[0]
+    const quoteServiceIds = Array.from(new Set([
+      input.routing.bookingExtraction?.service.value,
+      ...(input.routing.bookingExtraction?.additionalServices ?? []).map((service) => service.value),
+      input.routing.catalogQuery?.serviceId
+    ].filter((serviceId): serviceId is string => Boolean(serviceId))))
+    const quotePrimaryServiceId = quoteServiceIds[0] ?? null
+    if (shouldStartQuoteOnlyRequest(
+      storedInformationState,
+      quoteOnlyRequest,
+      quotePrimaryServiceId
+    )) {
+      const serviceIds = quoteServiceIds
+      const primaryServiceId = quotePrimaryServiceId
       if (!primaryServiceId) {
         const candidateServiceIds = input.routing.catalogQuery?.candidateServiceIds ?? []
         if (candidateServiceIds.length > 1) {
@@ -3166,9 +3172,20 @@ function hasExplicitBookingRequest(message: string) {
   return /\b(?:reserv(?:ar|ame|alo)?|agend(?:ar|ame|alo)?|sacar turno|quiero un turno|necesito un turno)\b/.test(normalizedMessage)
 }
 
-export function shouldStartQuoteOnlyRequest(state: BookingV2State, quoteOnlyRequest: boolean) {
+export function shouldStartQuoteOnlyRequest(
+  state: BookingV2State,
+  quoteOnlyRequest: boolean,
+  requestedServiceId: string | null = null
+) {
   if (!quoteOnlyRequest) return false
   if (!state.quoteOnly) return true
+  if (
+    state.guidedEstimate?.serviceId &&
+    requestedServiceId &&
+    requestedServiceId !== state.guidedEstimate.serviceId
+  ) {
+    return true
+  }
   return state.quoteOnly.remainingServiceIds.length === 0 && state.guidedEstimate === null
 }
 

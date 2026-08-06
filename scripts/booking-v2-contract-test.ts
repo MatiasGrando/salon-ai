@@ -2526,6 +2526,27 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'un presupuesto nuevo reemplaza el estimativo guiado pendiente de otro servicio',
+    run: () => {
+      const pendingQuoteState = {
+        ...createEmptyBookingV2State(),
+        draft: { name: null, service: 'molecular', professional: null, date: null, time: null },
+        quoteOnly: { remainingServiceIds: [], estimates: [] },
+        guidedEstimate: {
+          serviceId: 'molecular',
+          stage: 'awaiting_decision' as const,
+          optionId: 'long',
+          optionLabel: 'Debajo de los hombros',
+          priceMin: 75000,
+          priceMax: 90000
+        }
+      }
+
+      assert.equal(shouldStartQuoteOnlyRequest(pendingQuoteState, true, 'highlights'), true)
+      assert.equal(shouldStartQuoteOnlyRequest(pendingQuoteState, true, 'molecular'), false)
+    }
+  },
+  {
     name: 'pedido directo de reservar otro servicio reemplaza la cotización anterior',
     run: () => {
       const quoteState = completedQuoteState()
