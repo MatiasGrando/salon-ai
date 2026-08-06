@@ -35,6 +35,7 @@ import {
 import {
   businessInformationTopicsFromRouting,
   deterministicConversationRouting,
+  hasGroundedDepositInformationIntent,
   isDepositInformationRequest,
   mergeConversationRouting,
   normalizeConversationRouting
@@ -4309,6 +4310,38 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         merged.intents.some((intent) => intent.type === 'availability_preference'),
         false
       )
+    }
+  },
+  {
+    name: 'extractor reconoce una seña contextual aunque no use frases deterministas',
+    run: () => {
+      const message = '¿Qué tendría que abonar antes para asegurar el lugar?'
+      const routing = mergeConversationRouting({
+        intents: [{
+          type: 'deposit_information',
+          topic: null,
+          confidence: 0.93,
+          evidence: 'qué tendría que abonar antes para asegurar el lugar'
+        }],
+        bookingMessage: null,
+        bookingExtraction: null,
+        catalogQuery: null
+      }, deterministicConversationRouting(message, { currentStep: 'START' }), message)
+
+      assert.equal(routing.bookingMessage, null)
+      assert.equal(hasGroundedDepositInformationIntent(routing, message), true)
+      assert.equal(isDepositInformationRequest(message), false)
+
+      const lowConfidence = {
+        ...routing,
+        intents: [{
+          type: 'deposit_information' as const,
+          topic: null,
+          confidence: 0.7,
+          evidence: 'qué tendría que abonar antes'
+        }]
+      }
+      assert.equal(hasGroundedDepositInformationIntent(lowConfidence, message), false)
     }
   },
   {

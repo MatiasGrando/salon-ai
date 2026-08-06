@@ -20,6 +20,7 @@ export const CONVERSATION_INTENTS = [
   'restart_booking',
   'cancel_appointment',
   'business_information',
+  'deposit_information',
   'availability_preference',
   'professional_preference',
   'professional_schedule',
@@ -174,6 +175,7 @@ export class ConversationRouter {
           'Usa business_information para preguntas sobre horarios del local, direccion, web, formas de reservar, contacto, redes, servicios, profesionales o precios.',
           'Modismos como "cuando levantan la persiana", "cuando abren las puertas" o "desde que hora atienden" preguntan opening_hours; nunca significan volver de paso.',
           'Una consulta por costo, valor, inversion o cuanto sale es business_information con topic prices, aunque no use la palabra precio.',
+          'Usa deposit_information cuando pregunta cuánto debe adelantar, abonar antes, pagar para confirmar o dejar para asegurar un lugar. Es una consulta sobre la seña, no inicia ni modifica una reserva; usa evidencia textual exacta.',
           'Usa request_quote solo cuando pide un presupuesto personalizado o exacto; no lo uses para una consulta general de precio.',
           'Para consultas sobre un servicio puntual, completa catalogQuery con su ID y la informacion pedida aunque el cliente no use palabras literales como servicio o precio.',
           'En catalogQuery usa serviceId para una coincidencia unica y candidateServiceIds con todos los candidatos cuando la referencia es ambigua; no elijas uno arbitrariamente.',
@@ -621,6 +623,9 @@ export function mergeConversationRouting(
     intent.type === 'business_information' &&
     isGroundedBusinessInformationIntent(intent, originalMessage)
   )
+  const hasGroundedAiDepositInformation = aiRouting.intents.some((intent) =>
+    isGroundedDepositInformationIntent(intent, originalMessage)
+  )
   const hasProfessionalScheduleQuestion = aiRouting.intents.some((intent) =>
     intent.type === 'professional_schedule' &&
     intent.confidence >= 0.65 &&
@@ -631,6 +636,7 @@ export function mergeConversationRouting(
       deterministicTopics.size > 0 ||
       catalogQuery !== null ||
       hasGroundedAiInformation ||
+      hasGroundedAiDepositInformation ||
       hasProfessionalScheduleQuestion
     ) &&
     deterministic.bookingMessage === null &&
@@ -741,6 +747,7 @@ function hasDistinctGroundedBookingEvidence(
   const informationEvidence = routing.intents
     .filter((intent) => [
       'business_information',
+      'deposit_information',
       'professional_schedule',
       'service_detail'
     ].includes(intent.type) && isGroundedIntentEvidence(intent, originalMessage))
@@ -771,6 +778,19 @@ function hasDistinctGroundedBookingEvidence(
       information === evidence || information.includes(evidence)
     )
   )
+}
+
+export function hasGroundedDepositInformationIntent(
+  routing: Pick<ConversationRouting, 'intents'>,
+  originalMessage: string
+) {
+  return routing.intents.some((intent) => isGroundedDepositInformationIntent(intent, originalMessage))
+}
+
+function isGroundedDepositInformationIntent(intent: RoutedIntent, originalMessage: string) {
+  return intent.type === 'deposit_information' &&
+    intent.confidence >= 0.85 &&
+    isGroundedIntentEvidence(intent, originalMessage)
 }
 
 export function applyNaturalBookingRecovery(

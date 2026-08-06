@@ -37,6 +37,7 @@ import { findOrCreateCustomerByPhone } from './customer-identity-service.js'
 import {
   businessInformationTopicsFromRouting,
   ConversationRouter,
+  hasGroundedDepositInformationIntent,
   isDepositInformationRequest,
   type CatalogQuery,
   type ConversationRouting
@@ -1042,9 +1043,14 @@ export class ConversationService {
         }
       }
     }
+    const depositInformationRequest = isDepositInformationRequest(input.message) ||
+      hasGroundedDepositInformationIntent(input.routing, input.message)
     const informationTopics = businessInformationTopicsFromRouting(input.routing)
+    if (depositInformationRequest && !informationTopics.includes('prices')) {
+      informationTopics.push('prices')
+    }
     const contextualCatalogQuery: CatalogQuery | null = input.routing.catalogQuery ?? (
-      isDepositInformationRequest(input.message) && storedInformationState.lastInformationServiceId
+      depositInformationRequest && storedInformationState.lastInformationServiceId
         ? {
             serviceId: storedInformationState.lastInformationServiceId,
             candidateServiceIds: [storedInformationState.lastInformationServiceId],
@@ -1054,6 +1060,16 @@ export class ConversationService {
           }
         : null
     )
+    if (depositInformationRequest && !contextualCatalogQuery?.serviceId) {
+      return {
+        reply: applyAssistantPersonalityToReply(
+          '¿Sobre qué servicio querés saber el valor de la seña?',
+          assistantPersonality
+        ),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
     let informationReply = informationTopics.length
       ? await businessKnowledgeService.answer({
           businessId: input.businessId,
