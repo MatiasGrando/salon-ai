@@ -228,7 +228,7 @@ export class ConversationRouter {
           'No copies valores de currentDraft si no aparecen en customerMessage.',
           'Interpreta fechas relativas usando currentDate y timezone. date usa YYYY-MM-DD y time HH:mm.',
           'Detecta correction solo cuando el cliente expresa que quiere cambiar un dato existente.',
-          'Si bookingMessage es null, bookingExtraction debe ser null, salvo professional_schedule: en ese caso puede contener solamente el profesional consultado.',
+          'Si bookingMessage es null, bookingExtraction debe ser null, salvo professional_schedule o request_quote. Para request_quote conserva los servicios mencionados en bookingExtraction para poder calcular el presupuesto, pero no inicies una reserva.',
           'evidence debe ser un fragmento textual exacto de customerMessage.',
           'Si no esta claro, usa unknown con confianza baja.'
         ].join('\n'),
@@ -721,10 +721,45 @@ export function mergeConversationRouting(
         ?? (hasBookingRelatedIntent ? originalMessage.trim() || null : null),
     bookingExtraction: hasProfessionalScheduleQuestion
       ? aiRouting.bookingExtraction ?? null
-      : standaloneBusinessInformationQuestion
+      : standaloneBusinessInformationQuestion && !standaloneQuoteRequest
         ? null
-        : aiRouting.bookingExtraction ?? deterministic.bookingExtraction ?? null,
+        : quoteBookingExtraction({
+            standaloneQuoteRequest,
+            aiExtraction: aiRouting.bookingExtraction,
+            deterministicExtraction: deterministic.bookingExtraction,
+            catalogQuery,
+            catalog,
+            message: originalMessage
+          }),
     catalogQuery
+  }
+}
+
+function quoteBookingExtraction(input: {
+  standaloneQuoteRequest: boolean
+  aiExtraction: BookingV2Extraction | null
+  deterministicExtraction: BookingV2Extraction | null
+  catalogQuery: CatalogQuery | null
+  catalog: ConversationRouterInput['catalog'] | undefined
+  message: string
+}) {
+  const extraction = input.aiExtraction ?? input.deterministicExtraction
+  const matchingServices = input.catalog
+    ? resolveCatalogQueryServices(normalizeEvidenceText(input.message), input.catalog)
+    : []
+  const fallbackServiceId = input.catalogQuery?.serviceId ?? (
+    matchingServices.length === 1 ? matchingServices[0]?.id ?? null : null
+  )
+  if (!input.standaloneQuoteRequest || extraction?.service.value || !fallbackServiceId) {
+    return extraction ?? null
+  }
+  return {
+    ...(extraction ?? emptyBookingExtraction()),
+    service: {
+      value: fallbackServiceId,
+      confidence: input.catalogQuery?.confidence ?? 0.95,
+      evidence: input.catalogQuery?.evidence ?? input.message.trim()
+    }
   }
 }
 

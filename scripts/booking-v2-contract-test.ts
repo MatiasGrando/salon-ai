@@ -2271,6 +2271,53 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'presupuesto de un servicio único recupera el servicio desde el catálogo',
+    run: () => {
+      const message = 'quiero un presupuesto para baño de crema'
+      const catalog = {
+        bookingFlowOrder: 'PROFESSIONAL_FIRST' as const,
+        services: [{ id: 'bath', name: 'Baño de crema', aliases: ['baño de crema'], category: null }],
+        professionals: []
+      }
+      const deterministic = deterministicConversationRouting(message, {
+        currentStep: 'ASK_SERVICE',
+        catalog
+      })
+      const routing = mergeConversationRouting({
+        intents: [{ type: 'request_quote', topic: null, confidence: 0.96, evidence: message }],
+        bookingMessage: null,
+        bookingExtraction: null,
+        catalogQuery: null
+      }, deterministic, message, catalog)
+
+      assert.equal(isQuoteOnlyRouting(routing, message), true)
+      assert.equal(routing.bookingExtraction?.service.value, 'bath')
+    }
+  },
+  {
+    name: 'presupuesto con varios servicios conserva la extracción de IA sin iniciar reserva',
+    run: () => {
+      const message = 'quiero un presupuesto para hacerme un color y cortarme'
+      const deterministic = deterministicConversationRouting(message, { currentStep: 'ASK_SERVICE' })
+      const routing = mergeConversationRouting({
+        intents: [
+          { type: 'request_quote', topic: null, confidence: 0.96, evidence: 'presupuesto' },
+          { type: 'book_appointment', topic: null, confidence: 0.96, evidence: 'hacerme un color y cortarme' }
+        ],
+        bookingMessage: null,
+        bookingExtraction: extraction({
+          service: field('color', 0.98, 'color'),
+          additionalServices: [field('cut', 0.98, 'cortarme')]
+        }),
+        catalogQuery: null
+      }, deterministic, message)
+
+      assert.equal(routing.bookingMessage, null)
+      assert.equal(routing.bookingExtraction?.service.value, 'color')
+      assert.equal(routing.bookingExtraction?.additionalServices?.[0]?.value, 'cut')
+    }
+  },
+  {
     name: 'extractor semántico suma un servicio fijo sin volver al catálogo',
     run: async () => {
       const catalog = createBookingV2DomainCatalog({

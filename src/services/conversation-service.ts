@@ -1019,7 +1019,8 @@ export class ConversationService {
     if (shouldStartQuoteOnlyRequest(storedInformationState, quoteOnlyRequest)) {
       const serviceIds = Array.from(new Set([
         input.routing.bookingExtraction?.service.value,
-        ...(input.routing.bookingExtraction?.additionalServices ?? []).map((service) => service.value)
+        ...(input.routing.bookingExtraction?.additionalServices ?? []).map((service) => service.value),
+        input.routing.catalogQuery?.serviceId
       ].filter((serviceId): serviceId is string => Boolean(serviceId))))
       const primaryServiceId = serviceIds[0]
       if (!primaryServiceId) {
