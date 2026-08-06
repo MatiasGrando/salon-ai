@@ -2392,8 +2392,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
       assert.deepEqual(businessInformationTopicsFromRouting(hours), ['opening_hours'])
       assert.deepEqual(businessInformationTopicsFromRouting(address), ['address'])
-      assert.equal(quoteState.draft.service, 'highlights')
-      assert.equal(quoteState.combinedServices[0]?.serviceId, 'cut')
+      assert.equal(quoteState.draft.service, null)
+      assert.equal(quoteState.combinedServices.length, 0)
       assert.equal(quoteState.quoteOnly?.estimates.length, 2)
     }
   },
@@ -2401,7 +2401,15 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     name: 'resumen de presupuesto retoma y finaliza la reserva de los servicios cotizados',
     run: () => {
       const quoteState = completedQuoteState()
-      const bookingState = { ...quoteState, quoteOnly: null }
+      const bookingState = {
+        ...quoteState,
+        draft: {
+          ...quoteState.draft,
+          service: 'highlights'
+        },
+        combinedServices: [{ serviceId: 'cut', evidence: 'presupuesto consultado' }],
+        quoteOnly: null
+      }
       const completedState = {
         ...bookingState,
         draft: {
@@ -2444,9 +2452,22 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
-    name: 'nuevo pedido de presupuesto después del resumen inicia otro estimativo',
+    name: 'nuevo pedido de presupuesto después del resumen inicia otro estimativo sin pedir nombre',
     run: () => {
       const quoteState = completedQuoteState()
+      const message = 'quiero saber el presupuesto para baño de crema'
+      const routing = mergeConversationRouting({
+        intents: [
+          { type: 'request_quote', topic: null, confidence: 0.96, evidence: 'presupuesto para baño de crema' },
+          { type: 'book_appointment', topic: null, confidence: 0.92, evidence: 'quiero saber el presupuesto para baño de crema' }
+        ],
+        bookingMessage: message,
+        bookingExtraction: extraction({ service: field('bath', 0.98, 'baño de crema') })
+      }, deterministicConversationRouting(message, { currentStep: 'ASK_SERVICE' }), message)
+
+      assert.equal(isQuoteOnlyRouting(routing, message), true)
+      assert.equal(routing.bookingMessage, null)
+      assert.equal(routing.bookingExtraction?.service.value, 'bath')
       assert.equal(shouldStartQuoteOnlyRequest(quoteState, true), true)
       assert.equal(shouldStartQuoteOnlyRequest({
         ...quoteState,
@@ -5813,12 +5834,12 @@ function completedQuoteState() {
     ...createEmptyBookingV2State(),
     draft: {
       name: null,
-      service: 'highlights',
+      service: null,
       professional: null,
       date: null,
       time: null
     },
-    combinedServices: [{ serviceId: 'cut', evidence: 'presupuesto consultado' }],
+    combinedServices: [],
     quoteOnly: {
       remainingServiceIds: [],
       estimates: [
