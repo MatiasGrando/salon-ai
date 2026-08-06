@@ -742,14 +742,15 @@ export class BookingV2Engine {
               ...initialState,
               draft: {
                 ...initialState.draft,
-                service: null,
                 professional: null,
                 date: null,
                 time: null
               },
-              combinedServices: [],
+              combinedServices: estimates
+                .slice(1)
+                .map((estimate) => ({ serviceId: estimate.serviceId, evidence: 'presupuesto consultado' })),
               guidedEstimate: null,
-              quoteOnly: null,
+              quoteOnly: { remainingServiceIds: [], estimates },
               misunderstandingCount: 0
             }
             return this.guidedEstimateResult(state, { type: 'quote_complete', estimates }, catalog, 'accepted')

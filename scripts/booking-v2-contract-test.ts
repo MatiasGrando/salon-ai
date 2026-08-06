@@ -64,6 +64,7 @@ import {
   splitWhatsAppReply,
   shouldShowBookingV2IntentFallback,
   shouldRouteBookingV2HumanHandoff,
+  shouldStartQuoteOnlyRequest,
   withBusinessInformationFollowUp
 } from '../src/services/conversation-service.js'
 import { BotCopyService } from '../src/services/bot-copy-service.js'
@@ -2329,8 +2330,92 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(cutQuestion.plan.type, 'quote_complete')
       assert.match(cutQuestion.reply, /Corte: \$\s?30\.000/)
       assert.match(cutQuestion.reply, /El total estimado hasta ahora es entre \$\s?110\.000 y \$\s?130\.000/)
-      assert.equal(cutQuestion.state.quoteOnly, null)
+      assert.equal(cutQuestion.state.quoteOnly?.estimates.length, 2)
+      assert.equal(cutQuestion.state.draft.service, 'color')
+      assert.equal(cutQuestion.state.combinedServices[0]?.serviceId, 'cut')
       assert.notEqual(cutQuestion.plan.type, 'handoff')
+    }
+  },
+  {
+    name: 'resumen de presupuesto permite consultar horario y dirección sin perder servicios',
+    run: () => {
+      const quoteState = completedQuoteState()
+      const hours = deterministicConversationRouting('¿A qué hora abren?', { currentStep: 'ASK_SERVICE' })
+      const address = deterministicConversationRouting('¿Cuál es la dirección?', { currentStep: 'ASK_SERVICE' })
+
+      assert.deepEqual(businessInformationTopicsFromRouting(hours), ['opening_hours'])
+      assert.deepEqual(businessInformationTopicsFromRouting(address), ['address'])
+      assert.equal(quoteState.draft.service, 'highlights')
+      assert.equal(quoteState.combinedServices[0]?.serviceId, 'cut')
+      assert.equal(quoteState.quoteOnly?.estimates.length, 2)
+    }
+  },
+  {
+    name: 'resumen de presupuesto retoma y finaliza la reserva de los servicios cotizados',
+    run: () => {
+      const quoteState = completedQuoteState()
+      const bookingState = { ...quoteState, quoteOnly: null }
+      const completedState = {
+        ...bookingState,
+        draft: {
+          ...bookingState.draft,
+          name: 'Matías',
+          professional: 'professional-1',
+          date: '2026-08-08',
+          time: '11:30'
+        }
+      }
+      const plan = buildBookingV2MessagePlan({
+        state: completedState,
+        nextField: 'confirmation',
+        outcome: 'accepted',
+        affectedField: null
+      })
+
+      assert.equal(plan.type, 'confirm_booking')
+      assert.equal(completedState.combinedServices[0]?.serviceId, 'cut')
+    }
+  },
+  {
+    name: 'consulta de otro servicio conserva el resumen hasta pedir reservarlo',
+    run: () => {
+      const quoteState = completedQuoteState()
+      const serviceQuery = mergeConversationRouting({
+        intents: [{ type: 'service_detail', topic: null, confidence: 0.95, evidence: 'baño de crema' }],
+        bookingMessage: null,
+        bookingExtraction: extraction({ service: field('bath', 0.98, 'baño de crema') }),
+        catalogQuery: {
+          serviceId: 'bath', candidateServiceIds: ['bath'], requestedInformation: ['general'], confidence: 0.98, evidence: 'baño de crema'
+        }
+      }, deterministicConversationRouting('Quiero información sobre baño de crema', { currentStep: 'ASK_SERVICE' }), 'Quiero información sobre baño de crema')
+
+      assert.equal(serviceQuery.catalogQuery?.serviceId, 'bath')
+      assert.equal(quoteState.quoteOnly?.estimates.length, 2)
+      const newBooking = acceptField({ ...quoteState, quoteOnly: null }, 'service', 'bath')
+      assert.equal(newBooking.draft.service, 'bath')
+      assert.equal(newBooking.combinedServices.length, 0)
+    }
+  },
+  {
+    name: 'nuevo pedido de presupuesto después del resumen inicia otro estimativo',
+    run: () => {
+      const quoteState = completedQuoteState()
+      assert.equal(shouldStartQuoteOnlyRequest(quoteState, true), true)
+      assert.equal(shouldStartQuoteOnlyRequest({
+        ...quoteState,
+        quoteOnly: { ...quoteState.quoteOnly!, remainingServiceIds: ['bath'] }
+      }, true), false)
+    }
+  },
+  {
+    name: 'pedido directo de reservar otro servicio reemplaza la cotización anterior',
+    run: () => {
+      const quoteState = completedQuoteState()
+      const newBooking = acceptField({ ...quoteState, quoteOnly: null }, 'service', 'bath')
+
+      assert.equal(newBooking.draft.service, 'bath')
+      assert.equal(newBooking.quoteOnly, null)
+      assert.equal(newBooking.combinedServices.length, 0)
     }
   },
   {
@@ -5672,6 +5757,27 @@ function fakeEstimateDecisionExtractor(
   return {
     async extract(input: { message: string }) {
       return classify(input.message)
+    }
+  }
+}
+
+function completedQuoteState() {
+  return {
+    ...createEmptyBookingV2State(),
+    draft: {
+      name: null,
+      service: 'highlights',
+      professional: null,
+      date: null,
+      time: null
+    },
+    combinedServices: [{ serviceId: 'cut', evidence: 'presupuesto consultado' }],
+    quoteOnly: {
+      remainingServiceIds: [],
+      estimates: [
+        { serviceId: 'highlights', priceMin: 160000, priceMax: 210000 },
+        { serviceId: 'cut', priceMin: 37000, priceMax: 37000 }
+      ]
     }
   }
 }

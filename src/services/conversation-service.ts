@@ -1016,7 +1016,7 @@ export class ConversationService {
     const assistantPersonality = await getBusinessAssistantPersonality(input.businessId)
     const storedInformationState = stateFromConversation(input.conversation)
     const quoteOnlyRequest = isQuoteOnlyRouting(input.routing, input.message)
-    if (quoteOnlyRequest && !storedInformationState.quoteOnly) {
+    if (shouldStartQuoteOnlyRequest(storedInformationState, quoteOnlyRequest)) {
       const serviceIds = Array.from(new Set([
         input.routing.bookingExtraction?.service.value,
         ...(input.routing.bookingExtraction?.additionalServices ?? []).map((service) => service.value)
@@ -1067,8 +1067,7 @@ export class ConversationService {
       const bookingState: BookingV2State = {
         ...storedInformationState,
         quoteOnly: null,
-        guidedEstimate: null,
-        combinedServices: []
+        guidedEstimate: null
       }
       await this.updateConversation(input.phone, input.businessId, {
         currentStep: conversationStepValue(input.conversation.currentStep),
@@ -2909,6 +2908,7 @@ function conversationStepFromBookingV2Plan(plan: BookingV2MessagePlan) {
   ) {
     return 'ASK_SERVICE'
   }
+  if (plan.type === 'quote_complete') return 'ASK_SERVICE'
   if (plan.type === 'confirm_booking') return 'CONFIRM'
   if (plan.type === 'clarify_professional') return 'ASK_PROFESSIONAL'
   if (plan.type === 'confirm_field' || plan.type === 'confirm_correction') {
@@ -3096,6 +3096,12 @@ export function isBookingV2InitialGreeting(currentStep: string, message: string)
 function hasExplicitBookingRequest(message: string) {
   const normalizedMessage = normalizeText(message)
   return /\b(?:reserv(?:ar|ame|alo)?|agend(?:ar|ame|alo)?|sacar turno|quiero un turno|necesito un turno)\b/.test(normalizedMessage)
+}
+
+export function shouldStartQuoteOnlyRequest(state: BookingV2State, quoteOnlyRequest: boolean) {
+  if (!quoteOnlyRequest) return false
+  if (!state.quoteOnly) return true
+  return state.quoteOnly.remainingServiceIds.length === 0 && state.guidedEstimate === null
 }
 
 export function isUnambiguousBookingConfirmation(message: string) {
