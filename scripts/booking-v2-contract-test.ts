@@ -52,6 +52,7 @@ import {
   clearBookingV2StateFromField,
   composeBusinessInformationResumeReply,
   freshBookingV2State,
+  hasQuoteOnlyBookingRequest,
   isBookingV2ConversationClosing,
   isBookingV2GreetingOnlyMessage,
   isBookingV2InitialGreeting,
@@ -2467,6 +2468,24 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
       assert.equal(plan.type, 'confirm_booking')
       assert.equal(completedState.combinedServices[0]?.serviceId, 'cut')
+    }
+  },
+  {
+    name: 'resumen de presupuesto acepta una confirmación contextual o detectada por IA',
+    run: () => {
+      assert.equal(hasQuoteOnlyBookingRequest('sí'), true)
+      assert.equal(hasQuoteOnlyBookingRequest('de una'), true)
+      assert.equal(hasQuoteOnlyBookingRequest('dale, quiero reservalo'), true)
+      assert.equal(hasQuoteOnlyBookingRequest('quiero reservarlo'), true)
+      assert.equal(hasQuoteOnlyBookingRequest('agendalo por favor'), true)
+      assert.equal(hasQuoteOnlyBookingRequest('sacame un turno'), true)
+      assert.equal(hasQuoteOnlyBookingRequest('me parece bien'), false)
+      assert.equal(hasQuoteOnlyBookingRequest('me parece bien', {
+        intents: [{ type: 'confirm_booking', topic: null, confidence: 0.91, evidence: 'me parece bien' }]
+      }), true)
+      assert.equal(hasQuoteOnlyBookingRequest('¿Cuál es la dirección?', {
+        intents: [{ type: 'business_information', topic: 'address', confidence: 0.98, evidence: 'dirección' }]
+      }), false)
     }
   },
   {

@@ -1098,7 +1098,7 @@ export class ConversationService {
         skipHumanize: true
       }
     }
-    if (storedInformationState.quoteOnly && hasExplicitBookingRequest(input.message)) {
+    if (storedInformationState.quoteOnly && hasQuoteOnlyBookingRequest(input.message, input.routing)) {
       const quotedServiceIds = storedInformationState.quoteOnly.estimates.map((estimate) => estimate.serviceId)
       const [primaryServiceId, ...additionalServiceIds] = quotedServiceIds
       const bookingState: BookingV2State = {
@@ -3169,7 +3169,18 @@ export function isBookingV2InitialGreeting(currentStep: string, message: string)
 
 function hasExplicitBookingRequest(message: string) {
   const normalizedMessage = normalizeText(message)
-  return /\b(?:reserv(?:ar|ame|alo)?|agend(?:ar|ame|alo)?|sacar turno|quiero un turno|necesito un turno)\b/.test(normalizedMessage)
+  return /\b(?:reserv(?:ar(?:lo|la|los|las)?|arlo|arla|arlos|arlas|ame|alo|ala|alos|alas)?|agend(?:ar(?:lo|la|los|las)?|arlo|arla|arlos|arlas|ame|alo|ala|alos|alas)?|saca(?:r|me)?(?: un)? turno|quiero un turno|necesito un turno)\b/.test(normalizedMessage)
+}
+
+export function hasQuoteOnlyBookingRequest(
+  message: string,
+  routing?: Pick<ConversationRouting, 'intents'>
+) {
+  return hasExplicitBookingRequest(message) ||
+    isUnambiguousBookingConfirmation(message) ||
+    Boolean(routing?.intents.some((intent) =>
+      ['book_appointment', 'confirm_booking'].includes(intent.type) && intent.confidence >= 0.65
+    ))
 }
 
 export function shouldStartQuoteOnlyRequest(
