@@ -791,6 +791,10 @@ export class BookingV2Engine {
           pendingGroupResolution.remainingGroups
         )
       }
+      if (state.quoteOnly && state.pendingServiceDisambiguation) {
+        return this.serviceDisambiguationResult(state, catalog, 'accepted')
+      }
+      state = prepareQuoteOnlySelectedServices(state)
       const nextField = state.pendingServiceDisambiguation && state.draft.name
         ? 'service'
         : nextMissingField(state.draft, catalog.bookingFlowOrder)
@@ -810,9 +814,13 @@ export class BookingV2Engine {
       initialState.pendingServiceDisambiguation &&
       (
         Boolean(initialState.draft.name) ||
+        Boolean(initialState.quoteOnly) ||
         nextMissingField(initialState.draft, catalog.bookingFlowOrder) === 'service'
       )
     ) {
+      if (initialState.quoteOnly) {
+        return this.serviceDisambiguationResult(initialState, catalog, 'no_change')
+      }
       return this.fromInterpretation({
         state: initialState,
         nextField: 'service',
@@ -840,6 +848,10 @@ export class BookingV2Engine {
         ...state,
         pendingServiceDisambiguation: pendingServiceDisambiguationFromGroups(ambiguousGroups)
       }
+      if (state.quoteOnly && state.pendingServiceDisambiguation) {
+        return this.serviceDisambiguationResult(state, catalog, selections.length ? 'accepted' : 'no_change')
+      }
+      state = prepareQuoteOnlySelectedServices(state)
       const nextField = state.pendingServiceDisambiguation && state.draft.name
         ? 'service'
         : nextMissingField(state.draft, catalog.bookingFlowOrder)
@@ -1895,6 +1907,41 @@ export class BookingV2Engine {
     }
   }
 
+  private serviceDisambiguationResult(
+    state: BookingV2State,
+    catalog: BookingV2DomainCatalog,
+    outcome: BookingV2ProcessResult['outcome']
+  ): BookingV2ProcessResult {
+    const plan = buildBookingV2MessagePlan({
+      state,
+      nextField: 'service',
+      outcome,
+      affectedField: 'service'
+    }, catalog.bookingFlowOrder)
+    const reconciledState = reconcileBookingV2Agenda(state, plan, [])
+    const serviceSuggestions = pendingServiceDisambiguationOptions(reconciledState, catalog)
+    const reply = renderBookingV2Response({
+      plan,
+      draft: reconciledState.draft,
+      agenda: reconciledState.agenda,
+      catalogNavigation: reconciledState.catalogNavigation,
+      catalog,
+      availabilityOptions: [],
+      combinedServices: reconciledState.combinedServices,
+      quoteOnly: reconciledState.quoteOnly,
+      ...(serviceSuggestions ? { serviceSuggestions } : {})
+    })
+    return {
+      state: reconciledState,
+      conversationPatch: conversationPatchFromState(reconciledState),
+      plan,
+      reply,
+      availabilityOptions: [],
+      extraction: null,
+      outcome
+    }
+  }
+
   private async resolveExpectedTime(
     message: string,
     state: BookingV2State,
@@ -2507,6 +2554,14 @@ function resolveCatalogServiceSelection(
   const signature = selectionSignature(message)
   if (!signature) return null
 
+  const genericFamilyMatches = genericServiceFamilyMatches(signature, catalog)
+  if (genericFamilyMatches.length > 1) {
+    return {
+      kind: 'ambiguous' as const,
+      serviceIds: genericFamilyMatches.map((service) => service.id)
+    }
+  }
+
   const exactMatches = catalog.services.filter((service) =>
     [service.name, ...service.aliases].some((label) => selectionSignature(label) === signature)
   )
@@ -2596,6 +2651,32 @@ function resolveCatalogServiceSelection(
     }
   }
   return null
+}
+
+function genericServiceFamilyMatches(
+  signature: string,
+  catalog: BookingV2DomainCatalog
+) {
+  const reference = signature
+    .split(' ')
+    .filter((token) => ![
+      'averiguar', 'consulta', 'cotizacion', 'informacion', 'precio', 'presupuesto', 'saber'
+    ].includes(token))
+    .join(' ')
+  const familyTerms = reference === 'color'
+    ? ['color', 'tintura', 'iluminacion', 'balayage', 'babylights', 'contouring', 'mechas']
+    : /^(?:corte|cortar|cortarme|cortarme pelo|corte pelo)$/.test(reference)
+      ? ['corte']
+      : null
+  if (!familyTerms) return []
+
+  return catalog.services.filter((service) => {
+    const labels = [service.name, service.category ?? '', ...service.aliases]
+      .map((label) => serviceSelectionTokens(label))
+    return labels.some((tokens) => tokens.some((token) =>
+      familyTerms.some((familyTerm) => serviceTokensMatch(token, familyTerm))
+    ))
+  })
 }
 
 function resolveExpectedDate(
@@ -2963,6 +3044,33 @@ function applyResolvedServiceSelections(
     state = addCombinedServices(state, [selection])
   }
   return state
+}
+
+function prepareQuoteOnlySelectedServices(state: BookingV2State) {
+  if (!state.quoteOnly || !state.draft.service || state.pendingServiceDisambiguation) return state
+  const selectedServiceIds = Array.from(new Set([
+    state.draft.service,
+    ...state.combinedServices.map((service) => service.serviceId)
+  ]))
+  const [primaryServiceId, ...additionalServiceIds] = selectedServiceIds
+  return {
+    ...state,
+    draft: {
+      ...state.draft,
+      service: primaryServiceId ?? null,
+      professional: null,
+      date: null,
+      time: null
+    },
+    combinedServices: [],
+    quoteOnly: {
+      ...state.quoteOnly,
+      remainingServiceIds: Array.from(new Set([
+        ...state.quoteOnly.remainingServiceIds,
+        ...additionalServiceIds
+      ])).filter((serviceId) => serviceId !== primaryServiceId)
+    }
+  }
 }
 
 function hasMultipleServiceSignal(message: string) {

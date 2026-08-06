@@ -1071,7 +1071,7 @@ export class ConversationService {
         ...storedInformationState,
         draft: {
           ...storedInformationState.draft,
-          service: primaryServiceId,
+          service: null,
           professional: null,
           date: null,
           time: null
@@ -1083,9 +1083,11 @@ export class ConversationService {
         pendingDeposit: null,
         misunderstandingCount: 0
       }
-      const estimated = await bookingV2Engine.resume({
+      const estimated = await bookingV2Engine.process({
         businessId: input.businessId,
-        conversation: conversationPatchFromState(quoteState)
+        conversation: conversationPatchFromState(quoteState),
+        message: input.message,
+        understandingExtraction: input.routing.bookingExtraction
       })
       await this.updateConversation(input.phone, input.businessId, {
         currentStep: conversationStepValue(input.conversation.currentStep),

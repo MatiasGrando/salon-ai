@@ -2374,6 +2374,85 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'presupuesto con color y corte genéricos pide aclarar cada servicio antes de cotizar',
+    run: async () => {
+      const catalog = createBookingV2DomainCatalog({
+        services: [
+          {
+            id: 'highlights', name: 'Iluminación', aliases: ['balayage'], duration: 120, price: 160000,
+            category: 'Iluminación', attentionMode: 'DIRECT_BOOKING', requiresPhoto: false,
+            estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null,
+            estimateAllowsBooking: true
+          },
+          {
+            id: 'full-color', name: 'Tintura completa', aliases: [], duration: 90, price: 90000,
+            category: 'Color', attentionMode: 'DIRECT_BOOKING', requiresPhoto: false,
+            estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null,
+            estimateAllowsBooking: true
+          },
+          {
+            id: 'roots', name: 'Tintura raíces', aliases: [], duration: 60, price: 65000,
+            category: 'Color', attentionMode: 'DIRECT_BOOKING', requiresPhoto: false,
+            estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null,
+            estimateAllowsBooking: true
+          },
+          {
+            id: 'woman-cut', name: 'Corte mujer', aliases: [], duration: 30, price: 37000,
+            category: 'Cortes', attentionMode: 'DIRECT_BOOKING', requiresPhoto: false,
+            estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null,
+            estimateAllowsBooking: true
+          },
+          {
+            id: 'man-cut', name: 'Corte hombre', aliases: [], duration: 30, price: 27000,
+            category: 'Cortes', attentionMode: 'DIRECT_BOOKING', requiresPhoto: false,
+            estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null,
+            estimateAllowsBooking: true
+          },
+          {
+            id: 'beard-cut', name: 'Corte y barba', aliases: [], duration: 45, price: 32000,
+            category: 'Cortes', attentionMode: 'DIRECT_BOOKING', requiresPhoto: false,
+            estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null,
+            estimateAllowsBooking: true
+          }
+        ],
+        professionals: []
+      })
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog }), fakeExtractor(null))
+      const quoteState = {
+        ...createEmptyBookingV2State(),
+        quoteOnly: { remainingServiceIds: [], estimates: [] }
+      }
+
+      const colorQuestion = await engine.process({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(quoteState),
+        message: 'quiero presupuesto para hacerme un color y cortarme'
+      })
+      assert.equal(colorQuestion.plan.type, 'ask_field')
+      assert.match(colorQuestion.reply, /Tintura completa/)
+      assert.match(colorQuestion.reply, /Iluminación/)
+      assert.doesNotMatch(colorQuestion.reply, /Corte mujer/)
+
+      const cutQuestion = await engine.process({
+        businessId: 'business-1',
+        conversation: colorQuestion.conversationPatch,
+        message: 'tintura completa'
+      })
+      assert.equal(cutQuestion.plan.type, 'ask_field')
+      assert.match(cutQuestion.reply, /Corte mujer/)
+      assert.doesNotMatch(cutQuestion.reply, /Tintura raíces/)
+
+      const quote = await engine.process({
+        businessId: 'business-1',
+        conversation: cutQuestion.conversationPatch,
+        message: 'corte mujer'
+      })
+      assert.equal(quote.plan.type, 'quote_complete')
+      assert.match(quote.reply, /Tintura completa: \$\s?90\.000/)
+      assert.match(quote.reply, /Corte mujer: \$\s?37\.000/)
+    }
+  },
+  {
     name: 'resumen de presupuesto permite consultar horario y dirección sin perder servicios',
     run: () => {
       const quoteState = completedQuoteState()
