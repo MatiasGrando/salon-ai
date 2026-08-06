@@ -57,6 +57,7 @@ export type BookingV2PendingRequest = {
 export type BookingV2PendingInformationSelection = {
   serviceIds: string[]
   requestedInformation: Array<'general' | 'price' | 'duration' | 'professionals'>
+  quoteOnly?: boolean
 }
 
 export type BookingV2ServiceDisambiguationGroup = {

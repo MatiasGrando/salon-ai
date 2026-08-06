@@ -426,7 +426,7 @@ function readPendingInformationSelection(value: unknown): BookingV2PendingInform
     )
   ))
   return serviceIds.length > 1 && requestedInformation.length
-    ? { serviceIds, requestedInformation }
+    ? { serviceIds, requestedInformation, ...(candidate.quoteOnly === true ? { quoteOnly: true } : {}) }
     : null
 }
 

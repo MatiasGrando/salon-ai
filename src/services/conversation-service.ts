@@ -1024,6 +1024,34 @@ export class ConversationService {
       ].filter((serviceId): serviceId is string => Boolean(serviceId))))
       const primaryServiceId = serviceIds[0]
       if (!primaryServiceId) {
+        const candidateServiceIds = input.routing.catalogQuery?.candidateServiceIds ?? []
+        if (candidateServiceIds.length > 1) {
+          const services = await prisma.service.findMany({
+            where: { businessId: input.businessId, id: { in: candidateServiceIds } },
+            select: { id: true, name: true }
+          })
+          const nextState: BookingV2State = {
+            ...storedInformationState,
+            pendingInformationSelection: {
+              serviceIds: candidateServiceIds,
+              requestedInformation: ['price'],
+              quoteOnly: true
+            }
+          }
+          await this.updateConversation(input.phone, input.businessId, {
+            currentStep: conversationStepValue(input.conversation.currentStep),
+            ...conversationPatchFromState(nextState)
+          })
+          return {
+            reply: applyAssistantPersonalityToReply([
+              'Encontré varias opciones para tu presupuesto:',
+              ...services.map((service) => `• ${service.name}`),
+              '¿Sobre cuál querés consultar?'
+            ].join('\n'), assistantPersonality),
+            skipMisunderstandingTracking: true,
+            skipHumanize: true
+          }
+        }
         return {
           reply: applyAssistantPersonalityToReply(
             '¿Sobre qué servicio querés pedir el presupuesto?',
@@ -1089,6 +1117,26 @@ export class ConversationService {
           serviceIds: pendingInformationSelection.serviceIds
         })
       if (selectedServiceId && pendingInformationSelection.serviceIds.includes(selectedServiceId)) {
+        if (pendingInformationSelection.quoteOnly) {
+          const quoteState: BookingV2State = {
+            ...storedInformationState,
+            draft: { ...storedInformationState.draft, service: selectedServiceId, professional: null, date: null, time: null },
+            combinedServices: [],
+            guidedEstimate: null,
+            quoteOnly: { remainingServiceIds: [], estimates: [] },
+            pendingInformationSelection: null,
+            misunderstandingCount: 0
+          }
+          const estimated = await bookingV2Engine.resume({
+            businessId: input.businessId,
+            conversation: conversationPatchFromState(quoteState)
+          })
+          await this.updateConversation(input.phone, input.businessId, {
+            currentStep: conversationStepValue(input.conversation.currentStep),
+            ...estimated.conversationPatch
+          })
+          return { reply: applyAssistantPersonalityToReply(estimated.reply, assistantPersonality), skipMisunderstandingTracking: true, skipHumanize: true }
+        }
         const detailReply = await businessKnowledgeService.answer({
           businessId: input.businessId,
           topics: ['services'],
