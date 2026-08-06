@@ -762,15 +762,12 @@ function quoteBookingExtraction(input: {
 }
 
 export function isQuoteOnlyRouting(
-  routing: Pick<ConversationRouting, 'intents'>,
+  _routing: Pick<ConversationRouting, 'intents'>,
   message: string
 ) {
   const normalized = normalizeEvidenceText(message)
   return hasExplicitQuoteRequest(normalized) &&
-    !hasExplicitBookingIntent(normalized) &&
-    routing.intents.some((intent) =>
-      intent.type === 'request_quote' && isGroundedIntentEvidence(intent, message)
-    )
+    !hasExplicitBookingAction(normalized)
 }
 
 function groundedBookingMessage(value: string | null, originalMessage: string) {
@@ -1334,6 +1331,25 @@ function hasExplicitBookingIntent(normalized: string) {
     'quiero corte',
     'quiero con',
     'prefiero con'
+  ]) || hasApproximateBookingTurnRequest(normalized)
+}
+
+function hasExplicitBookingAction(normalized: string) {
+  return containsAny(normalized, [
+    'quiero reservar',
+    'queria reservar',
+    'quisiera reservar',
+    'necesito reservar',
+    'quiero un turno',
+    'queria un turno',
+    'quisiera un turno',
+    'necesito un turno',
+    'sacar turno',
+    'sacame un turno',
+    'agendar turno',
+    'agendame',
+    'me agendas',
+    'reservame'
   ]) || hasApproximateBookingTurnRequest(normalized)
 }
 

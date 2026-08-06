@@ -2273,6 +2273,25 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'presupuesto explícito prevalece aunque la IA lo confunda con reserva',
+    run: () => {
+      const message = 'Hola, cómo va? Quería averiguar el presupuesto para hacerme un color y cortarme'
+      const deterministic = deterministicConversationRouting(message, { currentStep: 'START' })
+      const routing = mergeConversationRouting({
+        intents: [{ type: 'book_appointment', topic: null, confidence: 0.94, evidence: 'hacerme un color y cortarme' }],
+        bookingMessage: message,
+        bookingExtraction: extraction({
+          service: field('highlights', 0.98, 'color'),
+          additionalServices: [field('woman-cut', 0.98, 'cortarme')]
+        })
+      }, deterministic, message)
+
+      assert.equal(isQuoteOnlyRouting(routing, message), true)
+      assert.equal(routing.bookingMessage, null)
+      assert.equal(routing.intents.some((intent) => intent.type === 'book_appointment'), false)
+    }
+  },
+  {
     name: 'presupuesto de un servicio único recupera el servicio desde el catálogo',
     run: () => {
       const message = 'quiero un presupuesto para baño de crema'
