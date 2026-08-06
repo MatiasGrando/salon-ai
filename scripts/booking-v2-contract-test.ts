@@ -21,6 +21,7 @@ import {
   stateFromConversation
 } from '../src/services/booking-v2-conversation-state.js'
 import { BookingV2Engine } from '../src/services/booking-v2-engine.js'
+import { BookingV2EstimateDecisionExtractor } from '../src/services/booking-v2-estimate-decision-extractor.js'
 import {
   calculateBookingV2Deposit,
   renderBookingV2DepositRequest,
@@ -88,6 +89,21 @@ import { conversationCompletionPatchFromAppointment } from '../src/services/conv
 import { reservationFitsAvailabilityWindow } from '../src/services/service-duration.js'
 
 const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
+  {
+    name: 'decisión del estimativo acepta afirmaciones claras sin depender de IA',
+    run: async () => {
+      const extractor = new BookingV2EstimateDecisionExtractor()
+      for (const message of ['sí', 'dale', 'de una', 'me parece bien', 'sí, seguir con el estimativo']) {
+        const result = await extractor.extract({
+          message,
+          serviceName: 'Iluminación',
+          allowsBooking: true,
+          requiresPhoto: false
+        })
+        assert.deepEqual(result, { decision: 'continue_booking', confidence: 0.98 })
+      }
+    }
+  },
   {
     name: 'la opción numérica del estimativo no abre mis turnos',
     run: () => {

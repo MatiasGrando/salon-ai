@@ -1,6 +1,7 @@
 import { openAiConfig } from '../config/openai.js'
 import { getOpenAiClient } from '../integrations/openai-client.js'
 import { isAiExecutionEnabled } from './ai-execution-context.js'
+import { normalizeText } from './message-understanding-service.js'
 
 export type EstimateDecision = 'continue_booking' | 'request_exact_quote' | 'unclear'
 
@@ -16,6 +17,9 @@ export class BookingV2EstimateDecisionExtractor {
     allowsBooking: boolean
     requiresPhoto: boolean
   }): Promise<EstimateDecisionExtraction> {
+    const deterministicDecision = deterministicEstimateDecision(input.message)
+    if (deterministicDecision) return deterministicDecision
+
     if (!isAiExecutionEnabled()) return { decision: 'unclear', confidence: 0 }
     const client = getOpenAiClient()
     if (!client) return { decision: 'unclear', confidence: 0 }
@@ -67,6 +71,47 @@ export class BookingV2EstimateDecisionExtractor {
       return { decision: 'unclear', confidence: 0 }
     }
   }
+}
+
+function deterministicEstimateDecision(message: string): EstimateDecisionExtraction | null {
+  const normalized = normalizeText(message)
+  if (!normalized) return null
+
+  if (/^(no|nop|mejor no|no me|no quiero|no sigamos|no continuemos)\b/.test(normalized)) {
+    return null
+  }
+
+  if ([
+    'presupuesto exacto',
+    'cotizacion exacta',
+    'cotizacion precisa',
+    'precio exacto',
+    'precio final',
+    'que lo revise el equipo',
+    'que lo revise una profesional',
+    'quiero que me asesoren'
+  ].some((phrase) => normalized.includes(phrase))) {
+    return { decision: 'request_exact_quote', confidence: 0.98 }
+  }
+
+  if ([
+    'si',
+    'si por favor',
+    'dale',
+    'dale por favor',
+    'de una',
+    'me parece bien',
+    'me sirve',
+    'avancemos',
+    'sigamos',
+    'continuemos',
+    'seguir con el estimativo',
+    'seguir con estimativo'
+  ].some((phrase) => normalized === phrase || normalized.includes(phrase))) {
+    return { decision: 'continue_booking', confidence: 0.98 }
+  }
+
+  return null
 }
 
 function isEstimateDecision(value: unknown): value is EstimateDecision {
