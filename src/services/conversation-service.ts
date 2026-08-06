@@ -1011,7 +1011,11 @@ export class ConversationService {
     if (pendingInformationSelection && !hasExplicitBookingRequest(input.message)) {
       const selectedServiceId = input.routing.catalogQuery?.serviceId ??
         input.routing.bookingExtraction?.service.value ??
-        null
+        await this.resolvePendingInformationServiceSelection({
+          businessId: input.businessId,
+          message: input.message,
+          serviceIds: pendingInformationSelection.serviceIds
+        })
       if (selectedServiceId && pendingInformationSelection.serviceIds.includes(selectedServiceId)) {
         const detailReply = await businessKnowledgeService.answer({
           businessId: input.businessId,
@@ -1708,6 +1712,32 @@ export class ConversationService {
       skipMisunderstandingTracking: true,
       skipHumanize: true
     }
+  }
+
+  private async resolvePendingInformationServiceSelection(input: {
+    businessId: string
+    message: string
+    serviceIds: string[]
+  }) {
+    const services = await prisma.service.findMany({
+      where: {
+        businessId: input.businessId,
+        id: { in: input.serviceIds },
+        isBookable: true
+      },
+      select: {
+        id: true,
+        name: true,
+        aliases: { select: { name: true } }
+      }
+    })
+    return resolvePendingInformationSelectionFromLabels(
+      input.message,
+      services.map((service) => ({
+        id: service.id,
+        labels: [service.name, ...service.aliases.map((alias) => alias.name)]
+      }))
+    )
   }
 
   private async bookingV2MisunderstandingButtons(input: {
@@ -3647,6 +3677,22 @@ export function isPostBookingWellbeingQuestion(message: string) {
     'como va',
     'todo bien'
   ].includes(normalizedMessage)
+}
+
+export function resolvePendingInformationSelectionFromLabels(
+  message: string,
+  services: Array<{ id: string; labels: string[] }>
+) {
+  const normalizedMessage = normalizeText(message)
+    .replace(/^(?:elijo|me interesa|prefiero|quiero)\s+/, '')
+    .replace(/\s+por favor$/, '')
+    .trim()
+  if (!normalizedMessage) return null
+
+  const matches = services.filter((service) =>
+    service.labels.some((label) => normalizeText(label) === normalizedMessage)
+  )
+  return matches.length === 1 ? matches[0]?.id ?? null : null
 }
 
 export function looksLikeExpectedCustomerName(message: string, currentStep: string) {

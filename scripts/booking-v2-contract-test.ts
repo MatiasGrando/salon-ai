@@ -57,6 +57,7 @@ import {
   isPostBookingWellbeingQuestion,
   mergeBookingV2AgendaFromRouting,
   pendingRequestFromRouting,
+  resolvePendingInformationSelectionFromLabels,
   splitWhatsAppReply,
   shouldShowBookingV2IntentFallback,
   shouldRouteBookingV2HumanHandoff,
@@ -4310,6 +4311,24 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         merged.intents.some((intent) => intent.type === 'availability_preference'),
         false
       )
+    }
+  },
+  {
+    name: 'selección informativa pendiente resuelve por nombre sin depender de IA',
+    run: () => {
+      const services = [
+        { id: 'group', labels: ['Mentoría grupal', 'Mentorías grupo'] },
+        { id: 'individual', labels: ['Mentoría individual'] }
+      ]
+      assert.equal(
+        resolvePendingInformationSelectionFromLabels('mentoria grupal', services),
+        'group'
+      )
+      assert.equal(
+        resolvePendingInformationSelectionFromLabels('elijo mentoría individual por favor', services),
+        'individual'
+      )
+      assert.equal(resolvePendingInformationSelectionFromLabels('mentorías', services), null)
     }
   },
   {
