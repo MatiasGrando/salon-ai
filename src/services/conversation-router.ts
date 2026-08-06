@@ -595,15 +595,13 @@ export function mergeConversationRouting(
     ? highConfidenceAiCatalogQueryFromIntent(aiRouting, originalMessage, catalog)
     : null
   // Una mención inequívoca del nombre o alias en el catálogo es más confiable
-  // que una lista ambigua generada por IA. La IA conserva prioridad cuando el
-  // resolutor determinista no pudo identificar un único servicio.
-  let catalogQuery = (deterministicCatalogQuery?.candidateServiceIds?.length ?? 0) > 1
+  // que una clasificación genérica de IA: conserva tanto el servicio como el
+  // dato pedido (por ejemplo, precio) y evita listar el catálogo completo.
+  let catalogQuery = deterministicCatalogQuery?.serviceId
     ? deterministicCatalogQuery
-    : highConfidenceAiCatalogQuery ?? (
-        deterministicCatalogQuery?.serviceId
-          ? deterministicCatalogQuery
-          : aiCatalogQuery ?? deterministicCatalogQuery
-      )
+    : (deterministicCatalogQuery?.candidateServiceIds?.length ?? 0) > 1
+      ? deterministicCatalogQuery
+      : highConfidenceAiCatalogQuery ?? aiCatalogQuery ?? deterministicCatalogQuery
   const serviceDetailIntent = aiRouting.intents.find((intent) =>
     intent.type === 'service_detail' && intent.confidence >= 0.65
   )
@@ -1168,7 +1166,7 @@ function catalogQuerySubjectTokens(value: string) {
   const ignored = new Set([
     'a', 'al', 'algo', 'cual', 'cuales', 'consultar', 'consulta', 'cuanto', 'cuesta', 'dame', 'de', 'decime',
     'del', 'detalle', 'detalles', 'duracion', 'el', 'es', 'explicame', 'informacion',
-    'info', 'la', 'las', 'lo', 'los', 'precio', 'precios', 'que', 'quien', 'quienes',
+    'info', 'la', 'las', 'lo', 'los', 'para', 'precio', 'precios', 'que', 'quien', 'quienes',
     'sobre', 'un', 'una', 'valor', 'y'
   ])
   return value.split(' ').filter((token) => token && !ignored.has(token))

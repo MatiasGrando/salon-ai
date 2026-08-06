@@ -5020,6 +5020,38 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'precio para un servicio exacto no lista todo el catálogo',
+    run: () => {
+      const catalog = {
+        services: [
+          { id: 'bath', name: 'Baño de crema', aliases: ['baño de crema'] },
+          { id: 'cut', name: 'Corte hombre', aliases: ['corte hombre'] }
+        ],
+        professionals: []
+      }
+      const message = 'quiero saber el precio para baño de crema'
+      const deterministic = deterministicConversationRouting(message, {
+        currentStep: 'ASK_SERVICE',
+        catalog
+      })
+      const merged = mergeConversationRouting({
+        intents: [{
+          type: 'business_information',
+          topic: 'prices',
+          confidence: 0.96,
+          evidence: message
+        }],
+        bookingMessage: null,
+        bookingExtraction: null,
+        catalogQuery: null
+      }, deterministic, message, catalog)
+
+      assert.equal(deterministic.catalogQuery?.serviceId, 'bath')
+      assert.equal(merged.catalogQuery?.serviceId, 'bath')
+      assert.deepEqual(merged.catalogQuery?.requestedInformation, ['price'])
+    }
+  },
+  {
     name: 'router usa las categorías para aclarar consultas informativas ambiguas',
     run: () => {
       const catalog = {
