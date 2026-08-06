@@ -35,6 +35,7 @@ import {
 import {
   businessInformationTopicsFromRouting,
   deterministicConversationRouting,
+  isDepositInformationRequest,
   mergeConversationRouting,
   normalizeConversationRouting
 } from '../src/services/conversation-router.js'
@@ -4308,6 +4309,65 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         merged.intents.some((intent) => intent.type === 'availability_preference'),
         false
       )
+    }
+  },
+  {
+    name: 'consulta de seña se trata como informacion y conserva el servicio consultado',
+    run: () => {
+      const catalog = {
+        services: [{ id: 'group', name: 'Mentoría grupal', aliases: ['mentoría grupal'] }],
+        professionals: []
+      }
+      const direct = deterministicConversationRouting('¿De cuánto es la seña de mentoría grupal?', {
+        currentStep: 'START',
+        catalog
+      })
+      assert.equal(isDepositInformationRequest('¿De cuánto es la seña?'), true)
+      assert.equal(isDepositInformationRequest('Quiero reservar mentoría grupal'), false)
+      assert.equal(direct.bookingMessage, null)
+      assert.equal(direct.catalogQuery?.serviceId, 'group')
+      assert.deepEqual(direct.catalogQuery?.requestedInformation, ['deposit'])
+      assert.deepEqual(businessInformationTopicsFromRouting(direct), ['prices'])
+
+      const state = {
+        ...createEmptyBookingV2State(),
+        lastInformationServiceId: 'group'
+      }
+      const restored = stateFromConversation({
+        selectedCustomerName: null,
+        selectedServiceId: null,
+        selectedProfessionalId: null,
+        selectedDate: null,
+        selectedTime: null,
+        misunderstandingCount: 0,
+        bookingV2State: conversationPatchFromState(state).bookingV2State
+      })
+      assert.equal(restored.lastInformationServiceId, 'group')
+    }
+  },
+  {
+    name: 'conocimiento responde la seña configurada sin listar otros servicios',
+    run: () => {
+      const business = {
+        name: 'Mentorías Demo', slug: null, landingEnabled: false,
+        publicWhatsapp: null, contactEmail: null, publicAddress: null,
+        publicAddressArea: null, publicMapsUrl: null, instagramUrl: null,
+        facebookUrl: null, businessHours: [], professionals: [],
+        services: [
+          { id: 'group', name: 'Mentoría grupal', duration: 60, price: 600000, depositMode: 'FIXED' as const, depositValue: 120000 },
+          { id: 'individual', name: 'Mentoría individual', duration: 60, price: 500000, depositMode: 'PERCENTAGE' as const, depositValue: 20 }
+        ]
+      }
+      const fixed = renderCatalogServiceQuery(business, {
+        serviceId: 'group', requestedInformation: ['deposit'], confidence: 1, evidence: 'seña'
+      })
+      assert.match(fixed ?? '', /Seña: \$\s?120\.000/)
+      assert.doesNotMatch(fixed ?? '', /Mentoría individual/)
+
+      const percentage = renderCatalogServiceQuery(business, {
+        serviceId: 'individual', requestedInformation: ['deposit'], confidence: 1, evidence: 'seña'
+      })
+      assert.match(percentage ?? '', /Seña: \$\s?100\.000 \(20% del valor base\)/)
     }
   },
   {

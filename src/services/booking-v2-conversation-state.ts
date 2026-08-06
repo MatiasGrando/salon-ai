@@ -50,6 +50,7 @@ export type BookingV2PersistedState = {
   pendingProposal: BookingProposal | null
   pendingRequest?: BookingV2PendingRequest | null
   pendingInformationSelection?: BookingV2PendingInformationSelection | null
+  lastInformationServiceId?: string | null
   pendingServiceDisambiguation?: BookingV2PendingServiceDisambiguation | null
   agenda?: BookingV2AgendaItem[]
   categoryAdvice?: BookingV2CategoryAdvice | null
@@ -85,6 +86,7 @@ export function stateFromConversation(
     pendingProposal: readPendingProposal(conversation.bookingV2State),
     pendingRequest: readPendingRequest(conversation.bookingV2State),
     pendingInformationSelection: readPendingInformationSelection(conversation.bookingV2State),
+    lastInformationServiceId: readLastInformationServiceId(conversation.bookingV2State),
     pendingServiceDisambiguation: readPendingServiceDisambiguation(conversation.bookingV2State),
     agenda: readAgenda(conversation.bookingV2State),
     categoryAdvice: readCategoryAdvice(conversation.bookingV2State),
@@ -114,7 +116,7 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
     selectedDate: state.draft.date,
     selectedTime: state.draft.time,
     misunderstandingCount: state.misunderstandingCount,
-    bookingV2State: state.pendingProposal || state.pendingRequest || state.pendingInformationSelection || state.pendingServiceDisambiguation || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.advisorQuote || state.pendingDeposit || state.contextPause || state.unsupportedServiceRequest || state.queuedServices.length || state.combinedServices.length || state.addonSuggestion || state.addonOfferCompletedServiceId || state.pendingCombinedAvailability || state.pendingServiceSeparation || state.pendingServiceReplacement
+    bookingV2State: state.pendingProposal || state.pendingRequest || state.pendingInformationSelection || state.lastInformationServiceId || state.pendingServiceDisambiguation || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.advisorQuote || state.pendingDeposit || state.contextPause || state.unsupportedServiceRequest || state.queuedServices.length || state.combinedServices.length || state.addonSuggestion || state.addonOfferCompletedServiceId || state.pendingCombinedAvailability || state.pendingServiceSeparation || state.pendingServiceReplacement
       ? {
           version: 1,
           pendingProposal: state.pendingProposal,
@@ -122,6 +124,7 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
           ...(state.pendingInformationSelection
             ? { pendingInformationSelection: state.pendingInformationSelection }
             : {}),
+          ...(state.lastInformationServiceId ? { lastInformationServiceId: state.lastInformationServiceId } : {}),
           ...(state.pendingServiceDisambiguation
             ? { pendingServiceDisambiguation: state.pendingServiceDisambiguation }
             : {}),
@@ -154,6 +157,12 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
         }
       : null
   }
+}
+
+function readLastInformationServiceId(value: unknown) {
+  if (!value || typeof value !== 'object') return null
+  const serviceId = (value as { lastInformationServiceId?: unknown }).lastInformationServiceId
+  return typeof serviceId === 'string' && serviceId.trim() ? serviceId : null
 }
 
 function readPendingServiceDisambiguation(value: unknown): BookingV2PendingServiceDisambiguation | null {

@@ -1,6 +1,7 @@
 import { prisma as defaultPrisma } from '../config/prisma.js'
 import type { BusinessInformationTopic, CatalogQuery } from './conversation-router.js'
 import { formatCustomerDuration } from './service-duration.js'
+import { calculateBookingV2Deposit } from './booking-v2-deposit.js'
 
 type PrismaClientLike = typeof defaultPrisma
 
@@ -29,6 +30,8 @@ export type BusinessKnowledge = {
     customerDurationMax?: number | null
     price: number | null
     priceMode?: 'FIXED' | 'STARTING_AT'
+    depositMode?: 'NONE' | 'FIXED' | 'PERCENTAGE'
+    depositValue?: number | null
   }>
   professionals: Array<{
     name: string
@@ -73,6 +76,8 @@ export class BusinessKnowledgeService {
             customerDurationMax: true,
             price: true,
             priceMode: true,
+            depositMode: true,
+            depositValue: true,
             parentService: {
               select: { name: true }
             }
@@ -108,7 +113,9 @@ export class BusinessKnowledgeService {
         customerDurationMin: service.customerDurationMin,
         customerDurationMax: service.customerDurationMax,
         price: service.price,
-        priceMode: service.priceMode
+        priceMode: service.priceMode,
+        depositMode: service.depositMode,
+        depositValue: service.depositValue
       })),
       professionals: business.professionals.map((professional) => ({
         name: professional.name,
@@ -121,6 +128,7 @@ export class BusinessKnowledgeService {
     const handledTopics = new Set<BusinessInformationTopic>()
     if (catalogAnswer && input.catalogQuery) {
       if (input.catalogQuery.requestedInformation.includes('price')) handledTopics.add('prices')
+      if (input.catalogQuery.requestedInformation.includes('deposit')) handledTopics.add('prices')
       if (input.catalogQuery.requestedInformation.includes('professionals')) handledTopics.add('professionals')
       if (input.catalogQuery.requestedInformation.some((item) => ['general', 'duration'].includes(item))) {
         handledTopics.add('services')
@@ -198,6 +206,19 @@ export function renderCatalogServiceQuery(
         ? `Precio: desde ${formatMoney(service.price)}.`
         : `Precio: ${formatMoney(service.price)}.`
     lines.push(price)
+  }
+  if (requested.has('deposit')) {
+    const deposit = calculateBookingV2Deposit({
+      mode: service.depositMode ?? 'NONE',
+      value: service.depositValue ?? null,
+      servicePrice: service.price,
+      estimateMinimum: service.priceMode === 'STARTING_AT' ? service.price : null
+    })
+    lines.push(deposit
+      ? deposit.mode === 'PERCENTAGE'
+        ? `Seña: ${formatMoney(deposit.amount)} (${formatPercentage(deposit.configuredValue)} del valor base).`
+        : `Seña: ${formatMoney(deposit.amount)}.`
+      : 'No tengo una seña configurada para este servicio.')
   }
   if (requested.has('professionals')) {
     const rawServiceName = service.name.split(' — ').at(-1)?.trim() ?? service.name
@@ -348,6 +369,10 @@ function formatMoney(value: number) {
     currency: 'ARS',
     maximumFractionDigits: 0
   }).format(value)
+}
+
+function formatPercentage(value: number) {
+  return `${new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 }).format(value)}%`
 }
 
 function dayOrder(dayOfWeek: number) {

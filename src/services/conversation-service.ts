@@ -37,6 +37,8 @@ import { findOrCreateCustomerByPhone } from './customer-identity-service.js'
 import {
   businessInformationTopicsFromRouting,
   ConversationRouter,
+  isDepositInformationRequest,
+  type CatalogQuery,
   type ConversationRouting
 } from './conversation-router.js'
 import { ConversationRouterContextService } from './conversation-router-context-service.js'
@@ -1023,7 +1025,8 @@ export class ConversationService {
         })
         const nextState: BookingV2State = {
           ...storedInformationState,
-          pendingInformationSelection: null
+          pendingInformationSelection: null,
+          lastInformationServiceId: selectedServiceId
         }
         await this.updateConversation(input.phone, input.businessId, {
           currentStep: conversationStepValue(input.conversation.currentStep),
@@ -1040,12 +1043,23 @@ export class ConversationService {
       }
     }
     const informationTopics = businessInformationTopicsFromRouting(input.routing)
+    const contextualCatalogQuery: CatalogQuery | null = input.routing.catalogQuery ?? (
+      isDepositInformationRequest(input.message) && storedInformationState.lastInformationServiceId
+        ? {
+            serviceId: storedInformationState.lastInformationServiceId,
+            candidateServiceIds: [storedInformationState.lastInformationServiceId],
+            requestedInformation: ['deposit'],
+            confidence: 1,
+            evidence: input.message.trim()
+          }
+        : null
+    )
     let informationReply = informationTopics.length
       ? await businessKnowledgeService.answer({
           businessId: input.businessId,
           topics: informationTopics,
-          ...(input.routing.catalogQuery
-            ? { catalogQuery: input.routing.catalogQuery }
+          ...(contextualCatalogQuery
+            ? { catalogQuery: contextualCatalogQuery }
             : {})
         })
       : null
@@ -1487,6 +1501,13 @@ export class ConversationService {
         }
       }
       if (!isActiveBookingV2Step(input.conversation.currentStep)) {
+        const nextInformationState: BookingV2State = contextualCatalogQuery?.serviceId
+          ? { ...storedInformationState, lastInformationServiceId: contextualCatalogQuery.serviceId }
+          : storedInformationState
+        await this.updateConversation(input.phone, input.businessId, {
+          currentStep: conversationStepValue(input.conversation.currentStep),
+          ...conversationPatchFromState(nextInformationState)
+        })
         const requiredReply = applyAssistantPersonalityToReply(
           withBusinessInformationFollowUp(informationReply),
           assistantPersonality
@@ -1504,6 +1525,13 @@ export class ConversationService {
       const resumed = await bookingV2Engine.resume({
         businessId: input.businessId,
         conversation: input.conversation
+      })
+      const nextInformationState: BookingV2State = contextualCatalogQuery?.serviceId
+        ? { ...storedInformationState, lastInformationServiceId: contextualCatalogQuery.serviceId }
+        : storedInformationState
+      await this.updateConversation(input.phone, input.businessId, {
+        currentStep: conversationStepValue(input.conversation.currentStep),
+        ...conversationPatchFromState(nextInformationState)
       })
 
       const requiredReply = applyAssistantPersonalityToReply(

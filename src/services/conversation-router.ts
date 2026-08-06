@@ -63,6 +63,7 @@ export type RoutedIntent = {
 export const CATALOG_QUERY_INFORMATION = [
   'general',
   'price',
+  'deposit',
   'duration',
   'professionals'
 ] as const
@@ -177,7 +178,7 @@ export class ConversationRouter {
           'Para consultas sobre un servicio puntual, completa catalogQuery con su ID y la informacion pedida aunque el cliente no use palabras literales como servicio o precio.',
           'En catalogQuery usa serviceId para una coincidencia unica y candidateServiceIds con todos los candidatos cuando la referencia es ambigua; no elijas uno arbitrariamente.',
           'Ejemplos de consulta puntual: "contame sobre tratamiento", "dame informacion de las iluminaciones", "cuanto vale el corte" o "quien hace color".',
-          'Usa catalogQuery.general cuando pide informacion o detalles generales; price para precio; duration para duracion; professionals para quien lo realiza.',
+          'Usa catalogQuery.general cuando pide informacion o detalles generales; price para precio; deposit para consultar el monto de la seña o anticipo; duration para duracion; professionals para quien lo realiza.',
           'Una consulta puntual no inicia ni modifica una reserva: bookingMessage debe ser null salvo que tambien exprese claramente que quiere reservar o cambiar.',
           'Si currentStep es START y preguntan genericamente por los horarios, interpretalo como opening_hours del negocio, no como disponibilidad para reservar.',
           'Si currentStep es ASK_TIME, una pregunta por horarios se refiere a disponibilidad de turnos, salvo que mencione explicitamente abrir, cerrar u horario del local.',
@@ -523,7 +524,9 @@ export function deterministicConversationRouting(
   if (catalogQuery) {
     intents.push({
       type: 'business_information',
-      topic: catalogQuery.requestedInformation.includes('price') ? 'prices' : 'services',
+      topic: catalogQuery.requestedInformation.some((item) => item === 'price' || item === 'deposit')
+        ? 'prices'
+        : 'services',
       confidence: catalogQuery.confidence,
       evidence: catalogQuery.evidence
     })
@@ -876,6 +879,9 @@ function deterministicCatalogQuery(
   ])) {
     requestedInformation.push('price')
   }
+  if (isDepositInformationRequest(message)) {
+    requestedInformation.push('deposit')
+  }
   if (containsAny(normalized, ['cuanto dura', 'duracion', 'demora'])) {
     requestedInformation.push('duration')
   }
@@ -900,6 +906,18 @@ function deterministicCatalogQuery(
     confidence: matches.length === 1 ? 0.95 : 0.82,
     evidence: message.trim()
   }
+}
+
+export function isDepositInformationRequest(message: string) {
+  const normalized = normalizeText(message)
+  const depositTerms = ['seña', 'sena', 'anticipo']
+  const amountTerms = [
+    'cuanto', 'de cuanto', 'monto', 'valor', 'importe', 'hay que dejar', 'hay que pagar'
+  ]
+  const mentionsDeposit = containsAny(normalized, depositTerms)
+  const asksReservationAmount = containsAny(normalized, ['reserva', 'reservar']) &&
+    containsAny(normalized, amountTerms)
+  return (mentionsDeposit || asksReservationAmount) && containsAny(normalized, amountTerms)
 }
 
 function resolveCatalogQueryServices(
@@ -1194,6 +1212,7 @@ function detectBusinessInformationTopics(
     'que precios tienen', 'cuales son los precios', 'mostrar precios', 'mostrame los precios',
     'los precios', 'catalogo', 'tarifas'
   ])) add('prices')
+  if (isDepositInformationRequest(normalized)) add('prices')
 
   return topics
 }

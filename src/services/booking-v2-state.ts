@@ -152,6 +152,7 @@ export type BookingV2State = {
   pendingProposal: BookingProposal | null
   pendingRequest: BookingV2PendingRequest | null
   pendingInformationSelection: BookingV2PendingInformationSelection | null
+  lastInformationServiceId?: string | null
   pendingServiceDisambiguation: BookingV2PendingServiceDisambiguation | null
   agenda: BookingV2AgendaItem[]
   categoryAdvice: BookingV2CategoryAdvice | null
@@ -194,6 +195,7 @@ export function createEmptyBookingV2State(): BookingV2State {
     pendingProposal: null,
     pendingRequest: null,
     pendingInformationSelection: null,
+    lastInformationServiceId: null,
     pendingServiceDisambiguation: null,
     agenda: [],
     categoryAdvice: null,
