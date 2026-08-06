@@ -1482,6 +1482,53 @@ export class BookingV2Engine {
     const selectedService = catalog?.services.find(
       (service) => service.id === effectiveInterpretation.state.draft.service
     )
+    if (
+      selectedService &&
+      effectiveInterpretation.state.quoteOnly &&
+      selectedService.attentionMode === 'DIRECT_BOOKING' &&
+      selectedService.price !== null &&
+      selectedService.price > 0
+    ) {
+      const estimates = [
+        ...effectiveInterpretation.state.quoteOnly.estimates.filter(
+          (estimate) => estimate.serviceId !== selectedService.id
+        ),
+        {
+          serviceId: selectedService.id,
+          priceMin: selectedService.price,
+          priceMax: selectedService.priceMode === 'STARTING_AT' ? null : selectedService.price
+        }
+      ]
+      const remainingServiceIds = effectiveInterpretation.state.quoteOnly.remainingServiceIds
+        .filter((serviceId) => serviceId !== selectedService.id)
+      const nextServiceId = remainingServiceIds[0] ?? null
+      const quoteState: BookingV2State = {
+        ...effectiveInterpretation.state,
+        draft: {
+          ...effectiveInterpretation.state.draft,
+          service: nextServiceId,
+          professional: null,
+          date: null,
+          time: null
+        },
+        combinedServices: [],
+        guidedEstimate: null,
+        quoteOnly: { remainingServiceIds, estimates },
+        misunderstandingCount: 0
+      }
+      if (nextServiceId) {
+        return this.fromInterpretation({
+          state: quoteState,
+          nextField: nextMissingField(quoteState.draft, catalog.bookingFlowOrder),
+          outcome: 'accepted',
+          affectedField: null
+        }, null, catalog, 'accepted')
+      }
+      return this.guidedEstimateResult(quoteState, {
+        type: 'quote_complete',
+        estimates
+      }, catalog, 'accepted')
+    }
     const hasAcceptedAdvisorQuote = Boolean(
       selectedService &&
       effectiveInterpretation.state.advisorQuote?.serviceId === selectedService.id &&

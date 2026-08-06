@@ -2398,6 +2398,43 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'presupuesto de servicio directo responde el precio sin pedir nombre',
+    run: async () => {
+      const catalog = createBookingV2DomainCatalog({
+        services: [{
+          id: 'bath',
+          name: 'Baño de crema',
+          aliases: ['baño de crema'],
+          duration: 30,
+          price: 25000,
+          attentionMode: 'DIRECT_BOOKING',
+          requiresPhoto: false,
+          estimateExplanation: null,
+          estimateQuestion: null,
+          estimateOptions: [],
+          estimateDisclaimer: null,
+          estimateAllowsBooking: true
+        }],
+        professionals: []
+      })
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog }))
+      const result = await engine.resume({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState({
+          ...createEmptyBookingV2State(),
+          draft: { name: null, service: 'bath', professional: null, date: null, time: null },
+          quoteOnly: { remainingServiceIds: [], estimates: [] }
+        })
+      })
+
+      assert.equal(result.plan.type, 'quote_complete')
+      assert.match(result.reply, /Baño de crema: \$\s?25\.000/)
+      assert.doesNotMatch(result.reply, /¿Me decís tu nombre\?/)
+      assert.equal(result.state.draft.service, null)
+      assert.equal(result.state.quoteOnly?.estimates[0]?.serviceId, 'bath')
+    }
+  },
+  {
     name: 'resumen de presupuesto retoma y finaliza la reserva de los servicios cotizados',
     run: () => {
       const quoteState = completedQuoteState()
