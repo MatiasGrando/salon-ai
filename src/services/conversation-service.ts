@@ -1093,10 +1093,23 @@ export class ConversationService {
       }
     }
     if (storedInformationState.quoteOnly && hasExplicitBookingRequest(input.message)) {
+      const quotedServiceIds = storedInformationState.quoteOnly.estimates.map((estimate) => estimate.serviceId)
+      const [primaryServiceId, ...additionalServiceIds] = quotedServiceIds
       const bookingState: BookingV2State = {
         ...storedInformationState,
+        draft: {
+          ...storedInformationState.draft,
+          service: primaryServiceId ?? storedInformationState.draft.service,
+          professional: null,
+          date: null,
+          time: null
+        },
         quoteOnly: null,
-        guidedEstimate: null
+        guidedEstimate: null,
+        combinedServices: additionalServiceIds.map((serviceId) => ({
+          serviceId,
+          evidence: 'presupuesto consultado'
+        }))
       }
       await this.updateConversation(input.phone, input.businessId, {
         currentStep: conversationStepValue(input.conversation.currentStep),

@@ -2378,8 +2378,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.match(cutQuestion.reply, /Corte: \$\s?30\.000/)
       assert.match(cutQuestion.reply, /El total estimado hasta ahora es entre \$\s?110\.000 y \$\s?130\.000/)
       assert.equal(cutQuestion.state.quoteOnly?.estimates.length, 2)
-      assert.equal(cutQuestion.state.draft.service, 'color')
-      assert.equal(cutQuestion.state.combinedServices[0]?.serviceId, 'cut')
+      assert.equal(cutQuestion.state.draft.service, null)
+      assert.equal(cutQuestion.state.combinedServices.length, 0)
       assert.notEqual(cutQuestion.plan.type, 'handoff')
     }
   },
