@@ -2445,7 +2445,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       const colorQuestion = await engine.process({
         businessId: 'business-1',
         conversation: conversationPatchFromState(quoteState),
-        message: 'quiero presupuesto para hacerme un color y cortarme'
+        message: 'Hola, cómo va? Quería averiguar el presupuesto para hacerme un color y cortarme'
       })
       assert.equal(colorQuestion.plan.type, 'ask_field')
       assert.match(colorQuestion.reply, /Tintura completa/)
@@ -2469,6 +2469,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(quote.plan.type, 'quote_complete')
       assert.match(quote.reply, /Tintura completa: \$\s?90\.000/)
       assert.match(quote.reply, /Corte mujer: \$\s?37\.000/)
+      assert.doesNotMatch(quote.reply, /vamos a reservar estos servicios juntos/i)
     }
   },
   {
@@ -2698,10 +2699,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           decision: 'continue_booking',
           confidence: 0.96
         })),
-        fakeEstimateOptionExtractor((message) => ({
-          optionId: message === '2' ? 'long' : null,
-          confidence: message === '2' ? 0.98 : 0
-        }))
+        fakeEstimateOptionExtractor()
       )
       const selected = await engine.process({
         businessId: 'business-1',

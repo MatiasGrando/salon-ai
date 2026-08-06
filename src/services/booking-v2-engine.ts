@@ -631,18 +631,21 @@ export class BookingV2Engine {
             allowsBooking: service.estimateAllowsBooking !== false
           }, catalog, 'accepted')
         }
-        const optionExtraction = await this.estimateOptionExtractor.extract({
-          message: input.message,
-          serviceName: service.name,
-          options: (service.estimateOptions ?? []).map((option) => ({
-            id: option.id,
-            label: option.label,
-            note: option.note
-          }))
-        })
-        const option = optionExtraction.confidence >= 0.65
-          ? service.estimateOptions?.find((candidate) => candidate.id === optionExtraction.optionId)
-          : null
+        let option = deterministicEstimateOption(input.message, service.estimateOptions ?? [])
+        if (!option) {
+          const optionExtraction = await this.estimateOptionExtractor.extract({
+            message: input.message,
+            serviceName: service.name,
+            options: (service.estimateOptions ?? []).map((candidate) => ({
+              id: candidate.id,
+              label: candidate.label,
+              note: candidate.note
+            }))
+          })
+          option = optionExtraction.confidence >= 0.65
+            ? service.estimateOptions?.find((candidate) => candidate.id === optionExtraction.optionId) ?? null
+            : null
+        }
         if (!option) {
           return this.guidedEstimateResult(initialState, {
             type: 'ask_estimate_option',
@@ -2653,6 +2656,21 @@ function resolveCatalogServiceSelection(
   return null
 }
 
+function deterministicEstimateOption(
+  message: string,
+  options: NonNullable<BookingV2DomainCatalog['services'][number]['estimateOptions']>
+) {
+  const normalizedMessage = normalize(message).trim()
+  const numericMatch = normalizedMessage.match(/^(?:opcion )?(\d+)$/)
+  const ordinalIndex = new Map([
+    ['primera', 1], ['primero', 1], ['segunda', 2], ['segundo', 2], ['tercera', 3], ['tercero', 3],
+    ['cuarta', 4], ['cuarto', 4], ['quinta', 5], ['quinto', 5]
+  ]).get(normalizedMessage)
+  const selectedIndex = numericMatch ? Number(numericMatch[1]) : ordinalIndex
+  if (!selectedIndex || selectedIndex < 1 || selectedIndex > options.length) return null
+  return options[selectedIndex - 1] ?? null
+}
+
 function genericServiceFamilyMatches(
   signature: string,
   catalog: BookingV2DomainCatalog
@@ -2660,7 +2678,8 @@ function genericServiceFamilyMatches(
   const reference = signature
     .split(' ')
     .filter((token) => ![
-      'averiguar', 'consulta', 'cotizacion', 'informacion', 'precio', 'presupuesto', 'saber'
+      'averiguar', 'consulta', 'cotizacion', 'informacion', 'precio', 'presupuesto', 'saber',
+      'buenas', 'buenos', 'como', 'dia', 'hola', 'noche', 'tarde', 'va'
     ].includes(token))
     .join(' ')
   const familyTerms = reference === 'color'
@@ -3156,6 +3175,7 @@ function withMultipleServicesAcknowledgement(
   result: BookingV2ProcessResult,
   catalog: BookingV2DomainCatalog
 ): BookingV2ProcessResult {
+  if (result.state.quoteOnly) return result
   const serviceIds = [
     result.state.draft.service,
     ...result.state.combinedServices.map((service) => service.serviceId)
