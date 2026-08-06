@@ -81,6 +81,11 @@ export type BookingV2MessagePlan =
     }
   | {
       type: 'quote_complete'
+      estimates: Array<{
+        serviceId: string
+        priceMin: number
+        priceMax: number | null
+      }>
     }
   | {
       type: 'ask_service_validation'

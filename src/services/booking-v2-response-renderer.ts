@@ -248,7 +248,22 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
   }
 
   if (input.plan.type === 'quote_complete') {
-    return 'Listo, ya revisamos los estimativos solicitados. Si querés reservar, decímelo y avanzamos con el turno.'
+    const details = input.plan.estimates.map((estimate) => {
+      const service = input.catalog?.services.find((candidate) => candidate.id === estimate.serviceId)
+      const amount = estimate.priceMax !== null && estimate.priceMax !== estimate.priceMin
+        ? `entre ${formatMoney(estimate.priceMin)} y ${formatMoney(estimate.priceMax)}`
+        : formatMoney(estimate.priceMin)
+      return `• ${service?.name ?? 'Servicio'}: ${amount}`
+    })
+    const total = quoteOnlyTotal(input.plan.estimates.slice(0, -1),
+      input.plan.estimates.at(-1)?.priceMin ?? 0,
+      input.plan.estimates.at(-1)?.priceMax ?? null)
+    return [
+      'Listo, ya revisamos los estimativos solicitados.',
+      ...details,
+      total,
+      'Si querés reservar, decímelo y avanzamos con el turno.'
+    ].filter(Boolean).join('\n')
   }
 
   if (input.plan.type === 'ask_field') {

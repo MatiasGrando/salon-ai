@@ -2270,7 +2270,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
-    name: 'presupuesto guiado encadena servicios sin derivar a reserva',
+    name: 'extractor semántico suma un servicio fijo sin volver al catálogo',
     run: async () => {
       const catalog = createBookingV2DomainCatalog({
         services: [
@@ -2283,10 +2283,9 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           },
           {
             id: 'cut', name: 'Corte', aliases: ['corte'], duration: 30, price: 30000,
-            attentionMode: 'GUIDED_ESTIMATE', requiresPhoto: false,
-            estimateExplanation: null, estimateQuestion: '¿Qué estilo de corte buscás?',
-            estimateOptions: [{ id: 'classic', label: 'Clásico', priceMin: 30000, priceMax: null, note: null }],
-            estimateDisclaimer: null, estimateAllowsBooking: true
+            attentionMode: 'DIRECT_BOOKING', requiresPhoto: false,
+            estimateExplanation: null, estimateQuestion: null,
+            estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true
           }
         ],
         professionals: []
@@ -2295,7 +2294,11 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         fakeDomainPort({ catalog }),
         fakeExtractor(null),
         fakeServiceValidationClassifier(),
-        fakeEstimateDecisionExtractor(() => ({ decision: 'continue_booking', confidence: 0.96 })),
+        fakeEstimateDecisionExtractor((message) => (
+          message === 'quedamos así'
+            ? { decision: 'continue_booking', confidence: 0.96 }
+            : { decision: 'unclear', confidence: 0 }
+        )),
         fakeEstimateOptionExtractor(() => ({ optionId: 'long', confidence: 0.98 }))
       )
       const quoteState = {
@@ -2321,11 +2324,12 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       const cutQuestion = await engine.process({
         businessId: 'business-1',
         conversation: colorEstimate.conversationPatch,
-        message: 'sí'
+        message: 'quedamos así'
       })
-      assert.equal(cutQuestion.plan.type, 'ask_estimate_option')
-      assert.equal(cutQuestion.state.draft.service, 'cut')
-      assert.equal(cutQuestion.state.quoteOnly?.remainingServiceIds.length, 0)
+      assert.equal(cutQuestion.plan.type, 'quote_complete')
+      assert.match(cutQuestion.reply, /Corte: \$\s?30\.000/)
+      assert.match(cutQuestion.reply, /El total estimado hasta ahora es entre \$\s?110\.000 y \$\s?130\.000/)
+      assert.equal(cutQuestion.state.quoteOnly, null)
       assert.notEqual(cutQuestion.plan.type, 'handoff')
     }
   },

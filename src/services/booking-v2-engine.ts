@@ -686,7 +686,6 @@ export class BookingV2Engine {
           service.estimateAllowsBooking !== false
         ) {
           if (initialState.quoteOnly) {
-            const [nextServiceId, ...remainingServiceIds] = initialState.quoteOnly.remainingServiceIds
             const completedEstimate = initialState.guidedEstimate.priceMin === null
               ? []
               : [{
@@ -698,6 +697,25 @@ export class BookingV2Engine {
               ...initialState.quoteOnly.estimates,
               ...completedEstimate
             ]
+            let remainingServiceIds = initialState.quoteOnly.remainingServiceIds
+            let nextServiceId = remainingServiceIds[0]
+            while (nextServiceId) {
+              const nextService = catalog.services.find((candidate) => candidate.id === nextServiceId)
+              if (
+                nextService?.attentionMode !== 'DIRECT_BOOKING' ||
+                nextService.price === null ||
+                nextService.price <= 0
+              ) {
+                break
+              }
+              estimates.push({
+                serviceId: nextService.id,
+                priceMin: nextService.price,
+                priceMax: nextService.priceMode === 'STARTING_AT' ? null : nextService.price
+              })
+              remainingServiceIds = remainingServiceIds.slice(1)
+              nextServiceId = remainingServiceIds[0]
+            }
             if (nextServiceId) {
               const state: BookingV2State = {
                 ...initialState,
@@ -715,7 +733,7 @@ export class BookingV2Engine {
               }
               return this.fromInterpretation({
                 state,
-                nextField: 'service',
+                nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
                 outcome: 'accepted',
                 affectedField: null
               }, null, catalog)
@@ -734,7 +752,7 @@ export class BookingV2Engine {
               quoteOnly: null,
               misunderstandingCount: 0
             }
-            return this.guidedEstimateResult(state, { type: 'quote_complete' }, catalog, 'accepted')
+            return this.guidedEstimateResult(state, { type: 'quote_complete', estimates }, catalog, 'accepted')
           }
           const state: BookingV2State = {
             ...initialState,
