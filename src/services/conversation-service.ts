@@ -1227,7 +1227,10 @@ export class ConversationService {
       if (input.routing.bookingMessage) {
         informationReply = appendBusinessInformationReply(informationReply, scheduleReply)
       } else {
-        const resumedReply = isActiveBookingV2Step(input.conversation.currentStep)
+        const resumedReply = shouldResumeBookingV2AfterInformation(
+          input.conversation.currentStep,
+          storedInformationState
+        )
           ? (await bookingV2Engine.resume({
               businessId: input.businessId,
               conversation: input.conversation
@@ -1278,7 +1281,10 @@ export class ConversationService {
       if (input.routing.bookingMessage) {
         informationReply = appendBusinessInformationReply(informationReply, detailReply)
       } else {
-        const resumedReply = isActiveBookingV2Step(input.conversation.currentStep)
+        const resumedReply = shouldResumeBookingV2AfterInformation(
+          input.conversation.currentStep,
+          storedInformationState
+        )
           ? (await bookingV2Engine.resume({
               businessId: input.businessId,
               conversation: input.conversation
@@ -1653,7 +1659,7 @@ export class ConversationService {
           skipHumanize: true
         }
       }
-      if (!isActiveBookingV2Step(input.conversation.currentStep)) {
+      if (!shouldResumeBookingV2AfterInformation(input.conversation.currentStep, storedInformationState)) {
         const nextInformationState: BookingV2State = contextualCatalogQuery?.serviceId
           ? { ...storedInformationState, lastInformationServiceId: contextualCatalogQuery.serviceId }
           : storedInformationState
@@ -3286,6 +3292,13 @@ export function professionalChangeRoutingMode(input: {
 
 export function withBusinessInformationFollowUp(informationReply: string) {
   return `${informationReply.trim()}\n\n¿Te puedo ayudar en algo más?`
+}
+
+export function shouldResumeBookingV2AfterInformation(
+  currentStep: string,
+  state: BookingV2State
+) {
+  return isActiveBookingV2Step(currentStep) && !state.quoteOnly
 }
 
 export function composeBusinessInformationResumeReply(

@@ -64,6 +64,7 @@ import {
   splitWhatsAppReply,
   shouldShowBookingV2IntentFallback,
   shouldRouteBookingV2HumanHandoff,
+  shouldResumeBookingV2AfterInformation,
   shouldStartQuoteOnlyRequest,
   withBusinessInformationFollowUp
 } from '../src/services/conversation-service.js'
@@ -2432,6 +2433,18 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.doesNotMatch(result.reply, /¿Me decís tu nombre\?/)
       assert.equal(result.state.draft.service, null)
       assert.equal(result.state.quoteOnly?.estimates[0]?.serviceId, 'bath')
+    }
+  },
+  {
+    name: 'consulta de precio después de un resumen no reanuda una reserva',
+    run: () => {
+      const quoteState = completedQuoteState()
+
+      assert.equal(shouldResumeBookingV2AfterInformation('ASK_SERVICE', quoteState), false)
+      assert.equal(
+        withBusinessInformationFollowUp('Sobre Corte hombre:\nPrecio: $ 27.000.'),
+        'Sobre Corte hombre:\nPrecio: $ 27.000.\n\n¿Te puedo ayudar en algo más?'
+      )
     }
   },
   {
