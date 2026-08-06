@@ -55,6 +55,7 @@ import {
   isBookingV2GreetingOnlyMessage,
   isBookingV2InitialGreeting,
   isGroundedUnsupportedServiceRequest,
+  isMyAppointmentsMessage,
   isPostBookingWellbeingQuestion,
   mergeBookingV2AgendaFromRouting,
   pendingRequestFromRouting,
@@ -87,6 +88,14 @@ import { conversationCompletionPatchFromAppointment } from '../src/services/conv
 import { reservationFitsAvailabilityWindow } from '../src/services/service-duration.js'
 
 const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
+  {
+    name: 'la opción numérica del estimativo no abre mis turnos',
+    run: () => {
+      assert.equal(isMyAppointmentsMessage('2', 'START'), true)
+      assert.equal(isMyAppointmentsMessage('2', 'START', { allowMenuShortcut: false }), false)
+      assert.equal(isMyAppointmentsMessage('mis turnos', 'START', { allowMenuShortcut: false }), true)
+    }
+  },
   {
     name: 'una reserva manual completa el chat y descarta el borrador derivado',
     run: () => {

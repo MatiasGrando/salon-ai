@@ -477,7 +477,14 @@ export class ConversationService {
       return this.editAppointmentByMessage(input.phone, message, businessId)
     }
 
-    if (isMyAppointmentsMessage(message, conversation.currentStep)) {
+    const bookingV2AwaitingEstimateOption = Boolean(
+      bookingV2Enabled &&
+      businessId &&
+      stateFromConversation(conversation).guidedEstimate?.stage === 'awaiting_option'
+    )
+    if (isMyAppointmentsMessage(message, conversation.currentStep, {
+      allowMenuShortcut: !bookingV2AwaitingEstimateOption
+    })) {
       return this.buildMyAppointmentsReply(input.phone, businessId)
     }
 
@@ -3563,10 +3570,15 @@ export function isHumanHandoffMessage(message: string) {
   ].some((phrase) => normalizedMessage.includes(phrase))
 }
 
-function isMyAppointmentsMessage(message: string, currentStep: string) {
+export function isMyAppointmentsMessage(
+  message: string,
+  currentStep: string,
+  options: { allowMenuShortcut?: boolean } = {}
+) {
   const normalizedMessage = normalizeText(message)
+  const allowMenuShortcut = options.allowMenuShortcut ?? true
 
-  return (isMenuStep(currentStep) && normalizedMessage === '2') ||
+  return (allowMenuShortcut && isMenuStep(currentStep) && normalizedMessage === '2') ||
     normalizedMessage === 'mis turnos' ||
     normalizedMessage.includes('ver mis turnos') ||
     normalizedMessage.includes('quiero ver mis turnos') ||
