@@ -2319,7 +2319,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
-    name: 'extractor semántico suma un servicio fijo sin volver al catálogo',
+    name: 'estimativo guiado completa el presupuesto sin confirmación intermedia',
     run: async () => {
       const catalog = createBookingV2DomainCatalog({
         services: [
@@ -2343,11 +2343,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         fakeDomainPort({ catalog }),
         fakeExtractor(null),
         fakeServiceValidationClassifier(),
-        fakeEstimateDecisionExtractor((message) => (
-          message === 'quedamos así'
-            ? { decision: 'continue_booking', confidence: 0.96 }
-            : { decision: 'unclear', confidence: 0 }
-        )),
+        fakeEstimateDecisionExtractor(),
         fakeEstimateOptionExtractor(() => ({ optionId: 'long', confidence: 0.98 }))
       )
       const quoteState = {
@@ -2366,22 +2362,14 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         conversation: initial.conversationPatch,
         message: '1'
       })
-      assert.equal(colorEstimate.plan.type, 'show_estimate')
-      assert.match(colorEstimate.reply, /estimativo de Corte/)
-      assert.doesNotMatch(colorEstimate.reply, /continuar con la reserva/)
-
-      const cutQuestion = await engine.process({
-        businessId: 'business-1',
-        conversation: colorEstimate.conversationPatch,
-        message: 'quedamos así'
-      })
-      assert.equal(cutQuestion.plan.type, 'quote_complete')
-      assert.match(cutQuestion.reply, /Corte: \$\s?30\.000/)
-      assert.match(cutQuestion.reply, /El total estimado hasta ahora es entre \$\s?110\.000 y \$\s?130\.000/)
-      assert.equal(cutQuestion.state.quoteOnly?.estimates.length, 2)
-      assert.equal(cutQuestion.state.draft.service, null)
-      assert.equal(cutQuestion.state.combinedServices.length, 0)
-      assert.notEqual(cutQuestion.plan.type, 'handoff')
+      assert.equal(colorEstimate.plan.type, 'quote_complete')
+      assert.match(colorEstimate.reply, /Corte: \$\s?30\.000/)
+      assert.match(colorEstimate.reply, /El total estimado hasta ahora es entre \$\s?110\.000 y \$\s?130\.000/)
+      assert.match(colorEstimate.reply, /Si querés reservar, decímelo y avanzamos con el turno\./)
+      assert.equal(colorEstimate.state.quoteOnly?.estimates.length, 2)
+      assert.equal(colorEstimate.state.draft.service, null)
+      assert.equal(colorEstimate.state.combinedServices.length, 0)
+      assert.notEqual(colorEstimate.plan.type, 'handoff')
     }
   },
   {

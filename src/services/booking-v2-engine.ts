@@ -622,6 +622,9 @@ export class BookingV2Engine {
             },
             misunderstandingCount: 0
           }
+          if (state.quoteOnly) {
+            return this.completeQuoteOnlyEstimate(state, catalog)
+          }
           return this.guidedEstimateResult(state, {
             type: 'show_base_estimate',
             priceMin: service.price,
@@ -658,6 +661,9 @@ export class BookingV2Engine {
           },
           misunderstandingCount: 0
         }
+        if (state.quoteOnly) {
+          return this.completeQuoteOnlyEstimate(state, catalog)
+        }
         return this.guidedEstimateResult(state, {
           type: 'show_estimate',
           optionLabel: option.label,
@@ -686,73 +692,7 @@ export class BookingV2Engine {
           service.estimateAllowsBooking !== false
         ) {
           if (initialState.quoteOnly) {
-            const completedEstimate = initialState.guidedEstimate.priceMin === null
-              ? []
-              : [{
-                  serviceId: service.id,
-                  priceMin: initialState.guidedEstimate.priceMin,
-                  priceMax: initialState.guidedEstimate.priceMax
-                }]
-            const estimates = [
-              ...initialState.quoteOnly.estimates,
-              ...completedEstimate
-            ]
-            let remainingServiceIds = initialState.quoteOnly.remainingServiceIds
-            let nextServiceId = remainingServiceIds[0]
-            while (nextServiceId) {
-              const nextService = catalog.services.find((candidate) => candidate.id === nextServiceId)
-              if (
-                nextService?.attentionMode !== 'DIRECT_BOOKING' ||
-                nextService.price === null ||
-                nextService.price <= 0
-              ) {
-                break
-              }
-              estimates.push({
-                serviceId: nextService.id,
-                priceMin: nextService.price,
-                priceMax: nextService.priceMode === 'STARTING_AT' ? null : nextService.price
-              })
-              remainingServiceIds = remainingServiceIds.slice(1)
-              nextServiceId = remainingServiceIds[0]
-            }
-            if (nextServiceId) {
-              const state: BookingV2State = {
-                ...initialState,
-                draft: {
-                  ...initialState.draft,
-                  service: nextServiceId,
-                  professional: null,
-                  date: null,
-                  time: null
-                },
-                combinedServices: [],
-                guidedEstimate: null,
-                quoteOnly: { remainingServiceIds, estimates },
-                misunderstandingCount: 0
-              }
-              return this.fromInterpretation({
-                state,
-                nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
-                outcome: 'accepted',
-                affectedField: null
-              }, null, catalog)
-            }
-            const state: BookingV2State = {
-              ...initialState,
-              draft: {
-                ...initialState.draft,
-                service: null,
-                professional: null,
-                date: null,
-                time: null
-              },
-              combinedServices: [],
-              guidedEstimate: null,
-              quoteOnly: { remainingServiceIds: [], estimates },
-              misunderstandingCount: 0
-            }
-            return this.guidedEstimateResult(state, { type: 'quote_complete', estimates }, catalog, 'accepted')
+            return this.completeQuoteOnlyEstimate(initialState, catalog)
           }
           const state: BookingV2State = {
             ...initialState,
@@ -1463,6 +1403,73 @@ export class BookingV2Engine {
       outcome: outcome === 'proposal_confirmed' ? 'accepted' : 'no_change',
       affectedField: null
     }, extraction, catalog, outcome)
+  }
+
+  private async completeQuoteOnlyEstimate(
+    state: BookingV2State,
+    catalog: BookingV2DomainCatalog
+  ): Promise<BookingV2ProcessResult> {
+    const guidedEstimate = state.guidedEstimate
+    const completedEstimate = guidedEstimate?.priceMin === null || !guidedEstimate
+      ? []
+      : [{
+          serviceId: guidedEstimate.serviceId,
+          priceMin: guidedEstimate.priceMin,
+          priceMax: guidedEstimate.priceMax
+        }]
+    const estimates = [
+      ...(state.quoteOnly?.estimates ?? []).filter(
+        (estimate) => estimate.serviceId !== guidedEstimate?.serviceId
+      ),
+      ...completedEstimate
+    ]
+    let remainingServiceIds = state.quoteOnly?.remainingServiceIds ?? []
+    let nextServiceId = remainingServiceIds[0]
+
+    while (nextServiceId) {
+      const nextService = catalog.services.find((candidate) => candidate.id === nextServiceId)
+      if (
+        nextService?.attentionMode !== 'DIRECT_BOOKING' ||
+        nextService.price === null ||
+        nextService.price <= 0
+      ) {
+        break
+      }
+      estimates.push({
+        serviceId: nextService.id,
+        priceMin: nextService.price,
+        priceMax: nextService.priceMode === 'STARTING_AT' ? null : nextService.price
+      })
+      remainingServiceIds = remainingServiceIds.slice(1)
+      nextServiceId = remainingServiceIds[0]
+    }
+
+    const quoteState: BookingV2State = {
+      ...state,
+      draft: {
+        ...state.draft,
+        service: nextServiceId ?? null,
+        professional: null,
+        date: null,
+        time: null
+      },
+      combinedServices: [],
+      guidedEstimate: null,
+      quoteOnly: { remainingServiceIds, estimates },
+      misunderstandingCount: 0
+    }
+    if (nextServiceId) {
+      return this.fromInterpretation({
+        state: quoteState,
+        nextField: nextMissingField(quoteState.draft, catalog.bookingFlowOrder),
+        outcome: 'accepted',
+        affectedField: null
+      }, null, catalog)
+    }
+    return this.guidedEstimateResult(quoteState, {
+      type: 'quote_complete',
+      estimates
+    }, catalog, 'accepted')
   }
 
   private async fromInterpretation(
