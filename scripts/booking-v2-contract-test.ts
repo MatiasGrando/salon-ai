@@ -48,6 +48,7 @@ import {
 } from '../src/services/business-knowledge-service.js'
 import {
   acceptedAdvisorQuoteAmount,
+  businessInformationTopicsForPendingSelection,
   bookingV2StateAfterGoingBack,
   clearBookingV2StateFromField,
   composeBusinessInformationResumeReply,
@@ -2392,6 +2393,78 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(colorEstimate.state.draft.service, null)
       assert.equal(colorEstimate.state.combinedServices.length, 0)
       assert.notEqual(colorEstimate.plan.type, 'handoff')
+    }
+  },
+  {
+    name: 'conversación dorada completa: presupuesto de color y corte mujer',
+    run: async () => {
+      const catalog = createBookingV2DomainCatalog({
+        services: [
+          { id: 'highlights', name: 'Iluminación (baby lights, balayage, contouring, etc)', aliases: ['iluminación'], duration: 120, price: 160000, category: 'Iluminación', attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true },
+          {
+            id: 'full-color', name: 'Tintura completo', aliases: ['tintura completa'], duration: 90, price: 75000, category: 'Color', attentionMode: 'GUIDED_ESTIMATE', requiresPhoto: false,
+            estimateExplanation: '✨ El precio puede variar según el largo, la cantidad de cabello y el trabajo de color que quieras realizar.\nIncluye lavado y secado. No incluye brushing ni planchado.',
+            estimateQuestion: '¿Qué largo tiene tu cabello?',
+            estimateOptions: [
+              { id: 'shoulders', label: 'Hasta los hombros', priceMin: 75000, priceMax: 90000, note: null },
+              { id: 'shoulder-blade', label: 'Hasta la escápula', priceMin: 95000, priceMax: 110000, note: null },
+              { id: 'below-shoulder-blade', label: 'Debajo de la escápula', priceMin: 120000, priceMax: 140000, note: null }
+            ],
+            estimateDisclaimer: null, estimateAllowsBooking: true
+          },
+          { id: 'roots', name: 'Tintura raíces', aliases: [], duration: 60, price: 65000, category: 'Color', attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true },
+          { id: 'man-cut', name: 'Corte hombre', aliases: [], duration: 30, price: 27000, category: 'Cortes', attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true },
+          { id: 'woman-cut', name: 'Corte mujer', aliases: [], duration: 30, price: 37000, category: 'Cortes', attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true },
+          { id: 'beard-cut', name: 'Corte y barba', aliases: [], duration: 45, price: 32000, category: 'Cortes', attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true }
+        ],
+        professionals: []
+      })
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog }), fakeExtractor(null))
+      const initialState = {
+        ...createEmptyBookingV2State(),
+        quoteOnly: { remainingServiceIds: [], estimates: [] }
+      }
+
+      const colorQuestion = await engine.process({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(initialState),
+        message: 'Quería averiguar el presupuesto para hacerme un color y cortarme'
+      })
+      assert.match(colorQuestion.reply, /Iluminación \(baby lights, balayage, contouring, etc\)/)
+      assert.match(colorQuestion.reply, /Tintura completo/)
+      assert.match(colorQuestion.reply, /Tintura raíces/)
+      assert.match(colorQuestion.reply, /¿Cuál querés cotizar\?/)
+
+      const cutQuestion = await engine.process({
+        businessId: 'business-1',
+        conversation: colorQuestion.conversationPatch,
+        message: 'tintura completo'
+      })
+      assert.match(cutQuestion.reply, /Corte hombre/)
+      assert.match(cutQuestion.reply, /Corte mujer/)
+      assert.match(cutQuestion.reply, /Corte y barba/)
+      assert.doesNotMatch(cutQuestion.reply, /Estos son los precios de nuestros servicios/)
+
+      const lengthQuestion = await engine.process({
+        businessId: 'business-1',
+        conversation: cutQuestion.conversationPatch,
+        message: 'corte mujer'
+      })
+      assert.match(lengthQuestion.reply, /¿Qué largo tiene tu cabello\?/)
+      assert.match(lengthQuestion.reply, /3\. Debajo de la escápula/)
+
+      const summary = await engine.process({
+        businessId: 'business-1',
+        conversation: lengthQuestion.conversationPatch,
+        message: '3'
+      })
+      assert.equal(summary.plan.type, 'quote_complete')
+      assert.match(summary.reply, /Tintura completo: entre \$\s?120\.000 y \$\s?140\.000/)
+      assert.match(summary.reply, /Corte mujer: \$\s?37\.000/)
+      assert.match(summary.reply, /El total estimado hasta ahora es entre \$\s?157\.000 y \$\s?177\.000/)
+      assert.match(summary.reply, /Si querés reservar, decímelo y avanzamos con el turno\./)
+      assert.doesNotMatch(summary.reply, /¿Me decís tu nombre\?/)
+      assert.doesNotMatch(summary.reply, /vamos a reservar estos servicios juntos/i)
     }
   },
   {
@@ -4922,6 +4995,27 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         'individual'
       )
       assert.equal(resolvePendingInformationSelectionFromLabels('mentorías', services), null)
+    }
+  },
+  {
+    name: 'selección ambigua de precio conserva una respuesta puntual',
+    run: () => {
+      assert.deepEqual(
+        businessInformationTopicsForPendingSelection(['price']),
+        ['prices']
+      )
+      assert.deepEqual(
+        businessInformationTopicsForPendingSelection(['general']),
+        ['services']
+      )
+      assert.deepEqual(
+        businessInformationTopicsForPendingSelection(['price', 'general']),
+        ['prices', 'services']
+      )
+      assert.deepEqual(
+        businessInformationTopicsForPendingSelection(['duration']),
+        []
+      )
     }
   },
   {

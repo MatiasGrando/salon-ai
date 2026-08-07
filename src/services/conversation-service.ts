@@ -40,6 +40,7 @@ import {
   hasGroundedDepositInformationIntent,
   isDepositInformationRequest,
   isQuoteOnlyRouting,
+  type BusinessInformationTopic,
   type CatalogQuery,
   type ConversationRouting
 } from './conversation-router.js'
@@ -1140,7 +1141,9 @@ export class ConversationService {
         }
         const detailReply = await businessKnowledgeService.answer({
           businessId: input.businessId,
-          topics: ['services'],
+          topics: businessInformationTopicsForPendingSelection(
+            pendingInformationSelection.requestedInformation
+          ),
           catalogQuery: {
             serviceId: selectedServiceId,
             candidateServiceIds: [selectedServiceId],
@@ -3175,6 +3178,16 @@ export function shouldResumeQuoteOnlyBooking(
     !state.pendingInformationSelection &&
     !state.guidedEstimate &&
     hasQuoteOnlyBookingRequest(message, routing)
+}
+
+export function businessInformationTopicsForPendingSelection(
+  requestedInformation: Array<'general' | 'price' | 'duration' | 'professionals'>
+): BusinessInformationTopic[] {
+  const topics = new Set<BusinessInformationTopic>()
+  if (requestedInformation.includes('price')) topics.add('prices')
+  if (requestedInformation.includes('general')) topics.add('services')
+  if (requestedInformation.includes('professionals')) topics.add('professionals')
+  return [...topics]
 }
 
 export function isPendingServiceVerificationSelection(
