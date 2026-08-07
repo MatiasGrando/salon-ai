@@ -3,6 +3,7 @@ import { catalogCategoryOptions } from './booking-v2-domain.js'
 import type { BookingV2AvailabilityOption } from './booking-v2-domain.js'
 import type { BookingV2MessagePlan } from './booking-v2-dialogue.js'
 import { formatCustomerDuration } from './service-duration.js'
+import { isPriceServiceConsultation } from './service-consultation-queue.js'
 import {
   ANY_PROFESSIONAL_ID,
   type BookingDraft,
@@ -262,12 +263,18 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
     const total = quoteOnlyTotal(input.plan.estimates.slice(0, -1),
       input.plan.estimates.at(-1)?.priceMin ?? 0,
       input.plan.estimates.at(-1)?.priceMax ?? null)
-    return [
-      'Listo, ya revisamos los estimativos solicitados.',
-      ...details,
-      total,
-      'Si querés reservar, decímelo y avanzamos con el turno.'
-    ].filter(Boolean).join('\n')
+    return isPriceServiceConsultation(input.quoteOnly)
+      ? [
+          'Estos son los precios solicitados:',
+          ...details,
+          '¿Te puedo ayudar en algo más?'
+        ].join('\n')
+      : [
+          'Listo, ya revisamos los estimativos solicitados.',
+          ...details,
+          total,
+          'Si querés reservar, decímelo y avanzamos con el turno.'
+        ].filter(Boolean).join('\n')
   }
 
   if (input.plan.type === 'ask_field') {

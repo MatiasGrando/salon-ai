@@ -102,14 +102,7 @@ export type BookingV2AdvisorQuote = {
   quotedAt: string
 }
 
-export type BookingV2QuoteOnly = {
-  remainingServiceIds: string[]
-  estimates: Array<{
-    serviceId: string
-    priceMin: number
-    priceMax: number | null
-  }>
-}
+export type BookingV2QuoteOnly = ServiceConsultationQueue
 
 export type BookingV2ContextPause = {
   pausedAt: string
@@ -499,3 +492,4 @@ function invalidateDependents(
 
   return draft
 }
+import type { ServiceConsultationQueue } from './service-consultation-queue.js'

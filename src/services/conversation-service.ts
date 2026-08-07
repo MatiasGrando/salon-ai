@@ -27,6 +27,7 @@ import {
   conversationPatchFromState,
   stateFromConversation
 } from './booking-v2-conversation-state.js'
+import { createServiceConsultationQueue } from './service-consultation-queue.js'
 import {
   calculateBookingV2Deposit,
   renderBookingV2DepositRequest
@@ -1017,6 +1018,50 @@ export class ConversationService {
     const assistantPersonality = await getBusinessAssistantPersonality(input.businessId)
     const storedInformationState = stateFromConversation(input.conversation)
     const quoteOnlyRequest = isQuoteOnlyRouting(input.routing, input.message)
+    const priceInformationRequest = isPriceInformationRequest(input.routing)
+    const multiServicePriceRequest = !quoteOnlyRequest && priceInformationRequest &&
+      await bookingV2Engine.hasMultipleServiceConsultation({
+        businessId: input.businessId,
+        message: input.message
+      })
+
+    if (multiServicePriceRequest) {
+      const priceState: BookingV2State = {
+        ...storedInformationState,
+        draft: {
+          ...storedInformationState.draft,
+          service: null,
+          professional: null,
+          date: null,
+          time: null
+        },
+        combinedServices: [],
+        guidedEstimate: null,
+        quoteOnly: createServiceConsultationQueue('price'),
+        pendingInformationSelection: null,
+        pendingServiceDisambiguation: null,
+        pendingProposal: null,
+        pendingDeposit: null,
+        misunderstandingCount: 0
+      }
+      const priced = await bookingV2Engine.process({
+        businessId: input.businessId,
+        conversation: conversationPatchFromState(priceState),
+        message: input.message,
+        understandingExtraction: input.routing.bookingExtraction
+      })
+      await this.updateConversation(input.phone, input.businessId, {
+        currentStep: conversationStepValue(input.conversation.currentStep),
+        ...priced.conversationPatch,
+        lastAvailability: null
+      })
+      return {
+        reply: applyAssistantPersonalityToReply(priced.reply, assistantPersonality),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+
     const quoteServiceIds = Array.from(new Set([
       input.routing.bookingExtraction?.service.value,
       ...(input.routing.bookingExtraction?.additionalServices ?? []).map((service) => service.value),
@@ -1041,7 +1086,7 @@ export class ConversationService {
         },
         combinedServices: [],
         guidedEstimate: null,
-        quoteOnly: { remainingServiceIds: serviceIds.slice(1), estimates: [] },
+        quoteOnly: createServiceConsultationQueue('quote', serviceIds.slice(1)),
         pendingProposal: null,
         pendingDeposit: null,
         misunderstandingCount: 0
@@ -3173,11 +3218,20 @@ export function shouldResumeQuoteOnlyBooking(
   message: string,
   routing?: Pick<ConversationRouting, 'intents'>
 ) {
-  return Boolean(state.quoteOnly) &&
+  return Boolean(state.quoteOnly) && state.quoteOnly?.mode !== 'price' &&
     !state.pendingServiceDisambiguation &&
     !state.pendingInformationSelection &&
     !state.guidedEstimate &&
     hasQuoteOnlyBookingRequest(message, routing)
+}
+
+function isPriceInformationRequest(routing: ConversationRouting) {
+  return routing.catalogQuery?.requestedInformation.includes('price') === true ||
+    routing.intents.some((intent) =>
+      intent.type === 'business_information' &&
+      intent.topic === 'prices' &&
+      intent.confidence >= 0.65
+    )
 }
 
 export function businessInformationTopicsForPendingSelection(

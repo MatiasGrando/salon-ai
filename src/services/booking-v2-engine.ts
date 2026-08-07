@@ -8,6 +8,10 @@ import type { BookingV2AvailabilityOption, BookingV2DomainCatalog } from './book
 import { BookingV2Extractor, type BookingV2Extraction } from './booking-v2-extractor.js'
 import { buildBookingV2MessagePlan, type BookingV2MessagePlan } from './booking-v2-dialogue.js'
 import { renderBookingV2Response } from './booking-v2-response-renderer.js'
+import {
+  queueRemainingServices,
+  restartServiceConsultationQueue
+} from './service-consultation-queue.js'
 import { applyBookingV2Extraction, type BookingV2Interpretation } from './booking-v2-interpreter.js'
 import {
   BookingV2ServiceValidationClassifier,
@@ -119,6 +123,11 @@ export class BookingV2Engine {
     private readonly choiceExtractor: BookingV2ChoicePort =
       new BookingV2ChoiceExtractor()
   ) {}
+
+  async hasMultipleServiceConsultation(input: { businessId: string; message: string }) {
+    const catalog = await this.domain.loadCatalog(input.businessId)
+    return resolveExplicitServiceGroups(input.message, catalog).length >= 2
+  }
 
   async process(input: BookingV2ProcessInput): Promise<BookingV2ProcessResult> {
     const storedState = stateFromConversation(input.conversation)
@@ -846,18 +855,16 @@ export class BookingV2Engine {
           ? [{ serviceIds: group.serviceIds, evidence: group.evidence }]
           : []
       )
-      let state = applyResolvedServiceSelections(initialState, selections)
+      const serviceConsultationState = initialState.quoteOnly
+        ? {
+            ...initialState,
+            quoteOnly: restartServiceConsultationQueue(initialState.quoteOnly)
+          }
+        : initialState
+      let state = applyResolvedServiceSelections(serviceConsultationState, selections)
       state = {
         ...state,
-        pendingServiceDisambiguation: pendingServiceDisambiguationFromGroups(ambiguousGroups),
-        ...(state.quoteOnly && ambiguousGroups.length
-          ? {
-              quoteOnly: {
-                ...state.quoteOnly,
-                remainingServiceIds: []
-              }
-            }
-          : {})
+        pendingServiceDisambiguation: pendingServiceDisambiguationFromGroups(ambiguousGroups)
       }
       if (state.quoteOnly && state.pendingServiceDisambiguation) {
         return this.serviceDisambiguationResult(state, catalog, selections.length ? 'accepted' : 'no_change')
@@ -1446,7 +1453,8 @@ export class BookingV2Engine {
       ),
       ...completedEstimate
     ]
-    let remainingServiceIds = state.quoteOnly?.remainingServiceIds ?? []
+    let remainingServiceIds = (state.quoteOnly?.remainingServiceIds ?? [])
+      .filter((serviceId) => serviceId !== guidedEstimate?.serviceId)
     let nextServiceId = remainingServiceIds[0]
 
     while (nextServiceId) {
@@ -1478,7 +1486,7 @@ export class BookingV2Engine {
       },
       combinedServices: [],
       guidedEstimate: null,
-      quoteOnly: { remainingServiceIds, estimates },
+      quoteOnly: { ...state.quoteOnly, remainingServiceIds, estimates },
       misunderstandingCount: 0
     }
     if (nextServiceId) {
@@ -1543,7 +1551,7 @@ export class BookingV2Engine {
         },
         combinedServices: [],
         guidedEstimate: null,
-        quoteOnly: { remainingServiceIds, estimates },
+      quoteOnly: { ...effectiveInterpretation.state.quoteOnly, remainingServiceIds, estimates },
         misunderstandingCount: 0
       }
       if (nextServiceId) {
@@ -3113,13 +3121,11 @@ function prepareQuoteOnlySelectedServices(state: BookingV2State) {
       time: null
     },
     combinedServices: [],
-    quoteOnly: {
-      ...state.quoteOnly,
-      remainingServiceIds: Array.from(new Set([
-        ...state.quoteOnly.remainingServiceIds,
-        ...additionalServiceIds
-      ])).filter((serviceId) => serviceId !== primaryServiceId)
-    }
+    quoteOnly: queueRemainingServices(
+      state.quoteOnly,
+      additionalServiceIds,
+      primaryServiceId ?? null
+    )
   }
 }
 

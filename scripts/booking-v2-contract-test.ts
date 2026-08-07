@@ -2589,6 +2589,138 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'conversación dorada: precio múltiple conserva dos ambigüedades y sus bandas',
+    run: async () => {
+      const catalog = createBookingV2DomainCatalog({
+        services: [
+          {
+            id: 'full-color', name: 'Tintura completa', aliases: ['tintura completo'], duration: 90, price: 75000,
+            category: 'Color', attentionMode: 'GUIDED_ESTIMATE', requiresPhoto: false,
+            estimateExplanation: 'El precio puede variar según el largo del cabello.',
+            estimateQuestion: '¿Qué largo tiene tu cabello?',
+            estimateOptions: [
+              { id: 'short', label: 'Hasta los hombros', priceMin: 75000, priceMax: 90000, note: null },
+              { id: 'long', label: 'Debajo de los hombros', priceMin: 120000, priceMax: 140000, note: null }
+            ],
+            estimateDisclaimer: null, estimateAllowsBooking: true
+          },
+          { id: 'roots', name: 'Tintura raíces', aliases: [], duration: 60, price: 65000, category: 'Color', attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true },
+          { id: 'man-cut', name: 'Corte hombre', aliases: [], duration: 30, price: 27000, category: 'Cortes', attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true },
+          { id: 'woman-cut', name: 'Corte mujer', aliases: [], duration: 30, price: 37000, category: 'Cortes', attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true },
+          { id: 'beard-cut', name: 'Corte y barba', aliases: [], duration: 45, price: 32000, category: 'Cortes', attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true }
+        ],
+        professionals: []
+      })
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog }), fakeExtractor(null))
+      const initialState = {
+        ...createEmptyBookingV2State(),
+        quoteOnly: { mode: 'price' as const, remainingServiceIds: [], estimates: [] }
+      }
+
+      const tinturaQuestion = await engine.process({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(initialState),
+        message: 'quiero saber el precio de tintura y corte'
+      })
+      assert.match(tinturaQuestion.reply, /Para Tintura tengo estas opciones 😊/)
+      assert.match(tinturaQuestion.reply, /Tintura completa/)
+      assert.match(tinturaQuestion.reply, /Tintura raíces/)
+
+      const corteQuestion = await engine.process({
+        businessId: 'business-1',
+        conversation: tinturaQuestion.conversationPatch,
+        message: 'tintura completa'
+      })
+      assert.match(corteQuestion.reply, /Para Corte tengo estas opciones 😊/)
+      assert.match(corteQuestion.reply, /Corte mujer/)
+
+      const lengthQuestion = await engine.process({
+        businessId: 'business-1',
+        conversation: corteQuestion.conversationPatch,
+        message: 'corte mujer'
+      })
+      assert.equal(lengthQuestion.plan.type, 'ask_estimate_option')
+      assert.match(lengthQuestion.reply, /El precio de Tintura completa puede variar/)
+
+      const prices = await engine.process({
+        businessId: 'business-1',
+        conversation: lengthQuestion.conversationPatch,
+        message: '2'
+      })
+      assert.equal(prices.plan.type, 'quote_complete')
+      assert.match(prices.reply, /Estos son los precios solicitados:/)
+      assert.match(prices.reply, /Tintura completa: entre \$\s?120\.000 y \$\s?140\.000/)
+      assert.match(prices.reply, /Corte mujer: \$\s?37\.000/)
+      assert.match(prices.reply, /¿Te puedo ayudar en algo más\?/)
+      assert.doesNotMatch(prices.reply, /Si querés reservar/)
+    }
+  },
+  {
+    name: 'conversación dorada: presupuesto de tres servicios conserva ambigüedades y cola completa',
+    run: async () => {
+      const catalog = createBookingV2DomainCatalog({
+        services: [
+          { id: 'cream-bath', name: 'Baño de crema', aliases: [], duration: 30, price: 25000, category: 'Nutrición', attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true },
+          {
+            id: 'full-color', name: 'Tintura completa', aliases: ['tintura completo'], duration: 90, price: 75000,
+            category: 'Color', attentionMode: 'GUIDED_ESTIMATE', requiresPhoto: false,
+            estimateExplanation: 'El precio puede variar según el largo del cabello.',
+            estimateQuestion: '¿Qué largo tiene tu cabello?',
+            estimateOptions: [
+              { id: 'short', label: 'Hasta los hombros', priceMin: 75000, priceMax: 90000, note: null },
+              { id: 'long', label: 'Debajo de los hombros', priceMin: 120000, priceMax: 140000, note: null }
+            ],
+            estimateDisclaimer: null, estimateAllowsBooking: true
+          },
+          { id: 'roots', name: 'Tintura raíces', aliases: [], duration: 60, price: 65000, category: 'Color', attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true },
+          { id: 'man-cut', name: 'Corte hombre', aliases: [], duration: 30, price: 27000, category: 'Cortes', attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true },
+          { id: 'woman-cut', name: 'Corte mujer', aliases: [], duration: 30, price: 37000, category: 'Cortes', attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true },
+          { id: 'beard-cut', name: 'Corte y barba', aliases: [], duration: 45, price: 32000, category: 'Cortes', attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true }
+        ],
+        professionals: []
+      })
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog }), fakeExtractor(null))
+      const initialState = {
+        ...createEmptyBookingV2State(),
+        quoteOnly: { mode: 'quote' as const, remainingServiceIds: [], estimates: [] }
+      }
+
+      const tinturaQuestion = await engine.process({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(initialState),
+        message: 'quiero presupuesto para baño de crema, tintura y corte'
+      })
+      assert.match(tinturaQuestion.reply, /Tintura completa/)
+      assert.match(tinturaQuestion.reply, /Tintura raíces/)
+
+      const corteQuestion = await engine.process({
+        businessId: 'business-1',
+        conversation: tinturaQuestion.conversationPatch,
+        message: 'tintura completa'
+      })
+      assert.match(corteQuestion.reply, /Corte mujer/)
+      assert.match(corteQuestion.reply, /Corte y barba/)
+
+      const lengthQuestion = await engine.process({
+        businessId: 'business-1',
+        conversation: corteQuestion.conversationPatch,
+        message: 'corte mujer'
+      })
+      assert.equal(lengthQuestion.plan.type, 'ask_estimate_option')
+
+      const quote = await engine.process({
+        businessId: 'business-1',
+        conversation: lengthQuestion.conversationPatch,
+        message: '2'
+      })
+      assert.equal(quote.plan.type, 'quote_complete')
+      assert.match(quote.reply, /Baño de crema: \$\s?25\.000/)
+      assert.match(quote.reply, /Tintura completa: entre \$\s?120\.000 y \$\s?140\.000/)
+      assert.match(quote.reply, /Corte mujer: \$\s?37\.000/)
+      assert.match(quote.reply, /Si querés reservar, decímelo y avanzamos con el turno/)
+    }
+  },
+  {
     name: 'conversación dorada: presupuesto múltiple conserva precio puntual fuera de reserva',
     run: () => {
       const quoteState = completedQuoteState()

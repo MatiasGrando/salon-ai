@@ -592,7 +592,10 @@ function readQuoteOnly(value: unknown): BookingV2QuoteOnly | null {
         }]
       }).slice(0, 4)
     : []
-  return { remainingServiceIds, estimates }
+  const mode = (persisted.quoteOnly as { mode?: unknown }).mode === 'price'
+    ? 'price' as const
+    : 'quote' as const
+  return { mode, remainingServiceIds, estimates }
 }
 
 function readPendingDeposit(value: unknown): BookingV2PendingDeposit | null {
