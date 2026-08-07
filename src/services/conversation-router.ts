@@ -511,8 +511,13 @@ export function deterministicConversationRouting(
 ): ConversationRouting {
   const normalized = normalizeText(message)
   const topics = detectBusinessInformationTopics(normalized, context?.currentStep)
-  const hasBookingSignal = hasExplicitBookingIntent(normalized) ||
+  const catalogQuery = context?.catalog
+    ? deterministicCatalogQuery(message, context.catalog)
+    : null
+  const hasExplicitBookingSignal = hasExplicitBookingIntent(normalized)
+  const hasCatalogBookingSignal = !catalogQuery &&
     hasCatalogGroundedBookingIntent(normalized, context?.catalog)
+  const hasBookingSignal = hasExplicitBookingSignal || hasCatalogBookingSignal
   const intents: RoutedIntent[] = topics.map((topic) => ({
     type: 'business_information',
     topic,
@@ -528,9 +533,6 @@ export function deterministicConversationRouting(
     })
   }
 
-  const catalogQuery = context?.catalog
-    ? deterministicCatalogQuery(message, context.catalog)
-    : null
   if (catalogQuery) {
     intents.push({
       type: 'business_information',
@@ -640,6 +642,9 @@ export function mergeConversationRouting(
   const standaloneQuoteRequest = isQuoteOnlyRouting({
     intents: [...aiRouting.intents, ...deterministic.intents]
   }, originalMessage)
+  const hasExactCatalogPriceQuery = Boolean(
+    catalogQuery?.serviceId && catalogQuery.requestedInformation.includes('price')
+  )
   const standaloneBusinessInformationQuestion =
     (
       deterministicTopics.size > 0 ||
@@ -649,7 +654,7 @@ export function mergeConversationRouting(
       hasProfessionalScheduleQuestion
     ) &&
     deterministic.bookingMessage === null &&
-    !hasGroundedAiBookingTask
+    (!hasGroundedAiBookingTask || hasExactCatalogPriceQuery)
   const intents = aiRouting.intents.filter((intent) => {
     if (
       suppressGenericCatalogInformation &&
@@ -962,7 +967,7 @@ function deterministicCatalogQuery(
   if (containsAny(normalized, ['quien lo hace', 'quien hace', 'profesional', 'profesionales', 'quien atiende'])) {
     requestedInformation.push('professionals')
   }
-  if (containsAny(normalized, [
+  if (!requestedInformation.includes('price') && containsAny(normalized, [
     'informacion', 'info', 'contame', 'consultar', 'consulta', 'explicame',
     'detalle', 'detalles', 'de que se trata'
   ])) {
@@ -1292,6 +1297,7 @@ function detectBusinessInformationTopics(
     'cuanto sale', 'cuanto cuesta', 'que precio', 'lista de precios', 'precios de los servicios',
     'quiero saber los precios', 'saber los precios', 'ver los precios', 'ver precios',
     'que precios tienen', 'cuales son los precios', 'mostrar precios', 'mostrame los precios',
+    'quiero consultar el precio', 'consultar el precio', 'consulta el precio',
     'los precios', 'catalogo', 'tarifas'
   ])) add('prices')
   if (isDepositInformationRequest(normalized)) add('prices')
@@ -1328,10 +1334,9 @@ function hasExplicitBookingIntent(normalized: string) {
     'me quiero cortar',
     'necesito un corte',
     'quiero un corte',
-    'quiero corte',
-    'quiero con',
-    'prefiero con'
-  ]) || hasApproximateBookingTurnRequest(normalized)
+    'quiero corte'
+  ]) || /\b(?:quiero|prefiero)\s+con\s+\p{L}/u.test(normalized) ||
+    hasApproximateBookingTurnRequest(normalized)
 }
 
 function hasExplicitBookingAction(normalized: string) {

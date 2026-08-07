@@ -5242,6 +5242,47 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'consultar el precio de un servicio exacto no abre una cotización ni reserva',
+    run: () => {
+      const catalog = {
+        services: [
+          { id: 'man-cut', name: 'Corte hombre', aliases: ['corte hombre'] },
+          { id: 'woman-cut', name: 'Corte mujer', aliases: ['corte mujer'] },
+          { id: 'beard-cut', name: 'Corte y barba', aliases: ['corte y barba'] }
+        ],
+        professionals: []
+      }
+      const message = 'quiero consultar el precio del corte hombre'
+      const deterministic = deterministicConversationRouting(message, {
+        currentStep: 'START',
+        catalog
+      })
+      const merged = mergeConversationRouting({
+        intents: [
+          {
+            type: 'book_appointment',
+            topic: null,
+            confidence: 0.9,
+            evidence: 'corte hombre'
+          }
+        ],
+        bookingMessage: 'corte hombre',
+        bookingExtraction: extraction({
+          service: field('man-cut', 0.9, 'corte hombre')
+        }),
+        catalogQuery: null
+      }, deterministic, message, catalog)
+
+      assert.deepEqual(businessInformationTopicsFromRouting(deterministic), ['prices'])
+      assert.equal(merged.catalogQuery?.serviceId, 'man-cut')
+      assert.deepEqual(merged.catalogQuery?.requestedInformation, ['price'])
+      assert.equal(merged.bookingMessage, null)
+      assert.equal(merged.bookingExtraction, null)
+      assert.equal(merged.intents.some((intent) => intent.type === 'book_appointment'), false)
+      assert.equal(isQuoteOnlyRouting(merged, message), false)
+    }
+  },
+  {
     name: 'router usa las categorías para aclarar consultas informativas ambiguas',
     run: () => {
       const catalog = {
