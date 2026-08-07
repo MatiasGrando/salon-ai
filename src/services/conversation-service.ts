@@ -3193,6 +3193,7 @@ export function shouldResumeQuoteOnlyBooking(
   return Boolean(state.quoteOnly) &&
     !state.pendingServiceDisambiguation &&
     !state.pendingInformationSelection &&
+    !state.guidedEstimate &&
     hasQuoteOnlyBookingRequest(message, routing)
 }
 

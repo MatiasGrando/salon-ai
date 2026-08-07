@@ -2406,8 +2406,9 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           },
           {
             id: 'full-color', name: 'Tintura completa', aliases: [], duration: 90, price: 90000,
-            category: 'Color', attentionMode: 'DIRECT_BOOKING', requiresPhoto: false,
-            estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null,
+            category: 'Color', attentionMode: 'GUIDED_ESTIMATE', requiresPhoto: false,
+            estimateExplanation: 'El precio depende del largo.', estimateQuestion: '¿Qué largo tiene tu cabello?',
+            estimateOptions: [{ id: 'short', label: 'Hasta los hombros', priceMin: 75000, priceMax: 90000, note: null }], estimateDisclaimer: null,
             estimateAllowsBooking: true
           },
           {
@@ -2456,20 +2457,28 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       const cutQuestion = await engine.process({
         businessId: 'business-1',
         conversation: colorQuestion.conversationPatch,
-        message: 'tintura raíces'
+        message: 'tintura completa'
       })
       assert.equal(cutQuestion.plan.type, 'ask_field')
       assert.match(cutQuestion.reply, /Corte mujer/)
-      assert.doesNotMatch(cutQuestion.reply, /Tintura raíces/)
+      assert.doesNotMatch(cutQuestion.reply, /Tintura completa/)
       assert.match(cutQuestion.reply, /¿Cuál querés cotizar\?/)
 
-      const quote = await engine.process({
+      const estimateQuestion = await engine.process({
         businessId: 'business-1',
         conversation: cutQuestion.conversationPatch,
         message: 'corte hombre'
       })
+      assert.equal(estimateQuestion.plan.type, 'ask_estimate_option')
+      assert.equal(estimateQuestion.state.quoteOnly !== null, true)
+
+      const quote = await engine.process({
+        businessId: 'business-1',
+        conversation: estimateQuestion.conversationPatch,
+        message: '1'
+      })
       assert.equal(quote.plan.type, 'quote_complete')
-      assert.match(quote.reply, /Tintura raíces: \$\s?65\.000/)
+      assert.match(quote.reply, /Tintura completa: entre \$\s?75\.000 y \$\s?90\.000/)
       assert.match(quote.reply, /Corte hombre: \$\s?27\.000/)
       assert.doesNotMatch(quote.reply, /Corte mujer/)
       assert.doesNotMatch(quote.reply, /vamos a reservar estos servicios juntos/i)
@@ -2598,6 +2607,21 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       }
       assert.equal(shouldResumeQuoteOnlyBooking(pendingSelectionState, 'tintuta raices', {
         intents: [{ type: 'book_appointment', topic: null, confidence: 0.98, evidence: 'tintuta raices' }]
+      }), false)
+      const awaitingEstimateState = {
+        ...completedQuoteState(),
+        draft: { ...completedQuoteState().draft, service: 'full-color' },
+        guidedEstimate: {
+          serviceId: 'full-color',
+          stage: 'awaiting_option' as const,
+          optionId: null,
+          optionLabel: null,
+          priceMin: null,
+          priceMax: null
+        }
+      }
+      assert.equal(shouldResumeQuoteOnlyBooking(awaitingEstimateState, '1', {
+        intents: [{ type: 'book_appointment', topic: null, confidence: 0.98, evidence: '1' }]
       }), false)
       assert.equal(shouldResumeQuoteOnlyBooking(completedQuoteState(), 'sí'), true)
     }
