@@ -13261,7 +13261,7 @@ const crmHtml = `<!doctype html>
                 </div>
                 <label class="service-photo-option">
                   <input id="service-validation-enabled" type="checkbox">
-                  <span>Validar que el cliente eligi&oacute; el servicio correcto</span>
+                  <span>Detallar el servicio y confirmar la elecci&oacute;n del cliente</span>
                 </label>
                 <div class="service-validation-editor" id="service-validation-editor" hidden>
                   <div class="service-form-group">

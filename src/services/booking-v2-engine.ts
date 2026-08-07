@@ -2622,6 +2622,12 @@ function resolveCatalogServiceSelection(
         })
       )
     : []
+  if (sharedPartialMatches.length === 1) {
+    return {
+      kind: 'selected' as const,
+      serviceId: sharedPartialMatches[0]?.id ?? ''
+    }
+  }
   if (sharedPartialMatches.length > 1) {
     return {
       kind: 'ambiguous' as const,
