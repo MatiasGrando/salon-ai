@@ -1029,7 +1029,7 @@ export class ConversationService {
     )) {
       const serviceIds = quoteServiceIds
       const primaryServiceId = quotePrimaryServiceId
-      if (!primaryServiceId) {
+      if (!primaryServiceId && !shouldDelegateGenericQuoteRequest(input.message)) {
         const candidateServiceIds = input.routing.catalogQuery?.candidateServiceIds ?? []
         if (candidateServiceIds.length > 1) {
           const services = await prisma.service.findMany({
@@ -3195,6 +3195,12 @@ export function shouldResumeQuoteOnlyBooking(
     !state.pendingInformationSelection &&
     !state.guidedEstimate &&
     hasQuoteOnlyBookingRequest(message, routing)
+}
+
+export function shouldDelegateGenericQuoteRequest(message: string) {
+  const normalizedMessage = normalizeText(message)
+  return /\bcolor\b/.test(normalizedMessage) &&
+    /\b(?:corte|cortar|cortarme)\b/.test(normalizedMessage)
 }
 
 export function shouldStartQuoteOnlyRequest(

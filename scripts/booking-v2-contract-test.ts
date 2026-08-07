@@ -64,6 +64,7 @@ import {
   resolvePendingInformationSelectionFromLabels,
   splitWhatsAppReply,
   shouldShowBookingV2IntentFallback,
+  shouldDelegateGenericQuoteRequest,
   shouldRouteBookingV2HumanHandoff,
   shouldResumeBookingV2AfterInformation,
   shouldResumeQuoteOnlyBooking,
@@ -2396,6 +2397,11 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
   {
     name: 'presupuesto con color y corte genéricos pide aclarar cada servicio antes de cotizar',
     run: async () => {
+      assert.equal(
+        shouldDelegateGenericQuoteRequest('Hola, cómo va? Quería averiguar el presupuesto para hacerme un color y cortarme'),
+        true
+      )
+      assert.equal(shouldDelegateGenericQuoteRequest('Quiero un presupuesto'), false)
       const catalog = createBookingV2DomainCatalog({
         services: [
           {
