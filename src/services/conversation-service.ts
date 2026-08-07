@@ -1100,7 +1100,7 @@ export class ConversationService {
         skipHumanize: true
       }
     }
-    if (storedInformationState.quoteOnly && hasQuoteOnlyBookingRequest(input.message, input.routing)) {
+    if (shouldResumeQuoteOnlyBooking(storedInformationState, input.message, input.routing)) {
       const quotedServiceIds = storedInformationState.quoteOnly.estimates.map((estimate) => estimate.serviceId)
       const [primaryServiceId, ...additionalServiceIds] = quotedServiceIds
       const bookingState: BookingV2State = {
@@ -3182,7 +3182,18 @@ export function hasQuoteOnlyBookingRequest(
     isUnambiguousBookingConfirmation(message) ||
     Boolean(routing?.intents.some((intent) =>
       ['book_appointment', 'confirm_booking'].includes(intent.type) && intent.confidence >= 0.65
-    ))
+  ))
+}
+
+export function shouldResumeQuoteOnlyBooking(
+  state: BookingV2State,
+  message: string,
+  routing?: Pick<ConversationRouting, 'intents'>
+) {
+  return Boolean(state.quoteOnly) &&
+    !state.pendingServiceDisambiguation &&
+    !state.pendingInformationSelection &&
+    hasQuoteOnlyBookingRequest(message, routing)
 }
 
 export function shouldStartQuoteOnlyRequest(

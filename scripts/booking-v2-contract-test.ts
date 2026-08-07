@@ -66,6 +66,7 @@ import {
   shouldShowBookingV2IntentFallback,
   shouldRouteBookingV2HumanHandoff,
   shouldResumeBookingV2AfterInformation,
+  shouldResumeQuoteOnlyBooking,
   shouldStartQuoteOnlyRequest,
   withBusinessInformationFollowUp
 } from '../src/services/conversation-service.js'
@@ -2585,6 +2586,18 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(hasQuoteOnlyBookingRequest('¿Cuál es la dirección?', {
         intents: [{ type: 'business_information', topic: 'address', confidence: 0.98, evidence: 'dirección' }]
       }), false)
+
+      const pendingSelectionState = {
+        ...completedQuoteState(),
+        pendingServiceDisambiguation: {
+          serviceIds: ['full-color', 'roots'],
+          evidence: 'color'
+        }
+      }
+      assert.equal(shouldResumeQuoteOnlyBooking(pendingSelectionState, 'tintuta raices', {
+        intents: [{ type: 'book_appointment', topic: null, confidence: 0.98, evidence: 'tintuta raices' }]
+      }), false)
+      assert.equal(shouldResumeQuoteOnlyBooking(completedQuoteState(), 'sí'), true)
     }
   },
   {
