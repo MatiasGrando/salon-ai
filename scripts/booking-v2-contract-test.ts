@@ -64,7 +64,6 @@ import {
   resolvePendingInformationSelectionFromLabels,
   splitWhatsAppReply,
   shouldShowBookingV2IntentFallback,
-  shouldDelegateGenericQuoteRequest,
   shouldRouteBookingV2HumanHandoff,
   shouldResumeBookingV2AfterInformation,
   shouldResumeQuoteOnlyBooking,
@@ -2397,13 +2396,14 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
   {
     name: 'presupuesto con color y corte genéricos pide aclarar cada servicio antes de cotizar',
     run: async () => {
-      assert.equal(
-        shouldDelegateGenericQuoteRequest('Hola, cómo va? Quería averiguar el presupuesto para hacerme un color y cortarme'),
-        true
-      )
-      assert.equal(shouldDelegateGenericQuoteRequest('Quiero un presupuesto'), false)
       const catalog = createBookingV2DomainCatalog({
         services: [
+          {
+            id: 'straightening', name: 'Alisado', aliases: ['alisado'], duration: 90, price: 85000,
+            category: 'Nutrición', attentionMode: 'DIRECT_BOOKING', requiresPhoto: false,
+            estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null,
+            estimateAllowsBooking: true
+          },
           {
             id: 'highlights', name: 'Iluminación', aliases: ['balayage'], duration: 120, price: 160000,
             category: 'Iluminación', attentionMode: 'DIRECT_BOOKING', requiresPhoto: false,
@@ -2488,6 +2488,27 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.match(quote.reply, /Corte hombre: \$\s?27\.000/)
       assert.doesNotMatch(quote.reply, /Corte mujer/)
       assert.doesNotMatch(quote.reply, /vamos a reservar estos servicios juntos/i)
+
+      const alisadoAndColor = await engine.process({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState({
+          ...createEmptyBookingV2State(),
+          quoteOnly: { remainingServiceIds: [], estimates: [] }
+        }),
+        message: 'Quiero averiguar el presupuesto para alisado y color'
+      })
+      assert.equal(alisadoAndColor.plan.type, 'ask_field')
+      assert.equal(alisadoAndColor.state.draft.service, 'straightening')
+      assert.match(alisadoAndColor.reply, /Tintura completa/)
+
+      const alisadoAndRootsQuote = await engine.process({
+        businessId: 'business-1',
+        conversation: alisadoAndColor.conversationPatch,
+        message: 'Tintura raíces'
+      })
+      assert.equal(alisadoAndRootsQuote.plan.type, 'quote_complete')
+      assert.match(alisadoAndRootsQuote.reply, /Alisado: \$\s?85\.000/)
+      assert.match(alisadoAndRootsQuote.reply, /Tintura raíces: \$\s?65\.000/)
     }
   },
   {

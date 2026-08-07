@@ -1029,44 +1029,6 @@ export class ConversationService {
     )) {
       const serviceIds = quoteServiceIds
       const primaryServiceId = quotePrimaryServiceId
-      if (!primaryServiceId && !shouldDelegateGenericQuoteRequest(input.message)) {
-        const candidateServiceIds = input.routing.catalogQuery?.candidateServiceIds ?? []
-        if (candidateServiceIds.length > 1) {
-          const services = await prisma.service.findMany({
-            where: { businessId: input.businessId, id: { in: candidateServiceIds } },
-            select: { id: true, name: true }
-          })
-          const nextState: BookingV2State = {
-            ...storedInformationState,
-            pendingInformationSelection: {
-              serviceIds: candidateServiceIds,
-              requestedInformation: ['price'],
-              quoteOnly: true
-            }
-          }
-          await this.updateConversation(input.phone, input.businessId, {
-            currentStep: conversationStepValue(input.conversation.currentStep),
-            ...conversationPatchFromState(nextState)
-          })
-          return {
-            reply: applyAssistantPersonalityToReply([
-              'Encontré varias opciones para tu presupuesto:',
-              ...services.map((service) => `• ${service.name}`),
-              '¿Sobre cuál querés consultar?'
-            ].join('\n'), assistantPersonality),
-            skipMisunderstandingTracking: true,
-            skipHumanize: true
-          }
-        }
-        return {
-          reply: applyAssistantPersonalityToReply(
-            '¿Sobre qué servicio querés pedir el presupuesto?',
-            assistantPersonality
-          ),
-          skipMisunderstandingTracking: true,
-          skipHumanize: true
-        }
-      }
       const quoteState: BookingV2State = {
         ...storedInformationState,
         draft: {
@@ -3195,12 +3157,6 @@ export function shouldResumeQuoteOnlyBooking(
     !state.pendingInformationSelection &&
     !state.guidedEstimate &&
     hasQuoteOnlyBookingRequest(message, routing)
-}
-
-export function shouldDelegateGenericQuoteRequest(message: string) {
-  const normalizedMessage = normalizeText(message)
-  return /\bcolor\b/.test(normalizedMessage) &&
-    /\b(?:corte|cortar|cortarme)\b/.test(normalizedMessage)
 }
 
 export function shouldStartQuoteOnlyRequest(
