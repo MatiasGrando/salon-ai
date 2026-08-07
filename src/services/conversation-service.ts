@@ -1090,6 +1090,24 @@ export class ConversationService {
         ...conversationPatchFromState(bookingState)
       }
     }
+    if (isPendingServiceVerificationSelection(storedInformationState, input.routing)) {
+      const verified = await bookingV2Engine.process({
+        businessId: input.businessId,
+        conversation: conversationPatchFromState(storedInformationState),
+        message: input.message,
+        understandingExtraction: input.routing.bookingExtraction
+      })
+      await this.updateConversation(input.phone, input.businessId, {
+        currentStep: conversationStepValue(input.conversation.currentStep),
+        ...verified.conversationPatch,
+        lastAvailability: null
+      })
+      return {
+        reply: applyAssistantPersonalityToReply(verified.reply, assistantPersonality),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
     const pendingInformationSelection = storedInformationState.pendingInformationSelection
     if (pendingInformationSelection && !hasExplicitBookingRequest(input.message)) {
       const selectedServiceId = input.routing.catalogQuery?.serviceId ??
@@ -3157,6 +3175,21 @@ export function shouldResumeQuoteOnlyBooking(
     !state.pendingInformationSelection &&
     !state.guidedEstimate &&
     hasQuoteOnlyBookingRequest(message, routing)
+}
+
+export function isPendingServiceVerificationSelection(
+  state: BookingV2State,
+  routing: ConversationRouting
+) {
+  const selectedServiceId = routing.catalogQuery?.serviceId ?? routing.bookingExtraction?.service.value
+  if (!selectedServiceId || !state.pendingServiceDisambiguation) return false
+
+  const pendingServiceIds = new Set([
+    ...state.pendingServiceDisambiguation.serviceIds,
+    ...(state.pendingServiceDisambiguation.remainingGroups ?? [])
+      .flatMap((group) => group.serviceIds)
+  ])
+  return pendingServiceIds.has(selectedServiceId)
 }
 
 export function shouldStartQuoteOnlyRequest(

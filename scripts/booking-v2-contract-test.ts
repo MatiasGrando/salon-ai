@@ -58,6 +58,7 @@ import {
   isBookingV2InitialGreeting,
   isGroundedUnsupportedServiceRequest,
   isMyAppointmentsMessage,
+  isPendingServiceVerificationSelection,
   isPostBookingWellbeingQuestion,
   mergeBookingV2AgendaFromRouting,
   pendingRequestFromRouting,
@@ -2509,6 +2510,91 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(alisadoAndRootsQuote.plan.type, 'quote_complete')
       assert.match(alisadoAndRootsQuote.reply, /Alisado: \$\s?85\.000/)
       assert.match(alisadoAndRootsQuote.reply, /Tintura raíces: \$\s?65\.000/)
+    }
+  },
+  {
+    name: 'conversación dorada: presupuesto múltiple conserva precio puntual fuera de reserva',
+    run: () => {
+      const quoteState = completedQuoteState()
+      const catalog = {
+        services: [
+          { id: 'bath', name: 'Baño de crema', aliases: ['baño de crema'] },
+          { id: 'man-cut', name: 'Corte hombre', aliases: ['corte hombre'] }
+        ],
+        professionals: []
+      }
+      const newQuoteMessage = 'presupuesto para hacerme un baño de crema'
+      const directPriceMessage = 'quiero consultar el precio del corte hombre'
+      const priceRouting = mergeConversationRouting({
+        intents: [{ type: 'book_appointment', topic: null, confidence: 0.9, evidence: 'corte hombre' }],
+        bookingMessage: 'corte hombre',
+        bookingExtraction: extraction({ service: field('man-cut', 0.9, 'corte hombre') }),
+        catalogQuery: null
+      }, deterministicConversationRouting(directPriceMessage, {
+        currentStep: 'ASK_SERVICE',
+        catalog
+      }), directPriceMessage, catalog)
+
+      assert.equal(shouldStartQuoteOnlyRequest(quoteState, true, 'bath'), true)
+      assert.equal(isQuoteOnlyRouting(priceRouting, directPriceMessage), false)
+      assert.equal(priceRouting.catalogQuery?.serviceId, 'man-cut')
+      assert.deepEqual(priceRouting.catalogQuery?.requestedInformation, ['price'])
+      assert.equal(priceRouting.bookingMessage, null)
+      assert.equal(priceRouting.bookingExtraction, null)
+      assert.equal(shouldResumeBookingV2AfterInformation('ASK_SERVICE', quoteState), false)
+    }
+  },
+  {
+    name: 'conversación dorada: verificar color y corte antes de completar presupuesto',
+    run: async () => {
+      const catalog = createBookingV2DomainCatalog({
+        services: [
+          { id: 'full-color', name: 'Tintura completa', aliases: [], duration: 90, price: 75000, attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true },
+          { id: 'roots', name: 'Tintura raíces', aliases: [], duration: 60, price: 65000, attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true },
+          { id: 'woman-cut', name: 'Corte mujer', aliases: [], duration: 30, price: 37000, attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true },
+          { id: 'man-cut', name: 'Corte hombre', aliases: [], duration: 30, price: 27000, attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true },
+          { id: 'beard-cut', name: 'Corte y barba', aliases: [], duration: 45, price: 32000, attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true }
+        ],
+        professionals: []
+      })
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog }), fakeExtractor(null))
+      const pendingVerificationState = {
+        ...createEmptyBookingV2State(),
+        quoteOnly: { remainingServiceIds: [], estimates: [] },
+        pendingServiceDisambiguation: {
+          serviceIds: ['full-color', 'roots'],
+          evidence: 'color',
+          remainingGroups: [{ serviceIds: ['woman-cut', 'man-cut', 'beard-cut'], evidence: 'cortarme' }]
+        }
+      }
+
+      const cutQuestion = await engine.process({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(pendingVerificationState),
+        message: 'tintura raíces'
+      })
+      assert.match(cutQuestion.reply, /Corte hombre/)
+      assert.doesNotMatch(cutQuestion.reply, /Estos son los precios de nuestros servicios/)
+
+      const selectionRouting: ConversationRouting = {
+        source: 'deterministic',
+        intents: [{ type: 'book_appointment', topic: null, confidence: 0.95, evidence: 'corte hombre' }],
+        bookingMessage: 'corte hombre',
+        bookingExtraction: extraction({ service: field('man-cut', 0.95, 'corte hombre') }),
+        catalogQuery: null
+      }
+      assert.equal(isPendingServiceVerificationSelection(cutQuestion.state, selectionRouting), true)
+
+      const quote = await engine.process({
+        businessId: 'business-1',
+        conversation: cutQuestion.conversationPatch,
+        message: 'corte hombre'
+      })
+      assert.equal(quote.plan.type, 'quote_complete')
+      assert.match(quote.reply, /Tintura raíces: \$\s?65\.000/)
+      assert.match(quote.reply, /Corte hombre: \$\s?27\.000/)
+      assert.doesNotMatch(quote.reply, /Estos son los precios de nuestros servicios/)
+      assert.doesNotMatch(quote.reply, /¿Me decís tu nombre\?/)
     }
   },
   {
