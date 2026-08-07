@@ -6295,6 +6295,72 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'reserva combinada resuelve validación y estimativo antes de pedir agenda',
+    run: async () => {
+      const combinedCatalog = createBookingV2DomainCatalog({
+        services: [
+          { id: 'man-cut', name: 'Corte hombre', aliases: [], duration: 30, price: 27000, category: 'Cortes', attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true },
+          {
+            id: 'straightening', name: 'Alisado (sin formol)', aliases: ['alisado'], duration: 90, price: 85000,
+            category: 'Nutrición', attentionMode: 'GUIDED_ESTIMATE', requiresPhoto: false,
+            validationEnabled: true, validationMessage: 'Es un alisado sin formol.', validationQuestion: '¿Confirmás que querés este alisado?',
+            estimateExplanation: 'El precio puede variar según el largo.', estimateQuestion: '¿Qué largo tiene tu cabello?',
+            estimateOptions: [
+              { id: 'short', label: 'Hasta los hombros', priceMin: 85000, priceMax: 95000, note: null },
+              { id: 'long', label: 'Debajo de los hombros', priceMin: 100000, priceMax: 120000, note: null }
+            ],
+            estimateDisclaimer: null, estimateAllowsBooking: true
+          }
+        ],
+        professionals: [{ id: 'professional-1', name: 'Mica', serviceIds: ['man-cut', 'straightening'] }]
+      })
+      const engine = new BookingV2Engine(
+        fakeDomainPort({ catalog: combinedCatalog }),
+        fakeExtractor(null),
+        fakeServiceValidationClassifier(),
+        fakeEstimateDecisionExtractor((message) => message.includes('reservar')
+          ? { decision: 'continue_booking', confidence: 0.95 }
+          : { decision: 'unclear', confidence: 0 }),
+        fakeEstimateOptionExtractor((message) => message === '2'
+          ? { optionId: 'long', confidence: 0.95 }
+          : { optionId: null, confidence: 0 })
+      )
+      const state = {
+        ...createEmptyBookingV2State(),
+        draft: { name: 'Mati', service: 'man-cut', professional: null, date: null, time: null },
+        combinedServices: [{ serviceId: 'straightening', evidence: 'alisado' }]
+      }
+
+      const validation = await engine.resume({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(state)
+      })
+      assert.equal(validation.plan.type, 'ask_service_validation')
+      assert.equal(validation.state.draft.service, 'straightening')
+      assert.deepEqual(validation.state.combinedServices.map((service) => service.serviceId), ['man-cut'])
+      assert.deepEqual(validation.state.combinedServiceDecisionQueue, ['straightening'])
+      assert.doesNotMatch(validation.reply, /te derivo/i)
+
+      const estimateOption = await engine.process({
+        businessId: 'business-1', conversation: validation.conversationPatch, message: 'sí, confirmo'
+      })
+      assert.equal(estimateOption.plan.type, 'ask_estimate_option')
+
+      const estimate = await engine.process({
+        businessId: 'business-1', conversation: estimateOption.conversationPatch, message: '2'
+      })
+      assert.equal(estimate.plan.type, 'show_estimate')
+
+      const booking = await engine.process({
+        businessId: 'business-1', conversation: estimate.conversationPatch, message: 'dale, quiero reservar'
+      })
+      assert.equal(booking.plan.type, 'ask_field')
+      assert.equal(booking.plan.type === 'ask_field' ? booking.plan.field : null, 'professional')
+      assert.deepEqual(booking.state.combinedServiceDecisionQueue, [])
+      assert.doesNotMatch(booking.reply, /te derivo/i)
+    }
+  },
+  {
     name: 'motor puede retomar sin consumir extractor ni modificar borrador',
     run: async () => {
       const extractor = fakeExtractor(null)

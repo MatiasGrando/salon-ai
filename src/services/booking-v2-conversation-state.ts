@@ -58,6 +58,7 @@ export type BookingV2PersistedState = {
   catalogNavigation?: BookingV2CatalogNavigation | null
   serviceValidation?: BookingV2ServiceValidation | null
   guidedEstimate?: BookingV2GuidedEstimate | null
+  combinedServiceDecisionQueue?: string[] | null
   advisorQuote?: BookingV2AdvisorQuote | null
   quoteOnly?: BookingV2QuoteOnly | null
   pendingDeposit?: BookingV2PendingDeposit | null
@@ -95,6 +96,7 @@ export function stateFromConversation(
     catalogNavigation: readCatalogNavigation(conversation.bookingV2State),
     serviceValidation: readServiceValidation(conversation.bookingV2State),
     guidedEstimate: readGuidedEstimate(conversation.bookingV2State),
+    combinedServiceDecisionQueue: readCombinedServiceDecisionQueue(conversation.bookingV2State),
     advisorQuote: readAdvisorQuote(conversation.bookingV2State),
     quoteOnly: readQuoteOnly(conversation.bookingV2State),
     pendingDeposit: readPendingDeposit(conversation.bookingV2State),
@@ -119,7 +121,7 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
     selectedDate: state.draft.date,
     selectedTime: state.draft.time,
     misunderstandingCount: state.misunderstandingCount,
-    bookingV2State: state.pendingProposal || state.pendingRequest || state.pendingInformationSelection || state.lastInformationServiceId || state.pendingServiceDisambiguation || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.advisorQuote || state.quoteOnly || state.pendingDeposit || state.contextPause || state.unsupportedServiceRequest || state.queuedServices.length || state.combinedServices.length || state.addonSuggestion || state.addonOfferCompletedServiceId || state.pendingCombinedAvailability || state.pendingServiceSeparation || state.pendingServiceReplacement
+    bookingV2State: state.pendingProposal || state.pendingRequest || state.pendingInformationSelection || state.lastInformationServiceId || state.pendingServiceDisambiguation || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.combinedServiceDecisionQueue !== null || state.advisorQuote || state.quoteOnly || state.pendingDeposit || state.contextPause || state.unsupportedServiceRequest || state.queuedServices.length || state.combinedServices.length || state.addonSuggestion || state.addonOfferCompletedServiceId || state.pendingCombinedAvailability || state.pendingServiceSeparation || state.pendingServiceReplacement
       ? {
           version: 1,
           pendingProposal: state.pendingProposal,
@@ -136,6 +138,9 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
           ...(state.catalogNavigation ? { catalogNavigation: state.catalogNavigation } : {}),
           ...(state.serviceValidation ? { serviceValidation: state.serviceValidation } : {}),
           ...(state.guidedEstimate ? { guidedEstimate: state.guidedEstimate } : {}),
+          ...(state.combinedServiceDecisionQueue !== null
+            ? { combinedServiceDecisionQueue: state.combinedServiceDecisionQueue }
+            : {}),
           ...(state.advisorQuote ? { advisorQuote: state.advisorQuote } : {}),
           ...(state.quoteOnly ? { quoteOnly: state.quoteOnly } : {}),
           ...(state.pendingDeposit ? { pendingDeposit: state.pendingDeposit } : {}),
@@ -544,6 +549,17 @@ function readGuidedEstimate(value: unknown): BookingV2GuidedEstimate | null {
     priceMin: candidate.priceMin ?? null,
     priceMax: candidate.priceMax ?? null
   }
+}
+
+function readCombinedServiceDecisionQueue(value: unknown): string[] | null {
+  if (!value || typeof value !== 'object') return null
+  const persisted = value as { version?: unknown; combinedServiceDecisionQueue?: unknown }
+  if (persisted.version !== 1 || !Array.isArray(persisted.combinedServiceDecisionQueue)) return null
+  return Array.from(new Set(
+    persisted.combinedServiceDecisionQueue
+      .filter((serviceId): serviceId is string => typeof serviceId === 'string' && Boolean(serviceId.trim()))
+      .map((serviceId) => serviceId.trim())
+  )).slice(0, 4)
 }
 
 function readAdvisorQuote(value: unknown): BookingV2AdvisorQuote | null {

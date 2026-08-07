@@ -153,10 +153,13 @@ export class BookingV2Engine {
               ]
             })
         if (decision.confidence >= 0.7 && decision.choiceId === 'cancel_edit') {
-          const state: BookingV2State = {
+          let state: BookingV2State = {
             ...initialState,
             pendingServiceSeparation: { reason: pending.reason },
             misunderstandingCount: 0
+          }
+          if (service.attentionMode !== 'GUIDED_ESTIMATE' && !service.requiresPhoto) {
+            state = completeCombinedServiceDecision(state, service.id)
           }
           return this.guidedEstimateResult(state, {
             type: 'offer_separate_services',
@@ -566,7 +569,7 @@ export class BookingV2Engine {
           validationQuestion: service.validationQuestion?.trim() ?? ''
         })
         if (classification.confidence >= 0.7 && classification.decision === 'confirm') {
-          const state: BookingV2State = {
+          let state: BookingV2State = {
             ...initialState,
             serviceValidation: {
               serviceId: service.id,
@@ -574,6 +577,7 @@ export class BookingV2Engine {
             },
             misunderstandingCount: 0
           }
+          state = completeCombinedServiceDecision(state, service.id)
           return this.fromInterpretation({
             state,
             nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
@@ -1512,7 +1516,12 @@ export class BookingV2Engine {
       serviceSuggestions?: BookingV2DomainCatalog['services']
     }
   ): Promise<BookingV2ProcessResult> {
-    let effectiveInterpretation = interpretation
+    let effectiveInterpretation = catalog
+      ? {
+          ...interpretation,
+          state: prepareCombinedServiceDecision(interpretation.state, catalog)
+        }
+      : interpretation
     let plan = buildBookingV2MessagePlan(effectiveInterpretation, catalog?.bookingFlowOrder)
     let availabilityOptions: BookingV2AvailabilityOption[] = []
     let unavailableDate: string | null = null
@@ -3178,21 +3187,69 @@ function evaluateServiceCombination(
       const rule = combinationRuleFor(catalog, leftId, rightId)
       if (rule?.policy === 'BLOCKED') return 'BLOCKED'
       if (rule?.policy === 'REVIEW_REQUIRED') requiresReview = true
-      if (rule?.policy === 'ALLOWED') continue
-      const additionalService = catalog.services.find((service) => service.id === rightId)
-      if (
-        additionalService &&
-        (
-          additionalService.requiresPhoto ||
-          additionalService.validationEnabled ||
-          (additionalService.attentionMode && additionalService.attentionMode !== 'DIRECT_BOOKING')
-        )
-      ) {
-        requiresReview = true
-      }
     }
   }
   return requiresReview ? 'REVIEW_REQUIRED' : 'ALLOWED'
+}
+
+function prepareCombinedServiceDecision(
+  state: BookingV2State,
+  catalog: BookingV2DomainCatalog
+): BookingV2State {
+  if (state.quoteOnly) return state
+  const selectedServiceIds = combinedServiceIds(state)
+  if (selectedServiceIds.length < 2) {
+    return state.combinedServiceDecisionQueue === null
+      ? state
+      : { ...state, combinedServiceDecisionQueue: null }
+  }
+  const needsDecision = (serviceId: string) => {
+    const service = catalog.services.find((candidate) => candidate.id === serviceId)
+    return Boolean(service && (
+      service.validationEnabled ||
+      service.requiresPhoto ||
+      service.attentionMode === 'GUIDED_ESTIMATE' ||
+      service.attentionMode === 'QUOTE' ||
+      service.attentionMode === 'ADVISOR'
+    ))
+  }
+  const queue = (state.combinedServiceDecisionQueue ?? selectedServiceIds)
+    .filter((serviceId, index, ids) =>
+      selectedServiceIds.includes(serviceId) && needsDecision(serviceId) && ids.indexOf(serviceId) === index
+    )
+  const queuedState = state.combinedServiceDecisionQueue === queue
+    ? state
+    : { ...state, combinedServiceDecisionQueue: queue }
+  const activeServiceId = queue[0]
+  if (!activeServiceId || activeServiceId === state.draft.service) return queuedState
+  const evidenceByServiceId = new Map(state.combinedServices.map((service) => [service.serviceId, service.evidence]))
+  return {
+    ...queuedState,
+    draft: {
+      ...state.draft,
+      service: activeServiceId,
+      professional: null,
+      date: null,
+      time: null
+    },
+    combinedServices: selectedServiceIds
+      .filter((serviceId) => serviceId !== activeServiceId)
+      .map((serviceId) => ({ serviceId, evidence: evidenceByServiceId.get(serviceId) ?? '' })),
+    serviceValidation: null,
+    guidedEstimate: null,
+    addonSuggestion: null,
+    pendingCombinedAvailability: null
+  }
+}
+
+function completeCombinedServiceDecision(state: BookingV2State, serviceId: string): BookingV2State {
+  if (state.combinedServiceDecisionQueue === null) return state
+  return {
+    ...state,
+    combinedServiceDecisionQueue: state.combinedServiceDecisionQueue.filter(
+      (candidate) => candidate !== serviceId
+    )
+  }
 }
 
 function isServiceDecisionPlan(plan: BookingV2MessagePlan) {

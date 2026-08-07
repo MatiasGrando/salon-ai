@@ -162,6 +162,7 @@ export type BookingV2State = {
   catalogNavigation: BookingV2CatalogNavigation | null
   serviceValidation: BookingV2ServiceValidation | null
   guidedEstimate: BookingV2GuidedEstimate | null
+  combinedServiceDecisionQueue: string[] | null
   advisorQuote: BookingV2AdvisorQuote | null
   quoteOnly: BookingV2QuoteOnly | null
   pendingDeposit: BookingV2PendingDeposit | null
@@ -206,6 +207,7 @@ export function createEmptyBookingV2State(): BookingV2State {
     catalogNavigation: null,
     serviceValidation: null,
     guidedEstimate: null,
+    combinedServiceDecisionQueue: null,
     advisorQuote: null,
     quoteOnly: null,
     pendingDeposit: null,
@@ -344,6 +346,9 @@ export function acceptField(
     guidedEstimate: field === 'service' && state.draft[field] !== value
       ? null
       : state.guidedEstimate,
+    combinedServiceDecisionQueue: field === 'service' && state.draft[field] !== value
+      ? null
+      : state.combinedServiceDecisionQueue,
     advisorQuote: field === 'service' && state.draft[field] !== value
       ? null
       : state.advisorQuote,
