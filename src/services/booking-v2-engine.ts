@@ -1860,6 +1860,9 @@ export class BookingV2Engine {
     const serviceSuggestions = renderContext?.serviceSuggestions ??
       pendingServiceDisambiguationOptions(effectiveInterpretation.state, catalog) ??
       offeredCategoryServices(effectiveInterpretation.state, catalog)
+    const serviceSuggestionLabel = effectiveInterpretation.state.pendingServiceDisambiguation
+      ? ambiguousServiceReference(effectiveInterpretation.state.pendingServiceDisambiguation.evidence)
+      : null
 
     const reply = renderBookingV2Response({
       plan,
@@ -1871,7 +1874,8 @@ export class BookingV2Engine {
       unavailableDate,
       combinedServices: effectiveInterpretation.state.combinedServices,
       quoteOnly: effectiveInterpretation.state.quoteOnly,
-      ...(serviceSuggestions ? { serviceSuggestions } : {})
+      ...(serviceSuggestions ? { serviceSuggestions } : {}),
+      ...(serviceSuggestionLabel ? { serviceSuggestionLabel } : {})
     })
     return {
       state: effectiveInterpretation.state,
@@ -1931,6 +1935,9 @@ export class BookingV2Engine {
     }, catalog.bookingFlowOrder)
     const reconciledState = reconcileBookingV2Agenda(state, plan, [])
     const serviceSuggestions = pendingServiceDisambiguationOptions(reconciledState, catalog)
+    const serviceSuggestionLabel = reconciledState.pendingServiceDisambiguation
+      ? ambiguousServiceReference(reconciledState.pendingServiceDisambiguation.evidence)
+      : null
     const reply = renderBookingV2Response({
       plan,
       draft: reconciledState.draft,
@@ -1940,7 +1947,8 @@ export class BookingV2Engine {
       availabilityOptions: [],
       combinedServices: reconciledState.combinedServices,
       quoteOnly: reconciledState.quoteOnly,
-      ...(serviceSuggestions ? { serviceSuggestions } : {})
+      ...(serviceSuggestions ? { serviceSuggestions } : {}),
+      ...(serviceSuggestionLabel ? { serviceSuggestionLabel } : {})
     })
     return {
       state: reconciledState,
@@ -2704,6 +2712,21 @@ function genericServiceFamilyMatches(
       familyTerms.some((familyTerm) => serviceTokensMatch(token, familyTerm))
     ))
   })
+}
+
+function ambiguousServiceReference(evidence: string) {
+  const ignored = new Set([
+    'a', 'al', 'averiguar', 'buenas', 'buenos', 'como', 'con', 'consulta', 'cotizacion',
+    'de', 'del', 'dia', 'el', 'en', 'hacer', 'hacerme', 'hola', 'informacion', 'la', 'las',
+    'los', 'me', 'necesito', 'noche', 'para', 'por', 'presupuesto', 'precio', 'queria',
+    'quiero', 'quisiera', 'saber', 'tarde', 'un', 'una', 'va', 'y'
+  ])
+  const words = normalize(evidence)
+    .split(' ')
+    .filter((word) => word && !ignored.has(word))
+    .map((word) => /^(?:cortar|cortarme|cortarse)$/.test(word) ? 'corte' : word)
+  const reference = words.join(' ').trim()
+  return reference ? `${reference.charAt(0).toUpperCase()}${reference.slice(1)}` : null
 }
 
 function resolveExpectedDate(

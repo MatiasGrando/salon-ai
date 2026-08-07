@@ -2431,6 +2431,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         message: 'Quería averiguar el presupuesto para hacerme un color y cortarme'
       })
       assert.match(colorQuestion.reply, /Iluminación \(baby lights, balayage, contouring, etc\)/)
+      assert.match(colorQuestion.reply, /Para Color tengo estas opciones 😊/)
       assert.match(colorQuestion.reply, /Tintura completo/)
       assert.match(colorQuestion.reply, /Tintura raíces/)
       assert.match(colorQuestion.reply, /¿Cuál querés cotizar\?/)
@@ -2441,6 +2442,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         message: 'tintura completo'
       })
       assert.match(cutQuestion.reply, /Corte hombre/)
+      assert.match(cutQuestion.reply, /Para Corte tengo estas opciones 😊/)
       assert.match(cutQuestion.reply, /Corte mujer/)
       assert.match(cutQuestion.reply, /Corte y barba/)
       assert.doesNotMatch(cutQuestion.reply, /Estos son los precios de nuestros servicios/)
@@ -2450,6 +2452,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         conversation: cutQuestion.conversationPatch,
         message: 'corte mujer'
       })
+      assert.match(lengthQuestion.reply, /El precio de Tintura completo puede variar/)
       assert.match(lengthQuestion.reply, /¿Qué largo tiene tu cabello\?/)
       assert.match(lengthQuestion.reply, /3\. Debajo de la escápula/)
 
@@ -3887,7 +3890,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
       assert.equal(result.state.draft.service, null)
       assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'service')
-      assert.equal(result.reply.includes('más de una opción'), true)
+      assert.equal(result.reply.includes('Para Corte tengo estas opciones'), true)
       assert.equal(result.reply.includes('Corte Hombre'), true)
       assert.equal(result.reply.includes('Corte y color'), true)
       assert.equal(result.reply.includes('modificar'), false)

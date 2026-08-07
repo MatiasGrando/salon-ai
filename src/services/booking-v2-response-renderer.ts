@@ -19,6 +19,7 @@ export type BookingV2RenderInput = {
   availabilityOptions?: BookingV2AvailabilityOption[]
   unavailableDate?: string | null
   serviceSuggestions?: BookingV2DomainCatalog['services']
+  serviceSuggestionLabel?: string | null
   agenda?: BookingV2AgendaItem[]
   catalogNavigation?: BookingV2CatalogNavigation | null
   combinedServices?: BookingV2CombinedService[]
@@ -191,7 +192,10 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
 
   if (input.plan.type === 'ask_estimate_option') {
     const service = input.catalog?.services.find((option) => option.id === input.draft.service)
-    const explanation = service?.estimateExplanation?.trim()
+    const explanation = estimateExplanationForService(
+      service?.name,
+      service?.estimateExplanation?.trim()
+    )
     const question = service?.estimateQuestion?.trim() || '¿Cuál de estas opciones se parece más a tu caso?'
     const options = service?.estimateOptions ?? []
     return [
@@ -283,6 +287,7 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
       input.combinedServices ?? [],
       input.catalog,
       input.serviceSuggestions,
+      input.serviceSuggestionLabel,
       input.catalogNavigation,
       input.plan.misunderstandingCount,
       input.availabilityOptions,
@@ -326,6 +331,19 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
   }
 
   return bookingConfirmation(input.draft, input.catalog, input.combinedServices)
+}
+
+function estimateExplanationForService(serviceName?: string, explanation?: string) {
+  if (!explanation) return null
+  if (!serviceName) return explanation
+
+  const personalized = explanation.replace(
+    /El precio(?: final)?\s+(puede variar|varía|varia|se define|depende)/iu,
+    `El precio de ${serviceName} $1`
+  )
+  return personalized === explanation
+    ? `Sobre ${serviceName}:\n${explanation}`
+    : personalized
 }
 
 function quoteOnlyFollowUp(remainingServiceIds: string[], catalog?: BookingV2DomainCatalog | null) {
@@ -430,6 +448,7 @@ function questionForField(
   combinedServices: BookingV2CombinedService[],
   catalog?: BookingV2DomainCatalog | null,
   serviceSuggestions?: BookingV2DomainCatalog['services'],
+  serviceSuggestionLabel?: string | null,
   catalogNavigation?: BookingV2CatalogNavigation | null,
   misunderstandingCount = 0,
   availabilityOptions?: BookingV2AvailabilityOption[],
@@ -437,7 +456,14 @@ function questionForField(
 ) {
   if (field === 'name') return '¿Me decís tu nombre?'
   if (field === 'service') {
-    return serviceQuestion(catalog, serviceSuggestions, catalogNavigation, misunderstandingCount, quoteOnly)
+    return serviceQuestion(
+      catalog,
+      serviceSuggestions,
+      serviceSuggestionLabel,
+      catalogNavigation,
+      misunderstandingCount,
+      quoteOnly
+    )
   }
   if (field === 'professional') {
     return professionalQuestion(
@@ -455,6 +481,7 @@ function questionForField(
 function serviceQuestion(
   catalog?: BookingV2DomainCatalog | null,
   serviceSuggestions?: BookingV2DomainCatalog['services'],
+  serviceSuggestionLabel?: string | null,
   catalogNavigation?: BookingV2CatalogNavigation | null,
   misunderstandingCount = 0,
   quoteOnly = false
@@ -512,7 +539,9 @@ function serviceQuestion(
 
   return [
     serviceSuggestions?.length
-      ? suggestionCategory
+      ? serviceSuggestionLabel
+        ? `Para ${serviceSuggestionLabel} tengo estas opciones 😊`
+        : suggestionCategory
         ? `Para ${suggestionCategory} tengo estas opciones 😊`
         : 'Encontré más de una opción parecida 😊 ¿Cuál de estas querés?'
       : 'Estos son los servicios disponibles 😊',
