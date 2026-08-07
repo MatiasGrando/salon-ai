@@ -285,7 +285,8 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
       input.serviceSuggestions,
       input.catalogNavigation,
       input.plan.misunderstandingCount,
-      input.availabilityOptions
+      input.availabilityOptions,
+      Boolean(input.quoteOnly)
     )
     if (input.plan.reason === 'not_understood') {
       if (
@@ -431,11 +432,12 @@ function questionForField(
   serviceSuggestions?: BookingV2DomainCatalog['services'],
   catalogNavigation?: BookingV2CatalogNavigation | null,
   misunderstandingCount = 0,
-  availabilityOptions?: BookingV2AvailabilityOption[]
+  availabilityOptions?: BookingV2AvailabilityOption[],
+  quoteOnly = false
 ) {
   if (field === 'name') return '¿Me decís tu nombre?'
   if (field === 'service') {
-    return serviceQuestion(catalog, serviceSuggestions, catalogNavigation, misunderstandingCount)
+    return serviceQuestion(catalog, serviceSuggestions, catalogNavigation, misunderstandingCount, quoteOnly)
   }
   if (field === 'professional') {
     return professionalQuestion(
@@ -454,9 +456,12 @@ function serviceQuestion(
   catalog?: BookingV2DomainCatalog | null,
   serviceSuggestions?: BookingV2DomainCatalog['services'],
   catalogNavigation?: BookingV2CatalogNavigation | null,
-  misunderstandingCount = 0
+  misunderstandingCount = 0,
+  quoteOnly = false
 ) {
-  if (!catalog?.services.length) return '¿Qué servicio querés reservar?'
+  if (!catalog?.services.length) return quoteOnly
+    ? '¿Sobre qué servicio querés pedir el presupuesto?'
+    : '¿Qué servicio querés reservar?'
   const categories = catalogCategoryOptions(catalog)
   const categoriesFirst = catalog.displayMode === 'CATEGORIES_FIRST' && categories.some((category) =>
     category.name !== 'Otros'
@@ -515,7 +520,7 @@ function serviceQuestion(
     ...(services.length > 1 && !services.some((service) => service.categoryAdviceEnabled)
       ? ['• No sé cuál necesito']
       : []),
-    containsAssistedServices ? '¿Cuál te interesa?' : '¿Cuál querés reservar?'
+    quoteOnly ? '¿Cuál querés cotizar?' : containsAssistedServices ? '¿Cuál te interesa?' : '¿Cuál querés reservar?'
   ].join('\n')
 }
 

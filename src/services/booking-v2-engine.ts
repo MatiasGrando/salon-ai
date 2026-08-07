@@ -849,7 +849,15 @@ export class BookingV2Engine {
       let state = applyResolvedServiceSelections(initialState, selections)
       state = {
         ...state,
-        pendingServiceDisambiguation: pendingServiceDisambiguationFromGroups(ambiguousGroups)
+        pendingServiceDisambiguation: pendingServiceDisambiguationFromGroups(ambiguousGroups),
+        ...(state.quoteOnly && ambiguousGroups.length
+          ? {
+              quoteOnly: {
+                ...state.quoteOnly,
+                remainingServiceIds: []
+              }
+            }
+          : {})
       }
       if (state.quoteOnly && state.pendingServiceDisambiguation) {
         return this.serviceDisambiguationResult(state, catalog, selections.length ? 'accepted' : 'no_change')

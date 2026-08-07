@@ -2440,7 +2440,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       const engine = new BookingV2Engine(fakeDomainPort({ catalog }), fakeExtractor(null))
       const quoteState = {
         ...createEmptyBookingV2State(),
-        quoteOnly: { remainingServiceIds: [], estimates: [] }
+        quoteOnly: { remainingServiceIds: ['woman-cut'], estimates: [] }
       }
 
       const colorQuestion = await engine.process({
@@ -2456,20 +2456,22 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       const cutQuestion = await engine.process({
         businessId: 'business-1',
         conversation: colorQuestion.conversationPatch,
-        message: 'tintura completa'
+        message: 'tintura raíces'
       })
       assert.equal(cutQuestion.plan.type, 'ask_field')
       assert.match(cutQuestion.reply, /Corte mujer/)
       assert.doesNotMatch(cutQuestion.reply, /Tintura raíces/)
+      assert.match(cutQuestion.reply, /¿Cuál querés cotizar\?/)
 
       const quote = await engine.process({
         businessId: 'business-1',
         conversation: cutQuestion.conversationPatch,
-        message: 'corte mujer'
+        message: 'corte hombre'
       })
       assert.equal(quote.plan.type, 'quote_complete')
-      assert.match(quote.reply, /Tintura completa: \$\s?90\.000/)
-      assert.match(quote.reply, /Corte mujer: \$\s?37\.000/)
+      assert.match(quote.reply, /Tintura raíces: \$\s?65\.000/)
+      assert.match(quote.reply, /Corte hombre: \$\s?27\.000/)
+      assert.doesNotMatch(quote.reply, /Corte mujer/)
       assert.doesNotMatch(quote.reply, /vamos a reservar estos servicios juntos/i)
     }
   },
