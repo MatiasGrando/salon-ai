@@ -22,6 +22,8 @@ import {
 } from '../src/services/booking-v2-conversation-state.js'
 import { BookingV2Engine } from '../src/services/booking-v2-engine.js'
 import { BookingV2EstimateDecisionExtractor } from '../src/services/booking-v2-estimate-decision-extractor.js'
+import { BookingV2ServiceValidationClassifier } from '../src/services/booking-v2-service-validation.js'
+import { detectDeterministicConfirmation } from '../src/services/conversation-confirmation-intent.js'
 import {
   calculateBookingV2Deposit,
   renderBookingV2DepositRequest,
@@ -6292,6 +6294,32 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           assert.deepEqual(resumed.state.draft, state.draft)
         }
       }
+    }
+  },
+  {
+    name: 'confirmaciones naturales se resuelven antes de consultar IA',
+    run: async () => {
+      const confirmations = ['sí', 'si dale', 'sí, seguimos', 'me parece bien, avancemos', 'mandale']
+      for (const message of confirmations) {
+        assert.deepEqual(detectDeterministicConfirmation(message), {
+          intent: 'confirm',
+          confidence: 0.98
+        })
+      }
+      assert.equal(detectDeterministicConfirmation('si no cambia el color, dale'), null)
+      assert.deepEqual(detectDeterministicConfirmation('no sé si seguir'), {
+        intent: 'uncertain',
+        confidence: 0.98
+      })
+
+      const classifier = new BookingV2ServiceValidationClassifier()
+      const result = await classifier.classify({
+        message: 'si seguimos',
+        serviceName: 'Alisado (sin formol)',
+        validationMessage: 'Puede alterar el tono.',
+        validationQuestion: '¿Seguimos con Alisado (sin formol)?'
+      })
+      assert.deepEqual(result, { decision: 'confirm', confidence: 0.98 })
     }
   },
   {

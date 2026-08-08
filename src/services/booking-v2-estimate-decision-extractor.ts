@@ -2,6 +2,7 @@ import { openAiConfig } from '../config/openai.js'
 import { getOpenAiClient } from '../integrations/openai-client.js'
 import { isAiExecutionEnabled } from './ai-execution-context.js'
 import { normalizeText } from './message-understanding-service.js'
+import { detectDeterministicConfirmation } from './conversation-confirmation-intent.js'
 
 export type EstimateDecision = 'continue_booking' | 'request_exact_quote' | 'unclear'
 
@@ -94,21 +95,9 @@ function deterministicEstimateDecision(message: string): EstimateDecisionExtract
     return { decision: 'request_exact_quote', confidence: 0.98 }
   }
 
-  if ([
-    'si',
-    'si por favor',
-    'dale',
-    'dale por favor',
-    'de una',
-    'me parece bien',
-    'me sirve',
-    'avancemos',
-    'sigamos',
-    'continuemos',
-    'seguir con el estimativo',
-    'seguir con estimativo'
-  ].some((phrase) => normalized === phrase || normalized.includes(phrase))) {
-    return { decision: 'continue_booking', confidence: 0.98 }
+  const confirmation = detectDeterministicConfirmation(message)
+  if (confirmation?.intent === 'confirm') {
+    return { decision: 'continue_booking', confidence: confirmation.confidence }
   }
 
   return null

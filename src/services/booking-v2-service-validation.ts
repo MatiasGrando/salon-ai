@@ -1,6 +1,7 @@
 import { openAiConfig } from '../config/openai.js'
 import { getOpenAiClient } from '../integrations/openai-client.js'
 import { isAiExecutionEnabled } from './ai-execution-context.js'
+import { detectDeterministicConfirmation } from './conversation-confirmation-intent.js'
 
 export type ServiceValidationDecision = 'confirm' | 'reject' | 'uncertain'
 
@@ -16,6 +17,14 @@ export class BookingV2ServiceValidationClassifier {
     validationMessage: string
     validationQuestion: string
   }): Promise<ServiceValidationClassification> {
+    const deterministic = detectDeterministicConfirmation(input.message)
+    if (deterministic) {
+      return {
+        decision: deterministic.intent,
+        confidence: deterministic.confidence
+      }
+    }
+
     if (!isAiExecutionEnabled()) return { decision: null, confidence: 0 }
 
     const client = getOpenAiClient()
