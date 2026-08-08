@@ -114,26 +114,27 @@ export async function customerRoutes(app: FastifyInstance) {
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
     const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1)
 
-    const scopedCustomerIds = query.businessId
-      ? await prisma.appointment.findMany({
-          where: {
-            professional: {
-              businessId: query.businessId
-            }
-          },
-          distinct: ['customerId'],
-          select: {
-            customerId: true
-          }
-        })
-      : []
-
     const customers = await prisma.customer.findMany({
       where: query.businessId
         ? {
-            id: {
-              in: scopedCustomerIds.map((appointment) => appointment.customerId)
-            }
+            OR: [
+              {
+                appointments: {
+                  some: {
+                    professional: {
+                      businessId: query.businessId
+                    }
+                  }
+                }
+              },
+              {
+                marketingPreferences: {
+                  some: {
+                    businessId: query.businessId
+                  }
+                }
+              }
+            ]
           }
         : {},
       select: {
@@ -406,26 +407,27 @@ export async function customerRoutes(app: FastifyInstance) {
     const query = request.query as {
       businessId?: string
     }
-    const scopedCustomerIds = query.businessId
-      ? await prisma.appointment.findMany({
-          where: {
-            professional: {
-              businessId: query.businessId
-            }
-          },
-          distinct: ['customerId'],
-          select: {
-            customerId: true
-          }
-        })
-      : []
-
     return prisma.customer.findMany({
       where: query.businessId
         ? {
-            id: {
-              in: scopedCustomerIds.map((appointment) => appointment.customerId)
-            }
+            OR: [
+              {
+                appointments: {
+                  some: {
+                    professional: {
+                      businessId: query.businessId
+                    }
+                  }
+                }
+              },
+              {
+                marketingPreferences: {
+                  some: {
+                    businessId: query.businessId
+                  }
+                }
+              }
+            ]
           }
         : {}
     })

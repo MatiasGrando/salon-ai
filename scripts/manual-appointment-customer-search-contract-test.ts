@@ -29,4 +29,16 @@ assert.ok(route.includes('normalizedPhone: { contains: digits }'), 'debe buscar 
 assert.ok(route.includes('marketingPreferences: { some: { businessId } }'), 'debe incluir clientes nuevos del comercio aunque aún no tengan turno')
 assert.ok(route.includes('appointments: { some: { professional: { businessId } } }'), 'no debe mezclar clientes ajenos al comercio')
 
+const overviewStart = route.indexOf("app.get('/customers/overview'")
+const overviewEnd = route.indexOf("app.post('/customers'", overviewStart)
+const overview = route.slice(overviewStart, overviewEnd)
+assert.ok(overview.includes('marketingPreferences:'), 'la vista principal de Clientes debe incluir contactos importados sin turnos')
+assert.ok(overview.includes('appointments:'), 'la vista principal de Clientes debe conservar los clientes con turnos')
+
+const listStart = route.indexOf("app.get('/customers'", overviewEnd)
+const listEnd = route.indexOf("app.patch('/customers/:id'", listStart)
+const customerList = route.slice(listStart, listEnd)
+assert.ok(customerList.includes('marketingPreferences:'), 'la lista de clientes debe incluir contactos importados sin turnos')
+assert.ok(customerList.includes('appointments:'), 'la lista de clientes debe conservar los clientes con turnos')
+
 console.log('Manual appointment customer search contract: OK (autocomplete, límites, teclado y aislamiento)')
