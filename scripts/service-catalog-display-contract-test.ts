@@ -17,6 +17,7 @@ import {
   catalogRecoveryActionFromInteractiveReply,
   catalogRecoveryDecisionButtons
 } from '../src/services/conversation-service.js'
+import { detectServiceCatalogPresentationIntent } from '../src/services/service-catalog-presentation-intent.js'
 
 const categoriesCatalog = createBookingV2DomainCatalog({
   displayMode: 'CATEGORIES_FIRST',
@@ -145,6 +146,32 @@ assert.deepEqual(
   catalogCategoryOptions(categoriesCatalog).map((category) => category.name),
   ['Coloración', 'Cortes']
 )
+for (const message of [
+  'quiero saber qué servicios tienen',
+  'quiero saber de todos los servicios',
+  'quiero saber todos los servicios',
+  'pasame la lista de servicios',
+  'qué ofrecen',
+  'mostrame el catálogo completo',
+  'ver todos',
+  'mostrar todos los servicios',
+  'quiero ver el catálogo'
+]) {
+  assert.equal(detectServiceCatalogPresentationIntent(message), 'show_all', message)
+}
+assert.equal(detectServiceCatalogPresentationIntent('quiero un turno'), 'use_business_default')
+assert.equal(detectServiceCatalogPresentationIntent('quiero reservar'), 'use_business_default')
+assert.equal(
+  detectServiceCatalogPresentationIntent('quiero reservar todos los servicios'),
+  'use_business_default'
+)
+assert.equal(
+  detectServiceCatalogPresentationIntent('quiero reservar, qué servicios tienen'),
+  'show_all'
+)
+assert.equal(detectServiceCatalogPresentationIntent('quiero teñirme'), null)
+assert.equal(detectServiceCatalogPresentationIntent('quiero saber las opciones de color'), null)
+assert.equal(detectServiceCatalogPresentationIntent('ver categorías'), 'show_categories')
 
 const categoryMenu = await engineFor(categoriesCatalog).resume({
   businessId: 'business-1',
@@ -197,6 +224,64 @@ const showAll = await engineFor(categoriesCatalog).process({
 assert.equal(showAll.state.catalogNavigation?.view, 'ALL_SERVICES')
 assert.match(showAll.reply, /Color completo/)
 assert.match(showAll.reply, /Corte/)
+
+for (const message of [
+  'quiero saber qué servicios tienen',
+  'quiero saber de todos los servicios',
+  'quiero saber todos los servicios'
+]) {
+  const explicitFullCatalog = await engineFor(categoriesCatalog).process({
+    businessId: 'business-1',
+    conversation: conversationPatchFromState(namedState),
+    message
+  })
+  assert.equal(explicitFullCatalog.state.catalogNavigation?.view, 'ALL_SERVICES', message)
+  assert.match(explicitFullCatalog.reply, /Color completo/, message)
+  assert.match(explicitFullCatalog.reply, /Corte/, message)
+}
+
+const staleAllServicesState = {
+  ...namedState,
+  catalogNavigation: {
+    view: 'ALL_SERVICES' as const,
+    categoryKey: null,
+    categoryName: null,
+    pendingCategoryKey: null,
+    pendingCategoryName: null
+  }
+}
+const genericBooking = await engineFor(categoriesCatalog, {
+  async extract() {
+    return { choiceId: 'show_all_services', confidence: 0.99 }
+  }
+}).process({
+  businessId: 'business-1',
+  conversation: conversationPatchFromState(staleAllServicesState),
+  message: 'quiero un turno'
+})
+assert.equal(genericBooking.state.catalogNavigation, null)
+assert.match(genericBooking.reply, /tipo de servicio/i)
+assert.match(genericBooking.reply, /Coloración/)
+assert.doesNotMatch(genericBooking.reply, /Color completo/)
+
+const naturalColorRequest = await engineFor(categoriesCatalog).process({
+  businessId: 'business-1',
+  conversation: conversationPatchFromState(namedState),
+  message: 'hola quería teñirme'
+})
+assert.equal(naturalColorRequest.state.catalogNavigation?.categoryName, 'Coloración')
+assert.match(naturalColorRequest.reply, /Color completo/)
+assert.match(naturalColorRequest.reply, /Raíces/)
+assert.doesNotMatch(naturalColorRequest.reply, /• Corte/)
+
+const explicitColorBooking = await engineFor(categoriesCatalog).process({
+  businessId: 'business-1',
+  conversation: conversationPatchFromState(namedState),
+  message: 'quiero reservar color'
+})
+assert.equal(explicitColorBooking.state.catalogNavigation?.categoryName, 'Coloración')
+assert.match(explicitColorBooking.reply, /Color completo/)
+assert.doesNotMatch(explicitColorBooking.reply, /• Corte/)
 
 const firstFailure = await engineFor(categoriesCatalog).process({
   businessId: 'business-1',

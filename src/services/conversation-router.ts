@@ -10,6 +10,10 @@ import {
 import { nextMissingField } from './booking-v2-state.js'
 import type { BookingFlowOrder } from './booking-v2-state.js'
 import { normalizeText } from './message-understanding-service.js'
+import {
+  detectServiceCatalogPresentationIntent,
+  isNaturalServiceBookingRequest
+} from './service-catalog-presentation-intent.js'
 
 export const CONVERSATION_INTENTS = [
   'book_appointment',
@@ -587,7 +591,8 @@ export function mergeConversationRouting(
   const normalizedOriginalMessage = normalizeEvidenceText(originalMessage)
   const catalogGroundedBookingRequest = Boolean(catalog) &&
     hasCatalogGroundedBookingIntent(normalizedOriginalMessage, catalog)
-  const explicitBookingRequest = hasExplicitBookingAction(normalizedOriginalMessage) ||
+  const explicitBookingRequest = deterministic.bookingMessage !== null ||
+    hasExplicitBookingAction(normalizedOriginalMessage) ||
     catalogGroundedBookingRequest
   const hasExplicitGeneralCatalogRequest = deterministicTopics.has('services')
   const deterministicSpecificCatalogRequest = Boolean(
@@ -1271,7 +1276,7 @@ function detectBusinessInformationTopics(
     'quiero ver los servicios', 'quiero ver el catalogo', 'mostrame el catalogo',
     'menu de servicios', 'que ofrecen', 'que puedo reservar',
     'que hacen en el local', 'lista de servicios'
-  ])) add('services')
+  ]) || detectServiceCatalogPresentationIntent(normalized) === 'show_all') add('services')
   if (containsAny(normalized, [
     'que profesionales hay', 'cuales profesionales hay', 'quienes atienden', 'quien atiende',
     'con quien me puedo atender', 'lista de profesionales', 'profesionales disponibles'
@@ -1309,7 +1314,10 @@ function isCompactTimeSelection(message: string) {
 }
 
 function hasExplicitBookingIntent(normalized: string) {
-  return hasExplicitBookingAction(normalized) || containsAny(normalized, [
+  return hasExplicitBookingAction(normalized) ||
+    detectServiceCatalogPresentationIntent(normalized) === 'use_business_default' ||
+    isNaturalServiceBookingRequest(normalized) ||
+    containsAny(normalized, [
     'quiero venir',
     'necesito venir',
     'quiero hacerme',

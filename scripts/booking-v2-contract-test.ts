@@ -5213,6 +5213,61 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'router separa una reserva generica de una consulta por todo el catalogo',
+    run: () => {
+      const catalog = {
+        services: [
+          { id: 'full-color', name: 'Color Completo', aliases: ['Coloracion'] },
+          { id: 'roots', name: 'Raíces', aliases: ['Coloracion'] },
+          { id: 'haircut', name: 'Corte Hombre', aliases: ['corte'] }
+        ],
+        professionals: []
+      }
+
+      const booking = deterministicConversationRouting('quiero un turno', {
+        currentStep: 'START',
+        catalog
+      })
+      assert.equal(booking.bookingMessage, 'quiero un turno')
+      assert.deepEqual(businessInformationTopicsFromRouting(booking), [])
+
+      for (const message of [
+        'quiero saber qué servicios tienen',
+        'quiero saber de todos los servicios',
+        'quiero saber todos los servicios'
+      ]) {
+        const information = deterministicConversationRouting(message, {
+          currentStep: 'START',
+          catalog
+        })
+        assert.equal(information.bookingMessage, null, message)
+        assert.deepEqual(businessInformationTopicsFromRouting(information), ['services'], message)
+      }
+
+      const naturalColor = deterministicConversationRouting('hola quería teñirme', {
+        currentStep: 'START',
+        catalog
+      })
+      assert.equal(naturalColor.bookingMessage, 'hola quería teñirme')
+      const merged = mergeConversationRouting({
+        intents: [{
+          type: 'business_information',
+          topic: 'services',
+          confidence: 0.94,
+          evidence: 'hola quería teñirme'
+        }],
+        bookingMessage: null,
+        bookingExtraction: null,
+        catalogQuery: null
+      }, naturalColor, 'hola quería teñirme', catalog)
+      assert.equal(merged.bookingMessage, 'hola quería teñirme')
+      assert.deepEqual(
+        businessInformationTopicsFromRouting({ ...merged, source: 'ai' }),
+        []
+      )
+    }
+  },
+  {
     name: 'router reconoce variantes naturales de una petición explícita de reserva',
     run: () => {
       const catalog = {

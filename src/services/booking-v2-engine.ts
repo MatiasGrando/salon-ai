@@ -53,6 +53,7 @@ import {
   type BookingV2ConversationPatch,
   type BookingV2ConversationSnapshot
 } from './booking-v2-conversation-state.js'
+import { detectServiceCatalogPresentationIntent } from './service-catalog-presentation-intent.js'
 
 type BookingV2DomainPort = Pick<
   BookingV2DomainService,
@@ -132,7 +133,26 @@ export class BookingV2Engine {
   async process(input: BookingV2ProcessInput): Promise<BookingV2ProcessResult> {
     const storedState = stateFromConversation(input.conversation)
     const catalog = await this.domain.loadCatalog(input.businessId)
-    const initialState = sanitizeCatalogNameCollision(storedState, catalog)
+    const sanitizedState = sanitizeCatalogNameCollision(storedState, catalog)
+    const catalogPresentationIntent = detectServiceCatalogPresentationIntent(input.message)
+    const initialState: BookingV2State =
+      catalog.displayMode === 'CATEGORIES_FIRST' && !sanitizedState.draft.service
+        ? {
+            ...sanitizedState,
+            catalogNavigation: catalogPresentationIntent === 'show_all'
+              ? {
+                  view: 'ALL_SERVICES',
+                  categoryKey: null,
+                  categoryName: null,
+                  pendingCategoryKey: null,
+                  pendingCategoryName: null
+                }
+              : catalogPresentationIntent === 'show_categories' ||
+                  catalogPresentationIntent === 'use_business_default'
+                ? null
+                : sanitizedState.catalogNavigation
+          }
+        : sanitizedState
 
     if (initialState.pendingServiceSeparation) {
       const pending = initialState.pendingServiceSeparation
@@ -1181,7 +1201,25 @@ export class BookingV2Engine {
     const categories = catalogCategoryOptions(input.catalog)
     if (!categories.some((category) => category.name !== 'Otros')) return null
 
+    const presentationIntent = detectServiceCatalogPresentationIntent(input.message)
     const directService = resolveCatalogServiceSelection(input.message, input.catalog)
+    if (
+      !directService &&
+      (presentationIntent === 'use_business_default' || presentationIntent === 'show_categories')
+    ) {
+      const state: BookingV2State = {
+        ...input.state,
+        catalogNavigation: null,
+        misunderstandingCount: 0
+      }
+      return this.fromInterpretation({
+        state,
+        nextField: 'service',
+        outcome: 'no_change',
+        affectedField: 'service'
+      }, null, input.catalog)
+    }
+
     if (directService?.kind === 'selected') return null
 
     const pendingCategory = input.state.catalogNavigation?.pendingCategoryKey
@@ -1223,7 +1261,7 @@ export class BookingV2Engine {
     }
 
     const normalizedMessage = normalize(input.message)
-    if (isShowAllServicesMessage(normalizedMessage)) {
+    if (presentationIntent === 'show_all') {
       const state: BookingV2State = {
         ...input.state,
         catalogNavigation: {
@@ -2183,17 +2221,6 @@ function categoryForServiceIds(
   return matches.length === 1 ? matches[0] ?? null : null
 }
 
-function isShowAllServicesMessage(normalizedMessage: string) {
-  return [
-    'ver todos',
-    'ver todos los servicios',
-    'mostrar todos',
-    'mostrar todos los servicios',
-    'todos los servicios',
-    'catalogo completo'
-  ].includes(normalizedMessage)
-}
-
 function isBackToCategoriesMessage(normalizedMessage: string) {
   return [
     'volver',
@@ -2773,8 +2800,8 @@ function genericServiceFamilyMatches(
       'buenas', 'buenos', 'como', 'dia', 'hola', 'noche', 'tarde', 'va'
     ].includes(token))
     .join(' ')
-  const familyTerms = reference === 'color'
-    ? ['color', 'tintura', 'iluminacion', 'balayage', 'babylights', 'contouring', 'mechas']
+  const familyTerms = /^(?:color|coloracion|colorearme|tenir|tenirme|tintura|tinturarme)(?: pelo| cabello)?$/.test(reference)
+    ? ['color', 'coloracion', 'tintura', 'iluminacion', 'balayage', 'babylights', 'contouring', 'mechas']
     : /^(?:corte|cortar|cortarme|cortarme pelo|corte pelo)$/.test(reference)
       ? ['corte']
       : null
@@ -2866,7 +2893,7 @@ function serviceSelectionTokens(value: string) {
     .split(' ')
     .filter((token) => token && ![
       'a', 'al', 'con', 'de', 'del', 'el', 'en', 'hacer', 'hacerme', 'la', 'las',
-      'los', 'me', 'para', 'por', 'querer', 'queria', 'quiero', 'un', 'una', 'unas',
+      'los', 'me', 'para', 'por', 'querer', 'queria', 'quiero', 'reservar', 'agendar', 'turno', 'un', 'una', 'unas',
       'unos', 'y'
     ].includes(token))
 }
