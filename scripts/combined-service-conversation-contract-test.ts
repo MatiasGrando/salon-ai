@@ -12,6 +12,7 @@ import {
 import {
   acceptField,
   addCombinedServices,
+  combinedServiceIds,
   createEmptyBookingV2State,
   type BookingV2State
 } from '../src/services/booking-v2-state.js'
@@ -96,12 +97,17 @@ function catalog(input?: {
     policy: 'ALLOWED' | 'REVIEW_REQUIRED' | 'BLOCKED'
   }>
   guidedColor?: boolean
+  includeAddons?: boolean
 }) {
   return createBookingV2DomainCatalog({
     ...(input?.bookingFlowOrder ? { bookingFlowOrder: input.bookingFlowOrder } : {}),
-    services: services.map((service) => service.id === 'color' && input?.guidedColor
-      ? { ...service, attentionMode: 'GUIDED_ESTIMATE' as const }
-      : { ...service }),
+    services: services.map((service) => ({
+      ...service,
+      ...(service.id === 'color' && input?.guidedColor
+        ? { attentionMode: 'GUIDED_ESTIMATE' as const }
+        : {}),
+      ...(input?.includeAddons === false ? { suggestedAddonIds: [] } : {})
+    })),
     professionals: input?.professionals ?? professionals,
     combinationRules: (input?.combinationRules ?? []).map((rule) => ({ ...rule, note: null }))
   })
@@ -243,7 +249,8 @@ async function test(name: string, run: () => Promise<void> | void) {
 }
 
 await test('dos servicios explícitos se conservan como una sola reserva con duración sumada', async () => {
-  const result = await engine().process({
+  const bookingEngine = engine()
+  const result = await bookingEngine.process({
     businessId: 'business-1',
     conversation: conversationPatchFromState(namedState()),
     message: 'Quiero un alisado y un corte'
@@ -252,8 +259,17 @@ await test('dos servicios explícitos se conservan como una sola reserva con dur
   assert.deepEqual(result.state.combinedServices.map((item) => item.serviceId), ['corte'])
   assert.match(result.reply, /reservar estos servicios juntos/i)
   assert.match(result.reply, /Duración total: 120 min/i)
-  assert.match(result.reply, /Ana/)
-  assert.doesNotMatch(result.reply, /Bea/)
+  assert.equal(result.plan.type, 'ask_service_addons')
+  assert.match(result.reply, /Lavado/)
+  assert.doesNotMatch(result.reply, /Corte — agrega/)
+
+  const declined = await bookingEngine.process({
+    businessId: 'business-1',
+    conversation: result.conversationPatch,
+    message: 'No, continuar'
+  })
+  assert.match(declined.reply, /Ana/)
+  assert.doesNotMatch(declined.reply, /Bea/)
 })
 
 await test('dos familias ambiguas se preguntan en orden y se combinan al resolver ambas', async () => {
@@ -297,6 +313,81 @@ await test('dos familias ambiguas se preguntan en orden y se combinan al resolve
   assert.match(corte.reply, /Corte Hombre/)
 })
 
+await test('conversación dorada: color y alisado ofrece el extra después de aclarar la familia', async () => {
+  const domainCatalog = createBookingV2DomainCatalog({
+    services: [
+      {
+        id: 'color-completo',
+        name: 'Color Completo',
+        aliases: ['color'],
+        duration: 90,
+        price: 75000,
+        category: 'Color'
+      },
+      {
+        id: 'alisado-molecular',
+        name: 'Alisado molecular',
+        aliases: [],
+        duration: 30,
+        price: 30000,
+        category: 'Nutrición',
+        parentServiceId: 'familia-alisado',
+        parentServiceName: 'Alisado',
+        parentSelectionMode: 'ONE_OF'
+      },
+      {
+        id: 'alisado-sin-formol',
+        name: 'Alisado sin formol',
+        aliases: [],
+        duration: 30,
+        price: 29000,
+        category: 'Nutrición',
+        parentServiceId: 'familia-alisado',
+        parentServiceName: 'Alisado',
+        parentSelectionMode: 'ONE_OF',
+        suggestedAddonIds: ['corte-hombre']
+      },
+      {
+        id: 'corte-hombre',
+        name: 'Corte hombre',
+        aliases: [],
+        duration: 30,
+        price: 27000,
+        category: 'Cortes'
+      }
+    ],
+    professionals: [{
+      id: 'tamara',
+      name: 'Tamara',
+      serviceIds: ['color-completo', 'alisado-molecular', 'alisado-sin-formol', 'corte-hombre']
+    }]
+  })
+  const bookingEngine = engine(domainCatalog)
+  const initial = await bookingEngine.process({
+    businessId: 'business-1',
+    conversation: conversationPatchFromState(namedState()),
+    message: 'Quiero un alisado y color'
+  })
+  assert.deepEqual(
+    initial.state.pendingServiceDisambiguation?.serviceIds,
+    ['alisado-molecular', 'alisado-sin-formol']
+  )
+
+  const clarified = await bookingEngine.process({
+    businessId: 'business-1',
+    conversation: initial.conversationPatch,
+    message: 'Alisado sin formol'
+  })
+  assert.equal(clarified.state.pendingServiceDisambiguation, null)
+  assert.deepEqual(
+    new Set(combinedServiceIds(clarified.state)),
+    new Set(['color-completo', 'alisado-sin-formol'])
+  )
+  assert.equal(clarified.plan.type, 'ask_service_addons')
+  assert.match(clarified.reply, /Corte hombre/)
+  assert.doesNotMatch(clarified.reply, /¿Con quién preferís\?/i)
+})
+
 await test('conversación dorada: color y corte cierra toda la lista antes de pedir profesional', async () => {
   const domainCatalog = createBookingV2DomainCatalog({
     services: [
@@ -314,9 +405,39 @@ await test('conversación dorada: color y corte cierra toda la lista antes de pe
         validationQuestion: '¿Continuamos con este servicio?',
         suggestedAddonIds: ['corte-mujer']
       },
-      { id: 'corte-hombre', name: 'Corte hombre', aliases: [], duration: 30, price: 27000, category: 'Corte' },
-      { id: 'corte-mujer', name: 'Corte mujer', aliases: [], duration: 30, price: 37000, category: 'Corte' },
-      { id: 'corte-barba', name: 'Corte y barba', aliases: [], duration: 45, price: 32000, category: 'Corte' }
+      {
+        id: 'corte-hombre',
+        name: 'Corte hombre',
+        aliases: [],
+        duration: 30,
+        price: 27000,
+        category: 'Corte',
+        parentServiceId: 'familia-corte',
+        parentServiceName: 'Corte',
+        parentSelectionMode: 'ONE_OF'
+      },
+      {
+        id: 'corte-mujer',
+        name: 'Corte mujer',
+        aliases: [],
+        duration: 30,
+        price: 37000,
+        category: 'Corte',
+        parentServiceId: 'familia-corte',
+        parentServiceName: 'Corte',
+        parentSelectionMode: 'ONE_OF'
+      },
+      {
+        id: 'corte-barba',
+        name: 'Corte y barba',
+        aliases: [],
+        duration: 45,
+        price: 32000,
+        category: 'Corte',
+        parentServiceId: 'familia-corte',
+        parentServiceName: 'Corte',
+        parentSelectionMode: 'ONE_OF'
+      }
     ],
     professionals: [{
       id: 'juan',
@@ -609,7 +730,7 @@ await test('los agregados respetan ONE_OF y MULTIPLE sin depender del profesiona
   )
   const offered = await engine(familyCatalog).resume({
     businessId: 'business-1',
-    conversation: conversationPatchFromState({ ...selected, addonOfferCompletedServiceId: null })
+    conversation: conversationPatchFromState(selected)
   })
   assert.equal(offered.plan.type, 'ask_service_addons')
   assert.match(offered.reply, /Nutrición/)
@@ -625,7 +746,7 @@ await test('los agregados respetan ONE_OF y MULTIPLE sin depender del profesiona
   })
   const multipleOffer = await engine(multipleCatalog).resume({
     businessId: 'business-1',
-    conversation: conversationPatchFromState({ ...selected, addonOfferCompletedServiceId: null })
+    conversation: conversationPatchFromState(selected)
   })
   assert.equal(multipleOffer.plan.type, 'ask_service_addons')
   assert.match(multipleOffer.reply, /Corte mujer/)
@@ -663,6 +784,7 @@ await test('una combinación bloqueada espera una decisión y entiende buscar po
 
 await test('si no existe profesional común también ofrece separar sin inventar compatibilidad', async () => {
   const noCommonCatalog = catalog({
+    includeAddons: false,
     professionals: [
       { id: 'alisadora', name: 'Alisadora', serviceIds: ['alisado'] },
       { id: 'cortadora', name: 'Cortadora', serviceIds: ['corte'] }
@@ -680,6 +802,7 @@ await test('si no existe profesional común también ofrece separar sin inventar
 
 await test('pedir cambiar un servicio durante la separación sale del bucle sin borrar la selección', async () => {
   const noCommonCatalog = catalog({
+    includeAddons: false,
     professionals: [
       { id: 'alisadora', name: 'Alisadora', serviceIds: ['alisado'] },
       { id: 'cortadora', name: 'Cortadora', serviceIds: ['corte'] }
@@ -708,6 +831,7 @@ await test('pedir cambiar un servicio durante la separación sale del bucle sin 
 
 await test('cambiar uno de dos servicios pide confirmación y conserva el otro', async () => {
   const noCommonCatalog = catalog({
+    includeAddons: false,
     professionals: [
       { id: 'alisadora', name: 'Alisadora', serviceIds: ['alisado'] },
       { id: 'cortadora', name: 'Cortadora', serviceIds: ['corte'] }
@@ -751,6 +875,7 @@ await test('cambiar uno de dos servicios pide confirmación y conserva el otro',
 
 await test('quitar un servicio pide confirmación y recién entonces lo elimina', async () => {
   const noCommonCatalog = catalog({
+    includeAddons: false,
     professionals: [
       { id: 'alisadora', name: 'Alisadora', serviceIds: ['alisado'] },
       { id: 'cortadora', name: 'Cortadora', serviceIds: ['corte'] }
@@ -791,6 +916,7 @@ await test('quitar un servicio pide confirmación y recién entonces lo elimina'
 
 await test('quitar ambos servicios requiere confirmación y vuelve a elegir servicio', async () => {
   const noCommonCatalog = catalog({
+    includeAddons: false,
     professionals: [
       { id: 'alisadora', name: 'Alisadora', serviceIds: ['alisado'] },
       { id: 'cortadora', name: 'Cortadora', serviceIds: ['corte'] }
@@ -823,6 +949,7 @@ await test('quitar ambos servicios requiere confirmación y vuelve a elegir serv
 
 await test('una consulta informativa retoma cada subestado de edición sin perder la decisión', async () => {
   const noCommonCatalog = catalog({
+    includeAddons: false,
     professionals: [
       { id: 'alisadora', name: 'Alisadora', serviceIds: ['alisado'] },
       { id: 'cortadora', name: 'Cortadora', serviceIds: ['corte'] }
