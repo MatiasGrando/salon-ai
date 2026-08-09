@@ -557,10 +557,27 @@ export function mergeConversationRouting(
     }
   }
   const deterministicTopics = new Set(businessInformationTopicsFromRouting(deterministic))
+  const normalizedOriginalMessage = normalizeEvidenceText(originalMessage)
   const catalogGroundedBookingRequest = Boolean(catalog) &&
-    hasCatalogGroundedBookingIntent(normalizeEvidenceText(originalMessage), catalog)
-  const suppressGenericCatalogInformation = catalogGroundedBookingRequest &&
-    !looksLikeInformationQuestion(originalMessage)
+    hasCatalogGroundedBookingIntent(normalizedOriginalMessage, catalog)
+  const explicitBookingRequest = hasExplicitBookingAction(normalizedOriginalMessage) ||
+    catalogGroundedBookingRequest
+  const hasExplicitGeneralCatalogRequest = deterministicTopics.has('services')
+  const deterministicSpecificCatalogRequest = Boolean(
+    deterministicCatalogQuery?.requestedInformation.some((item) => item !== 'general')
+  )
+  const suppressGenericCatalogInformation = explicitBookingRequest &&
+    !hasExplicitGeneralCatalogRequest
+  if (
+    suppressGenericCatalogInformation &&
+    !deterministicSpecificCatalogRequest &&
+    catalogQuery?.requestedInformation.every((item) => item === 'general')
+  ) {
+    // La intención y la consulta de catálogo representan la misma orden.
+    // Si una reserva explícita no contiene una consulta informativa real,
+    // ambas deben desaparecer juntas para no listar todo el catálogo.
+    catalogQuery = null
+  }
   const hasGroundedAiInformation = aiRouting.intents.some((intent) =>
     intent.type === 'business_information' &&
     isGroundedBusinessInformationIntent(intent, originalMessage)
@@ -596,7 +613,10 @@ export function mergeConversationRouting(
         intent.type === 'service_detail' ||
         (
           intent.type === 'business_information' &&
-          ['services', 'prices'].includes(intent.topic ?? '')
+          (
+            intent.topic === 'services' ||
+            (intent.topic === 'prices' && !deterministicSpecificCatalogRequest)
+          )
         )
       )
     ) {
@@ -1221,6 +1241,8 @@ function detectBusinessInformationTopics(
   if (containsAny(normalized, [
     'que servicios tienen', 'que servicios hacen', 'que servicios hay', 'cuales servicios hay',
     'servicios disponibles', 'mostrame los servicios', 'mostrar servicios', 'ver servicios',
+    'quiero ver los servicios', 'quiero ver el catalogo', 'mostrame el catalogo',
+    'menu de servicios', 'que ofrecen', 'que puedo reservar',
     'que hacen en el local', 'lista de servicios'
   ])) add('services')
   if (containsAny(normalized, [
@@ -1232,7 +1254,7 @@ function detectBusinessInformationTopics(
     'quiero saber los precios', 'saber los precios', 'ver los precios', 'ver precios',
     'que precios tienen', 'cuales son los precios', 'mostrar precios', 'mostrame los precios',
     'quiero consultar el precio', 'consultar el precio', 'consulta el precio',
-    'los precios', 'catalogo', 'tarifas'
+    'los precios', 'tarifas'
   ])) add('prices')
   if (isDepositInformationRequest(normalized)) add('prices')
 
@@ -1244,21 +1266,7 @@ function containsAny(value: string, phrases: string[]) {
 }
 
 function hasExplicitBookingIntent(normalized: string) {
-  return containsAny(normalized, [
-    'quiero reservar',
-    'queria reservar',
-    'quisiera reservar',
-    'necesito reservar',
-    'quiero un turno',
-    'queria un turno',
-    'quisiera un turno',
-    'necesito un turno',
-    'sacar turno',
-    'sacame un turno',
-    'agendar turno',
-    'agendame',
-    'me agendas',
-    'reservame',
+  return hasExplicitBookingAction(normalized) || containsAny(normalized, [
     'quiero venir',
     'necesito venir',
     'quiero hacerme',
@@ -1269,8 +1277,7 @@ function hasExplicitBookingIntent(normalized: string) {
     'necesito un corte',
     'quiero un corte',
     'quiero corte'
-  ]) || /\b(?:quiero|prefiero)\s+con\s+\p{L}/u.test(normalized) ||
-    hasApproximateBookingTurnRequest(normalized)
+  ]) || /\b(?:quiero|prefiero)\s+con\s+\p{L}/u.test(normalized)
 }
 
 function hasExplicitBookingAction(normalized: string) {
@@ -1279,16 +1286,33 @@ function hasExplicitBookingAction(normalized: string) {
     'queria reservar',
     'quisiera reservar',
     'necesito reservar',
+    'quiero sacar un turno',
+    'queria sacar un turno',
+    'quisiera sacar un turno',
+    'necesito sacar un turno',
+    'quiero pedir un turno',
+    'queria pedir un turno',
+    'quisiera pedir un turno',
+    'necesito pedir un turno',
     'quiero un turno',
     'queria un turno',
     'quisiera un turno',
     'necesito un turno',
+    'me das un turno',
+    'dame un turno',
     'sacar turno',
     'sacame un turno',
+    'reservame un turno',
+    'podes reservarme',
+    'podrias reservarme',
     'agendar turno',
+    'agendar un turno',
+    'quiero agendar',
     'agendame',
     'me agendas',
-    'reservame'
+    'reservame',
+    'coordinar un turno',
+    'programar un turno'
   ]) || hasApproximateBookingTurnRequest(normalized)
 }
 

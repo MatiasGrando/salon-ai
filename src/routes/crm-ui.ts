@@ -98,6 +98,10 @@ const crmHtml = `<!doctype html>
       box-sizing: border-box;
     }
 
+    [hidden] {
+      display: none !important;
+    }
+
     .crm-toast {
       position: fixed;
       right: 22px;
@@ -5933,6 +5937,40 @@ const crmHtml = `<!doctype html>
       display: flex;
       justify-content: flex-end;
       gap: 8px;
+    }
+
+    .service-family-list {
+      display: grid;
+      gap: 8px;
+      padding-top: 14px;
+      border-top: 1px solid #e4e9f1;
+    }
+
+    .service-family-row {
+      min-width: 0;
+      padding: 10px 12px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 12px;
+      border: 1px solid #dce4ef;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .service-family-row strong,
+    .service-family-row small {
+      display: block;
+    }
+
+    .service-family-row small {
+      margin-top: 3px;
+      color: #64748b;
+    }
+
+    .service-family-row-actions {
+      display: flex;
+      gap: 6px;
     }
 
     .service-category-list {
@@ -13165,7 +13203,7 @@ const crmHtml = `<!doctype html>
           </div>
           <div class="services-header-actions">
             <button class="secondary service-category-open" id="service-category-open" type="button">Agregar categor&iacute;a</button>
-            <button class="secondary service-category-open" id="service-family-open" type="button">Agregar familia</button>
+            <button class="secondary service-category-open" id="service-family-open" type="button">Gestionar familias</button>
             <div class="service-count-card">
               <div class="service-count-icon" data-icon="copy"></div>
               <div>
@@ -13340,14 +13378,6 @@ const crmHtml = `<!doctype html>
                   <option value="__ADD_CATEGORY__">Agregar nueva categor&iacute;a</option>
                 </select>
               </div>
-              <div class="service-form-group" id="service-family-mode-group" hidden>
-                <label for="service-family-selection-mode">Selecci&oacute;n de variantes</label>
-                <select id="service-family-selection-mode">
-                  <option value="ONE_OF">Elegir una variante</option>
-                  <option value="MULTIPLE">Permitir varias variantes</option>
-                </select>
-                <div class="service-form-help">La familia organiza opciones relacionadas y no se reserva directamente.</div>
-              </div>
               <div class="service-form-group" id="service-parent-group">
                 <label for="service-parent">Familia (opcional)</label>
                 <div class="service-form-help">Usala para agrupar variantes como Tintura ra&iacute;ces y Tintura completa.</div>
@@ -13442,19 +13472,16 @@ const crmHtml = `<!doctype html>
     <div class="dialog-backdrop" id="service-family-dialog" hidden>
       <section class="dialog service-category-dialog" role="dialog" aria-modal="true" aria-labelledby="service-family-dialog-title">
         <header class="dialog-header">
-          <h3 id="service-family-dialog-title">Agregar familia</h3>
+          <h3 id="service-family-dialog-title">Gestionar familias</h3>
           <button class="icon-button" id="service-family-close" type="button" title="Cerrar" aria-label="Cerrar">X</button>
         </header>
         <div class="service-category-dialog-body">
           <p class="service-category-dialog-copy">Una familia agrupa variantes del mismo servicio, por ejemplo Corte hombre y Corte mujer. Despu&eacute;s de crearla, asign&aacute; cada variante desde el formulario del servicio.</p>
+          <input id="service-family-id" type="hidden">
           <div class="service-family-editor">
             <label>
               Nombre de la familia
               <input class="field" id="service-family-name" placeholder="Ejemplo: Corte" autocomplete="off">
-            </label>
-            <label>
-              Categor&iacute;a (opcional)
-              <select class="field" id="service-family-category"></select>
             </label>
             <label>
               Selecci&oacute;n de variantes
@@ -13467,9 +13494,11 @@ const crmHtml = `<!doctype html>
           <p class="service-form-help">Us&aacute; &ldquo;Elegir una sola variante&rdquo; cuando las opciones se excluyen entre s&iacute;, como Corte hombre o Corte mujer.</p>
           <p class="hint" id="service-family-feedback"></p>
           <div class="service-family-dialog-actions">
-            <button class="secondary" id="service-family-cancel" type="button">Cancelar</button>
+            <button class="secondary" id="service-family-cancel-edit" type="button" hidden>Cancelar edici&oacute;n</button>
+            <button class="secondary" id="service-family-cancel" type="button">Cerrar</button>
             <button class="primary" id="service-family-save" type="button">Crear familia</button>
           </div>
+          <div class="service-family-list" id="service-family-list"></div>
         </div>
       </section>
     </div>
@@ -15555,17 +15584,18 @@ const crmHtml = `<!doctype html>
       serviceDepositHoldMinutes: document.getElementById('service-deposit-hold-minutes'),
       serviceParentGroup: document.getElementById('service-parent-group'),
       serviceParent: document.getElementById('service-parent'),
-      serviceFamilyModeGroup: document.getElementById('service-family-mode-group'),
-      serviceFamilySelectionMode: document.getElementById('service-family-selection-mode'),
       serviceFamilyOpen: document.getElementById('service-family-open'),
       serviceFamilyDialog: document.getElementById('service-family-dialog'),
+      serviceFamilyDialogTitle: document.getElementById('service-family-dialog-title'),
       serviceFamilyClose: document.getElementById('service-family-close'),
+      serviceFamilyId: document.getElementById('service-family-id'),
       serviceFamilyName: document.getElementById('service-family-name'),
-      serviceFamilyCategory: document.getElementById('service-family-category'),
       serviceFamilySelectionModeDialog: document.getElementById('service-family-selection-mode-dialog'),
       serviceFamilyFeedback: document.getElementById('service-family-feedback'),
       serviceFamilyCancel: document.getElementById('service-family-cancel'),
+      serviceFamilyCancelEdit: document.getElementById('service-family-cancel-edit'),
       serviceFamilySave: document.getElementById('service-family-save'),
+      serviceFamilyList: document.getElementById('service-family-list'),
       serviceCategoryOpen: document.getElementById('service-category-open'),
       serviceCategoryDialog: document.getElementById('service-category-dialog'),
       serviceCategoryDialogTitle: document.getElementById('service-category-dialog-title'),
@@ -17993,14 +18023,6 @@ const crmHtml = `<!doctype html>
       els.serviceCategory.value = selectedCategory
       els.serviceCategory.dataset.lastValue = selectedCategory
 
-      const selectedFamilyCategory = els.serviceFamilyCategory.value
-      els.serviceFamilyCategory.innerHTML = '<option value="">Sin categor&iacute;a</option>' +
-        state.serviceCategories
-          .filter((category) => category.isActive !== false)
-          .map((category) => '<option value="' + escapeHtml(category.id) + '">' + escapeHtml(category.name) + '</option>')
-          .join('')
-      els.serviceFamilyCategory.value = selectedFamilyCategory
-
       const currentServiceId = els.serviceId.value
       els.serviceParent.innerHTML = '<option value="">Sin familia</option>' +
         state.services
@@ -18032,6 +18054,36 @@ const crmHtml = `<!doctype html>
       }
       for (const button of els.serviceCategoryList.querySelectorAll('[data-delete-service-category]')) {
         button.addEventListener('click', () => deleteServiceCategory(button.dataset.deleteServiceCategory))
+      }
+      renderServiceFamilyList()
+    }
+
+    function renderServiceFamilyList() {
+      const families = state.services.filter((service) =>
+        !service.parentServiceId && service.isBookable === false
+      )
+      els.serviceFamilyList.innerHTML = families.length
+        ? families.map((family) => {
+            const mode = family.variantSelectionMode === 'MULTIPLE'
+              ? 'Permite varias variantes'
+              : 'Permite elegir una variante'
+            const variantCount = Number(family._count?.variants || 0)
+            return '<div class="service-family-row">' +
+              '<div><strong>' + escapeHtml(family.name) + '</strong>' +
+              '<small>' + escapeHtml(mode) + ' · ' + variantCount + ' variante' + (variantCount === 1 ? '' : 's') + '</small></div>' +
+              '<div class="service-family-row-actions">' +
+                '<button class="service-icon-button" type="button" title="Editar" data-edit-service-family="' + escapeHtml(family.id) + '">' + icon('edit') + '</button>' +
+                '<button class="service-icon-button danger" type="button" title="Eliminar" data-delete-service-family="' + escapeHtml(family.id) + '">' + icon('trash') + '</button>' +
+              '</div>' +
+            '</div>'
+          }).join('')
+        : '<span class="service-form-help">Todav&iacute;a no hay familias.</span>'
+
+      for (const button of els.serviceFamilyList.querySelectorAll('[data-edit-service-family]')) {
+        button.addEventListener('click', () => editServiceFamily(button.dataset.editServiceFamily))
+      }
+      for (const button of els.serviceFamilyList.querySelectorAll('[data-delete-service-family]')) {
+        button.addEventListener('click', () => deleteServiceFamily(button.dataset.deleteServiceFamily))
       }
     }
 
@@ -18139,7 +18191,6 @@ const crmHtml = `<!doctype html>
         setting.hidden = isGroup
       }
       els.serviceParentGroup.hidden = isGroup
-      els.serviceFamilyModeGroup.hidden = !isGroup
 
       els.serviceItemTypeHelp.textContent = isGroup
         ? 'Organiza variantes relacionadas y no se puede reservar directamente.'
@@ -25153,21 +25204,40 @@ const crmHtml = `<!doctype html>
       els.serviceCategoryDialogTitle.textContent = 'Agregar categoría'
     }
 
-    function openServiceFamilyDialog() {
+    function resetServiceFamilyForm() {
+      els.serviceFamilyId.value = ''
       els.serviceFamilyName.value = ''
-      els.serviceFamilyCategory.value = ''
       els.serviceFamilySelectionModeDialog.value = 'ONE_OF'
+      els.serviceFamilyDialogTitle.textContent = 'Gestionar familias'
+      els.serviceFamilySave.textContent = 'Crear familia'
+      els.serviceFamilyCancelEdit.hidden = true
+    }
+
+    function openServiceFamilyDialog() {
+      resetServiceFamilyForm()
       els.serviceFamilyFeedback.textContent = ''
+      renderServiceFamilyList()
       els.serviceFamilyDialog.hidden = false
       requestAnimationFrame(() => els.serviceFamilyName.focus())
     }
 
     function closeServiceFamilyDialog() {
       els.serviceFamilyDialog.hidden = true
-      els.serviceFamilyName.value = ''
-      els.serviceFamilyCategory.value = ''
-      els.serviceFamilySelectionModeDialog.value = 'ONE_OF'
+      resetServiceFamilyForm()
       els.serviceFamilyFeedback.textContent = ''
+    }
+
+    function editServiceFamily(id) {
+      const family = state.services.find((service) => service.id === id && service.isBookable === false)
+      if (!family) return
+      els.serviceFamilyId.value = family.id
+      els.serviceFamilyName.value = family.name
+      els.serviceFamilySelectionModeDialog.value = family.variantSelectionMode || 'ONE_OF'
+      els.serviceFamilyDialogTitle.textContent = 'Editar familia'
+      els.serviceFamilySave.textContent = 'Guardar cambios'
+      els.serviceFamilyCancelEdit.hidden = false
+      els.serviceFamilyFeedback.textContent = ''
+      requestAnimationFrame(() => els.serviceFamilyName.focus())
     }
 
     async function saveServiceFamily() {
@@ -25176,24 +25246,25 @@ const crmHtml = `<!doctype html>
         return
       }
       const name = els.serviceFamilyName.value.trim()
+      const id = els.serviceFamilyId.value
       if (!name) {
         els.serviceFamilyFeedback.textContent = 'Escribí el nombre de la familia.'
         els.serviceFamilyName.focus()
         return
       }
 
-      if (!setButtonLoading(els.serviceFamilySave, true, 'Creando...')) return
+      if (!setButtonLoading(els.serviceFamilySave, true, id ? 'Guardando...' : 'Creando...')) return
       try {
-        await getJson('/services', {
-          method: 'POST',
+        await getJson(id ? '/services/' + id : '/services', {
+          method: id ? 'PATCH' : 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             name,
             duration: 1,
-            businessId: state.businessId,
+            ...(id ? {} : { businessId: state.businessId }),
             price: null,
             priceMode: 'FIXED',
-            categoryId: els.serviceFamilyCategory.value || null,
+            categoryId: null,
             parentServiceId: null,
             isBookable: false,
             variantSelectionMode: els.serviceFamilySelectionModeDialog.value,
@@ -25202,12 +25273,35 @@ const crmHtml = `<!doctype html>
           })
         })
         await reloadServiceCatalog()
-        closeServiceFamilyDialog()
-        els.serviceFeedback.textContent = 'Familia creada. Ahora podés asignar sus variantes desde cada servicio.'
+        resetServiceFamilyForm()
+        els.serviceFamilyFeedback.textContent = id
+          ? 'Familia actualizada.'
+          : 'Familia creada. Ahora podés asignar sus variantes desde cada servicio.'
       } catch (error) {
         els.serviceFamilyFeedback.textContent = error.message
       } finally {
         setButtonLoading(els.serviceFamilySave, false)
+      }
+    }
+
+    async function deleteServiceFamily(id) {
+      const family = state.services.find((service) => service.id === id && service.isBookable === false)
+      if (!family) return
+      const variantCount = Number(family._count?.variants || 0)
+      const deleteMessage = variantCount > 0
+        ? '¿Querés eliminar la familia ' + family.name + '? Sus ' + variantCount + ' variantes se conservarán como servicios sin familia.'
+        : '¿Querés eliminar la familia ' + family.name + '?'
+      if (!await requestCrmConfirmation(deleteMessage)) return
+
+      try {
+        await getJson('/services/' + id, { method: 'DELETE' })
+        if (els.serviceFamilyId.value === id) resetServiceFamilyForm()
+        await reloadServiceCatalog()
+        els.serviceFamilyFeedback.textContent = variantCount > 0
+          ? 'Familia eliminada. Sus variantes se conservaron sin familia.'
+          : 'Familia eliminada.'
+      } catch (error) {
+        els.serviceFamilyFeedback.textContent = error.message
       }
     }
 
@@ -25258,7 +25352,7 @@ const crmHtml = `<!doctype html>
       const priceMode = isGroup ? 'FIXED' : els.servicePriceMode.value
       const categoryId = els.serviceCategory.value.trim() || null
       const parentServiceId = isVariant ? els.serviceParent.value.trim() || null : null
-      const variantSelectionMode = isGroup ? els.serviceFamilySelectionMode.value : 'ONE_OF'
+      const variantSelectionMode = 'ONE_OF'
       const aliases = els.serviceAliases.value
         .split(',')
         .map((alias) => alias.trim())
@@ -25466,6 +25560,11 @@ const crmHtml = `<!doctype html>
     function editService(id) {
       const service = state.services.find((item) => item.id === id)
       if (!service) return
+      if (getServiceItemType(service) === 'GROUP') {
+        openServiceFamilyDialog()
+        editServiceFamily(id)
+        return
+      }
       const combinationRules = [
         ...(service.combinationRulesA || []),
         ...(service.combinationRulesB || [])
@@ -25507,7 +25606,6 @@ const crmHtml = `<!doctype html>
       els.servicePriceMode.value = service.priceMode || 'FIXED'
       els.serviceCategory.value = service.catalogCategoryId || ''
       els.serviceParent.value = service.parentServiceId || ''
-      els.serviceFamilySelectionMode.value = service.variantSelectionMode || 'ONE_OF'
       els.serviceAttentionMode.value = service.attentionMode || 'DIRECT_BOOKING'
       els.serviceRequiresPhoto.checked = service.requiresPhoto === true
       els.serviceEstimateExplanation.value = service.estimateExplanation || ''
@@ -25542,6 +25640,10 @@ const crmHtml = `<!doctype html>
     async function deleteService(id) {
       const service = state.services.find((item) => item.id === id)
       if (!service) return
+      if (getServiceItemType(service) === 'GROUP') {
+        await deleteServiceFamily(id)
+        return
+      }
       const variantCount = Number(service._count?.variants || 0)
       const deleteMessage = service.isBookable === false && variantCount > 0
         ? '¿Querés eliminar la familia ' + service.name + '? Sus ' + variantCount + ' variantes se conservarán como servicios sin familia.'
@@ -25572,7 +25674,6 @@ const crmHtml = `<!doctype html>
       els.serviceCategory.value = ''
       els.serviceItemType.value = 'SERVICE'
       els.serviceParent.value = ''
-      els.serviceFamilySelectionMode.value = 'ONE_OF'
       els.serviceAttentionMode.value = 'DIRECT_BOOKING'
       els.serviceRequiresPhoto.checked = false
       els.serviceEstimateExplanation.value = ''
@@ -25906,6 +26007,10 @@ const crmHtml = `<!doctype html>
     els.serviceFamilyOpen.addEventListener('click', openServiceFamilyDialog)
     els.serviceFamilyClose.addEventListener('click', closeServiceFamilyDialog)
     els.serviceFamilyCancel.addEventListener('click', closeServiceFamilyDialog)
+    els.serviceFamilyCancelEdit.addEventListener('click', () => {
+      resetServiceFamilyForm()
+      els.serviceFamilyFeedback.textContent = ''
+    })
     els.serviceFamilySave.addEventListener('click', saveServiceFamily)
     els.serviceFamilyName.addEventListener('keydown', (event) => {
       if (event.key !== 'Enter') return

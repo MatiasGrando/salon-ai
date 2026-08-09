@@ -5150,6 +5150,123 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'router reconoce variantes naturales de una petición explícita de reserva',
+    run: () => {
+      const catalog = {
+        services: [{ id: 'straightening', name: 'Alisado', aliases: ['alisado'] }],
+        professionals: []
+      }
+      for (const message of [
+        'Quiero sacar un turno para alisado',
+        'Quisiera pedir un turno de alisado',
+        '¿Me das un turno para alisado?',
+        '¿Podrías reservarme un alisado?',
+        'Quiero agendar un alisado',
+        'Necesito reservar alisado',
+        'Quiero coordinar un turno para alisado'
+      ]) {
+        const routing = deterministicConversationRouting(message, {
+          currentStep: 'START',
+          catalog
+        })
+        assert.equal(routing.bookingMessage, message, message)
+        assert.deepEqual(businessInformationTopicsFromRouting(routing), [], message)
+      }
+    }
+  },
+  {
+    name: 'reserva explícita elimina juntas la consulta general y su intención informativa',
+    run: () => {
+      const catalog = {
+        services: [
+          { id: 'color', name: 'Color completo', aliases: ['color'] },
+          { id: 'molecular', name: 'Alisado molecular', aliases: ['alisado'] },
+          { id: 'formol-free', name: 'Alisado sin formol', aliases: ['alisado'] }
+        ],
+        professionals: []
+      }
+      const message = 'Hola, quiero un turno de color y alisado'
+      const deterministic = deterministicConversationRouting(message, {
+        currentStep: 'START',
+        catalog
+      })
+      const merged = mergeConversationRouting({
+        intents: [
+          {
+            type: 'book_appointment',
+            topic: null,
+            confidence: 0.98,
+            evidence: 'quiero un turno'
+          },
+          {
+            type: 'business_information',
+            topic: 'services',
+            confidence: 0.92,
+            evidence: message
+          }
+        ],
+        bookingMessage: message,
+        bookingExtraction: null,
+        catalogQuery: {
+          serviceId: null,
+          candidateServiceIds: ['color', 'molecular', 'formol-free'],
+          requestedInformation: ['general'],
+          confidence: 0.92,
+          evidence: message
+        }
+      }, deterministic, message, catalog)
+
+      assert.equal(merged.bookingMessage, message)
+      assert.equal(merged.catalogQuery, null)
+      assert.deepEqual(
+        businessInformationTopicsFromRouting({ ...merged, source: 'ai' }),
+        []
+      )
+    }
+  },
+  {
+    name: 'router conserva consultas reales de catálogo y mensajes mixtos con reserva',
+    run: () => {
+      const catalog = {
+        services: [
+          { id: 'molecular', name: 'Alisado molecular', aliases: ['alisado'] },
+          { id: 'formol-free', name: 'Alisado sin formol', aliases: ['alisado'] }
+        ],
+        professionals: []
+      }
+      const genericMessage = 'Mostrame los servicios y quiero sacar un turno'
+      const generic = deterministicConversationRouting(genericMessage, {
+        currentStep: 'START',
+        catalog
+      })
+      assert.equal(generic.bookingMessage, genericMessage)
+      assert.deepEqual(businessInformationTopicsFromRouting(generic), ['services'])
+
+      const priceMessage = '¿Cuánto sale el alisado y además quiero sacar un turno?'
+      const priceDeterministic = deterministicConversationRouting(priceMessage, {
+        currentStep: 'START',
+        catalog
+      })
+      const priceMerged = mergeConversationRouting({
+        intents: [{
+          type: 'book_appointment',
+          topic: null,
+          confidence: 0.96,
+          evidence: 'quiero sacar un turno'
+        }],
+        bookingMessage: priceMessage,
+        bookingExtraction: null,
+        catalogQuery: null
+      }, priceDeterministic, priceMessage, catalog)
+      assert.equal(priceMerged.bookingMessage, priceMessage)
+      assert.deepEqual(priceMerged.catalogQuery?.requestedInformation, ['price'])
+      assert.deepEqual(
+        businessInformationTopicsFromRouting({ ...priceMerged, source: 'ai' }),
+        ['prices']
+      )
+    }
+  },
+  {
     name: 'router no deja que la ia convierta horarios del local en una reserva',
     run: () => {
       const message = 'queria saber los horarios'
@@ -5361,18 +5478,18 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
   {
     name: 'router reconoce pedidos generales de precios y catalogo',
     run: () => {
-      for (const message of [
-        'si quiero saber los precios',
-        'me mostras los precios?',
-        'quiero ver el catalogo',
-        'que tarifas tienen?'
-      ]) {
+      for (const [message, expectedTopics] of [
+        ['si quiero saber los precios', ['prices']],
+        ['me mostras los precios?', ['prices']],
+        ['quiero ver el catalogo', ['services']],
+        ['que tarifas tienen?', ['prices']]
+      ] as const) {
         const routing = deterministicConversationRouting(message, {
           currentStep: 'START'
         })
         assert.deepEqual(
           businessInformationTopicsFromRouting(routing),
-          ['prices'],
+          expectedTopics,
           message
         )
         assert.equal(routing.bookingMessage, null, message)

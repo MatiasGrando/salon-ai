@@ -40,15 +40,24 @@ for (const payloadField of [
 }
 
 assert.match(crmUi, /id="service-family-open"/, 'Familias debe aparecer junto a categorías en Servicios.')
-assert.match(crmUi, /id="service-family-selection-mode"/)
-assert.match(crmUi, /<option value="ONE_OF">Elegir una variante<\/option>/)
+assert.doesNotMatch(
+  crmUi,
+  /id="service-family-selection-mode"/,
+  'La regla de variantes no debe aparecer en el formulario de un servicio.'
+)
+assert.match(crmUi, /id="service-family-selection-mode-dialog"/)
+assert.match(crmUi, /<option value="ONE_OF">Elegir una sola variante<\/option>/)
 assert.match(crmUi, /<option value="MULTIPLE">Permitir varias variantes<\/option>/)
 assert.match(crmUi, /id="service-family-dialog" hidden/)
+assert.match(crmUi, /id="service-family-list"/)
+assert.doesNotMatch(crmUi, /id="service-family-category"/)
 assert.match(crmUi, /function openServiceFamilyDialog\(\)/)
 assert.match(crmUi, /els\.serviceFamilyDialog\.hidden = false/)
 assert.match(crmUi, /async function saveServiceFamily\(\)/)
+assert.match(crmUi, /function editServiceFamily\(id\)/)
+assert.match(crmUi, /async function deleteServiceFamily\(id\)/)
 assert.match(crmUi, /isBookable: false/)
-assert.match(crmUi, /variantSelectionMode,/)
+assert.match(crmUi, /variantSelectionMode: els\.serviceFamilySelectionModeDialog\.value/)
 assert.match(crmUi, /Familia \(opcional\)/)
 assert.match(serviceRoute, /normalizeVariantSelectionMode/)
 assert.match(schema, /enum ServiceVariantSelectionMode/)
