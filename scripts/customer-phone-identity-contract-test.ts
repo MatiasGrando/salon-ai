@@ -73,7 +73,7 @@ assert.ok(service.includes('id: { not: input.customerId }'), 'la edición no deb
 
 const schema = readFileSync(new URL('../prisma/schema.prisma', import.meta.url), 'utf8')
 assert.ok(schema.includes('normalizedPhone String? @unique'), 'la base debe impedir dos identidades canónicas iguales')
-assert.ok(schema.includes('email String?'), 'la ficha de cliente debe guardar un correo opcional')
+assert.match(schema, /\bemail\s+String\?(?:\s|$)/, 'la ficha de cliente debe guardar un correo opcional')
 
 const customerRoute = readFileSync(new URL('../src/routes/customer.ts', import.meta.url), 'utf8')
 assert.ok(customerRoute.includes('findOrCreateCustomerByPhone'), 'el alta manual debe reutilizar la identidad central')

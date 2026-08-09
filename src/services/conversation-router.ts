@@ -258,8 +258,10 @@ export class ConversationRouter {
       const aiRouting = normalizeConversationRouting(JSON.parse(response.output_text) as AiConversationRouting)
       if (aiRouting.intents.length === 0) return deterministic
       const routing = mergeConversationRouting(aiRouting, deterministic, input.message, input.catalog)
-      const recoveredRouting = await this.recoverNaturalMixedBooking(routing, input)
-      const prioritizedRouting = applyContextualRoutingPriorities(recoveredRouting, input)
+      // La respuesta estructurada principal ya clasifica intenciones y extrae
+      // los campos de reserva. Evitamos una segunda llamada de IA para volver a
+      // decidir si una consulta informativa tambien contiene una reserva.
+      const prioritizedRouting = applyContextualRoutingPriorities(routing, input)
       const groundedRouting = applyExpectedFieldCatalogFallback(prioritizedRouting, input)
 
       console.info('[conversation-router] routed message', {
@@ -282,74 +284,6 @@ export class ConversationRouter {
     }
   }
 
-  private async recoverNaturalMixedBooking(
-    routing: Omit<ConversationRouting, 'source'>,
-    input: ConversationRouterInput
-  ) {
-    if (routing.bookingMessage) return routing
-    const hasInformationTask = routing.intents.some((intent) =>
-      intent.confidence >= 0.65 && [
-        'business_information',
-        'professional_schedule',
-        'service_detail'
-      ].includes(intent.type)
-    )
-    if (!hasInformationTask) return routing
-
-    const candidates = resolveCatalogQueryServices(
-      normalizeEvidenceText(input.message),
-      input.catalog
-    )
-    if (!candidates.length) return routing
-    const client = getOpenAiClient()
-    if (!client) return routing
-
-    try {
-      const response = await client.responses.create({
-        model: openAiConfig.model,
-        instructions: [
-          'Analiza semanticamente si el cliente, ademas de pedir informacion, tambien quiere realizar, elegir o reservar un servicio.',
-          'No dependas de verbos ni frases predeterminadas: interpreta el significado completo del mensaje.',
-          'Distingue una accion adicional de una consulta donde el servicio es solamente el tema.',
-          'Ejemplo de booking: "quiero saber la direccion y hacerme raices".',
-          'Ejemplo de booking: "decime el horario del local y un corte".',
-          'Ejemplo de information_only: "cuanto cuesta un corte".',
-          'Ejemplo de information_only: "que incluye raices".',
-          'evidence debe ser el fragmento textual exacto que expresa el deseo de realizar o reservar el servicio; si no existe usa una cadena vacia.',
-          'serviceId debe pertenecer a serviceCandidates. Si quiere reservar pero la referencia es ambigua, usa null.',
-          'No respondas al cliente ni inventes datos.'
-        ].join('\n'),
-        input: JSON.stringify({
-          customerMessage: input.message,
-          currentStep: input.currentStep,
-          lastBotMessage: input.lastBotMessage,
-          serviceCandidates: candidates.map((service) => ({
-            id: service.id,
-            name: service.name,
-            aliases: service.aliases
-          }))
-        }),
-        text: {
-          format: {
-            type: 'json_schema',
-            name: 'natural_mixed_booking_recovery',
-            strict: true,
-            schema: naturalBookingRecoverySchema
-          }
-        },
-        store: false
-      })
-      return applyNaturalBookingRecovery(
-        routing,
-        JSON.parse(response.output_text) as NaturalBookingRecovery,
-        input.message,
-        new Set(candidates.map((service) => service.id))
-      )
-    } catch (error) {
-      console.warn('[conversation-router] natural mixed booking recovery failed', error)
-      return routing
-    }
-  }
 }
 
 export function applyExpectedFieldCatalogFallback(
@@ -1435,26 +1369,6 @@ function looksLikeInformationQuestion(message: string) {
   const normalized = normalizeEvidenceText(message)
   return message.includes('?') || /^(?:que|cual|cuales|como|cuando|donde|cuanto|quien|quienes|por que)\b/.test(normalized)
 }
-
-const naturalBookingRecoverySchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['decision', 'serviceId', 'confidence', 'evidence'],
-  properties: {
-    decision: {
-      type: 'string',
-      enum: ['booking', 'information_only', 'unclear']
-    },
-    serviceId: {
-      anyOf: [
-        { type: 'string' },
-        { type: 'null' }
-      ]
-    },
-    confidence: { type: 'number', minimum: 0, maximum: 1 },
-    evidence: { type: 'string' }
-  }
-} as const
 
 const conversationRoutingSchema = {
   type: 'object',

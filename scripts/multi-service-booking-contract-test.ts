@@ -253,7 +253,15 @@ const explicitlyAllowed = await engine(explicitlyAllowedCatalog).process({
   message: 'Quiero corte y color completo'
 })
 assert.notEqual(explicitlyAllowed.plan.type, 'handoff')
-assert.deepEqual(explicitlyAllowed.state.combinedServices.map((item) => item.serviceId), ['color'])
+assert.equal(explicitlyAllowed.state.draft.service, 'color')
+assert.deepEqual(explicitlyAllowed.state.combinedServices.map((item) => item.serviceId), ['corte'])
+assert.deepEqual(
+  new Set([
+    explicitlyAllowed.state.draft.service,
+    ...explicitlyAllowed.state.combinedServices.map((item) => item.serviceId)
+  ]),
+  new Set(['corte', 'color'])
+)
 
 const separatePrimaryState = acceptField(namedState, 'service', 'corte')
 const deduplicated = queueAdditionalServices(separatePrimaryState, [

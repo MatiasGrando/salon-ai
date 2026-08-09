@@ -8,6 +8,7 @@
     "start": "prisma generate && prisma migrate deploy && tsx src/server.ts",
     "prisma:generate": "prisma generate",
     "test:booking-v2": "tsx scripts/booking-v2-contract-test.ts",
+    "test:booking-ai-budget": "tsx scripts/booking-v2-ai-budget-contract-test.ts",
     "test:booking-v2:understanding-live": "tsx scripts/booking-v2-understanding-live-test.ts",
     "test:assistant-personality": "tsx scripts/assistant-personality-contract-test.ts",
     "test:assistant-personality:live": "tsx scripts/assistant-personality-live-test.ts",

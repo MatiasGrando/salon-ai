@@ -1048,7 +1048,7 @@ export class ConversationService {
         businessId: input.businessId,
         conversation: conversationPatchFromState(priceState),
         message: input.message,
-        understandingExtraction: input.routing.bookingExtraction
+        understandingExtraction: input.routing.bookingExtraction ?? null
       })
       await this.updateConversation(input.phone, input.businessId, {
         currentStep: conversationStepValue(input.conversation.currentStep),
@@ -1095,7 +1095,7 @@ export class ConversationService {
         businessId: input.businessId,
         conversation: conversationPatchFromState(quoteState),
         message: input.message,
-        understandingExtraction: input.routing.bookingExtraction
+        understandingExtraction: input.routing.bookingExtraction ?? null
       })
       await this.updateConversation(input.phone, input.businessId, {
         currentStep: conversationStepValue(input.conversation.currentStep),
@@ -1141,7 +1141,7 @@ export class ConversationService {
         businessId: input.businessId,
         conversation: conversationPatchFromState(storedInformationState),
         message: input.message,
-        understandingExtraction: input.routing.bookingExtraction
+        understandingExtraction: input.routing.bookingExtraction ?? null
       })
       await this.updateConversation(input.phone, input.businessId, {
         currentStep: conversationStepValue(input.conversation.currentStep),
@@ -1803,9 +1803,10 @@ export class ConversationService {
       message: input.conversation.bookingV2State
         ? input.message
         : input.routing.bookingMessage ?? input.message,
-      ...(input.routing.bookingExtraction
-        ? { understandingExtraction: input.routing.bookingExtraction }
-        : {})
+      // ConversationRouter es la unica capa de comprension general en el
+      // camino productivo. Pasar null explicitamente evita que BookingV2Engine
+      // realice una segunda extraccion con IA para el mismo mensaje.
+      understandingExtraction: input.routing.bookingExtraction ?? null
     })
 
     if (!result.state.draft.name && pendingRequest) {
@@ -1822,7 +1823,8 @@ export class ConversationService {
       result = await bookingV2Engine.process({
         businessId: input.businessId,
         conversation: conversationPatchFromState(replayState),
-        message: storedState.pendingRequest.message
+        message: storedState.pendingRequest.message,
+        understandingExtraction: storedState.pendingRequest.extraction ?? null
       })
     }
 
@@ -1857,13 +1859,10 @@ export class ConversationService {
       informationReply ? `${informationReply}\n\n${result.reply}` : result.reply,
       assistantPersonality
     )
-    const composedReply = await this.composeBookingV2Reply({
-      customerMessage: input.message,
-      requiredReply,
-      currentStep: nextStep,
-      customerName: result.state.draft.name,
-      personality: assistantPersonality
-    })
+    // La respuesta ya contiene los datos deterministas y la personalidad del
+    // comercio. Evitamos una segunda llamada de IA solo para anteponer una
+    // frase social a cada paso de la reserva.
+    const composedReply = requiredReply
     const needsRecoveryButtons = result.plan.type === 'ask_field' &&
       result.plan.reason === 'not_understood' &&
       result.state.misunderstandingCount >= 2
@@ -1956,17 +1955,6 @@ export class ConversationService {
       title: 'Sin preferencia'
     })
     return buttons.slice(0, 3)
-  }
-
-  private async composeBookingV2Reply(input: {
-    customerMessage: string
-    requiredReply: string
-    currentStep: string
-    customerName: string | null
-    personality: AssistantPersonality
-  }) {
-    return await aiMessageUnderstandingService.composeBookingV2Reply(input)
-      ?? input.requiredReply
   }
 
   private async professionalScheduleReply(businessId: string, professionalId: string) {
@@ -3558,6 +3546,7 @@ export function pendingRequestFromRouting(input: {
   return {
     message: input.routing.bookingMessage.trim().slice(0, 1200),
     intents: Array.from(new Set(intents)),
+    extraction: input.routing.bookingExtraction ?? null,
     createdAt: (input.now ?? new Date()).toISOString()
   }
 }

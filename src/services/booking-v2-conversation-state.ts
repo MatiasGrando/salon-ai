@@ -25,6 +25,7 @@ import {
   type BookingProposal,
   type BookingV2State
 } from './booking-v2-state.js'
+import { parseBookingV2Extraction } from './booking-v2-extractor.js'
 
 export type BookingV2ConversationSnapshot = {
   selectedCustomerName: string | null
@@ -404,6 +405,7 @@ function readPendingRequest(value: unknown): BookingV2PendingRequest | null {
   return {
     message: candidate.message.trim().slice(0, 1200),
     intents: Array.from(new Set(candidate.intents.map((intent) => intent.trim()).filter(Boolean))).slice(0, 8),
+    extraction: parseBookingV2Extraction(candidate.extraction),
     createdAt: candidate.createdAt
   }
 }

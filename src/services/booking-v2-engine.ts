@@ -153,13 +153,10 @@ export class BookingV2Engine {
               ]
             })
         if (decision.confidence >= 0.7 && decision.choiceId === 'cancel_edit') {
-          let state: BookingV2State = {
+          const state: BookingV2State = {
             ...initialState,
             pendingServiceSeparation: { reason: pending.reason },
             misunderstandingCount: 0
-          }
-          if (service.attentionMode !== 'GUIDED_ESTIMATE' && !service.requiresPhoto) {
-            state = completeCombinedServiceDecision(state, service.id)
           }
           return this.guidedEstimateResult(state, {
             type: 'offer_separate_services',

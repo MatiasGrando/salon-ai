@@ -696,7 +696,15 @@ await test('una regla ALLOWED habilita explícitamente un adicional con validaci
     message: 'Quiero alisado y color completo'
   })
   assert.notEqual(result.plan.type, 'handoff')
-  assert.deepEqual(result.state.combinedServices.map((item) => item.serviceId), ['color'])
+  assert.equal(result.state.draft.service, 'color')
+  assert.deepEqual(result.state.combinedServices.map((item) => item.serviceId), ['alisado'])
+  assert.deepEqual(
+    new Set([
+      result.state.draft.service,
+      ...result.state.combinedServices.map((item) => item.serviceId)
+    ]),
+    new Set(['alisado', 'color'])
+  )
 })
 
 const nextJoint = {

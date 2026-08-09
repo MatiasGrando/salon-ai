@@ -1,3 +1,5 @@
+import type { BookingV2Extraction } from './booking-v2-extractor.js'
+
 export const BOOKING_FIELDS = ['name', 'service', 'professional', 'date', 'time'] as const
 export const ANY_PROFESSIONAL_ID = '__any_professional__'
 
@@ -51,6 +53,7 @@ export type BookingV2CatalogNavigation = {
 export type BookingV2PendingRequest = {
   message: string
   intents: string[]
+  extraction?: BookingV2Extraction | null
   createdAt: string
 }
 

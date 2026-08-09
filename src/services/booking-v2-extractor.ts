@@ -120,6 +120,39 @@ export function normalizeExtraction(extraction: BookingV2Extraction): BookingV2E
   }
 }
 
+export function parseBookingV2Extraction(value: unknown): BookingV2Extraction | null {
+  if (!value || typeof value !== 'object') return null
+  const candidate = value as Partial<BookingV2Extraction>
+  if (
+    !isExtractedField(candidate.name) ||
+    !isExtractedField(candidate.service) ||
+    !isExtractedField(candidate.professional) ||
+    !isExtractedField(candidate.date) ||
+    !isExtractedField(candidate.time) ||
+    !candidate.correction ||
+    typeof candidate.correction !== 'object'
+  ) {
+    return null
+  }
+  const correction = candidate.correction as Partial<BookingCorrectionIntent>
+  if (
+    !(typeof correction.field === 'string' || correction.field === null) ||
+    !(typeof correction.newValue === 'string' || correction.newValue === null) ||
+    typeof correction.confidence !== 'number' ||
+    typeof correction.evidence !== 'string'
+  ) {
+    return null
+  }
+  if (
+    candidate.additionalServices !== undefined &&
+    (!Array.isArray(candidate.additionalServices) ||
+      !candidate.additionalServices.every(isExtractedField))
+  ) {
+    return null
+  }
+  return normalizeExtraction(candidate as BookingV2Extraction)
+}
+
 const nullableStringSchema = {
   anyOf: [
     { type: 'string' },
@@ -183,6 +216,16 @@ function normalizeField(field: ExtractedBookingField): ExtractedBookingField {
     confidence: normalizeConfidence(field.confidence),
     evidence: field.evidence.trim()
   }
+}
+
+function isExtractedField(value: unknown): value is ExtractedBookingField {
+  if (!value || typeof value !== 'object') return false
+  const field = value as Partial<ExtractedBookingField>
+  return (
+    (typeof field.value === 'string' || field.value === null) &&
+    typeof field.confidence === 'number' &&
+    typeof field.evidence === 'string'
+  )
 }
 
 function normalizeDateField(field: ExtractedBookingField): ExtractedBookingField {
