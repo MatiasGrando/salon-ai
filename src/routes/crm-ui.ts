@@ -5906,6 +5906,35 @@ const crmHtml = `<!doctype html>
       background: #fff;
     }
 
+    .service-family-editor {
+      display: grid;
+      gap: 12px;
+    }
+
+    .service-family-editor label {
+      display: grid;
+      gap: 6px;
+      color: #34405a;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .service-family-editor .field {
+      width: 100%;
+      height: 40px;
+      padding: 0 11px;
+      border: 1px solid #dfe6f1;
+      border-radius: 7px;
+      color: #263958;
+      background: #fff;
+    }
+
+    .service-family-dialog-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
     .service-category-list {
       display: flex;
       flex-wrap: wrap;
@@ -13410,6 +13439,41 @@ const crmHtml = `<!doctype html>
       </section>
     </div>
 
+    <div class="dialog-backdrop" id="service-family-dialog" hidden>
+      <section class="dialog service-category-dialog" role="dialog" aria-modal="true" aria-labelledby="service-family-dialog-title">
+        <header class="dialog-header">
+          <h3 id="service-family-dialog-title">Agregar familia</h3>
+          <button class="icon-button" id="service-family-close" type="button" title="Cerrar" aria-label="Cerrar">X</button>
+        </header>
+        <div class="service-category-dialog-body">
+          <p class="service-category-dialog-copy">Una familia agrupa variantes del mismo servicio, por ejemplo Corte hombre y Corte mujer. Despu&eacute;s de crearla, asign&aacute; cada variante desde el formulario del servicio.</p>
+          <div class="service-family-editor">
+            <label>
+              Nombre de la familia
+              <input class="field" id="service-family-name" placeholder="Ejemplo: Corte" autocomplete="off">
+            </label>
+            <label>
+              Categor&iacute;a (opcional)
+              <select class="field" id="service-family-category"></select>
+            </label>
+            <label>
+              Selecci&oacute;n de variantes
+              <select class="field" id="service-family-selection-mode-dialog">
+                <option value="ONE_OF">Elegir una sola variante</option>
+                <option value="MULTIPLE">Permitir varias variantes</option>
+              </select>
+            </label>
+          </div>
+          <p class="service-form-help">Us&aacute; &ldquo;Elegir una sola variante&rdquo; cuando las opciones se excluyen entre s&iacute;, como Corte hombre o Corte mujer.</p>
+          <p class="hint" id="service-family-feedback"></p>
+          <div class="service-family-dialog-actions">
+            <button class="secondary" id="service-family-cancel" type="button">Cancelar</button>
+            <button class="primary" id="service-family-save" type="button">Crear familia</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
     <section class="campaigns-view" id="campaigns-view">
       <div class="campaigns-shell">
         <header class="campaigns-header">
@@ -15494,6 +15558,14 @@ const crmHtml = `<!doctype html>
       serviceFamilyModeGroup: document.getElementById('service-family-mode-group'),
       serviceFamilySelectionMode: document.getElementById('service-family-selection-mode'),
       serviceFamilyOpen: document.getElementById('service-family-open'),
+      serviceFamilyDialog: document.getElementById('service-family-dialog'),
+      serviceFamilyClose: document.getElementById('service-family-close'),
+      serviceFamilyName: document.getElementById('service-family-name'),
+      serviceFamilyCategory: document.getElementById('service-family-category'),
+      serviceFamilySelectionModeDialog: document.getElementById('service-family-selection-mode-dialog'),
+      serviceFamilyFeedback: document.getElementById('service-family-feedback'),
+      serviceFamilyCancel: document.getElementById('service-family-cancel'),
+      serviceFamilySave: document.getElementById('service-family-save'),
       serviceCategoryOpen: document.getElementById('service-category-open'),
       serviceCategoryDialog: document.getElementById('service-category-dialog'),
       serviceCategoryDialogTitle: document.getElementById('service-category-dialog-title'),
@@ -17920,6 +17992,14 @@ const crmHtml = `<!doctype html>
         '<option value="__ADD_CATEGORY__">Agregar nueva categor&iacute;a</option>'
       els.serviceCategory.value = selectedCategory
       els.serviceCategory.dataset.lastValue = selectedCategory
+
+      const selectedFamilyCategory = els.serviceFamilyCategory.value
+      els.serviceFamilyCategory.innerHTML = '<option value="">Sin categor&iacute;a</option>' +
+        state.serviceCategories
+          .filter((category) => category.isActive !== false)
+          .map((category) => '<option value="' + escapeHtml(category.id) + '">' + escapeHtml(category.name) + '</option>')
+          .join('')
+      els.serviceFamilyCategory.value = selectedFamilyCategory
 
       const currentServiceId = els.serviceId.value
       els.serviceParent.innerHTML = '<option value="">Sin familia</option>' +
@@ -25073,16 +25153,62 @@ const crmHtml = `<!doctype html>
       els.serviceCategoryDialogTitle.textContent = 'Agregar categoría'
     }
 
-    function openServiceFamilyEditor() {
-      resetServiceForm()
-      els.serviceItemType.value = 'GROUP'
-      els.serviceCancel.hidden = false
-      els.serviceFormTitle.textContent = 'Nueva familia'
-      els.serviceSubmit.textContent = 'Guardar familia'
-      els.serviceFeedback.textContent = 'Creá una familia y después asignale sus variantes desde cada servicio.'
-      updateServiceTypeFields()
-      els.serviceForm.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      requestAnimationFrame(() => els.serviceName.focus())
+    function openServiceFamilyDialog() {
+      els.serviceFamilyName.value = ''
+      els.serviceFamilyCategory.value = ''
+      els.serviceFamilySelectionModeDialog.value = 'ONE_OF'
+      els.serviceFamilyFeedback.textContent = ''
+      els.serviceFamilyDialog.hidden = false
+      requestAnimationFrame(() => els.serviceFamilyName.focus())
+    }
+
+    function closeServiceFamilyDialog() {
+      els.serviceFamilyDialog.hidden = true
+      els.serviceFamilyName.value = ''
+      els.serviceFamilyCategory.value = ''
+      els.serviceFamilySelectionModeDialog.value = 'ONE_OF'
+      els.serviceFamilyFeedback.textContent = ''
+    }
+
+    async function saveServiceFamily() {
+      if (!state.businessId) {
+        els.serviceFamilyFeedback.textContent = 'No encontré un negocio cargado.'
+        return
+      }
+      const name = els.serviceFamilyName.value.trim()
+      if (!name) {
+        els.serviceFamilyFeedback.textContent = 'Escribí el nombre de la familia.'
+        els.serviceFamilyName.focus()
+        return
+      }
+
+      if (!setButtonLoading(els.serviceFamilySave, true, 'Creando...')) return
+      try {
+        await getJson('/services', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name,
+            duration: 1,
+            businessId: state.businessId,
+            price: null,
+            priceMode: 'FIXED',
+            categoryId: els.serviceFamilyCategory.value || null,
+            parentServiceId: null,
+            isBookable: false,
+            variantSelectionMode: els.serviceFamilySelectionModeDialog.value,
+            attentionMode: 'DIRECT_BOOKING',
+            depositMode: 'NONE'
+          })
+        })
+        await reloadServiceCatalog()
+        closeServiceFamilyDialog()
+        els.serviceFeedback.textContent = 'Familia creada. Ahora podés asignar sus variantes desde cada servicio.'
+      } catch (error) {
+        els.serviceFamilyFeedback.textContent = error.message
+      } finally {
+        setButtonLoading(els.serviceFamilySave, false)
+      }
     }
 
     async function reloadServiceCatalog() {
@@ -25777,7 +25903,18 @@ const crmHtml = `<!doctype html>
     els.serviceCustomerDurationMin.addEventListener('input', updateServiceCustomerDurationFields)
     els.serviceCustomerDurationMax.addEventListener('input', updateServiceCustomerDurationFields)
     els.serviceEstimateAddOption.addEventListener('click', () => addServiceEstimateOption())
-    els.serviceFamilyOpen.addEventListener('click', openServiceFamilyEditor)
+    els.serviceFamilyOpen.addEventListener('click', openServiceFamilyDialog)
+    els.serviceFamilyClose.addEventListener('click', closeServiceFamilyDialog)
+    els.serviceFamilyCancel.addEventListener('click', closeServiceFamilyDialog)
+    els.serviceFamilySave.addEventListener('click', saveServiceFamily)
+    els.serviceFamilyName.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return
+      event.preventDefault()
+      saveServiceFamily()
+    })
+    els.serviceFamilyDialog.addEventListener('click', (event) => {
+      if (event.target === els.serviceFamilyDialog) closeServiceFamilyDialog()
+    })
     els.serviceCategoryOpen.addEventListener('click', () => openServiceCategoryDialog())
     els.serviceCategoryClose.addEventListener('click', closeServiceCategoryDialog)
     els.serviceCategorySave.addEventListener('click', saveServiceCategory)
@@ -25811,6 +25948,7 @@ const crmHtml = `<!doctype html>
       if (event.key !== 'Escape') return
       if (!els.confirmationDialog.hidden) closeCrmConfirmation(false)
       else if (!els.serviceCategoryDialog.hidden) closeServiceCategoryDialog()
+      else if (!els.serviceFamilyDialog.hidden) closeServiceFamilyDialog()
     })
     els.serviceImage.addEventListener('change', readServiceImage)
     els.serviceImageRemove.addEventListener('click', () => setServiceImage(null))
