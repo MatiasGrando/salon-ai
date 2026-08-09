@@ -559,12 +559,40 @@ await test('el bot ofrece extras configurados una sola vez y acepta uno menciona
   assert.deepEqual(accepted.state.combinedServices.map((item) => item.serviceId), ['corte'])
   assert.equal(accepted.state.addonSuggestion, null)
   assert.equal(accepted.state.addonOfferCompletedServiceId, 'alisado|corte')
+  assert.match(accepted.reply, /Perfecto, vamos a reservar estos servicios juntos:/)
+  assert.match(accepted.reply, /• Alisado/)
+  assert.match(accepted.reply, /• Corte/)
+  assert.match(accepted.reply, /Duración total: 120 min\./)
+  assert.match(accepted.reply, /Podés atenderte con:/)
 
   const resumed = await engine().resume({
     businessId: 'business-1',
     conversation: accepted.conversationPatch
   })
   assert.notEqual(resumed.plan.type, 'ask_service_addons')
+})
+
+await test('al aceptar varios extras resume la lista final antes de pedir profesional', async () => {
+  const offered = await engine().resume({
+    businessId: 'business-1',
+    conversation: conversationPatchFromState(acceptField(namedState(), 'service', 'alisado'))
+  })
+  const accepted = await engine().process({
+    businessId: 'business-1',
+    conversation: offered.conversationPatch,
+    message: 'corte y lavado'
+  })
+
+  assert.deepEqual(
+    accepted.state.combinedServices.map((item) => item.serviceId),
+    ['corte', 'lavado']
+  )
+  assert.match(accepted.reply, /Perfecto, vamos a reservar estos servicios juntos:/)
+  assert.match(accepted.reply, /• Alisado/)
+  assert.match(accepted.reply, /• Corte/)
+  assert.match(accepted.reply, /• Lavado/)
+  assert.match(accepted.reply, /Duración total: 140 min\./)
+  assert.match(accepted.reply, /Podés atenderte con:/)
 })
 
 await test('pedir el servicio antes del nombre no marca sus extras como ya ofrecidos', async () => {

@@ -363,6 +363,33 @@ export function applyContextualRoutingPriorities(
   routing: Omit<ConversationRouting, 'source'>,
   input: Pick<ConversationRouterInput, 'message' | 'currentStep'>
 ): Omit<ConversationRouting, 'source'> {
+  if (input.currentStep === 'ASK_TIME' && isCompactTimeSelection(input.message)) {
+    const intents = routing.intents.filter((intent) =>
+      ![
+        'professional_schedule',
+        'business_information',
+        'deposit_information',
+        'service_detail',
+        'other_query',
+        'unknown'
+      ].includes(intent.type)
+    )
+    if (!intents.some((intent) => intent.type === 'availability_preference')) {
+      intents.push({
+        type: 'availability_preference',
+        topic: null,
+        confidence: 1,
+        evidence: input.message.trim()
+      })
+    }
+    return {
+      ...routing,
+      intents,
+      bookingMessage: input.message.trim() || null,
+      catalogQuery: null
+    }
+  }
+
   const hasBookingTask = Boolean(routing.bookingMessage) && routing.intents.some((intent) =>
     isBookingTaskIntent(intent) && intent.confidence >= 0.65
   )
@@ -1263,6 +1290,22 @@ function detectBusinessInformationTopics(
 
 function containsAny(value: string, phrases: string[]) {
   return phrases.some((phrase) => value.includes(phrase))
+}
+
+function isCompactTimeSelection(message: string) {
+  const compact = normalizeEvidenceText(message)
+    .replace(/^(?:a\s+las?|para\s+las?)\s+/, '')
+    .replace(/\s*(?:h|hs|hrs|horas)$/, '')
+    .trim()
+  if (!/^\d{1,4}$/.test(compact)) return false
+  if (compact.length <= 2) {
+    const hour = Number(compact)
+    return hour >= 0 && hour <= 23
+  }
+  const padded = compact.padStart(4, '0')
+  const hour = Number(padded.slice(0, 2))
+  const minute = Number(padded.slice(2))
+  return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59
 }
 
 function hasExplicitBookingIntent(normalized: string) {

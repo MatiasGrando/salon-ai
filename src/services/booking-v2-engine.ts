@@ -435,12 +435,13 @@ export class BookingV2Engine {
           serviceId,
           evidence: input.message.trim()
         })))
-        return this.fromInterpretation({
+        const result = await this.fromInterpretation({
           state,
           nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
           outcome: 'accepted',
           affectedField: 'service'
         }, null, catalog)
+        return withMultipleServicesAcknowledgement(result, catalog)
       }
       const deterministicDecision = deterministicAddonDecision(
         input.message,
@@ -465,12 +466,13 @@ export class BookingV2Engine {
           serviceId: deterministicDecision.serviceId,
           evidence: input.message.trim()
         }])
-        return this.fromInterpretation({
+        const result = await this.fromInterpretation({
           state,
           nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
           outcome: 'accepted',
           affectedField: 'service'
         }, null, catalog)
+        return withMultipleServicesAcknowledgement(result, catalog)
       }
       if (deterministicDecision.type === 'ambiguous_affirmation') {
         return this.guidedEstimateResult(initialState, {
@@ -515,12 +517,13 @@ export class BookingV2Engine {
           serviceId: selectedServiceId,
           evidence: input.message.trim()
         }])
-        return this.fromInterpretation({
+        const result = await this.fromInterpretation({
           state,
           nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
           outcome: 'accepted',
           affectedField: 'service'
         }, null, catalog)
+        return withMultipleServicesAcknowledgement(result, catalog)
       }
       return this.guidedEstimateResult(initialState, {
         type: 'ask_service_addons',

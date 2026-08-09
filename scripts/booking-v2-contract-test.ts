@@ -36,6 +36,7 @@ import {
   renderBookingV2Response
 } from '../src/services/booking-v2-response-renderer.js'
 import {
+  applyContextualRoutingPriorities,
   businessInformationTopicsFromRouting,
   deterministicConversationRouting,
   hasGroundedDepositInformationIntent,
@@ -5090,6 +5091,68 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         { currentStep: 'ASK_TIME' }
       )
       assert.deepEqual(businessInformationTopicsFromRouting(bookingAvailability), [])
+    }
+  },
+  {
+    name: 'una hora compacta descarta una falsa consulta de agenda profesional',
+    run: () => {
+      const routing = applyContextualRoutingPriorities({
+        intents: [
+          {
+            type: 'professional_schedule',
+            topic: null,
+            confidence: 0.91,
+            evidence: '11'
+          },
+          {
+            type: 'availability_preference',
+            topic: null,
+            confidence: 0.86,
+            evidence: '11'
+          }
+        ],
+        bookingMessage: '11',
+        bookingExtraction: extraction({
+          professional: field('tamara', 0.8, '11'),
+          time: field('11:00', 0.98, '11')
+        }),
+        catalogQuery: null
+      }, {
+        message: '11',
+        currentStep: 'ASK_TIME'
+      })
+
+      assert.equal(routing.bookingMessage, '11')
+      assert.equal(
+        routing.intents.some((intent) => intent.type === 'professional_schedule'),
+        false
+      )
+      assert.equal(
+        routing.intents.some((intent) => intent.type === 'availability_preference'),
+        true
+      )
+
+      const realQuestion = applyContextualRoutingPriorities({
+        intents: [{
+          type: 'professional_schedule',
+          topic: null,
+          confidence: 0.95,
+          evidence: 'que horarios hace Tamara'
+        }],
+        bookingMessage: null,
+        bookingExtraction: extraction({
+          professional: field('tamara', 0.95, 'Tamara')
+        }),
+        catalogQuery: null
+      }, {
+        message: '¿Qué horarios hace Tamara?',
+        currentStep: 'ASK_TIME'
+      })
+      assert.equal(
+        realQuestion.intents.some((intent) => intent.type === 'professional_schedule'),
+        true
+      )
+      assert.equal(realQuestion.bookingMessage, null)
     }
   },
   {
