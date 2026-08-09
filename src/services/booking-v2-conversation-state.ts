@@ -26,6 +26,10 @@ import {
   type BookingV2State
 } from './booking-v2-state.js'
 import { parseBookingV2Extraction } from './booking-v2-extractor.js'
+import {
+  parsePendingAvailabilityResolution,
+  type BookingV2PendingAvailabilityResolution
+} from './booking-availability-resolution.js'
 
 export type BookingV2ConversationSnapshot = {
   selectedCustomerName: string | null
@@ -70,6 +74,7 @@ export type BookingV2PersistedState = {
   addonSuggestion?: BookingV2AddonSuggestion | null
   addonOfferCompletedServiceId?: string | null
   pendingCombinedAvailability?: BookingV2PendingCombinedAvailability | null
+  pendingAvailabilityResolution?: BookingV2PendingAvailabilityResolution | null
   pendingServiceSeparation?: BookingV2PendingServiceSeparation | null
   pendingServiceReplacement?: BookingV2PendingServiceReplacement | null
 }
@@ -108,6 +113,7 @@ export function stateFromConversation(
     addonSuggestion: readAddonSuggestion(conversation.bookingV2State),
     addonOfferCompletedServiceId: readAddonOfferCompletedServiceId(conversation.bookingV2State),
     pendingCombinedAvailability: readPendingCombinedAvailability(conversation.bookingV2State),
+    pendingAvailabilityResolution: readPendingAvailabilityResolution(conversation.bookingV2State),
     pendingServiceSeparation: readPendingServiceSeparation(conversation.bookingV2State),
     pendingServiceReplacement: readPendingServiceReplacement(conversation.bookingV2State),
     misunderstandingCount: conversation.misunderstandingCount
@@ -122,7 +128,7 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
     selectedDate: state.draft.date,
     selectedTime: state.draft.time,
     misunderstandingCount: state.misunderstandingCount,
-    bookingV2State: state.pendingProposal || state.pendingRequest || state.pendingInformationSelection || state.lastInformationServiceId || state.pendingServiceDisambiguation || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.combinedServiceDecisionQueue !== null || state.advisorQuote || state.quoteOnly || state.pendingDeposit || state.contextPause || state.unsupportedServiceRequest || state.queuedServices.length || state.combinedServices.length || state.addonSuggestion || state.addonOfferCompletedServiceId || state.pendingCombinedAvailability || state.pendingServiceSeparation || state.pendingServiceReplacement
+    bookingV2State: state.pendingProposal || state.pendingRequest || state.pendingInformationSelection || state.lastInformationServiceId || state.pendingServiceDisambiguation || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.combinedServiceDecisionQueue !== null || state.advisorQuote || state.quoteOnly || state.pendingDeposit || state.contextPause || state.unsupportedServiceRequest || state.queuedServices.length || state.combinedServices.length || state.addonSuggestion || state.addonOfferCompletedServiceId || state.pendingCombinedAvailability || state.pendingAvailabilityResolution || state.pendingServiceSeparation || state.pendingServiceReplacement
       ? {
           version: 1,
           pendingProposal: state.pendingProposal,
@@ -157,6 +163,9 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
             : {}),
           ...(state.pendingCombinedAvailability
             ? { pendingCombinedAvailability: state.pendingCombinedAvailability }
+            : {}),
+          ...(state.pendingAvailabilityResolution
+            ? { pendingAvailabilityResolution: state.pendingAvailabilityResolution }
             : {}),
           ...(state.pendingServiceSeparation
             ? { pendingServiceSeparation: state.pendingServiceSeparation }
@@ -271,6 +280,12 @@ function readPendingCombinedAvailability(value: unknown): BookingV2PendingCombin
     }]
   }).slice(0, 9)
   return options.length ? { requestedDate: pending.requestedDate, options } : null
+}
+
+function readPendingAvailabilityResolution(value: unknown) {
+  if (!value || typeof value !== 'object') return null
+  const candidate = (value as { pendingAvailabilityResolution?: unknown }).pendingAvailabilityResolution
+  return parsePendingAvailabilityResolution(candidate)
 }
 
 function readPendingServiceSeparation(value: unknown): BookingV2PendingServiceSeparation | null {

@@ -57,6 +57,12 @@ import {
   detectContextualServiceCatalogPresentationIntent,
   isAmbiguousCatalogAffirmation
 } from './service-catalog-presentation-intent.js'
+import {
+  applyBookingAvailabilityTransition,
+  bookingAvailabilityResolutionPlan,
+  pendingAvailabilityResolution,
+  resolveBookingAvailability,
+} from './booking-availability-resolution.js'
 
 type BookingV2DomainPort = Pick<
   BookingV2DomainService,
@@ -275,6 +281,7 @@ export class BookingV2Engine {
           queuedServices,
           combinedServices: [],
           pendingServiceSeparation: null,
+          pendingAvailabilityResolution: null,
           addonSuggestion: null,
           addonOfferCompletedServiceId: initialState.draft.service,
           misunderstandingCount: 0
@@ -402,6 +409,7 @@ export class BookingV2Engine {
           ).queuedServices,
           combinedServices: [],
           pendingCombinedAvailability: null,
+          pendingAvailabilityResolution: null,
           addonSuggestion: null,
           addonOfferCompletedServiceId: initialState.draft.service,
           draft: {
@@ -429,6 +437,7 @@ export class BookingV2Engine {
         let state: BookingV2State = {
           ...initialState,
           pendingCombinedAvailability: null,
+          pendingAvailabilityResolution: null,
           misunderstandingCount: 0
         }
         state = acceptField(state, 'professional', selectedOption.professionalId)
@@ -1845,12 +1854,29 @@ export class BookingV2Engine {
       catalog &&
       plan.type === 'ask_field' &&
       plan.field === 'professional' &&
-      effectiveInterpretation.state.draft.service &&
-      !catalog.professionals.some((professional) =>
-        selectedServiceIds.every((serviceId) => professional.serviceIds.includes(serviceId))
-      )
+      effectiveInterpretation.state.draft.service
     ) {
-      if (selectedServiceIds.length > 1) {
+      const professionalResolution = resolveBookingAvailability({
+        stage: 'professional_compatibility',
+        serviceCount: selectedServiceIds.length,
+        hasCompatibleProfessional: catalog.professionals.some((professional) =>
+          selectedServiceIds.every((serviceId) => professional.serviceIds.includes(serviceId))
+        )
+      })
+      effectiveInterpretation = {
+        ...effectiveInterpretation,
+        state: {
+          ...effectiveInterpretation.state,
+          pendingAvailabilityResolution: pendingAvailabilityResolution({
+            resolution: professionalResolution,
+            serviceIds: selectedServiceIds,
+            professionalId: effectiveInterpretation.state.draft.professional,
+            requestedDate: effectiveInterpretation.state.draft.date,
+            requestedTime: effectiveInterpretation.state.draft.time
+          })
+        }
+      }
+      if (professionalResolution.status === 'NO_COMMON_PROFESSIONAL') {
         effectiveInterpretation = {
           ...effectiveInterpretation,
           state: {
@@ -1859,7 +1885,7 @@ export class BookingV2Engine {
           }
         }
         plan = { type: 'offer_separate_services', reason: 'no_common_professional' }
-      } else {
+      } else if (professionalResolution.status === 'NO_COMPATIBLE_PROFESSIONAL') {
         plan = { type: 'handoff', reason: 'no_compatible_professional' }
       }
     }
@@ -1879,92 +1905,123 @@ export class BookingV2Engine {
       })
 
       availabilityOptions = availability.ok ? availability.options : []
-
-      if (availabilityOptions.length === 0) {
-        unavailableDate = effectiveInterpretation.state.draft.date
-        const nextOptions = selectedServiceIds.length > 1 && this.domain.findNextAvailabilityOptions
-          ? await this.domain.findNextAvailabilityOptions({
+      const proposedTime = timeToValidate(plan, effectiveInterpretation.state)
+      const shouldSearchUpcoming = availabilityOptions.length === 0 &&
+        Boolean(this.domain.findNextAvailabilityOptions)
+      const nextOptions = shouldSearchUpcoming && this.domain.findNextAvailabilityOptions
+        ? await this.domain.findNextAvailabilityOptions({
               catalog,
               serviceId: effectiveInterpretation.state.draft.service,
               serviceIds: selectedServiceIds,
               professionalId: effectiveInterpretation.state.draft.professional,
-              afterDate: unavailableDate,
+              afterDate: effectiveInterpretation.state.draft.date,
               horizonDays: 14,
               maxDates: 3,
               maxSlotsPerDate: 3
             })
-          : []
-        if (nextOptions.length) {
-          const state: BookingV2State = {
-            ...effectiveInterpretation.state,
-            draft: clearFieldAndDependents(effectiveInterpretation.state.draft, 'date'),
-            pendingProposal: null,
-            pendingCombinedAvailability: {
-              requestedDate: unavailableDate,
-              options: nextOptions
-            }
-          }
-          effectiveInterpretation = {
-            state,
-            nextField: 'date',
-            outcome: 'no_change',
-            affectedField: 'date'
-          }
-          plan = {
-            type: 'offer_combined_availability',
-            requestedDate: unavailableDate,
-            options: nextOptions
-          }
-        } else {
-          const state = {
-            ...effectiveInterpretation.state,
-            draft: clearFieldAndDependents(effectiveInterpretation.state.draft, 'date'),
-            pendingProposal: null
-          }
-          effectiveInterpretation = {
-            state,
-            nextField: 'date',
-            outcome: 'no_change',
-            affectedField: 'date'
-          }
-          plan = buildBookingV2MessagePlan(effectiveInterpretation, catalog.bookingFlowOrder)
+        : []
+      const availabilityResolution = resolveBookingAvailability({
+        stage: 'daily_availability',
+        options: availabilityOptions,
+        requestedTime: proposedTime,
+        upcomingSearch: shouldSearchUpcoming
+          ? { performed: true, options: nextOptions }
+          : { performed: false }
+      })
+      const resolutionPlan = bookingAvailabilityResolutionPlan(availabilityResolution, {
+        hasSelectedProfessional: Boolean(
+          effectiveInterpretation.state.draft.professional &&
+          effectiveInterpretation.state.draft.professional !== ANY_PROFESSIONAL_ID
+        )
+      })
+      const stateWithAvailabilityResolution: BookingV2State = {
+        ...effectiveInterpretation.state,
+        pendingAvailabilityResolution: pendingAvailabilityResolution({
+          resolution: availabilityResolution,
+          serviceIds: selectedServiceIds,
+          professionalId: effectiveInterpretation.state.draft.professional,
+          requestedDate: effectiveInterpretation.state.draft.date,
+          requestedTime: proposedTime
+        })
+      }
+      effectiveInterpretation = {
+        ...effectiveInterpretation,
+        state: stateWithAvailabilityResolution
+      }
+
+      if (
+        availabilityResolution.status === 'NO_SLOTS_ON_DATE' ||
+        availabilityResolution.status === 'NO_UPCOMING_AVAILABILITY'
+      ) {
+        unavailableDate = effectiveInterpretation.state.draft.date
+        const state = applyBookingAvailabilityTransition(
+          effectiveInterpretation.state,
+          resolutionPlan.transition
+        )
+        effectiveInterpretation = {
+          state,
+          nextField: 'date',
+          outcome: 'no_change',
+          affectedField: 'date'
         }
-      } else {
-        const proposedTime = timeToValidate(plan, effectiveInterpretation.state)
-        if (proposedTime && !availabilityOptions.some((option) => option.time === proposedTime)) {
-          const state = {
-            ...effectiveInterpretation.state,
-            draft: clearFieldAndDependents(effectiveInterpretation.state.draft, 'time'),
-            pendingProposal: null
-          }
+        plan = buildBookingV2MessagePlan(effectiveInterpretation, catalog.bookingFlowOrder)
+      } else if (availabilityResolution.status === 'UPCOMING_AVAILABILITY_FOUND') {
+        unavailableDate = effectiveInterpretation.state.draft.date
+        const state: BookingV2State = {
+          ...applyBookingAvailabilityTransition(effectiveInterpretation.state, resolutionPlan.transition),
+          pendingCombinedAvailability: selectedServiceIds.length > 1
+            ? {
+                requestedDate: unavailableDate!,
+                options: availabilityResolution.options
+              }
+            : null
+        }
+        effectiveInterpretation = {
+          state,
+          nextField: 'date',
+          outcome: 'no_change',
+          affectedField: 'date'
+        }
+        plan = selectedServiceIds.length > 1
+          ? {
+              type: 'offer_combined_availability',
+              requestedDate: unavailableDate!,
+              options: availabilityResolution.options
+            }
+          : buildBookingV2MessagePlan(effectiveInterpretation, catalog.bookingFlowOrder)
+      } else if (availabilityResolution.status === 'REQUESTED_TIME_UNAVAILABLE') {
+        const state = applyBookingAvailabilityTransition(
+          effectiveInterpretation.state,
+          resolutionPlan.transition
+        )
+        effectiveInterpretation = {
+          state,
+          nextField: 'time',
+          outcome: 'no_change',
+          affectedField: 'time'
+        }
+        plan = buildBookingV2MessagePlan(effectiveInterpretation, catalog.bookingFlowOrder)
+      } else if (
+        availabilityResolution.status === 'AVAILABLE' &&
+        proposedTime &&
+        plan.type === 'confirm_booking' &&
+        effectiveInterpretation.state.draft.professional === ANY_PROFESSIONAL_ID
+      ) {
+        const selectedOption = availabilityOptions.find((option) => option.time === proposedTime)
+        if (selectedOption) {
+          let state = acceptField(
+            effectiveInterpretation.state,
+            'professional',
+            selectedOption.professionalId
+          )
+          state = acceptField(state, 'time', proposedTime)
           effectiveInterpretation = {
             state,
-            nextField: 'time',
-            outcome: 'no_change',
+            nextField: 'confirmation',
+            outcome: 'accepted',
             affectedField: 'time'
           }
           plan = buildBookingV2MessagePlan(effectiveInterpretation, catalog.bookingFlowOrder)
-        } else if (
-          proposedTime &&
-          plan.type === 'confirm_booking' &&
-          effectiveInterpretation.state.draft.professional === ANY_PROFESSIONAL_ID
-        ) {
-          const selectedOption = availabilityOptions.find((option) => option.time === proposedTime)
-          if (selectedOption) {
-            let state = acceptField(
-              effectiveInterpretation.state,
-              'professional',
-              selectedOption.professionalId
-            )
-            state = acceptField(state, 'time', proposedTime)
-            effectiveInterpretation = {
-              state,
-              nextField: 'confirmation',
-              outcome: 'accepted',
-              affectedField: 'time'
-            }
-            plan = buildBookingV2MessagePlan(effectiveInterpretation, catalog.bookingFlowOrder)
-          }
         }
       }
     }

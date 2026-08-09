@@ -59,6 +59,9 @@ import {
   normalizeConversationContextSettings,
   type ConversationContextSettings
 } from './conversation-context-settings.js'
+import {
+  bookingAvailabilityFailureRecovery
+} from './booking-availability-resolution.js'
 
 const bookingConversationFlow = new BookingConversationFlow()
 const bookingProvider = new InternalBookingProvider()
@@ -386,7 +389,8 @@ export class ConversationService {
       const booking = await bookingV2Engine.process({
         businessId,
         conversation: conversationPatchFromState(nextState),
-        message: 'quiero reservar un turno'
+        message: 'quiero reservar un turno',
+        understandingExtraction: null
       })
       await this.updateConversation(input.phone, businessId, {
         currentStep: conversationStepFromBookingV2Plan(booking.plan),
@@ -2089,6 +2093,34 @@ export class ConversationService {
     ].join('\n')
   }
 
+  private async recoverBookingAvailabilityFailure(input: {
+    phone: string
+    businessId: string
+    state: BookingV2State
+    statusCode: number
+    message: string
+    operation: 'confirm' | 'hold'
+  }): Promise<HandleMessageResult> {
+    const recovery = bookingAvailabilityFailureRecovery({
+      state: input.state,
+      statusCode: input.statusCode,
+      message: input.message
+    })
+    await this.updateConversation(input.phone, input.businessId, {
+      currentStep: 'ASK_DATE',
+      ...conversationPatchFromState(recovery.state),
+      lastAvailability: null
+    })
+    const action = input.operation === 'confirm'
+      ? 'confirmar el turno'
+      : 'retener ese horario'
+    return {
+      reply: `No pude ${action}: ${input.message}. Probemos con otro día u horario.`,
+      skipMisunderstandingTracking: true,
+      skipHumanize: true
+    }
+  }
+
   private async confirmBookingV2Appointment(input: {
     phone: string
     businessId: string
@@ -2122,27 +2154,14 @@ export class ConversationService {
     })
 
     if (!appointment.ok) {
-      const retryState = {
-        ...state,
-        draft: {
-          ...state.draft,
-          date: null,
-          time: null
-        },
-        pendingProposal: null,
-        pendingDeposit: null
-      }
-      await this.updateConversation(input.phone, input.businessId, {
-        currentStep: 'ASK_DATE',
-        ...conversationPatchFromState(retryState),
-        lastAvailability: null
+      return this.recoverBookingAvailabilityFailure({
+        phone: input.phone,
+        businessId: input.businessId,
+        state,
+        statusCode: appointment.statusCode,
+        message: appointment.message,
+        operation: 'confirm'
       })
-
-      return {
-        reply: `No pude confirmar el turno: ${appointment.message}. Probemos con otro día u horario.`,
-        skipMisunderstandingTracking: true,
-        skipHumanize: true
-      }
     }
 
     const nextBooking = advanceToNextQueuedService(state)
@@ -2281,26 +2300,14 @@ export class ConversationService {
       quotedPrice: acceptedAdvisorQuoteAmount(state, service.id)
     })
     if (!appointment.ok) {
-      const retryState = {
-        ...state,
-        draft: {
-          ...state.draft,
-          date: null,
-          time: null
-        },
-        pendingProposal: null,
-        pendingDeposit: null
-      }
-      await this.updateConversation(input.phone, input.businessId, {
-        currentStep: 'ASK_DATE',
-        ...conversationPatchFromState(retryState),
-        lastAvailability: null
+      return this.recoverBookingAvailabilityFailure({
+        phone: input.phone,
+        businessId: input.businessId,
+        state,
+        statusCode: appointment.statusCode,
+        message: appointment.message,
+        operation: 'hold'
       })
-      return {
-        reply: `No pude retener ese horario: ${appointment.message}. Probemos con otro día u horario.`,
-        skipMisunderstandingTracking: true,
-        skipHumanize: true
-      }
     }
 
     const expiresAt = new Date(Date.now() + service.depositHoldMinutes * 60_000)

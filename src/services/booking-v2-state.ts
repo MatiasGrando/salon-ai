@@ -1,4 +1,5 @@
 import type { BookingV2Extraction } from './booking-v2-extractor.js'
+import type { BookingV2PendingAvailabilityResolution } from './booking-availability-resolution.js'
 
 export const BOOKING_FIELDS = ['name', 'service', 'professional', 'date', 'time'] as const
 export const ANY_PROFESSIONAL_ID = '__any_professional__'
@@ -176,6 +177,7 @@ export type BookingV2State = {
   addonSuggestion: BookingV2AddonSuggestion | null
   addonOfferCompletedServiceId: string | null
   pendingCombinedAvailability: BookingV2PendingCombinedAvailability | null
+  pendingAvailabilityResolution: BookingV2PendingAvailabilityResolution | null
   pendingServiceSeparation: BookingV2PendingServiceSeparation | null
   pendingServiceReplacement: BookingV2PendingServiceReplacement | null
   misunderstandingCount: number
@@ -221,6 +223,7 @@ export function createEmptyBookingV2State(): BookingV2State {
     addonSuggestion: null,
     addonOfferCompletedServiceId: null,
     pendingCombinedAvailability: null,
+    pendingAvailabilityResolution: null,
     pendingServiceSeparation: null,
     pendingServiceReplacement: null,
     misunderstandingCount: 0
@@ -269,6 +272,7 @@ export function addCombinedServices(
       ? Array.from(seen).sort().join('|') || null
       : state.addonOfferCompletedServiceId,
     pendingCombinedAvailability: null,
+    pendingAvailabilityResolution: null,
     pendingServiceSeparation: null,
     pendingServiceReplacement: null
   }
@@ -375,6 +379,9 @@ export function acceptField(
     pendingCombinedAvailability: state.draft[field] !== value
       ? null
       : state.pendingCombinedAvailability,
+    pendingAvailabilityResolution: state.draft[field] !== value
+      ? null
+      : state.pendingAvailabilityResolution,
     pendingServiceSeparation: state.draft[field] !== value
       ? null
       : state.pendingServiceSeparation,

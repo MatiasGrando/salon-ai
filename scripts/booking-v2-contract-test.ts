@@ -4173,8 +4173,46 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
       assert.equal(result.state.draft.date, null)
       assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'date')
+      assert.equal(result.state.pendingAvailabilityResolution?.status, 'NO_UPCOMING_AVAILABILITY')
       assert.equal(result.reply.includes('26/07/2026 no tiene horarios disponibles'), true)
       assert.equal(extractor.calls.length, 0)
+    }
+  },
+  {
+    name: 'motor conserva proximos dias para una reserva simple sin cambiar la respuesta actual',
+    run: async () => {
+      const nextAvailabilityOptions = [{
+        date: '2026-07-28',
+        time: '15:00',
+        professionalId: 'professional-1',
+        professionalName: 'Nico'
+      }]
+      const domain = fakeDomainPort({
+        availabilityOptions: [],
+        nextAvailabilityOptions
+      })
+      const engine = new BookingV2Engine(domain, fakeExtractor(null))
+
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Mati',
+          selectedServiceId: 'haircut',
+          selectedProfessionalId: 'professional-1',
+          selectedDate: '2026-07-27',
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: 'qué horarios hay'
+      })
+
+      assert.equal(result.state.draft.date, null)
+      assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'date')
+      assert.equal(result.state.pendingAvailabilityResolution?.status, 'UPCOMING_AVAILABILITY_FOUND')
+      assert.deepEqual(result.state.pendingAvailabilityResolution?.options, nextAvailabilityOptions)
+      assert.deepEqual(domain.nextAvailabilityCalls, ['2026-07-27'])
+      assert.equal(result.reply.includes('27/07/2026 no tiene horarios disponibles'), true)
     }
   },
   {
@@ -4207,6 +4245,12 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       })
 
       assert.equal(result.state.draft.time, null)
+      assert.equal(result.state.draft.date, '2026-07-27')
+      assert.equal(result.state.pendingAvailabilityResolution?.status, 'REQUESTED_TIME_UNAVAILABLE')
+      assert.equal(
+        result.state.pendingAvailabilityResolution?.actions.includes('SEARCH_EXACT_TIME'),
+        true
+      )
       assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'time')
       assert.equal(result.reply.includes('• Nico: 16:00'), true)
     }
@@ -6777,6 +6821,12 @@ function fakeDomainPort(input?: {
     professionalId: string
     professionalName: string
   }>
+  nextAvailabilityOptions?: Array<{
+    date: string
+    time: string
+    professionalId: string
+    professionalName: string
+  }>
 }) {
   const domainCatalog = input?.catalog ?? fakeDomainCatalog()
   const availabilityOptions = input?.availabilityOptions ?? [
@@ -6784,9 +6834,11 @@ function fakeDomainPort(input?: {
     { time: '15:30', professionalId: 'professional-1', professionalName: 'Nico' }
   ]
   const availabilityCalls: string[] = []
+  const nextAvailabilityCalls: string[] = []
 
   return {
     availabilityCalls,
+    nextAvailabilityCalls,
     async loadCatalog() {
       return domainCatalog
     },
@@ -6818,6 +6870,10 @@ function fakeDomainPort(input?: {
         ok: true as const,
         options: availabilityOptions
       }
+    },
+    async findNextAvailabilityOptions(request: { afterDate: string }) {
+      nextAvailabilityCalls.push(request.afterDate)
+      return input?.nextAvailabilityOptions ?? []
     }
   }
 }
