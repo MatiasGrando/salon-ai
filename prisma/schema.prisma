@@ -119,6 +119,11 @@ enum ServiceCombinationPolicy {
   BLOCKED
 }
 
+enum ServiceVariantSelectionMode {
+  ONE_OF
+  MULTIPLE
+}
+
 enum UserRole {
   SUPER_ADMIN
   BUSINESS_ADMIN
@@ -433,6 +438,7 @@ model Service {
   parentServiceId String?
   parentService   Service?  @relation("ServiceVariants", fields: [parentServiceId], references: [id], onDelete: Restrict)
   variants        Service[] @relation("ServiceVariants")
+  variantSelectionMode ServiceVariantSelectionMode @default(ONE_OF)
 
   appointments      Appointment[]
   appointmentItems  AppointmentServiceItem[]

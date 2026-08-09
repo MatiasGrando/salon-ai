@@ -22,6 +22,7 @@ export type BookingV2ServiceOption = {
   categoryAdviceEnabled?: boolean
   parentServiceId?: string | null
   parentServiceName?: string | null
+  parentSelectionMode?: 'ONE_OF' | 'MULTIPLE' | null
   attentionMode?: 'DIRECT_BOOKING' | 'QUOTE' | 'ADVISOR' | 'GUIDED_ESTIMATE'
   requiresPhoto?: boolean
   estimateExplanation?: string | null
@@ -207,6 +208,7 @@ export class BookingV2DomainService {
           categoryAdviceEnabled: service.catalogCategory?.adviceEnabled === true,
           parentServiceId: service.parentServiceId,
           parentServiceName: service.parentService?.name ?? null,
+          parentSelectionMode: service.parentService?.variantSelectionMode ?? null,
           attentionMode: service.attentionMode,
           requiresPhoto: service.requiresPhoto,
           estimateExplanation: service.estimateExplanation,

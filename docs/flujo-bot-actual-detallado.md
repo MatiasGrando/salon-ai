@@ -512,14 +512,15 @@ Orden conceptual interno:
 2. Resolver decisiones pendientes antes de interpretar un mensaje nuevo.
 3. Obtener BookingV2Extraction o usar la que preparó ConversationRouter.
 4. Aplicar BookingV2Interpreter.
-5. Procesar additionalServices y combinedServices.
-6. Ejecutar validación, estimación, presupuesto o derivación del servicio.
-7. Evaluar reglas de combinación.
-8. Ofrecer adicionales configurados cuando corresponde.
-9. Comprobar profesionales compatibles.
-10. Buscar disponibilidad si ya hay servicio y fecha.
-11. Construir BookingV2MessagePlan.
-12. Renderizar la respuesta y devolver el nuevo estado.
+5. Procesar additionalServices, ambigüedades y combinedServices.
+6. Mantener el flujo dentro de servicios mientras quede una ambigüedad pendiente.
+7. Ejecutar validación, estimación, presupuesto o derivación del servicio.
+8. Evaluar reglas de combinación.
+9. Ofrecer adicionales configurados cuando corresponde.
+10. Comprobar profesionales compatibles.
+11. Buscar disponibilidad si ya hay servicio y fecha.
+12. Construir BookingV2MessagePlan.
+13. Renderizar la respuesta y devolver el nuevo estado.
 ```
 
 ### N21 — `BookingV2Interpreter`
@@ -548,6 +549,14 @@ cambiar hora         -> invalida confirmación previa
 ### N22 — validaciones y varios servicios
 
 Los servicios seleccionados se representan como servicio principal + `combinedServices`.
+
+Invariante de cierre de lista: si existe `pendingServiceDisambiguation`, el próximo campo continúa siendo `service`. Una validación, estimación o sugerencia de adicionales puede terminar, pero no puede adelantar el flujo a profesional, fecha u horario hasta que todas las referencias de la lista inicial hayan sido resueltas.
+
+Las familias reutilizan la jerarquía de variantes del catálogo: una familia no es reservable y sus hijos sí. `variantSelectionMode = ONE_OF` impide ofrecer como agregado otra variante de una familia ya seleccionada; `MULTIPLE` permite combinarlas. La categoría continúa siendo únicamente una agrupación de navegación.
+
+Los agregados se calculan sobre toda la lista final solicitada, no sólo sobre el servicio principal. Se unifican sugerencias, se eliminan servicios ya elegidos, variantes exclusivas repetidas y combinaciones bloqueadas. La compatibilidad profesional no elimina una sugerencia comercial: se resuelve en la etapa de agenda.
+
+La respuesta a agregados pasa primero por una decisión determinista. Negativas como «No, continuar», «sin extras» o «dejalo así», selecciones numéricas y afirmaciones con una única opción se resuelven sin IA. El extractor de elección se usa sólo cuando el texto sigue siendo semánticamente ambiguo; un «sí» frente a varias opciones repregunta cuál desea.
 
 1. `ServiceCombinationRule = BLOCKED`: ofrece separar, cambiar o quitar.
 2. `REVIEW_REQUIRED`: deriva a humano.

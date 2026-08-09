@@ -204,12 +204,13 @@ function semanticChoice() {
 function engine(
   domainCatalog = catalog(),
   options?: Parameters<typeof domain>[1],
-  choice = unclearChoice
+  choice = unclearChoice,
+  serviceValidationClassifier = unusedClassifier
 ) {
   return new BookingV2Engine(
     domain(domainCatalog, options),
     nullExtractor,
-    unusedClassifier,
+    serviceValidationClassifier,
     unusedDecision,
     unusedOption,
     choice
@@ -296,6 +297,87 @@ await test('dos familias ambiguas se preguntan en orden y se combinan al resolve
   assert.match(corte.reply, /Corte Hombre/)
 })
 
+await test('conversación dorada: color y corte cierra toda la lista antes de pedir profesional', async () => {
+  const domainCatalog = createBookingV2DomainCatalog({
+    services: [
+      { id: 'iluminacion', name: 'Iluminación', aliases: [], duration: 120, price: 160000, category: 'Color' },
+      { id: 'tintura-completa', name: 'Tintura completo', aliases: [], duration: 90, price: 75000, category: 'Color' },
+      {
+        id: 'tintura-raices',
+        name: 'Tintura raíces',
+        aliases: ['tintura de raíces'],
+        duration: 60,
+        price: 65000,
+        category: 'Color',
+        validationEnabled: true,
+        validationMessage: 'Este servicio es únicamente para tintura de raíces.',
+        validationQuestion: '¿Continuamos con este servicio?',
+        suggestedAddonIds: ['corte-mujer']
+      },
+      { id: 'corte-hombre', name: 'Corte hombre', aliases: [], duration: 30, price: 27000, category: 'Corte' },
+      { id: 'corte-mujer', name: 'Corte mujer', aliases: [], duration: 30, price: 37000, category: 'Corte' },
+      { id: 'corte-barba', name: 'Corte y barba', aliases: [], duration: 45, price: 32000, category: 'Corte' }
+    ],
+    professionals: [{
+      id: 'juan',
+      name: 'Juan',
+      serviceIds: ['iluminacion', 'tintura-completa', 'tintura-raices', 'corte-hombre', 'corte-mujer', 'corte-barba']
+    }]
+  })
+  const validationClassifier = {
+    async classify() {
+      return { decision: 'confirm' as const, confidence: 0.99 }
+    }
+  }
+  const bookingEngine = engine(domainCatalog, undefined, unclearChoice, validationClassifier)
+  const initial = await bookingEngine.process({
+    businessId: 'business-1',
+    conversation: conversationPatchFromState(namedState()),
+    message: 'Quiero color y corte'
+  })
+  const selected = await bookingEngine.process({
+    businessId: 'business-1',
+    conversation: initial.conversationPatch,
+    message: 'Tintura raíces'
+  })
+  assert.equal(selected.plan.type, 'ask_service_validation')
+
+  const validated = await bookingEngine.process({
+    businessId: 'business-1',
+    conversation: selected.conversationPatch,
+    message: 'Sí'
+  })
+  assert.equal(validated.plan.type, 'ask_field')
+  assert.equal(validated.plan.type === 'ask_field' ? validated.plan.field : null, 'service')
+  assert.deepEqual(validated.state.pendingServiceDisambiguation?.serviceIds, ['corte-hombre', 'corte-mujer', 'corte-barba'])
+  assert.match(validated.reply, /Corte hombre/)
+  assert.match(validated.reply, /Corte mujer/)
+  assert.match(validated.reply, /Corte y barba/)
+  assert.doesNotMatch(validated.reply, /¿Con quién preferís\?/i)
+  assert.notEqual(validated.plan.type, 'ask_service_addons')
+
+  const completedServices = await bookingEngine.process({
+    businessId: 'business-1',
+    conversation: validated.conversationPatch,
+    message: 'Corte hombre'
+  })
+  assert.equal(completedServices.state.pendingServiceDisambiguation, null)
+  assert.equal(completedServices.plan.type, 'ask_field')
+  assert.equal(completedServices.plan.type === 'ask_field' ? completedServices.plan.field : null, 'professional')
+  assert.deepEqual(completedServices.state.combinedServices.map((service) => service.serviceId), ['corte-hombre'])
+  assert.match(completedServices.reply, /Juan/)
+
+  const professional = await bookingEngine.process({
+    businessId: 'business-1',
+    conversation: completedServices.conversationPatch,
+    message: 'Juan'
+  })
+  assert.equal(professional.state.draft.professional, 'juan')
+  assert.equal(professional.plan.type, 'ask_field')
+  assert.equal(professional.plan.type === 'ask_field' ? professional.plan.field : null, 'date')
+  assert.doesNotMatch(professional.reply, /¿Con quién preferís\?/i)
+})
+
 await test('dos familias ambiguas aceptan ambas elecciones en una sola respuesta', async () => {
   const domainCatalog = ambiguousFamiliesCatalog()
   const first = await engine(domainCatalog).process({
@@ -355,7 +437,7 @@ await test('el bot ofrece extras configurados una sola vez y acepta uno menciona
   })
   assert.deepEqual(accepted.state.combinedServices.map((item) => item.serviceId), ['corte'])
   assert.equal(accepted.state.addonSuggestion, null)
-  assert.equal(accepted.state.addonOfferCompletedServiceId, 'alisado')
+  assert.equal(accepted.state.addonOfferCompletedServiceId, 'alisado|corte')
 
   const resumed = await engine().resume({
     businessId: 'business-1',
@@ -415,6 +497,138 @@ await test('rechazar extras con lenguaje natural continúa sin modificar los ser
   assert.deepEqual(declined.state.combinedServices, [])
   assert.equal(declined.state.addonSuggestion, null)
   assert.equal(declined.state.addonOfferCompletedServiceId, 'alisado')
+})
+
+await test('No, continuar rechaza extras sin usar el extractor de respaldo', async () => {
+  const failChoice = {
+    async extract() {
+      throw new Error('el extractor no debe ejecutarse para una negativa determinista')
+    }
+  }
+  const offered = await engine(catalog(), undefined, failChoice).resume({
+    businessId: 'business-1',
+    conversation: conversationPatchFromState(acceptField(namedState(), 'service', 'alisado'))
+  })
+  const declined = await engine(catalog(), undefined, failChoice).process({
+    businessId: 'business-1',
+    conversation: offered.conversationPatch,
+    message: 'No. continuar'
+  })
+  assert.equal(declined.state.addonSuggestion, null)
+  assert.equal(declined.state.addonOfferCompletedServiceId, 'alisado')
+  assert.equal(declined.plan.type, 'ask_field')
+  assert.equal(declined.plan.type === 'ask_field' ? declined.plan.field : null, 'professional')
+})
+
+await test('un sí sin elegir no selecciona automáticamente entre varios extras', async () => {
+  const failChoice = {
+    async extract() {
+      throw new Error('un sí ambiguo debe repreguntarse sin usar IA')
+    }
+  }
+  const offered = await engine(catalog(), undefined, failChoice).resume({
+    businessId: 'business-1',
+    conversation: conversationPatchFromState(acceptField(namedState(), 'service', 'alisado'))
+  })
+  const ambiguous = await engine(catalog(), undefined, failChoice).process({
+    businessId: 'business-1',
+    conversation: offered.conversationPatch,
+    message: 'Sí'
+  })
+  assert.equal(ambiguous.plan.type, 'ask_service_addons')
+  assert.deepEqual(ambiguous.state.combinedServices, [])
+})
+
+await test('un sí acepta el agregado cuando existe una sola opción', async () => {
+  const singleAddonCatalog = createBookingV2DomainCatalog({
+    services: catalog().services.map((service) =>
+      service.id === 'alisado'
+        ? { ...service, suggestedAddonIds: ['corte'] }
+        : service
+    ),
+    professionals: catalog().professionals
+  })
+  const failChoice = {
+    async extract() {
+      throw new Error('un sí con una opción debe resolverse sin IA')
+    }
+  }
+  const offered = await engine(singleAddonCatalog, undefined, failChoice).resume({
+    businessId: 'business-1',
+    conversation: conversationPatchFromState(acceptField(namedState(), 'service', 'alisado'))
+  })
+  const accepted = await engine(singleAddonCatalog, undefined, failChoice).process({
+    businessId: 'business-1',
+    conversation: offered.conversationPatch,
+    message: 'Sí'
+  })
+  assert.deepEqual(accepted.state.combinedServices.map((service) => service.serviceId), ['corte'])
+})
+
+await test('los agregados respetan ONE_OF y MULTIPLE sin depender del profesional común', async () => {
+  const familyCatalog = createBookingV2DomainCatalog({
+    services: [
+      {
+        id: 'raices',
+        name: 'Tintura raíces',
+        aliases: [],
+        duration: 60,
+        price: 65000,
+        category: 'Color',
+        suggestedAddonIds: ['corte-mujer', 'nutricion']
+      },
+      {
+        id: 'corte-hombre',
+        name: 'Corte hombre',
+        aliases: [],
+        duration: 30,
+        price: 27000,
+        category: 'Cortes',
+        parentServiceId: 'familia-corte',
+        parentServiceName: 'Corte',
+        parentSelectionMode: 'ONE_OF'
+      },
+      {
+        id: 'corte-mujer',
+        name: 'Corte mujer',
+        aliases: [],
+        duration: 30,
+        price: 37000,
+        category: 'Cortes',
+        parentServiceId: 'familia-corte',
+        parentServiceName: 'Corte',
+        parentSelectionMode: 'ONE_OF'
+      },
+      { id: 'nutricion', name: 'Nutrición', aliases: [], duration: 30, price: 25000, category: 'Tratamientos' }
+    ],
+    professionals: [{ id: 'juan', name: 'Juan', serviceIds: ['raices', 'corte-hombre'] }]
+  })
+  const selected = addCombinedServices(
+    acceptField(namedState(), 'service', 'raices'),
+    [{ serviceId: 'corte-hombre', evidence: 'corte hombre' }]
+  )
+  const offered = await engine(familyCatalog).resume({
+    businessId: 'business-1',
+    conversation: conversationPatchFromState({ ...selected, addonOfferCompletedServiceId: null })
+  })
+  assert.equal(offered.plan.type, 'ask_service_addons')
+  assert.match(offered.reply, /Nutrición/)
+  assert.doesNotMatch(offered.reply, /Corte mujer/)
+
+  const multipleCatalog = createBookingV2DomainCatalog({
+    services: familyCatalog.services.map((service) =>
+      service.parentServiceId === 'familia-corte'
+        ? { ...service, parentSelectionMode: 'MULTIPLE' as const }
+        : service
+    ),
+    professionals: familyCatalog.professionals
+  })
+  const multipleOffer = await engine(multipleCatalog).resume({
+    businessId: 'business-1',
+    conversation: conversationPatchFromState({ ...selected, addonOfferCompletedServiceId: null })
+  })
+  assert.equal(multipleOffer.plan.type, 'ask_service_addons')
+  assert.match(multipleOffer.reply, /Corte mujer/)
 })
 
 await test('una combinación bloqueada espera una decisión y entiende buscar por separado', async () => {
@@ -925,4 +1139,4 @@ await test('la búsqueda futura respeta el horizonte de 14 días y no ofrece el 
   assert.equal(visitedDates.includes('2026-10-16'), false)
 })
 
-console.log('\n26 pruebas específicas de conversaciones con servicios combinados pasaron.')
+console.log('\n31 pruebas específicas de conversaciones con servicios combinados pasaron.')

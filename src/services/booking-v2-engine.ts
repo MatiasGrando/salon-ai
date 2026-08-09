@@ -250,6 +250,7 @@ export class BookingV2Engine {
           combinedServices: [],
           pendingServiceSeparation: null,
           addonSuggestion: null,
+          addonOfferCompletedServiceId: initialState.draft.service,
           misunderstandingCount: 0
         }
         return this.fromInterpretation({
@@ -440,6 +441,42 @@ export class BookingV2Engine {
           outcome: 'accepted',
           affectedField: 'service'
         }, null, catalog)
+      }
+      const deterministicDecision = deterministicAddonDecision(
+        input.message,
+        suggestion.candidateServiceIds
+      )
+      if (deterministicDecision.type === 'decline') {
+        const state: BookingV2State = {
+          ...initialState,
+          addonSuggestion: null,
+          addonOfferCompletedServiceId: suggestion.sourceServiceId,
+          misunderstandingCount: 0
+        }
+        return this.fromInterpretation({
+          state,
+          nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
+          outcome: 'accepted',
+          affectedField: 'service'
+        }, null, catalog)
+      }
+      if (deterministicDecision.type === 'accept') {
+        const state = addCombinedServices(initialState, [{
+          serviceId: deterministicDecision.serviceId,
+          evidence: input.message.trim()
+        }])
+        return this.fromInterpretation({
+          state,
+          nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
+          outcome: 'accepted',
+          affectedField: 'service'
+        }, null, catalog)
+      }
+      if (deterministicDecision.type === 'ambiguous_affirmation') {
+        return this.guidedEstimateResult(initialState, {
+          type: 'ask_service_addons',
+          serviceIds: suggestion.candidateServiceIds
+        }, catalog, 'no_change')
       }
       const choice = await this.choiceExtractor.extract({
         message: input.message,
@@ -1519,6 +1556,18 @@ export class BookingV2Engine {
           state: prepareCombinedServiceDecision(interpretation.state, catalog)
         }
       : interpretation
+    if (
+      effectiveInterpretation.state.draft.name &&
+      effectiveInterpretation.state.pendingServiceDisambiguation
+    ) {
+      // La selección de servicios funciona como una frontera del flujo: aunque
+      // una validación, estimación o sugerencia interna haya terminado, no se
+      // puede pedir profesional, fecha u hora hasta cerrar toda la lista inicial.
+      effectiveInterpretation = {
+        ...effectiveInterpretation,
+        nextField: 'service'
+      }
+    }
     let plan = buildBookingV2MessagePlan(effectiveInterpretation, catalog?.bookingFlowOrder)
     let availabilityOptions: BookingV2AvailabilityOption[] = []
     let unavailableDate: string | null = null
@@ -1702,29 +1751,32 @@ export class BookingV2Engine {
 
     if (
       catalog &&
-      selectedServiceIds.length === 1 &&
+      selectedServiceIds.length >= 1 &&
       selectedService &&
-      effectiveInterpretation.state.addonOfferCompletedServiceId !== selectedService.id &&
+      effectiveInterpretation.state.addonOfferCompletedServiceId !== serviceSelectionKey(selectedServiceIds) &&
       !effectiveInterpretation.state.addonSuggestion &&
       plan.type === 'ask_field' &&
       ['professional', 'date'].includes(plan.field)
     ) {
-      const addonIds = (selectedService.suggestedAddonIds ?? []).filter((addonServiceId) =>
-        catalog.serviceIds.has(addonServiceId) &&
-        combinationRuleFor(catalog, selectedService.id, addonServiceId)?.policy !== 'BLOCKED' &&
-        catalog.professionals.some((professional) =>
-          [selectedService.id, addonServiceId].every((serviceId) =>
-            professional.serviceIds.includes(serviceId)
-          )
+      const selectedIds = new Set(selectedServiceIds)
+      const addonIds = Array.from(new Set(selectedServiceIds.flatMap((sourceServiceId) => {
+        const sourceService = catalog.services.find((service) => service.id === sourceServiceId)
+        return (sourceService?.suggestedAddonIds ?? []).filter((addonServiceId) =>
+          catalog.serviceIds.has(addonServiceId) &&
+          !selectedIds.has(addonServiceId) &&
+          !selectedServiceIds.some((selectedServiceId) =>
+            combinationRuleFor(catalog, selectedServiceId, addonServiceId)?.policy === 'BLOCKED'
+          ) &&
+          !conflictsWithExclusiveSelectedFamily(addonServiceId, selectedServiceIds, catalog)
         )
-      )
+      })))
       if (addonIds.length) {
         effectiveInterpretation = {
           ...effectiveInterpretation,
           state: {
             ...effectiveInterpretation.state,
             addonSuggestion: {
-              sourceServiceId: selectedService.id,
+              sourceServiceId: serviceSelectionKey(selectedServiceIds),
               candidateServiceIds: addonIds.slice(0, 4)
             }
           }
@@ -3170,6 +3222,51 @@ function selectedAddonIdsFromMessage(
     return matched ? [service.id] : []
   })
   return Array.from(new Set([...extractedIds, ...deterministicIds]))
+}
+
+function deterministicAddonDecision(
+  message: string,
+  candidateServiceIds: string[]
+):
+  | { type: 'decline' }
+  | { type: 'accept'; serviceId: string }
+  | { type: 'ambiguous_affirmation' }
+  | { type: 'unresolved' } {
+  const normalized = normalize(message)
+  if (
+    /^(?:no|no gracias|ningun[oa]?|sin extras?|continuar|seguimos?|seguir|dejalo asi|dejarlo asi|como esta|solo esos?|solamente esos?)(?:\b|$)/.test(normalized) ||
+    /^(?:prefiero|quiero) (?:continuar|seguir|dejarlo asi|solo esos?)/.test(normalized)
+  ) {
+    return { type: 'decline' }
+  }
+  const numericChoice = /^([1-9])$/.exec(normalized)
+  if (numericChoice) {
+    const serviceId = candidateServiceIds[Number(numericChoice[1]) - 1]
+    return serviceId ? { type: 'accept', serviceId } : { type: 'unresolved' }
+  }
+  if (/^(?:si|dale|bueno|ok|okay|joya|perfecto|agregalo|sumalo)$/.test(normalized)) {
+    return candidateServiceIds.length === 1
+      ? { type: 'accept', serviceId: candidateServiceIds[0]! }
+      : { type: 'ambiguous_affirmation' }
+  }
+  return { type: 'unresolved' }
+}
+
+function serviceSelectionKey(serviceIds: string[]) {
+  return Array.from(new Set(serviceIds)).sort().join('|')
+}
+
+function conflictsWithExclusiveSelectedFamily(
+  addonServiceId: string,
+  selectedServiceIds: string[],
+  catalog: BookingV2DomainCatalog
+) {
+  const addon = catalog.services.find((service) => service.id === addonServiceId)
+  if (!addon?.parentServiceId || addon.parentSelectionMode === 'MULTIPLE') return false
+  return selectedServiceIds.some((serviceId) => {
+    const selected = catalog.services.find((service) => service.id === serviceId)
+    return selected?.parentServiceId === addon.parentServiceId
+  })
 }
 
 function evaluateServiceCombination(

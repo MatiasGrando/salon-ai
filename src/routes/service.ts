@@ -153,6 +153,7 @@ export async function serviceRoutes(app: FastifyInstance) {
       categoryId?: string | null
       parentServiceId?: string | null
       isBookable?: boolean
+      variantSelectionMode?: string
       sortOrder?: number
       attentionMode?: string
       requiresPhoto?: boolean
@@ -192,6 +193,7 @@ export async function serviceRoutes(app: FastifyInstance) {
     const categoryId = normalizeNullableId(body.categoryId)
     const parentServiceId = normalizeNullableId(body.parentServiceId)
     const isBookable = body.isBookable !== false
+    const variantSelectionMode = normalizeVariantSelectionMode(body.variantSelectionMode)
     const attentionMode = normalizeServiceAttentionMode(body.attentionMode)
     const requiresPhoto = Boolean(body.requiresPhoto)
     const estimateOptions = normalizeEstimateOptions(body.estimateOptions)
@@ -253,6 +255,9 @@ export async function serviceRoutes(app: FastifyInstance) {
       return reply.status(400).send({
         message: 'Una variante debe poder reservarse'
       })
+    }
+    if (body.variantSelectionMode !== undefined && !variantSelectionMode) {
+      return reply.status(400).send({ message: 'Selecciona una politica de familia valida' })
     }
     if (body.attentionMode !== undefined && !attentionMode) {
       return reply.status(400).send({
@@ -358,6 +363,7 @@ export async function serviceRoutes(app: FastifyInstance) {
       catalogCategoryId: categoryId,
       parentServiceId,
       isBookable,
+      variantSelectionMode: isBookable ? 'ONE_OF' : variantSelectionMode ?? 'ONE_OF',
       sortOrder: normalizeSortOrder(body.sortOrder),
       attentionMode: isBookable ? attentionMode ?? 'DIRECT_BOOKING' : 'DIRECT_BOOKING',
       requiresPhoto: isBookable ? requiresPhoto : false,
@@ -449,6 +455,7 @@ export async function serviceRoutes(app: FastifyInstance) {
       categoryId?: string | null
       parentServiceId?: string | null
       isBookable?: boolean
+      variantSelectionMode?: string
       sortOrder?: number
       attentionMode?: string
       requiresPhoto?: boolean
@@ -513,6 +520,7 @@ export async function serviceRoutes(app: FastifyInstance) {
         catalogCategoryId: true,
         parentServiceId: true,
         isBookable: true,
+        variantSelectionMode: true,
         priceMode: true,
         attentionMode: true,
         requiresPhoto: true,
@@ -551,6 +559,12 @@ export async function serviceRoutes(app: FastifyInstance) {
     const isBookable = typeof body.isBookable === 'boolean'
       ? body.isBookable
       : existing.isBookable
+    const variantSelectionMode = body.variantSelectionMode === undefined
+      ? existing.variantSelectionMode
+      : normalizeVariantSelectionMode(body.variantSelectionMode)
+    if (!variantSelectionMode) {
+      return reply.status(400).send({ message: 'Selecciona una politica de familia valida' })
+    }
     const priceMode = body.priceMode === undefined
       ? existing.priceMode
       : normalizeServicePriceMode(body.priceMode)
@@ -724,6 +738,7 @@ export async function serviceRoutes(app: FastifyInstance) {
           catalogCategoryId: categoryId,
           parentServiceId,
           isBookable,
+          variantSelectionMode: isBookable ? 'ONE_OF' : variantSelectionMode,
           priceMode: isBookable ? priceMode : 'FIXED',
           attentionMode: isBookable ? attentionMode : 'DIRECT_BOOKING',
           requiresPhoto: isBookable ? requiresPhoto : false,
@@ -812,6 +827,7 @@ export async function serviceRoutes(app: FastifyInstance) {
       where: { id: params.id },
       select: {
         id: true,
+        isBookable: true,
         variants: {
           select: { id: true }
         }
@@ -819,6 +835,18 @@ export async function serviceRoutes(app: FastifyInstance) {
     })
     if (!service) {
       return reply.status(404).send({ message: 'No encontre el servicio' })
+    }
+
+    if (!service.isBookable) {
+      await prisma.$transaction([
+        prisma.service.updateMany({
+          where: { parentServiceId: service.id },
+          data: { parentServiceId: null }
+        }),
+        prisma.serviceAlias.deleteMany({ where: { serviceId: service.id } }),
+        prisma.service.delete({ where: { id: service.id } })
+      ])
+      return { deleted: true }
     }
 
     const serviceIds = [service.id, ...service.variants.map((variant) => variant.id)]
@@ -905,7 +933,8 @@ const serviceCatalogInclude = {
   parentService: {
     select: {
       id: true,
-      name: true
+      name: true,
+      variantSelectionMode: true
     }
   },
   _count: {
@@ -1147,6 +1176,15 @@ function normalizeServiceAttentionMode(value?: string) {
     normalized === 'QUOTE' ||
     normalized === 'ADVISOR' ||
     normalized === 'GUIDED_ESTIMATE'
+    ? normalized
+    : value === undefined
+      ? undefined
+      : null
+}
+
+function normalizeVariantSelectionMode(value?: string) {
+  const normalized = value?.trim().toUpperCase()
+  return normalized === 'ONE_OF' || normalized === 'MULTIPLE'
     ? normalized
     : value === undefined
       ? undefined

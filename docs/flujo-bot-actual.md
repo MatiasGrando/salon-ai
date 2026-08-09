@@ -145,6 +145,10 @@ flowchart TD
 
 `BookingV2DomainService.findAvailabilityOptions` filtra primero los profesionales que hacen **todos** los servicios elegidos. Luego `AppointmentService.findAvailability` suma las duraciones y busca un bloque continuo para ese único profesional. Si no existe un profesional común, el estado pasa a `pendingServiceSeparation`.
 
+La lista de servicios actúa como una frontera del flujo: mientras exista una referencia ambigua pendiente, el motor no puede pedir profesional, fecha ni horario. Primero aclara todos los servicios, ejecuta sus validaciones y consolida la lista final; recién después continúa con agenda.
+
+Servicios permite crear Familias junto a Categorías. La categoría organiza el catálogo; la familia agrupa variantes reservables y define si se elige una (`ONE_OF`) o pueden combinarse varias (`MULTIPLE`). Al ofrecer agregados sobre una reserva múltiple, el motor reúne las sugerencias de todos los servicios y filtra duplicados, variantes exclusivas ya satisfechas y reglas bloqueadas. Las respuestas simples se resuelven determinísticamente antes de usar el extractor de elección.
+
 Si la persona acepta separar, `BookingV2Engine` mueve los restantes a `queuedServices`: confirma una reserva y luego vuelve a iniciar la siguiente. Es una secuencia de reservas independientes, no una combinación coordinada en la misma visita.
 
 ## 5. Confirmación, agenda y seña

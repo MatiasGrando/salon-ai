@@ -13136,6 +13136,7 @@ const crmHtml = `<!doctype html>
           </div>
           <div class="services-header-actions">
             <button class="secondary service-category-open" id="service-category-open" type="button">Agregar categor&iacute;a</button>
+            <button class="secondary service-category-open" id="service-family-open" type="button">Agregar familia</button>
             <div class="service-count-card">
               <div class="service-count-icon" data-icon="copy"></div>
               <div>
@@ -13310,11 +13311,19 @@ const crmHtml = `<!doctype html>
                   <option value="__ADD_CATEGORY__">Agregar nueva categor&iacute;a</option>
                 </select>
               </div>
-              <div id="service-parent-group" hidden style="display: none;">
-                <label for="service-parent">Grupo principal</label>
-                <div class="service-form-help">Solo aparecen elementos creados como Grupo de variantes.</div>
+              <div class="service-form-group" id="service-family-mode-group" hidden>
+                <label for="service-family-selection-mode">Selecci&oacute;n de variantes</label>
+                <select id="service-family-selection-mode">
+                  <option value="ONE_OF">Elegir una variante</option>
+                  <option value="MULTIPLE">Permitir varias variantes</option>
+                </select>
+                <div class="service-form-help">La familia organiza opciones relacionadas y no se reserva directamente.</div>
+              </div>
+              <div class="service-form-group" id="service-parent-group">
+                <label for="service-parent">Familia (opcional)</label>
+                <div class="service-form-help">Usala para agrupar variantes como Tintura ra&iacute;ces y Tintura completa.</div>
                 <select id="service-parent">
-                  <option value="">Seleccionar grupo</option>
+                  <option value="">Sin familia</option>
                 </select>
               </div>
               <div hidden style="display: none;">
@@ -15482,6 +15491,9 @@ const crmHtml = `<!doctype html>
       serviceDepositHoldMinutes: document.getElementById('service-deposit-hold-minutes'),
       serviceParentGroup: document.getElementById('service-parent-group'),
       serviceParent: document.getElementById('service-parent'),
+      serviceFamilyModeGroup: document.getElementById('service-family-mode-group'),
+      serviceFamilySelectionMode: document.getElementById('service-family-selection-mode'),
+      serviceFamilyOpen: document.getElementById('service-family-open'),
       serviceCategoryOpen: document.getElementById('service-category-open'),
       serviceCategoryDialog: document.getElementById('service-category-dialog'),
       serviceCategoryDialogTitle: document.getElementById('service-category-dialog-title'),
@@ -17910,7 +17922,7 @@ const crmHtml = `<!doctype html>
       els.serviceCategory.dataset.lastValue = selectedCategory
 
       const currentServiceId = els.serviceId.value
-      els.serviceParent.innerHTML = '<option value="">Seleccionar grupo</option>' +
+      els.serviceParent.innerHTML = '<option value="">Sin familia</option>' +
         state.services
           .filter((service) =>
             !service.parentServiceId &&
@@ -18046,16 +18058,15 @@ const crmHtml = `<!doctype html>
       for (const setting of els.serviceForm.querySelectorAll('.service-combination-setting')) {
         setting.hidden = isGroup
       }
-      els.serviceParentGroup.hidden = !isVariant
-
-      if (!isVariant) els.serviceParent.value = ''
+      els.serviceParentGroup.hidden = isGroup
+      els.serviceFamilyModeGroup.hidden = !isGroup
 
       els.serviceItemTypeHelp.textContent = isGroup
-        ? 'Organiza opciones relacionadas y no se puede reservar directamente.'
+        ? 'Organiza variantes relacionadas y no se puede reservar directamente.'
         : isVariant
           ? hasGroups
             ? 'Es una opción reservable dentro del grupo que selecciones.'
-            : 'Primero creá un Grupo de variantes para poder asociarla.'
+            : 'Primero creá una familia para poder asociarla.'
           : 'El cliente puede reservarlo directamente y no contiene variantes.'
       updateServiceAttentionHelp()
       updateServicePriceModeHelp()
@@ -18223,7 +18234,7 @@ const crmHtml = `<!doctype html>
             const hierarchyLabel = itemType === 'VARIANT'
               ? 'Variante'
               : itemType === 'GROUP'
-                ? Number(service._count?.variants || 0) + ' variantes'
+                ? 'Familia · ' + Number(service._count?.variants || 0) + ' variantes'
                 : 'Servicio'
             const professionalCount = Number(service._count?.professionalLinks || 0)
             const attentionMode = service.attentionMode || 'DIRECT_BOOKING'
@@ -18249,7 +18260,7 @@ const crmHtml = `<!doctype html>
               ? customerDurationMin + ' min'
               : customerDurationMin + ' a ' + customerDurationMax + ' min'
             const serviceMeta = itemType === 'GROUP'
-              ? '<span>Grupo de variantes</span>'
+              ? '<span>Familia de servicios</span>'
               : '<span>' + icon('clock') + escapeHtml((hasDifferentCustomerDuration ? 'Agenda: ' : '') + service.duration + ' min') + '</span>' +
                 (hasDifferentCustomerDuration ? '<span>Cliente: ' + escapeHtml(customerDurationLabel) + '</span>' : '') +
                 '<span>' + icon('tag') + escapeHtml(priceLabel) + '</span>' +
@@ -25062,6 +25073,18 @@ const crmHtml = `<!doctype html>
       els.serviceCategoryDialogTitle.textContent = 'Agregar categoría'
     }
 
+    function openServiceFamilyEditor() {
+      resetServiceForm()
+      els.serviceItemType.value = 'GROUP'
+      els.serviceCancel.hidden = false
+      els.serviceFormTitle.textContent = 'Nueva familia'
+      els.serviceSubmit.textContent = 'Guardar familia'
+      els.serviceFeedback.textContent = 'Creá una familia y después asignale sus variantes desde cada servicio.'
+      updateServiceTypeFields()
+      els.serviceForm.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      requestAnimationFrame(() => els.serviceName.focus())
+    }
+
     async function reloadServiceCatalog() {
       const businessQuery = state.businessId
         ? '?businessId=' + encodeURIComponent(state.businessId)
@@ -25090,9 +25113,9 @@ const crmHtml = `<!doctype html>
       const id = els.serviceId.value
       const name = els.serviceName.value.trim()
       const description = els.serviceDescription.value.trim()
-      const itemType = id ? els.serviceItemType.value : 'SERVICE'
+      const itemType = els.serviceItemType.value
       const isGroup = itemType === 'GROUP'
-      const isVariant = itemType === 'VARIANT'
+      const isVariant = !isGroup && Boolean(els.serviceParent.value.trim())
       const duration = isGroup ? 1 : Number(els.serviceDuration.value)
       const hasDifferentCustomerDuration = !isGroup && els.serviceCustomerDurationDifferent.checked
       const customerDurationMin = hasDifferentCustomerDuration
@@ -25109,6 +25132,7 @@ const crmHtml = `<!doctype html>
       const priceMode = isGroup ? 'FIXED' : els.servicePriceMode.value
       const categoryId = els.serviceCategory.value.trim() || null
       const parentServiceId = isVariant ? els.serviceParent.value.trim() || null : null
+      const variantSelectionMode = isGroup ? els.serviceFamilySelectionMode.value : 'ONE_OF'
       const aliases = els.serviceAliases.value
         .split(',')
         .map((alias) => alias.trim())
@@ -25272,6 +25296,7 @@ const crmHtml = `<!doctype html>
             categoryId,
             parentServiceId,
             isBookable: !isGroup,
+            variantSelectionMode,
             attentionMode,
             requiresPhoto,
             estimateExplanation: isGuidedEstimate
@@ -25299,7 +25324,9 @@ const crmHtml = `<!doctype html>
             aliases
           })
         })
-        const successMessage = id ? 'Servicio actualizado.' : 'Servicio creado.'
+        const successMessage = id
+          ? isGroup ? 'Familia actualizada.' : 'Servicio actualizado.'
+          : isGroup ? 'Familia creada.' : 'Servicio creado.'
         resetServiceForm()
         els.serviceFeedback.textContent = successMessage
         await reloadServiceCatalog()
@@ -25354,6 +25381,7 @@ const crmHtml = `<!doctype html>
       els.servicePriceMode.value = service.priceMode || 'FIXED'
       els.serviceCategory.value = service.catalogCategoryId || ''
       els.serviceParent.value = service.parentServiceId || ''
+      els.serviceFamilySelectionMode.value = service.variantSelectionMode || 'ONE_OF'
       els.serviceAttentionMode.value = service.attentionMode || 'DIRECT_BOOKING'
       els.serviceRequiresPhoto.checked = service.requiresPhoto === true
       els.serviceEstimateExplanation.value = service.estimateExplanation || ''
@@ -25379,8 +25407,9 @@ const crmHtml = `<!doctype html>
       setServiceImage(service.imageUrl || null)
       els.serviceCancel.hidden = false
       els.serviceFeedback.textContent = 'Editando servicio.'
-      els.serviceFormTitle.textContent = 'Editar servicio'
-      document.getElementById('service-submit').textContent = 'Guardar cambios'
+      const editingFamily = getServiceItemType(service) === 'GROUP'
+      els.serviceFormTitle.textContent = editingFamily ? 'Editar familia' : 'Editar servicio'
+      document.getElementById('service-submit').textContent = editingFamily ? 'Guardar familia' : 'Guardar cambios'
       setSection('services')
     }
 
@@ -25388,8 +25417,8 @@ const crmHtml = `<!doctype html>
       const service = state.services.find((item) => item.id === id)
       if (!service) return
       const variantCount = Number(service._count?.variants || 0)
-      const deleteMessage = variantCount > 0
-        ? '¿Querés eliminar el grupo ' + service.name + ' y sus ' + variantCount + ' variantes? Esta acción no se puede deshacer.'
+      const deleteMessage = service.isBookable === false && variantCount > 0
+        ? '¿Querés eliminar la familia ' + service.name + '? Sus ' + variantCount + ' variantes se conservarán como servicios sin familia.'
         : '¿Querés eliminar ' + service.name + '? Esta acción no se puede deshacer.'
       if (!await requestCrmConfirmation(deleteMessage)) return
 
@@ -25417,6 +25446,7 @@ const crmHtml = `<!doctype html>
       els.serviceCategory.value = ''
       els.serviceItemType.value = 'SERVICE'
       els.serviceParent.value = ''
+      els.serviceFamilySelectionMode.value = 'ONE_OF'
       els.serviceAttentionMode.value = 'DIRECT_BOOKING'
       els.serviceRequiresPhoto.checked = false
       els.serviceEstimateExplanation.value = ''
@@ -25747,6 +25777,7 @@ const crmHtml = `<!doctype html>
     els.serviceCustomerDurationMin.addEventListener('input', updateServiceCustomerDurationFields)
     els.serviceCustomerDurationMax.addEventListener('input', updateServiceCustomerDurationFields)
     els.serviceEstimateAddOption.addEventListener('click', () => addServiceEstimateOption())
+    els.serviceFamilyOpen.addEventListener('click', openServiceFamilyEditor)
     els.serviceCategoryOpen.addEventListener('click', () => openServiceCategoryDialog())
     els.serviceCategoryClose.addEventListener('click', closeServiceCategoryDialog)
     els.serviceCategorySave.addEventListener('click', saveServiceCategory)

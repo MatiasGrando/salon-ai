@@ -262,7 +262,9 @@ export function addCombinedServices(
     ...state,
     combinedServices: combinedServices.slice(0, 4),
     addonSuggestion: null,
-    addonOfferCompletedServiceId: state.draft.service,
+    // Conservamos la clave de toda la selección para no volver a ofrecer
+    // extras al terminar de agregar uno en una reserva combinada.
+    addonOfferCompletedServiceId: Array.from(seen).sort().join('|') || null,
     pendingCombinedAvailability: null,
     pendingServiceSeparation: null,
     pendingServiceReplacement: null
