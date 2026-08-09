@@ -10,6 +10,7 @@ export function detectServiceCatalogPresentationIntent(
   if (!normalized) return null
 
   if (isExplicitCategoryNavigation(normalized)) return 'show_categories'
+  if (isBusinessDefaultCatalogRequest(normalized)) return 'use_business_default'
   const bookingRequest = isBookingRequest(normalized)
   if (
     isExplicitFullCatalogRequest(normalized) &&
@@ -19,6 +20,33 @@ export function detectServiceCatalogPresentationIntent(
   }
   if (bookingRequest) return 'use_business_default'
   return null
+}
+
+function isBusinessDefaultCatalogRequest(message: string) {
+  return [
+    'ver servicios',
+    'mostrar servicios',
+    'mostrame servicios',
+    'muestrame servicios',
+    'servicios'
+  ].includes(message)
+}
+
+export function detectContextualServiceCatalogPresentationIntent(
+  message: string
+): ServiceCatalogPresentationIntent | null {
+  const explicitIntent = detectServiceCatalogPresentationIntent(message)
+  if (explicitIntent) return explicitIntent
+
+  const normalized = normalizeCatalogIntentMessage(message)
+  return [
+    'todos',
+    'si ver',
+    'si quiero ver',
+    'si mostrame'
+  ].includes(normalized)
+    ? 'show_all'
+    : null
 }
 
 function hasExplicitCatalogInformationRequest(message: string) {
@@ -56,6 +84,11 @@ function isExplicitFullCatalogRequest(message: string) {
     return true
   }
   return false
+}
+
+export function isAmbiguousCatalogAffirmation(message: string) {
+  const normalized = normalizeCatalogIntentMessage(message)
+  return ['si', 'dale', 'ok', 'okay', 'bueno'].includes(normalized)
 }
 
 function isBookingRequest(message: string) {

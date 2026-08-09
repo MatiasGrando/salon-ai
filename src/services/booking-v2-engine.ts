@@ -53,7 +53,10 @@ import {
   type BookingV2ConversationPatch,
   type BookingV2ConversationSnapshot
 } from './booking-v2-conversation-state.js'
-import { detectServiceCatalogPresentationIntent } from './service-catalog-presentation-intent.js'
+import {
+  detectContextualServiceCatalogPresentationIntent,
+  isAmbiguousCatalogAffirmation
+} from './service-catalog-presentation-intent.js'
 
 type BookingV2DomainPort = Pick<
   BookingV2DomainService,
@@ -134,11 +137,12 @@ export class BookingV2Engine {
     const storedState = stateFromConversation(input.conversation)
     const catalog = await this.domain.loadCatalog(input.businessId)
     const sanitizedState = sanitizeCatalogNameCollision(storedState, catalog)
-    const catalogPresentationIntent = detectServiceCatalogPresentationIntent(input.message)
+    const catalogPresentationIntent = detectContextualServiceCatalogPresentationIntent(input.message)
     const initialState: BookingV2State =
       catalog.displayMode === 'CATEGORIES_FIRST' && !sanitizedState.draft.service
         ? {
             ...sanitizedState,
+            ...(catalogPresentationIntent ? { unsupportedServiceRequest: null } : {}),
             catalogNavigation: catalogPresentationIntent === 'show_all'
               ? {
                   view: 'ALL_SERVICES',
@@ -152,7 +156,9 @@ export class BookingV2Engine {
                 ? null
                 : sanitizedState.catalogNavigation
           }
-        : sanitizedState
+          : catalogPresentationIntent
+            ? { ...sanitizedState, unsupportedServiceRequest: null }
+            : sanitizedState
 
     if (initialState.pendingServiceSeparation) {
       const pending = initialState.pendingServiceSeparation
@@ -1201,7 +1207,7 @@ export class BookingV2Engine {
     const categories = catalogCategoryOptions(input.catalog)
     if (!categories.some((category) => category.name !== 'Otros')) return null
 
-    const presentationIntent = detectServiceCatalogPresentationIntent(input.message)
+    const presentationIntent = detectContextualServiceCatalogPresentationIntent(input.message)
     const directService = resolveCatalogServiceSelection(input.message, input.catalog)
     if (
       !directService &&
@@ -1288,6 +1294,15 @@ export class BookingV2Engine {
       }
       return this.fromInterpretation({
         state,
+        nextField: 'service',
+        outcome: 'no_change',
+        affectedField: 'service'
+      }, null, input.catalog)
+    }
+
+    if (isAmbiguousCatalogAffirmation(input.message)) {
+      return this.fromInterpretation({
+        state: input.state,
         nextField: 'service',
         outcome: 'no_change',
         affectedField: 'service'

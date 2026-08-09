@@ -11,7 +11,9 @@ import { nextMissingField } from './booking-v2-state.js'
 import type { BookingFlowOrder } from './booking-v2-state.js'
 import { normalizeText } from './message-understanding-service.js'
 import {
+  detectContextualServiceCatalogPresentationIntent,
   detectServiceCatalogPresentationIntent,
+  isAmbiguousCatalogAffirmation,
   isNaturalServiceBookingRequest
 } from './service-catalog-presentation-intent.js'
 
@@ -367,6 +369,34 @@ export function applyContextualRoutingPriorities(
   routing: Omit<ConversationRouting, 'source'>,
   input: Pick<ConversationRouterInput, 'message' | 'currentStep'>
 ): Omit<ConversationRouting, 'source'> {
+  const catalogPresentationIntent = input.currentStep === 'ASK_SERVICE'
+    ? detectContextualServiceCatalogPresentationIntent(input.message)
+    : detectServiceCatalogPresentationIntent(input.message)
+  if (
+    input.currentStep === 'ASK_SERVICE' &&
+    (catalogPresentationIntent || isAmbiguousCatalogAffirmation(input.message))
+  ) {
+    const intents = routing.intents.filter((intent) =>
+      !['unknown', 'other_query', 'service_detail'].includes(intent.type) &&
+      !(intent.type === 'business_information' && intent.topic === 'services')
+    )
+    if (!intents.some((intent) => intent.type === 'book_appointment')) {
+      intents.push({
+        type: 'book_appointment',
+        topic: null,
+        confidence: 1,
+        evidence: input.message.trim()
+      })
+    }
+    return {
+      ...routing,
+      intents,
+      bookingMessage: input.message.trim() || null,
+      bookingExtraction: null,
+      catalogQuery: null
+    }
+  }
+
   if (input.currentStep === 'ASK_TIME' && isCompactTimeSelection(input.message)) {
     const intents = routing.intents.filter((intent) =>
       ![

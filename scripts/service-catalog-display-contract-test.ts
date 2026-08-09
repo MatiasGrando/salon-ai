@@ -4,7 +4,8 @@ import { BookingV2Engine } from '../src/services/booking-v2-engine.js'
 import {
   catalogCategoryOptions,
   createBookingV2DomainCatalog,
-  normalizeCatalogDisplayMode
+  normalizeCatalogDisplayMode,
+  type BookingV2DomainCatalog
 } from '../src/services/booking-v2-domain.js'
 import {
   conversationPatchFromState
@@ -17,7 +18,10 @@ import {
   catalogRecoveryActionFromInteractiveReply,
   catalogRecoveryDecisionButtons
 } from '../src/services/conversation-service.js'
-import { detectServiceCatalogPresentationIntent } from '../src/services/service-catalog-presentation-intent.js'
+import {
+  detectContextualServiceCatalogPresentationIntent,
+  detectServiceCatalogPresentationIntent
+} from '../src/services/service-catalog-presentation-intent.js'
 
 const categoriesCatalog = createBookingV2DomainCatalog({
   displayMode: 'CATEGORIES_FIRST',
@@ -59,7 +63,16 @@ const allServicesCatalog = createBookingV2DomainCatalog({
   professionals: []
 })
 
-function fakeDomain(catalog: typeof categoriesCatalog) {
+const reservableCategoriesCatalog = createBookingV2DomainCatalog({
+  displayMode: 'CATEGORIES_FIRST',
+  services: categoriesCatalog.services,
+  professionals: [
+    { id: 'lucas', name: 'Lucas', serviceIds: ['tinte'] },
+    { id: 'tamara', name: 'Tamara', serviceIds: ['tinte', 'raices'] }
+  ]
+})
+
+function fakeDomain(catalog: BookingV2DomainCatalog) {
   return {
     async loadCatalog() {
       return catalog
@@ -71,7 +84,11 @@ function fakeDomain(catalog: typeof categoriesCatalog) {
           name: service.name,
           aliases: service.aliases
         })),
-        professionals: []
+        professionals: catalog.professionals.map((professional) => ({
+          id: professional.id,
+          name: professional.name,
+          aliases: []
+        }))
       }
     },
     toInterpreterCatalog() {
@@ -118,7 +135,7 @@ const unusedOptionExtractor = {
 }
 
 function engineFor(
-  catalog: typeof categoriesCatalog,
+  catalog: BookingV2DomainCatalog,
   choiceExtractor: {
     extract(input: {
       message: string
@@ -172,6 +189,11 @@ assert.equal(
 assert.equal(detectServiceCatalogPresentationIntent('quiero teñirme'), null)
 assert.equal(detectServiceCatalogPresentationIntent('quiero saber las opciones de color'), null)
 assert.equal(detectServiceCatalogPresentationIntent('ver categorías'), 'show_categories')
+assert.equal(detectServiceCatalogPresentationIntent('Ver servicios'), 'use_business_default')
+assert.equal(detectServiceCatalogPresentationIntent('todos'), null)
+for (const message of ['todos', 'si ver', 'sí, ver', 'sí quiero ver']) {
+  assert.equal(detectContextualServiceCatalogPresentationIntent(message), 'show_all', message)
+}
 
 const categoryMenu = await engineFor(categoriesCatalog).resume({
   businessId: 'business-1',
@@ -183,6 +205,29 @@ assert.match(categoryMenu.reply, /Cortes/)
 assert.doesNotMatch(categoryMenu.reply, /Color completo/)
 assert.doesNotMatch(categoryMenu.reply, /\$\s*65\.000/)
 
+const unsupportedNamedState = {
+  ...namedState,
+  unsupportedServiceRequest: { normalizedRequest: 'servicio inventado', count: 1 }
+}
+const defaultCategoriesFromButtonText = await engineFor(categoriesCatalog).process({
+  businessId: 'business-1',
+  conversation: conversationPatchFromState(unsupportedNamedState),
+  message: 'Ver servicios'
+})
+assert.equal(defaultCategoriesFromButtonText.state.catalogNavigation, null)
+assert.equal(defaultCategoriesFromButtonText.state.unsupportedServiceRequest, null)
+assert.match(defaultCategoriesFromButtonText.reply, /tipo de servicio/i)
+assert.match(defaultCategoriesFromButtonText.reply, /Coloración/)
+assert.doesNotMatch(defaultCategoriesFromButtonText.reply, /Color completo/)
+
+const defaultAllServicesFromButtonText = await engineFor(allServicesCatalog).process({
+  businessId: 'business-1',
+  conversation: conversationPatchFromState(namedState),
+  message: 'Ver servicios'
+})
+assert.match(defaultAllServicesFromButtonText.reply, /Color completo/)
+assert.match(defaultAllServicesFromButtonText.reply, /Corte/)
+
 const openedCategory = await engineFor(categoriesCatalog).process({
   businessId: 'business-1',
   conversation: conversationPatchFromState(namedState),
@@ -192,6 +237,21 @@ assert.equal(openedCategory.state.catalogNavigation?.categoryName, 'Coloración'
 assert.match(openedCategory.reply, /Color completo/)
 assert.match(openedCategory.reply, /Raíces/)
 assert.doesNotMatch(openedCategory.reply, /• Corte/)
+
+const reservableCategory = await engineFor(reservableCategoriesCatalog).process({
+  businessId: 'business-1',
+  conversation: conversationPatchFromState(namedState),
+  message: 'Coloración'
+})
+const selectedCategoryService = await engineFor(reservableCategoriesCatalog).process({
+  businessId: 'business-1',
+  conversation: reservableCategory.conversationPatch,
+  message: 'Raíces'
+})
+assert.equal(selectedCategoryService.state.draft.service, 'raices')
+assert.match(selectedCategoryService.reply, /Tamara/)
+assert.doesNotMatch(selectedCategoryService.reply, /Lucas/)
+assert.match(selectedCategoryService.reply, /con qui[eé]n/i)
 
 const resumedCategory = await engineFor(categoriesCatalog).resume({
   businessId: 'business-1',
@@ -224,6 +284,32 @@ const showAll = await engineFor(categoriesCatalog).process({
 assert.equal(showAll.state.catalogNavigation?.view, 'ALL_SERVICES')
 assert.match(showAll.reply, /Color completo/)
 assert.match(showAll.reply, /Corte/)
+assert.doesNotMatch(showAll.reply, /tipo de servicio/i)
+
+for (const message of ['todos', 'si ver', 'sí, ver']) {
+  const contextualShowAll = await engineFor(categoriesCatalog).process({
+    businessId: 'business-1',
+    conversation: conversationPatchFromState(namedState),
+    message
+  })
+  assert.equal(contextualShowAll.state.catalogNavigation?.view, 'ALL_SERVICES', message)
+  assert.match(contextualShowAll.reply, /Color completo/, message)
+  assert.match(contextualShowAll.reply, /Corte/, message)
+  assert.doesNotMatch(contextualShowAll.reply, /tipo de servicio/i, message)
+}
+
+const ambiguousYes = await engineFor(categoriesCatalog, {
+  async extract() {
+    return { choiceId: 'show_all_services', confidence: 0.99 }
+  }
+}).process({
+  businessId: 'business-1',
+  conversation: conversationPatchFromState(namedState),
+  message: 'sí'
+})
+assert.equal(ambiguousYes.state.catalogNavigation, null)
+assert.match(ambiguousYes.reply, /tipo de servicio/i)
+assert.doesNotMatch(ambiguousYes.reply, /Color completo/)
 
 for (const message of [
   'quiero saber qué servicios tienen',

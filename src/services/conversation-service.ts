@@ -157,11 +157,20 @@ export class ConversationService {
       : 'active'
     const storedBookingState = existingConversation ? stateFromConversation(existingConversation) : null
     const hasPendingContextDecision = Boolean(storedBookingState?.contextPause)
+    const hasDirectInteractiveAction = Boolean(
+      existingConversation && (
+        recoveryActionFromInteractiveReply(input.interactiveReplyId, existingConversation.id) ||
+        catalogRecoveryActionFromInteractiveReply(input.interactiveReplyId, existingConversation.id) ||
+        unsupportedServiceActionFromInteractiveReply(input.interactiveReplyId, existingConversation.id) ||
+        otherQueryMenuActionFromInteractiveReply(input.interactiveReplyId, existingConversation.id)
+      )
+    )
     const hardResetRequested = isHardResetMessage(message)
     let contextAction: 'continue' | 'new' | 'handoff' | 'unclear' | null = null
 
     if (
       !hardResetRequested &&
+      !hasDirectInteractiveAction &&
       existingConversation &&
       bookingV2Enabled &&
       businessId &&
@@ -298,6 +307,98 @@ export class ConversationService {
       }
     }
 
+    const recoveryState = stateFromConversation(conversation)
+    const otherQueryMenuAction = otherQueryMenuActionFromInteractiveReply(
+      input.interactiveReplyId,
+      conversation.id
+    )
+    if (otherQueryMenuAction === 'manage_appointment') {
+      return {
+        reply: botCopyService.manageAppointmentPrompt(),
+        replyButtons: manageAppointmentDecisionButtons(conversation.id),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+    if (otherQueryMenuAction === 'edit_appointment') {
+      await this.updateConversation(input.phone, businessId, {
+        currentStep: 'EDIT_SELECT_APPOINTMENT',
+        misunderstandingCount: 0
+      })
+      return this.buildMyAppointmentsReply(
+        input.phone,
+        businessId,
+        botCopyService.editAppointmentIntro()
+      )
+    }
+    if (otherQueryMenuAction === 'cancel_appointment') {
+      await this.updateConversation(input.phone, businessId, {
+        currentStep: 'CANCEL_SELECT_APPOINTMENT',
+        misunderstandingCount: 0
+      })
+      return this.buildMyAppointmentsReply(
+        input.phone,
+        businessId,
+        botCopyService.cancelAppointmentIntro()
+      )
+    }
+    const unsupportedCatalogAction = unsupportedServiceActionFromInteractiveReply(
+      input.interactiveReplyId,
+      conversation.id
+    ) ?? (
+      recoveryState.unsupportedServiceRequest &&
+      recoveryActionFromInteractiveReply(input.interactiveReplyId, conversation.id) === 'resume'
+        ? 'show_services' as const
+        : null
+    )
+    if (
+      (unsupportedCatalogAction === 'show_services' || otherQueryMenuAction === 'show_services') &&
+      bookingV2Enabled &&
+      businessId
+    ) {
+      const nextState: BookingV2State = {
+        ...recoveryState,
+        catalogNavigation: null,
+        unsupportedServiceRequest: null,
+        misunderstandingCount: 0
+      }
+      const resumed = await bookingV2Engine.resume({
+        businessId,
+        conversation: conversationPatchFromState(nextState)
+      })
+      await this.updateConversation(input.phone, businessId, {
+        currentStep: conversationStepFromBookingV2Plan(resumed.plan),
+        ...resumed.conversationPatch
+      })
+      return {
+        reply: resumed.reply,
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+    if (otherQueryMenuAction === 'book_appointment' && bookingV2Enabled && businessId) {
+      const nextState: BookingV2State = {
+        ...recoveryState,
+        catalogNavigation: null,
+        unsupportedServiceRequest: null,
+        misunderstandingCount: 0
+      }
+      const booking = await bookingV2Engine.process({
+        businessId,
+        conversation: conversationPatchFromState(nextState),
+        message: 'quiero reservar un turno'
+      })
+      await this.updateConversation(input.phone, businessId, {
+        currentStep: conversationStepFromBookingV2Plan(booking.plan),
+        ...booking.conversationPatch
+      })
+      return {
+        reply: booking.reply,
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+
     const recoveryAction = recoveryActionFromInteractiveReply(input.interactiveReplyId, conversation.id)
     if (recoveryAction === 'handoff') {
       await this.updateConversation(input.phone, businessId, {
@@ -320,6 +421,7 @@ export class ConversationService {
       })
       return {
         reply: botCopyService.otherQueryPrompt(isActiveBookingV2Step(conversation.currentStep)),
+        replyButtons: otherQueryMenuButtons(conversation.id),
         skipMisunderstandingTracking: true,
         skipHumanize: true
       }
@@ -488,6 +590,15 @@ export class ConversationService {
       allowMenuShortcut: !bookingV2AwaitingEstimateOption
     })) {
       return this.buildMyAppointmentsReply(input.phone, businessId)
+    }
+
+    if (isManageAppointmentMessage(message)) {
+      return {
+        reply: botCopyService.manageAppointmentPrompt(),
+        replyButtons: manageAppointmentDecisionButtons(conversation.id),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
     }
 
     if (
@@ -3667,10 +3778,45 @@ export function catalogRecoveryActionFromInteractiveReply(
 
 export function unsupportedServiceDecisionButtons(conversationId: string) {
   return [
-    { id: `recovery_resume:${conversationId}`, title: 'Ver servicios' },
+    { id: `unsupported_services:${conversationId}`, title: 'Ver servicios' },
     { id: `recovery_other:${conversationId}`, title: 'Otra consulta' },
     { id: `recovery_handoff:${conversationId}`, title: 'Hablar con equipo' }
   ]
+}
+
+export function unsupportedServiceActionFromInteractiveReply(
+  replyId: string | undefined,
+  conversationId: string
+) {
+  if (replyId === `unsupported_services:${conversationId}`) return 'show_services' as const
+  return null
+}
+
+export function otherQueryMenuButtons(conversationId: string) {
+  return [
+    { id: `other_services:${conversationId}`, title: 'Ver servicios' },
+    { id: `other_book:${conversationId}`, title: 'Reservar turno' },
+    { id: `other_manage:${conversationId}`, title: 'Gestionar mi turno' }
+  ]
+}
+
+export function manageAppointmentDecisionButtons(conversationId: string) {
+  return [
+    { id: `other_edit:${conversationId}`, title: 'Modificarlo' },
+    { id: `other_cancel:${conversationId}`, title: 'Cancelarlo' }
+  ]
+}
+
+export function otherQueryMenuActionFromInteractiveReply(
+  replyId: string | undefined,
+  conversationId: string
+) {
+  if (replyId === `other_services:${conversationId}`) return 'show_services' as const
+  if (replyId === `other_book:${conversationId}`) return 'book_appointment' as const
+  if (replyId === `other_manage:${conversationId}`) return 'manage_appointment' as const
+  if (replyId === `other_edit:${conversationId}`) return 'edit_appointment' as const
+  if (replyId === `other_cancel:${conversationId}`) return 'cancel_appointment' as const
+  return null
 }
 
 export function isGroundedUnsupportedServiceRequest(
@@ -3815,11 +3961,12 @@ function parseArrivalEtaMinutes(normalizedMessage: string) {
   return Number(match[1])
 }
 
-function isCancelAppointmentMessage(message: string, currentStep: string) {
+export function isCancelAppointmentMessage(message: string, currentStep: string) {
   const normalizedMessage = normalizeText(message)
 
   return (isMenuStep(currentStep) && normalizedMessage === '3') ||
     normalizedMessage === 'cancelar turno' ||
+    normalizedMessage === 'cancelarlo' ||
     normalizedMessage === 'anular turno' ||
     normalizedMessage.includes('cancelar un turno') ||
     normalizedMessage.includes('cancelar mi turno') ||
@@ -3833,12 +3980,13 @@ function isCancelAppointmentMessage(message: string, currentStep: string) {
     normalizedMessage.includes('puedo cancelar')
 }
 
-function isEditAppointmentMessage(message: string, currentStep: string) {
+export function isEditAppointmentMessage(message: string, currentStep: string) {
   const normalizedMessage = normalizeText(message)
 
   return (isMenuStep(currentStep) && normalizedMessage === '4') ||
     normalizedMessage === 'editar turno' ||
     normalizedMessage === 'modificar turno' ||
+    normalizedMessage === 'modificarlo' ||
     normalizedMessage === 'mover turno' ||
     normalizedMessage.includes('cambiar un turno') ||
     normalizedMessage.includes('cambiar mi turno') ||
@@ -3852,6 +4000,14 @@ function isEditAppointmentMessage(message: string, currentStep: string) {
     normalizedMessage.includes('kiero camviar') ||
     normalizedMessage.includes('editar mi turno') ||
     normalizedMessage.includes('reprogramar')
+}
+
+export function isManageAppointmentMessage(message: string) {
+  const normalizedMessage = normalizeText(message)
+  return normalizedMessage === 'gestionar mi turno' ||
+    normalizedMessage === 'gestionar turno' ||
+    normalizedMessage === 'modificar o cancelar un turno' ||
+    normalizedMessage === 'modificar o cancelar mi turno'
 }
 
 function parseAppointmentListOption(message: string) {

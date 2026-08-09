@@ -5094,6 +5094,42 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'navegacion abreviada del catalogo sigue dentro de la reserva',
+    run: () => {
+      for (const message of ['ver todos los servicios', 'todos', 'si ver', 'sí']) {
+        const routing = applyContextualRoutingPriorities({
+          intents: [{
+            type: 'business_information',
+            topic: 'services',
+            confidence: 0.96,
+            evidence: message
+          }],
+          bookingMessage: null,
+          bookingExtraction: null,
+          catalogQuery: { topic: 'services', search: message }
+        }, {
+          message,
+          currentStep: 'ASK_SERVICE'
+        })
+
+        assert.equal(routing.bookingMessage, message, message)
+        assert.equal(routing.catalogQuery, null, message)
+        assert.equal(
+          routing.intents.some((intent) =>
+            intent.type === 'business_information' && intent.topic === 'services'
+          ),
+          false,
+          message
+        )
+        assert.equal(
+          routing.intents.some((intent) => intent.type === 'book_appointment'),
+          true,
+          message
+        )
+      }
+    }
+  },
+  {
     name: 'una hora compacta descarta una falsa consulta de agenda profesional',
     run: () => {
       const routing = applyContextualRoutingPriorities({

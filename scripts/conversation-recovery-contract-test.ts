@@ -13,10 +13,17 @@ import {
   businessInformationNeedsHuman,
   formatProfessionalWorkingHours,
   isGroundedUnsupportedServiceRequest,
+  isCancelAppointmentMessage,
+  isEditAppointmentMessage,
+  isManageAppointmentMessage,
   looksLikeExpectedCustomerName,
+  manageAppointmentDecisionButtons,
+  otherQueryMenuActionFromInteractiveReply,
+  otherQueryMenuButtons,
   professionalChangeRoutingMode,
   recoveryActionFromInteractiveReply,
   recoveryDecisionButtons,
+  unsupportedServiceActionFromInteractiveReply,
   unsupportedServiceDecisionButtons
 } from '../src/services/conversation-service.js'
 import {
@@ -457,6 +464,35 @@ assert.equal(recoveryActionFromInteractiveReply(buttons[1]?.id, 'conversation-1'
 assert.equal(recoveryActionFromInteractiveReply(buttons[2]?.id, 'conversation-1'), 'handoff')
 assert.equal(recoveryActionFromInteractiveReply(buttons[2]?.id, 'conversation-2'), null)
 
+const otherQueryButtons = otherQueryMenuButtons('conversation-other')
+assert.deepEqual(
+  otherQueryButtons.map((button) => button.title),
+  ['Ver servicios', 'Reservar turno', 'Gestionar mi turno']
+)
+assert.ok(otherQueryButtons.every((button) => button.title.length <= 20))
+assert.deepEqual(
+  otherQueryButtons.map((button) =>
+    otherQueryMenuActionFromInteractiveReply(button.id, 'conversation-other')
+  ),
+  ['show_services', 'book_appointment', 'manage_appointment']
+)
+
+const manageButtons = manageAppointmentDecisionButtons('conversation-manage')
+assert.deepEqual(manageButtons.map((button) => button.title), ['Modificarlo', 'Cancelarlo'])
+assert.deepEqual(
+  manageButtons.map((button) =>
+    otherQueryMenuActionFromInteractiveReply(button.id, 'conversation-manage')
+  ),
+  ['edit_appointment', 'cancel_appointment']
+)
+assert.equal(
+  otherQueryMenuActionFromInteractiveReply(otherQueryButtons[0]?.id, 'otra-conversation'),
+  null
+)
+assert.equal(isManageAppointmentMessage('Gestionar mi turno'), true)
+assert.equal(isEditAppointmentMessage('Modificarlo', 'START'), true)
+assert.equal(isCancelAppointmentMessage('Cancelarlo', 'START'), true)
+
 const unsupportedButtons = unsupportedServiceDecisionButtons('conversation-unsupported')
 assert.deepEqual(
   unsupportedButtons.map((button) => button.title),
@@ -464,8 +500,15 @@ assert.deepEqual(
 )
 assert.ok(unsupportedButtons.every((button) => button.title.length <= 20))
 assert.equal(
-  recoveryActionFromInteractiveReply(unsupportedButtons[0]?.id, 'conversation-unsupported'),
-  'resume'
+  unsupportedServiceActionFromInteractiveReply(
+    unsupportedButtons[0]?.id,
+    'conversation-unsupported'
+  ),
+  'show_services'
+)
+assert.equal(
+  unsupportedServiceActionFromInteractiveReply(unsupportedButtons[0]?.id, 'otra-conversation'),
+  null
 )
 assert.equal(
   recoveryActionFromInteractiveReply(unsupportedButtons[2]?.id, 'conversation-unsupported'),

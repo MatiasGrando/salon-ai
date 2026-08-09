@@ -282,9 +282,24 @@ export class BotCopyService {
   }
 
   otherQueryPrompt(hasBookingInProgress = false) {
-    return hasBookingInProgress
-      ? 'Claro, decime qué querés consultar. Tu reserva queda pausada en este punto y después la retomamos.'
-      : 'Claro, decime qué querés consultar y te ayudo.'
+    return [
+      'Claro 😊 ¿Con qué más te puedo ayudar?',
+      [
+        'Podés:',
+        '- Ver servicios y precios',
+        '- Reservar un turno',
+        '- Consultar horarios o ubicación',
+        '- Modificar o cancelar un turno',
+        '- Hablar con el equipo'
+      ].join('\n'),
+      hasBookingInProgress
+        ? 'Tu reserva queda pausada en este punto. También podés escribirme directamente qué necesitás.'
+        : 'También podés escribirme directamente qué necesitás.'
+    ].join('\n\n')
+  }
+
+  manageAppointmentPrompt() {
+    return '¿Qué querés hacer con tu turno?'
   }
 
   unsupportedService(hasBookingInProgress = false) {
