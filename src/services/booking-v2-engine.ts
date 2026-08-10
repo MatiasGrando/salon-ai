@@ -616,6 +616,19 @@ export class BookingV2Engine {
         }, null, catalog)
         return withMultipleServicesAcknowledgement(result, catalog)
       }
+      if (deterministicDecision.type === 'accept_all') {
+        const state = addCombinedServices(initialState, suggestion.candidateServiceIds.map((serviceId) => ({
+          serviceId,
+          evidence: input.message.trim()
+        })))
+        const result = await this.fromInterpretation({
+          state,
+          nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
+          outcome: 'accepted',
+          affectedField: 'service'
+        }, null, catalog)
+        return withMultipleServicesAcknowledgement(result, catalog)
+      }
       if (deterministicDecision.type === 'ambiguous_affirmation') {
         return this.guidedEstimateResult(initialState, {
           type: 'ask_service_addons',
@@ -1232,6 +1245,14 @@ export class BookingV2Engine {
         affectedField: 'date'
       }, null, catalog)
     }
+    if (
+      nextMissingField(stateForExtraction.draft, catalog.bookingFlowOrder) === 'date' &&
+      /^(?:elegir|escribir|quiero|prefiero)?\s*(?:otra fecha|una fecha especifica)$/.test(normalize(input.message))
+    ) {
+      return this.guidedEstimateResult(initialState, {
+        type: 'ask_specific_date'
+      }, catalog, 'no_change')
+    }
 
     const deterministicTime = await this.resolveExpectedTime(
       input.message,
@@ -1824,14 +1845,12 @@ export class BookingV2Engine {
       if (pending.date && pending.options.length) {
         const filtered = pending.options.filter((option) => option.startTime === choice.time)
         if (filtered.length) {
-          return this.showCoordinatedOptions(input.state, {
-            ...pending,
-            phase: 'AWAITING_OPTION',
-            filteredOptionIds: filtered.map((option) => option.id),
-            requestedTime: choice.time,
-            requestedWindow: null,
-            page: 0
-          }, input.catalog)
+          return this.coordinatedSelectionResult(
+            input.state,
+            pending,
+            filtered[0]!,
+            input.catalog
+          )
         }
         const state: BookingV2State = {
           ...input.state,
@@ -2033,6 +2052,14 @@ export class BookingV2Engine {
       }
       const filtered = filterCoordinatedOptions(pending.options, choice)
       if (filtered.length) {
+        if (choice?.type === 'EXACT_TIME') {
+          return this.coordinatedSelectionResult(
+            input.state,
+            pending,
+            filtered[0]!,
+            input.catalog
+          )
+        }
         return this.showCoordinatedOptions(input.state, {
           ...pending,
           phase: 'AWAITING_OPTION',
@@ -2042,6 +2069,20 @@ export class BookingV2Engine {
           requestedTime: choice?.type === 'EXACT_TIME' ? choice.time : null,
           requestedWindow: choice?.type === 'TIME_WINDOW' ? choice : null
         }, input.catalog)
+      }
+      if (choice?.type === 'EXACT_TIME') {
+        const alternatives = nearestCoordinatedOptions(pending.options, choice.time)
+        if (alternatives.length) {
+          return this.showCoordinatedOptions(input.state, {
+            ...pending,
+            phase: 'AWAITING_OPTION',
+            filteredOptionIds: alternatives.map((option) => option.id),
+            page: 0,
+            timeBand: null,
+            requestedTime: choice.time,
+            requestedWindow: null
+          }, input.catalog)
+        }
       }
       if (choice?.type === 'EXACT_TIME' || choice?.type === 'TIME_WINDOW') {
         const state: BookingV2State = {
@@ -2092,19 +2133,7 @@ export class BookingV2Engine {
         ? filteredCoordinatedOptions(pending).find((option) => option.startTime === choice.time) ?? null
         : null
     if (selected) {
-      const state: BookingV2State = {
-        ...input.state,
-        pendingCoordinatedAvailability: {
-          ...pending,
-          phase: 'OPTION_SELECTED',
-          selectedOptionId: selected.id
-        }
-      }
-      return this.guidedEstimateResult(state, {
-        type: 'show_coordinated_selection',
-        option: selected,
-        assignmentMode: pending.assignmentMode
-      }, input.catalog, 'accepted')
+      return this.coordinatedSelectionResult(input.state, pending, selected, input.catalog)
     }
     const refiltered = filterCoordinatedOptions(pending.options, choice)
     if (refiltered.length) {
@@ -2145,6 +2174,12 @@ export class BookingV2Engine {
           ? 'AWAITING_TIME_PREFERENCE'
           : 'AWAITING_OPTION'
       }
+      if (input.requestedTime) {
+        const selected = options.find((option) => option.startTime === input.requestedTime)
+        if (selected) {
+          return this.coordinatedSelectionResult(input.state, pending, selected, input.catalog)
+        }
+      }
       if (pending.phase === 'AWAITING_TIME_PREFERENCE') {
         return this.guidedEstimateResult({
           ...input.state,
@@ -2159,6 +2194,26 @@ export class BookingV2Engine {
         }, input.catalog, 'accepted')
       }
       return this.showCoordinatedOptions(input.state, pending, input.catalog)
+    }
+
+    if (
+      input.result.status === 'REQUESTED_TIME_UNAVAILABLE' &&
+      input.requestedTime &&
+      options.length
+    ) {
+      const alternatives = nearestCoordinatedOptions(options, input.requestedTime)
+      return this.showCoordinatedOptions(input.state, {
+        ...input.pending,
+        phase: 'AWAITING_OPTION',
+        date: input.date,
+        options,
+        filteredOptionIds: alternatives.map((option) => option.id),
+        page: 0,
+        timeBand: null,
+        requestedTime: input.requestedTime,
+        requestedWindow: null,
+        selectedOptionId: null
+      }, input.catalog)
     }
 
     const reason = input.result.status === 'PROVIDER_ERROR'
@@ -2212,6 +2267,28 @@ export class BookingV2Engine {
         !allOptions.some((filtered) => filtered.id === option.id)
       ),
       page: pending.page,
+      requestedTime: pending.requestedTime,
+      assignmentMode: pending.assignmentMode
+    }, catalog, 'accepted')
+  }
+
+  private coordinatedSelectionResult(
+    state: BookingV2State,
+    pending: BookingV2PendingCoordinatedAvailability,
+    option: BookingAvailabilitySearchOption,
+    catalog: BookingV2DomainCatalog
+  ) {
+    const selectedState: BookingV2State = {
+      ...state,
+      pendingCoordinatedAvailability: {
+        ...pending,
+        phase: 'OPTION_SELECTED',
+        selectedOptionId: option.id
+      }
+    }
+    return this.guidedEstimateResult(selectedState, {
+      type: 'show_coordinated_selection',
+      option,
       assignmentMode: pending.assignmentMode
     }, catalog, 'accepted')
   }
@@ -3475,11 +3552,40 @@ function filterCoordinatedOptions(
   return []
 }
 
+function nearestCoordinatedOptions(
+  options: BookingAvailabilitySearchOption[],
+  requestedTime: string,
+  limit = 5
+) {
+  const requestedMinutes = coordinatedTimeToMinutes(requestedTime)
+  if (requestedMinutes === null) return []
+  return uniqueCoordinatedOptionsByTime(options)
+    .map((option) => ({
+      option,
+      distance: Math.abs((coordinatedTimeToMinutes(option.startTime) ?? Number.MAX_SAFE_INTEGER) - requestedMinutes)
+    }))
+    .sort((left, right) =>
+      left.distance - right.distance || left.option.startTime.localeCompare(right.option.startTime)
+    )
+    .slice(0, limit)
+    .map(({ option }) => option)
+}
+
+function coordinatedTimeToMinutes(value: string) {
+  const match = /^(\d{2}):(\d{2})$/.exec(value)
+  if (!match?.[1] || !match[2]) return null
+  const hours = Number(match[1])
+  const minutes = Number(match[2])
+  return hours <= 23 && minutes <= 59 ? hours * 60 + minutes : null
+}
+
 function filteredCoordinatedOptions(pending: BookingV2PendingCoordinatedAvailability) {
   if (!pending.filteredOptionIds.length) return uniqueCoordinatedOptionsByTime(pending.options)
-  const selectedIds = new Set(pending.filteredOptionIds)
+  const optionsById = new Map(pending.options.map((option) => [option.id, option]))
   return uniqueCoordinatedOptionsByTime(
-    pending.options.filter((option) => selectedIds.has(option.id))
+    pending.filteredOptionIds
+      .map((optionId) => optionsById.get(optionId))
+      .filter((option): option is BookingAvailabilitySearchOption => Boolean(option))
   )
 }
 
@@ -4471,6 +4577,7 @@ function deterministicAddonDecision(
 ):
   | { type: 'decline' }
   | { type: 'accept'; serviceId: string }
+  | { type: 'accept_all' }
   | { type: 'ambiguous_affirmation' }
   | { type: 'unresolved' } {
   const normalized = normalize(message)
@@ -4479,6 +4586,9 @@ function deterministicAddonDecision(
     /^(?:prefiero|quiero) (?:continuar|seguir|dejarlo asi|solo esos?)/.test(normalized)
   ) {
     return { type: 'decline' }
+  }
+  if (/^(?:agregar|sumar|quiero|sumemos|agreguemos).*(?:todos|todas)(?:\b|$)/.test(normalized)) {
+    return { type: 'accept_all' }
   }
   const numericChoice = /^([1-9])$/.exec(normalized)
   if (numericChoice) {

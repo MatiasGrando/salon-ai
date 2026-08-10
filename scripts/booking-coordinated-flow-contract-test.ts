@@ -25,6 +25,8 @@ import {
   bookingCoordinationActionableReply,
   detectBookingCoordinationChoice
 } from '../src/services/booking-coordination-choice.js'
+import { detectDeterministicConfirmation } from '../src/services/conversation-confirmation-intent.js'
+import { BookingV2EstimateDecisionExtractor } from '../src/services/booking-v2-estimate-decision-extractor.js'
 import { renderBookingV2Response } from '../src/services/booking-v2-response-renderer.js'
 import { buildWhatsAppReplyButtonsPayload } from '../src/integrations/whatsapp-cloud-api.js'
 import { WhatsAppWebhookService } from '../src/services/whatsapp-webhook-service.js'
@@ -448,6 +450,10 @@ assert.deepEqual(detectBookingCoordinationChoice({
   phase: 'OPTION'
 }), { type: 'EXACT_TIME', time: '16:00' })
 assert.deepEqual(detectBookingCoordinationChoice({
+  message: '16',
+  phase: 'TIME_PREFERENCE'
+}), { type: 'EXACT_TIME', time: '16:00' })
+assert.deepEqual(detectBookingCoordinationChoice({
   message: 'opción 16',
   phase: 'OPTION'
 }), { type: 'OPTION', index: 15 })
@@ -731,9 +737,9 @@ const exactTime = await engine.process({
   conversation: selectedTomorrow.conversationPatch,
   message: 'a las 12'
 })
-assert.equal(exactTime.plan.type, 'offer_coordinated_options')
-if (exactTime.plan.type !== 'offer_coordinated_options') throw new Error('Plan inesperado')
-assert.deepEqual(exactTime.plan.options.map((item) => item.startTime), ['12:00'])
+assert.equal(exactTime.plan.type, 'show_coordinated_selection')
+if (exactTime.plan.type !== 'show_coordinated_selection') throw new Error('Plan inesperado')
+assert.equal(exactTime.plan.option.startTime, '12:00')
 
 const window = await engine.process({
   businessId: 'business-1',
@@ -812,6 +818,30 @@ const denseState = {
     selectedOptionId: null
   }
 }
+const denseExactTime = await engine.process({
+  businessId: 'business-1',
+  conversation: conversationPatchFromState(denseState),
+  message: '16'
+})
+assert.equal(denseExactTime.plan.type, 'show_coordinated_selection')
+if (denseExactTime.plan.type !== 'show_coordinated_selection') throw new Error('Plan inesperado')
+assert.equal(denseExactTime.plan.option.startTime, '16:00')
+assert.doesNotMatch(denseExactTime.reply, /Estas son las opciones/)
+
+const denseNearbyTimes = await engine.process({
+  businessId: 'business-1',
+  conversation: conversationPatchFromState(denseState),
+  message: '15:30'
+})
+assert.equal(denseNearbyTimes.plan.type, 'offer_coordinated_options')
+if (denseNearbyTimes.plan.type !== 'offer_coordinated_options') throw new Error('Plan inesperado')
+assert.deepEqual(
+  denseNearbyTimes.plan.options.slice(0, 3).map((item) => item.startTime),
+  ['15:00', '16:00', '14:30']
+)
+assert.match(denseNearbyTimes.reply, /alternativas más cercanas/)
+assert.doesNotMatch(denseNearbyTimes.reply, /08:00 a/)
+
 const denseMidday = await engine.process({
   businessId: 'business-1',
   conversation: conversationPatchFromState(denseState),
@@ -1029,15 +1059,9 @@ const selectedTimeDate = await navigationEngine.process({
   conversation: datesAtThree.conversationPatch,
   message: bookingCoordinationMessageFromInteractiveReply(timeDateButtons?.[0]?.id, 'conversation-1') ?? ''
 })
-assert.equal(selectedTimeDate.plan.type, 'offer_coordinated_options')
-const selectedFutureTime = await navigationEngine.process({
-  businessId: 'business-1',
-  conversation: selectedTimeDate.conversationPatch,
-  message: '1'
-})
-assert.equal(selectedFutureTime.plan.type, 'show_coordinated_selection')
-if (selectedFutureTime.plan.type !== 'show_coordinated_selection') throw new Error('Plan inesperado')
-assert.equal(selectedFutureTime.plan.option.startTime, '15:00')
+assert.equal(selectedTimeDate.plan.type, 'show_coordinated_selection')
+if (selectedTimeDate.plan.type !== 'show_coordinated_selection') throw new Error('Plan inesperado')
+assert.equal(selectedTimeDate.plan.option.startTime, '15:00')
 
 for (const semanticChoiceId of ['show_more', 'next_days', 'search_time'] as const) {
   const fallbackEngine = new BookingV2Engine(
@@ -1068,7 +1092,131 @@ for (const semanticChoiceId of ['show_more', 'next_days', 'search_time'] as cons
   )
 }
 
+const validationButtons = bookingCoordinationReplyButtons({
+  conversationId: 'conversation-1',
+  plan: { type: 'ask_service_validation', reason: 'missing' },
+  state: denseState
+})
+assert.deepEqual(validationButtons?.map((button) => button.title), ['Seguir', 'Necesito ayuda'])
+assert.equal(validationButtons?.every((button) => button.title.length <= 20), true)
+assert.equal(new Set(validationButtons?.map((button) => button.id)).size, 2)
+const validationContinueMessage = bookingCoordinationMessageFromInteractiveReply(
+  validationButtons?.[0]?.id,
+  'conversation-1'
+)
+const validationHelpMessage = bookingCoordinationMessageFromInteractiveReply(
+  validationButtons?.[1]?.id,
+  'conversation-1'
+)
+assert.deepEqual(detectDeterministicConfirmation(validationContinueMessage ?? ''), {
+  intent: 'confirm',
+  confidence: 0.98
+})
+assert.deepEqual(detectDeterministicConfirmation(validationHelpMessage ?? ''), {
+  intent: 'uncertain',
+  confidence: 0.98
+})
+assert.equal(bookingCoordinationMessageFromInteractiveReply(
+  validationButtons?.[0]?.id,
+  'otra-conversation'
+), null)
+
+const estimateButtons = bookingCoordinationReplyButtons({
+  conversationId: 'conversation-1',
+  plan: {
+    type: 'show_estimate',
+    optionLabel: 'Debajo de los hombros',
+    priceMin: 95000,
+    priceMax: 110000,
+    note: null,
+    allowsBooking: true
+  },
+  state: denseState
+})
+assert.deepEqual(
+  estimateButtons?.map((button) => button.title),
+  ['Continuar reserva', 'Presupuesto exacto']
+)
+assert.equal(estimateButtons?.every((button) => button.title.length <= 20), true)
+assert.equal(new Set(estimateButtons?.map((button) => button.id)).size, 2)
+const estimateContinueMessage = bookingCoordinationMessageFromInteractiveReply(
+  estimateButtons?.[0]?.id,
+  'conversation-1'
+)
+const estimateQuoteMessage = bookingCoordinationMessageFromInteractiveReply(
+  estimateButtons?.[1]?.id,
+  'conversation-1'
+)
+const estimateDecisionExtractor = new BookingV2EstimateDecisionExtractor()
+assert.deepEqual(await estimateDecisionExtractor.extract({
+  message: estimateContinueMessage ?? '',
+  serviceName: 'Alisado (sin formol)',
+  allowsBooking: true,
+  requiresPhoto: false
+}), { decision: 'continue_booking', confidence: 0.98 })
+assert.deepEqual(await estimateDecisionExtractor.extract({
+  message: estimateQuoteMessage ?? '',
+  serviceName: 'Alisado (sin formol)',
+  allowsBooking: true,
+  requiresPhoto: false
+}), { decision: 'request_exact_quote', confidence: 0.98 })
+
+const addonButtons = bookingCoordinationReplyButtons({
+  conversationId: 'conversation-1',
+  plan: { type: 'ask_service_addons', serviceIds: ['corte-mujer', 'bano-crema', 'lavado'] },
+  state: denseState
+})
+assert.deepEqual(
+  addonButtons?.map((button) => button.title),
+  ['Agregar opción 1', 'Agregar todas', 'No, continuar']
+)
+assert.equal(addonButtons?.every((button) => button.title.length <= 20), true)
+assert.equal(new Set(addonButtons?.map((button) => button.id)).size, 3)
+assert.equal(bookingCoordinationMessageFromInteractiveReply(
+  addonButtons?.[0]?.id,
+  'conversation-1'
+), '1')
+assert.equal(bookingCoordinationMessageFromInteractiveReply(
+  addonButtons?.[1]?.id,
+  'conversation-1'
+), 'agregar todos los servicios sugeridos')
+assert.equal(bookingCoordinationMessageFromInteractiveReply(
+  addonButtons?.[2]?.id,
+  'conversation-1'
+), 'No, continuar')
+
+const bookingDateButtons = bookingCoordinationReplyButtons({
+  conversationId: 'conversation-1',
+  plan: {
+    type: 'ask_field',
+    field: 'date',
+    reason: 'missing',
+    misunderstandingCount: 0
+  },
+  state: denseState
+})
+assert.deepEqual(
+  bookingDateButtons?.map((button) => button.title),
+  ['Hoy', 'Mañana', 'Otra fecha']
+)
+assert.equal(bookingCoordinationMessageFromInteractiveReply(
+  bookingDateButtons?.[0]?.id,
+  'conversation-1'
+), 'hoy')
+assert.equal(bookingCoordinationMessageFromInteractiveReply(
+  bookingDateButtons?.[1]?.id,
+  'conversation-1'
+), 'mañana')
+assert.equal(bookingCoordinationMessageFromInteractiveReply(
+  bookingDateButtons?.[2]?.id,
+  'conversation-1'
+), 'elegir otra fecha')
+
 for (const buttons of [
+  bookingDateButtons,
+  addonButtons,
+  estimateButtons,
+  validationButtons,
   decisionButtons,
   modificationButtons,
   dateButtons,

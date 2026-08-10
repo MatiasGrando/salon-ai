@@ -3638,6 +3638,7 @@ function conversationStepFromBookingV2Plan(plan: BookingV2MessagePlan) {
   }
   if (plan.type === 'offer_combined_availability') return 'ASK_DATE'
   if (
+    plan.type === 'ask_specific_date' ||
     plan.type === 'ask_coordinated_date' ||
     plan.type === 'coordinated_date_unavailable' ||
     plan.type === 'show_coordinated_more_options'
@@ -4326,6 +4327,43 @@ export function bookingCoordinationReplyButtons(input: {
   state: BookingV2State
 }): Array<{ id: string; title: string }> | null {
   const prefix = `coord:${input.conversationId}:`
+  if (input.plan.type === 'ask_service_validation') {
+    return [
+      { id: `${prefix}validate_continue`, title: 'Seguir' },
+      { id: `${prefix}validate_help`, title: 'Necesito ayuda' }
+    ]
+  }
+  if (
+    !input.state.quoteOnly &&
+    (
+      input.plan.type === 'show_estimate' ||
+      input.plan.type === 'show_base_estimate' ||
+      input.plan.type === 'ask_estimate_decision'
+    )
+  ) {
+    return [
+      ...(input.plan.allowsBooking
+        ? [{ id: `${prefix}estimate_continue`, title: 'Continuar reserva' }]
+        : []),
+      { id: `${prefix}estimate_exact_quote`, title: 'Presupuesto exacto' }
+    ]
+  }
+  if (input.plan.type === 'ask_service_addons' && input.plan.serviceIds.length) {
+    return [
+      { id: `${prefix}addon_first`, title: 'Agregar opción 1' },
+      ...(input.plan.serviceIds.length > 1
+        ? [{ id: `${prefix}addon_all`, title: 'Agregar todas' }]
+        : []),
+      { id: `${prefix}addon_continue`, title: 'No, continuar' }
+    ]
+  }
+  if (input.plan.type === 'ask_field' && input.plan.field === 'date') {
+    return [
+      { id: `${prefix}booking_date_today`, title: 'Hoy' },
+      { id: `${prefix}booking_date_tomorrow`, title: 'Mañana' },
+      { id: `${prefix}booking_date_other`, title: 'Otra fecha' }
+    ]
+  }
   if (input.plan.type === 'offer_separate_services' && input.plan.reason === 'no_common_professional') {
     return [
       { id: `${prefix}start`, title: 'Coordinar horarios' },
@@ -4464,6 +4502,16 @@ export function bookingCoordinationMessageFromInteractiveReply(
   if (action === 'mod_change') return 'cambiar un servicio'
   if (action === 'mod_remove') return 'quitar un servicio'
   if (action === 'restart') return 'empezar de nuevo desde cero'
+  if (action === 'validate_continue') return 'sí, seguimos'
+  if (action === 'validate_help') return 'no estoy seguro, necesito asesoramiento'
+  if (action === 'estimate_continue') return 'sí, quiero continuar con la reserva'
+  if (action === 'estimate_exact_quote') return 'prefiero un presupuesto exacto'
+  if (action === 'addon_first') return '1'
+  if (action === 'addon_all') return 'agregar todos los servicios sugeridos'
+  if (action === 'addon_continue') return 'No, continuar'
+  if (action === 'booking_date_today') return 'hoy'
+  if (action === 'booking_date_tomorrow') return 'mañana'
+  if (action === 'booking_date_other') return 'elegir otra fecha'
   if (action === 'confirm_reservations') return 'confirmar las reservas'
   if (action === 'change_time') return 'cambiar horario'
   if (action === 'band:morning') return 'por la mañana'

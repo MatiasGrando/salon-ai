@@ -96,16 +96,19 @@ export function detectBookingCoordinationChoice(input: {
     if (normalized === '1' || normalized === '2') {
       return { type: 'OPTION', index: Number(normalized) - 1 }
     }
-    const bareHour = /^(0?[8-9]|1\d|2[0-3])$/.exec(normalized)?.[1]
-    if (bareHour) {
-      return { type: 'EXACT_TIME', time: `${String(Number(bareHour)).padStart(2, '0')}:00` }
-    }
     const ordinal = normalized === 'la primera' || normalized === 'primera'
       ? 0
       : normalized === 'la segunda' || normalized === 'segunda'
         ? 1
         : null
     if (ordinal !== null) return { type: 'OPTION', index: ordinal }
+  }
+
+  if (input.phase === 'OPTION' || input.phase === 'TIME_PREFERENCE') {
+    const bareHour = /^(0?[8-9]|1\d|2[0-3])$/.exec(normalized)?.[1]
+    if (bareHour) {
+      return { type: 'EXACT_TIME', time: `${String(Number(bareHour)).padStart(2, '0')}:00` }
+    }
   }
 
   const timeWindow = parseTimeWindow(normalized)

@@ -30,6 +30,10 @@ export type BookingV2RenderInput = {
 }
 
 export function renderBookingV2Response(input: BookingV2RenderInput): string {
+  if (input.plan.type === 'ask_specific_date') {
+    return 'Escribime qué día te gustaría venir. Puede ser un día de la semana o una fecha específica.'
+  }
+
   if (input.plan.type === 'ask_coordinated_date') {
     const availableDates = input.plan.quickDates.length
       ? [
@@ -84,7 +88,9 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
 
   if (input.plan.type === 'offer_coordinated_options') {
     return [
-      `Estas son las opciones para el ${formatDate(input.plan.date)} 😊`,
+      input.plan.requestedTime
+        ? `No encontré una opción que comience exactamente a las ${input.plan.requestedTime}. Estas son las alternativas más cercanas para el ${formatDate(input.plan.date)} 😊`
+        : `Estas son las opciones para el ${formatDate(input.plan.date)} 😊`,
       ...input.plan.options.map((option) =>
         `${option.startTime} a ${option.endTime}`
       ),
@@ -124,7 +130,8 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
     return [
       '¿Querés sumar alguno de estos servicios a la misma reserva?',
       ...services.map((service) => `• ${service.name} — agrega ${service.duration} min`),
-      '• No, continuar'
+      '• No, continuar',
+      'También podés escribir cuáles querés sumar, por ejemplo: “quiero solo corte y baño de crema”.'
     ].join('\n')
   }
 
@@ -283,7 +290,7 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
         : []),
       message,
       question,
-      'Si no estás seguro/a, decime y te ayudo a elegir.'
+      'Si no estás seguro/a, elegí “Necesito ayuda” o decime y te ayudo a elegir.'
     ].join('\n\n')
   }
 

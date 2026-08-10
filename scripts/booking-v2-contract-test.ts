@@ -1356,6 +1356,29 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'otra fecha abre una solicitud específica sin sumar incomprensión',
+    run: async () => {
+      let state = createEmptyBookingV2State()
+      state = acceptField(state, 'name', 'Mati')
+      state = acceptField(state, 'service', 'haircut')
+      state = acceptField(state, 'professional', 'professional-1')
+      const extractor = fakeExtractor(null)
+      const engine = new BookingV2Engine(fakeDomainPort(), extractor)
+
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(state),
+        message: 'elegir otra fecha'
+      })
+
+      assert.deepEqual(result.plan, { type: 'ask_specific_date' })
+      assert.equal(result.state.draft.date, null)
+      assert.equal(result.state.misunderstandingCount, 0)
+      assert.match(result.reply, /Escribime qué día/)
+      assert.equal(extractor.calls.length, 0)
+    }
+  },
+  {
     name: 'motor acepta un nombre simple sin pedir confirmacion innecesaria',
     run: async () => {
       const extractor = fakeExtractor(null)

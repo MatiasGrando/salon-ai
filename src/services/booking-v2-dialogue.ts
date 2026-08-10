@@ -50,6 +50,7 @@ export type BookingV2MessagePlan =
       professionalName?: string | null
       assignmentMode?: 'SINGLE_PROFESSIONAL' | 'MULTIPLE_PROFESSIONALS'
     }
+  | { type: 'ask_specific_date' }
   | {
       type: 'ask_coordinated_search_time'
       date?: string | null
@@ -69,6 +70,7 @@ export type BookingV2MessagePlan =
       options: BookingAvailabilitySearchOption[]
       hasMore: boolean
       page: number
+      requestedTime?: string | null
       assignmentMode?: 'SINGLE_PROFESSIONAL' | 'MULTIPLE_PROFESSIONALS'
     }
   | {

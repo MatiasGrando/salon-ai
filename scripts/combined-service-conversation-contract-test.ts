@@ -554,6 +554,7 @@ await test('el bot ofrece extras configurados una sola vez y acepta uno menciona
   assert.equal(first.plan.type, 'ask_service_addons')
   assert.match(first.reply, /Corte — agrega 30 min/)
   assert.match(first.reply, /Lavado — agrega 20 min/)
+  assert.match(first.reply, /quiero solo corte y baño de crema/)
 
   const accepted = await engine().process({
     businessId: 'business-1',
@@ -617,6 +618,30 @@ await test('al aceptar varios extras resume la lista final antes de pedir profes
   assert.match(accepted.reply, /• Lavado/)
   assert.match(accepted.reply, /Duración total: 140 min\./)
   assert.match(accepted.reply, /Podés atenderte con:/)
+})
+
+await test('agregar todos los extras se resuelve de forma determinista', async () => {
+  const failChoice = {
+    async extract() {
+      throw new Error('agregar todos no debe depender del extractor de respaldo')
+    }
+  }
+  const offered = await engine(catalog(), undefined, failChoice).resume({
+    businessId: 'business-1',
+    conversation: conversationPatchFromState(acceptField(namedState(), 'service', 'alisado'))
+  })
+  const accepted = await engine(catalog(), undefined, failChoice).process({
+    businessId: 'business-1',
+    conversation: offered.conversationPatch,
+    message: 'agregar todos los servicios sugeridos'
+  })
+
+  assert.deepEqual(
+    accepted.state.combinedServices.map((item) => item.serviceId),
+    ['corte', 'lavado']
+  )
+  assert.equal(accepted.state.addonSuggestion, null)
+  assert.match(accepted.reply, /Perfecto, vamos a reservar estos servicios juntos:/)
 })
 
 await test('pedir el servicio antes del nombre no marca sus extras como ya ofrecidos', async () => {
