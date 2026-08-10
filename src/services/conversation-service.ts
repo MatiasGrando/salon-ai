@@ -4307,9 +4307,11 @@ export function bookingCoordinationReplyButtons(input: {
     return buttons
   }
   if (input.plan.type === 'offer_coordinated_options') {
-    const buttons = input.plan.options.slice(0, 2).map((option, index) => ({
+    const visibleOptions = input.plan.options.slice(0, 2)
+    const hasRepeatedStartTime = new Set(visibleOptions.map((option) => option.startTime)).size < visibleOptions.length
+    const buttons = visibleOptions.map((option, index) => ({
       id: `${prefix}option:${index + 1}`,
-      title: option.startTime
+      title: hasRepeatedStartTime ? `${index + 1}. ${option.startTime}` : option.startTime
     }))
     if (input.plan.hasMore) {
       buttons.push({ id: `${prefix}more`, title: 'Ver más horarios' })

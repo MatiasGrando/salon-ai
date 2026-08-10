@@ -14,7 +14,15 @@ type SendReplyButtonsMessageInput = SendTextMessageInput & {
 }
 
 export function buildWhatsAppReplyButtonsPayload(input: SendReplyButtonsMessageInput) {
-  const buttons = input.buttons.slice(0, 3)
+  const requestedButtons = input.buttons.slice(0, 3)
+  const normalizedTitles = requestedButtons.map((button) => button.title.trim().toLocaleLowerCase('es'))
+  const hasDuplicateTitles = new Set(normalizedTitles).size < normalizedTitles.length
+  const buttons = hasDuplicateTitles
+    ? requestedButtons.map((button, index) => ({
+        ...button,
+        title: `${index + 1}. ${button.title.trim()}`.slice(0, 20).trim()
+      }))
+    : requestedButtons
   if (!buttons.length) throw new Error('Se necesita al menos un botón de respuesta')
   if (buttons.some((button) => !button.id.trim() || !button.title.trim() || button.title.length > 20)) {
     throw new Error('Los botones de WhatsApp requieren id, título y un máximo de 20 caracteres')

@@ -443,6 +443,14 @@ const quotedMidday = await engine.process({
   message: `${selectedTomorrow.reply}\nAl mediodía`
 })
 assert.equal(quotedMidday.plan.type, 'offer_coordinated_options')
+const quotedAfternoon = await engine.process({
+  businessId: 'business-1',
+  conversation: selectedTomorrow.conversationPatch,
+  message: `${selectedTomorrow.reply}\nPor la tarde`
+})
+assert.equal(quotedAfternoon.plan.type, 'offer_coordinated_options')
+if (quotedAfternoon.plan.type !== 'offer_coordinated_options') throw new Error('Plan inesperado')
+assert.deepEqual(quotedAfternoon.plan.options.map((item) => item.startTime), ['15:00'])
 const quotedExactTimeButton = await engine.process({
   businessId: 'business-1',
   conversation: selectedTomorrow.conversationPatch,
@@ -459,6 +467,21 @@ assert.deepEqual(bandButtons?.map((button) => button.title), [
   'Al mediodía',
   'Por la tarde'
 ])
+const canonicalAfternoonButtonMessage = bookingCoordinationMessageFromInteractiveReply(
+  bandButtons?.[2]?.id,
+  'conversation-1'
+)
+assert.equal(canonicalAfternoonButtonMessage, 'por la tarde')
+const selectedAfternoonFromWhatsAppButton = await engine.process({
+  businessId: 'business-1',
+  conversation: selectedTomorrow.conversationPatch,
+  message: canonicalAfternoonButtonMessage ?? ''
+})
+assert.equal(selectedAfternoonFromWhatsAppButton.plan.type, 'offer_coordinated_options')
+if (selectedAfternoonFromWhatsAppButton.plan.type !== 'offer_coordinated_options') {
+  throw new Error('Plan inesperado')
+}
+assert.deepEqual(selectedAfternoonFromWhatsAppButton.plan.options.map((item) => item.startTime), ['15:00'])
 const twoBandButtons = bookingCoordinationReplyButtons({
   conversationId: 'conversation-1',
   plan: {
@@ -566,6 +589,31 @@ const optionButtons = bookingCoordinationReplyButtons({
   state: midday.state
 })
 assert.deepEqual(optionButtons?.map((button) => button.title), ['12:00', '13:00', 'Ver más horarios'])
+const repeatedTimeButtons = bookingCoordinationReplyButtons({
+  conversationId: 'conversation-1',
+  plan: {
+    type: 'offer_coordinated_options',
+    date: '2026-08-10',
+    options: [option('15:00', '17:00'), option('15:00', '17:00', 'lucas')],
+    hasMore: false,
+    page: 0,
+    assignmentMode: 'MULTIPLE_PROFESSIONALS'
+  },
+  state: selectedTomorrow.state
+})
+assert.deepEqual(repeatedTimeButtons?.map((button) => button.title), ['1. 15:00', '2. 15:00'])
+const defensiveDuplicatePayload = buildWhatsAppReplyButtonsPayload({
+  to: '5491112345678',
+  text: 'Elegí una opción',
+  buttons: [
+    { id: 'one', title: '15:00' },
+    { id: 'two', title: '15:00' }
+  ]
+})
+assert.deepEqual(
+  defensiveDuplicatePayload.interactive.action.buttons.map((button) => button.reply.title),
+  ['1. 15:00', '2. 15:00']
+)
 
 const semanticEngine = new BookingV2Engine(
   domain,
@@ -673,6 +721,7 @@ for (const buttons of [
   unavailableWithTamaraButtons,
   moreButtons,
   optionButtons,
+  repeatedTimeButtons,
   selectionButtons
 ]) {
   assert.equal(
