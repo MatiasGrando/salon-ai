@@ -3301,6 +3301,8 @@ function serviceSeparationConfirmationChoice(message: string) {
 
 function resolveCoordinatedDate(message: string, currentDate: Date, extractedDate: string | null) {
   if (extractedDate && /^\d{4}-\d{2}-\d{2}$/.test(extractedDate)) return extractedDate
+  const isoDate = /\b(\d{4}-\d{2}-\d{2})\b/.exec(message)?.[1]
+  if (isoDate) return isoDate
   const normalized = normalize(message)
   const date = dateInTimeZone(currentDate, 'America/Buenos_Aires')
   if (/\bhoy\b/.test(normalized)) return date.toISOString().slice(0, 10)
@@ -3308,8 +3310,6 @@ function resolveCoordinatedDate(message: string, currentDate: Date, extractedDat
     date.setUTCDate(date.getUTCDate() + 1)
     return date.toISOString().slice(0, 10)
   }
-  const isoDate = /\b(\d{4}-\d{2}-\d{2})\b/.exec(normalized)?.[1]
-  if (isoDate) return isoDate
   const requestedWeekday = weekdayMentionedInMessage(normalized)
   if (requestedWeekday === null) return null
   const daysUntilRequested = (requestedWeekday - date.getUTCDay() + 7) % 7

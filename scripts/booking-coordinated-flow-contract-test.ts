@@ -285,13 +285,25 @@ const incomingDateButton = new WhatsAppWebhookService().extractIncomingMessages(
     }]
   }]
 })[0]
-assert.equal(
-  bookingCoordinationMessageFromInteractiveReply(
-    incomingDateButton?.interactiveReplyId,
-    'conversation-1'
-  ),
-  '2026-08-10'
+const canonicalDateButtonMessage = bookingCoordinationMessageFromInteractiveReply(
+  incomingDateButton?.interactiveReplyId,
+  'conversation-1'
 )
+assert.equal(canonicalDateButtonMessage, '2026-08-10')
+const selectedDateFromWhatsAppButton = await engine.process({
+  businessId: 'business-1',
+  conversation: started.conversationPatch,
+  message: canonicalDateButtonMessage ?? '',
+  currentDate: new Date('2026-08-09T15:00:00-03:00')
+})
+assert.equal(selectedDateFromWhatsAppButton.state.pendingCoordinatedAvailability?.date, '2026-08-10')
+assert.deepEqual(searchCalls.at(-1), {
+  type: 'DATE',
+  date: '2026-08-10',
+  requestedTime: null,
+  professionalId: null
+})
+assert.equal(selectedDateFromWhatsAppButton.plan.type, 'ask_coordinated_time_preference')
 assert.equal(shouldHandleProfessionalScheduleInformation({
   hasProfessionalScheduleIntent: true,
   hasPendingCoordinatedAvailability: true,

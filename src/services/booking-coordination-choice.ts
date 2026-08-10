@@ -147,13 +147,14 @@ function parseTimeWindow(normalized: string) {
 }
 
 function parseExactTime(normalized: string) {
-  const colonTime = /(?:^|\b)([01]?\d|2[0-3]):([0-5]\d)(?:\b|$)/.exec(normalized)
+  const timeText = normalized.replace(/\b\d{4}-\d{2}-\d{2}\b/g, ' ')
+  const colonTime = /(?:^|\b)([01]?\d|2[0-3]):([0-5]\d)(?:\b|$)/.exec(timeText)
   if (colonTime?.[1] && colonTime[2]) {
     return normalizeFlexibleTime(colonTime[1], colonTime[2], true)
   }
-  const compact = /(?:^|\b)(?:a\s+las?\s+|la\s+de\s+las?\s+)?(\d{3,4})(?:\s*(?:h|hs|hrs))?(?:\b|$)/.exec(normalized)
+  const compact = /(?:^|\b)(?:a\s+las?\s+|la\s+de\s+las?\s+)?(\d{3,4})(?:\s*(?:h|hs|hrs))?(?:\b|$)/.exec(timeText)
   if (compact?.[1]) return normalizeFlexibleTime(compact[1], undefined, true)
-  const explicit = /(?:^|\b)(?:a\s+las?\s+|cerca\s+de\s+las?\s+|la\s+de\s+las?\s+)(\d{1,2})(?::(\d{2}))?(?:\b|$)/.exec(normalized)
+  const explicit = /(?:^|\b)(?:a\s+las?\s+|cerca\s+de\s+las?\s+|la\s+de\s+las?\s+)(\d{1,2})(?::(\d{2}))?(?:\b|$)/.exec(timeText)
   if (!explicit?.[1]) return null
   return normalizeFlexibleTime(explicit[1], explicit[2], true)
 }
