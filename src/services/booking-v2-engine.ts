@@ -923,6 +923,22 @@ export class BookingV2Engine {
           }, null, catalog)
         }
       }
+      if (initialState.pendingProposal.field === 'professional') {
+        const explicitProfessional = resolveExpectedProfessional(input.message, initialState, catalog)
+        if (explicitProfessional?.kind === 'selected') {
+          const state = acceptField(
+            initialState,
+            'professional',
+            explicitProfessional.professionalId
+          )
+          return this.fromInterpretation({
+            state,
+            nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
+            outcome: 'accepted',
+            affectedField: 'professional'
+          }, null, catalog)
+        }
+      }
 
       const choice = await this.choiceExtractor.extract({
         message: input.message,

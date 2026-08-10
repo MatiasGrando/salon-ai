@@ -997,7 +997,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         fakeDomainPort({ catalog: typoCatalog }),
         fakeExtractor(null)
       )
-      const result = await engine.process({
+      const proposed = await engine.process({
         businessId: 'business-1',
         conversation: {
           selectedCustomerName: 'Mati',
@@ -1011,10 +1011,21 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         message: 'con lcas'
       })
 
-      assert.equal(result.state.pendingProposal?.field, 'professional')
-      assert.equal(result.state.pendingProposal?.value, 'lucas')
-      assert.equal(result.plan.type, 'confirm_field')
-      assert.match(result.reply, /agendo con Lucas/i)
+      assert.equal(proposed.state.pendingProposal?.field, 'professional')
+      assert.equal(proposed.state.pendingProposal?.value, 'lucas')
+      assert.equal(proposed.plan.type, 'confirm_field')
+      assert.match(proposed.reply, /agendo con Lucas/i)
+
+      const confirmed = await engine.process({
+        businessId: 'business-1',
+        conversation: proposed.conversationPatch,
+        message: 'lucas'
+      })
+
+      assert.equal(confirmed.state.draft.professional, 'lucas')
+      assert.equal(confirmed.state.pendingProposal, null)
+      assert.equal(confirmed.plan.type === 'ask_field' ? confirmed.plan.field : null, 'date')
+      assert.doesNotMatch(confirmed.reply, /agendo con Lucas/i)
     }
   },
   {
