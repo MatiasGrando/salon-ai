@@ -1,9 +1,16 @@
 import { prisma as defaultPrisma } from '../config/prisma.js'
 import { InternalBookingProvider } from '../providers/internal-booking-provider.js'
 import type { BookingProvider } from '../providers/booking-provider.js'
+import {
+  BookingAvailabilitySearchEngine,
+  type BookingAvailabilitySearchInput,
+  type BookingAvailabilitySearchMode,
+  type BookingAvailabilitySearchResult
+} from './booking-availability-search.js'
 import type { BookingV2Catalog } from './booking-v2-interpreter.js'
 import type { BookingV2CatalogOption } from './booking-v2-extractor.js'
 import { ANY_PROFESSIONAL_ID, type BookingFlowOrder } from './booking-v2-state.js'
+import { reservationDurationLimits } from './service-duration.js'
 
 type PrismaClientLike = typeof defaultPrisma
 
@@ -275,57 +282,33 @@ export class BookingV2DomainService {
     date: string
     professionalId?: string | null
   }): Promise<BookingV2AvailabilityResult> {
-    const serviceIds = Array.from(new Set([
-      input.serviceId,
-      ...(input.serviceIds ?? [])
-    ]))
-    if (serviceIds.some((serviceId) => !input.catalog.serviceIds.has(serviceId))) {
-      return { ok: false, message: 'No encontre ese servicio para este comercio' }
-    }
-
-    const professionals = input.professionalId && input.professionalId !== ANY_PROFESSIONAL_ID
-      ? input.catalog.professionals.filter((professional) => professional.id === input.professionalId)
-      : input.catalog.professionals
-
-    const compatibleProfessionals = professionals.filter((professional) =>
-      serviceIds.every((serviceId) =>
-        this.professionalOffersService(input.catalog, professional.id, serviceId)
-      )
-    )
-
-    if (
-      input.professionalId &&
-      input.professionalId !== ANY_PROFESSIONAL_ID &&
-      compatibleProfessionals.length === 0
-    ) {
+    const result = await this.searchAvailability({
+      catalog: input.catalog,
+      serviceId: input.serviceId,
+      ...(input.serviceIds === undefined ? {} : { serviceIds: input.serviceIds }),
+      mode: { type: 'DATE', date: input.date },
+      assignmentMode: 'SINGLE_PROFESSIONAL',
+      ...(input.professionalId === undefined ? {} : { professionalId: input.professionalId })
+    })
+    if (result.status === 'NO_COMPATIBLE_PROFESSIONAL') {
       return { ok: false, message: 'Ese profesional no realiza ese servicio' }
     }
-
-    const options: BookingV2AvailabilityOption[] = []
-    for (const professional of compatibleProfessionals) {
-      const availability = await this.bookingProvider.getAvailability({
-        professionalId: professional.id,
-        serviceId: input.serviceId,
-        serviceIds,
-        date: input.date
-      })
-      if (!availability.ok) continue
-
-      for (const time of availability.slots) {
-        options.push({
-          time,
-          professionalId: professional.id,
-          professionalName: professional.name
-        })
-      }
+    if (result.status === 'PROVIDER_ERROR') {
+      return { ok: false, message: result.errors[0]?.message ?? 'No pude consultar la agenda' }
     }
-
-    options.sort((left, right) =>
-      left.time.localeCompare(right.time) ||
-      left.professionalName.localeCompare(right.professionalName)
-    )
-
-    return { ok: true, options }
+    return {
+      ok: true,
+      options: result.options.flatMap((option) => {
+        const firstSegment = option.segments[0]
+        return firstSegment
+          ? [{
+              time: option.startTime,
+              professionalId: firstSegment.professionalId,
+              professionalName: firstSegment.professionalName
+            }]
+          : []
+      })
+    }
   }
 
   async findNextAvailabilityOptions(input: {
@@ -338,29 +321,90 @@ export class BookingV2DomainService {
     maxDates?: number
     maxSlotsPerDate?: number
   }): Promise<BookingV2DatedAvailabilityOption[]> {
-    const horizonDays = Math.max(1, Math.min(input.horizonDays ?? 14, 30))
     const maxDates = Math.max(1, Math.min(input.maxDates ?? 3, 5))
     const maxSlotsPerDate = Math.max(1, Math.min(input.maxSlotsPerDate ?? 3, 5))
-    const result: BookingV2DatedAvailabilityOption[] = []
-    let datesWithOptions = 0
-    for (let offset = 1; offset <= horizonDays && datesWithOptions < maxDates; offset += 1) {
-      const date = addIsoDays(input.afterDate, offset)
-      if (!date) break
-      const availability = await this.findAvailabilityOptions({
-        catalog: input.catalog,
-        serviceId: input.serviceId,
-        ...(input.serviceIds === undefined ? {} : { serviceIds: input.serviceIds }),
-        ...(input.professionalId === undefined ? {} : { professionalId: input.professionalId }),
-        date
+    const result = await this.searchAvailability({
+      catalog: input.catalog,
+      serviceId: input.serviceId,
+      ...(input.serviceIds === undefined ? {} : { serviceIds: input.serviceIds }),
+      mode: {
+        type: 'NEXT_DAYS',
+        afterDate: input.afterDate,
+        horizonDays: input.horizonDays ?? 14,
+        maxDates
+      },
+      assignmentMode: 'SINGLE_PROFESSIONAL',
+      maxResults: maxDates * maxSlotsPerDate,
+      ...(input.professionalId === undefined ? {} : { professionalId: input.professionalId })
+    })
+    const countByDate = new Map<string, number>()
+    return result.options.flatMap((option) => {
+      const count = countByDate.get(option.date) ?? 0
+      const firstSegment = option.segments[0]
+      if (!firstSegment || count >= maxSlotsPerDate) return []
+      countByDate.set(option.date, count + 1)
+      return [{
+        date: option.date,
+        time: option.startTime,
+        professionalId: firstSegment.professionalId,
+        professionalName: firstSegment.professionalName
+      }]
+    })
+  }
+
+  async searchAvailability(input: {
+    catalog: BookingV2DomainCatalog
+    serviceId: string
+    serviceIds?: string[]
+    mode: BookingAvailabilitySearchMode
+    assignmentMode?: BookingAvailabilitySearchInput['assignmentMode']
+    professionalId?: string | null
+    preferredProfessionalId?: string | null
+    maxResults?: number
+  }): Promise<BookingAvailabilitySearchResult> {
+    const serviceIds = Array.from(new Set([
+      input.serviceId,
+      ...(input.serviceIds ?? [])
+    ]))
+    const services = serviceIds.flatMap((serviceId) => {
+      const service = input.catalog.services.find((candidate) => candidate.id === serviceId)
+      if (!service) return []
+      const duration = reservationDurationLimits(service)
+      return [{
+        id: service.id,
+        name: service.name,
+        durationMinutes: duration.professional,
+        customerDurationMinutes: duration.business,
+        professionalIds: input.catalog.professionals
+          .filter((professional) => professional.serviceIds.includes(service.id))
+          .map((professional) => professional.id)
+      }]
+    })
+    const searchEngine = new BookingAvailabilitySearchEngine(async (request) => {
+      const availability = await this.bookingProvider.getAvailability({
+        professionalId: request.professionalId,
+        serviceId: request.serviceIds[0] ?? input.serviceId,
+        serviceIds: request.serviceIds,
+        date: request.date
       })
-      if (!availability.ok || availability.options.length === 0) continue
-      datesWithOptions += 1
-      result.push(...availability.options.slice(0, maxSlotsPerDate).map((option) => ({
-        ...option,
-        date
-      })))
-    }
-    return result
+      return availability.ok
+        ? { ok: true, slots: availability.slots }
+        : { ok: false, message: availability.message }
+    })
+    return searchEngine.search({
+      mode: input.mode,
+      services,
+      professionals: input.catalog.professionals.map((professional) => ({
+        id: professional.id,
+        name: professional.name
+      })),
+      assignmentMode: input.assignmentMode ?? 'SINGLE_PROFESSIONAL',
+      requiredProfessionalId: input.professionalId && input.professionalId !== ANY_PROFESSIONAL_ID
+        ? input.professionalId
+        : null,
+      preferredProfessionalId: input.preferredProfessionalId ?? null,
+      ...(input.maxResults === undefined ? {} : { maxResults: input.maxResults })
+    })
   }
 }
 

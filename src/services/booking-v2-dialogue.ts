@@ -1,6 +1,8 @@
 import { nextMissingField, type BookingField, type BookingFlowOrder, type BookingV2State } from './booking-v2-state.js'
 import type { BookingV2Interpretation } from './booking-v2-interpreter.js'
 import type { BookingV2CombinedAvailabilityOption } from './booking-v2-state.js'
+import type { BookingV2CoordinatedTimeBand } from './booking-v2-state.js'
+import type { BookingAvailabilitySearchOption } from './booking-availability-search.js'
 
 export type BookingV2MessagePlan =
   | {
@@ -42,10 +44,40 @@ export type BookingV2MessagePlan =
       reason: 'blocked_combination' | 'no_common_professional'
     }
   | {
+      type: 'ask_coordinated_date'
+      quickDates: string[]
+      requestedTime?: string | null
+    }
+  | { type: 'ask_coordinated_search_time' }
+  | { type: 'show_coordinated_more_options' }
+  | {
+      type: 'ask_coordinated_time_preference'
+      date: string
+      bands: BookingV2CoordinatedTimeBand[]
+    }
+  | {
+      type: 'offer_coordinated_options'
+      date: string
+      options: BookingAvailabilitySearchOption[]
+      hasMore: boolean
+      page: number
+    }
+  | {
+      type: 'coordinated_date_unavailable'
+      date: string
+      reason: 'NO_AVAILABILITY_ON_DATE' | 'NO_CONTINUOUS_COMBINATION' | 'REQUESTED_TIME_UNAVAILABLE' | 'PROVIDER_ERROR'
+      requestedTime?: string | null
+    }
+  | {
+      type: 'show_coordinated_selection'
+      option: BookingAvailabilitySearchOption
+    }
+  | {
       type: 'ask_service_edit_target'
       action: 'change' | 'remove'
       serviceIds: string[]
     }
+  | { type: 'show_service_modification_menu' }
   | {
       type: 'confirm_service_edit'
       action: 'change' | 'remove'

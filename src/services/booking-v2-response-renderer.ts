@@ -31,6 +31,64 @@ export type BookingV2RenderInput = {
 }
 
 export function renderBookingV2Response(input: BookingV2RenderInput): string {
+  if (input.plan.type === 'ask_coordinated_date') {
+    return [
+      'Perfecto 😊 Voy a coordinar los servicios con profesionales distintos, en horarios consecutivos, para que puedas hacer todo en una sola visita.',
+      input.plan.requestedTime
+        ? `¿Qué día te gustaría venir para comenzar a las ${input.plan.requestedTime}?`
+        : '¿Qué día te gustaría venir?'
+    ].join('\n\n')
+  }
+
+  if (input.plan.type === 'ask_coordinated_search_time') {
+    return '¿A qué hora te gustaría comenzar? También podés escribir un rango, por ejemplo “de 13 a 15”.'
+  }
+
+  if (input.plan.type === 'show_coordinated_more_options') {
+    return 'También puedo buscar otra fecha, modificar los servicios o pedirle al equipo que lo coordine.'
+  }
+
+  if (input.plan.type === 'ask_coordinated_time_preference') {
+    return [
+      `Encontré varias combinaciones continuas para el ${formatDate(input.plan.date)} 😊`,
+      '¿En qué momento del día preferís comenzar?',
+      'También podés escribirme una hora o un rango, por ejemplo: “a las 12” o “de 13 a 15”.'
+    ].join('\n\n')
+  }
+
+  if (input.plan.type === 'offer_coordinated_options') {
+    return [
+      `Estas son las opciones para el ${formatDate(input.plan.date)} 😊`,
+      ...input.plan.options.map((option, index) => [
+        `${index + 1}. ${option.startTime} a ${option.endTime}`,
+        ...option.segments.map((segment) =>
+          `${segment.serviceName} con ${segment.professionalName}: ${segment.startTime} a ${segment.endTime}`
+        )
+      ].join('\n')),
+      '¿Cuál preferís?'
+    ].join('\n\n')
+  }
+
+  if (input.plan.type === 'coordinated_date_unavailable') {
+    if (input.plan.reason === 'REQUESTED_TIME_UNAVAILABLE' && input.plan.requestedTime) {
+      return `No encontré una combinación continua que comience a las ${input.plan.requestedTime} el ${formatDate(input.plan.date)}.`
+    }
+    if (input.plan.reason === 'PROVIDER_ERROR') {
+      return 'No pude consultar todas las agendas en este momento. Podemos volver a intentar o pedirle ayuda al equipo.'
+    }
+    return `No encontré una combinación continua para el ${formatDate(input.plan.date)}.`
+  }
+
+  if (input.plan.type === 'show_coordinated_selection') {
+    return [
+      `Elegiste el bloque de ${input.plan.option.startTime} a ${input.plan.option.endTime} 😊`,
+      ...input.plan.option.segments.map((segment) =>
+        `${segment.serviceName} con ${segment.professionalName}: ${segment.startTime} a ${segment.endTime}`
+      ),
+      'Dejé preparada esta combinación. El siguiente paso es confirmar ambas reservas.'
+    ].join('\n')
+  }
+
   if (input.plan.type === 'ask_service_addons') {
     const services = input.plan.serviceIds
       .map((serviceId) => input.catalog?.services.find((service) => service.id === serviceId))
@@ -61,7 +119,7 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
   if (input.plan.type === 'offer_separate_services') {
     return input.plan.reason === 'blocked_combination'
       ? 'Estos servicios no están habilitados para realizarse juntos. ¿Querés que busque un turno para cada servicio por separado?'
-      : 'No encontré un profesional habilitado para realizar todos estos servicios. ¿Querés que busque cada servicio por separado?'
+      : 'No encontré una sola persona que realice todos estos servicios. Puedo coordinarlos con profesionales distintos, en horarios consecutivos. ¿Cómo querés continuar?'
   }
 
   if (input.plan.type === 'ask_service_edit_target') {
@@ -75,6 +133,10 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
       ...(labels.length > 1 ? [`• ${input.plan.action === 'change' ? 'Cambiar' : 'Quitar'} ambos servicios`] : []),
       'Todavía no modifiqué tu selección.'
     ].join('\n')
+  }
+
+  if (input.plan.type === 'show_service_modification_menu') {
+    return '¿Qué querés modificar de los servicios elegidos?'
   }
 
   if (input.plan.type === 'confirm_service_edit') {

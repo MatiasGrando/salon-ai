@@ -1,5 +1,6 @@
 import type { BookingV2Extraction } from './booking-v2-extractor.js'
 import type { BookingV2PendingAvailabilityResolution } from './booking-availability-resolution.js'
+import type { BookingAvailabilitySearchOption } from './booking-availability-search.js'
 
 export const BOOKING_FIELDS = ['name', 'service', 'professional', 'date', 'time'] as const
 export const ANY_PROFESSIONAL_ID = '__any_professional__'
@@ -145,13 +146,29 @@ export type BookingV2PendingCombinedAvailability = {
 export type BookingV2PendingServiceSeparation = {
   reason: 'blocked_combination' | 'no_common_professional'
   edit?: {
-    action: 'change' | 'remove'
+    action: 'menu' | 'change' | 'remove'
     serviceIds: string[] | null
   } | null
 }
 
 export type BookingV2PendingServiceReplacement = {
   removedServiceIds: string[]
+}
+
+export type BookingV2CoordinatedTimeBand = 'MORNING' | 'MIDDAY' | 'AFTERNOON'
+
+export type BookingV2PendingCoordinatedAvailability = {
+  serviceIds: string[]
+  phase: 'AWAITING_DATE' | 'AWAITING_SEARCH_TIME' | 'AWAITING_TIME_PREFERENCE' | 'AWAITING_OPTION' | 'OPTION_SELECTED'
+  date: string | null
+  quickDates: string[]
+  options: BookingAvailabilitySearchOption[]
+  filteredOptionIds: string[]
+  page: number
+  timeBand: BookingV2CoordinatedTimeBand | null
+  requestedTime: string | null
+  requestedWindow: { startTime: string; endTime: string } | null
+  selectedOptionId: string | null
 }
 
 export type BookingV2State = {
@@ -180,6 +197,7 @@ export type BookingV2State = {
   pendingAvailabilityResolution: BookingV2PendingAvailabilityResolution | null
   pendingServiceSeparation: BookingV2PendingServiceSeparation | null
   pendingServiceReplacement: BookingV2PendingServiceReplacement | null
+  pendingCoordinatedAvailability: BookingV2PendingCoordinatedAvailability | null
   misunderstandingCount: number
 }
 
@@ -226,6 +244,7 @@ export function createEmptyBookingV2State(): BookingV2State {
     pendingAvailabilityResolution: null,
     pendingServiceSeparation: null,
     pendingServiceReplacement: null,
+    pendingCoordinatedAvailability: null,
     misunderstandingCount: 0
   }
 }
@@ -274,7 +293,8 @@ export function addCombinedServices(
     pendingCombinedAvailability: null,
     pendingAvailabilityResolution: null,
     pendingServiceSeparation: null,
-    pendingServiceReplacement: null
+    pendingServiceReplacement: null,
+    pendingCoordinatedAvailability: null
   }
 }
 
@@ -388,6 +408,9 @@ export function acceptField(
     pendingServiceReplacement: state.draft[field] !== value
       ? null
       : state.pendingServiceReplacement,
+    pendingCoordinatedAvailability: state.draft[field] !== value
+      ? null
+      : state.pendingCoordinatedAvailability,
     pendingDeposit: state.draft[field] !== value ? null : state.pendingDeposit,
     misunderstandingCount: 0
   }

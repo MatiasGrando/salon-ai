@@ -62,6 +62,7 @@ import {
 import {
   bookingAvailabilityFailureRecovery
 } from './booking-availability-resolution.js'
+import { detectDeterministicConfirmation } from './conversation-confirmation-intent.js'
 
 const bookingConversationFlow = new BookingConversationFlow()
 const bookingProvider = new InternalBookingProvider()
@@ -127,7 +128,7 @@ export class ConversationService {
   }
 
   private async handleMessageCore(input: HandleMessageInput): Promise<HandleMessageResult> {
-    const message = input.message.trim()
+    let message = input.message.trim()
     const businessId = await this.resolveBusinessId(input.businessId)
     const existingConversation = businessId
       ? await prisma.conversation.findUnique({
@@ -144,6 +145,13 @@ export class ConversationService {
             phone: input.phone
           }
         })
+    const coordinationButtonMessage = existingConversation
+      ? bookingCoordinationMessageFromInteractiveReply(
+        input.interactiveReplyId,
+        existingConversation.id
+      )
+      : null
+    message = coordinationButtonMessage ?? message
     if (existingConversation?.opportunityStatus === 'CLOSED') {
       await reopenClosedConversationOpportunity(existingConversation.id)
     }
@@ -166,6 +174,10 @@ export class ConversationService {
         catalogRecoveryActionFromInteractiveReply(input.interactiveReplyId, existingConversation.id) ||
         unsupportedServiceActionFromInteractiveReply(input.interactiveReplyId, existingConversation.id) ||
         otherQueryMenuActionFromInteractiveReply(input.interactiveReplyId, existingConversation.id)
+        || bookingCoordinationMessageFromInteractiveReply(
+          input.interactiveReplyId,
+          existingConversation.id
+        )
       )
     )
     const hardResetRequested = isHardResetMessage(message)
@@ -535,6 +547,41 @@ export class ConversationService {
         reply: applyAssistantPersonalityToReply(resetReply, personality),
         skipHumanize: true
       }
+    }
+
+    if (coordinationButtonMessage && bookingV2Enabled && businessId) {
+      if (coordinationButtonMessage === 'solicitar atención') {
+        await this.updateConversation(input.phone, businessId, {
+          currentStep: 'HUMAN_HANDOFF',
+          aiEnabled: false,
+          misunderstandingCount: 0,
+          humanHandoffAt: new Date(),
+          humanHandoffResolvedAt: null
+        })
+        return {
+          reply: botCopyService.humanHandoffQueued(),
+          skipMisunderstandingTracking: true,
+          skipHumanize: true
+        }
+      }
+      return this.handleBookingV2({
+        phone: input.phone,
+        message: coordinationButtonMessage,
+        businessId,
+        conversation,
+        routing: {
+          intents: [{
+            type: 'book_appointment',
+            topic: null,
+            confidence: 1,
+            evidence: coordinationButtonMessage
+          }],
+          bookingMessage: coordinationButtonMessage,
+          bookingExtraction: null,
+          catalogQuery: null,
+          source: 'deterministic'
+        }
+      })
     }
 
     // Un saludo puro al inicio no necesita interpretacion semantica. Resolverlo
@@ -1370,8 +1417,16 @@ export class ConversationService {
     const professionalScheduleIntent = input.routing.intents.find((intent) =>
       intent.type === 'professional_schedule' && intent.confidence >= 0.65
     )
+    const isPendingDeterministicDecision = Boolean(
+      storedInformationState.pendingServiceSeparation &&
+      detectDeterministicConfirmation(input.message)
+    )
     const professionalId = input.routing.bookingExtraction?.professional.value ?? null
-    if (professionalScheduleIntent && (professionalId || informationTopics.length === 0)) {
+    if (
+      professionalScheduleIntent &&
+      !isPendingDeterministicDecision &&
+      (professionalId || informationTopics.length === 0)
+    ) {
       const scheduleReply = professionalId
         ? await this.professionalScheduleReply(input.businessId, professionalId)
         : 'Entendí que querés consultar los horarios de un profesional. ¿De quién querés saberlos?'
@@ -1981,14 +2036,19 @@ export class ConversationService {
     const needsRecoveryButtons = result.plan.type === 'ask_field' &&
       result.plan.reason === 'not_understood' &&
       result.state.misunderstandingCount >= 2
-    const replyButtons = needsRecoveryButtons
+    const coordinationButtons = bookingCoordinationReplyButtons({
+      conversationId: input.conversation.id,
+      plan: result.plan,
+      state: result.state
+    })
+    const replyButtons = coordinationButtons ?? (needsRecoveryButtons
       ? await this.bookingV2MisunderstandingButtons({
           businessId: input.businessId,
           conversationId: input.conversation.id,
           field: result.plan.type === 'ask_field' ? result.plan.field : null,
           serviceId: result.state.draft.service
         })
-      : null
+      : null)
     return {
       reply: composedReply,
       messages: result.messages
@@ -3100,6 +3160,7 @@ function conversationStepFromBookingV2Plan(plan: BookingV2MessagePlan) {
   if (
     plan.type === 'ask_service_addons' ||
     plan.type === 'offer_separate_services' ||
+    plan.type === 'show_service_modification_menu' ||
     plan.type === 'ask_service_edit_target' ||
     plan.type === 'confirm_service_edit' ||
     plan.type === 'ask_service_replacement'
@@ -3107,6 +3168,17 @@ function conversationStepFromBookingV2Plan(plan: BookingV2MessagePlan) {
     return 'ASK_SERVICE'
   }
   if (plan.type === 'offer_combined_availability') return 'ASK_DATE'
+  if (
+    plan.type === 'ask_coordinated_date' ||
+    plan.type === 'coordinated_date_unavailable' ||
+    plan.type === 'show_coordinated_more_options'
+  ) return 'ASK_DATE'
+  if (
+    plan.type === 'ask_coordinated_time_preference' ||
+    plan.type === 'ask_coordinated_search_time' ||
+    plan.type === 'offer_coordinated_options'
+  ) return 'ASK_TIME'
+  if (plan.type === 'show_coordinated_selection') return 'ASK_TIME'
   if (plan.type === 'show_service_preview_and_ask_name') return 'ASK_CUSTOMER_NAME'
   if (
     plan.type === 'ask_service_validation' ||
@@ -3246,6 +3318,7 @@ export function clearBookingV2StateFromField(
     pendingCombinedAvailability: null,
     pendingServiceSeparation: null,
     pendingServiceReplacement: null,
+    pendingCoordinatedAvailability: null,
     pendingDeposit: null,
     misunderstandingCount: 0
   }
@@ -3738,6 +3811,128 @@ export function contextDecisionButtons(conversationId: string) {
     { id: `context_new:${conversationId}`, title: 'Nueva consulta' },
     { id: `context_handoff:${conversationId}`, title: 'Hablar con equipo' }
   ]
+}
+
+export function bookingCoordinationReplyButtons(input: {
+  conversationId: string
+  plan: BookingV2MessagePlan
+  state: BookingV2State
+}): Array<{ id: string; title: string }> | null {
+  const prefix = `coord:${input.conversationId}:`
+  if (input.plan.type === 'offer_separate_services' && input.plan.reason === 'no_common_professional') {
+    return [
+      { id: `${prefix}start`, title: 'Coordinar horarios' },
+      { id: `${prefix}modify`, title: 'Modificar servicios' },
+      { id: `${prefix}human`, title: 'Solicitar atención' }
+    ]
+  }
+  if (input.plan.type === 'ask_coordinated_date') {
+    const dateButtons = input.plan.quickDates.slice(0, 2).map((date) => ({
+      id: `${prefix}date:${date}`,
+      title: coordinatedDateButtonTitle(date)
+    }))
+    if (dateButtons.length === 2) {
+      return [...dateButtons, { id: `${prefix}other_date`, title: 'Otra fecha' }]
+    }
+    if (dateButtons.length === 1) {
+      return [
+        ...dateButtons,
+        { id: `${prefix}next_days`, title: 'Próximos días' },
+        { id: `${prefix}other_date`, title: 'Otra fecha' }
+      ]
+    }
+    return [
+      { id: `${prefix}next_days`, title: 'Próximos días' },
+      { id: `${prefix}other_date`, title: 'Elegir una fecha' },
+      { id: `${prefix}human`, title: 'Solicitar atención' }
+    ]
+  }
+  if (input.plan.type === 'ask_coordinated_time_preference') {
+    const labels = {
+      MORNING: 'Por la mañana',
+      MIDDAY: 'Al mediodía',
+      AFTERNOON: 'Por la tarde'
+    } as const
+    return input.plan.bands.slice(0, 3).map((band) => ({
+      id: `${prefix}band:${band.toLowerCase()}`,
+      title: labels[band]
+    }))
+  }
+  if (input.plan.type === 'offer_coordinated_options') {
+    const buttons = input.plan.options.slice(0, 2).map((option, index) => ({
+      id: `${prefix}option:${index + 1}`,
+      title: option.startTime
+    }))
+    if (input.plan.hasMore) {
+      buttons.push({ id: `${prefix}more`, title: 'Ver más horarios' })
+    }
+    return buttons
+  }
+  if (input.plan.type === 'coordinated_date_unavailable') {
+    return [
+      { id: `${prefix}next_days`, title: 'Próximos días' },
+      { id: `${prefix}search_time`, title: 'Buscar un horario' },
+      { id: `${prefix}more`, title: 'Más opciones' }
+    ]
+  }
+  if (input.plan.type === 'show_coordinated_more_options') {
+    return [
+      { id: `${prefix}other_date`, title: 'Elegir otra fecha' },
+      { id: `${prefix}modify`, title: 'Modificar servicios' },
+      { id: `${prefix}human`, title: 'Solicitar atención' }
+    ]
+  }
+  if (input.plan.type === 'show_service_modification_menu') {
+    return [
+      { id: `${prefix}mod_change`, title: 'Cambiar un servicio' },
+      { id: `${prefix}mod_remove`, title: 'Quitar un servicio' },
+      { id: `${prefix}restart`, title: 'Empezar de nuevo' }
+    ]
+  }
+  return null
+}
+
+export function bookingCoordinationMessageFromInteractiveReply(
+  replyId: string | undefined,
+  conversationId: string
+) {
+  if (!replyId) return null
+  const prefix = `coord:${conversationId}:`
+  if (!replyId.startsWith(prefix)) return null
+  const action = replyId.slice(prefix.length)
+  if (action === 'start') return 'coordinar horarios'
+  if (action === 'modify') return 'modificar servicios'
+  if (action === 'human') return 'solicitar atención'
+  if (action === 'next_days') return 'próximos días'
+  if (action === 'other_date') return 'elegir otra fecha'
+  if (action === 'search_time') return 'buscar un horario'
+  if (action === 'more') return 'ver más horarios'
+  if (action === 'mod_change') return 'cambiar un servicio'
+  if (action === 'mod_remove') return 'quitar un servicio'
+  if (action === 'restart') return 'empezar de nuevo desde cero'
+  if (action === 'band:morning') return 'por la mañana'
+  if (action === 'band:midday') return 'al mediodía'
+  if (action === 'band:afternoon') return 'por la tarde'
+  const date = /^date:(\d{4}-\d{2}-\d{2})$/.exec(action)?.[1]
+  if (date) return date
+  const option = /^option:([12])$/.exec(action)?.[1]
+  if (option) return option
+  return null
+}
+
+function coordinatedDateButtonTitle(date: string) {
+  const today = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Buenos_Aires',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(new Date())
+  if (date === today) return 'Hoy'
+  const tomorrow = new Date(`${today}T12:00:00Z`)
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
+  if (date === tomorrow.toISOString().slice(0, 10)) return 'Mañana'
+  const [year, month, day] = date.split('-')
+  return year && month && day ? `${day}/${month}` : date.slice(0, 20)
 }
 
 export function contextActionFromInteractiveReply(replyId: string | undefined, conversationId: string) {

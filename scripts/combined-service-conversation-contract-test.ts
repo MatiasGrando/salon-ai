@@ -825,7 +825,34 @@ await test('si no existe profesional común también ofrece separar sin inventar
   })
   assert.equal(result.plan.type, 'offer_separate_services')
   assert.equal(result.state.pendingServiceSeparation?.reason, 'no_common_professional')
-  assert.match(result.reply, /No encontré un profesional habilitado/i)
+  assert.match(result.reply, /No encontré una sola persona/i)
+  assert.match(result.reply, /profesionales distintos/i)
+})
+
+await test('un sí confirma determinísticamente la búsqueda con profesionales separados', async () => {
+  const noCommonCatalog = catalog({
+    includeAddons: false,
+    professionals: [
+      { id: 'alisadora', name: 'Alisadora', serviceIds: ['alisado'] },
+      { id: 'cortadora', name: 'Cortadora', serviceIds: ['corte'] }
+    ]
+  })
+  const offered = await engine(noCommonCatalog).process({
+    businessId: 'business-1',
+    conversation: conversationPatchFromState(namedState()),
+    message: 'Quiero alisado y corte'
+  })
+
+  const separated = await engine(noCommonCatalog).process({
+    businessId: 'business-1',
+    conversation: offered.conversationPatch,
+    message: 'sí'
+  })
+
+  assert.equal(separated.state.pendingServiceSeparation, null)
+  assert.deepEqual(separated.state.combinedServices, [])
+  assert.deepEqual(separated.state.queuedServices.map((item) => item.serviceId), ['corte'])
+  assert.equal(separated.state.misunderstandingCount, 0)
 })
 
 await test('pedir cambiar un servicio durante la separación sale del bucle sin borrar la selección', async () => {

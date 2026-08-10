@@ -9,6 +9,8 @@
     "prisma:generate": "prisma generate",
     "test:booking-v2": "tsx scripts/booking-v2-contract-test.ts",
     "test:booking-availability-resolution": "tsx scripts/booking-availability-resolution-contract-test.ts",
+    "test:booking-availability-search": "tsx scripts/booking-availability-search-contract-test.ts",
+    "test:booking-coordinated-flow": "tsx scripts/booking-coordinated-flow-contract-test.ts",
     "test:booking-ai-budget": "tsx scripts/booking-v2-ai-budget-contract-test.ts",
     "test:booking-v2:understanding-live": "tsx scripts/booking-v2-understanding-live-test.ts",
     "test:assistant-personality": "tsx scripts/assistant-personality-contract-test.ts",

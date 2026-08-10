@@ -10,6 +10,7 @@ import {
   type BookingV2PendingCombinedAvailability,
   type BookingV2PendingServiceSeparation,
   type BookingV2PendingServiceReplacement,
+  type BookingV2PendingCoordinatedAvailability,
   type BookingV2AgendaItem,
   type BookingV2CategoryAdvice,
   type BookingV2CatalogNavigation,
@@ -30,6 +31,7 @@ import {
   parsePendingAvailabilityResolution,
   type BookingV2PendingAvailabilityResolution
 } from './booking-availability-resolution.js'
+import { parseBookingAvailabilitySearchOption } from './booking-availability-search.js'
 
 export type BookingV2ConversationSnapshot = {
   selectedCustomerName: string | null
@@ -77,6 +79,7 @@ export type BookingV2PersistedState = {
   pendingAvailabilityResolution?: BookingV2PendingAvailabilityResolution | null
   pendingServiceSeparation?: BookingV2PendingServiceSeparation | null
   pendingServiceReplacement?: BookingV2PendingServiceReplacement | null
+  pendingCoordinatedAvailability?: BookingV2PendingCoordinatedAvailability | null
 }
 
 export function stateFromConversation(
@@ -116,6 +119,7 @@ export function stateFromConversation(
     pendingAvailabilityResolution: readPendingAvailabilityResolution(conversation.bookingV2State),
     pendingServiceSeparation: readPendingServiceSeparation(conversation.bookingV2State),
     pendingServiceReplacement: readPendingServiceReplacement(conversation.bookingV2State),
+    pendingCoordinatedAvailability: readPendingCoordinatedAvailability(conversation.bookingV2State),
     misunderstandingCount: conversation.misunderstandingCount
   }
 }
@@ -128,7 +132,7 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
     selectedDate: state.draft.date,
     selectedTime: state.draft.time,
     misunderstandingCount: state.misunderstandingCount,
-    bookingV2State: state.pendingProposal || state.pendingRequest || state.pendingInformationSelection || state.lastInformationServiceId || state.pendingServiceDisambiguation || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.combinedServiceDecisionQueue !== null || state.advisorQuote || state.quoteOnly || state.pendingDeposit || state.contextPause || state.unsupportedServiceRequest || state.queuedServices.length || state.combinedServices.length || state.addonSuggestion || state.addonOfferCompletedServiceId || state.pendingCombinedAvailability || state.pendingAvailabilityResolution || state.pendingServiceSeparation || state.pendingServiceReplacement
+    bookingV2State: state.pendingProposal || state.pendingRequest || state.pendingInformationSelection || state.lastInformationServiceId || state.pendingServiceDisambiguation || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.combinedServiceDecisionQueue !== null || state.advisorQuote || state.quoteOnly || state.pendingDeposit || state.contextPause || state.unsupportedServiceRequest || state.queuedServices.length || state.combinedServices.length || state.addonSuggestion || state.addonOfferCompletedServiceId || state.pendingCombinedAvailability || state.pendingAvailabilityResolution || state.pendingServiceSeparation || state.pendingServiceReplacement || state.pendingCoordinatedAvailability
       ? {
           version: 1,
           pendingProposal: state.pendingProposal,
@@ -172,6 +176,9 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
             : {}),
           ...(state.pendingServiceReplacement
             ? { pendingServiceReplacement: state.pendingServiceReplacement }
+            : {}),
+          ...(state.pendingCoordinatedAvailability
+            ? { pendingCoordinatedAvailability: state.pendingCoordinatedAvailability }
             : {})
         }
       : null
@@ -297,7 +304,7 @@ function readPendingServiceSeparation(value: unknown): BookingV2PendingServiceSe
   if (reason !== 'blocked_combination' && reason !== 'no_common_professional') return null
   if (!pending.edit || typeof pending.edit !== 'object') return { reason }
   const edit = pending.edit as { action?: unknown; serviceIds?: unknown }
-  if (edit.action !== 'change' && edit.action !== 'remove') return { reason }
+  if (edit.action !== 'menu' && edit.action !== 'change' && edit.action !== 'remove') return { reason }
   const serviceIds = edit.serviceIds === null
     ? null
     : Array.isArray(edit.serviceIds)
@@ -320,6 +327,61 @@ function readPendingServiceReplacement(value: unknown): BookingV2PendingServiceR
     .map((serviceId) => serviceId.trim())
     .slice(0, 5)
   return validIds.length ? { removedServiceIds: validIds } : null
+}
+
+function readPendingCoordinatedAvailability(
+  value: unknown
+): BookingV2PendingCoordinatedAvailability | null {
+  if (!value || typeof value !== 'object') return null
+  const candidate = (value as { pendingCoordinatedAvailability?: unknown })
+    .pendingCoordinatedAvailability
+  if (!candidate || typeof candidate !== 'object') return null
+  const pending = candidate as Partial<BookingV2PendingCoordinatedAvailability>
+  if (
+    !Array.isArray(pending.serviceIds) ||
+    !['AWAITING_DATE', 'AWAITING_SEARCH_TIME', 'AWAITING_TIME_PREFERENCE', 'AWAITING_OPTION', 'OPTION_SELECTED'].includes(pending.phase ?? '') ||
+    !Array.isArray(pending.quickDates) ||
+    !Array.isArray(pending.options) ||
+    !Array.isArray(pending.filteredOptionIds)
+  ) return null
+  const serviceIds = pending.serviceIds.filter((item): item is string =>
+    typeof item === 'string' && Boolean(item.trim())
+  ).slice(0, 5)
+  if (serviceIds.length < 2) return null
+  const options = pending.options.flatMap((item) => {
+    const option = parseBookingAvailabilitySearchOption(item)
+    return option ? [option] : []
+  }).slice(0, 25)
+  const optionIds = new Set(options.map((option) => option.id))
+  const filteredOptionIds = pending.filteredOptionIds.filter((item): item is string =>
+    typeof item === 'string' && optionIds.has(item)
+  )
+  const timeBand = ['MORNING', 'MIDDAY', 'AFTERNOON'].includes(pending.timeBand ?? '')
+    ? pending.timeBand as BookingV2PendingCoordinatedAvailability['timeBand']
+    : null
+  const requestedWindow = pending.requestedWindow &&
+    typeof pending.requestedWindow.startTime === 'string' &&
+    typeof pending.requestedWindow.endTime === 'string'
+    ? {
+        startTime: pending.requestedWindow.startTime,
+        endTime: pending.requestedWindow.endTime
+      }
+    : null
+  return {
+    serviceIds,
+    phase: pending.phase as BookingV2PendingCoordinatedAvailability['phase'],
+    date: typeof pending.date === 'string' ? pending.date : null,
+    quickDates: pending.quickDates.filter((item): item is string => typeof item === 'string').slice(0, 2),
+    options,
+    filteredOptionIds,
+    page: Number.isInteger(pending.page) && Number(pending.page) >= 0 ? Number(pending.page) : 0,
+    timeBand,
+    requestedTime: typeof pending.requestedTime === 'string' ? pending.requestedTime : null,
+    requestedWindow,
+    selectedOptionId: typeof pending.selectedOptionId === 'string' && optionIds.has(pending.selectedOptionId)
+      ? pending.selectedOptionId
+      : null
+  }
 }
 
 function readQueuedServices(value: unknown): BookingV2QueuedService[] {
