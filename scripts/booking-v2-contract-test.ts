@@ -4483,10 +4483,10 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
       assert.deepEqual(lines, [
         'Cortes:',
-        '• Corte — Clasico — 30 min — $ 15.000',
-        '• Corte — Degrade — 45 min — $ 18.000',
+        '• Corte — Clasico — $ 15.000',
+        '• Corte — Degrade — $ 18.000',
         'Barba:',
-        '• Barba — 20 min — $ 12.000'
+        '• Barba — $ 12.000'
       ])
     }
   },
@@ -4568,9 +4568,11 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         }
       ])
 
-      assert.equal(lines[0]?.includes('Corte — 30 min — $'), true)
+      assert.equal(lines[0]?.includes('Corte — $'), true)
+      assert.equal(lines[0]?.includes('30 min'), false)
       assert.equal(lines[0]?.toLowerCase().includes('desde'), false)
-      assert.equal(lines[1]?.toLowerCase().includes('raíces — 60 min — desde $'), true)
+      assert.equal(lines[1]?.toLowerCase().includes('raíces — desde $'), true)
+      assert.equal(lines[1]?.includes('60 min'), false)
       assert.equal(lines[1]?.includes('45.000'), true)
     }
   },
@@ -4848,9 +4850,10 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       })
 
       assert.equal(reply.includes('Disculpame, no te entendí bien.'), true)
-      assert.equal(reply.includes('• Corte — 30 min'), true)
+      assert.equal(reply.includes('• Corte — $'), true)
+      assert.equal(reply.includes('30 min'), false)
       assert.equal(reply.includes('15.000'), true)
-      assert.equal(reply.includes('• Barba — 20 min — precio a consultar'), true)
+      assert.equal(reply.includes('• Barba — consultar precio'), true)
     }
   },
   {
@@ -6383,6 +6386,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         ],
         services: [{
           name: 'Corte',
+          category: 'Cortes',
           description: 'Incluye lavado, corte personalizado y finalización.',
           duration: 30,
           price: 15000,
@@ -6399,10 +6403,37 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(replies[3], 'Podés reservar por este chat o desde https://salon-demo.example.com/reservar')
       assert.equal(replies[4]?.includes('No tengo el email'), true)
       assert.equal(replies[5]?.startsWith('Estos son los precios de nuestros servicios:'), true)
-      assert.equal(replies[5]?.includes('Corte (30 min)'), true)
+      assert.equal(replies[5]?.includes('Cortes:\n• Corte'), true)
       assert.equal(replies[5]?.includes('15.000'), true)
-      assert.equal(replies[5]?.includes('Desde'), true)
-      assert.equal(replies[5]?.includes('Incluye lavado, corte personalizado y finalización.'), true)
+      assert.equal(replies[5]?.includes('desde'), true)
+      assert.equal(replies[5]?.includes('30 min'), false)
+      assert.equal(replies[5]?.includes('Incluye lavado, corte personalizado y finalización.'), false)
+
+      const compactCatalog = renderBusinessKnowledgeAnswers({
+        name: 'Salon Demo',
+        slug: null,
+        landingEnabled: false,
+        publicWhatsapp: null,
+        contactEmail: null,
+        publicAddress: null,
+        publicAddressArea: null,
+        publicMapsUrl: null,
+        instagramUrl: null,
+        facebookUrl: null,
+        businessHours: [],
+        services: [{
+          name: 'Corte',
+          category: 'Cortes',
+          description: 'Descripción extensa que no corresponde al listado.',
+          duration: 30,
+          price: 15000,
+          priceMode: 'FIXED'
+        }],
+        professionals: []
+      }, ['services', 'prices'])
+      assert.equal(compactCatalog.length, 1)
+      assert.match(compactCatalog[0] ?? '', /Cortes:\n• Corte — \$\s*15\.000/)
+      assert.doesNotMatch(compactCatalog[0] ?? '', /Descripción extensa|30 min/)
 
       const professionalReplies = renderBusinessKnowledgeAnswers({
         name: 'Salon Demo',

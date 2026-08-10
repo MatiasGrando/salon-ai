@@ -73,8 +73,8 @@ assert.match(crmSource, /La agenda seguir&aacute; usando el tiempo operativo/)
 const publicBookingSource = await readFile('src/routes/public-booking.ts', 'utf8')
 assert.match(publicBookingSource, /displayDuration: formatCustomerDuration\(service\)/)
 
-const rendererSource = await readFile('src/services/booking-v2-response-renderer.ts', 'utf8')
-assert.match(rendererSource, /formatCustomerDuration\(service\)/)
+const knowledgeSource = await readFile('src/services/business-knowledge-service.ts', 'utf8')
+assert.match(knowledgeSource, /Duración: \$\{formatCustomerDuration\(service\)\}/)
 
 const postSaleSource = await readFile('src/services/post-sale-service.ts', 'utf8')
 assert.match(postSaleSource, /customerDurationRange\(appointment\.service\)\.max/)

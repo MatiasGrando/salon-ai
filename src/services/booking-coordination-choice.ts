@@ -89,8 +89,17 @@ export function detectBookingCoordinationChoice(input: {
   }
 
   if (input.phase === 'OPTION') {
-    const option = /^(?:opcion\s*)?([1-9]|1\d|20)$/.exec(normalized)
-    if (option?.[1]) return { type: 'OPTION', index: Number(option[1]) - 1 }
+    const explicitOption = /^opcion\s*([1-9]|1\d|20)$/.exec(normalized)
+    if (explicitOption?.[1]) {
+      return { type: 'OPTION', index: Number(explicitOption[1]) - 1 }
+    }
+    if (normalized === '1' || normalized === '2') {
+      return { type: 'OPTION', index: Number(normalized) - 1 }
+    }
+    const bareHour = /^(0?[8-9]|1\d|2[0-3])$/.exec(normalized)?.[1]
+    if (bareHour) {
+      return { type: 'EXACT_TIME', time: `${String(Number(bareHour)).padStart(2, '0')}:00` }
+    }
     const ordinal = normalized === 'la primera' || normalized === 'primera'
       ? 0
       : normalized === 'la segunda' || normalized === 'segunda'

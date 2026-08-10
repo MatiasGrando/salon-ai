@@ -33,6 +33,7 @@ import {
   type BookingV2State
 } from '../services/booking-v2-state.js'
 import { normalizeConversationContextSettings } from '../services/conversation-context-settings.js'
+import { takenConversationHandoffPatch } from '../services/conversation-handoff.js'
 
 const whatsappCloudApi = new WhatsAppCloudApi()
 const bookingV2Engine = new BookingV2Engine()
@@ -762,13 +763,7 @@ export async function crmRoutes(app: FastifyInstance) {
               : Prisma.JsonNull,
             humanHandoffResolvedAt: isEnablingAi ? new Date() : conversation.humanHandoffResolvedAt
           }
-        : {
-            aiEnabled: false,
-            currentStep: 'HUMAN_HANDOFF',
-            misunderstandingCount: 0,
-            humanHandoffAt: conversation.humanHandoffAt ?? new Date(),
-            humanHandoffResolvedAt: null
-          }
+        : takenConversationHandoffPatch({ queuedAt: conversation.humanHandoffAt })
     })
   })
 
@@ -1321,9 +1316,11 @@ export async function crmRoutes(app: FastifyInstance) {
       data: {
         lastMessage: text,
         archivedAt: null,
-        humanHandoffResolvedAt: conversation.currentStep === 'HUMAN_HANDOFF'
-          ? new Date()
-          : conversation.humanHandoffResolvedAt
+        ...(conversation.currentStep === 'HUMAN_HANDOFF'
+          ? takenConversationHandoffPatch({ queuedAt: conversation.humanHandoffAt })
+          : {
+              humanHandoffResolvedAt: conversation.humanHandoffResolvedAt
+            })
       }
     })
 

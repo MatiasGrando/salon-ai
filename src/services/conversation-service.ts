@@ -67,7 +67,14 @@ import {
   bookingAvailabilityFailureRecovery
 } from './booking-availability-resolution.js'
 import { detectDeterministicConfirmation } from './conversation-confirmation-intent.js'
-import { bookingCoordinationActionableReply } from './booking-coordination-choice.js'
+import {
+  bookingCoordinationActionableReply,
+  detectBookingCoordinationChoice
+} from './booking-coordination-choice.js'
+import {
+  isQueuedConversationHandoff,
+  queuedConversationHandoffPatch
+} from './conversation-handoff.js'
 
 const bookingConversationFlow = new BookingConversationFlow()
 const bookingProvider = new InternalBookingProvider()
@@ -250,10 +257,7 @@ export class ConversationService {
           where: { id: existingConversation.id },
           data: {
             lastMessage: message,
-            currentStep: 'HUMAN_HANDOFF',
-            aiEnabled: false,
-            humanHandoffAt: new Date(),
-            humanHandoffResolvedAt: null
+            ...queuedConversationHandoffPatch()
           }
         })
         return {
@@ -423,11 +427,7 @@ export class ConversationService {
     const recoveryAction = recoveryActionFromInteractiveReply(input.interactiveReplyId, conversation.id)
     if (recoveryAction === 'handoff') {
       await this.updateConversation(input.phone, businessId, {
-        currentStep: 'HUMAN_HANDOFF',
-        aiEnabled: false,
-        misunderstandingCount: 0,
-        humanHandoffAt: new Date(),
-        humanHandoffResolvedAt: null
+        ...queuedConversationHandoffPatch()
       })
       return {
         reply: botCopyService.humanHandoffQueued(),
@@ -477,11 +477,7 @@ export class ConversationService {
     )
     if (catalogRecoveryAction === 'handoff') {
       await this.updateConversation(input.phone, businessId, {
-        currentStep: 'HUMAN_HANDOFF',
-        aiEnabled: false,
-        misunderstandingCount: 0,
-        humanHandoffAt: new Date(),
-        humanHandoffResolvedAt: null
+        ...queuedConversationHandoffPatch()
       })
       return {
         reply: botCopyService.humanHandoffQueued(),
@@ -557,11 +553,7 @@ export class ConversationService {
     if (coordinationButtonMessage && bookingV2Enabled && businessId) {
       if (coordinationButtonMessage === 'solicitar atención') {
         await this.updateConversation(input.phone, businessId, {
-          currentStep: 'HUMAN_HANDOFF',
-          aiEnabled: false,
-          misunderstandingCount: 0,
-          humanHandoffAt: new Date(),
-          humanHandoffResolvedAt: null
+          ...queuedConversationHandoffPatch()
         })
         return {
           reply: botCopyService.humanHandoffQueued(),
@@ -617,6 +609,20 @@ export class ConversationService {
           conversation
         }))
       : null
+
+    if (
+      bookingV2Enabled &&
+      businessId &&
+      bookingV2Routing &&
+      !hardResetRequested &&
+      isQueuedConversationHandoff(conversation)
+    ) {
+      return this.handleQueuedHumanHandoffMessage({
+        message,
+        businessId,
+        routing: bookingV2Routing
+      })
+    }
 
     if (bookingV2Enabled && businessId && bookingV2Routing) {
       const navigationResult = await this.handleBookingV2Navigation({
@@ -700,11 +706,7 @@ export class ConversationService {
       (!bookingV2Enabled && isHumanHandoffMessage(message))
     ) {
       await this.updateConversation(input.phone, businessId, {
-        currentStep: 'HUMAN_HANDOFF',
-        aiEnabled: false,
-        misunderstandingCount: 0,
-        humanHandoffAt: new Date(),
-        humanHandoffResolvedAt: null,
+        ...queuedConversationHandoffPatch(),
         photoQuoteAcknowledgedAt: null
       })
 
@@ -993,14 +995,12 @@ export class ConversationService {
     await this.updateConversation(input.phone, input.businessId, {
       currentStep: nextStep,
       ...resumed.conversationPatch,
-      aiEnabled: !isHandoff,
-      humanHandoffResolvedAt: new Date(),
       ...(isHandoff
-        ? {
-            humanHandoffAt: new Date(),
-            humanHandoffResolvedAt: null
-          }
-        : {}),
+        ? queuedConversationHandoffPatch()
+        : {
+            aiEnabled: true,
+            humanHandoffResolvedAt: new Date()
+          }),
       lastAvailability: resumed.availabilityOptions.length
         ? {
             serviceId: resumed.state.draft.service,
@@ -1400,6 +1400,32 @@ export class ConversationService {
     const depositInformationRequest = isDepositInformationRequest(input.message) ||
       hasGroundedDepositInformationIntent(input.routing, input.message)
     const informationTopics = businessInformationTopicsFromRouting(input.routing)
+    const pendingCoordinatedPhase = storedInformationState.pendingCoordinatedAvailability?.phase ?? null
+    const deterministicCoordinatedAction = shouldPrioritizeCoordinatedAvailabilityAction(
+      input.message,
+      pendingCoordinatedPhase
+    )
+    if (deterministicCoordinatedAction) {
+      informationTopics.splice(0)
+    } else if (pendingCoordinatedPhase === 'AWAITING_SEARCH_MENU' && informationTopics.length) {
+      const decision = await bookingV2ChoiceExtractor.extract({
+        message: bookingCoordinationActionableReply(input.message),
+        question: '¿El cliente está eligiendo una acción del menú actual de búsqueda de turnos o está consultando información general del negocio?',
+        choices: [
+          {
+            id: 'availability_action',
+            meaning: 'Responde al menú actual: ver todos los turnos del día, buscar próximos días o buscar por una hora.'
+          },
+          {
+            id: 'business_information',
+            meaning: 'Pregunta por horarios de apertura, catálogo de servicios u otra información general del negocio.'
+          }
+        ]
+      })
+      if (decision.choiceId === 'availability_action' && decision.confidence >= 0.85) {
+        informationTopics.splice(0)
+      }
+    }
     if (depositInformationRequest && !informationTopics.includes('prices')) {
       informationTopics.push('prices')
     }
@@ -1550,11 +1576,7 @@ export class ConversationService {
       if (unsupportedServiceCount >= 2) {
         await this.updateConversation(input.phone, input.businessId, {
           ...unsupportedPatch,
-          currentStep: 'HUMAN_HANDOFF',
-          aiEnabled: false,
-          misunderstandingCount: 0,
-          humanHandoffAt: new Date(),
-          humanHandoffResolvedAt: null
+          ...queuedConversationHandoffPatch()
         })
         return {
           reply: applyAssistantPersonalityToReply(
@@ -1941,11 +1963,7 @@ export class ConversationService {
       const misunderstandingCount = input.conversation.misunderstandingCount + 1
       if (misunderstandingCount >= 3) {
         await this.updateConversation(input.phone, input.businessId, {
-          currentStep: 'HUMAN_HANDOFF',
-          aiEnabled: false,
-          misunderstandingCount: 0,
-          humanHandoffAt: new Date(),
-          humanHandoffResolvedAt: null
+          ...queuedConversationHandoffPatch()
         })
         return {
           reply: applyAssistantPersonalityToReply(
@@ -2030,9 +2048,7 @@ export class ConversationService {
       ...result.conversationPatch,
       ...(isHandoff
         ? {
-            aiEnabled: false,
-            humanHandoffAt: new Date(),
-            humanHandoffResolvedAt: null,
+            ...queuedConversationHandoffPatch(),
             photoQuoteAcknowledgedAt: null
           }
         : {}),
@@ -2079,6 +2095,46 @@ export class ConversationService {
           ))
         : splitWhatsAppReply(composedReply),
       ...(replyButtons ? { replyButtons } : {}),
+      skipMisunderstandingTracking: true,
+      skipHumanize: true
+    }
+  }
+
+  private async handleQueuedHumanHandoffMessage(input: {
+    message: string
+    businessId: string
+    routing: ConversationRouting
+  }): Promise<HandleMessageResult> {
+    const assistantPersonality = await getBusinessAssistantPersonality(input.businessId)
+    const topics = businessInformationTopicsFromRouting(input.routing)
+    const informationReply = topics.length || input.routing.catalogQuery
+      ? await businessKnowledgeService.answer({
+          businessId: input.businessId,
+          topics,
+          ...(input.routing.catalogQuery
+            ? { catalogQuery: input.routing.catalogQuery }
+            : {})
+        })
+      : null
+    if (informationReply) {
+      return {
+        reply: applyAssistantPersonalityToReply(
+          input.routing.bookingMessage
+            ? `${informationReply}\n\n${botCopyService.humanHandoffBookingLocked()}`
+            : informationReply,
+          assistantPersonality
+        ),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+    return {
+      reply: applyAssistantPersonalityToReply(
+        input.routing.bookingMessage
+          ? botCopyService.humanHandoffBookingLocked()
+          : botCopyService.humanHandoffAlreadyQueued(),
+        assistantPersonality
+      ),
       skipMisunderstandingTracking: true,
       skipHumanize: true
     }
@@ -2303,11 +2359,7 @@ export class ConversationService {
 
     if (action.confidence >= 0.7 && action.choiceId === 'human') {
       await this.updateConversation(input.phone, input.businessId, {
-        currentStep: 'HUMAN_HANDOFF',
-        aiEnabled: false,
-        humanHandoffAt: new Date(),
-        humanHandoffResolvedAt: null,
-        misunderstandingCount: 0
+        ...queuedConversationHandoffPatch()
       })
       return {
         reply: selected.segments.length > 1
@@ -2553,13 +2605,12 @@ export class ConversationService {
         await this.updateConversation(input.phone, input.businessId, {
           currentStep: conversationStepFromBookingV2Plan(resumed.plan),
           ...resumed.conversationPatch,
-          aiEnabled: !isHandoff,
           ...(isHandoff
-            ? {
-                humanHandoffAt: new Date(),
-                humanHandoffResolvedAt: null
-              }
-            : {}),
+            ? queuedConversationHandoffPatch()
+            : {
+                aiEnabled: true,
+                humanHandoffResolvedAt: new Date()
+              }),
           lastAvailability: resumed.availabilityOptions.length
             ? {
                 serviceId: resumed.state.draft.service,
@@ -3256,11 +3307,7 @@ export class ConversationService {
 
     if (delay === null || delay > 5) {
       await this.updateConversation(phone, businessId, {
-        currentStep: 'HUMAN_HANDOFF',
-        aiEnabled: false,
-        misunderstandingCount: 0,
-        humanHandoffAt: new Date(),
-        humanHandoffResolvedAt: null,
+        ...queuedConversationHandoffPatch(),
         bookingV2State: null
       })
 
@@ -3902,6 +3949,30 @@ export function isUnambiguousBookingConfirmation(message: string) {
     'asi', 'por', 'favor'
   ])
   return tokens.every((token) => confirmationTokens.has(token))
+}
+
+export function shouldPrioritizeCoordinatedAvailabilityAction(
+  message: string,
+  phase: NonNullable<BookingV2State['pendingCoordinatedAvailability']>['phase'] | null
+) {
+  if (!phase || phase === 'OPTION_SELECTED') return false
+  const actionableMessage = bookingCoordinationActionableReply(message)
+  const normalizedMessage = normalizeText(actionableMessage)
+  if (/\b(?:local|negocio|abren|cierran|apertura|cierre)\b/.test(normalizedMessage)) {
+    return false
+  }
+  const choice = detectBookingCoordinationChoice({
+    message: actionableMessage,
+    phase: phase === 'AWAITING_DATE'
+      ? 'DATE'
+      : phase === 'AWAITING_TIME_PREFERENCE' || phase === 'AWAITING_SEARCH_TIME'
+        ? 'TIME_PREFERENCE'
+        : 'OPTION'
+  })
+  return choice?.type === 'SHOW_MORE' ||
+    choice?.type === 'SHOW_SEARCH_MENU' ||
+    choice?.type === 'SHOW_NEXT_DAYS' ||
+    choice?.type === 'SEARCH_TIME'
 }
 
 export function shouldHandleProfessionalScheduleInformation(input: {

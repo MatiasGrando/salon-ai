@@ -24,6 +24,7 @@ export type BusinessKnowledge = {
   services: Array<{
     id?: string
     name: string
+    category?: string | null
     description?: string | null
     duration: number
     customerDurationMin?: number | null
@@ -78,6 +79,10 @@ export class BusinessKnowledgeService {
             priceMode: true,
             depositMode: true,
             depositValue: true,
+            category: true,
+            catalogCategory: {
+              select: { name: true }
+            },
             parentService: {
               select: { name: true }
             }
@@ -108,6 +113,7 @@ export class BusinessKnowledgeService {
         name: service.parentService
           ? `${service.parentService.name} — ${service.name}`
           : service.name,
+        category: service.catalogCategory?.name ?? service.category,
         description: service.description,
         duration: service.duration,
         customerDurationMin: service.customerDurationMin,
@@ -240,7 +246,11 @@ export function renderBusinessKnowledgeAnswers(
   topics: BusinessInformationTopic[],
   baseDomain = process.env.PUBLIC_BASE_DOMAIN || 'weex.com.ar'
 ) {
-  return Array.from(new Set(topics)).map((topic) => answerTopic(business, topic, baseDomain))
+  const uniqueTopics = Array.from(new Set(topics))
+  const compactTopics = uniqueTopics.includes('prices')
+    ? uniqueTopics.filter((topic) => topic !== 'services')
+    : uniqueTopics
+  return compactTopics.map((topic) => answerTopic(business, topic, baseDomain))
 }
 
 function answerTopic(business: BusinessKnowledge, topic: BusinessInformationTopic, baseDomain: string) {
@@ -297,15 +307,21 @@ function answerTopic(business: BusinessKnowledge, topic: BusinessInformationTopi
 
   if (topic === 'services' || topic === 'prices') {
     if (!business.services.length) return missingInformation('el catálogo de servicios')
-    const lines = business.services.map((service) => {
+    const serviceLine = (service: BusinessKnowledge['services'][number]) => {
       const price = service.price === null
-        ? 'precio a consultar'
-        : `${service.priceMode === 'STARTING_AT' ? 'Desde ' : ''}${formatMoney(service.price)}`
-      return [
-        `• ${service.name} (${formatCustomerDuration(service)})${topic === 'prices' ? ` — ${price}` : ''}`,
-        service.description ? `  ${service.description}` : null
-      ].filter(Boolean).join('\n')
-    })
+        ? 'consultar precio'
+        : `${service.priceMode === 'STARTING_AT' ? 'desde ' : ''}${formatMoney(service.price)}`
+      return `• ${service.name}${topic === 'prices' ? ` — ${price}` : ''}`
+    }
+    const hasCategories = business.services.some((service) => service.category?.trim())
+    const lines = hasCategories
+      ? Array.from(groupKnowledgeServicesByCategory(business.services).entries()).flatMap(
+          ([category, services]) => [
+            `${category}:`,
+            ...services.map(serviceLine)
+          ]
+        )
+      : business.services.map(serviceLine)
     return [
       topic === 'prices' ? 'Estos son los precios de nuestros servicios:' : 'Estos son los servicios disponibles:',
       ...lines
@@ -327,6 +343,17 @@ function answerTopic(business: BusinessKnowledge, topic: BusinessInformationTopi
   }
 
   return 'No tengo esa información confirmada. Si querés, puedo derivarte con una persona del local.'
+}
+
+function groupKnowledgeServicesByCategory(services: BusinessKnowledge['services']) {
+  const groups = new Map<string, BusinessKnowledge['services']>()
+  for (const service of services) {
+    const category = service.category?.trim() || 'Otros'
+    const group = groups.get(category) ?? []
+    group.push(service)
+    groups.set(category, group)
+  }
+  return groups
 }
 
 function formatBusinessHours(hours: BusinessKnowledge['businessHours']) {

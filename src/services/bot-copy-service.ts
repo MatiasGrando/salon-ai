@@ -67,12 +67,7 @@ export class BotCopyService {
       customerDurationMax?: number | null
     }>
   }) {
-    const options = input.services.map((service) => {
-      const min = service.customerDurationMin ?? service.duration
-      const max = service.customerDurationMax ?? min
-      const duration = min === max ? `${min} min` : `${min} a ${max} min`
-      return `* ${service.name} (${duration})`
-    })
+    const options = input.services.map((service) => `* ${service.name}`)
 
     return [
       input.prefix,
@@ -277,7 +272,8 @@ export class BotCopyService {
     return [
       'Dale 😊',
       'Ya le avisé al equipo para que siga la conversación por acá.',
-      'La respuesta puede demorar unos minutos, pero te van a responder por este mismo chat.'
+      'La respuesta puede demorar unos minutos, pero te van a responder por este mismo chat.',
+      'Mientras esperás, puedo responder consultas sobre servicios, precios, horarios del local o ubicación.'
     ].join('\n')
   }
 
@@ -327,7 +323,14 @@ export class BotCopyService {
   }
 
   humanHandoffAlreadyQueued() {
-    return 'Tranqui 😊 Ya quedó avisado el equipo. La respuesta puede demorar unos minutos, pero te van a responder por este mismo chat.'
+    return [
+      'Tranqui 😊 Ya quedó avisado el equipo. Te van a responder por este mismo chat.',
+      'Mientras esperás, puedo ayudarte con servicios, precios, horarios del local o ubicación.'
+    ].join('\n')
+  }
+
+  humanHandoffBookingLocked() {
+    return 'El equipo ya está avisado y va a continuar con vos por acá. Mientras esperás puedo responder consultas básicas, pero no iniciar ni modificar reservas.'
   }
 
   selectedServiceRejected(input: {

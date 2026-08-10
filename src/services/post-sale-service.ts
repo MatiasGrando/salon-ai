@@ -1,4 +1,5 @@
 import { prisma } from '../config/prisma.js'
+import { queuedConversationHandoffPatch } from './conversation-handoff.js'
 import { WhatsAppCloudApi } from '../integrations/whatsapp-cloud-api.js'
 import { assertBusinessCanSendWhatsApp } from './business-whatsapp-settings.js'
 import { RecordCommunicationAttempt } from '../application/communications/record-communication-attempt.js'
@@ -455,10 +456,7 @@ export async function capturePostSaleResponse(input: {
       ? [prisma.conversation.update({
           where: { id: input.conversationId },
           data: {
-            currentStep: 'HUMAN_HANDOFF',
-            aiEnabled: false,
-            humanHandoffAt: now,
-            humanHandoffResolvedAt: null,
+            ...queuedConversationHandoffPatch(now),
             archivedAt: null
           }
         })]

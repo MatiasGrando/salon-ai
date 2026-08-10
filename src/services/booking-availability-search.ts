@@ -125,7 +125,10 @@ export class BookingAvailabilitySearchEngine {
       options.push(...result.options)
     }
 
-    const limitedOptions = options.slice(0, boundedInteger(input.maxResults, 15, 1, 25))
+    const limitedOptions = limitFutureOptionsFairly(
+      options,
+      boundedInteger(input.maxResults, 15, 1, 25)
+    )
     if (limitedOptions.length) {
       return {
         status: 'NEXT_DATES_FOUND',
@@ -511,6 +514,21 @@ function result(
   errors: BookingAvailabilitySearchResult['errors']
 ): BookingAvailabilitySearchResult {
   return { status, options, searchedDates, requestedTime, individualAvailabilityFound, errors }
+}
+
+function limitFutureOptionsFairly(
+  options: BookingAvailabilitySearchOption[],
+  maxResults: number
+) {
+  const firstByDate = Array.from(new Map(
+    options.map((option) => [option.date, option])
+  ).values()).slice(0, maxResults)
+  if (firstByDate.length >= maxResults) return firstByDate
+  const selectedIds = new Set(firstByDate.map((option) => option.id))
+  return [
+    ...firstByDate,
+    ...options.filter((option) => !selectedIds.has(option.id))
+  ].slice(0, maxResults)
 }
 
 function emptyResult(

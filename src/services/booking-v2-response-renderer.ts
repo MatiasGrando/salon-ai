@@ -2,7 +2,6 @@ import type { BookingV2DomainCatalog } from './booking-v2-domain.js'
 import { catalogCategoryOptions } from './booking-v2-domain.js'
 import type { BookingV2AvailabilityOption } from './booking-v2-domain.js'
 import type { BookingV2MessagePlan } from './booking-v2-dialogue.js'
-import { formatCustomerDuration } from './service-duration.js'
 import { isPriceServiceConsultation } from './service-consultation-queue.js'
 import {
   ANY_PROFESSIONAL_ID,
@@ -86,8 +85,8 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
   if (input.plan.type === 'offer_coordinated_options') {
     return [
       `Estas son las opciones para el ${formatDate(input.plan.date)} 😊`,
-      ...input.plan.options.map((option, index) =>
-        `${index + 1}. ${option.startTime} a ${option.endTime}`
+      ...input.plan.options.map((option) =>
+        `${option.startTime} a ${option.endTime}`
       ),
       'Elegí una opción o escribime la hora en la que querés comenzar.'
     ].join('\n\n')
@@ -700,18 +699,18 @@ function formatCategoryAdviceOption(category: string) {
 
 function formatServiceOption(service: BookingV2DomainCatalog['services'][number]) {
   const price = service.price === null
-    ? 'precio a consultar'
+    ? 'consultar precio'
     : `${service.priceMode === 'STARTING_AT' ? 'desde ' : ''}${formatMoney(service.price)}`
   const attention = service.attentionMode === 'GUIDED_ESTIMATE'
-    ? 'estimativo disponible'
+    ? 'estimativo'
     : service.requiresPhoto
     ? 'requiere fotos'
     : service.attentionMode === 'QUOTE'
-      ? 'presupuesto personalizado'
+      ? 'presupuesto'
       : service.attentionMode === 'ADVISOR'
-        ? 'asesoramiento previo'
+        ? 'consulta previa'
         : null
-  return `• ${service.name} — ${formatCustomerDuration(service)} — ${price}${attention ? ` — ${attention}` : ''}`
+  return `• ${service.name} — ${price}${attention ? ` (${attention})` : ''}`
 }
 
 function professionalQuestion(

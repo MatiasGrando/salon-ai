@@ -35,7 +35,7 @@ export class PhotoQuoteAcknowledgementService {
       where: {
         id: input.conversationId,
         currentStep: 'HUMAN_HANDOFF',
-        aiEnabled: false,
+        aiEnabled: true,
         photoQuoteAcknowledgedAt: null
       },
       data: {

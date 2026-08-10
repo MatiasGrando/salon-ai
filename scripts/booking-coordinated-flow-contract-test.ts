@@ -14,6 +14,7 @@ import {
   bookingCoordinationMessageFromInteractiveReply,
   bookingCoordinationReplyButtons,
   isUnambiguousBookingConfirmation,
+  shouldPrioritizeCoordinatedAvailabilityAction,
   shouldHandleProfessionalScheduleInformation
 } from '../src/services/conversation-service.js'
 import type {
@@ -442,6 +443,30 @@ assert.deepEqual(detectBookingCoordinationChoice({
   message: 'mostrame todos los horarios',
   phase: 'OPTION'
 }), { type: 'SHOW_MORE' })
+assert.deepEqual(detectBookingCoordinationChoice({
+  message: '16',
+  phase: 'OPTION'
+}), { type: 'EXACT_TIME', time: '16:00' })
+assert.deepEqual(detectBookingCoordinationChoice({
+  message: 'opción 16',
+  phase: 'OPTION'
+}), { type: 'OPTION', index: 15 })
+assert.equal(shouldPrioritizeCoordinatedAvailabilityAction(
+  'ver todos los horarios',
+  'AWAITING_SEARCH_MENU'
+), true)
+assert.equal(shouldPrioritizeCoordinatedAvailabilityAction(
+  'ver todos',
+  'AWAITING_SEARCH_MENU'
+), true)
+assert.equal(shouldPrioritizeCoordinatedAvailabilityAction(
+  '¿Cómo querés seguir buscando?\nVer todos los horarios del día\nPróximos días\nBuscar una hora específica\nVer todos los horarios',
+  'AWAITING_SEARCH_MENU'
+), true)
+assert.equal(shouldPrioritizeCoordinatedAvailabilityAction(
+  'quiero ver todos los horarios del local',
+  'AWAITING_SEARCH_MENU'
+), false)
 assert.equal(
   bookingCoordinationMessageFromInteractiveReply(dateButtons?.[0]?.id, 'otra-conversation'),
   null
@@ -834,12 +859,14 @@ assert.equal(
   new Set(allDaySchedules.plan.options.map((item) => `${item.startTime}-${item.endTime}`)).size,
   allDaySchedules.plan.options.length
 )
-assert.match(allDaySchedules.reply, /11\. 16:00 a 18:00/)
+assert.match(allDaySchedules.reply, /16:00 a 18:00/)
+assert.doesNotMatch(allDaySchedules.reply, /^\d+\.\s+\d{2}:\d{2}/m)
 
 for (const [message, expectedStart] of [
   ['1', '08:00'],
   ['opción 4', '12:00'],
   ['a las 15', '15:00'],
+  ['16', '16:00'],
   ['1. 15:00', '15:00']
 ] as const) {
   const selection = await engine.process({

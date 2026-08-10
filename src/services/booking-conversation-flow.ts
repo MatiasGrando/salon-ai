@@ -5,7 +5,6 @@ import { AiMessageUnderstandingService, type AiBookingIntentResult } from './ai-
 import { BotCopyService, getFirstName } from './bot-copy-service.js'
 import { MessageUnderstandingService, normalizeText } from './message-understanding-service.js'
 import { findOrCreateCustomerByPhone } from './customer-identity-service.js'
-import { formatCustomerDuration } from './service-duration.js'
 
 const bookingProvider = new InternalBookingProvider()
 const botCopyService = new BotCopyService()
@@ -1599,7 +1598,7 @@ export class BookingConversationFlow {
         reply: [
           prefix,
           'Estas son las opciones disponibles:',
-          ...services.map((service) => `• ${service.name} (${formatCustomerDuration(service)})`)
+          ...services.map((service) => `• ${service.name}`)
         ].join('\n')
       }
     }
@@ -1608,7 +1607,7 @@ export class BookingConversationFlow {
       return {
         reply: [
           prefix,
-          ...services.map((service) => `• ${service.name} (${formatCustomerDuration(service)})`)
+          ...services.map((service) => `• ${service.name}`)
         ].join('\n')
       }
     }

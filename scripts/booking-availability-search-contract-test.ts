@@ -100,6 +100,37 @@ const nextDays = await engine.search({
 assert.equal(nextDays.status, 'NEXT_DATES_FOUND')
 assert.deepEqual(nextDays.options.map((option) => option.date), ['2026-08-12', '2026-08-13'])
 
+const denseFutureEngine = new BookingAvailabilitySearchEngine(async (input) => {
+  const dateNumber = Number(input.date.slice(-2))
+  const times = dateNumber >= 11 && dateNumber <= 15
+    ? ['09:00', '10:00', '11:00', '12:00', '13:00']
+    : []
+  return { ok: true, slots: times }
+})
+const fiveFutureDates = await denseFutureEngine.search({
+  mode: {
+    type: 'NEXT_DAYS',
+    afterDate: '2026-08-10',
+    horizonDays: 5,
+    maxDates: 5
+  },
+  services: [{
+    id: 'corte',
+    name: 'Corte',
+    durationMinutes: 30,
+    customerDurationMinutes: 30,
+    professionalIds: ['julian']
+  }],
+  professionals: [{ id: 'julian', name: 'Julián' }],
+  assignmentMode: 'SINGLE_PROFESSIONAL',
+  maxResults: 5
+})
+assert.equal(fiveFutureDates.status, 'NEXT_DATES_FOUND')
+assert.deepEqual(
+  fiveFutureDates.options.map((item) => item.date),
+  ['2026-08-11', '2026-08-12', '2026-08-13', '2026-08-14', '2026-08-15']
+)
+
 const timeAcrossDays = await engine.search({
   mode: {
     type: 'TIME_ACROSS_DAYS',
