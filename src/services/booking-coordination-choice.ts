@@ -44,7 +44,7 @@ export function detectBookingCoordinationChoice(input: {
   ) {
     return { type: 'SEARCH_WITHOUT_PROFESSIONAL' }
   }
-  if (/\b(?:buscar|encontrar|probar)\b.*\b(?:horario|hora)\b|\bhorario especifico\b/.test(normalized)) {
+  if (/\b(?:buscar|encontrar|probar)\b.*\b(?:horario|hora)\b|\bhorario (?:especifico|exacto)\b/.test(normalized)) {
     return { type: 'SEARCH_TIME' }
   }
   if (/\b(?:otra fecha|otro dia|elegir fecha|fecha especifica)\b/.test(normalized)) {
@@ -117,6 +117,10 @@ function parseTimeWindow(normalized: string) {
 }
 
 function parseExactTime(normalized: string) {
+  const colonTime = /(?:^|\b)([01]?\d|2[0-3]):([0-5]\d)(?:\b|$)/.exec(normalized)
+  if (colonTime?.[1] && colonTime[2]) {
+    return normalizeFlexibleTime(colonTime[1], colonTime[2], true)
+  }
   const compact = /(?:^|\b)(?:a\s+las?\s+|la\s+de\s+las?\s+)?(\d{3,4})(?:\s*(?:h|hs|hrs))?(?:\b|$)/.exec(normalized)
   if (compact?.[1]) return normalizeFlexibleTime(compact[1], undefined, true)
   const explicit = /(?:^|\b)(?:a\s+las?\s+|cerca\s+de\s+las?\s+|la\s+de\s+las?\s+)(\d{1,2})(?::(\d{2}))?(?:\b|$)/.exec(normalized)

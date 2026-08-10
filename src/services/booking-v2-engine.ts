@@ -3456,6 +3456,33 @@ function applyConfirmedServiceEdit(
   }
 }
 
+function bookingActionableReply(message: string) {
+  const lines = message
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  if (lines.length < 2) return message
+  const tail = lines.at(-1)!
+  if (tail.length > 80) return message
+  const quotedContext = normalize(lines.slice(0, -1).join(' '))
+  const looksLikeBotPrompt = [
+    'voy a coordinar los servicios',
+    'que dia te gustaria venir',
+    'en que franja horaria preferis',
+    'en que momento del dia preferis',
+    'a que hora te gustaria',
+    'cual preferis',
+    'como queres continuar',
+    'que queres modificar',
+    'cual de los servicios elegidos',
+    'no encontre disponibilidad',
+    'no encontre una combinacion',
+    'tambien puedo buscar otra fecha',
+    'estas son las opciones'
+  ].some((phrase) => quotedContext.includes(phrase))
+  return looksLikeBotPrompt ? tail : message
+}
+
 function normalize(value: string) {
   return value
     .trim()

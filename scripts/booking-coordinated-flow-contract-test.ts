@@ -211,6 +211,14 @@ const removeService = await engine.process({
 assert.equal(removeService.plan.type, 'ask_service_edit_target')
 if (removeService.plan.type !== 'ask_service_edit_target') throw new Error('Plan inesperado')
 assert.equal(removeService.plan.action, 'remove')
+const quotedRemoveService = await engine.process({
+  businessId: 'business-1',
+  conversation: modificationMenu.conversationPatch,
+  message: `${modificationMenu.reply}\nQuitar un servicio`
+})
+assert.equal(quotedRemoveService.plan.type, 'ask_service_edit_target')
+if (quotedRemoveService.plan.type !== 'ask_service_edit_target') throw new Error('Plan inesperado')
+assert.equal(quotedRemoveService.plan.action, 'remove')
 const restartedBooking = await engine.process({
   businessId: 'business-1',
   conversation: modificationMenu.conversationPatch,
@@ -298,6 +306,16 @@ const relaxedProfessional = await engine.process({
 })
 assert.equal(relaxedProfessional.state.pendingCoordinatedAvailability?.requireRequestedProfessional, false)
 assert.equal(relaxedProfessional.state.draft.professional, '__any_professional__')
+const quotedRelaxedProfessional = await engine.process({
+  businessId: 'business-1',
+  conversation: unavailableWithTamara.conversationPatch,
+  message: `${unavailableWithTamara.reply}\nBuscar sin Tamara`,
+  currentDate: new Date('2026-08-09T15:00:00-03:00')
+})
+assert.equal(
+  quotedRelaxedProfessional.state.pendingCoordinatedAvailability?.requireRequestedProfessional,
+  false
+)
 
 assert.deepEqual(detectBookingCoordinationChoice({
   message: 'a la 1',
@@ -346,6 +364,19 @@ const quotedTomorrow = await engine.process({
   currentDate: new Date('2026-08-09T15:00:00-03:00')
 })
 assert.equal(quotedTomorrow.plan.type, 'ask_coordinated_time_preference')
+
+const quotedMidday = await engine.process({
+  businessId: 'business-1',
+  conversation: selectedTomorrow.conversationPatch,
+  message: `${selectedTomorrow.reply}\nAl mediodía`
+})
+assert.equal(quotedMidday.plan.type, 'offer_coordinated_options')
+const quotedExactTimeButton = await engine.process({
+  businessId: 'business-1',
+  conversation: selectedTomorrow.conversationPatch,
+  message: `${selectedTomorrow.reply}\nHorario exacto`
+})
+assert.equal(quotedExactTimeButton.plan.type, 'ask_coordinated_search_time')
 const bandButtons = bookingCoordinationReplyButtons({
   conversationId: 'conversation-1',
   plan: selectedTomorrow.plan,
@@ -426,6 +457,18 @@ const moreActions = await engine.process({
   message: 'más opciones'
 })
 assert.equal(moreActions.plan.type, 'show_coordinated_more_options')
+const quotedMoreActions = await engine.process({
+  businessId: 'business-1',
+  conversation: unavailableToday.conversationPatch,
+  message: `${unavailableToday.reply}\nMás opciones`
+})
+assert.equal(quotedMoreActions.plan.type, 'show_coordinated_more_options')
+const quotedHuman = await engine.process({
+  businessId: 'business-1',
+  conversation: unavailableToday.conversationPatch,
+  message: `${unavailableToday.reply}\nSolicitar atención`
+})
+assert.equal(quotedHuman.plan.type, 'handoff')
 const moreButtons = bookingCoordinationReplyButtons({
   conversationId: 'conversation-1',
   plan: moreActions.plan,
@@ -518,6 +561,38 @@ const chosen = await engine.process({
 })
 assert.equal(chosen.plan.type, 'show_coordinated_selection')
 assert.equal(chosen.state.pendingCoordinatedAvailability?.selectedOptionId, tomorrowOptions[1]?.id)
+const quotedChosenTime = await engine.process({
+  businessId: 'business-1',
+  conversation: midday.conversationPatch,
+  message: `${midday.reply}\n13:00`
+})
+assert.equal(quotedChosenTime.plan.type, 'show_coordinated_selection')
+assert.equal(quotedChosenTime.state.pendingCoordinatedAvailability?.selectedOptionId, tomorrowOptions[2]?.id)
+const quotedShowMore = await engine.process({
+  businessId: 'business-1',
+  conversation: midday.conversationPatch,
+  message: `${midday.reply}\nVer más horarios`
+})
+assert.equal(quotedShowMore.plan.type, 'offer_coordinated_options')
+
+for (const buttons of [
+  decisionButtons,
+  modificationButtons,
+  dateButtons,
+  bandButtons,
+  twoBandButtons,
+  unavailableButtons,
+  unavailableWithTamaraButtons,
+  moreButtons,
+  optionButtons
+]) {
+  assert.equal(
+    buttons?.every((button) => Boolean(
+      bookingCoordinationMessageFromInteractiveReply(button.id, 'conversation-1')
+    )),
+    true
+  )
+}
 
 const restored = stateFromConversation(conversationPatchFromState(midday.state))
 assert.deepEqual(restored.pendingCoordinatedAvailability, midday.state.pendingCoordinatedAvailability)
