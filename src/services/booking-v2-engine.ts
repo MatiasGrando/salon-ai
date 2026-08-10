@@ -911,6 +911,19 @@ export class BookingV2Engine {
     }
 
     if (initialState.pendingProposal) {
+      if (initialState.pendingProposal.field === 'name') {
+        const explicitName = resolveExpectedName(input.message, initialState, catalog)
+        if (explicitName) {
+          const state = acceptField(initialState, 'name', explicitName)
+          return this.fromInterpretation({
+            state,
+            nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
+            outcome: 'accepted',
+            affectedField: 'name'
+          }, null, catalog)
+        }
+      }
+
       const choice = await this.choiceExtractor.extract({
         message: input.message,
         question: '¿Confirmás la opción propuesta para continuar con la reserva?',

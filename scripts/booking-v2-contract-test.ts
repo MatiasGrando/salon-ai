@@ -1283,6 +1283,53 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'nombre repetido tras la vista previa confirma la propuesta pendiente sin entrar en loop',
+    run: async () => {
+      const catalog = createBookingV2DomainCatalog({
+        services: [{
+          id: 'treatment',
+          name: 'Tratamiento',
+          aliases: ['tratamiento'],
+          duration: 60,
+          price: 25000,
+          priceMode: 'STARTING_AT',
+          category: 'Cabello',
+          attentionMode: 'QUOTE',
+          requiresPhoto: false,
+          estimateExplanation: 'El precio varía según el largo y la cantidad de producto.'
+        }],
+        professionals: []
+      })
+      const extractor = fakeExtractor(null)
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog }), extractor)
+      const first = await engine.process({
+        businessId: 'business-1',
+        conversation: null,
+        message: 'hola soy matias, queria un turno para tratamiento',
+        understandingExtraction: extraction({
+          name: field('matias', 0.8, 'hola soy matias'),
+          service: field('treatment', 0.92, 'turno para tratamiento')
+        })
+      })
+
+      assert.equal(first.state.draft.name, null)
+      assert.equal(first.state.pendingProposal?.field, 'name')
+      assert.equal(first.state.pendingProposal?.value, 'matias')
+      assert.match(first.reply, /¿Me decís tu nombre\?/)
+
+      const second = await engine.process({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(first.state),
+        message: 'matias'
+      })
+
+      assert.equal(second.state.draft.name, 'Matias')
+      assert.equal(second.state.pendingProposal, null)
+      assert.doesNotMatch(second.reply, /¿Me decís tu nombre\?/)
+      assert.equal(extractor.calls.length, 0)
+    }
+  },
+  {
     name: 'divide respuestas largas sin romper parrafos ni listas',
     run: () => {
       const reply = [
