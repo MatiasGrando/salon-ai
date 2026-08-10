@@ -12,13 +12,17 @@ import {
 } from '../src/services/booking-v2-state.js'
 import {
   bookingCoordinationMessageFromInteractiveReply,
-  bookingCoordinationReplyButtons
+  bookingCoordinationReplyButtons,
+  isUnambiguousBookingConfirmation
 } from '../src/services/conversation-service.js'
 import type {
   BookingAvailabilitySearchOption,
   BookingAvailabilitySearchStatus
 } from '../src/services/booking-availability-search.js'
-import { detectBookingCoordinationChoice } from '../src/services/booking-coordination-choice.js'
+import {
+  bookingCoordinationActionableReply,
+  detectBookingCoordinationChoice
+} from '../src/services/booking-coordination-choice.js'
 import { renderBookingV2Response } from '../src/services/booking-v2-response-renderer.js'
 
 const catalog = createBookingV2DomainCatalog({
@@ -561,6 +565,22 @@ const chosen = await engine.process({
 })
 assert.equal(chosen.plan.type, 'show_coordinated_selection')
 assert.equal(chosen.state.pendingCoordinatedAvailability?.selectedOptionId, tomorrowOptions[1]?.id)
+assert.match(chosen.reply, /¿Confirmás estas dos reservas\?/)
+const selectionButtons = bookingCoordinationReplyButtons({
+  conversationId: 'conversation-1',
+  plan: chosen.plan,
+  state: chosen.state
+})
+assert.deepEqual(selectionButtons?.map((button) => button.title), [
+  'Confirmar reservas',
+  'Cambiar horario',
+  'Solicitar atención'
+])
+assert.equal(
+  bookingCoordinationActionableReply(`${chosen.reply}\nDale`),
+  'Dale'
+)
+assert.equal(isUnambiguousBookingConfirmation('Dale'), true)
 const quotedChosenTime = await engine.process({
   businessId: 'business-1',
   conversation: midday.conversationPatch,
@@ -584,7 +604,8 @@ for (const buttons of [
   unavailableButtons,
   unavailableWithTamaraButtons,
   moreButtons,
-  optionButtons
+  optionButtons,
+  selectionButtons
 ]) {
   assert.equal(
     buttons?.every((button) => Boolean(
@@ -671,7 +692,18 @@ const singleConfirmed = await singleEngine.process({
   conversation: singleMidday.conversationPatch,
   message: '1'
 })
-assert.equal(singleConfirmed.plan.type, 'confirm_booking')
-assert.equal(singleConfirmed.state.draft.time, '12:00')
+assert.equal(singleConfirmed.plan.type, 'show_coordinated_selection')
+assert.equal(singleConfirmed.state.pendingCoordinatedAvailability?.selectedOptionId, singleOptions[1]?.id)
+assert.match(singleConfirmed.reply, /¿Confirmás la reserva\?/)
+const singleConfirmationButtons = bookingCoordinationReplyButtons({
+  conversationId: 'conversation-1',
+  plan: singleConfirmed.plan,
+  state: singleConfirmed.state
+})
+assert.deepEqual(singleConfirmationButtons?.map((button) => button.title), [
+  'Confirmar turno',
+  'Cambiar horario',
+  'Solicitar atención'
+])
 
 console.log('booking-coordinated-flow-contract-test: OK')

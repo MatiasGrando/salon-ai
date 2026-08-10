@@ -28,6 +28,7 @@ import {
   advanceToNextQueuedService,
   clearFieldAndDependents,
   nextMissingField,
+  pendingDepositAppointmentIds,
   type BookingFlowOrder,
   type BookingV2State
 } from '../services/booking-v2-state.js'
@@ -1015,9 +1016,13 @@ export async function crmRoutes(app: FastifyInstance) {
     }
 
     const reviewedAt = new Date()
-    const queuedContinuation = advanceToNextQueuedService(
-      stateFromConversation(deposit.conversation)
-    )
+    const depositBookingState = stateFromConversation(deposit.conversation)
+    const heldAppointmentIds = depositBookingState.pendingDeposit
+      ? pendingDepositAppointmentIds(depositBookingState.pendingDeposit)
+      : [deposit.appointmentId]
+    const queuedContinuation = heldAppointmentIds.length > 1
+      ? null
+      : advanceToNextQueuedService(depositBookingState)
     const resumedContinuation = queuedContinuation
       ? await bookingV2Engine.resume({
           businessId: deposit.businessId,
@@ -1030,11 +1035,13 @@ export async function crmRoutes(app: FastifyInstance) {
       select: { bookingFlowOrder: true }
     }))?.bookingFlowOrder)
     const approved = await prisma.$transaction(async (tx) => {
-      const heldAppointment = await tx.appointment.findUnique({
-        where: { id: deposit.appointmentId },
-        select: { status: true }
+      const heldAppointments = await tx.appointment.count({
+        where: {
+          id: { in: heldAppointmentIds },
+          status: 'PENDING'
+        }
       })
-      if (heldAppointment?.status !== 'PENDING') return false
+      if (heldAppointments !== heldAppointmentIds.length) return false
       const claimed = await tx.bookingDeposit.updateMany({
         where: {
           id: deposit.id,
@@ -1048,8 +1055,11 @@ export async function crmRoutes(app: FastifyInstance) {
         }
       })
       if (!claimed.count) return false
-      await tx.appointment.update({
-        where: { id: deposit.appointmentId },
+      await tx.appointment.updateMany({
+        where: {
+          id: { in: heldAppointmentIds },
+          status: 'PENDING'
+        },
         data: { status: 'CONFIRMED' }
       })
       await tx.conversation.update({
@@ -1097,10 +1107,22 @@ export async function crmRoutes(app: FastifyInstance) {
     } catch (error) {
       console.error('No pude vincular el turno confirmado por seña con la oportunidad', error)
     }
+    const coordinatedSelection = depositBookingState.pendingCoordinatedAvailability?.phase === 'OPTION_SELECTED'
+      ? depositBookingState.pendingCoordinatedAvailability.options.find((option) =>
+          option.id === depositBookingState.pendingCoordinatedAvailability?.selectedOptionId
+        )
+      : null
     const confirmedServiceNames = deposit.appointment.serviceItems.length
       ? deposit.appointment.serviceItems.map((item) => item.service.name).join(' + ')
       : deposit.appointment.service.name
-    const confirmationText = `¡Listo! Confirmamos tu seña y el turno de ${confirmedServiceNames} para ${formatDepositAppointmentDate(deposit.appointment.startAt)} con ${deposit.appointment.professional.name}.`
+    const confirmationText = coordinatedSelection && heldAppointmentIds.length > 1
+      ? [
+          `¡Listo! Confirmamos tu seña y tus reservas para el ${formatDepositAppointmentDate(deposit.appointment.startAt)} 😊`,
+          ...coordinatedSelection.segments.map((segment) =>
+            `${segment.serviceName} con ${segment.professionalName}: ${segment.startTime} a ${segment.endTime}`
+          )
+        ].join('\n')
+      : `¡Listo! Confirmamos tu seña y el turno de ${confirmedServiceNames} para ${formatDepositAppointmentDate(deposit.appointment.startAt)} con ${deposit.appointment.professional.name}.`
     const nextService = queuedContinuation
       ? await prisma.service.findFirst({
           where: {
@@ -1141,6 +1163,10 @@ export async function crmRoutes(app: FastifyInstance) {
     }
     const reason = body.reason?.trim().slice(0, 300) || 'No pudimos validar el comprobante'
     const reviewedAt = new Date()
+    const depositBookingState = stateFromConversation(deposit.conversation)
+    const heldAppointmentIds = depositBookingState.pendingDeposit
+      ? pendingDepositAppointmentIds(depositBookingState.pendingDeposit)
+      : [deposit.appointmentId]
     const rejected = await prisma.$transaction(async (tx) => {
       const claimed = await tx.bookingDeposit.updateMany({
         where: {
@@ -1155,8 +1181,11 @@ export async function crmRoutes(app: FastifyInstance) {
         }
       })
       if (!claimed.count) return false
-      await tx.appointment.update({
-        where: { id: deposit.appointmentId },
+      await tx.appointment.updateMany({
+        where: {
+          id: { in: heldAppointmentIds },
+          status: 'PENDING'
+        },
         data: { status: 'CANCELLED' }
       })
       await tx.conversation.update({

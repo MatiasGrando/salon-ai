@@ -718,9 +718,15 @@ function readPendingDeposit(value: unknown): BookingV2PendingDeposit | null {
   if (typeof candidate.amount !== 'number' || !Number.isFinite(candidate.amount)) return null
   if (candidate.status !== 'awaiting_proof') return null
   if (typeof candidate.expiresAt !== 'string' || Number.isNaN(new Date(candidate.expiresAt).getTime())) return null
+  const relatedAppointmentIds = Array.isArray(candidate.relatedAppointmentIds)
+    ? Array.from(new Set(candidate.relatedAppointmentIds.filter((id): id is string =>
+        typeof id === 'string' && Boolean(id.trim())
+      ))).slice(0, 5)
+    : []
   return {
     depositId: candidate.depositId,
     appointmentId: candidate.appointmentId,
+    ...(relatedAppointmentIds.length ? { relatedAppointmentIds } : {}),
     serviceId: candidate.serviceId,
     mode: candidate.mode,
     configuredValue: candidate.configuredValue,

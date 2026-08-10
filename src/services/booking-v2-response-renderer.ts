@@ -106,7 +106,9 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
       ...input.plan.option.segments.map((segment) =>
         `${segment.serviceName} con ${segment.professionalName}: ${segment.startTime} a ${segment.endTime}`
       ),
-      'Dejé preparada esta combinación. El siguiente paso es confirmar ambas reservas.'
+      input.plan.assignmentMode === 'SINGLE_PROFESSIONAL'
+        ? '¿Confirmás la reserva?'
+        : '¿Confirmás estas dos reservas?'
     ].join('\n')
   }
 

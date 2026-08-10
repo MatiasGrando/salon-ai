@@ -18,7 +18,8 @@ export class BookingDepositService {
       },
       select: {
         id: true,
-        appointmentId: true
+        appointmentId: true,
+        conversation: { select: { bookingV2State: true } }
       }
     })
     if (!overdue.length) return { expired: 0 }
@@ -40,7 +41,7 @@ export class BookingDepositService {
         if (!claimed.count) continue
         await tx.appointment.updateMany({
           where: {
-            id: deposit.appointmentId,
+            id: { in: depositAppointmentIds(deposit.appointmentId, deposit.conversation?.bookingV2State) },
             status: 'PENDING'
           },
           data: {
@@ -94,7 +95,10 @@ export class BookingDepositService {
     return this.db.$transaction(async (tx) => {
       const deposit = await tx.bookingDeposit.findUnique({
         where: { id: input.depositId },
-        select: { appointmentId: true }
+        select: {
+          appointmentId: true,
+          conversation: { select: { bookingV2State: true } }
+        }
       })
       if (!deposit) return false
       const cancelled = await tx.bookingDeposit.updateMany({
@@ -110,7 +114,10 @@ export class BookingDepositService {
       })
       if (!cancelled.count) return false
       await tx.appointment.updateMany({
-        where: { id: deposit.appointmentId, status: 'PENDING' },
+        where: {
+          id: { in: depositAppointmentIds(deposit.appointmentId, deposit.conversation?.bookingV2State) },
+          status: 'PENDING'
+        },
         data: { status: 'CANCELLED' }
       })
       return true
@@ -144,3 +151,16 @@ export class BookingDepositService {
 }
 
 export const bookingDepositService = new BookingDepositService()
+
+function depositAppointmentIds(primaryAppointmentId: string, bookingV2State: unknown) {
+  if (!bookingV2State || typeof bookingV2State !== 'object') return [primaryAppointmentId]
+  const pendingDeposit = (bookingV2State as { pendingDeposit?: unknown }).pendingDeposit
+  if (!pendingDeposit || typeof pendingDeposit !== 'object') return [primaryAppointmentId]
+  const related = (pendingDeposit as { relatedAppointmentIds?: unknown }).relatedAppointmentIds
+  return Array.from(new Set([
+    primaryAppointmentId,
+    ...(Array.isArray(related)
+      ? related.filter((id): id is string => typeof id === 'string' && Boolean(id.trim()))
+      : [])
+  ]))
+}

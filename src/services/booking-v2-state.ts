@@ -90,6 +90,7 @@ export type BookingV2AgendaItem = {
 export type BookingV2PendingDeposit = {
   depositId: string
   appointmentId: string
+  relatedAppointmentIds?: string[]
   serviceId: string
   mode: 'FIXED' | 'PERCENTAGE'
   configuredValue: number
@@ -105,6 +106,13 @@ export type BookingV2AdvisorQuote = {
   note: string | null
   status: 'awaiting_acceptance' | 'accepted'
   quotedAt: string
+}
+
+export function pendingDepositAppointmentIds(pending: BookingV2PendingDeposit) {
+  return Array.from(new Set([
+    pending.appointmentId,
+    ...(pending.relatedAppointmentIds ?? [])
+  ].filter(Boolean)))
 }
 
 export type BookingV2QuoteOnly = ServiceConsultationQueue

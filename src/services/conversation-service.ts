@@ -21,7 +21,8 @@ import {
   addCombinedServices,
   combinedServiceIds,
   createEmptyBookingV2State,
-  advanceToNextQueuedService
+  advanceToNextQueuedService,
+  pendingDepositAppointmentIds
 } from './booking-v2-state.js'
 import {
   conversationPatchFromState,
@@ -33,7 +34,10 @@ import {
   renderBookingV2DepositRequest
 } from './booking-v2-deposit.js'
 import { bookingDepositService } from './booking-deposit-service.js'
-import { reopenClosedConversationOpportunity } from './conversation-opportunity-service.js'
+import {
+  markConversationOpportunityConverted,
+  reopenClosedConversationOpportunity
+} from './conversation-opportunity-service.js'
 import { findOrCreateCustomerByPhone } from './customer-identity-service.js'
 import {
   businessInformationTopicsFromRouting,
@@ -63,6 +67,7 @@ import {
   bookingAvailabilityFailureRecovery
 } from './booking-availability-resolution.js'
 import { detectDeterministicConfirmation } from './conversation-confirmation-intent.js'
+import { bookingCoordinationActionableReply } from './booking-coordination-choice.js'
 
 const bookingConversationFlow = new BookingConversationFlow()
 const bookingProvider = new InternalBookingProvider()
@@ -1090,7 +1095,9 @@ export class ConversationService {
     if (navigationIntent === 'cancel_booking') {
       if (!hasBookingInProgress) return null
       if (currentState.pendingDeposit) {
-        await appointmentService.cancel(currentState.pendingDeposit.appointmentId)
+        await Promise.all(pendingDepositAppointmentIds(currentState.pendingDeposit).map((appointmentId) =>
+          appointmentService.cancel(appointmentId)
+        ))
       }
       const cancelledState = freshBookingV2State(currentState.draft.name)
       await this.updateConversation(input.phone, input.businessId, {
@@ -1115,7 +1122,9 @@ export class ConversationService {
 
     if (navigationIntent === 'restart_booking') {
       if (currentState.pendingDeposit) {
-        await appointmentService.cancel(currentState.pendingDeposit.appointmentId)
+        await Promise.all(pendingDepositAppointmentIds(currentState.pendingDeposit).map((appointmentId) =>
+          appointmentService.cancel(appointmentId)
+        ))
       }
       const restartedState = freshBookingV2State(currentState.draft.name)
       const resumed = await bookingV2Engine.resume({
@@ -1179,6 +1188,16 @@ export class ConversationService {
   }): Promise<HandleMessageResult> {
     const assistantPersonality = await getBusinessAssistantPersonality(input.businessId)
     const storedInformationState = stateFromConversation(input.conversation)
+    if (storedInformationState.pendingCoordinatedAvailability?.phase === 'OPTION_SELECTED') {
+      return this.handleCoordinatedBookingConfirmation({
+        phone: input.phone,
+        message: input.message,
+        businessId: input.businessId,
+        conversation: input.conversation,
+        state: storedInformationState,
+        assistantPersonality
+      })
+    }
     const quoteOnlyRequest = isQuoteOnlyRouting(input.routing, input.message)
     const priceInformationRequest = isPriceInformationRequest(input.routing)
     const multiServicePriceRequest = !quoteOnlyRequest && priceInformationRequest &&
@@ -2181,6 +2200,299 @@ export class ConversationService {
     }
   }
 
+  private async handleCoordinatedBookingConfirmation(input: {
+    phone: string
+    message: string
+    businessId: string
+    conversation: {
+      id: string
+      currentStep: string
+      selectedCustomerName: string | null
+      selectedServiceId: string | null
+      selectedProfessionalId: string | null
+      selectedDate: string | null
+      selectedTime: string | null
+      misunderstandingCount: number
+      bookingV2State?: unknown
+    }
+    state: BookingV2State
+    assistantPersonality: AssistantPersonality
+  }): Promise<HandleMessageResult> {
+    const pending = input.state.pendingCoordinatedAvailability!
+    const selected = pending.options.find((option) => option.id === pending.selectedOptionId)
+    if (!selected || !input.state.draft.name) {
+      const resumed = await bookingV2Engine.resume({
+        businessId: input.businessId,
+        conversation: conversationPatchFromState(input.state)
+      })
+      const replyButtons = bookingCoordinationReplyButtons({
+        conversationId: input.conversation.id,
+        plan: resumed.plan,
+        state: resumed.state
+      })
+      return {
+        reply: resumed.reply,
+        ...(replyButtons ? { replyButtons } : {}),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+
+    const actionableMessage = bookingCoordinationActionableReply(input.message)
+    const normalized = normalizeText(actionableMessage)
+    const deterministicAction = isUnambiguousBookingConfirmation(actionableMessage) ||
+      /\bconfirm(?:ar|o|ame)?\b.*\breservas?\b/.test(normalized)
+      ? 'confirm'
+      : /\b(?:cambiar|otro|elegir)\b.*\bhorario\b/.test(normalized)
+        ? 'change_time'
+        : /\b(?:atencion|persona|equipo|asesor)\b/.test(normalized)
+          ? 'human'
+          : null
+    const action = deterministicAction
+      ? { choiceId: deterministicAction, confidence: 1 }
+      : await bookingV2ChoiceExtractor.extract({
+          message: actionableMessage,
+          question: selected.segments.length > 1
+            ? '¿Confirma las dos reservas coordinadas, quiere cambiar el horario o solicita atención del equipo?'
+            : '¿Confirma la reserva, quiere cambiar el horario o solicita atención del equipo?',
+          choices: [
+            { id: 'confirm', meaning: 'Confirma y autoriza crear las dos reservas coordinadas.' },
+            { id: 'change_time', meaning: 'Quiere volver a elegir la franja o el horario.' },
+            { id: 'human', meaning: 'Quiere que el equipo revise o coordine la reserva.' }
+          ]
+        })
+
+    if (action.confidence >= 0.7 && action.choiceId === 'change_time') {
+      const state: BookingV2State = {
+        ...input.state,
+        draft: { ...input.state.draft, time: null },
+        pendingCoordinatedAvailability: {
+          ...pending,
+          phase: 'AWAITING_TIME_PREFERENCE',
+          filteredOptionIds: pending.options.map((option) => option.id),
+          page: 0,
+          timeBand: null,
+          requestedTime: null,
+          requestedWindow: null,
+          selectedOptionId: null
+        }
+      }
+      const resumed = await bookingV2Engine.resume({
+        businessId: input.businessId,
+        conversation: conversationPatchFromState(state)
+      })
+      await this.updateConversation(input.phone, input.businessId, {
+        currentStep: conversationStepFromBookingV2Plan(resumed.plan),
+        ...resumed.conversationPatch,
+        lastAvailability: null
+      })
+      const replyButtons = bookingCoordinationReplyButtons({
+        conversationId: input.conversation.id,
+        plan: resumed.plan,
+        state: resumed.state
+      })
+      return {
+        reply: applyAssistantPersonalityToReply(resumed.reply, input.assistantPersonality),
+        ...(replyButtons ? { replyButtons } : {}),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+
+    if (action.confidence >= 0.7 && action.choiceId === 'human') {
+      await this.updateConversation(input.phone, input.businessId, {
+        currentStep: 'HUMAN_HANDOFF',
+        aiEnabled: false,
+        humanHandoffAt: new Date(),
+        humanHandoffResolvedAt: null,
+        misunderstandingCount: 0
+      })
+      return {
+        reply: selected.segments.length > 1
+          ? 'Conservo la combinación elegida y le pido al equipo que continúe con vos por acá. La respuesta puede demorar unos minutos.'
+          : 'Conservo el horario elegido y le pido al equipo que continúe con vos por acá. La respuesta puede demorar unos minutos.',
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+
+    if (action.confidence < 0.7 || action.choiceId !== 'confirm') {
+      const resumed = await bookingV2Engine.resume({
+        businessId: input.businessId,
+        conversation: conversationPatchFromState(input.state)
+      })
+      const replyButtons = bookingCoordinationReplyButtons({
+        conversationId: input.conversation.id,
+        plan: resumed.plan,
+        state: resumed.state
+      })
+      return {
+        reply: resumed.reply,
+        ...(replyButtons ? { replyButtons } : {}),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+
+    return this.confirmCoordinatedBookingAppointments({
+      phone: input.phone,
+      businessId: input.businessId,
+      conversationId: input.conversation.id,
+      state: input.state,
+      selected
+    })
+  }
+
+  private async confirmCoordinatedBookingAppointments(input: {
+    phone: string
+    businessId: string
+    conversationId: string
+    state: BookingV2State
+    selected: NonNullable<BookingV2State['pendingCoordinatedAvailability']>['options'][number]
+  }): Promise<HandleMessageResult> {
+    const professionalLinks = await prisma.professional.findMany({
+      where: {
+        businessId: input.businessId,
+        isActive: true,
+        acceptsBotBookings: true,
+        OR: input.selected.segments.map((segment) => ({
+          id: segment.professionalId,
+          serviceLinks: { some: { serviceId: segment.serviceId } }
+        }))
+      },
+      select: { id: true, serviceLinks: { select: { serviceId: true } } }
+    })
+    const validLinks = new Set(professionalLinks.flatMap((professional) =>
+      professional.serviceLinks.map((link) => `${professional.id}:${link.serviceId}`)
+    ))
+    if (input.selected.segments.some((segment) =>
+      !validLinks.has(`${segment.professionalId}:${segment.serviceId}`)
+    )) {
+      return this.recoverCoordinatedBookingFailure(input, 'Uno de los profesionales ya no recibe reservas automáticas para ese servicio.')
+    }
+
+    const customer = await this.findOrCreateCustomer(
+      input.phone,
+      input.state.draft.name!,
+      input.businessId
+    )
+    const appointmentIds: string[] = []
+    try {
+      for (const segment of input.selected.segments) {
+        const created = await appointmentService.create({
+          customerId: customer.id,
+          professionalId: segment.professionalId,
+          serviceId: segment.serviceId,
+          serviceIds: [segment.serviceId],
+          startAt: `${input.selected.date}T${segment.startTime}:00`,
+          status: 'PENDING',
+          quotedPrice: acceptedAdvisorQuoteAmount(input.state, segment.serviceId)
+        })
+        if (!created.ok) {
+          await Promise.allSettled(appointmentIds.map((appointmentId) => appointmentService.cancel(appointmentId)))
+          return this.recoverCoordinatedBookingFailure(input, created.message)
+        }
+        appointmentIds.push(created.appointment.id)
+      }
+    } catch (error) {
+      await Promise.allSettled(appointmentIds.map((appointmentId) => appointmentService.cancel(appointmentId)))
+      console.error('No pude retener todas las reservas coordinadas', error)
+      return this.recoverCoordinatedBookingFailure(input, 'Ocurrió un error al retener los horarios elegidos.')
+    }
+
+    let deposit: HandleMessageResult | null
+    try {
+      deposit = await this.requestCoordinatedDepositIfNeeded({
+        ...input,
+        appointmentIds
+      })
+    } catch (error) {
+      console.error('No pude preparar la seña de las reservas coordinadas', error)
+      return this.recoverCoordinatedBookingFailure(input, 'Ocurrió un error al preparar la seña.')
+    }
+    if (deposit) return deposit
+
+    let confirmed = false
+    try {
+      confirmed = await appointmentService.confirmPendingAppointments(appointmentIds)
+    } catch (error) {
+      console.error('No pude confirmar en conjunto las reservas coordinadas', error)
+    }
+    if (!confirmed) {
+      await Promise.allSettled(appointmentIds.map((appointmentId) => appointmentService.cancel(appointmentId)))
+      return this.recoverCoordinatedBookingFailure(input, 'Los horarios cambiaron mientras confirmábamos la reserva.')
+    }
+    await this.updateConversation(input.phone, input.businessId, {
+      currentStep: 'COMPLETED',
+      bookingV2State: null,
+      lastAvailability: null
+    })
+    try {
+      await markConversationOpportunityConverted({
+        businessId: input.businessId,
+        customerPhone: input.phone,
+        appointmentId: appointmentIds[0]!
+      })
+    } catch (error) {
+      console.error('No pude vincular los turnos coordinados con la oportunidad', error)
+    }
+    return {
+      reply: [
+        input.selected.segments.length > 1
+          ? `¡Listo, ${input.state.draft.name}! Confirmamos tus reservas para el ${formatDateForBookingV2(input.selected.date)} 😊`
+          : `¡Listo, ${input.state.draft.name}! Confirmamos tu reserva para el ${formatDateForBookingV2(input.selected.date)} 😊`,
+        ...input.selected.segments.map((segment) =>
+          `${segment.serviceName} con ${segment.professionalName}: ${segment.startTime} a ${segment.endTime}`
+        )
+      ].join('\n'),
+      skipMisunderstandingTracking: true,
+      skipHumanize: true
+    }
+  }
+
+  private async recoverCoordinatedBookingFailure(input: {
+    phone: string
+    businessId: string
+    conversationId: string
+    state: BookingV2State
+  }, message: string): Promise<HandleMessageResult> {
+    const pending = input.state.pendingCoordinatedAvailability!
+    const state: BookingV2State = {
+      ...input.state,
+      draft: { ...input.state.draft, time: null },
+      pendingCoordinatedAvailability: {
+        ...pending,
+        phase: 'AWAITING_DATE',
+        options: [],
+        filteredOptionIds: [],
+        page: 0,
+        selectedOptionId: null
+      }
+    }
+    const resumed = await bookingV2Engine.resume({
+      businessId: input.businessId,
+      conversation: conversationPatchFromState(state)
+    })
+    await this.updateConversation(input.phone, input.businessId, {
+      currentStep: conversationStepFromBookingV2Plan(resumed.plan),
+      ...resumed.conversationPatch,
+      lastAvailability: null
+    })
+    const replyButtons = bookingCoordinationReplyButtons({
+      conversationId: input.conversationId,
+      plan: resumed.plan,
+      state: resumed.state
+    })
+    return {
+      reply: `${pending.assignmentMode === 'MULTIPLE_PROFESSIONALS'
+        ? 'No pude confirmar las dos reservas'
+        : 'No pude confirmar la reserva'}: ${message}\n\n${resumed.reply}`,
+      ...(replyButtons ? { replyButtons } : {}),
+      skipMisunderstandingTracking: true,
+      skipHumanize: true
+    }
+  }
+
   private async confirmBookingV2Appointment(input: {
     phone: string
     businessId: string
@@ -2284,6 +2596,103 @@ export class ConversationService {
         date: formatDateForBookingV2(input.conversation.selectedDate),
         time: input.conversation.selectedTime
       }),
+      skipMisunderstandingTracking: true,
+      skipHumanize: true
+    }
+  }
+
+  private async requestCoordinatedDepositIfNeeded(input: {
+    phone: string
+    businessId: string
+    conversationId: string
+    state: BookingV2State
+    selected: NonNullable<BookingV2State['pendingCoordinatedAvailability']>['options'][number]
+    appointmentIds: string[]
+  }): Promise<HandleMessageResult | null> {
+    const primarySegment = input.selected.segments[0]
+    const primaryAppointmentId = input.appointmentIds[0]
+    if (!primarySegment || !primaryAppointmentId) return null
+    const service = await prisma.service.findFirst({
+      where: { id: primarySegment.serviceId, businessId: input.businessId },
+      select: {
+        id: true,
+        name: true,
+        price: true,
+        depositMode: true,
+        depositValue: true,
+        depositHoldMinutes: true,
+        business: { select: { paymentSettings: true } }
+      }
+    })
+    if (!service || service.depositMode === 'NONE') return null
+    const estimateMinimum = acceptedAdvisorQuoteAmount(input.state, service.id) ??
+      (input.state.guidedEstimate?.serviceId === service.id
+        ? input.state.guidedEstimate.priceMin
+        : null)
+    const calculation = calculateBookingV2Deposit({
+      mode: service.depositMode,
+      value: service.depositValue,
+      servicePrice: service.price,
+      estimateMinimum
+    })
+    if (!calculation) return null
+
+    const expiresAt = new Date(Date.now() + service.depositHoldMinutes * 60_000)
+    let deposit: Awaited<ReturnType<typeof prisma.bookingDeposit.create>> | null = null
+    try {
+      deposit = await prisma.bookingDeposit.create({
+        data: {
+          businessId: input.businessId,
+          appointmentId: primaryAppointmentId,
+          conversationId: input.conversationId,
+          mode: calculation.mode,
+          configuredValue: calculation.configuredValue,
+          baseAmount: calculation.baseAmount,
+          amount: calculation.amount,
+          expiresAt
+        }
+      })
+      const nextState: BookingV2State = {
+        ...input.state,
+        pendingDeposit: {
+          depositId: deposit.id,
+          appointmentId: primaryAppointmentId,
+          relatedAppointmentIds: input.appointmentIds,
+          serviceId: service.id,
+          mode: calculation.mode,
+          configuredValue: calculation.configuredValue,
+          baseAmount: calculation.baseAmount,
+          amount: calculation.amount,
+          status: 'awaiting_proof',
+          expiresAt: expiresAt.toISOString()
+        }
+      }
+      await this.updateConversation(input.phone, input.businessId, {
+        currentStep: 'AWAITING_DEPOSIT',
+        ...conversationPatchFromState(nextState),
+        aiEnabled: true,
+        photoQuoteAcknowledgedAt: null,
+        lastAvailability: null
+      })
+    } catch (error) {
+      if (deposit) {
+        await bookingDepositService.cancelPendingProof({
+          depositId: deposit.id,
+          reason: 'No se pudo guardar la seña de las reservas coordinadas.'
+        })
+      }
+      await Promise.allSettled(input.appointmentIds.map((appointmentId) => appointmentService.cancel(appointmentId)))
+      throw error
+    }
+
+    return {
+      reply: renderBookingV2DepositRequest({
+        serviceName: input.selected.segments.map((segment) => segment.serviceName).join(' + '),
+        calculation,
+        paymentSettings: service.business.paymentSettings,
+        expiresAt
+      }),
+      depositRequestId: deposit!.id,
       skipMisunderstandingTracking: true,
       skipHumanize: true
     }
@@ -2495,6 +2904,17 @@ export class ConversationService {
   }): Promise<HandleMessageResult | null> {
     const state = stateFromConversation(input.conversation)
     if (!state.pendingDeposit || !state.draft.service) return null
+    if (pendingDepositAppointmentIds(state.pendingDeposit).length > 1) {
+      return {
+        reply: 'Las dos reservas coordinadas ya están retenidas por la seña. Para sumar otro servicio sin perder esos horarios, el equipo tiene que revisarlo.',
+        replyButtons: [{
+          id: `coord:${input.conversation.id}:human`,
+          title: 'Solicitar atención'
+        }],
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
     await bookingDepositService.expireOverdue()
     const deposit = await prisma.bookingDeposit.findUnique({
       where: { id: state.pendingDeposit.depositId },
@@ -3178,7 +3598,7 @@ function conversationStepFromBookingV2Plan(plan: BookingV2MessagePlan) {
     plan.type === 'ask_coordinated_search_time' ||
     plan.type === 'offer_coordinated_options'
   ) return 'ASK_TIME'
-  if (plan.type === 'show_coordinated_selection') return 'ASK_TIME'
+  if (plan.type === 'show_coordinated_selection') return 'CONFIRM'
   if (plan.type === 'show_service_preview_and_ask_name') return 'ASK_CUSTOMER_NAME'
   if (
     plan.type === 'ask_service_validation' ||
@@ -3914,6 +4334,18 @@ export function bookingCoordinationReplyButtons(input: {
       { id: `${prefix}restart`, title: 'Empezar de nuevo' }
     ]
   }
+  if (input.plan.type === 'show_coordinated_selection') {
+    return [
+      {
+        id: `${prefix}confirm_reservations`,
+        title: input.plan.assignmentMode === 'MULTIPLE_PROFESSIONALS'
+          ? 'Confirmar reservas'
+          : 'Confirmar turno'
+      },
+      { id: `${prefix}change_time`, title: 'Cambiar horario' },
+      { id: `${prefix}human`, title: 'Solicitar atención' }
+    ]
+  }
   return null
 }
 
@@ -3937,6 +4369,8 @@ export function bookingCoordinationMessageFromInteractiveReply(
   if (action === 'mod_change') return 'cambiar un servicio'
   if (action === 'mod_remove') return 'quitar un servicio'
   if (action === 'restart') return 'empezar de nuevo desde cero'
+  if (action === 'confirm_reservations') return 'confirmar las reservas'
+  if (action === 'change_time') return 'cambiar horario'
   if (action === 'band:morning') return 'por la mañana'
   if (action === 'band:midday') return 'al mediodía'
   if (action === 'band:afternoon') return 'por la tarde'

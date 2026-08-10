@@ -20,6 +20,7 @@ type DepositRecord = {
   proofMessageId: string | null
   reviewedAt?: Date | null
   rejectionReason?: string | null
+  bookingV2State?: unknown
 }
 
 type AppointmentRecord = {
@@ -190,6 +191,11 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       const rejectStart = crmRoute.indexOf("app.post('/crm/conversations/:id/deposit/reject'", approveStart)
       const approveRoute = crmRoute.slice(approveStart, rejectStart)
       assert.equal(approveRoute.includes('expiresAt: { gt: reviewedAt }'), false)
+      assert.ok(approveRoute.includes('pendingDepositAppointmentIds'))
+      assert.ok(approveRoute.includes('id: { in: heldAppointmentIds }'))
+      const rejectRoute = crmRoute.slice(rejectStart)
+      assert.ok(rejectRoute.includes('pendingDepositAppointmentIds'))
+      assert.ok(rejectRoute.includes('id: { in: heldAppointmentIds }'))
     }
   },
   {
@@ -211,6 +217,38 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(result.expired, 1)
       assert.equal(fixture.deposits[0]?.status, 'EXPIRED')
       assert.equal(fixture.appointments[0]?.status, 'CANCELLED')
+    }
+  },
+  {
+    name: 'una retencion coordinada vencida libera las dos reservas',
+    run: async () => {
+      const fixture = fakeDepositDb({
+        deposits: [{
+          id: 'deposit-1',
+          appointmentId: 'appointment-1',
+          conversationId: 'conversation-1',
+          status: 'PENDING_PROOF',
+          expiresAt: new Date('2026-07-28T19:00:00.000Z'),
+          proofMessageId: null,
+          bookingV2State: {
+            pendingDeposit: {
+              appointmentId: 'appointment-1',
+              relatedAppointmentIds: ['appointment-1', 'appointment-2']
+            }
+          }
+        }],
+        appointments: [
+          { id: 'appointment-1', status: 'PENDING' },
+          { id: 'appointment-2', status: 'PENDING' }
+        ]
+      })
+      const service = new BookingDepositService(fixture.db as never)
+      const result = await service.expireOverdue(new Date('2026-07-28T20:00:00.000Z'))
+      assert.equal(result.expired, 1)
+      assert.deepEqual(fixture.appointments.map((appointment) => appointment.status), [
+        'CANCELLED',
+        'CANCELLED'
+      ])
     }
   },
   {
@@ -335,7 +373,11 @@ function fakeDepositDb(input: {
           )
           .map((deposit) => args.select?.id && !args.select.appointmentId
             ? { id: deposit.id }
-            : { id: deposit.id, appointmentId: deposit.appointmentId })
+            : {
+                id: deposit.id,
+                appointmentId: deposit.appointmentId,
+                conversation: { bookingV2State: deposit.bookingV2State ?? null }
+              })
       },
       async updateMany(args: any) {
         let count = 0
@@ -376,7 +418,14 @@ function fakeDepositDb(input: {
         return deposit
       },
       async findUnique(args: any) {
-        return deposits.find((deposit) => deposit.id === args.where.id) ?? null
+        const deposit = deposits.find((item) => item.id === args.where.id)
+        if (!deposit) return null
+        return args.select?.conversation
+          ? {
+              appointmentId: deposit.appointmentId,
+              conversation: { bookingV2State: deposit.bookingV2State ?? null }
+            }
+          : deposit
       }
     },
     appointment: {

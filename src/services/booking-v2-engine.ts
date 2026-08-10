@@ -67,6 +67,7 @@ import {
 } from './booking-availability-resolution.js'
 import { detectDeterministicConfirmation } from './conversation-confirmation-intent.js'
 import {
+  bookingCoordinationActionableReply,
   detectBookingCoordinationChoice,
   optionFitsTimeWindow,
   timeBelongsToBand
@@ -155,7 +156,7 @@ export class BookingV2Engine {
     const storedState = stateFromConversation(input.conversation)
     const catalog = await this.domain.loadCatalog(input.businessId)
     const sanitizedState = sanitizeCatalogNameCollision(storedState, catalog)
-    const actionableMessage = bookingActionableReply(input.message)
+    const actionableMessage = bookingCoordinationActionableReply(input.message)
     if (actionableMessage !== input.message) {
       input = { ...input, message: actionableMessage }
     }
@@ -2035,26 +2036,6 @@ export class BookingV2Engine {
         ? filteredCoordinatedOptions(pending).find((option) => option.startTime === choice.time) ?? null
         : null
     if (selected) {
-      if (pending.assignmentMode === 'SINGLE_PROFESSIONAL') {
-        const professionalId = selected.segments[0]?.professionalId
-        if (professionalId) {
-          let state: BookingV2State = {
-            ...input.state,
-            pendingCoordinatedAvailability: null,
-            pendingAvailabilityResolution: null,
-            misunderstandingCount: 0
-          }
-          state = acceptField(state, 'professional', professionalId)
-          state = acceptField(state, 'date', selected.date)
-          state = acceptField(state, 'time', selected.startTime)
-          return this.fromInterpretation({
-            state,
-            nextField: 'confirmation',
-            outcome: 'accepted',
-            affectedField: 'time'
-          }, null, input.catalog, 'accepted')
-        }
-      }
       const state: BookingV2State = {
         ...input.state,
         pendingCoordinatedAvailability: {
@@ -3454,33 +3435,6 @@ function applyConfirmedServiceEdit(
     pendingCoordinatedAvailability: null,
     misunderstandingCount: 0
   }
-}
-
-function bookingActionableReply(message: string) {
-  const lines = message
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-  if (lines.length < 2) return message
-  const tail = lines.at(-1)!
-  if (tail.length > 80) return message
-  const quotedContext = normalize(lines.slice(0, -1).join(' '))
-  const looksLikeBotPrompt = [
-    'voy a coordinar los servicios',
-    'que dia te gustaria venir',
-    'en que franja horaria preferis',
-    'en que momento del dia preferis',
-    'a que hora te gustaria',
-    'cual preferis',
-    'como queres continuar',
-    'que queres modificar',
-    'cual de los servicios elegidos',
-    'no encontre disponibilidad',
-    'no encontre una combinacion',
-    'tambien puedo buscar otra fecha',
-    'estas son las opciones'
-  ].some((phrase) => quotedContext.includes(phrase))
-  return looksLikeBotPrompt ? tail : message
 }
 
 function normalize(value: string) {

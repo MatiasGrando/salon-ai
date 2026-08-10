@@ -650,6 +650,22 @@ export class AppointmentService {
     }
   }
 
+  async confirmPendingAppointments(appointmentIds: string[]) {
+    const ids = Array.from(new Set(appointmentIds.filter(Boolean)))
+    if (!ids.length) return false
+    return prisma.$transaction(async (tx) => {
+      const pending = await tx.appointment.count({
+        where: { id: { in: ids }, status: 'PENDING' }
+      })
+      if (pending !== ids.length) return false
+      const confirmed = await tx.appointment.updateMany({
+        where: { id: { in: ids }, status: 'PENDING' },
+        data: { status: 'CONFIRMED' }
+      })
+      return confirmed.count === ids.length
+    })
+  }
+
   async findAll(input: FindAppointmentsInput = {}) {
     const from = parseOptionalDate(input.from)
     const to = parseOptionalDate(input.to)
