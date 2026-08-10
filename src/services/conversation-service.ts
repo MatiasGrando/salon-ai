@@ -3841,11 +3841,20 @@ export function bookingCoordinationReplyButtons(input: {
         { id: `${prefix}other_date`, title: 'Otra fecha' }
       ]
     }
-    return [
-      { id: `${prefix}next_days`, title: 'Próximos días' },
-      { id: `${prefix}other_date`, title: 'Elegir una fecha' },
-      { id: `${prefix}human`, title: 'Solicitar atención' }
-    ]
+    return input.state.pendingCoordinatedAvailability?.requireRequestedProfessional
+      ? [
+          { id: `${prefix}next_days`, title: 'Próximos días' },
+          {
+            id: `${prefix}without_professional`,
+            title: withoutProfessionalButtonTitle(input.plan.professionalName)
+          },
+          { id: `${prefix}other_date`, title: 'Otra fecha' }
+        ]
+      : [
+          { id: `${prefix}next_days`, title: 'Próximos días' },
+          { id: `${prefix}other_date`, title: 'Elegir una fecha' },
+          { id: `${prefix}human`, title: 'Solicitar atención' }
+        ]
   }
   if (input.plan.type === 'ask_coordinated_time_preference') {
     const labels = {
@@ -3853,10 +3862,14 @@ export function bookingCoordinationReplyButtons(input: {
       MIDDAY: 'Al mediodía',
       AFTERNOON: 'Por la tarde'
     } as const
-    return input.plan.bands.slice(0, 3).map((band) => ({
+    const buttons: Array<{ id: string; title: string }> = input.plan.bands.slice(0, 3).map((band) => ({
       id: `${prefix}band:${band.toLowerCase()}`,
       title: labels[band]
     }))
+    if (buttons.length < 3) {
+      buttons.push({ id: `${prefix}exact_time`, title: 'Horario exacto' })
+    }
+    return buttons
   }
   if (input.plan.type === 'offer_coordinated_options') {
     const buttons = input.plan.options.slice(0, 2).map((option, index) => ({
@@ -3869,6 +3882,18 @@ export function bookingCoordinationReplyButtons(input: {
     return buttons
   }
   if (input.plan.type === 'coordinated_date_unavailable') {
+    if (input.plan.canSearchWithoutProfessional) {
+      return [
+        input.plan.requestedTime
+          ? { id: `${prefix}search_time`, title: 'Probar otra hora' }
+          : { id: `${prefix}other_date`, title: 'Buscar otro día' },
+        {
+          id: `${prefix}without_professional`,
+          title: withoutProfessionalButtonTitle(input.plan.professionalName)
+        },
+        { id: `${prefix}human`, title: 'Solicitar atención' }
+      ]
+    }
     return [
       { id: `${prefix}next_days`, title: 'Próximos días' },
       { id: `${prefix}search_time`, title: 'Buscar un horario' },
@@ -3906,6 +3931,8 @@ export function bookingCoordinationMessageFromInteractiveReply(
   if (action === 'next_days') return 'próximos días'
   if (action === 'other_date') return 'elegir otra fecha'
   if (action === 'search_time') return 'buscar un horario'
+  if (action === 'exact_time') return 'buscar un horario'
+  if (action === 'without_professional') return 'buscar sin el profesional solicitado'
   if (action === 'more') return 'ver más horarios'
   if (action === 'mod_change') return 'cambiar un servicio'
   if (action === 'mod_remove') return 'quitar un servicio'
@@ -3920,6 +3947,12 @@ export function bookingCoordinationMessageFromInteractiveReply(
   return null
 }
 
+function withoutProfessionalButtonTitle(professionalName?: string | null) {
+  const firstName = professionalName?.trim().split(/\s+/)[0]
+  const title = firstName ? `Buscar sin ${firstName}` : 'Cambiar profesional'
+  return title.length <= 20 ? title : 'Cambiar profesional'
+}
+
 function coordinatedDateButtonTitle(date: string) {
   const today = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Buenos_Aires',
@@ -3931,8 +3964,16 @@ function coordinatedDateButtonTitle(date: string) {
   const tomorrow = new Date(`${today}T12:00:00Z`)
   tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
   if (date === tomorrow.toISOString().slice(0, 10)) return 'Mañana'
-  const [year, month, day] = date.split('-')
-  return year && month && day ? `${day}/${month}` : date.slice(0, 20)
+  const parsed = new Date(`${date}T12:00:00Z`)
+  if (!Number.isNaN(parsed.getTime())) {
+    const formatted = new Intl.DateTimeFormat('es-AR', {
+      timeZone: 'UTC',
+      weekday: 'short',
+      day: 'numeric'
+    }).format(parsed).replace('.', '')
+    return formatted.charAt(0).toUpperCase() + formatted.slice(1)
+  }
+  return date.slice(0, 20)
 }
 
 export function contextActionFromInteractiveReply(replyId: string | undefined, conversationId: string) {

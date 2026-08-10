@@ -347,7 +347,7 @@ function readPendingCoordinatedAvailability(
   const serviceIds = pending.serviceIds.filter((item): item is string =>
     typeof item === 'string' && Boolean(item.trim())
   ).slice(0, 5)
-  if (serviceIds.length < 2) return null
+  if (!serviceIds.length) return null
   const options = pending.options.flatMap((item) => {
     const option = parseBookingAvailabilitySearchOption(item)
     return option ? [option] : []
@@ -369,9 +369,16 @@ function readPendingCoordinatedAvailability(
     : null
   return {
     serviceIds,
+    assignmentMode: pending.assignmentMode === 'SINGLE_PROFESSIONAL'
+      ? 'SINGLE_PROFESSIONAL'
+      : 'MULTIPLE_PROFESSIONALS',
+    requestedProfessionalId: typeof pending.requestedProfessionalId === 'string'
+      ? pending.requestedProfessionalId
+      : null,
+    requireRequestedProfessional: pending.requireRequestedProfessional === true,
     phase: pending.phase as BookingV2PendingCoordinatedAvailability['phase'],
     date: typeof pending.date === 'string' ? pending.date : null,
-    quickDates: pending.quickDates.filter((item): item is string => typeof item === 'string').slice(0, 2),
+    quickDates: pending.quickDates.filter((item): item is string => typeof item === 'string').slice(0, 5),
     options,
     filteredOptionIds,
     page: Number.isInteger(pending.page) && Number(pending.page) >= 0 ? Number(pending.page) : 0,

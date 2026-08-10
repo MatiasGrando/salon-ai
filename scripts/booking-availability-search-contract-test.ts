@@ -179,4 +179,27 @@ assert.deepEqual(
   ['tamara', 'julian']
 )
 
+const requestedProfessionalEngine = new BookingAvailabilitySearchEngine(async (input) => {
+  const requestedSlots: Record<string, string[]> = {
+    'color:tamara': ['10:00'],
+    'color:sofia': ['10:00'],
+    'corte:julian': ['11:30']
+  }
+  return { ok: true, slots: requestedSlots[`${input.serviceIds[0]}:${input.professionalId}`] ?? [] }
+})
+const requiredTamara = await requestedProfessionalEngine.search({
+  mode: { type: 'DATE', date: '2026-08-10' },
+  services: [
+    { ...services[0]!, professionalIds: ['tamara', 'sofia'] },
+    services[1]!
+  ],
+  professionals: [...professionals, { id: 'sofia', name: 'Sofía' }],
+  assignmentMode: 'MULTIPLE_PROFESSIONALS',
+  requiredProfessionalId: 'tamara'
+})
+assert.equal(requiredTamara.status, 'AVAILABLE')
+assert.equal(requiredTamara.options.length, 1)
+assert.equal(requiredTamara.options[0]?.segments[0]?.professionalId, 'tamara')
+assert.equal(requiredTamara.options[0]?.preferredProfessionalRespected, true)
+
 console.log('booking-availability-search-contract-test: OK')

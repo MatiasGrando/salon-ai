@@ -174,13 +174,21 @@ export class BookingAvailabilitySearchEngine {
       professional.name
     ]))
     const requiredProfessionalId = input.requiredProfessionalId ?? null
+    const effectivePreferredProfessionalId = input.preferredProfessionalId ?? requiredProfessionalId
     const candidates = input.services.map((service) => ({
       service,
       professionalIds: service.professionalIds.filter((professionalId) =>
         professionalNames.has(professionalId) &&
-        (!requiredProfessionalId || professionalId === requiredProfessionalId)
+        (input.assignmentMode === 'MULTIPLE_PROFESSIONALS' || !requiredProfessionalId || professionalId === requiredProfessionalId)
       )
     }))
+    if (
+      requiredProfessionalId &&
+      input.assignmentMode === 'MULTIPLE_PROFESSIONALS' &&
+      !candidates.some((candidate) => candidate.professionalIds.includes(requiredProfessionalId))
+    ) {
+      return emptyResult('NO_COMPATIBLE_PROFESSIONAL', searchedDates, requestedTime)
+    }
     if (candidates.some((candidate) => candidate.professionalIds.length === 0)) {
       return emptyResult('NO_COMPATIBLE_PROFESSIONAL', searchedDates, requestedTime)
     }
@@ -191,18 +199,23 @@ export class BookingAvailabilitySearchEngine {
           services: input.services,
           candidates,
           professionalNames,
-          preferredProfessionalId: input.preferredProfessionalId ?? null,
+          preferredProfessionalId: effectivePreferredProfessionalId,
           requestedTime
         })
       : await this.loadMultipleProfessionalOptions({
           date,
           candidates,
           professionalNames,
-          preferredProfessionalId: input.preferredProfessionalId ?? null,
+          preferredProfessionalId: effectivePreferredProfessionalId,
           requestedTime
         })
 
-    const ranked = rankOptions(loaded.options, input.preferredProfessionalId ?? null)
+    const requiredOptions = requiredProfessionalId && input.assignmentMode === 'MULTIPLE_PROFESSIONALS'
+      ? loaded.options.filter((option) => option.segments.some((segment) =>
+          segment.professionalId === requiredProfessionalId
+        ))
+      : loaded.options
+    const ranked = rankOptions(requiredOptions, effectivePreferredProfessionalId)
     const maxResults = boundedInteger(input.maxResults, 15, 1, 25)
     if (!loaded.compatibleAssignmentFound) {
       return emptyResult('NO_COMPATIBLE_PROFESSIONAL', searchedDates, requestedTime)

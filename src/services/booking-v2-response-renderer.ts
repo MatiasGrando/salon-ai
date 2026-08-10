@@ -32,16 +32,34 @@ export type BookingV2RenderInput = {
 
 export function renderBookingV2Response(input: BookingV2RenderInput): string {
   if (input.plan.type === 'ask_coordinated_date') {
+    const availableDates = input.plan.quickDates.length
+      ? [
+          input.plan.professionalName
+            ? `Encontré disponibilidad manteniendo a ${input.plan.professionalName} 😊`
+            : 'Encontré estas fechas disponibles 😊',
+          ...input.plan.quickDates.slice(0, 5).map((date) => `• ${formatDate(date)}`),
+          'Podés elegir una de estas fechas o escribir otra.'
+        ].join('\n')
+      : null
     return [
-      'Perfecto 😊 Voy a coordinar los servicios con profesionales distintos, en horarios consecutivos, para que puedas hacer todo en una sola visita.',
+      input.plan.assignmentMode === 'SINGLE_PROFESSIONAL'
+        ? null
+        : 'Perfecto 😊 Voy a coordinar los servicios con profesionales distintos, en horarios consecutivos, para que puedas hacer todo en una sola visita.',
+      availableDates,
       input.plan.requestedTime
         ? `¿Qué día te gustaría venir para comenzar a las ${input.plan.requestedTime}?`
-        : '¿Qué día te gustaría venir?'
-    ].join('\n\n')
+        : availableDates ? null : '¿Qué día te gustaría venir?'
+    ].filter(Boolean).join('\n\n')
   }
 
   if (input.plan.type === 'ask_coordinated_search_time') {
-    return '¿A qué hora te gustaría comenzar? También podés escribir un rango, por ejemplo “de 13 a 15”.'
+    const context = input.plan.date
+      ? ` para el ${formatDate(input.plan.date)}`
+      : ' en los próximos días'
+    const professional = input.plan.professionalName
+      ? ` manteniendo a ${input.plan.professionalName}`
+      : ''
+    return `¿A qué hora te gustaría comenzar${context}${professional}? También podés escribir un rango, por ejemplo “de 13 a 15”.`
   }
 
   if (input.plan.type === 'show_coordinated_more_options') {
@@ -50,8 +68,8 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
 
   if (input.plan.type === 'ask_coordinated_time_preference') {
     return [
-      `Encontré varias combinaciones continuas para el ${formatDate(input.plan.date)} 😊`,
-      '¿En qué momento del día preferís comenzar?',
+      `Encontré disponibilidad para el ${formatDate(input.plan.date)}${input.plan.professionalName ? ` manteniendo a ${input.plan.professionalName}` : ''} 😊`,
+      '¿En qué franja horaria preferís venir?',
       'También podés escribirme una hora o un rango, por ejemplo: “a las 12” o “de 13 a 15”.'
     ].join('\n\n')
   }
@@ -70,13 +88,16 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
   }
 
   if (input.plan.type === 'coordinated_date_unavailable') {
+    const professional = input.plan.professionalName
+      ? ` manteniendo a ${input.plan.professionalName}`
+      : ''
     if (input.plan.reason === 'REQUESTED_TIME_UNAVAILABLE' && input.plan.requestedTime) {
-      return `No encontré una combinación continua que comience a las ${input.plan.requestedTime} el ${formatDate(input.plan.date)}.`
+      return `No encontré una opción que comience a las ${input.plan.requestedTime} el ${formatDate(input.plan.date)}${professional}.`
     }
     if (input.plan.reason === 'PROVIDER_ERROR') {
       return 'No pude consultar todas las agendas en este momento. Podemos volver a intentar o pedirle ayuda al equipo.'
     }
-    return `No encontré una combinación continua para el ${formatDate(input.plan.date)}.`
+    return `No encontré disponibilidad para el ${formatDate(input.plan.date)}${professional}.`
   }
 
   if (input.plan.type === 'show_coordinated_selection') {

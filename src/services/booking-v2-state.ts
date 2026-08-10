@@ -159,6 +159,9 @@ export type BookingV2CoordinatedTimeBand = 'MORNING' | 'MIDDAY' | 'AFTERNOON'
 
 export type BookingV2PendingCoordinatedAvailability = {
   serviceIds: string[]
+  assignmentMode: 'SINGLE_PROFESSIONAL' | 'MULTIPLE_PROFESSIONALS'
+  requestedProfessionalId: string | null
+  requireRequestedProfessional: boolean
   phase: 'AWAITING_DATE' | 'AWAITING_SEARCH_TIME' | 'AWAITING_TIME_PREFERENCE' | 'AWAITING_OPTION' | 'OPTION_SELECTED'
   date: string | null
   quickDates: string[]

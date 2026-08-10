@@ -47,13 +47,20 @@ export type BookingV2MessagePlan =
       type: 'ask_coordinated_date'
       quickDates: string[]
       requestedTime?: string | null
+      professionalName?: string | null
+      assignmentMode?: 'SINGLE_PROFESSIONAL' | 'MULTIPLE_PROFESSIONALS'
     }
-  | { type: 'ask_coordinated_search_time' }
+  | {
+      type: 'ask_coordinated_search_time'
+      date?: string | null
+      professionalName?: string | null
+    }
   | { type: 'show_coordinated_more_options' }
   | {
       type: 'ask_coordinated_time_preference'
       date: string
       bands: BookingV2CoordinatedTimeBand[]
+      professionalName?: string | null
     }
   | {
       type: 'offer_coordinated_options'
@@ -61,16 +68,20 @@ export type BookingV2MessagePlan =
       options: BookingAvailabilitySearchOption[]
       hasMore: boolean
       page: number
+      assignmentMode?: 'SINGLE_PROFESSIONAL' | 'MULTIPLE_PROFESSIONALS'
     }
   | {
       type: 'coordinated_date_unavailable'
       date: string
       reason: 'NO_AVAILABILITY_ON_DATE' | 'NO_CONTINUOUS_COMBINATION' | 'REQUESTED_TIME_UNAVAILABLE' | 'PROVIDER_ERROR'
       requestedTime?: string | null
+      professionalName?: string | null
+      canSearchWithoutProfessional?: boolean
     }
   | {
       type: 'show_coordinated_selection'
       option: BookingAvailabilitySearchOption
+      assignmentMode?: 'SINGLE_PROFESSIONAL' | 'MULTIPLE_PROFESSIONALS'
     }
   | {
       type: 'ask_service_edit_target'

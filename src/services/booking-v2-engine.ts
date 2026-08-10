@@ -155,6 +155,10 @@ export class BookingV2Engine {
     const storedState = stateFromConversation(input.conversation)
     const catalog = await this.domain.loadCatalog(input.businessId)
     const sanitizedState = sanitizeCatalogNameCollision(storedState, catalog)
+    const actionableMessage = bookingActionableReply(input.message)
+    if (actionableMessage !== input.message) {
+      input = { ...input, message: actionableMessage }
+    }
     const catalogPresentationIntent = detectContextualServiceCatalogPresentationIntent(input.message)
     const initialState: BookingV2State =
       catalog.displayMode === 'CATEGORIES_FIRST' && !sanitizedState.draft.service
@@ -1538,10 +1542,16 @@ export class BookingV2Engine {
     state: BookingV2State
     catalog: BookingV2DomainCatalog
     currentDate: Date
+    assignmentMode?: 'SINGLE_PROFESSIONAL' | 'MULTIPLE_PROFESSIONALS'
   }) {
     const serviceIds = combinedServiceIds(input.state)
+    const assignmentMode = input.assignmentMode ?? 'MULTIPLE_PROFESSIONALS'
     const today = dateInTimeZone(input.currentDate, 'America/Buenos_Aires').toISOString().slice(0, 10)
     const tomorrow = addIsoDateDays(today, 1)
+    const requestedProfessionalId = input.state.draft.professional &&
+      input.state.draft.professional !== ANY_PROFESSIONAL_ID
+      ? input.state.draft.professional
+      : null
     const quickDates: string[] = []
     if (this.domain.searchAvailability) {
       const candidates = [today, tomorrow].filter((date): date is string => Boolean(date))
@@ -1551,7 +1561,9 @@ export class BookingV2Engine {
           catalog: input.catalog,
           serviceIds,
           mode: { type: 'DATE', date },
-          maxResults: 1
+          maxResults: 1,
+          assignmentMode,
+          requiredProfessionalId: requestedProfessionalId
         })
       })))
       quickDates.push(...results
@@ -1560,6 +1572,9 @@ export class BookingV2Engine {
     }
     const pending: BookingV2PendingCoordinatedAvailability = {
       serviceIds,
+      assignmentMode,
+      requestedProfessionalId,
+      requireRequestedProfessional: Boolean(requestedProfessionalId),
       phase: 'AWAITING_DATE',
       date: null,
       quickDates,
@@ -1579,7 +1594,9 @@ export class BookingV2Engine {
       misunderstandingCount: 0
     }, {
       type: 'ask_coordinated_date',
-      quickDates
+      quickDates,
+      assignmentMode,
+      professionalName: professionalNameById(input.catalog, requestedProfessionalId)
     }, input.catalog, 'accepted')
   }
 
@@ -1598,11 +1615,22 @@ export class BookingV2Engine {
       message: input.input.message,
       phase
     })
-    if (!choice && pending.phase !== 'AWAITING_DATE') {
+    const hasExplicitDate = pending.phase === 'AWAITING_DATE' && Boolean(resolveCoordinatedDate(
+      input.input.message,
+      input.input.currentDate ?? new Date(),
+      input.input.understandingExtraction?.date.value ?? null
+    ))
+    if (!choice && !hasExplicitDate) {
       choice = await this.semanticCoordinatedChoice({
         message: input.input.message,
         pending
       })
+    }
+    if (!choice && input.input.understandingExtraction?.time.value) {
+      choice = {
+        type: 'EXACT_TIME',
+        time: input.input.understandingExtraction.time.value
+      }
     }
 
     if (choice?.type === 'REQUEST_HUMAN') {
@@ -1626,13 +1654,63 @@ export class BookingV2Engine {
         serviceIds: pending.serviceIds
       }, input.catalog, 'accepted')
     }
+    if (choice?.type === 'SEARCH_WITHOUT_PROFESSIONAL' && pending.requireRequestedProfessional) {
+      const relaxedPending: BookingV2PendingCoordinatedAvailability = {
+        ...pending,
+        requireRequestedProfessional: false,
+        options: [],
+        filteredOptionIds: [],
+        page: 0,
+        timeBand: null,
+        selectedOptionId: null
+      }
+      const relaxedState: BookingV2State = {
+        ...input.state,
+        draft: {
+          ...input.state.draft,
+          professional: ANY_PROFESSIONAL_ID,
+          time: null
+        },
+        pendingCoordinatedAvailability: relaxedPending
+      }
+      if (pending.date) {
+        const result = await this.searchCoordinatedAvailability({
+          catalog: input.catalog,
+          serviceIds: pending.serviceIds,
+          mode: {
+            type: 'DATE',
+            date: pending.date,
+            requestedTime: pending.requestedTime
+          },
+          maxResults: 25,
+          assignmentMode: pending.assignmentMode,
+          requiredProfessionalId: null
+        })
+        return this.coordinatedSearchResult({
+          state: relaxedState,
+          pending: relaxedPending,
+          catalog: input.catalog,
+          result,
+          date: pending.date,
+          requestedTime: pending.requestedTime,
+          requestedWindow: pending.requestedWindow
+        })
+      }
+      return this.startCoordinatedAvailability({
+        state: relaxedState,
+        catalog: input.catalog,
+        currentDate: input.input.currentDate ?? new Date(),
+        assignmentMode: pending.assignmentMode
+      })
+    }
 
     if (pending.phase === 'OPTION_SELECTED') {
       const selected = pending.options.find((option) => option.id === pending.selectedOptionId)
       if (selected) {
         return this.guidedEstimateResult(input.state, {
           type: 'show_coordinated_selection',
-          option: selected
+          option: selected,
+          assignmentMode: pending.assignmentMode
         }, input.catalog, 'no_change')
       }
     }
@@ -1640,7 +1718,42 @@ export class BookingV2Engine {
     if (pending.phase === 'AWAITING_SEARCH_TIME') {
       if (choice?.type !== 'EXACT_TIME') {
         return this.guidedEstimateResult(input.state, {
-          type: 'ask_coordinated_search_time'
+          type: 'ask_coordinated_search_time',
+          date: pending.options.length ? pending.date : null,
+          professionalName: pending.requireRequestedProfessional
+            ? professionalNameById(input.catalog, pending.requestedProfessionalId)
+            : null
+        }, input.catalog, 'no_change')
+      }
+      if (pending.date && pending.options.length) {
+        const filtered = pending.options.filter((option) => option.startTime === choice.time)
+        if (filtered.length) {
+          return this.showCoordinatedOptions(input.state, {
+            ...pending,
+            phase: 'AWAITING_OPTION',
+            filteredOptionIds: filtered.map((option) => option.id),
+            requestedTime: choice.time,
+            requestedWindow: null,
+            page: 0
+          }, input.catalog)
+        }
+        const state: BookingV2State = {
+          ...input.state,
+          pendingCoordinatedAvailability: {
+            ...pending,
+            phase: 'AWAITING_TIME_PREFERENCE',
+            requestedTime: choice.time
+          }
+        }
+        return this.guidedEstimateResult(state, {
+          type: 'coordinated_date_unavailable',
+          date: pending.date,
+          reason: 'REQUESTED_TIME_UNAVAILABLE',
+          requestedTime: choice.time,
+          professionalName: pending.requireRequestedProfessional
+            ? professionalNameById(input.catalog, pending.requestedProfessionalId)
+            : null,
+          canSearchWithoutProfessional: pending.requireRequestedProfessional
         }, input.catalog, 'no_change')
       }
       const today = dateInTimeZone(
@@ -1655,11 +1768,15 @@ export class BookingV2Engine {
           afterDate: today,
           time: choice.time,
           horizonDays: 14,
-          maxDates: 3
+          maxDates: 5
         },
-        maxResults: 15
+        maxResults: 15,
+        assignmentMode: pending.assignmentMode,
+        requiredProfessionalId: pending.requireRequestedProfessional
+          ? pending.requestedProfessionalId
+          : null
       })
-      const quickDates = Array.from(new Set(result.options.map((option) => option.date))).slice(0, 2)
+      const quickDates = Array.from(new Set(result.options.map((option) => option.date))).slice(0, 5)
       if (quickDates.length) {
         const state: BookingV2State = {
           ...input.state,
@@ -1676,7 +1793,11 @@ export class BookingV2Engine {
         return this.guidedEstimateResult(state, {
           type: 'ask_coordinated_date',
           quickDates,
-          requestedTime: choice.time
+          requestedTime: choice.time,
+          assignmentMode: pending.assignmentMode,
+          professionalName: pending.requireRequestedProfessional
+            ? professionalNameById(input.catalog, pending.requestedProfessionalId)
+            : null
         }, input.catalog, 'accepted')
       }
       const state: BookingV2State = {
@@ -1691,7 +1812,11 @@ export class BookingV2Engine {
         type: 'coordinated_date_unavailable',
         date: today,
         reason: result.status === 'PROVIDER_ERROR' ? 'PROVIDER_ERROR' : 'REQUESTED_TIME_UNAVAILABLE',
-        requestedTime: choice.time
+        requestedTime: choice.time,
+        professionalName: pending.requireRequestedProfessional
+          ? professionalNameById(input.catalog, pending.requestedProfessionalId)
+          : null,
+        canSearchWithoutProfessional: pending.requireRequestedProfessional
       }, input.catalog, 'no_change')
     }
 
@@ -1705,7 +1830,11 @@ export class BookingV2Engine {
           }
         }
         return this.guidedEstimateResult(state, {
-          type: 'ask_coordinated_search_time'
+          type: 'ask_coordinated_search_time',
+          date: null,
+          professionalName: pending.requireRequestedProfessional
+            ? professionalNameById(input.catalog, pending.requestedProfessionalId)
+            : null
         }, input.catalog, 'no_change')
       }
       if (choice?.type === 'SHOW_MORE') {
@@ -1721,7 +1850,11 @@ export class BookingV2Engine {
         return this.guidedEstimateResult(state, {
           type: 'ask_coordinated_date',
           quickDates: [],
-          requestedTime: pending.requestedTime
+          requestedTime: pending.requestedTime,
+          assignmentMode: pending.assignmentMode,
+          professionalName: pending.requireRequestedProfessional
+            ? professionalNameById(input.catalog, pending.requestedProfessionalId)
+            : null
         }, input.catalog, 'no_change')
       }
       if (choice?.type === 'SHOW_NEXT_DAYS') {
@@ -1732,18 +1865,38 @@ export class BookingV2Engine {
         const result = await this.searchCoordinatedAvailability({
           catalog: input.catalog,
           serviceIds: pending.serviceIds,
-          mode: { type: 'NEXT_DAYS', afterDate: today, horizonDays: 14, maxDates: 3 },
-          maxResults: 15
+          mode: { type: 'NEXT_DAYS', afterDate: today, horizonDays: 14, maxDates: 5 },
+          maxResults: 25,
+          assignmentMode: pending.assignmentMode,
+          requiredProfessionalId: pending.requireRequestedProfessional
+            ? pending.requestedProfessionalId
+            : null
         })
-        const quickDates = Array.from(new Set(result.options.map((option) => option.date))).slice(0, 2)
+        const quickDates = Array.from(new Set(result.options.map((option) => option.date))).slice(0, 5)
         const state = {
           ...input.state,
           pendingCoordinatedAvailability: { ...pending, quickDates }
         }
+        if (!quickDates.length) {
+          return this.guidedEstimateResult(state, {
+            type: 'coordinated_date_unavailable',
+            date: today,
+            reason: result.status === 'PROVIDER_ERROR' ? 'PROVIDER_ERROR' : 'NO_AVAILABILITY_ON_DATE',
+            requestedTime: pending.requestedTime,
+            professionalName: pending.requireRequestedProfessional
+              ? professionalNameById(input.catalog, pending.requestedProfessionalId)
+              : null,
+            canSearchWithoutProfessional: pending.requireRequestedProfessional
+          }, input.catalog, 'no_change')
+        }
         return this.guidedEstimateResult(state, {
           type: 'ask_coordinated_date',
           quickDates,
-          requestedTime: pending.requestedTime
+          requestedTime: pending.requestedTime,
+          assignmentMode: pending.assignmentMode,
+          professionalName: pending.requireRequestedProfessional
+            ? professionalNameById(input.catalog, pending.requestedProfessionalId)
+            : null
         }, input.catalog, 'no_change')
       }
 
@@ -1756,7 +1909,11 @@ export class BookingV2Engine {
         return this.guidedEstimateResult(input.state, {
           type: 'ask_coordinated_date',
           quickDates: pending.quickDates,
-          requestedTime: pending.requestedTime
+          requestedTime: pending.requestedTime,
+          assignmentMode: pending.assignmentMode,
+          professionalName: pending.requireRequestedProfessional
+            ? professionalNameById(input.catalog, pending.requestedProfessionalId)
+            : null
         }, input.catalog, 'no_change')
       }
       const timeChoice = detectBookingCoordinationChoice({
@@ -1770,7 +1927,11 @@ export class BookingV2Engine {
         catalog: input.catalog,
         serviceIds: pending.serviceIds,
         mode: { type: 'DATE', date, requestedTime },
-        maxResults: 25
+        maxResults: 25,
+        assignmentMode: pending.assignmentMode,
+        requiredProfessionalId: pending.requireRequestedProfessional
+          ? pending.requestedProfessionalId
+          : null
       })
       return this.coordinatedSearchResult({
         state: input.state,
@@ -1784,6 +1945,22 @@ export class BookingV2Engine {
     }
 
     if (pending.phase === 'AWAITING_TIME_PREFERENCE') {
+      if (choice?.type === 'SEARCH_TIME') {
+        const state: BookingV2State = {
+          ...input.state,
+          pendingCoordinatedAvailability: {
+            ...pending,
+            phase: 'AWAITING_SEARCH_TIME'
+          }
+        }
+        return this.guidedEstimateResult(state, {
+          type: 'ask_coordinated_search_time',
+          date: pending.date,
+          professionalName: pending.requireRequestedProfessional
+            ? professionalNameById(input.catalog, pending.requestedProfessionalId)
+            : null
+        }, input.catalog, 'accepted')
+      }
       if (choice?.type === 'SHOW_MORE') {
         return this.showCoordinatedOptions(input.state, {
           ...pending,
@@ -1817,13 +1994,20 @@ export class BookingV2Engine {
           type: 'coordinated_date_unavailable',
           date: pending.date!,
           reason: 'REQUESTED_TIME_UNAVAILABLE',
-          requestedTime: choice.type === 'EXACT_TIME' ? choice.time : null
+          requestedTime: choice.type === 'EXACT_TIME' ? choice.time : null,
+          professionalName: pending.requireRequestedProfessional
+            ? professionalNameById(input.catalog, pending.requestedProfessionalId)
+            : null,
+          canSearchWithoutProfessional: pending.requireRequestedProfessional
         }, input.catalog, 'no_change')
       }
       return this.guidedEstimateResult(input.state, {
         type: 'ask_coordinated_time_preference',
         date: pending.date!,
-        bands: coordinatedTimeBands(pending.options)
+        bands: coordinatedTimeBands(pending.options),
+        professionalName: pending.requireRequestedProfessional
+          ? professionalNameById(input.catalog, pending.requestedProfessionalId)
+          : null
       }, input.catalog, 'no_change')
     }
 
@@ -1851,6 +2035,26 @@ export class BookingV2Engine {
         ? filteredCoordinatedOptions(pending).find((option) => option.startTime === choice.time) ?? null
         : null
     if (selected) {
+      if (pending.assignmentMode === 'SINGLE_PROFESSIONAL') {
+        const professionalId = selected.segments[0]?.professionalId
+        if (professionalId) {
+          let state: BookingV2State = {
+            ...input.state,
+            pendingCoordinatedAvailability: null,
+            pendingAvailabilityResolution: null,
+            misunderstandingCount: 0
+          }
+          state = acceptField(state, 'professional', professionalId)
+          state = acceptField(state, 'date', selected.date)
+          state = acceptField(state, 'time', selected.startTime)
+          return this.fromInterpretation({
+            state,
+            nextField: 'confirmation',
+            outcome: 'accepted',
+            affectedField: 'time'
+          }, null, input.catalog, 'accepted')
+        }
+      }
       const state: BookingV2State = {
         ...input.state,
         pendingCoordinatedAvailability: {
@@ -1861,7 +2065,8 @@ export class BookingV2Engine {
       }
       return this.guidedEstimateResult(state, {
         type: 'show_coordinated_selection',
-        option: selected
+        option: selected,
+        assignmentMode: pending.assignmentMode
       }, input.catalog, 'accepted')
     }
     const refiltered = filterCoordinatedOptions(pending.options, choice)
@@ -1910,7 +2115,10 @@ export class BookingV2Engine {
         }, {
           type: 'ask_coordinated_time_preference',
           date: input.date,
-          bands: coordinatedTimeBands(options)
+          bands: coordinatedTimeBands(options),
+          professionalName: pending.requireRequestedProfessional
+            ? professionalNameById(input.catalog, pending.requestedProfessionalId)
+            : null
         }, input.catalog, 'accepted')
       }
       return this.showCoordinatedOptions(input.state, pending, input.catalog)
@@ -1940,7 +2148,11 @@ export class BookingV2Engine {
       type: 'coordinated_date_unavailable',
       date: input.date,
       reason,
-      requestedTime: input.requestedTime
+      requestedTime: input.requestedTime,
+      professionalName: input.pending.requireRequestedProfessional
+        ? professionalNameById(input.catalog, input.pending.requestedProfessionalId)
+        : null,
+      canSearchWithoutProfessional: input.pending.requireRequestedProfessional
     }, input.catalog, 'no_change')
   }
 
@@ -1962,7 +2174,8 @@ export class BookingV2Engine {
       hasMore: allOptions.length > 2 || pending.options.some((option) =>
         !allOptions.some((filtered) => filtered.id === option.id)
       ),
-      page: pending.page
+      page: pending.page,
+      assignmentMode: pending.assignmentMode
     }, catalog, 'accepted')
   }
 
@@ -1971,13 +2184,17 @@ export class BookingV2Engine {
     serviceIds: string[]
     mode: Parameters<NonNullable<BookingV2DomainPort['searchAvailability']>>[0]['mode']
     maxResults: number
+    assignmentMode?: 'SINGLE_PROFESSIONAL' | 'MULTIPLE_PROFESSIONALS'
+    requiredProfessionalId?: string | null
   }) {
     return this.domain.searchAvailability!({
       catalog: input.catalog,
       serviceId: input.serviceIds[0]!,
       serviceIds: input.serviceIds,
       mode: input.mode,
-      assignmentMode: 'MULTIPLE_PROFESSIONALS',
+      assignmentMode: input.assignmentMode ?? 'MULTIPLE_PROFESSIONALS',
+      professionalId: input.requiredProfessionalId ?? null,
+      preferredProfessionalId: input.requiredProfessionalId ?? null,
       maxResults: input.maxResults
     })
   }
@@ -1991,6 +2208,15 @@ export class BookingV2Engine {
       { id: 'request_human', meaning: 'Quiere que una persona del equipo coordine la reserva.' },
       { id: 'modify_services', meaning: 'Quiere cambiar o quitar alguno de los servicios.' },
       { id: 'show_more', meaning: 'Quiere ver más horarios u opciones disponibles.' },
+      { id: 'next_days', meaning: 'Quiere buscar disponibilidad en los próximos días.' },
+      { id: 'search_time', meaning: 'Quiere indicar o probar una hora exacta.' },
+      { id: 'other_date', meaning: 'Quiere elegir o escribir otra fecha.' },
+      ...(input.pending.requireRequestedProfessional
+        ? [{
+            id: 'without_professional',
+            meaning: 'Autoriza buscar opciones sin mantener al profesional solicitado.'
+          }]
+        : []),
       ...(input.pending.phase === 'AWAITING_TIME_PREFERENCE'
         ? [
             { id: 'morning', meaning: 'Prefiere comenzar durante la mañana.' },
@@ -2016,6 +2242,10 @@ export class BookingV2Engine {
     if (result.choiceId === 'request_human') return { type: 'REQUEST_HUMAN' }
     if (result.choiceId === 'modify_services') return { type: 'MODIFY_SERVICES' }
     if (result.choiceId === 'show_more') return { type: 'SHOW_MORE' }
+    if (result.choiceId === 'next_days') return { type: 'SHOW_NEXT_DAYS' }
+    if (result.choiceId === 'search_time') return { type: 'SEARCH_TIME' }
+    if (result.choiceId === 'other_date') return { type: 'CHOOSE_OTHER_DATE' }
+    if (result.choiceId === 'without_professional') return { type: 'SEARCH_WITHOUT_PROFESSIONAL' }
     if (result.choiceId === 'morning') return { type: 'TIME_BAND', band: 'MORNING' }
     if (result.choiceId === 'midday') return { type: 'TIME_BAND', band: 'MIDDAY' }
     if (result.choiceId === 'afternoon') return { type: 'TIME_BAND', band: 'AFTERNOON' }
@@ -2039,19 +2269,30 @@ export class BookingV2Engine {
         return this.guidedEstimateResult(state, {
           type: 'ask_coordinated_date',
           quickDates: pending.quickDates,
-          requestedTime: pending.requestedTime
+          requestedTime: pending.requestedTime,
+          assignmentMode: pending.assignmentMode,
+          professionalName: pending.requireRequestedProfessional
+            ? professionalNameById(catalog, pending.requestedProfessionalId)
+            : null
         }, catalog, 'no_change')
       }
       if (pending.phase === 'AWAITING_SEARCH_TIME') {
         return this.guidedEstimateResult(state, {
-          type: 'ask_coordinated_search_time'
+          type: 'ask_coordinated_search_time',
+          date: pending.options.length ? pending.date : null,
+          professionalName: pending.requireRequestedProfessional
+            ? professionalNameById(catalog, pending.requestedProfessionalId)
+            : null
         }, catalog, 'no_change')
       }
       if (pending.phase === 'AWAITING_TIME_PREFERENCE') {
         return this.guidedEstimateResult(state, {
           type: 'ask_coordinated_time_preference',
           date: pending.date!,
-          bands: coordinatedTimeBands(pending.options)
+          bands: coordinatedTimeBands(pending.options),
+          professionalName: pending.requireRequestedProfessional
+            ? professionalNameById(catalog, pending.requestedProfessionalId)
+            : null
         }, catalog, 'no_change')
       }
       if (pending.phase === 'OPTION_SELECTED') {
@@ -2059,7 +2300,8 @@ export class BookingV2Engine {
         if (selected) {
           return this.guidedEstimateResult(state, {
             type: 'show_coordinated_selection',
-            option: selected
+            option: selected,
+            assignmentMode: pending.assignmentMode
           }, catalog, 'no_change')
         }
       }
@@ -2483,8 +2725,10 @@ export class BookingV2Engine {
 
     if (
       catalog &&
-      plan.type === 'ask_field' &&
-      plan.field === 'professional' &&
+      (
+        (plan.type === 'ask_field' && ['professional', 'date', 'time'].includes(plan.field)) ||
+        plan.type === 'confirm_booking'
+      ) &&
       effectiveInterpretation.state.draft.service
     ) {
       const professionalResolution = resolveBookingAvailability({
@@ -2519,6 +2763,53 @@ export class BookingV2Engine {
       } else if (professionalResolution.status === 'NO_COMPATIBLE_PROFESSIONAL') {
         plan = { type: 'handoff', reason: 'no_compatible_professional' }
       }
+    }
+
+    if (
+      catalog &&
+      this.domain.searchAvailability &&
+      plan.type === 'ask_field' &&
+      plan.field === 'time' &&
+      effectiveInterpretation.state.draft.service &&
+      effectiveInterpretation.state.draft.date
+    ) {
+      const requestedProfessionalId = effectiveInterpretation.state.draft.professional &&
+        effectiveInterpretation.state.draft.professional !== ANY_PROFESSIONAL_ID
+        ? effectiveInterpretation.state.draft.professional
+        : null
+      const pending: BookingV2PendingCoordinatedAvailability = {
+        serviceIds: selectedServiceIds,
+        assignmentMode: 'SINGLE_PROFESSIONAL',
+        requestedProfessionalId,
+        requireRequestedProfessional: Boolean(requestedProfessionalId),
+        phase: 'AWAITING_OPTION',
+        date: effectiveInterpretation.state.draft.date,
+        quickDates: [],
+        options: [],
+        filteredOptionIds: [],
+        page: 0,
+        timeBand: null,
+        requestedTime: null,
+        requestedWindow: null,
+        selectedOptionId: null
+      }
+      const result = await this.searchCoordinatedAvailability({
+        catalog,
+        serviceIds: selectedServiceIds,
+        mode: { type: 'DATE', date: effectiveInterpretation.state.draft.date },
+        maxResults: 25,
+        assignmentMode: 'SINGLE_PROFESSIONAL',
+        requiredProfessionalId: requestedProfessionalId
+      })
+      return this.coordinatedSearchResult({
+        state: effectiveInterpretation.state,
+        pending,
+        catalog,
+        result,
+        date: effectiveInterpretation.state.draft.date,
+        requestedTime: null,
+        requestedWindow: null
+      })
     }
 
     if (
@@ -3085,6 +3376,14 @@ function addIsoDateDays(value: string, days: number) {
   if (Number.isNaN(date.getTime())) return null
   date.setUTCDate(date.getUTCDate() + days)
   return date.toISOString().slice(0, 10)
+}
+
+function professionalNameById(
+  catalog: BookingV2DomainCatalog,
+  professionalId: string | null
+) {
+  if (!professionalId) return null
+  return catalog.professionals.find((professional) => professional.id === professionalId)?.name ?? null
 }
 
 function parseServiceEditChoice(choiceId: string | null, selectedServiceIds: string[]) {

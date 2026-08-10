@@ -19,6 +19,7 @@ import type {
   BookingAvailabilitySearchStatus
 } from '../src/services/booking-availability-search.js'
 import { detectBookingCoordinationChoice } from '../src/services/booking-coordination-choice.js'
+import { renderBookingV2Response } from '../src/services/booking-v2-response-renderer.js'
 
 const catalog = createBookingV2DomainCatalog({
   services: [
@@ -73,7 +74,12 @@ const tomorrowOptions = [
   option('13:00', '15:00', 'lucas'),
   option('15:00', '17:00')
 ]
-const searchCalls: Array<{ type: string; date?: string; requestedTime?: string | null }> = []
+const searchCalls: Array<{
+  type: string
+  date?: string
+  requestedTime?: string | null
+  professionalId?: string | null
+}> = []
 const domain = {
   async loadCatalog() { return catalog },
   toExtractionCatalog() {
@@ -101,11 +107,13 @@ const domain = {
   },
   async searchAvailability(input: {
     mode: { type: string; date?: string; requestedTime?: string | null; time?: string }
+    professionalId?: string | null
   }) {
     searchCalls.push({
       type: input.mode.type,
       ...(input.mode.date ? { date: input.mode.date } : {}),
-      ...('requestedTime' in input.mode ? { requestedTime: input.mode.requestedTime } : {})
+      ...('requestedTime' in input.mode ? { requestedTime: input.mode.requestedTime } : {}),
+      ...(input.professionalId !== undefined ? { professionalId: input.professionalId } : {})
     })
     if (input.mode.type === 'NEXT_DAYS') {
       return searchResult('NEXT_DATES_FOUND', tomorrowOptions)
@@ -240,6 +248,57 @@ const startedByYes = await engine.process({
 assert.equal(startedByYes.plan.type, 'ask_coordinated_date')
 assert.equal(startedByYes.state.pendingServiceSeparation, null)
 
+let requestedProfessionalState = acceptField(createEmptyBookingV2State(), 'name', 'Matías')
+requestedProfessionalState = acceptField(requestedProfessionalState, 'service', 'color')
+requestedProfessionalState = addCombinedServices(requestedProfessionalState, [{ serviceId: 'corte', evidence: 'corte' }])
+requestedProfessionalState = acceptField(requestedProfessionalState, 'professional', 'tamara')
+const upfrontProfessionalResolution = await engine.resume({
+  businessId: 'business-1',
+  conversation: conversationPatchFromState(requestedProfessionalState)
+})
+assert.equal(upfrontProfessionalResolution.plan.type, 'offer_separate_services')
+assert.equal(upfrontProfessionalResolution.state.draft.professional, 'tamara')
+const startedWithTamara = await engine.process({
+  businessId: 'business-1',
+  conversation: upfrontProfessionalResolution.conversationPatch,
+  message: 'coordinar horarios',
+  currentDate: new Date('2026-08-09T15:00:00-03:00')
+})
+assert.equal(startedWithTamara.state.pendingCoordinatedAvailability?.requestedProfessionalId, 'tamara')
+assert.equal(startedWithTamara.state.pendingCoordinatedAvailability?.requireRequestedProfessional, true)
+assert.equal(searchCalls.some((call) => call.professionalId === 'tamara'), true)
+const unavailableWithTamara = await engine.process({
+  businessId: 'business-1',
+  conversation: startedWithTamara.conversationPatch,
+  message: 'hoy',
+  currentDate: new Date('2026-08-09T15:00:00-03:00')
+})
+const unavailableWithTamaraButtons = bookingCoordinationReplyButtons({
+  conversationId: 'conversation-1',
+  plan: unavailableWithTamara.plan,
+  state: unavailableWithTamara.state
+})
+assert.deepEqual(unavailableWithTamaraButtons?.map((button) => button.title), [
+  'Buscar otro día',
+  'Buscar sin Tamara',
+  'Solicitar atención'
+])
+assert.equal(
+  bookingCoordinationMessageFromInteractiveReply(
+    unavailableWithTamaraButtons?.[1]?.id,
+    'conversation-1'
+  ),
+  'buscar sin el profesional solicitado'
+)
+const relaxedProfessional = await engine.process({
+  businessId: 'business-1',
+  conversation: unavailableWithTamara.conversationPatch,
+  message: 'buscar sin Tamara',
+  currentDate: new Date('2026-08-09T15:00:00-03:00')
+})
+assert.equal(relaxedProfessional.state.pendingCoordinatedAvailability?.requireRequestedProfessional, false)
+assert.equal(relaxedProfessional.state.draft.professional, '__any_professional__')
+
 assert.deepEqual(detectBookingCoordinationChoice({
   message: 'a la 1',
   phase: 'TIME_PREFERENCE'
@@ -266,6 +325,27 @@ const selectedTomorrow = await engine.process({
 assert.equal(selectedTomorrow.plan.type, 'ask_coordinated_time_preference')
 if (selectedTomorrow.plan.type !== 'ask_coordinated_time_preference') throw new Error('Plan inesperado')
 assert.deepEqual(selectedTomorrow.plan.bands, ['MORNING', 'MIDDAY', 'AFTERNOON'])
+
+const quotedPrompt = [
+  'Perfecto  Voy a coordinar los servicios con profesionales distintos, en horarios consecutivos, para que puedas hacer todo en una sola visita.',
+  '',
+  '¿Qué día te gustaría venir?'
+].join('\n')
+const quotedNextDays = await engine.process({
+  businessId: 'business-1',
+  conversation: started.conversationPatch,
+  message: `${quotedPrompt}\nPróximos días`,
+  currentDate: new Date('2026-08-09T15:00:00-03:00')
+})
+assert.equal(quotedNextDays.plan.type, 'ask_coordinated_date')
+assert.deepEqual(quotedNextDays.state.pendingCoordinatedAvailability?.quickDates, ['2026-08-10'])
+const quotedTomorrow = await engine.process({
+  businessId: 'business-1',
+  conversation: started.conversationPatch,
+  message: `${quotedPrompt}\nMañana`,
+  currentDate: new Date('2026-08-09T15:00:00-03:00')
+})
+assert.equal(quotedTomorrow.plan.type, 'ask_coordinated_time_preference')
 const bandButtons = bookingCoordinationReplyButtons({
   conversationId: 'conversation-1',
   plan: selectedTomorrow.plan,
@@ -276,6 +356,36 @@ assert.deepEqual(bandButtons?.map((button) => button.title), [
   'Al mediodía',
   'Por la tarde'
 ])
+const twoBandButtons = bookingCoordinationReplyButtons({
+  conversationId: 'conversation-1',
+  plan: {
+    type: 'ask_coordinated_time_preference',
+    date: '2026-08-10',
+    bands: ['MORNING', 'AFTERNOON']
+  },
+  state: selectedTomorrow.state
+})
+assert.deepEqual(twoBandButtons?.map((button) => button.title), [
+  'Por la mañana',
+  'Por la tarde',
+  'Horario exacto'
+])
+assert.equal(
+  bookingCoordinationMessageFromInteractiveReply(twoBandButtons?.[2]?.id, 'conversation-1'),
+  'buscar un horario'
+)
+
+const fiveDateReply = renderBookingV2Response({
+  plan: {
+    type: 'ask_coordinated_date',
+    quickDates: ['2026-08-10', '2026-08-12', '2026-08-13', '2026-08-15', '2026-08-17'],
+    professionalName: 'Tamara',
+    assignmentMode: 'MULTIPLE_PROFESSIONALS'
+  },
+  draft: selectedTomorrow.state.draft
+})
+assert.equal((fiveDateReply.match(/^• /gm) ?? []).length, 5)
+assert.match(fiveDateReply, /manteniendo a Tamara/)
 
 const unavailableToday = await engine.process({
   businessId: 'business-1',
@@ -363,6 +473,26 @@ assert.equal(semanticMidday.plan.type, 'offer_coordinated_options')
 if (semanticMidday.plan.type !== 'offer_coordinated_options') throw new Error('Plan inesperado')
 assert.deepEqual(semanticMidday.plan.options.map((item) => item.startTime), ['12:00', '13:00'])
 
+const semanticNextDaysEngine = new BookingV2Engine(
+  domain,
+  nullExtractor,
+  unusedClassifier,
+  unusedDecision,
+  unusedOption,
+  {
+    async extract() {
+      return { choiceId: 'next_days', confidence: 0.96 }
+    }
+  }
+)
+const semanticNextDays = await semanticNextDaysEngine.process({
+  businessId: 'business-1',
+  conversation: started.conversationPatch,
+  message: 'veamos cuándo aparece algo más adelante',
+  currentDate: new Date('2026-08-09T15:00:00-03:00')
+})
+assert.equal(semanticNextDays.plan.type, 'ask_coordinated_date')
+
 const exactTime = await engine.process({
   businessId: 'business-1',
   conversation: selectedTomorrow.conversationPatch,
@@ -392,5 +522,81 @@ assert.equal(chosen.state.pendingCoordinatedAvailability?.selectedOptionId, tomo
 const restored = stateFromConversation(conversationPatchFromState(midday.state))
 assert.deepEqual(restored.pendingCoordinatedAvailability, midday.state.pendingCoordinatedAvailability)
 assert.equal(searchCalls.some((call) => call.type === 'DATE' && call.date === '2026-08-10'), true)
+
+function singleOption(startTime: string, endTime: string): BookingAvailabilitySearchOption {
+  return {
+    id: `single|${startTime}`,
+    date: '2026-08-10',
+    startTime,
+    endTime,
+    preferredProfessionalRespected: true,
+    segments: [{
+      serviceId: 'color',
+      serviceName: 'Color Completo',
+      professionalId: 'tamara',
+      professionalName: 'Tamara',
+      startTime,
+      endTime
+    }]
+  }
+}
+const singleOptions = [
+  singleOption('09:00', '10:30'),
+  singleOption('12:00', '13:30'),
+  singleOption('15:00', '16:30')
+]
+const singleDomain = {
+  ...domain,
+  async findAvailabilityOptions() {
+    return {
+      ok: true as const,
+      options: singleOptions.map((item) => ({
+        time: item.startTime,
+        professionalId: 'tamara',
+        professionalName: 'Tamara'
+      }))
+    }
+  },
+  async searchAvailability() {
+    return searchResult('AVAILABLE', singleOptions)
+  }
+}
+const singleEngine = new BookingV2Engine(
+  singleDomain,
+  nullExtractor,
+  unusedClassifier,
+  unusedDecision,
+  unusedOption,
+  unusedChoice
+)
+let singleState = acceptField(createEmptyBookingV2State(), 'name', 'Matías')
+singleState = acceptField(singleState, 'service', 'color')
+singleState = acceptField(singleState, 'professional', 'tamara')
+singleState = acceptField(singleState, 'date', '2026-08-10')
+const singleAvailability = await singleEngine.resume({
+  businessId: 'business-1',
+  conversation: conversationPatchFromState(singleState)
+})
+assert.equal(singleAvailability.plan.type, 'ask_coordinated_time_preference')
+assert.equal(singleAvailability.state.pendingCoordinatedAvailability?.assignmentMode, 'SINGLE_PROFESSIONAL')
+const restoredSingleAvailability = stateFromConversation(singleAvailability.conversationPatch)
+assert.equal(restoredSingleAvailability.pendingCoordinatedAvailability?.phase, 'AWAITING_TIME_PREFERENCE')
+assert.deepEqual(
+  restoredSingleAvailability.pendingCoordinatedAvailability?.options.map((item) => item.startTime),
+  ['09:00', '12:00', '15:00']
+)
+const singleMidday = await singleEngine.process({
+  businessId: 'business-1',
+  conversation: singleAvailability.conversationPatch,
+  message: 'al mediodía'
+})
+assert.equal(singleMidday.plan.type, 'offer_coordinated_options')
+const singleConfirmed = await singleEngine.process({
+  businessId: 'business-1',
+  conversation: singleMidday.conversationPatch,
+  message: '1'
+})
+assert.equal(singleConfirmed.plan.type, 'confirm_booking')
+assert.equal(singleConfirmed.state.draft.time, '12:00')
 
 console.log('booking-coordinated-flow-contract-test: OK')

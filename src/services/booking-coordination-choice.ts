@@ -8,6 +8,7 @@ export type BookingCoordinationChoice =
   | { type: 'SHOW_MORE' }
   | { type: 'SHOW_NEXT_DAYS' }
   | { type: 'SEARCH_TIME' }
+  | { type: 'SEARCH_WITHOUT_PROFESSIONAL' }
   | { type: 'CHOOSE_OTHER_DATE' }
   | { type: 'TIME_BAND'; band: BookingV2CoordinatedTimeBand }
   | { type: 'EXACT_TIME'; time: string }
@@ -27,13 +28,23 @@ export function detectBookingCoordinationChoice(input: {
   if (/\b(?:modificar|cambiar|quitar|sacar)\b.*\bservicios?\b|\bservicios?\b.*\b(?:modificar|cambiar|quitar|sacar)\b/.test(normalized)) {
     return { type: 'MODIFY_SERVICES' }
   }
-  if (/\b(?:coordinar|combinar)\b/.test(normalized) || /\bhorarios?\s+(?:seguidos|continuos)\b/.test(normalized)) {
+  if (
+    (input.phase === undefined || input.phase === 'DECISION') &&
+    (/\b(?:coordinar|combinar)\b/.test(normalized) || /\bhorarios?\s+(?:seguidos|continuos)\b/.test(normalized))
+  ) {
     return { type: 'COORDINATE' }
   }
   if (/\b(?:proximos dias|proximas fechas|siguientes dias)\b/.test(normalized)) {
     return { type: 'SHOW_NEXT_DAYS' }
   }
-  if (/\b(?:buscar|encontrar)\b.*\bhorario\b|\bhorario especifico\b/.test(normalized)) {
+  if (
+    /\b(?:buscar|ver|mostrar|probar)\b.*\bsin\b.*\b(?:profesional|persona|el|la)\b/.test(normalized) ||
+    /\b(?:sin|cambiar|otro|otra)\b.*\bprofesional\b/.test(normalized) ||
+    /\b(?:buscar|ver|mostrar|probar)\b.*\bsin\b\s+\S+/.test(normalized)
+  ) {
+    return { type: 'SEARCH_WITHOUT_PROFESSIONAL' }
+  }
+  if (/\b(?:buscar|encontrar|probar)\b.*\b(?:horario|hora)\b|\bhorario especifico\b/.test(normalized)) {
     return { type: 'SEARCH_TIME' }
   }
   if (/\b(?:otra fecha|otro dia|elegir fecha|fecha especifica)\b/.test(normalized)) {
