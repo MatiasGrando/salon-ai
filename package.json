@@ -24,6 +24,7 @@
     "test:professional-bot-bookings": "tsx scripts/professional-bot-booking-contract-test.ts",
     "test:professional-schedule": "tsx scripts/professional-weekly-schedule-contract-test.ts",
     "test:service-duration": "tsx scripts/service-duration-contract-test.ts",
+    "test:service-booking-order": "tsx scripts/service-booking-order-contract-test.ts",
     "test:service-catalog-display": "tsx scripts/service-catalog-display-contract-test.ts",
     "test:landing-service-catalog": "tsx scripts/landing-service-catalog-contract-test.ts",
     "test:booking-flow-order": "tsx scripts/booking-flow-order-contract-test.ts",

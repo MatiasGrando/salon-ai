@@ -415,6 +415,7 @@ model Service {
   imageUrl              String?
   isBookable            Boolean              @default(true)
   sortOrder             Int                  @default(0)
+  bookingOrderPriority  Int                  @default(20)
   attentionMode         ServiceAttentionMode @default(DIRECT_BOOKING)
   requiresPhoto         Boolean              @default(false)
   estimateExplanation   String?

@@ -43,6 +43,7 @@ export type BookingV2ServiceOption = {
   depositMode?: 'NONE' | 'FIXED' | 'PERCENTAGE'
   depositValue?: number | null
   suggestedAddonIds?: string[]
+  bookingOrderPriority?: number
 }
 
 export type BookingV2EstimateOption = {
@@ -228,7 +229,8 @@ export class BookingV2DomainService {
           validationQuestion: service.validationQuestion,
           depositMode: service.depositMode,
           depositValue: service.depositValue,
-          suggestedAddonIds: (service.suggestedAddons ?? []).map((addon) => addon.addonServiceId)
+          suggestedAddonIds: (service.suggestedAddons ?? []).map((addon) => addon.addonServiceId),
+          bookingOrderPriority: service.bookingOrderPriority
         }
       }),
       professionals: professionals.map((professional) => ({

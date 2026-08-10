@@ -1,0 +1,2 @@
+ALTER TABLE "Service"
+ADD COLUMN "bookingOrderPriority" INTEGER NOT NULL DEFAULT 20;

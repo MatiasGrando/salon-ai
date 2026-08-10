@@ -76,6 +76,7 @@ import type {
   BookingAvailabilitySearchOption,
   BookingAvailabilitySearchResult
 } from './booking-availability-search.js'
+import { orderBookingServicesByPriority } from './booking-service-order.js'
 
 type BookingV2DomainPort = Pick<
   BookingV2DomainService,
@@ -2770,7 +2771,7 @@ export class BookingV2Engine {
       }
     }
 
-    const selectedServiceIds = combinedServiceIds(effectiveInterpretation.state)
+    let selectedServiceIds = combinedServiceIds(effectiveInterpretation.state)
     if (catalog && !effectiveInterpretation.state.quoteOnly && selectedServiceIds.length > 1 && !isServiceDecisionPlan(plan)) {
       const combinationDecision = evaluateServiceCombination(selectedServiceIds, catalog)
       if (combinationDecision === 'REVIEW_REQUIRED') {
@@ -2821,6 +2822,22 @@ export class BookingV2Engine {
         }
         plan = { type: 'ask_service_addons', serviceIds: addonIds.slice(0, 4) }
       }
+    }
+
+    if (
+      catalog &&
+      selectedServiceIds.length > 1 &&
+      !effectiveInterpretation.state.pendingServiceDisambiguation &&
+      !effectiveInterpretation.state.addonSuggestion &&
+      effectiveInterpretation.state.combinedServiceDecisionQueue?.length === 0 &&
+      plan.type !== 'ask_service_addons' &&
+      !isServiceDecisionPlan(plan)
+    ) {
+      effectiveInterpretation = {
+        ...effectiveInterpretation,
+        state: orderBookingServicesByPriority(effectiveInterpretation.state, catalog)
+      }
+      selectedServiceIds = combinedServiceIds(effectiveInterpretation.state)
     }
 
     if (

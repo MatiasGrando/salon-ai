@@ -155,6 +155,7 @@ export async function serviceRoutes(app: FastifyInstance) {
       isBookable?: boolean
       variantSelectionMode?: string
       sortOrder?: number
+      bookingOrderPriority?: number | string
       attentionMode?: string
       requiresPhoto?: boolean
       estimateExplanation?: string | null
@@ -176,6 +177,7 @@ export async function serviceRoutes(app: FastifyInstance) {
     const name = body.name?.trim()
     const description = normalizeOptionalText(body.description)
     const duration = Number(body.duration)
+    const bookingOrderPriority = normalizeBookingOrderPriority(body.bookingOrderPriority)
     const customerDuration = normalizeCustomerDuration(
       body.customerDurationMin,
       body.customerDurationMax
@@ -223,6 +225,12 @@ export async function serviceRoutes(app: FastifyInstance) {
     if (!Number.isFinite(duration) || duration <= 0) {
       return reply.status(400).send({
         message: 'duration debe ser mayor a 0'
+      })
+    }
+
+    if (bookingOrderPriority === null) {
+      return reply.status(400).send({
+        message: 'La prioridad de reserva debe ser un numero entero mayor o igual a 0'
       })
     }
     if (!customerDuration.ok) {
@@ -365,6 +373,7 @@ export async function serviceRoutes(app: FastifyInstance) {
       isBookable,
       variantSelectionMode: isBookable ? 'ONE_OF' : variantSelectionMode ?? 'ONE_OF',
       sortOrder: normalizeSortOrder(body.sortOrder),
+      bookingOrderPriority,
       attentionMode: isBookable ? attentionMode ?? 'DIRECT_BOOKING' : 'DIRECT_BOOKING',
       requiresPhoto: isBookable ? requiresPhoto : false,
       estimateExplanation: isBookable ? normalizeOptionalText(body.estimateExplanation) : null,
@@ -457,6 +466,7 @@ export async function serviceRoutes(app: FastifyInstance) {
       isBookable?: boolean
       variantSelectionMode?: string
       sortOrder?: number
+      bookingOrderPriority?: number | string
       attentionMode?: string
       requiresPhoto?: boolean
       estimateExplanation?: string | null
@@ -521,6 +531,7 @@ export async function serviceRoutes(app: FastifyInstance) {
         parentServiceId: true,
         isBookable: true,
         variantSelectionMode: true,
+        bookingOrderPriority: true,
         priceMode: true,
         attentionMode: true,
         requiresPhoto: true,
@@ -548,6 +559,14 @@ export async function serviceRoutes(app: FastifyInstance) {
     const combinationConfiguration = normalizeServiceCombinationConfiguration(body, true)
     if (!combinationConfiguration.ok) {
       return reply.status(400).send({ message: combinationConfiguration.message })
+    }
+    const bookingOrderPriority = body.bookingOrderPriority === undefined
+      ? existing.bookingOrderPriority
+      : normalizeBookingOrderPriority(body.bookingOrderPriority)
+    if (bookingOrderPriority === null) {
+      return reply.status(400).send({
+        message: 'La prioridad de reserva debe ser un numero entero mayor o igual a 0'
+      })
     }
 
     const categoryId = body.categoryId === undefined
@@ -764,6 +783,7 @@ export async function serviceRoutes(app: FastifyInstance) {
           depositValue: isBookable && depositMode !== 'NONE' ? depositValue : null,
           depositHoldMinutes: isBookable ? depositHoldMinutes : 60,
           ...(body.sortOrder === undefined ? {} : { sortOrder: normalizeSortOrder(body.sortOrder) }),
+          bookingOrderPriority,
           price,
           imageUrl: imageUrl ?? null
         } as any,
@@ -1160,6 +1180,12 @@ function normalizeNullableId(value?: string | null) {
 function normalizeSortOrder(value?: number) {
   const parsed = Number(value)
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : 0
+}
+
+function normalizeBookingOrderPriority(value?: number | string) {
+  if (value === undefined || value === '') return 20
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : null
 }
 
 function normalizeServiceImageUrl(imageUrl?: string | null) {

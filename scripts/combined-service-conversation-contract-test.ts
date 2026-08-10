@@ -98,6 +98,7 @@ function catalog(input?: {
   }>
   guidedColor?: boolean
   includeAddons?: boolean
+  bookingOrderPriorities?: Record<string, number>
 }) {
   return createBookingV2DomainCatalog({
     ...(input?.bookingFlowOrder ? { bookingFlowOrder: input.bookingFlowOrder } : {}),
@@ -106,7 +107,10 @@ function catalog(input?: {
       ...(service.id === 'color' && input?.guidedColor
         ? { attentionMode: 'GUIDED_ESTIMATE' as const }
         : {}),
-      ...(input?.includeAddons === false ? { suggestedAddonIds: [] } : {})
+      ...(input?.includeAddons === false ? { suggestedAddonIds: [] } : {}),
+      ...(input?.bookingOrderPriorities?.[service.id] === undefined
+        ? {}
+        : { bookingOrderPriority: input.bookingOrderPriorities[service.id] })
     })),
     professionals: input?.professionals ?? professionals,
     combinationRules: (input?.combinationRules ?? []).map((rule) => ({ ...rule, note: null }))
@@ -570,6 +574,26 @@ await test('el bot ofrece extras configurados una sola vez y acepta uno menciona
     conversation: accepted.conversationPatch
   })
   assert.notEqual(resumed.plan.type, 'ask_service_addons')
+})
+
+await test('ordena la lista final por prioridad despues de aceptar los extras', async () => {
+  const priorityCatalog = catalog({
+    bookingOrderPriorities: { alisado: 30, corte: 10 }
+  })
+  const offered = await engine(priorityCatalog).resume({
+    businessId: 'business-1',
+    conversation: conversationPatchFromState(acceptField(namedState(), 'service', 'alisado'))
+  })
+  assert.equal(offered.plan.type, 'ask_service_addons')
+
+  const accepted = await engine(priorityCatalog).process({
+    businessId: 'business-1',
+    conversation: offered.conversationPatch,
+    message: 'Sí, sumemos el corte'
+  })
+
+  assert.deepEqual(combinedServiceIds(accepted.state), ['corte', 'alisado'])
+  assert.ok(accepted.reply.indexOf('• Corte') < accepted.reply.indexOf('• Alisado'))
 })
 
 await test('al aceptar varios extras resume la lista final antes de pedir profesional', async () => {

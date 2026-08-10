@@ -13287,6 +13287,11 @@ const crmHtml = `<!doctype html>
                   </select>
                   <div class="service-form-help" id="service-price-mode-help">Se mostrar&aacute; el importe exacto, por ejemplo: $ 35.000.</div>
                 </div>
+                <div class="service-form-group" style="grid-column: 1 / -1;">
+                  <label for="service-booking-order-priority">Prioridad en servicios combinados</label>
+                  <input class="field" id="service-booking-order-priority" type="number" min="0" step="1" value="20">
+                  <div class="service-form-help">Los n&uacute;meros m&aacute;s bajos se realizan primero. Si dos servicios tienen la misma prioridad, se respeta el orden pedido por el cliente.</div>
+                </div>
               </div>
               <div class="service-attention-panel" id="service-attention-panel">
                 <div class="service-form-group">
@@ -15556,6 +15561,7 @@ const crmHtml = `<!doctype html>
       servicePrice: document.getElementById('service-price'),
       servicePriceMode: document.getElementById('service-price-mode'),
       servicePriceModeHelp: document.getElementById('service-price-mode-help'),
+      serviceBookingOrderPriority: document.getElementById('service-booking-order-priority'),
       serviceCategory: document.getElementById('service-category'),
       serviceItemType: document.getElementById('service-item-type'),
       serviceItemTypeHelp: document.getElementById('service-item-type-help'),
@@ -25350,6 +25356,7 @@ const crmHtml = `<!doctype html>
       const priceValue = els.servicePrice.value.trim()
       const price = isGroup ? null : priceValue ? Number(priceValue) : null
       const priceMode = isGroup ? 'FIXED' : els.servicePriceMode.value
+      const bookingOrderPriority = isGroup ? 20 : Number(els.serviceBookingOrderPriority.value)
       const categoryId = els.serviceCategory.value.trim() || null
       const parentServiceId = isVariant ? els.serviceParent.value.trim() || null : null
       const variantSelectionMode = 'ONE_OF'
@@ -25442,6 +25449,10 @@ const crmHtml = `<!doctype html>
         els.serviceFeedback.textContent = 'El precio debe ser mayor o igual a 0.'
         return
       }
+      if (!Number.isInteger(bookingOrderPriority) || bookingOrderPriority < 0) {
+        els.serviceFeedback.textContent = 'La prioridad debe ser un número entero mayor o igual a 0.'
+        return
+      }
       if (attentionMode === 'QUOTE' && priceMode === 'FIXED') {
         els.serviceFeedback.textContent = 'Un servicio con presupuesto no puede mostrar un precio fijo.'
         return
@@ -25513,6 +25524,7 @@ const crmHtml = `<!doctype html>
             businessId: state.businessId,
             price,
             priceMode,
+            bookingOrderPriority,
             categoryId,
             parentServiceId,
             isBookable: !isGroup,
@@ -25604,6 +25616,7 @@ const crmHtml = `<!doctype html>
         : ''
       els.servicePrice.value = hasServicePrice(service) ? service.price : ''
       els.servicePriceMode.value = service.priceMode || 'FIXED'
+      els.serviceBookingOrderPriority.value = service.bookingOrderPriority ?? 20
       els.serviceCategory.value = service.catalogCategoryId || ''
       els.serviceParent.value = service.parentServiceId || ''
       els.serviceAttentionMode.value = service.attentionMode || 'DIRECT_BOOKING'
@@ -25671,6 +25684,7 @@ const crmHtml = `<!doctype html>
       els.serviceCustomerDurationMax.value = ''
       els.servicePrice.value = ''
       els.servicePriceMode.value = 'FIXED'
+      els.serviceBookingOrderPriority.value = '20'
       els.serviceCategory.value = ''
       els.serviceItemType.value = 'SERVICE'
       els.serviceParent.value = ''
