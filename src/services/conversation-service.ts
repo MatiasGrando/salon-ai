@@ -1441,11 +1441,13 @@ export class ConversationService {
       detectDeterministicConfirmation(input.message)
     )
     const professionalId = input.routing.bookingExtraction?.professional.value ?? null
-    if (
-      professionalScheduleIntent &&
-      !isPendingDeterministicDecision &&
-      (professionalId || informationTopics.length === 0)
-    ) {
+    if (shouldHandleProfessionalScheduleInformation({
+      hasProfessionalScheduleIntent: Boolean(professionalScheduleIntent),
+      hasPendingCoordinatedAvailability: Boolean(storedInformationState.pendingCoordinatedAvailability),
+      isPendingDeterministicDecision,
+      hasProfessionalId: Boolean(professionalId),
+      informationTopicCount: informationTopics.length
+    })) {
       const scheduleReply = professionalId
         ? await this.professionalScheduleReply(input.businessId, professionalId)
         : 'Entendí que querés consultar los horarios de un profesional. ¿De quién querés saberlos?'
@@ -3899,6 +3901,19 @@ export function isUnambiguousBookingConfirmation(message: string) {
     'asi', 'por', 'favor'
   ])
   return tokens.every((token) => confirmationTokens.has(token))
+}
+
+export function shouldHandleProfessionalScheduleInformation(input: {
+  hasProfessionalScheduleIntent: boolean
+  hasPendingCoordinatedAvailability: boolean
+  isPendingDeterministicDecision: boolean
+  hasProfessionalId: boolean
+  informationTopicCount: number
+}) {
+  return input.hasProfessionalScheduleIntent &&
+    !input.hasPendingCoordinatedAvailability &&
+    !input.isPendingDeterministicDecision &&
+    (input.hasProfessionalId || input.informationTopicCount === 0)
 }
 
 export function isBookingV2ConversationClosing(

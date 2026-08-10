@@ -13,7 +13,8 @@ import {
 import {
   bookingCoordinationMessageFromInteractiveReply,
   bookingCoordinationReplyButtons,
-  isUnambiguousBookingConfirmation
+  isUnambiguousBookingConfirmation,
+  shouldHandleProfessionalScheduleInformation
 } from '../src/services/conversation-service.js'
 import type {
   BookingAvailabilitySearchOption,
@@ -24,6 +25,8 @@ import {
   detectBookingCoordinationChoice
 } from '../src/services/booking-coordination-choice.js'
 import { renderBookingV2Response } from '../src/services/booking-v2-response-renderer.js'
+import { buildWhatsAppReplyButtonsPayload } from '../src/integrations/whatsapp-cloud-api.js'
+import { WhatsAppWebhookService } from '../src/services/whatsapp-webhook-service.js'
 
 const catalog = createBookingV2DomainCatalog({
   services: [
@@ -182,6 +185,13 @@ assert.deepEqual(decisionButtons?.map((button) => button.title), [
   'Modificar servicios',
   'Solicitar atención'
 ])
+const decisionReply = renderBookingV2Response({
+  plan: { type: 'offer_separate_services', reason: 'no_common_professional' },
+  draft: state.draft
+})
+assert.match(decisionReply, /• Coordinar horarios/)
+assert.match(decisionReply, /• Modificar servicios/)
+assert.match(decisionReply, /• Solicitar atención/)
 assert.equal(
   bookingCoordinationMessageFromInteractiveReply(decisionButtons?.[0]?.id, 'conversation-1'),
   'coordinar horarios'
@@ -245,11 +255,57 @@ const dateButtons = bookingCoordinationReplyButtons({
   plan: started.plan,
   state: started.state
 })
-assert.deepEqual(dateButtons?.map((button) => button.title), ['Mañana', 'Próximos días', 'Otra fecha'])
+assert.equal(Boolean(dateButtons?.[0]?.title), true)
+assert.deepEqual(dateButtons?.slice(1).map((button) => button.title), ['Próximos días', 'Otra fecha'])
+assert.match(started.reply, /En estos días puedo coordinar todos los servicios/)
+assert.match(started.reply, /“hoy” o “mañana”/)
 assert.equal(
   bookingCoordinationMessageFromInteractiveReply(dateButtons?.[0]?.id, 'conversation-1'),
   '2026-08-10'
 )
+const whatsappDatePayload = buildWhatsAppReplyButtonsPayload({
+  to: '5491112345678',
+  text: started.reply,
+  buttons: dateButtons ?? []
+})
+const incomingDateButton = new WhatsAppWebhookService().extractIncomingMessages({
+  entry: [{
+    changes: [{
+      value: {
+        messages: [{
+          id: 'wamid.coordinated-date',
+          from: '5491112345678',
+          type: 'interactive',
+          interactive: {
+            type: 'button_reply',
+            button_reply: whatsappDatePayload.interactive.action.buttons[0]?.reply
+          }
+        }]
+      }
+    }]
+  }]
+})[0]
+assert.equal(
+  bookingCoordinationMessageFromInteractiveReply(
+    incomingDateButton?.interactiveReplyId,
+    'conversation-1'
+  ),
+  '2026-08-10'
+)
+assert.equal(shouldHandleProfessionalScheduleInformation({
+  hasProfessionalScheduleIntent: true,
+  hasPendingCoordinatedAvailability: true,
+  isPendingDeterministicDecision: false,
+  hasProfessionalId: false,
+  informationTopicCount: 0
+}), false)
+const selectedTodayWithoutScheduleInterruption = await engine.process({
+  businessId: 'business-1',
+  conversation: started.conversationPatch,
+  message: 'hoy',
+  currentDate: new Date('2026-08-10T00:21:00-03:00')
+})
+assert.equal(selectedTodayWithoutScheduleInterruption.plan.type, 'ask_coordinated_time_preference')
 
 const startedByYes = await engine.process({
   businessId: 'business-1',
@@ -613,6 +669,36 @@ for (const buttons of [
     )),
     true
   )
+  if (!buttons?.length) continue
+  const payload = buildWhatsAppReplyButtonsPayload({
+    to: '5491112345678',
+    text: 'Elegí una opción',
+    buttons
+  })
+  for (const button of payload.interactive.action.buttons) {
+    const incoming = new WhatsAppWebhookService().extractIncomingMessages({
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              id: `wamid.${button.reply.id}`,
+              from: '5491112345678',
+              type: 'interactive',
+              interactive: {
+                type: 'button_reply',
+                button_reply: button.reply
+              }
+            }]
+          }
+        }]
+      }]
+    })[0]
+    assert.equal(incoming?.interactiveReplyId, button.reply.id)
+    assert.ok(bookingCoordinationMessageFromInteractiveReply(
+      incoming?.interactiveReplyId,
+      'conversation-1'
+    ))
+  }
 }
 
 const restored = stateFromConversation(conversationPatchFromState(midday.state))

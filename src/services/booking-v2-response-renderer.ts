@@ -35,10 +35,10 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
     const availableDates = input.plan.quickDates.length
       ? [
           input.plan.professionalName
-            ? `Encontré disponibilidad manteniendo a ${input.plan.professionalName} 😊`
-            : 'Encontré estas fechas disponibles 😊',
+            ? `En estos días puedo coordinar todos los servicios en horarios consecutivos, manteniendo a ${input.plan.professionalName} 😊`
+            : 'En estos días puedo coordinar todos los servicios en horarios consecutivos, con profesionales distintos 😊',
           ...input.plan.quickDates.slice(0, 5).map((date) => `• ${formatDate(date)}`),
-          'Podés elegir una de estas fechas o escribir otra.'
+          'Elegí uno de estos días o escribime otra fecha, por ejemplo “hoy” o “mañana”.'
         ].join('\n')
       : null
     return [
@@ -142,7 +142,13 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
   if (input.plan.type === 'offer_separate_services') {
     return input.plan.reason === 'blocked_combination'
       ? 'Estos servicios no están habilitados para realizarse juntos. ¿Querés que busque un turno para cada servicio por separado?'
-      : 'No encontré una sola persona que realice todos estos servicios. Puedo coordinarlos con profesionales distintos, en horarios consecutivos. ¿Cómo querés continuar?'
+      : [
+          'No encontré una sola persona que realice todos estos servicios. Puedo coordinarlos con profesionales distintos, en horarios consecutivos.',
+          '¿Cómo querés continuar?',
+          '• Coordinar horarios',
+          '• Modificar servicios',
+          '• Solicitar atención'
+        ].join('\n')
   }
 
   if (input.plan.type === 'ask_service_edit_target') {
