@@ -170,7 +170,7 @@ export type BookingV2PendingCoordinatedAvailability = {
   assignmentMode: 'SINGLE_PROFESSIONAL' | 'MULTIPLE_PROFESSIONALS'
   requestedProfessionalId: string | null
   requireRequestedProfessional: boolean
-  phase: 'AWAITING_DATE' | 'AWAITING_SEARCH_TIME' | 'AWAITING_TIME_PREFERENCE' | 'AWAITING_OPTION' | 'OPTION_SELECTED'
+  phase: 'AWAITING_DATE' | 'AWAITING_SEARCH_TIME' | 'AWAITING_TIME_PREFERENCE' | 'AWAITING_OPTION' | 'AWAITING_SEARCH_MENU' | 'OPTION_SELECTED'
   date: string | null
   quickDates: string[]
   options: BookingAvailabilitySearchOption[]

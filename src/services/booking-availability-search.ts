@@ -483,7 +483,7 @@ function rankOptions(
   options: BookingAvailabilitySearchOption[],
   preferredProfessionalId: string | null
 ) {
-  return Array.from(new Map(options.map((option) => [option.id, option])).values()).sort((left, right) => {
+  const ranked = Array.from(new Map(options.map((option) => [option.id, option])).values()).sort((left, right) => {
     if (preferredProfessionalId) {
       const preferenceDifference = Number(right.preferredProfessionalRespected) -
         Number(left.preferredProfessionalRespected)
@@ -492,6 +492,13 @@ function rankOptions(
     return left.date.localeCompare(right.date) ||
       left.startTime.localeCompare(right.startTime) ||
       left.id.localeCompare(right.id)
+  })
+  const seenBlocks = new Set<string>()
+  return ranked.filter((option) => {
+    const block = `${option.date}|${option.startTime}|${option.endTime}`
+    if (seenBlocks.has(block)) return false
+    seenBlocks.add(block)
+    return true
   })
 }
 

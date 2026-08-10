@@ -3598,7 +3598,8 @@ function conversationStepFromBookingV2Plan(plan: BookingV2MessagePlan) {
   if (
     plan.type === 'ask_coordinated_time_preference' ||
     plan.type === 'ask_coordinated_search_time' ||
-    plan.type === 'offer_coordinated_options'
+    plan.type === 'offer_coordinated_options' ||
+    plan.type === 'show_coordinated_search_menu'
   ) return 'ASK_TIME'
   if (plan.type === 'show_coordinated_selection') return 'CONFIRM'
   if (plan.type === 'show_service_preview_and_ask_name') return 'ASK_CUSTOMER_NAME'
@@ -4313,10 +4314,15 @@ export function bookingCoordinationReplyButtons(input: {
       id: `${prefix}option:${index + 1}`,
       title: hasRepeatedStartTime ? `${index + 1}. ${option.startTime}` : option.startTime
     }))
-    if (input.plan.hasMore) {
-      buttons.push({ id: `${prefix}more`, title: 'Ver más horarios' })
-    }
+    buttons.push({ id: `${prefix}search_menu`, title: 'Otras búsquedas' })
     return buttons
+  }
+  if (input.plan.type === 'show_coordinated_search_menu') {
+    return [
+      { id: `${prefix}more`, title: 'Más horarios' },
+      { id: `${prefix}next_days`, title: 'Próximos días' },
+      { id: `${prefix}search_time`, title: 'Buscar por hora' }
+    ]
   }
   if (input.plan.type === 'coordinated_date_unavailable') {
     if (input.plan.canSearchWithoutProfessional) {
@@ -4383,6 +4389,7 @@ export function bookingCoordinationMessageFromInteractiveReply(
   if (action === 'exact_time') return 'buscar un horario'
   if (action === 'without_professional') return 'buscar sin el profesional solicitado'
   if (action === 'more') return 'ver más horarios'
+  if (action === 'search_menu') return 'otras búsquedas'
   if (action === 'mod_change') return 'cambiar un servicio'
   if (action === 'mod_remove') return 'quitar un servicio'
   if (action === 'restart') return 'empezar de nuevo desde cero'

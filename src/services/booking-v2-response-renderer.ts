@@ -66,6 +66,15 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
     return 'También puedo buscar otra fecha, modificar los servicios o pedirle al equipo que lo coordine.'
   }
 
+  if (input.plan.type === 'show_coordinated_search_menu') {
+    return [
+      '¿Cómo querés seguir buscando?',
+      '• Ver todos los horarios del día',
+      '• Buscar disponibilidad en próximos días',
+      '• Buscar una hora específica'
+    ].join('\n')
+  }
+
   if (input.plan.type === 'ask_coordinated_time_preference') {
     return [
       `Encontré disponibilidad para el ${formatDate(input.plan.date)}${input.plan.professionalName ? ` manteniendo a ${input.plan.professionalName}` : ''} 😊`,
@@ -77,13 +86,10 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
   if (input.plan.type === 'offer_coordinated_options') {
     return [
       `Estas son las opciones para el ${formatDate(input.plan.date)} 😊`,
-      ...input.plan.options.map((option, index) => [
-        `${index + 1}. ${option.startTime} a ${option.endTime}`,
-        ...option.segments.map((segment) =>
-          `${segment.serviceName} con ${segment.professionalName}: ${segment.startTime} a ${segment.endTime}`
-        )
-      ].join('\n')),
-      '¿Cuál preferís?'
+      ...input.plan.options.map((option, index) =>
+        `${index + 1}. ${option.startTime} a ${option.endTime}`
+      ),
+      'Elegí una opción o escribime la hora en la que querés comenzar.'
     ].join('\n\n')
   }
 

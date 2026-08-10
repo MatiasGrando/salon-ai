@@ -202,4 +202,26 @@ assert.equal(requiredTamara.options.length, 1)
 assert.equal(requiredTamara.options[0]?.segments[0]?.professionalId, 'tamara')
 assert.equal(requiredTamara.options[0]?.preferredProfessionalRespected, true)
 
+const repeatedBlockEngine = new BookingAvailabilitySearchEngine(async (input) => {
+  const repeatedSlots: Record<string, string[]> = {
+    'color:tamara': ['10:00'],
+    'corte:julian': ['11:30'],
+    'corte:lucas': ['11:30']
+  }
+  return { ok: true, slots: repeatedSlots[`${input.serviceIds[0]}:${input.professionalId}`] ?? [] }
+})
+const repeatedBlock = await repeatedBlockEngine.search({
+  mode: { type: 'DATE', date: '2026-08-10' },
+  services: [
+    services[0]!,
+    { ...services[1]!, professionalIds: ['julian', 'lucas'] }
+  ],
+  professionals: [...professionals, { id: 'lucas', name: 'Lucas' }],
+  assignmentMode: 'MULTIPLE_PROFESSIONALS'
+})
+assert.equal(repeatedBlock.status, 'AVAILABLE')
+assert.equal(repeatedBlock.options.length, 1)
+assert.equal(repeatedBlock.options[0]?.startTime, '10:00')
+assert.equal(repeatedBlock.options[0]?.endTime, '12:00')
+
 console.log('booking-availability-search-contract-test: OK')

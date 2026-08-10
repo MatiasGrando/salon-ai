@@ -56,6 +56,7 @@ export type BookingV2MessagePlan =
       professionalName?: string | null
     }
   | { type: 'show_coordinated_more_options' }
+  | { type: 'show_coordinated_search_menu' }
   | {
       type: 'ask_coordinated_time_preference'
       date: string

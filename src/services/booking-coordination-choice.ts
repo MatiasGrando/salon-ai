@@ -6,6 +6,7 @@ export type BookingCoordinationChoice =
   | { type: 'MODIFY_SERVICES' }
   | { type: 'REQUEST_HUMAN' }
   | { type: 'SHOW_MORE' }
+  | { type: 'SHOW_SEARCH_MENU' }
   | { type: 'SHOW_NEXT_DAYS' }
   | { type: 'SEARCH_TIME' }
   | { type: 'SEARCH_WITHOUT_PROFESSIONAL' }
@@ -80,12 +81,15 @@ export function detectBookingCoordinationChoice(input: {
   if (/\b(?:otra fecha|otro dia|elegir fecha|fecha especifica)\b/.test(normalized)) {
     return { type: 'CHOOSE_OTHER_DATE' }
   }
+  if (/\b(?:otras busquedas|otra busqueda|opciones de busqueda|buscar de otra forma)\b/.test(normalized)) {
+    return { type: 'SHOW_SEARCH_MENU' }
+  }
   if (/\b(?:mas opciones|mas horarios|otros horarios|ver todos|todos los horarios|mostrame todos)\b/.test(normalized)) {
     return { type: 'SHOW_MORE' }
   }
 
   if (input.phase === 'OPTION') {
-    const option = /^(?:opcion\s*)?([1-9])$/.exec(normalized)
+    const option = /^(?:opcion\s*)?([1-9]|1\d|20)$/.exec(normalized)
     if (option?.[1]) return { type: 'OPTION', index: Number(option[1]) - 1 }
     const ordinal = normalized === 'la primera' || normalized === 'primera'
       ? 0

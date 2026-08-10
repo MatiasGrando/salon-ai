@@ -1655,6 +1655,18 @@ export class BookingV2Engine {
         serviceIds: pending.serviceIds
       }, input.catalog, 'accepted')
     }
+    if (choice?.type === 'SHOW_SEARCH_MENU') {
+      const state: BookingV2State = {
+        ...input.state,
+        pendingCoordinatedAvailability: {
+          ...pending,
+          phase: 'AWAITING_SEARCH_MENU'
+        }
+      }
+      return this.guidedEstimateResult(state, {
+        type: 'show_coordinated_search_menu'
+      }, input.catalog, 'no_change')
+    }
     if (choice?.type === 'SEARCH_WITHOUT_PROFESSIONAL' && pending.requireRequestedProfessional) {
       const relaxedPending: BookingV2PendingCoordinatedAvailability = {
         ...pending,
@@ -1714,6 +1726,59 @@ export class BookingV2Engine {
           assignmentMode: pending.assignmentMode
         }, input.catalog, 'no_change')
       }
+    }
+
+    if (pending.phase === 'AWAITING_SEARCH_MENU') {
+      if (choice?.type === 'SHOW_MORE') {
+        const options = uniqueCoordinatedOptionsByTime(pending.options)
+        return this.showCoordinatedOptions(input.state, {
+          ...pending,
+          phase: 'AWAITING_OPTION',
+          options,
+          filteredOptionIds: options.map((option) => option.id),
+          page: 0,
+          timeBand: null,
+          requestedTime: null,
+          requestedWindow: null
+        }, input.catalog)
+      }
+      if (choice?.type === 'SHOW_NEXT_DAYS') {
+        return this.showNextCoordinatedDays({
+          state: input.state,
+          pending: {
+            ...pending,
+            requestedTime: null,
+            requestedWindow: null
+          },
+          catalog: input.catalog,
+          currentDate: input.input.currentDate ?? new Date()
+        })
+      }
+      if (choice?.type === 'SEARCH_TIME') {
+        const state: BookingV2State = {
+          ...input.state,
+          pendingCoordinatedAvailability: {
+            ...pending,
+            phase: 'AWAITING_SEARCH_TIME',
+            date: null,
+            options: [],
+            filteredOptionIds: [],
+            page: 0,
+            requestedTime: null,
+            requestedWindow: null
+          }
+        }
+        return this.guidedEstimateResult(state, {
+          type: 'ask_coordinated_search_time',
+          date: null,
+          professionalName: pending.requireRequestedProfessional
+            ? professionalNameById(input.catalog, pending.requestedProfessionalId)
+            : null
+        }, input.catalog, 'accepted')
+      }
+      return this.guidedEstimateResult(input.state, {
+        type: 'show_coordinated_search_menu'
+      }, input.catalog, 'no_change')
     }
 
     if (pending.phase === 'AWAITING_SEARCH_TIME') {
@@ -1859,46 +1924,12 @@ export class BookingV2Engine {
         }, input.catalog, 'no_change')
       }
       if (choice?.type === 'SHOW_NEXT_DAYS') {
-        const today = dateInTimeZone(
-          input.input.currentDate ?? new Date(),
-          'America/Buenos_Aires'
-        ).toISOString().slice(0, 10)
-        const result = await this.searchCoordinatedAvailability({
+        return this.showNextCoordinatedDays({
+          state: input.state,
+          pending,
           catalog: input.catalog,
-          serviceIds: pending.serviceIds,
-          mode: { type: 'NEXT_DAYS', afterDate: today, horizonDays: 14, maxDates: 5 },
-          maxResults: 25,
-          assignmentMode: pending.assignmentMode,
-          requiredProfessionalId: pending.requireRequestedProfessional
-            ? pending.requestedProfessionalId
-            : null
+          currentDate: input.input.currentDate ?? new Date()
         })
-        const quickDates = Array.from(new Set(result.options.map((option) => option.date))).slice(0, 5)
-        const state = {
-          ...input.state,
-          pendingCoordinatedAvailability: { ...pending, quickDates }
-        }
-        if (!quickDates.length) {
-          return this.guidedEstimateResult(state, {
-            type: 'coordinated_date_unavailable',
-            date: today,
-            reason: result.status === 'PROVIDER_ERROR' ? 'PROVIDER_ERROR' : 'NO_AVAILABILITY_ON_DATE',
-            requestedTime: pending.requestedTime,
-            professionalName: pending.requireRequestedProfessional
-              ? professionalNameById(input.catalog, pending.requestedProfessionalId)
-              : null,
-            canSearchWithoutProfessional: pending.requireRequestedProfessional
-          }, input.catalog, 'no_change')
-        }
-        return this.guidedEstimateResult(state, {
-          type: 'ask_coordinated_date',
-          quickDates,
-          requestedTime: pending.requestedTime,
-          assignmentMode: pending.assignmentMode,
-          professionalName: pending.requireRequestedProfessional
-            ? professionalNameById(input.catalog, pending.requestedProfessionalId)
-            : null
-        }, input.catalog, 'no_change')
       }
 
       const date = resolveCoordinatedDate(
@@ -2014,21 +2045,16 @@ export class BookingV2Engine {
 
     const visible = visibleCoordinatedOptions(pending)
     if (choice?.type === 'SHOW_MORE') {
-      const currentIds = new Set(filteredCoordinatedOptions(pending).map((option) => option.id))
-      const optionsOutsideCurrentFilter = pending.options.filter((option) => !currentIds.has(option.id))
-      if (optionsOutsideCurrentFilter.length) {
-        return this.showCoordinatedOptions(input.state, {
-          ...pending,
-          filteredOptionIds: optionsOutsideCurrentFilter.map((option) => option.id),
-          page: 0,
-          timeBand: null,
-          requestedTime: null,
-          requestedWindow: null
-        }, input.catalog)
-      }
-      const totalPages = Math.max(1, Math.ceil(filteredCoordinatedOptions(pending).length / 2))
-      const nextPage = (pending.page + 1) % totalPages
-      return this.showCoordinatedOptions(input.state, { ...pending, page: nextPage }, input.catalog)
+      const options = uniqueCoordinatedOptionsByTime(pending.options)
+      return this.showCoordinatedOptions(input.state, {
+        ...pending,
+        options,
+        filteredOptionIds: options.map((option) => option.id),
+        page: 0,
+        timeBand: null,
+        requestedTime: null,
+        requestedWindow: null
+      }, input.catalog)
     }
     const selected = choice?.type === 'OPTION'
       ? visible[choice.index] ?? null
@@ -2070,7 +2096,7 @@ export class BookingV2Engine {
     requestedTime: string | null
     requestedWindow: { startTime: string; endTime: string } | null
   }) {
-    let options = input.result.options
+    let options = uniqueCoordinatedOptionsByTime(input.result.options)
     if (input.requestedWindow) {
       options = options.filter((option) => optionFitsTimeWindow(option, input.requestedWindow!))
     }
@@ -2118,7 +2144,7 @@ export class BookingV2Engine {
         ...input.pending,
         phase: 'AWAITING_DATE',
         date: input.date,
-        options: input.result.options,
+        options: uniqueCoordinatedOptionsByTime(input.result.options),
         filteredOptionIds: [],
         requestedTime: input.requestedTime,
         requestedWindow: input.requestedWindow,
@@ -2152,12 +2178,67 @@ export class BookingV2Engine {
       type: 'offer_coordinated_options',
       date: pending.date!,
       options: visible,
-      hasMore: allOptions.length > 2 || pending.options.some((option) =>
+      hasMore: allOptions.length > visible.length || uniqueCoordinatedOptionsByTime(pending.options).some((option) =>
         !allOptions.some((filtered) => filtered.id === option.id)
       ),
       page: pending.page,
       assignmentMode: pending.assignmentMode
     }, catalog, 'accepted')
+  }
+
+  private async showNextCoordinatedDays(input: {
+    state: BookingV2State
+    pending: BookingV2PendingCoordinatedAvailability
+    catalog: BookingV2DomainCatalog
+    currentDate: Date
+  }) {
+    const today = dateInTimeZone(input.currentDate, 'America/Buenos_Aires').toISOString().slice(0, 10)
+    const result = await this.searchCoordinatedAvailability({
+      catalog: input.catalog,
+      serviceIds: input.pending.serviceIds,
+      mode: { type: 'NEXT_DAYS', afterDate: today, horizonDays: 14, maxDates: 5 },
+      maxResults: 25,
+      assignmentMode: input.pending.assignmentMode,
+      requiredProfessionalId: input.pending.requireRequestedProfessional
+        ? input.pending.requestedProfessionalId
+        : null
+    })
+    const quickDates = Array.from(new Set(result.options.map((option) => option.date))).slice(0, 5)
+    const state: BookingV2State = {
+      ...input.state,
+      pendingCoordinatedAvailability: {
+        ...input.pending,
+        phase: 'AWAITING_DATE',
+        date: null,
+        quickDates,
+        options: [],
+        filteredOptionIds: [],
+        page: 0,
+        timeBand: null,
+        selectedOptionId: null
+      }
+    }
+    if (!quickDates.length) {
+      return this.guidedEstimateResult(state, {
+        type: 'coordinated_date_unavailable',
+        date: today,
+        reason: result.status === 'PROVIDER_ERROR' ? 'PROVIDER_ERROR' : 'NO_AVAILABILITY_ON_DATE',
+        requestedTime: input.pending.requestedTime,
+        professionalName: input.pending.requireRequestedProfessional
+          ? professionalNameById(input.catalog, input.pending.requestedProfessionalId)
+          : null,
+        canSearchWithoutProfessional: input.pending.requireRequestedProfessional
+      }, input.catalog, 'no_change')
+    }
+    return this.guidedEstimateResult(state, {
+      type: 'ask_coordinated_date',
+      quickDates,
+      requestedTime: input.pending.requestedTime,
+      assignmentMode: input.pending.assignmentMode,
+      professionalName: input.pending.requireRequestedProfessional
+        ? professionalNameById(input.catalog, input.pending.requestedProfessionalId)
+        : null
+    }, input.catalog, 'accepted')
   }
 
   private searchCoordinatedAvailability(input: {
@@ -2189,6 +2270,7 @@ export class BookingV2Engine {
       { id: 'request_human', meaning: 'Quiere que una persona del equipo coordine la reserva.' },
       { id: 'modify_services', meaning: 'Quiere cambiar o quitar alguno de los servicios.' },
       { id: 'show_more', meaning: 'Quiere ver más horarios u opciones disponibles.' },
+      { id: 'search_menu', meaning: 'Quiere ver otras formas de buscar disponibilidad.' },
       { id: 'next_days', meaning: 'Quiere buscar disponibilidad en los próximos días.' },
       { id: 'search_time', meaning: 'Quiere indicar o probar una hora exacta.' },
       { id: 'other_date', meaning: 'Quiere elegir o escribir otra fecha.' },
@@ -2216,13 +2298,16 @@ export class BookingV2Engine {
       message: input.message,
       question: input.pending.phase === 'AWAITING_TIME_PREFERENCE'
         ? '¿En qué momento del día prefiere comenzar?'
-        : '¿Cuál de las opciones de horario prefiere?',
+        : input.pending.phase === 'AWAITING_SEARCH_MENU'
+          ? '¿Quiere ver todos los horarios, próximos días o buscar una hora específica?'
+          : '¿Cuál de las opciones de horario prefiere?',
       choices
     })
     if (result.confidence < 0.7) return null
     if (result.choiceId === 'request_human') return { type: 'REQUEST_HUMAN' }
     if (result.choiceId === 'modify_services') return { type: 'MODIFY_SERVICES' }
     if (result.choiceId === 'show_more') return { type: 'SHOW_MORE' }
+    if (result.choiceId === 'search_menu') return { type: 'SHOW_SEARCH_MENU' }
     if (result.choiceId === 'next_days') return { type: 'SHOW_NEXT_DAYS' }
     if (result.choiceId === 'search_time') return { type: 'SEARCH_TIME' }
     if (result.choiceId === 'other_date') return { type: 'CHOOSE_OTHER_DATE' }
@@ -2255,6 +2340,11 @@ export class BookingV2Engine {
           professionalName: pending.requireRequestedProfessional
             ? professionalNameById(catalog, pending.requestedProfessionalId)
             : null
+        }, catalog, 'no_change')
+      }
+      if (pending.phase === 'AWAITING_SEARCH_MENU') {
+        return this.guidedEstimateResult(state, {
+          type: 'show_coordinated_search_menu'
         }, catalog, 'no_change')
       }
       if (pending.phase === 'AWAITING_SEARCH_TIME') {
@@ -3340,14 +3430,32 @@ function filterCoordinatedOptions(
 }
 
 function filteredCoordinatedOptions(pending: BookingV2PendingCoordinatedAvailability) {
-  if (!pending.filteredOptionIds.length) return pending.options
+  if (!pending.filteredOptionIds.length) return uniqueCoordinatedOptionsByTime(pending.options)
   const selectedIds = new Set(pending.filteredOptionIds)
-  return pending.options.filter((option) => selectedIds.has(option.id))
+  return uniqueCoordinatedOptionsByTime(
+    pending.options.filter((option) => selectedIds.has(option.id))
+  )
 }
 
 function visibleCoordinatedOptions(pending: BookingV2PendingCoordinatedAvailability) {
   const options = filteredCoordinatedOptions(pending)
-  return options.slice(pending.page * 2, pending.page * 2 + 2)
+  const allDayOptions = uniqueCoordinatedOptionsByTime(pending.options)
+  const isShowingAllDay = pending.phase === 'AWAITING_OPTION' &&
+    pending.timeBand === null &&
+    pending.requestedTime === null &&
+    pending.requestedWindow === null &&
+    options.length === allDayOptions.length
+  return isShowingAllDay ? options : options.slice(0, 5)
+}
+
+function uniqueCoordinatedOptionsByTime(options: BookingAvailabilitySearchOption[]) {
+  const seen = new Set<string>()
+  return options.filter((option) => {
+    const key = `${option.date}|${option.startTime}|${option.endTime}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 function addIsoDateDays(value: string, days: number) {

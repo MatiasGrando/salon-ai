@@ -75,6 +75,47 @@ function option(startTime: string, endTime: string, cutter = 'julian'): BookingA
   }
 }
 
+function timeAfter(startTime: string, minutes: number) {
+  const [hours = 0, mins = 0] = startTime.split(':').map(Number)
+  const total = hours * 60 + mins + minutes
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
+}
+
+function datedOption(
+  date: string,
+  startTime: string,
+  cutter = 'julian',
+  suffix = ''
+): BookingAvailabilitySearchOption {
+  const colorEnd = timeAfter(startTime, 90)
+  const endTime = timeAfter(startTime, 120)
+  return {
+    id: `${date}|${startTime}|${cutter}${suffix}`,
+    date,
+    startTime,
+    endTime,
+    preferredProfessionalRespected: false,
+    segments: [
+      {
+        serviceId: 'color',
+        serviceName: 'Color Completo',
+        professionalId: 'tamara',
+        professionalName: 'Tamara',
+        startTime,
+        endTime: colorEnd
+      },
+      {
+        serviceId: 'corte',
+        serviceName: 'Corte Hombre',
+        professionalId: cutter,
+        professionalName: cutter === 'julian' ? 'Julián' : 'Lucas',
+        startTime: colorEnd,
+        endTime
+      }
+    ]
+  }
+}
+
 const tomorrowOptions = [
   option('09:00', '11:00'),
   option('12:00', '14:00'),
@@ -588,7 +629,7 @@ const optionButtons = bookingCoordinationReplyButtons({
   plan: midday.plan,
   state: midday.state
 })
-assert.deepEqual(optionButtons?.map((button) => button.title), ['12:00', '13:00', 'Ver más horarios'])
+assert.deepEqual(optionButtons?.map((button) => button.title), ['12:00', '13:00', 'Otras búsquedas'])
 const repeatedTimeButtons = bookingCoordinationReplyButtons({
   conversationId: 'conversation-1',
   plan: {
@@ -601,7 +642,11 @@ const repeatedTimeButtons = bookingCoordinationReplyButtons({
   },
   state: selectedTomorrow.state
 })
-assert.deepEqual(repeatedTimeButtons?.map((button) => button.title), ['1. 15:00', '2. 15:00'])
+assert.deepEqual(repeatedTimeButtons?.map((button) => button.title), [
+  '1. 15:00',
+  '2. 15:00',
+  'Otras búsquedas'
+])
 const defensiveDuplicatePayload = buildWhatsAppReplyButtonsPayload({
   to: '5491112345678',
   text: 'Elegí una opción',
@@ -711,6 +756,291 @@ const quotedShowMore = await engine.process({
 })
 assert.equal(quotedShowMore.plan.type, 'offer_coordinated_options')
 
+const denseOptions = [
+  datedOption('2026-08-10', '08:00'),
+  datedOption('2026-08-10', '09:00'),
+  datedOption('2026-08-10', '10:00'),
+  datedOption('2026-08-10', '12:00'),
+  datedOption('2026-08-10', '12:30'),
+  datedOption('2026-08-10', '13:00'),
+  datedOption('2026-08-10', '13:00', 'lucas', '-duplicate-professional'),
+  datedOption('2026-08-10', '13:30'),
+  datedOption('2026-08-10', '14:00'),
+  datedOption('2026-08-10', '14:30'),
+  datedOption('2026-08-10', '15:00'),
+  datedOption('2026-08-10', '16:00')
+]
+const densePending = selectedTomorrow.state.pendingCoordinatedAvailability
+if (!densePending) throw new Error('Falta disponibilidad coordinada para la prueba densa')
+const denseState = {
+  ...selectedTomorrow.state,
+  pendingCoordinatedAvailability: {
+    ...densePending,
+    phase: 'AWAITING_TIME_PREFERENCE' as const,
+    date: '2026-08-10',
+    options: denseOptions,
+    filteredOptionIds: denseOptions.map((item) => item.id),
+    page: 0,
+    timeBand: null,
+    requestedTime: null,
+    requestedWindow: null,
+    selectedOptionId: null
+  }
+}
+const denseMidday = await engine.process({
+  businessId: 'business-1',
+  conversation: conversationPatchFromState(denseState),
+  message: 'al mediodía'
+})
+assert.equal(denseMidday.plan.type, 'offer_coordinated_options')
+if (denseMidday.plan.type !== 'offer_coordinated_options') throw new Error('Plan inesperado')
+assert.deepEqual(
+  denseMidday.plan.options.map((item) => item.startTime),
+  ['12:00', '12:30', '13:00', '13:30', '14:00']
+)
+assert.equal(new Set(denseMidday.plan.options.map((item) => `${item.startTime}-${item.endTime}`)).size, 5)
+
+const denseSearchMenu = await engine.process({
+  businessId: 'business-1',
+  conversation: denseMidday.conversationPatch,
+  message: 'otras búsquedas'
+})
+assert.equal(denseSearchMenu.plan.type, 'show_coordinated_search_menu')
+const searchMenuButtons = bookingCoordinationReplyButtons({
+  conversationId: 'conversation-1',
+  plan: denseSearchMenu.plan,
+  state: denseSearchMenu.state
+})
+assert.deepEqual(searchMenuButtons?.map((button) => button.title), [
+  'Más horarios',
+  'Próximos días',
+  'Buscar por hora'
+])
+
+const canonicalMoreSchedules = bookingCoordinationMessageFromInteractiveReply(
+  searchMenuButtons?.[0]?.id,
+  'conversation-1'
+)
+assert.equal(canonicalMoreSchedules, 'ver más horarios')
+const allDaySchedules = await engine.process({
+  businessId: 'business-1',
+  conversation: denseSearchMenu.conversationPatch,
+  message: canonicalMoreSchedules ?? ''
+})
+assert.equal(allDaySchedules.plan.type, 'offer_coordinated_options')
+if (allDaySchedules.plan.type !== 'offer_coordinated_options') throw new Error('Plan inesperado')
+assert.equal(allDaySchedules.plan.options.length, 11)
+assert.equal(
+  new Set(allDaySchedules.plan.options.map((item) => `${item.startTime}-${item.endTime}`)).size,
+  allDaySchedules.plan.options.length
+)
+assert.match(allDaySchedules.reply, /11\. 16:00 a 18:00/)
+
+for (const [message, expectedStart] of [
+  ['1', '08:00'],
+  ['opción 4', '12:00'],
+  ['a las 15', '15:00'],
+  ['1. 15:00', '15:00']
+] as const) {
+  const selection = await engine.process({
+    businessId: 'business-1',
+    conversation: allDaySchedules.conversationPatch,
+    message
+  })
+  assert.equal(selection.plan.type, 'show_coordinated_selection', `No avanzó con: ${message}`)
+  if (selection.plan.type !== 'show_coordinated_selection') throw new Error('Plan inesperado')
+  assert.equal(selection.plan.option.startTime, expectedStart)
+  assert.match(selection.reply, /¿Confirmás estas dos reservas\?/)
+}
+
+const semanticOptionEngine = new BookingV2Engine(
+  domain,
+  nullExtractor,
+  unusedClassifier,
+  unusedDecision,
+  unusedOption,
+  {
+    async extract() {
+      return { choiceId: 'option:4', confidence: 0.96 }
+    }
+  }
+)
+const semanticOptionSelection = await semanticOptionEngine.process({
+  businessId: 'business-1',
+  conversation: allDaySchedules.conversationPatch,
+  message: 'me sirve la alternativa que aparece quinta en la lista'
+})
+assert.equal(semanticOptionSelection.plan.type, 'show_coordinated_selection')
+if (semanticOptionSelection.plan.type !== 'show_coordinated_selection') throw new Error('Plan inesperado')
+assert.equal(semanticOptionSelection.plan.option.startTime, '12:30')
+
+const futureDates = ['2026-08-10', '2026-08-11', '2026-08-12', '2026-08-13', '2026-08-14']
+const futureOptions = futureDates.flatMap((date) => [
+  datedOption(date, '09:00'),
+  datedOption(date, '12:00'),
+  datedOption(date, '13:00', 'lucas'),
+  datedOption(date, '15:00')
+])
+const navigationDomain = {
+  ...domain,
+  async searchAvailability(input: {
+    mode: { type: string; date?: string; requestedTime?: string | null; time?: string }
+  }) {
+    if (input.mode.type === 'NEXT_DAYS') {
+      return {
+        ...searchResult('NEXT_DATES_FOUND', futureOptions),
+        searchedDates: futureDates
+      }
+    }
+    if (input.mode.type === 'TIME_ACROSS_DAYS') {
+      const matches = futureOptions.filter((item) => item.startTime === input.mode.time)
+      return {
+        ...searchResult(matches.length ? 'NEXT_DATES_FOUND' : 'NO_UPCOMING_AVAILABILITY', matches),
+        searchedDates: futureDates,
+        requestedTime: input.mode.time ?? null
+      }
+    }
+    const optionsForDate = futureOptions.filter((item) => item.date === input.mode.date)
+    const matches = input.mode.requestedTime
+      ? optionsForDate.filter((item) => item.startTime === input.mode.requestedTime)
+      : optionsForDate
+    return {
+      ...searchResult(matches.length ? 'AVAILABLE' : 'NO_AVAILABILITY_ON_DATE', matches),
+      searchedDates: input.mode.date ? [input.mode.date] : [],
+      requestedTime: input.mode.requestedTime ?? null
+    }
+  }
+}
+const navigationEngine = new BookingV2Engine(
+  navigationDomain,
+  nullExtractor,
+  unusedClassifier,
+  unusedDecision,
+  unusedOption,
+  unusedChoice
+)
+
+const canonicalNextDays = bookingCoordinationMessageFromInteractiveReply(
+  searchMenuButtons?.[1]?.id,
+  'conversation-1'
+)
+const nextDays = await navigationEngine.process({
+  businessId: 'business-1',
+  conversation: denseSearchMenu.conversationPatch,
+  message: canonicalNextDays ?? '',
+  currentDate: new Date('2026-08-09T15:00:00-03:00')
+})
+assert.equal(nextDays.plan.type, 'ask_coordinated_date')
+if (nextDays.plan.type !== 'ask_coordinated_date') throw new Error('Plan inesperado')
+assert.deepEqual(nextDays.plan.quickDates, futureDates)
+for (const date of futureDates) assert.match(nextDays.reply, new RegExp(date.split('-').reverse().join('/')))
+const nextDateButtons = bookingCoordinationReplyButtons({
+  conversationId: 'conversation-1',
+  plan: nextDays.plan,
+  state: nextDays.state
+})
+const canonicalFutureDate = bookingCoordinationMessageFromInteractiveReply(
+  nextDateButtons?.[0]?.id,
+  'conversation-1'
+)
+assert.equal(canonicalFutureDate, '2026-08-10')
+const futureDateAvailability = await navigationEngine.process({
+  businessId: 'business-1',
+  conversation: nextDays.conversationPatch,
+  message: canonicalFutureDate ?? ''
+})
+assert.equal(futureDateAvailability.plan.type, 'ask_coordinated_time_preference')
+const futureBandButtons = bookingCoordinationReplyButtons({
+  conversationId: 'conversation-1',
+  plan: futureDateAvailability.plan,
+  state: futureDateAvailability.state
+})
+const futureBandChoice = bookingCoordinationMessageFromInteractiveReply(
+  futureBandButtons?.find((button) => button.title === 'Al mediodía')?.id,
+  'conversation-1'
+)
+const futureMiddayOptions = await navigationEngine.process({
+  businessId: 'business-1',
+  conversation: futureDateAvailability.conversationPatch,
+  message: futureBandChoice ?? ''
+})
+assert.equal(futureMiddayOptions.plan.type, 'offer_coordinated_options')
+const futureConfirmed = await navigationEngine.process({
+  businessId: 'business-1',
+  conversation: futureMiddayOptions.conversationPatch,
+  message: 'opción 1'
+})
+assert.equal(futureConfirmed.plan.type, 'show_coordinated_selection')
+assert.match(futureConfirmed.reply, /¿Confirmás estas dos reservas\?/)
+
+const canonicalSearchByTime = bookingCoordinationMessageFromInteractiveReply(
+  searchMenuButtons?.[2]?.id,
+  'conversation-1'
+)
+const askFutureTime = await navigationEngine.process({
+  businessId: 'business-1',
+  conversation: denseSearchMenu.conversationPatch,
+  message: canonicalSearchByTime ?? ''
+})
+assert.equal(askFutureTime.plan.type, 'ask_coordinated_search_time')
+const datesAtThree = await navigationEngine.process({
+  businessId: 'business-1',
+  conversation: askFutureTime.conversationPatch,
+  message: 'a las 15',
+  currentDate: new Date('2026-08-09T15:00:00-03:00')
+})
+assert.equal(datesAtThree.plan.type, 'ask_coordinated_date')
+if (datesAtThree.plan.type !== 'ask_coordinated_date') throw new Error('Plan inesperado')
+assert.deepEqual(datesAtThree.plan.quickDates, futureDates)
+const timeDateButtons = bookingCoordinationReplyButtons({
+  conversationId: 'conversation-1',
+  plan: datesAtThree.plan,
+  state: datesAtThree.state
+})
+const selectedTimeDate = await navigationEngine.process({
+  businessId: 'business-1',
+  conversation: datesAtThree.conversationPatch,
+  message: bookingCoordinationMessageFromInteractiveReply(timeDateButtons?.[0]?.id, 'conversation-1') ?? ''
+})
+assert.equal(selectedTimeDate.plan.type, 'offer_coordinated_options')
+const selectedFutureTime = await navigationEngine.process({
+  businessId: 'business-1',
+  conversation: selectedTimeDate.conversationPatch,
+  message: '1'
+})
+assert.equal(selectedFutureTime.plan.type, 'show_coordinated_selection')
+if (selectedFutureTime.plan.type !== 'show_coordinated_selection') throw new Error('Plan inesperado')
+assert.equal(selectedFutureTime.plan.option.startTime, '15:00')
+
+for (const semanticChoiceId of ['show_more', 'next_days', 'search_time'] as const) {
+  const fallbackEngine = new BookingV2Engine(
+    navigationDomain,
+    nullExtractor,
+    unusedClassifier,
+    unusedDecision,
+    unusedOption,
+    {
+      async extract() {
+        return { choiceId: semanticChoiceId, confidence: 0.96 }
+      }
+    }
+  )
+  const fallback = await fallbackEngine.process({
+    businessId: 'business-1',
+    conversation: denseSearchMenu.conversationPatch,
+    message: `preferiría resolverlo de otra manera ${semanticChoiceId}`,
+    currentDate: new Date('2026-08-09T15:00:00-03:00')
+  })
+  assert.equal(
+    fallback.plan.type,
+    semanticChoiceId === 'show_more'
+      ? 'offer_coordinated_options'
+      : semanticChoiceId === 'next_days'
+        ? 'ask_coordinated_date'
+        : 'ask_coordinated_search_time'
+  )
+}
+
 for (const buttons of [
   decisionButtons,
   modificationButtons,
@@ -721,6 +1051,10 @@ for (const buttons of [
   unavailableWithTamaraButtons,
   moreButtons,
   optionButtons,
+  searchMenuButtons,
+  nextDateButtons,
+  futureBandButtons,
+  timeDateButtons,
   repeatedTimeButtons,
   selectionButtons
 ]) {

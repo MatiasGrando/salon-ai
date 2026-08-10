@@ -339,7 +339,7 @@ function readPendingCoordinatedAvailability(
   const pending = candidate as Partial<BookingV2PendingCoordinatedAvailability>
   if (
     !Array.isArray(pending.serviceIds) ||
-    !['AWAITING_DATE', 'AWAITING_SEARCH_TIME', 'AWAITING_TIME_PREFERENCE', 'AWAITING_OPTION', 'OPTION_SELECTED'].includes(pending.phase ?? '') ||
+    !['AWAITING_DATE', 'AWAITING_SEARCH_TIME', 'AWAITING_TIME_PREFERENCE', 'AWAITING_OPTION', 'AWAITING_SEARCH_MENU', 'OPTION_SELECTED'].includes(pending.phase ?? '') ||
     !Array.isArray(pending.quickDates) ||
     !Array.isArray(pending.options) ||
     !Array.isArray(pending.filteredOptionIds)
