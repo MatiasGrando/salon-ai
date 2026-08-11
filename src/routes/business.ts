@@ -29,7 +29,8 @@ export async function businessRoutes(app: FastifyInstance) {
 
   app.get('/businesses', async (request, reply) => {
     if (!request.auth) return reply.status(401).send({ message: 'Necesitas iniciar sesion' })
-    if (request.auth.user.role === 'SUPER_ADMIN') return service.findAll()
+    const query = request.query as { q?: string }
+    if (request.auth.user.role === 'SUPER_ADMIN') return service.findAll(query.q)
     if (!request.auth.user.businessId) return []
     const business = await prisma.business.findUnique({ where: { id: request.auth.user.businessId } })
     return business ? [business] : []

@@ -30,11 +30,28 @@ assert.ok(client.options.some((option) => option.value === '0'), 'los submenús 
 const problem = send(client, '1')
 assert.equal(problem.state.node, 'CLIENT_PROBLEM')
 const problemHandoff = send(problem, '3')
-assert.equal(problemHandoff.state.node, 'HANDOFF_NAME')
+assert.equal(problemHandoff.state.node, 'HANDOFF_CUSTOMER_CODE')
 assert.equal(problemHandoff.state.context.sector, 'soporte')
 assert.equal(problemHandoff.state.context.category, 'Problema con WhatsApp')
 
-const withName = send(problemHandoff, 'María López')
+const invalidCode = send(problemHandoff, 'WX-AAAAAA')
+assert.equal(invalidCode.state.node, 'HANDOFF_CUSTOMER_CODE')
+assert.match(invalidCode.message, /verificar/i)
+
+const withoutCode = send(problemHandoff, '1')
+assert.equal(withoutCode.state.node, 'HANDOFF_NAME')
+assert.equal(withoutCode.state.context.customerCodeStatus, 'missing')
+
+const identified = bot.handle('WX-7K4M92', problemHandoff.state, {
+  status: 'verified',
+  customerCode: 'WX-7K4M92',
+  businessName: 'Comercio de prueba'
+})
+assert.equal(identified.state.node, 'HANDOFF_NAME')
+assert.equal(identified.state.context.customerCode, 'WX-7K4M92')
+assert.equal(identified.state.context.customerBusinessName, 'Comercio de prueba')
+
+const withName = send(identified, 'María López')
 assert.equal(withName.state.node, 'HANDOFF_REASON')
 assert.equal(withName.state.context.customerName, 'María López')
 
@@ -48,10 +65,12 @@ assert.equal(completed.status, 'completed')
 assert.equal(completed.connected, false)
 assert.deepEqual(completed.handoff && {
   name: completed.handoff.name,
+  customerCode: completed.handoff.customerCode,
   sector: completed.handoff.sector,
   category: completed.handoff.category
 }, {
   name: 'María López',
+  customerCode: 'WX-7K4M92',
   sector: 'soporte',
   category: 'Problema con WhatsApp'
 })
@@ -62,20 +81,21 @@ const crm = send(services, '3')
 assert.equal(crm.state.node, 'SERVICE_DETAIL')
 assert.match(crm.message, /Centraliza clientes/)
 const crmPrice = send(crm, '1')
-assert.equal(crmPrice.state.node, 'PRICE_DETAIL')
-assert.match(crmPrice.message, /pendientes de aprobación/)
+assert.equal(crmPrice.state.node, 'PRICES_MENU')
 
 const prices = send(start, '3')
 assert.equal(prices.state.node, 'PRICES_MENU')
 const whatsappPrice = send(prices, '2')
 assert.equal(whatsappPrice.state.context.sector, 'comercial')
 assert.equal(whatsappPrice.state.node, 'PRICE_DETAIL')
+assert.match(whatsappPrice.message, /ARS 55\.000/)
+assert.match(whatsappPrice.message, /31\/08\/2026/)
 
 const faq = send(start, '4')
 assert.equal(faq.state.node, 'FAQ_MENU')
 const faqAnswer = send(faq, '3')
 assert.equal(faqAnswer.state.node, 'FAQ_MENU')
-assert.match(faqAnswer.message, /tiempo de implementación/i)
+assert.match(faqAnswer.message, /15 días/i)
 
 const universalAdvisor = send(services, '9')
 assert.equal(universalAdvisor.state.node, 'HANDOFF_NAME')

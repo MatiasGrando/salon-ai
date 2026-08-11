@@ -14057,6 +14057,12 @@ const crmHtml = `<!doctype html>
             </div>
 
             <div class="settings-field">
+              <label for="business-customer-code">N&uacute;mero de cliente</label>
+              <input class="field" id="business-customer-code" readonly aria-readonly="true">
+              <small>Identificador p&uacute;blico de la sucursal. Se genera autom&aacute;ticamente y no se puede modificar.</small>
+            </div>
+
+            <div class="settings-field">
               <label for="business-email">Email del comercio</label>
               <input class="field" id="business-email" type="email" placeholder="hola@tucomercio.com">
               <small>Se muestra en el bloque de contacto de la landing.</small>
@@ -16065,6 +16071,7 @@ const crmHtml = `<!doctype html>
       businessLogoPreview: document.getElementById('business-logo-preview'),
       businessLogoRemove: document.getElementById('business-logo-remove'),
       businessName: document.getElementById('business-name'),
+      businessCustomerCode: document.getElementById('business-customer-code'),
       businessSettingsSubmit: document.getElementById('business-settings-submit'),
       businessSettingsFeedback: document.getElementById('business-settings-feedback'),
       businessEmail: document.getElementById('business-email'),
@@ -16452,7 +16459,8 @@ const crmHtml = `<!doctype html>
       if (!isSuperAdmin) return
 
       els.supportBusinessSelect.innerHTML = state.businesses.map((business) => {
-        return '<option value="' + escapeHtml(business.id) + '">' + escapeHtml(business.name) + '</option>'
+        const customerCode = business.customerCode ? ' · ' + business.customerCode : ''
+        return '<option value="' + escapeHtml(business.id) + '">' + escapeHtml(business.name + customerCode) + '</option>'
       }).join('')
       els.supportBusinessSelect.value = state.businessId || ''
     }
@@ -16512,7 +16520,7 @@ const crmHtml = `<!doctype html>
           })
         })
         els.adminCreateBusinessForm.reset()
-        els.adminCreateBusinessFeedback.textContent = 'Comercio creado: ' + result.business.name + '. Usuario: ' + result.user.email
+        els.adminCreateBusinessFeedback.textContent = 'Comercio creado: ' + result.business.name + '. Número de cliente: ' + result.business.customerCode + '. Usuario: ' + result.user.email
         els.adminCreateBusinessFeedback.className = 'settings-feedback visible success'
         await loadBasics()
       } catch (error) {
@@ -20242,6 +20250,7 @@ const crmHtml = `<!doctype html>
 
     function renderBusinessSettings() {
       els.businessName.value = state.business?.name || ''
+      els.businessCustomerCode.value = state.business?.customerCode || ''
       els.businessEmail.value = state.business?.contactEmail || ''
       els.businessInstagram.value = state.business?.instagramUrl || ''
       els.businessFacebook.value = state.business?.facebookUrl || ''

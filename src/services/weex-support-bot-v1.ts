@@ -9,6 +9,7 @@ export type WeexSupportBotNode =
   | 'PRICES_MENU'
   | 'PRICE_DETAIL'
   | 'FAQ_MENU'
+  | 'HANDOFF_CUSTOMER_CODE'
   | 'HANDOFF_NAME'
   | 'HANDOFF_REASON'
   | 'HANDOFF_CONFIRM'
@@ -18,6 +19,10 @@ export type WeexSupportBotContext = {
   category?: string
   sector?: 'soporte' | 'administracion' | 'comercial' | 'general'
   service?: string
+  customerIdentificationRequired?: boolean
+  customerCode?: string
+  customerCodeStatus?: 'verified' | 'missing'
+  customerBusinessName?: string
   customerName?: string
   reason?: string
 }
@@ -44,10 +49,19 @@ export type WeexSupportBotResult = {
   handoff: null | {
     name: string
     reason: string
+    customerCode: string | null
+    customerCodeStatus: 'verified' | 'missing' | 'not_required'
+    customerBusinessName: string | null
     category: string
     sector: NonNullable<WeexSupportBotContext['sector']>
     trail: string[]
   }
+}
+
+export type WeexSupportBotCustomerIdentity = {
+  status: 'verified' | 'not_found'
+  customerCode: string
+  businessName?: string
 }
 
 export const WEEX_SUPPORT_BOT_V1_DEFINITION = {
@@ -76,6 +90,25 @@ export const WEEX_SUPPORT_BOT_V1_DEFINITION = {
     menuReturns: true,
     humanHandoff: true,
     capturesNameAndReason: true
+  },
+  commercialInformation: {
+    humanServiceHours: 'Lunes a sábado de 11:00 a 18:00',
+    virtualAssistantAvailability: '24/7',
+    paymentMethods: ['Transferencia', 'Débito', 'Crédito', 'Efectivo'],
+    plansArePerBranch: true,
+    professionalsIncluded: 4,
+    promotion: '50% durante los primeros 6 meses con primer pago confirmado hasta el 31/08/2026',
+    plans: [
+      { key: '1', name: 'Agenda + CRM', promotionalMonthlyArs: 35000, listMonthlyArs: 70000 },
+      { key: '2A', name: 'Agenda + bot económico + CRM', promotionalMonthlyArs: 55000, listMonthlyArs: 110000 },
+      { key: '2B', name: 'Agenda + bot inteligente + CRM', promotionalMonthlyArs: 70000, listMonthlyArs: 140000 },
+      { key: '3', name: 'Agenda + bot inteligente + CRM + landing desde cero', promotionalMonthlyArs: 87500, listMonthlyArs: 175000 }
+    ],
+    standaloneBot: {
+      setupArs: 100000,
+      monthlyArs: 20000,
+      metaWhatsappCurrentChargeArs: 0
+    }
   }
 }
 
@@ -140,10 +173,11 @@ const NODE_OPTIONS: Partial<Record<WeexSupportBotNode, WeexSupportBotOption[]>> 
     BACK_TO_MAIN
   ],
   PRICES_MENU: [
-    { value: '1', label: 'Agenda y gestión de turnos' },
-    { value: '2', label: 'Bot de WhatsApp' },
-    { value: '3', label: 'CRM' },
-    { value: '4', label: 'Automatizaciones' },
+    { value: '1', label: 'Plan 1 · Agenda + CRM' },
+    { value: '2', label: 'Plan 2A · Agenda + bot económico + CRM' },
+    { value: '3', label: 'Plan 2B · Agenda + bot inteligente + CRM' },
+    { value: '4', label: 'Plan 3 · Solución completa + landing desde cero' },
+    { value: '5', label: 'Bot por opciones sin plan' },
     ADVISOR,
     BACK_TO_MAIN
   ],
@@ -156,7 +190,8 @@ const NODE_OPTIONS: Partial<Record<WeexSupportBotNode, WeexSupportBotOption[]>> 
     { value: '2', label: 'Canales de soporte' },
     { value: '3', label: 'Implementación' },
     { value: '4', label: 'Pagos y facturación' },
-    { value: '5', label: 'Tengo otra pregunta' },
+    { value: '5', label: 'Baja o cancelación' },
+    { value: '6', label: 'Tengo otra pregunta' },
     ADVISOR,
     BACK_TO_MAIN
   ],
@@ -166,14 +201,61 @@ const NODE_OPTIONS: Partial<Record<WeexSupportBotNode, WeexSupportBotOption[]>> 
     { value: '3', label: 'Corregir motivo' },
     { value: '0', label: 'Cancelar y volver al menú principal' }
   ],
+  HANDOFF_CUSTOMER_CODE: [
+    { value: '1', label: 'No recuerdo mi número de cliente' },
+    ADVISOR,
+    { value: '0', label: 'Cancelar y volver al menú principal' }
+  ],
   HANDOFF_DONE: [BACK_TO_MAIN]
 }
 
 const SERVICE_DETAILS: Record<string, string> = {
-  agenda: 'Permite organizar turnos, horarios, profesionales y clientes desde un mismo lugar.',
-  whatsapp: 'Automatiza consultas frecuentes y guía a cada persona mediante opciones controladas.',
-  crm: 'Centraliza clientes, consultas y conversaciones para mejorar el seguimiento comercial.',
-  automatizaciones: 'Reduce tareas manuales mediante recordatorios, seguimientos, notificaciones y procesos internos.'
+  agenda: 'Organiza agenda, turnos, profesionales, servicios, clientes, historial de visitas y recordatorios automáticos. Todos los planes incluyen hasta 4 profesionales y corresponden a una sucursal.',
+  whatsapp: 'Podés elegir un bot económico por menús y opciones o un bot inteligente con interpretación de lenguaje natural. Ambos pueden responder, reservar y derivar a una persona cuando sea necesario.',
+  crm: 'Centraliza clientes, conversaciones, agenda, campañas, seguimiento comercial y automatizaciones desde un mismo lugar.',
+  automatizaciones: 'Las automatizaciones y campañas ya están incorporadas en el CRM, no requieren tiempo adicional de implementación y su precio está incluido en los planes.'
+}
+
+const PLAN_PRICES: Record<string, string> = {
+  '1': [
+    '*Plan 1 · Agenda + CRM*',
+    'Incluye agenda inteligente, gestión de turnos, profesionales y servicios, CRM, historial de visitas y recordatorios automáticos.',
+    'También incluye una landing adaptable utilizando nuestras plantillas.',
+    '',
+    'Precio de lista: ARS 70.000 por mes.',
+    'Promoción: ARS 35.000 por mes durante los primeros 6 meses.'
+  ].join('\n'),
+  '2': [
+    '*Plan 2A · Agenda + bot económico + CRM*',
+    'Incluye todo el Plan 1 más bot por menús y opciones, atención y reservas 24/7, preguntas frecuentes, confirmaciones, recordatorios y derivación humana.',
+    'También incluye una landing adaptable utilizando nuestras plantillas.',
+    '',
+    'Precio de lista: ARS 110.000 por mes.',
+    'Promoción: ARS 55.000 por mes durante los primeros 6 meses.'
+  ].join('\n'),
+  '3': [
+    '*Plan 2B · Agenda + bot inteligente + CRM*',
+    'Incluye todo el Plan 1 más interpretación de lenguaje natural, respuestas personalizadas, sugerencias, mayor contexto y derivación humana.',
+    'También incluye una landing adaptable utilizando nuestras plantillas.',
+    '',
+    'Precio de lista: ARS 140.000 por mes.',
+    'Promoción: ARS 70.000 por mes durante los primeros 6 meses.'
+  ].join('\n'),
+  '4': [
+    '*Plan 3 · Agenda + bot inteligente + CRM + landing desde cero*',
+    'Incluye todo el Plan 2B y una landing creada desde cero según el diseño del cliente, con hosting propio incluido. El dominio se evalúa en la reunión porque su precio puede variar.',
+    '',
+    'Precio de lista: ARS 175.000 por mes.',
+    'Promoción: ARS 87.500 por mes durante los primeros 6 meses.',
+    'Tiempo estimado de la landing: alrededor de 15 días.'
+  ].join('\n'),
+  '5': [
+    '*Bot por opciones contratado de forma individual*',
+    'Instalación y configuración inicial: ARS 100.000, pago único.',
+    'Abono de funcionamiento y mantenimiento básico: ARS 20.000 por mes.',
+    'Incluye un flujo principal, hasta 5 secciones, hasta 25 respuestas o caminos, una ronda de correcciones, derivación humana y configuración en un número de WhatsApp.',
+    'Los cambios importantes posteriores se cotizan aparte.'
+  ].join('\n')
 }
 
 const VALID_NODES = new Set<WeexSupportBotNode>([
@@ -187,6 +269,7 @@ const VALID_NODES = new Set<WeexSupportBotNode>([
   'PRICES_MENU',
   'PRICE_DETAIL',
   'FAQ_MENU',
+  'HANDOFF_CUSTOMER_CODE',
   'HANDOFF_NAME',
   'HANDOFF_REASON',
   'HANDOFF_CONFIRM',
@@ -207,11 +290,16 @@ export class WeexSupportBotV1 {
     )
   }
 
-  handle(input: string, unsafeState?: Partial<WeexSupportBotState> | null): WeexSupportBotResult {
+  handle(
+    input: string,
+    unsafeState?: Partial<WeexSupportBotState> | null,
+    customerIdentity?: WeexSupportBotCustomerIdentity
+  ): WeexSupportBotResult {
     const state = this.sanitizeState(unsafeState)
     const raw = String(input ?? '').trim()
     const normalized = this.normalize(raw)
 
+    if (state.node === 'HANDOFF_CUSTOMER_CODE') return this.captureCustomerCode(raw, normalized, state, customerIdentity)
     if (state.node === 'HANDOFF_NAME') return this.captureName(raw, normalized, state)
     if (state.node === 'HANDOFF_REASON') return this.captureReason(raw, normalized, state)
     if (state.node === 'HANDOFF_CONFIRM') return this.confirmHandoff(normalized, state)
@@ -277,7 +365,11 @@ export class WeexSupportBotV1 {
 
   private handleMain(input: string, state: WeexSupportBotState) {
     if (input === '0') return this.start()
-    if (input === '1') return this.showNode(state, 'CLIENT_MENU', '👤 ¿Con qué necesitás ayuda?')
+    if (input === '1') return this.showNode(
+      this.withContext(state, { customerIdentificationRequired: true }),
+      'CLIENT_MENU',
+      '👤 ¿Con qué necesitás ayuda?'
+    )
     if (input === '2') return this.showNode(state, 'SERVICES_MENU', '🚀 ¿Qué servicio te gustaría conocer?')
     if (input === '3') return this.showNode(state, 'PRICES_MENU', '💰 ¿Sobre qué servicio querés consultar precios?')
     if (input === '4') return this.showNode(state, 'FAQ_MENU', '❓ Elegí una pregunta frecuente:')
@@ -334,7 +426,7 @@ export class WeexSupportBotV1 {
   private handleServiceDetail(input: string, state: WeexSupportBotState) {
     if (input === '0') return this.start()
     if (input === '1') {
-      return this.showNode(state, 'PRICE_DETAIL', this.pricePendingMessage(state.context.service))
+      return this.showNode(state, 'PRICES_MENU', '💰 Elegí el plan que querés consultar:')
     }
     if (input === '2') return this.showNode(state, 'SERVICES_MENU', '🚀 ¿Qué otro servicio te gustaría conocer?')
     return this.invalid(state)
@@ -343,31 +435,33 @@ export class WeexSupportBotV1 {
   private handlePrices(input: string, state: WeexSupportBotState) {
     if (input === '0') return this.start()
     const services: Record<string, string> = {
-      '1': 'Agenda y gestión de turnos',
-      '2': 'Bot de WhatsApp',
-      '3': 'CRM',
-      '4': 'Automatizaciones'
+      '1': 'Plan 1 · Agenda + CRM',
+      '2': 'Plan 2A · Agenda + bot económico + CRM',
+      '3': 'Plan 2B · Agenda + bot inteligente + CRM',
+      '4': 'Plan 3 · Solución completa + landing desde cero',
+      '5': 'Bot por opciones sin plan'
     }
     const service = services[input]
     if (!service) return this.invalid(state)
     const next = this.withContext(state, {
       category: `Consulta de precio: ${service}`,
       sector: 'comercial',
-      service
+      service: input
     })
-    return this.showNode(next, 'PRICE_DETAIL', this.pricePendingMessage(service))
+    return this.showNode(next, 'PRICE_DETAIL', this.pricePendingMessage(input))
   }
 
   private handleFaq(input: string, state: WeexSupportBotState) {
     if (input === '0') return this.start()
-    if (input === '5') {
+    if (input === '6') {
       return this.beginHandoff(this.withContext(state, { category: 'Otra pregunta', sector: 'general' }))
     }
     const answers: Record<string, string> = {
-      '1': 'Los horarios de atención se completarán antes de activar el bot en un canal real.',
-      '2': 'El bot podrá derivar la conversación al equipo humano en el canal que conectemos más adelante.',
-      '3': 'El tiempo de implementación depende de los servicios y las integraciones necesarias. Un asesor puede evaluar cada caso.',
-      '4': 'Los medios de pago y las condiciones de facturación se completarán con la información comercial aprobada.'
+      '1': 'El asistente virtual está disponible las 24 horas. La atención humana es de lunes a sábado, de 11:00 a 18:00. Fuera de ese horario tu consulta queda registrada y el equipo la retoma sin que tengas que volver a enviarla.',
+      '2': 'Por el momento, la atención y el soporte se realizan por este mismo WhatsApp. Intentamos responder lo más rápido posible y muchas consultas se atienden en pocos minutos.',
+      '3': 'Una integración estándar puede quedar disponible inmediatamente y una solución personalizada, dentro del día. Una landing diseñada desde cero demora aproximadamente 15 días. La capacitación está incluida y una prueba de hasta 7 días puede ofrecerse según evaluación comercial.',
+      '4': 'Aceptamos transferencia, débito, crédito o efectivo. Todavía no contamos con un sistema de cobros integrado. Actualmente Meta/WhatsApp no aplica cargos, aunque esto podría cambiar si modifica sus condiciones. Ante cualquier consulta de pago o facturación te derivamos con un asesor.',
+      '5': 'La baja no requiere preaviso ni tiene penalidad. Si el mes ya fue abonado no se reintegra: el servicio continúa hasta fin de mes y se da de baja antes del próximo cobro. Los saldos pendientes los revisa un asesor.'
     }
     const answer = answers[input]
     if (!answer) return this.invalid(state)
@@ -379,6 +473,17 @@ export class WeexSupportBotV1 {
   }
 
   private beginHandoff(state: WeexSupportBotState) {
+    if (state.context.customerIdentificationRequired && !state.context.customerCodeStatus) {
+      return this.result(
+        this.touch(state, 'HANDOFF_CUSTOMER_CODE'),
+        '🔐 Para identificar tu sucursal, escribí tu número de cliente con formato WX-XXXXXX.\n\nSi no lo recordás, elegí la opción 1 y te derivaremos sin revelar información de la cuenta.',
+        NODE_OPTIONS.HANDOFF_CUSTOMER_CODE ?? []
+      )
+    }
+    return this.continueHandoff(state)
+  }
+
+  private continueHandoff(state: WeexSupportBotState) {
     const next = this.touch(this.withContext(state, {
       category: state.context.category || 'Solicitud de asesor',
       sector: state.context.sector || 'general'
@@ -386,6 +491,34 @@ export class WeexSupportBotV1 {
     return this.result(next, '🙋 Para derivarte con el equipo, escribí tu nombre y apellido.', [
       { value: '0', label: 'Cancelar y volver al menú principal' }
     ])
+  }
+
+  private captureCustomerCode(
+    raw: string,
+    normalized: string,
+    state: WeexSupportBotState,
+    customerIdentity?: WeexSupportBotCustomerIdentity
+  ) {
+    if (normalized === '0') return this.start()
+    if (normalized === '1' || normalized === '9' || normalized === 'asesor') {
+      return this.continueHandoff(this.withContext(state, {
+        customerCodeStatus: 'missing'
+      }))
+    }
+
+    const submittedCode = raw.trim().toUpperCase().replace(/\s+/g, '')
+    if (!/^WX-[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(submittedCode)) {
+      return this.result(state, 'El número debe tener el formato WX-XXXXXX. Revisalo o elegí 1 si no lo recordás.', NODE_OPTIONS.HANDOFF_CUSTOMER_CODE ?? [])
+    }
+    if (!customerIdentity || customerIdentity.status !== 'verified' || customerIdentity.customerCode !== submittedCode) {
+      return this.result(state, 'No pudimos verificar ese número de cliente. Revisalo o elegí 1 para continuar con un asesor.', NODE_OPTIONS.HANDOFF_CUSTOMER_CODE ?? [])
+    }
+
+    return this.continueHandoff(this.withContext(state, {
+      customerCode: submittedCode,
+      customerCodeStatus: 'verified',
+      ...(customerIdentity.businessName ? { customerBusinessName: customerIdentity.businessName } : {})
+    }))
   }
 
   private captureName(raw: string, normalized: string, state: WeexSupportBotState) {
@@ -438,9 +571,10 @@ export class WeexSupportBotV1 {
         `✅ Gracias, ${handoff.name}. La consulta quedó preparada para derivación.`,
         '',
         `Sector: ${this.sectorLabel(handoff.sector)}`,
+        ...(handoff.customerCode ? [`Número de cliente: ${handoff.customerCode}`] : []),
         `Motivo: ${handoff.reason}`,
         '',
-        'Esta versión todavía no envía datos ni crea tickets en una cuenta externa.'
+        'Un asesor continuará la atención por este mismo WhatsApp.'
       ].join('\n'),
       NODE_OPTIONS.HANDOFF_DONE ?? [],
       'completed',
@@ -516,6 +650,8 @@ export class WeexSupportBotV1 {
       'Revisá los datos de tu consulta:',
       '',
       `Nombre: ${state.context.customerName || '-'}`,
+      `Número de cliente: ${state.context.customerCode || 'No informado'}`,
+      ...(state.context.customerBusinessName ? [`Comercio: ${state.context.customerBusinessName}`] : []),
       `Motivo: ${state.context.reason || '-'}`,
       `Categoría: ${state.context.category || 'Consulta general'}`,
       `Sector sugerido: ${this.sectorLabel(state.context.sector || 'general')}`
@@ -529,6 +665,9 @@ export class WeexSupportBotV1 {
     return {
       name,
       reason,
+      customerCode: state.context.customerCode || null,
+      customerCodeStatus: state.context.customerCodeStatus || 'not_required',
+      customerBusinessName: state.context.customerBusinessName || null,
       category: state.context.category || 'Consulta general',
       sector: state.context.sector || 'general',
       trail: [...state.trail]
@@ -536,13 +675,17 @@ export class WeexSupportBotV1 {
   }
 
   private pricePendingMessage(service?: string) {
-    const label = service || 'el servicio seleccionado'
+    const detail = service && PLAN_PRICES[service]
+      ? PLAN_PRICES[service]
+      : 'Un asesor puede ayudarte a elegir el plan más conveniente.'
     return [
-      `Información comercial de ${label}:`,
+      detail,
       '',
-      'Los precios, planes y condiciones están pendientes de aprobación antes de conectar el bot.',
+      'Todos los planes corresponden a una sucursal, incluyen hasta 4 profesionales y no tienen costo de instalación. Para más de una sucursal, hablá con un asesor.',
+      'La promoción del 50% es válida para contrataciones con primer pago confirmado hasta el 31/08/2026 inclusive. Desde el séptimo mes se abona el precio de lista vigente.',
+      'Los cargos de Meta/WhatsApp, si existieran en el futuro, se abonan por separado. Ante un volumen extraordinario de conversaciones se evaluará el costo correspondiente.',
       '',
-      'Podés solicitar asesoramiento o consultar otro servicio.'
+      'Podés solicitar asesoramiento o consultar otro plan.'
     ].join('\n')
   }
 
@@ -589,6 +732,12 @@ export class WeexSupportBotV1 {
           ? { sector: context.sector }
           : {}),
         ...(typeof context.service === 'string' ? { service: context.service.slice(0, 120) } : {}),
+        ...(context.customerIdentificationRequired === true ? { customerIdentificationRequired: true } : {}),
+        ...(typeof context.customerCode === 'string' ? { customerCode: context.customerCode.slice(0, 20) } : {}),
+        ...(context.customerCodeStatus === 'verified' || context.customerCodeStatus === 'missing'
+          ? { customerCodeStatus: context.customerCodeStatus }
+          : {}),
+        ...(typeof context.customerBusinessName === 'string' ? { customerBusinessName: context.customerBusinessName.slice(0, 120) } : {}),
         ...(typeof context.customerName === 'string' ? { customerName: context.customerName.slice(0, 80) } : {}),
         ...(typeof context.reason === 'string' ? { reason: context.reason.slice(0, 500) } : {})
       }

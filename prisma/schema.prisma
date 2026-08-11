@@ -132,6 +132,7 @@ enum UserRole {
 
 model Business {
   id                   String                     @id @default(cuid())
+  customerCode         String                     @unique
   name                 String
   slug                 String?                    @unique
   logoUrl              String?

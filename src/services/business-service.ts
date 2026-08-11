@@ -1,4 +1,5 @@
 import { prisma } from '../config/prisma.js'
+import { generateBusinessCustomerCode } from './business-customer-code.js'
 
 const RESERVED_SLUGS = new Set([
   'admin',
@@ -16,22 +17,66 @@ export class BusinessService {
   async create(name: string, requestedSlug?: string) {
     const slug = await this.resolveAvailableSlug(requestedSlug || name)
 
-    return prisma.business.create({
-      data: {
-        name,
-        slug,
-        whatsappConfig: {
-          create: {}
-        },
-        featureSettings: {
-          create: {}
-        }
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const customerCode = generateBusinessCustomerCode()
+      if (await this.customerCodeExists(customerCode)) continue
+
+      try {
+        return await prisma.business.create({
+          data: {
+            customerCode,
+            name,
+            slug,
+            whatsappConfig: {
+              create: {}
+            },
+            featureSettings: {
+              create: {}
+            }
+          }
+        })
+      } catch (error) {
+        if (isUniqueConstraintError(error) && await this.customerCodeExists(customerCode)) continue
+        throw error
+      }
+    }
+
+    throw new Error('CUSTOMER_CODE_UNAVAILABLE')
+  }
+
+  private async customerCodeExists(customerCode: string) {
+    return Boolean(await prisma.business.findUnique({
+      where: { customerCode },
+      select: { id: true }
+    }))
+  }
+
+  async findByCustomerCode(customerCode: string) {
+    return prisma.business.findUnique({
+      where: { customerCode },
+      select: {
+        id: true,
+        customerCode: true,
+        name: true
       }
     })
   }
 
-  async findAll() {
-    return prisma.business.findMany()
+  async findAll(query?: string) {
+    const search = query?.trim()
+    if (!search) {
+      return prisma.business.findMany({ orderBy: { name: 'asc' } })
+    }
+
+    return prisma.business.findMany({
+      where: {
+        OR: [
+          { name: { contains: search, mode: 'insensitive' } },
+          { customerCode: { contains: search.toUpperCase(), mode: 'insensitive' } }
+        ]
+      },
+      orderBy: { name: 'asc' }
+    })
   }
 
   async update(id: string, data: {
@@ -157,4 +202,8 @@ export function normalizeBusinessSlug(value: string) {
 
 export function isReservedBusinessSlug(slug: string) {
   return RESERVED_SLUGS.has(slug)
+}
+
+function isUniqueConstraintError(error: unknown) {
+  return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'P2002')
 }
