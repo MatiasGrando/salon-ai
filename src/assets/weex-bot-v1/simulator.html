@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Weex · Bot V1</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172033;
+      --muted: #67728a;
+      --line: #dfe4ee;
+      --surface: #ffffff;
+      --page: #f4f6fa;
+      --primary: #315efb;
+      --primary-soft: #eaf0ff;
+      --success: #14836b;
+      --success-soft: #e5f6f1;
+      --warning: #9b5b08;
+      --warning-soft: #fff2dc;
+      --shadow: 0 20px 60px rgba(23, 32, 51, .12);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 12% 8%, rgba(49, 94, 251, .1), transparent 30%),
+        var(--page);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    .shell {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 34px 0 44px;
+    }
+    .topbar {
+      margin-bottom: 22px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 20px;
+    }
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--primary);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    h1 { margin: 0; font-size: clamp(28px, 4vw, 42px); line-height: 1.08; }
+    .subtitle { max-width: 680px; margin: 10px 0 0; color: var(--muted); line-height: 1.55; }
+    .draft-badge {
+      flex: 0 0 auto;
+      padding: 10px 13px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--warning);
+      background: var(--warning-soft);
+      border: 1px solid #f0d39f;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 750;
+    }
+    .draft-badge::before { width: 8px; height: 8px; content: ""; background: currentColor; border-radius: 50%; }
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 300px;
+      gap: 22px;
+      align-items: start;
+    }
+    .phone {
+      min-height: 720px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 26px;
+      box-shadow: var(--shadow);
+    }
+    .phone-header {
+      padding: 17px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      color: #fff;
+      background: #172033;
+    }
+    .identity { display: flex; align-items: center; gap: 12px; }
+    .avatar {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(145deg, #6e8cff, #315efb);
+      border-radius: 14px;
+      font-weight: 900;
+    }
+    .identity strong, .identity small { display: block; }
+    .identity small { margin-top: 3px; color: #bfc8da; }
+    .reset-button {
+      padding: 9px 12px;
+      color: #fff;
+      background: rgba(255, 255, 255, .1);
+      border: 1px solid rgba(255, 255, 255, .2);
+      border-radius: 10px;
+      font-weight: 700;
+    }
+    .reset-button:hover { background: rgba(255, 255, 255, .17); }
+    .messages {
+      min-height: 0;
+      padding: 24px;
+      flex: 1;
+      overflow-y: auto;
+      background:
+        linear-gradient(rgba(244, 246, 250, .92), rgba(244, 246, 250, .92)),
+        repeating-linear-gradient(45deg, #fff 0 10px, #f8f9fc 10px 20px);
+    }
+    .message-row { margin-bottom: 14px; display: flex; }
+    .message-row.user { justify-content: flex-end; }
+    .bubble {
+      max-width: min(78%, 620px);
+      padding: 12px 14px;
+      white-space: pre-wrap;
+      border-radius: 16px;
+      line-height: 1.5;
+      box-shadow: 0 2px 6px rgba(23, 32, 51, .06);
+    }
+    .message-row.bot .bubble { background: #fff; border: 1px solid var(--line); border-bottom-left-radius: 5px; }
+    .message-row.user .bubble { color: #16305d; background: #dce7ff; border-bottom-right-radius: 5px; }
+    .options {
+      padding: 16px 20px 8px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 9px;
+      background: #fff;
+      border-top: 1px solid var(--line);
+    }
+    .option-button {
+      min-height: 44px;
+      padding: 10px 12px;
+      color: var(--ink);
+      text-align: left;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      font-weight: 700;
+      transition: transform .15s ease, border-color .15s ease, background .15s ease;
+    }
+    .option-button:hover { transform: translateY(-1px); background: var(--primary-soft); border-color: #9fb3ff; }
+    .option-value {
+      min-width: 24px;
+      margin-right: 7px;
+      display: inline-grid;
+      place-items: center;
+      color: #fff;
+      background: var(--primary);
+      border-radius: 7px;
+      line-height: 24px;
+    }
+    .composer { padding: 10px 20px 18px; display: flex; gap: 10px; background: #fff; }
+    .composer input {
+      min-width: 0;
+      height: 46px;
+      padding: 0 14px;
+      flex: 1;
+      color: var(--ink);
+      background: #f7f8fb;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      outline: none;
+    }
+    .composer input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(49, 94, 251, .13); }
+    .send-button {
+      height: 46px;
+      padding: 0 18px;
+      color: #fff;
+      background: var(--primary);
+      border: 0;
+      border-radius: 12px;
+      font-weight: 800;
+    }
+    .send-button:disabled, .option-button:disabled { cursor: wait; opacity: .55; }
+    .side { display: grid; gap: 14px; }
+    .panel { padding: 18px; background: #fff; border: 1px solid var(--line); border-radius: 18px; }
+    .panel h2 { margin: 0 0 13px; font-size: 16px; }
+    .status-list { margin: 0; display: grid; gap: 10px; }
+    .status-row { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+    .status-row dt { color: var(--muted); }
+    .status-row dd { margin: 0; font-weight: 800; text-align: right; overflow-wrap: anywhere; }
+    .notice { color: var(--success); background: var(--success-soft); border-color: #b7e3d7; }
+    .notice p { margin: 0; font-size: 13px; line-height: 1.55; }
+    .handoff { display: none; }
+    .handoff.visible { display: block; }
+    .handoff pre { margin: 0; white-space: pre-wrap; font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .error-banner {
+      margin: 0 20px 10px;
+      padding: 11px 13px;
+      display: none;
+      color: #8b2030;
+      background: #fdecef;
+      border: 1px solid #f4bac4;
+      border-radius: 11px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .error-banner.visible { display: block; }
+    @media (max-width: 860px) {
+      .topbar { flex-direction: column; }
+      .workspace { grid-template-columns: 1fr; }
+      .phone { min-height: 680px; }
+      .side { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 560px) {
+      .shell { width: min(100% - 20px, 1180px); padding-top: 20px; }
+      .phone { min-height: 700px; border-radius: 20px; }
+      .phone-header { padding: 14px; }
+      .messages { padding: 16px; }
+      .options { padding-inline: 14px; grid-template-columns: 1fr; }
+      .composer { padding-inline: 14px; }
+      .side { grid-template-columns: 1fr; }
+      .bubble { max-width: 88%; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Weex · Atenci&oacute;n automatizada</p>
+        <h1>Bot V1 por opciones</h1>
+        <p class="subtitle">Simulador local del flujo aprobado. Permite probar men&uacute;s, retornos, errores y derivaci&oacute;n humana antes de conectar una cuenta.</p>
+      </div>
+      <span class="draft-badge">Borrador sin conexi&oacute;n</span>
+    </header>
+
+    <section class="workspace">
+      <div class="phone" aria-label="Simulador de conversaci&oacute;n">
+        <header class="phone-header">
+          <div class="identity">
+            <div class="avatar" aria-hidden="true">W</div>
+            <div>
+              <strong>Asistente Weex</strong>
+              <small>Bot sin IA · Solo opciones</small>
+            </div>
+          </div>
+          <button class="reset-button" id="resetButton" type="button">Reiniciar</button>
+        </header>
+
+        <div class="messages" id="messages" aria-live="polite"></div>
+        <div class="error-banner" id="errorBanner" role="status"></div>
+        <div class="options" id="options" aria-label="Opciones disponibles"></div>
+
+        <form class="composer" id="composer">
+          <input id="messageInput" maxlength="500" autocomplete="off" aria-label="Escrib&iacute; una respuesta" placeholder="Eleg&iacute; una opci&oacute;n o escrib&iacute; el dato solicitado">
+          <button class="send-button" id="sendButton" type="submit">Enviar</button>
+        </form>
+      </div>
+
+      <aside class="side">
+        <section class="panel notice">
+          <h2>Estado del prototipo</h2>
+          <p>El bot funciona localmente. No env&iacute;a mensajes, no crea tickets y no est&aacute; asociado a ning&uacute;n n&uacute;mero.</p>
+        </section>
+
+        <section class="panel">
+          <h2>Contexto actual</h2>
+          <dl class="status-list">
+            <div class="status-row"><dt>Nodo</dt><dd id="stateNode">—</dd></div>
+            <div class="status-row"><dt>Sector</dt><dd id="stateSector">—</dd></div>
+            <div class="status-row"><dt>Categor&iacute;a</dt><dd id="stateCategory">—</dd></div>
+            <div class="status-row"><dt>Estado</dt><dd id="stateStatus">—</dd></div>
+          </dl>
+        </section>
+
+        <section class="panel handoff" id="handoffPanel">
+          <h2>Derivaci&oacute;n preparada</h2>
+          <pre id="handoffContent"></pre>
+        </section>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const messages = document.getElementById('messages')
+    const options = document.getElementById('options')
+    const composer = document.getElementById('composer')
+    const messageInput = document.getElementById('messageInput')
+    const sendButton = document.getElementById('sendButton')
+    const resetButton = document.getElementById('resetButton')
+    const errorBanner = document.getElementById('errorBanner')
+    const handoffPanel = document.getElementById('handoffPanel')
+    const handoffContent = document.getElementById('handoffContent')
+    const stateNode = document.getElementById('stateNode')
+    const stateSector = document.getElementById('stateSector')
+    const stateCategory = document.getElementById('stateCategory')
+    const stateStatus = document.getElementById('stateStatus')
+
+    let botState = null
+    let busy = false
+
+    function appendMessage(role, text) {
+      const row = document.createElement('div')
+      row.className = 'message-row ' + role
+      const bubble = document.createElement('div')
+      bubble.className = 'bubble'
+      bubble.textContent = text
+      row.appendChild(bubble)
+      messages.appendChild(row)
+      messages.scrollTop = messages.scrollHeight
+    }
+
+    function renderOptions(items) {
+      options.replaceChildren()
+      items.forEach(function (item) {
+        const button = document.createElement('button')
+        button.type = 'button'
+        button.className = 'option-button'
+        button.disabled = busy
+        const value = document.createElement('span')
+        value.className = 'option-value'
+        value.textContent = item.value
+        const label = document.createElement('span')
+        label.textContent = item.label
+        button.append(value, label)
+        button.addEventListener('click', function () {
+          sendMessage(item.value, item.value + ' · ' + item.label)
+        })
+        options.appendChild(button)
+      })
+    }
+
+    function setBusy(value) {
+      busy = value
+      messageInput.disabled = value
+      sendButton.disabled = value
+      resetButton.disabled = value
+      options.querySelectorAll('button').forEach(function (button) {
+        button.disabled = value
+      })
+    }
+
+    function updateStatus(result) {
+      stateNode.textContent = result.state.node
+      stateSector.textContent = result.state.context.sector || 'Sin definir'
+      stateCategory.textContent = result.state.context.category || 'Sin definir'
+      stateStatus.textContent = result.status
+      if (result.handoff) {
+        handoffPanel.classList.add('visible')
+        handoffContent.textContent = [
+          'Nombre: ' + result.handoff.name,
+          'Sector: ' + result.handoff.sector,
+          'Categoría: ' + result.handoff.category,
+          'Motivo: ' + result.handoff.reason
+        ].join('\n')
+      } else {
+        handoffPanel.classList.remove('visible')
+        handoffContent.textContent = ''
+      }
+    }
+
+    function showError(message) {
+      errorBanner.textContent = message
+      errorBanner.classList.add('visible')
+    }
+
+    function clearError() {
+      errorBanner.textContent = ''
+      errorBanner.classList.remove('visible')
+    }
+
+    async function requestJson(url, options) {
+      const response = await fetch(url, options)
+      const payload = await response.json().catch(function () { return null })
+      if (!response.ok) throw new Error(payload && payload.message ? payload.message : 'No pudimos procesar la solicitud')
+      return payload
+    }
+
+    async function startBot() {
+      if (busy) return
+      setBusy(true)
+      clearError()
+      messages.replaceChildren()
+      try {
+        const result = await requestJson('/public/weex/bot-v1/start')
+        botState = result.state
+        appendMessage('bot', result.message)
+        updateStatus(result)
+        setBusy(false)
+        renderOptions(result.options)
+        messageInput.focus()
+      } catch (error) {
+        setBusy(false)
+        renderOptions([])
+        showError(error instanceof Error ? error.message : 'No pudimos iniciar el bot')
+      }
+    }
+
+    async function sendMessage(input, visibleLabel) {
+      const value = String(input || '').trim()
+      if (!value || busy) return
+      appendMessage('user', visibleLabel || value)
+      messageInput.value = ''
+      setBusy(true)
+      clearError()
+      try {
+        const result = await requestJson('/public/weex/bot-v1/message', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ input: value, state: botState })
+        })
+        botState = result.state
+        appendMessage('bot', result.message)
+        updateStatus(result)
+        setBusy(false)
+        renderOptions(result.options)
+        messageInput.focus()
+      } catch (error) {
+        setBusy(false)
+        renderOptions([])
+        showError(error instanceof Error ? error.message : 'No pudimos procesar la respuesta')
+      }
+    }
+
+    composer.addEventListener('submit', function (event) {
+      event.preventDefault()
+      sendMessage(messageInput.value)
+    })
+    resetButton.addEventListener('click', startBot)
+    startBot()
+  </script>
+</body>
+</html>

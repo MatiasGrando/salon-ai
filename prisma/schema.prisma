@@ -131,12 +131,12 @@ enum UserRole {
 }
 
 model Business {
-  id                   String                   @id @default(cuid())
+  id                   String                     @id @default(cuid())
   name                 String
-  slug                 String?                  @unique
+  slug                 String?                    @unique
   logoUrl              String?
-  landingEnabled       Boolean                  @default(true)
-  landingTemplate      String                   @default("classic")
+  landingEnabled       Boolean                    @default(true)
+  landingTemplate      String                     @default("classic")
   landingSubtitle      String?
   landingFeature       String?
   landingOpeningYear   Int?
@@ -150,11 +150,12 @@ model Business {
   publicMapsUrl        String?
   instagramUrl         String?
   facebookUrl          String?
-  botEnabled           Boolean                  @default(true)
-  aiEnabled            Boolean                  @default(true)
+  botEnabled           Boolean                    @default(true)
+  aiEnabled            Boolean                    @default(true)
   whatsappConfig       BusinessWhatsAppConfig?
   instagramConfig      BusinessInstagramConfig?
   featureSettings      BusinessFeatureSettings?
+  botConfigurations    BusinessBotConfiguration[]
   paymentSettings      BusinessPaymentSettings?
 
   professionals           Professional[]
@@ -403,6 +404,31 @@ model BusinessFeatureSettings {
   updatedAt DateTime @updatedAt
 }
 
+model BusinessBotConfiguration {
+  id String @id @default(cuid())
+
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  botKey             String
+  name               String
+  version            String
+  mode               String  @default("OPTIONS_ONLY")
+  status             String  @default("DRAFT")
+  channel            String  @default("UNASSIGNED")
+  routingMode        String  @default("EXCLUSIVE")
+  phoneNumberId      String?
+  displayPhoneNumber String?
+  definition         Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([businessId, botKey])
+  @@index([businessId, status])
+  @@index([phoneNumberId, status])
+}
+
 model Professional {
   id                 String    @id @default(cuid())
   name               String
@@ -459,9 +485,9 @@ model Service {
   catalogCategoryId String?
   catalogCategory   ServiceCategory? @relation(fields: [catalogCategoryId], references: [id], onDelete: SetNull)
 
-  parentServiceId String?
-  parentService   Service?  @relation("ServiceVariants", fields: [parentServiceId], references: [id], onDelete: Restrict)
-  variants        Service[] @relation("ServiceVariants")
+  parentServiceId      String?
+  parentService        Service?                    @relation("ServiceVariants", fields: [parentServiceId], references: [id], onDelete: Restrict)
+  variants             Service[]                   @relation("ServiceVariants")
   variantSelectionMode ServiceVariantSelectionMode @default(ONE_OF)
 
   appointments      Appointment[]
@@ -729,6 +755,8 @@ model Conversation {
   selectedCustomerName   String?
   lastAvailability       Json?
   bookingV2State         Json?
+  supportBotKey          String?
+  supportBotState        Json?
 
   lastMessage              String?
   humanHandoffAt           DateTime?

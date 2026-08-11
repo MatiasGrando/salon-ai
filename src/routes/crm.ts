@@ -761,6 +761,7 @@ export async function crmRoutes(app: FastifyInstance) {
             bookingV2State: preservedPatch?.bookingV2State
               ? preservedPatch.bookingV2State as Prisma.InputJsonValue
               : Prisma.JsonNull,
+            supportBotState: Prisma.JsonNull,
             humanHandoffResolvedAt: isEnablingAi ? new Date() : conversation.humanHandoffResolvedAt
           }
         : takenConversationHandoffPatch({ queuedAt: conversation.humanHandoffAt })

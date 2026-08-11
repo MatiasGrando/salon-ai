@@ -3,6 +3,7 @@ import { prisma } from '../config/prisma.js'
 import { WhatsAppCloudApi } from '../integrations/whatsapp-cloud-api.js'
 import { assertBusinessCanSendWhatsApp } from './business-whatsapp-settings.js'
 import { ConversationService } from './conversation-service.js'
+import { handleExclusiveBusinessSupportBotMessage } from './business-support-bot-runtime.js'
 import { reopenClosedConversationOpportunity } from './conversation-opportunity-service.js'
 import {
   bookingDepositService,
@@ -508,18 +509,17 @@ export class WhatsAppWebhookService {
     const latencyDiagnostic = firstMessage.latencyDiagnostic
     latencyDiagnostic?.checkpoint('batch_wait')
     const combinedMessage = batch.map((message) => message.text.trim()).filter(Boolean).join('\n')
-    const conversationResult = latencyDiagnostic
-      ? await latencyDiagnostic.measure('conversation_processing', () => conversationService.handleMessage({
-          phone: firstMessage.phone,
-          message: combinedMessage,
-          ...(firstMessage.businessId ? { businessId: firstMessage.businessId } : {}),
-          ...(firstMessage.interactiveReplyId
-            ? { interactiveReplyId: firstMessage.interactiveReplyId }
-            : {}),
-          previousActivityAt: firstMessage.previousActivityAt,
-          useAi
-        }))
-      : await conversationService.handleMessage({
+    const processConversation = async () => {
+      const exclusiveSupportBotResult = firstMessage.businessId
+        ? await handleExclusiveBusinessSupportBotMessage({
+            businessId: firstMessage.businessId,
+            conversationId: firstMessage.conversationId,
+            message: combinedMessage
+          })
+        : null
+      if (exclusiveSupportBotResult) return exclusiveSupportBotResult
+
+      return conversationService.handleMessage({
           phone: firstMessage.phone,
           message: combinedMessage,
           ...(firstMessage.businessId ? { businessId: firstMessage.businessId } : {}),
@@ -529,6 +529,10 @@ export class WhatsAppWebhookService {
           previousActivityAt: firstMessage.previousActivityAt,
           useAi
         })
+    }
+    const conversationResult = latencyDiagnostic
+      ? await latencyDiagnostic.measure('conversation_processing', processConversation)
+      : await processConversation()
 
     const gate = latencyDiagnostic
       ? await latencyDiagnostic.measure('outbound_gate', async () => firstMessage.businessId

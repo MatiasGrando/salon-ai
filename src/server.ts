@@ -25,6 +25,7 @@ import { authRoutes } from './routes/auth.js'
 import { staffUserRoutes } from './routes/staff-user.js'
 import { postSaleRoutes } from './routes/post-sale.js'
 import { weexLeadAdminRoutes, weexLeadCampaignRoutes } from './routes/weex-lead-campaign.js'
+import { weexSupportBotV1Routes } from './routes/weex-support-bot-v1.js'
 import { authGuard } from './plugins/auth-guard.js'
 import { ensureBootstrapSuperAdmin } from './services/auth-service.js'
 import { startMarketingScheduler } from './services/marketing-scheduler.js'
@@ -45,6 +46,7 @@ await app.register(landingUiRoutes)
 await app.register(publicBookingRoutes)
 await app.register(weexAccountRoutes)
 await app.register(weexLeadCampaignRoutes)
+await app.register(weexSupportBotV1Routes)
 await app.register(whatsappWebhookRoutes)
 await app.register(instagramWebhookRoutes)
 await authGuard(app)
