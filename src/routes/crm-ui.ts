@@ -4435,7 +4435,117 @@ const crmHtml = `<!doctype html>
     }
 
     .app[data-section="agenda"] {
-      grid-template-columns: 246px minmax(0, 1fr);
+      grid-template-columns: 84px minmax(0, 1fr);
+    }
+
+    @media (min-width: 1024px) {
+      .app[data-section="agenda"] {
+        grid-template-columns: 76px minmax(0, 1fr);
+      }
+
+      .app[data-section="agenda"] > .workspace-nav {
+        position: relative;
+        z-index: 30;
+        width: 76px;
+        overflow: hidden;
+        padding-right: 8px;
+        padding-left: 8px;
+        transition: width 180ms cubic-bezier(.2, 0, 0, 1), box-shadow 180ms ease;
+      }
+
+      .app[data-section="agenda"] > .workspace-nav:hover,
+      .app[data-section="agenda"] > .workspace-nav:focus-within {
+        width: 224px;
+        box-shadow: 16px 0 34px rgba(3, 17, 34, .22);
+      }
+
+      .app[data-section="agenda"] > .workspace-nav .crm-brand {
+        margin-right: 8px;
+        margin-left: 8px;
+        justify-content: center;
+      }
+
+      .app[data-section="agenda"] > .workspace-nav .crm-brand > div:last-child,
+      .app[data-section="agenda"] > .workspace-nav button > strong,
+      .app[data-section="agenda"] > .workspace-nav .nav-badge {
+        width: 0;
+        overflow: hidden;
+        opacity: 0;
+        visibility: hidden;
+        white-space: nowrap;
+      }
+
+      .app[data-section="agenda"] > .workspace-nav > button {
+        justify-content: center;
+        padding-right: 8px;
+        padding-left: 8px;
+      }
+
+      .app[data-section="agenda"] > .workspace-nav .nav-subitems,
+      .app[data-section="agenda"] > .workspace-nav .nav-user-info,
+      .app[data-section="agenda"] > .workspace-nav .nav-user-status,
+      .app[data-section="agenda"] > .workspace-nav .nav-logout {
+        display: none;
+      }
+
+      .app[data-section="agenda"] > .workspace-nav .nav-user {
+        min-height: 58px;
+        padding: 9px;
+        grid-template-columns: 38px;
+        justify-content: center;
+      }
+
+      .app[data-section="agenda"] > .workspace-nav:hover .crm-brand,
+      .app[data-section="agenda"] > .workspace-nav:focus-within .crm-brand {
+        justify-content: flex-start;
+      }
+
+      .app[data-section="agenda"] > .workspace-nav:hover .crm-brand > div:last-child,
+      .app[data-section="agenda"] > .workspace-nav:focus-within .crm-brand > div:last-child,
+      .app[data-section="agenda"] > .workspace-nav:hover button > strong,
+      .app[data-section="agenda"] > .workspace-nav:focus-within button > strong,
+      .app[data-section="agenda"] > .workspace-nav:hover .nav-badge,
+      .app[data-section="agenda"] > .workspace-nav:focus-within .nav-badge {
+        width: auto;
+        overflow: visible;
+        opacity: 1;
+        visibility: visible;
+      }
+
+      .app[data-section="agenda"] > .workspace-nav:hover > button,
+      .app[data-section="agenda"] > .workspace-nav:focus-within > button {
+        justify-content: flex-start;
+        padding-right: 10px;
+        padding-left: 10px;
+      }
+
+      .app[data-section="agenda"] > .workspace-nav:hover .nav-subitems,
+      .app[data-section="agenda"] > .workspace-nav:focus-within .nav-subitems {
+        display: grid;
+      }
+
+      .app[data-section="agenda"] > .workspace-nav:hover .nav-user,
+      .app[data-section="agenda"] > .workspace-nav:focus-within .nav-user {
+        min-height: 112px;
+        padding: 14px;
+        grid-template-columns: 38px 1fr;
+        justify-content: normal;
+      }
+
+      .app[data-section="agenda"] > .workspace-nav:hover .nav-user-info,
+      .app[data-section="agenda"] > .workspace-nav:focus-within .nav-user-info {
+        display: block;
+      }
+
+      .app[data-section="agenda"] > .workspace-nav:hover .nav-user-status,
+      .app[data-section="agenda"] > .workspace-nav:focus-within .nav-user-status {
+        display: inline-flex;
+      }
+
+      .app[data-section="agenda"] > .workspace-nav:hover .nav-logout,
+      .app[data-section="agenda"] > .workspace-nav:focus-within .nav-logout {
+        display: flex;
+      }
     }
 
     .app[data-section="agenda"] .sidebar,
@@ -22077,7 +22187,9 @@ const crmHtml = `<!doctype html>
           frame.style.setProperty('--agenda-mobile-x', value + 'px')
         }
         const syncMeasurements = () => {
-          const dayWidth = Math.max(1, (columnsViewport?.clientWidth || frame.clientWidth || 1) / viewDays)
+          const viewportWidth = columnsViewport?.clientWidth || frame.clientWidth || 0
+          if (viewportWidth < 2) return
+          const dayWidth = viewportWidth / viewDays
           state.agendaMobileDayWidth = dayWidth
           state.agendaMobileBaseIndex = baseIndex
           frame.style.setProperty('--agenda-day-width', dayWidth + 'px')
@@ -22133,6 +22245,10 @@ const crmHtml = `<!doctype html>
           state.agendaMobileTouchStartX = null
           state.agendaMobileTouchStartY = null
           state.agendaMobileHorizontalDrag = false
+        }
+        if (columnsViewport && typeof ResizeObserver !== 'undefined') {
+          state.agendaProfessionalResizeObserver = new ResizeObserver(syncMeasurements)
+          state.agendaProfessionalResizeObserver.observe(columnsViewport)
         }
         requestAnimationFrame(syncMeasurements)
 
@@ -24975,6 +25091,7 @@ const crmHtml = `<!doctype html>
       })
 
       if (section === 'agenda') {
+        renderAgenda()
         loadAgenda().catch((error) => {
           els.agendaGridWrap.innerHTML = '<div class="error">' + escapeHtml(error.message) + '</div>'
         })
