@@ -11,7 +11,7 @@ const LANDING_TEMPLATES = new Set(['classic', 'editorial', 'salon-white'])
 export async function businessRoutes(app: FastifyInstance) {
 
   app.post('/businesses', async (request, reply) => {
-    if (!request.auth || request.auth.user.role !== 'SUPER_ADMIN' && !(request.auth.user.role === 'ACCOUNT_ADMIN' && request.auth.user.canCreateBusinesses)) {
+    if (!request.auth || request.auth.user.role !== 'SUPER_ADMIN' && !request.auth.user.canCreateBusinesses) {
       return reply.status(403).send({ message: 'No tenes permiso para crear comercios' })
     }
 
@@ -22,7 +22,7 @@ export async function businessRoutes(app: FastifyInstance) {
 
     try {
       return await service.create(body.name, body.slug, {
-        accountAdminId: request.auth.user.role === 'ACCOUNT_ADMIN' ? request.auth.user.id : null,
+        accountAdminId: request.auth.user.role === 'SUPER_ADMIN' ? null : request.auth.user.id,
         createdByUserId: request.auth.user.id
       })
     } catch (error) {

@@ -14329,13 +14329,13 @@ const crmHtml = `<!doctype html>
 
           <div class="account-admin-management" id="account-admin-management">
             <h3>Administradores de cuentas</h3>
-            <p>Asign&aacute; este rol a una cuenta existente. Al volver a ingresar, esa persona ver&aacute; solamente el tablero para crear locales.</p>
+            <p>Habilit&aacute; este permiso en una cuenta existente. La persona conservar&aacute; el CRM completo de su local y adem&aacute;s podr&aacute; crear nuevos locales.</p>
             <form class="admin-create-form" id="account-admin-form">
               <input id="account-admin-id" type="hidden">
               <div class="settings-field full" id="account-admin-existing-field">
                 <label for="account-admin-existing-user">Cuenta existente</label>
                 <select class="field" id="account-admin-existing-user"></select>
-                <small>El rol reemplaza el acceso actual de esa cuenta y habilita el tablero de alta de locales.</small>
+                <small>El permiso se agrega al acceso actual; no reemplaza las conversaciones, agenda, clientes ni ajustes del local.</small>
               </div>
               <div class="settings-field" id="account-admin-status-field" hidden>
                 <label for="account-admin-status">Estado</label>
@@ -14344,7 +14344,7 @@ const crmHtml = `<!doctype html>
               <label class="settings-check full" id="account-admin-can-create-field" hidden><input id="account-admin-can-create" type="checkbox" checked> Puede crear nuevos locales</label>
               <div class="settings-actions full">
                 <button class="secondary" id="account-admin-cancel" type="button" hidden>Cancelar edici&oacute;n</button>
-                <button class="primary" id="account-admin-submit" type="submit">Asignar rol</button>
+                <button class="primary" id="account-admin-submit" type="submit">Habilitar permiso</button>
               </div>
             </form>
             <p class="settings-feedback" id="account-admin-feedback" role="status" aria-live="polite"></p>
@@ -16517,7 +16517,7 @@ const crmHtml = `<!doctype html>
     function renderAuthUi() {
       const isAccountAdmin = state.currentUser?.role === 'ACCOUNT_ADMIN'
       if (els.superAdminPanel) {
-        const canSeeBusinessCreation = state.currentUser?.role === 'SUPER_ADMIN' || isAccountAdmin
+        const canSeeBusinessCreation = state.currentUser?.role === 'SUPER_ADMIN' || isAccountAdmin || state.currentUser?.canCreateBusinesses === true
         els.superAdminPanel.hidden = state.settingsView !== 'commerce' || !canSeeBusinessCreation
       }
       if (isAccountAdmin && els.adminCreateBusinessForm) {
@@ -16658,18 +16658,21 @@ const crmHtml = `<!doctype html>
         : '<option value="">No hay cuentas disponibles</option>'
       els.accountAdminSubmit.disabled = !state.accountAdminCandidates.length && !els.accountAdminId.value
       els.accountAdminList.innerHTML = state.accountAdmins.length
-        ? state.accountAdmins.map((user) =>
-            '<article class="account-admin-card">' +
+        ? state.accountAdmins.map((user) => {
+            const keepsLocalAccess = user.role === 'BUSINESS_ADMIN' || Boolean(user.businessId)
+            const actionLabel = keepsLocalAccess ? 'Quitar permiso' : 'Eliminar cuenta'
+            return '<article class="account-admin-card">' +
               '<div><strong>' + escapeHtml(user.name) + '</strong><span>' + escapeHtml(user.email) + ' · ' +
                 (user.isActive ? 'Activo' : 'Inactivo') + ' · ' +
                 (user.canCreateBusinesses ? 'Puede crear locales' : 'Sin permiso de alta') + ' · ' +
-                String(user._count?.managedBusinesses || 0) + ' locales</span></div>' +
+                String(user._count?.managedBusinesses || 0) + ' locales · ' +
+                (keepsLocalAccess ? 'Conserva el CRM completo' : 'Cuenta independiente') + '</span></div>' +
               '<div class="account-admin-actions">' +
                 '<button type="button" data-edit-account-admin="' + escapeHtml(user.id) + '">Editar</button>' +
-                '<button class="danger" type="button" data-delete-account-admin="' + escapeHtml(user.id) + '">Eliminar</button>' +
+                '<button class="danger" type="button" data-delete-account-admin="' + escapeHtml(user.id) + '">' + actionLabel + '</button>' +
               '</div>' +
             '</article>'
-          ).join('')
+          }).join('')
         : '<div class="empty">Todav&iacute;a no hay administradores de cuentas.</div>'
     }
 
@@ -16681,7 +16684,7 @@ const crmHtml = `<!doctype html>
       els.accountAdminCanCreateField.hidden = true
       els.accountAdminStatus.value = 'active'
       els.accountAdminCanCreate.checked = true
-      els.accountAdminSubmit.textContent = 'Asignar rol'
+      els.accountAdminSubmit.textContent = 'Habilitar permiso'
       els.accountAdminCancel.hidden = true
       els.accountAdminFeedback.className = 'settings-feedback'
       els.accountAdminFeedback.textContent = ''
@@ -16724,14 +16727,14 @@ const crmHtml = `<!doctype html>
         await loadAccountAdmins()
         resetAccountAdminForm()
         renderAccountAdmins()
-        els.accountAdminFeedback.textContent = id ? 'Administrador actualizado.' : 'Rol asignado a la cuenta existente.'
+        els.accountAdminFeedback.textContent = id ? 'Administrador actualizado.' : 'Permiso habilitado en la cuenta existente.'
         els.accountAdminFeedback.className = 'settings-feedback visible success'
       } catch (error) {
         els.accountAdminFeedback.textContent = error.message
         els.accountAdminFeedback.className = 'settings-feedback visible error'
       } finally {
         setButtonLoading(els.accountAdminSubmit, false)
-        if (!els.accountAdminId.value) els.accountAdminSubmit.textContent = 'Asignar rol'
+        if (!els.accountAdminId.value) els.accountAdminSubmit.textContent = 'Habilitar permiso'
       }
     }
 
@@ -16739,20 +16742,25 @@ const crmHtml = `<!doctype html>
       const user = state.accountAdmins.find((item) => item.id === id)
       if (!user) return
       const assignedCount = Number(user._count?.managedBusinesses || 0)
+      const keepsLocalAccess = user.role === 'BUSINESS_ADMIN' || Boolean(user.businessId)
       const detail = assignedCount
         ? ' Sus ' + assignedCount + ' locales quedarán sin administrador de cuentas, pero no se eliminarán.'
         : ''
       const accepted = await requestCrmConfirmation(
-        '¿Querés eliminar definitivamente la cuenta de ' + user.name + '?' + detail,
-        { confirmLabel: 'Sí, eliminar cuenta' }
+        keepsLocalAccess
+          ? '¿Querés quitarle a ' + user.name + ' el permiso para crear locales? Mantendrá el acceso normal a su CRM.' + detail
+          : '¿Querés eliminar definitivamente la cuenta de ' + user.name + '?' + detail,
+        { confirmLabel: keepsLocalAccess ? 'Sí, quitar permiso' : 'Sí, eliminar cuenta' }
       )
       if (!accepted) return
       try {
-        await getJson('/admin/account-admins/' + encodeURIComponent(id), { method: 'DELETE' })
+        const result = await getJson('/admin/account-admins/' + encodeURIComponent(id), { method: 'DELETE' })
         await loadAccountAdmins()
         resetAccountAdminForm()
         renderAccountAdmins()
-        els.accountAdminFeedback.textContent = 'Cuenta eliminada.'
+        els.accountAdminFeedback.textContent = result.action === 'permission_removed'
+          ? 'Permiso quitado. La cuenta conserva el acceso normal a su CRM.'
+          : 'Cuenta eliminada.'
         els.accountAdminFeedback.className = 'settings-feedback visible success'
       } catch (error) {
         els.accountAdminFeedback.textContent = error.message
