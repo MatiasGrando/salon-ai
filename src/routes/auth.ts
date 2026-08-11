@@ -223,6 +223,25 @@ export async function authRoutes(app: FastifyInstance) {
     })
     return publicUser(user)
   })
+
+  app.delete('/admin/account-admins/:id', async (request, reply) => {
+    const auth = await getAuthFromRequest(request)
+    if (!auth) return reply.status(401).send({ message: 'Necesitas iniciar sesion' })
+    if (auth.user.role !== 'SUPER_ADMIN') return reply.status(403).send({ message: 'Solo el super admin puede eliminar esta cuenta' })
+    const params = request.params as { id: string }
+    const current = await prisma.user.findFirst({
+      where: { id: params.id, role: 'ACCOUNT_ADMIN' },
+      select: { id: true, name: true, _count: { select: { managedBusinesses: true } } }
+    })
+    if (!current) return reply.status(404).send({ message: 'No encontre ese administrador de cuentas' })
+
+    await prisma.user.delete({ where: { id: current.id } })
+    return {
+      ok: true,
+      name: current.name,
+      releasedBusinesses: current._count.managedBusinesses
+    }
+  })
 }
 
 function publicUser(user: {

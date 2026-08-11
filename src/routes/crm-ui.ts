@@ -6587,6 +6587,8 @@ const crmHtml = `<!doctype html>
     .account-admin-card span { display: block; }
     .account-admin-card span { margin-top: 4px; color: #52617f; font-size: 12px; }
     .account-admin-card button { min-height: 36px; padding: 0 14px; border: 1px solid #bfdbfe; border-radius: 8px; color: #1d4ed8; background: #fff; font-weight: 750; }
+    .account-admin-actions { display: flex; gap: 8px; }
+    .account-admin-card button.danger { color: #b42318; border-color: #fecaca; background: #fff7f7; }
 
     .whatsapp-settings-grid {
       margin-top: 20px;
@@ -16515,8 +16517,16 @@ const crmHtml = `<!doctype html>
     function renderAuthUi() {
       const isAccountAdmin = state.currentUser?.role === 'ACCOUNT_ADMIN'
       if (els.superAdminPanel) {
-        const canCreateBusinesses = state.currentUser?.role === 'SUPER_ADMIN' || state.currentUser?.role === 'ACCOUNT_ADMIN' && state.currentUser?.canCreateBusinesses
-        els.superAdminPanel.hidden = state.settingsView !== 'commerce' || !canCreateBusinesses
+        const canSeeBusinessCreation = state.currentUser?.role === 'SUPER_ADMIN' || isAccountAdmin
+        els.superAdminPanel.hidden = state.settingsView !== 'commerce' || !canSeeBusinessCreation
+      }
+      if (isAccountAdmin && els.adminCreateBusinessForm) {
+        const canCreateBusinesses = state.currentUser?.canCreateBusinesses === true
+        for (const control of els.adminCreateBusinessForm.querySelectorAll('input, select, button')) control.disabled = !canCreateBusinesses
+        if (!canCreateBusinesses) {
+          els.adminCreateBusinessFeedback.textContent = 'El Superadmin debe habilitar el permiso para crear locales.'
+          els.adminCreateBusinessFeedback.className = 'settings-feedback visible error'
+        }
       }
       if (els.settingsMainTabs) els.settingsMainTabs.hidden = isAccountAdmin
       document.querySelectorAll('[data-mobile-section]').forEach((button) => {
@@ -16654,7 +16664,10 @@ const crmHtml = `<!doctype html>
                 (user.isActive ? 'Activo' : 'Inactivo') + ' · ' +
                 (user.canCreateBusinesses ? 'Puede crear locales' : 'Sin permiso de alta') + ' · ' +
                 String(user._count?.managedBusinesses || 0) + ' locales</span></div>' +
-              '<button type="button" data-edit-account-admin="' + escapeHtml(user.id) + '">Editar</button>' +
+              '<div class="account-admin-actions">' +
+                '<button type="button" data-edit-account-admin="' + escapeHtml(user.id) + '">Editar</button>' +
+                '<button class="danger" type="button" data-delete-account-admin="' + escapeHtml(user.id) + '">Eliminar</button>' +
+              '</div>' +
             '</article>'
           ).join('')
         : '<div class="empty">Todav&iacute;a no hay administradores de cuentas.</div>'
@@ -16719,6 +16732,31 @@ const crmHtml = `<!doctype html>
       } finally {
         setButtonLoading(els.accountAdminSubmit, false)
         if (!els.accountAdminId.value) els.accountAdminSubmit.textContent = 'Asignar rol'
+      }
+    }
+
+    async function deleteAccountAdmin(id) {
+      const user = state.accountAdmins.find((item) => item.id === id)
+      if (!user) return
+      const assignedCount = Number(user._count?.managedBusinesses || 0)
+      const detail = assignedCount
+        ? ' Sus ' + assignedCount + ' locales quedarán sin administrador de cuentas, pero no se eliminarán.'
+        : ''
+      const accepted = await requestCrmConfirmation(
+        '¿Querés eliminar definitivamente la cuenta de ' + user.name + '?' + detail,
+        { confirmLabel: 'Sí, eliminar cuenta' }
+      )
+      if (!accepted) return
+      try {
+        await getJson('/admin/account-admins/' + encodeURIComponent(id), { method: 'DELETE' })
+        await loadAccountAdmins()
+        resetAccountAdminForm()
+        renderAccountAdmins()
+        els.accountAdminFeedback.textContent = 'Cuenta eliminada.'
+        els.accountAdminFeedback.className = 'settings-feedback visible success'
+      } catch (error) {
+        els.accountAdminFeedback.textContent = error.message
+        els.accountAdminFeedback.className = 'settings-feedback visible error'
       }
     }
 
@@ -26788,8 +26826,13 @@ const crmHtml = `<!doctype html>
     els.accountAdminForm?.addEventListener('submit', saveAccountAdmin)
     els.accountAdminCancel?.addEventListener('click', resetAccountAdminForm)
     els.accountAdminList?.addEventListener('click', (event) => {
-      const button = event.target.closest('[data-edit-account-admin]')
-      if (button) editAccountAdmin(button.dataset.editAccountAdmin)
+      const editButton = event.target.closest('[data-edit-account-admin]')
+      if (editButton) {
+        editAccountAdmin(editButton.dataset.editAccountAdmin)
+        return
+      }
+      const deleteButton = event.target.closest('[data-delete-account-admin]')
+      if (deleteButton) deleteAccountAdmin(deleteButton.dataset.deleteAccountAdmin)
     })
     els.businessLogo.addEventListener('change', readBusinessLogo)
     els.businessLogoRemove.addEventListener('click', () => {
