@@ -1564,10 +1564,34 @@ export class ConversationService {
               requestedInformation: ['general'],
             }
           })
-        : 'Entendí que querés conocer el proceso de un servicio. ¿Sobre cuál querés consultar?'
+        : unresolvedServiceInformationReply(await businessKnowledgeService.answer({
+            businessId: input.businessId,
+            topics: ['services']
+          }))
       if (input.routing.bookingMessage) {
         informationReply = appendBusinessInformationReply(informationReply, detailReply)
       } else {
+        if (!detailCatalogQuery) {
+          const serviceIds = await this.informationSelectionServiceIds(input.businessId)
+          if (serviceIds.length) {
+            const nextState: BookingV2State = {
+              ...storedInformationState,
+              pendingInformationSelection: {
+                serviceIds,
+                requestedInformation: ['general']
+              }
+            }
+            await this.updateConversation(input.phone, input.businessId, {
+              currentStep: conversationStepValue(input.conversation.currentStep),
+              ...conversationPatchFromState(nextState)
+            })
+            return {
+              reply: applyAssistantPersonalityToReply(detailReply, assistantPersonality),
+              skipMisunderstandingTracking: true,
+              skipHumanize: true
+            }
+          }
+        }
         const resumedReply = shouldResumeBookingV2AfterInformation(
           input.conversation.currentStep,
           storedInformationState
@@ -4088,6 +4112,14 @@ export function pendingInformationSelectionRequest(
   if (topics.includes('prices')) return ['price']
   if (topics.includes('services')) return ['general']
   return null
+}
+
+export function unresolvedServiceInformationReply(serviceCatalogReply: string | null) {
+  return [
+    'Entendí que querés conocer el proceso de un servicio, pero no pude identificar cuál.',
+    serviceCatalogReply,
+    serviceCatalogReply ? '¿Sobre cuál querés consultar?' : '¿Sobre qué servicio querés consultar?'
+  ].filter((part): part is string => Boolean(part)).join('\n\n')
 }
 
 export function isBookingV2ConversationClosing(

@@ -78,6 +78,7 @@ import {
   shouldResumeBookingV2AfterInformation,
   shouldResumeQuoteOnlyBooking,
   shouldStartQuoteOnlyRequest,
+  unresolvedServiceInformationReply,
   withBusinessInformationFollowUp
 } from '../src/services/conversation-service.js'
 import { BotCopyService } from '../src/services/bot-copy-service.js'
@@ -226,6 +227,25 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         ...genericPrices,
         bookingMessage: 'quiero reservar iluminación'
       }), null)
+    }
+  },
+  {
+    name: 'un proceso sin servicio identificado muestra el catálogo para poder elegir',
+    run: () => {
+      const catalogReply = [
+        'Estos son los servicios disponibles:',
+        'Iluminación:',
+        '• Iluminación',
+        'Cortes:',
+        '• Corte mujer'
+      ].join('\n')
+      const reply = unresolvedServiceInformationReply(catalogReply)
+
+      assert.match(reply, /no pude identificar cuál/i)
+      assert.match(reply, /Estos son los servicios disponibles:/)
+      assert.match(reply, /• Iluminación/)
+      assert.match(reply, /• Corte mujer/)
+      assert.match(reply, /¿Sobre cuál querés consultar\?/)
     }
   },
   {
