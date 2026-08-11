@@ -1835,6 +1835,8 @@ const crmHtml = `<!doctype html>
       grid-row: 2;
       border-right: 1px solid #e5eaf3;
       background: #fbfcff;
+      container-name: conversation-chat;
+      container-type: inline-size;
     }
 
     .app[data-section="conversations"] .chat-header {
@@ -1892,6 +1894,66 @@ const crmHtml = `<!doctype html>
         min-height: 36px;
         justify-content: center;
         white-space: nowrap;
+      }
+    }
+
+    @container conversation-chat (max-width: 820px) {
+      .app[data-section="conversations"] .chat-title {
+        flex: 1 1 auto;
+        overflow: hidden;
+      }
+
+      .app[data-section="conversations"] .chat-title > div:last-child {
+        min-width: 0;
+        overflow: hidden;
+      }
+
+      .app[data-section="conversations"] .chat-contact-name,
+      .app[data-section="conversations"] #chat-status {
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .app[data-section="conversations"] .chat-actions {
+        flex: 0 0 auto;
+        flex-wrap: nowrap;
+      }
+
+      .app[data-section="conversations"] .chat-more-menu {
+        position: relative;
+      }
+
+      .app[data-section="conversations"] .chat-more-menu > summary {
+        display: grid;
+      }
+
+      .app[data-section="conversations"] .chat-more-popover {
+        position: absolute;
+        top: calc(100% + 8px);
+        right: 0;
+        z-index: 30;
+        width: 230px;
+        padding: 8px;
+        border: 1px solid #dfe6f1;
+        border-radius: 8px;
+        display: grid;
+        align-items: stretch;
+        gap: 6px;
+        background: #fff;
+        box-shadow: 0 18px 34px rgba(15, 23, 42, .14);
+      }
+
+      .app[data-section="conversations"] .chat-more-menu:not([open]) .chat-more-popover {
+        display: none;
+      }
+
+      .app[data-section="conversations"] .chat-more-popover button {
+        width: 100%;
+        min-height: 36px;
+        justify-content: flex-start;
+        white-space: normal;
       }
     }
 
