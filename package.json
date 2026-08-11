@@ -27,6 +27,7 @@
     "test:service-booking-order": "tsx scripts/service-booking-order-contract-test.ts",
     "test:service-catalog-display": "tsx scripts/service-catalog-display-contract-test.ts",
     "test:landing-service-catalog": "tsx scripts/landing-service-catalog-contract-test.ts",
+    "test:weex-lead-campaign": "tsx scripts/weex-lead-campaign-contract-test.ts",
     "test:booking-flow-order": "tsx scripts/booking-flow-order-contract-test.ts",
     "test:multi-service-booking": "tsx scripts/multi-service-booking-contract-test.ts",
     "test:combined-service-conversations": "tsx scripts/combined-service-conversation-contract-test.ts",

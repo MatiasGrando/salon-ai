@@ -339,6 +339,29 @@ model InstagramLead {
   @@index([businessId, updatedAt])
 }
 
+model WeexLead {
+  id              String   @id @default(cuid())
+  name            String
+  email           String
+  phone           String
+  phoneNormalized String
+  campaign        String   @default("promocion-weex-agosto-2026")
+  source          String   @default("directo")
+  medium          String?
+  campaignName    String?
+  content         String?
+  term            String?
+  pageUrl         String?
+  referrer        String?
+  status          String   @default("NUEVO")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([createdAt])
+  @@index([status, createdAt])
+  @@index([campaign, createdAt])
+}
+
 model InstagramMessage {
   id String @id @default(cuid())
 

@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>¡Ya casi está! Escríbenos | Weex</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0C0F14;
+    --surface:#141922;
+    --surface-2:#1B212C;
+    --line:#262E3B;
+    --text:#EDF0F5;
+    --muted:#8D97A8;
+    --amber:#FFCB3D;
+    --amber-2:#FFE083;
+    --violet:#8C7CFF;
+    --radius:14px;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    background:var(--ink);
+    color:var(--text);
+    font-family:'Inter', sans-serif;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+    display:flex; flex-direction:column;
+    overflow-x:hidden;
+  }
+  h1,h2,h3{
+    font-family:'Space Grotesk', sans-serif;
+    font-weight:600;
+    line-height:1.15;
+    letter-spacing:-0.01em;
+  }
+  .thread-bg{
+    position:fixed; inset:0; z-index:0; pointer-events:none;
+    background:
+      radial-gradient(900px 560px at 50% 5%, rgba(255,203,61,0.18), transparent 62%),
+      radial-gradient(600px 400px at 10% 15%, rgba(140,124,255,0.10), transparent 60%),
+      radial-gradient(700px 460px at 92% 10%, rgba(255,203,61,0.10), transparent 60%);
+  }
+  .glow-orb{
+    position:absolute; z-index:0; pointer-events:none;
+    width:560px; height:560px; border-radius:50%;
+    background:radial-gradient(circle, rgba(255,203,61,0.24) 0%, rgba(255,203,61,0.08) 40%, transparent 70%);
+    filter:blur(10px);
+    top:-220px; left:50%; transform:translateX(-50%);
+  }
+  header.top{
+    position:relative; z-index:2;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:22px 24px;
+    max-width:760px; margin:0 auto; width:100%;
+  }
+  .logo{
+    font-family:'Space Grotesk', sans-serif;
+    font-weight:700; font-size:1.15rem; letter-spacing:-0.02em;
+    display:flex; align-items:center; gap:8px;
+  }
+  .logo .dot{width:8px;height:8px;border-radius:2px;background:var(--amber); transform:rotate(45deg);}
+
+  main{
+    position:relative; z-index:2;
+    flex:1;
+    max-width:640px; margin:0 auto; width:100%;
+    padding:20px 24px 60px;
+    text-align:center;
+  }
+  .eyebrow{
+    display:inline-flex; align-items:center; gap:8px;
+    font-family:'JetBrains Mono', monospace;
+    font-size:0.75rem; letter-spacing:0.08em; text-transform:uppercase;
+    color:var(--amber);
+    border:1px solid rgba(255,182,72,0.35);
+    background:rgba(255,182,72,0.08);
+    padding:7px 14px; border-radius:999px;
+    margin-bottom:22px;
+  }
+  h1{font-size:clamp(1.9rem, 4vw, 2.5rem); margin-bottom:16px;}
+  p.lead{font-size:1.05rem; color:var(--muted); max-width:46ch; margin:0 auto 36px;}
+  p.lead strong{color:var(--text);}
+
+  .contact-card{
+    position:relative;
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:28px;
+    text-align:left;
+    box-shadow:0 0 0 1px rgba(255,203,61,0.04), 0 30px 80px -20px rgba(255,203,61,0.25), 0 0 60px -10px rgba(255,203,61,0.12);
+  }
+  .contact-card::before{
+    content:"";
+    position:absolute; top:0; left:14%; right:14%; height:1px;
+    background:linear-gradient(90deg, transparent, var(--amber-2), transparent);
+    opacity:0.8;
+  }
+  .contact-card h3{font-size:1.05rem; margin-bottom:4px;}
+  .contact-card .form-sub{font-size:0.9rem; color:var(--muted); margin-bottom:20px;}
+  .cta{
+    display:block;
+    width:100%;
+    background:linear-gradient(180deg, var(--amber-2), var(--amber));
+    color:#1A1305;
+    border:none;
+    border-radius:10px;
+    padding:14px 18px;
+    font-family:'Space Grotesk', sans-serif;
+    font-weight:700;
+    font-size:1rem;
+    cursor:pointer;
+    margin-top:6px;
+    text-align:center;
+    text-decoration:none;
+    box-shadow:0 8px 26px -4px rgba(255,203,61,0.55), 0 0 0 1px rgba(255,224,131,0.4) inset;
+    transition:transform .12s ease, box-shadow .12s ease, filter .12s ease;
+  }
+  .cta:hover{transform:translateY(-1px); filter:brightness(1.06); box-shadow:0 10px 32px -4px rgba(255,203,61,0.7), 0 0 0 1px rgba(255,224,131,0.5) inset;}
+  .cta:focus-visible{outline:2px solid var(--violet); outline-offset:2px;}
+
+  .steps{
+    margin-top:44px;
+    display:grid; gap:18px;
+    text-align:left;
+  }
+  .step{
+    display:flex; gap:16px; align-items:flex-start;
+  }
+  .step .num{
+    font-family:'JetBrains Mono', monospace;
+    font-weight:600; font-size:0.85rem;
+    color:var(--ink); background:var(--amber);
+    width:28px; height:28px; border-radius:8px;
+    display:flex; align-items:center; justify-content:center;
+    flex:none;
+  }
+  .step p{color:var(--muted); font-size:0.95rem;}
+  .step strong{color:var(--text);}
+
+  .footnote{
+    margin-top:36px;
+    font-size:0.85rem; color:var(--muted);
+  }
+
+  footer{
+    position:relative; z-index:2;
+    border-top:1px solid var(--line);
+    padding:30px 24px;
+    text-align:center;
+  }
+  footer .fname{font-family:'JetBrains Mono', monospace; letter-spacing:0.08em; font-size:0.8rem; color:var(--muted); margin-bottom:10px;}
+  footer .flinks{font-size:0.8rem; color:#5D6779; margin-bottom:10px;}
+  footer .flinks a{text-decoration:none;}
+  footer .flinks a:hover{color:var(--muted);}
+  footer .fcopy{font-size:0.75rem; color:#4A5364; max-width:520px; margin:0 auto;}
+</style>
+</head>
+<body>
+
+<div class="thread-bg"></div>
+<div class="glow-orb"></div>
+
+<header class="top">
+  <div class="logo"><span class="dot"></span>weex</div>
+</header>
+
+<main>
+  <div class="eyebrow">Último paso</div>
+  <h1>¡Ya casi está! 👇</h1>
+  <p class="lead">Tu <strong>semana gratis con Weex</strong> está a un mensaje de distancia. Escríbenos por WhatsApp para activarla.</p>
+
+  <div class="contact-card">
+    <h3>Escríbenos por WhatsApp</h3>
+    <p class="form-sub">El mensaje ya está preparado. Solo tienes que enviarlo para que podamos activar tu acceso.</p>
+    <a class="cta" href="https://wa.me/5491158712877?text=Hola%2C%20complet%C3%A9%20el%20formulario%20de%20la%20promoci%C3%B3n%20de%20Weex%20y%20quiero%20activar%20mi%20semana%20gratis." target="_blank" rel="noopener noreferrer" aria-label="Escribir a Weex por WhatsApp">📲 Escribirnos por WhatsApp</a>
+  </div>
+
+  <div class="steps">
+    <div class="step">
+      <div class="num">1</div>
+      <p><strong>Pulsa el botón</strong> para abrir WhatsApp.</p>
+    </div>
+    <div class="step">
+      <div class="num">2</div>
+      <p><strong>Te contactamos</strong> en menos de 24 horas.</p>
+    </div>
+    <div class="step">
+      <div class="num">3</div>
+      <p><strong>Activamos tu semana gratis</strong> y te acompañamos a montar tu sistema.</p>
+    </div>
+  </div>
+
+  <p class="footnote">📩 Revisa también tu email por si acaso.</p>
+</main>
+
+<footer>
+  <div class="fname">WEEX</div>
+  <div class="flinks"><a href="#">Aviso legal</a> · <a href="#">Privacidad</a> · <a href="#">Cookies</a></div>
+  <div class="fcopy">© 2026 Weex. Todos los derechos reservados.</div>
+</footer>
+
+</body>
+</html>

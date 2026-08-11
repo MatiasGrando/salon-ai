@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>1 semana gratis con Weex — Bot, CRM, Agente y Landing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0C0F14;
+    --surface:#141922;
+    --surface-2:#1B212C;
+    --line:#262E3B;
+    --text:#EDF0F5;
+    --muted:#8D97A8;
+    --amber:#FFCB3D;
+    --amber-2:#FFE083;
+    --violet:#8C7CFF;
+    --radius:14px;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html{scroll-behavior:smooth;}
+  body{
+    background:var(--ink);
+    color:var(--text);
+    font-family:'Inter', sans-serif;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  h1,h2,h3{
+    font-family:'Space Grotesk', sans-serif;
+    font-weight:600;
+    line-height:1.12;
+    letter-spacing:-0.01em;
+  }
+  .mono{font-family:'JetBrains Mono', monospace;}
+  a{color:inherit;}
+  img{max-width:100%; display:block;}
+  .wrap{max-width:1080px; margin:0 auto; padding:0 24px;}
+  .wrap-narrow{max-width:760px; margin:0 auto; padding:0 24px;}
+
+  /* warm ambient glow, like a light source behind the hero */
+  .thread-bg{
+    position:fixed; inset:0; z-index:0; pointer-events:none;
+    background:
+      radial-gradient(900px 560px at 50% 0%, rgba(255,203,61,0.16), transparent 62%),
+      radial-gradient(600px 400px at 12% 10%, rgba(140,124,255,0.12), transparent 60%),
+      radial-gradient(700px 460px at 90% 6%, rgba(255,203,61,0.10), transparent 60%);
+  }
+  .glow-orb{
+    position:absolute; z-index:0; pointer-events:none;
+    width:640px; height:640px; border-radius:50%;
+    background:radial-gradient(circle, rgba(255,203,61,0.22) 0%, rgba(255,203,61,0.08) 40%, transparent 70%);
+    filter:blur(10px);
+    top:-260px; right:-160px;
+  }
+
+  header.top{
+    position:relative; z-index:2;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:22px 24px;
+    max-width:1080px; margin:0 auto;
+  }
+  .logo{
+    font-family:'Space Grotesk', sans-serif;
+    font-weight:700; font-size:1.15rem; letter-spacing:-0.02em;
+    display:flex; align-items:center; gap:8px;
+  }
+  .logo .dot{width:8px;height:8px;border-radius:2px;background:var(--amber); transform:rotate(45deg);}
+  .badge-top{
+    font-family:'JetBrains Mono', monospace;
+    font-size:0.72rem; letter-spacing:0.06em;
+    color:var(--muted); border:1px solid var(--line);
+    padding:6px 12px; border-radius:999px;
+  }
+
+  /* HERO */
+  .hero{
+    position:relative; z-index:2;
+    padding:40px 24px 20px;
+    max-width:1080px; margin:0 auto;
+  }
+  .hero-inner{
+    display:grid; grid-template-columns:1.1fr 0.9fr; gap:56px; align-items:center;
+  }
+  .eyebrow{
+    display:inline-flex; align-items:center; gap:8px;
+    font-family:'JetBrains Mono', monospace;
+    font-size:0.75rem; letter-spacing:0.08em; text-transform:uppercase;
+    color:var(--amber);
+    border:1px solid rgba(255,182,72,0.35);
+    background:rgba(255,182,72,0.08);
+    padding:7px 14px; border-radius:999px;
+    margin-bottom:20px;
+  }
+  .eyebrow .pulse{
+    width:6px;height:6px;border-radius:50%;background:var(--amber);
+    animation:pulse 1.6s infinite ease-in-out;
+  }
+  @keyframes pulse{
+    0%,100%{opacity:1; transform:scale(1);}
+    50%{opacity:0.35; transform:scale(1.6);}
+  }
+  h1.headline{
+    font-size:clamp(2.1rem, 4vw, 3.1rem);
+    margin-bottom:20px;
+  }
+  h1.headline .accent{color:var(--amber);}
+  .sub{
+    font-size:1.08rem; color:var(--muted); max-width:44ch; margin-bottom:32px;
+  }
+
+  /* FORM CARD */
+  .form-card{
+    position:relative;
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:28px;
+    box-shadow:0 0 0 1px rgba(255,203,61,0.04), 0 30px 80px -20px rgba(255,203,61,0.25), 0 0 60px -10px rgba(255,203,61,0.12);
+  }
+  .form-card::before{
+    content:"";
+    position:absolute; top:0; left:14%; right:14%; height:1px;
+    background:linear-gradient(90deg, transparent, var(--amber-2), transparent);
+    opacity:0.8;
+  }
+  .form-card h3{
+    font-size:1.05rem; margin-bottom:4px;
+  }
+  .form-card .form-sub{
+    font-size:0.9rem; color:var(--muted); margin-bottom:20px;
+  }
+  form .field{margin-bottom:12px;}
+  form input[type=text], form input[type=email], form input[type=tel]{
+    width:100%;
+    background:var(--surface-2);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:13px 14px;
+    color:var(--text);
+    font-family:'Inter', sans-serif;
+    font-size:0.95rem;
+    outline:none;
+    transition:border-color .15s ease;
+  }
+  form input::placeholder{color:#5D6779;}
+  form input:focus{border-color:var(--amber);}
+  .honeypot{position:absolute; left:-9999px; opacity:0;}
+  button.cta{
+    width:100%;
+    background:linear-gradient(180deg, var(--amber-2), var(--amber));
+    color:#1A1305;
+    border:none;
+    border-radius:10px;
+    padding:14px 18px;
+    font-family:'Space Grotesk', sans-serif;
+    font-weight:700;
+    font-size:1rem;
+    cursor:pointer;
+    margin-top:6px;
+    box-shadow:0 8px 26px -4px rgba(255,203,61,0.55), 0 0 0 1px rgba(255,224,131,0.4) inset;
+    transition:transform .12s ease, box-shadow .12s ease, filter .12s ease;
+  }
+  button.cta:hover{transform:translateY(-1px); filter:brightness(1.06); box-shadow:0 10px 32px -4px rgba(255,203,61,0.7), 0 0 0 1px rgba(255,224,131,0.5) inset;}
+  button.cta:focus-visible{outline:2px solid var(--violet); outline-offset:2px;}
+  .form-note{
+    display:flex; align-items:center; gap:8px;
+    font-size:0.82rem; color:var(--muted); margin-top:14px;
+  }
+  .form-note .check{color:var(--amber);}
+  .form-error{
+    display:none; font-size:0.85rem; color:#FF8B7A; margin-top:10px;
+  }
+
+  /* HERO DIAGRAM */
+  .flow-diagram{margin-top:26px;}
+  .flow-diagram svg{width:100%; height:auto; display:block;}
+  .flow-caption{
+    font-family:'JetBrains Mono', monospace;
+    font-size:0.72rem; color:var(--muted); letter-spacing:0.04em;
+    margin-top:10px; text-align:center;
+  }
+
+  section{position:relative; z-index:2;}
+
+  /* PROBLEM */
+  .problem{padding:70px 24px 30px;}
+  .problem-list{list-style:none; max-width:640px; margin:0 auto 28px;}
+  .problem-list li{
+    display:flex; gap:14px; align-items:flex-start;
+    font-size:1.05rem; color:var(--text);
+    padding:14px 0; border-bottom:1px solid var(--line);
+  }
+  .problem-list li .x{color:#FF8B7A; font-family:'JetBrains Mono', monospace; font-weight:600;}
+  .problem-conclusion{
+    max-width:640px; margin:0 auto; text-align:center;
+    font-size:1.1rem; color:var(--muted); padding-top:8px;
+  }
+  .problem-conclusion strong{color:var(--text);}
+
+  /* MODULES */
+  .modules{padding:80px 24px;}
+  .section-head{text-align:center; max-width:640px; margin:0 auto 48px;}
+  .section-head h2{font-size:clamp(1.7rem, 3vw, 2.2rem); margin-bottom:14px;}
+  .section-head p{color:var(--muted); font-size:1.02rem;}
+  .module-grid{
+    display:grid; grid-template-columns:repeat(2, 1fr); gap:18px;
+  }
+  .module-card{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:26px;
+    transition:border-color .15s ease, transform .15s ease;
+  }
+  .module-card:hover{border-color:rgba(255,182,72,0.4); transform:translateY(-2px);}
+  .module-tag{
+    font-family:'JetBrains Mono', monospace; font-size:0.72rem;
+    color:var(--violet); letter-spacing:0.06em; margin-bottom:10px;
+  }
+  .module-card h3{font-size:1.15rem; margin-bottom:8px;}
+  .module-card p{color:var(--muted); font-size:0.94rem;}
+
+  /* FOR YOU IF */
+  .fitcheck{padding:70px 24px;}
+  .fit-list{list-style:none; max-width:640px; margin:0 auto; display:grid; gap:12px;}
+  .fit-list li{
+    display:flex; gap:12px; align-items:flex-start;
+    font-size:1.02rem;
+  }
+  .fit-list li .ok{color:var(--amber); font-family:'JetBrains Mono', monospace; font-weight:600;}
+
+  /* TESTIMONIALS */
+  .social{padding:70px 24px;}
+  .social-strap{
+    text-align:center; font-family:'JetBrains Mono', monospace;
+    font-size:0.85rem; color:var(--muted); margin-bottom:34px;
+  }
+  .social-strap strong{color:var(--amber);}
+  .t-grid{
+    display:grid; grid-template-columns:repeat(3, 1fr); gap:16px;
+  }
+  .t-card{
+    background:var(--surface); border:1px solid var(--line);
+    border-radius:var(--radius); padding:20px;
+  }
+  .t-card p{font-size:0.92rem; color:var(--text); margin-bottom:14px;}
+  .t-card .who{
+    font-size:0.8rem; color:var(--muted);
+    display:flex; align-items:center; gap:8px;
+  }
+  .t-card .avatar{
+    width:26px; height:26px; border-radius:50%;
+    background:linear-gradient(135deg, var(--amber), var(--violet));
+    flex:none;
+  }
+
+  /* FINAL CTA */
+  .final{padding:90px 24px 40px; text-align:center;}
+  .final h2{font-size:clamp(1.8rem, 3.4vw, 2.5rem); margin-bottom:14px; max-width:640px; margin-left:auto; margin-right:auto;}
+  .final p.lead{color:var(--muted); max-width:520px; margin:0 auto 32px;}
+  .final .form-card{max-width:460px; margin:0 auto; text-align:left;}
+
+  footer{
+    border-top:1px solid var(--line);
+    padding:36px 24px;
+    text-align:center;
+  }
+  footer .fname{font-family:'JetBrains Mono', monospace; letter-spacing:0.08em; font-size:0.8rem; color:var(--muted); margin-bottom:10px;}
+  footer .flinks{font-size:0.8rem; color:#5D6779; margin-bottom:10px;}
+  footer .flinks a{text-decoration:none;}
+  footer .flinks a:hover{color:var(--muted);}
+  footer .fcopy{font-size:0.75rem; color:#4A5364; max-width:520px; margin:0 auto;}
+
+  @media (max-width: 860px){
+    .hero-inner{grid-template-columns:1fr; gap:36px;}
+    .module-grid{grid-template-columns:1fr;}
+    .t-grid{grid-template-columns:1fr;}
+  }
+</style>
+</head>
+<body>
+
+<div class="thread-bg"></div>
+<div class="glow-orb"></div>
+
+<header class="top">
+  <div class="logo"><span class="dot"></span>weex</div>
+  <div class="badge-top">SEMANA GRATIS</div>
+</header>
+
+<section class="hero">
+  <div class="hero-inner">
+    <div>
+      <div class="eyebrow"><span class="pulse"></span>Gratis · 7 días con Weex</div>
+      <h1 class="headline">Bot, CRM, agente y landing, <span class="accent">funcionando en tu negocio esta semana</span></h1>
+      <p class="sub">Deja de perder leads por no contestar a tiempo. Prueba Weex gratis 7 días y monta tu sistema completo de captación: landing, bot, CRM y agente IA conectados desde el primer día.</p>
+    </div>
+
+    <div>
+      <div class="form-card">
+        <h3>Quiero mi semana gratis</h3>
+        <p class="form-sub">Te escribimos para activar tu acceso.</p>
+        <form id="weexForm" novalidate>
+          <div class="field">
+            <input type="text" id="name" placeholder="Tu nombre" autocomplete="name" maxlength="120" required>
+          </div>
+          <div class="field">
+            <input type="email" id="email" placeholder="Tu mejor email" autocomplete="email" maxlength="160" required>
+          </div>
+          <div class="field">
+            <input type="tel" id="phone" placeholder="Tu teléfono" autocomplete="tel" maxlength="40" required>
+          </div>
+          <div class="honeypot">
+            <label>No rellenes este campo</label>
+            <input type="text" name="company" tabindex="-1" autocomplete="off">
+          </div>
+          <button type="submit" class="cta">Quiero mi semana gratis</button>
+          <p class="form-error" id="formError">Revisa tus datos antes de continuar.</p>
+        </form>
+        <div class="form-note"><span class="check">✓</span> Gratis. Sin tarjeta. Acceso en minutos.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="wrap flow-diagram">
+    <svg viewBox="0 0 900 140" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="threadGrad" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stop-color="#FFB648"/>
+          <stop offset="100%" stop-color="#8C7CFF"/>
+        </linearGradient>
+      </defs>
+      <path d="M100,70 C220,10 260,130 380,70 S540,10 660,70 S780,130 800,70" fill="none" stroke="url(#threadGrad)" stroke-width="1.5" stroke-dasharray="6 7" opacity="0.55">
+        <animate attributeName="stroke-dashoffset" from="0" to="-130" dur="6s" repeatCount="indefinite"/>
+      </path>
+      <g font-family="JetBrains Mono, monospace" font-size="12" fill="#8D97A8">
+        <circle cx="100" cy="70" r="5" fill="#FFB648"/>
+        <text x="100" y="100" text-anchor="middle">LANDING</text>
+        <circle cx="380" cy="70" r="5" fill="#8C7CFF"/>
+        <text x="380" y="100" text-anchor="middle">BOT</text>
+        <circle cx="660" cy="70" r="5" fill="#FFB648"/>
+        <text x="660" y="100" text-anchor="middle">CRM</text>
+        <circle cx="800" cy="70" r="5" fill="#8C7CFF"/>
+        <text x="800" y="100" text-anchor="middle">AGENTE IA</text>
+      </g>
+    </svg>
+    <div class="flow-caption">un mismo hilo conecta cada lead, desde que llega hasta que se cierra</div>
+  </div>
+</section>
+
+<section class="problem">
+  <ul class="problem-list">
+    <li><span class="x">✕</span> Pierdes leads porque nadie contesta a tiempo.</li>
+    <li><span class="x">✕</span> Tu CRM está a medias, lleno de datos sueltos que nadie mira.</li>
+    <li><span class="x">✕</span> Cada cliente te pide una landing distinta y no das abasto.</li>
+  </ul>
+  <p class="problem-conclusion">El problema no es tu negocio. Es que te falta <strong>un sistema conectado</strong>, ya montado.</p>
+</section>
+
+<section class="modules">
+  <div class="section-head">
+    <h2>¿Qué es Weex?</h2>
+    <p>Cuatro piezas que normalmente contratas por separado, funcionando como una sola. Las conectamos por ti y te las dejamos activas en 7 días.</p>
+  </div>
+  <div class="wrap module-grid">
+    <div class="module-card">
+      <div class="module-tag">MÓDULO 01</div>
+      <h3>Landing</h3>
+      <p>Landings que convierten, listas en minutos y conectadas directo a tu CRM. Sin depender de un diseñador cada vez que lanzas algo nuevo.</p>
+    </div>
+    <div class="module-card">
+      <div class="module-tag">MÓDULO 02</div>
+      <h3>Bot</h3>
+      <p>Responde y cualifica a cada lead 24/7, aunque tú estés durmiendo. Nadie vuelve a esperar horas por una respuesta.</p>
+    </div>
+    <div class="module-card">
+      <div class="module-tag">MÓDULO 03</div>
+      <h3>CRM</h3>
+      <p>Cada contacto, cada conversación y cada oportunidad en un solo lugar, sin hojas de cálculo sueltas ni notas perdidas.</p>
+    </div>
+    <div class="module-card">
+      <div class="module-tag">MÓDULO 04</div>
+      <h3>Agente IA</h3>
+      <p>Sigue el hilo de cada conversación, agenda y ayuda a cerrar por ti, con el contexto completo de cada cliente.</p>
+    </div>
+  </div>
+</section>
+
+<section class="fitcheck">
+  <div class="section-head">
+    <h2>Esto es para ti si...</h2>
+  </div>
+  <ul class="fit-list">
+    <li><span class="ok">✓</span> Recibes leads pero se te escapan porque no llegas a todos.</li>
+    <li><span class="ok">✓</span> Tienes herramientas sueltas y ninguna habla con la otra.</li>
+    <li><span class="ok">✓</span> Quieres resultados esta semana, no dentro de tres meses.</li>
+    <li><span class="ok">✓</span> No quieres depender de un equipo técnico para tener esto funcionando.</li>
+    <li><span class="ok">✓</span> Prefieres probarlo gratis antes de comprometerte con nada.</li>
+  </ul>
+</section>
+
+<section class="social">
+  <div class="wrap">
+    <p class="social-strap">Negocios que ya están automatizando su captación con <strong>Weex</strong></p>
+    <div class="t-grid">
+      <div class="t-card">
+        <p>"En la primera semana ya tenía el bot respondiendo leads que antes se me perdían."</p>
+        <div class="who"><span class="avatar"></span>Clínica dental, negocio local</div>
+      </div>
+      <div class="t-card">
+        <p>"Monté la landing y el CRM el mismo día. No tuve que tocar código."</p>
+        <div class="who"><span class="avatar"></span>Estudio de arquitectura</div>
+      </div>
+      <div class="t-card">
+        <p>"El agente agenda solo las citas y yo solo reviso el resumen del día."</p>
+        <div class="who"><span class="avatar"></span>Consultoría independiente</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="final">
+  <h2>Activa tu semana gratis con Weex</h2>
+  <p class="lead">7 días con el sistema completo funcionando en tu negocio. Sin tarjeta, sin permanencia.</p>
+  <div class="form-card">
+    <form id="weexFormFinal" novalidate>
+      <div class="field">
+        <input type="text" id="nameFinal" placeholder="Tu nombre" autocomplete="name" maxlength="120" required>
+      </div>
+      <div class="field">
+        <input type="email" id="emailFinal" placeholder="Tu mejor email" autocomplete="email" maxlength="160" required>
+      </div>
+      <div class="field">
+        <input type="tel" id="phoneFinal" placeholder="Tu teléfono" autocomplete="tel" maxlength="40" required>
+      </div>
+      <div class="honeypot">
+        <label>No rellenes este campo</label>
+        <input type="text" name="company2" tabindex="-1" autocomplete="off">
+      </div>
+      <button type="submit" class="cta">Quiero mi semana gratis</button>
+      <p class="form-error" id="formErrorFinal">Revisa tus datos antes de continuar.</p>
+    </form>
+    <div class="form-note"><span class="check">✓</span> Gratis. Sin tarjeta. Acceso en minutos.</div>
+  </div>
+</section>
+
+<footer>
+  <div class="fname">WEEX</div>
+  <div class="flinks"><a href="#">Aviso legal</a> · <a href="#">Privacidad</a> · <a href="#">Cookies</a></div>
+  <div class="fcopy">© 2026 Weex. Todos los derechos reservados.</div>
+</footer>
+
+<script>
+const campaignParams = new URLSearchParams(window.location.search);
+
+function wireForm(formId, nameId, emailId, phoneId, errorId){
+  const form = document.getElementById(formId);
+  form.addEventListener('submit', async function(e){
+    e.preventDefault();
+    const name = document.getElementById(nameId).value.trim();
+    const email = document.getElementById(emailId).value.trim();
+    const phone = document.getElementById(phoneId).value.trim();
+    const errorEl = document.getElementById(errorId);
+    const submitButton = form.querySelector('button[type="submit"]');
+    const company = form.querySelector('.honeypot input')?.value || '';
+
+    if(name === '' || email === '' || phone === '' || !document.getElementById(emailId).checkValidity()){
+      errorEl.textContent = 'Revisa tus datos antes de continuar.';
+      errorEl.style.display = 'block';
+      return;
+    }
+
+    errorEl.style.display = 'none';
+    submitButton.disabled = true;
+    submitButton.textContent = 'Guardando tus datos...';
+
+    try{
+      const response = await fetch('/public/weex/leads', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          name,
+          email,
+          phone,
+          company,
+          campaign: 'promocion-weex-agosto-2026',
+          source: campaignParams.get('utm_source') || 'directo',
+          medium: campaignParams.get('utm_medium') || '',
+          campaignName: campaignParams.get('utm_campaign') || '',
+          content: campaignParams.get('utm_content') || '',
+          term: campaignParams.get('utm_term') || '',
+          pageUrl: window.location.href,
+          referrer: document.referrer
+        })
+      });
+
+      if(!response.ok) throw new Error('No se pudo guardar el lead');
+      window.location.href = '/promocion-weex-agosto-2026/gracias';
+    }catch(error){
+      errorEl.textContent = 'No pudimos guardar tus datos. Inténtalo nuevamente.';
+      errorEl.style.display = 'block';
+      submitButton.disabled = false;
+      submitButton.textContent = 'Quiero mi semana gratis';
+    }
+  });
+}
+wireForm('weexForm','name','email','phone','formError');
+wireForm('weexFormFinal','nameFinal','emailFinal','phoneFinal','formErrorFinal');
+</script>
+
+</body>
+</html>

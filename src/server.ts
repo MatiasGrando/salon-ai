@@ -24,6 +24,7 @@ import { reportRoutes } from './routes/report.js'
 import { authRoutes } from './routes/auth.js'
 import { staffUserRoutes } from './routes/staff-user.js'
 import { postSaleRoutes } from './routes/post-sale.js'
+import { weexLeadAdminRoutes, weexLeadCampaignRoutes } from './routes/weex-lead-campaign.js'
 import { authGuard } from './plugins/auth-guard.js'
 import { ensureBootstrapSuperAdmin } from './services/auth-service.js'
 import { startMarketingScheduler } from './services/marketing-scheduler.js'
@@ -43,6 +44,7 @@ await app.register(tamaraSiteRoutes)
 await app.register(landingUiRoutes)
 await app.register(publicBookingRoutes)
 await app.register(weexAccountRoutes)
+await app.register(weexLeadCampaignRoutes)
 await app.register(whatsappWebhookRoutes)
 await app.register(instagramWebhookRoutes)
 await authGuard(app)
@@ -62,6 +64,7 @@ await app.register(campaignRoutes)
 await app.register(postSaleRoutes)
 await app.register(reportRoutes)
 await app.register(staffUserRoutes)
+await app.register(weexLeadAdminRoutes)
 await ensureBootstrapSuperAdmin()
 startMarketingScheduler(app)
 
