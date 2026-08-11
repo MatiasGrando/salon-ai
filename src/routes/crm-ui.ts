@@ -14063,7 +14063,7 @@ const crmHtml = `<!doctype html>
           <button type="button" data-settings-view="meta">Meta y WhatsApp</button>
         </nav>
 
-        <section class="settings-panel" data-settings-panel="commerce">
+        <section class="settings-panel" id="business-commerce-panel" data-settings-panel="commerce">
           <h3>Datos del comercio</h3>
           <p>Datos generales, horarios y redes p&uacute;blicas del negocio.</p>
           <form class="settings-form" id="business-settings-form">
@@ -14327,29 +14327,22 @@ const crmHtml = `<!doctype html>
 
           <div class="account-admin-management" id="account-admin-management">
             <h3>Administradores de cuentas</h3>
-            <p>Cre&aacute;, edit&aacute; o desactiv&aacute; el rol que puede dar de alta nuevos locales.</p>
+            <p>Asign&aacute; este rol a una cuenta existente. Al volver a ingresar, esa persona ver&aacute; solamente el tablero para crear locales.</p>
             <form class="admin-create-form" id="account-admin-form">
               <input id="account-admin-id" type="hidden">
-              <div class="settings-field">
-                <label for="account-admin-name">Nombre</label>
-                <input class="field" id="account-admin-name" autocomplete="name">
+              <div class="settings-field full" id="account-admin-existing-field">
+                <label for="account-admin-existing-user">Cuenta existente</label>
+                <select class="field" id="account-admin-existing-user"></select>
+                <small>El rol reemplaza el acceso actual de esa cuenta y habilita el tablero de alta de locales.</small>
               </div>
-              <div class="settings-field">
-                <label for="account-admin-email">Email de acceso</label>
-                <input class="field" id="account-admin-email" type="email" autocomplete="email">
-              </div>
-              <div class="settings-field">
-                <label for="account-admin-password">Contrase&ntilde;a</label>
-                <input class="field" id="account-admin-password" type="password" autocomplete="new-password" placeholder="M&iacute;nimo 8 caracteres">
-              </div>
-              <div class="settings-field">
+              <div class="settings-field" id="account-admin-status-field" hidden>
                 <label for="account-admin-status">Estado</label>
                 <select class="field" id="account-admin-status"><option value="active">Activo</option><option value="inactive">Inactivo</option></select>
               </div>
-              <label class="settings-check full"><input id="account-admin-can-create" type="checkbox" checked> Puede crear nuevos locales</label>
+              <label class="settings-check full" id="account-admin-can-create-field" hidden><input id="account-admin-can-create" type="checkbox" checked> Puede crear nuevos locales</label>
               <div class="settings-actions full">
                 <button class="secondary" id="account-admin-cancel" type="button" hidden>Cancelar edici&oacute;n</button>
-                <button class="primary" id="account-admin-submit" type="submit">Crear administrador</button>
+                <button class="primary" id="account-admin-submit" type="submit">Asignar rol</button>
               </div>
             </form>
             <p class="settings-feedback" id="account-admin-feedback" role="status" aria-live="polite"></p>
@@ -15374,6 +15367,7 @@ const crmHtml = `<!doctype html>
       appointmentCustomerResultsData: [],
       businesses: [],
       accountAdmins: [],
+      accountAdminCandidates: [],
       customerOverview: [],
       currentUser: null,
       currentSessionBusiness: null,
@@ -16172,6 +16166,7 @@ const crmHtml = `<!doctype html>
       landingGalleryList: document.getElementById('landing-gallery-list'),
       landingSettingsSubmit: document.getElementById('landing-settings-submit'),
       landingSettingsFeedback: document.getElementById('landing-settings-feedback'),
+      businessCommercePanel: document.getElementById('business-commerce-panel'),
       superAdminPanel: document.getElementById('super-admin-panel'),
       adminCreateBusinessForm: document.getElementById('admin-create-business-form'),
       adminBusinessName: document.getElementById('admin-business-name'),
@@ -16185,10 +16180,11 @@ const crmHtml = `<!doctype html>
       accountAdminManagement: document.getElementById('account-admin-management'),
       accountAdminForm: document.getElementById('account-admin-form'),
       accountAdminId: document.getElementById('account-admin-id'),
-      accountAdminName: document.getElementById('account-admin-name'),
-      accountAdminEmail: document.getElementById('account-admin-email'),
-      accountAdminPassword: document.getElementById('account-admin-password'),
+      accountAdminExistingField: document.getElementById('account-admin-existing-field'),
+      accountAdminExistingUser: document.getElementById('account-admin-existing-user'),
+      accountAdminStatusField: document.getElementById('account-admin-status-field'),
       accountAdminStatus: document.getElementById('account-admin-status'),
+      accountAdminCanCreateField: document.getElementById('account-admin-can-create-field'),
       accountAdminCanCreate: document.getElementById('account-admin-can-create'),
       accountAdminCancel: document.getElementById('account-admin-cancel'),
       accountAdminSubmit: document.getElementById('account-admin-submit'),
@@ -16391,6 +16387,7 @@ const crmHtml = `<!doctype html>
     }
 
     function staffVisibleSections() {
+      if (state.currentUser?.role === 'ACCOUNT_ADMIN') return ['settings']
       if (state.currentUser?.role !== 'STAFF') return ['conversations', 'agenda', 'customers', 'professionals', 'services', 'campaigns', 'reports', 'settings']
       return [
         state.currentUser.canViewConversations ? 'conversations' : null,
@@ -16516,10 +16513,15 @@ const crmHtml = `<!doctype html>
     }
 
     function renderAuthUi() {
+      const isAccountAdmin = state.currentUser?.role === 'ACCOUNT_ADMIN'
       if (els.superAdminPanel) {
         const canCreateBusinesses = state.currentUser?.role === 'SUPER_ADMIN' || state.currentUser?.role === 'ACCOUNT_ADMIN' && state.currentUser?.canCreateBusinesses
         els.superAdminPanel.hidden = state.settingsView !== 'commerce' || !canCreateBusinesses
       }
+      if (els.settingsMainTabs) els.settingsMainTabs.hidden = isAccountAdmin
+      document.querySelectorAll('[data-mobile-section]').forEach((button) => {
+        button.hidden = isAccountAdmin && button.dataset.mobileSection !== 'settings'
+      })
       if (els.accountAdminManagement) els.accountAdminManagement.hidden = state.currentUser?.role !== 'SUPER_ADMIN'
       if (els.adminBusinessOwnerField) els.adminBusinessOwnerField.hidden = state.currentUser?.role !== 'SUPER_ADMIN'
       renderAccountAdmins()
@@ -16537,7 +16539,7 @@ const crmHtml = `<!doctype html>
 
     function renderSupportBusinessSwitcher() {
       if (!els.supportBusinessSwitcher || !els.supportBusinessSelect) return
-      const canSwitchBusinesses = state.currentUser?.role === 'SUPER_ADMIN' || state.currentUser?.role === 'ACCOUNT_ADMIN'
+      const canSwitchBusinesses = state.currentUser?.role === 'SUPER_ADMIN'
       els.supportBusinessSwitcher.hidden = !canSwitchBusinesses
       els.supportBusinessSwitcher.classList.toggle('visible', canSwitchBusinesses)
       if (!canSwitchBusinesses) return
@@ -16550,7 +16552,7 @@ const crmHtml = `<!doctype html>
     }
 
     function canManageStaffUsers() {
-      return state.currentUser?.role === 'SUPER_ADMIN' || state.currentUser?.role === 'ACCOUNT_ADMIN' || state.currentUser?.role === 'BUSINESS_ADMIN'
+      return state.currentUser?.role === 'SUPER_ADMIN' || state.currentUser?.role === 'BUSINESS_ADMIN'
     }
 
     function hasAgendaPermission(permission) {
@@ -16617,19 +16619,34 @@ const crmHtml = `<!doctype html>
     }
 
     async function loadAccountAdmins() {
-      state.accountAdmins = state.currentUser?.role === 'SUPER_ADMIN'
-        ? await getJson('/admin/account-admins')
-        : []
+      if (state.currentUser?.role !== 'SUPER_ADMIN') {
+        state.accountAdmins = []
+        state.accountAdminCandidates = []
+        return
+      }
+      const [admins, candidates] = await Promise.all([
+        getJson('/admin/account-admins'),
+        getJson('/admin/account-admin-candidates')
+      ])
+      state.accountAdmins = admins
+      state.accountAdminCandidates = candidates
     }
 
     function renderAccountAdmins() {
-      if (!els.accountAdminList || !els.adminBusinessOwner) return
+      if (!els.accountAdminList || !els.adminBusinessOwner || !els.accountAdminExistingUser) return
       const activeAdmins = state.accountAdmins.filter((user) => user.isActive)
       const selectedOwner = els.adminBusinessOwner.value
       els.adminBusinessOwner.innerHTML = '<option value="">Sin asignar</option>' + activeAdmins.map((user) =>
         '<option value="' + escapeHtml(user.id) + '">' + escapeHtml(user.name + ' · ' + user.email) + '</option>'
       ).join('')
       if (activeAdmins.some((user) => user.id === selectedOwner)) els.adminBusinessOwner.value = selectedOwner
+      els.accountAdminExistingUser.innerHTML = state.accountAdminCandidates.length
+        ? '<option value="">Seleccionar una cuenta</option>' + state.accountAdminCandidates.map((user) => {
+            const business = user.business?.name ? ' · ' + user.business.name : ''
+            return '<option value="' + escapeHtml(user.id) + '">' + escapeHtml(user.name + ' · ' + user.email + business) + '</option>'
+          }).join('')
+        : '<option value="">No hay cuentas disponibles</option>'
+      els.accountAdminSubmit.disabled = !state.accountAdminCandidates.length && !els.accountAdminId.value
       els.accountAdminList.innerHTML = state.accountAdmins.length
         ? state.accountAdmins.map((user) =>
             '<article class="account-admin-card">' +
@@ -16646,43 +16663,47 @@ const crmHtml = `<!doctype html>
     function resetAccountAdminForm() {
       els.accountAdminForm?.reset()
       els.accountAdminId.value = ''
+      els.accountAdminExistingField.hidden = false
+      els.accountAdminStatusField.hidden = true
+      els.accountAdminCanCreateField.hidden = true
       els.accountAdminStatus.value = 'active'
       els.accountAdminCanCreate.checked = true
-      els.accountAdminPassword.placeholder = 'Mínimo 8 caracteres'
-      els.accountAdminSubmit.textContent = 'Crear administrador'
+      els.accountAdminSubmit.textContent = 'Asignar rol'
       els.accountAdminCancel.hidden = true
       els.accountAdminFeedback.className = 'settings-feedback'
       els.accountAdminFeedback.textContent = ''
+      renderAccountAdmins()
     }
 
     function editAccountAdmin(id) {
       const user = state.accountAdmins.find((item) => item.id === id)
       if (!user) return
       els.accountAdminId.value = user.id
-      els.accountAdminName.value = user.name
-      els.accountAdminEmail.value = user.email
-      els.accountAdminPassword.value = ''
-      els.accountAdminPassword.placeholder = 'Dejar vacío para mantenerla'
+      els.accountAdminExistingField.hidden = true
+      els.accountAdminStatusField.hidden = false
+      els.accountAdminCanCreateField.hidden = false
       els.accountAdminStatus.value = user.isActive ? 'active' : 'inactive'
       els.accountAdminCanCreate.checked = user.canCreateBusinesses
       els.accountAdminSubmit.textContent = 'Guardar cambios'
       els.accountAdminCancel.hidden = false
-      els.accountAdminName.focus()
+      els.accountAdminStatus.focus()
     }
 
     async function saveAccountAdmin(event) {
       event.preventDefault()
       const id = els.accountAdminId.value
-      if (!setButtonLoading(els.accountAdminSubmit, true, id ? 'Guardando...' : 'Creando...')) return
+      if (!setButtonLoading(els.accountAdminSubmit, true, id ? 'Guardando...' : 'Asignando...')) return
       try {
-        const payload = {
-          name: els.accountAdminName.value.trim(),
-          email: els.accountAdminEmail.value.trim(),
-          password: els.accountAdminPassword.value || undefined,
-          isActive: els.accountAdminStatus.value === 'active',
-          canCreateBusinesses: els.accountAdminCanCreate.checked
-        }
-        await getJson(id ? '/admin/account-admins/' + encodeURIComponent(id) : '/admin/account-admins', {
+        const url = id
+          ? '/admin/account-admins/' + encodeURIComponent(id)
+          : '/admin/account-admins/assign'
+        const payload = id
+          ? {
+              isActive: els.accountAdminStatus.value === 'active',
+              canCreateBusinesses: els.accountAdminCanCreate.checked
+            }
+          : { userId: els.accountAdminExistingUser.value }
+        await getJson(url, {
           method: id ? 'PATCH' : 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -16690,13 +16711,14 @@ const crmHtml = `<!doctype html>
         await loadAccountAdmins()
         resetAccountAdminForm()
         renderAccountAdmins()
-        els.accountAdminFeedback.textContent = id ? 'Administrador actualizado.' : 'Administrador creado.'
+        els.accountAdminFeedback.textContent = id ? 'Administrador actualizado.' : 'Rol asignado a la cuenta existente.'
         els.accountAdminFeedback.className = 'settings-feedback visible success'
       } catch (error) {
         els.accountAdminFeedback.textContent = error.message
         els.accountAdminFeedback.className = 'settings-feedback visible error'
       } finally {
         setButtonLoading(els.accountAdminSubmit, false)
+        if (!els.accountAdminId.value) els.accountAdminSubmit.textContent = 'Asignar rol'
       }
     }
 
@@ -16990,6 +17012,11 @@ const crmHtml = `<!doctype html>
       state.businesses = businesses
       state.business = state.currentSessionBusiness || businesses[0] || null
       state.businessId = state.business?.id || null
+      if (state.currentUser?.role === 'ACCOUNT_ADMIN') {
+        state.settingsView = 'commerce'
+        setSettingsView('commerce')
+        return
+      }
       await loadBusinessScopedBasics()
       renderBusinessSettings()
       renderWhatsappSettings()
@@ -17092,6 +17119,10 @@ const crmHtml = `<!doctype html>
 
     async function startCrm() {
       await loadBasics()
+      if (state.currentUser?.role === 'ACCOUNT_ADMIN') {
+        setSection('settings')
+        return
+      }
       if (state.currentUser?.role !== 'STAFF' || state.currentUser?.canViewConversations) await loadConversations()
       if (isMobile()) setMobileView('inbox')
     }
@@ -23554,11 +23585,14 @@ const crmHtml = `<!doctype html>
 
     function setSettingsView(view) {
       state.settingsView = ['commerce', 'landing', 'staff', 'meta'].includes(view) ? view : 'commerce'
+      const isAccountAdmin = state.currentUser?.role === 'ACCOUNT_ADMIN'
       for (const button of els.settingsMainTabs.querySelectorAll('[data-settings-view]')) {
         button.classList.toggle('active', button.dataset.settingsView === state.settingsView)
       }
       for (const panel of document.querySelectorAll('[data-settings-panel]')) {
-        const shouldShow = panel.dataset.settingsPanel === state.settingsView
+        const shouldShow = isAccountAdmin
+          ? panel === els.superAdminPanel
+          : panel.dataset.settingsPanel === state.settingsView
         panel.hidden = !shouldShow
       }
       renderAuthUi()

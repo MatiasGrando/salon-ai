@@ -16,6 +16,9 @@ export async function authGuard(app: FastifyInstance) {
     const auth = await getAuthFromRequest(request)
     if (!auth) return reply.status(401).send({ message: 'Necesitas iniciar sesion' })
     request.auth = auth
+    if (auth.user.role === 'ACCOUNT_ADMIN' && !isAccountAdminRoute(request)) {
+      return reply.status(403).send({ message: 'Tu cuenta solo tiene acceso al tablero de alta de locales' })
+    }
     injectUserBusinessId(request, auth)
     injectStaffAgendaScope(request, auth)
     if (!await canAccessRequestedBusiness(request, auth)) {
@@ -44,6 +47,11 @@ export async function authGuard(app: FastifyInstance) {
       }
     }).catch((error) => request.log.error(error, 'No se pudo registrar la auditoria del staff'))
   })
+}
+
+function isAccountAdminRoute(request: FastifyRequest) {
+  const path = request.url.split('?')[0] || ''
+  return request.method.toUpperCase() === 'GET' && path === '/businesses'
 }
 
 export function requireSuperAdmin(request: FastifyRequest, reply: FastifyReply) {

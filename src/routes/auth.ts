@@ -144,26 +144,46 @@ export async function authRoutes(app: FastifyInstance) {
     })
   })
 
-  app.post('/admin/account-admins', async (request, reply) => {
+  app.get('/admin/account-admin-candidates', async (request, reply) => {
     const auth = await getAuthFromRequest(request)
     if (!auth) return reply.status(401).send({ message: 'Necesitas iniciar sesion' })
     if (auth.user.role !== 'SUPER_ADMIN') return reply.status(403).send({ message: 'Solo el super admin puede administrar este rol' })
-    const body = request.body as { name?: string; email?: string; password?: string; canCreateBusinesses?: boolean }
-    const name = body.name?.trim()
-    const email = body.email?.trim().toLowerCase()
-    const password = body.password?.trim() || ''
-    if (!name || !email || !password) return reply.status(400).send({ message: 'Completa nombre, email y contrasena' })
-    if (password.length < 8) return reply.status(400).send({ message: 'La contrasena debe tener al menos 8 caracteres' })
-    if (await prisma.user.findUnique({ where: { email } })) return reply.status(409).send({ message: 'Ya existe un usuario con ese email' })
 
-    const user = await prisma.user.create({
-      data: {
-        name,
-        email,
-        passwordHash: await hashPassword(password),
-        role: 'ACCOUNT_ADMIN',
-        canCreateBusinesses: body.canCreateBusinesses !== false
+    return prisma.user.findMany({
+      where: { role: 'BUSINESS_ADMIN', isActive: true },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        businessId: true,
+        business: { select: { id: true, name: true } }
+      },
+      orderBy: { name: 'asc' }
+    })
+  })
+
+  app.post('/admin/account-admins/assign', async (request, reply) => {
+    const auth = await getAuthFromRequest(request)
+    if (!auth) return reply.status(401).send({ message: 'Necesitas iniciar sesion' })
+    if (auth.user.role !== 'SUPER_ADMIN') return reply.status(403).send({ message: 'Solo el super admin puede administrar este rol' })
+    const body = request.body as { userId?: string }
+    const userId = body.userId?.trim()
+    if (!userId) return reply.status(400).send({ message: 'Selecciona una cuenta existente' })
+    const current = await prisma.user.findFirst({ where: { id: userId, role: 'BUSINESS_ADMIN', isActive: true } })
+    if (!current) return reply.status(404).send({ message: 'La cuenta elegida no esta disponible para este rol' })
+
+    const user = await prisma.$transaction(async (transaction) => {
+      const updated = await transaction.user.update({
+        where: { id: current.id },
+        data: { role: 'ACCOUNT_ADMIN', canCreateBusinesses: true }
+      })
+      if (current.businessId) {
+        await transaction.business.update({
+          where: { id: current.businessId },
+          data: { accountAdminId: current.id }
+        })
       }
+      return updated
     })
     return publicUser(user)
   })
