@@ -105,10 +105,18 @@ function isPublicRoute(request: FastifyRequest) {
     || isTamaraSitePublicRoute(request, path)
     || path.startsWith('/public/booking/')
     || path.startsWith('/public/weex/')
+    || isWeexLeadCampaignPublicRoute(request.method, path)
     || isPublicLandingRoute(request.method, path)
     || path.startsWith('/auth/')
     || path.startsWith('/webhooks/whatsapp')
     || path.startsWith('/webhooks/instagram')
+}
+
+function isWeexLeadCampaignPublicRoute(method: string, path: string) {
+  if (!['GET', 'HEAD'].includes(method.toUpperCase())) return false
+  return path === '/promocion-weex-agosto-2026'
+    || path === '/promocion-weex-agosto-2026/'
+    || path === '/promocion-weex-agosto-2026/gracias'
 }
 
 function isTamaraSitePublicRoute(request: FastifyRequest, path: string) {
