@@ -1204,8 +1204,23 @@ function catalogLabelMatchScore(messageTokens: string[], labelTokens: string[]) 
 function catalogTokensMatch(left: string, right: string) {
   if (left === right) return true
   if (singularCatalogToken(left) === singularCatalogToken(right)) return true
+  if (catalogTokenConcept(left) === catalogTokenConcept(right)) return true
   if (left.length < 4 || right.length < 4) return false
   return editDistanceAtMostOne(left, right)
+}
+
+function catalogTokenConcept(token: string) {
+  const singular = singularCatalogToken(token)
+  if ([
+    'iluminacion',
+    'mecha',
+    'reflejo',
+    'clarito',
+    'highlight'
+  ].includes(singular)) {
+    return 'iluminacion'
+  }
+  return singular
 }
 
 function singularCatalogToken(token: string) {

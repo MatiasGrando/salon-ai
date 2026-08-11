@@ -13,6 +13,7 @@ import type {
   BookingField,
   BookingFlowOrder,
   BookingV2AgendaItem,
+  BookingV2PendingInformationSelection,
   BookingV2PendingRequest,
   BookingV2State
 } from './booking-v2-state.js'
@@ -1187,7 +1188,7 @@ export class ConversationService {
     routing: ConversationRouting
   }): Promise<HandleMessageResult> {
     const assistantPersonality = await getBusinessAssistantPersonality(input.businessId)
-    const storedInformationState = stateFromConversation(input.conversation)
+    let storedInformationState = stateFromConversation(input.conversation)
     if (storedInformationState.pendingCoordinatedAvailability?.phase === 'OPTION_SELECTED') {
       return this.handleCoordinatedBookingConfirmation({
         phone: input.phone,
@@ -1197,6 +1198,24 @@ export class ConversationService {
         state: storedInformationState,
         assistantPersonality
       })
+    }
+    if (shouldPrioritizeGuidedEstimateOptionReply(storedInformationState, input.message)) {
+      const estimated = await bookingV2Engine.process({
+        businessId: input.businessId,
+        conversation: conversationPatchFromState(storedInformationState),
+        message: input.message,
+        understandingExtraction: null
+      })
+      await this.updateConversation(input.phone, input.businessId, {
+        currentStep: conversationStepFromBookingV2Plan(estimated.plan),
+        ...estimated.conversationPatch,
+        lastAvailability: null
+      })
+      return {
+        reply: applyAssistantPersonalityToReply(estimated.reply, assistantPersonality),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
     }
     const quoteOnlyRequest = isQuoteOnlyRouting(input.routing, input.message)
     const priceInformationRequest = isPriceInformationRequest(input.routing)
@@ -1397,6 +1416,16 @@ export class ConversationService {
         }
       }
     }
+    if (pendingInformationSelection && hasExplicitBookingRequest(input.message)) {
+      storedInformationState = {
+        ...storedInformationState,
+        pendingInformationSelection: null
+      }
+      input.conversation = {
+        ...input.conversation,
+        ...conversationPatchFromState(storedInformationState)
+      }
+    }
     const depositInformationRequest = isDepositInformationRequest(input.message) ||
       hasGroundedDepositInformationIntent(input.routing, input.message)
     const informationTopics = businessInformationTopicsFromRouting(input.routing)
@@ -1472,7 +1501,12 @@ export class ConversationService {
       hasPendingCoordinatedAvailability: Boolean(storedInformationState.pendingCoordinatedAvailability),
       isPendingDeterministicDecision,
       hasProfessionalId: Boolean(professionalId),
-      informationTopicCount: informationTopics.length
+      informationTopicCount: informationTopics.length,
+      hasExplicitScheduleQuestion: isExplicitProfessionalScheduleQuestion(input.message),
+      hasPriorityPendingChoice: shouldPrioritizeGuidedEstimateOptionReply(
+        storedInformationState,
+        input.message
+      )
     })) {
       const scheduleReply = professionalId
         ? await this.professionalScheduleReply(input.businessId, professionalId)
@@ -1890,12 +1924,22 @@ export class ConversationService {
 
     if (informationReply && !input.routing.bookingMessage) {
       const candidateServiceIds = input.routing.catalogQuery?.candidateServiceIds ?? []
-      if (!input.routing.catalogQuery?.serviceId && candidateServiceIds.length > 1) {
+      const requestedPendingInformation = pendingInformationSelectionRequest(input.routing)
+      const pendingServiceIds = candidateServiceIds.length > 1
+        ? candidateServiceIds
+        : requestedPendingInformation
+          ? await this.informationSelectionServiceIds(input.businessId)
+          : []
+      if (
+        !input.routing.catalogQuery?.serviceId &&
+        requestedPendingInformation &&
+        pendingServiceIds.length
+      ) {
         const nextState: BookingV2State = {
           ...storedInformationState,
           pendingInformationSelection: {
-            serviceIds: candidateServiceIds,
-            requestedInformation: input.routing.catalogQuery.requestedInformation
+            serviceIds: pendingServiceIds,
+            requestedInformation: requestedPendingInformation
           }
         }
         await this.updateConversation(input.phone, input.businessId, {
@@ -2164,6 +2208,18 @@ export class ConversationService {
         labels: [service.name, ...service.aliases.map((alias) => alias.name)]
       }))
     )
+  }
+
+  private async informationSelectionServiceIds(businessId: string) {
+    const services = await prisma.service.findMany({
+      where: {
+        businessId,
+        isBookable: true
+      },
+      select: { id: true },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }]
+    })
+    return services.map((service) => service.id)
   }
 
   private async bookingV2MisunderstandingButtons(input: {
@@ -3982,11 +4038,56 @@ export function shouldHandleProfessionalScheduleInformation(input: {
   isPendingDeterministicDecision: boolean
   hasProfessionalId: boolean
   informationTopicCount: number
+  hasExplicitScheduleQuestion?: boolean
+  hasPriorityPendingChoice?: boolean
 }) {
   return input.hasProfessionalScheduleIntent &&
     !input.hasPendingCoordinatedAvailability &&
     !input.isPendingDeterministicDecision &&
-    (input.hasProfessionalId || input.informationTopicCount === 0)
+    !input.hasPriorityPendingChoice &&
+    (
+      input.hasProfessionalId ||
+      (
+        input.hasExplicitScheduleQuestion === true &&
+        input.informationTopicCount === 0
+      )
+    )
+}
+
+export function isExplicitProfessionalScheduleQuestion(message: string) {
+  const normalizedMessage = normalizeText(message)
+  return /\b(?:horario|horarios|dia|dias|cuando|disponibilidad)\b/.test(normalizedMessage) &&
+    /\b(?:profesional|atiende|atender|trabaja|trabajar|hace|tiene|puede|esta)\b/.test(normalizedMessage)
+}
+
+export function shouldPrioritizeGuidedEstimateOptionReply(
+  state: BookingV2State,
+  message: string
+) {
+  if (state.guidedEstimate?.stage !== 'awaiting_option') return false
+  const normalizedMessage = normalizeText(message)
+    .replace(/[^\p{Letter}\p{Number}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return /^(?:(?:opcion|numero|la)\s+)?[1-9](?:\s|$)/.test(normalizedMessage)
+}
+
+export function pendingInformationSelectionRequest(
+  routing: Pick<ConversationRouting, 'bookingMessage' | 'catalogQuery' | 'intents'>
+): BookingV2PendingInformationSelection['requestedInformation'] | null {
+  if (routing.bookingMessage || routing.catalogQuery?.serviceId) return null
+  if ((routing.catalogQuery?.candidateServiceIds?.length ?? 0) > 1) {
+    return routing.catalogQuery?.requestedInformation ?? null
+  }
+  const topics = routing.intents
+    .filter((intent) =>
+      intent.type === 'business_information' &&
+      intent.confidence >= 0.65
+    )
+    .map((intent) => intent.topic)
+  if (topics.includes('prices')) return ['price']
+  if (topics.includes('services')) return ['general']
+  return null
 }
 
 export function isBookingV2ConversationClosing(

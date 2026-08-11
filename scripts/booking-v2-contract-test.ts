@@ -43,7 +43,8 @@ import {
   isQuoteOnlyRouting,
   isDepositInformationRequest,
   mergeConversationRouting,
-  normalizeConversationRouting
+  normalizeConversationRouting,
+  type ConversationRouting
 } from '../src/services/conversation-router.js'
 import {
   renderBusinessKnowledgeAnswers,
@@ -60,14 +61,18 @@ import {
   isBookingV2ConversationClosing,
   isBookingV2GreetingOnlyMessage,
   isBookingV2InitialGreeting,
+  isExplicitProfessionalScheduleQuestion,
   isGroundedUnsupportedServiceRequest,
   isMyAppointmentsMessage,
   isPendingServiceVerificationSelection,
   isPostBookingWellbeingQuestion,
   mergeBookingV2AgendaFromRouting,
   pendingRequestFromRouting,
+  pendingInformationSelectionRequest,
   resolvePendingInformationSelectionFromLabels,
   splitWhatsAppReply,
+  shouldHandleProfessionalScheduleInformation,
+  shouldPrioritizeGuidedEstimateOptionReply,
   shouldShowBookingV2IntentFallback,
   shouldRouteBookingV2HumanHandoff,
   shouldResumeBookingV2AfterInformation,
@@ -119,6 +124,108 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(isMyAppointmentsMessage('2', 'START'), true)
       assert.equal(isMyAppointmentsMessage('2', 'START', { allowMenuShortcut: false }), false)
       assert.equal(isMyAppointmentsMessage('mis turnos', 'START', { allowMenuShortcut: false }), true)
+    }
+  },
+  {
+    name: 'la opción pendiente del estimativo prevalece sobre una falsa consulta profesional',
+    run: () => {
+      const bookingState = {
+        ...createEmptyBookingV2State(),
+        draft: {
+          name: 'Lucas',
+          service: 'highlights',
+          professional: null,
+          date: null,
+          time: null
+        },
+        guidedEstimate: {
+          serviceId: 'highlights',
+          stage: 'awaiting_option' as const,
+          optionId: null,
+          optionLabel: null,
+          priceMin: null,
+          priceMax: null
+        }
+      }
+      const quoteState = {
+        ...bookingState,
+        draft: { ...bookingState.draft, name: null },
+        quoteOnly: { mode: 'quote' as const, remainingServiceIds: [], estimates: [] }
+      }
+
+      for (const state of [bookingState, quoteState]) {
+        assert.equal(shouldPrioritizeGuidedEstimateOptionReply(state, '2'), true)
+        assert.equal(shouldPrioritizeGuidedEstimateOptionReply(state, 'Opción 2'), true)
+        assert.equal(shouldPrioritizeGuidedEstimateOptionReply(state, 'la 2'), true)
+        assert.equal(
+          shouldHandleProfessionalScheduleInformation({
+            hasProfessionalScheduleIntent: true,
+            hasPendingCoordinatedAvailability: false,
+            isPendingDeterministicDecision: false,
+            hasProfessionalId: true,
+            informationTopicCount: 0,
+            hasExplicitScheduleQuestion: false,
+            hasPriorityPendingChoice: true
+          }),
+          false
+        )
+      }
+
+      assert.equal(shouldPrioritizeGuidedEstimateOptionReply(bookingState, '¿Qué horarios tiene Tamara?'), false)
+      assert.equal(isExplicitProfessionalScheduleQuestion('¿Qué horarios tiene Tamara?'), true)
+      assert.equal(
+        shouldHandleProfessionalScheduleInformation({
+          hasProfessionalScheduleIntent: true,
+          hasPendingCoordinatedAvailability: false,
+          isPendingDeterministicDecision: false,
+          hasProfessionalId: true,
+          informationTopicCount: 0,
+          hasExplicitScheduleQuestion: true,
+          hasPriorityPendingChoice: false
+        }),
+        true
+      )
+    }
+  },
+  {
+    name: 'una consulta general conserva la próxima selección como informativa',
+    run: () => {
+      const genericPrices: ConversationRouting = {
+        source: 'deterministic',
+        intents: [{
+          type: 'business_information',
+          topic: 'prices',
+          confidence: 0.95,
+          evidence: 'cuánto salen los servicios'
+        }],
+        bookingMessage: null,
+        bookingExtraction: null,
+        catalogQuery: null
+      }
+      assert.deepEqual(pendingInformationSelectionRequest(genericPrices), ['price'])
+      assert.deepEqual(pendingInformationSelectionRequest({
+        ...genericPrices,
+        intents: [{
+          type: 'business_information',
+          topic: 'services',
+          confidence: 0.95,
+          evidence: 'qué servicios tienen'
+        }]
+      }), ['general'])
+      assert.equal(pendingInformationSelectionRequest({
+        ...genericPrices,
+        catalogQuery: {
+          serviceId: 'highlights',
+          candidateServiceIds: ['highlights'],
+          requestedInformation: ['price'],
+          confidence: 0.95,
+          evidence: 'iluminación'
+        }
+      }), null)
+      assert.equal(pendingInformationSelectionRequest({
+        ...genericPrices,
+        bookingMessage: 'quiero reservar iluminación'
+      }), null)
     }
   },
   {
@@ -6270,6 +6377,36 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(routing.catalogQuery?.serviceId, 'session')
       assert.deepEqual(routing.catalogQuery?.requestedInformation, ['price'])
       assert.equal(routing.bookingMessage, null)
+    }
+  },
+  {
+    name: 'mechas y variantes identifican iluminación como consulta de precio',
+    run: () => {
+      const catalog = {
+        services: [
+          {
+            id: 'highlights',
+            name: 'Iluminación (baby lights, balayage, contouring, etc)',
+            aliases: []
+          },
+          { id: 'full-color', name: 'Tintura completo', aliases: [] }
+        ],
+        professionals: []
+      }
+      for (const message of [
+        '¿Cuánto sale hacerse mechas?',
+        'precio de los reflejos',
+        'cuánto cuestan los claritos',
+        'precio de highlights'
+      ]) {
+        const routing = deterministicConversationRouting(message, {
+          currentStep: 'START',
+          catalog
+        })
+        assert.equal(routing.catalogQuery?.serviceId, 'highlights', message)
+        assert.deepEqual(routing.catalogQuery?.requestedInformation, ['price'], message)
+        assert.equal(routing.bookingMessage, null, message)
+      }
     }
   },
   {
