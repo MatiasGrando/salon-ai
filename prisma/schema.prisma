@@ -126,6 +126,7 @@ enum ServiceVariantSelectionMode {
 
 enum UserRole {
   SUPER_ADMIN
+  ACCOUNT_ADMIN
   BUSINESS_ADMIN
   STAFF
 }
@@ -158,6 +159,10 @@ model Business {
   featureSettings      BusinessFeatureSettings?
   botConfigurations    BusinessBotConfiguration[]
   paymentSettings      BusinessPaymentSettings?
+  accountAdminId       String?
+  accountAdmin         User?                      @relation("AccountAdminBusinesses", fields: [accountAdminId], references: [id], onDelete: SetNull)
+  createdByUserId      String?
+  createdByUser        User?                      @relation("CreatedBusinesses", fields: [createdByUserId], references: [id], onDelete: SetNull)
 
   professionals           Professional[]
   serviceCategories       ServiceCategory[]
@@ -184,22 +189,28 @@ model Business {
   bookingDeposits         BookingDeposit[]
 
   createdAt DateTime @default(now())
+
+  @@index([accountAdminId])
+  @@index([createdByUserId])
 }
 
 model User {
   id String @id @default(cuid())
 
-  email        String   @unique
-  name         String
-  passwordHash String
-  role         UserRole @default(BUSINESS_ADMIN)
-  isActive     Boolean  @default(true)
+  email               String   @unique
+  name                String
+  passwordHash        String
+  role                UserRole @default(BUSINESS_ADMIN)
+  isActive            Boolean  @default(true)
+  canCreateBusinesses Boolean  @default(false)
 
   businessId                 String?
   business                   Business?     @relation(fields: [businessId], references: [id], onDelete: SetNull)
   professionalId             String?
   professional               Professional? @relation(fields: [professionalId], references: [id], onDelete: SetNull)
   sessions                   UserSession[]
+  managedBusinesses          Business[]    @relation("AccountAdminBusinesses")
+  createdBusinesses          Business[]    @relation("CreatedBusinesses")
   canCreateAppointments      Boolean       @default(true)
   canEditAppointments        Boolean       @default(true)
   canCancelAppointments      Boolean       @default(true)

@@ -14,7 +14,7 @@ const RESERVED_SLUGS = new Set([
 ])
 
 export class BusinessService {
-  async create(name: string, requestedSlug?: string) {
+  async create(name: string, requestedSlug?: string, ownership?: { accountAdminId?: string | null; createdByUserId?: string | null }) {
     const slug = await this.resolveAvailableSlug(requestedSlug || name)
 
     for (let attempt = 0; attempt < 10; attempt += 1) {
@@ -27,6 +27,8 @@ export class BusinessService {
             customerCode,
             name,
             slug,
+            accountAdminId: ownership?.accountAdminId || null,
+            createdByUserId: ownership?.createdByUserId || null,
             whatsappConfig: {
               create: {}
             },

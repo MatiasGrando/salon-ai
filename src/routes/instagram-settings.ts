@@ -8,7 +8,7 @@ const instagramApi = new InstagramApi()
 export async function instagramSettingsRoutes(app: FastifyInstance) {
   app.get('/businesses/:id/instagram-settings', async (request, reply) => {
     const params = request.params as { id: string }
-    if (!canAccessBusiness(request, params.id)) return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
+    if (!await canAccessBusiness(request, params.id)) return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
     const business = await prisma.business.findUnique({
       where: { id: params.id },
       select: { id: true, publicWhatsapp: true, instagramConfig: true }
@@ -19,7 +19,7 @@ export async function instagramSettingsRoutes(app: FastifyInstance) {
 
   app.patch('/businesses/:id/instagram-settings', async (request, reply) => {
     const params = request.params as { id: string }
-    if (!canAccessBusiness(request, params.id)) return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
+    if (!await canAccessBusiness(request, params.id)) return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
     const body = request.body as {
       instagramAccountId?: string
       username?: string | null
@@ -79,7 +79,7 @@ export async function instagramSettingsRoutes(app: FastifyInstance) {
 
   app.post('/businesses/:id/instagram-settings/test', async (request, reply) => {
     const params = request.params as { id: string }
-    if (!canAccessBusiness(request, params.id)) return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
+    if (!await canAccessBusiness(request, params.id)) return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
     const settings = await prisma.businessInstagramConfig.findUnique({ where: { businessId: params.id } })
     if (!settings?.accessToken) return reply.status(409).send({ message: 'Instagram todavia no esta conectado.' })
     try {
@@ -139,9 +139,15 @@ function presentSettings(
   }
 }
 
-function canAccessBusiness(request: FastifyRequest, businessId: string) {
+async function canAccessBusiness(request: FastifyRequest, businessId: string) {
   const user = request.auth?.user
-  return Boolean(user && (user.role === 'SUPER_ADMIN' || user.businessId === businessId))
+  if (!user) return false
+  if (user.role === 'SUPER_ADMIN' || user.businessId === businessId) return true
+  if (user.role !== 'ACCOUNT_ADMIN') return false
+  return Boolean(await prisma.business.findFirst({
+    where: { id: businessId, accountAdminId: user.id },
+    select: { id: true }
+  }))
 }
 
 function normalizeText(value: unknown) {

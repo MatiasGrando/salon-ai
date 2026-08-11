@@ -18,7 +18,7 @@ export async function authGuard(app: FastifyInstance) {
     request.auth = auth
     injectUserBusinessId(request, auth)
     injectStaffAgendaScope(request, auth)
-    if (!canAccessRequestedBusiness(request, auth)) {
+    if (!await canAccessRequestedBusiness(request, auth)) {
       return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
     }
     if (!canStaffAccessRoute(auth.user, request.method, request.url)) {
@@ -64,7 +64,7 @@ function injectStaffAgendaScope(request: FastifyRequest, auth: AuthContext) {
 }
 
 function injectUserBusinessId(request: FastifyRequest, auth: AuthContext) {
-  if (auth.user.role === 'SUPER_ADMIN' || !auth.user.businessId) return
+  if (auth.user.role === 'SUPER_ADMIN' || auth.user.role === 'ACCOUNT_ADMIN' || !auth.user.businessId) return
   if (request.query && typeof request.query === 'object' && !('businessId' in request.query)) {
     ;(request.query as { businessId?: string }).businessId = auth.user.businessId
   }
@@ -73,15 +73,22 @@ function injectUserBusinessId(request: FastifyRequest, auth: AuthContext) {
   }
 }
 
-function canAccessRequestedBusiness(request: FastifyRequest, auth: AuthContext) {
+async function canAccessRequestedBusiness(request: FastifyRequest, auth: AuthContext) {
   if (auth.user.role === 'SUPER_ADMIN') return true
-  const allowedBusinessId = auth.user.businessId
-  if (!allowedBusinessId) return false
-
   const requestedBusinessIds = new Set<string>()
   collectBusinessId(request.params, requestedBusinessIds)
   collectBusinessId(request.query, requestedBusinessIds)
   collectBusinessId(request.body, requestedBusinessIds)
+
+  if (auth.user.role === 'ACCOUNT_ADMIN') {
+    if (requestedBusinessIds.size === 0) return true
+    const ownedCount = await prisma.business.count({
+      where: { id: { in: [...requestedBusinessIds] }, accountAdminId: auth.user.id }
+    })
+    return ownedCount === requestedBusinessIds.size
+  }
+  const allowedBusinessId = auth.user.businessId
+  if (!allowedBusinessId) return false
 
   if (requestedBusinessIds.size === 0) return true
   return [...requestedBusinessIds].every((businessId) => businessId === allowedBusinessId)

@@ -11,7 +11,7 @@ export type AuthUser = {
   id: string
   email: string
   name: string
-  role: 'SUPER_ADMIN' | 'BUSINESS_ADMIN' | 'STAFF'
+  role: 'SUPER_ADMIN' | 'ACCOUNT_ADMIN' | 'BUSINESS_ADMIN' | 'STAFF'
   businessId: string | null
   professionalId: string | null
   staffProfile: string
@@ -32,6 +32,7 @@ export type AuthUser = {
   canManageDeposits: boolean
   canViewOperationalReports: boolean
   canViewFinancialAmounts: boolean
+  canCreateBusinesses: boolean
 }
 
 export type AuthContext = {
@@ -112,7 +113,8 @@ export async function getAuthFromRequest(request: FastifyRequest): Promise<AuthC
       canReplyConversations: session.user.canReplyConversations,
       canManageDeposits: session.user.canManageDeposits,
       canViewOperationalReports: session.user.canViewOperationalReports,
-      canViewFinancialAmounts: session.user.canViewFinancialAmounts
+      canViewFinancialAmounts: session.user.canViewFinancialAmounts,
+      canCreateBusinesses: session.user.role === 'SUPER_ADMIN' || session.user.canCreateBusinesses
     }
   }
 }

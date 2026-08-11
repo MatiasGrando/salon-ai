@@ -64,13 +64,15 @@ export async function authRoutes(app: FastifyInstance) {
   app.post('/admin/businesses', async (request, reply) => {
     const auth = await getAuthFromRequest(request)
     if (!auth) return reply.status(401).send({ message: 'Necesitas iniciar sesion' })
-    if (auth.user.role !== 'SUPER_ADMIN') return reply.status(403).send({ message: 'Solo el super admin puede crear comercios' })
+    const canCreateBusiness = auth.user.role === 'SUPER_ADMIN' || auth.user.role === 'ACCOUNT_ADMIN' && auth.user.canCreateBusinesses
+    if (!canCreateBusiness) return reply.status(403).send({ message: 'No tenes permiso para crear comercios' })
 
     const body = request.body as {
       businessName?: string
       adminName?: string
       adminEmail?: string
       adminPassword?: string
+      accountAdminId?: string | null
     }
     const businessName = body.businessName?.trim()
     const adminName = body.adminName?.trim()
@@ -89,7 +91,20 @@ export async function authRoutes(app: FastifyInstance) {
 
     let business
     try {
-      business = await businessService.create(businessName)
+      const requestedAccountAdminId = auth.user.role === 'ACCOUNT_ADMIN'
+        ? auth.user.id
+        : body.accountAdminId?.trim() || null
+      if (requestedAccountAdminId) {
+        const accountAdmin = await prisma.user.findFirst({
+          where: { id: requestedAccountAdminId, role: 'ACCOUNT_ADMIN', isActive: true },
+          select: { id: true }
+        })
+        if (!accountAdmin) return reply.status(400).send({ message: 'El administrador de cuentas no es valido' })
+      }
+      business = await businessService.create(businessName, undefined, {
+        accountAdminId: requestedAccountAdminId,
+        createdByUserId: auth.user.id
+      })
     } catch {
       return reply.status(400).send({ message: 'No pude generar el subdominio para ese comercio' })
     }
@@ -108,13 +123,93 @@ export async function authRoutes(app: FastifyInstance) {
       user: publicUser(user)
     }
   })
+
+  app.get('/admin/account-admins', async (request, reply) => {
+    const auth = await getAuthFromRequest(request)
+    if (!auth) return reply.status(401).send({ message: 'Necesitas iniciar sesion' })
+    if (auth.user.role !== 'SUPER_ADMIN') return reply.status(403).send({ message: 'Solo el super admin puede administrar este rol' })
+
+    return prisma.user.findMany({
+      where: { role: 'ACCOUNT_ADMIN' },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        isActive: true,
+        canCreateBusinesses: true,
+        _count: { select: { managedBusinesses: true } }
+      },
+      orderBy: { name: 'asc' }
+    })
+  })
+
+  app.post('/admin/account-admins', async (request, reply) => {
+    const auth = await getAuthFromRequest(request)
+    if (!auth) return reply.status(401).send({ message: 'Necesitas iniciar sesion' })
+    if (auth.user.role !== 'SUPER_ADMIN') return reply.status(403).send({ message: 'Solo el super admin puede administrar este rol' })
+    const body = request.body as { name?: string; email?: string; password?: string; canCreateBusinesses?: boolean }
+    const name = body.name?.trim()
+    const email = body.email?.trim().toLowerCase()
+    const password = body.password?.trim() || ''
+    if (!name || !email || !password) return reply.status(400).send({ message: 'Completa nombre, email y contrasena' })
+    if (password.length < 8) return reply.status(400).send({ message: 'La contrasena debe tener al menos 8 caracteres' })
+    if (await prisma.user.findUnique({ where: { email } })) return reply.status(409).send({ message: 'Ya existe un usuario con ese email' })
+
+    const user = await prisma.user.create({
+      data: {
+        name,
+        email,
+        passwordHash: await hashPassword(password),
+        role: 'ACCOUNT_ADMIN',
+        canCreateBusinesses: body.canCreateBusinesses !== false
+      }
+    })
+    return publicUser(user)
+  })
+
+  app.patch('/admin/account-admins/:id', async (request, reply) => {
+    const auth = await getAuthFromRequest(request)
+    if (!auth) return reply.status(401).send({ message: 'Necesitas iniciar sesion' })
+    if (auth.user.role !== 'SUPER_ADMIN') return reply.status(403).send({ message: 'Solo el super admin puede administrar este rol' })
+    const params = request.params as { id: string }
+    const body = request.body as {
+      name?: string
+      email?: string
+      password?: string
+      isActive?: boolean
+      canCreateBusinesses?: boolean
+    }
+    const current = await prisma.user.findFirst({ where: { id: params.id, role: 'ACCOUNT_ADMIN' } })
+    if (!current) return reply.status(404).send({ message: 'No encontre ese administrador de cuentas' })
+    const name = body.name === undefined ? undefined : body.name.trim()
+    const email = body.email === undefined ? undefined : body.email.trim().toLowerCase()
+    const password = body.password?.trim()
+    if (name === '' || email === '') return reply.status(400).send({ message: 'Nombre y email no pueden quedar vacios' })
+    if (password !== undefined && password.length < 8) return reply.status(400).send({ message: 'La contrasena debe tener al menos 8 caracteres' })
+    if (email && email !== current.email && await prisma.user.findUnique({ where: { email } })) {
+      return reply.status(409).send({ message: 'Ya existe un usuario con ese email' })
+    }
+
+    const user = await prisma.user.update({
+      where: { id: current.id },
+      data: {
+        ...(name !== undefined ? { name } : {}),
+        ...(email !== undefined ? { email } : {}),
+        ...(password !== undefined ? { passwordHash: await hashPassword(password) } : {}),
+        ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+        ...(body.canCreateBusinesses !== undefined ? { canCreateBusinesses: body.canCreateBusinesses } : {})
+      }
+    })
+    return publicUser(user)
+  })
 }
 
 function publicUser(user: {
   id: string
   email: string
   name: string
-  role: 'SUPER_ADMIN' | 'BUSINESS_ADMIN' | 'STAFF'
+  role: 'SUPER_ADMIN' | 'ACCOUNT_ADMIN' | 'BUSINESS_ADMIN' | 'STAFF'
   businessId: string | null
   professionalId?: string | null
   professional?: { id: string; name: string } | null
@@ -136,6 +231,7 @@ function publicUser(user: {
   canManageDeposits?: boolean
   canViewOperationalReports?: boolean
   canViewFinancialAmounts?: boolean
+  canCreateBusinesses?: boolean
 }) {
   return {
     id: user.id,
@@ -162,6 +258,7 @@ function publicUser(user: {
     canReplyConversations: user.role === 'STAFF' ? user.canReplyConversations === true : true,
     canManageDeposits: user.role === 'STAFF' ? user.canManageDeposits === true : true,
     canViewOperationalReports: user.role === 'STAFF' ? user.canViewOperationalReports === true : true,
-    canViewFinancialAmounts: user.role === 'STAFF' ? user.canViewFinancialAmounts === true : true
+    canViewFinancialAmounts: user.role === 'STAFF' ? user.canViewFinancialAmounts === true : true,
+    canCreateBusinesses: user.role === 'SUPER_ADMIN' || user.role === 'ACCOUNT_ADMIN' && user.canCreateBusinesses === true
   }
 }

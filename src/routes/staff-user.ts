@@ -66,7 +66,7 @@ export async function staffUserRoutes(app: FastifyInstance) {
     const body = request.body as StaffBody
     const existing = await prisma.user.findFirst({ where: { id: params.id, role: 'STAFF' } })
     if (!existing) return reply.status(404).send({ message: 'No encontre esa cuenta staff' })
-    if (!canAccessBusiness(request.auth, existing.businessId)) return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
+    if (!await canAccessBusiness(request.auth, existing.businessId)) return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
     if (!existing.businessId) return reply.status(400).send({ message: 'La cuenta staff no tiene comercio asignado' })
 
     const resolved = resolveStaffPermissions({
@@ -116,7 +116,7 @@ export async function staffUserRoutes(app: FastifyInstance) {
     const params = request.params as { id: string }
     const existing = await prisma.user.findFirst({ where: { id: params.id, role: 'STAFF' } })
     if (!existing) return reply.status(404).send({ message: 'No encontre esa cuenta staff' })
-    if (!canAccessBusiness(request.auth, existing.businessId)) return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
+    if (!await canAccessBusiness(request.auth, existing.businessId)) return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
     if (!existing.businessId) return reply.status(400).send({ message: 'La cuenta staff no tiene comercio asignado' })
     await prisma.user.delete({ where: { id: existing.id } })
     return listStaffUsers(existing.businessId)
@@ -161,15 +161,21 @@ export async function validateStaffPayload(input: {
 }
 
 function resolveBusinessId(request: { auth?: { user: { role: string; businessId: string | null } }, query?: unknown }, explicitBusinessId?: string) {
-  if (request.auth?.user.role !== 'SUPER_ADMIN') return request.auth?.user.businessId || null
+  if (!['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(request.auth?.user.role || '')) return request.auth?.user.businessId || null
   const query = request.query as { businessId?: string } | undefined
   return explicitBusinessId?.trim() || query?.businessId?.trim() || null
 }
 
 function canManageStaffUsers(auth: { user: { role: string; businessId: string | null } } | undefined) {
-  return auth?.user.role === 'SUPER_ADMIN' || auth?.user.role === 'BUSINESS_ADMIN'
+  return auth?.user.role === 'SUPER_ADMIN' || auth?.user.role === 'ACCOUNT_ADMIN' || auth?.user.role === 'BUSINESS_ADMIN'
 }
 
-function canAccessBusiness(auth: { user: { role: string; businessId: string | null } } | undefined, businessId?: string | null) {
-  return Boolean(auth && businessId && (auth.user.role === 'SUPER_ADMIN' || auth.user.businessId === businessId))
+async function canAccessBusiness(auth: { user: { id: string; role: string; businessId: string | null } } | undefined, businessId?: string | null) {
+  if (!auth || !businessId) return false
+  if (auth.user.role === 'SUPER_ADMIN' || auth.user.businessId === businessId) return true
+  if (auth.user.role !== 'ACCOUNT_ADMIN') return false
+  return Boolean(await prisma.business.findFirst({
+    where: { id: businessId, accountAdminId: auth.user.id },
+    select: { id: true }
+  }))
 }

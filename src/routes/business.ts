@@ -11,8 +11,8 @@ const LANDING_TEMPLATES = new Set(['classic', 'editorial', 'salon-white'])
 export async function businessRoutes(app: FastifyInstance) {
 
   app.post('/businesses', async (request, reply) => {
-    if (!request.auth || request.auth.user.role !== 'SUPER_ADMIN') {
-      return reply.status(403).send({ message: 'Solo el super admin puede crear comercios' })
+    if (!request.auth || request.auth.user.role !== 'SUPER_ADMIN' && !(request.auth.user.role === 'ACCOUNT_ADMIN' && request.auth.user.canCreateBusinesses)) {
+      return reply.status(403).send({ message: 'No tenes permiso para crear comercios' })
     }
 
     const body = request.body as {
@@ -21,7 +21,10 @@ export async function businessRoutes(app: FastifyInstance) {
     }
 
     try {
-      return await service.create(body.name, body.slug)
+      return await service.create(body.name, body.slug, {
+        accountAdminId: request.auth.user.role === 'ACCOUNT_ADMIN' ? request.auth.user.id : null,
+        createdByUserId: request.auth.user.id
+      })
     } catch (error) {
       return reply.status(400).send({ message: businessSlugErrorMessage(error) })
     }
@@ -31,6 +34,15 @@ export async function businessRoutes(app: FastifyInstance) {
     if (!request.auth) return reply.status(401).send({ message: 'Necesitas iniciar sesion' })
     const query = request.query as { q?: string }
     if (request.auth.user.role === 'SUPER_ADMIN') return service.findAll(query.q)
+    if (request.auth.user.role === 'ACCOUNT_ADMIN') {
+      return prisma.business.findMany({
+        where: {
+          accountAdminId: request.auth.user.id,
+          ...(query.q?.trim() ? { name: { contains: query.q.trim(), mode: 'insensitive' } } : {})
+        },
+        orderBy: { name: 'asc' }
+      })
+    }
     if (!request.auth.user.businessId) return []
     const business = await prisma.business.findUnique({ where: { id: request.auth.user.businessId } })
     return business ? [business] : []
@@ -38,7 +50,7 @@ export async function businessRoutes(app: FastifyInstance) {
 
   app.get('/businesses/:id/payment-settings', async (request, reply) => {
     const params = request.params as { id: string }
-    if (!canAccessBusiness(request.auth, params.id)) {
+    if (!await canAccessBusiness(request.auth, params.id)) {
       return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
     }
     const business = await prisma.business.findUnique({ where: { id: params.id }, select: { id: true } })
@@ -55,7 +67,7 @@ export async function businessRoutes(app: FastifyInstance) {
     if (request.auth?.user.role === 'STAFF') {
       return reply.status(403).send({ message: 'No tenes permiso para modificar medios de pago' })
     }
-    if (!canAccessBusiness(request.auth, params.id)) {
+    if (!await canAccessBusiness(request.auth, params.id)) {
       return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
     }
     const body = request.body as {
@@ -135,7 +147,7 @@ export async function businessRoutes(app: FastifyInstance) {
     const params = request.params as {
       id: string
     }
-    if (!canAccessBusiness(request.auth, params.id)) {
+    if (!await canAccessBusiness(request.auth, params.id)) {
       return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
     }
     const body = request.body as {
@@ -304,7 +316,7 @@ export async function businessRoutes(app: FastifyInstance) {
 
   app.get('/businesses/:id/whatsapp-settings', async (request, reply) => {
     const params = request.params as { id: string }
-    if (!canAccessBusiness(request.auth, params.id)) {
+    if (!await canAccessBusiness(request.auth, params.id)) {
       return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
     }
     const business = await prisma.business.findUnique({ where: { id: params.id }, select: { id: true } })
@@ -315,7 +327,7 @@ export async function businessRoutes(app: FastifyInstance) {
 
   app.get('/businesses/:id/whatsapp-embedded-signup-config', async (request, reply) => {
     const params = request.params as { id: string }
-    if (!canAccessBusiness(request.auth, params.id)) {
+    if (!await canAccessBusiness(request.auth, params.id)) {
       return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
     }
     const business = await prisma.business.findUnique({ where: { id: params.id }, select: { id: true } })
@@ -341,7 +353,7 @@ export async function businessRoutes(app: FastifyInstance) {
 
   app.patch('/businesses/:id/whatsapp-settings', async (request, reply) => {
     const params = request.params as { id: string }
-    if (!canAccessBusiness(request.auth, params.id)) {
+    if (!await canAccessBusiness(request.auth, params.id)) {
       return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
     }
     const body = request.body as {
@@ -454,7 +466,7 @@ export async function businessRoutes(app: FastifyInstance) {
 
   app.post('/businesses/:id/whatsapp/embedded-signup-callback', async (request, reply) => {
     const params = request.params as { id: string }
-    if (!canAccessBusiness(request.auth, params.id)) {
+    if (!await canAccessBusiness(request.auth, params.id)) {
       return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
     }
     const body = request.body as {
@@ -784,8 +796,14 @@ function businessSlugErrorMessage(error: unknown) {
   return message || 'No pude guardar el subdominio'
 }
 
-function canAccessBusiness(auth: AuthContext | undefined, businessId: string) {
+async function canAccessBusiness(auth: AuthContext | undefined, businessId: string) {
   if (!auth) return false
   if (auth.user.role === 'SUPER_ADMIN') return true
+  if (auth.user.role === 'ACCOUNT_ADMIN') {
+    return Boolean(await prisma.business.findFirst({
+      where: { id: businessId, accountAdminId: auth.user.id },
+      select: { id: true }
+    }))
+  }
   return auth.user.businessId === businessId
 }

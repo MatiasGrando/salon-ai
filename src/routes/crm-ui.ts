@@ -6560,6 +6560,34 @@ const crmHtml = `<!doctype html>
       font-weight: 800;
     }
 
+    .account-admin-management {
+      margin-top: 28px;
+      padding-top: 24px;
+      border-top: 1px solid #dfe6f1;
+    }
+
+    .account-admin-list {
+      margin-top: 18px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .account-admin-card {
+      padding: 14px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      border: 1px solid #dfe6f1;
+      border-radius: 9px;
+      background: #f8fbff;
+    }
+
+    .account-admin-card strong,
+    .account-admin-card span { display: block; }
+    .account-admin-card span { margin-top: 4px; color: #52617f; font-size: 12px; }
+    .account-admin-card button { min-height: 36px; padding: 0 14px; border: 1px solid #bfdbfe; border-radius: 8px; color: #1d4ed8; background: #fff; font-weight: 750; }
+
     .whatsapp-settings-grid {
       margin-top: 20px;
       display: grid;
@@ -14287,9 +14315,46 @@ const crmHtml = `<!doctype html>
               <label for="admin-user-password">Contrase&ntilde;a inicial</label>
               <input class="field" id="admin-user-password" type="password" autocomplete="new-password">
             </div>
+            <div class="settings-field full" id="admin-business-owner-field">
+              <label for="admin-business-owner">Administrador de cuentas responsable</label>
+              <select class="field" id="admin-business-owner">
+                <option value="">Sin asignar</option>
+              </select>
+            </div>
             <button class="full" id="admin-create-business-submit" type="submit">Crear comercio</button>
           </form>
           <p class="settings-feedback" id="admin-create-business-feedback" role="status" aria-live="polite"></p>
+
+          <div class="account-admin-management" id="account-admin-management">
+            <h3>Administradores de cuentas</h3>
+            <p>Cre&aacute;, edit&aacute; o desactiv&aacute; el rol que puede dar de alta nuevos locales.</p>
+            <form class="admin-create-form" id="account-admin-form">
+              <input id="account-admin-id" type="hidden">
+              <div class="settings-field">
+                <label for="account-admin-name">Nombre</label>
+                <input class="field" id="account-admin-name" autocomplete="name">
+              </div>
+              <div class="settings-field">
+                <label for="account-admin-email">Email de acceso</label>
+                <input class="field" id="account-admin-email" type="email" autocomplete="email">
+              </div>
+              <div class="settings-field">
+                <label for="account-admin-password">Contrase&ntilde;a</label>
+                <input class="field" id="account-admin-password" type="password" autocomplete="new-password" placeholder="M&iacute;nimo 8 caracteres">
+              </div>
+              <div class="settings-field">
+                <label for="account-admin-status">Estado</label>
+                <select class="field" id="account-admin-status"><option value="active">Activo</option><option value="inactive">Inactivo</option></select>
+              </div>
+              <label class="settings-check full"><input id="account-admin-can-create" type="checkbox" checked> Puede crear nuevos locales</label>
+              <div class="settings-actions full">
+                <button class="secondary" id="account-admin-cancel" type="button" hidden>Cancelar edici&oacute;n</button>
+                <button class="primary" id="account-admin-submit" type="submit">Crear administrador</button>
+              </div>
+            </form>
+            <p class="settings-feedback" id="account-admin-feedback" role="status" aria-live="polite"></p>
+            <div class="account-admin-list" id="account-admin-list"></div>
+          </div>
         </section>
 
         <section class="settings-panel" id="staff-accounts-panel" data-settings-panel="staff" hidden>
@@ -15308,6 +15373,7 @@ const crmHtml = `<!doctype html>
       appointmentCustomerSearchRequest: 0,
       appointmentCustomerResultsData: [],
       businesses: [],
+      accountAdmins: [],
       customerOverview: [],
       currentUser: null,
       currentSessionBusiness: null,
@@ -16109,11 +16175,25 @@ const crmHtml = `<!doctype html>
       superAdminPanel: document.getElementById('super-admin-panel'),
       adminCreateBusinessForm: document.getElementById('admin-create-business-form'),
       adminBusinessName: document.getElementById('admin-business-name'),
+      adminBusinessOwnerField: document.getElementById('admin-business-owner-field'),
+      adminBusinessOwner: document.getElementById('admin-business-owner'),
       adminUserName: document.getElementById('admin-user-name'),
       adminUserEmail: document.getElementById('admin-user-email'),
       adminUserPassword: document.getElementById('admin-user-password'),
       adminCreateBusinessSubmit: document.getElementById('admin-create-business-submit'),
-      adminCreateBusinessFeedback: document.getElementById('admin-create-business-feedback')
+      adminCreateBusinessFeedback: document.getElementById('admin-create-business-feedback'),
+      accountAdminManagement: document.getElementById('account-admin-management'),
+      accountAdminForm: document.getElementById('account-admin-form'),
+      accountAdminId: document.getElementById('account-admin-id'),
+      accountAdminName: document.getElementById('account-admin-name'),
+      accountAdminEmail: document.getElementById('account-admin-email'),
+      accountAdminPassword: document.getElementById('account-admin-password'),
+      accountAdminStatus: document.getElementById('account-admin-status'),
+      accountAdminCanCreate: document.getElementById('account-admin-can-create'),
+      accountAdminCancel: document.getElementById('account-admin-cancel'),
+      accountAdminSubmit: document.getElementById('account-admin-submit'),
+      accountAdminFeedback: document.getElementById('account-admin-feedback'),
+      accountAdminList: document.getElementById('account-admin-list')
     }
 
     function initials(phone) {
@@ -16437,8 +16517,12 @@ const crmHtml = `<!doctype html>
 
     function renderAuthUi() {
       if (els.superAdminPanel) {
-        els.superAdminPanel.hidden = state.settingsView !== 'commerce' || state.currentUser?.role !== 'SUPER_ADMIN'
+        const canCreateBusinesses = state.currentUser?.role === 'SUPER_ADMIN' || state.currentUser?.role === 'ACCOUNT_ADMIN' && state.currentUser?.canCreateBusinesses
+        els.superAdminPanel.hidden = state.settingsView !== 'commerce' || !canCreateBusinesses
       }
+      if (els.accountAdminManagement) els.accountAdminManagement.hidden = state.currentUser?.role !== 'SUPER_ADMIN'
+      if (els.adminBusinessOwnerField) els.adminBusinessOwnerField.hidden = state.currentUser?.role !== 'SUPER_ADMIN'
+      renderAccountAdmins()
       renderSupportBusinessSwitcher()
       if (els.staffAccountsPanel) {
         els.staffAccountsPanel.hidden = state.settingsView !== 'staff' || !canManageStaffUsers()
@@ -16453,10 +16537,10 @@ const crmHtml = `<!doctype html>
 
     function renderSupportBusinessSwitcher() {
       if (!els.supportBusinessSwitcher || !els.supportBusinessSelect) return
-      const isSuperAdmin = state.currentUser?.role === 'SUPER_ADMIN'
-      els.supportBusinessSwitcher.hidden = !isSuperAdmin
-      els.supportBusinessSwitcher.classList.toggle('visible', isSuperAdmin)
-      if (!isSuperAdmin) return
+      const canSwitchBusinesses = state.currentUser?.role === 'SUPER_ADMIN' || state.currentUser?.role === 'ACCOUNT_ADMIN'
+      els.supportBusinessSwitcher.hidden = !canSwitchBusinesses
+      els.supportBusinessSwitcher.classList.toggle('visible', canSwitchBusinesses)
+      if (!canSwitchBusinesses) return
 
       els.supportBusinessSelect.innerHTML = state.businesses.map((business) => {
         const customerCode = business.customerCode ? ' · ' + business.customerCode : ''
@@ -16466,7 +16550,7 @@ const crmHtml = `<!doctype html>
     }
 
     function canManageStaffUsers() {
-      return state.currentUser?.role === 'SUPER_ADMIN' || state.currentUser?.role === 'BUSINESS_ADMIN'
+      return state.currentUser?.role === 'SUPER_ADMIN' || state.currentUser?.role === 'ACCOUNT_ADMIN' || state.currentUser?.role === 'BUSINESS_ADMIN'
     }
 
     function hasAgendaPermission(permission) {
@@ -16516,7 +16600,8 @@ const crmHtml = `<!doctype html>
             businessName: els.adminBusinessName.value.trim(),
             adminName: els.adminUserName.value.trim(),
             adminEmail: els.adminUserEmail.value.trim(),
-            adminPassword: els.adminUserPassword.value
+            adminPassword: els.adminUserPassword.value,
+            accountAdminId: state.currentUser?.role === 'SUPER_ADMIN' ? els.adminBusinessOwner.value || null : undefined
           })
         })
         els.adminCreateBusinessForm.reset()
@@ -16528,6 +16613,90 @@ const crmHtml = `<!doctype html>
         els.adminCreateBusinessFeedback.className = 'settings-feedback visible error'
       } finally {
         setButtonLoading(els.adminCreateBusinessSubmit, false)
+      }
+    }
+
+    async function loadAccountAdmins() {
+      state.accountAdmins = state.currentUser?.role === 'SUPER_ADMIN'
+        ? await getJson('/admin/account-admins')
+        : []
+    }
+
+    function renderAccountAdmins() {
+      if (!els.accountAdminList || !els.adminBusinessOwner) return
+      const activeAdmins = state.accountAdmins.filter((user) => user.isActive)
+      const selectedOwner = els.adminBusinessOwner.value
+      els.adminBusinessOwner.innerHTML = '<option value="">Sin asignar</option>' + activeAdmins.map((user) =>
+        '<option value="' + escapeHtml(user.id) + '">' + escapeHtml(user.name + ' · ' + user.email) + '</option>'
+      ).join('')
+      if (activeAdmins.some((user) => user.id === selectedOwner)) els.adminBusinessOwner.value = selectedOwner
+      els.accountAdminList.innerHTML = state.accountAdmins.length
+        ? state.accountAdmins.map((user) =>
+            '<article class="account-admin-card">' +
+              '<div><strong>' + escapeHtml(user.name) + '</strong><span>' + escapeHtml(user.email) + ' · ' +
+                (user.isActive ? 'Activo' : 'Inactivo') + ' · ' +
+                (user.canCreateBusinesses ? 'Puede crear locales' : 'Sin permiso de alta') + ' · ' +
+                String(user._count?.managedBusinesses || 0) + ' locales</span></div>' +
+              '<button type="button" data-edit-account-admin="' + escapeHtml(user.id) + '">Editar</button>' +
+            '</article>'
+          ).join('')
+        : '<div class="empty">Todav&iacute;a no hay administradores de cuentas.</div>'
+    }
+
+    function resetAccountAdminForm() {
+      els.accountAdminForm?.reset()
+      els.accountAdminId.value = ''
+      els.accountAdminStatus.value = 'active'
+      els.accountAdminCanCreate.checked = true
+      els.accountAdminPassword.placeholder = 'Mínimo 8 caracteres'
+      els.accountAdminSubmit.textContent = 'Crear administrador'
+      els.accountAdminCancel.hidden = true
+      els.accountAdminFeedback.className = 'settings-feedback'
+      els.accountAdminFeedback.textContent = ''
+    }
+
+    function editAccountAdmin(id) {
+      const user = state.accountAdmins.find((item) => item.id === id)
+      if (!user) return
+      els.accountAdminId.value = user.id
+      els.accountAdminName.value = user.name
+      els.accountAdminEmail.value = user.email
+      els.accountAdminPassword.value = ''
+      els.accountAdminPassword.placeholder = 'Dejar vacío para mantenerla'
+      els.accountAdminStatus.value = user.isActive ? 'active' : 'inactive'
+      els.accountAdminCanCreate.checked = user.canCreateBusinesses
+      els.accountAdminSubmit.textContent = 'Guardar cambios'
+      els.accountAdminCancel.hidden = false
+      els.accountAdminName.focus()
+    }
+
+    async function saveAccountAdmin(event) {
+      event.preventDefault()
+      const id = els.accountAdminId.value
+      if (!setButtonLoading(els.accountAdminSubmit, true, id ? 'Guardando...' : 'Creando...')) return
+      try {
+        const payload = {
+          name: els.accountAdminName.value.trim(),
+          email: els.accountAdminEmail.value.trim(),
+          password: els.accountAdminPassword.value || undefined,
+          isActive: els.accountAdminStatus.value === 'active',
+          canCreateBusinesses: els.accountAdminCanCreate.checked
+        }
+        await getJson(id ? '/admin/account-admins/' + encodeURIComponent(id) : '/admin/account-admins', {
+          method: id ? 'PATCH' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        })
+        await loadAccountAdmins()
+        resetAccountAdminForm()
+        renderAccountAdmins()
+        els.accountAdminFeedback.textContent = id ? 'Administrador actualizado.' : 'Administrador creado.'
+        els.accountAdminFeedback.className = 'settings-feedback visible success'
+      } catch (error) {
+        els.accountAdminFeedback.textContent = error.message
+        els.accountAdminFeedback.className = 'settings-feedback visible error'
+      } finally {
+        setButtonLoading(els.accountAdminSubmit, false)
       }
     }
 
@@ -16816,6 +16985,7 @@ const crmHtml = `<!doctype html>
 
     async function loadBasics() {
       hydrateWorkspaceNav()
+      await loadAccountAdmins()
       const businesses = await getJson('/businesses')
       state.businesses = businesses
       state.business = state.currentSessionBusiness || businesses[0] || null
@@ -16868,7 +17038,7 @@ const crmHtml = `<!doctype html>
     }
 
     async function switchSupportBusiness(businessId) {
-      if (state.currentUser?.role !== 'SUPER_ADMIN' || !businessId || businessId === state.businessId) return
+      if (!['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(state.currentUser?.role) || !businessId || businessId === state.businessId) return
       const nextBusiness = state.businesses.find((business) => business.id === businessId)
       if (!nextBusiness) return
       state.business = nextBusiness
@@ -20794,7 +20964,9 @@ const crmHtml = `<!doctype html>
 
       if (brandName) brandName.textContent = name
       if (adminName) adminName.textContent = state.currentUser?.name || name
-      if (adminRole) adminRole.textContent = state.currentUser?.role === 'SUPER_ADMIN' ? 'Super admin' : 'Administrador'
+      if (adminRole) adminRole.textContent = state.currentUser?.role === 'SUPER_ADMIN'
+        ? 'Super admin'
+        : state.currentUser?.role === 'ACCOUNT_ADMIN' ? 'Administrador de cuentas' : 'Administrador'
       if (brandMark) {
         brandMark.innerHTML = logoUrl
           ? '<img src="' + escapeHtml(logoUrl) + '" alt="">'
@@ -26579,6 +26751,12 @@ const crmHtml = `<!doctype html>
     els.loginForm.addEventListener('submit', loginToCrm)
     bindLogoutButton()
     els.adminCreateBusinessForm.addEventListener('submit', createAdminBusiness)
+    els.accountAdminForm?.addEventListener('submit', saveAccountAdmin)
+    els.accountAdminCancel?.addEventListener('click', resetAccountAdminForm)
+    els.accountAdminList?.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-edit-account-admin]')
+      if (button) editAccountAdmin(button.dataset.editAccountAdmin)
+    })
     els.businessLogo.addEventListener('change', readBusinessLogo)
     els.businessLogoRemove.addEventListener('click', () => {
       clearBusinessSettingsFeedback()
