@@ -1211,15 +1211,6 @@ function catalogTokensMatch(left: string, right: string) {
 
 function catalogTokenConcept(token: string) {
   const singular = singularCatalogToken(token)
-  if ([
-    'iluminacion',
-    'mecha',
-    'reflejo',
-    'clarito',
-    'highlight'
-  ].includes(singular)) {
-    return 'iluminacion'
-  }
   return singular
 }
 

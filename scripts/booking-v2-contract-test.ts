@@ -6380,7 +6380,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
-    name: 'mechas y variantes identifican iluminación como consulta de precio',
+    name: 'mechas y variantes no se convierten automáticamente en iluminación',
     run: () => {
       const catalog = {
         services: [
@@ -6403,10 +6403,14 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           currentStep: 'START',
           catalog
         })
-        assert.equal(routing.catalogQuery?.serviceId, 'highlights', message)
-        assert.deepEqual(routing.catalogQuery?.requestedInformation, ['price'], message)
+        assert.equal(routing.catalogQuery, null, message)
         assert.equal(routing.bookingMessage, null, message)
       }
+      const priceRouting = deterministicConversationRouting('¿Cuánto sale hacerse mechas?', {
+        currentStep: 'START',
+        catalog
+      })
+      assert.deepEqual(businessInformationTopicsFromRouting(priceRouting), ['prices'])
     }
   },
   {
