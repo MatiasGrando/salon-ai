@@ -20,7 +20,10 @@ import {
   conversationPatchFromState,
   stateFromConversation
 } from '../src/services/booking-v2-conversation-state.js'
-import { BookingV2Engine } from '../src/services/booking-v2-engine.js'
+import {
+  BookingV2Engine,
+  isDeterministicBookingContinuationMessage
+} from '../src/services/booking-v2-engine.js'
 import { BookingV2EstimateDecisionExtractor } from '../src/services/booking-v2-estimate-decision-extractor.js'
 import { BookingV2ServiceValidationClassifier } from '../src/services/booking-v2-service-validation.js'
 import { detectDeterministicConfirmation } from '../src/services/conversation-confirmation-intent.js'
@@ -106,6 +109,103 @@ import { conversationCompletionPatchFromAppointment } from '../src/services/conv
 import { reservationFitsAvailabilityWindow } from '../src/services/service-duration.js'
 
 const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
+  {
+    name: 'las selecciones inequívocas pueden evitar el router general',
+    run: async () => {
+      const engine = new BookingV2Engine(fakeDomainPort(), fakeExtractor(null))
+      let state = createEmptyBookingV2State()
+
+      assert.equal(await engine.canProcessWithoutGeneralRouter({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(state),
+        message: 'Lucas'
+      }), true)
+
+      state = acceptField(state, 'name', 'Lucas')
+      assert.equal(await engine.canProcessWithoutGeneralRouter({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(state),
+        message: 'Corte de pelo'
+      }), true)
+
+      state = acceptField(state, 'service', 'haircut')
+      assert.equal(await engine.canProcessWithoutGeneralRouter({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(state),
+        message: 'Nico'
+      }), true)
+
+      state = acceptField(state, 'professional', 'professional-1')
+      assert.equal(await engine.canProcessWithoutGeneralRouter({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(state),
+        message: 'mañana',
+        currentDate: new Date('2026-08-11T15:00:00.000Z')
+      }), true)
+
+      state = acceptField(state, 'date', '2026-08-12')
+      assert.equal(await engine.canProcessWithoutGeneralRouter({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(state),
+        message: 'a las 1500'
+      }), true)
+
+      const guidedCatalog = createBookingV2DomainCatalog({
+        services: [{
+          id: 'highlights',
+          name: 'Iluminación',
+          aliases: ['mechas'],
+          duration: 90,
+          price: null,
+          category: null,
+          attentionMode: 'GUIDED_ESTIMATE',
+          estimateOptions: [
+            { id: 'short', label: 'Cabello corto', priceMin: 20_000, priceMax: 25_000, note: null },
+            { id: 'long', label: 'Cabello largo', priceMin: 30_000, priceMax: 40_000, note: null }
+          ]
+        }],
+        professionals: []
+      })
+      const guidedEngine = new BookingV2Engine(
+        fakeDomainPort({ catalog: guidedCatalog }),
+        fakeExtractor(null)
+      )
+      const guidedState = {
+        ...createEmptyBookingV2State(),
+        draft: {
+          name: 'Lucas',
+          service: 'highlights',
+          professional: null,
+          date: null,
+          time: null
+        },
+        guidedEstimate: {
+          serviceId: 'highlights',
+          stage: 'awaiting_option' as const,
+          optionId: null,
+          optionLabel: null,
+          priceMin: null,
+          priceMax: null
+        }
+      }
+      assert.equal(await guidedEngine.canProcessWithoutGeneralRouter({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(guidedState),
+        message: '2'
+      }), true)
+    }
+  },
+  {
+    name: 'los mensajes mixtos conservan el análisis del router general',
+    run: () => {
+      assert.equal(isDeterministicBookingContinuationMessage('Corte de pelo'), true)
+      assert.equal(isDeterministicBookingContinuationMessage('mañana'), true)
+      assert.equal(isDeterministicBookingContinuationMessage('a las 1430!'), true)
+      assert.equal(isDeterministicBookingContinuationMessage('Corte, ¿cuánto sale?'), false)
+      assert.equal(isDeterministicBookingContinuationMessage('mañana, pero cambiame el servicio'), false)
+      assert.equal(isDeterministicBookingContinuationMessage('Nico, ¿qué días trabaja?'), false)
+    }
+  },
   {
     name: 'decisión del estimativo acepta afirmaciones claras sin depender de IA',
     run: async () => {

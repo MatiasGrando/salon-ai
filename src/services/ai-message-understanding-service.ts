@@ -1,5 +1,5 @@
 import { openAiConfig } from '../config/openai.js'
-import { getOpenAiClient } from '../integrations/openai-client.js'
+import { createTrackedOpenAiResponse, getOpenAiClient } from '../integrations/openai-client.js'
 import { isAiExecutionEnabled } from './ai-execution-context.js'
 import {
   applyAssistantPersonalityToReply,
@@ -754,7 +754,7 @@ export class AiMessageUnderstandingService {
     }
 
     try {
-      const response = await client.responses.create({
+      const response = await createTrackedOpenAiResponse(client, 'message_understanding', {
         model: openAiConfig.model,
         instructions: input.instructions,
         input: JSON.stringify(input.input),

@@ -1,5 +1,5 @@
 import { openAiConfig } from '../config/openai.js'
-import { getOpenAiClient } from '../integrations/openai-client.js'
+import { createTrackedOpenAiResponse, getOpenAiClient } from '../integrations/openai-client.js'
 import { isAiExecutionEnabled } from './ai-execution-context.js'
 
 export type BookingV2ChoiceExtraction = {
@@ -18,7 +18,7 @@ export class BookingV2ChoiceExtractor {
     if (!client) return { choiceId: null, confidence: 0 }
 
     try {
-      const response = await client.responses.create({
+      const response = await createTrackedOpenAiResponse(client, 'booking_choice', {
         model: openAiConfig.model,
         instructions: [
           'Sos un extractor semantico de decisiones para un flujo de reservas.',

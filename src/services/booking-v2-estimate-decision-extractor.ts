@@ -1,5 +1,5 @@
 import { openAiConfig } from '../config/openai.js'
-import { getOpenAiClient } from '../integrations/openai-client.js'
+import { createTrackedOpenAiResponse, getOpenAiClient } from '../integrations/openai-client.js'
 import { isAiExecutionEnabled } from './ai-execution-context.js'
 import { normalizeText } from './message-understanding-service.js'
 import { detectDeterministicConfirmation } from './conversation-confirmation-intent.js'
@@ -26,7 +26,7 @@ export class BookingV2EstimateDecisionExtractor {
     if (!client) return { decision: 'unclear', confidence: 0 }
 
     try {
-      const response = await client.responses.create({
+      const response = await createTrackedOpenAiResponse(client, 'booking_estimate_decision', {
         model: openAiConfig.model,
         instructions: [
           'Sos un extractor semantico para una decision dentro de un flujo de reservas.',

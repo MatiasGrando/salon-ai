@@ -153,6 +153,51 @@ export class BookingV2Engine {
     return resolveExplicitServiceGroups(input.message, catalog).length >= 2
   }
 
+  async canProcessWithoutGeneralRouter(input: BookingV2ProcessInput) {
+    const actionableMessage = bookingCoordinationActionableReply(input.message)
+    if (!isDeterministicBookingContinuationMessage(actionableMessage)) return false
+
+    const catalog = await this.domain.loadCatalog(input.businessId)
+    const state = sanitizeCatalogNameCollision(
+      stateFromConversation(input.conversation),
+      catalog
+    )
+
+    if (state.guidedEstimate?.stage === 'awaiting_option') {
+      const service = catalog.services.find((candidate) =>
+        candidate.id === state.guidedEstimate?.serviceId
+      )
+      return Boolean(deterministicEstimateOption(
+        actionableMessage,
+        service?.estimateOptions ?? []
+      ))
+    }
+
+    if (state.serviceValidation?.stage === 'awaiting_confirmation') {
+      return Boolean(resolveCatalogServiceSelection(actionableMessage, catalog))
+    }
+
+    if (state.pendingProposal?.field === 'name') {
+      return Boolean(resolveExpectedName(actionableMessage, state, catalog))
+    }
+    if (state.pendingProposal?.field === 'professional') {
+      return Boolean(resolveExpectedProfessional(actionableMessage, state, catalog))
+    }
+
+    if (resolveExpectedName(actionableMessage, state, catalog)) return true
+    if (resolveExpectedService(actionableMessage, state, catalog)) return true
+    if (resolveExpectedProfessional(actionableMessage, state, catalog)) return true
+    if (resolveExpectedDate(
+      actionableMessage,
+      state,
+      input.currentDate ?? new Date(),
+      catalog.bookingFlowOrder
+    )) return true
+
+    return nextMissingField(state.draft, catalog.bookingFlowOrder) === 'time' &&
+      parseTime(actionableMessage) !== null
+  }
+
   async process(input: BookingV2ProcessInput): Promise<BookingV2ProcessResult> {
     const storedState = stateFromConversation(input.conversation)
     const catalog = await this.domain.loadCatalog(input.businessId)
@@ -4918,6 +4963,14 @@ function parseTime(message: string) {
   const minute = Number(match[2] ?? '0')
   if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+}
+
+export function isDeterministicBookingContinuationMessage(message: string) {
+  const trimmed = message.trim()
+  if (!trimmed || trimmed.length > 80 || /[?¿]/.test(trimmed)) return false
+
+  const normalized = normalize(trimmed)
+  return !/\b(?:ademas|aunque|cancelar|cambiar|cambiame|consulta|cuanto|direccion|duda|explicar|hablar|incluye|informacion|pero|precio|presupuesto|sale|tambien)\b/.test(normalized)
 }
 
 function shouldValidateAvailability(plan: BookingV2MessagePlan) {

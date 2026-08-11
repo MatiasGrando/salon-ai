@@ -1,5 +1,5 @@
 import { openAiConfig } from '../config/openai.js'
-import { getOpenAiClient } from '../integrations/openai-client.js'
+import { createTrackedOpenAiResponse, getOpenAiClient } from '../integrations/openai-client.js'
 import { isAiExecutionEnabled } from './ai-execution-context.js'
 
 export type EstimateOptionExtraction = {
@@ -18,7 +18,7 @@ export class BookingV2EstimateOptionExtractor {
     if (!client) return { optionId: null, confidence: 0 }
 
     try {
-      const response = await client.responses.create({
+      const response = await createTrackedOpenAiResponse(client, 'booking_estimate_option', {
         model: openAiConfig.model,
         instructions: [
           'Sos un extractor semantico para elegir una banda u opcion de un estimativo.',

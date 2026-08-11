@@ -1,5 +1,5 @@
 import { openAiConfig } from '../config/openai.js'
-import { getOpenAiClient } from '../integrations/openai-client.js'
+import { createTrackedOpenAiResponse, getOpenAiClient } from '../integrations/openai-client.js'
 import { isAiExecutionEnabled } from './ai-execution-context.js'
 import {
   bookingExtractionSchema,
@@ -160,7 +160,7 @@ export class ConversationRouter {
     }
 
     try {
-      const response = await client.responses.create({
+      const response = await createTrackedOpenAiResponse(client, 'conversation_router', {
         model: openAiConfig.model,
         instructions: [
           'Sos el router de una recepcionista virtual para comercios con agenda.',

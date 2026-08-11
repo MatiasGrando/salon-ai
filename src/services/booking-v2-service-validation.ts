@@ -1,5 +1,5 @@
 import { openAiConfig } from '../config/openai.js'
-import { getOpenAiClient } from '../integrations/openai-client.js'
+import { createTrackedOpenAiResponse, getOpenAiClient } from '../integrations/openai-client.js'
 import { isAiExecutionEnabled } from './ai-execution-context.js'
 import { detectDeterministicConfirmation } from './conversation-confirmation-intent.js'
 
@@ -31,7 +31,7 @@ export class BookingV2ServiceValidationClassifier {
     if (!client) return { decision: null, confidence: 0 }
 
     try {
-      const response = await client.responses.create({
+      const response = await createTrackedOpenAiResponse(client, 'booking_service_validation', {
         model: openAiConfig.model,
         instructions: [
           'Clasifica la respuesta de un cliente que debe confirmar si el servicio elegido es correcto.',

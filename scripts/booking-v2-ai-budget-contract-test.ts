@@ -5,15 +5,21 @@ import { createEmptyBookingV2State } from '../src/services/booking-v2-state.js'
 import { pendingRequestFromRouting } from '../src/services/conversation-service.js'
 import type { BookingV2Extraction } from '../src/services/booking-v2-extractor.js'
 
-const [conversationSource, routerSource] = await Promise.all([
+const [conversationSource, routerSource, openAiClientSource] = await Promise.all([
   readFile(new URL('../src/services/conversation-service.ts', import.meta.url), 'utf8'),
-  readFile(new URL('../src/services/conversation-router.ts', import.meta.url), 'utf8')
+  readFile(new URL('../src/services/conversation-router.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../src/integrations/openai-client.ts', import.meta.url), 'utf8')
 ])
 
 assert.equal(
-  occurrences(routerSource, 'client.responses.create({'),
+  occurrences(routerSource, "createTrackedOpenAiResponse(client, 'conversation_router', {"),
   1,
   'ConversationRouter debe realizar una sola llamada general de IA por mensaje'
+)
+assert.equal(
+  occurrences(openAiClientSource, 'openAiClient.responses.create(input)'),
+  1,
+  'Las llamadas de Responses API deben centralizarse para registrar su consumo'
 )
 assert.equal(
   routerSource.includes('natural_mixed_booking_recovery'),
@@ -37,6 +43,22 @@ assert.match(
   prioritizedEstimateOptionBranch,
   /bookingCoordinationReplyButtons\(\{[\s\S]*?replyButtons/,
   'La selección rápida del estimativo debe conservar los botones de continuar o pedir presupuesto'
+)
+
+const deterministicContinuationIndex = conversationSource.indexOf(
+  'bookingV2Engine.canProcessWithoutGeneralRouter({'
+)
+const generalRouterIndex = conversationSource.indexOf(
+  'conversationRouter.route(await conversationRouterContextService.load({'
+)
+assert.ok(
+  deterministicContinuationIndex >= 0 && deterministicContinuationIndex < generalRouterIndex,
+  'Las continuaciones determinísticas deben resolverse antes del router general'
+)
+assert.match(
+  conversationSource.slice(deterministicContinuationIndex, generalRouterIndex),
+  /return this\.handleBookingV2\([\s\S]*?deterministicBookingRouting/,
+  'El camino determinístico debe cerrar la respuesta sin invocar el router'
 )
 
 const extraction: BookingV2Extraction = {

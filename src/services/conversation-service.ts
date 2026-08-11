@@ -6,7 +6,8 @@ import { AiMessageUnderstandingService, type AiConversationIntent } from './ai-m
 import { BookingConversationFlow, isBookingStartMessage, isMenuStep } from './booking-conversation-flow.js'
 import { BotCopyService } from './bot-copy-service.js'
 import { normalizeText } from './message-understanding-service.js'
-import { runWithAiEnabled } from './ai-execution-context.js'
+import { runWithAiEnabled, setAiUsageAttribution } from './ai-execution-context.js'
+import { linkAiUsageToAppointment } from './ai-usage-service.js'
 import { BookingV2Engine, type BookingV2ProcessResult } from './booking-v2-engine.js'
 import type { BookingV2MessagePlan } from './booking-v2-dialogue.js'
 import type {
@@ -158,6 +159,11 @@ export class ConversationService {
             phone: input.phone
           }
         })
+    setAiUsageAttribution({
+      businessId: businessId ?? null,
+      conversationId: existingConversation?.id ?? null,
+      appointmentId: null
+    })
     const coordinationButtonMessage = existingConversation
       ? bookingCoordinationMessageFromInteractiveReply(
         input.interactiveReplyId,
@@ -310,6 +316,11 @@ export class ConversationService {
             businessId
           }
         })
+
+    setAiUsageAttribution({
+      businessId: businessId ?? null,
+      conversationId: conversation.id
+    })
 
     if (contextAction === 'continue' && bookingV2Enabled && businessId) {
       const resumed = await bookingV2Engine.resume({ businessId, conversation })
@@ -567,18 +578,7 @@ export class ConversationService {
         message: coordinationButtonMessage,
         businessId,
         conversation,
-        routing: {
-          intents: [{
-            type: 'book_appointment',
-            topic: null,
-            confidence: 1,
-            evidence: coordinationButtonMessage
-          }],
-          bookingMessage: coordinationButtonMessage,
-          bookingExtraction: null,
-          catalogQuery: null,
-          source: 'deterministic'
-        }
+        routing: deterministicBookingRouting(coordinationButtonMessage)
       })
     }
 
@@ -599,6 +599,33 @@ export class ConversationService {
         skipMisunderstandingTracking: true,
         skipHumanize: true
       }
+    }
+
+    const canUseDeterministicBookingContinuation =
+      bookingV2Enabled &&
+      Boolean(businessId) &&
+      !isQueuedConversationHandoff(conversation) &&
+      (conversation.currentStep === 'START' || isActiveBookingV2Step(conversation.currentStep)) &&
+      (
+        (
+          conversation.currentStep === 'CONFIRM' &&
+          isUnambiguousBookingConfirmation(message)
+        ) ||
+        await bookingV2Engine.canProcessWithoutGeneralRouter({
+          businessId: businessId!,
+          conversation,
+          message
+        })
+      )
+
+    if (canUseDeterministicBookingContinuation) {
+      return this.handleBookingV2({
+        phone: input.phone,
+        message,
+        businessId: businessId!,
+        conversation,
+        routing: deterministicBookingRouting(message)
+      })
     }
 
     const bookingV2Routing = bookingV2Enabled && businessId
@@ -1845,6 +1872,7 @@ export class ConversationService {
         phone: input.phone,
         businessId: input.businessId,
         conversation: {
+          id: input.conversation.id,
           selectedCustomerName: input.conversation.selectedCustomerName,
           selectedServiceId: input.conversation.selectedServiceId,
           selectedProfessionalId: input.conversation.selectedProfessionalId,
@@ -2540,6 +2568,13 @@ export class ConversationService {
       return this.recoverCoordinatedBookingFailure(input, 'Ocurrió un error al retener los horarios elegidos.')
     }
 
+    await linkAiUsageToAppointment({
+      conversationId: input.conversationId,
+      appointmentId: appointmentIds[0]!
+    }).catch((error) => {
+      console.error('No pude vincular el uso de IA con la reserva coordinada', error)
+    })
+
     let deposit: HandleMessageResult | null
     try {
       deposit = await this.requestCoordinatedDepositIfNeeded({
@@ -2637,6 +2672,7 @@ export class ConversationService {
     phone: string
     businessId: string
     conversation: {
+      id: string
       selectedCustomerName: string
       selectedServiceId: string
       selectedProfessionalId: string
@@ -2675,6 +2711,13 @@ export class ConversationService {
         operation: 'confirm'
       })
     }
+
+    await linkAiUsageToAppointment({
+      conversationId: input.conversation.id,
+      appointmentId: appointment.appointment.id
+    }).catch((error) => {
+      console.error('No pude vincular el uso de IA con la reserva', error)
+    })
 
     const nextBooking = advanceToNextQueuedService(state)
     if (nextBooking) {
@@ -2917,6 +2960,13 @@ export class ConversationService {
         operation: 'hold'
       })
     }
+
+    await linkAiUsageToAppointment({
+      conversationId: input.conversation.id,
+      appointmentId: appointment.appointment.id
+    }).catch((error) => {
+      console.error('No pude vincular el uso de IA con la reserva pendiente de seña', error)
+    })
 
     const expiresAt = new Date(Date.now() + service.depositHoldMinutes * 60_000)
     let deposit
@@ -4036,6 +4086,21 @@ export function isUnambiguousBookingConfirmation(message: string) {
     'asi', 'por', 'favor'
   ])
   return tokens.every((token) => confirmationTokens.has(token))
+}
+
+function deterministicBookingRouting(message: string): ConversationRouting {
+  return {
+    intents: [{
+      type: 'book_appointment',
+      topic: null,
+      confidence: 1,
+      evidence: message
+    }],
+    bookingMessage: message,
+    bookingExtraction: null,
+    catalogQuery: null,
+    source: 'deterministic'
+  }
 }
 
 export function shouldPrioritizeCoordinatedAvailabilityAction(

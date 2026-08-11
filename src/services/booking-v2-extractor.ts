@@ -1,4 +1,4 @@
-import { getOpenAiClient } from '../integrations/openai-client.js'
+import { createTrackedOpenAiResponse, getOpenAiClient } from '../integrations/openai-client.js'
 import { openAiConfig } from '../config/openai.js'
 import { isAiExecutionEnabled } from './ai-execution-context.js'
 import type { BookingDraft, BookingField } from './booking-v2-state.js'
@@ -49,7 +49,7 @@ export class BookingV2Extractor {
     if (!client) return null
 
     try {
-      const response = await client.responses.create({
+      const response = await createTrackedOpenAiResponse(client, 'booking_extraction', {
         model: openAiConfig.model,
         instructions: [
           'Sos una capa de comprension para un sistema de reservas por WhatsApp.',
