@@ -12726,6 +12726,7 @@ const crmHtml = `<!doctype html>
               <button class="primary" id="deposit-approve" type="button" hidden>Aprobar se&ntilde;a y confirmar</button>
               <button class="danger" id="deposit-reject" type="button" hidden>Rechazar se&ntilde;a</button>
               <button class="primary" id="advisor-quote" type="button" hidden>Enviar presupuesto</button>
+              <button class="secondary" id="define-service" type="button" hidden>Definir servicio</button>
               <button class="secondary" id="resolve-handoff" type="button" disabled hidden>Marcar como resuelto</button>
               <button class="secondary" id="conversation-ai-toggle" type="button" disabled>Atender manualmente</button>
               <button class="secondary" id="archive-conversation" type="button" disabled>Archivar chat</button>
@@ -15596,6 +15597,7 @@ const crmHtml = `<!doctype html>
       chatPhone: document.getElementById('chat-phone'),
       chatStatus: document.getElementById('chat-status'),
       stepChip: document.getElementById('step-chip'),
+      defineService: document.getElementById('define-service'),
       resolveHandoff: document.getElementById('resolve-handoff'),
       advisorQuote: document.getElementById('advisor-quote'),
       depositApprove: document.getElementById('deposit-approve'),
@@ -17853,11 +17855,11 @@ const crmHtml = `<!doctype html>
       els.depositReject.disabled = !activeDeposit
       els.advisorQuote.hidden = !canSendAdvisorQuote || !canReplyConversation
       els.advisorQuote.disabled = !canSendAdvisorQuote
+      els.defineService.hidden = !canReplyConversation || !canResolveHandoff || Boolean(activeDeposit) || Boolean(selected.selectedServiceId)
+      els.defineService.disabled = !canResolveHandoff || Boolean(activeDeposit) || Boolean(selected.selectedServiceId)
       els.resolveHandoff.hidden = !canReplyConversation || !canResolveHandoff || Boolean(activeDeposit)
       els.resolveHandoff.disabled = !canResolveHandoff || Boolean(activeDeposit)
-      els.resolveHandoff.textContent = selected.selectedServiceId
-        ? 'Marcar como resuelto'
-        : 'Definir servicio'
+      els.resolveHandoff.textContent = 'Marcar como resuelto'
       els.conversationAiToggle.hidden = !canReplyConversation || canResolveHandoff
       els.conversationAiToggle.disabled = canResolveHandoff
       els.conversationAiToggle.textContent = 'Atender manualmente'
@@ -19553,10 +19555,6 @@ const crmHtml = `<!doctype html>
 
     async function resolveHandoff() {
       if (!state.selected) return
-      if (!state.selected.selectedServiceId) {
-        openServiceResolutionDialog()
-        return
-      }
       if (!setButtonLoading(els.resolveHandoff, true, 'Resolviendo...')) return
       try {
         const updated = await getJson('/crm/conversations/' + state.selected.id + '/ai', {
@@ -26632,6 +26630,7 @@ const crmHtml = `<!doctype html>
       field.addEventListener('change', renderAssistantPersonalityPreview)
     }
     els.conversationAiToggle.addEventListener('click', toggleConversationAi)
+    els.defineService.addEventListener('click', openServiceResolutionDialog)
     els.resolveHandoff.addEventListener('click', resolveHandoff)
     els.advisorQuote.addEventListener('click', openAdvisorQuoteDialog)
     els.advisorQuoteDialogForm.addEventListener('submit', submitAdvisorQuote)
