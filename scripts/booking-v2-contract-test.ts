@@ -53,6 +53,8 @@ import {
 import {
   acceptedAdvisorQuoteAmount,
   businessInformationTopicsForPendingSelection,
+  bookingCoordinationMessageFromInteractiveReply,
+  bookingCoordinationReplyButtons,
   bookingV2StateAfterGoingBack,
   clearBookingV2StateFromField,
   composeBusinessInformationResumeReply,
@@ -3329,10 +3331,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         fakeDomainPort({ catalog }),
         fakeExtractor(null),
         fakeServiceValidationClassifier(),
-        fakeEstimateDecisionExtractor(() => ({
-          decision: 'continue_booking',
-          confidence: 0.96
-        })),
+        new BookingV2EstimateDecisionExtractor(),
         fakeEstimateOptionExtractor()
       )
       const selected = await engine.process({
@@ -3384,6 +3383,57 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(estimated.reply.includes('110.000'), true)
       assert.equal(estimated.reply.includes('140.000'), true)
       assert.equal(estimated.reply.includes('continuar con la reserva'), true)
+
+      const estimateButtons = bookingCoordinationReplyButtons({
+        conversationId: 'conversation-1',
+        plan: estimated.plan,
+        state: estimated.state
+      })
+      assert.deepEqual(
+        estimateButtons?.map((button) => button.title),
+        ['Continuar reserva', 'Pedir presupuesto']
+      )
+      const continueButtonMessage = bookingCoordinationMessageFromInteractiveReply(
+        estimateButtons?.[0]?.id,
+        'conversation-1'
+      )
+      const quoteButtonMessage = bookingCoordinationMessageFromInteractiveReply(
+        estimateButtons?.[1]?.id,
+        'conversation-1'
+      )
+      assert.equal(continueButtonMessage, 'sí, quiero continuar con la reserva')
+      assert.equal(quoteButtonMessage, 'prefiero un presupuesto exacto')
+
+      const continuedFromButton = await engine.process({
+        businessId: 'business-1',
+        conversation: estimated.conversationPatch,
+        message: continueButtonMessage ?? ''
+      })
+      assert.equal(continuedFromButton.plan.type, 'ask_field')
+      assert.equal(
+        continuedFromButton.plan.type === 'ask_field' ? continuedFromButton.plan.field : null,
+        'professional'
+      )
+
+      const quotedFromButton = await engine.process({
+        businessId: 'business-1',
+        conversation: estimated.conversationPatch,
+        message: quoteButtonMessage ?? ''
+      })
+      assert.deepEqual(quotedFromButton.plan, { type: 'handoff', reason: 'photo_required' })
+
+      for (const naturalQuote of ['Pedir presupuesto', 'Consultar presupuesto', 'Quiero un presupuesto']) {
+        const quotedNaturally = await engine.process({
+          businessId: 'business-1',
+          conversation: estimated.conversationPatch,
+          message: naturalQuote
+        })
+        assert.deepEqual(
+          quotedNaturally.plan,
+          { type: 'handoff', reason: 'photo_required' },
+          naturalQuote
+        )
+      }
 
       const resumed = await engine.resume({
         businessId: 'business-1',

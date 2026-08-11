@@ -1211,8 +1211,14 @@ export class ConversationService {
         ...estimated.conversationPatch,
         lastAvailability: null
       })
+      const replyButtons = bookingCoordinationReplyButtons({
+        conversationId: input.conversation.id,
+        plan: estimated.plan,
+        state: estimated.state
+      })
       return {
         reply: applyAssistantPersonalityToReply(estimated.reply, assistantPersonality),
+        ...(replyButtons ? { replyButtons } : {}),
         skipMisunderstandingTracking: true,
         skipHumanize: true
       }
@@ -4478,7 +4484,7 @@ export function bookingCoordinationReplyButtons(input: {
       ...(input.plan.allowsBooking
         ? [{ id: `${prefix}estimate_continue`, title: 'Continuar reserva' }]
         : []),
-      { id: `${prefix}estimate_exact_quote`, title: 'Presupuesto exacto' }
+      { id: `${prefix}estimate_exact_quote`, title: 'Pedir presupuesto' }
     ]
   }
   if (input.plan.type === 'ask_service_addons' && input.plan.serviceIds.length) {

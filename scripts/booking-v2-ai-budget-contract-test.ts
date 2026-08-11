@@ -30,6 +30,14 @@ assert.equal(
   occurrences(conversationSource, 'understandingExtraction:'),
   'Cada llamada productiva a BookingV2Engine.process debe cerrar explícitamente la extracción'
 )
+const prioritizedEstimateOptionBranch = conversationSource.match(
+  /if \(shouldPrioritizeGuidedEstimateOptionReply[\s\S]*?const quoteOnlyRequest/
+)?.[0] ?? ''
+assert.match(
+  prioritizedEstimateOptionBranch,
+  /bookingCoordinationReplyButtons\(\{[\s\S]*?replyButtons/,
+  'La selección rápida del estimativo debe conservar los botones de continuar o pedir presupuesto'
+)
 
 const extraction: BookingV2Extraction = {
   name: { value: null, confidence: 0, evidence: '' },

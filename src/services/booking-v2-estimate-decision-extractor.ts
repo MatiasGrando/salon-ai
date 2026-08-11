@@ -84,6 +84,9 @@ function deterministicEstimateDecision(message: string): EstimateDecisionExtract
 
   if ([
     'presupuesto exacto',
+    'pedir presupuesto',
+    'consultar presupuesto',
+    'quiero un presupuesto',
     'cotizacion exacta',
     'cotizacion precisa',
     'precio exacto',
@@ -93,6 +96,10 @@ function deterministicEstimateDecision(message: string): EstimateDecisionExtract
     'quiero que me asesoren'
   ].some((phrase) => normalized.includes(phrase))) {
     return { decision: 'request_exact_quote', confidence: 0.98 }
+  }
+
+  if (/\b(?:continuar|continuo|continuemos|seguir|sigamos|reservar|reservo|avanzar|avancemos)\b/.test(normalized)) {
+    return { decision: 'continue_booking', confidence: 0.98 }
   }
 
   const confirmation = detectDeterministicConfirmation(message)
