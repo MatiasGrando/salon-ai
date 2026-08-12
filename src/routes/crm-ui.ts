@@ -16592,6 +16592,22 @@ const crmHtml = `<!doctype html>
       return hasAgendaPermission('canManageScheduleBlocks')
     }
 
+    function canViewAppointmentCustomerData() {
+      return state.currentUser?.role !== 'STAFF' || state.currentUser?.canViewCustomers === true
+    }
+
+    function canOpenAppointmentConversations() {
+      return canViewAppointmentCustomerData() && (
+        state.currentUser?.role !== 'STAFF' || state.currentUser?.canViewConversations === true
+      )
+    }
+
+    function canMessageAppointmentCustomer() {
+      return canOpenAppointmentConversations() && (
+        state.currentUser?.role !== 'STAFF' || state.currentUser?.canReplyConversations === true
+      )
+    }
+
     function applyAgendaPermissions() {
       if (els.agendaNewAppointment) els.agendaNewAppointment.disabled = !canCreateAppointments()
       if (els.quickSchedule) els.quickSchedule.disabled = !canCreateAppointments()
@@ -23297,6 +23313,13 @@ const crmHtml = `<!doctype html>
       }
 
       syncAppointmentCustomerFields()
+      const protectsScheduledCustomer = Boolean(appointment && !canViewAppointmentCustomerData())
+      const customerSearchRow = els.appointmentCustomerSearch.closest('.form-row')
+      const customerPhoneRow = els.appointmentCustomerPhone.closest('.form-row')
+      if (customerSearchRow) customerSearchRow.hidden = protectsScheduledCustomer
+      if (customerPhoneRow) customerPhoneRow.hidden = protectsScheduledCustomer
+      els.appointmentCustomerName.readOnly = protectsScheduledCustomer
+      if (protectsScheduledCustomer) els.appointmentCustomerPhone.value = ''
       updateAppointmentContactActions(appointment)
       applyAgendaPermissions()
       els.appointmentDialog.hidden = false
@@ -23333,7 +23356,9 @@ const crmHtml = `<!doctype html>
     function updateAppointmentContactActions(appointment) {
       const phone = els.appointmentCustomerPhone.value || appointment?.customer?.phone || ''
       const digits = normalizePhone(phone)
-      const visible = Boolean(state.editingAppointmentId && digits)
+      const hasContact = Boolean(state.editingAppointmentId && digits && canViewAppointmentCustomerData())
+      const canOpenChat = hasContact && canOpenAppointmentConversations()
+      const canUseWhatsapp = hasContact && canMessageAppointmentCustomer()
       const reminderAppointment = appointment
         ? {
             ...appointment,
@@ -23350,13 +23375,15 @@ const crmHtml = `<!doctype html>
         ? buildAppointmentReminderMessage(reminderAppointment, els.appointmentCustomerName.value || 'cliente')
         : ''
 
-      els.appointmentContactActions.hidden = !visible
-      els.appointmentWhatsapp.href = visible
+      els.appointmentContactActions.hidden = !canOpenChat && !canUseWhatsapp
+      els.appointmentWhatsapp.hidden = !canUseWhatsapp
+      els.appointmentWhatsapp.href = canUseWhatsapp
         ? whatsappAppUrl(digits, reminderMessage)
         : '#'
-      els.appointmentOpenChat.disabled = !visible
-      els.appointmentOpenChat.dataset.phone = visible ? phone : ''
-      els.appointmentOpenChat.dataset.reminderMessage = visible ? reminderMessage : ''
+      els.appointmentOpenChat.hidden = !canOpenChat
+      els.appointmentOpenChat.disabled = !canOpenChat
+      els.appointmentOpenChat.dataset.phone = canOpenChat ? phone : ''
+      els.appointmentOpenChat.dataset.reminderMessage = canOpenChat ? reminderMessage : ''
     }
 
     function openAppointmentWhatsapp(event) {

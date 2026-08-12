@@ -51,13 +51,14 @@ export async function appointmentRoutes(app: FastifyInstance) {
       to?: string
       professionalId?: string
     }
-    return service.findAll({
+    const appointments = await service.findAll({
       ...(query.businessId ? { businessId: query.businessId } : {}),
       ...(query.customerPhone ? { customerPhone: query.customerPhone } : {}),
       ...(query.from ? { from: query.from } : {}),
       ...(query.to ? { to: query.to } : {}),
       ...(query.professionalId ? { professionalId: query.professionalId } : {})
     })
+    return appointments.map((appointment) => appointmentForAuthenticatedUser(appointment, request.auth?.user))
   })
 
   app.patch('/appointments/:id/status', async (request, reply) => {
@@ -160,6 +161,44 @@ export async function appointmentRoutes(app: FastifyInstance) {
 
     return result.appointment
   })
+}
+
+function appointmentForAuthenticatedUser<T extends {
+  quotedPrice: number | null
+  customer: { phone: string }
+  service: { price: number }
+  serviceItems: Array<{ service: { price: number } }>
+}>(appointment: T, user: { role: string; canViewCustomers?: boolean; canViewFinancialAmounts?: boolean } | undefined) {
+  if (!user || user.role !== 'STAFF') return appointment
+
+  const customer = user.canViewCustomers
+    ? appointment.customer
+    : omitKey(appointment.customer, 'phone')
+  const service = user.canViewFinancialAmounts
+    ? appointment.service
+    : omitKey(appointment.service, 'price')
+  const serviceItems = user.canViewFinancialAmounts
+    ? appointment.serviceItems
+    : appointment.serviceItems.map((item) => ({
+        ...item,
+        service: omitKey(item.service, 'price')
+      }))
+
+  const protectedAppointment = {
+    ...appointment,
+    customer,
+    service,
+    serviceItems
+  }
+  return user.canViewFinancialAmounts
+    ? protectedAppointment
+    : omitKey(protectedAppointment, 'quotedPrice')
+}
+
+function omitKey<T extends object, K extends keyof T>(value: T, key: K): Omit<T, K> {
+  const result = { ...value }
+  delete result[key]
+  return result
 }
 
 async function canAccessAppointment(user: (Parameters<typeof staffCanUseProfessional>[0] & { businessId?: string | null }) | undefined, appointmentId: string) {

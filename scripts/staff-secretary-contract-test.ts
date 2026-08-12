@@ -117,6 +117,13 @@ assert.ok(guard.includes('canStaffAccessRoute'), 'el servidor debe autorizar cad
 assert.ok(guard.includes('staffAuditLog.create'), 'las mutaciones del staff deben auditarse')
 assert.ok(guard.includes("'/schedule-blocks'"), 'la agenda propia también limita bloqueos')
 
+const appointmentRoute = readFileSync(new URL('../src/routes/appointment.ts', import.meta.url), 'utf8')
+assert.ok(appointmentRoute.includes("omitKey(appointment.customer, 'phone')"), 'la API de agenda no debe entregar teléfonos al profesional')
+assert.ok(appointmentRoute.includes("omitKey(protectedAppointment, 'quotedPrice')"), 'la API de agenda no debe entregar importes sin permiso financiero')
+assert.ok(ui.includes('canViewAppointmentCustomerData()'), 'la agenda debe ocultar los datos del cliente según permisos')
+assert.ok(ui.includes('canOpenAppointmentConversations()'), 'la agenda debe ocultar el acceso al chat según permisos')
+assert.ok(ui.includes('canMessageAppointmentCustomer()'), 'la agenda debe ocultar WhatsApp cuando el staff no puede responder conversaciones')
+
 const schema = readFileSync(new URL('../prisma/schema.prisma', import.meta.url), 'utf8')
 for (const field of ['staffProfile', 'permissionPreset', 'agendaScope', 'canViewCustomers', 'canViewConversations', 'canViewOperationalReports', 'StaffAuditLog']) {
   assert.ok(schema.includes(field), `el modelo debe persistir ${field}`)
