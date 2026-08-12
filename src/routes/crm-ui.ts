@@ -14318,10 +14318,11 @@ const crmHtml = `<!doctype html>
               <input class="field" id="admin-user-password" type="password" autocomplete="new-password">
             </div>
             <div class="settings-field full" id="admin-business-owner-field">
-              <label for="admin-business-owner">Administrador de cuentas responsable</label>
+              <label for="admin-business-owner">Responsable comercial</label>
               <select class="field" id="admin-business-owner">
-                <option value="">Sin asignar</option>
+                <option value="__UNASSIGNED__">Sin responsable</option>
               </select>
+              <small>La cuenta que realiza el alta queda guardada autom&aacute;ticamente como creadora del comercio.</small>
             </div>
             <button class="full" id="admin-create-business-submit" type="submit">Crear comercio</button>
           </form>
@@ -16613,7 +16614,7 @@ const crmHtml = `<!doctype html>
             adminName: els.adminUserName.value.trim(),
             adminEmail: els.adminUserEmail.value.trim(),
             adminPassword: els.adminUserPassword.value,
-            accountAdminId: state.currentUser?.role === 'SUPER_ADMIN' ? els.adminBusinessOwner.value || null : undefined
+            accountAdminId: state.currentUser?.role === 'SUPER_ADMIN' ? els.adminBusinessOwner.value : undefined
           })
         })
         els.adminCreateBusinessForm.reset()
@@ -16646,10 +16647,19 @@ const crmHtml = `<!doctype html>
       if (!els.accountAdminList || !els.adminBusinessOwner || !els.accountAdminExistingUser) return
       const activeAdmins = state.accountAdmins.filter((user) => user.isActive)
       const selectedOwner = els.adminBusinessOwner.value
-      els.adminBusinessOwner.innerHTML = '<option value="">Sin asignar</option>' + activeAdmins.map((user) =>
-        '<option value="' + escapeHtml(user.id) + '">' + escapeHtml(user.name + ' · ' + user.email) + '</option>'
-      ).join('')
-      if (activeAdmins.some((user) => user.id === selectedOwner)) els.adminBusinessOwner.value = selectedOwner
+      const superAdminId = state.currentUser?.role === 'SUPER_ADMIN' ? state.currentUser.id : ''
+      els.adminBusinessOwner.innerHTML =
+        (superAdminId
+          ? '<option value="' + escapeHtml(superAdminId) + '">Mi cuenta · ' + escapeHtml(state.currentUser.name) + ' (Superadmin)</option>'
+          : '') +
+        activeAdmins.filter((user) => user.id !== superAdminId).map((user) =>
+          '<option value="' + escapeHtml(user.id) + '">' + escapeHtml(user.name + ' · ' + user.email) + '</option>'
+        ).join('') +
+        '<option value="__UNASSIGNED__">Sin responsable</option>'
+      const validOwnerIds = new Set([superAdminId, '__UNASSIGNED__', ...activeAdmins.map((user) => user.id)])
+      els.adminBusinessOwner.value = validOwnerIds.has(selectedOwner) && selectedOwner
+        ? selectedOwner
+        : superAdminId || '__UNASSIGNED__'
       els.accountAdminExistingUser.innerHTML = state.accountAdminCandidates.length
         ? '<option value="">Seleccionar una cuenta</option>' + state.accountAdminCandidates.map((user) => {
             const business = user.business?.name ? ' · ' + user.business.name : ''

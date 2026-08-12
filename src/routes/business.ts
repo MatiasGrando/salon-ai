@@ -22,7 +22,7 @@ export async function businessRoutes(app: FastifyInstance) {
 
     try {
       return await service.create(body.name, body.slug, {
-        accountAdminId: request.auth.user.role === 'SUPER_ADMIN' ? null : request.auth.user.id,
+        accountAdminId: request.auth.user.id,
         createdByUserId: request.auth.user.id
       })
     } catch (error) {

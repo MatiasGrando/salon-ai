@@ -91,10 +91,13 @@ export async function authRoutes(app: FastifyInstance) {
 
     let business
     try {
+      const requestedOwnerValue = body.accountAdminId?.trim()
       const requestedAccountAdminId = auth.user.role === 'SUPER_ADMIN'
-        ? body.accountAdminId?.trim() || null
+        ? requestedOwnerValue === '__UNASSIGNED__'
+          ? null
+          : requestedOwnerValue || auth.user.id
         : auth.user.id
-      if (requestedAccountAdminId) {
+      if (requestedAccountAdminId && requestedAccountAdminId !== auth.user.id) {
         const accountAdmin = await prisma.user.findFirst({
           where: {
             id: requestedAccountAdminId,
@@ -104,7 +107,7 @@ export async function authRoutes(app: FastifyInstance) {
           },
           select: { id: true }
         })
-        if (!accountAdmin) return reply.status(400).send({ message: 'El administrador de cuentas no es valido' })
+        if (!accountAdmin) return reply.status(400).send({ message: 'El responsable comercial no es valido' })
       }
       business = await businessService.create(businessName, undefined, {
         accountAdminId: requestedAccountAdminId,
