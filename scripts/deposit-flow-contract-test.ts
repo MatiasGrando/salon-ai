@@ -164,6 +164,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       const webhook = readFileSync(new URL('../src/services/whatsapp-webhook-service.ts', import.meta.url), 'utf8')
       assert.ok(webhook.includes('if (depositProof)'))
       assert.ok(webhook.includes("automation: 'deposit_proof_received'"))
+      assert.ok(webhook.includes('queuedConversationHandoffPatch(inboundMessage.createdAt)'))
+      assert.ok(webhook.includes('humanHandoffResolvedAt: null'))
     }
   },
   {

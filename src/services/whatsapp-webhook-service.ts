@@ -5,6 +5,7 @@ import { assertBusinessCanSendWhatsApp } from './business-whatsapp-settings.js'
 import { ConversationService } from './conversation-service.js'
 import { handleExclusiveBusinessSupportBotMessage } from './business-support-bot-runtime.js'
 import { reopenClosedConversationOpportunity } from './conversation-opportunity-service.js'
+import { queuedConversationHandoffPatch } from './conversation-handoff.js'
 import {
   bookingDepositService,
   DEPOSIT_PROOF_RECEIVED_ACKNOWLEDGEMENT
@@ -330,7 +331,15 @@ export class WhatsAppWebhookService {
         })
         await prisma.conversation.update({
           where: { id: conversation.id },
-          data: { lastMessage: replyText }
+          data: {
+            lastMessage: replyText,
+            ...(conversation.currentStep === 'HUMAN_HANDOFF'
+              ? {
+                  humanHandoffAt: conversation.humanHandoffAt ?? inboundMessage.createdAt,
+                  humanHandoffResolvedAt: null
+                }
+              : queuedConversationHandoffPatch(inboundMessage.createdAt))
+          }
         })
         results.push({
           messageId: message.id,
