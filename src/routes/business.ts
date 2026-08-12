@@ -6,7 +6,7 @@ import { BusinessService } from '../services/business-service.js'
 import type { AuthContext } from '../services/auth-service.js'
 
 const service = new BusinessService()
-const LANDING_TEMPLATES = new Set(['classic', 'editorial', 'salon-white'])
+const LANDING_TEMPLATES = new Set(['classic', 'editorial', 'salon-white', 'luxe-nails'])
 
 export async function businessRoutes(app: FastifyInstance) {
 

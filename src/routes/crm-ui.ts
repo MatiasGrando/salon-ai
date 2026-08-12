@@ -6873,6 +6873,18 @@ const crmHtml = `<!doctype html>
       box-shadow: inset 0 -9px 0 #fdfbf8;
     }
 
+    .landing-template-thumb.luxe-nails {
+      color: #c98a9a;
+      background: #0e0d0c;
+    }
+
+    .landing-template-thumb.luxe-nails::after {
+      background:
+        linear-gradient(90deg, rgba(14,13,12,.96) 0 42%, transparent 42%),
+        linear-gradient(135deg, #b56d80, #efe3db);
+      box-shadow: inset 0 -9px 0 #f4ece6;
+    }
+
     .landing-template-copy {
       padding: 0 2px 2px;
       display: grid;
@@ -14210,6 +14222,16 @@ const crmHtml = `<!doctype html>
                     <small>Blanco, blush y secciones amplias.</small>
                   </span>
                   <a class="landing-template-preview" data-template-preview="salon-white" href="#" target="_blank" rel="noopener">Vista previa</a>
+                  <span class="landing-template-check" aria-hidden="true">&#10003;</span>
+                </label>
+                <label class="landing-template-card">
+                  <input class="landing-template-radio" type="radio" name="landing-template" value="luxe-nails">
+                  <span class="landing-template-thumb luxe-nails" aria-hidden="true"></span>
+                  <span class="landing-template-copy">
+                    <strong>Luxe Nails</strong>
+                    <small>Oscura, sofisticada y pensada para estudios de u&ntilde;as.</small>
+                  </span>
+                  <a class="landing-template-preview" data-template-preview="luxe-nails" href="#" target="_blank" rel="noopener">Vista previa</a>
                   <span class="landing-template-check" aria-hidden="true">&#10003;</span>
                 </label>
               </div>

@@ -152,6 +152,7 @@ function previewLandingTemplate(request: FastifyRequest) {
 
 function normalizeLandingTemplate(value?: string | null) {
   if (value === 'salon-white') return 'salon-white'
+  if (value === 'luxe-nails') return 'luxe-nails'
   return value === 'editorial' ? 'editorial' : 'classic'
 }
 
@@ -336,6 +337,9 @@ function renderLanding(business: LandingBusiness, basePath = '', templateOverrid
   const landingTemplate = normalizeLandingTemplate(templateOverride || business.landingTemplate)
   if (landingTemplate === 'salon-white') {
     return renderSalonWhiteLanding(business, basePath)
+  }
+  if (landingTemplate === 'luxe-nails') {
+    return renderLuxeNailsLanding(business, basePath)
   }
   const description = business.landingDescription || `Reserva tu turno en ${business.name} de forma simple y rapida.`
   const subtitle = business.landingSubtitle || 'Oficio de navaja y tijera'
@@ -618,6 +622,198 @@ function renderLanding(business: LandingBusiness, basePath = '', templateOverrid
         ${renderLandingLightbox()}
       </main>
       ${renderLandingLightboxScript()}
+    `
+  })
+}
+
+function renderLuxeNailsLanding(business: LandingBusiness, basePath = '') {
+  const bookingUrl = `${basePath}/reservar?template=luxe-nails`
+  const accountUrl = `${basePath}/cuenta`
+  const subtitle = business.landingSubtitle || 'Nails studio'
+  const description = business.landingDescription || 'Diseños exclusivos, productos premium y un servicio que cuida cada detalle.'
+  const heroImage = business.coverImageUrl || 'https://images.unsplash.com/photo-1604654894611-6973b376cbde?w=1600&h=1100&fit=crop&q=85&auto=format'
+  const fallbackImages = [
+    'https://images.unsplash.com/photo-1519014816548-bf5fe059798b?w=700&h=520&fit=crop&q=80&auto=format',
+    'https://images.unsplash.com/photo-1607779097040-26e80aa78e66?w=700&h=520&fit=crop&q=80&auto=format',
+    'https://images.unsplash.com/photo-1604902396830-aca29e19b067?w=700&h=520&fit=crop&q=80&auto=format',
+    'https://images.unsplash.com/photo-1571290274554-6a2eaa771e5f?w=700&h=520&fit=crop&q=80&auto=format'
+  ]
+  const galleryDefaults = [
+    'https://images.unsplash.com/photo-1632345031435-8727f6897d53?w=600&h=600&fit=crop&q=80&auto=format',
+    'https://images.unsplash.com/photo-1604654894611-6973b376cbde?w=600&h=600&fit=crop&q=80&auto=format',
+    'https://images.unsplash.com/photo-1688583417770-ff6cc18071dc?w=600&h=600&fit=crop&q=80&auto=format',
+    'https://images.unsplash.com/photo-1720343409646-960f6dcccae3?w=600&h=600&fit=crop&q=80&auto=format',
+    'https://images.unsplash.com/photo-1587729927069-ef3b7a5ab9b4?w=600&h=600&fit=crop&q=80&auto=format'
+  ]
+  const configuredGallery = parseLandingGalleryImages(business.landingGalleryImages)
+  const galleryImages = [...configuredGallery, ...galleryDefaults].slice(0, 5)
+  const services = business.services
+  const addressLabel = formatPublicAddress(business)
+  const mapsUrl = business.publicMapsUrl?.trim() || null
+  const whatsappDisplayPhone = publicWhatsappNumber(business)?.trim() || ''
+  const whatsappDigits = whatsappDisplayPhone.replace(/\D/g, '')
+  const whatsappUrl = whatsappDigits ? `https://wa.me/${whatsappDigits}` : null
+
+  return htmlPage({
+    title: `${business.name} | Reservas online`,
+    bodyClass: 'landing-template-luxe-nails',
+    body: `
+      <style>
+        .luxe-page { --lx-ink:#0e0d0c; --lx-soft:#1a1816; --lx-cream:#f4ece6; --lx-cream-2:#efe3db; --lx-rose:#c98a9a; --lx-deep:#b56d80; --lx-pale:#e7c9d0; --lx-muted:#c9bdb6; min-height:100vh; color:var(--lx-ink); background:var(--lx-cream); font-family:"Segoe UI",Arial,sans-serif; }
+        .luxe-page * { box-sizing:border-box; }
+        .luxe-page h1,.luxe-page h2,.luxe-page h3,.luxe-logo strong { font-family:Georgia,"Times New Roman",serif; font-weight:500; }
+        .luxe-wrap { width:min(1160px,calc(100% - 48px)); margin:0 auto; }
+        .luxe-eyebrow { color:var(--lx-deep); font-size:12px; font-weight:600; letter-spacing:.2em; text-transform:uppercase; }
+        .luxe-eyebrow.on-dark { color:var(--lx-pale); }
+        .luxe-btn { min-height:46px; padding:0 25px; display:inline-flex; align-items:center; justify-content:center; border:1px solid currentColor; border-radius:999px; font-size:11px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; transition:.2s ease; }
+        .luxe-btn.rose { color:#fff; background:var(--lx-rose); border-color:var(--lx-rose); }
+        .luxe-btn.rose:hover { background:var(--lx-deep); border-color:var(--lx-deep); }
+        .luxe-btn.dark { color:#fff; background:var(--lx-ink); border-color:var(--lx-ink); }
+        .luxe-nav { padding:22px clamp(24px,4vw,60px); position:absolute; inset:0 0 auto; z-index:5; display:flex; align-items:center; justify-content:space-between; gap:28px; color:#fff; }
+        .luxe-logo { display:grid; line-height:1; }
+        .luxe-logo strong { max-width:290px; overflow:hidden; font-size:23px; letter-spacing:.07em; text-overflow:ellipsis; white-space:nowrap; }
+        .luxe-logo small { margin-top:5px; color:var(--lx-muted); font-size:9px; letter-spacing:.24em; text-transform:uppercase; }
+        .luxe-nav-links { display:flex; align-items:center; gap:30px; font-size:11px; letter-spacing:.12em; text-transform:uppercase; }
+        .luxe-nav-links a { opacity:.82; }
+        .luxe-nav-links a:hover { color:var(--lx-pale); opacity:1; }
+        .luxe-nav-actions { display:flex; align-items:center; gap:10px; }
+        .luxe-account { width:44px; height:44px; display:grid; place-items:center; border:1px solid rgba(255,255,255,.55); border-radius:50%; }
+        .luxe-account svg { width:18px; height:18px; }
+        .luxe-hero { min-height:760px; position:relative; display:flex; align-items:center; overflow:hidden; color:#fff; background:var(--lx-ink); }
+        .luxe-hero > img { width:100%; height:100%; position:absolute; inset:0; object-fit:cover; object-position:70% center; }
+        .luxe-hero::after { content:""; position:absolute; inset:0; background:linear-gradient(100deg,rgba(10,9,8,.96) 0%,rgba(10,9,8,.82) 36%,rgba(10,9,8,.25) 66%,rgba(10,9,8,.05)); }
+        .luxe-hero-copy { width:min(620px,calc(100% - 48px)); margin-left:max(24px,calc((100% - 1160px)/2)); padding:135px 0 80px; position:relative; z-index:2; }
+        .luxe-hero h1 { margin:20px 0 24px; font-size:clamp(54px,6.5vw,82px); line-height:.94; letter-spacing:-.02em; text-transform:uppercase; }
+        .luxe-hero h1 em { color:var(--lx-rose); font-style:normal; }
+        .luxe-hero p { max-width:430px; margin:0 0 32px; color:var(--lx-muted); font-size:15px; line-height:1.7; }
+        .luxe-features { padding:35px 0; color:#fff; background:var(--lx-ink); border-top:1px solid rgba(255,255,255,.08); }
+        .luxe-feature-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:24px; }
+        .luxe-feature { display:grid; justify-items:center; gap:10px; text-align:center; }
+        .luxe-feature span:first-child { color:var(--lx-pale); font-size:25px; }
+        .luxe-feature strong { color:var(--lx-muted); font-size:10px; letter-spacing:.13em; line-height:1.5; text-transform:uppercase; }
+        .luxe-experience { padding:100px 0; }
+        .luxe-experience-grid { display:grid; grid-template-columns:.8fr 1.35fr; align-items:center; gap:70px; }
+        .luxe-experience h2,.luxe-booking h2 { margin:14px 0 20px; font-size:clamp(38px,4vw,52px); line-height:1.12; }
+        .luxe-experience h2 em,.luxe-booking h2 em { color:var(--lx-deep); font-style:italic; }
+        .luxe-experience p { max-width:390px; color:#6b5f5a; font-size:14px; line-height:1.75; }
+        .luxe-experience-images { height:360px; display:grid; grid-template-columns:1fr 1fr 1.15fr; gap:14px; }
+        .luxe-experience-images img,.luxe-service-card img,.luxe-gallery img { width:100%; height:100%; display:block; object-fit:cover; }
+        .luxe-services { padding:100px 0; color:#fff; background:var(--lx-ink); }
+        .luxe-section-head { margin-bottom:45px; display:flex; align-items:end; justify-content:space-between; gap:30px; }
+        .luxe-section-head h2 { margin:10px 0 0; font-size:45px; }
+        .luxe-service-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:20px; }
+        .luxe-service-card { overflow:hidden; background:var(--lx-soft); border-radius:5px; }
+        .luxe-service-card .photo { height:190px; }
+        .luxe-service-card .copy { padding:22px; }
+        .luxe-service-card h3 { margin:0 0 9px; font-family:"Segoe UI",Arial,sans-serif; font-size:13px; font-weight:650; letter-spacing:.06em; text-transform:uppercase; }
+        .luxe-service-card p { min-height:38px; margin:0 0 14px; color:var(--lx-muted); font-size:12px; line-height:1.55; }
+        .luxe-price { color:var(--lx-pale); font-size:12px; letter-spacing:.07em; }
+        .luxe-booking { padding:105px 0; background:var(--lx-cream-2); }
+        .luxe-booking-grid { display:grid; grid-template-columns:1fr .85fr; align-items:center; gap:70px; }
+        .luxe-steps { margin:36px 0; display:grid; grid-template-columns:repeat(3,1fr); gap:24px; }
+        .luxe-step b { width:42px; height:42px; margin-bottom:14px; display:grid; place-items:center; border:1px solid var(--lx-ink); border-radius:50%; font-family:Georgia,serif; }
+        .luxe-step strong { display:block; margin-bottom:7px; font-family:Georgia,serif; font-size:16px; }
+        .luxe-step p { color:#6b5f5a; font-size:12px; line-height:1.5; }
+        .luxe-booking-art { min-height:490px; position:relative; overflow:hidden; display:grid; place-items:center; background:linear-gradient(145deg,#dcb8bd,#8d5d69); border-radius:6px; }
+        .luxe-phone { width:245px; height:445px; padding:13px; color:#fff; background:var(--lx-ink); border-radius:34px; box-shadow:0 28px 55px rgba(0,0,0,.34); }
+        .luxe-phone-screen { height:100%; padding:30px 20px; color:var(--lx-ink); background:var(--lx-cream); border-radius:23px; }
+        .luxe-phone-screen strong { display:block; margin-bottom:5px; font-family:Georgia,serif; font-size:18px; text-align:center; }
+        .luxe-phone-screen small { display:block; margin-bottom:28px; color:#8a7c76; text-align:center; }
+        .luxe-phone-card { margin:10px 0; padding:14px; display:flex; justify-content:space-between; gap:12px; background:#fff; border-radius:10px; font-size:11px; }
+        .luxe-gallery-section { padding:90px 0; }
+        .luxe-gallery { height:280px; display:grid; grid-template-columns:repeat(5,1fr); gap:14px; }
+        .luxe-testimonial { padding:58px 0; color:#fff; background:var(--lx-ink); }
+        .luxe-testimonial-grid { display:grid; grid-template-columns:1fr auto; align-items:center; gap:45px; }
+        .luxe-testimonial blockquote { margin:0; font-family:Georgia,serif; font-size:27px; font-style:italic; line-height:1.4; }
+        .luxe-stats { display:flex; gap:38px; }
+        .luxe-stat { text-align:center; }
+        .luxe-stat b { display:block; color:var(--lx-pale); font-family:Georgia,serif; font-size:31px; }
+        .luxe-stat span { color:var(--lx-muted); font-size:9px; letter-spacing:.1em; text-transform:uppercase; }
+        .luxe-footer { padding:42px 0; color:#fff; background:var(--lx-ink); border-top:1px solid rgba(255,255,255,.08); }
+        .luxe-footer-row { display:flex; align-items:center; justify-content:space-between; gap:30px; }
+        .luxe-footer-links { display:flex; flex-wrap:wrap; justify-content:center; gap:24px; color:var(--lx-muted); font-size:10px; letter-spacing:.1em; text-transform:uppercase; }
+        .luxe-contact { display:flex; align-items:center; gap:12px; }
+        .luxe-contact a { width:38px; height:38px; display:grid; place-items:center; border:1px solid rgba(255,255,255,.22); border-radius:50%; }
+        .luxe-footnote { margin-top:24px; color:var(--lx-muted); font-size:10px; text-align:center; }
+        @media (max-width:900px) {
+          .luxe-nav-links { display:none; }
+          .luxe-experience-grid,.luxe-booking-grid { grid-template-columns:1fr; }
+          .luxe-service-grid { grid-template-columns:repeat(2,1fr); }
+          .luxe-gallery { height:auto; grid-template-columns:repeat(3,1fr); }
+          .luxe-gallery img { aspect-ratio:1; }
+          .luxe-feature-grid { grid-template-columns:repeat(2,1fr); }
+          .luxe-testimonial-grid { grid-template-columns:1fr; }
+          .luxe-stats { flex-wrap:wrap; }
+        }
+        @media (max-width:620px) {
+          .luxe-wrap { width:min(100% - 32px,1160px); }
+          .luxe-nav { padding:18px 16px; }
+          .luxe-nav .luxe-btn { display:none; }
+          .luxe-logo strong { max-width:190px; font-size:18px; }
+          .luxe-hero { min-height:690px; }
+          .luxe-hero-copy { width:calc(100% - 32px); margin-left:16px; }
+          .luxe-hero h1 { font-size:49px; }
+          .luxe-experience,.luxe-services,.luxe-booking,.luxe-gallery-section { padding:70px 0; }
+          .luxe-experience-images { height:460px; grid-template-columns:1fr 1fr; }
+          .luxe-experience-images img:last-child { grid-column:1/-1; }
+          .luxe-service-grid { grid-template-columns:1fr; }
+          .luxe-section-head { align-items:flex-start; flex-direction:column; }
+          .luxe-steps { grid-template-columns:1fr; }
+          .luxe-gallery { grid-template-columns:repeat(2,1fr); }
+          .luxe-footer-row { flex-direction:column; text-align:center; }
+        }
+      </style>
+
+      <main class="luxe-page">
+        <header class="luxe-nav">
+          <a class="luxe-logo" href="${escapeAttribute(basePath || '/')}"><strong>${escapeHtml(business.name)}</strong><small>${escapeHtml(subtitle)}</small></a>
+          <nav class="luxe-nav-links" aria-label="Principal"><a href="#inicio">Inicio</a><a href="#servicios">Servicios</a><a href="#galeria">Galer&iacute;a</a><a href="#contacto">Contacto</a></nav>
+          <div class="luxe-nav-actions">
+            <a class="luxe-account" href="${escapeAttribute(accountUrl)}" aria-label="Mi cuenta"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="8" r="3.2"></circle><path d="M5 20a7 7 0 0 1 14 0"></path></svg></a>
+            <a class="luxe-btn" href="${escapeAttribute(bookingUrl)}">Reservar turno</a>
+          </div>
+        </header>
+
+        <section class="luxe-hero" id="inicio">
+          <img src="${escapeAttribute(heroImage)}" alt="Portada de ${escapeAttribute(business.name)}">
+          <div class="luxe-hero-copy">
+            <span class="luxe-eyebrow on-dark">Arte que se lleva en tus manos</span>
+            <h1>U&ntilde;as que hablan de <em>vos</em></h1>
+            <p>${escapeHtml(description)}</p>
+            <a class="luxe-btn rose" href="${escapeAttribute(bookingUrl)}">Reservar mi turno &rarr;</a>
+          </div>
+        </section>
+
+        <section class="luxe-features"><div class="luxe-wrap luxe-feature-grid">
+          <div class="luxe-feature"><span>&#9670;</span><strong>Productos<br>premium</strong></div>
+          <div class="luxe-feature"><span>&#10022;</span><strong>Dise&ntilde;os<br>personalizados</strong></div>
+          <div class="luxe-feature"><span>&#9825;</span><strong>Higiene y<br>seguridad</strong></div>
+          <div class="luxe-feature"><span>&#10023;</span><strong>Atenci&oacute;n<br>personalizada</strong></div>
+        </div></section>
+
+        <section class="luxe-experience"><div class="luxe-wrap luxe-experience-grid">
+          <div><span class="luxe-eyebrow">Experiencia luxe</span><h2>Cada detalle hace la <em>diferencia.</em></h2><p>Transformamos tus u&ntilde;as en peque&ntilde;as obras de arte, realzando tu estilo con elegancia y delicadeza.</p></div>
+          <div class="luxe-experience-images">${galleryImages.slice(0,3).map((image, index) => `<img src="${escapeAttribute(image)}" alt="Trabajo de ${escapeAttribute(business.name)} ${index + 1}">`).join('')}</div>
+        </div></section>
+
+        <section class="luxe-services" id="servicios"><div class="luxe-wrap">
+          <div class="luxe-section-head"><div><span class="luxe-eyebrow on-dark">Nuestros servicios</span><h2>Eleg&iacute; tu momento</h2></div><a class="luxe-btn rose" href="${escapeAttribute(bookingUrl)}">Ver disponibilidad</a></div>
+          <div class="luxe-service-grid">
+            ${services.length ? services.map((service, index) => `<article class="luxe-service-card"><div class="photo"><img src="${escapeAttribute(fallbackImages[index % fallbackImages.length] || fallbackImages[0]!)}" alt="${escapeAttribute(service.name)}"></div><div class="copy"><h3>${escapeHtml(service.name)}</h3><p>${escapeHtml(service.description || formatServiceMeta(formatCustomerDuration(service), service.category))}</p><div class="luxe-price">${formatPrice(service.price, service.priceMode)}</div></div></article>`).join('') : '<p>Todav&iacute;a no hay servicios visibles cargados.</p>'}
+          </div>
+        </div></section>
+
+        <section class="luxe-booking"><div class="luxe-wrap luxe-booking-grid">
+          <div><span class="luxe-eyebrow">Tu momento</span><h2>Reserv&aacute; tu turno <em>f&aacute;cil y r&aacute;pido</em></h2><div class="luxe-steps"><div class="luxe-step"><b>1</b><strong>Eleg&iacute; el servicio</strong><p>Seleccion&aacute; el tratamiento que quer&eacute;s realizarte.</p></div><div class="luxe-step"><b>2</b><strong>Eleg&iacute; d&iacute;a y hora</strong><p>Encontr&aacute; el horario que mejor te convenga.</p></div><div class="luxe-step"><b>3</b><strong>Confirm&aacute; tu turno</strong><p>Recib&iacute; la confirmaci&oacute;n y listo.</p></div></div><a class="luxe-btn dark" href="${escapeAttribute(bookingUrl)}">Reservar ahora &rarr;</a></div>
+          <div class="luxe-booking-art"><div class="luxe-phone"><div class="luxe-phone-screen"><strong>${escapeHtml(business.name)}</strong><small>Reserva online 24/7</small>${services.slice(0,3).map((service) => `<div class="luxe-phone-card"><span>${escapeHtml(service.name)}</span><span>${formatPrice(service.price, service.priceMode)}</span></div>`).join('')}<a class="luxe-btn rose" style="width:100%;margin-top:18px" href="${escapeAttribute(bookingUrl)}">Comenzar</a></div></div></div>
+        </div></section>
+
+        <section class="luxe-gallery-section" id="galeria"><div class="luxe-wrap"><div class="luxe-section-head"><div><span class="luxe-eyebrow">Inspiraci&oacute;n</span><h2>Nuestras creaciones</h2></div></div><div class="luxe-gallery">${galleryImages.map((image, index) => `<img src="${escapeAttribute(image)}" alt="Creaci&oacute;n ${index + 1} de ${escapeAttribute(business.name)}">`).join('')}</div></div></section>
+
+        <section class="luxe-testimonial"><div class="luxe-wrap luxe-testimonial-grid"><blockquote>&ldquo;No es solo un servicio de u&ntilde;as,<br>es un momento para vos.&rdquo;</blockquote><div class="luxe-stats"><div class="luxe-stat"><b>24/7</b><span>Reserva online</span></div><div class="luxe-stat"><b>${services.length || '+'}</b><span>Servicios</span></div><div class="luxe-stat"><b>100%</b><span>Compromiso</span></div></div></div></section>
+
+        <footer class="luxe-footer" id="contacto"><div class="luxe-wrap"><div class="luxe-footer-row"><a class="luxe-logo" href="${escapeAttribute(basePath || '/')}"><strong>${escapeHtml(business.name)}</strong><small>${escapeHtml(subtitle)}</small></a><div class="luxe-footer-links"><a href="#inicio">Inicio</a><a href="#servicios">Servicios</a><a href="#galeria">Galer&iacute;a</a>${addressLabel ? mapsUrl ? `<a href="${escapeAttribute(mapsUrl)}" target="_blank" rel="noopener">C&oacute;mo llegar</a>` : `<span>${escapeHtml(addressLabel)}</span>` : ''}</div><div class="luxe-contact">${business.instagramUrl ? `<a href="${escapeAttribute(business.instagramUrl)}" target="_blank" rel="noopener" aria-label="Instagram">IG</a>` : ''}${whatsappUrl ? `<a href="${escapeAttribute(whatsappUrl)}" target="_blank" rel="noopener" aria-label="WhatsApp">WA</a>` : ''}</div></div><div class="luxe-footnote">&copy; 2026 ${escapeHtml(business.name)}. Powered by Weex.</div></div></footer>
+      </main>
     `
   })
 }
