@@ -2191,7 +2191,10 @@ export class ConversationService {
           businessId: input.businessId,
           conversationId: input.conversation.id,
           field: 'professional',
-          serviceId: result.state.draft.service
+          serviceIds: Array.from(new Set([
+            result.state.draft.service,
+            ...result.state.combinedServices.map((service) => service.serviceId)
+          ].filter((serviceId): serviceId is string => Boolean(serviceId))))
         })
       : null
     const replyButtons = coordinationButtons ?? standardProfessionalButtons ?? (needsRecoveryButtons
@@ -2199,7 +2202,10 @@ export class ConversationService {
           businessId: input.businessId,
           conversationId: input.conversation.id,
           field: result.plan.type === 'ask_field' ? result.plan.field : null,
-          serviceId: result.state.draft.service
+          serviceIds: Array.from(new Set([
+            result.state.draft.service,
+            ...result.state.combinedServices.map((service) => service.serviceId)
+          ].filter((serviceId): serviceId is string => Boolean(serviceId))))
         })
       : null)
     return {
@@ -2298,7 +2304,7 @@ export class ConversationService {
     businessId: string
     conversationId: string
     field: string | null
-    serviceId: string | null
+    serviceIds: string[]
   }) {
     if (input.field === 'service') {
       const featureSettings = await prisma.businessFeatureSettings.findUnique({
@@ -2318,8 +2324,12 @@ export class ConversationService {
         businessId: input.businessId,
         isActive: true,
         acceptsBotBookings: true,
-        ...(input.serviceId
-          ? { serviceLinks: { some: { serviceId: input.serviceId } } }
+        ...(input.serviceIds.length
+          ? {
+              AND: input.serviceIds.map((serviceId) => ({
+                serviceLinks: { some: { serviceId } }
+              }))
+            }
           : {})
       },
       select: { id: true, name: true },
