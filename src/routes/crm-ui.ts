@@ -9452,7 +9452,6 @@ const crmHtml = `<!doctype html>
       border-radius: 6px;
       color: #101936;
       background: color-mix(in srgb, var(--agenda-event-color, #2563eb) 16%, #ffffff);
-      border-left: 4px solid var(--agenda-event-color, #2563eb);
       box-shadow: none;
       overflow: hidden;
       font-size: 11px;
@@ -9461,6 +9460,31 @@ const crmHtml = `<!doctype html>
       user-select: none;
       transition: opacity .16s ease, box-shadow .16s ease, transform .16s ease;
       animation: agenda-event-enter .16s ease-out;
+    }
+
+    .agenda-event.has-deposit::before {
+      content: "$";
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      z-index: 2;
+      width: 17px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px 0 0 6px;
+      color: #fff;
+      background: var(--agenda-deposit-color);
+      font-size: 11px;
+      line-height: 1;
+      font-weight: 900;
+      text-shadow: 0 1px 2px rgba(15, 23, 42, .32);
+      pointer-events: none;
+    }
+
+    .agenda-event.has-deposit {
+      padding-left: 23px;
     }
 
     .agenda-block {
@@ -12483,7 +12507,7 @@ const crmHtml = `<!doctype html>
       min-height: 28px;
       padding: 6px 7px;
       border-radius: 7px;
-      border-left: 4px solid var(--agenda-event-color, #60a5fa);
+      border-left: 0;
       overflow: hidden;
       color: #0f172a;
       background: color-mix(in srgb, var(--agenda-event-color, #60a5fa) 24%, #fff);
@@ -12499,6 +12523,27 @@ const crmHtml = `<!doctype html>
       overflow: visible;
     }
 
+    .agenda-gcal-event.has-deposit::before {
+      content: "$";
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      z-index: 7;
+      width: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 7px 0 0 7px;
+      color: #fff;
+      background: var(--agenda-deposit-color);
+      font-size: 12px;
+      line-height: 1;
+      font-weight: 900;
+      text-shadow: 0 1px 2px rgba(15, 23, 42, .34);
+      pointer-events: none;
+    }
+
     .agenda-gcal-event-main {
       width: 100%;
       height: 100%;
@@ -12512,6 +12557,10 @@ const crmHtml = `<!doctype html>
       background: transparent;
       text-align: left;
       cursor: inherit;
+    }
+
+    .agenda-gcal-event.has-deposit .agenda-gcal-event-main {
+      padding-left: 24px;
     }
 
     .agenda-gcal-event-main:hover,
@@ -12578,8 +12627,8 @@ const crmHtml = `<!doctype html>
 
     .agenda-gcal-event.dragging { opacity: .22; cursor: grabbing; }
     .agenda-gcal-event.is-pending { opacity: .72; cursor: progress; }
-    .agenda-gcal-block { z-index: 3; color: #334155; background: #e2e8f0; border-left-color: #64748b; cursor: pointer; }
-    .agenda-gcal-event.no-show { color: #fff; background: #64748b; border-left-color: #94a3b8; }
+    .agenda-gcal-block { z-index: 3; color: #334155; background: #e2e8f0; border-left: 4px solid #64748b; cursor: pointer; }
+    .agenda-gcal-event.no-show { color: #fff; background: #64748b; }
     .agenda-gcal-event strong, .agenda-gcal-event span, .agenda-gcal-block strong, .agenda-gcal-block span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .agenda-gcal-event strong, .agenda-gcal-block strong { font-size: 12px; }
     .agenda-gcal-event span, .agenda-gcal-block span { margin-top: 2px; font-size: 11px; }
@@ -22314,7 +22363,11 @@ const crmHtml = `<!doctype html>
       const service = appointmentServiceLabel(appointment)
       const professional = appointment.professional?.name || 'Profesional'
       const time = formatTimeOnly(start)
-      return '<article class="agenda-gcal-event' + (noShow ? ' no-show' : '') + (pending ? ' is-pending' : '') + '" data-appointment-id="' + appointment.id + '" data-overlap-count="' + columns + '" style="top:' + top + 'px;height:' + height + 'px;left:' + left + ';right:auto;width:' + width + ';--agenda-event-color:' + color + '" title="' + escapeHtml(time + ' - ' + customer + ' - ' + service + ' con ' + professional) + '">' +
+      const depositIndicator = agendaDepositIndicator(appointment)
+      const depositClass = depositIndicator ? ' has-deposit' : ''
+      const depositStyle = depositIndicator ? ';--agenda-deposit-color:' + depositIndicator.color : ''
+      const depositTitle = depositIndicator ? ' - ' + depositIndicator.label : ''
+      return '<article class="agenda-gcal-event' + depositClass + (noShow ? ' no-show' : '') + (pending ? ' is-pending' : '') + '" data-appointment-id="' + appointment.id + '" data-overlap-count="' + columns + '" style="top:' + top + 'px;height:' + height + 'px;left:' + left + ';right:auto;width:' + width + ';--agenda-event-color:' + color + depositStyle + '" title="' + escapeHtml(time + ' - ' + customer + ' - ' + service + ' con ' + professional + depositTitle) + '">' +
         '<button class="agenda-gcal-event-main" type="button" data-agenda-edit-appointment>' +
           '<strong>' + escapeHtml(customer) + '</strong>' +
           '<span>' + escapeHtml(time + ' - ' + service) + '</span>' +
@@ -22322,6 +22375,20 @@ const crmHtml = `<!doctype html>
         '</button>' +
         (canCreateAppointments() ? '<button class="agenda-gcal-event-add" type="button" data-agenda-new-at aria-label="Crear otro turno a las ' + escapeHtml(time) + '" title="Crear otro turno en este horario"><span aria-hidden="true">+</span><span class="agenda-gcal-event-add-label">Otro</span></button>' : '') +
       '</article>'
+    }
+
+    function agendaDepositIndicator(appointment) {
+      const status = appointment.bookingDeposit?.status
+      if (status === 'PENDING_PROOF') {
+        return { color: '#dc2626', label: 'Esperando comprobante' }
+      }
+      if (status === 'PROOF_RECEIVED') {
+        return { color: '#eab308', label: 'Comprobante pendiente del staff' }
+      }
+      if (status === 'APPROVED') {
+        return { color: '#16a34a', label: 'Comprobante verificado' }
+      }
+      return null
     }
 
     function renderAgendaMobileBlock(block, hourHeight) {
@@ -22858,16 +22925,18 @@ const crmHtml = `<!doctype html>
         const widthOffset = gap + (10 / placement.columns)
         const noShow = appointment.status === 'NO_SHOW'
         const pending = state.agendaPendingAppointmentIds.has(appointment.id)
+        const depositIndicator = agendaDepositIndicator(appointment)
 
         const event = document.createElement('article')
-        event.className = 'agenda-event' + (placement.columns > 1 ? ' is-overlap' : '') + (noShow ? ' no-show' : '') + (pending ? ' is-pending' : '')
+        event.className = 'agenda-event' + (depositIndicator ? ' has-deposit' : '') + (placement.columns > 1 ? ' is-overlap' : '') + (noShow ? ' no-show' : '') + (pending ? ' is-pending' : '')
         event.style.height = height + 'px'
         event.style.top = top + 'px'
         event.style.left = 'calc(' + ((placement.column * 100) / placement.columns) + '% + ' + leftOffset + 'px)'
         event.style.right = 'auto'
         event.style.width = 'calc(' + (100 / placement.columns) + '% - ' + widthOffset + 'px)'
         event.style.setProperty('--agenda-event-color', eventColor)
-        event.title = customer + ' - ' + service + ' con ' + professional + (noShow ? ' - Ausente' : '') + (pending ? ' - Guardando cambio' : '')
+        if (depositIndicator) event.style.setProperty('--agenda-deposit-color', depositIndicator.color)
+        event.title = customer + ' - ' + service + ' con ' + professional + (depositIndicator ? ' - ' + depositIndicator.label : '') + (noShow ? ' - Ausente' : '') + (pending ? ' - Guardando cambio' : '')
         event.innerHTML = '<strong>' + escapeHtml(formatTimeOnly(start) + ' - ' + formatTimeOnly(addMinutes(start, duration))) + '</strong>' +
           '<span>' + escapeHtml(service) + '</span>' +
           '<span>' + escapeHtml(customer + (noShow ? ' - Ausente' : '')) + '</span>'
