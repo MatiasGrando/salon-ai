@@ -17889,6 +17889,7 @@ const crmHtml = `<!doctype html>
     async function selectConversation(id, options = {}) {
       const conversation = state.conversations.find((item) => item.id === id)
       if (!conversation) return
+      if (conversationActionsUsePopover()) els.chatMoreMenu.open = false
       state.readConversationIds.add(id)
       state.selected = conversation
       await refreshSelectedConversation()
@@ -26348,9 +26349,14 @@ const crmHtml = `<!doctype html>
       return window.matchMedia('(max-width: 760px)').matches
     }
 
+    function conversationActionsUsePopover() {
+      const chat = els.chatMoreMenu?.closest('.chat')
+      return !chat || chat.getBoundingClientRect().width <= 820
+    }
+
     function syncConversationActionLayout() {
       if (!els.chatMoreMenu) return
-      els.chatMoreMenu.open = !isMobile()
+      els.chatMoreMenu.open = !conversationActionsUsePopover()
     }
 
     function closeMobileDrawer() {
