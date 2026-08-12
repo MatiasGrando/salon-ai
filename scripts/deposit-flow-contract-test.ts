@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import {
   BookingDepositService,
-  DEPOSIT_PROOF_RECEIVED_ACKNOWLEDGEMENT
+  DEPOSIT_PROOF_RECEIVED_ACKNOWLEDGEMENT,
+  LATE_DEPOSIT_PROOF_ACKNOWLEDGEMENT
 } from '../src/services/booking-deposit-service.js'
 import {
   calculateBookingV2Deposit,
@@ -282,6 +283,64 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(result, null)
       assert.equal(fixture.deposits[0]?.status, 'EXPIRED')
       assert.equal(fixture.appointments[0]?.status, 'CANCELLED')
+    }
+  },
+  {
+    name: 'un comprobante tardio queda asociado a la seña vencida para revision manual',
+    run: async () => {
+      const receivedAt = new Date('2026-07-28T20:00:00.000Z')
+      const fixture = fakeDepositDb({
+        deposits: [{
+          id: 'deposit-1',
+          appointmentId: 'appointment-1',
+          conversationId: 'conversation-1',
+          status: 'PENDING_PROOF',
+          expiresAt: new Date('2026-07-28T19:00:00.000Z'),
+          proofMessageId: null
+        }],
+        appointments: [{ id: 'appointment-1', status: 'PENDING' }]
+      })
+      const service = new BookingDepositService(fixture.db as never)
+      const activeProof = await service.markProofReceived({
+        conversationId: 'conversation-1',
+        messageId: 'message-image-late',
+        receivedAt
+      })
+      assert.equal(activeProof, null)
+
+      const lateProof = await service.registerLateProofIfExpired({
+        depositId: 'deposit-1',
+        conversationId: 'conversation-1',
+        messageId: 'message-image-late',
+        receivedAt
+      })
+      assert.equal(lateProof?.status, 'EXPIRED')
+      assert.equal(fixture.deposits[0]?.proofMessageId, 'message-image-late')
+      assert.equal(
+        fixture.deposits[0]?.rejectionReason,
+        'Comprobante recibido después del vencimiento de la retención.'
+      )
+      assert.equal(fixture.appointments[0]?.status, 'CANCELLED')
+    }
+  },
+  {
+    name: 'el webhook detiene el flujo automatico y deriva un comprobante tardio',
+    run: () => {
+      assert.match(LATE_DEPOSIT_PROOF_ACKNOWLEDGEMENT, /horario ya fue liberado/)
+      assert.match(LATE_DEPOSIT_PROOF_ACKNOWLEDGEMENT, /avisamos al equipo/)
+      const webhook = readFileSync(new URL('../src/services/whatsapp-webhook-service.ts', import.meta.url), 'utf8')
+      const lateProofBranch = webhook.indexOf('if (lateDepositProof)')
+      const automaticEnqueue = webhook.indexOf('const automaticTask = inboundMessageBatcher.enqueue')
+      assert.ok(lateProofBranch >= 0 && lateProofBranch < automaticEnqueue)
+      assert.ok(webhook.includes("automation: 'late_deposit_proof_received'"))
+      assert.ok(webhook.includes('lateDepositProofReceived: true'))
+      assert.ok(webhook.includes('queuedConversationHandoffPatch(inboundMessage.createdAt)'))
+
+      const conversation = readFileSync(new URL('../src/services/conversation-service.ts', import.meta.url), 'utf8')
+      const handlerStart = conversation.indexOf('private async handlePendingDepositServiceAddition')
+      const handlerEnd = conversation.indexOf('private async', handlerStart + 1)
+      const handler = conversation.slice(handlerStart, handlerEnd)
+      assert.ok(handler.indexOf('await bookingDepositService.expireOverdue()') < handler.indexOf("reply: 'Las dos reservas coordinadas"))
     }
   },
   {

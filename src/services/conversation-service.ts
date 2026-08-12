@@ -3111,17 +3111,6 @@ export class ConversationService {
   }): Promise<HandleMessageResult | null> {
     const state = stateFromConversation(input.conversation)
     if (!state.pendingDeposit || !state.draft.service) return null
-    if (pendingDepositAppointmentIds(state.pendingDeposit).length > 1) {
-      return {
-        reply: 'Las dos reservas coordinadas ya están retenidas por la seña. Para sumar otro servicio sin perder esos horarios, el equipo tiene que revisarlo.',
-        replyButtons: [{
-          id: `coord:${input.conversation.id}:human`,
-          title: 'Solicitar atención'
-        }],
-        skipMisunderstandingTracking: true,
-        skipHumanize: true
-      }
-    }
     await bookingDepositService.expireOverdue()
     const deposit = await prisma.bookingDeposit.findUnique({
       where: { id: state.pendingDeposit.depositId },
@@ -3145,6 +3134,17 @@ export class ConversationService {
       })
       return {
         reply: 'La retención anterior ya no está activa. Conservé los servicios elegidos para que busquemos un nuevo día y horario.',
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+    if (pendingDepositAppointmentIds(state.pendingDeposit).length > 1) {
+      return {
+        reply: 'Las dos reservas coordinadas ya están retenidas por la seña. Para sumar otro servicio sin perder esos horarios, el equipo tiene que revisarlo.',
+        replyButtons: [{
+          id: `coord:${input.conversation.id}:human`,
+          title: 'Solicitar atención'
+        }],
         skipMisunderstandingTracking: true,
         skipHumanize: true
       }
@@ -4158,19 +4158,19 @@ export function shouldHandleProfessionalScheduleInformation(input: {
     !input.hasPendingCoordinatedAvailability &&
     !input.isPendingDeterministicDecision &&
     !input.hasPriorityPendingChoice &&
+    input.hasExplicitScheduleQuestion === true &&
     (
       input.hasProfessionalId ||
-      (
-        input.hasExplicitScheduleQuestion === true &&
-        input.informationTopicCount === 0
-      )
+      input.informationTopicCount === 0
     )
 }
 
 export function isExplicitProfessionalScheduleQuestion(message: string) {
   const normalizedMessage = normalizeText(message)
-  return /\b(?:horario|horarios|dia|dias|cuando|disponibilidad)\b/.test(normalizedMessage) &&
+  const asksWorkingSchedule = /\b(?:horario|horarios|dia|dias|cuando|disponibilidad)\b/.test(normalizedMessage) &&
     /\b(?:profesional|atiende|atender|trabaja|trabajar|hace|tiene|puede|esta)\b/.test(normalizedMessage)
+  const asksWhetherWorkingAtTime = /\b(?:atiende|trabaja|esta)\b.{0,30}\b(?:a\s+las?|desde\s+las?|hasta\s+las?)\s+\d{1,2}(?::\d{2})?\b/.test(normalizedMessage)
+  return asksWorkingSchedule || asksWhetherWorkingAtTime
 }
 
 export function shouldPrioritizeGuidedEstimateOptionReply(

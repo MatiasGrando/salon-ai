@@ -7,6 +7,9 @@ const EXPIRABLE_DEPOSIT_STATUS = 'PENDING_PROOF' as const
 export const DEPOSIT_PROOF_RECEIVED_ACKNOWLEDGEMENT =
   'Recibimos tu comprobante. El horario continúa reservado mientras el equipo verifica el pago. Te avisamos por acá cuando quede confirmado.'
 
+export const LATE_DEPOSIT_PROOF_ACKNOWLEDGEMENT =
+  'Recibimos tu comprobante, pero llegó después de que venció la retención y el horario ya fue liberado. Ya avisamos al equipo para que revise el pago y coordine una nueva disponibilidad con vos por acá.'
+
 export class BookingDepositService {
   constructor(private readonly db: PrismaClientLike = defaultPrisma) {}
 
@@ -84,6 +87,42 @@ export class BookingDepositService {
     return updated.count
       ? this.db.bookingDeposit.findUnique({ where: { id: deposit.id } })
       : null
+  }
+
+  async registerLateProofIfExpired(input: {
+    depositId: string | null
+    conversationId: string
+    messageId: string
+    receivedAt?: Date
+  }) {
+    if (!input.depositId) return null
+    const receivedAt = input.receivedAt ?? new Date()
+    const deposit = await this.db.bookingDeposit.findUnique({
+      where: { id: input.depositId }
+    })
+    if (
+      !deposit ||
+      deposit.conversationId !== input.conversationId ||
+      deposit.status !== 'EXPIRED' ||
+      deposit.expiresAt > receivedAt
+    ) {
+      return null
+    }
+    if (!deposit.proofMessageId) {
+      await this.db.bookingDeposit.updateMany({
+        where: {
+          id: deposit.id,
+          conversationId: input.conversationId,
+          status: 'EXPIRED',
+          proofMessageId: null
+        },
+        data: {
+          proofMessageId: input.messageId,
+          rejectionReason: 'Comprobante recibido después del vencimiento de la retención.'
+        }
+      })
+    }
+    return this.db.bookingDeposit.findUnique({ where: { id: deposit.id } })
   }
 
   async cancelPendingProof(input: {

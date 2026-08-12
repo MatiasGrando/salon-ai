@@ -8,7 +8,8 @@ import { reopenClosedConversationOpportunity } from './conversation-opportunity-
 import { queuedConversationHandoffPatch } from './conversation-handoff.js'
 import {
   bookingDepositService,
-  DEPOSIT_PROOF_RECEIVED_ACKNOWLEDGEMENT
+  DEPOSIT_PROOF_RECEIVED_ACKNOWLEDGEMENT,
+  LATE_DEPOSIT_PROOF_ACKNOWLEDGEMENT
 } from './booking-deposit-service.js'
 import { capturePostSaleResponse } from './post-sale-service.js'
 import { AiMessageUnderstandingService } from './ai-message-understanding-service.js'
@@ -244,8 +245,18 @@ export class WhatsAppWebhookService {
       const inboundMessage = await prisma.message.create({
         data: inboundMessageData
       })
-      const depositProof = isSupportedDepositProof(message.media)
+      const supportedDepositProof = isSupportedDepositProof(message.media)
+      const expectedDepositId = pendingDepositIdFromState(conversation.bookingV2State)
+      const depositProof = supportedDepositProof
         ? await bookingDepositService.markProofReceived({
+          conversationId: conversation.id,
+          messageId: inboundMessage.id,
+          receivedAt: inboundMessage.createdAt
+        })
+        : null
+      const lateDepositProof = supportedDepositProof && !depositProof
+        ? await bookingDepositService.registerLateProofIfExpired({
+          depositId: expectedDepositId,
           conversationId: conversation.id,
           messageId: inboundMessage.id,
           receivedAt: inboundMessage.createdAt
@@ -346,6 +357,56 @@ export class WhatsAppWebhookService {
           from: message.from,
           reply: replyText,
           depositProofReceived: true,
+          delivery: deliveryResult
+        })
+        continue
+      }
+
+      if (lateDepositProof) {
+        const replyText = LATE_DEPOSIT_PROOF_ACKNOWLEDGEMENT
+        const gate = conversation.businessId
+          ? await assertBusinessCanSendWhatsApp(conversation.businessId, 'BOT')
+          : null
+        const deliveryResult = gate?.allowed
+          ? await whatsappCloudApi.sendTextMessage({
+              businessId: conversation.businessId!,
+              to: message.from,
+              text: replyText
+            })
+          : {
+              sent: false as const,
+              to: message.from,
+              reason: gate?.message || 'La conversación no tiene comercio asociado para responder por WhatsApp.'
+            }
+        const providerMessageId = getOutgoingProviderMessageId(deliveryResult)
+        await prisma.message.create({
+          data: {
+            conversationId: conversation.id,
+            phone: message.from,
+            direction: 'OUTBOUND',
+            body: replyText,
+            status: deliveryResult.sent ? 'sent' : 'failed',
+            ...(providerMessageId ? { providerMessageId } : {}),
+            metadata: { ...deliveryResult, automation: 'late_deposit_proof_received' }
+          }
+        })
+        await prisma.conversation.update({
+          where: { id: conversation.id },
+          data: {
+            lastMessage: replyText,
+            ...(conversation.currentStep === 'HUMAN_HANDOFF'
+              ? {
+                  humanHandoffAt: conversation.humanHandoffAt ?? inboundMessage.createdAt,
+                  humanHandoffResolvedAt: null
+                }
+              : queuedConversationHandoffPatch(inboundMessage.createdAt))
+          }
+        })
+        results.push({
+          messageId: message.id,
+          from: message.from,
+          reply: replyText,
+          lateDepositProofReceived: true,
           delivery: deliveryResult
         })
         continue
@@ -901,6 +962,14 @@ async function linkInstagramReferral(text: string, conversationId: string, busin
 function hasPendingDepositState(value: unknown) {
   if (!value || typeof value !== 'object') return false
   return Boolean((value as { pendingDeposit?: unknown }).pendingDeposit)
+}
+
+function pendingDepositIdFromState(value: unknown) {
+  if (!value || typeof value !== 'object') return null
+  const pendingDeposit = (value as { pendingDeposit?: unknown }).pendingDeposit
+  if (!pendingDeposit || typeof pendingDeposit !== 'object') return null
+  const depositId = (pendingDeposit as { depositId?: unknown }).depositId
+  return typeof depositId === 'string' && depositId.trim() ? depositId : null
 }
 
 const SUPPORTED_DEPOSIT_PROOF_MIME_TYPES = new Set([

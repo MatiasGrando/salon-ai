@@ -315,6 +315,21 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
       assert.equal(shouldPrioritizeGuidedEstimateOptionReply(bookingState, '¿Qué horarios tiene Tamara?'), false)
       assert.equal(isExplicitProfessionalScheduleQuestion('¿Qué horarios tiene Tamara?'), true)
+      assert.equal(isExplicitProfessionalScheduleQuestion('¿Tamara trabaja a las 12?'), true)
+      assert.equal(isExplicitProfessionalScheduleQuestion('Tamara atiende a las 12:30?'), true)
+      assert.equal(isExplicitProfessionalScheduleQuestion('hola quiero un turno con Tamara hoy a las 12hs'), false)
+      assert.equal(
+        shouldHandleProfessionalScheduleInformation({
+          hasProfessionalScheduleIntent: true,
+          hasPendingCoordinatedAvailability: false,
+          isPendingDeterministicDecision: false,
+          hasProfessionalId: true,
+          informationTopicCount: 0,
+          hasExplicitScheduleQuestion: false,
+          hasPriorityPendingChoice: false
+        }),
+        false
+      )
       assert.equal(
         shouldHandleProfessionalScheduleInformation({
           hasProfessionalScheduleIntent: true,
