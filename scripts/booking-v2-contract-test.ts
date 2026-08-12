@@ -110,6 +110,45 @@ import { reservationFitsAvailabilityWindow } from '../src/services/service-durat
 
 const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
   {
+    name: 'conserva profesional y hora enviados junto al servicio hasta recibir la fecha',
+    run: async () => {
+      const engine = new BookingV2Engine(fakeDomainPort({
+        availabilityOptions: [
+          { time: '13:00', professionalId: 'professional-1', professionalName: 'Nico' }
+        ]
+      }), fakeExtractor(null))
+      const namedState = acceptField(createEmptyBookingV2State(), 'name', 'Juan')
+      const first = await engine.process({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(namedState),
+        message: 'quiero un turno con Nico a las 13 hs para un corte',
+        understandingExtraction: extraction({
+          service: field('haircut', 0.98, 'corte'),
+          professional: field('professional-1', 0.98, 'Nico'),
+          time: field('13:00', 0.98, '13 hs')
+        })
+      })
+
+      assert.equal(first.state.draft.service, 'haircut')
+      assert.equal(first.state.draft.professional, 'professional-1')
+      assert.equal(first.state.draft.time, '13:00')
+      assert.equal(first.plan.type, 'ask_field')
+      assert.equal(first.plan.type === 'ask_field' ? first.plan.field : null, 'date')
+
+      const dated = await engine.process({
+        businessId: 'business-1',
+        conversation: first.conversationPatch,
+        message: 'mañana',
+        understandingExtraction: extraction({
+          date: field('2026-08-12', 0.98, 'mañana')
+        })
+      })
+      assert.equal(dated.state.draft.date, '2026-08-12')
+      assert.equal(dated.state.draft.time, '13:00')
+      assert.equal(dated.plan.type, 'confirm_booking')
+    }
+  },
+  {
     name: 'las selecciones inequívocas pueden evitar el router general',
     run: async () => {
       const engine = new BookingV2Engine(fakeDomainPort(), fakeExtractor(null))
@@ -2198,7 +2237,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           price: 65000,
           category: 'Coloracion',
           attentionMode: 'QUOTE',
-          requiresPhoto: false
+          requiresPhoto: false,
+          estimateDisclaimer: 'Los martes hay descuento pagando en efectivo.'
         }],
         professionals: [{
           id: 'professional-1',
@@ -2230,6 +2270,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         reason: 'quote_required'
       })
       assert.equal(result.reply.includes('presupuesto personalizado'), true)
+      assert.equal(result.reply.includes('Los martes hay descuento pagando en efectivo.'), true)
       assert.equal(result.reply.includes('profesional'), false)
       assert.equal(result.reply.includes('horario'), false)
     }
@@ -2301,7 +2342,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           price: null,
           category: 'Tratamientos',
           attentionMode: 'ADVISOR',
-          requiresPhoto: false
+          requiresPhoto: false,
+          estimateDisclaimer: 'La evaluación inicial no tiene costo.'
         }],
         professionals: []
       })
@@ -2329,6 +2371,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         reason: 'advisor_required'
       })
       assert.equal(result.reply.includes('requiere asesoramiento'), true)
+      assert.equal(result.reply.includes('La evaluación inicial no tiene costo.'), true)
     }
   },
   {
@@ -5706,6 +5749,32 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         businessInformationTopicsFromRouting({ ...merged, source: 'ai' }),
         []
       )
+    }
+  },
+  {
+    name: 'reserva automatica muestra la aclaracion final antes de confirmar',
+    run: () => {
+      const draft = completeDraft().draft
+      const catalog = createBookingV2DomainCatalog({
+        services: [{
+          id: 'haircut',
+          name: 'Corte',
+          aliases: [],
+          duration: 30,
+          price: 15000,
+          attentionMode: 'DIRECT_BOOKING',
+          estimateDisclaimer: 'Abonando en efectivo tenés un 10% de descuento.'
+        }],
+        professionals: [{ id: 'professional-1', name: 'Nico', serviceIds: ['haircut'] }]
+      })
+      const reply = renderBookingV2Response({
+        plan: { type: 'confirm_booking' },
+        draft,
+        catalog
+      })
+
+      assert.match(reply, /Abonando en efectivo tenés un 10% de descuento\./)
+      assert.ok(reply.indexOf('descuento') < reply.indexOf('¿Confirmás la reserva?'))
     }
   },
   {

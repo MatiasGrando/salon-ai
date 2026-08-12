@@ -1187,7 +1187,11 @@ export class BookingV2Engine {
       : resolveExpectedService(input.message, initialState, catalog)
     if (deterministicService?.kind === 'selected') {
       const state = acceptField(initialState, 'service', deterministicService.serviceId)
-      const hasAheadAvailabilityPreference = Boolean(
+      const hasAheadBookingPreference = Boolean(
+        input.understandingExtraction?.professional.value &&
+        input.understandingExtraction.professional.evidence &&
+        input.understandingExtraction.professional.confidence >= 0.65
+      ) || Boolean(
         input.understandingExtraction?.date.value &&
         input.understandingExtraction.date.evidence &&
         input.understandingExtraction.date.confidence >= 0.65
@@ -1198,7 +1202,7 @@ export class BookingV2Engine {
       )
       if (
         nextMissingField(initialState.draft, catalog.bookingFlowOrder) === 'service' &&
-        !hasAheadAvailabilityPreference
+        !hasAheadBookingPreference
       ) {
         return this.fromInterpretation({
           state,
@@ -1240,11 +1244,9 @@ export class BookingV2Engine {
       stateForExtraction = state
     }
 
-    const deterministicProfessional = resolveExpectedProfessional(
-      input.message,
-      stateForExtraction,
-      catalog
-    )
+    const deterministicProfessional = input.understandingExtraction
+      ? null
+      : resolveExpectedProfessional(input.message, stateForExtraction, catalog)
     if (deterministicProfessional?.kind === 'ambiguous') {
       return this.guidedEstimateResult(initialState, {
         type: 'clarify_professional',
@@ -1252,7 +1254,7 @@ export class BookingV2Engine {
       }, catalog, 'no_change')
     }
     if (deterministicProfessional?.kind === 'selected') {
-      const state = acceptField(initialState, 'professional', deterministicProfessional.professionalId)
+      const state = acceptField(stateForExtraction, 'professional', deterministicProfessional.professionalId)
       return this.fromInterpretation({
         state,
         nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
@@ -1261,7 +1263,7 @@ export class BookingV2Engine {
       }, null, catalog)
     }
     if (deterministicProfessional?.kind === 'probable') {
-      const state = proposeField(initialState, {
+      const state = proposeField(stateForExtraction, {
         field: 'professional',
         value: deterministicProfessional.professionalId,
         confidence: 0.7,
@@ -1275,14 +1277,16 @@ export class BookingV2Engine {
       }, null, catalog)
     }
 
-    const deterministicDate = resolveExpectedDate(
-      input.message,
-      stateForExtraction,
-      input.currentDate ?? new Date(),
-      catalog.bookingFlowOrder
-    )
+    const deterministicDate = input.understandingExtraction
+      ? null
+      : resolveExpectedDate(
+          input.message,
+          stateForExtraction,
+          input.currentDate ?? new Date(),
+          catalog.bookingFlowOrder
+        )
     if (deterministicDate) {
-      const state = acceptField(initialState, 'date', deterministicDate)
+      const state = acceptField(stateForExtraction, 'date', deterministicDate)
       return this.fromInterpretation({
         state,
         nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
@@ -1299,15 +1303,13 @@ export class BookingV2Engine {
       }, catalog, 'no_change')
     }
 
-    const deterministicTime = await this.resolveExpectedTime(
-      input.message,
-      stateForExtraction,
-      catalog
-    )
+    const deterministicTime = input.understandingExtraction
+      ? null
+      : await this.resolveExpectedTime(input.message, stateForExtraction, catalog)
     if (deterministicTime) {
-      const stateWithProfessional = initialState.draft.professional === ANY_PROFESSIONAL_ID
-        ? acceptField(initialState, 'professional', deterministicTime.professionalId)
-        : initialState
+      const stateWithProfessional = stateForExtraction.draft.professional === ANY_PROFESSIONAL_ID
+        ? acceptField(stateForExtraction, 'professional', deterministicTime.professionalId)
+        : stateForExtraction
       const state = acceptField(stateWithProfessional, 'time', deterministicTime.time)
       return this.fromInterpretation({
         state,

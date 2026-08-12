@@ -5937,6 +5937,7 @@ const crmHtml = `<!doctype html>
     }
 
     .service-estimate-editor,
+    .service-final-clarification-editor,
     .service-validation-editor,
     .service-deposit-editor {
       display: grid;
@@ -5952,6 +5953,7 @@ const crmHtml = `<!doctype html>
     }
 
     .service-estimate-editor textarea,
+    .service-final-clarification-editor textarea,
     .service-validation-editor textarea {
       min-height: 72px;
       padding: 10px 12px;
@@ -13526,14 +13528,17 @@ const crmHtml = `<!doctype html>
                     <button class="secondary" id="service-estimate-add-option" type="button">Agregar opci&oacute;n</button>
                     <div class="service-form-help">Si no agreg&aacute;s opciones, el bot mostrar&aacute; directamente el precio base configurado como &ldquo;Desde&rdquo;.</div>
                   </div>
-                  <div class="service-form-group">
-                    <label for="service-estimate-disclaimer">Aclaraci&oacute;n final</label>
-                    <textarea id="service-estimate-disclaimer" placeholder="El valor es estimativo y puede variar luego de evaluar el cabello."></textarea>
-                  </div>
                   <label class="service-photo-option">
                     <input id="service-estimate-allows-booking" type="checkbox" checked>
                     <span>Permitir continuar con la reserva despu&eacute;s del estimativo</span>
                   </label>
+                </div>
+                <div class="service-final-clarification-editor">
+                  <div class="service-form-group">
+                    <label for="service-estimate-disclaimer">Aclaraci&oacute;n final</label>
+                    <textarea id="service-estimate-disclaimer" placeholder="Ej: Abonando en efectivo ten&eacute;s un 10% de descuento."></textarea>
+                    <div class="service-form-help">El bot enviar&aacute; esta informaci&oacute;n antes de confirmar la reserva o finalizar la derivaci&oacute;n de este servicio.</div>
+                  </div>
                 </div>
                 <label class="service-photo-option">
                   <input id="service-validation-enabled" type="checkbox">
@@ -18323,13 +18328,20 @@ const crmHtml = `<!doctype html>
         const day = new Intl.DateTimeFormat('es-AR', { day: '2-digit' }).format(startAt)
         const month = new Intl.DateTimeFormat('es-AR', { month: 'short' }).format(startAt).replace('.', '').toUpperCase()
         const time = new Intl.DateTimeFormat('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }).format(startAt) + ' hs'
+        const appointmentStatus = appointment.status === 'PENDING'
+          ? appointment.bookingDeposit?.status === 'PROOF_RECEIVED'
+            ? { label: 'Comprobante en revisi&oacute;n', className: 'step-confirm' }
+            : appointment.bookingDeposit?.status === 'PENDING_PROOF'
+              ? { label: 'Pendiente de se&ntilde;a', className: 'step-confirm' }
+              : { label: 'Pendiente', className: 'step-confirm' }
+          : { label: 'Confirmado', className: 'step-completed' }
         return '<div class="item appointment-card">' +
           '<div class="appointment-date-tile"><strong>' + escapeHtml(day) + '</strong><span>' + escapeHtml(month) + '</span></div>' +
           '<div class="appointment-card-copy">' +
             '<div class="item-title">' + escapeHtml(appointmentServiceLabel(appointment)) + '</div>' +
             '<p>Profesional: ' + escapeHtml(appointment.professional?.name || 'Profesional') + '</p>' +
             '<p>' + escapeHtml(time) + '</p>' +
-            '<span class="chip step-completed">Confirmado</span>' +
+            '<span class="chip ' + appointmentStatus.className + '">' + appointmentStatus.label + '</span>' +
           '</div>' +
         '</div>'
       }).join('')
@@ -25985,9 +25997,9 @@ const crmHtml = `<!doctype html>
               : null,
             estimateQuestion: estimateQuestion || null,
             estimateOptions,
-            estimateDisclaimer: isGuidedEstimate
-              ? els.serviceEstimateDisclaimer.value.trim() || null
-              : null,
+            estimateDisclaimer: isGroup
+              ? null
+              : els.serviceEstimateDisclaimer.value.trim() || null,
             estimateAllowsBooking: isGuidedEstimate
               ? els.serviceEstimateAllowsBooking.checked
               : true,

@@ -730,7 +730,9 @@ export class ConversationService {
     }
 
     if (
-      (bookingV2Enabled && shouldRouteBookingV2HumanHandoff(bookingV2Routing)) ||
+      (bookingV2Enabled && (
+        shouldRouteBookingV2HumanHandoff(bookingV2Routing) || isHumanHandoffMessage(message)
+      )) ||
       (!bookingV2Enabled && isHumanHandoffMessage(message))
     ) {
       await this.updateConversation(input.phone, businessId, {
@@ -1241,7 +1243,8 @@ export class ConversationService {
       const replyButtons = bookingCoordinationReplyButtons({
         conversationId: input.conversation.id,
         plan: estimated.plan,
-        state: estimated.state
+        state: estimated.state,
+        availabilityOptions: estimated.availabilityOptions
       })
       return {
         reply: applyAssistantPersonalityToReply(estimated.reply, assistantPersonality),
@@ -2178,9 +2181,20 @@ export class ConversationService {
     const coordinationButtons = bookingCoordinationReplyButtons({
       conversationId: input.conversation.id,
       plan: result.plan,
-      state: result.state
+      state: result.state,
+      availabilityOptions: result.availabilityOptions
     })
-    const replyButtons = coordinationButtons ?? (needsRecoveryButtons
+    const standardProfessionalButtons = !coordinationButtons &&
+      result.plan.type === 'ask_field' &&
+      result.plan.field === 'professional'
+      ? await this.bookingV2MisunderstandingButtons({
+          businessId: input.businessId,
+          conversationId: input.conversation.id,
+          field: 'professional',
+          serviceId: result.state.draft.service
+        })
+      : null
+    const replyButtons = coordinationButtons ?? standardProfessionalButtons ?? (needsRecoveryButtons
       ? await this.bookingV2MisunderstandingButtons({
           businessId: input.businessId,
           conversationId: input.conversation.id,
@@ -2400,7 +2414,8 @@ export class ConversationService {
       const replyButtons = bookingCoordinationReplyButtons({
         conversationId: input.conversation.id,
         plan: resumed.plan,
-        state: resumed.state
+        state: resumed.state,
+        availabilityOptions: resumed.availabilityOptions
       })
       return {
         reply: resumed.reply,
@@ -2461,7 +2476,8 @@ export class ConversationService {
       const replyButtons = bookingCoordinationReplyButtons({
         conversationId: input.conversation.id,
         plan: resumed.plan,
-        state: resumed.state
+        state: resumed.state,
+        availabilityOptions: resumed.availabilityOptions
       })
       return {
         reply: applyAssistantPersonalityToReply(resumed.reply, input.assistantPersonality),
@@ -2492,7 +2508,8 @@ export class ConversationService {
       const replyButtons = bookingCoordinationReplyButtons({
         conversationId: input.conversation.id,
         plan: resumed.plan,
-        state: resumed.state
+        state: resumed.state,
+        availabilityOptions: resumed.availabilityOptions
       })
       return {
         reply: resumed.reply,
@@ -2656,7 +2673,8 @@ export class ConversationService {
     const replyButtons = bookingCoordinationReplyButtons({
       conversationId: input.conversationId,
       plan: resumed.plan,
-      state: resumed.state
+      state: resumed.state,
+      availabilityOptions: resumed.availabilityOptions
     })
     return {
       reply: `${pending.assignmentMode === 'MULTIPLE_PROFESSIONALS'
@@ -4529,6 +4547,7 @@ export function bookingCoordinationReplyButtons(input: {
   conversationId: string
   plan: BookingV2MessagePlan
   state: BookingV2State
+  availabilityOptions?: Array<{ time: string }>
 }): Array<{ id: string; title: string }> | null {
   const prefix = `coord:${input.conversationId}:`
   if (input.plan.type === 'ask_service_validation') {
@@ -4566,6 +4585,23 @@ export function bookingCoordinationReplyButtons(input: {
       { id: `${prefix}booking_date_today`, title: 'Hoy' },
       { id: `${prefix}booking_date_tomorrow`, title: 'Mañana' },
       { id: `${prefix}booking_date_other`, title: 'Otra fecha' }
+    ]
+  }
+  if (
+    input.plan.type === 'ask_field' &&
+    input.plan.field === 'time' &&
+    input.availabilityOptions?.length
+  ) {
+    return input.availabilityOptions.slice(0, 3).map((option) => ({
+      id: `${prefix}booking_time:${option.time}`,
+      title: option.time
+    }))
+  }
+  if (input.plan.type === 'confirm_booking') {
+    return [
+      { id: `${prefix}booking_confirm`, title: 'Confirmar turno' },
+      { id: `${prefix}booking_change_time`, title: 'Cambiar horario' },
+      { id: `${prefix}booking_cancel`, title: 'Cancelar reserva' }
     ]
   }
   if (input.plan.type === 'offer_separate_services' && input.plan.reason === 'no_common_professional') {
@@ -4716,6 +4752,9 @@ export function bookingCoordinationMessageFromInteractiveReply(
   if (action === 'booking_date_today') return 'hoy'
   if (action === 'booking_date_tomorrow') return 'mañana'
   if (action === 'booking_date_other') return 'elegir otra fecha'
+  if (action === 'booking_confirm') return 'confirmar turno'
+  if (action === 'booking_change_time') return 'cambiar horario'
+  if (action === 'booking_cancel') return 'cancelar reserva'
   if (action === 'confirm_reservations') return 'confirmar las reservas'
   if (action === 'change_time') return 'cambiar horario'
   if (action === 'band:morning') return 'por la mañana'
@@ -4725,6 +4764,8 @@ export function bookingCoordinationMessageFromInteractiveReply(
   if (date) return date
   const option = /^option:([12])$/.exec(action)?.[1]
   if (option) return option
+  const bookingTime = /^booking_time:(\d{2}:\d{2})$/.exec(action)?.[1]
+  if (bookingTime) return bookingTime
   return null
 }
 
@@ -4889,7 +4930,9 @@ export function isHumanHandoffMessage(message: string) {
     'operador',
     'asesor',
     'recepcion',
-    'recepcionista'
+    'recepcionista',
+    'atencion',
+    'atencion humana'
   ]
 
   if (exactMessages.includes(normalizedMessage)) {
@@ -4910,7 +4953,11 @@ export function isHumanHandoffMessage(message: string) {
     'necesito una persona',
     'pasarte con una persona',
     'pasame con una persona',
-    'pasame con alguien'
+    'pasame con alguien',
+    'quiero atencion',
+    'necesito atencion',
+    'quiero atencion humana',
+    'necesito atencion humana'
   ].some((phrase) => normalizedMessage.includes(phrase))
 }
 

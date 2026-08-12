@@ -166,6 +166,12 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.ok(webhook.includes("automation: 'deposit_proof_received'"))
       assert.ok(webhook.includes('queuedConversationHandoffPatch(inboundMessage.createdAt)'))
       assert.ok(webhook.includes('humanHandoffResolvedAt: null'))
+      const appointmentService = readFileSync(new URL('../src/services/appointment-service.ts', import.meta.url), 'utf8')
+      assert.ok(appointmentService.includes('bookingDeposit: {'))
+      assert.ok(appointmentService.includes('select: { status: true, expiresAt: true }'))
+      const crmUi = readFileSync(new URL('../src/routes/crm-ui.ts', import.meta.url), 'utf8')
+      assert.ok(crmUi.includes('Pendiente de se&ntilde;a'))
+      assert.ok(crmUi.includes('Comprobante en revisi&oacute;n'))
     }
   },
   {

@@ -361,7 +361,11 @@ export function acceptField(
   field: BookingField,
   value: string
 ): BookingV2State {
-  const timeBeforeProfessionalSelection = field === 'professional' ? state.draft.time : null
+  const timeBeforeDependencySelection = (
+    field === 'professional' || (field === 'date' && state.draft.date === null)
+  )
+    ? state.draft.time
+    : null
   let draft = invalidateDependents(
     {
       ...state.draft,
@@ -370,8 +374,8 @@ export function acceptField(
     field,
     state.draft[field] !== value
   )
-  if (timeBeforeProfessionalSelection) {
-    draft = { ...draft, time: timeBeforeProfessionalSelection }
+  if (timeBeforeDependencySelection) {
+    draft = { ...draft, time: timeBeforeDependencySelection }
   }
 
   return {

@@ -63,4 +63,16 @@ assert.match(serviceRoute, /normalizeVariantSelectionMode/)
 assert.match(schema, /enum ServiceVariantSelectionMode/)
 assert.match(schema, /variantSelectionMode\s+ServiceVariantSelectionMode\s+@default\(ONE_OF\)/)
 
+const estimateEditorStart = crmUi.indexOf('id="service-estimate-editor"')
+const finalClarificationStart = crmUi.indexOf('class="service-final-clarification-editor"')
+const validationToggleStart = crmUi.indexOf('id="service-validation-enabled"')
+assert.ok(estimateEditorStart >= 0)
+assert.ok(finalClarificationStart > estimateEditorStart)
+assert.ok(validationToggleStart > finalClarificationStart)
+assert.match(crmUi, /estimateDisclaimer: isGroup\s+\? null\s+: els\.serviceEstimateDisclaimer\.value\.trim\(\) \|\| null/)
+assert.match(
+  crmUi,
+  /El bot enviar&aacute; esta informaci&oacute;n antes de confirmar la reserva o finalizar la derivaci&oacute;n de este servicio\./
+)
+
 console.log('Service association UI contract tests passed.')

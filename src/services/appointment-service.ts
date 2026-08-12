@@ -721,6 +721,9 @@ export class AppointmentService {
             }
           },
           orderBy: { sortOrder: 'asc' }
+        },
+        bookingDeposit: {
+          select: { status: true, expiresAt: true }
         }
       },
       orderBy: {

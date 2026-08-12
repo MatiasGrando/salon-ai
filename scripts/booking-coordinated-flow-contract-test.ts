@@ -1161,6 +1161,37 @@ assert.deepEqual(await estimateDecisionExtractor.extract({
   requiresPhoto: false
 }), { decision: 'request_exact_quote', confidence: 0.98 })
 
+const standardTimeButtons = bookingCoordinationReplyButtons({
+  conversationId: 'conversation-1',
+  plan: { type: 'ask_field', field: 'time', reason: 'missing', misunderstandingCount: 0 },
+  state: denseState,
+  availabilityOptions: [
+    { time: '12:00' },
+    { time: '12:30' },
+    { time: '13:00' },
+    { time: '13:30' }
+  ]
+})
+assert.deepEqual(standardTimeButtons?.map((button) => button.title), ['12:00', '12:30', '13:00'])
+assert.equal(bookingCoordinationMessageFromInteractiveReply(
+  standardTimeButtons?.[2]?.id,
+  'conversation-1'
+), '13:00')
+
+const standardConfirmationButtons = bookingCoordinationReplyButtons({
+  conversationId: 'conversation-1',
+  plan: { type: 'confirm_booking' },
+  state: denseState
+})
+assert.deepEqual(
+  standardConfirmationButtons?.map((button) => button.title),
+  ['Confirmar turno', 'Cambiar horario', 'Cancelar reserva']
+)
+assert.equal(bookingCoordinationMessageFromInteractiveReply(
+  standardConfirmationButtons?.[0]?.id,
+  'conversation-1'
+), 'confirmar turno')
+
 const addonButtons = bookingCoordinationReplyButtons({
   conversationId: 'conversation-1',
   plan: { type: 'ask_service_addons', serviceIds: ['corte-mujer', 'bano-crema', 'lavado'] },

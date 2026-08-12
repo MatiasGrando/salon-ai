@@ -112,11 +112,16 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
   }
 
   if (input.plan.type === 'show_coordinated_selection') {
+    const finalClarifications = directBookingFinalClarifications(
+      input.plan.option.segments.map((segment) => segment.serviceId),
+      input.catalog
+    )
     return [
       `Elegiste el bloque de ${input.plan.option.startTime} a ${input.plan.option.endTime} 😊`,
       ...input.plan.option.segments.map((segment) =>
         `${segment.serviceName} con ${segment.professionalName}: ${segment.startTime} a ${segment.endTime}`
       ),
+      ...finalClarifications,
       input.plan.assignmentMode === 'SINGLE_PROFESSIONAL'
         ? '¿Confirmás la reserva?'
         : '¿Confirmás estas dos reservas?'
@@ -241,7 +246,11 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
     }
     if (input.plan.reason === 'advisor_required') {
       return service
-        ? `${service.name} requiere asesoramiento antes de coordinar. Te derivo con una persona del local para que pueda orientarte. ${waitNotice}`
+        ? [
+            `${service.name} requiere asesoramiento antes de coordinar. Te derivo con una persona del local para que pueda orientarte.`,
+            ...(service.estimateDisclaimer?.trim() ? [service.estimateDisclaimer.trim()] : []),
+            waitNotice
+          ].join('\n\n')
         : `Este servicio requiere asesoramiento antes de coordinar. Te derivo con una persona del local para que pueda orientarte. ${waitNotice}`
     }
     if (input.plan.reason === 'estimate_quote_requested') {
@@ -516,6 +525,9 @@ function renderAssistedServiceHandoff(input: {
     input.requiresPhotos
       ? `Para darte un presupuesto más preciso, enviame una foto clara del estado actual y, si tenés, otra del resultado que buscás.`
       : `Te derivo con una persona del local para que pueda preparar un presupuesto personalizado y preciso.`,
+    ...(input.service.attentionMode !== 'GUIDED_ESTIMATE' && input.service.estimateDisclaimer?.trim()
+      ? [input.service.estimateDisclaimer.trim()]
+      : []),
     'El equipo lo revisará y puede demorar unos minutos en responderte por acá.',
     ...(requestedAvailability
       ? ['Después de confirmar el presupuesto, seguimos con los profesionales y horarios disponibles.']
@@ -810,6 +822,24 @@ function bookingConfirmation(
     ? services.map((service) => service.name).join(' + ')
     : 'el servicio elegido'
   const duration = services.reduce((total, service) => total + service.duration, 0)
+  const finalClarifications = directBookingFinalClarifications(
+    services.map((service) => service.id),
+    catalog
+  )
+  if (finalClarifications.length) {
+    return [
+      [
+        'Perfecto. La reserva sería para',
+        serviceLabel,
+        ...(services.length > 1 && duration ? [`(${duration} min en total)`] : []),
+        `con ${labelForProfessional(draft.professional, catalog)}`,
+        `el ${formatDate(draft.date)}`,
+        `a las ${draft.time}.`
+      ].join(' '),
+      ...finalClarifications,
+      '¿Confirmás la reserva?'
+    ].join('\n\n')
+  }
   return [
     'Perfecto.',
     `¿Confirmás la reserva para ${serviceLabel}`,
@@ -818,6 +848,23 @@ function bookingConfirmation(
     `el ${formatDate(draft.date)}`,
     `a las ${draft.time}?`
   ].join(' ')
+}
+
+function directBookingFinalClarifications(
+  serviceIds: string[],
+  catalog?: BookingV2DomainCatalog | null
+) {
+  const seen = new Set<string>()
+  return serviceIds
+    .map((serviceId) => catalog?.services.find((service) => service.id === serviceId))
+    .filter((service): service is NonNullable<typeof service> => Boolean(service))
+    .filter((service) => service.attentionMode === 'DIRECT_BOOKING')
+    .map((service) => service.estimateDisclaimer?.trim() ?? '')
+    .filter((clarification) => {
+      if (!clarification || seen.has(clarification)) return false
+      seen.add(clarification)
+      return true
+    })
 }
 
 function formatDatedAvailabilityOptions(

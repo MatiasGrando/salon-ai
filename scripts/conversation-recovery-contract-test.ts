@@ -13,6 +13,7 @@ import {
   businessInformationNeedsHuman,
   formatProfessionalWorkingHours,
   isGroundedUnsupportedServiceRequest,
+  isHumanHandoffMessage,
   isCancelAppointmentMessage,
   isEditAppointmentMessage,
   isManageAppointmentMessage,
@@ -44,6 +45,10 @@ const naturalMixedCatalog = {
   ],
   professionals: []
 }
+
+assert.equal(isHumanHandoffMessage('hola quiero atención'), true)
+assert.equal(isHumanHandoffMessage('necesito atención humana'), true)
+assert.equal(isHumanHandoffMessage('quiero un turno'), false)
 
 for (const test of [
   {
