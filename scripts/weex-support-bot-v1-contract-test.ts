@@ -85,11 +85,29 @@ assert.equal(crmPrice.state.node, 'PRICES_MENU')
 
 const prices = send(start, '3')
 assert.equal(prices.state.node, 'PRICES_MENU')
+const basePlanPrice = send(prices, '1')
+assert.match(basePlanPrice.message, /Administración de profesionales y servicios/)
+assert.match(basePlanPrice.message, /Historial de visitas/)
+
 const whatsappPrice = send(prices, '2')
 assert.equal(whatsappPrice.state.context.sector, 'comercial')
 assert.equal(whatsappPrice.state.node, 'PRICE_DETAIL')
 assert.match(whatsappPrice.message, /ARS 55\.000/)
 assert.match(whatsappPrice.message, /31\/08\/2026/)
+
+const intelligentBotPrice = send(prices, '3')
+assert.match(intelligentBotPrice.message, /Agenda inteligente y gestión de turnos/)
+assert.match(intelligentBotPrice.message, /Base de clientes en el CRM e historial de visitas/)
+assert.match(intelligentBotPrice.message, /Bot inteligente con interpretación de lenguaje natural/)
+assert.doesNotMatch(intelligentBotPrice.message, /todo el Plan 1/i)
+
+const completePlanPrice = send(prices, '4')
+assert.match(completePlanPrice.message, /Landing creada desde cero según el diseño del cliente/)
+assert.doesNotMatch(completePlanPrice.message, /todo el Plan 2B/i)
+
+const standaloneBotPrice = send(prices, '5')
+assert.match(standaloneBotPrice.message, /Hasta 5 secciones en el menú principal/)
+assert.match(standaloneBotPrice.message, /ARS 100\.000/)
 
 const faq = send(start, '4')
 assert.equal(faq.state.node, 'FAQ_MENU')
