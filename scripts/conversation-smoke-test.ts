@@ -586,11 +586,11 @@ async function main() {
       steps: [
         {
           message: 'quiero cancelar un turno',
-          includes: ['cancelarlo', service.name]
+          includes: ['cancelarlo', 'un turno por vez', 'cancelar turno', service.name]
         },
         {
           message: 'el 1',
-          includes: ['cancel', 'ayudar', 'otro turno']
+          includes: ['cancel', 'cancelar turno', 'ayudar', 'otro turno']
         }
       ]
     },

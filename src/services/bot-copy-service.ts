@@ -422,7 +422,10 @@ export class BotCopyService {
   }
 
   cancelAppointmentIntro() {
-    return 'Dale, te ayudo a cancelarlo. Elegí de la lista qué turno querés cancelar.'
+    return [
+      'Dale, te ayudo a cancelarlo. Elegí de la lista qué turno querés cancelar.',
+      'Podés elegir un turno por vez. Si después querés cancelar otro, volvé a escribir "cancelar turno".'
+    ].join('\n\n')
   }
 
   editAppointmentIntro() {
@@ -444,7 +447,7 @@ export class BotCopyService {
   }) {
     return [
       this.cancelConfirmed(input),
-      '¿Te puedo ayudar con algo más o querés que busquemos otro turno? 😊'
+      'Si querés cancelar otro, volvé a escribir "cancelar turno". También puedo ayudarte con algo más o buscarte otro turno. 😊'
     ].join('\n\n')
   }
 
