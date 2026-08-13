@@ -29,7 +29,7 @@ export async function landingUiRoutes(app: FastifyInstance) {
     const business = await businessService.findPublicBySlug(slug)
     if (!business || !business.landingEnabled) return reply.status(404).type('text/html').send(renderNotFound())
 
-    return reply.type('text/html').send(renderLanding(business, '', previewLandingTemplate(request)))
+    return reply.type('text/html').send(renderLanding(business, '', previewLandingTemplate(request), isLandingDemoPreview(request)))
   })
 
   app.get('/privacidad', async (_request, reply) => {
@@ -77,7 +77,7 @@ export async function landingUiRoutes(app: FastifyInstance) {
     const business = await businessService.findPublicBySlug(slug)
     if (!business || !business.landingEnabled) return reply.status(404).type('text/html').send(renderNotFound())
 
-    return reply.type('text/html').send(renderLanding(business, `/${slug}`, previewLandingTemplate(request)))
+    return reply.type('text/html').send(renderLanding(business, `/${slug}`, previewLandingTemplate(request), isLandingDemoPreview(request)))
   })
 
   app.get('/:slug/reservar', async (request, reply) => {
@@ -150,6 +150,11 @@ function previewLandingTemplate(request: FastifyRequest) {
   return query.template
 }
 
+function isLandingDemoPreview(request: FastifyRequest) {
+  const query = request.query as { preview?: string }
+  return query.preview === '1'
+}
+
 function normalizeLandingTemplate(value?: string | null) {
   if (value === 'salon-white') return 'salon-white'
   if (value === 'luxe-nails') return 'luxe-nails'
@@ -177,6 +182,39 @@ function renderClassicBrandIcon(iconName: string, className: 'brand-icon' | 'foo
 
 type PublicBusiness = Awaited<ReturnType<BusinessService['findPublicBySlug']>>
 type LandingBusiness = NonNullable<PublicBusiness>
+
+const landingPreviewImageUrls = [
+  'https://images.unsplash.com/photo-1519014816548-bf5fe059798b?w=900&h=700&fit=crop&q=82&auto=format',
+  'https://images.unsplash.com/photo-1607779097040-26e80aa78e66?w=900&h=700&fit=crop&q=82&auto=format',
+  'https://images.unsplash.com/photo-1604902396830-aca29e19b067?w=900&h=700&fit=crop&q=82&auto=format',
+  'https://images.unsplash.com/photo-1571290274554-6a2eaa771e5f?w=900&h=700&fit=crop&q=82&auto=format',
+  'https://images.unsplash.com/photo-1632345031435-8727f6897d53?w=900&h=700&fit=crop&q=82&auto=format'
+]
+
+function landingServicesForPreview(business: LandingBusiness, enabled: boolean) {
+  if (!enabled || business.services.length) return business.services
+  return [
+    { id: 'preview-service-1', name: 'Manicuría completa', description: 'Preparación, cuidado y esmaltado.', durationMinutes: 60, customerDurationMin: null, customerDurationMax: null, category: 'Manos', price: 28000, priceMode: 'FIXED', imageUrl: landingPreviewImageUrls[0] },
+    { id: 'preview-service-2', name: 'Kapping gel', description: 'Refuerzo y terminación natural.', durationMinutes: 75, customerDurationMin: null, customerDurationMax: null, category: 'Manos', price: 35000, priceMode: 'STARTING_AT', imageUrl: landingPreviewImageUrls[1] },
+    { id: 'preview-service-3', name: 'Nail art', description: 'Diseño personalizado por uña.', durationMinutes: 90, customerDurationMin: null, customerDurationMax: null, category: 'Diseño', price: 42000, priceMode: 'STARTING_AT', imageUrl: landingPreviewImageUrls[2] },
+    { id: 'preview-service-4', name: 'Esmaltado semipermanente', description: 'Color y brillo de larga duración.', durationMinutes: 60, customerDurationMin: null, customerDurationMax: null, category: 'Manos', price: 30000, priceMode: 'FIXED', imageUrl: landingPreviewImageUrls[3] },
+    { id: 'preview-service-5', name: 'Soft gel', description: 'Extensión liviana y resistente.', durationMinutes: 100, customerDurationMin: null, customerDurationMax: null, category: 'Extensiones', price: 48000, priceMode: 'STARTING_AT', imageUrl: landingPreviewImageUrls[4] },
+    { id: 'preview-service-6', name: 'Belleza de pies', description: 'Cuidado completo y esmaltado.', durationMinutes: 70, customerDurationMin: null, customerDurationMax: null, category: 'Pies', price: 34000, priceMode: 'FIXED', imageUrl: landingPreviewImageUrls[0] }
+  ] as unknown as LandingBusiness['services']
+}
+
+function landingProfessionalsForPreview(business: LandingBusiness, enabled: boolean) {
+  if (!enabled || business.professionals.length) return business.professionals
+  return [
+    { id: 'preview-professional-1', name: 'Sofía', description: 'Especialista en manicuría y diseños delicados.', avatarUrl: landingPreviewImageUrls[1] },
+    { id: 'preview-professional-2', name: 'Camila', description: 'Especialista en soft gel y nail art.', avatarUrl: landingPreviewImageUrls[2] },
+    { id: 'preview-professional-3', name: 'Valentina', description: 'Especialista en cuidado integral de manos.', avatarUrl: landingPreviewImageUrls[3] }
+  ] as unknown as LandingBusiness['professionals']
+}
+
+function landingGalleryForPreview(configured: string[], enabled: boolean) {
+  return enabled && !configured.length ? landingPreviewImageUrls : configured
+}
 
 function renderWeexRegistration() {
   const googleClientId = weexGoogleClientId()
@@ -352,13 +390,13 @@ function renderWeexRegistration() {
   })
 }
 
-function renderLanding(business: LandingBusiness, basePath = '', templateOverride?: string) {
+function renderLanding(business: LandingBusiness, basePath = '', templateOverride?: string, demoPreview = false) {
   const landingTemplate = normalizeLandingTemplate(templateOverride || business.landingTemplate)
   if (landingTemplate === 'salon-white') {
-    return renderSalonWhiteLanding(business, basePath)
+    return renderSalonWhiteLanding(business, basePath, demoPreview)
   }
   if (landingTemplate === 'luxe-nails') {
-    return renderLuxeNailsLanding(business, basePath)
+    return renderLuxeNailsLanding(business, basePath, demoPreview)
   }
   const styleContent = templateSpecificContent(business, landingTemplate)
   const description = styleContent.description || business.landingDescription || `Reserva tu turno en ${business.name} de forma simple y rapida.`
@@ -372,9 +410,9 @@ function renderLanding(business: LandingBusiness, basePath = '', templateOverrid
   const classicBrandIcon = ['generic', 'scissors', 'nails', 'lashes'].includes(styleContent.brandIcon || '') ? styleContent.brandIcon! : 'generic'
   const openingLabel = business.landingOpeningYear ? `Desde ${business.landingOpeningYear}` : ''
   const services = business.services
-  const professionals = business.professionals.slice(0, 4)
-  const galleryImages = parseLandingGalleryImages(business.landingGalleryImages)
-  const visibleServices = services
+  const professionals = landingProfessionalsForPreview(business, demoPreview).slice(0, 4)
+  const galleryImages = landingGalleryForPreview(parseLandingGalleryImages(business.landingGalleryImages), demoPreview)
+  const visibleServices = demoPreview ? landingServicesForPreview(business, true) : services
   const carouselServices = [...visibleServices, ...visibleServices]
   const visibleProfessionals = professionals.slice(0, 3)
   const carouselProfessionals = [...visibleProfessionals, ...visibleProfessionals]
@@ -646,18 +684,30 @@ function renderLanding(business: LandingBusiness, basePath = '', templateOverrid
   })
 }
 
-function renderLuxeNailsLanding(business: LandingBusiness, basePath = '') {
+function renderLuxeNailsLanding(business: LandingBusiness, basePath = '', demoPreview = false) {
+  const luxeContent = templateSpecificContent(business, 'luxe-nails')
   const bookingUrl = `${basePath}/reservar?template=luxe-nails`
-  const accountUrl = `${basePath}/cuenta`
-  const subtitle = business.landingSubtitle || 'Nails studio'
-  const description = business.landingDescription || 'Diseños exclusivos, productos premium y un servicio que cuida cada detalle.'
-  const heroImage = business.coverImageUrl || 'https://images.unsplash.com/photo-1604654894611-6973b376cbde?w=1600&h=1100&fit=crop&q=85&auto=format'
-  const fallbackImages = [
-    'https://images.unsplash.com/photo-1519014816548-bf5fe059798b?w=700&h=520&fit=crop&q=80&auto=format',
-    'https://images.unsplash.com/photo-1607779097040-26e80aa78e66?w=700&h=520&fit=crop&q=80&auto=format',
-    'https://images.unsplash.com/photo-1604902396830-aca29e19b067?w=700&h=520&fit=crop&q=80&auto=format',
-    'https://images.unsplash.com/photo-1571290274554-6a2eaa771e5f?w=700&h=520&fit=crop&q=80&auto=format'
+  const subtitle = luxeContent.subtitle || business.landingSubtitle || 'Nails studio'
+  const description = luxeContent.description || business.landingDescription || 'Diseños exclusivos, productos premium y un servicio que cuida cada detalle.'
+  const promoText = luxeContent.promoText || '10% off en tu primer servicio reservando online'
+  const heroEyebrow = luxeContent.heroEyebrow || 'Arte que se lleva en tus manos'
+  const heroTitle1 = luxeContent.heroTitle1 || 'Uñas'
+  const heroTitle2 = luxeContent.heroTitle2 || 'que hablan'
+  const heroTitle3 = luxeContent.heroTitle3 || 'de'
+  const heroTitleAccent = luxeContent.heroTitleAccent || 'vos'
+  const experienceTitle = luxeContent.experienceTitle || 'Cada detalle hace la'
+  const experienceTitleAccent = luxeContent.experienceTitleAccent || 'diferencia.'
+  const experienceDescription = luxeContent.experienceDescription || 'Transformamos tus uñas en pequeñas obras de arte, realzando tu estilo con elegancia y delicadeza.'
+  const servicesTitle = luxeContent.servicesTitle || 'Elegí tu momento'
+  const galleryTitle = luxeContent.galleryTitle || 'Nuestras creaciones'
+  const testimonialText = luxeContent.testimonialText || 'No es solo un servicio de uñas, es un momento para vos.'
+  const luxeStats = [
+    { value: luxeContent.stat1Value || '+5', label: luxeContent.stat1Label || 'AÑOS DE\nEXPERIENCIA' },
+    { value: luxeContent.stat2Value || '+2K', label: luxeContent.stat2Label || 'CLIENTAS\nFELICES' },
+    { value: luxeContent.stat3Value || '+10K', label: luxeContent.stat3Label || 'TURNOS\nREALIZADOS' },
+    { value: luxeContent.stat4Value || '100%', label: luxeContent.stat4Label || 'COMPROMISO\nY CALIDAD' }
   ]
+  const heroImage = business.coverImageUrl || 'https://images.unsplash.com/photo-1604654894611-6973b376cbde?w=1600&h=1100&fit=crop&q=85&auto=format'
   const galleryDefaults = [
     'https://images.unsplash.com/photo-1632345031435-8727f6897d53?w=600&h=600&fit=crop&q=80&auto=format',
     'https://images.unsplash.com/photo-1604654894611-6973b376cbde?w=600&h=600&fit=crop&q=80&auto=format',
@@ -665,9 +715,10 @@ function renderLuxeNailsLanding(business: LandingBusiness, basePath = '') {
     'https://images.unsplash.com/photo-1720343409646-960f6dcccae3?w=600&h=600&fit=crop&q=80&auto=format',
     'https://images.unsplash.com/photo-1587729927069-ef3b7a5ab9b4?w=600&h=600&fit=crop&q=80&auto=format'
   ]
-  const configuredGallery = parseLandingGalleryImages(business.landingGalleryImages)
-  const galleryImages = [...configuredGallery, ...galleryDefaults].slice(0, 5)
+  const configuredGallery = landingGalleryForPreview(parseLandingGalleryImages(business.landingGalleryImages), demoPreview)
+  const galleryImages = configuredGallery.length ? configuredGallery.slice(0, 5) : galleryDefaults
   const services = business.services
+  const displayedServices = demoPreview ? landingServicesForPreview(business, true) : services
   const addressLabel = formatPublicAddress(business)
   const mapsUrl = business.publicMapsUrl?.trim() || null
   const whatsappDisplayPhone = publicWhatsappNumber(business)?.trim() || ''
@@ -689,23 +740,31 @@ function renderLuxeNailsLanding(business: LandingBusiness, basePath = '') {
         .luxe-btn.rose { color:#fff; background:var(--lx-rose); border-color:var(--lx-rose); }
         .luxe-btn.rose:hover { background:var(--lx-deep); border-color:var(--lx-deep); }
         .luxe-btn.dark { color:#fff; background:var(--lx-ink); border-color:var(--lx-ink); }
-        .luxe-nav { padding:22px clamp(24px,4vw,60px); position:absolute; inset:0 0 auto; z-index:5; display:flex; align-items:center; justify-content:space-between; gap:28px; color:#fff; }
+        .luxe-topbar { min-height:33px; padding:9px 60px; display:flex; align-items:center; justify-content:space-between; gap:24px; color:#fff; background:var(--lx-deep); font-size:11px; letter-spacing:.12em; text-transform:uppercase; }
+        .luxe-topbar span:last-child { opacity:.85; }
+        .luxe-nav { padding:26px 60px; position:absolute; inset:0 0 auto; z-index:5; display:flex; align-items:center; justify-content:space-between; gap:28px; color:#fff; }
         .luxe-logo { display:grid; line-height:1; }
         .luxe-logo strong { max-width:290px; overflow:hidden; font-size:23px; letter-spacing:.07em; text-overflow:ellipsis; white-space:nowrap; }
         .luxe-logo small { margin-top:5px; color:var(--lx-muted); font-size:9px; letter-spacing:.24em; text-transform:uppercase; }
-        .luxe-nav-links { display:flex; align-items:center; gap:30px; font-size:11px; letter-spacing:.12em; text-transform:uppercase; }
+        .luxe-nav-links { display:flex; align-items:center; gap:38px; font-size:12px; letter-spacing:.14em; text-transform:uppercase; }
         .luxe-nav-links a { opacity:.82; }
         .luxe-nav-links a:hover { color:var(--lx-pale); opacity:1; }
         .luxe-nav-actions { display:flex; align-items:center; gap:10px; }
-        .luxe-account { width:44px; height:44px; display:grid; place-items:center; border:1px solid rgba(255,255,255,.55); border-radius:50%; }
-        .luxe-account svg { width:18px; height:18px; }
-        .luxe-hero { min-height:760px; position:relative; display:flex; align-items:center; overflow:hidden; color:#fff; background:var(--lx-ink); }
-        .luxe-hero > img { width:100%; height:100%; position:absolute; inset:0; object-fit:cover; object-position:70% center; }
-        .luxe-hero::after { content:""; position:absolute; inset:0; background:linear-gradient(100deg,rgba(10,9,8,.96) 0%,rgba(10,9,8,.82) 36%,rgba(10,9,8,.25) 66%,rgba(10,9,8,.05)); }
-        .luxe-hero-copy { width:min(620px,calc(100% - 48px)); margin-left:max(24px,calc((100% - 1160px)/2)); padding:135px 0 80px; position:relative; z-index:2; }
-        .luxe-hero h1 { margin:20px 0 24px; font-size:clamp(54px,6.5vw,82px); line-height:.94; letter-spacing:-.02em; text-transform:uppercase; }
+        .luxe-hero { min-height:760px; position:relative; display:flex; align-items:stretch; overflow:hidden; color:#fff; background:var(--lx-ink); }
+        .luxe-hero-cover { width:100%; height:100%; position:absolute; inset:0; z-index:1; display:block; object-fit:cover; object-position:76% 8%; }
+        .luxe-hero::after { content:""; position:absolute; z-index:2; inset:0; background:linear-gradient(100deg,rgba(10,9,8,.94) 0%,rgba(10,9,8,.82) 32%,rgba(10,9,8,.35) 55%,rgba(10,9,8,0) 72%),linear-gradient(180deg,rgba(10,9,8,.65) 0%,rgba(10,9,8,0) 22%); }
+        .luxe-hero-copy { width:100%; max-width:620px; padding:150px 60px 60px; position:relative; z-index:3; display:flex; flex-direction:column; justify-content:center; }
+        .luxe-hero-copy .luxe-eyebrow { margin-bottom:22px; }
+        .luxe-hero h1 { margin:0; font-size:76px; line-height:.98; letter-spacing:.01em; text-transform:uppercase; }
         .luxe-hero h1 em { color:var(--lx-rose); font-style:normal; }
-        .luxe-hero p { max-width:430px; margin:0 0 32px; color:var(--lx-muted); font-size:15px; line-height:1.7; }
+        .luxe-hero p { max-width:360px; margin:26px 0 34px; color:var(--lx-muted); font-size:15px; line-height:1.6; }
+        .luxe-hero-copy > .luxe-btn { width:fit-content; }
+        .luxe-scroll-note { margin-top:56px; display:flex; align-items:center; gap:10px; color:var(--lx-muted); font-size:11px; letter-spacing:.14em; text-transform:uppercase; }
+        .luxe-scroll-note span { width:26px; height:26px; display:grid; place-items:center; border:1px solid var(--lx-muted); border-radius:50%; }
+        .luxe-hero-badge { width:96px; height:96px; position:absolute; z-index:4; right:36px; top:44%; display:grid; place-items:center; color:#fff; background:rgba(28,22,19,.55); border:1px solid rgba(255,255,255,.35); border-radius:50%; backdrop-filter:blur(2px); }
+        .luxe-hero-badge .play { width:34px; height:34px; display:grid; place-items:center; background:var(--lx-rose); border-radius:50%; font-size:12px; }
+        .luxe-hero-badge svg { width:100%; height:100%; position:absolute; inset:0; animation:luxe-spin 14s linear infinite; }
+        @keyframes luxe-spin { to { transform:rotate(360deg); } }
         .luxe-features { padding:35px 0; color:#fff; background:var(--lx-ink); border-top:1px solid rgba(255,255,255,.08); }
         .luxe-feature-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:24px; }
         .luxe-feature { display:grid; justify-items:center; gap:10px; text-align:center; }
@@ -728,6 +787,9 @@ function renderLuxeNailsLanding(business: LandingBusiness, basePath = '') {
         .luxe-service-card h3 { margin:0 0 9px; font-family:"Segoe UI",Arial,sans-serif; font-size:13px; font-weight:650; letter-spacing:.06em; text-transform:uppercase; }
         .luxe-service-card p { min-height:38px; margin:0 0 14px; color:var(--lx-muted); font-size:12px; line-height:1.55; }
         .luxe-price { color:var(--lx-pale); font-size:12px; letter-spacing:.07em; }
+        .luxe-service-extra { display:none; }
+        .luxe-service-grid.is-expanded .luxe-service-extra { display:block; }
+        .luxe-services-toggle { margin:36px auto 0; display:flex; color:#fff; background:transparent; cursor:pointer; }
         .luxe-booking { padding:105px 0; background:var(--lx-cream-2); }
         .luxe-booking-grid { display:grid; grid-template-columns:1fr .85fr; align-items:center; gap:70px; }
         .luxe-steps { margin:36px 0; display:grid; grid-template-columns:repeat(3,1fr); gap:24px; }
@@ -745,10 +807,19 @@ function renderLuxeNailsLanding(business: LandingBusiness, basePath = '') {
         .luxe-testimonial { padding:58px 0; color:#fff; background:var(--lx-ink); }
         .luxe-testimonial-grid { display:grid; grid-template-columns:1fr auto; align-items:center; gap:45px; }
         .luxe-testimonial blockquote { margin:0; font-family:Georgia,serif; font-size:27px; font-style:italic; line-height:1.4; }
-        .luxe-stats { display:flex; gap:38px; }
+        .luxe-stats { min-width:590px; display:grid; grid-template-columns:repeat(4,1fr); gap:28px; }
         .luxe-stat { text-align:center; }
-        .luxe-stat b { display:block; color:var(--lx-pale); font-family:Georgia,serif; font-size:31px; }
-        .luxe-stat span { color:var(--lx-muted); font-size:9px; letter-spacing:.1em; text-transform:uppercase; }
+        .luxe-stat b { display:block; margin-bottom:8px; color:var(--lx-pale); font-family:"Segoe UI",Arial,sans-serif; font-size:44px; font-weight:800; line-height:1; letter-spacing:-.04em; }
+        .luxe-stat span { display:block; color:var(--lx-muted); font-size:10px; font-weight:700; letter-spacing:.12em; line-height:1.45; white-space:pre-line; text-transform:uppercase; }
+        .luxe-comments { padding:90px 0; background:var(--lx-cream); }
+        .luxe-comments-head { margin-bottom:42px; text-align:center; }
+        .luxe-comments-head h2 { margin:12px 0 0; font-size:42px; }
+        .luxe-comments-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:20px; }
+        .luxe-comment { padding:30px; background:#fff; border:1px solid #eaded6; border-radius:6px; }
+        .luxe-comment-stars { margin-bottom:18px; color:var(--lx-deep); letter-spacing:.15em; }
+        .luxe-comment p { min-height:72px; margin:0 0 22px; color:#5f5550; font-family:Georgia,"Times New Roman",serif; font-size:18px; font-style:italic; line-height:1.55; }
+        .luxe-comment strong { font-size:12px; letter-spacing:.08em; text-transform:uppercase; }
+        .luxe-page .wa-fab > a { background:#25d366; }
         .luxe-footer { padding:42px 0; color:#fff; background:var(--lx-ink); border-top:1px solid rgba(255,255,255,.08); }
         .luxe-footer-row { display:flex; align-items:center; justify-content:space-between; gap:30px; }
         .luxe-footer-links { display:flex; flex-wrap:wrap; justify-content:center; gap:24px; color:var(--lx-muted); font-size:10px; letter-spacing:.1em; text-transform:uppercase; }
@@ -757,22 +828,30 @@ function renderLuxeNailsLanding(business: LandingBusiness, basePath = '') {
         .luxe-footnote { margin-top:24px; color:var(--lx-muted); font-size:10px; text-align:center; }
         @media (max-width:900px) {
           .luxe-nav-links { display:none; }
+          .luxe-hero { min-height:560px; }
+          .luxe-hero-cover { object-position:70% center; }
+          .luxe-hero::after { background:linear-gradient(180deg,rgba(10,9,8,.55) 0%,rgba(10,9,8,.88) 55%,rgba(10,9,8,.96) 100%); }
+          .luxe-hero-copy { max-width:100%; padding:90px 24px 40px; }
+          .luxe-hero h1 { font-size:52px; }
+          .luxe-hero-badge { display:none; }
           .luxe-experience-grid,.luxe-booking-grid { grid-template-columns:1fr; }
           .luxe-service-grid { grid-template-columns:repeat(2,1fr); }
           .luxe-gallery { height:auto; grid-template-columns:repeat(3,1fr); }
           .luxe-gallery img { aspect-ratio:1; }
           .luxe-feature-grid { grid-template-columns:repeat(2,1fr); }
           .luxe-testimonial-grid { grid-template-columns:1fr; }
-          .luxe-stats { flex-wrap:wrap; }
+          .luxe-stats { min-width:0; }
+          .luxe-comments-grid { grid-template-columns:1fr; }
         }
         @media (max-width:620px) {
           .luxe-wrap { width:min(100% - 32px,1160px); }
+          .luxe-topbar { padding:9px 16px; font-size:9px; }
+          .luxe-topbar span:last-child { display:none; }
           .luxe-nav { padding:18px 16px; }
           .luxe-nav .luxe-btn { display:none; }
           .luxe-logo strong { max-width:190px; font-size:18px; }
-          .luxe-hero { min-height:690px; }
           .luxe-hero-copy { width:calc(100% - 32px); margin-left:16px; }
-          .luxe-hero h1 { font-size:49px; }
+          .luxe-hero h1 { font-size:48px; }
           .luxe-experience,.luxe-services,.luxe-booking,.luxe-gallery-section { padding:70px 0; }
           .luxe-experience-images { height:460px; grid-template-columns:1fr 1fr; }
           .luxe-experience-images img:last-child { grid-column:1/-1; }
@@ -780,27 +859,30 @@ function renderLuxeNailsLanding(business: LandingBusiness, basePath = '') {
           .luxe-section-head { align-items:flex-start; flex-direction:column; }
           .luxe-steps { grid-template-columns:1fr; }
           .luxe-gallery { grid-template-columns:repeat(2,1fr); }
+          .luxe-stats { grid-template-columns:repeat(2,1fr); }
           .luxe-footer-row { flex-direction:column; text-align:center; }
         }
       </style>
 
       <main class="luxe-page">
-        <header class="luxe-nav">
-          <a class="luxe-logo" href="${escapeAttribute(basePath || '/')}"><strong>${escapeHtml(business.name)}</strong><small>${escapeHtml(subtitle)}</small></a>
-          <nav class="luxe-nav-links" aria-label="Principal"><a href="#inicio">Inicio</a><a href="#servicios">Servicios</a><a href="#galeria">Galer&iacute;a</a><a href="#contacto">Contacto</a></nav>
-          <div class="luxe-nav-actions">
-            <a class="luxe-account" href="${escapeAttribute(accountUrl)}" aria-label="Mi cuenta"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="8" r="3.2"></circle><path d="M5 20a7 7 0 0 1 14 0"></path></svg></a>
-            <a class="luxe-btn" href="${escapeAttribute(bookingUrl)}">Reservar turno</a>
-          </div>
-        </header>
-
+        <div class="luxe-topbar"><span>${escapeHtml(promoText)}</span><span>Reserv&aacute; tu turno</span></div>
         <section class="luxe-hero" id="inicio">
-          <img src="${escapeAttribute(heroImage)}" alt="Portada de ${escapeAttribute(business.name)}">
+          <header class="luxe-nav">
+            <a class="luxe-logo" href="${escapeAttribute(basePath || '/')}"><strong>${escapeHtml(business.name)}</strong><small>${escapeHtml(subtitle)}</small></a>
+            <nav class="luxe-nav-links" aria-label="Principal"><a href="#inicio">Inicio</a><a href="#servicios">Servicios</a><a href="#galeria">Galer&iacute;a</a><a href="#experiencia">Sobre nosotros</a><a href="#contacto">Contacto</a></nav>
+            <div class="luxe-nav-actions"><a class="luxe-btn" href="${escapeAttribute(bookingUrl)}">Reservar turno</a></div>
+          </header>
+          <img class="luxe-hero-cover" src="${escapeAttribute(heroImage)}" alt="Portada de ${escapeAttribute(business.name)}">
           <div class="luxe-hero-copy">
-            <span class="luxe-eyebrow on-dark">Arte que se lleva en tus manos</span>
-            <h1>U&ntilde;as que hablan de <em>vos</em></h1>
+            <span class="luxe-eyebrow on-dark">${escapeHtml(heroEyebrow)}</span>
+            <h1>${escapeHtml(heroTitle1)}<br>${escapeHtml(heroTitle2)}<br>${escapeHtml(heroTitle3)} <em>${escapeHtml(heroTitleAccent)}</em></h1>
             <p>${escapeHtml(description)}</p>
             <a class="luxe-btn rose" href="${escapeAttribute(bookingUrl)}">Reservar mi turno &rarr;</a>
+            <div class="luxe-scroll-note"><span>&darr;</span>Scroll para descubrir</div>
+          </div>
+          <div class="luxe-hero-badge" aria-hidden="true">
+            <svg viewBox="0 0 100 100"><path id="luxe-ring" fill="none" d="M50,10 a40,40 0 1,1 -0.1,0"></path><text font-size="6.4" fill="#f4ece6" letter-spacing="1"><textPath href="#luxe-ring">MIR&Aacute; NUESTRO TRABAJO &bull; MIR&Aacute; NUESTRO TRABAJO &bull;</textPath></text></svg>
+            <span class="play">&#9654;</span>
           </div>
         </section>
 
@@ -811,34 +893,43 @@ function renderLuxeNailsLanding(business: LandingBusiness, basePath = '') {
           <div class="luxe-feature"><span>&#10023;</span><strong>Atenci&oacute;n<br>personalizada</strong></div>
         </div></section>
 
-        <section class="luxe-experience"><div class="luxe-wrap luxe-experience-grid">
-          <div><span class="luxe-eyebrow">Experiencia luxe</span><h2>Cada detalle hace la <em>diferencia.</em></h2><p>Transformamos tus u&ntilde;as en peque&ntilde;as obras de arte, realzando tu estilo con elegancia y delicadeza.</p></div>
+        <section class="luxe-experience" id="experiencia"><div class="luxe-wrap luxe-experience-grid">
+          <div><span class="luxe-eyebrow">Experiencia luxe</span><h2>${escapeHtml(experienceTitle)} <em>${escapeHtml(experienceTitleAccent)}</em></h2><p>${escapeHtml(experienceDescription)}</p></div>
           <div class="luxe-experience-images">${galleryImages.slice(0,3).map((image, index) => `<img src="${escapeAttribute(image)}" alt="Trabajo de ${escapeAttribute(business.name)} ${index + 1}">`).join('')}</div>
         </div></section>
 
         <section class="luxe-services" id="servicios"><div class="luxe-wrap">
-          <div class="luxe-section-head"><div><span class="luxe-eyebrow on-dark">Nuestros servicios</span><h2>Eleg&iacute; tu momento</h2></div><a class="luxe-btn rose" href="${escapeAttribute(bookingUrl)}">Ver disponibilidad</a></div>
-          <div class="luxe-service-grid">
-            ${services.length ? services.map((service, index) => `<article class="luxe-service-card"><div class="photo"><img src="${escapeAttribute(fallbackImages[index % fallbackImages.length] || fallbackImages[0]!)}" alt="${escapeAttribute(service.name)}"></div><div class="copy"><h3>${escapeHtml(service.name)}</h3><p>${escapeHtml(service.description || formatServiceMeta(formatCustomerDuration(service), service.category))}</p><div class="luxe-price">${formatPrice(service.price, service.priceMode)}</div></div></article>`).join('') : '<p>Todav&iacute;a no hay servicios visibles cargados.</p>'}
+          <div class="luxe-section-head"><div><span class="luxe-eyebrow on-dark">Nuestros servicios</span><h2>${escapeHtml(servicesTitle)}</h2></div><a class="luxe-btn rose" href="${escapeAttribute(bookingUrl)}">Ver disponibilidad</a></div>
+          <div class="luxe-service-grid" id="luxe-services-grid">
+            ${displayedServices.length ? displayedServices.map((service, index) => `<article class="luxe-service-card${index >= 12 ? ' luxe-service-extra' : ''}"><div class="photo">${renderServiceImage(service, business, index)}</div><div class="copy"><h3>${escapeHtml(service.name)}</h3><p>${escapeHtml(service.description || formatServiceMeta(formatCustomerDuration(service), service.category))}</p><div class="luxe-price">${formatPrice(service.price, service.priceMode)}</div></div></article>`).join('') : '<p>Todav&iacute;a no hay servicios visibles cargados.</p>'}
           </div>
+          ${displayedServices.length > 12 ? '<button class="luxe-btn luxe-services-toggle" id="luxe-services-toggle" type="button" aria-expanded="false" aria-controls="luxe-services-grid">Ver m&aacute;s</button>' : ''}
         </div></section>
 
         <section class="luxe-booking"><div class="luxe-wrap luxe-booking-grid">
           <div><span class="luxe-eyebrow">Tu momento</span><h2>Reserv&aacute; tu turno <em>f&aacute;cil y r&aacute;pido</em></h2><div class="luxe-steps"><div class="luxe-step"><b>1</b><strong>Eleg&iacute; el servicio</strong><p>Seleccion&aacute; el tratamiento que quer&eacute;s realizarte.</p></div><div class="luxe-step"><b>2</b><strong>Eleg&iacute; d&iacute;a y hora</strong><p>Encontr&aacute; el horario que mejor te convenga.</p></div><div class="luxe-step"><b>3</b><strong>Confirm&aacute; tu turno</strong><p>Recib&iacute; la confirmaci&oacute;n y listo.</p></div></div><a class="luxe-btn dark" href="${escapeAttribute(bookingUrl)}">Reservar ahora &rarr;</a></div>
-          <div class="luxe-booking-art"><div class="luxe-phone"><div class="luxe-phone-screen"><strong>${escapeHtml(business.name)}</strong><small>Reserva online 24/7</small>${services.slice(0,3).map((service) => `<div class="luxe-phone-card"><span>${escapeHtml(service.name)}</span><span>${formatPrice(service.price, service.priceMode)}</span></div>`).join('')}<a class="luxe-btn rose" style="width:100%;margin-top:18px" href="${escapeAttribute(bookingUrl)}">Comenzar</a></div></div></div>
+          <div class="luxe-booking-art"><div class="luxe-phone"><div class="luxe-phone-screen"><strong>${escapeHtml(business.name)}</strong><small>Reserva online 24/7</small>${displayedServices.slice(0,3).map((service) => `<div class="luxe-phone-card"><span>${escapeHtml(service.name)}</span><span>${formatPrice(service.price, service.priceMode)}</span></div>`).join('')}<a class="luxe-btn rose" style="width:100%;margin-top:18px" href="${escapeAttribute(bookingUrl)}">Comenzar</a></div></div></div>
         </div></section>
 
-        <section class="luxe-gallery-section" id="galeria"><div class="luxe-wrap"><div class="luxe-section-head"><div><span class="luxe-eyebrow">Inspiraci&oacute;n</span><h2>Nuestras creaciones</h2></div></div><div class="luxe-gallery">${galleryImages.map((image, index) => `<img src="${escapeAttribute(image)}" alt="Creaci&oacute;n ${index + 1} de ${escapeAttribute(business.name)}">`).join('')}</div></div></section>
+        <section class="luxe-gallery-section" id="galeria"><div class="luxe-wrap"><div class="luxe-section-head"><div><span class="luxe-eyebrow">Inspiraci&oacute;n</span><h2>${escapeHtml(galleryTitle)}</h2></div></div><div class="luxe-gallery">${galleryImages.map((image, index) => `<img src="${escapeAttribute(image)}" alt="Creaci&oacute;n ${index + 1} de ${escapeAttribute(business.name)}">`).join('')}</div></div></section>
 
-        <section class="luxe-testimonial"><div class="luxe-wrap luxe-testimonial-grid"><blockquote>&ldquo;No es solo un servicio de u&ntilde;as,<br>es un momento para vos.&rdquo;</blockquote><div class="luxe-stats"><div class="luxe-stat"><b>24/7</b><span>Reserva online</span></div><div class="luxe-stat"><b>${services.length || '+'}</b><span>Servicios</span></div><div class="luxe-stat"><b>100%</b><span>Compromiso</span></div></div></div></section>
+        <section class="luxe-testimonial"><div class="luxe-wrap luxe-testimonial-grid"><blockquote>&ldquo;${escapeHtml(testimonialText)}&rdquo;</blockquote><div class="luxe-stats">${luxeStats.map((stat) => `<div class="luxe-stat"><b>${escapeHtml(stat.value)}</b><span>${escapeHtml(stat.label)}</span></div>`).join('')}</div></div></section>
+
+        <section class="luxe-comments" id="comentarios"><div class="luxe-wrap"><div class="luxe-comments-head"><span class="luxe-eyebrow">Comentarios</span><h2>Lo que dicen nuestras clientas</h2></div><div class="luxe-comments-grid">
+          <article class="luxe-comment"><div class="luxe-comment-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div><p>&ldquo;La atenci&oacute;n fue impecable y el resultado super&oacute; lo que esperaba.&rdquo;</p><strong>Mariana L.</strong></article>
+          <article class="luxe-comment"><div class="luxe-comment-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div><p>&ldquo;Reserv&eacute; online en minutos y me atendieron exactamente en el horario elegido.&rdquo;</p><strong>Julieta R.</strong></article>
+          <article class="luxe-comment"><div class="luxe-comment-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div><p>&ldquo;Un espacio hermoso, profesional y con much&iacute;sima atenci&oacute;n a los detalles.&rdquo;</p><strong>Sof&iacute;a P.</strong></article>
+        </div></div></section>
 
         <footer class="luxe-footer" id="contacto"><div class="luxe-wrap"><div class="luxe-footer-row"><a class="luxe-logo" href="${escapeAttribute(basePath || '/')}"><strong>${escapeHtml(business.name)}</strong><small>${escapeHtml(subtitle)}</small></a><div class="luxe-footer-links"><a href="#inicio">Inicio</a><a href="#servicios">Servicios</a><a href="#galeria">Galer&iacute;a</a>${addressLabel ? mapsUrl ? `<a href="${escapeAttribute(mapsUrl)}" target="_blank" rel="noopener">C&oacute;mo llegar</a>` : `<span>${escapeHtml(addressLabel)}</span>` : ''}</div><div class="luxe-contact">${business.instagramUrl ? `<a href="${escapeAttribute(business.instagramUrl)}" target="_blank" rel="noopener" aria-label="Instagram">IG</a>` : ''}${whatsappUrl ? `<a href="${escapeAttribute(whatsappUrl)}" target="_blank" rel="noopener" aria-label="WhatsApp">WA</a>` : ''}</div></div><div class="luxe-footnote">&copy; 2026 ${escapeHtml(business.name)}. Powered by Weex.</div></div></footer>
+        ${renderWhatsappFab(whatsappUrl)}
       </main>
+      ${displayedServices.length > 12 ? `<script>(()=>{const grid=document.getElementById('luxe-services-grid');const button=document.getElementById('luxe-services-toggle');if(!grid||!button)return;button.addEventListener('click',()=>{const expanded=grid.classList.toggle('is-expanded');button.setAttribute('aria-expanded',String(expanded));button.textContent=expanded?'Ver menos':'Ver más';});})();</script>` : ''}
     `
   })
 }
 
-function renderSalonWhiteLanding(business: LandingBusiness, basePath = '') {
+function renderSalonWhiteLanding(business: LandingBusiness, basePath = '', demoPreview = false) {
   const salonWhiteContent = templateSpecificContent(business, 'salon-white')
   const description = salonWhiteContent.description || business.landingDescription || `Cuidamos tu cabello y realzamos tu estilo con una atención personalizada.`
   const subtitle = salonWhiteContent.subtitle || business.landingSubtitle || 'Belleza y cuidado personal'
@@ -846,8 +937,9 @@ function renderSalonWhiteLanding(business: LandingBusiness, basePath = '') {
   const professionalsDescription = salonWhiteContent.professionalsDescription || 'Elegí con quién querés atenderte al reservar tu turno.'
   const openingLabel = business.landingOpeningYear ? `Desde ${business.landingOpeningYear}` : ''
   const services = business.services
-  const professionals = business.professionals
-  const galleryImages = parseLandingGalleryImages(business.landingGalleryImages)
+  const displayedServices = demoPreview ? landingServicesForPreview(business, true) : services
+  const professionals = landingProfessionalsForPreview(business, demoPreview)
+  const galleryImages = landingGalleryForPreview(parseLandingGalleryImages(business.landingGalleryImages), demoPreview)
   const bookingUrl = `${basePath}/reservar?template=salon-white`
   const accountUrl = `${basePath}/cuenta`
   const whatsappDisplayPhone = publicWhatsappNumber(business)?.trim() || ''
@@ -1065,7 +1157,7 @@ function renderSalonWhiteLanding(business: LandingBusiness, basePath = '') {
             <p>${escapeHtml(servicesDescription)}</p>
           </header>
           <div class="sw-services" id="sw-services-grid">
-            ${services.length ? services.map((service, index) => `
+            ${displayedServices.length ? displayedServices.map((service, index) => `
               <article class="sw-service-card${index >= 6 ? ' sw-service-extra' : ''}">
                 <div class="sw-service-photo">${renderServiceImage(service, business, index)}</div>
                 <div class="sw-service-body">
@@ -1076,7 +1168,7 @@ function renderSalonWhiteLanding(business: LandingBusiness, basePath = '') {
               </article>
             `).join('') : '<p>Todavía no hay servicios publicados.</p>'}
           </div>
-          ${services.length > 6 ? '<button class="sw-outline sw-services-toggle" id="sw-services-toggle" type="button" aria-expanded="false" aria-controls="sw-services-grid">Ver todos</button>' : ''}
+          ${displayedServices.length > 6 ? '<button class="sw-outline sw-services-toggle" id="sw-services-toggle" type="button" aria-expanded="false" aria-controls="sw-services-grid">Ver todos</button>' : ''}
         </section>
 
         <section class="sw-section cream" id="profesionales">
@@ -1150,7 +1242,7 @@ function renderSalonWhiteLanding(business: LandingBusiness, basePath = '') {
         ${renderWhatsappFab(whatsappUrl)}
         ${renderLandingLightbox()}
       </main>
-      ${services.length > 6 ? `
+      ${displayedServices.length > 6 ? `
         <script>
           (() => {
             const grid = document.getElementById('sw-services-grid')
@@ -1412,8 +1504,9 @@ function inferAddressArea(value?: string | null) {
 
 function renderBookingPlaceholder(business: LandingBusiness, backPath: string, templateOverride?: string) {
   const slug = business.slug || ''
-  const bookingTemplate = normalizeLandingTemplate(templateOverride || business.landingTemplate)
-  const subtitle = business.landingSubtitle || 'Oficio de navaja y tijera'
+  const requestedTemplate = normalizeLandingTemplate(templateOverride || business.landingTemplate)
+  const bookingTemplate = requestedTemplate === 'luxe-nails' ? 'salon-white' : requestedTemplate
+  const subtitle = templateSpecificContent(business, requestedTemplate).subtitle || business.landingSubtitle || 'Oficio de navaja y tijera'
   const initialsText = initials(business.name) || 'WX'
   const accountPath = backPath === '/' ? '/cuenta' : `${backPath}/cuenta`
   const googleClientId = weexGoogleClientId()

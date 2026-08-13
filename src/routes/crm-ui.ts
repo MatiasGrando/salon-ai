@@ -1119,7 +1119,8 @@ const crmHtml = `<!doctype html>
     }
 
     .app {
-      grid-template-columns: 224px minmax(290px, 336px) minmax(420px, 1fr) minmax(310px, 360px);
+      --workspace-nav-width: 224px;
+      grid-template-columns: var(--workspace-nav-width) minmax(290px, 336px) minmax(420px, 1fr) minmax(310px, 360px);
       height: 100dvh;
       background: #f8fbff;
     }
@@ -1496,7 +1497,7 @@ const crmHtml = `<!doctype html>
     }
 
     .app[data-section="conversations"] {
-      grid-template-columns: 224px minmax(280px, 320px) minmax(420px, 1fr) minmax(300px, 340px);
+      grid-template-columns: var(--workspace-nav-width) minmax(280px, 320px) minmax(420px, 1fr) minmax(300px, 340px);
       grid-template-rows: 104px minmax(0, 1fr);
       background: #f8fbff;
     }
@@ -2474,7 +2475,7 @@ const crmHtml = `<!doctype html>
 
     /* Conversation workspace polish */
     .app[data-section="conversations"] {
-      grid-template-columns: 224px minmax(300px, 340px) minmax(400px, 1fr) minmax(300px, 350px);
+      grid-template-columns: var(--workspace-nav-width) minmax(300px, 340px) minmax(400px, 1fr) minmax(300px, 350px);
       grid-template-rows: 100px minmax(0, 1fr);
     }
 
@@ -2891,7 +2892,7 @@ const crmHtml = `<!doctype html>
 
     /* Campaigns mock */
     .app[data-section="campaigns"] {
-      grid-template-columns: 224px minmax(0, 1fr);
+      grid-template-columns: var(--workspace-nav-width) minmax(0, 1fr);
       background: #f8faff;
     }
 
@@ -4467,7 +4468,7 @@ const crmHtml = `<!doctype html>
 
     @media (max-width: 1180px) {
       .app[data-section="conversations"] {
-        grid-template-columns: 220px minmax(270px, 310px) minmax(420px, 1fr);
+        grid-template-columns: var(--workspace-nav-width) minmax(270px, 310px) minmax(420px, 1fr);
       }
 
       .conversation-page-header {
@@ -4515,39 +4516,39 @@ const crmHtml = `<!doctype html>
     }
 
     .app[data-section="agenda"] {
-      grid-template-columns: 84px minmax(0, 1fr);
+      grid-template-columns: var(--workspace-nav-width) minmax(0, 1fr);
     }
 
     @media (min-width: 1024px) {
-      .app[data-section="agenda"] {
-        grid-template-columns: 76px minmax(0, 1fr);
+      .app {
+        --workspace-nav-width: 76px;
       }
 
-      .app[data-section="agenda"] > .workspace-nav {
+      .app > .workspace-nav {
         position: relative;
         z-index: 30;
-        width: 76px;
+        width: var(--workspace-nav-width);
         overflow: hidden;
         padding-right: 8px;
         padding-left: 8px;
         transition: width 180ms cubic-bezier(.2, 0, 0, 1), box-shadow 180ms ease;
       }
 
-      .app[data-section="agenda"] > .workspace-nav:hover,
-      .app[data-section="agenda"] > .workspace-nav:focus-within {
+      .app > .workspace-nav:hover,
+      .app > .workspace-nav:focus-within {
         width: 224px;
         box-shadow: 16px 0 34px rgba(3, 17, 34, .22);
       }
 
-      .app[data-section="agenda"] > .workspace-nav .crm-brand {
+      .app > .workspace-nav .crm-brand {
         margin-right: 8px;
         margin-left: 8px;
         justify-content: center;
       }
 
-      .app[data-section="agenda"] > .workspace-nav .crm-brand > div:last-child,
-      .app[data-section="agenda"] > .workspace-nav button > strong,
-      .app[data-section="agenda"] > .workspace-nav .nav-badge {
+      .app > .workspace-nav .crm-brand > div:last-child,
+      .app > .workspace-nav button > strong,
+      .app > .workspace-nav .nav-badge {
         width: 0;
         overflow: hidden;
         opacity: 0;
@@ -4555,75 +4556,75 @@ const crmHtml = `<!doctype html>
         white-space: nowrap;
       }
 
-      .app[data-section="agenda"] > .workspace-nav > button {
+      .app > .workspace-nav > button {
         justify-content: center;
         padding-right: 8px;
         padding-left: 8px;
       }
 
-      .app[data-section="agenda"] > .workspace-nav .nav-subitems,
-      .app[data-section="agenda"] > .workspace-nav .nav-user-info,
-      .app[data-section="agenda"] > .workspace-nav .nav-user-status,
-      .app[data-section="agenda"] > .workspace-nav .nav-logout {
+      .app > .workspace-nav .nav-subitems,
+      .app > .workspace-nav .nav-user-info,
+      .app > .workspace-nav .nav-user-status,
+      .app > .workspace-nav .nav-logout {
         display: none;
       }
 
-      .app[data-section="agenda"] > .workspace-nav .nav-user {
+      .app > .workspace-nav .nav-user {
         min-height: 58px;
         padding: 9px;
         grid-template-columns: 38px;
         justify-content: center;
       }
 
-      .app[data-section="agenda"] > .workspace-nav:hover .crm-brand,
-      .app[data-section="agenda"] > .workspace-nav:focus-within .crm-brand {
+      .app > .workspace-nav:hover .crm-brand,
+      .app > .workspace-nav:focus-within .crm-brand {
         justify-content: flex-start;
       }
 
-      .app[data-section="agenda"] > .workspace-nav:hover .crm-brand > div:last-child,
-      .app[data-section="agenda"] > .workspace-nav:focus-within .crm-brand > div:last-child,
-      .app[data-section="agenda"] > .workspace-nav:hover button > strong,
-      .app[data-section="agenda"] > .workspace-nav:focus-within button > strong,
-      .app[data-section="agenda"] > .workspace-nav:hover .nav-badge,
-      .app[data-section="agenda"] > .workspace-nav:focus-within .nav-badge {
+      .app > .workspace-nav:hover .crm-brand > div:last-child,
+      .app > .workspace-nav:focus-within .crm-brand > div:last-child,
+      .app > .workspace-nav:hover button > strong,
+      .app > .workspace-nav:focus-within button > strong,
+      .app > .workspace-nav:hover .nav-badge,
+      .app > .workspace-nav:focus-within .nav-badge {
         width: auto;
         overflow: visible;
         opacity: 1;
         visibility: visible;
       }
 
-      .app[data-section="agenda"] > .workspace-nav:hover > button,
-      .app[data-section="agenda"] > .workspace-nav:focus-within > button {
+      .app > .workspace-nav:hover > button,
+      .app > .workspace-nav:focus-within > button {
         justify-content: flex-start;
         padding-right: 10px;
         padding-left: 10px;
       }
 
-      .app[data-section="agenda"] > .workspace-nav:hover .nav-subitems,
-      .app[data-section="agenda"] > .workspace-nav:focus-within .nav-subitems {
+      .app > .workspace-nav:hover .nav-subitems,
+      .app > .workspace-nav:focus-within .nav-subitems {
         display: grid;
       }
 
-      .app[data-section="agenda"] > .workspace-nav:hover .nav-user,
-      .app[data-section="agenda"] > .workspace-nav:focus-within .nav-user {
+      .app > .workspace-nav:hover .nav-user,
+      .app > .workspace-nav:focus-within .nav-user {
         min-height: 112px;
         padding: 14px;
         grid-template-columns: 38px 1fr;
         justify-content: normal;
       }
 
-      .app[data-section="agenda"] > .workspace-nav:hover .nav-user-info,
-      .app[data-section="agenda"] > .workspace-nav:focus-within .nav-user-info {
+      .app > .workspace-nav:hover .nav-user-info,
+      .app > .workspace-nav:focus-within .nav-user-info {
         display: block;
       }
 
-      .app[data-section="agenda"] > .workspace-nav:hover .nav-user-status,
-      .app[data-section="agenda"] > .workspace-nav:focus-within .nav-user-status {
+      .app > .workspace-nav:hover .nav-user-status,
+      .app > .workspace-nav:focus-within .nav-user-status {
         display: inline-flex;
       }
 
-      .app[data-section="agenda"] > .workspace-nav:hover .nav-logout,
-      .app[data-section="agenda"] > .workspace-nav:focus-within .nav-logout {
+      .app > .workspace-nav:hover .nav-logout,
+      .app > .workspace-nav:focus-within .nav-logout {
         display: flex;
       }
     }
@@ -4652,7 +4653,7 @@ const crmHtml = `<!doctype html>
     }
 
     .app[data-section="customers"] {
-      grid-template-columns: 224px minmax(0, 1fr);
+      grid-template-columns: var(--workspace-nav-width) minmax(0, 1fr);
     }
 
     .app[data-section="customers"] .sidebar,
@@ -5500,7 +5501,7 @@ const crmHtml = `<!doctype html>
     .app[data-section="professionals"],
     .app[data-section="reports"],
     .app[data-section="settings"] {
-      grid-template-columns: 224px minmax(0, 1fr);
+      grid-template-columns: var(--workspace-nav-width) minmax(0, 1fr);
     }
 
     .app[data-section="services"] .sidebar,
@@ -7107,6 +7108,79 @@ const crmHtml = `<!doctype html>
       display: grid;
       gap: 16px;
       border-top: 1px solid #e5eaf2;
+    }
+
+    .landing-settings-collapsible {
+      overflow: hidden;
+      border: 1px solid #dfe6f1;
+      border-radius: 13px;
+      background: #fff;
+      transition: border-color .18s ease, box-shadow .18s ease;
+    }
+
+    .landing-settings-collapsible[open] {
+      border-color: #cbd8ef;
+      box-shadow: 0 10px 24px rgba(24, 49, 87, .05);
+    }
+
+    .landing-settings-collapsible-summary {
+      min-height: 76px;
+      padding: 16px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      list-style: none;
+      cursor: pointer;
+      transition: background .18s ease;
+    }
+
+    .landing-settings-collapsible-summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .landing-settings-collapsible-summary:hover,
+    .landing-settings-collapsible[open] > .landing-settings-collapsible-summary {
+      background: #f8faff;
+    }
+
+    .landing-settings-collapsible-summary:focus-visible {
+      outline: 3px solid rgba(37, 99, 235, .18);
+      outline-offset: -3px;
+    }
+
+    .landing-settings-collapsible-summary > div {
+      min-width: 0;
+      display: grid;
+      gap: 5px;
+    }
+
+    .landing-settings-collapsible-summary strong {
+      color: #17213c;
+      font-size: 15px;
+    }
+
+    .landing-settings-collapsible-summary span:not(.settings-collapse-icon) {
+      color: #64748b;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .landing-settings-collapsible[open] > .landing-settings-collapsible-summary .settings-collapse-icon {
+      background: #eaf1ff;
+      transform: rotate(180deg);
+    }
+
+    .landing-settings-collapsible-content {
+      padding: 20px 18px 22px;
+      display: grid;
+      gap: 18px;
+      border-top: 1px solid #e5eaf2;
+    }
+
+    .landing-settings-group-first {
+      padding-top: 0;
+      border-top: 0;
     }
 
     .landing-settings-group-title {
@@ -10580,7 +10654,7 @@ const crmHtml = `<!doctype html>
       }
 
       .app {
-        grid-template-columns: 84px minmax(270px, 320px) 1fr;
+        grid-template-columns: var(--workspace-nav-width) minmax(270px, 320px) 1fr;
       }
 
       .details {
@@ -10868,7 +10942,8 @@ const crmHtml = `<!doctype html>
       }
 
       .app {
-        grid-template-columns: 84px minmax(0, 1fr);
+        --workspace-nav-width: 84px;
+        grid-template-columns: var(--workspace-nav-width) minmax(0, 1fr);
       }
 
       .workspace-nav {
@@ -14640,6 +14715,15 @@ const crmHtml = `<!doctype html>
           <h3>Landing p&uacute;blica</h3>
           <p>Configur&aacute; la p&aacute;gina de reservas que van a ver tus clientes.</p>
           <form class="settings-form" id="landing-settings-form">
+            <details class="landing-settings-collapsible" open>
+              <summary class="landing-settings-collapsible-summary">
+                <div>
+                  <strong>1. Dise&ntilde;o</strong>
+                  <span>Eleg&iacute; la plantilla y configur&aacute; la direcci&oacute;n p&uacute;blica.</span>
+                </div>
+                <span class="settings-collapse-icon" aria-hidden="true"></span>
+              </summary>
+              <div class="landing-settings-collapsible-content">
             <label class="settings-toggle-row">
               <input id="landing-enabled" type="checkbox">
               Landing activa
@@ -14722,8 +14806,19 @@ const crmHtml = `<!doctype html>
             </div>
 
             </div>
+              </div>
+            </details>
 
-            <div class="landing-settings-group">
+            <details class="landing-settings-collapsible">
+              <summary class="landing-settings-collapsible-summary">
+                <div>
+                  <strong>2. Textos</strong>
+                  <span>Edit&aacute; el contenido correspondiente al dise&ntilde;o elegido.</span>
+                </div>
+                <span class="settings-collapse-icon" aria-hidden="true"></span>
+              </summary>
+              <div class="landing-settings-collapsible-content">
+            <div class="landing-settings-group landing-settings-group-first">
               <div class="landing-settings-group-title">
                 <strong>Contenido del dise&ntilde;o</strong>
                 <span id="landing-template-content-help">Estos textos corresponden a la plantilla seleccionada.</span>
@@ -14767,6 +14862,59 @@ const crmHtml = `<!doctype html>
               <textarea class="field" id="landing-description" maxlength="420" placeholder="Ej: Barber&iacute;a de barrio con reservas online, cortes cl&aacute;sicos y atenci&oacute;n personalizada."></textarea>
             </div>
 
+            <div data-landing-template-field="luxeNailsContent">
+              <div class="settings-field">
+                <label for="luxe-promo-text">Promoci&oacute;n superior</label>
+                <input class="field" id="luxe-promo-text" maxlength="120" placeholder="10% off en tu primer servicio reservando online">
+              </div>
+              <div class="settings-field">
+                <label for="luxe-hero-eyebrow">Texto sobre el t&iacute;tulo principal</label>
+                <input class="field" id="luxe-hero-eyebrow" maxlength="100" placeholder="Arte que se lleva en tus manos">
+              </div>
+              <div class="settings-field">
+                <label>T&iacute;tulo principal</label>
+                <div class="landing-benefits-editor">
+                  <div class="landing-benefit-editor"><strong>L&iacute;nea 1</strong><input class="field" id="luxe-hero-title-1" maxlength="40" placeholder="U&ntilde;as"></div>
+                  <div class="landing-benefit-editor"><strong>L&iacute;nea 2</strong><input class="field" id="luxe-hero-title-2" maxlength="40" placeholder="que hablan"></div>
+                  <div class="landing-benefit-editor"><strong>L&iacute;nea 3</strong><input class="field" id="luxe-hero-title-3" maxlength="30" placeholder="de"></div>
+                  <div class="landing-benefit-editor"><strong>Destacado</strong><input class="field" id="luxe-hero-title-accent" maxlength="40" placeholder="vos"></div>
+                </div>
+              </div>
+              <div class="settings-field">
+                <label>T&iacute;tulo de experiencia</label>
+                <div class="landing-benefits-editor">
+                  <div class="landing-benefit-editor"><strong>Texto</strong><input class="field" id="luxe-experience-title" maxlength="100" placeholder="Cada detalle hace la"></div>
+                  <div class="landing-benefit-editor"><strong>Destacado</strong><input class="field" id="luxe-experience-title-accent" maxlength="60" placeholder="diferencia."></div>
+                </div>
+              </div>
+              <div class="settings-field">
+                <label for="luxe-experience-description">Descripci&oacute;n de experiencia</label>
+                <textarea class="field" id="luxe-experience-description" maxlength="300" placeholder="Transformamos tus u&ntilde;as en peque&ntilde;as obras de arte..."></textarea>
+              </div>
+              <div class="settings-field">
+                <label for="luxe-services-title">T&iacute;tulo de servicios</label>
+                <input class="field" id="luxe-services-title" maxlength="90" placeholder="Eleg&iacute; tu momento">
+              </div>
+              <div class="settings-field">
+                <label for="luxe-gallery-title">T&iacute;tulo de galer&iacute;a</label>
+                <input class="field" id="luxe-gallery-title" maxlength="90" placeholder="Nuestras creaciones">
+              </div>
+              <div class="settings-field">
+                <label for="luxe-testimonial-text">Frase destacada</label>
+                <textarea class="field" id="luxe-testimonial-text" maxlength="240" placeholder="No es solo un servicio de u&ntilde;as, es un momento para vos."></textarea>
+              </div>
+              <div class="settings-field">
+                <label>Indicadores de confianza</label>
+                <div class="landing-benefits-editor">
+                  <div class="landing-benefit-editor"><strong>Dato 1</strong><input class="field" id="luxe-stat-1-value" maxlength="20" placeholder="+5"><textarea class="field" id="luxe-stat-1-label" maxlength="70" placeholder="A&Ntilde;OS DE&#10;EXPERIENCIA"></textarea></div>
+                  <div class="landing-benefit-editor"><strong>Dato 2</strong><input class="field" id="luxe-stat-2-value" maxlength="20" placeholder="+2K"><textarea class="field" id="luxe-stat-2-label" maxlength="70" placeholder="CLIENTAS&#10;FELICES"></textarea></div>
+                  <div class="landing-benefit-editor"><strong>Dato 3</strong><input class="field" id="luxe-stat-3-value" maxlength="20" placeholder="+10K"><textarea class="field" id="luxe-stat-3-label" maxlength="70" placeholder="TURNOS&#10;REALIZADOS"></textarea></div>
+                  <div class="landing-benefit-editor"><strong>Dato 4</strong><input class="field" id="luxe-stat-4-value" maxlength="20" placeholder="100%"><textarea class="field" id="luxe-stat-4-label" maxlength="70" placeholder="COMPROMISO&#10;Y CALIDAD"></textarea></div>
+                </div>
+                <small>Pod&eacute;s usar saltos de l&iacute;nea en las descripciones para controlar c&oacute;mo se muestran.</small>
+              </div>
+            </div>
+
             <div class="settings-field" data-landing-template-field="salonWhiteServicesDescription">
               <label for="salon-white-services-description">Texto de la secci&oacute;n Servicios</label>
               <textarea class="field" id="salon-white-services-description" maxlength="240" placeholder="Trabajamos con productos profesionales y una atenci&oacute;n pensada para cada persona."></textarea>
@@ -14779,8 +14927,19 @@ const crmHtml = `<!doctype html>
               <small>Aparece debajo del t&iacute;tulo &ldquo;Profesionales&rdquo;.</small>
             </div>
             </div>
+              </div>
+            </details>
 
-            <div class="landing-settings-group">
+            <details class="landing-settings-collapsible">
+              <summary class="landing-settings-collapsible-summary">
+                <div>
+                  <strong>3. Im&aacute;genes</strong>
+                  <span>Administr&aacute; la foto de portada y la galer&iacute;a.</span>
+                </div>
+                <span class="settings-collapse-icon" aria-hidden="true"></span>
+              </summary>
+              <div class="landing-settings-collapsible-content">
+            <div class="landing-settings-group landing-settings-group-first">
               <div class="landing-settings-group-title">
                 <strong>Im&aacute;genes</strong>
                 <span>La portada y la galer&iacute;a se adaptan al espacio definido por cada plantilla.</span>
@@ -14811,6 +14970,8 @@ const crmHtml = `<!doctype html>
               <small>Hasta 6 im&aacute;genes PNG, JPG, WEBP o GIF. M&aacute;ximo 3 MB cada una. Si no carg&aacute;s im&aacute;genes, la secci&oacute;n Galer&iacute;a no se muestra.</small>
             </div>
             </div>
+              </div>
+            </details>
 
             <div class="settings-actions">
               <button class="primary" id="landing-settings-submit" type="submit">Guardar landing</button>
@@ -15919,9 +16080,9 @@ const crmHtml = `<!doctype html>
       'luxe-nails': {
         name: 'Luxe Nails',
         description: 'Oscura, sofisticada y pensada para estudios de uñas.',
-        fields: ['subtitle', 'description'],
-        requirements: ['2 textos', 'Portada', 'Galería'],
-        contentHelp: 'Usa subtítulo y descripción. El resto de los títulos forman parte del diseño.'
+        fields: ['subtitle', 'description', 'luxeNailsContent'],
+        requirements: ['Textos propios', '4 indicadores', 'Portada', 'Galería'],
+        contentHelp: 'Permite editar la promoción, portada, secciones, frase destacada y cuatro indicadores de confianza.'
       }
     }
 
@@ -16761,6 +16922,26 @@ const crmHtml = `<!doctype html>
       classicBenefit3: document.getElementById('classic-benefit-3'),
       landingOpeningYear: document.getElementById('landing-opening-year'),
       landingDescription: document.getElementById('landing-description'),
+      luxePromoText: document.getElementById('luxe-promo-text'),
+      luxeHeroEyebrow: document.getElementById('luxe-hero-eyebrow'),
+      luxeHeroTitle1: document.getElementById('luxe-hero-title-1'),
+      luxeHeroTitle2: document.getElementById('luxe-hero-title-2'),
+      luxeHeroTitle3: document.getElementById('luxe-hero-title-3'),
+      luxeHeroTitleAccent: document.getElementById('luxe-hero-title-accent'),
+      luxeExperienceTitle: document.getElementById('luxe-experience-title'),
+      luxeExperienceTitleAccent: document.getElementById('luxe-experience-title-accent'),
+      luxeExperienceDescription: document.getElementById('luxe-experience-description'),
+      luxeServicesTitle: document.getElementById('luxe-services-title'),
+      luxeGalleryTitle: document.getElementById('luxe-gallery-title'),
+      luxeTestimonialText: document.getElementById('luxe-testimonial-text'),
+      luxeStat1Value: document.getElementById('luxe-stat-1-value'),
+      luxeStat1Label: document.getElementById('luxe-stat-1-label'),
+      luxeStat2Value: document.getElementById('luxe-stat-2-value'),
+      luxeStat2Label: document.getElementById('luxe-stat-2-label'),
+      luxeStat3Value: document.getElementById('luxe-stat-3-value'),
+      luxeStat3Label: document.getElementById('luxe-stat-3-label'),
+      luxeStat4Value: document.getElementById('luxe-stat-4-value'),
+      luxeStat4Label: document.getElementById('luxe-stat-4-label'),
       salonWhiteServicesDescription: document.getElementById('salon-white-services-description'),
       salonWhiteProfessionalsDescription: document.getElementById('salon-white-professionals-description'),
       landingAddress: document.getElementById('landing-address'),
@@ -21269,6 +21450,26 @@ const crmHtml = `<!doctype html>
       els.landingDescription.value = templateContent.description || state.business?.landingDescription || ''
       els.salonWhiteServicesDescription.value = templateContent.servicesDescription || 'Trabajamos con productos profesionales y una atención pensada para cada persona.'
       els.salonWhiteProfessionalsDescription.value = templateContent.professionalsDescription || 'Elegí con quién querés atenderte al reservar tu turno.'
+      els.luxePromoText.value = templateContent.promoText || '10% off en tu primer servicio reservando online'
+      els.luxeHeroEyebrow.value = templateContent.heroEyebrow || 'Arte que se lleva en tus manos'
+      els.luxeHeroTitle1.value = templateContent.heroTitle1 || 'Uñas'
+      els.luxeHeroTitle2.value = templateContent.heroTitle2 || 'que hablan'
+      els.luxeHeroTitle3.value = templateContent.heroTitle3 || 'de'
+      els.luxeHeroTitleAccent.value = templateContent.heroTitleAccent || 'vos'
+      els.luxeExperienceTitle.value = templateContent.experienceTitle || 'Cada detalle hace la'
+      els.luxeExperienceTitleAccent.value = templateContent.experienceTitleAccent || 'diferencia.'
+      els.luxeExperienceDescription.value = templateContent.experienceDescription || 'Transformamos tus uñas en pequeñas obras de arte, realzando tu estilo con elegancia y delicadeza.'
+      els.luxeServicesTitle.value = templateContent.servicesTitle || 'Elegí tu momento'
+      els.luxeGalleryTitle.value = templateContent.galleryTitle || 'Nuestras creaciones'
+      els.luxeTestimonialText.value = templateContent.testimonialText || 'No es solo un servicio de uñas, es un momento para vos.'
+      els.luxeStat1Value.value = templateContent.stat1Value || '+5'
+      els.luxeStat1Label.value = templateContent.stat1Label || 'AÑOS DE\\nEXPERIENCIA'
+      els.luxeStat2Value.value = templateContent.stat2Value || '+2K'
+      els.luxeStat2Label.value = templateContent.stat2Label || 'CLIENTAS\\nFELICES'
+      els.luxeStat3Value.value = templateContent.stat3Value || '+10K'
+      els.luxeStat3Label.value = templateContent.stat3Label || 'TURNOS\\nREALIZADOS'
+      els.luxeStat4Value.value = templateContent.stat4Value || '100%'
+      els.luxeStat4Label.value = templateContent.stat4Label || 'COMPROMISO\\nY CALIDAD'
       const legacyBenefit = String(state.business?.landingFeature || '').trim()
       const legacyBenefit1 = templateId === 'classic'
         ? [templateContent.benefit1Title, templateContent.benefit1Subtitle].filter(Boolean).join(' ') || legacyBenefit
@@ -21303,6 +21504,33 @@ const crmHtml = `<!doctype html>
       }
     }
 
+    function luxeNailsContentFromForm() {
+      return {
+        subtitle: els.landingSubtitle.value.trim(),
+        description: els.landingDescription.value.trim(),
+        promoText: els.luxePromoText.value.trim(),
+        heroEyebrow: els.luxeHeroEyebrow.value.trim(),
+        heroTitle1: els.luxeHeroTitle1.value.trim(),
+        heroTitle2: els.luxeHeroTitle2.value.trim(),
+        heroTitle3: els.luxeHeroTitle3.value.trim(),
+        heroTitleAccent: els.luxeHeroTitleAccent.value.trim(),
+        experienceTitle: els.luxeExperienceTitle.value.trim(),
+        experienceTitleAccent: els.luxeExperienceTitleAccent.value.trim(),
+        experienceDescription: els.luxeExperienceDescription.value.trim(),
+        servicesTitle: els.luxeServicesTitle.value.trim(),
+        galleryTitle: els.luxeGalleryTitle.value.trim(),
+        testimonialText: els.luxeTestimonialText.value.trim(),
+        stat1Value: els.luxeStat1Value.value.trim(),
+        stat1Label: els.luxeStat1Label.value.trim(),
+        stat2Value: els.luxeStat2Value.value.trim(),
+        stat2Label: els.luxeStat2Label.value.trim(),
+        stat3Value: els.luxeStat3Value.value.trim(),
+        stat3Label: els.luxeStat3Label.value.trim(),
+        stat4Value: els.luxeStat4Value.value.trim(),
+        stat4Label: els.luxeStat4Label.value.trim()
+      }
+    }
+
     function classicContentWithLegacyDefaults() {
       const content = state.business?.landingTemplateContent?.classic || {}
       return {
@@ -21332,10 +21560,17 @@ const crmHtml = `<!doctype html>
         field.hidden = !definition.fields.includes(field.dataset.landingTemplateField)
       }
       const isSalonWhite = templateId === 'salon-white'
-      els.landingCoverTitle.textContent = isSalonWhite ? 'Foto de portada vertical (2:3 o 3:4)' : 'Foto de portada (1600 × 700)'
+      const isLuxeNails = templateId === 'luxe-nails'
+      els.landingCoverTitle.textContent = isSalonWhite
+        ? 'Foto de portada vertical (2:3 o 3:4)'
+        : isLuxeNails
+          ? 'Foto de portada Luxe Nails (1600 × 900)'
+          : 'Foto de portada (1600 × 700)'
       els.landingCoverHelp.textContent = isSalonWhite
         ? 'Para Studio claro usá una foto vertical 2:3 o 3:4, de al menos 680 × 1024 px. Máximo 3 MB.'
-        : 'Formato recomendado para Vintage y Editorial: 1600 × 700 px. Máximo 3 MB. La portada se adapta para mostrarse completa en cualquier pantalla.'
+        : isLuxeNails
+          ? 'Para Luxe Nails usá una imagen horizontal 16:9 de al menos 1600 × 900 px. Se recorta desde abajo, conservando el foco en la parte superior derecha. Máximo 3 MB.'
+          : 'Formato recomendado para Vintage y Editorial: 1600 × 700 px. Máximo 3 MB. La portada se adapta para mostrarse completa en cualquier pantalla.'
     }
 
     function renderLandingLinks(slug) {
@@ -21359,7 +21594,7 @@ const crmHtml = `<!doctype html>
       els.landingDomainLink.textContent = domainUrl
       els.landingDomainLink.href = domainUrl
       for (const link of document.querySelectorAll('[data-template-preview]')) {
-        link.href = localUrl + '?template=' + encodeURIComponent(link.dataset.templatePreview || 'classic')
+        link.href = localUrl + '?template=' + encodeURIComponent(link.dataset.templatePreview || 'classic') + '&preview=1'
         link.removeAttribute('aria-disabled')
       }
     }
@@ -22172,6 +22407,7 @@ const crmHtml = `<!doctype html>
       const selectedTemplate = document.querySelector('input[name="landing-template"]:checked')?.value || 'classic'
       const styleContent = landingStyleContentFromForm()
       const salonWhiteContent = salonWhiteContentFromForm()
+      const luxeNailsContent = luxeNailsContentFromForm()
       if (['classic', 'editorial'].includes(selectedTemplate) && Object.entries(styleContent).some(([key, value]) => key !== 'brandIcon' && !value)) {
         const templateName = LANDING_TEMPLATE_DEFINITIONS[selectedTemplate]?.name || 'seleccionada'
         showLandingSettingsFeedback('Completá todos los textos de la plantilla ' + templateName + '.', 'error')
@@ -22179,6 +22415,10 @@ const crmHtml = `<!doctype html>
       }
       if (selectedTemplate === 'salon-white' && Object.values(salonWhiteContent).some((value) => !value)) {
         showLandingSettingsFeedback('Completá los cuatro textos de la plantilla Studio claro.', 'error')
+        return
+      }
+      if (selectedTemplate === 'luxe-nails' && Object.values(luxeNailsContent).some((value) => !value)) {
+        showLandingSettingsFeedback('Completá todos los textos e indicadores de la plantilla Luxe Nails.', 'error')
         return
       }
       els.landingSlug.value = slug
@@ -22199,7 +22439,8 @@ const crmHtml = `<!doctype html>
               ...(state.business?.landingTemplateContent || {}),
               classic: selectedTemplate === 'classic' ? styleContent : classicContentWithLegacyDefaults(),
               ...(['classic', 'editorial'].includes(selectedTemplate) ? { [selectedTemplate]: styleContent } : {}),
-              ...(selectedTemplate === 'salon-white' ? { 'salon-white': salonWhiteContent } : {})
+              ...(selectedTemplate === 'salon-white' ? { 'salon-white': salonWhiteContent } : {}),
+              ...(selectedTemplate === 'luxe-nails' ? { 'luxe-nails': luxeNailsContent } : {})
             },
             coverImageUrl: state.landingCoverUrl,
             landingGalleryImages: state.landingGalleryImages

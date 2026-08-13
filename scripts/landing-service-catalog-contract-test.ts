@@ -14,7 +14,7 @@ const vintage = route.slice(vintageStart, vintageEnd)
 
 assert.ok(vintage.includes('const services = business.services'), 'la plantilla vintage debe usar todo el catálogo')
 assert.equal(vintage.includes('business.services.slice('), false, 'la plantilla vintage no debe limitar servicios')
-assert.ok(vintage.includes('const visibleServices = services'), 'el carrusel vintage debe mostrar todos los servicios')
+assert.ok(vintage.includes('const visibleServices = demoPreview ? landingServicesForPreview(business, true) : services'), 'el carrusel vintage debe usar ejemplos solo cuando la vista previa no tiene servicios')
 assert.ok(vintage.includes('const carouselServices = [...visibleServices, ...visibleServices]'), 'el carrusel vintage debe duplicar el catálogo completo para desplazarse en bucle')
 
 const luxeStart = vintageEnd
