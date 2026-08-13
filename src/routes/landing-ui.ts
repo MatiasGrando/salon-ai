@@ -390,7 +390,7 @@ function renderWeexRegistration() {
   })
 }
 
-function renderLanding(business: LandingBusiness, basePath = '', templateOverride?: string, demoPreview = false) {
+export function renderLanding(business: LandingBusiness, basePath = '', templateOverride?: string, demoPreview = false) {
   const landingTemplate = normalizeLandingTemplate(templateOverride || business.landingTemplate)
   if (landingTemplate === 'salon-white') {
     return renderSalonWhiteLanding(business, basePath, demoPreview)

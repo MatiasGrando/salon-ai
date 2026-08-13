@@ -40,6 +40,7 @@
     "test:multi-service-booking": "tsx scripts/multi-service-booking-contract-test.ts",
     "test:combined-service-conversations": "tsx scripts/combined-service-conversation-contract-test.ts",
     "test:service-association-ui": "tsx scripts/service-association-ui-contract-test.ts",
+    "test:demo-profile-access": "tsx scripts/demo-profile-access-contract-test.ts",
     "test:manual-appointment-filter": "tsx scripts/manual-appointment-service-filter-contract-test.ts",
     "test:manual-appointment-customer-search": "tsx scripts/manual-appointment-customer-search-contract-test.ts",
     "test:text-encoding": "tsx scripts/text-encoding-contract-test.ts",

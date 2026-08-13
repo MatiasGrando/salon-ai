@@ -66,7 +66,7 @@ assert.match(
 assert.match(appointmentSource, /total \+ reservationDurationLimits\(service\)\.professional/)
 
 const crmSource = await readFile('src/routes/crm-ui.ts', 'utf8')
-assert.match(crmSource, /Tiempo que bloquea la agenda/)
+assert.match(crmSource, /Duraci&oacute;n en agenda/)
 assert.match(crmSource, /service-customer-duration-different/)
 assert.match(crmSource, /La agenda seguir&aacute; usando el tiempo operativo/)
 

@@ -1137,12 +1137,32 @@ const crmHtml = `<!doctype html>
       border-right: 0;
       border-radius: 0;
       box-shadow: 10px 0 28px rgba(3, 17, 34, 0.14);
+      overflow-x: hidden;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255, 255, 255, .28) transparent;
+    }
+
+    .workspace-nav::-webkit-scrollbar { width: 7px; }
+    .workspace-nav::-webkit-scrollbar-track { background: transparent; }
+    .workspace-nav::-webkit-scrollbar-thumb { border-radius: 999px; background: rgba(255, 255, 255, .28); }
+
+    .workspace-nav-menu {
+      min-height: 0;
+      min-width: 0;
+      display: flex;
+      flex: 0 0 auto;
+      flex-direction: column;
+      gap: 7px;
+      overflow: visible;
     }
 
     .workspace-nav .crm-brand {
       min-height: 54px;
       margin: 0 10px 24px;
       gap: 11px;
+      flex-shrink: 0;
     }
 
     .workspace-nav .brand-mark {
@@ -1180,6 +1200,11 @@ const crmHtml = `<!doctype html>
       background: transparent;
       font-size: 14px;
       position: relative;
+    }
+
+    .workspace-nav-menu > button,
+    .workspace-nav-menu > .nav-subitems {
+      flex-shrink: 0;
     }
 
     .workspace-nav button.active,
@@ -1281,6 +1306,7 @@ const crmHtml = `<!doctype html>
       color: #e7eef7;
       background: rgba(255, 255, 255, .075);
       box-shadow: none;
+      flex: 0 0 auto;
     }
 
     .mini-avatar {
@@ -4528,7 +4554,8 @@ const crmHtml = `<!doctype html>
         position: relative;
         z-index: 30;
         width: var(--workspace-nav-width);
-        overflow: hidden;
+        overflow-x: hidden;
+        overflow-y: auto;
         padding-right: 8px;
         padding-left: 8px;
         transition: width 180ms cubic-bezier(.2, 0, 0, 1), box-shadow 180ms ease;
@@ -4556,7 +4583,7 @@ const crmHtml = `<!doctype html>
         white-space: nowrap;
       }
 
-      .app > .workspace-nav > button {
+      .app > .workspace-nav .workspace-nav-menu > button {
         justify-content: center;
         padding-right: 8px;
         padding-left: 8px;
@@ -4564,15 +4591,22 @@ const crmHtml = `<!doctype html>
 
       .app > .workspace-nav .nav-subitems,
       .app > .workspace-nav .nav-user-info,
-      .app > .workspace-nav .nav-user-status,
-      .app > .workspace-nav .nav-logout {
+      .app > .workspace-nav .nav-user-status {
         display: none;
       }
 
       .app > .workspace-nav .nav-user {
-        min-height: 58px;
+        min-height: 110px;
         padding: 9px;
         grid-template-columns: 38px;
+        justify-content: center;
+      }
+
+      .app > .workspace-nav .nav-logout {
+        width: 38px;
+        min-height: 38px;
+        padding: 0;
+        display: flex;
         justify-content: center;
       }
 
@@ -4593,8 +4627,8 @@ const crmHtml = `<!doctype html>
         visibility: visible;
       }
 
-      .app > .workspace-nav:hover > button,
-      .app > .workspace-nav:focus-within > button {
+      .app > .workspace-nav:hover .workspace-nav-menu > button,
+      .app > .workspace-nav:focus-within .workspace-nav-menu > button {
         justify-content: flex-start;
         padding-right: 10px;
         padding-left: 10px;
@@ -4625,7 +4659,67 @@ const crmHtml = `<!doctype html>
 
       .app > .workspace-nav:hover .nav-logout,
       .app > .workspace-nav:focus-within .nav-logout {
+        width: 100%;
+        min-height: 34px;
+        padding: 8px 10px;
         display: flex;
+      }
+    }
+
+    @media (min-width: 768px) and (max-height: 820px) {
+      .workspace-nav {
+        padding-top: 12px;
+        padding-bottom: 10px;
+        gap: 4px;
+      }
+
+      .workspace-nav .crm-brand {
+        min-height: 46px;
+        margin-bottom: 8px;
+      }
+
+      .workspace-nav-menu {
+        gap: 3px;
+      }
+
+      .workspace-nav .workspace-nav-menu > button {
+        min-height: 44px;
+        padding-top: 6px;
+        padding-bottom: 6px;
+      }
+
+      .workspace-nav .nav-subitems {
+        margin-top: -1px;
+        margin-bottom: 2px;
+        gap: 2px;
+      }
+
+      .workspace-nav .nav-subitems button {
+        min-height: 28px;
+        padding-top: 4px;
+        padding-bottom: 4px;
+      }
+
+      .workspace-nav .nav-user,
+      .app > .workspace-nav:hover .nav-user,
+      .app > .workspace-nav:focus-within .nav-user {
+        min-height: 84px;
+        padding: 8px;
+        gap: 7px;
+      }
+
+      .workspace-nav .nav-user-status,
+      .app > .workspace-nav:hover .nav-user-status,
+      .app > .workspace-nav:focus-within .nav-user-status {
+        display: none;
+      }
+
+      .workspace-nav .nav-logout,
+      .app > .workspace-nav:hover .nav-logout,
+      .app > .workspace-nav:focus-within .nav-logout {
+        min-height: 32px;
+        padding-top: 5px;
+        padding-bottom: 5px;
       }
     }
 
@@ -5795,9 +5889,74 @@ const crmHtml = `<!doctype html>
       background: transparent;
       box-shadow: none;
       display: grid;
-      grid-template-columns: minmax(340px, 0.82fr) minmax(420px, 1.18fr);
+      grid-template-columns: minmax(0, 1fr);
       gap: 14px;
-      align-items: stretch;
+      align-items: start;
+    }
+
+    .service-workspace-collapsible {
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid #dfe6f1;
+      border-radius: 12px;
+      background: #fff;
+      box-shadow: 0 16px 32px rgba(15, 23, 42, 0.035);
+    }
+
+    .service-workspace-summary,
+    .service-form-section-summary {
+      list-style: none;
+      cursor: pointer;
+    }
+
+    .service-workspace-summary::-webkit-details-marker,
+    .service-form-section-summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .service-workspace-summary {
+      min-height: 76px;
+      padding: 17px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      background: #fff;
+    }
+
+    .service-workspace-summary > div,
+    .service-form-section-summary > div {
+      min-width: 0;
+      display: grid;
+      gap: 4px;
+    }
+
+    .service-workspace-summary strong {
+      color: #101936;
+      font-size: 17px;
+      font-weight: 850;
+    }
+
+    .service-workspace-summary small,
+    .service-form-section-summary small {
+      color: #64748b;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .service-workspace-collapsible[open] > .service-workspace-summary,
+    .service-form-section[open] > .service-form-section-summary {
+      background: #f8fbff;
+    }
+
+    .service-workspace-collapsible[open] > .service-workspace-summary .settings-collapse-icon,
+    .service-form-section[open] > .service-form-section-summary .settings-collapse-icon {
+      background: #eaf1ff;
+      transform: rotate(180deg);
+    }
+
+    .service-workspace-content {
+      border-top: 1px solid #e5eaf2;
     }
 
     .services-form-panel,
@@ -5808,6 +5967,13 @@ const crmHtml = `<!doctype html>
       border-radius: 10px;
       background: #fff;
       box-shadow: 0 16px 32px rgba(15, 23, 42, 0.035);
+    }
+
+    .service-workspace-content > .services-form-panel,
+    .service-workspace-content > .services-list-panel {
+      border: 0;
+      border-radius: 0;
+      box-shadow: none;
     }
 
     .services-form-panel h3,
@@ -5828,9 +5994,38 @@ const crmHtml = `<!doctype html>
     }
 
     .service-form {
-      margin-top: 28px;
+      margin-top: 18px;
       display: grid;
-      gap: 22px;
+      gap: 12px;
+    }
+
+    .service-form-section {
+      overflow: hidden;
+      border: 1px solid #dfe6f1;
+      border-radius: 10px;
+      background: #fff;
+    }
+
+    .service-form-section-summary {
+      min-height: 66px;
+      padding: 13px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .service-form-section-summary strong {
+      color: #263958;
+      font-size: 14px;
+      font-weight: 850;
+    }
+
+    .service-form-section-content {
+      padding: 15px;
+      display: grid;
+      gap: 18px;
+      border-top: 1px solid #e5eaf2;
     }
 
     .service-form-group {
@@ -5924,6 +6119,19 @@ const crmHtml = `<!doctype html>
       height: 36px;
       padding: 0 8px;
       font-size: 12px;
+    }
+
+    .service-actions-sticky {
+      position: sticky;
+      bottom: 10px;
+      z-index: 3;
+      margin-top: 4px;
+      padding: 12px;
+      border: 1px solid #dfe6f1;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, .96);
+      box-shadow: 0 10px 24px rgba(15, 23, 42, .1);
+      backdrop-filter: blur(8px);
     }
 
     .service-association-empty {
@@ -6667,6 +6875,12 @@ const crmHtml = `<!doctype html>
       border-top: 1px solid #dfe6f1;
     }
 
+    .account-admin-management-first {
+      margin-top: 22px;
+      padding-top: 0;
+      border-top: 0;
+    }
+
     .account-admin-list {
       margin-top: 18px;
       display: grid;
@@ -6690,6 +6904,101 @@ const crmHtml = `<!doctype html>
     .account-admin-card button { min-height: 36px; padding: 0 14px; border: 1px solid #bfdbfe; border-radius: 8px; color: #1d4ed8; background: #fff; font-weight: 750; }
     .account-admin-actions { display: flex; gap: 8px; }
     .account-admin-card button.danger { color: #b42318; border-color: #fecaca; background: #fff7f7; }
+
+    .commercial-demo-list {
+      margin-top: 18px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .commercial-demo-card {
+      min-width: 0;
+      padding: 16px;
+      display: grid;
+      gap: 14px;
+      border: 1px solid #dbe5f4;
+      border-radius: 10px;
+      background: #f8fbff;
+    }
+
+    .commercial-demo-card-head {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .commercial-demo-logo {
+      width: 44px;
+      height: 44px;
+      flex: 0 0 44px;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      border: 1px solid #dbe5f4;
+      border-radius: 10px;
+      color: #2563eb;
+      background: #fff;
+      font-weight: 900;
+    }
+
+    .commercial-demo-logo img { width: 100%; height: 100%; object-fit: cover; }
+    .commercial-demo-card strong,
+    .commercial-demo-card span { display: block; }
+    .commercial-demo-card span { margin-top: 4px; color: #64748b; font-size: 12px; }
+
+    .commercial-demo-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .commercial-demo-actions a,
+    .commercial-demo-actions button {
+      min-height: 38px;
+      padding: 0 14px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      color: #1d4ed8;
+      background: #fff;
+      font-size: 13px;
+      font-weight: 800;
+      text-decoration: none;
+    }
+
+    .commercial-demo-actions button { color: #fff; border-color: #2563eb; background: #2563eb; }
+
+    .commercial-demo-workspace-banner {
+      margin: 0 0 14px;
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      border: 1px solid #bfdbfe;
+      border-radius: 10px;
+      color: #1e3a8a;
+      background: #eff6ff;
+    }
+
+    .commercial-demo-workspace-banner strong,
+    .commercial-demo-workspace-banner span { display: block; }
+    .commercial-demo-workspace-banner span { margin-top: 3px; color: #52617f; font-size: 12px; }
+    .commercial-demo-workspace-banner button { min-height: 38px; padding: 0 14px; border: 1px solid #93c5fd; border-radius: 8px; color: #1d4ed8; background: #fff; font-weight: 800; }
+    .commercial-demo-workspace-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+
+    .commercial-demo-empty {
+      grid-column: 1 / -1;
+      padding: 16px;
+      border: 1px dashed #cbd5e1;
+      border-radius: 9px;
+      color: #64748b;
+      background: #fff;
+      font-size: 13px;
+    }
 
     .whatsapp-settings-grid {
       margin-top: 20px;
@@ -6791,6 +7100,15 @@ const crmHtml = `<!doctype html>
       margin-top: 24px;
       display: grid;
       gap: 20px;
+    }
+
+    .commerce-settings-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .commerce-settings-grid > .business-logo-field,
+    .commerce-settings-grid > .business-hours-grid {
+      grid-column: 1 / -1;
     }
 
     .settings-field {
@@ -7635,7 +7953,15 @@ const crmHtml = `<!doctype html>
     .staff-account-list {
       display: grid;
       gap: 10px;
-      margin-top: 14px;
+      margin-top: 0;
+    }
+
+    .settings-inner-collapsible {
+      margin-top: 18px;
+    }
+
+    .settings-inner-collapsible + .settings-inner-collapsible {
+      margin-top: 12px;
     }
 
     .staff-account-item {
@@ -9337,6 +9663,8 @@ const crmHtml = `<!doctype html>
       .services-manager,
       .professionals-manager,
       .staff-account-grid,
+      .commerce-settings-grid,
+      .commercial-demo-list,
       .reports-panels {
         grid-template-columns: 1fr;
       }
@@ -11125,6 +11453,13 @@ const crmHtml = `<!doctype html>
       .mobile-section-nav button.active {
         color: #ffffff !important;
         background: rgba(255, 255, 255, .13) !important;
+      }
+
+      .mobile-section-nav .mobile-logout {
+        margin-top: auto;
+        border: 1px solid rgba(216, 230, 255, .22);
+        color: #ffffff !important;
+        background: rgba(255, 255, 255, .08) !important;
       }
 
       .mobile-view-nav {
@@ -13148,6 +13483,7 @@ const crmHtml = `<!doctype html>
       <button type="button" data-mobile-section="campaigns" data-marketing-nav="templates">Marketing</button>
       <button type="button" data-mobile-section="reports">Reportes</button>
       <button type="button" data-mobile-section="settings">Ajustes</button>
+      <button class="mobile-logout" id="mobile-logout-button" type="button" data-logout-button>Salir</button>
     </div>
     <div class="mobile-view-nav" aria-label="Vistas de conversacion">
       <button class="active" id="mobile-inbox" type="button">Chats</button>
@@ -13166,6 +13502,7 @@ const crmHtml = `<!doctype html>
           <span>Atencion y reservas</span>
         </div>
       </div>
+      <div class="workspace-nav-menu">
       <button class="active" type="button" data-nav-section="conversations"><span>💬</span><strong>Conversaciones</strong></button>
       <button type="button" data-nav-section="agenda"><span>📅</span><strong>Agenda</strong></button>
       <button type="button" data-nav-section="customers"><span>👥</span><strong>Clientes</strong></button>
@@ -13179,10 +13516,11 @@ const crmHtml = `<!doctype html>
       </div>
       <button type="button" data-nav-section="reports"><span>📊</span><strong>Reportes</strong></button>
       <button type="button" data-nav-section="settings"><span>⚙</span><strong>Ajustes</strong></button>
+      </div>
       <div class="nav-user">
         <div class="mini-avatar">C</div>
         <div class="nav-user-status"><span class="nav-online-dot"></span>Online</div>
-        <button class="nav-logout" id="logout-button" type="button">Salir</button>
+        <button class="nav-logout" id="logout-button" type="button" data-logout-button aria-label="Salir"><span class="nav-logout-icon" aria-hidden="true">&#x21AA;</span><strong>Salir</strong></button>
       </div>
     </nav>
     <header class="conversation-page-header">
@@ -13923,26 +14261,44 @@ const crmHtml = `<!doctype html>
             </div>
           </div>
           <div class="services-header-actions">
-            <button class="secondary service-category-open" id="service-category-open" type="button">Agregar categor&iacute;a</button>
-            <button class="secondary service-category-open" id="service-family-open" type="button">Gestionar familias</button>
+            <button class="secondary service-category-open" id="service-category-open" type="button">Gestionar categor&iacute;as</button>
+            <button class="secondary service-category-open" id="service-family-open" type="button">Familias y variantes</button>
             <div class="service-count-card">
               <div class="service-count-icon" data-icon="copy"></div>
               <div>
                 <strong id="service-count">0</strong>
-                <span>&Iacute;tems del cat&aacute;logo</span>
+                <span>Servicios y familias</span>
               </div>
             </div>
           </div>
         </header>
 
         <section class="services-manager">
+          <details class="service-workspace-collapsible" id="service-editor-collapsible">
+            <summary class="service-workspace-summary">
+              <div>
+                <strong id="service-editor-summary-title">Crear nuevo servicio</strong>
+                <small>Complet&aacute; primero lo esencial y abr&iacute; solo las opciones que necesites.</small>
+              </div>
+              <span class="settings-collapse-icon" aria-hidden="true"></span>
+            </summary>
+            <div class="service-workspace-content">
           <div class="services-form-panel">
             <h3 id="service-form-title">Nuevo servicio</h3>
-            <p>Complet&aacute; los datos para agregar un nuevo servicio.</p>
+            <p>Configur&aacute; c&oacute;mo se presenta, se reserva y se combina con el resto del cat&aacute;logo.</p>
             <form class="service-form" id="service-form">
               <input id="service-id" type="hidden">
+              <details class="service-form-section" id="service-main-section" open>
+                <summary class="service-form-section-summary">
+                  <div>
+                    <strong>1. Informaci&oacute;n principal</strong>
+                    <small>Nombre, descripci&oacute;n, duraci&oacute;n, precio e imagen.</small>
+                  </div>
+                  <span class="settings-collapse-icon" aria-hidden="true"></span>
+                </summary>
+                <div class="service-form-section-content">
               <div class="service-form-group">
-                <label for="service-name">Nombre</label>
+                <label for="service-name">Nombre del servicio</label>
                 <input class="field" id="service-name" placeholder="Ej: Corte Hombre">
               </div>
               <div class="service-form-group">
@@ -13961,7 +14317,7 @@ const crmHtml = `<!doctype html>
               </div>
               <div class="service-form-grid" id="service-commercial-fields">
                 <div class="service-form-group">
-                  <label for="service-duration"><span data-icon="clock"></span>Tiempo que bloquea la agenda</label>
+                  <label for="service-duration"><span data-icon="clock"></span>Duraci&oacute;n en agenda</label>
                   <div class="service-input-addon">
                     <input id="service-duration" type="number" min="1" step="1" placeholder="Ej: 30">
                     <span class="addon">min</span>
@@ -13977,7 +14333,7 @@ const crmHtml = `<!doctype html>
                 <div class="service-form-group" style="grid-column: 1 / -1;">
                   <label class="service-photo-option">
                     <input id="service-customer-duration-different" type="checkbox">
-                    <span>La duraci&oacute;n informada al cliente es diferente</span>
+                    <span>Mostrar otra duraci&oacute;n al cliente</span>
                   </label>
                   <div class="service-form-help">La agenda seguir&aacute; usando el tiempo operativo configurado arriba.</div>
                 </div>
@@ -14001,27 +14357,49 @@ const crmHtml = `<!doctype html>
                   <div class="service-form-help" id="service-customer-duration-preview"></div>
                 </div>
                 <div class="service-form-group" style="grid-column: 1 / -1;">
-                  <label for="service-price-mode">C&oacute;mo mostrar el precio</label>
+                  <label for="service-price-mode">Presentaci&oacute;n del precio</label>
                   <select id="service-price-mode">
                     <option value="FIXED">Precio fijo</option>
                     <option value="STARTING_AT">Desde este precio</option>
                   </select>
                   <div class="service-form-help" id="service-price-mode-help">Se mostrar&aacute; el importe exacto, por ejemplo: $ 35.000.</div>
                 </div>
-                <div class="service-form-group" style="grid-column: 1 / -1;">
-                  <label for="service-booking-order-priority">Prioridad en servicios combinados</label>
-                  <input class="field" id="service-booking-order-priority" type="number" min="0" step="1" value="20">
-                  <div class="service-form-help">Los n&uacute;meros m&aacute;s bajos se realizan primero. Si dos servicios tienen la misma prioridad, se respeta el orden pedido por el cliente.</div>
-                </div>
               </div>
+              <div class="service-form-group">
+                <label for="service-image">Imagen del servicio (opcional)</label>
+                <div class="service-image-field">
+                  <div class="service-image-preview" id="service-image-preview">
+                    <img id="service-image-preview-img" alt="Imagen del servicio">
+                    <span>Sin imagen</span>
+                  </div>
+                  <div class="service-image-actions">
+                    <label for="service-image">Subir imagen
+                      <input id="service-image" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
+                    </label>
+                    <button class="secondary" id="service-image-remove" type="button">Quitar</button>
+                  </div>
+                </div>
+                <div class="service-form-help">Se muestra en la landing. Si no carg&aacute;s una imagen, se usa una sugerida seg&uacute;n el nombre o la portada del negocio.</div>
+              </div>
+                </div>
+              </details>
+              <details class="service-form-section" id="service-booking-section">
+                <summary class="service-form-section-summary">
+                  <div>
+                    <strong>2. Reserva y cobro</strong>
+                    <small>Modalidad, estimaci&oacute;n, confirmaci&oacute;n adicional y se&ntilde;a.</small>
+                  </div>
+                  <span class="settings-collapse-icon" aria-hidden="true"></span>
+                </summary>
+                <div class="service-form-section-content">
               <div class="service-attention-panel" id="service-attention-panel">
                 <div class="service-form-group">
-                  <label for="service-attention-mode">C&oacute;mo se atiende</label>
+                  <label for="service-attention-mode">Modalidad de reserva</label>
                   <select id="service-attention-mode">
-                    <option value="DIRECT_BOOKING">Reserva autom&aacute;tica</option>
-                    <option value="QUOTE">Presupuesto personalizado</option>
-                    <option value="ADVISOR">Asesoramiento previo</option>
-                    <option value="GUIDED_ESTIMATE">Estimativo guiado</option>
+                    <option value="DIRECT_BOOKING">Reserva directa</option>
+                    <option value="QUOTE">Cotizaci&oacute;n antes de reservar</option>
+                    <option value="ADVISOR">Requiere asesoramiento</option>
+                    <option value="GUIDED_ESTIMATE">Estimaci&oacute;n autom&aacute;tica</option>
                   </select>
                   <div class="service-form-help" id="service-attention-help">El bot mostrar&aacute; profesionales y horarios disponibles para confirmar el turno.</div>
                 </div>
@@ -14031,34 +14409,34 @@ const crmHtml = `<!doctype html>
                     <span>Pedir fotos antes de derivar al equipo</span>
                   </label>
                   <div class="service-form-group">
-                    <label for="service-estimate-explanation">Explicaci&oacute;n del precio</label>
+                    <label for="service-estimate-explanation">Qu&eacute; puede modificar el precio</label>
                     <textarea id="service-estimate-explanation" placeholder="El precio depende del largo y de la cantidad de producto necesaria."></textarea>
                   </div>
                   <div class="service-form-group">
-                    <label for="service-estimate-question">Pregunta para calcular el estimativo (solo si agreg&aacute;s opciones)</label>
+                    <label for="service-estimate-question">Pregunta para calcular la estimaci&oacute;n</label>
                     <input class="field" id="service-estimate-question" placeholder="&iquest;Qu&eacute; largo tiene tu cabello?">
                   </div>
                   <div class="service-form-group">
-                    <label>Opciones y rangos (opcional)</label>
+                    <label>Respuestas y rangos de precio (opcional)</label>
                     <div id="service-estimate-options"></div>
                     <button class="secondary" id="service-estimate-add-option" type="button">Agregar opci&oacute;n</button>
                     <div class="service-form-help">Si no agreg&aacute;s opciones, el bot mostrar&aacute; directamente el precio base configurado como &ldquo;Desde&rdquo;.</div>
                   </div>
                   <label class="service-photo-option">
                     <input id="service-estimate-allows-booking" type="checkbox" checked>
-                    <span>Permitir continuar con la reserva despu&eacute;s del estimativo</span>
+                    <span>Permitir reservar despu&eacute;s de mostrar la estimaci&oacute;n</span>
                   </label>
                 </div>
                 <div class="service-final-clarification-editor">
                   <div class="service-form-group">
-                    <label for="service-estimate-disclaimer">Aclaraci&oacute;n final</label>
+                    <label for="service-estimate-disclaimer">Mensaje antes de confirmar (opcional)</label>
                     <textarea id="service-estimate-disclaimer" placeholder="Ej: Abonando en efectivo ten&eacute;s un 10% de descuento."></textarea>
                     <div class="service-form-help">El bot enviar&aacute; esta informaci&oacute;n antes de confirmar la reserva o finalizar la derivaci&oacute;n de este servicio.</div>
                   </div>
                 </div>
                 <label class="service-photo-option">
                   <input id="service-validation-enabled" type="checkbox">
-                  <span>Detallar el servicio y confirmar la elecci&oacute;n del cliente</span>
+                  <span>Pedir una confirmaci&oacute;n adicional antes de reservar</span>
                 </label>
                 <div class="service-validation-editor" id="service-validation-editor" hidden>
                   <div class="service-form-group">
@@ -14100,19 +14478,36 @@ const crmHtml = `<!doctype html>
                   <div class="service-form-help" id="service-deposit-help">Se solicitar&aacute; al final de la reserva y el equipo confirmar&aacute; el comprobante.</div>
                 </div>
               </div>
+                </div>
+              </details>
+              <details class="service-form-section" id="service-organization-section">
+                <summary class="service-form-section-summary">
+                  <div>
+                    <strong>3. Organizaci&oacute;n y combinaciones</strong>
+                    <small>Categor&iacute;a, familia, orden, extras y compatibilidad.</small>
+                  </div>
+                  <span class="settings-collapse-icon" aria-hidden="true"></span>
+                </summary>
+                <div class="service-form-section-content">
               <div class="service-form-group">
-                <label for="service-category">Categor&iacute;a (opcional)</label>
+                <label for="service-category">Categor&iacute;a del cat&aacute;logo (opcional)</label>
+                <div class="service-form-help">Es la secci&oacute;n que ver&aacute; el cliente, por ejemplo Cabello, U&ntilde;as o Barber&iacute;a.</div>
                 <select id="service-category">
                   <option value="">Seleccionar categor&iacute;a</option>
                   <option value="__ADD_CATEGORY__">Agregar nueva categor&iacute;a</option>
                 </select>
               </div>
               <div class="service-form-group" id="service-parent-group">
-                <label for="service-parent">Familia (opcional)</label>
-                <div class="service-form-help">Usala para agrupar variantes como Tintura ra&iacute;ces y Tintura completa.</div>
+                <label for="service-parent">Familia o variante (opcional)</label>
+                <div class="service-form-help">Agrupa opciones del mismo tratamiento, por ejemplo Coloraci&oacute;n: ra&iacute;ces o completa.</div>
                 <select id="service-parent">
                   <option value="">Sin familia</option>
                 </select>
+              </div>
+              <div class="service-form-group">
+                <label for="service-booking-order-priority">Orden cuando reservan varios servicios</label>
+                <input class="field" id="service-booking-order-priority" type="number" min="0" step="1" value="20">
+                <div class="service-form-help">Us&aacute; un n&uacute;mero menor para realizarlo antes y uno mayor para realizarlo despu&eacute;s. El valor normal es 20.</div>
               </div>
               <div hidden style="display: none;">
                 <label for="service-aliases">Alias (opcional)</label>
@@ -14120,34 +14515,31 @@ const crmHtml = `<!doctype html>
                 <input class="field" id="service-aliases" placeholder="Ej: corte, corte hombre, haircut">
               </div>
               <div class="service-form-group service-combination-setting" id="service-combination-settings">
-                <label>Servicios asociados</label>
+                <label>Extras y compatibilidad</label>
                 <div class="service-association-list" id="service-association-list"></div>
-                <div class="service-form-help">Marc&aacute; los servicios que el bot debe ofrecer como extra y eleg&iacute; c&oacute;mo puede combinarlos. Para quitar una relaci&oacute;n, desmarc&aacute; el extra y seleccion&aacute; &quot;Sin regla espec&iacute;fica&quot;.</div>
+                <div class="service-form-help">Eleg&iacute; qu&eacute; servicios ofrecer como extra y si pueden reservarse juntos. Si no necesit&aacute;s una regla especial, us&aacute; &ldquo;Configuraci&oacute;n general&rdquo;.</div>
               </div>
-              <div class="service-form-group">
-                <label for="service-image">Imagen del servicio (opcional)</label>
-                <div class="service-image-field">
-                  <div class="service-image-preview" id="service-image-preview">
-                    <img id="service-image-preview-img" alt="Imagen del servicio">
-                    <span>Sin imagen</span>
-                  </div>
-                  <div class="service-image-actions">
-                    <label for="service-image">Subir imagen
-                      <input id="service-image" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
-                    </label>
-                    <button class="secondary" id="service-image-remove" type="button">Quitar</button>
-                  </div>
                 </div>
-                <div class="service-form-help">Si no carg&aacute;s una imagen, la landing usa una imagen sugerida por el nombre del servicio o la portada del negocio.</div>
-              </div>
-              <div class="service-actions">
+              </details>
+              <div class="service-actions service-actions-sticky">
                 <button class="secondary" id="service-cancel" type="button">Cancelar</button>
                 <button class="primary" id="service-submit" type="submit">Guardar servicio</button>
               </div>
               <p class="hint" id="service-feedback"></p>
             </form>
           </div>
+            </div>
+          </details>
 
+          <details class="service-workspace-collapsible" id="service-list-collapsible" open>
+            <summary class="service-workspace-summary">
+              <div>
+                <strong>Ver o editar servicios existentes</strong>
+                <small>Busc&aacute;, revis&aacute; o modific&aacute; los servicios y familias ya cargados.</small>
+              </div>
+              <span class="settings-collapse-icon" aria-hidden="true"></span>
+            </summary>
+            <div class="service-workspace-content">
           <div class="services-list-panel">
             <div class="services-list-head">
               <div>
@@ -14161,6 +14553,8 @@ const crmHtml = `<!doctype html>
             </div>
             <div class="service-card-list" id="service-list"></div>
           </div>
+            </div>
+          </details>
         </section>
 
         <aside class="service-tip">
@@ -14571,6 +14965,13 @@ const crmHtml = `<!doctype html>
 
     <section class="settings-view" id="settings-view">
       <div class="settings-shell">
+        <div class="commercial-demo-workspace-banner" id="commercial-demo-workspace-banner" hidden>
+          <div><strong id="commercial-demo-workspace-name">Demo comercial</strong><span>Est&aacute;s editando un ejemplo compartido. Los cambios se ver&aacute;n en futuras presentaciones.</span></div>
+          <div class="commercial-demo-workspace-actions">
+            <button id="commercial-demo-workspace-account" type="button">Volver a mi cuenta</button>
+            <button id="commercial-demo-workspace-exit" type="button">Volver a demos</button>
+          </div>
+        </div>
         <header class="settings-header">
           <div class="settings-header-icon" data-icon="settings"></div>
           <div>
@@ -14585,12 +14986,22 @@ const crmHtml = `<!doctype html>
           <button type="button" data-settings-view="landing">Landing</button>
           <button type="button" data-settings-view="staff">Staff</button>
           <button type="button" data-settings-view="meta">Meta y WhatsApp</button>
+          <button type="button" id="settings-admin-tab" data-settings-view="admin" hidden>Administraci&oacute;n</button>
         </nav>
 
         <section class="settings-panel" id="business-commerce-panel" data-settings-panel="commerce">
           <h3>Datos del comercio</h3>
-          <p>Datos generales, horarios y redes p&uacute;blicas del negocio.</p>
+          <p>Informaci&oacute;n del local agrupada por tema para encontrar y editar cada dato con mayor facilidad.</p>
           <form class="settings-form" id="business-settings-form">
+            <details class="landing-settings-collapsible" open>
+              <summary class="landing-settings-collapsible-summary">
+                <div>
+                  <strong>Identidad y contacto</strong>
+                  <span>Logo, nombre, antig&uuml;edad y canales p&uacute;blicos del comercio.</span>
+                </div>
+                <span class="settings-collapse-icon" aria-hidden="true"></span>
+              </summary>
+              <div class="landing-settings-collapsible-content commerce-settings-grid">
             <div class="business-logo-field">
               <label class="business-logo-picker" id="business-logo-picker" title="Cambiar logo del sal&oacute;n">
                 <img id="business-logo-preview" alt="Logo del sal&oacute;n">
@@ -14637,7 +15048,18 @@ const crmHtml = `<!doctype html>
               <input class="field" id="business-facebook" type="url" placeholder="https://facebook.com/tucomercio">
               <small>Opcional. Si queda vac&iacute;o no se muestra el acceso.</small>
             </div>
+              </div>
+            </details>
 
+            <details class="landing-settings-collapsible">
+              <summary class="landing-settings-collapsible-summary">
+                <div>
+                  <strong>Ubicaci&oacute;n y cobros</strong>
+                  <span>Direcci&oacute;n del local y medios habilitados para recibir se&ntilde;as.</span>
+                </div>
+                <span class="settings-collapse-icon" aria-hidden="true"></span>
+              </summary>
+              <div class="landing-settings-collapsible-content commerce-settings-grid">
             <div class="business-hours-grid">
               <div class="business-hours-title">Ubicaci&oacute;n del comercio</div>
               <div class="settings-field">
@@ -14693,7 +15115,18 @@ const crmHtml = `<!doctype html>
                 <small>El bot incluye estos datos al solicitar la se&ntilde;a.</small>
               </div>
             </div>
+              </div>
+            </details>
 
+            <details class="landing-settings-collapsible">
+              <summary class="landing-settings-collapsible-summary">
+                <div>
+                  <strong>Horarios de atenci&oacute;n</strong>
+                  <span>Defin&iacute; los d&iacute;as y rangos generales en los que trabaja el local.</span>
+                </div>
+                <span class="settings-collapse-icon" aria-hidden="true"></span>
+              </summary>
+              <div class="landing-settings-collapsible-content commerce-settings-grid">
             <div class="business-hours-grid">
               <div class="business-hours-title">Horarios de atenci&oacute;n</div>
               ${weeklyScheduleRows({
@@ -14703,6 +15136,8 @@ const crmHtml = `<!doctype html>
                 weekendEnd: '14:00'
               })}
             </div>
+              </div>
+            </details>
 
             <div class="settings-actions">
               <button class="primary" id="business-settings-submit" type="submit">Guardar ajustes</button>
@@ -14980,7 +15415,10 @@ const crmHtml = `<!doctype html>
           </form>
         </section>
 
-        <section class="settings-panel" id="super-admin-panel" data-settings-panel="commerce" hidden>
+        <section class="settings-panel" id="super-admin-panel" data-settings-panel="admin" hidden>
+          <h3>Administraci&oacute;n de cuentas</h3>
+          <p>Herramientas reservadas para superadministradores y administradores de cuentas.</p>
+          <div class="account-admin-management account-admin-management-first">
           <h3>Alta de comercio</h3>
           <p>Cre&aacute; un comercio y su usuario administrador. Despu&eacute;s el negocio completa horarios, profesionales, servicios y WhatsApp.</p>
           <form class="admin-create-form" id="admin-create-business-form">
@@ -15010,6 +15448,13 @@ const crmHtml = `<!doctype html>
             <button class="full" id="admin-create-business-submit" type="submit">Crear comercio</button>
           </form>
           <p class="settings-feedback" id="admin-create-business-feedback" role="status" aria-live="polite"></p>
+          </div>
+
+          <div class="account-admin-management" id="commercial-demo-management">
+            <h3>Demos comerciales</h3>
+            <p>Present&aacute; el producto con ejemplos preparados de u&ntilde;as y peluquer&iacute;a, sin ingresar a comercios reales.</p>
+            <div class="commercial-demo-list" id="commercial-demo-list"></div>
+          </div>
 
           <div class="account-admin-management" id="account-admin-management">
             <h3>Administradores de cuentas</h3>
@@ -15039,6 +15484,15 @@ const crmHtml = `<!doctype html>
         <section class="settings-panel" id="staff-accounts-panel" data-settings-panel="staff" hidden>
           <h3>Cuentas staff</h3>
           <p>Cre&aacute; accesos para profesionales o secretar&iacute;a. Eleg&iacute; un preset explicado y, si el negocio lo necesita, personaliz&aacute; cada permiso.</p>
+          <details class="landing-settings-collapsible settings-inner-collapsible" id="staff-create-collapsible" open>
+            <summary class="landing-settings-collapsible-summary">
+              <div>
+                <strong>Crear staff nuevo</strong>
+                <span>Gener&aacute; un acceso y defin&iacute; su perfil, profesional y permisos.</span>
+              </div>
+              <span class="settings-collapse-icon" aria-hidden="true"></span>
+            </summary>
+            <div class="landing-settings-collapsible-content">
           <form class="settings-form" id="staff-user-form">
             <input id="staff-user-id" type="hidden">
             <div class="staff-account-grid">
@@ -15108,7 +15562,20 @@ const crmHtml = `<!doctype html>
             </div>
             <p class="settings-feedback" id="staff-user-feedback" role="status" aria-live="polite"></p>
           </form>
-          <div class="staff-account-list" id="staff-user-list"></div>
+            </div>
+          </details>
+          <details class="landing-settings-collapsible settings-inner-collapsible" id="staff-list-collapsible">
+            <summary class="landing-settings-collapsible-summary">
+              <div>
+                <strong>Ver o editar staff existente</strong>
+                <span>Consult&aacute; los accesos creados, edit&aacute; permisos o cambi&aacute; su estado.</span>
+              </div>
+              <span class="settings-collapse-icon" aria-hidden="true"></span>
+            </summary>
+            <div class="landing-settings-collapsible-content">
+              <div class="staff-account-list" id="staff-user-list"></div>
+            </div>
+          </details>
         </section>
 
         <details class="settings-panel settings-collapsible" data-settings-panel="assistant" hidden>
@@ -16313,6 +16780,10 @@ const crmHtml = `<!doctype html>
       demoChatForm: document.getElementById('demo-chat-form'),
       demoChatInput: document.getElementById('demo-chat-input'),
       demoChatSend: document.getElementById('demo-chat-send'),
+      commercialDemoWorkspaceBanner: document.getElementById('commercial-demo-workspace-banner'),
+      commercialDemoWorkspaceName: document.getElementById('commercial-demo-workspace-name'),
+      commercialDemoWorkspaceAccount: document.getElementById('commercial-demo-workspace-account'),
+      commercialDemoWorkspaceExit: document.getElementById('commercial-demo-workspace-exit'),
       refresh: document.getElementById('refresh'),
       handoffCount: document.getElementById('handoff-count'),
       topConversationTotal: document.getElementById('top-conversation-total'),
@@ -16383,6 +16854,8 @@ const crmHtml = `<!doctype html>
       instagramTestButton: document.getElementById('instagram-test-button'),
       instagramSettingsFeedback: document.getElementById('instagram-settings-feedback'),
       staffAccountsPanel: document.getElementById('staff-accounts-panel'),
+      staffCreateCollapsible: document.getElementById('staff-create-collapsible'),
+      staffListCollapsible: document.getElementById('staff-list-collapsible'),
       staffUserForm: document.getElementById('staff-user-form'),
       staffUserId: document.getElementById('staff-user-id'),
       staffUserName: document.getElementById('staff-user-name'),
@@ -16547,6 +17020,12 @@ const crmHtml = `<!doctype html>
       professionalPhotoPreview: document.getElementById('professional-photo-preview'),
       serviceForm: document.getElementById('service-form'),
       serviceFormTitle: document.getElementById('service-form-title'),
+      serviceEditorCollapsible: document.getElementById('service-editor-collapsible'),
+      serviceListCollapsible: document.getElementById('service-list-collapsible'),
+      serviceEditorSummaryTitle: document.getElementById('service-editor-summary-title'),
+      serviceMainSection: document.getElementById('service-main-section'),
+      serviceBookingSection: document.getElementById('service-booking-section'),
+      serviceOrganizationSection: document.getElementById('service-organization-section'),
       serviceId: document.getElementById('service-id'),
       serviceName: document.getElementById('service-name'),
       serviceDescription: document.getElementById('service-description'),
@@ -16904,6 +17383,7 @@ const crmHtml = `<!doctype html>
       paymentLink: document.getElementById('payment-link'),
       paymentInstructions: document.getElementById('payment-instructions'),
       settingsMainTabs: document.getElementById('settings-main-tabs'),
+      settingsAdminTab: document.getElementById('settings-admin-tab'),
       landingSettingsForm: document.getElementById('landing-settings-form'),
       landingEnabled: document.getElementById('landing-enabled'),
       landingTemplateSelectedThumb: document.getElementById('landing-template-selected-thumb'),
@@ -16968,6 +17448,8 @@ const crmHtml = `<!doctype html>
       adminUserPassword: document.getElementById('admin-user-password'),
       adminCreateBusinessSubmit: document.getElementById('admin-create-business-submit'),
       adminCreateBusinessFeedback: document.getElementById('admin-create-business-feedback'),
+      commercialDemoManagement: document.getElementById('commercial-demo-management'),
+      commercialDemoList: document.getElementById('commercial-demo-list'),
       accountAdminManagement: document.getElementById('account-admin-management'),
       accountAdminForm: document.getElementById('account-admin-form'),
       accountAdminId: document.getElementById('account-admin-id'),
@@ -17140,6 +17622,7 @@ const crmHtml = `<!doctype html>
             '<span>Atenci&oacute;n y reservas</span>' +
           '</div>' +
         '</div>' +
+        '<div class="workspace-nav-menu">' +
         items.map((item) => {
           const button = '<button class="' + (item.active ? 'active' : '') + '" type="button" data-nav-section="' + item.section + '"' + (item.marketingView ? ' data-marketing-nav="' + item.marketingView + '"' : '') + '>' +
             '<span data-icon="' + item.icon + '"></span>' +
@@ -17154,6 +17637,7 @@ const crmHtml = `<!doctype html>
               '<button type="button" data-nav-section="campaigns" data-marketing-nav="post-sale">Postventa</button>' +
             '</div>'
         }).join('') +
+        '</div>' +
         '<div class="nav-user">' +
           '<div class="mini-avatar">JS</div>' +
           '<div class="nav-user-info">' +
@@ -17163,7 +17647,7 @@ const crmHtml = `<!doctype html>
           '<div class="nav-user-status">' +
             '<span class="nav-online-dot"></span>Online' +
           '</div>' +
-          '<button class="nav-logout" id="logout-button" type="button">Salir</button>' +
+          '<button class="nav-logout" id="logout-button" type="button" data-logout-button aria-label="Salir"><span class="nav-logout-icon" aria-hidden="true">&#x21AA;</span><strong>Salir</strong></button>' +
         '</div>'
 
       hydrateIcons(nav)
@@ -17178,7 +17662,9 @@ const crmHtml = `<!doctype html>
     }
 
     function staffVisibleSections() {
-      if (state.currentUser?.role === 'ACCOUNT_ADMIN') return ['settings']
+      if (state.currentUser?.role === 'ACCOUNT_ADMIN') {
+        return state.business ? ['conversations', 'agenda', 'customers', 'professionals', 'services', 'campaigns', 'reports', 'settings'] : ['settings']
+      }
       if (state.currentUser?.role !== 'STAFF') return ['conversations', 'agenda', 'customers', 'professionals', 'services', 'campaigns', 'reports', 'settings']
       return [
         state.currentUser.canViewConversations ? 'conversations' : null,
@@ -17297,17 +17783,21 @@ const crmHtml = `<!doctype html>
     }
 
     function bindLogoutButton() {
-      if (!els.logoutButton) return
-      els.logoutButton.addEventListener('click', () => {
-        withButtonLoading(els.logoutButton, 'Saliendo...', logoutFromCrm)
-      })
+      for (const button of document.querySelectorAll('[data-logout-button]')) {
+        if (button.dataset.logoutBound === 'true') continue
+        button.dataset.logoutBound = 'true'
+        button.addEventListener('click', () => {
+          withButtonLoading(button, 'Saliendo...', logoutFromCrm)
+        })
+      }
     }
 
     function renderAuthUi() {
       const isAccountAdmin = state.currentUser?.role === 'ACCOUNT_ADMIN'
+      const canSeeAdministration = state.currentUser?.role === 'SUPER_ADMIN' || isAccountAdmin
+      if (els.settingsAdminTab) els.settingsAdminTab.hidden = !canSeeAdministration
       if (els.superAdminPanel) {
-        const canSeeBusinessCreation = state.currentUser?.role === 'SUPER_ADMIN' || isAccountAdmin || state.currentUser?.canCreateBusinesses === true
-        els.superAdminPanel.hidden = state.settingsView !== 'commerce' || !canSeeBusinessCreation
+        els.superAdminPanel.hidden = state.settingsView !== 'admin' || !canSeeAdministration
       }
       if (isAccountAdmin && els.adminCreateBusinessForm) {
         const canCreateBusinesses = state.currentUser?.canCreateBusinesses === true
@@ -17317,13 +17807,31 @@ const crmHtml = `<!doctype html>
           els.adminCreateBusinessFeedback.className = 'settings-feedback visible error'
         }
       }
-      if (els.settingsMainTabs) els.settingsMainTabs.hidden = isAccountAdmin
+      if (els.settingsMainTabs) {
+        els.settingsMainTabs.hidden = false
+        for (const button of els.settingsMainTabs.querySelectorAll('[data-settings-view]')) {
+          button.hidden = isAccountAdmin
+            ? state.business?.isDemo
+              ? !['assistant', 'landing', 'admin'].includes(button.dataset.settingsView)
+              : state.business
+                ? false
+                : button.dataset.settingsView !== 'admin'
+            : button.dataset.settingsView === 'admin' && !canSeeAdministration
+        }
+      }
+      if (els.commercialDemoWorkspaceBanner) els.commercialDemoWorkspaceBanner.hidden = !(isAccountAdmin && state.business?.isDemo)
+      if (els.commercialDemoWorkspaceAccount) els.commercialDemoWorkspaceAccount.hidden = !(isAccountAdmin && state.currentSessionBusiness)
+      if (els.commercialDemoWorkspaceName && isAccountAdmin && state.business?.isDemo) {
+        els.commercialDemoWorkspaceName.textContent = 'Editando demo: ' + state.business.name
+      }
       document.querySelectorAll('[data-mobile-section]').forEach((button) => {
-        button.hidden = isAccountAdmin && button.dataset.mobileSection !== 'settings'
+        button.hidden = isAccountAdmin && !state.business && button.dataset.mobileSection !== 'settings'
       })
       if (els.accountAdminManagement) els.accountAdminManagement.hidden = state.currentUser?.role !== 'SUPER_ADMIN'
       if (els.adminBusinessOwnerField) els.adminBusinessOwnerField.hidden = state.currentUser?.role !== 'SUPER_ADMIN'
+      if (els.demoProfileCreateOpen) els.demoProfileCreateOpen.hidden = state.currentUser?.role !== 'SUPER_ADMIN'
       renderAccountAdmins()
+      renderCommercialDemos()
       renderSupportBusinessSwitcher()
       if (els.staffAccountsPanel) {
         els.staffAccountsPanel.hidden = state.settingsView !== 'staff' || !canManageStaffUsers()
@@ -17353,17 +17861,18 @@ const crmHtml = `<!doctype html>
     }
 
     async function loadDemoProfiles() {
-      state.demoProfiles = state.currentUser?.role === 'SUPER_ADMIN'
+      state.demoProfiles = ['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(state.currentUser?.role)
         ? await getJson('/admin/demo-profiles')
         : []
       renderDemoProfileSelect()
+      renderCommercialDemos()
     }
 
     function renderDemoProfileSelect() {
       if (!els.demoProfileSelect) return
       els.demoProfileSelect.innerHTML = state.demoProfiles.length
         ? state.demoProfiles.map((profile) => '<option value="' + escapeHtml(profile.id) + '">' + escapeHtml(profile.name) + '</option>').join('')
-        : '<option value="">Cre&aacute; tu primer perfil demo</option>'
+        : '<option value="">' + (state.currentUser?.role === 'SUPER_ADMIN' ? 'Cre&aacute; tu primer perfil demo' : 'No hay demos comerciales disponibles') + '</option>'
       const activeIsDemo = state.demoProfiles.some((profile) => profile.id === state.businessId)
       els.demoProfileSelect.value = activeIsDemo ? state.businessId : state.demoProfiles[0]?.id || ''
       els.demoChatInput.disabled = !state.demoProfiles.length
@@ -17371,14 +17880,111 @@ const crmHtml = `<!doctype html>
     }
 
     function openDemoSimulator(options = {}) {
-      if (state.currentUser?.role !== 'SUPER_ADMIN') return
+      if (!['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(state.currentUser?.role)) return
       els.demoSimulatorDialog.hidden = false
-      els.demoProfileCreateForm.hidden = !options.createProfile
-      if (options.createProfile) {
+      const canCreateProfiles = state.currentUser?.role === 'SUPER_ADMIN'
+      const shouldCreateProfile = canCreateProfiles && options.createProfile
+      els.demoProfileCreateForm.hidden = !shouldCreateProfile
+      if (shouldCreateProfile) {
         els.demoProfileName.focus()
       } else {
         renderDemoProfileSelect()
         els.demoChatInput.focus()
+      }
+    }
+
+    function renderCommercialDemos() {
+      if (!els.commercialDemoList) return
+      const allowedTypes = ['NAILS', 'HAIR_SALON']
+      const profiles = allowedTypes
+        .map((demoType) => state.demoProfiles.find((profile) => profile.demoType === demoType))
+        .filter(Boolean)
+      if (!profiles.length) {
+        els.commercialDemoList.innerHTML = '<div class="commercial-demo-empty">Las demos comerciales todav&iacute;a no est&aacute;n disponibles. Un superadministrador debe crear una demo de u&ntilde;as y otra de peluquer&iacute;a.</div>'
+        return
+      }
+      const typeLabels = { NAILS: 'U&ntilde;as', HAIR_SALON: 'Peluquer&iacute;a' }
+      els.commercialDemoList.innerHTML = profiles.map((profile) => {
+        const fallback = profile.demoType === 'NAILS' ? 'U' : 'P'
+        const logo = profile.logoUrl
+          ? '<img src="' + escapeHtml(profile.logoUrl) + '" alt="">'
+          : fallback
+        return '<article class="commercial-demo-card">' +
+          '<div class="commercial-demo-card-head">' +
+            '<div class="commercial-demo-logo">' + logo + '</div>' +
+            '<div><strong>' + escapeHtml(profile.name) + '</strong><span>Demo de ' + (typeLabels[profile.demoType] || 'belleza') + '</span></div>' +
+          '</div>' +
+          '<div class="commercial-demo-actions">' +
+            '<a href="/admin/demo-profiles/' + encodeURIComponent(profile.id) + '/preview" target="_blank" rel="noopener">Ver landing</a>' +
+            '<button type="button" data-commercial-demo-enter="' + escapeHtml(profile.id) + '">Entrar al perfil</button>' +
+            '<button type="button" data-commercial-demo-chat="' + escapeHtml(profile.id) + '">Simular conversaci&oacute;n</button>' +
+          '</div>' +
+        '</article>'
+      }).join('')
+    }
+
+    function openCommercialDemoChat(profileId) {
+      if (!state.demoProfiles.some((profile) => profile.id === profileId)) return
+      openDemoSimulator()
+      els.demoProfileSelect.value = profileId
+      startNewDemoChat()
+    }
+
+    async function enterCommercialDemo(profileId) {
+      if (state.currentUser?.role === 'SUPER_ADMIN') {
+        await switchSupportBusiness(profileId)
+        setSection('services')
+        return
+      }
+      if (state.currentUser?.role !== 'ACCOUNT_ADMIN') return
+      try {
+        const profile = await getJson('/admin/demo-profiles/' + encodeURIComponent(profileId) + '/access')
+        state.business = profile
+        state.businessId = profile.id
+        await loadBusinessScopedBasics()
+        hydrateWorkspaceNav()
+        renderLandingSettings()
+        renderAiControls()
+        renderProfessionals()
+        renderServices()
+        renderAuthUi()
+        setSection('services')
+        showCrmToast('Entraste a la demo ' + profile.name + '.', 'success')
+      } catch (error) {
+        showCrmToast(error.message, 'error')
+      }
+    }
+
+    function exitCommercialDemo() {
+      if (state.currentUser?.role !== 'ACCOUNT_ADMIN') return
+      state.business = null
+      state.businessId = null
+      hydrateWorkspaceNav()
+      state.settingsView = 'admin'
+      setSection('settings')
+      setSettingsView('admin')
+      renderAuthUi()
+    }
+
+    async function returnToAccountAdminBusiness() {
+      if (state.currentUser?.role !== 'ACCOUNT_ADMIN' || !state.currentSessionBusiness) return
+      state.business = state.currentSessionBusiness
+      state.businessId = state.currentSessionBusiness.id
+      try {
+        await loadBusinessScopedBasics()
+        hydrateWorkspaceNav()
+        renderBusinessSettings()
+        renderWhatsappSettings()
+        renderInstagramSettings()
+        renderAiControls()
+        renderProfessionals()
+        renderServices()
+        renderAuthUi()
+        await loadConversations()
+        setSection('conversations')
+        showCrmToast('Volviste a ' + state.business.name + '.', 'success')
+      } catch (error) {
+        showCrmToast(error.message, 'error')
       }
     }
 
@@ -17459,7 +18065,9 @@ const crmHtml = `<!doctype html>
     }
 
     function canManageStaffUsers() {
-      return state.currentUser?.role === 'SUPER_ADMIN' || state.currentUser?.role === 'BUSINESS_ADMIN'
+      return state.currentUser?.role === 'SUPER_ADMIN' ||
+        state.currentUser?.role === 'BUSINESS_ADMIN' ||
+        (state.currentUser?.role === 'ACCOUNT_ADMIN' && Boolean(state.business) && !state.business?.isDemo)
     }
 
     function hasAgendaPermission(permission) {
@@ -17894,6 +18502,7 @@ const crmHtml = `<!doctype html>
         })
         renderStaffUsers()
         resetStaffUserForm()
+        if (els.staffListCollapsible) els.staffListCollapsible.open = true
         showStaffUserFeedback(id ? 'Cuenta staff actualizada.' : 'Cuenta staff creada. Compartile el usuario y contrasena inicial al profesional.', 'success')
       } catch (error) {
         showStaffUserFeedback(error.message, 'error')
@@ -17924,6 +18533,7 @@ const crmHtml = `<!doctype html>
       for (const [key, field] of Object.entries(staffPermissionFields())) field.checked = user[key] === true
       els.staffUserSubmit.textContent = 'Guardar cambios'
       els.staffUserCancel.hidden = false
+      if (els.staffCreateCollapsible) els.staffCreateCollapsible.open = true
       els.staffUserName.focus()
     }
 
@@ -17978,12 +18588,29 @@ const crmHtml = `<!doctype html>
       await loadAccountAdmins()
       const businesses = await getJson('/businesses')
       state.businesses = businesses
-      state.business = state.currentSessionBusiness || businesses[0] || null
+      state.business = state.currentUser?.role === 'ACCOUNT_ADMIN'
+        ? state.currentSessionBusiness || null
+        : state.currentSessionBusiness || businesses[0] || null
       state.businessId = state.business?.id || null
       await loadDemoProfiles()
       if (state.currentUser?.role === 'ACCOUNT_ADMIN') {
-        state.settingsView = 'commerce'
-        setSettingsView('commerce')
+        if (state.business) {
+          await loadBusinessScopedBasics()
+          renderBusinessSettings()
+          renderWhatsappSettings()
+          renderInstagramSettings()
+          renderAuthUi()
+          renderAiControls()
+          renderProfessionals()
+          renderStaffUsers()
+          renderServices()
+          renderAgendaFilters()
+          renderAppointmentFormOptions()
+          renderAgenda()
+          return
+        }
+        state.settingsView = 'admin'
+        setSettingsView('admin')
         return
       }
       await loadBusinessScopedBasics()
@@ -18004,17 +18631,18 @@ const crmHtml = `<!doctype html>
 
     async function loadBusinessScopedBasics() {
       const businessQuery = state.businessId ? '?businessId=' + encodeURIComponent(state.businessId) : ''
+      const isAccountAdminDemo = state.currentUser?.role === 'ACCOUNT_ADMIN' && state.business?.isDemo === true
       state.businessHours = state.businessId
         ? await getJson('/business-hours?businessId=' + encodeURIComponent(state.businessId))
         : []
       const isStaff = state.currentUser?.role === 'STAFF'
-      state.paymentSettings = state.businessId && !isStaff
+      state.paymentSettings = state.businessId && !isStaff && !isAccountAdminDemo
         ? await getJson('/businesses/' + state.businessId + '/payment-settings')
         : null
-      state.whatsappSettings = state.businessId && !isStaff
+      state.whatsappSettings = state.businessId && !isStaff && !isAccountAdminDemo
         ? await getJson('/businesses/' + state.businessId + '/whatsapp-settings')
         : null
-      state.instagramSettings = state.businessId && !isStaff
+      state.instagramSettings = state.businessId && !isStaff && !isAccountAdminDemo
         ? await getJson('/businesses/' + state.businessId + '/instagram-settings')
         : null
       if (!isStaff) state.aiSettings = await getJson('/crm/ai-settings' + businessQuery)
@@ -18022,7 +18650,9 @@ const crmHtml = `<!doctype html>
       await loadStaffUsers()
       state.serviceCategories = await getJson('/service-categories' + businessQuery)
       state.services = await getJson('/services' + businessQuery)
-      state.customers = !isStaff || state.currentUser?.canViewCustomers
+      state.customers = isAccountAdminDemo
+        ? []
+        : !isStaff || state.currentUser?.canViewCustomers
         ? await getJson('/customers' + businessQuery)
         : []
     }
@@ -18089,6 +18719,11 @@ const crmHtml = `<!doctype html>
     async function startCrm() {
       await loadBasics()
       if (state.currentUser?.role === 'ACCOUNT_ADMIN') {
+        if (state.business) {
+          await loadConversations()
+          setSection('conversations')
+          return
+        }
         setSection('settings')
         return
       }
@@ -19464,14 +20099,14 @@ const crmHtml = `<!doctype html>
       }
 
       const policyOptions = [
-        ['DEFAULT', 'Sin regla espec&iacute;fica'],
-        ['ALLOWED', 'Permitida'],
-        ['REVIEW_REQUIRED', 'Revisi&oacute;n requerida'],
-        ['BLOCKED', 'No permitida']
+        ['DEFAULT', 'Configuraci&oacute;n general'],
+        ['ALLOWED', 'Se pueden reservar juntos'],
+        ['REVIEW_REQUIRED', 'Consultar al equipo'],
+        ['BLOCKED', 'No se pueden combinar']
       ]
       els.serviceAssociationList.innerHTML =
         '<div class="service-association-row service-association-head">' +
-          '<span>Servicio</span><span>Ofrecer extra</span><span>Pol&iacute;tica</span>' +
+          '<span>Servicio</span><span>Ofrecer extra</span><span>Reservar juntos</span>' +
         '</div>' +
         relatedServices.map((service) => {
           const config = state.serviceAssociationConfig[service.id] || {
@@ -19611,14 +20246,14 @@ const crmHtml = `<!doctype html>
       els.serviceEstimateEditor.style.display = isGuidedEstimate ? '' : 'none'
       if (!isGuidedEstimate) els.serviceRequiresPhoto.checked = false
       els.serviceAttentionHelp.textContent = mode === 'QUOTE'
-        ? 'El bot derivar\u00e1 la consulta para preparar el presupuesto. Si el cliente lo acepta, continuar\u00e1 con profesional, d\u00eda, horario y se\u00f1a si est\u00e1 configurada.'
+        ? 'Cotizaci\u00f3n previa: el bot derivar\u00e1 la consulta para preparar el valor. Si el cliente lo acepta, continuar\u00e1 con profesional, d\u00eda, horario y se\u00f1a si est\u00e1 configurada.'
         : mode === 'ADVISOR'
-          ? 'El bot no ofrecer\u00e1 horarios: derivar\u00e1 al equipo para asesorar al cliente.'
+          ? 'Requiere asesoramiento: el bot no ofrecer\u00e1 horarios y derivar\u00e1 la consulta al equipo.'
           : mode === 'GUIDED_ESTIMATE'
-            ? 'Con opciones, el bot har\u00e1 una pregunta y mostrar\u00e1 el rango elegido. Sin opciones, mostrar\u00e1 directamente el precio base "Desde".'
+            ? 'Estimaci\u00f3n autom\u00e1tica: con opciones, el bot har\u00e1 una pregunta y mostrar\u00e1 el rango elegido. Sin opciones, mostrar\u00e1 el precio base "Desde".'
           : els.serviceRequiresPhoto.checked
             ? 'Al pedir fotos, el bot pausar\u00e1 la reserva autom\u00e1tica y derivar\u00e1 el caso al equipo.'
-            : 'El bot mostrar\u00e1 profesionales y horarios disponibles para confirmar el turno.'
+            : 'Reserva directa: el bot mostrar\u00e1 profesionales y horarios disponibles para confirmar el turno.'
     }
 
     function addServiceEstimateOption(option = {}) {
@@ -19660,7 +20295,7 @@ const crmHtml = `<!doctype html>
 
     function updateServicePriceModeHelp() {
       if (els.serviceAttentionMode.value === 'QUOTE') {
-        els.servicePriceModeHelp.textContent = 'Al requerir presupuesto, el precio base solo puede mostrarse como valor inicial.'
+        els.servicePriceModeHelp.textContent = 'Con cotizaci\u00f3n previa, el precio base solo puede mostrarse como valor inicial.'
         return
       }
       els.servicePriceModeHelp.textContent = els.servicePriceMode.value === 'STARTING_AT'
@@ -19743,12 +20378,12 @@ const crmHtml = `<!doctype html>
             const attentionLabel = service.requiresPhoto
               ? 'Pide fotos y deriva'
               : attentionMode === 'QUOTE'
-                ? 'Presupuesto personalizado'
+                ? 'Cotizaci\u00f3n previa'
                 : attentionMode === 'ADVISOR'
-                  ? 'Asesoramiento previo'
+                  ? 'Requiere asesoramiento'
                   : attentionMode === 'GUIDED_ESTIMATE'
-                    ? 'Estimativo guiado'
-                  : 'Reserva autom\u00e1tica'
+                    ? 'Estimaci\u00f3n autom\u00e1tica'
+                  : 'Reserva directa'
             const customerDurationMin = Number(service.customerDurationMin || service.duration)
             const customerDurationMax = Number(service.customerDurationMax || customerDurationMin)
             const hasDifferentCustomerDuration = customerDurationMin !== Number(service.duration) ||
@@ -24728,15 +25363,15 @@ const crmHtml = `<!doctype html>
     }
 
     function setSettingsView(view) {
-      state.settingsView = ['commerce', 'assistant', 'landing', 'staff', 'meta'].includes(view) ? view : 'commerce'
+      const canSeeAdministration = ['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(state.currentUser?.role)
+      const requestedView = ['commerce', 'assistant', 'landing', 'staff', 'meta', 'admin'].includes(view) ? view : 'commerce'
+      state.settingsView = requestedView === 'admin' && !canSeeAdministration ? 'commerce' : requestedView
       const isAccountAdmin = state.currentUser?.role === 'ACCOUNT_ADMIN'
       for (const button of els.settingsMainTabs.querySelectorAll('[data-settings-view]')) {
         button.classList.toggle('active', button.dataset.settingsView === state.settingsView)
       }
       for (const panel of document.querySelectorAll('[data-settings-panel]')) {
-        const shouldShow = isAccountAdmin
-          ? panel === els.superAdminPanel
-          : panel.dataset.settingsPanel === state.settingsView
+        const shouldShow = panel.dataset.settingsPanel === state.settingsView
         panel.hidden = !shouldShow
       }
       renderAuthUi()
@@ -27098,6 +27733,7 @@ const crmHtml = `<!doctype html>
         resetServiceForm()
         els.serviceFeedback.textContent = successMessage
         await reloadServiceCatalog()
+        if (els.serviceListCollapsible) els.serviceListCollapsible.open = true
       } catch (error) {
         els.serviceFeedback.textContent = error.message
       } finally {
@@ -27182,8 +27818,12 @@ const crmHtml = `<!doctype html>
       els.serviceFeedback.textContent = 'Editando servicio.'
       const editingFamily = getServiceItemType(service) === 'GROUP'
       els.serviceFormTitle.textContent = editingFamily ? 'Editar familia' : 'Editar servicio'
+      if (els.serviceEditorSummaryTitle) els.serviceEditorSummaryTitle.textContent = editingFamily ? 'Editar familia' : 'Editar ' + service.name
+      if (els.serviceEditorCollapsible) els.serviceEditorCollapsible.open = true
+      if (els.serviceMainSection) els.serviceMainSection.open = true
       document.getElementById('service-submit').textContent = editingFamily ? 'Guardar familia' : 'Guardar cambios'
       setSection('services')
+      els.serviceEditorCollapsible?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
 
     async function deleteService(id) {
@@ -27248,6 +27888,10 @@ const crmHtml = `<!doctype html>
       els.serviceCancel.hidden = true
       els.serviceFeedback.textContent = ''
       els.serviceFormTitle.textContent = 'Nuevo servicio'
+      if (els.serviceEditorSummaryTitle) els.serviceEditorSummaryTitle.textContent = 'Crear nuevo servicio'
+      if (els.serviceMainSection) els.serviceMainSection.open = true
+      if (els.serviceBookingSection) els.serviceBookingSection.open = false
+      if (els.serviceOrganizationSection) els.serviceOrganizationSection.open = false
       document.getElementById('service-submit').textContent = 'Guardar servicio'
       renderServiceCatalogControls()
       updateServiceTypeFields()
@@ -27892,6 +28536,17 @@ const crmHtml = `<!doctype html>
       switchSupportBusiness(event.target.value)
     })
     els.demoProfileCreateOpen?.addEventListener('click', () => openDemoSimulator({ createProfile: true }))
+    els.commercialDemoList?.addEventListener('click', (event) => {
+      const enterButton = event.target.closest('[data-commercial-demo-enter]')
+      if (enterButton) {
+        enterCommercialDemo(enterButton.dataset.commercialDemoEnter)
+        return
+      }
+      const chatButton = event.target.closest('[data-commercial-demo-chat]')
+      if (chatButton) openCommercialDemoChat(chatButton.dataset.commercialDemoChat)
+    })
+    els.commercialDemoWorkspaceExit?.addEventListener('click', exitCommercialDemo)
+    els.commercialDemoWorkspaceAccount?.addEventListener('click', returnToAccountAdminBusiness)
     els.demoSimulatorOpen?.addEventListener('click', () => {
       openDemoSimulator()
       if (!state.demoChatSessionId) startNewDemoChat()

@@ -4,12 +4,14 @@ import { prisma } from '../config/prisma.js'
 import { ConversationService } from '../services/conversation-service.js'
 import { BusinessService } from '../services/business-service.js'
 import { reopenClosedConversationOpportunity } from '../services/conversation-opportunity-service.js'
+import { renderLanding } from './landing-ui.js'
 import type {} from '../plugins/auth-guard.js'
 
 const conversationService = new ConversationService()
 const businessService = new BusinessService()
 
 type DemoType = 'NAILS' | 'BARBERSHOP' | 'HAIR_SALON' | 'BEAUTY'
+const SHARED_SALES_DEMO_TYPES = ['NAILS', 'HAIR_SALON'] as const
 
 const DEMO_TEMPLATES: Record<DemoType, {
   label: string
@@ -66,12 +68,48 @@ const DEMO_TEMPLATES: Record<DemoType, {
 
 export async function demoProfileRoutes(app: FastifyInstance) {
   app.get('/admin/demo-profiles', async (request, reply) => {
-    if (request.auth?.user.role !== 'SUPER_ADMIN') return reply.status(403).send({ message: 'Solo el super admin puede usar perfiles demo' })
+    const role = request.auth?.user.role
+    if (!role || !['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(role)) {
+      return reply.status(403).send({ message: 'No tenes permiso para usar perfiles demo' })
+    }
+    const select = {
+      id: true,
+      name: true,
+      customerCode: true,
+      demoType: true,
+      logoUrl: true,
+      slug: true,
+      landingTemplate: true
+    } as const
+    if (role === 'ACCOUNT_ADMIN') {
+      const profiles = await Promise.all(SHARED_SALES_DEMO_TYPES.map((demoType) => prisma.business.findFirst({
+        where: { isDemo: true, demoType },
+        orderBy: { name: 'asc' },
+        select
+      })))
+      return profiles.filter((profile) => profile !== null)
+    }
     return prisma.business.findMany({
       where: { isDemo: true, createdByUserId: request.auth.user.id },
       orderBy: { name: 'asc' },
-      select: { id: true, name: true, customerCode: true, demoType: true, logoUrl: true }
+      select
     })
+  })
+
+  app.get('/admin/demo-profiles/:id/preview', async (request, reply) => {
+    const params = request.params as { id: string }
+    const business = await findAccessibleDemo(request.auth?.user, params.id)
+    if (!business?.slug) return reply.status(404).send({ message: 'No encontre esa demo comercial' })
+    const publicBusiness = await businessService.findPublicBySlug(business.slug)
+    if (!publicBusiness) return reply.status(404).send({ message: 'No encontre esa demo comercial' })
+    return reply.type('text/html').send(renderLanding(publicBusiness, `/${business.slug}`, business.landingTemplate, true))
+  })
+
+  app.get('/admin/demo-profiles/:id/access', async (request, reply) => {
+    const params = request.params as { id: string }
+    const business = await findAccessibleDemo(request.auth?.user, params.id)
+    if (!business) return reply.status(404).send({ message: 'No encontre esa demo comercial' })
+    return prisma.business.findUnique({ where: { id: business.id } })
   })
 
   app.post('/admin/demo-profiles', async (request, reply) => {
@@ -175,16 +213,12 @@ export async function demoProfileRoutes(app: FastifyInstance) {
   })
 
   app.post('/admin/demo-profiles/:id/chat', async (request, reply) => {
-    if (request.auth?.user.role !== 'SUPER_ADMIN') return reply.status(403).send({ message: 'Solo el super admin puede usar el simulador demo' })
     const params = request.params as { id: string }
     const body = request.body as { message?: string; sessionId?: string }
     const message = body.message?.trim()
     const sessionId = cleanSessionId(body.sessionId)
     if (!message || !sessionId) return reply.status(400).send({ message: 'Falta el mensaje o la sesion demo' })
-    const business = await prisma.business.findFirst({
-      where: { id: params.id, isDemo: true, createdByUserId: request.auth.user.id },
-      select: { id: true, botEnabled: true, aiEnabled: true }
-    })
+    const business = await findAccessibleDemo(request.auth?.user, params.id)
     if (!business) return reply.status(404).send({ message: 'No encontre ese perfil demo' })
     const phone = `demo:${request.auth.user.id}:${sessionId}`
     const conversation = await prisma.conversation.upsert({
@@ -198,6 +232,33 @@ export async function demoProfileRoutes(app: FastifyInstance) {
     const result = await conversationService.handleMessage({ phone, message, businessId: business.id, useAi: business.aiEnabled })
     await prisma.message.create({ data: { conversationId: conversation.id, phone, direction: 'OUTBOUND', body: result.reply, status: 'sent', metadata: { provider: 'demo_simulator' } } })
     return { ...result, conversationId: conversation.id }
+  })
+}
+
+async function findAccessibleDemo(
+  user: { id: string; role: string } | undefined,
+  businessId: string
+) {
+  if (!user || !['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(user.role)) return null
+  return prisma.business.findFirst({
+    where: {
+      id: businessId,
+      isDemo: true,
+      ...(user.role === 'SUPER_ADMIN'
+        ? { createdByUserId: user.id }
+        : { demoType: { in: [...SHARED_SALES_DEMO_TYPES] } })
+    },
+    select: {
+      id: true,
+      name: true,
+      customerCode: true,
+      isDemo: true,
+      demoType: true,
+      slug: true,
+      landingTemplate: true,
+      botEnabled: true,
+      aiEnabled: true
+    }
   })
 }
 

@@ -834,7 +834,13 @@ async function canAccessBusiness(auth: AuthContext | undefined, businessId: stri
   if (auth.user.role === 'SUPER_ADMIN') return true
   if (auth.user.role === 'ACCOUNT_ADMIN') {
     return Boolean(await prisma.business.findFirst({
-      where: { id: businessId, accountAdminId: auth.user.id },
+      where: {
+        id: businessId,
+        OR: [
+          { id: auth.user.businessId || '__NO_BUSINESS__' },
+          { isDemo: true, demoType: { in: ['NAILS', 'HAIR_SALON'] } }
+        ]
+      },
       select: { id: true }
     }))
   }

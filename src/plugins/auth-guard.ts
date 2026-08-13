@@ -16,7 +16,7 @@ export async function authGuard(app: FastifyInstance) {
     const auth = await getAuthFromRequest(request)
     if (!auth) return reply.status(401).send({ message: 'Necesitas iniciar sesion' })
     request.auth = auth
-    if (auth.user.role === 'ACCOUNT_ADMIN' && !isAccountAdminRoute(request)) {
+    if (auth.user.role === 'ACCOUNT_ADMIN' && !isAccountAdminRoute(request, auth)) {
       return reply.status(403).send({ message: 'Tu cuenta solo tiene acceso al tablero de alta de locales' })
     }
     injectUserBusinessId(request, auth)
@@ -49,9 +49,31 @@ export async function authGuard(app: FastifyInstance) {
   })
 }
 
-function isAccountAdminRoute(request: FastifyRequest) {
+function isAccountAdminRoute(request: FastifyRequest, auth: AuthContext) {
+  if (auth.user.businessId) return true
   const path = request.url.split('?')[0] || ''
-  return request.method.toUpperCase() === 'GET' && path === '/businesses'
+  const method = request.method.toUpperCase()
+  if (method === 'GET' && path === '/businesses') return true
+  if (method === 'GET' && path === '/admin/demo-profiles') return true
+  if (method === 'GET' && /^\/admin\/demo-profiles\/[^/]+\/preview$/.test(path)) return true
+  if (method === 'GET' && /^\/admin\/demo-profiles\/[^/]+\/access$/.test(path)) return true
+  if (method === 'POST' && /^\/admin\/demo-profiles\/[^/]+\/chat$/.test(path)) return true
+  return isAccountAdminDemoWorkspaceRoute(method, path)
+}
+
+function isAccountAdminDemoWorkspaceRoute(method: string, path: string) {
+  if (path === '/businesses') return method === 'GET'
+  return path === '/business-hours'
+    || path === '/business-hours/setup'
+    || path === '/crm/ai-settings'
+    || path === '/professionals'
+    || /^\/professionals\/[^/]+(?:\/status|\/appointments-impact)?$/.test(path)
+    || path === '/service-categories'
+    || /^\/service-categories\/[^/]+$/.test(path)
+    || path === '/services'
+    || /^\/services\/[^/]+$/.test(path)
+    || /^\/businesses\/[^/]+$/.test(path)
+    || /^\/businesses\/[^/]+\/(?:payment-settings|whatsapp-settings|instagram-settings)$/.test(path)
 }
 
 export function requireSuperAdmin(request: FastifyRequest, reply: FastifyReply) {
@@ -72,7 +94,7 @@ function injectStaffAgendaScope(request: FastifyRequest, auth: AuthContext) {
 }
 
 function injectUserBusinessId(request: FastifyRequest, auth: AuthContext) {
-  if (auth.user.role === 'SUPER_ADMIN' || auth.user.role === 'ACCOUNT_ADMIN' || !auth.user.businessId) return
+  if (auth.user.role === 'SUPER_ADMIN' || !auth.user.businessId) return
   if (request.query && typeof request.query === 'object' && !('businessId' in request.query)) {
     ;(request.query as { businessId?: string }).businessId = auth.user.businessId
   }
@@ -87,11 +109,18 @@ async function canAccessRequestedBusiness(request: FastifyRequest, auth: AuthCon
   collectBusinessId(request.params, requestedBusinessIds)
   collectBusinessId(request.query, requestedBusinessIds)
   collectBusinessId(request.body, requestedBusinessIds)
+  await collectEntityBusinessId(request, requestedBusinessIds)
 
   if (auth.user.role === 'ACCOUNT_ADMIN') {
     if (requestedBusinessIds.size === 0) return true
     const ownedCount = await prisma.business.count({
-      where: { id: { in: [...requestedBusinessIds] }, accountAdminId: auth.user.id }
+      where: {
+        id: { in: [...requestedBusinessIds] },
+        OR: [
+          { id: auth.user.businessId || '__NO_BUSINESS__' },
+          { isDemo: true, demoType: { in: ['NAILS', 'HAIR_SALON'] } }
+        ]
+      }
     })
     return ownedCount === requestedBusinessIds.size
   }
@@ -100,6 +129,26 @@ async function canAccessRequestedBusiness(request: FastifyRequest, auth: AuthCon
 
   if (requestedBusinessIds.size === 0) return true
   return [...requestedBusinessIds].every((businessId) => businessId === allowedBusinessId)
+}
+
+async function collectEntityBusinessId(request: FastifyRequest, result: Set<string>) {
+  const path = request.url.split('?')[0] || ''
+  const params = request.params as { id?: string } | undefined
+  const id = params?.id
+  if (!id) return
+
+  if (/^\/businesses\/[^/]+/.test(path)) {
+    result.add(id)
+    return
+  }
+  const businessId = /^\/professionals\/[^/]+/.test(path)
+    ? (await prisma.professional.findUnique({ where: { id }, select: { businessId: true } }))?.businessId
+    : /^\/services\/[^/]+/.test(path)
+      ? (await prisma.service.findUnique({ where: { id }, select: { businessId: true } }))?.businessId
+      : /^\/service-categories\/[^/]+/.test(path)
+        ? (await prisma.serviceCategory.findUnique({ where: { id }, select: { businessId: true } }))?.businessId
+        : null
+  if (businessId) result.add(businessId)
 }
 
 function collectBusinessId(source: unknown, result: Set<string>) {
