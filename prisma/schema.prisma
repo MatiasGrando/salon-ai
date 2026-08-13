@@ -135,6 +135,8 @@ model Business {
   id                   String                     @id @default(cuid())
   customerCode         String                     @unique
   name                 String
+  isDemo               Boolean                    @default(false)
+  demoType             String?
   slug                 String?                    @unique
   logoUrl              String?
   landingEnabled       Boolean                    @default(true)
@@ -143,6 +145,7 @@ model Business {
   landingFeature       String?
   landingOpeningYear   Int?
   landingDescription   String?
+  landingTemplateContent Json?
   coverImageUrl        String?
   landingGalleryImages String?
   publicWhatsapp       String?
@@ -192,6 +195,7 @@ model Business {
 
   @@index([accountAdminId])
   @@index([createdByUserId])
+  @@index([isDemo, createdByUserId])
 }
 
 model User {

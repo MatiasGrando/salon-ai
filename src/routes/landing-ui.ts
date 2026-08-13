@@ -156,6 +156,25 @@ function normalizeLandingTemplate(value?: string | null) {
   return value === 'editorial' ? 'editorial' : 'classic'
 }
 
+function templateSpecificContent(business: LandingBusiness, templateId: string) {
+  const content = business.landingTemplateContent
+  if (!content || typeof content !== 'object' || Array.isArray(content)) return {} as Record<string, string>
+  const template = (content as Record<string, unknown>)[templateId]
+  if (!template || typeof template !== 'object' || Array.isArray(template)) return {} as Record<string, string>
+  return Object.fromEntries(Object.entries(template).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
+}
+
+function renderClassicBrandIcon(iconName: string, className: 'brand-icon' | 'footer-mark') {
+  const body = iconName === 'scissors'
+    ? '<circle cx="6" cy="7" r="3"></circle><circle cx="6" cy="17" r="3"></circle><path d="m8.5 8.5 11 7.5M8.5 15.5 19.5 8"></path>'
+    : iconName === 'nails'
+      ? '<path d="M8 20V9.5a2 2 0 0 1 4 0V15"></path><path d="M12 15V7.5a2 2 0 0 1 4 0V15"></path><path d="M16 15v-5a2 2 0 0 1 4 0v6c0 4-3 6-7 6h-1c-4 0-7-2.5-7-6v-3a2 2 0 0 1 3 0"></path>'
+      : iconName === 'lashes'
+        ? '<path d="M3 13s3.5-5 9-5 9 5 9 5-3.5 4-9 4-9-4-9-4Z"></path><path d="M6 9 4.5 6M9 8 8.5 4.5M12 8V4M15 8l.5-3.5M18 9l1.5-3"></path>'
+        : '<rect x="4" y="4" width="6" height="6" rx="1"></rect><rect x="14" y="4" width="6" height="6" rx="1"></rect><rect x="4" y="14" width="6" height="6" rx="1"></rect><rect x="14" y="14" width="6" height="6" rx="1"></rect>'
+  return `<svg class="${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">${body}</svg>`
+}
+
 type PublicBusiness = Awaited<ReturnType<BusinessService['findPublicBySlug']>>
 type LandingBusiness = NonNullable<PublicBusiness>
 
@@ -341,9 +360,16 @@ function renderLanding(business: LandingBusiness, basePath = '', templateOverrid
   if (landingTemplate === 'luxe-nails') {
     return renderLuxeNailsLanding(business, basePath)
   }
-  const description = business.landingDescription || `Reserva tu turno en ${business.name} de forma simple y rapida.`
-  const subtitle = business.landingSubtitle || 'Oficio de navaja y tijera'
+  const styleContent = templateSpecificContent(business, landingTemplate)
+  const description = styleContent.description || business.landingDescription || `Reserva tu turno en ${business.name} de forma simple y rapida.`
+  const subtitle = styleContent.subtitle || business.landingSubtitle || 'Oficio de navaja y tijera'
   const landingFeature = business.landingFeature || 'Barbería de autor'
+  const classicBenefits = [
+    styleContent.benefit1 || [styleContent.benefit1Title, styleContent.benefit1Subtitle].filter(Boolean).join(' ') || landingFeature || 'Peluquería de Autor',
+    styleContent.benefit2 || [styleContent.benefit2Title, styleContent.benefit2Subtitle].filter(Boolean).join(' ') || 'Profesionales especializados',
+    styleContent.benefit3 || [styleContent.benefit3Title, styleContent.benefit3Subtitle].filter(Boolean).join(' ') || 'Atención personalizada'
+  ]
+  const classicBrandIcon = ['generic', 'scissors', 'nails', 'lashes'].includes(styleContent.brandIcon || '') ? styleContent.brandIcon! : 'generic'
   const openingLabel = business.landingOpeningYear ? `Desde ${business.landingOpeningYear}` : ''
   const services = business.services
   const professionals = business.professionals.slice(0, 4)
@@ -375,10 +401,7 @@ function renderLanding(business: LandingBusiness, basePath = '', templateOverrid
       <header class="navbar">
         <div class="wrap">
           <a class="brand" href="${escapeAttribute(basePath || '/')}">
-            <svg class="brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
-              <rect x="4" y="4" width="6" height="6" rx="1"></rect><rect x="14" y="4" width="6" height="6" rx="1"></rect>
-              <rect x="4" y="14" width="6" height="6" rx="1"></rect><rect x="14" y="14" width="6" height="6" rx="1"></rect>
-            </svg>
+            ${renderClassicBrandIcon(classicBrandIcon, 'brand-icon')}
               <span class="brand-text">
                 <span class="name">${escapeHtml(business.name)}</span>
               <span class="tag">${escapeHtml(subtitle)}</span>
@@ -446,19 +469,19 @@ function renderLanding(business: LandingBusiness, basePath = '', templateOverrid
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
                   <path d="M4 20v-2a5 5 0 0 1 5-5h6a5 5 0 0 1 5 5v2"></path><circle cx="12" cy="7" r="3.4"></circle>
                 </svg>
-                <span>${formatLandingFeature(landingFeature)}</span>
+                <span>${formatLandingFeature(classicBenefits[0]!)}</span>
               </div>
               <div class="feature">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
                   <circle cx="12" cy="12" r="8.5"></circle><path d="M12 3v3M12 18v3M3 12h3M18 12h3"></path>
                 </svg>
-                <span>Profesionales<br>especializados</span>
+                <span>${formatLandingFeature(classicBenefits[1]!)}</span>
               </div>
               <div class="feature">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
                   <circle cx="12" cy="12" r="8.5"></circle><path d="M12 7v5l3.2 2"></path>
                 </svg>
-                <span>Atencion<br>personalizada</span>
+                <span>${formatLandingFeature(classicBenefits[2]!)}</span>
               </div>
             </div>
             <a class="btn-cta" href="${escapeAttribute(bookingUrl)}">
@@ -577,10 +600,7 @@ function renderLanding(business: LandingBusiness, basePath = '', templateOverrid
           <div class="wrap">
             <div class="footer-grid">
               <section class="footer-brand" aria-label="Marca">
-                <svg class="footer-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-                  <rect x="4" y="4" width="6" height="6" rx="1"></rect><rect x="14" y="4" width="6" height="6" rx="1"></rect>
-                  <rect x="4" y="14" width="6" height="6" rx="1"></rect><rect x="14" y="14" width="6" height="6" rx="1"></rect>
-                </svg>
+                ${renderClassicBrandIcon(classicBrandIcon, 'footer-mark')}
                 <h2>${escapeHtml(business.name)}</h2>
                 <p>${escapeHtml(subtitle)}</p>
               </section>
@@ -819,11 +839,14 @@ function renderLuxeNailsLanding(business: LandingBusiness, basePath = '') {
 }
 
 function renderSalonWhiteLanding(business: LandingBusiness, basePath = '') {
-  const description = business.landingDescription || `Cuidamos tu cabello y realzamos tu estilo con una atención personalizada.`
-  const subtitle = business.landingSubtitle || 'Belleza y cuidado personal'
+  const salonWhiteContent = templateSpecificContent(business, 'salon-white')
+  const description = salonWhiteContent.description || business.landingDescription || `Cuidamos tu cabello y realzamos tu estilo con una atención personalizada.`
+  const subtitle = salonWhiteContent.subtitle || business.landingSubtitle || 'Belleza y cuidado personal'
+  const servicesDescription = salonWhiteContent.servicesDescription || 'Trabajamos con productos profesionales y una atención pensada para cada persona.'
+  const professionalsDescription = salonWhiteContent.professionalsDescription || 'Elegí con quién querés atenderte al reservar tu turno.'
   const openingLabel = business.landingOpeningYear ? `Desde ${business.landingOpeningYear}` : ''
   const services = business.services
-  const professionals = business.professionals.slice(0, 3)
+  const professionals = business.professionals
   const galleryImages = parseLandingGalleryImages(business.landingGalleryImages)
   const bookingUrl = `${basePath}/reservar?template=salon-white`
   const accountUrl = `${basePath}/cuenta`
@@ -918,9 +941,13 @@ function renderSalonWhiteLanding(business: LandingBusiness, basePath = '') {
         .sw-section-head .sw-underline { margin: 16px auto 0; }
         .sw-section-head p { margin-top: 14px; font-size: 15px; }
         .sw-services,
-        .sw-team,
+        .sw-team { max-width: 1280px; margin: 0 auto; display: flex; flex-wrap: wrap; justify-content: center; gap: 24px; }
         .sw-testimonials { max-width: 1280px; margin: 0 auto; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
+        .sw-service-card,
+        .sw-team-card { width: calc((100% - 48px) / 3); min-width: 0; }
+        .sw-services:not(.is-expanded) .sw-service-extra { display: none; }
         .sw-service-card { overflow: hidden; background: #fff; border: 1px solid var(--sw-line); border-radius: 16px; }
+        .sw-services-toggle { min-width: 150px; margin: 32px auto 0; display: flex; cursor: pointer; }
         .sw-service-photo { height: 220px; position: relative; overflow: hidden; background: var(--sw-blush-tint); }
         .sw-service-photo img { width: 100%; height: 100%; object-fit: cover; }
         .sw-service-photo .service-generated-visual { height: 100%; }
@@ -977,8 +1004,8 @@ function renderSalonWhiteLanding(business: LandingBusiness, basePath = '') {
           .sw-hero h1 { font-size: 40px; }
           .sw-hero-photo { min-height: 560px; }
           .sw-section { padding: 64px 24px; }
-          .sw-services,
-          .sw-team,
+          .sw-service-card,
+          .sw-team-card { width: 100%; }
           .sw-testimonials { grid-template-columns: 1fr; }
           .sw-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); }
           .sw-contact { padding: 64px 24px; grid-template-columns: 1fr; }
@@ -1035,11 +1062,11 @@ function renderSalonWhiteLanding(business: LandingBusiness, basePath = '') {
             <span class="sw-eyebrow">Servicios</span>
             <h2>Nuestros servicios</h2>
             <div class="sw-underline"></div>
-            <p>Trabajamos con productos profesionales y una atención pensada para cada persona.</p>
+            <p>${escapeHtml(servicesDescription)}</p>
           </header>
-          <div class="sw-services">
+          <div class="sw-services" id="sw-services-grid">
             ${services.length ? services.map((service, index) => `
-              <article class="sw-service-card">
+              <article class="sw-service-card${index >= 6 ? ' sw-service-extra' : ''}">
                 <div class="sw-service-photo">${renderServiceImage(service, business, index)}</div>
                 <div class="sw-service-body">
                   <div class="sw-service-icon" aria-hidden="true">✦</div>
@@ -1049,6 +1076,7 @@ function renderSalonWhiteLanding(business: LandingBusiness, basePath = '') {
               </article>
             `).join('') : '<p>Todavía no hay servicios publicados.</p>'}
           </div>
+          ${services.length > 6 ? '<button class="sw-outline sw-services-toggle" id="sw-services-toggle" type="button" aria-expanded="false" aria-controls="sw-services-grid">Ver todos</button>' : ''}
         </section>
 
         <section class="sw-section cream" id="profesionales">
@@ -1056,7 +1084,7 @@ function renderSalonWhiteLanding(business: LandingBusiness, basePath = '') {
             <span class="sw-eyebrow">Equipo</span>
             <h2>Profesionales</h2>
             <div class="sw-underline"></div>
-            <p>Elegí con quién querés atenderte al reservar tu turno.</p>
+            <p>${escapeHtml(professionalsDescription)}</p>
           </header>
           <div class="sw-team">
             ${professionals.length ? professionals.map((professional) => `
@@ -1122,6 +1150,20 @@ function renderSalonWhiteLanding(business: LandingBusiness, basePath = '') {
         ${renderWhatsappFab(whatsappUrl)}
         ${renderLandingLightbox()}
       </main>
+      ${services.length > 6 ? `
+        <script>
+          (() => {
+            const grid = document.getElementById('sw-services-grid')
+            const button = document.getElementById('sw-services-toggle')
+            if (!grid || !button) return
+            button.addEventListener('click', () => {
+              const expanded = grid.classList.toggle('is-expanded')
+              button.setAttribute('aria-expanded', String(expanded))
+              button.textContent = expanded ? 'Ver menos' : 'Ver todos'
+            })
+          })()
+        </script>
+      ` : ''}
       ${renderLandingLightboxScript()}
     `
   })

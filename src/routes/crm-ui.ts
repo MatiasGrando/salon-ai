@@ -1608,6 +1608,24 @@ const crmHtml = `<!doctype html>
       white-space: nowrap;
     }
 
+    .demo-profile-action {
+      min-height: 34px;
+      padding: 7px 10px;
+      border: 0;
+      border-radius: 7px;
+      color: #fff;
+      background: #7c3aed;
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+
+    .demo-profile-action.secondary {
+      color: #5b21b6;
+      background: #f3e8ff;
+    }
+
     .conversation-global-search {
       height: 46px;
       min-width: 0;
@@ -6507,9 +6525,13 @@ const crmHtml = `<!doctype html>
       align-items: flex-end;
       gap: 8px;
       border-bottom: 1px solid #dce3ef;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scrollbar-width: thin;
     }
 
     .settings-main-tabs button {
+      flex: 0 0 auto;
       height: 42px;
       padding: 0 11px;
       border: 0;
@@ -6532,6 +6554,82 @@ const crmHtml = `<!doctype html>
       border-radius: 10px;
       background: #fff;
       box-shadow: 0 16px 32px rgba(15, 23, 42, 0.035);
+    }
+
+    .settings-panel.settings-collapsible {
+      padding: 0;
+      overflow: hidden;
+    }
+
+    .settings-collapsible-summary {
+      min-height: 92px;
+      padding: 20px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      list-style: none;
+      cursor: pointer;
+      transition: background .18s ease;
+    }
+
+    .settings-collapsible-summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .settings-collapsible-summary:hover {
+      background: #f8faff;
+    }
+
+    .settings-collapsible-summary:focus-visible {
+      outline: 3px solid rgba(37, 99, 235, .2);
+      outline-offset: -3px;
+    }
+
+    .settings-collapsible-summary h3 {
+      margin: 0;
+    }
+
+    .settings-collapsible-summary p {
+      margin: 6px 0 0;
+      color: #52617f;
+      font-size: 14px;
+    }
+
+    .settings-collapse-icon {
+      width: 34px;
+      height: 34px;
+      flex: 0 0 34px;
+      display: grid;
+      place-items: center;
+      border: 1px solid #dce3ef;
+      border-radius: 50%;
+      background: #f8faff;
+      transition: transform .2s ease, background .2s ease;
+    }
+
+    .settings-collapse-icon::before {
+      width: 8px;
+      height: 8px;
+      border-right: 2px solid #31507e;
+      border-bottom: 2px solid #31507e;
+      content: '';
+      transform: translateY(-2px) rotate(45deg);
+    }
+
+    .settings-collapsible[open] .settings-collapse-icon {
+      background: #eaf1ff;
+      transform: rotate(180deg);
+    }
+
+    .settings-collapsible-content {
+      padding: 0 24px 24px;
+      border-top: 1px solid #e5eaf2;
+    }
+
+    .settings-panel-stack {
+      display: grid;
+      gap: 20px;
     }
 
     .settings-panel h3 {
@@ -6769,18 +6867,31 @@ const crmHtml = `<!doctype html>
 
     .landing-template-grid {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 14px;
+      grid-template-columns: 1fr;
+      gap: 8px;
+      max-height: 352px;
+      padding: 3px 8px 3px 3px;
+      overflow-y: auto;
+      scrollbar-width: thin;
+    }
+
+    .landing-template-browser {
+      display: grid;
+      grid-template-columns: minmax(220px, .72fr) minmax(0, 1.28fr);
+      gap: 16px;
+      align-items: stretch;
     }
 
     .landing-template-card {
       min-width: 0;
-      padding: 10px;
+      padding: 8px;
       position: relative;
       display: grid;
-      gap: 8px;
+      grid-template-columns: 88px minmax(0, 1fr);
+      align-items: center;
+      gap: 10px;
       border: 1px solid #dce3ed;
-      border-radius: 14px;
+      border-radius: 11px;
       background: #fff;
       cursor: pointer;
       transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
@@ -6793,8 +6904,9 @@ const crmHtml = `<!doctype html>
     }
 
     .landing-template-card:has(input:checked) {
-      border-color: #b9914d;
-      box-shadow: 0 0 0 2px rgba(185, 145, 77, .16), 0 12px 28px rgba(20, 32, 58, .09);
+      border-color: #2563eb;
+      background: #f5f8ff;
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, .12);
     }
 
     .landing-template-radio {
@@ -6817,7 +6929,7 @@ const crmHtml = `<!doctype html>
       position: relative;
       overflow: hidden;
       border: 1px solid #e5e8ee;
-      border-radius: 9px;
+      border-radius: 7px;
       background: #f5f6f8;
     }
 
@@ -6904,7 +7016,7 @@ const crmHtml = `<!doctype html>
 
     .landing-template-preview {
       width: fit-content;
-      margin: 0 2px 2px;
+      margin: 0;
       color: #1d4ed8;
       font-size: 11px;
       font-weight: 800;
@@ -6916,12 +7028,16 @@ const crmHtml = `<!doctype html>
       pointer-events: none;
     }
 
+    .landing-template-grid .landing-template-preview {
+      display: none;
+    }
+
     .landing-template-check {
-      width: 25px;
-      height: 25px;
+      width: 20px;
+      height: 20px;
       position: absolute;
-      top: 16px;
-      right: 16px;
+      top: 8px;
+      right: 8px;
       display: grid;
       place-items: center;
       border: 2px solid rgba(255,255,255,.9);
@@ -6935,11 +7051,156 @@ const crmHtml = `<!doctype html>
 
     .landing-template-card:has(input:checked) .landing-template-check {
       color: #fff;
-      background: #b9914d;
+      background: #2563eb;
+    }
+
+    .landing-template-selected {
+      min-height: 352px;
+      padding: 14px;
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) auto;
+      gap: 14px;
+      border: 1px solid #dce3ed;
+      border-radius: 14px;
+      background: #f8faff;
+    }
+
+    .landing-template-selected .landing-template-thumb {
+      min-height: 210px;
+      aspect-ratio: auto;
+    }
+
+    .landing-template-selected-copy {
+      display: grid;
+      gap: 8px;
+    }
+
+    .landing-template-selected-copy strong {
+      color: #17213c;
+      font-size: 16px;
+    }
+
+    .landing-template-selected-copy p {
+      margin: 0;
+      color: #64748b;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .landing-template-requirements {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .landing-template-requirements span {
+      padding: 5px 8px;
+      border-radius: 999px;
+      color: #31507e;
+      background: #e9f0ff;
+      font-size: 10px;
+      font-weight: 750;
+    }
+
+    .landing-settings-group {
+      padding-top: 20px;
+      display: grid;
+      gap: 16px;
+      border-top: 1px solid #e5eaf2;
+    }
+
+    .landing-settings-group-title {
+      display: grid;
+      gap: 4px;
+    }
+
+    .landing-settings-group-title strong {
+      color: #17213c;
+      font-size: 14px;
+    }
+
+    .landing-settings-group-title span {
+      color: #64748b;
+      font-size: 12px;
+    }
+
+    [data-landing-template-field][hidden] {
+      display: none;
+    }
+
+    .landing-benefits-editor {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .landing-benefit-editor {
+      padding: 12px;
+      display: grid;
+      gap: 9px;
+      border: 1px solid #dfe6f1;
+      border-radius: 10px;
+      background: #f8faff;
+    }
+
+    .landing-benefit-editor strong {
+      color: #31507e;
+      font-size: 11px;
+    }
+
+    .landing-icon-options {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .landing-icon-option {
+      min-height: 74px;
+      padding: 10px;
+      position: relative;
+      display: grid;
+      justify-items: center;
+      gap: 6px;
+      border: 1px solid #dfe6f1;
+      border-radius: 10px;
+      color: #52617f;
+      background: #fff;
+      cursor: pointer;
+    }
+
+    .landing-icon-option:has(input:checked) {
+      color: #1d4ed8;
+      border-color: #2563eb;
+      background: #f2f6ff;
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, .1);
+    }
+
+    .landing-icon-option input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .landing-icon-option svg {
+      width: 28px;
+      height: 28px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.6;
+    }
+
+    .landing-icon-option span {
+      font-size: 11px;
+      font-weight: 750;
     }
 
     @media (max-width: 720px) {
-      .landing-template-grid { grid-template-columns: 1fr; }
+      .landing-template-browser { grid-template-columns: 1fr; }
+      .landing-template-grid { max-height: 290px; }
+      .landing-template-selected { min-height: 0; }
+      .landing-template-selected .landing-template-thumb { min-height: 190px; }
+      .landing-benefits-editor,
+      .landing-icon-options { grid-template-columns: 1fr 1fr; }
     }
 
     .landing-cover-field {
@@ -9772,6 +10033,97 @@ const crmHtml = `<!doctype html>
 
     .confirmation-dialog .dialog-actions {
       padding-top: 0;
+    }
+
+    .demo-dialog {
+      width: min(760px, 100%);
+      height: min(720px, calc(100dvh - 36px));
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
+    }
+
+    .demo-dialog-toolbar,
+    .demo-profile-create {
+      padding: 12px 16px;
+      display: flex;
+      align-items: end;
+      gap: 10px;
+      border-bottom: 1px solid #e4e6eb;
+      background: #faf8ff;
+    }
+
+    .demo-dialog-toolbar label,
+    .demo-profile-create label {
+      flex: 1;
+      display: grid;
+      gap: 5px;
+      color: #52617f;
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .demo-dialog-toolbar select,
+    .demo-profile-create input,
+    .demo-profile-create select {
+      min-height: 38px;
+      padding: 8px 10px;
+      border: 1px solid #d8deea;
+      border-radius: 8px;
+      color: #17213a;
+      background: #fff;
+    }
+
+    .demo-chat-messages {
+      min-height: 0;
+      padding: 18px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background: #f5f1eb;
+    }
+
+    .demo-chat-empty {
+      margin: auto;
+      max-width: 420px;
+      color: #64748b;
+      text-align: center;
+      line-height: 1.5;
+    }
+
+    .demo-chat-bubble {
+      max-width: min(82%, 540px);
+      padding: 10px 12px;
+      border-radius: 11px;
+      color: #17213a;
+      background: #fff;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, .1);
+      white-space: pre-wrap;
+      line-height: 1.45;
+    }
+
+    .demo-chat-bubble.user {
+      align-self: flex-end;
+      background: #d9fdd3;
+    }
+
+    .demo-chat-bubble.bot {
+      align-self: flex-start;
+    }
+
+    .demo-chat-compose {
+      padding: 12px 16px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      border-top: 1px solid #e4e6eb;
+      background: #fff;
+    }
+
+    .demo-chat-compose input {
+      min-height: 42px;
+      padding: 10px 12px;
+      border: 1px solid #d8deea;
+      border-radius: 9px;
     }
 
     .dialog-header {
@@ -12767,9 +13119,11 @@ const crmHtml = `<!doctype html>
         </div>
       </div>
       <div class="support-business-switcher" id="support-business-switcher" hidden>
-        <label for="support-business-select">Comercio en revisi&oacute;n
+        <label for="support-business-select">Perfil activo
           <select id="support-business-select"></select>
         </label>
+        <button class="demo-profile-action secondary" id="demo-profile-create-open" type="button">+ Perfil demo</button>
+        <button class="demo-profile-action" id="demo-simulator-open" type="button">Probar bot</button>
         <span class="support-business-badge">S&uacute;per Admin</span>
       </div>
       <button class="icon-button conversation-refresh" id="refresh" type="button" title="Actualizar" data-icon="refresh"></button>
@@ -13164,6 +13518,32 @@ const crmHtml = `<!doctype html>
           <button class="secondary" id="confirmation-cancel" type="button">Cancelar</button>
           <button class="danger" id="confirmation-accept" type="button">S&iacute;, eliminar</button>
         </div>
+      </section>
+    </div>
+
+    <div class="dialog-backdrop" id="demo-simulator-dialog" hidden>
+      <section class="dialog demo-dialog" role="dialog" aria-modal="true" aria-labelledby="demo-simulator-title">
+        <div class="dialog-header">
+          <div><h3 id="demo-simulator-title">Simulador de perfiles demo</h3><small>Los mensajes quedan dentro del CRM y no se env&iacute;an por WhatsApp.</small></div>
+          <button class="icon-button" id="demo-simulator-close" type="button" title="Cerrar">X</button>
+        </div>
+        <div>
+          <div class="demo-dialog-toolbar">
+            <label>Perfil para responder<select id="demo-profile-select"></select></label>
+            <button class="secondary" id="demo-new-chat" type="button">Nueva conversaci&oacute;n</button>
+          </div>
+          <form class="demo-profile-create" id="demo-profile-create-form" hidden>
+            <label>Nombre del perfil<input id="demo-profile-name" maxlength="80" placeholder="Ej: Weex Nails" required></label>
+            <label>Rubro<select id="demo-profile-type"><option value="NAILS">Nails</option><option value="BARBERSHOP">Barber&iacute;a</option><option value="HAIR_SALON">Peluquer&iacute;a</option><option value="BEAUTY">Est&eacute;tica</option></select></label>
+            <button class="primary" id="demo-profile-create-submit" type="submit">Crear</button>
+            <button class="secondary" id="demo-profile-create-cancel" type="button">Cancelar</button>
+          </form>
+        </div>
+        <div class="demo-chat-messages" id="demo-chat-messages"><div class="demo-chat-empty">Eleg&iacute; un perfil y escrib&iacute; como si fueras un cliente. El bot usar&aacute; sus servicios, profesionales, horarios y personalidad.</div></div>
+        <form class="demo-chat-compose" id="demo-chat-form">
+          <input id="demo-chat-input" autocomplete="off" placeholder="Escrib&iacute; un mensaje, por ejemplo: Hola, quiero reservar">
+          <button class="primary" id="demo-chat-send" type="submit">Enviar</button>
+        </form>
       </section>
     </div>
 
@@ -14126,6 +14506,7 @@ const crmHtml = `<!doctype html>
 
         <nav class="settings-main-tabs" id="settings-main-tabs" aria-label="Secciones de ajustes">
           <button class="active" type="button" data-settings-view="commerce">Datos del Comercio</button>
+          <button type="button" data-settings-view="assistant">Bot y personalidad</button>
           <button type="button" data-settings-view="landing">Landing</button>
           <button type="button" data-settings-view="staff">Staff</button>
           <button type="button" data-settings-view="meta">Meta y WhatsApp</button>
@@ -14159,6 +14540,12 @@ const crmHtml = `<!doctype html>
             </div>
 
             <div class="settings-field">
+              <label for="landing-opening-year">A&ntilde;o de apertura</label>
+              <input class="field" id="landing-opening-year" type="number" min="1900" placeholder="Ej: 2018">
+              <small>Dato del comercio que las plantillas pueden mostrar como &ldquo;Desde 2018&rdquo;.</small>
+            </div>
+
+            <div class="settings-field">
               <label for="business-email">Email del comercio</label>
               <input class="field" id="business-email" type="email" placeholder="hola@tucomercio.com">
               <small>Se muestra en el bloque de contacto de la landing.</small>
@@ -14174,6 +14561,25 @@ const crmHtml = `<!doctype html>
               <label for="business-facebook">Facebook</label>
               <input class="field" id="business-facebook" type="url" placeholder="https://facebook.com/tucomercio">
               <small>Opcional. Si queda vac&iacute;o no se muestra el acceso.</small>
+            </div>
+
+            <div class="business-hours-grid">
+              <div class="business-hours-title">Ubicaci&oacute;n del comercio</div>
+              <div class="settings-field">
+                <label for="landing-address">Direcci&oacute;n visible</label>
+                <input class="field" id="landing-address" autocomplete="street-address" placeholder="Ej: Cris&oacute;logo Larralde 5927, C1431APY Cdad. Aut&oacute;noma de Buenos Aires">
+                <small>Se reutiliza en la landing, las reservas y los datos de contacto.</small>
+              </div>
+              <div class="settings-field">
+                <label for="landing-address-area">Barrio o zona</label>
+                <input class="field" id="landing-address-area" autocomplete="address-level3" placeholder="Ej: Villa Urquiza">
+                <small>Opcional. Si queda vac&iacute;o y detectamos CABA, se muestra CABA.</small>
+              </div>
+              <div class="settings-field">
+                <label for="landing-maps-url">Link de Google Maps</label>
+                <input class="field" id="landing-maps-url" type="url" placeholder="https://maps.app.goo.gl/...">
+                <small>Abr&iacute; Google Maps, busc&aacute; el local, toc&aacute; Compartir y peg&aacute; el enlace.</small>
+              </div>
             </div>
 
             <div class="business-hours-grid">
@@ -14241,13 +14647,14 @@ const crmHtml = `<!doctype html>
 
             <fieldset class="landing-template-fieldset">
               <legend>Eleg&iacute; un dise&ntilde;o</legend>
-              <p class="landing-template-help">Tus textos, servicios e im&aacute;genes se conservan. Solo cambia la presentaci&oacute;n.</p>
-              <div class="landing-template-grid">
+              <p class="landing-template-help">Seleccion&aacute; una plantilla para ver qu&eacute; contenido utiliza. Pod&eacute;s cambiarla sin perder los datos cargados.</p>
+              <div class="landing-template-browser">
+                <div class="landing-template-grid" aria-label="Plantillas disponibles">
                 <label class="landing-template-card">
                   <input class="landing-template-radio" type="radio" name="landing-template" value="classic">
                   <span class="landing-template-thumb classic" aria-hidden="true"></span>
                   <span class="landing-template-copy">
-                    <strong>Cl&aacute;sica</strong>
+                    <strong>Vintage</strong>
                     <small>Directa, contrastada y compacta.</small>
                   </span>
                   <a class="landing-template-preview" data-template-preview="classic" href="#" target="_blank" rel="noopener">Vista previa</a>
@@ -14283,9 +14690,24 @@ const crmHtml = `<!doctype html>
                   <a class="landing-template-preview" data-template-preview="luxe-nails" href="#" target="_blank" rel="noopener">Vista previa</a>
                   <span class="landing-template-check" aria-hidden="true">&#10003;</span>
                 </label>
+                </div>
+                <aside class="landing-template-selected" aria-live="polite">
+                  <div class="landing-template-thumb classic" id="landing-template-selected-thumb" aria-hidden="true"></div>
+                  <div class="landing-template-selected-copy">
+                    <strong id="landing-template-selected-name">Vintage</strong>
+                    <p id="landing-template-selected-description">Directa, contrastada y compacta.</p>
+                    <div class="landing-template-requirements" id="landing-template-requirements"></div>
+                    <a class="landing-template-preview" id="landing-template-selected-preview" data-template-preview="classic" href="#" target="_blank" rel="noopener">Abrir vista previa</a>
+                  </div>
+                </aside>
               </div>
             </fieldset>
 
+            <div class="landing-settings-group">
+              <div class="landing-settings-group-title">
+                <strong>Datos generales</strong>
+                <span>Direcci&oacute;n web y estado de publicaci&oacute;n compartidos por todos los dise&ntilde;os.</span>
+              </div>
             <div class="settings-field">
               <label for="landing-slug">Subdominio</label>
               <input class="field" id="landing-slug" autocomplete="off" placeholder="lapelu">
@@ -14299,22 +14721,45 @@ const crmHtml = `<!doctype html>
               <a id="landing-domain-link" href="#" target="_blank" rel="noopener">Sin subdominio configurado</a>
             </div>
 
+            </div>
+
+            <div class="landing-settings-group">
+              <div class="landing-settings-group-title">
+                <strong>Contenido del dise&ntilde;o</strong>
+                <span id="landing-template-content-help">Estos textos corresponden a la plantilla seleccionada.</span>
+              </div>
+
             <div class="settings-field">
               <label for="landing-subtitle">Subt&iacute;tulo de marca</label>
               <input class="field" id="landing-subtitle" maxlength="90" placeholder="Ej: Oficio de navaja y tijera">
               <small>Aparece debajo del nombre del comercio en la portada y la barra superior.</small>
             </div>
 
-            <div class="settings-field">
+            <div class="settings-field" data-landing-template-field="classicBenefits">
+              <label>Beneficios de portada</label>
+              <div class="landing-benefits-editor">
+                <div class="landing-benefit-editor"><strong>Beneficio 1</strong><input class="field" id="classic-benefit-1" maxlength="80" placeholder="Peluquer&iacute;a de Autor"></div>
+                <div class="landing-benefit-editor"><strong>Beneficio 2</strong><input class="field" id="classic-benefit-2" maxlength="80" placeholder="Profesionales especializados"></div>
+                <div class="landing-benefit-editor"><strong>Beneficio 3</strong><input class="field" id="classic-benefit-3" maxlength="80" placeholder="Atenci&oacute;n personalizada"></div>
+              </div>
+              <small>Escrib&iacute; cada beneficio en un solo campo. La plantilla lo acomoda autom&aacute;ticamente en la portada.</small>
+            </div>
+
+            <div class="settings-field" data-landing-template-field="classicBrandIcon">
+              <label>&Iacute;cono de marca</label>
+              <div class="landing-icon-options">
+                <label class="landing-icon-option"><input type="radio" name="classic-brand-icon" value="generic"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1"></rect><rect x="14" y="4" width="6" height="6" rx="1"></rect><rect x="4" y="14" width="6" height="6" rx="1"></rect><rect x="14" y="14" width="6" height="6" rx="1"></rect></svg><span>Gen&eacute;rico</span></label>
+                <label class="landing-icon-option"><input type="radio" name="classic-brand-icon" value="scissors"><svg viewBox="0 0 24 24"><circle cx="6" cy="7" r="3"></circle><circle cx="6" cy="17" r="3"></circle><path d="m8.5 8.5 11 7.5M8.5 15.5 19.5 8"></path></svg><span>Tijeras</span></label>
+                <label class="landing-icon-option"><input type="radio" name="classic-brand-icon" value="nails"><svg viewBox="0 0 24 24"><path d="M8 20V9.5a2 2 0 0 1 4 0V15"></path><path d="M12 15V7.5a2 2 0 0 1 4 0V15"></path><path d="M16 15v-5a2 2 0 0 1 4 0v6c0 4-3 6-7 6h-1c-4 0-7-2.5-7-6v-3a2 2 0 0 1 3 0"></path></svg><span>U&ntilde;as</span></label>
+                <label class="landing-icon-option"><input type="radio" name="classic-brand-icon" value="lashes"><svg viewBox="0 0 24 24"><path d="M3 13s3.5-5 9-5 9 5 9 5-3.5 4-9 4-9-4-9-4Z"></path><path d="M6 9 4.5 6M9 8 8.5 4.5M12 8V4M15 8l.5-3.5M18 9l1.5-3"></path></svg><span>Pesta&ntilde;as</span></label>
+              </div>
+              <small>Se usa junto al nombre del comercio en la navegaci&oacute;n y el footer.</small>
+            </div>
+
+            <div class="settings-field" data-landing-template-field="feature">
               <label for="landing-feature">Texto del primer beneficio</label>
               <input class="field" id="landing-feature" maxlength="60" placeholder="Ej: Barber&iacute;a de autor">
               <small>Aparece junto al primer &iacute;cono en la portada.</small>
-            </div>
-
-            <div class="settings-field">
-              <label for="landing-opening-year">A&ntilde;o de apertura</label>
-              <input class="field" id="landing-opening-year" type="number" min="1900" placeholder="Ej: 2018">
-              <small>Opcional. Si lo complet&aacute;s, la portada muestra &ldquo;Desde 2018&rdquo;.</small>
             </div>
 
             <div class="settings-field">
@@ -14322,26 +14767,26 @@ const crmHtml = `<!doctype html>
               <textarea class="field" id="landing-description" maxlength="420" placeholder="Ej: Barber&iacute;a de barrio con reservas online, cortes cl&aacute;sicos y atenci&oacute;n personalizada."></textarea>
             </div>
 
-            <div class="settings-field">
-              <label for="landing-address">Direcci&oacute;n visible</label>
-              <input class="field" id="landing-address" autocomplete="street-address" placeholder="Ej: Cris&oacute;logo Larralde 5927, C1431APY Cdad. Aut&oacute;noma de Buenos Aires">
-              <small>Vamos a limpiar c&oacute;digos postales y ciudad para mostrarla prolija.</small>
+            <div class="settings-field" data-landing-template-field="salonWhiteServicesDescription">
+              <label for="salon-white-services-description">Texto de la secci&oacute;n Servicios</label>
+              <textarea class="field" id="salon-white-services-description" maxlength="240" placeholder="Trabajamos con productos profesionales y una atenci&oacute;n pensada para cada persona."></textarea>
+              <small>Aparece debajo del t&iacute;tulo &ldquo;Nuestros servicios&rdquo;.</small>
             </div>
 
-            <div class="settings-field">
-              <label for="landing-address-area">Barrio o zona</label>
-              <input class="field" id="landing-address-area" autocomplete="address-level3" placeholder="Ej: Villa Urquiza">
-              <small>Opcional. Si queda vac&iacute;o y detectamos CABA, se muestra CABA.</small>
+            <div class="settings-field" data-landing-template-field="salonWhiteProfessionalsDescription">
+              <label for="salon-white-professionals-description">Texto de la secci&oacute;n Profesionales</label>
+              <textarea class="field" id="salon-white-professionals-description" maxlength="240" placeholder="Eleg&iacute; con qui&eacute;n quer&eacute;s atenderte al reservar tu turno."></textarea>
+              <small>Aparece debajo del t&iacute;tulo &ldquo;Profesionales&rdquo;.</small>
+            </div>
             </div>
 
-            <div class="settings-field">
-              <label for="landing-maps-url">Link de Google Maps</label>
-              <input class="field" id="landing-maps-url" type="url" placeholder="https://maps.app.goo.gl/...">
-              <small>Abr&iacute; Google Maps, busc&aacute; el local, toc&aacute; Compartir y peg&aacute; el enlace.</small>
-            </div>
-
+            <div class="landing-settings-group">
+              <div class="landing-settings-group-title">
+                <strong>Im&aacute;genes</strong>
+                <span>La portada y la galer&iacute;a se adaptan al espacio definido por cada plantilla.</span>
+              </div>
             <div class="landing-cover-field">
-              <div class="business-hours-title">Banner derecho / imagen de portada</div>
+              <div class="business-hours-title" id="landing-cover-title">Foto de portada (1600 &times; 700)</div>
               <div class="landing-cover-preview" id="landing-cover-preview">
                 <img id="landing-cover-image" alt="Portada de la landing">
                 <span>Sin portada cargada</span>
@@ -14352,7 +14797,7 @@ const crmHtml = `<!doctype html>
                 </label>
                 <button class="business-logo-remove" id="landing-cover-remove" type="button">Quitar portada</button>
               </div>
-              <small>Recomendado: imagen horizontal 1600x700 o similar. M&aacute;ximo 3 MB. La portada se adapta para mostrarse completa en cualquier pantalla.</small>
+              <small id="landing-cover-help">Formato recomendado para Vintage y Editorial: 1600 &times; 700 px. M&aacute;ximo 3 MB. La portada se adapta para mostrarse completa en cualquier pantalla.</small>
             </div>
 
             <div class="landing-cover-field">
@@ -14364,6 +14809,7 @@ const crmHtml = `<!doctype html>
                 </label>
               </div>
               <small>Hasta 6 im&aacute;genes PNG, JPG, WEBP o GIF. M&aacute;ximo 3 MB cada una. Si no carg&aacute;s im&aacute;genes, la secci&oacute;n Galer&iacute;a no se muestra.</small>
+            </div>
             </div>
 
             <div class="settings-actions">
@@ -14504,10 +14950,17 @@ const crmHtml = `<!doctype html>
           <div class="staff-account-list" id="staff-user-list"></div>
         </section>
 
-        <section class="settings-panel" data-settings-panel="commerce">
-          <h3>Automatizaci&oacute;n</h3>
-          <p>Control&aacute; c&oacute;mo responde el asistente en todos los chats del local.</p>
-          <div class="settings-automation-list">
+        <details class="settings-panel settings-collapsible" data-settings-panel="assistant" hidden>
+          <summary class="settings-collapsible-summary">
+            <div>
+              <h3>Automatizaci&oacute;n</h3>
+              <p>Control&aacute; c&oacute;mo responde el asistente en todos los chats del local.</p>
+            </div>
+            <span class="settings-collapse-icon" aria-hidden="true"></span>
+          </summary>
+          <div class="settings-collapsible-content">
+          <form class="assistant-personality-form" id="automation-settings-form">
+            <div class="settings-automation-list">
             <label class="automation-control">
               <div class="automation-copy">
                 <strong>Bot autom&aacute;tico</strong>
@@ -14535,8 +14988,7 @@ const crmHtml = `<!doctype html>
               <input id="booking-v2-toggle" type="checkbox">
               <span class="automation-switch" aria-hidden="true"></span>
             </label>
-          </div>
-          <form class="assistant-personality-form" id="service-catalog-settings-form">
+            </div>
             <div class="assistant-personality-grid">
               <div class="settings-field full">
                 <label for="service-catalog-display-mode">C&oacute;mo mostrar el cat&aacute;logo</label>
@@ -14554,13 +15006,6 @@ const crmHtml = `<!doctype html>
                 </select>
                 <small>Define cu&aacute;ndo el bot consulta la preferencia de profesional.</small>
               </div>
-            </div>
-            <div class="settings-actions">
-              <button class="primary" id="service-catalog-settings-submit" type="submit">Guardar configuraci&oacute;n</button>
-            </div>
-          </form>
-          <form class="assistant-personality-form" id="conversation-context-form">
-            <div class="assistant-personality-grid">
               <div class="settings-field">
                 <label for="conversation-pause-hours">Pausar contexto despu&eacute;s de</label>
                 <input class="field" id="conversation-pause-hours" type="number" min="0.25" max="12" step="0.25" value="2">
@@ -14573,15 +15018,22 @@ const crmHtml = `<!doctype html>
               </div>
             </div>
             <div class="settings-actions">
-              <button class="primary" id="conversation-context-submit" type="submit">Guardar tiempos</button>
+              <button class="primary" id="automation-settings-submit" type="submit">Guardar automatizaci&oacute;n</button>
             </div>
+            <p class="settings-feedback" id="automation-settings-feedback" role="status" aria-live="polite"></p>
           </form>
-          <p class="settings-feedback" id="automation-settings-feedback" role="status" aria-live="polite"></p>
-        </section>
+          </div>
+        </details>
 
-        <section class="settings-panel" data-settings-panel="commerce">
-          <h3>Personalidad del asistente</h3>
-          <p>Defin&iacute; c&oacute;mo se presenta y conversa. Los datos de reservas y disponibilidad contin&uacute;an protegidos por el sistema.</p>
+        <details class="settings-panel settings-collapsible" data-settings-panel="assistant" hidden>
+          <summary class="settings-collapsible-summary">
+            <div>
+              <h3>Personalidad del asistente</h3>
+              <p>Defin&iacute; c&oacute;mo se presenta y conversa. Los datos de reservas y disponibilidad contin&uacute;an protegidos por el sistema.</p>
+            </div>
+            <span class="settings-collapse-icon" aria-hidden="true"></span>
+          </summary>
+          <div class="settings-collapsible-content">
           <form class="assistant-personality-form" id="assistant-personality-form">
             <div class="assistant-personality-grid">
               <div class="settings-field">
@@ -14651,11 +15103,19 @@ const crmHtml = `<!doctype html>
             </div>
             <p class="settings-feedback" id="assistant-personality-feedback" role="status" aria-live="polite"></p>
           </form>
-        </section>
+          </div>
+        </details>
 
-        <section class="settings-panel" data-settings-panel="meta" hidden>
-          <h3>WhatsApp del comercio</h3>
-          <p>Carg&aacute; los datos de WhatsApp Cloud del comercio y control&aacute; qu&eacute; env&iacute;os reales quedan habilitados.</p>
+        <div class="settings-panel-stack" data-settings-panel="meta" hidden>
+          <details class="settings-panel settings-collapsible">
+            <summary class="settings-collapsible-summary">
+              <div>
+                <h3>WhatsApp del comercio</h3>
+                <p>Carg&aacute; los datos de WhatsApp Cloud del comercio y control&aacute; qu&eacute; env&iacute;os reales quedan habilitados.</p>
+              </div>
+              <span class="settings-collapse-icon" aria-hidden="true"></span>
+            </summary>
+            <div class="settings-collapsible-content">
           <div class="whatsapp-settings-grid">
             <div class="whatsapp-status-card">
               <div>
@@ -14724,9 +15184,18 @@ const crmHtml = `<!doctype html>
             </form>
             <p class="settings-feedback" id="whatsapp-settings-feedback" role="status" aria-live="polite"></p>
           </div>
+            </div>
+          </details>
 
-          <h3 style="margin-top:32px">Instagram del comercio</h3>
-          <p>Conect&aacute; la cuenta profesional para recibir mensajes y derivar las reservas al WhatsApp p&uacute;blico del comercio.</p>
+          <details class="settings-panel settings-collapsible">
+            <summary class="settings-collapsible-summary">
+              <div>
+                <h3>Instagram del comercio</h3>
+                <p>Conect&aacute; la cuenta profesional para recibir mensajes y derivar las reservas al WhatsApp p&uacute;blico del comercio.</p>
+              </div>
+              <span class="settings-collapse-icon" aria-hidden="true"></span>
+            </summary>
+            <div class="settings-collapsible-content">
           <div class="whatsapp-settings-grid">
             <div class="whatsapp-status-card">
               <div>
@@ -14779,7 +15248,9 @@ const crmHtml = `<!doctype html>
             </form>
             <p class="settings-feedback" id="instagram-settings-feedback" role="status" aria-live="polite"></p>
           </div>
-        </section>
+            </div>
+          </details>
+        </div>
 
       </div>
     </section>
@@ -15423,6 +15894,37 @@ const crmHtml = `<!doctype html>
       }
     }
 
+    const LANDING_TEMPLATE_DEFINITIONS = {
+      classic: {
+        name: 'Vintage',
+        description: 'Directa, contrastada y compacta.',
+        fields: ['subtitle', 'classicBenefits', 'classicBrandIcon', 'description'],
+        requirements: ['Subtítulo + beneficios', '1 ícono', 'Portada', 'Galería'],
+        contentHelp: 'Usa subtítulo, tres beneficios, ícono de marca y descripción principal.'
+      },
+      editorial: {
+        name: 'Editorial',
+        description: 'Luminosa, elegante y visual.',
+        fields: ['subtitle', 'classicBenefits', 'classicBrandIcon', 'description'],
+        requirements: ['Subtítulo + beneficios', '1 ícono', 'Portada', 'Galería'],
+        contentHelp: 'Usa subtítulo, tres beneficios, ícono de marca y descripción principal.'
+      },
+      'salon-white': {
+        name: 'Studio claro',
+        description: 'Blanco, blush y secciones amplias.',
+        fields: ['subtitle', 'description', 'salonWhiteServicesDescription', 'salonWhiteProfessionalsDescription'],
+        requirements: ['4 textos', 'Portada vertical', 'Galería'],
+        contentHelp: 'Usa subtítulo, descripción principal y textos editables para las secciones Servicios y Profesionales.'
+      },
+      'luxe-nails': {
+        name: 'Luxe Nails',
+        description: 'Oscura, sofisticada y pensada para estudios de uñas.',
+        fields: ['subtitle', 'description'],
+        requirements: ['2 textos', 'Portada', 'Galería'],
+        contentHelp: 'Usa subtítulo y descripción. El resto de los títulos forman parte del diseño.'
+      }
+    }
+
     const state = {
       conversations: [],
       conversationNextCursor: null,
@@ -15445,6 +15947,9 @@ const crmHtml = `<!doctype html>
       appointmentCustomerSearchRequest: 0,
       appointmentCustomerResultsData: [],
       businesses: [],
+      demoProfiles: [],
+      demoChatMessages: [],
+      demoChatSessionId: null,
       accountAdmins: [],
       accountAdminCandidates: [],
       customerOverview: [],
@@ -15632,6 +16137,21 @@ const crmHtml = `<!doctype html>
       logoutButton: document.getElementById('logout-button'),
       supportBusinessSwitcher: document.getElementById('support-business-switcher'),
       supportBusinessSelect: document.getElementById('support-business-select'),
+      demoProfileCreateOpen: document.getElementById('demo-profile-create-open'),
+      demoSimulatorOpen: document.getElementById('demo-simulator-open'),
+      demoSimulatorDialog: document.getElementById('demo-simulator-dialog'),
+      demoSimulatorClose: document.getElementById('demo-simulator-close'),
+      demoProfileSelect: document.getElementById('demo-profile-select'),
+      demoNewChat: document.getElementById('demo-new-chat'),
+      demoProfileCreateForm: document.getElementById('demo-profile-create-form'),
+      demoProfileName: document.getElementById('demo-profile-name'),
+      demoProfileType: document.getElementById('demo-profile-type'),
+      demoProfileCreateSubmit: document.getElementById('demo-profile-create-submit'),
+      demoProfileCreateCancel: document.getElementById('demo-profile-create-cancel'),
+      demoChatMessages: document.getElementById('demo-chat-messages'),
+      demoChatForm: document.getElementById('demo-chat-form'),
+      demoChatInput: document.getElementById('demo-chat-input'),
+      demoChatSend: document.getElementById('demo-chat-send'),
       refresh: document.getElementById('refresh'),
       handoffCount: document.getElementById('handoff-count'),
       topConversationTotal: document.getElementById('top-conversation-total'),
@@ -15643,16 +16163,14 @@ const crmHtml = `<!doctype html>
       globalBotStatus: document.getElementById('global-bot-status'),
       globalAiStatus: document.getElementById('global-ai-status'),
       bookingV2Status: document.getElementById('booking-v2-status'),
-      serviceCatalogSettingsForm: document.getElementById('service-catalog-settings-form'),
+      automationSettingsForm: document.getElementById('automation-settings-form'),
       serviceCatalogDisplayMode: document.getElementById('service-catalog-display-mode'),
       bookingFlowOrder: document.getElementById('booking-flow-order'),
       serviceCatalogDisplayHelp: document.getElementById('service-catalog-display-help'),
-      serviceCatalogSettingsSubmit: document.getElementById('service-catalog-settings-submit'),
+      automationSettingsSubmit: document.getElementById('automation-settings-submit'),
       automationSettingsFeedback: document.getElementById('automation-settings-feedback'),
-      conversationContextForm: document.getElementById('conversation-context-form'),
       conversationPauseHours: document.getElementById('conversation-pause-hours'),
       conversationExpireHours: document.getElementById('conversation-expire-hours'),
-      conversationContextSubmit: document.getElementById('conversation-context-submit'),
       assistantPersonalityForm: document.getElementById('assistant-personality-form'),
       assistantPreset: document.getElementById('assistant-preset'),
       assistantName: document.getElementById('assistant-name'),
@@ -16227,17 +16745,30 @@ const crmHtml = `<!doctype html>
       settingsMainTabs: document.getElementById('settings-main-tabs'),
       landingSettingsForm: document.getElementById('landing-settings-form'),
       landingEnabled: document.getElementById('landing-enabled'),
+      landingTemplateSelectedThumb: document.getElementById('landing-template-selected-thumb'),
+      landingTemplateSelectedName: document.getElementById('landing-template-selected-name'),
+      landingTemplateSelectedDescription: document.getElementById('landing-template-selected-description'),
+      landingTemplateRequirements: document.getElementById('landing-template-requirements'),
+      landingTemplateSelectedPreview: document.getElementById('landing-template-selected-preview'),
+      landingTemplateContentHelp: document.getElementById('landing-template-content-help'),
       landingSlug: document.getElementById('landing-slug'),
       landingLocalLink: document.getElementById('landing-local-link'),
       landingDomainLink: document.getElementById('landing-domain-link'),
       landingSubtitle: document.getElementById('landing-subtitle'),
       landingFeature: document.getElementById('landing-feature'),
+      classicBenefit1: document.getElementById('classic-benefit-1'),
+      classicBenefit2: document.getElementById('classic-benefit-2'),
+      classicBenefit3: document.getElementById('classic-benefit-3'),
       landingOpeningYear: document.getElementById('landing-opening-year'),
       landingDescription: document.getElementById('landing-description'),
+      salonWhiteServicesDescription: document.getElementById('salon-white-services-description'),
+      salonWhiteProfessionalsDescription: document.getElementById('salon-white-professionals-description'),
       landingAddress: document.getElementById('landing-address'),
       landingAddressArea: document.getElementById('landing-address-area'),
       landingMapsUrl: document.getElementById('landing-maps-url'),
       landingCover: document.getElementById('landing-cover'),
+      landingCoverTitle: document.getElementById('landing-cover-title'),
+      landingCoverHelp: document.getElementById('landing-cover-help'),
       landingCoverPreview: document.getElementById('landing-cover-preview'),
       landingCoverImage: document.getElementById('landing-cover-image'),
       landingCoverRemove: document.getElementById('landing-cover-remove'),
@@ -16633,9 +17164,117 @@ const crmHtml = `<!doctype html>
 
       els.supportBusinessSelect.innerHTML = state.businesses.map((business) => {
         const customerCode = business.customerCode ? ' · ' + business.customerCode : ''
-        return '<option value="' + escapeHtml(business.id) + '">' + escapeHtml(business.name + customerCode) + '</option>'
+        const demoLabel = business.isDemo ? 'Demo · ' : ''
+        return '<option value="' + escapeHtml(business.id) + '">' + escapeHtml(demoLabel + business.name + customerCode) + '</option>'
       }).join('')
       els.supportBusinessSelect.value = state.businessId || ''
+      renderDemoProfileSelect()
+    }
+
+    async function loadDemoProfiles() {
+      state.demoProfiles = state.currentUser?.role === 'SUPER_ADMIN'
+        ? await getJson('/admin/demo-profiles')
+        : []
+      renderDemoProfileSelect()
+    }
+
+    function renderDemoProfileSelect() {
+      if (!els.demoProfileSelect) return
+      els.demoProfileSelect.innerHTML = state.demoProfiles.length
+        ? state.demoProfiles.map((profile) => '<option value="' + escapeHtml(profile.id) + '">' + escapeHtml(profile.name) + '</option>').join('')
+        : '<option value="">Cre&aacute; tu primer perfil demo</option>'
+      const activeIsDemo = state.demoProfiles.some((profile) => profile.id === state.businessId)
+      els.demoProfileSelect.value = activeIsDemo ? state.businessId : state.demoProfiles[0]?.id || ''
+      els.demoChatInput.disabled = !state.demoProfiles.length
+      els.demoChatSend.disabled = !state.demoProfiles.length
+    }
+
+    function openDemoSimulator(options = {}) {
+      if (state.currentUser?.role !== 'SUPER_ADMIN') return
+      els.demoSimulatorDialog.hidden = false
+      els.demoProfileCreateForm.hidden = !options.createProfile
+      if (options.createProfile) {
+        els.demoProfileName.focus()
+      } else {
+        renderDemoProfileSelect()
+        els.demoChatInput.focus()
+      }
+    }
+
+    function closeDemoSimulator() {
+      els.demoSimulatorDialog.hidden = true
+      els.demoProfileCreateForm.hidden = true
+    }
+
+    function startNewDemoChat() {
+      state.demoChatSessionId = 'session-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)
+      state.demoChatMessages = []
+      renderDemoChatMessages()
+      els.demoChatInput.focus()
+    }
+
+    function renderDemoChatMessages() {
+      if (!state.demoChatMessages.length) {
+        els.demoChatMessages.innerHTML = '<div class="demo-chat-empty">Escrib&iacute; como si fueras un cliente. Pod&eacute;s consultar servicios, precios o intentar reservar un turno.</div>'
+        return
+      }
+      els.demoChatMessages.innerHTML = state.demoChatMessages.map((message) => {
+        return '<div class="demo-chat-bubble ' + message.role + '">' + escapeHtml(message.text) + '</div>'
+      }).join('')
+      els.demoChatMessages.scrollTop = els.demoChatMessages.scrollHeight
+    }
+
+    async function createDemoProfile(event) {
+      event.preventDefault()
+      const name = els.demoProfileName.value.trim()
+      if (!name || !setButtonLoading(els.demoProfileCreateSubmit, true, 'Creando...')) return
+      try {
+        const profile = await getJson('/admin/demo-profiles', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, type: els.demoProfileType.value })
+        })
+        els.demoProfileName.value = ''
+        els.demoProfileCreateForm.hidden = true
+        await loadDemoProfiles()
+        const businesses = await getJson('/businesses')
+        state.businesses = businesses
+        renderSupportBusinessSwitcher()
+        els.demoProfileSelect.value = profile.id
+        startNewDemoChat()
+        showCrmToast('Perfil demo creado. Ya podés probar el bot.', 'success')
+      } catch (error) {
+        showCrmToast(error.message, 'error')
+      } finally {
+        setButtonLoading(els.demoProfileCreateSubmit, false)
+      }
+    }
+
+    async function sendDemoChatMessage(event) {
+      event.preventDefault()
+      const profileId = els.demoProfileSelect.value
+      const message = els.demoChatInput.value.trim()
+      if (!profileId || !message) return
+      if (!state.demoChatSessionId) startNewDemoChat()
+      state.demoChatMessages.push({ role: 'user', text: message })
+      els.demoChatInput.value = ''
+      renderDemoChatMessages()
+      if (!setButtonLoading(els.demoChatSend, true, 'Pensando...')) return
+      try {
+        const result = await getJson('/admin/demo-profiles/' + encodeURIComponent(profileId) + '/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message, sessionId: state.demoChatSessionId })
+        })
+        state.demoChatMessages.push({ role: 'bot', text: result.reply || result.reason || 'El bot no genero una respuesta.' })
+        renderDemoChatMessages()
+      } catch (error) {
+        state.demoChatMessages.push({ role: 'bot', text: 'No pude responder: ' + error.message })
+        renderDemoChatMessages()
+      } finally {
+        setButtonLoading(els.demoChatSend, false)
+        els.demoChatInput.focus()
+      }
     }
 
     function canManageStaffUsers() {
@@ -17160,6 +17799,7 @@ const crmHtml = `<!doctype html>
       state.businesses = businesses
       state.business = state.currentSessionBusiness || businesses[0] || null
       state.businessId = state.business?.id || null
+      await loadDemoProfiles()
       if (state.currentUser?.role === 'ACCOUNT_ADMIN') {
         state.settingsView = 'commerce'
         setSettingsView('commerce')
@@ -19002,13 +19642,19 @@ const crmHtml = `<!doctype html>
         : 'El cliente verá el catálogo completo, agrupado por categoría cuando corresponda.'
     }
 
-    async function saveServiceCatalogSettings(event) {
+    async function saveAutomationSettings(event) {
       event.preventDefault()
       if (!state.businessId) {
         showAutomationSettingsFeedback('Seleccioná un comercio antes de guardar.', 'error')
         return
       }
-      if (!setButtonLoading(els.serviceCatalogSettingsSubmit, true, 'Guardando...')) return
+      const pauseMinutes = Math.round(Number(els.conversationPauseHours.value) * 60)
+      const expireMinutes = Math.round(Number(els.conversationExpireHours.value) * 60)
+      if (!Number.isInteger(pauseMinutes) || !Number.isInteger(expireMinutes) || expireMinutes <= pauseMinutes) {
+        showAutomationSettingsFeedback('El reinicio debe ocurrir después de la pausa.', 'error')
+        return
+      }
+      if (!setButtonLoading(els.automationSettingsSubmit, true, 'Guardando...')) return
       try {
         state.aiSettings = await getJson('/crm/ai-settings', {
           method: 'PATCH',
@@ -19016,16 +19662,18 @@ const crmHtml = `<!doctype html>
           body: JSON.stringify({
             businessId: state.businessId,
             serviceCatalogDisplayMode: els.serviceCatalogDisplayMode.value,
-            bookingFlowOrder: els.bookingFlowOrder.value
+            bookingFlowOrder: els.bookingFlowOrder.value,
+            conversationPauseAfterMinutes: pauseMinutes,
+            conversationExpireAfterMinutes: expireMinutes
           })
         })
         renderAiControls()
-        showAutomationSettingsFeedback('Configuración del catálogo y la reserva guardada.', 'success')
+        showAutomationSettingsFeedback('Automatización guardada correctamente.', 'success')
       } catch (error) {
         renderAiControls()
         showAutomationSettingsFeedback(error.message, 'error')
       } finally {
-        setButtonLoading(els.serviceCatalogSettingsSubmit, false)
+        setButtonLoading(els.automationSettingsSubmit, false)
       }
     }
 
@@ -19800,35 +20448,6 @@ const crmHtml = `<!doctype html>
         showAutomationSettingsFeedback(error.message, 'error')
       } finally {
         els.bookingV2Toggle.disabled = false
-      }
-    }
-
-    async function saveConversationContextSettings(event) {
-      event.preventDefault()
-      const pauseMinutes = Math.round(Number(els.conversationPauseHours.value) * 60)
-      const expireMinutes = Math.round(Number(els.conversationExpireHours.value) * 60)
-      if (!Number.isInteger(pauseMinutes) || !Number.isInteger(expireMinutes) || expireMinutes <= pauseMinutes) {
-        showAutomationSettingsFeedback('El reinicio debe ocurrir después de la pausa.', 'error')
-        return
-      }
-      if (!setButtonLoading(els.conversationContextSubmit, true, 'Guardando...')) return
-      try {
-        state.aiSettings = await getJson('/crm/ai-settings', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            businessId: state.businessId,
-            conversationPauseAfterMinutes: pauseMinutes,
-            conversationExpireAfterMinutes: expireMinutes
-          })
-        })
-        renderAiControls()
-        showAutomationSettingsFeedback('Tiempos de conversación guardados.', 'success')
-      } catch (error) {
-        renderAiControls()
-        showAutomationSettingsFeedback(error.message, 'error')
-      } finally {
-        setButtonLoading(els.conversationContextSubmit, false)
       }
     }
 
@@ -20611,6 +21230,10 @@ const crmHtml = `<!doctype html>
       els.businessEmail.value = state.business?.contactEmail || ''
       els.businessInstagram.value = state.business?.instagramUrl || ''
       els.businessFacebook.value = state.business?.facebookUrl || ''
+      els.landingOpeningYear.value = state.business?.landingOpeningYear || ''
+      els.landingAddress.value = state.business?.publicAddress || ''
+      els.landingAddressArea.value = state.business?.publicAddressArea || ''
+      els.landingMapsUrl.value = state.business?.publicMapsUrl || ''
       els.paymentTransferEnabled.checked = state.paymentSettings?.transferEnabled === true
       els.paymentAlias.value = state.paymentSettings?.alias || ''
       els.paymentCbu.value = state.paymentSettings?.cbu || ''
@@ -20631,17 +21254,88 @@ const crmHtml = `<!doctype html>
       const landingTemplate = state.business?.landingTemplate || 'classic'
       const landingTemplateInput = document.querySelector('input[name="landing-template"][value="' + landingTemplate + '"]')
       if (landingTemplateInput) landingTemplateInput.checked = true
+      renderLandingTemplateConfiguration()
       els.landingSlug.value = slug
-      els.landingSubtitle.value = state.business?.landingSubtitle || ''
       els.landingFeature.value = state.business?.landingFeature || ''
-      els.landingOpeningYear.value = state.business?.landingOpeningYear || ''
-      els.landingDescription.value = state.business?.landingDescription || ''
-      els.landingAddress.value = state.business?.publicAddress || ''
-      els.landingAddressArea.value = state.business?.publicAddressArea || ''
-      els.landingMapsUrl.value = state.business?.publicMapsUrl || ''
+      loadLandingTemplateForm(landingTemplate)
       setLandingCover(state.business?.coverImageUrl || null)
       setLandingGallery(parseLandingGalleryImages(state.business?.landingGalleryImages))
       renderLandingLinks(slug)
+    }
+
+    function loadLandingTemplateForm(templateId) {
+      const templateContent = state.business?.landingTemplateContent?.[templateId] || {}
+      els.landingSubtitle.value = templateContent.subtitle || state.business?.landingSubtitle || ''
+      els.landingDescription.value = templateContent.description || state.business?.landingDescription || ''
+      els.salonWhiteServicesDescription.value = templateContent.servicesDescription || 'Trabajamos con productos profesionales y una atención pensada para cada persona.'
+      els.salonWhiteProfessionalsDescription.value = templateContent.professionalsDescription || 'Elegí con quién querés atenderte al reservar tu turno.'
+      const legacyBenefit = String(state.business?.landingFeature || '').trim()
+      const legacyBenefit1 = templateId === 'classic'
+        ? [templateContent.benefit1Title, templateContent.benefit1Subtitle].filter(Boolean).join(' ') || legacyBenefit
+        : ''
+      els.classicBenefit1.value = templateContent.benefit1 || legacyBenefit1 || 'Peluquería de Autor'
+      els.classicBenefit2.value = templateContent.benefit2 || [templateContent.benefit2Title, templateContent.benefit2Subtitle].filter(Boolean).join(' ') || 'Profesionales especializados'
+      els.classicBenefit3.value = templateContent.benefit3 || [templateContent.benefit3Title, templateContent.benefit3Subtitle].filter(Boolean).join(' ') || 'Atención personalizada'
+      const brandIcon = ['generic', 'scissors', 'nails', 'lashes'].includes(templateContent.brandIcon)
+        ? templateContent.brandIcon
+        : 'generic'
+      const brandIconInput = document.querySelector('input[name="classic-brand-icon"][value="' + brandIcon + '"]')
+      if (brandIconInput) brandIconInput.checked = true
+    }
+
+    function landingStyleContentFromForm() {
+      return {
+        subtitle: els.landingSubtitle.value.trim(),
+        benefit1: els.classicBenefit1.value.trim(),
+        benefit2: els.classicBenefit2.value.trim(),
+        benefit3: els.classicBenefit3.value.trim(),
+        brandIcon: document.querySelector('input[name="classic-brand-icon"]:checked')?.value || 'generic',
+        description: els.landingDescription.value.trim()
+      }
+    }
+
+    function salonWhiteContentFromForm() {
+      return {
+        subtitle: els.landingSubtitle.value.trim(),
+        description: els.landingDescription.value.trim(),
+        servicesDescription: els.salonWhiteServicesDescription.value.trim(),
+        professionalsDescription: els.salonWhiteProfessionalsDescription.value.trim()
+      }
+    }
+
+    function classicContentWithLegacyDefaults() {
+      const content = state.business?.landingTemplateContent?.classic || {}
+      return {
+        subtitle: content.subtitle || state.business?.landingSubtitle || '',
+        benefit1: content.benefit1 || [content.benefit1Title, content.benefit1Subtitle].filter(Boolean).join(' ') || state.business?.landingFeature || 'Peluquería de Autor',
+        benefit2: content.benefit2 || [content.benefit2Title, content.benefit2Subtitle].filter(Boolean).join(' ') || 'Profesionales especializados',
+        benefit3: content.benefit3 || [content.benefit3Title, content.benefit3Subtitle].filter(Boolean).join(' ') || 'Atención personalizada',
+        brandIcon: ['generic', 'scissors', 'nails', 'lashes'].includes(content.brandIcon) ? content.brandIcon : 'generic',
+        description: content.description || state.business?.landingDescription || ''
+      }
+    }
+
+    function renderLandingTemplateConfiguration() {
+      const templateId = document.querySelector('input[name="landing-template"]:checked')?.value || 'classic'
+      const definition = LANDING_TEMPLATE_DEFINITIONS[templateId] || LANDING_TEMPLATE_DEFINITIONS.classic
+      els.landingTemplateSelectedThumb.className = 'landing-template-thumb ' + templateId
+      els.landingTemplateSelectedName.textContent = definition.name
+      els.landingTemplateSelectedDescription.textContent = definition.description
+      els.landingTemplateSelectedPreview.dataset.templatePreview = templateId
+      els.landingTemplateContentHelp.textContent = definition.contentHelp
+      els.landingTemplateRequirements.replaceChildren(...definition.requirements.map((requirement) => {
+        const chip = document.createElement('span')
+        chip.textContent = requirement
+        return chip
+      }))
+      for (const field of document.querySelectorAll('[data-landing-template-field]')) {
+        field.hidden = !definition.fields.includes(field.dataset.landingTemplateField)
+      }
+      const isSalonWhite = templateId === 'salon-white'
+      els.landingCoverTitle.textContent = isSalonWhite ? 'Foto de portada vertical (2:3 o 3:4)' : 'Foto de portada (1600 × 700)'
+      els.landingCoverHelp.textContent = isSalonWhite
+        ? 'Para Studio claro usá una foto vertical 2:3 o 3:4, de al menos 680 × 1024 px. Máximo 3 MB.'
+        : 'Formato recomendado para Vintage y Editorial: 1600 × 700 px. Máximo 3 MB. La portada se adapta para mostrarse completa en cualquier pantalla.'
     }
 
     function renderLandingLinks(slug) {
@@ -21475,23 +22169,18 @@ const crmHtml = `<!doctype html>
         showLandingSettingsFeedback('Completa el subdominio de la landing.', 'error')
         return
       }
-      const openingYear = els.landingOpeningYear.value ? Number(els.landingOpeningYear.value) : null
-      const currentYear = new Date().getFullYear()
-      const publicAddress = els.landingAddress.value.trim()
-      const publicMapsUrl = els.landingMapsUrl.value.trim()
-      if (openingYear !== null && (!Number.isInteger(openingYear) || openingYear < 1900 || openingYear > currentYear)) {
-        showLandingSettingsFeedback('El año de apertura debe estar entre 1900 y ' + currentYear + '.', 'error')
+      const selectedTemplate = document.querySelector('input[name="landing-template"]:checked')?.value || 'classic'
+      const styleContent = landingStyleContentFromForm()
+      const salonWhiteContent = salonWhiteContentFromForm()
+      if (['classic', 'editorial'].includes(selectedTemplate) && Object.entries(styleContent).some(([key, value]) => key !== 'brandIcon' && !value)) {
+        const templateName = LANDING_TEMPLATE_DEFINITIONS[selectedTemplate]?.name || 'seleccionada'
+        showLandingSettingsFeedback('Completá todos los textos de la plantilla ' + templateName + '.', 'error')
         return
       }
-      if (publicAddress && !publicMapsUrl) {
-        showLandingSettingsFeedback('Pegá el link de Google Maps para que la dirección abra el mapa.', 'error')
+      if (selectedTemplate === 'salon-white' && Object.values(salonWhiteContent).some((value) => !value)) {
+        showLandingSettingsFeedback('Completá los cuatro textos de la plantilla Studio claro.', 'error')
         return
       }
-      if (publicMapsUrl && !isGoogleMapsUrl(publicMapsUrl)) {
-        showLandingSettingsFeedback('Pegá un link válido de Google Maps.', 'error')
-        return
-      }
-
       els.landingSlug.value = slug
       if (!setButtonLoading(els.landingSettingsSubmit, true, 'Guardando...')) return
 
@@ -21501,15 +22190,17 @@ const crmHtml = `<!doctype html>
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             landingEnabled: els.landingEnabled.checked,
-            landingTemplate: document.querySelector('input[name="landing-template"]:checked')?.value || 'classic',
+            landingTemplate: selectedTemplate,
             slug,
             landingSubtitle: els.landingSubtitle.value.trim() || null,
             landingFeature: els.landingFeature.value.trim() || null,
-            landingOpeningYear: openingYear,
             landingDescription: els.landingDescription.value.trim() || null,
-            publicAddress: publicAddress || null,
-            publicAddressArea: els.landingAddressArea.value.trim() || null,
-            publicMapsUrl: publicMapsUrl || null,
+            landingTemplateContent: {
+              ...(state.business?.landingTemplateContent || {}),
+              classic: selectedTemplate === 'classic' ? styleContent : classicContentWithLegacyDefaults(),
+              ...(['classic', 'editorial'].includes(selectedTemplate) ? { [selectedTemplate]: styleContent } : {}),
+              ...(selectedTemplate === 'salon-white' ? { 'salon-white': salonWhiteContent } : {})
+            },
             coverImageUrl: state.landingCoverUrl,
             landingGalleryImages: state.landingGalleryImages
           })
@@ -21547,9 +22238,30 @@ const crmHtml = `<!doctype html>
       const contactEmail = els.businessEmail.value.trim()
       const instagramUrl = els.businessInstagram.value.trim()
       const facebookUrl = els.businessFacebook.value.trim()
+      const publicAddress = els.landingAddress.value.trim()
+      const publicAddressArea = els.landingAddressArea.value.trim()
+      const publicMapsUrl = els.landingMapsUrl.value.trim()
+      const openingYear = els.landingOpeningYear.value ? Number(els.landingOpeningYear.value) : null
+      const currentYear = new Date().getFullYear()
+      if (openingYear !== null && (!Number.isInteger(openingYear) || openingYear < 1900 || openingYear > currentYear)) {
+        showBusinessSettingsFeedback('El año de apertura debe estar entre 1900 y ' + currentYear + '.', 'error')
+        return
+      }
+      if (publicAddress && !publicMapsUrl) {
+        showBusinessSettingsFeedback('Pegá el link de Google Maps para que la dirección abra el mapa.', 'error')
+        return
+      }
+      if (publicMapsUrl && !isGoogleMapsUrl(publicMapsUrl)) {
+        showBusinessSettingsFeedback('Pegá un link válido de Google Maps.', 'error')
+        return
+      }
       const contactEmailChanged = contactEmail !== (state.business?.contactEmail || '')
       const instagramChanged = instagramUrl !== (state.business?.instagramUrl || '')
       const facebookChanged = facebookUrl !== (state.business?.facebookUrl || '')
+      const publicAddressChanged = publicAddress !== (state.business?.publicAddress || '')
+      const publicAddressAreaChanged = publicAddressArea !== (state.business?.publicAddressArea || '')
+      const publicMapsUrlChanged = publicMapsUrl !== (state.business?.publicMapsUrl || '')
+      const openingYearChanged = openingYear !== (state.business?.landingOpeningYear || null)
       if (!setButtonLoading(els.businessSettingsSubmit, true, 'Guardando...')) return
 
       try {
@@ -21567,7 +22279,7 @@ const crmHtml = `<!doctype html>
             })
           })
         }
-        if (nameChanged || logoChanged || contactEmailChanged || instagramChanged || facebookChanged) {
+        if (nameChanged || logoChanged || contactEmailChanged || instagramChanged || facebookChanged || publicAddressChanged || publicAddressAreaChanged || publicMapsUrlChanged || openingYearChanged) {
           state.business = await getJson('/businesses/' + state.businessId, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
@@ -21576,7 +22288,11 @@ const crmHtml = `<!doctype html>
               ...(logoChanged ? { logoUrl: state.businessLogoUrl } : {}),
               ...(contactEmailChanged ? { contactEmail: contactEmail || null } : {}),
               ...(instagramChanged ? { instagramUrl: instagramUrl || null } : {}),
-              ...(facebookChanged ? { facebookUrl: facebookUrl || null } : {})
+              ...(facebookChanged ? { facebookUrl: facebookUrl || null } : {}),
+              ...(publicAddressChanged ? { publicAddress: publicAddress || null } : {}),
+              ...(publicAddressAreaChanged ? { publicAddressArea: publicAddressArea || null } : {}),
+              ...(publicMapsUrlChanged ? { publicMapsUrl: publicMapsUrl || null } : {}),
+              ...(openingYearChanged ? { landingOpeningYear: openingYear } : {})
             })
           })
         }
@@ -23771,7 +24487,7 @@ const crmHtml = `<!doctype html>
     }
 
     function setSettingsView(view) {
-      state.settingsView = ['commerce', 'landing', 'staff', 'meta'].includes(view) ? view : 'commerce'
+      state.settingsView = ['commerce', 'assistant', 'landing', 'staff', 'meta'].includes(view) ? view : 'commerce'
       const isAccountAdmin = state.currentUser?.role === 'ACCOUNT_ADMIN'
       for (const button of els.settingsMainTabs.querySelectorAll('[data-settings-view]')) {
         button.classList.toggle('active', button.dataset.settingsView === state.settingsView)
@@ -26650,6 +27366,7 @@ const crmHtml = `<!doctype html>
     document.addEventListener('keydown', (event) => {
       if (event.key !== 'Escape') return
       if (!els.confirmationDialog.hidden) closeCrmConfirmation(false)
+      else if (!els.demoSimulatorDialog.hidden) closeDemoSimulator()
       else if (!els.serviceCategoryDialog.hidden) closeServiceCategoryDialog()
       else if (!els.serviceFamilyDialog.hidden) closeServiceFamilyDialog()
     })
@@ -26933,8 +27650,32 @@ const crmHtml = `<!doctype html>
     els.supportBusinessSelect?.addEventListener('change', (event) => {
       switchSupportBusiness(event.target.value)
     })
+    els.demoProfileCreateOpen?.addEventListener('click', () => openDemoSimulator({ createProfile: true }))
+    els.demoSimulatorOpen?.addEventListener('click', () => {
+      openDemoSimulator()
+      if (!state.demoChatSessionId) startNewDemoChat()
+    })
+    els.demoSimulatorClose?.addEventListener('click', closeDemoSimulator)
+    els.demoSimulatorDialog?.addEventListener('click', (event) => {
+      if (event.target === els.demoSimulatorDialog) closeDemoSimulator()
+    })
+    els.demoProfileCreateForm?.addEventListener('submit', createDemoProfile)
+    els.demoProfileCreateCancel?.addEventListener('click', () => {
+      els.demoProfileCreateForm.hidden = true
+      els.demoProfileName.value = ''
+    })
+    els.demoNewChat?.addEventListener('click', startNewDemoChat)
+    els.demoProfileSelect?.addEventListener('change', startNewDemoChat)
+    els.demoChatForm?.addEventListener('submit', sendDemoChatMessage)
     els.businessSettingsForm.addEventListener('submit', saveBusinessSettings)
     els.landingSettingsForm.addEventListener('submit', saveLandingSettings)
+    for (const templateInput of document.querySelectorAll('input[name="landing-template"]')) {
+      templateInput.addEventListener('change', () => {
+        renderLandingTemplateConfiguration()
+        loadLandingTemplateForm(templateInput.value)
+        renderLandingLinks(els.landingSlug.value)
+      })
+    }
     els.landingSlug.addEventListener('input', () => {
       renderLandingLinks(els.landingSlug.value)
     })
@@ -27026,9 +27767,8 @@ const crmHtml = `<!doctype html>
     els.globalBotToggle.addEventListener('change', toggleGlobalBot)
     els.globalAiToggle.addEventListener('change', toggleGlobalAi)
     els.bookingV2Toggle.addEventListener('change', toggleBookingV2)
-    els.serviceCatalogSettingsForm.addEventListener('submit', saveServiceCatalogSettings)
+    els.automationSettingsForm.addEventListener('submit', saveAutomationSettings)
     els.serviceCatalogDisplayMode.addEventListener('change', updateServiceCatalogDisplayHelp)
-    els.conversationContextForm.addEventListener('submit', saveConversationContextSettings)
     els.assistantPersonalityForm.addEventListener('submit', saveAssistantPersonality)
     els.assistantPreset.addEventListener('change', applyAssistantPersonalityPreset)
     els.assistantEmojiToggle.addEventListener('click', toggleAssistantEmojiPicker)

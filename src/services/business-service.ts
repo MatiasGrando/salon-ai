@@ -1,5 +1,6 @@
 import { prisma } from '../config/prisma.js'
 import { generateBusinessCustomerCode } from './business-customer-code.js'
+import type { Prisma } from '@prisma/client'
 
 const RESERVED_SLUGS = new Set([
   'admin',
@@ -91,6 +92,7 @@ export class BusinessService {
     landingFeature?: string | null
     landingOpeningYear?: number | null
     landingDescription?: string | null
+    landingTemplateContent?: Prisma.InputJsonValue
     coverImageUrl?: string | null
     landingGalleryImages?: string | null
     publicWhatsapp?: string | null

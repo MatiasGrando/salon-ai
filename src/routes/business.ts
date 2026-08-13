@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import type { Prisma } from '@prisma/client'
 import { prisma } from '../config/prisma.js'
 import { whatsappConfig } from '../config/whatsapp.js'
 import { getBusinessWhatsAppState } from '../services/business-whatsapp-settings.js'
@@ -160,6 +161,7 @@ export async function businessRoutes(app: FastifyInstance) {
       landingFeature?: string | null
       landingOpeningYear?: number | string | null
       landingDescription?: string | null
+      landingTemplateContent?: unknown
       coverImageUrl?: string | null
       landingGalleryImages?: string[] | null
       publicWhatsapp?: string | null
@@ -179,6 +181,7 @@ export async function businessRoutes(app: FastifyInstance) {
     const landingFeature = normalizeOptionalText(body.landingFeature)
     const landingOpeningYear = normalizeOpeningYear(body.landingOpeningYear)
     const landingDescription = normalizeOptionalText(body.landingDescription)
+    const landingTemplateContent = normalizeLandingTemplateContent(body.landingTemplateContent)
     const landingGalleryImages = normalizeGalleryImages(body.landingGalleryImages)
     const publicWhatsapp = normalizeOptionalText(body.publicWhatsapp)
     const contactEmail = normalizeOptionalEmail(body.contactEmail)
@@ -224,6 +227,12 @@ export async function businessRoutes(app: FastifyInstance) {
       })
     }
 
+    if (body.landingTemplateContent !== undefined && landingTemplateContent === undefined) {
+      return reply.status(400).send({
+        message: 'El contenido específico de la plantilla no es válido'
+      })
+    }
+
     if (body.landingOpeningYear !== undefined && landingOpeningYear === undefined) {
       return reply.status(400).send({
         message: 'El año de apertura debe ser válido'
@@ -264,6 +273,7 @@ export async function businessRoutes(app: FastifyInstance) {
       landingFeature === undefined &&
       landingOpeningYear === undefined &&
       landingDescription === undefined &&
+      landingTemplateContent === undefined &&
       coverImageUrl === undefined &&
       landingGalleryImages === undefined &&
       publicWhatsapp === undefined &&
@@ -291,6 +301,7 @@ export async function businessRoutes(app: FastifyInstance) {
         ...(landingFeature !== undefined ? { landingFeature } : {}),
         ...(landingOpeningYear !== undefined ? { landingOpeningYear } : {}),
         ...(landingDescription !== undefined ? { landingDescription } : {}),
+        ...(landingTemplateContent !== undefined ? { landingTemplateContent } : {}),
         ...(coverImageUrl !== undefined ? { coverImageUrl } : {}),
         ...(landingGalleryImages !== undefined ? { landingGalleryImages } : {}),
         ...(publicWhatsapp !== undefined ? { publicWhatsapp } : {}),
@@ -729,6 +740,28 @@ function normalizeOptionalText(value?: string | null) {
   if (value === undefined) return undefined
   const normalized = value?.trim()
   return normalized || null
+}
+
+function normalizeLandingTemplateContent(value: unknown): Prisma.InputJsonValue | undefined {
+  if (value === undefined) return undefined
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const normalized: Record<string, Record<string, string>> = {}
+  for (const [templateId, templateContent] of Object.entries(value)) {
+    if (!LANDING_TEMPLATES.has(templateId) || !templateContent || typeof templateContent !== 'object' || Array.isArray(templateContent)) {
+      return undefined
+    }
+    const fields: Record<string, string> = {}
+    const entries = Object.entries(templateContent)
+    if (entries.length > 24) return undefined
+    for (const [key, fieldValue] of entries) {
+      if (!/^[a-zA-Z][a-zA-Z0-9]{0,49}$/.test(key) || typeof fieldValue !== 'string') return undefined
+      const trimmed = fieldValue.trim()
+      if (trimmed.length > 500) return undefined
+      fields[key] = trimmed
+    }
+    normalized[templateId] = fields
+  }
+  return normalized as Prisma.InputJsonValue
 }
 
 function normalizePaymentIdentifier(value: string | null | undefined, maxLength: number) {
