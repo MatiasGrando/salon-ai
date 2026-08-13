@@ -84,9 +84,10 @@ export async function landingUiRoutes(app: FastifyInstance) {
     const params = request.params as { slug: string }
     const slug = normalizeBusinessSlug(params.slug)
     const business = await businessService.findPublicBySlug(slug)
-    if (!business || !business.landingEnabled) return reply.status(404).type('text/html').send(renderNotFound())
+    const demoPreview = Boolean(business && isLocalDemoPreview(request, business))
+    if (!business || (!business.landingEnabled && !demoPreview)) return reply.status(404).type('text/html').send(renderNotFound())
 
-    return reply.type('text/html').send(renderBookingPlaceholder(business, `/${slug}`, previewLandingTemplate(request)))
+    return reply.type('text/html').send(renderBookingPlaceholder(business, `/${slug}`, previewLandingTemplate(request), demoPreview))
   })
 
   app.get('/:slug/cuenta', async (request, reply) => {
@@ -153,6 +154,17 @@ function previewLandingTemplate(request: FastifyRequest) {
 function isLandingDemoPreview(request: FastifyRequest) {
   const query = request.query as { preview?: string }
   return query.preview === '1'
+}
+
+function isLocalDemoPreview(request: FastifyRequest, business: { isDemo: boolean }) {
+  const rawHost = request.headers['x-forwarded-host'] || request.headers.host
+  const host = (Array.isArray(rawHost) ? rawHost[0] : rawHost)?.split(':')[0]?.toLowerCase()
+  return (host === 'localhost' || host === '127.0.0.1') && business.isDemo && isLandingDemoPreview(request)
+}
+
+function appendDemoPreview(url: string, demoPreview: boolean) {
+  if (!demoPreview) return url
+  return `${url}${url.includes('?') ? '&' : '?'}preview=1`
 }
 
 function normalizeLandingTemplate(value?: string | null) {
@@ -418,7 +430,7 @@ export function renderLanding(business: LandingBusiness, basePath = '', template
   const carouselProfessionals = [...visibleProfessionals, ...visibleProfessionals]
   const serviceCarouselItems = Math.max(visibleServices.length, 1)
   const professionalCarouselItems = Math.max(visibleProfessionals.length, 1)
-  const bookingUrl = `${basePath}/reservar`
+  const bookingUrl = appendDemoPreview(`${basePath}/reservar`, demoPreview)
   const accountUrl = `${basePath}/cuenta`
   const whatsappDisplayPhone = publicWhatsappNumber(business)?.trim() || ''
   const whatsappDigits = whatsappDisplayPhone.replace(/\D/g, '')
@@ -686,7 +698,7 @@ export function renderLanding(business: LandingBusiness, basePath = '', template
 
 function renderLuxeNailsLanding(business: LandingBusiness, basePath = '', demoPreview = false) {
   const luxeContent = templateSpecificContent(business, 'luxe-nails')
-  const bookingUrl = `${basePath}/reservar?template=luxe-nails`
+  const bookingUrl = appendDemoPreview(`${basePath}/reservar?template=luxe-nails`, demoPreview)
   const subtitle = luxeContent.subtitle || business.landingSubtitle || 'Nails studio'
   const description = luxeContent.description || business.landingDescription || 'Diseños exclusivos, productos premium y un servicio que cuida cada detalle.'
   const promoText = luxeContent.promoText || '10% off en tu primer servicio reservando online'
@@ -940,7 +952,7 @@ function renderSalonWhiteLanding(business: LandingBusiness, basePath = '', demoP
   const displayedServices = demoPreview ? landingServicesForPreview(business, true) : services
   const professionals = landingProfessionalsForPreview(business, demoPreview)
   const galleryImages = landingGalleryForPreview(parseLandingGalleryImages(business.landingGalleryImages), demoPreview)
-  const bookingUrl = `${basePath}/reservar?template=salon-white`
+  const bookingUrl = appendDemoPreview(`${basePath}/reservar?template=salon-white`, demoPreview)
   const accountUrl = `${basePath}/cuenta`
   const whatsappDisplayPhone = publicWhatsappNumber(business)?.trim() || ''
   const whatsappDigits = whatsappDisplayPhone.replace(/\D/g, '')
@@ -1502,7 +1514,7 @@ function inferAddressArea(value?: string | null) {
     : ''
 }
 
-function renderBookingPlaceholder(business: LandingBusiness, backPath: string, templateOverride?: string) {
+function renderBookingPlaceholder(business: LandingBusiness, backPath: string, templateOverride?: string, demoPreview = false) {
   const slug = business.slug || ''
   const requestedTemplate = normalizeLandingTemplate(templateOverride || business.landingTemplate)
   const bookingTemplate = requestedTemplate === 'luxe-nails' ? 'salon-white' : requestedTemplate
@@ -1626,17 +1638,28 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           const defaultAreaCode = ${JSON.stringify(defaultAreaCode)}
           const baseDomain = ${JSON.stringify(baseDomain)}
           const centralLoginBaseUrl = ${JSON.stringify(`https://${baseDomain}`)}
-          const steps = ['Servicios', 'Profesional', 'Hora', 'Confirmar']
+          const previewQuery = ${JSON.stringify(demoPreview ? 'preview=1' : '')}
+          const bookingApiUrl = (path, query = '') => {
+            const parameters = [query, previewQuery].filter(Boolean).join('&')
+            return '/public/booking/' + encodeURIComponent(slug) + path + (parameters ? '?' + parameters : '')
+          }
           const state = {
             step: 1,
             catalog: null,
             service: null,
+            services: [],
+            serviceDetails: {},
+            estimateOption: null,
+            validationAccepted: false,
             professionalId: null,
             date: null,
             dateLabel: null,
             slot: null,
+            itinerary: null,
             weexAccount: null,
             calendarSync: null,
+            deposit: null,
+            proofSent: false,
             confirmed: false
           }
           const els = {
@@ -1672,12 +1695,41 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           async function loadCatalog() {
             setFeedback('Cargando opciones...', 'info')
             try {
-              const [catalog, auth] = await Promise.all([
-                getJson('/public/booking/' + encodeURIComponent(slug) + '/catalog'),
-                getJson('/public/weex/me').catch(() => null)
+              const [catalog, auth, pending] = await Promise.all([
+                getJson(bookingApiUrl('/catalog')),
+                getJson('/public/weex/me').catch(() => null),
+                getJson(bookingApiUrl('/pending-deposit')).catch(() => null)
               ])
               state.catalog = catalog
               state.weexAccount = auth?.account || null
+              if (pending?.deposit) {
+                state.deposit = pending.deposit
+                state.proofSent = pending.deposit.status === 'PROOF_RECEIVED'
+                state.service = (catalog.services || []).find((service) => service.id === pending.deposit.serviceId) || null
+                state.services = (pending.deposit.serviceIds || [pending.deposit.serviceId]).flatMap((serviceId) => {
+                  const service = (catalog.services || []).find((item) => item.id === serviceId)
+                  return service ? [service] : []
+                })
+                if (!state.services.length && state.service) state.services = [state.service]
+                state.professionalId = pending.deposit.professionalId
+                state.date = pending.deposit.date
+                state.dateLabel = new Intl.DateTimeFormat('es-AR', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(pending.deposit.date + 'T00:00:00'))
+                state.slot = {
+                  time: pending.deposit.time,
+                  professionalId: pending.deposit.professionalId,
+                  professionalName: pending.deposit.professionalName
+                }
+                if ((pending.deposit.segments || []).length > 1) {
+                  state.itinerary = {
+                    id: 'pending-' + pending.deposit.id,
+                    startTime: pending.deposit.segments[0].startTime,
+                    endTime: pending.deposit.segments[pending.deposit.segments.length - 1].endTime,
+                    segments: pending.deposit.segments
+                  }
+                }
+                state.validationAccepted = true
+                state.step = bookingSteps().length
+              }
               setFeedback('', '')
               render()
             } catch (error) {
@@ -1687,29 +1739,74 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           }
 
           function renderBreadcrumb() {
-            els.breadcrumb.innerHTML = steps.map((label, index) => {
+            els.breadcrumb.innerHTML = bookingSteps().map((item, index) => {
               const step = index + 1
               const className = step === state.step ? 'active' : step < state.step ? 'done' : ''
-              const separator = index < steps.length - 1 ? '<span class="crumb-sep">›</span>' : ''
-              return '<button class="crumb ' + className + '" type="button" data-step="' + step + '"' + (step > state.step ? ' disabled' : '') + '>' + escapeHtml(label) + '</button>' + separator
+              const separator = index < bookingSteps().length - 1 ? '<span class="crumb-sep">›</span>' : ''
+              return '<button class="crumb ' + className + '" type="button" data-step="' + step + '"' + (step > state.step ? ' disabled' : '') + '>' + escapeHtml(item.label) + '</button>' + separator
             }).join('')
           }
 
+          function bookingSteps() {
+            const steps = [{ id: 'service', label: 'Servicios' }]
+            if (selectedServices().some(serviceNeedsDetails)) {
+              steps.push({
+                id: 'details',
+                label: selectedServices().some((service) => service.attentionMode === 'GUIDED_ESTIMATE') ? 'Estimacion' : 'Validacion'
+              })
+            }
+            if (!isMultiService()) steps.push({ id: 'professional', label: 'Profesional' })
+            steps.push({ id: 'time', label: 'Hora' }, { id: 'confirm', label: 'Confirmar' })
+            return steps
+          }
+
+          function currentStepId() {
+            return bookingSteps()[state.step - 1]?.id || 'service'
+          }
+
+          function serviceNeedsDetails(service) {
+            return Boolean(service && (
+              service.validationEnabled || service.attentionMode === 'GUIDED_ESTIMATE'
+            ))
+          }
+
+          function selectedServices() {
+            return state.services || []
+          }
+
+          function isMultiService() {
+            return selectedServices().length > 1
+          }
+
+          function serviceDetail(service) {
+            if (!state.serviceDetails[service.id]) {
+              state.serviceDetails[service.id] = {
+                estimateOption: null,
+                validationAccepted: false
+              }
+            }
+            return state.serviceDetails[service.id]
+          }
+
           function renderServiceStep() {
-            els.heading.textContent = 'Seleccionar servicio'
+            els.heading.textContent = 'Seleccionar servicios'
             const services = state.catalog?.services || []
             if (!services.length) {
               els.content.innerHTML = '<p class="fresha-muted">Todavia no hay servicios cargados para reservar.</p>'
               updateContinue(false)
               return
             }
-            els.content.innerHTML = '<div class="fresha-options">' + services.map((service) => {
-              return '<button class="fresha-option ' + (state.service?.id === service.id ? 'selected' : '') + '" type="button" data-service-id="' + escapeHtml(service.id) + '">' +
+            els.content.innerHTML = '<p class="booking-service-help">Pod&eacute;s elegir uno o varios servicios para hacerlos en la misma visita.</p><div class="fresha-options">' + services.map((service) => {
+              const depositLabel = service.deposit?.amount
+                ? '<small class="option-deposit">Se&ntilde;a ' + escapeHtml(formatPrice(service.deposit.amount, 'FIXED')) + '</small>'
+                : ''
+              const selected = selectedServices().some((item) => item.id === service.id)
+              return '<button class="fresha-option ' + (selected ? 'selected' : '') + '" type="button" data-service-id="' + escapeHtml(service.id) + '">' +
                 '<span class="option-left"><span class="radio"></span><span><strong>' + escapeHtml(service.name) + '</strong><small>' + escapeHtml(service.category || service.displayDuration || (service.duration + ' min')) + '</small></span></span>' +
-                '<span class="option-right"><span>' + escapeHtml(service.displayDuration || (service.duration + ' min')) + '</span><strong>' + escapeHtml(service.price ? formatPrice(service.price, service.priceMode) : 'Consultar') + '</strong></span>' +
+                '<span class="option-right"><span>' + escapeHtml(service.displayDuration || (service.duration + ' min')) + '</span><strong>' + escapeHtml(service.price ? formatPrice(service.price, service.priceMode) : 'Consultar') + '</strong>' + depositLabel + '</span>' +
               '</button>'
             }).join('') + '</div>'
-            updateContinue(Boolean(state.service))
+            updateContinue(selectedServices().length > 0)
           }
 
           function renderProfessionalStep() {
@@ -1732,6 +1829,73 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               '</button>'
             }).join('') + '</div>'
             updateContinue(Boolean(state.professionalId))
+          }
+
+          function renderDetailsStep() {
+            const services = selectedServices().filter(serviceNeedsDetails)
+            if (!services.length) {
+              els.heading.textContent = 'Configurar servicio'
+              els.content.innerHTML = '<p class="fresha-muted">Primero eleg&iacute; un servicio.</p>'
+              updateContinue(false)
+              return
+            }
+            els.heading.textContent = services.some((service) => service.attentionMode === 'GUIDED_ESTIMATE')
+              ? 'Calcular precio aproximado'
+              : 'Confirmar servicio'
+            els.content.innerHTML = '<div class="booking-detail-stack">' + services.map(renderServiceDetailSection).join('') + '</div>'
+            updateDetailsContinueState()
+          }
+
+          function renderServiceDetailSection(service) {
+            const detail = serviceDetail(service)
+            const sections = ['<div class="booking-detail-service"><h2>' + escapeHtml(service.name) + '</h2>']
+            if (service.validationEnabled) {
+              sections.push(
+                '<section class="booking-detail-card">' +
+                  '<span class="booking-detail-eyebrow">Validaci&oacute;n previa</span>' +
+                  '<h2>' + escapeHtml(service.validationQuestion || 'Confirm&aacute; que este servicio es el indicado') + '</h2>' +
+                  '<p>' + escapeHtml(service.validationMessage || service.description || '') + '</p>' +
+                  '<label class="booking-detail-check">' +
+                    '<input type="checkbox" data-validation-service-id="' + escapeHtml(service.id) + '"' + (detail.validationAccepted ? ' checked' : '') + '>' +
+                    '<span>Le&iacute; la informaci&oacute;n y quiero continuar con este servicio.</span>' +
+                  '</label>' +
+                '</section>'
+              )
+            }
+            if (service.attentionMode === 'GUIDED_ESTIMATE') {
+              const options = service.estimateOptions || []
+              const estimateOptions = options.length
+                ? '<div class="fresha-options">' + options.map((option) => {
+                    const selected = detail.estimateOption?.id === option.id
+                    return '<button class="fresha-option ' + (selected ? 'selected' : '') + '" type="button" data-estimate-option-id="' + escapeHtml(option.id) + '" data-estimate-service-id="' + escapeHtml(service.id) + '">' +
+                      '<span class="option-left"><span class="radio"></span><span><strong>' + escapeHtml(option.label) + '</strong>' + (option.note ? '<small>' + escapeHtml(option.note) + '</small>' : '') + '</span></span>' +
+                      '<span class="option-right"><strong>' + escapeHtml(formatEstimateRange(option.priceMin, option.priceMax)) + '</strong></span>' +
+                    '</button>'
+                  }).join('') + '</div>'
+                : '<div class="booking-estimate-result"><span>Valor aproximado</span><strong>' + escapeHtml(formatEstimateRange(service.price, null)) + '</strong></div>'
+              sections.push(
+                '<section class="booking-detail-card">' +
+                  '<span class="booking-detail-eyebrow">Estimaci&oacute;n autom&aacute;tica</span>' +
+                  '<h2>' + escapeHtml(service.estimateQuestion || 'Eleg&iacute; la opci&oacute;n que mejor describe tu caso') + '</h2>' +
+                  (service.estimateExplanation ? '<p>' + escapeHtml(service.estimateExplanation) + '</p>' : '') +
+                  estimateOptions +
+                  (service.estimateDisclaimer ? '<p class="booking-estimate-disclaimer">' + escapeHtml(service.estimateDisclaimer) + '</p>' : '') +
+                '</section>'
+              )
+            }
+            sections.push('</div>')
+            return sections.join('')
+          }
+
+          function updateDetailsContinueState() {
+            const ready = selectedServices().every((service) => {
+              const detail = serviceDetail(service)
+              const validationReady = !service.validationEnabled || detail.validationAccepted
+              const estimateReady = service.attentionMode !== 'GUIDED_ESTIMATE' ||
+                !(service.estimateOptions || []).length || Boolean(detail.estimateOption)
+              return validationReady && estimateReady
+            })
+            updateContinue(selectedServices().length > 0 && ready)
           }
 
           function professionalAvatarHtml(professional) {
@@ -1758,6 +1922,10 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           }
 
           async function renderTimeStep() {
+            if (isMultiService()) {
+              await renderCoordinatedTimeStep()
+              return
+            }
             els.heading.textContent = 'Seleccionar fecha y hora'
             if (!state.date) {
               setDate(dates[0])
@@ -1778,6 +1946,49 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             await loadSlots()
           }
 
+          async function renderCoordinatedTimeStep() {
+            els.heading.textContent = 'Elegir horarios coordinados'
+            if (!state.date) setDate(dates[0])
+            const dateChips = dates.map((date) => {
+              const iso = dateIso(date)
+              return '<button class="date-chip ' + (state.date === iso ? 'selected' : '') + '" type="button" data-date="' + iso + '">' +
+                '<span>' + dayNames[date.getDay()] + '</span><strong>' + date.getDate() + '</strong><small>' + monthNames[date.getMonth()] + '</small>' +
+              '</button>'
+            }).join('')
+            els.content.innerHTML =
+              '<p class="booking-service-help">Buscamos primero una persona que pueda hacer todo. Si no existe, coordinamos profesionales distintos sin espera entre servicios.</p>' +
+              '<div class="section-label">Seleccion&aacute; una fecha</div>' +
+              '<div class="date-track">' + dateChips + '</div>' +
+              '<div class="section-label">Itinerarios disponibles</div>' +
+              '<div id="booking-itineraries">' + renderSlotsLoading() + '</div>'
+            state.itinerary = null
+            updateContinue(false)
+            try {
+              const result = await postJson(bookingApiUrl('/itineraries'), {
+                serviceIds: selectedServices().map((service) => service.id),
+                date: state.date
+              })
+              const container = document.getElementById('booking-itineraries')
+              if (!container) return
+              if (!result.options?.length) {
+                container.innerHTML = '<p class="fresha-muted">' + escapeHtml(result.message || 'No encontramos horarios coordinados para ese d&iacute;a.') + '</p>'
+                return
+              }
+              container.innerHTML = '<div class="booking-itineraries">' + result.options.map((option) =>
+                '<button class="booking-itinerary" type="button" data-itinerary-id="' + escapeHtml(option.id) + '">' +
+                  '<span class="booking-itinerary-time"><strong>' + escapeHtml(option.startTime) + '</strong><small>hasta ' + escapeHtml(option.endTime) + '</small></span>' +
+                  '<span class="booking-itinerary-segments">' + option.segments.map((segment) =>
+                    '<span><b>' + escapeHtml(segment.serviceName) + '</b><small>' + escapeHtml(segment.startTime + ' a ' + segment.endTime + ' con ' + segment.professionalName) + '</small></span>'
+                  ).join('') + '</span>' +
+                '</button>'
+              ).join('') + '</div>'
+              state.itineraryOptions = result.options
+            } catch (error) {
+              const container = document.getElementById('booking-itineraries')
+              if (container) container.innerHTML = '<p class="fresha-muted">' + escapeHtml(error.message) + '</p>'
+            }
+          }
+
           async function loadSlots() {
             if (!state.service) {
               return
@@ -1789,7 +2000,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             const slotsEl = document.getElementById('booking-slots')
             if (slotsEl) slotsEl.innerHTML = renderSlotsLoading()
             try {
-              const result = await getJson('/public/booking/' + encodeURIComponent(slug) + '/availability?serviceId=' + encodeURIComponent(state.service.id) + '&professionalId=' + encodeURIComponent(state.professionalId) + '&date=' + encodeURIComponent(state.date))
+              const result = await getJson(bookingApiUrl('/availability', 'serviceId=' + encodeURIComponent(state.service.id) + '&professionalId=' + encodeURIComponent(state.professionalId) + '&date=' + encodeURIComponent(state.date)))
               if (!result.slots.length) {
                 if (slotsEl) slotsEl.innerHTML = '<p class="fresha-muted">' + escapeHtml(result.message || 'No hay horarios disponibles para esa fecha.') + '</p>'
                 updateConfirmState()
@@ -1814,7 +2025,26 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           }
 
           function renderConfirmStep() {
-            els.heading.textContent = state.confirmed ? 'Turno confirmado' : 'Confirmar turno'
+            els.heading.textContent = state.proofSent
+              ? 'Comprobante enviado'
+              : state.deposit
+                ? 'Pagar seña'
+                : state.confirmed ? 'Turno confirmado' : 'Confirmar turno'
+            if (state.proofSent) {
+              els.content.innerHTML =
+                '<div class="booking-success">' +
+                  '<div class="success-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M20 6L9 17l-5-5"></path></svg></div>' +
+                  '<h2>Recibimos tu comprobante</h2>' +
+                  '<p>El horario sigue reservado mientras el comercio revisa el pago. Te avisaremos cuando el turno quede confirmado.</p>' +
+                  '<div class="success-actions">' +
+                    '<a class="success-link secondary" href="' + escapeHtml(backPath) + '">Volver al comercio</a>' +
+                    '<a class="success-link" href="' + escapeHtml(accountPath) + '">Ver mis reservas</a>' +
+                  '</div>' +
+                '</div>'
+              updateContinue(false)
+              els.continue.hidden = true
+              return
+            }
             if (state.confirmed) {
               const accountName = state.weexAccount?.name || 'tu reserva'
               const calendarMessage = state.calendarSync?.ok
@@ -1825,8 +2055,8 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               els.content.innerHTML =
                 '<div class="booking-success">' +
                   '<div class="success-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M20 6L9 17l-5-5"></path></svg></div>' +
-                  '<h2>Reserva exitosa, ' + escapeHtml(accountName) + '</h2>' +
-                  '<p>' + escapeHtml(state.dateLabel || '') + ' a las ' + escapeHtml(state.slot?.time || '') + '.</p>' +
+                  '<h2>' + (isMultiService() ? 'Reservas coordinadas exitosas, ' : 'Reserva exitosa, ') + escapeHtml(accountName) + '</h2>' +
+                  '<p>' + escapeHtml(state.dateLabel || '') + ' a las ' + escapeHtml(state.itinerary?.startTime || state.slot?.time || '') + '.</p>' +
                   calendarMessage +
                   '<div class="success-actions">' +
                     '<a class="success-link secondary" href="' + escapeHtml(backPath) + '">Volver a ' + escapeHtml(state.catalog?.business?.name || 'comercio') + '</a>' +
@@ -1837,25 +2067,62 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               els.continue.hidden = true
               return
             }
+            if (state.deposit) {
+              const payment = state.deposit.payment || {}
+              const paymentLines = [
+                payment.alias ? '<div><span>Alias</span><strong>' + escapeHtml(payment.alias) + '</strong></div>' : '',
+                payment.cbu ? '<div><span>CBU</span><strong>' + escapeHtml(payment.cbu) + '</strong></div>' : '',
+                payment.cvu ? '<div><span>CVU</span><strong>' + escapeHtml(payment.cvu) + '</strong></div>' : '',
+                payment.accountHolder ? '<div><span>Titular</span><strong>' + escapeHtml(payment.accountHolder) + '</strong></div>' : ''
+              ].filter(Boolean).join('')
+              els.content.innerHTML =
+                '<div class="booking-deposit-card">' +
+                  '<div class="booking-deposit-amount"><span>Se&ntilde;a a transferir</span><strong>' + formatPrice(state.deposit.amount) + '</strong></div>' +
+                  '<p>Transfer&iacute; el importe y envi&aacute; el comprobante antes de <strong>' + escapeHtml(formatDepositDeadline(state.deposit.expiresAt)) + '</strong>.</p>' +
+                  '<div class="booking-transfer-details">' + paymentLines + '</div>' +
+                  (payment.instructions ? '<p class="booking-deposit-instructions">' + escapeHtml(payment.instructions) + '</p>' : '') +
+                  '<label class="booking-proof-picker" for="booking-proof-input">' +
+                    '<strong>Adjuntar comprobante</strong>' +
+                    '<span>JPG, PNG, WebP o PDF de hasta 3 MB</span>' +
+                    '<input id="booking-proof-input" type="file" accept="image/jpeg,image/png,image/webp,application/pdf">' +
+                  '</label>' +
+                  '<button class="booking-proof-submit" id="booking-proof-submit" type="button" disabled>Enviar comprobante</button>' +
+                '</div>'
+              els.continue.hidden = true
+              const input = document.getElementById('booking-proof-input')
+              const submit = document.getElementById('booking-proof-submit')
+              input?.addEventListener('change', () => {
+                submit.disabled = !input.files?.[0]
+                setFeedback('', '')
+              })
+              submit?.addEventListener('click', () => void uploadDepositProof(input.files?.[0], submit))
+              return
+            }
             els.continue.hidden = false
             els.content.innerHTML =
               '<div class="booking-account-ready">' +
                 '<div class="account-mini-avatar">' + escapeHtml(initials(state.weexAccount?.name || 'Reserva')) + '</div>' +
                 '<div><h2>Reserva para ' + escapeHtml(state.weexAccount?.name || 'vos') + '</h2></div>' +
               '</div>'
-            updateContinue(Boolean(state.service && state.professionalId && state.slot), 'Confirmar turno')
+            updateContinue(isMultiService()
+              ? Boolean(state.itinerary)
+              : Boolean(state.service && state.professionalId && state.slot), 'Confirmar turno')
           }
 
           function renderSummary() {
             const lines = []
-            if (state.service) {
+            for (const service of selectedServices()) {
               lines.push(
                 '<div class="summary-card-line primary-line">' +
-                  '<div><strong>' + escapeHtml(state.service.name) + '</strong><span>' + escapeHtml(state.service.displayDuration || (state.service.duration + ' min')) + '</span></div>' +
-                  '<b>' + escapeHtml(state.service.price ? formatPrice(state.service.price, state.service.priceMode) : 'Consultar') + '</b>' +
+                  '<div><strong>' + escapeHtml(service.name) + '</strong><span>' + escapeHtml(service.displayDuration || (service.duration + ' min')) + '</span></div>' +
+                  '<b>' + escapeHtml(serviceDisplayPrice(service)) + '</b>' +
                 '</div>'
               )
             }
+            const totalDeposit = selectedServices().reduce((total, service) => total + (selectedDepositAmount(service) || 0), 0)
+            if (totalDeposit) lines.push(
+              '<div class="summary-card-line"><span>Se&ntilde;a total</span><strong>' + escapeHtml(formatPrice(totalDeposit)) + '</strong></div>'
+            )
             if (state.professionalId) {
               lines.push(
                 '<div class="summary-card-line">' +
@@ -1880,10 +2147,18 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
                 '</div>'
               )
             }
+            if (state.itinerary) {
+              lines.push(
+                '<div class="summary-card-line"><span>Horario total</span><strong>' + escapeHtml(state.itinerary.startTime + ' a ' + state.itinerary.endTime) + '</strong></div>',
+                ...state.itinerary.segments.map((segment) =>
+                  '<div class="summary-card-line"><span>' + escapeHtml(segment.serviceName) + '</span><strong>' + escapeHtml(segment.professionalName + ' · ' + segment.startTime) + '</strong></div>'
+                )
+              )
+            }
             els.summaryLines.innerHTML = lines.length ? lines.join('') : '<div class="summary-empty">Elegi un servicio para ver el resumen de tu turno.</div>'
-            els.totalDivider.hidden = !state.service
-            els.totalRow.hidden = !state.service
-            els.total.textContent = state.service?.price ? formatPrice(state.service.price, state.service.priceMode) : '-'
+            els.totalDivider.hidden = !selectedServices().length
+            els.totalRow.hidden = !selectedServices().length
+            els.total.textContent = selectedServices().length ? combinedDisplayPrice() : '-'
           }
 
           function setFeedback(message, type) {
@@ -1916,10 +2191,11 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           }
 
           function updateConfirmState() {
-            if (state.step === 3) updateContinue(Boolean(state.date && state.slot))
+            if (currentStepId() === 'time') updateContinue(Boolean(state.date && (isMultiService() ? state.itinerary : state.slot)))
           }
 
           function goToStep(step) {
+            if (state.deposit || state.proofSent) return
             if (step > state.step) return
             state.step = step
             state.confirmed = false
@@ -1929,6 +2205,59 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
 
           function formatPrice(value) {
             return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(value)
+          }
+
+          function formatEstimateRange(priceMin, priceMax) {
+            if (!Number.isFinite(Number(priceMin))) return 'A confirmar'
+            if (Number.isFinite(Number(priceMax)) && Number(priceMax) > Number(priceMin)) {
+              return formatPrice(Number(priceMin)) + ' a ' + formatPrice(Number(priceMax))
+            }
+            return 'Desde ' + formatPrice(Number(priceMin))
+          }
+
+          function serviceDisplayPrice(service) {
+            const estimateOption = serviceDetail(service).estimateOption
+            if (service.attentionMode === 'GUIDED_ESTIMATE') {
+              if (estimateOption) {
+                return formatEstimateRange(estimateOption.priceMin, estimateOption.priceMax)
+              }
+              return formatEstimateRange(service.price, null)
+            }
+            return service.price ? formatPrice(service.price) : 'Consultar'
+          }
+
+          function selectedDepositAmount(service) {
+            if (!service || service.depositMode === 'NONE') return null
+            if (service.depositMode === 'FIXED') return Number(service.depositValue) || null
+            const estimateBase = serviceDetail(service).estimateOption?.priceMin ??
+              (service.attentionMode === 'GUIDED_ESTIMATE' ? service.price : null)
+            const base = Number(estimateBase ?? service.price)
+            const percentage = Number(service.depositValue)
+            if (!Number.isFinite(base) || base <= 0 || !Number.isFinite(percentage) || percentage <= 0) return null
+            return Math.round(base * percentage / 100)
+          }
+
+          function combinedDisplayPrice() {
+            let minimum = 0
+            let maximum = 0
+            let hasRange = false
+            for (const service of selectedServices()) {
+              const option = serviceDetail(service).estimateOption
+              const priceMin = Number(option?.priceMin ?? service.price)
+              if (!Number.isFinite(priceMin)) return 'A confirmar'
+              const priceMax = Number(option?.priceMax ?? priceMin)
+              minimum += priceMin
+              maximum += Number.isFinite(priceMax) ? priceMax : priceMin
+              hasRange ||= priceMax > priceMin || service.priceMode === 'STARTING_AT'
+            }
+            return hasRange ? formatEstimateRange(minimum, maximum > minimum ? maximum : null) : formatPrice(minimum)
+          }
+
+          function formatDepositDeadline(value) {
+            return new Intl.DateTimeFormat('es-AR', {
+              hour: '2-digit',
+              minute: '2-digit'
+            }).format(new Date(value))
           }
 
           function renderSlotsLoading() {
@@ -2030,7 +2359,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
 
           function proceedToConfirm() {
             hideBookingGate()
-            state.step = 4
+            state.step = bookingSteps().length
             state.confirmed = false
             render()
           }
@@ -2250,14 +2579,27 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             updateContinue(false, 'Confirmando...')
             setFeedback('Confirmando tu turno...', 'info')
             try {
-              const result = await postJson('/public/booking/' + encodeURIComponent(slug) + '/book', {
-                serviceId: state.service.id,
-                professionalId: state.slot?.professionalId || state.professionalId,
-                date: state.date,
-                time: state.slot?.time
-              })
+              const result = isMultiService()
+                ? await postJson(bookingApiUrl('/book-coordinated'), {
+                    serviceSelections: selectedServices().map((service) => ({
+                      serviceId: service.id,
+                      estimateOptionId: serviceDetail(service).estimateOption?.id || null,
+                      validationAccepted: serviceDetail(service).validationAccepted
+                    })),
+                    date: state.date,
+                    itineraryId: state.itinerary?.id
+                  })
+                : await postJson(bookingApiUrl('/book'), {
+                    serviceId: state.service.id,
+                    professionalId: state.slot?.professionalId || state.professionalId,
+                    date: state.date,
+                    time: state.slot?.time,
+                    estimateOptionId: serviceDetail(state.service).estimateOption?.id || null,
+                    validationAccepted: serviceDetail(state.service).validationAccepted
+                  })
               state.calendarSync = result.calendarSync || null
-              state.confirmed = true
+              state.deposit = result.deposit || null
+              state.confirmed = !state.deposit
               setFeedback('', '')
               render()
             } catch (error) {
@@ -2266,10 +2608,44 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             }
           }
 
+          async function uploadDepositProof(file, button) {
+            if (!file || !state.deposit) return
+            if (file.size > 3 * 1024 * 1024) {
+              setFeedback('El comprobante debe pesar hasta 3 MB.', 'error')
+              return
+            }
+            button.disabled = true
+            button.textContent = 'Enviando...'
+            setFeedback('Enviando comprobante...', 'info')
+            try {
+              const dataUrl = await readFileAsDataUrl(file)
+              await postJson(bookingApiUrl('/deposits/' + encodeURIComponent(state.deposit.id) + '/proof'), {
+                dataUrl,
+                filename: file.name
+              })
+              state.proofSent = true
+              setFeedback('', '')
+              render()
+            } catch (error) {
+              setFeedback(error.message, 'error')
+              button.disabled = false
+              button.textContent = 'Enviar comprobante'
+            }
+          }
+
+          function readFileAsDataUrl(file) {
+            return new Promise((resolve, reject) => {
+              const reader = new FileReader()
+              reader.onload = () => resolve(String(reader.result || ''))
+              reader.onerror = () => reject(new Error('No pudimos leer el archivo seleccionado.'))
+              reader.readAsDataURL(file)
+            })
+          }
+
           function render() {
             renderBreadcrumb()
             setFeedback('', '')
-            els.back.disabled = state.step === 1
+            els.back.disabled = state.step === 1 || Boolean(state.deposit || state.proofSent)
             if (!state.catalog) {
               els.heading.textContent = 'Cargando reserva'
               els.content.innerHTML = '<p class="fresha-muted">Estamos cargando la agenda.</p>'
@@ -2277,20 +2653,60 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               renderSummary()
               return
             }
-            if (state.step === 1) renderServiceStep()
-            if (state.step === 2) renderProfessionalStep()
-            if (state.step === 3) void renderTimeStep()
-            if (state.step === 4) renderConfirmStep()
+            const stepId = currentStepId()
+            if (stepId === 'service') renderServiceStep()
+            if (stepId === 'details') renderDetailsStep()
+            if (stepId === 'professional') renderProfessionalStep()
+            if (stepId === 'time') void renderTimeStep()
+            if (stepId === 'confirm') renderConfirmStep()
             renderSummary()
           }
 
           els.content.addEventListener('click', (event) => {
             const serviceButton = event.target.closest('[data-service-id]')
             if (serviceButton) {
-              state.service = (state.catalog.services || []).find((service) => service.id === serviceButton.dataset.serviceId) || null
+              const selected = (state.catalog.services || []).find((service) => service.id === serviceButton.dataset.serviceId) || null
+              if (!selected) return
+              const exists = selectedServices().some((service) => service.id === selected.id)
+              state.services = exists
+                ? selectedServices().filter((service) => service.id !== selected.id)
+                : selectedServices().length < 5
+                  ? [...selectedServices(), selected]
+                  : selectedServices()
+              state.service = state.services[0] || null
+              state.estimateOption = null
+              state.validationAccepted = false
               state.professionalId = null
               state.slot = null
+              state.itinerary = null
               render()
+              return
+            }
+            const estimateButton = event.target.closest('[data-estimate-option-id]')
+            if (estimateButton) {
+              const service = selectedServices().find((item) => item.id === estimateButton.dataset.estimateServiceId)
+              if (!service) return
+              serviceDetail(service).estimateOption = (service.estimateOptions || []).find((option) => option.id === estimateButton.dataset.estimateOptionId) || null
+              if (!isMultiService()) state.estimateOption = serviceDetail(service).estimateOption
+              render()
+              return
+            }
+            const validationCheckbox = event.target.closest('[data-validation-service-id]')
+            if (validationCheckbox) {
+              const service = selectedServices().find((item) => item.id === validationCheckbox.dataset.validationServiceId)
+              if (!service) return
+              serviceDetail(service).validationAccepted = Boolean(validationCheckbox.checked)
+              if (!isMultiService()) state.validationAccepted = serviceDetail(service).validationAccepted
+              updateDetailsContinueState()
+              renderSummary()
+              return
+            }
+            const itineraryButton = event.target.closest('[data-itinerary-id]')
+            if (itineraryButton) {
+              state.itinerary = (state.itineraryOptions || []).find((option) => option.id === itineraryButton.dataset.itineraryId) || null
+              document.querySelectorAll('[data-itinerary-id]').forEach((item) => item.classList.toggle('selected', item === itineraryButton))
+              renderSummary()
+              updateContinue(Boolean(state.itinerary))
               return
             }
             const slotButton = event.target.closest('.slot[data-time]')
@@ -2310,6 +2726,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               const date = new Date(dateButton.dataset.date + 'T00:00:00')
               setDate(date)
               state.slot = null
+              state.itinerary = null
               render()
               return
             }
@@ -2327,11 +2744,12 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
 
           els.continue.addEventListener('click', () => {
             if (els.continue.disabled) return
-            if (state.step === 4) {
+            const stepId = currentStepId()
+            if (stepId === 'confirm') {
               void confirmBooking()
               return
             }
-            if (state.step === 3) {
+            if (stepId === 'time') {
               void continueFromTimeStep()
               return
             }
@@ -3900,6 +4318,113 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
       flex-direction: column;
       gap: 10px;
     }
+    .booking-detail-stack {
+      display: grid;
+      gap: 16px;
+    }
+    .booking-service-help {
+      margin: 0 0 14px;
+      color: var(--ink-soft);
+      line-height: 1.5;
+    }
+    .booking-detail-service {
+      display: grid;
+      gap: 12px;
+    }
+    .booking-detail-service > h2 {
+      margin: 4px 0 0;
+      color: var(--dark-1);
+      font-size: 21px;
+    }
+    .booking-detail-card {
+      padding: 22px;
+      background: #FFFAF0;
+      border: 1px solid var(--cream-line);
+      border-radius: 10px;
+    }
+    .booking-detail-card h2 {
+      margin: 5px 0 8px;
+      color: var(--dark-1);
+      font-size: 19px;
+    }
+    .booking-detail-card > p {
+      margin: 0 0 16px;
+      color: var(--ink-soft);
+      line-height: 1.55;
+    }
+    .booking-detail-eyebrow {
+      color: var(--burgundy);
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    .booking-detail-check {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 13px 14px;
+      background: #fff;
+      border: 1px solid var(--cream-line);
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .booking-detail-check input {
+      width: 18px;
+      height: 18px;
+      margin: 1px 0 0;
+      accent-color: var(--burgundy);
+    }
+    .booking-estimate-result {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 16px;
+      background: #fff;
+      border: 1px solid var(--cream-line);
+      border-radius: 8px;
+    }
+    .booking-estimate-result strong { color: var(--burgundy); }
+    .booking-estimate-disclaimer {
+      margin: 14px 0 0 !important;
+      font-size: 13px;
+      font-style: italic;
+    }
+    .booking-itineraries {
+      display: grid;
+      gap: 12px;
+    }
+    .booking-itinerary {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 86px minmax(0, 1fr);
+      gap: 16px;
+      padding: 16px;
+      color: var(--ink);
+      background: #FFFAF0;
+      border: 1px solid var(--cream-line);
+      border-radius: 9px;
+      text-align: left;
+      cursor: pointer;
+    }
+    .booking-itinerary:hover,
+    .booking-itinerary.selected {
+      border-color: var(--gold);
+      background: #FFF3D8;
+      box-shadow: inset 0 0 0 1px rgba(201,161,59,.3);
+    }
+    .booking-itinerary-time,
+    .booking-itinerary-time small,
+    .booking-itinerary-segments,
+    .booking-itinerary-segments > span,
+    .booking-itinerary-segments small {
+      display: block;
+    }
+    .booking-itinerary-time strong { color: var(--burgundy); font-size: 18px; }
+    .booking-itinerary-time small,
+    .booking-itinerary-segments small { margin-top: 3px; color: var(--ink-soft); font-size: 12px; }
+    .booking-itinerary-segments { display: grid; gap: 10px; }
     .fresha-option {
       width: 100%;
       min-height: 74px;
@@ -3958,6 +4483,12 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
       color: var(--burgundy);
       font-size: 15px;
       font-weight: 900;
+    }
+    .option-right .option-deposit {
+      margin: 2px 0 0;
+      color: var(--burgundy);
+      font-size: 12px;
+      font-weight: 800;
     }
     .radio {
       width: 20px;
@@ -4342,6 +4873,27 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
       font-size: 13.5px;
       line-height: 1.45;
     }
+    .booking-deposit-card {
+      max-width: 560px;
+      padding: 22px;
+      border: 1px solid var(--cream-line);
+      border-radius: 16px;
+      background: #fff;
+    }
+    .booking-deposit-card > p { color: var(--ink-soft); line-height: 1.55; }
+    .booking-deposit-amount { display: flex; justify-content: space-between; gap: 18px; align-items: center; margin-bottom: 12px; }
+    .booking-deposit-amount span { color: var(--ink-soft); font-size: 13px; font-weight: 800; }
+    .booking-deposit-amount strong { color: var(--dark-1); font-size: 25px; }
+    .booking-transfer-details { margin: 18px 0; display: grid; gap: 9px; }
+    .booking-transfer-details > div { padding: 11px 13px; display: flex; justify-content: space-between; gap: 18px; border-radius: 10px; background: var(--cream-2); }
+    .booking-transfer-details span { color: var(--ink-soft); font-size: 12px; }
+    .booking-transfer-details strong { overflow-wrap: anywhere; text-align: right; }
+    .booking-deposit-instructions { padding: 12px; border-left: 3px solid var(--gold); background: #fffaf0; }
+    .booking-proof-picker { margin-top: 18px; padding: 18px; display: grid; gap: 5px; border: 1px dashed var(--cream-line); border-radius: 12px; cursor: pointer; }
+    .booking-proof-picker span { color: var(--ink-soft); font-size: 12px; }
+    .booking-proof-picker input { margin-top: 8px; }
+    .booking-proof-submit { width: 100%; margin-top: 12px; padding: 13px 18px; border: 0; border-radius: 10px; color: #fff; background: var(--dark-1); font-weight: 900; cursor: pointer; }
+    .booking-proof-submit:disabled { opacity: .45; cursor: not-allowed; }
     .booking-account-required .success-link {
       margin-top: 14px;
     }

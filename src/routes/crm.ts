@@ -34,6 +34,12 @@ import {
 } from '../services/booking-v2-state.js'
 import { normalizeConversationContextSettings } from '../services/conversation-context-settings.js'
 import { takenConversationHandoffPatch } from '../services/conversation-handoff.js'
+import { sendBookingConfirmationEmail } from '../services/booking-confirmation-email-service.js'
+import { customerDurationRange } from '../services/service-duration.js'
+import {
+  createGoogleCalendarEventForAppointment,
+  weexGoogleCalendarEnabled
+} from '../services/weex-account-service.js'
 
 const whatsappCloudApi = new WhatsAppCloudApi()
 const bookingV2Engine = new BookingV2Engine()
@@ -652,6 +658,215 @@ export async function crmRoutes(app: FastifyInstance) {
       .send(downloaded.data)
   })
 
+  app.get('/crm/deposits', async (request, reply) => {
+    const query = request.query as { businessId?: string; view?: 'active' | 'resolved' | 'all' }
+    const authUser = request.auth?.user
+    if (!authUser) return reply.status(401).send({ message: 'Sesion requerida' })
+    const businessId = query.businessId || authUser.businessId
+    if (!businessId) return reply.status(400).send({ message: 'Selecciona un comercio' })
+    if (authUser.role !== 'SUPER_ADMIN' && authUser.businessId !== businessId) {
+      return reply.status(403).send({ message: 'No tenes acceso a esas señas' })
+    }
+    await bookingDepositService.expireOverdue()
+    const activeStatuses: Array<'PENDING_PROOF' | 'PROOF_RECEIVED'> = ['PENDING_PROOF', 'PROOF_RECEIVED']
+    const view = query.view || 'active'
+    const deposits = await prisma.bookingDeposit.findMany({
+      where: view === 'active'
+        ? { businessId, status: { in: activeStatuses } }
+        : view === 'resolved'
+          ? { businessId, status: { in: ['APPROVED', 'REJECTED', 'EXPIRED'] } }
+          : { businessId },
+      select: {
+        id: true,
+        source: true,
+        status: true,
+        mode: true,
+        amount: true,
+        expiresAt: true,
+        proofMessageId: true,
+        proofMimeType: true,
+        proofFilename: true,
+        reviewedAt: true,
+        rejectionReason: true,
+        createdAt: true,
+        updatedAt: true,
+        conversationId: true,
+        appointment: {
+          include: {
+            customer: true,
+            professional: true,
+            service: true
+          }
+        }
+      },
+      orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }],
+      take: 100
+    })
+    const activeCount = await prisma.bookingDeposit.count({
+      where: { businessId, status: { in: [...activeStatuses] } }
+    })
+    const reviewCount = await prisma.bookingDeposit.count({
+      where: { businessId, status: 'PROOF_RECEIVED' }
+    })
+    const coordinationGroupIds = Array.from(new Set(deposits
+      .map((deposit) => deposit.appointment.coordinationGroupId)
+      .filter((id): id is string => Boolean(id))))
+    const coordinatedAppointments = coordinationGroupIds.length
+      ? await prisma.appointment.findMany({
+          where: { coordinationGroupId: { in: coordinationGroupIds } },
+          include: { customer: true, professional: true, service: true },
+          orderBy: { startAt: 'asc' }
+        })
+      : []
+    return {
+      items: deposits.map((deposit) => ({
+        ...deposit,
+        coordinatedAppointments: deposit.appointment.coordinationGroupId
+          ? coordinatedAppointments.filter((appointment) =>
+              appointment.coordinationGroupId === deposit.appointment.coordinationGroupId
+            )
+          : [deposit.appointment]
+      })),
+      activeCount,
+      reviewCount
+    }
+  })
+
+  app.get('/crm/deposits/:id/proof', async (request, reply) => {
+    const params = request.params as { id: string }
+    const authUser = request.auth?.user
+    if (!authUser) return reply.status(401).send({ message: 'Sesion requerida' })
+    const deposit = await prisma.bookingDeposit.findUnique({
+      where: { id: params.id },
+      select: {
+        businessId: true,
+        source: true,
+        proofData: true,
+        proofMimeType: true,
+        proofFilename: true
+      }
+    })
+    if (!deposit?.proofData || deposit.source !== 'WEB') {
+      return reply.status(404).send({ message: 'No encontre ese comprobante' })
+    }
+    if (authUser.role !== 'SUPER_ADMIN' && authUser.businessId !== deposit.businessId) {
+      return reply.status(403).send({ message: 'No tenes acceso a ese comprobante' })
+    }
+    const contentType = deposit.proofMimeType || 'application/octet-stream'
+    const filename = safeMediaFilename(
+      deposit.proofFilename,
+      contentType,
+      contentType.startsWith('image/') ? 'image' : 'document'
+    )
+    return reply
+      .header('Content-Type', contentType)
+      .header('Content-Disposition', `inline; filename="${filename}"`)
+      .header('Cache-Control', 'private, no-store')
+      .send(Buffer.from(deposit.proofData))
+  })
+
+  app.post('/crm/deposits/:id/approve', async (request, reply) => {
+    const params = request.params as { id: string }
+    const authUser = request.auth?.user
+    if (!authUser) return reply.status(401).send({ message: 'Sesion requerida' })
+    await bookingDepositService.expireOverdue()
+    const deposit = await prisma.bookingDeposit.findUnique({ where: { id: params.id } })
+    if (!deposit || deposit.source !== 'WEB') return reply.status(404).send({ message: 'No encontre esa seña web' })
+    if (authUser.role !== 'SUPER_ADMIN' && authUser.businessId !== deposit.businessId) {
+      return reply.status(403).send({ message: 'No tenes acceso a esa seña' })
+    }
+    if (deposit.status !== 'PROOF_RECEIVED') {
+      return reply.status(409).send({ message: 'La seña no tiene un comprobante pendiente de revisión' })
+    }
+    const reviewedAt = new Date()
+    const heldAppointmentIds = await coordinatedAppointmentIds(deposit.appointmentId)
+    const approved = await prisma.$transaction(async (tx) => {
+      const heldAppointment = await tx.appointment.count({
+        where: { id: { in: heldAppointmentIds }, status: 'PENDING' }
+      })
+      if (heldAppointment !== heldAppointmentIds.length) return false
+      const claimed = await tx.bookingDeposit.updateMany({
+        where: { id: deposit.id, status: 'PROOF_RECEIVED' },
+        data: { status: 'APPROVED', reviewedAt, reviewedByUserId: authUser.id, rejectionReason: null }
+      })
+      if (!claimed.count) return false
+      await tx.appointment.updateMany({
+        where: { id: { in: heldAppointmentIds }, status: 'PENDING' },
+        data: { status: 'CONFIRMED' }
+      })
+      return true
+    })
+    if (!approved) return reply.status(409).send({ message: 'La seña ya fue revisada o el turno venció' })
+    const appointments = await prisma.appointment.findMany({
+      where: { id: { in: heldAppointmentIds } },
+      include: {
+        customer: {
+          include: {
+            weexLinks: {
+              where: { businessId: deposit.businessId },
+              include: { weexAccount: true },
+              take: 1
+            }
+          }
+        },
+        service: true,
+        professional: { include: { business: true } }
+      }
+    })
+    for (const appointment of appointments) {
+      const account = appointment.customer.weexLinks[0]?.weexAccount
+      if (appointment.customer.email) {
+        void sendBookingConfirmationEmail({
+          recipientEmail: appointment.customer.email,
+          recipientName: appointment.customer.name,
+          appointmentId: appointment.id,
+          businessName: appointment.professional.business.name,
+          businessAddress: [appointment.professional.business.publicAddress, appointment.professional.business.publicAddressArea].filter(Boolean).join(', ') || null,
+          businessAddressArea: appointment.professional.business.publicAddressArea,
+          serviceName: appointment.service.name,
+          professionalName: appointment.professional.name,
+          startAt: appointment.startAt,
+          durationMinutes: customerDurationRange(appointment.service).max
+        }).catch((error) => request.log.error({ error, appointmentId: appointment.id }, 'No se pudo enviar el correo de confirmacion'))
+      }
+      if (account && weexGoogleCalendarEnabled()) {
+        void createGoogleCalendarEventForAppointment({
+          accountId: account.id,
+          appointmentId: appointment.id
+        }).catch((error) => request.log.error({ error, appointmentId: appointment.id }, 'No se pudo sincronizar Google Calendar'))
+      }
+    }
+    return { ok: true }
+  })
+
+  app.post('/crm/deposits/:id/reject', async (request, reply) => {
+    const params = request.params as { id: string }
+    const body = request.body as { reason?: string }
+    const authUser = request.auth?.user
+    if (!authUser) return reply.status(401).send({ message: 'Sesion requerida' })
+    const deposit = await prisma.bookingDeposit.findUnique({ where: { id: params.id } })
+    if (!deposit || deposit.source !== 'WEB') return reply.status(404).send({ message: 'No encontre esa seña web' })
+    if (authUser.role !== 'SUPER_ADMIN' && authUser.businessId !== deposit.businessId) {
+      return reply.status(403).send({ message: 'No tenes acceso a esa seña' })
+    }
+    const reason = body.reason?.trim().slice(0, 300) || 'No pudimos validar el comprobante'
+    const heldAppointmentIds = await coordinatedAppointmentIds(deposit.appointmentId)
+    const rejected = await prisma.$transaction(async (tx) => {
+      const claimed = await tx.bookingDeposit.updateMany({
+        where: { id: deposit.id, status: { in: ['PENDING_PROOF', 'PROOF_RECEIVED'] } },
+        data: { status: 'REJECTED', reviewedAt: new Date(), reviewedByUserId: authUser.id, rejectionReason: reason }
+      })
+      if (!claimed.count) return false
+      await tx.appointment.updateMany({
+        where: { id: { in: heldAppointmentIds }, status: 'PENDING' },
+        data: { status: 'CANCELLED' }
+      })
+      return true
+    })
+    if (!rejected) return reply.status(409).send({ message: 'La seña ya fue revisada o venció' })
+    return { ok: true }
+  })
+
   app.patch('/crm/conversations/:id/archive', async (request, reply) => {
     const params = request.params as { id: string }
     const body = request.body as { archived?: boolean }
@@ -719,6 +934,9 @@ export async function crmRoutes(app: FastifyInstance) {
       return reply.status(404).send({
         message: 'No encontre esa conversacion'
       })
+    }
+    if (!conversation.businessId) {
+      return reply.status(409).send({ message: 'La conversacion no pertenece a un comercio' })
     }
 
     const isEnablingAi = body.aiEnabled
@@ -1004,6 +1222,9 @@ export async function crmRoutes(app: FastifyInstance) {
     if (!deposit) {
       return reply.status(404).send({ message: 'No hay una seña pendiente para esta conversación' })
     }
+    if (!deposit.conversationId || !deposit.conversation) {
+      return reply.status(404).send({ message: 'La seña no pertenece a esta conversación' })
+    }
     if (authUser.role !== 'SUPER_ADMIN' && authUser.businessId !== deposit.businessId) {
       return reply.status(403).send({ message: 'No tenes acceso a esa seña' })
     }
@@ -1059,14 +1280,14 @@ export async function crmRoutes(app: FastifyInstance) {
         data: { status: 'CONFIRMED' }
       })
       await tx.conversation.update({
-        where: { id: deposit.conversationId },
+        where: { id: deposit.conversationId! },
         data: resumedContinuation
           ? {
               currentStep: continuationRequiresHandoff
                 ? 'HUMAN_HANDOFF'
                 : conversationStepForPersistedBookingState(resumedContinuation.state, bookingFlowOrder),
               aiEnabled: !continuationRequiresHandoff,
-              humanHandoffAt: continuationRequiresHandoff ? reviewedAt : deposit.conversation.humanHandoffAt,
+              humanHandoffAt: continuationRequiresHandoff ? reviewedAt : deposit.conversation!.humanHandoffAt,
               humanHandoffResolvedAt: continuationRequiresHandoff ? null : reviewedAt,
               ...resumedContinuation.conversationPatch,
               bookingV2State: resumedContinuation.conversationPatch.bookingV2State
@@ -1154,6 +1375,9 @@ export async function crmRoutes(app: FastifyInstance) {
     if (!deposit) {
       return reply.status(404).send({ message: 'No hay una seña pendiente para esta conversación' })
     }
+    if (!deposit.conversationId || !deposit.conversation) {
+      return reply.status(404).send({ message: 'La seña no pertenece a esta conversación' })
+    }
     if (authUser.role !== 'SUPER_ADMIN' && authUser.businessId !== deposit.businessId) {
       return reply.status(403).send({ message: 'No tenes acceso a esa seña' })
     }
@@ -1185,7 +1409,7 @@ export async function crmRoutes(app: FastifyInstance) {
         data: { status: 'CANCELLED' }
       })
       await tx.conversation.update({
-        where: { id: deposit.conversationId },
+        where: { id: deposit.conversationId! },
         data: {
           bookingV2State: Prisma.JsonNull,
           lastAvailability: Prisma.JsonNull
@@ -1363,6 +1587,21 @@ async function findCrmBusiness(businessId?: string) {
       createdAt: 'asc'
     }
   })
+}
+
+async function coordinatedAppointmentIds(primaryAppointmentId: string) {
+  const primary = await prisma.appointment.findUnique({
+    where: { id: primaryAppointmentId },
+    select: { coordinationGroupId: true }
+  })
+  if (!primary?.coordinationGroupId) return [primaryAppointmentId]
+  const appointments = await prisma.appointment.findMany({
+    where: { coordinationGroupId: primary.coordinationGroupId },
+    select: { id: true }
+  })
+  return appointments.length
+    ? appointments.map((appointment) => appointment.id)
+    : [primaryAppointmentId]
 }
 
 function conversationListWhere(input: {

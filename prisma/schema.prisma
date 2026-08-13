@@ -62,6 +62,11 @@ enum BookingDepositStatus {
   EXPIRED
 }
 
+enum BookingDepositSource {
+  WHATSAPP
+  WEB
+}
+
 enum ServicePriceMode {
   FIXED
   STARTING_AT
@@ -674,6 +679,7 @@ model Appointment {
   startAt              DateTime
   quotedPrice          Int?
   totalDurationMinutes Int
+  coordinationGroupId String?
 
   status                  AppointmentStatus        @default(CONFIRMED)
   reminderDeliveries      ReminderDelivery[]
@@ -685,6 +691,8 @@ model Appointment {
   googleCalendarAccountId String?
 
   createdAt DateTime @default(now())
+
+  @@index([coordinationGroupId])
 }
 
 model AppointmentServiceItem {
@@ -837,9 +845,10 @@ model BookingDeposit {
   appointmentId String      @unique
   appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
 
-  conversationId String
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversationId String?
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
 
+  source           BookingDepositSource @default(WHATSAPP)
   mode             ServiceDepositMode
   configuredValue  Int
   baseAmount       Int?
@@ -847,6 +856,9 @@ model BookingDeposit {
   status           BookingDepositStatus @default(PENDING_PROOF)
   expiresAt        DateTime
   proofMessageId   String?
+  proofData        Bytes?
+  proofMimeType    String?
+  proofFilename    String?
   reviewedAt       DateTime?
   reviewedByUserId String?
   rejectionReason  String?

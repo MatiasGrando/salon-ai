@@ -32,4 +32,7 @@ const salonWhite = route.slice(salonWhiteStart, salonWhiteEnd)
 assert.ok(salonWhite.includes('const services = business.services'), 'la plantilla blanca debe usar todo el catálogo')
 assert.equal(salonWhite.includes('business.services.slice('), false, 'la plantilla blanca no debe limitar servicios')
 
+assert.ok(route.includes('appendDemoPreview(`${basePath}/reservar`, demoPreview)'), 'la vista previa debe conservar el acceso al flujo de reservas')
+assert.ok(route.includes('Se&ntilde;a '), 'la selección de servicios debe mostrar el importe de la seña')
+
 console.log('Landing service catalog contract: OK (catálogo completo en vintage, Luxe Nails y blanca)')

@@ -20,6 +20,7 @@ type CreateAppointmentInput = {
   force?: boolean
   status?: 'PENDING' | 'CONFIRMED'
   quotedPrice?: number | null
+  coordinationGroupId?: string | null
 }
 
 type AppointmentMutationResult =
@@ -223,6 +224,7 @@ export class AppointmentService {
         totalDurationMinutes: professionalDuration,
         status: input.status ?? 'CONFIRMED',
         quotedPrice: normalizeQuotedPrice(input.quotedPrice),
+        coordinationGroupId: input.coordinationGroupId ?? null,
         serviceItems: {
           create: orderedServices.map((service, sortOrder) => ({
             serviceId: service.id,

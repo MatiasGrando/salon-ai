@@ -15,10 +15,14 @@ import {
 type DepositRecord = {
   id: string
   appointmentId: string
-  conversationId: string
+  conversationId: string | null
+  source?: 'WHATSAPP' | 'WEB'
   status: 'PENDING_PROOF' | 'PROOF_RECEIVED' | 'APPROVED' | 'REJECTED' | 'EXPIRED'
   expiresAt: Date
   proofMessageId: string | null
+  proofData?: Uint8Array | null
+  proofMimeType?: string | null
+  proofFilename?: string | null
   reviewedAt?: Date | null
   rejectionReason?: string | null
   bookingV2State?: unknown
@@ -27,6 +31,7 @@ type DepositRecord = {
 type AppointmentRecord = {
   id: string
   status: 'PENDING' | 'CONFIRMED' | 'CANCELLED'
+  coordinationGroupId?: string | null
 }
 
 const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
@@ -153,6 +158,92 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(result?.status, 'PROOF_RECEIVED')
       assert.equal(fixture.deposits[0]?.proofMessageId, 'message-image-1')
       assert.equal(fixture.appointments[0]?.status, 'PENDING')
+    }
+  },
+  {
+    name: 'la web acepta un comprobante PDF valido y lo deja en revision',
+    run: async () => {
+      const fixture = fakeDepositDb({
+        deposits: [{
+          id: 'deposit-web-1',
+          appointmentId: 'appointment-web-1',
+          conversationId: null,
+          source: 'WEB',
+          status: 'PENDING_PROOF',
+          expiresAt: new Date('2026-08-13T21:00:00.000Z'),
+          proofMessageId: null
+        }],
+        appointments: [{ id: 'appointment-web-1', status: 'PENDING' }]
+      })
+      const service = new BookingDepositService(fixture.db as never)
+      const pdf = Buffer.from('%PDF-1.4\ncomprobante')
+      const result = await service.submitWebProof({
+        depositId: 'deposit-web-1',
+        dataUrl: `data:application/pdf;base64,${pdf.toString('base64')}`,
+        filename: 'pago.pdf',
+        receivedAt: new Date('2026-08-13T20:00:00.000Z')
+      })
+      assert.equal(result.ok, true)
+      assert.equal(fixture.deposits[0]?.status, 'PROOF_RECEIVED')
+      assert.equal(fixture.deposits[0]?.proofMimeType, 'application/pdf')
+      assert.equal(fixture.appointments[0]?.status, 'PENDING')
+    }
+  },
+  {
+    name: 'la web rechaza archivos cuyo contenido no coincide con el formato',
+    run: async () => {
+      const fixture = fakeDepositDb({
+        deposits: [{
+          id: 'deposit-web-2',
+          appointmentId: 'appointment-web-2',
+          conversationId: null,
+          source: 'WEB',
+          status: 'PENDING_PROOF',
+          expiresAt: new Date('2026-08-13T21:00:00.000Z'),
+          proofMessageId: null
+        }],
+        appointments: [{ id: 'appointment-web-2', status: 'PENDING' }]
+      })
+      const service = new BookingDepositService(fixture.db as never)
+      const result = await service.submitWebProof({
+        depositId: 'deposit-web-2',
+        dataUrl: `data:application/pdf;base64,${Buffer.from('no-es-pdf').toString('base64')}`,
+        filename: 'engaño.pdf'
+      })
+      assert.equal(result.ok, false)
+      assert.equal(fixture.deposits[0]?.status, 'PENDING_PROOF')
+    }
+  },
+  {
+    name: 'la reserva publica y el CRM exponen el flujo web de señas',
+    run: () => {
+      const publicBooking = readFileSync(new URL('../src/routes/public-booking.ts', import.meta.url), 'utf8')
+      const landing = readFileSync(new URL('../src/routes/landing-ui.ts', import.meta.url), 'utf8')
+      const crm = readFileSync(new URL('../src/routes/crm.ts', import.meta.url), 'utf8')
+      const crmUi = readFileSync(new URL('../src/routes/crm-ui.ts', import.meta.url), 'utf8')
+      assert.ok(publicBooking.includes("source: 'WEB'"))
+      assert.ok(publicBooking.includes("/deposits/:depositId/proof"))
+      assert.ok(publicBooking.includes("service.attentionMode === 'GUIDED_ESTIMATE' && service.estimateAllowsBooking"))
+      assert.ok(publicBooking.includes('resolvePublicEstimateSelection(service, body.estimateOptionId)'))
+      assert.ok(publicBooking.includes('quotedPrice: estimateSelection.priceMin'))
+      assert.ok(publicBooking.includes("app.post('/public/booking/:slug/itineraries'"))
+      assert.ok(publicBooking.includes("app.post('/public/booking/:slug/book-coordinated'"))
+      assert.ok(publicBooking.includes("assignmentMode: commonProfessionals.length ? 'SINGLE_PROFESSIONAL' : 'MULTIPLE_PROFESSIONALS'"))
+      assert.ok(landing.includes('booking-proof-input'))
+      assert.ok(landing.includes('data-estimate-option-id'))
+      assert.ok(landing.includes('data-validation-service-id'))
+      assert.ok(landing.includes("estimateOptionId: serviceDetail(state.service).estimateOption?.id || null"))
+      assert.ok(landing.includes('Pod&eacute;s elegir uno o varios servicios'))
+      assert.ok(landing.includes('data-itinerary-id'))
+      assert.ok(crm.includes("app.get('/crm/deposits'"))
+      assert.ok(crm.includes("status: 'PROOF_RECEIVED'"))
+      assert.ok(crm.includes('reviewCount'))
+      assert.ok(crmUi.includes('data-conversation-filter="deposits"'))
+      assert.ok(crmUi.includes('Se&ntilde;as'))
+      assert.ok(crmUi.includes('data-deposit-review-approve'))
+      assert.ok(crmUi.includes('Aceptar se&ntilde;a y confirmar turno'))
+      assert.ok(crmUi.includes('void refreshDepositCount()'))
+      assert.ok(crmUi.includes('handoffCount + state.depositReviewCount'))
     }
   },
   {
@@ -397,6 +488,30 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'una seña web coordinada libera todos los turnos del grupo al vencer',
+    run: async () => {
+      const fixture = fakeDepositDb({
+        deposits: [{
+          id: 'deposit-web-group',
+          appointmentId: 'appointment-group-1',
+          conversationId: null,
+          source: 'WEB',
+          status: 'PENDING_PROOF',
+          expiresAt: new Date('2026-08-13T19:00:00.000Z'),
+          proofMessageId: null
+        }],
+        appointments: [
+          { id: 'appointment-group-1', status: 'PENDING', coordinationGroupId: 'group-1' },
+          { id: 'appointment-group-2', status: 'PENDING', coordinationGroupId: 'group-1' }
+        ]
+      })
+      const service = new BookingDepositService(fixture.db as never)
+      const result = await service.expireOverdue(new Date('2026-08-13T20:00:00.000Z'))
+      assert.equal(result.expired, 1)
+      assert.deepEqual(fixture.appointments.map((appointment) => appointment.status), ['CANCELLED', 'CANCELLED'])
+    }
+  },
+  {
     name: 'webhook registra el fallo de envío y reset total cancela la seña pendiente',
     run: () => {
       const webhook = readFileSync(new URL('../src/services/whatsapp-webhook-service.ts', import.meta.url), 'utf8')
@@ -496,6 +611,17 @@ function fakeDepositDb(input: {
       }
     },
     appointment: {
+      async findUnique(args: any) {
+        const appointment = appointments.find((item) => item.id === args.where.id)
+        return appointment
+          ? { coordinationGroupId: appointment.coordinationGroupId ?? null }
+          : null
+      },
+      async findMany(args: any) {
+        return appointments
+          .filter((appointment) => appointment.coordinationGroupId === args.where.coordinationGroupId)
+          .map((appointment) => ({ id: appointment.id }))
+      },
       async updateMany(args: any) {
         let count = 0
         for (const appointment of appointments) {

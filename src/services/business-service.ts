@@ -1,6 +1,6 @@
 import { prisma } from '../config/prisma.js'
 import { generateBusinessCustomerCode } from './business-customer-code.js'
-import type { Prisma } from '@prisma/client'
+import type { Prisma } from '../generated/prisma/client.js'
 
 const RESERVED_SLUGS = new Set([
   'admin',
@@ -159,7 +159,8 @@ export class BusinessService {
           select: {
             displayPhoneNumber: true
           }
-        }
+        },
+        paymentSettings: true
       }
     })
   }

@@ -4574,8 +4574,7 @@ const crmHtml = `<!doctype html>
       }
 
       .app > .workspace-nav .crm-brand > div:last-child,
-      .app > .workspace-nav button > strong,
-      .app > .workspace-nav .nav-badge {
+      .app > .workspace-nav button > strong {
         width: 0;
         overflow: hidden;
         opacity: 0;
@@ -4587,6 +4586,24 @@ const crmHtml = `<!doctype html>
         justify-content: center;
         padding-right: 8px;
         padding-left: 8px;
+      }
+
+      .app > .workspace-nav .nav-badge {
+        position: absolute;
+        top: 4px;
+        right: 3px;
+        min-width: 18px;
+        width: auto;
+        height: 18px;
+        margin: 0;
+        padding: 0 5px;
+        overflow: visible;
+        opacity: 1;
+        visibility: visible;
+        color: #ffffff;
+        background: #ef4444;
+        font-size: 10px;
+        box-shadow: 0 0 0 2px #062746;
       }
 
       .app > .workspace-nav .nav-subitems,
@@ -4618,13 +4635,29 @@ const crmHtml = `<!doctype html>
       .app > .workspace-nav:hover .crm-brand > div:last-child,
       .app > .workspace-nav:focus-within .crm-brand > div:last-child,
       .app > .workspace-nav:hover button > strong,
-      .app > .workspace-nav:focus-within button > strong,
-      .app > .workspace-nav:hover .nav-badge,
-      .app > .workspace-nav:focus-within .nav-badge {
+      .app > .workspace-nav:focus-within button > strong {
         width: auto;
         overflow: visible;
         opacity: 1;
         visibility: visible;
+        white-space: nowrap;
+      }
+
+      .app > .workspace-nav:hover .nav-badge,
+      .app > .workspace-nav:focus-within .nav-badge {
+        position: static;
+        width: auto;
+        min-width: 22px;
+        height: 22px;
+        margin-left: auto;
+        padding: 0 7px;
+        overflow: visible;
+        opacity: 1;
+        visibility: visible;
+        color: #0d63f3;
+        background: #ffffff;
+        font-size: 12px;
+        box-shadow: none;
       }
 
       .app > .workspace-nav:hover .workspace-nav-menu > button,
@@ -6493,6 +6526,65 @@ const crmHtml = `<!doctype html>
     .service-actions button {
       height: 44px;
       border-radius: 7px;
+    }
+
+    .deposit-review-card {
+      width: min(620px, calc(100% - 32px));
+      margin: 28px auto;
+      padding: 24px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: #fff;
+      box-shadow: 0 16px 40px rgba(15, 23, 42, .08);
+    }
+
+    .deposit-review-summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 14px;
+    }
+
+    .deposit-review-summary span { color: var(--muted); font-size: 13px; font-weight: 700; }
+    .deposit-review-summary strong { font-size: 25px; }
+    .deposit-review-card > p { margin: 6px 0; color: var(--muted); }
+
+    .deposit-review-actions {
+      margin: 18px 0 4px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .deposit-review-actions button {
+      min-height: 42px;
+    }
+
+    .deposit-proof-preview {
+      width: 100%;
+      max-height: 480px;
+      margin-top: 20px;
+      display: block;
+      object-fit: contain;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #f8fafc;
+    }
+
+    .deposit-proof-document {
+      margin-top: 20px;
+      padding: 15px 18px;
+      display: block;
+      border-radius: 10px;
+      color: #1d4ed8;
+      background: #eff6ff;
+      font-weight: 800;
+      text-align: center;
+      text-decoration: none;
     }
 
     .services-list-head {
@@ -13545,13 +13637,16 @@ const crmHtml = `<!doctype html>
     <aside class="sidebar conversation-sidebar">
       <div class="conversation-tabs" role="tablist" aria-label="Filtros de conversaciones">
         <button class="active" id="conversation-tab-all" type="button" data-conversation-filter="all">
-          Todos <span id="conversation-count">0</span>
+          Chats <span id="conversation-count">0</span>
         </button>
         <button id="conversation-tab-unread" type="button" data-conversation-filter="unread">
           No le&iacute;dos <span id="conversation-unread-count">0</span>
         </button>
         <button id="conversation-tab-handoff" type="button" data-conversation-filter="handoff">
           Derivados <span id="handoff-count">0</span>
+        </button>
+        <button id="conversation-tab-deposits" type="button" data-conversation-filter="deposits">
+          Se&ntilde;as <span id="deposit-count">0</span>
         </button>
         <button id="conversation-tab-archived" type="button" data-conversation-filter="archived">
           Archivados <span id="conversation-archived-count">0</span>
@@ -16555,6 +16650,10 @@ const crmHtml = `<!doctype html>
 
     const state = {
       conversations: [],
+      deposits: [],
+      depositCount: 0,
+      depositReviewCount: 0,
+      selectedDeposit: null,
       conversationNextCursor: null,
       conversationSearchTimer: null,
       conversationSearchLoading: false,
@@ -16753,6 +16852,7 @@ const crmHtml = `<!doctype html>
       count: document.getElementById('conversation-count'),
       unreadCount: document.getElementById('conversation-unread-count'),
       archivedCount: document.getElementById('conversation-archived-count'),
+      depositCount: document.getElementById('deposit-count'),
       conversationTabs: document.querySelector('.conversation-tabs'),
       conversationMore: document.getElementById('conversation-more'),
       search: document.getElementById('search'),
@@ -17627,7 +17727,7 @@ const crmHtml = `<!doctype html>
           const button = '<button class="' + (item.active ? 'active' : '') + '" type="button" data-nav-section="' + item.section + '"' + (item.marketingView ? ' data-marketing-nav="' + item.marketingView + '"' : '') + '>' +
             '<span data-icon="' + item.icon + '"></span>' +
             '<strong>' + item.label + '</strong>' +
-            (item.label === 'Conversaciones' ? '<em class="nav-badge" id="nav-handoff-badge" hidden>0</em>' : '') +
+            (item.label === 'Conversaciones' ? '<em class="nav-badge" id="nav-handoff-badge" aria-label="Pendientes de atenci&oacute;n" title="Pendientes de atenci&oacute;n" hidden>0</em>' : '') +
           '</button>'
           if (item.section !== 'campaigns') return button
           return button +
@@ -18673,6 +18773,10 @@ const crmHtml = `<!doctype html>
       state.messages = []
       state.messageNextCursor = null
       state.conversations = []
+      state.deposits = []
+      state.depositCount = 0
+      state.depositReviewCount = 0
+      state.selectedDeposit = null
       state.conversationNextCursor = null
       state.conversationCounts = { active: 0, archived: 0, handoff: 0 }
       state.lastConversationSyncAt = null
@@ -19255,6 +19359,7 @@ const crmHtml = `<!doctype html>
         }
 
         els.count.textContent = String(state.conversationCounts.active)
+        void refreshDepositCount()
       } catch (error) {
         if (!options.silent) {
           els.list.innerHTML = '<div class="error">' + escapeHtml(error.message) + '</div>'
@@ -19266,6 +19371,183 @@ const crmHtml = `<!doctype html>
       if (!options.skipEnsureVisible) {
         await ensureVisibleConversationsForCurrentFilter()
       }
+    }
+
+    async function refreshDepositCount() {
+      const params = new URLSearchParams({ view: 'active' })
+      if (state.businessId) params.set('businessId', state.businessId)
+      try {
+        const result = await getJson('/crm/deposits?' + params.toString())
+        state.depositCount = result.activeCount || 0
+        state.depositReviewCount = result.reviewCount || 0
+        els.depositCount.textContent = String(state.depositCount)
+        renderNavAttentionBadge()
+      } catch {
+        // La bandeja principal sigue disponible aunque falle este contador secundario.
+      }
+    }
+
+    async function loadDeposits(options = {}) {
+      const params = new URLSearchParams({ view: 'active' })
+      if (state.businessId) params.set('businessId', state.businessId)
+      try {
+        const result = await getJson('/crm/deposits?' + params.toString())
+        state.deposits = result.items || []
+        state.depositCount = result.activeCount || 0
+        state.depositReviewCount = result.reviewCount || 0
+        els.depositCount.textContent = String(state.depositCount)
+        renderNavAttentionBadge()
+        renderDeposits()
+        if (state.selectedDeposit) {
+          state.selectedDeposit = state.deposits.find((item) => item.id === state.selectedDeposit.id) || null
+        }
+        if (!state.selectedDeposit && state.deposits[0]) void selectDeposit(state.deposits[0].id)
+        else if (state.selectedDeposit) renderSelectedDeposit()
+        else renderEmptyDepositSelection()
+      } catch (error) {
+        els.list.innerHTML = '<div class="error">' + escapeHtml(error.message) + '</div>'
+      }
+    }
+
+    function renderDeposits() {
+      for (const tab of els.conversationTabs.querySelectorAll('[data-conversation-filter]')) {
+        tab.classList.toggle('active', tab.dataset.conversationFilter === state.conversationFilter)
+      }
+      els.depositCount.textContent = String(state.depositCount)
+      els.conversationMore.hidden = true
+      const query = els.search.value.trim().toLowerCase()
+      const deposits = state.deposits.filter((deposit) => {
+        if (!query) return true
+        const appointment = deposit.appointment || {}
+        return [appointment.customer?.name, appointment.customer?.phone, appointment.service?.name, appointment.professional?.name]
+          .some((value) => String(value || '').toLowerCase().includes(query))
+      })
+      if (!deposits.length) {
+        els.list.innerHTML = '<div class="empty">No hay se&ntilde;as pendientes.</div>'
+        return
+      }
+      els.list.innerHTML = deposits.map((deposit) => {
+        const appointment = deposit.appointment
+        const active = state.selectedDeposit?.id === deposit.id ? ' active' : ''
+        const status = deposit.status === 'PROOF_RECEIVED' ? 'Comprobante recibido' : 'Esperando comprobante'
+        return '<button class="conversation' + active + '" data-deposit-id="' + escapeHtml(deposit.id) + '">' +
+          '<div class="conversation-avatar-wrap"><div class="avatar">$</div></div>' +
+          '<div class="conversation-main">' +
+            '<div class="row"><div class="conversation-name">' + escapeHtml(appointment.customer.name) + '</div><span class="conversation-time">' + escapeHtml(formatConversationTime(deposit.updatedAt)) + '</span></div>' +
+            '<p class="preview">' + escapeHtml(appointment.service.name + ' · ' + formatCurrency(deposit.amount)) + '</p>' +
+            '<div class="conversation-status-line"><span class="chip step-confirm">' + escapeHtml(status) + '</span></div>' +
+          '</div>' +
+        '</button>'
+      }).join('')
+      for (const button of els.list.querySelectorAll('[data-deposit-id]')) {
+        button.addEventListener('click', () => selectDeposit(button.dataset.depositId))
+      }
+    }
+
+    async function selectDeposit(id) {
+      const deposit = state.deposits.find((item) => item.id === id)
+      if (!deposit) return
+      if (deposit.source === 'WHATSAPP' && deposit.conversationId) {
+        state.conversationFilter = 'all'
+        state.selectedDeposit = null
+        await loadConversations()
+        const conversation = state.conversations.find((item) => item.id === deposit.conversationId)
+        if (conversation) await selectConversation(conversation.id)
+        return
+      }
+      state.selected = null
+      state.selectedDeposit = deposit
+      renderDeposits()
+      renderSelectedDeposit()
+      if (isMobile()) setMobileView('chat')
+    }
+
+    function renderSelectedDeposit() {
+      const deposit = state.selectedDeposit
+      if (!deposit) return
+      const appointment = deposit.appointment
+      const customer = appointment.customer
+      const canManage = state.currentUser?.role !== 'STAFF' || state.currentUser?.canManageDeposits
+      els.chatAvatar.textContent = contactInitials(customer.name, customer.phone)
+      els.chatPhone.textContent = customer.name
+      els.chatStatus.textContent = 'Reserva desde la pagina · ' + customer.phone
+      els.stepChip.textContent = deposit.status === 'PROOF_RECEIVED' ? 'Comprobante recibido' : 'Esperando seña'
+      els.stepChip.className = 'chip step-confirm'
+      els.depositApprove.hidden = !canManage
+      els.depositApprove.disabled = deposit.status !== 'PROOF_RECEIVED'
+      els.depositApprove.textContent = deposit.status === 'PROOF_RECEIVED'
+        ? 'Aprobar seña de ' + formatCurrency(deposit.amount)
+        : 'Esperando comprobante'
+      els.depositReject.hidden = !canManage
+      els.depositReject.disabled = !['PENDING_PROOF', 'PROOF_RECEIVED'].includes(deposit.status)
+      els.advisorQuote.hidden = true
+      els.defineService.hidden = true
+      els.resolveHandoff.hidden = true
+      els.conversationAiToggle.hidden = true
+      els.archiveConversation.hidden = true
+      els.replyForm.hidden = true
+
+      const proofUrl = '/crm/deposits/' + encodeURIComponent(deposit.id) + '/proof'
+      const proof = deposit.status === 'PROOF_RECEIVED'
+        ? deposit.proofMimeType?.startsWith('image/')
+          ? '<a href="' + proofUrl + '" target="_blank" rel="noopener"><img class="deposit-proof-preview" src="' + proofUrl + '" alt="Comprobante de pago"></a>'
+          : '<a class="deposit-proof-document" href="' + proofUrl + '" target="_blank" rel="noopener">Abrir comprobante PDF</a>'
+        : '<div class="empty">El cliente todav&iacute;a no envi&oacute; el comprobante.</div>'
+      const reviewActions = canManage
+        ? '<div class="deposit-review-actions">' +
+            '<button class="primary" type="button" data-deposit-review-approve' + (deposit.status === 'PROOF_RECEIVED' ? '' : ' disabled') + '>Aceptar se&ntilde;a y confirmar turno</button>' +
+            '<button class="danger" type="button" data-deposit-review-reject' + (['PENDING_PROOF', 'PROOF_RECEIVED'].includes(deposit.status) ? '' : ' disabled') + '>Rechazar se&ntilde;a</button>' +
+          '</div>'
+        : ''
+      els.messages.innerHTML =
+        '<div class="deposit-review-card">' +
+          '<div class="deposit-review-summary"><span>Se&ntilde;a esperada</span><strong>' + escapeHtml(formatCurrency(deposit.amount)) + '</strong></div>' +
+          (deposit.coordinatedAppointments || [appointment]).map((item) =>
+            '<p><strong>' + escapeHtml(item.service.name) + '</strong> · ' + escapeHtml(formatDateTime(item.startAt) + ' con ' + item.professional.name) + '</p>'
+          ).join('') +
+          proof + reviewActions +
+        '</div>'
+      els.messages.querySelector('[data-deposit-review-approve]')?.addEventListener('click', approveSelectedDeposit)
+      els.messages.querySelector('[data-deposit-review-reject]')?.addEventListener('click', rejectSelectedDeposit)
+
+      els.detailAvatar.textContent = contactInitials(customer.name, customer.phone)
+      els.detailName.textContent = customer.name
+      els.detailPhone.textContent = customer.phone
+      els.detailPhone.href = 'tel:' + customer.phone
+      els.detailEmail.textContent = customer.email || ''
+      els.detailEmail.href = customer.email ? 'mailto:' + customer.email : '#'
+      els.detailEmail.hidden = !customer.email
+      els.detailWhatsapp.href = whatsappAppUrl(customer.phone)
+      els.detailStep.textContent = els.stepChip.textContent
+      els.detailStep.className = els.stepChip.className
+      els.detailMarketingStatus.textContent = 'Reserva web'
+      els.detailMarketingStatus.className = 'chip'
+      els.detailUpdated.textContent = formatDateTime(deposit.updatedAt)
+      els.customerEdit.disabled = true
+      const coordinatedAppointments = deposit.coordinatedAppointments || [appointment]
+      els.appointments.innerHTML = coordinatedAppointments.map((item) =>
+        '<div class="item"><strong>' + escapeHtml(item.service.name) + '</strong><br>' + escapeHtml(formatDateTime(item.startAt) + ' · ' + item.professional.name) + '</div>'
+      ).join('')
+      els.appointmentCount.textContent = String(coordinatedAppointments.length)
+    }
+
+    function renderEmptyDepositSelection() {
+      els.chatAvatar.textContent = '$'
+      els.chatPhone.textContent = 'Señas'
+      els.chatStatus.textContent = 'No hay pagos pendientes de revisión'
+      els.stepChip.textContent = 'Al día'
+      els.stepChip.className = 'chip success'
+      els.messages.innerHTML = '<div class="empty">No hay se&ntilde;as pendientes.</div>'
+      els.depositApprove.hidden = true
+      els.depositReject.hidden = true
+      els.advisorQuote.hidden = true
+      els.defineService.hidden = true
+      els.resolveHandoff.hidden = true
+      els.conversationAiToggle.hidden = true
+      els.archiveConversation.hidden = true
+      els.replyForm.hidden = true
+      els.appointments.innerHTML = '<div class="empty">Sin reservas pendientes.</div>'
+      els.appointmentCount.textContent = '0'
     }
 
     function conversationServerFilterForCurrentTab() {
@@ -19302,6 +19584,11 @@ const crmHtml = `<!doctype html>
     }
 
     async function refreshConversationSummary() {
+      if (state.conversationFilter === 'deposits') {
+        await loadDeposits({ keepSelection: true })
+        return
+      }
+      void refreshDepositCount()
       const params = new URLSearchParams()
       if (state.businessId) params.set('businessId', state.businessId)
       const query = params.toString() ? '?' + params.toString() : ''
@@ -19375,6 +19662,10 @@ const crmHtml = `<!doctype html>
     }
 
     function renderConversations() {
+      if (state.conversationFilter === 'deposits') {
+        renderDeposits()
+        return
+      }
       const unreadCount = state.conversations.filter(isConversationUnread).length
       const conversations = filteredConversations()
       els.count.textContent = String(state.conversationCounts.active)
@@ -19635,6 +19926,8 @@ const crmHtml = `<!doctype html>
     function renderSelected(options = {}) {
       const selected = state.selected
       if (!selected) return
+      state.selectedDeposit = null
+      els.replyForm.hidden = false
 
       const name = conversationDisplayName(selected)
       const customer = customerForPhone(selected.phone)
@@ -20432,7 +20725,7 @@ const crmHtml = `<!doctype html>
     function renderAiControls() {
       const pending = state.conversationCounts.handoff || state.conversations.filter(isPendingHandoff).length
       els.handoffCount.textContent = String(pending)
-      renderNavHandoffBadge(pending)
+      renderNavAttentionBadge()
       if (els.topHandoffTotal) els.topHandoffTotal.textContent = String(pending)
       els.globalBotToggle.checked = state.aiSettings.botEnabled !== false
       els.globalAiToggle.checked = state.aiSettings.aiEnabled !== false
@@ -20612,12 +20905,14 @@ const crmHtml = `<!doctype html>
       els.assistantPersonalityFeedback.className = 'settings-feedback visible ' + type
     }
 
-    function renderNavHandoffBadge(count) {
+    function renderNavAttentionBadge() {
       const badge = document.getElementById('nav-handoff-badge')
       if (!badge) return
-
+      const handoffCount = state.conversationCounts.handoff || state.conversations.filter(isPendingHandoff).length
+      const count = handoffCount + state.depositReviewCount
       badge.hidden = count === 0
       badge.textContent = count > 99 ? '99+' : String(count)
+      badge.title = handoffCount + ' derivados y ' + state.depositReviewCount + ' señas para revisar'
     }
 
     async function loadReports() {
@@ -21443,6 +21738,27 @@ const crmHtml = `<!doctype html>
     }
 
     async function approveSelectedDeposit() {
+      if (state.selectedDeposit) {
+        const deposit = state.selectedDeposit
+        if (deposit.status !== 'PROOF_RECEIVED') return
+        if (!await requestCrmConfirmation(
+          '¿Confirmás que el comprobante por ' + formatCurrency(deposit.amount) + ' es válido? El turno quedará confirmado.',
+          { confirmLabel: 'Sí, aprobar seña', danger: false }
+        )) return
+        if (!setButtonLoading(els.depositApprove, true, 'Confirmando...')) return
+        try {
+          await getJson('/crm/deposits/' + deposit.id + '/approve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+          state.selectedDeposit = null
+          await loadDeposits()
+          await loadAgenda()
+          showCrmToast('Seña aprobada y turno confirmado.', 'success')
+        } catch (error) {
+          showCrmToast(error.message, 'error')
+        } finally {
+          setButtonLoading(els.depositApprove, false)
+        }
+        return
+      }
       if (!state.selected) return
       const deposit = state.selected.bookingDeposits?.[0]
       if (!deposit || deposit.status !== 'PROOF_RECEIVED') return
@@ -21468,6 +21784,31 @@ const crmHtml = `<!doctype html>
     }
 
     async function rejectSelectedDeposit() {
+      if (state.selectedDeposit) {
+        const deposit = state.selectedDeposit
+        if (!['PENDING_PROOF', 'PROOF_RECEIVED'].includes(deposit.status)) return
+        if (!await requestCrmConfirmation(
+          '¿Querés rechazar la seña? El horario temporal se liberará.',
+          { confirmLabel: 'Sí, rechazar seña' }
+        )) return
+        if (!setButtonLoading(els.depositReject, true, 'Rechazando...')) return
+        try {
+          await getJson('/crm/deposits/' + deposit.id + '/reject', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason: 'El comprobante no pudo ser validado' })
+          })
+          state.selectedDeposit = null
+          await loadDeposits()
+          await loadAgenda()
+          showCrmToast('Seña rechazada y horario liberado.', 'success')
+        } catch (error) {
+          showCrmToast(error.message, 'error')
+        } finally {
+          setButtonLoading(els.depositReject, false)
+        }
+        return
+      }
       if (!state.selected) return
       const deposit = state.selected.bookingDeposits?.[0]
       if (!deposit || !['PENDING_PROOF', 'PROOF_RECEIVED'].includes(deposit.status)) return
@@ -27995,6 +28336,10 @@ const crmHtml = `<!doctype html>
     }
 
     async function expandConversationSearch() {
+      if (state.conversationFilter === 'deposits') {
+        renderDeposits()
+        return
+      }
       const query = els.search.value.trim()
       if (!query || state.conversationSearchLoading) return
       state.conversationSearchLoading = true
@@ -28698,7 +29043,7 @@ const crmHtml = `<!doctype html>
     els.depositApprove.addEventListener('click', approveSelectedDeposit)
     els.depositReject.addEventListener('click', rejectSelectedDeposit)
     els.refresh.addEventListener('click', () => {
-      withButtonLoading(els.refresh, '', () => loadConversations())
+      withButtonLoading(els.refresh, '', () => state.conversationFilter === 'deposits' ? loadDeposits({ keepSelection: true }) : loadConversations())
     })
     els.searchButton.addEventListener('click', () => expandConversationSearch().catch((error) => showCrmToast(error.message, 'error')))
     els.search.addEventListener('input', scheduleConversationSearchExpansion)
@@ -28717,6 +29062,14 @@ const crmHtml = `<!doctype html>
       const tab = event.target.closest('[data-conversation-filter]')
       if (!tab) return
       state.conversationFilter = tab.dataset.conversationFilter
+      if (state.conversationFilter === 'deposits') {
+        state.selected = null
+        state.selectedDeposit = null
+        await loadDeposits()
+        return
+      }
+      state.selectedDeposit = null
+      els.replyForm.hidden = false
       const archiveView = state.conversationFilter === 'archived' ? 'archived' : 'active'
       const serverFilter = conversationServerFilterForCurrentTab()
       if (archiveView !== state.loadedArchiveView || serverFilter !== state.loadedConversationFilter) {
