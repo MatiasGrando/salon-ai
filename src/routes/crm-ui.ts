@@ -22197,12 +22197,12 @@ const crmHtml = `<!doctype html>
       const isSalonWhite = templateId === 'salon-white'
       const isLuxeNails = templateId === 'luxe-nails'
       els.landingCoverTitle.textContent = isSalonWhite
-        ? 'Foto de portada vertical (2:3 o 3:4)'
+        ? 'Foto de portada vertical (2:3)'
         : isLuxeNails
           ? 'Foto de portada Luxe Nails (1600 × 900)'
           : 'Foto de portada (1600 × 700)'
       els.landingCoverHelp.textContent = isSalonWhite
-        ? 'Para Studio claro usá una foto vertical 2:3 o 3:4, de al menos 680 × 1024 px. Máximo 3 MB.'
+        ? 'Para Studio claro recomendamos crear una imagen vertical 2:3 de 1024 × 1536 px y menos de 3 MB.'
         : isLuxeNails
           ? 'Para Luxe Nails usá una imagen horizontal 16:9 de al menos 1600 × 900 px. Se recorta desde abajo, conservando el foco en la parte superior derecha. Máximo 3 MB.'
           : 'Formato recomendado para Vintage y Editorial: 1600 × 700 px. Máximo 3 MB. La portada se adapta para mostrarse completa en cualquier pantalla.'
