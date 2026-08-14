@@ -14,6 +14,30 @@ type FindOrCreateCustomerInput = {
   defaultAreaCode?: string | null | undefined
 }
 
+type CreateProvisionalCustomerInput = {
+  name: string
+  email?: string | null | undefined
+}
+
+export async function createProvisionalCustomer(input: CreateProvisionalCustomerInput) {
+  const name = input.name.trim()
+  const email = normalizeCustomerEmail(input.email)
+  if (!name) throw new CustomerPhoneValidationError('El nombre del cliente es requerido')
+
+  return prisma.customer.create({
+    data: {
+      name,
+      phone: '',
+      normalizedPhone: null,
+      email: email ?? null
+    }
+  })
+}
+
+export function customerHasContactIdentity(phone?: string | null) {
+  return Boolean(phone?.trim())
+}
+
 export async function findOrCreateCustomerByPhone(input: FindOrCreateCustomerInput) {
   const name = input.name.trim()
   const defaultAreaCode = input.defaultAreaCode || await defaultAreaCodeForBusiness(input.businessId)

@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
 import {
+  createProvisionalCustomer,
+  customerHasContactIdentity,
   CustomerEmailValidationError,
   CustomerPhoneConflictError,
   CustomerPhoneValidationError,
@@ -34,6 +36,7 @@ type CustomerOverviewSummary = {
   createdAt: Date
   status: 'active' | 'inactive'
   isNew: boolean
+  isProvisional: boolean
   visitCount: number
   lastVisit: Date | null
   nextAppointment: CustomerOverviewAppointment | null
@@ -229,7 +232,8 @@ export async function customerRoutes(app: FastifyInstance) {
       const recentVisits = attended.slice(0, 8)
       const lastVisit = attended[0]?.startAt ?? null
       const nextAppointment = future[0] ?? null
-      const isNew = customer.createdAt >= monthStart && customer.createdAt < nextMonthStart
+      const isProvisional = !customerHasContactIdentity(customer.phone)
+      const isNew = !isProvisional && customer.createdAt >= monthStart && customer.createdAt < nextMonthStart
       const isActive = Boolean(
         nextAppointment ||
         (lastVisit && lastVisit >= cutoff) ||
@@ -239,7 +243,9 @@ export async function customerRoutes(app: FastifyInstance) {
         return total + (appointment.quotedPrice ?? appointment.service.price ?? 0)
       }, 0)
 
-      const conversation = conversationsByPhone.get(normalizePhone(customer.phone)) ?? null
+      const conversation = isProvisional
+        ? null
+        : conversationsByPhone.get(normalizePhone(customer.phone)) ?? null
 
       return {
         id: customer.id,
@@ -251,10 +257,11 @@ export async function customerRoutes(app: FastifyInstance) {
         createdAt: customer.createdAt,
         status: isActive ? 'active' : 'inactive',
         isNew,
+        isProvisional,
         visitCount: attended.length,
         lastVisit,
         nextAppointment,
-        averageFrequencyDays: averageVisitGap(recentVisits),
+        averageFrequencyDays: isProvisional ? null : averageVisitGap(recentVisits),
         estimatedSpend,
         frequentProfessional: mostFrequent(recentVisits, (appointment) => appointment.professional.name),
         frequentService: mostFrequent(recentVisits, (appointment) => appointment.service.name),
@@ -276,8 +283,9 @@ export async function customerRoutes(app: FastifyInstance) {
     const filtered = summaries
       .filter((customer) => {
         if (!search) return true
+        const searchPhone = normalizePhone(search)
         return customer.name.toLocaleLowerCase('es').includes(search) ||
-          normalizePhone(customer.phone).includes(normalizePhone(search)) ||
+          Boolean(searchPhone && normalizePhone(customer.phone).includes(searchPhone)) ||
           customer.email?.toLocaleLowerCase('es').includes(search)
       })
       .filter((customer) => {
@@ -382,12 +390,24 @@ export async function customerRoutes(app: FastifyInstance) {
 
     const body = request.body as {
       name: string
-      phone: string
+      phone?: string
       email?: string | null
       businessId?: string
     }
 
     try {
+      if (!body.phone?.trim()) {
+        const customer = await createProvisionalCustomer({
+          name: body.name || '',
+          email: body.email
+        })
+        return {
+          ...customer,
+          isProvisional: true,
+          wasExisting: false,
+          nameConflict: null
+        }
+      }
       const result = await findOrCreateCustomerByPhone({
         name: body.name || '',
         phone: body.phone || '',

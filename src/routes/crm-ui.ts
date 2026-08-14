@@ -14081,8 +14081,9 @@ const crmHtml = `<!doctype html>
               <input class="field" id="appointment-customer-name" placeholder="Nombre del cliente">
             </div>
             <div class="form-row">
-              <label for="appointment-customer-phone">Tel&eacute;fono</label>
-              <input class="field" id="appointment-customer-phone" placeholder="Tel&eacute;fono">
+              <label for="appointment-customer-phone">Tel&eacute;fono <span class="optional-label">(opcional)</span></label>
+              <input class="field" id="appointment-customer-phone" placeholder="Pod&eacute;s completarlo despu&eacute;s">
+              <small>Sin tel&eacute;fono, el turno se guarda como cliente presencial provisional.</small>
             </div>
           </div>
           <div class="appointment-contact-actions" id="appointment-contact-actions" hidden>
@@ -19078,6 +19079,8 @@ const crmHtml = `<!doctype html>
       const marketingEnabled = customer.marketingStatus === 'ACTIVE'
       const marketingStatusCopy = marketingEnabled
         ? 'Promociones activas para este cliente.'
+        : customer.isProvisional
+          ? 'Completa el telefono para habilitar promociones y comunicaciones.'
         : customer.marketingStatus === 'OPTED_OUT'
           ? 'El cliente solicito la baja de promociones.'
           : customer.marketingStatus === 'DECLINED'
@@ -19085,7 +19088,7 @@ const crmHtml = `<!doctype html>
             : 'Las promociones estan desactivadas.'
       const canManageMarketing = state.currentUser?.role !== 'STAFF' || state.currentUser?.canManageCustomerMarketing
       const canEditCustomer = state.currentUser?.role !== 'STAFF' || state.currentUser?.canEditCustomers
-      const marketingActions = !canManageMarketing
+      const marketingActions = !canManageMarketing || customer.isProvisional
         ? ''
         : marketingEnabled
         ? '<button class="secondary" type="button" data-mobile-customer-id="' + customer.id + '" data-mobile-marketing-status="OPTED_OUT">Dar de baja</button>'
@@ -19098,7 +19101,7 @@ const crmHtml = `<!doctype html>
 
       return '<td class="customer-mobile-detail" colspan="6">' +
         '<div class="customer-mobile-actions">' +
-          '<a class="customer-contact-action whatsapp" href="' + whatsappAppUrl(customer.phone) + '">' + icon('whatsapp') + 'WhatsApp</a>' +
+          (customer.isProvisional ? '' : '<a class="customer-contact-action whatsapp" href="' + whatsappAppUrl(customer.phone) + '">' + icon('whatsapp') + 'WhatsApp</a>') +
           (customer.email ? '<a class="customer-contact-action" href="mailto:' + escapeHtml(customer.email) + '">' + icon('mail') + 'Email</a>' : '') +
           '<button class="customer-contact-action" type="button" data-mobile-open-customer-conversation="' + customer.id + '" ' + (customer.conversation ? '' : 'disabled') + '>' + icon('mail') + 'CRM</button>' +
           '<button class="primary" type="button" data-mobile-schedule-customer="' + customer.id + '">' + icon('calendar') + 'Agendar turno</button>' +
@@ -19171,12 +19174,16 @@ const crmHtml = `<!doctype html>
         : ''
       const marketingStatusCopy = marketingEnabled
         ? 'Promociones activas para este cliente.'
+        : customer.isProvisional
+          ? 'Complet&aacute; el tel&eacute;fono para habilitar promociones y comunicaciones.'
         : customer.marketingStatus === 'OPTED_OUT'
           ? 'El cliente solicit&oacute; la baja de promociones.'
           : customer.marketingStatus === 'DECLINED'
             ? 'Se consult&oacute; y el cliente rechaz&oacute; recibir promociones.'
             : 'Las promociones est&aacute;n desactivadas.'
-      const marketingActions = marketingEnabled
+      const marketingActions = customer.isProvisional
+        ? ''
+        : marketingEnabled
         ? '<button class="secondary" type="button" data-marketing-status="OPTED_OUT">Dar de baja</button>'
         : '<div class="customer-marketing-actions">' +
             '<button class="primary" type="button" data-marketing-status="ACTIVE">Activar promociones</button>' +
@@ -19190,11 +19197,14 @@ const crmHtml = `<!doctype html>
       els.customerProfilePanel.innerHTML = '<div class="customer-profile-content">' +
         '<header class="customer-profile-head">' +
           '<div class="customer-profile-avatar tone-' + avatarTone + '">' + escapeHtml(contactInitials(customer.name, customer.phone)) + '</div>' +
-          '<div><h3>' + escapeHtml(customer.name) + '</h3><a href="tel:' + escapeHtml(customer.phone) + '">' + escapeHtml(formatCustomerPhone(customer.phone)) + '</a>' +
+          '<div><h3>' + escapeHtml(customer.name) + '</h3>' +
+            (customer.isProvisional
+              ? '<span>Sin tel&eacute;fono &middot; ficha provisional</span>'
+              : '<a href="tel:' + escapeHtml(customer.phone) + '">' + escapeHtml(formatCustomerPhone(customer.phone)) + '</a>') +
             (customer.email ? '<a href="mailto:' + escapeHtml(customer.email) + '">' + escapeHtml(customer.email) + '</a>' : '') + '</div>' +
           '<div class="customer-profile-actions">' +
             '<div class="customer-profile-contact-row">' +
-              '<a class="customer-contact-action whatsapp" href="' + whatsappAppUrl(customer.phone) + '" title="Abrir WhatsApp" aria-label="Abrir WhatsApp">' + icon('whatsapp') + '</a>' +
+              (customer.isProvisional ? '' : '<a class="customer-contact-action whatsapp" href="' + whatsappAppUrl(customer.phone) + '" title="Abrir WhatsApp" aria-label="Abrir WhatsApp">' + icon('whatsapp') + '</a>') +
               '<button class="customer-contact-action conversation" type="button" data-open-customer-conversation title="' + (customer.conversation ? 'Abrir conversacion en el CRM' : 'Este cliente no tiene una conversacion') + '" aria-label="Abrir conversacion en el CRM" ' + (customer.conversation ? '' : 'disabled') + '>' + icon('mail') + '</button>' +
             '</div>' +
             (canCreateAppointments() ? '<button class="primary" type="button" data-schedule-customer>' + icon('calendar') + 'Agendar turno</button>' : '') +
@@ -19265,6 +19275,7 @@ const crmHtml = `<!doctype html>
 
     function formatCustomerPhone(value) {
       const original = String(value || '').trim()
+      if (!original) return 'Sin telefono'
       const digits = normalizePhone(original)
       let national = ''
 
@@ -24067,7 +24078,8 @@ const crmHtml = `<!doctype html>
     }
 
     function appointmentCustomerLabel(customer) {
-      return customer.name + ' - ' + formatCustomerPhone(customer.phone)
+      const phone = formatCustomerPhone(customer.phone)
+      return customer.name + ' - ' + (phone || 'Sin telefono')
     }
 
     function closeAppointmentCustomerResults() {
@@ -25498,8 +25510,8 @@ const crmHtml = `<!doctype html>
       const appointment = input.appointment
       state.editingAppointmentId = appointment?.id || null
       els.appointmentForce.checked = false
-      els.appointmentTitle.textContent = appointment ? 'Editar turno' : 'Nuevo turno'
-      els.appointmentSubmit.textContent = appointment ? 'Guardar cambios' : 'Guardar turno'
+      els.appointmentTitle.textContent = appointment ? 'Editar turno' : 'Nuevo turno rápido'
+      els.appointmentSubmit.textContent = appointment ? 'Guardar cambios' : 'Cargar turno'
       els.appointmentDelete.hidden = !appointment
       els.appointmentNoShow.hidden = !appointment || appointment.status === 'CANCELLED'
 
@@ -25710,8 +25722,8 @@ const crmHtml = `<!doctype html>
         if (!customerId) {
           const name = els.appointmentCustomerName.value.trim()
           const phone = els.appointmentCustomerPhone.value.trim()
-          if (!name || !phone) {
-            els.appointmentFeedback.textContent = 'Elegi un cliente o carga nombre y telefono.'
+          if (!name) {
+            els.appointmentFeedback.textContent = 'Elegi un cliente o carga su nombre.'
             return
           }
 
@@ -25722,10 +25734,28 @@ const crmHtml = `<!doctype html>
           })
           if (customer.wasExisting) {
             showCrmToast('Ese teléfono ya pertenece a ' + customer.name + '. El turno se cargará en su ficha existente.', 'success')
+          } else if (customer.isProvisional) {
+            showCrmToast('Turno presencial cargado sin teléfono. Podés completar el contacto más adelante.', 'success')
           }
           customerId = customer.id
           state.customers = await getJson('/customers')
           renderAppointmentFormOptions()
+        } else {
+          const selectedCustomer = state.customers.find((customer) => customer.id === customerId)
+          const name = els.appointmentCustomerName.value.trim()
+          const phone = els.appointmentCustomerPhone.value.trim()
+          if (selectedCustomer && phone && (phone !== selectedCustomer.phone || name !== selectedCustomer.name)) {
+            const updatedCustomer = await getJson('/customers/' + customerId, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name: name || selectedCustomer.name,
+                phone,
+                businessId: state.businessId
+              })
+            })
+            state.customers = state.customers.map((customer) => customer.id === updatedCustomer.id ? updatedCustomer : customer)
+          }
         }
 
         const appointmentId = state.editingAppointmentId
