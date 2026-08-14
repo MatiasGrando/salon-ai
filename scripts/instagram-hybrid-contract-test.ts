@@ -37,6 +37,7 @@ const knowledge = {
   publicMapsUrl: null,
   instagramUrl: null,
   facebookUrl: null,
+  tiktokUrl: null,
   businessHours: [],
   services: [
     {
@@ -170,6 +171,7 @@ const tests: Array<{ name: string; run: () => void }> = [
           publicMapsUrl: null,
           instagramUrl: null,
           facebookUrl: null,
+          tiktokUrl: null,
           businessHours: [],
           services: [{
             id: 'lighting',

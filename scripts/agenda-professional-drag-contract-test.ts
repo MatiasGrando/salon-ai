@@ -103,10 +103,11 @@ try {
     force: true
   })
   assert.equal(forced.ok, true)
-  assert.equal(updateInput.data.professionalId, 'professional-2')
-  assert.equal(updateInput.data.totalDurationMinutes, 90)
+  const forcedUpdateInput: any = updateInput
+  assert.equal(forcedUpdateInput.data.professionalId, 'professional-2')
+  assert.equal(forcedUpdateInput.data.totalDurationMinutes, 90)
   assert.deepEqual(
-    updateInput.data.serviceItems.create.map((item: { serviceId: string }) => item.serviceId),
+    forcedUpdateInput.data.serviceItems.create.map((item: { serviceId: string }) => item.serviceId),
     ['cut', 'color']
   )
 
@@ -127,8 +128,11 @@ try {
     }
   } as any)
   assert.ok(crmHandler)
+  const activeCrmHandler = crmHandler as unknown as (
+    (request: unknown, reply: any) => Promise<unknown>
+  )
   let generatedHtml = ''
-  await crmHandler({}, {
+  await activeCrmHandler({}, {
     type() {
       return this
     },

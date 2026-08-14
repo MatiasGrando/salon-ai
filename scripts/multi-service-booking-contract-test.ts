@@ -198,7 +198,7 @@ assert.deepEqual(lowConfidenceAdditional.state.combinedServices, [])
 const blockedCatalog = createBookingV2DomainCatalog({
   services: catalog.services,
   professionals: catalog.professionals,
-  combinationRules: [{ serviceAId: 'color', serviceBId: 'corte', policy: 'BLOCKED' }]
+  combinationRules: [{ serviceAId: 'color', serviceBId: 'corte', policy: 'BLOCKED', note: null }]
 })
 const blockedCombination = await engine(blockedCatalog).process({
   businessId: 'business-1',
@@ -230,7 +230,7 @@ assert.deepEqual(blockedSeparate.state.queuedServices.map((item) => item.service
 const reviewCatalog = createBookingV2DomainCatalog({
   services: catalog.services,
   professionals: catalog.professionals,
-  combinationRules: [{ serviceAId: 'color', serviceBId: 'corte', policy: 'REVIEW_REQUIRED' }]
+  combinationRules: [{ serviceAId: 'color', serviceBId: 'corte', policy: 'REVIEW_REQUIRED', note: null }]
 })
 const reviewCombination = await engine(reviewCatalog).process({
   businessId: 'business-1',
@@ -245,7 +245,7 @@ const explicitlyAllowedCatalog = createBookingV2DomainCatalog({
     ? { ...service, attentionMode: 'GUIDED_ESTIMATE' as const }
     : service),
   professionals: catalog.professionals,
-  combinationRules: [{ serviceAId: 'color', serviceBId: 'corte', policy: 'ALLOWED' }]
+  combinationRules: [{ serviceAId: 'color', serviceBId: 'corte', policy: 'ALLOWED', note: null }]
 })
 const explicitlyAllowed = await engine(explicitlyAllowedCatalog).process({
   businessId: 'business-1',

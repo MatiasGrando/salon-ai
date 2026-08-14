@@ -539,6 +539,7 @@ const business: BusinessKnowledge = {
   publicMapsUrl: null,
   instagramUrl: null,
   facebookUrl: null,
+  tiktokUrl: null,
   businessHours: [],
   services: [{
     id: 'illumination',

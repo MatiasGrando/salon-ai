@@ -3,7 +3,8 @@ import { BookingV2Engine } from '../src/services/booking-v2-engine.js'
 import {
   BookingV2DomainService,
   createBookingV2DomainCatalog,
-  type BookingV2DomainCatalog
+  type BookingV2DomainCatalog,
+  type BookingV2ServiceOption
 } from '../src/services/booking-v2-domain.js'
 import {
   conversationPatchFromState,
@@ -73,7 +74,7 @@ const services = [
     price: 25000,
     category: 'Otros'
   }
-] as const
+] satisfies BookingV2ServiceOption[]
 
 const professionals = [
   {
@@ -214,8 +215,8 @@ function semanticChoice() {
 function engine(
   domainCatalog = catalog(),
   options?: Parameters<typeof domain>[1],
-  choice = unclearChoice,
-  serviceValidationClassifier = unusedClassifier
+  choice: ConstructorParameters<typeof BookingV2Engine>[5] = unclearChoice,
+  serviceValidationClassifier: ConstructorParameters<typeof BookingV2Engine>[2] = unusedClassifier
 ) {
   return new BookingV2Engine(
     domain(domainCatalog, options),

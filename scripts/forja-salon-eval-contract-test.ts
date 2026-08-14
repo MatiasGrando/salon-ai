@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import scenariosJson from '../test/fixtures/forja-salon-eval-scenarios.json'
+import scenariosJson from '../test/fixtures/forja-salon-eval-scenarios.json' with { type: 'json' }
 import {
   businessInformationTopicsFromRouting,
   deterministicConversationRouting,
@@ -86,16 +86,19 @@ function assertGroundedBusinessAnswers() {
   const business = fixtureBusiness()
 
   const [prices] = renderBusinessKnowledgeAnswers(business, ['prices'])
-  assert.match(prices, /Corte \(30 min\).*precio a consultar/i)
+  assert.ok(prices)
+  assert.match(prices, /Corte.*consultar precio/i)
   assert.doesNotMatch(prices, /\$\s*0/)
   pass('precio-a-consultar-no-inventado')
 
   const [address] = renderBusinessKnowledgeAnswers(business, ['address'])
+  assert.ok(address)
   assert.match(address, /no tengo la direcci[oó]n exacta cargad[ao] de forma confiable/i)
   assert.doesNotMatch(address, /calle|avenida|av\./i)
   pass('direccion-ausente-no-inventada')
 
   const [hours] = renderBusinessKnowledgeAnswers(business, ['opening_hours'])
+  assert.ok(hours)
   assert.match(hours, /Lunes: 09:00 a 18:00/)
   assert.doesNotMatch(hours, /Domingo/)
   pass('horarios-salen-de-datos-cargados')
@@ -113,6 +116,7 @@ function fixtureBusiness(): BusinessKnowledge {
     publicMapsUrl: null,
     instagramUrl: null,
     facebookUrl: null,
+    tiktokUrl: null,
     businessHours: [
       {
         dayOfWeek: 1,

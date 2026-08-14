@@ -312,6 +312,8 @@ const whatsappDatePayload = buildWhatsAppReplyButtonsPayload({
   text: started.reply,
   buttons: dateButtons ?? []
 })
+const whatsappDateButton = whatsappDatePayload.interactive.action.buttons[0]?.reply
+assert.ok(whatsappDateButton)
 const incomingDateButton = new WhatsAppWebhookService().extractIncomingMessages({
   entry: [{
     changes: [{
@@ -322,7 +324,7 @@ const incomingDateButton = new WhatsAppWebhookService().extractIncomingMessages(
           type: 'interactive',
           interactive: {
             type: 'button_reply',
-            button_reply: whatsappDatePayload.interactive.action.buttons[0]?.reply
+            button_reply: whatsappDateButton
           }
         }]
       }

@@ -9,7 +9,8 @@ import {
   proposeCorrection,
   proposeField,
   recordLowConfidence,
-  rejectProposal
+  rejectProposal,
+  type BookingV2State
 } from '../src/services/booking-v2-state.js'
 import { applyBookingV2Extraction } from '../src/services/booking-v2-interpreter.js'
 import type { BookingV2Extraction } from '../src/services/booking-v2-extractor.js'
@@ -18,7 +19,8 @@ import { BookingV2DomainService, createBookingV2DomainCatalog } from '../src/ser
 import type { BookingProvider } from '../src/providers/booking-provider.js'
 import {
   conversationPatchFromState,
-  stateFromConversation
+  stateFromConversation,
+  type BookingV2ConversationSnapshot
 } from '../src/services/booking-v2-conversation-state.js'
 import {
   BookingV2Engine,
@@ -967,7 +969,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
   {
     name: 'persiste la seña pendiente con el contexto de la reserva',
     run: () => {
-      const state = {
+      const state: BookingV2State = {
         ...completeDraft(),
         pendingDeposit: {
           depositId: 'deposit-1',
@@ -993,11 +995,11 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
   {
     name: 'persiste la selección pendiente de una consulta informativa',
     run: () => {
-      const state = {
+      const state: BookingV2State = {
         ...createEmptyBookingV2State(),
         pendingInformationSelection: {
           serviceIds: ['mentoring-group', 'mentoring-individual'],
-          requestedInformation: ['general'] as const
+          requestedInformation: ['general']
         }
       }
       const patch = conversationPatchFromState(state)
@@ -2718,14 +2720,14 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       const catalog = createBookingV2DomainCatalog({
         services: [
           {
-            id: 'color', name: 'Color', aliases: ['color'], duration: 90, price: 80000,
+            id: 'color', name: 'Color', aliases: ['color'], category: null, duration: 90, price: 80000,
             attentionMode: 'GUIDED_ESTIMATE', requiresPhoto: false,
             estimateExplanation: null, estimateQuestion: '¿Qué largo tiene tu cabello?',
             estimateOptions: [{ id: 'long', label: 'Largo', priceMin: 80000, priceMax: 100000, note: null }],
             estimateDisclaimer: null, estimateAllowsBooking: true
           },
           {
-            id: 'cut', name: 'Corte', aliases: ['corte'], duration: 30, price: 30000,
+            id: 'cut', name: 'Corte', aliases: ['corte'], category: null, duration: 30, price: 30000,
             attentionMode: 'DIRECT_BOOKING', requiresPhoto: false,
             estimateExplanation: null, estimateQuestion: null,
             estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true
@@ -3191,11 +3193,11 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     run: async () => {
       const catalog = createBookingV2DomainCatalog({
         services: [
-          { id: 'full-color', name: 'Tintura completa', aliases: [], duration: 90, price: 75000, attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true },
-          { id: 'roots', name: 'Tintura raíces', aliases: [], duration: 60, price: 65000, attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true },
-          { id: 'woman-cut', name: 'Corte mujer', aliases: [], duration: 30, price: 37000, attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true },
-          { id: 'man-cut', name: 'Corte hombre', aliases: [], duration: 30, price: 27000, attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true },
-          { id: 'beard-cut', name: 'Corte y barba', aliases: [], duration: 45, price: 32000, attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true }
+          { id: 'full-color', name: 'Tintura completa', aliases: [], category: null, duration: 90, price: 75000, attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true },
+          { id: 'roots', name: 'Tintura raíces', aliases: [], category: null, duration: 60, price: 65000, attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true },
+          { id: 'woman-cut', name: 'Corte mujer', aliases: [], category: null, duration: 30, price: 37000, attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true },
+          { id: 'man-cut', name: 'Corte hombre', aliases: [], category: null, duration: 30, price: 27000, attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true },
+          { id: 'beard-cut', name: 'Corte y barba', aliases: [], category: null, duration: 45, price: 32000, attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, estimateExplanation: null, estimateQuestion: null, estimateOptions: [], estimateDisclaimer: null, estimateAllowsBooking: true }
         ],
         professionals: []
       })
@@ -3261,6 +3263,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           id: 'bath',
           name: 'Baño de crema',
           aliases: ['baño de crema'],
+          category: null,
           duration: 30,
           price: 25000,
           attentionMode: 'DIRECT_BOOKING',
@@ -4336,7 +4339,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     name: 'motor corta el loop de fecha despues de tres respuestas sin avance',
     run: async () => {
       const engine = new BookingV2Engine(fakeDomainPort(), fakeExtractor(null))
-      let conversation = {
+      let conversation: BookingV2ConversationSnapshot = {
         selectedCustomerName: 'Cristian',
         selectedServiceId: 'haircut',
         selectedProfessionalId: 'professional-1',
@@ -5569,7 +5572,12 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           }],
           bookingMessage: null,
           bookingExtraction: null,
-          catalogQuery: { topic: 'services', search: message }
+          catalogQuery: {
+            serviceId: null,
+            requestedInformation: ['general'],
+            confidence: 1,
+            evidence: message
+          }
         }, {
           message,
           currentStep: 'ASK_SERVICE'
@@ -5775,6 +5783,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           id: 'haircut',
           name: 'Corte',
           aliases: [],
+          category: null,
           duration: 30,
           price: 15000,
           attentionMode: 'DIRECT_BOOKING',
@@ -6051,7 +6060,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         name: 'Mentorías Demo', slug: null, landingEnabled: false,
         publicWhatsapp: null, contactEmail: null, publicAddress: null,
         publicAddressArea: null, publicMapsUrl: null, instagramUrl: null,
-        facebookUrl: null, businessHours: [], professionals: [],
+        facebookUrl: null, tiktokUrl: null, businessHours: [], professionals: [],
         services: [
           { id: 'group', name: 'Mentoría grupal', duration: 60, price: 600000, depositMode: 'FIXED' as const, depositValue: 120000 },
           { id: 'individual', name: 'Mentoría individual', duration: 60, price: 500000, depositMode: 'PERCENTAGE' as const, depositValue: 20 }
@@ -6460,6 +6469,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         publicMapsUrl: null,
         instagramUrl: null,
         facebookUrl: null,
+        tiktokUrl: null,
         businessHours: [],
         services: [
           { id: 'individual', name: 'Mentoría individual', description: 'Acompañamiento personalizado.', duration: 60, price: 500000 },
@@ -6749,6 +6759,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         publicMapsUrl: null,
         instagramUrl: null,
         facebookUrl: null,
+        tiktokUrl: null,
         businessHours: [],
         services: [
           {
@@ -6808,6 +6819,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         publicMapsUrl: null,
         instagramUrl: null,
         facebookUrl: null,
+        tiktokUrl: null,
         businessHours: [],
         services: [
           {
@@ -6856,6 +6868,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         publicMapsUrl: 'https://maps.example/demo',
         instagramUrl: 'https://instagram.com/salon-demo',
         facebookUrl: null,
+        tiktokUrl: null,
         businessHours: [
           { dayOfWeek: 1, startTime: '09:00', endTime: '18:00' },
           { dayOfWeek: 6, startTime: '10:00', endTime: '14:00' }
@@ -6896,6 +6909,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         publicMapsUrl: null,
         instagramUrl: null,
         facebookUrl: null,
+        tiktokUrl: null,
         businessHours: [],
         services: [{
           name: 'Corte',
@@ -6922,6 +6936,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         publicMapsUrl: null,
         instagramUrl: null,
         facebookUrl: null,
+        tiktokUrl: null,
         businessHours: [],
         services: [],
         professionals: [

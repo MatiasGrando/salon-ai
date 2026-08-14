@@ -76,7 +76,7 @@ const incoming = new WhatsAppWebhookService().extractIncomingMessages({
           type: 'interactive',
           interactive: {
             type: 'button_reply',
-            button_reply: { id: buttons[0]?.id, title: buttons[0]?.title }
+            button_reply: { id: buttons[0]!.id, title: buttons[0]!.title }
           }
         }]
       }
