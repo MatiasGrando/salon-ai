@@ -25372,16 +25372,16 @@ const crmHtml = `<!doctype html>
             throw error
           }
 
-          const conflictList = conflicts.map((conflict) => '• ' + conflict.message).join('\n')
+          const conflictList = conflicts.map((conflict) => '• ' + conflict.message).join('\\n')
           if (!canForceAppointmentOverrides()) {
-            throw new Error(conflictList + '\nNo tenés permiso para crear excepciones o sobreturnos.')
+            throw new Error(conflictList + '\\nNo tenés permiso para crear excepciones o sobreturnos.')
           }
 
           const targetDescription = (targetProfessional?.name || 'el profesional seleccionado') +
             ' el ' + formatDateTime(target)
           const wantsOverride = await requestCrmConfirmation(
-            'El turno no puede moverse normalmente a ' + targetDescription + ':\n\n' + conflictList +
-            '\n\n¿Querés continuar y evaluar una excepción?',
+            'El turno no puede moverse normalmente a ' + targetDescription + ':\\n\\n' + conflictList +
+            '\\n\\n¿Querés continuar y evaluar una excepción?',
             {
               title: 'El cambio tiene conflictos',
               confirmLabel: 'Continuar',
@@ -25391,7 +25391,7 @@ const crmHtml = `<!doctype html>
           if (!wantsOverride) return
 
           const confirmedOverride = await requestCrmConfirmation(
-            'Esta es la confirmación final. El turno se guardará aunque exista una superposición, un bloqueo o el profesional no esté trabajando.\n\n' + conflictList,
+            'Esta es la confirmación final. El turno se guardará aunque exista una superposición, un bloqueo o el profesional no esté trabajando.\\n\\n' + conflictList,
             {
               title: 'Confirmar sobreturno o excepción',
               confirmLabel: 'Sí, mover como excepción'

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { prisma } from '../src/config/prisma.js'
+import { crmUiRoutes } from '../src/routes/crm-ui.js'
 import { AppointmentService } from '../src/services/appointment-service.js'
 
 const prismaClient = prisma as any
@@ -115,6 +116,30 @@ try {
   assert.match(crmUiSource, /title: 'El cambio tiene conflictos'/)
   assert.match(crmUiSource, /title: 'Confirmar sobreturno o excepción'/)
   assert.match(crmUiSource, /body: JSON\.stringify\(\{ \.\.\.payload, force: true \}\)/)
+
+  let crmHandler: ((request: unknown, reply: any) => Promise<unknown>) | null = null
+  await crmUiRoutes({
+    get(path: string, handler: typeof crmHandler) {
+      if (path === '/crm') crmHandler = handler
+    }
+  } as any)
+  assert.ok(crmHandler)
+  let generatedHtml = ''
+  await crmHandler({}, {
+    type() {
+      return this
+    },
+    send(value: string) {
+      generatedHtml = value
+      return value
+    }
+  })
+  const inlineScripts = [...generatedHtml.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/gi)]
+    .map((match) => match[1] || '')
+  assert.ok(inlineScripts.length > 0)
+  for (const script of inlineScripts) {
+    assert.doesNotThrow(() => new Function(script))
+  }
 
   console.log('OK: la agenda cambia de profesional, bloquea servicios incompatibles y exige doble confirmacion para excepciones.')
 } finally {
