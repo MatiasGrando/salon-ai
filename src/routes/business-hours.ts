@@ -1,15 +1,34 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
+import { validateWeeklyHours } from '../services/weekly-hours.js'
 
 export async function businessHoursRoutes(app: FastifyInstance) {
 
-  app.post('/business-hours', async (request) => {
+  app.post('/business-hours', async (request, reply) => {
 
     const body = request.body as {
       businessId: string
       dayOfWeek: number
       startTime: string
       endTime: string
+    }
+
+    const existingHours = await prisma.businessHours.findMany({
+      where: {
+        businessId: body.businessId,
+        dayOfWeek: body.dayOfWeek
+      },
+      select: {
+        dayOfWeek: true,
+        startTime: true,
+        endTime: true
+      }
+    })
+    const validation = validateWeeklyHours([...existingHours, body])
+    if (!validation.ok) {
+      return reply.status(400).send({
+        message: validation.message
+      })
     }
 
     return prisma.businessHours.create({
@@ -62,25 +81,25 @@ export async function businessHoursRoutes(app: FastifyInstance) {
       })
     }
 
-    const invalidSchedule = schedules.some((schedule) => {
-      return !schedule.days.every((day) => Number.isInteger(day) && day >= 0 && day <= 6) ||
-        !isValidTimeRange(schedule.startTime, schedule.endTime)
-    })
-
-    if (invalidSchedule) {
-      return reply.status(400).send({
-        message: 'Hay un horario del local invalido'
-      })
-    }
-
-    const hours = schedules.flatMap((schedule) => {
+    const requestedHours = schedules.flatMap((schedule) => {
       return schedule.days.map((dayOfWeek) => ({
-        businessId: body.businessId,
         dayOfWeek,
         startTime: schedule.startTime,
         endTime: schedule.endTime
       }))
     })
+    const validation = validateWeeklyHours(requestedHours)
+
+    if (!validation.ok) {
+      return reply.status(400).send({
+        message: validation.message
+      })
+    }
+
+    const hours = validation.hours.map((hour) => ({
+      businessId: body.businessId,
+      ...hour
+    }))
 
     const professionals = await prisma.professional.findMany({
       where: {
@@ -129,9 +148,10 @@ export async function businessHoursRoutes(app: FastifyInstance) {
         startTime: true,
         endTime: true
       },
-      orderBy: {
-        dayOfWeek: 'asc'
-      }
+      orderBy: [
+        { dayOfWeek: 'asc' },
+        { startTime: 'asc' }
+      ]
     })
   })
 
@@ -152,16 +172,11 @@ export async function businessHoursRoutes(app: FastifyInstance) {
         startTime: true,
         endTime: true
       },
-      orderBy: {
-        dayOfWeek: 'asc'
-      }
+      orderBy: [
+        { dayOfWeek: 'asc' },
+        { startTime: 'asc' }
+      ]
     })
   })
 
-}
-
-function isValidTimeRange(startTime: string, endTime: string) {
-  return /^\d{2}:\d{2}$/.test(startTime) &&
-    /^\d{2}:\d{2}$/.test(endTime) &&
-    startTime < endTime
 }

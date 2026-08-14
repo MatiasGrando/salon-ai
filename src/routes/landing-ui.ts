@@ -1295,7 +1295,7 @@ function renderSalonWhiteHours(business: LandingBusiness) {
   const groups = groupedBusinessHours(business.businessHours)
   if (!groups.length) return '<div class="sw-hours-row"><span>Horarios</span><span>Pendientes de carga</span></div>'
   return groups.map((group) => `
-    <div class="sw-hours-row"><span>${escapeHtml(formatDayRange(group.days))}</span><span>${escapeHtml(group.startTime)} – ${escapeHtml(group.endTime)}</span></div>
+    <div class="sw-hours-row"><span>${escapeHtml(formatDayRange(group.days))}</span><span>${escapeHtml(formatHourRanges(group.ranges, ' – '))}</span></div>
   `).join('')
 }
 
@@ -1414,34 +1414,50 @@ function renderBusinessHours(business: LandingBusiness) {
   return groups.map((group) => `
     <li>
       <span class="footer-icon">◷</span>
-      <span>${escapeHtml(formatDayRange(group.days))} ${escapeHtml(group.startTime)} a ${escapeHtml(group.endTime)}</span>
+      <span>${escapeHtml(formatDayRange(group.days))} ${escapeHtml(formatHourRanges(group.ranges))}</span>
     </li>
   `).join('')
 }
 
 function groupedBusinessHours(hours: LandingBusiness['businessHours']) {
   const order = [1, 2, 3, 4, 5, 6, 0]
-  const normalized = hours
-    .filter((hour) => hour.startTime && hour.endTime)
-    .slice()
-    .sort((a, b) => order.indexOf(a.dayOfWeek) - order.indexOf(b.dayOfWeek))
+  const hoursByDay = new Map<number, Array<{ startTime: string; endTime: string }>>()
+  for (const hour of hours.filter((item) => item.startTime && item.endTime)) {
+    const ranges = hoursByDay.get(hour.dayOfWeek) || []
+    ranges.push({ startTime: hour.startTime, endTime: hour.endTime })
+    hoursByDay.set(hour.dayOfWeek, ranges)
+  }
 
-  const groups: Array<{ days: number[]; startTime: string; endTime: string }> = []
-  for (const hour of normalized) {
+  const groups: Array<{ days: number[]; ranges: Array<{ startTime: string; endTime: string }> }> = []
+  for (const dayOfWeek of order) {
+    const ranges = (hoursByDay.get(dayOfWeek) || [])
+      .slice()
+      .sort((left, right) => left.startTime.localeCompare(right.startTime))
+    if (!ranges.length) continue
     const previous = groups[groups.length - 1]
-    const expectedPreviousDay = order[order.indexOf(hour.dayOfWeek) - 1]
+    const expectedPreviousDay = order[order.indexOf(dayOfWeek) - 1]
     if (
       previous &&
-      previous.startTime === hour.startTime &&
-      previous.endTime === hour.endTime &&
+      hourRangesKey(previous.ranges) === hourRangesKey(ranges) &&
       previous.days[previous.days.length - 1] === expectedPreviousDay
     ) {
-      previous.days.push(hour.dayOfWeek)
+      previous.days.push(dayOfWeek)
     } else {
-      groups.push({ days: [hour.dayOfWeek], startTime: hour.startTime, endTime: hour.endTime })
+      groups.push({ days: [dayOfWeek], ranges })
     }
   }
   return groups
+}
+
+function hourRangesKey(ranges: Array<{ startTime: string; endTime: string }>) {
+  return ranges.map((range) => `${range.startTime}-${range.endTime}`).join('|')
+}
+
+function formatHourRanges(
+  ranges: Array<{ startTime: string; endTime: string }>,
+  separator = ' a '
+) {
+  return ranges.map((range) => `${range.startTime}${separator}${range.endTime}`).join(' y ')
 }
 
 function formatDayRange(days: number[]) {

@@ -1,11 +1,12 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
+import {
+  normalizeWeeklyHours,
+  validateWeeklyHours,
+  type WeeklyHourInput
+} from '../services/weekly-hours.js'
 
-type WorkingHourInput = {
-  dayOfWeek: number
-  startTime: string
-  endTime: string
-}
+type WorkingHourInput = WeeklyHourInput
 
 export async function professionalRoutes(app: FastifyInstance) {
   app.post('/professionals', async (request, reply) => {
@@ -24,9 +25,13 @@ export async function professionalRoutes(app: FastifyInstance) {
     const description = normalizeDescription(body.description)
     const avatarUrl = normalizeAvatarUrl(body.avatarUrl)
     const businessId = body.businessId?.trim()
-    const workingHours = body.workingHours
-      ? normalizeWorkingHours(body.workingHours)
-      : []
+    const workingHoursValidation = validateWeeklyHours(body.workingHours || [])
+    if (!workingHoursValidation.ok) {
+      return reply.status(400).send({
+        message: workingHoursValidation.message
+      })
+    }
+    const workingHours = workingHoursValidation.hours
 
     if (!businessId) {
       return reply.status(400).send({
@@ -115,7 +120,7 @@ export async function professionalRoutes(app: FastifyInstance) {
       workingHours?: string
     }
     const workingHours = query.workingHours
-      ? normalizeWorkingHours(JSON.parse(query.workingHours) as WorkingHourInput[])
+      ? normalizeWeeklyHours(JSON.parse(query.workingHours) as WorkingHourInput[])
       : undefined
 
     return getProfessionalAppointmentImpact(params.id, workingHours)
@@ -146,9 +151,15 @@ export async function professionalRoutes(app: FastifyInstance) {
       })
     }
 
-    const workingHours = body.workingHours
-      ? normalizeWorkingHours(body.workingHours)
-      : undefined
+    const workingHoursValidation = body.workingHours
+      ? validateWeeklyHours(body.workingHours)
+      : null
+    if (workingHoursValidation && !workingHoursValidation.ok) {
+      return reply.status(400).send({
+        message: workingHoursValidation.message
+      })
+    }
+    const workingHours = workingHoursValidation?.hours
 
     const existing = await prisma.professional.findUnique({
       where: {
@@ -502,22 +513,6 @@ function isInsideWorkingHours(startAt: Date, endAt: Date, hours: WorkingHourInpu
     return startMinutes >= timeToMinutes(hour.startTime) &&
       endMinutes <= timeToMinutes(hour.endTime)
   })
-}
-
-function normalizeWorkingHours(hours: WorkingHourInput[]) {
-  const validHours = hours
-    .filter((hour) => {
-      return Number.isInteger(hour.dayOfWeek) &&
-        hour.dayOfWeek >= 0 &&
-        hour.dayOfWeek <= 6 &&
-        /^\d{2}:\d{2}$/.test(hour.startTime) &&
-        /^\d{2}:\d{2}$/.test(hour.endTime) &&
-        hour.startTime < hour.endTime
-    })
-
-  return Array.from(
-    new Map(validHours.map((hour) => [hour.dayOfWeek, hour])).values()
-  )
 }
 
 function sameWorkingHours(left: WorkingHourInput[], right: WorkingHourInput[]) {

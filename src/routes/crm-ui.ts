@@ -26,9 +26,18 @@ export function weeklyScheduleRows(input: {
     const endTime = day.weekend ? input.weekendEnd : input.weekdayEnd
     return `<div class="${input.rowClass}" data-weekly-schedule-day="${day.dayOfWeek}">
       <label><input id="${input.prefix}-${day.key}-enabled" type="checkbox"> ${day.label}</label>
-      <input class="field" id="${input.prefix}-${day.key}-start" type="time" value="09:00">
-      <span class="schedule-separator">-</span>
-      <input class="field" id="${input.prefix}-${day.key}-end" type="time" value="${endTime}">
+      <div class="weekly-schedule-day-content">
+        <div class="weekly-schedule-ranges">
+          <div class="weekly-schedule-range">
+            <input class="field" id="${input.prefix}-${day.key}-start" type="time" value="09:00" aria-label="Hora de inicio">
+            <span class="schedule-separator">a</span>
+            <input class="field" id="${input.prefix}-${day.key}-end" type="time" value="${endTime}" aria-label="Hora de cierre">
+            <button class="weekly-schedule-remove" type="button" aria-label="Eliminar horario">&times;</button>
+          </div>
+        </div>
+        <button class="weekly-schedule-add" type="button" data-weekly-schedule-add>+ Agregar otro horario</button>
+        <span class="weekly-schedule-closed">Cerrado</span>
+      </div>
     </div>`
   }).join('')
 }
@@ -7871,9 +7880,10 @@ const crmHtml = `<!doctype html>
     .business-hours-row {
       min-height: 48px;
       display: grid;
-      grid-template-columns: 150px 1fr 18px 1fr;
+      grid-template-columns: 150px minmax(0, 1fr);
       gap: 10px;
-      align-items: center;
+      align-items: start;
+      padding: 4px 0;
     }
 
     .business-hours-row label {
@@ -7887,6 +7897,81 @@ const crmHtml = `<!doctype html>
 
     .business-hours-row input[type="time"] {
       height: 42px;
+    }
+
+    .weekly-schedule-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .weekly-schedule-copy,
+    .weekly-schedule-add,
+    .weekly-schedule-remove {
+      border: 0;
+      background: transparent;
+    }
+
+    .weekly-schedule-copy,
+    .weekly-schedule-add {
+      padding: 5px 0;
+      color: #2563eb;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .weekly-schedule-copy:hover,
+    .weekly-schedule-add:hover {
+      color: #1d4ed8;
+      text-decoration: underline;
+    }
+
+    .weekly-schedule-day-content,
+    .weekly-schedule-ranges {
+      min-width: 0;
+      display: grid;
+      gap: 7px;
+    }
+
+    .weekly-schedule-range {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: minmax(92px, 1fr) 18px minmax(92px, 1fr) 30px;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .weekly-schedule-remove {
+      width: 30px;
+      height: 30px;
+      padding: 0;
+      border-radius: 6px;
+      color: #7c8aa5;
+      font-size: 20px;
+      line-height: 1;
+    }
+
+    .weekly-schedule-remove:hover {
+      color: #b42318;
+      background: #fff1f0;
+    }
+
+    .weekly-schedule-closed {
+      display: none;
+      min-height: 34px;
+      align-items: center;
+      color: #7c8aa5;
+      font-size: 13px;
+    }
+
+    [data-weekly-schedule-day].is-closed .weekly-schedule-ranges,
+    [data-weekly-schedule-day].is-closed .weekly-schedule-add {
+      display: none;
+    }
+
+    [data-weekly-schedule-day].is-closed .weekly-schedule-closed {
+      display: flex;
     }
 
     .settings-actions {
@@ -8836,9 +8921,10 @@ const crmHtml = `<!doctype html>
     }
 
     .professional-form .schedule-row {
-      grid-template-columns: minmax(96px, 1fr) 92px 10px 92px;
-      gap: 6px;
-      align-items: center;
+      grid-template-columns: minmax(96px, .75fr) minmax(0, 1.65fr);
+      gap: 8px;
+      align-items: start;
+      padding: 3px 0;
     }
 
     .professional-form .schedule-row label {
@@ -8848,7 +8934,13 @@ const crmHtml = `<!doctype html>
     }
 
     .professional-form .schedule-row input[type="time"] {
+      width: 100%;
       padding: 0 6px;
+    }
+
+    .professional-form .weekly-schedule-range {
+      grid-template-columns: minmax(76px, 1fr) 10px minmax(76px, 1fr) 26px;
+      gap: 5px;
     }
 
     .schedule-separator {
@@ -14310,7 +14402,10 @@ const crmHtml = `<!doctype html>
                 <div class="professional-form-help">Podes seleccionar multiples servicios</div>
               </div>
               <div class="professional-form-group">
-                <div class="professional-schedule-title">Horarios de disponibilidad</div>
+                <div class="weekly-schedule-heading">
+                  <div class="professional-schedule-title">Horarios de disponibilidad</div>
+                  <button class="weekly-schedule-copy" type="button" data-weekly-schedule-copy="professional">Copiar lunes a mar-vie</button>
+                </div>
                 ${weeklyScheduleRows({
                   prefix: 'professional',
                   rowClass: 'schedule-row',
@@ -15229,7 +15324,10 @@ const crmHtml = `<!doctype html>
               </summary>
               <div class="landing-settings-collapsible-content commerce-settings-grid">
             <div class="business-hours-grid">
-              <div class="business-hours-title">Horarios de atenci&oacute;n</div>
+              <div class="weekly-schedule-heading">
+                <div class="business-hours-title">Horarios de atenci&oacute;n</div>
+                <button class="weekly-schedule-copy" type="button" data-weekly-schedule-copy="business">Copiar lunes a mar-vie</button>
+              </div>
               ${weeklyScheduleRows({
                 prefix: 'business',
                 rowClass: 'business-hours-row',
@@ -22290,14 +22388,21 @@ const crmHtml = `<!doctype html>
         { key: 'friday', dayOfWeek: 5, label: 'viernes', weekend: false },
         { key: 'saturday', dayOfWeek: 6, label: 'sabado', weekend: true },
         { key: 'sunday', dayOfWeek: 0, label: 'domingo', weekend: true }
-      ].map((day) => ({
-        ...day,
-        enabled: document.getElementById(prefix + '-' + day.key + '-enabled'),
-        start: document.getElementById(prefix + '-' + day.key + '-start'),
-        end: document.getElementById(prefix + '-' + day.key + '-end'),
-        defaultStart: defaults.start,
-        defaultEnd: day.weekend ? defaults.weekendEnd : defaults.weekdayEnd
-      }))
+      ].map((day) => {
+        const enabled = document.getElementById(prefix + '-' + day.key + '-enabled')
+        const row = enabled.closest('[data-weekly-schedule-day]')
+        return {
+          ...day,
+          prefix,
+          row,
+          enabled,
+          ranges: row.querySelector('.weekly-schedule-ranges'),
+          add: row.querySelector('[data-weekly-schedule-add]'),
+          start: row.querySelector('input[type="time"]'),
+          defaultStart: defaults.start,
+          defaultEnd: day.weekend ? defaults.weekendEnd : defaults.weekdayEnd
+        }
+      })
     }
 
     function professionalDayInputs() {
@@ -22317,35 +22422,123 @@ const crmHtml = `<!doctype html>
     }
 
     function readWeeklySchedule(days) {
-      return days
-        .filter((day) => day.enabled.checked)
-        .map((day) => ({
-          dayOfWeek: day.dayOfWeek,
-          startTime: day.start.value,
-          endTime: day.end.value
-        }))
+      return days.flatMap((day) => {
+        if (!day.enabled.checked) return []
+        return Array.from(day.ranges.querySelectorAll('.weekly-schedule-range')).map((range) => {
+          const inputs = range.querySelectorAll('input[type="time"]')
+          return {
+            dayOfWeek: day.dayOfWeek,
+            startTime: inputs[0]?.value || '',
+            endTime: inputs[1]?.value || ''
+          }
+        })
+      })
     }
 
     function invalidWeeklyScheduleDay(days) {
-      return days.find((day) =>
-        day.enabled.checked &&
-        (!day.start.value || !day.end.value || day.start.value >= day.end.value)
-      )
+      return days.find((day) => {
+        if (!day.enabled.checked) return false
+        const ranges = readWeeklySchedule([day]).sort((left, right) => left.startTime.localeCompare(right.startTime))
+        if (!ranges.length) return true
+        if (ranges.some((range) => !range.startTime || !range.endTime || range.startTime >= range.endTime)) return true
+        return ranges.some((range, index) => index > 0 && range.startTime < ranges[index - 1].endTime)
+      })
     }
 
     function syncWeeklyScheduleDay(day) {
       const disabled = day.enabled.disabled || !day.enabled.checked
-      day.start.disabled = disabled
-      day.end.disabled = disabled
+      day.row.classList.toggle('is-closed', disabled)
+      day.ranges.querySelectorAll('input, button').forEach((input) => {
+        input.disabled = disabled
+      })
+      day.add.disabled = disabled
     }
 
     function setWeeklySchedule(days, hours) {
-      const byDay = new Map((hours || []).map((hour) => [hour.dayOfWeek, hour]))
       for (const day of days) {
-        const hour = byDay.get(day.dayOfWeek)
-        day.enabled.checked = Boolean(hour) && !day.enabled.disabled
-        day.start.value = hour?.startTime || day.defaultStart
-        day.end.value = hour?.endTime || day.defaultEnd
+        const dayHours = (hours || [])
+          .filter((hour) => hour.dayOfWeek === day.dayOfWeek)
+          .sort((left, right) => left.startTime.localeCompare(right.startTime))
+        day.enabled.checked = dayHours.length > 0 && !day.enabled.disabled
+        replaceWeeklyScheduleRanges(day, dayHours.length ? dayHours : [{
+          startTime: day.defaultStart,
+          endTime: day.defaultEnd
+        }])
+        syncWeeklyScheduleDay(day)
+      }
+    }
+
+    function replaceWeeklyScheduleRanges(day, hours) {
+      day.ranges.innerHTML = ''
+      hours.forEach((hour, index) => {
+        day.ranges.appendChild(createWeeklyScheduleRange(day, hour.startTime, hour.endTime, index === 0))
+      })
+    }
+
+    function createWeeklyScheduleRange(day, startTime, endTime, firstRange = false) {
+      const range = document.createElement('div')
+      range.className = 'weekly-schedule-range'
+
+      const start = document.createElement('input')
+      start.className = 'field'
+      start.type = 'time'
+      start.value = startTime
+      start.setAttribute('aria-label', 'Hora de inicio')
+      if (firstRange) start.id = day.prefix + '-' + day.key + '-start'
+
+      const separator = document.createElement('span')
+      separator.className = 'schedule-separator'
+      separator.textContent = 'a'
+
+      const end = document.createElement('input')
+      end.className = 'field'
+      end.type = 'time'
+      end.value = endTime
+      end.setAttribute('aria-label', 'Hora de cierre')
+      if (firstRange) end.id = day.prefix + '-' + day.key + '-end'
+
+      const remove = document.createElement('button')
+      remove.className = 'weekly-schedule-remove'
+      remove.type = 'button'
+      remove.setAttribute('aria-label', 'Eliminar horario')
+      remove.innerHTML = '&times;'
+
+      range.append(start, separator, end, remove)
+      return range
+    }
+
+    function addWeeklyScheduleRange(day) {
+      const previous = day.ranges.querySelector('.weekly-schedule-range:last-child')
+      const previousInputs = previous?.querySelectorAll('input[type="time"]')
+      const suggestedStart = previousInputs?.[1]?.value || '16:00'
+      const suggestedEnd = suggestedStart < '21:00' ? '21:00' : day.defaultEnd
+      day.ranges.appendChild(createWeeklyScheduleRange(day, suggestedStart, suggestedEnd, !previous))
+      syncWeeklyScheduleDay(day)
+    }
+
+    function removeWeeklyScheduleRange(day, button) {
+      button.closest('.weekly-schedule-range')?.remove()
+      const firstRange = day.ranges.querySelector('.weekly-schedule-range')
+      if (!firstRange) {
+        day.enabled.checked = false
+      } else {
+        const inputs = firstRange.querySelectorAll('input[type="time"]')
+        if (inputs[0]) inputs[0].id = day.prefix + '-' + day.key + '-start'
+        if (inputs[1]) inputs[1].id = day.prefix + '-' + day.key + '-end'
+      }
+      syncWeeklyScheduleDay(day)
+    }
+
+    function copyMondayScheduleToWeekdays(prefix) {
+      const days = prefix === 'business' ? businessDayInputs() : professionalDayInputs()
+      const monday = days.find((day) => day.dayOfWeek === 1)
+      if (!monday) return
+      const mondayHours = readWeeklySchedule([monday])
+      for (const day of days.filter((item) => item.dayOfWeek >= 2 && item.dayOfWeek <= 5)) {
+        day.enabled.checked = mondayHours.length > 0 && !day.enabled.disabled
+        replaceWeeklyScheduleRanges(day, mondayHours.length
+          ? mondayHours.map((hour) => ({ startTime: hour.startTime, endTime: hour.endTime }))
+          : [{ startTime: day.defaultStart, endTime: day.defaultEnd }])
         syncWeeklyScheduleDay(day)
       }
     }
@@ -22380,10 +22573,10 @@ const crmHtml = `<!doctype html>
         if (day.enabled.disabled) {
           day.enabled.checked = false
         }
-        day.start.min = ''
-        day.start.max = ''
-        day.end.min = ''
-        day.end.max = ''
+        day.ranges.querySelectorAll('input[type="time"]').forEach((input) => {
+          input.min = ''
+          input.max = ''
+        })
         syncWeeklyScheduleDay(day)
       }
     }
@@ -28511,8 +28704,16 @@ const crmHtml = `<!doctype html>
     els.agendaBlockClose.addEventListener('click', closeAgendaBlockPopover)
     for (const day of [...businessDayInputs(), ...professionalDayInputs()]) {
       day.enabled.addEventListener('change', () => syncWeeklyScheduleDay(day))
+      day.add.addEventListener('click', () => addWeeklyScheduleRange(day))
+      day.ranges.addEventListener('click', (event) => {
+        const remove = event.target.closest('.weekly-schedule-remove')
+        if (remove) removeWeeklyScheduleRange(day, remove)
+      })
       syncWeeklyScheduleDay(day)
     }
+    document.querySelectorAll('[data-weekly-schedule-copy]').forEach((button) => {
+      button.addEventListener('click', () => copyMondayScheduleToWeekdays(button.dataset.weeklyScheduleCopy))
+    })
     els.professionalForm.addEventListener('submit', saveProfessional)
     els.professionalCancel.addEventListener('click', closeProfessionalPanel)
     els.professionalPanelClose?.addEventListener('click', closeProfessionalPanel)

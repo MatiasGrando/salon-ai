@@ -365,10 +365,23 @@ function groupKnowledgeServicesByCategory(services: BusinessKnowledge['services'
 }
 
 function formatBusinessHours(hours: BusinessKnowledge['businessHours']) {
-  return hours
-    .slice()
-    .sort((left, right) => dayOrder(left.dayOfWeek) - dayOrder(right.dayOfWeek))
-    .map((hoursForDay) => `${dayLabel(hoursForDay.dayOfWeek)}: ${hoursForDay.startTime} a ${hoursForDay.endTime}`)
+  const hoursByDay = new Map<number, BusinessKnowledge['businessHours']>()
+  for (const hour of hours) {
+    const dayHours = hoursByDay.get(hour.dayOfWeek) || []
+    dayHours.push(hour)
+    hoursByDay.set(hour.dayOfWeek, dayHours)
+  }
+
+  return Array.from(hoursByDay.entries())
+    .sort(([leftDay], [rightDay]) => dayOrder(leftDay) - dayOrder(rightDay))
+    .map(([dayOfWeek, dayHours]) => {
+      const ranges = dayHours
+        .slice()
+        .sort((left, right) => left.startTime.localeCompare(right.startTime))
+        .map((hour) => `${hour.startTime} a ${hour.endTime}`)
+        .join(' y ')
+      return `${dayLabel(dayOfWeek)}: ${ranges}`
+    })
     .join('\n')
 }
 

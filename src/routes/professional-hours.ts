@@ -1,15 +1,34 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
+import { validateWeeklyHours } from '../services/weekly-hours.js'
 
 export async function professionalHoursRoutes(app: FastifyInstance) {
 
-  app.post('/professional-hours', async (request) => {
+  app.post('/professional-hours', async (request, reply) => {
 
     const body = request.body as {
       professionalId: string
       dayOfWeek: number
       startTime: string
       endTime: string
+    }
+
+    const existingHours = await prisma.professionalHours.findMany({
+      where: {
+        professionalId: body.professionalId,
+        dayOfWeek: body.dayOfWeek
+      },
+      select: {
+        dayOfWeek: true,
+        startTime: true,
+        endTime: true
+      }
+    })
+    const validation = validateWeeklyHours([...existingHours, body])
+    if (!validation.ok) {
+      return reply.status(400).send({
+        message: validation.message
+      })
     }
 
     return prisma.professionalHours.create({
@@ -22,7 +41,7 @@ export async function professionalHoursRoutes(app: FastifyInstance) {
     })
   })
 
-  app.post('/professional-hours/setup', async (request) => {
+  app.post('/professional-hours/setup', async (request, reply) => {
 
     const body = request.body as {
       professionalId: string
@@ -41,22 +60,38 @@ export async function professionalHoursRoutes(app: FastifyInstance) {
         startTime: string
         endTime: string
       }
+      schedules?: {
+        days: number[]
+        startTime: string
+        endTime: string
+      }[]
     }
 
-    const schedules = [
-      body.weekdays,
-      body.saturday,
-      body.sunday
-    ].filter((schedule) => schedule !== undefined)
+    const schedules = body.schedules?.length
+      ? body.schedules
+      : [
+          body.weekdays,
+          body.saturday,
+          body.sunday
+        ].filter((schedule) => schedule !== undefined)
 
-    const hours = schedules.flatMap((schedule) => {
+    const requestedHours = schedules.flatMap((schedule) => {
       return schedule.days.map((dayOfWeek) => ({
-        professionalId: body.professionalId,
         dayOfWeek,
         startTime: schedule.startTime,
         endTime: schedule.endTime
       }))
     })
+    const validation = validateWeeklyHours(requestedHours)
+    if (!validation.ok) {
+      return reply.status(400).send({
+        message: validation.message
+      })
+    }
+    const hours = validation.hours.map((hour) => ({
+      professionalId: body.professionalId,
+      ...hour
+    }))
 
     await prisma.$transaction([
       prisma.professionalHours.deleteMany({
@@ -78,9 +113,10 @@ export async function professionalHoursRoutes(app: FastifyInstance) {
         startTime: true,
         endTime: true
       },
-      orderBy: {
-        dayOfWeek: 'asc'
-      }
+      orderBy: [
+        { dayOfWeek: 'asc' },
+        { startTime: 'asc' }
+      ]
     })
   })
 
@@ -101,9 +137,10 @@ export async function professionalHoursRoutes(app: FastifyInstance) {
         startTime: true,
         endTime: true
       },
-      orderBy: {
-        dayOfWeek: 'asc'
-      }
+      orderBy: [
+        { dayOfWeek: 'asc' },
+        { startTime: 'asc' }
+      ]
     })
   })
 
