@@ -24197,6 +24197,7 @@ const crmHtml = `<!doctype html>
     }
 
     function renderAgenda() {
+      clearAgendaPointerDrag()
       renderAgendaMonth()
       renderAgendaBlockList()
       renderAgendaGrid()
@@ -25140,9 +25141,12 @@ const crmHtml = `<!doctype html>
       }
       if (state.agendaPendingAppointmentIds.has(appointmentId)) return
 
+      clearAgendaPointerDrag()
+
       const rect = eventNode.getBoundingClientRect()
       state.agendaPointerDrag = {
         appointmentId,
+        pointerId: pointerEvent.pointerId,
         eventNode,
         ghost: null,
         startX: pointerEvent.clientX,
@@ -25155,15 +25159,19 @@ const crmHtml = `<!doctype html>
         dragging: false
       }
 
-      eventNode.setPointerCapture?.(pointerEvent.pointerId)
-      eventNode.addEventListener('pointermove', handleAgendaPointerMove)
-      eventNode.addEventListener('pointerup', handleAgendaPointerEnd, { once: true })
-      eventNode.addEventListener('pointercancel', handleAgendaPointerCancel, { once: true })
+      try {
+        eventNode.setPointerCapture?.(pointerEvent.pointerId)
+      } catch {}
+      window.addEventListener('pointermove', handleAgendaPointerMove, true)
+      window.addEventListener('pointerup', handleAgendaPointerEnd, true)
+      window.addEventListener('pointercancel', handleAgendaPointerCancel, true)
+      window.addEventListener('blur', handleAgendaPointerCancel)
+      document.addEventListener('visibilitychange', handleAgendaVisibilityChange)
     }
 
     function handleAgendaPointerMove(pointerEvent) {
       const drag = state.agendaPointerDrag
-      if (!drag) return
+      if (!drag || pointerEvent.pointerId !== drag.pointerId) return
 
       const moved = Math.hypot(pointerEvent.clientX - drag.startX, pointerEvent.clientY - drag.startY)
       if (!drag.dragging && moved < 5) return
@@ -25184,9 +25192,7 @@ const crmHtml = `<!doctype html>
 
     function handleAgendaPointerEnd(pointerEvent) {
       const drag = state.agendaPointerDrag
-      if (!drag) return
-      drag.eventNode.removeEventListener('pointermove', handleAgendaPointerMove)
-      drag.eventNode.removeEventListener('pointercancel', handleAgendaPointerCancel)
+      if (!drag || pointerEvent.pointerId !== drag.pointerId) return
 
       if (!drag.dragging) {
         clearAgendaPointerDrag()
@@ -25211,11 +25217,18 @@ const crmHtml = `<!doctype html>
       ).catch((error) => showCrmToast(error.message, 'error'))
     }
 
-    function handleAgendaPointerCancel() {
+    function handleAgendaPointerCancel(pointerEvent) {
       const drag = state.agendaPointerDrag
-      drag?.eventNode.removeEventListener('pointermove', handleAgendaPointerMove)
-      drag?.eventNode.removeEventListener('pointerup', handleAgendaPointerEnd)
+      if (!drag) {
+        removeOrphanAgendaDragGhosts()
+        return
+      }
+      if (pointerEvent?.pointerId !== undefined && pointerEvent.pointerId !== drag.pointerId) return
       clearAgendaPointerDrag()
+    }
+
+    function handleAgendaVisibilityChange() {
+      if (document.hidden) handleAgendaPointerCancel()
     }
 
     function createAgendaDragGhost(drag) {
@@ -25273,8 +25286,14 @@ const crmHtml = `<!doctype html>
 
     function clearAgendaPointerDrag(options = {}) {
       const drag = state.agendaPointerDrag
+      window.removeEventListener('pointermove', handleAgendaPointerMove, true)
+      window.removeEventListener('pointerup', handleAgendaPointerEnd, true)
+      window.removeEventListener('pointercancel', handleAgendaPointerCancel, true)
+      window.removeEventListener('blur', handleAgendaPointerCancel)
+      document.removeEventListener('visibilitychange', handleAgendaVisibilityChange)
       drag?.eventNode.classList.remove('dragging')
       drag?.ghost?.remove()
+      removeOrphanAgendaDragGhosts()
       state.agendaPointerDrag = null
       state.agendaDraggingAppointmentId = null
       clearAgendaDragTargets()
@@ -25285,6 +25304,10 @@ const crmHtml = `<!doctype html>
       } else {
         state.agendaDidDrag = false
       }
+    }
+
+    function removeOrphanAgendaDragGhosts() {
+      document.querySelectorAll('.agenda-drag-ghost').forEach((ghost) => ghost.remove())
     }
 
     function clearAgendaDragTargets() {
