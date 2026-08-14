@@ -79,6 +79,7 @@ export class InstagramWebhookService {
               publicMapsUrl: true,
               instagramUrl: true,
               facebookUrl: true,
+              tiktokUrl: true,
               businessHours: {
                 select: { dayOfWeek: true, startTime: true, endTime: true }
               },
@@ -313,6 +314,7 @@ export type InstagramRouterBusiness = {
   publicMapsUrl: string | null
   instagramUrl: string | null
   facebookUrl: string | null
+  tiktokUrl: string | null
   businessHours: Array<{ dayOfWeek: number; startTime: string; endTime: string }>
   services: Array<{
     id: string
@@ -390,6 +392,7 @@ function instagramAvailableInformation(business: InstagramRouterBusiness) {
   if (business.contactEmail) topics.push('email')
   if (business.instagramUrl) topics.push('instagram')
   if (business.facebookUrl) topics.push('facebook')
+  if (business.tiktokUrl) topics.push('tiktok')
   if (business.services.length) topics.push('services', 'prices')
   if (business.professionals.length) topics.push('professionals')
   return Array.from(new Set(topics))

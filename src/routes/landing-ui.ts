@@ -1,7 +1,7 @@
 ﻿import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { siFacebook, siInstagram, siWhatsapp, type SimpleIcon } from 'simple-icons'
+import { siFacebook, siInstagram, siTiktok, siWhatsapp, type SimpleIcon } from 'simple-icons'
 import { BusinessService, normalizeBusinessSlug } from '../services/business-service.js'
 import { formatArgentineMobilePhone, inferDefaultAreaCodeFromPhone } from '../services/phone-normalization-service.js'
 import { weexGoogleCalendarEnabled, weexGoogleClientId } from '../services/weex-account-service.js'
@@ -837,6 +837,7 @@ function renderLuxeNailsLanding(business: LandingBusiness, basePath = '', demoPr
         .luxe-footer-links { display:flex; flex-wrap:wrap; justify-content:center; gap:24px; color:var(--lx-muted); font-size:10px; letter-spacing:.1em; text-transform:uppercase; }
         .luxe-contact { display:flex; align-items:center; gap:12px; }
         .luxe-contact a { width:38px; height:38px; display:grid; place-items:center; border:1px solid rgba(255,255,255,.22); border-radius:50%; }
+        .luxe-contact .social-icon { width:17px; height:17px; color:currentColor; }
         .luxe-footnote { margin-top:24px; color:var(--lx-muted); font-size:10px; text-align:center; }
         @media (max-width:900px) {
           .luxe-nav-links { display:none; }
@@ -933,7 +934,7 @@ function renderLuxeNailsLanding(business: LandingBusiness, basePath = '', demoPr
           <article class="luxe-comment"><div class="luxe-comment-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div><p>&ldquo;Un espacio hermoso, profesional y con much&iacute;sima atenci&oacute;n a los detalles.&rdquo;</p><strong>Sof&iacute;a P.</strong></article>
         </div></div></section>
 
-        <footer class="luxe-footer" id="contacto"><div class="luxe-wrap"><div class="luxe-footer-row"><a class="luxe-logo" href="${escapeAttribute(basePath || '/')}"><strong>${escapeHtml(business.name)}</strong><small>${escapeHtml(subtitle)}</small></a><div class="luxe-footer-links"><a href="#inicio">Inicio</a><a href="#servicios">Servicios</a><a href="#galeria">Galer&iacute;a</a>${addressLabel ? mapsUrl ? `<a href="${escapeAttribute(mapsUrl)}" target="_blank" rel="noopener">C&oacute;mo llegar</a>` : `<span>${escapeHtml(addressLabel)}</span>` : ''}</div><div class="luxe-contact">${business.instagramUrl ? `<a href="${escapeAttribute(business.instagramUrl)}" target="_blank" rel="noopener" aria-label="Instagram">IG</a>` : ''}${whatsappUrl ? `<a href="${escapeAttribute(whatsappUrl)}" target="_blank" rel="noopener" aria-label="WhatsApp">WA</a>` : ''}</div></div><div class="luxe-footnote">&copy; 2026 ${escapeHtml(business.name)}. Powered by Weex.</div></div></footer>
+        <footer class="luxe-footer" id="contacto"><div class="luxe-wrap"><div class="luxe-footer-row"><a class="luxe-logo" href="${escapeAttribute(basePath || '/')}"><strong>${escapeHtml(business.name)}</strong><small>${escapeHtml(subtitle)}</small></a><div class="luxe-footer-links"><a href="#inicio">Inicio</a><a href="#servicios">Servicios</a><a href="#galeria">Galer&iacute;a</a>${addressLabel ? mapsUrl ? `<a href="${escapeAttribute(mapsUrl)}" target="_blank" rel="noopener">C&oacute;mo llegar</a>` : `<span>${escapeHtml(addressLabel)}</span>` : ''}</div><div class="luxe-contact">${business.instagramUrl ? `<a href="${escapeAttribute(business.instagramUrl)}" target="_blank" rel="noopener noreferrer" aria-label="Instagram">${renderBrandIcon(siInstagram)}</a>` : ''}${business.facebookUrl ? `<a href="${escapeAttribute(business.facebookUrl)}" target="_blank" rel="noopener noreferrer" aria-label="Facebook">${renderBrandIcon(siFacebook)}</a>` : ''}${business.tiktokUrl ? `<a href="${escapeAttribute(business.tiktokUrl)}" target="_blank" rel="noopener noreferrer" aria-label="TikTok">${renderBrandIcon(siTiktok)}</a>` : ''}${whatsappUrl ? `<a href="${escapeAttribute(whatsappUrl)}" target="_blank" rel="noopener noreferrer" aria-label="WhatsApp">${renderBrandIcon(siWhatsapp)}</a>` : ''}</div></div><div class="luxe-footnote">&copy; 2026 ${escapeHtml(business.name)}. Powered by Weex.</div></div></footer>
         ${renderWhatsappFab(whatsappUrl)}
       </main>
       ${displayedServices.length > 12 ? `<script>(()=>{const grid=document.getElementById('luxe-services-grid');const button=document.getElementById('luxe-services-toggle');if(!grid||!button)return;button.addEventListener('click',()=>{const expanded=grid.classList.toggle('is-expanded');button.setAttribute('aria-expanded',String(expanded));button.textContent=expanded?'Ver menos':'Ver más';});})();</script>` : ''}
@@ -1338,6 +1339,7 @@ function renderSalonWhiteSocialLinks(business: LandingBusiness, whatsappUrl: str
   const links = [
     business.instagramUrl ? { label: 'Instagram', url: business.instagramUrl, icon: siInstagram } : null,
     business.facebookUrl ? { label: 'Facebook', url: business.facebookUrl, icon: siFacebook } : null,
+    business.tiktokUrl ? { label: 'TikTok', url: business.tiktokUrl, icon: siTiktok } : null,
     whatsappUrl ? { label: 'WhatsApp', url: whatsappUrl, icon: siWhatsapp } : null
   ].filter(Boolean) as Array<{ label: string; url: string; icon: SimpleIcon }>
   return links.map((link) => `
@@ -1353,6 +1355,7 @@ function renderSocialLinks(business: LandingBusiness, whatsappUrl: string | null
   const links = [
     business.instagramUrl ? { label: 'Instagram', url: business.instagramUrl, icon: siInstagram } : null,
     business.facebookUrl ? { label: 'Facebook', url: business.facebookUrl, icon: siFacebook } : null,
+    business.tiktokUrl ? { label: 'TikTok', url: business.tiktokUrl, icon: siTiktok } : null,
     whatsappUrl ? { label: 'WhatsApp', url: whatsappUrl, icon: siWhatsapp } : null
   ].filter(Boolean) as Array<{ label: string; url: string; icon: SimpleIcon }>
 
@@ -2083,16 +2086,25 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
                   (payment.instructions ? '<p class="booking-deposit-instructions">' + escapeHtml(payment.instructions) + '</p>' : '') +
                   '<label class="booking-proof-picker" for="booking-proof-input">' +
                     '<strong>Adjuntar comprobante</strong>' +
-                    '<span>JPG, PNG, WebP o PDF de hasta 3 MB</span>' +
+                    '<span class="booking-proof-help">JPG, PNG, WebP o PDF de hasta 3 MB</span>' +
                     '<input id="booking-proof-input" type="file" accept="image/jpeg,image/png,image/webp,application/pdf">' +
+                    '<span class="booking-proof-control">' +
+                      '<span class="booking-proof-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"></path></svg>Elegir archivo</span>' +
+                      '<span class="booking-proof-filename" id="booking-proof-filename">Ning&uacute;n archivo seleccionado</span>' +
+                    '</span>' +
                   '</label>' +
                   '<button class="booking-proof-submit" id="booking-proof-submit" type="button" disabled>Enviar comprobante</button>' +
                 '</div>'
               els.continue.hidden = true
               const input = document.getElementById('booking-proof-input')
               const submit = document.getElementById('booking-proof-submit')
+              const picker = input?.closest('.booking-proof-picker')
+              const filename = document.getElementById('booking-proof-filename')
               input?.addEventListener('change', () => {
-                submit.disabled = !input.files?.[0]
+                const selectedFile = input.files?.[0]
+                submit.disabled = !selectedFile
+                picker?.classList.toggle('has-file', Boolean(selectedFile))
+                if (filename) filename.textContent = selectedFile?.name || 'Ning\u00fan archivo seleccionado'
                 setFeedback('', '')
               })
               submit?.addEventListener('click', () => void uploadDepositProof(input.files?.[0], submit))
@@ -4880,18 +4892,25 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
       border-radius: 16px;
       background: #fff;
     }
-    .booking-deposit-card > p { color: var(--ink-soft); line-height: 1.55; }
+    .booking-deposit-card > p { color: var(--ink); line-height: 1.55; }
     .booking-deposit-amount { display: flex; justify-content: space-between; gap: 18px; align-items: center; margin-bottom: 12px; }
-    .booking-deposit-amount span { color: var(--ink-soft); font-size: 13px; font-weight: 800; }
+    .booking-deposit-amount span { color: var(--ink); font-size: 13px; font-weight: 800; }
     .booking-deposit-amount strong { color: var(--dark-1); font-size: 25px; }
     .booking-transfer-details { margin: 18px 0; display: grid; gap: 9px; }
     .booking-transfer-details > div { padding: 11px 13px; display: flex; justify-content: space-between; gap: 18px; border-radius: 10px; background: var(--cream-2); }
-    .booking-transfer-details span { color: var(--ink-soft); font-size: 12px; }
+    .booking-transfer-details span { color: var(--ink); font-size: 12px; }
     .booking-transfer-details strong { overflow-wrap: anywhere; text-align: right; }
     .booking-deposit-instructions { padding: 12px; border-left: 3px solid var(--gold); background: #fffaf0; }
-    .booking-proof-picker { margin-top: 18px; padding: 18px; display: grid; gap: 5px; border: 1px dashed var(--cream-line); border-radius: 12px; cursor: pointer; }
-    .booking-proof-picker span { color: var(--ink-soft); font-size: 12px; }
-    .booking-proof-picker input { margin-top: 8px; }
+    .booking-proof-picker { margin-top: 18px; padding: 18px; display: grid; gap: 5px; color: var(--ink); border: 1px dashed var(--cream-line); border-radius: 12px; cursor: pointer; transition: border-color .18s ease, background .18s ease; }
+    .booking-proof-picker:hover { border-color: var(--gold); background: var(--cream-2); }
+    .booking-proof-picker:focus-within { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(201,161,59,.14); }
+    .booking-proof-picker .booking-proof-help { color: var(--ink); font-size: 12px; }
+    .booking-proof-picker input { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+    .booking-proof-control { margin-top: 10px; display: flex; align-items: center; gap: 12px; }
+    .booking-proof-action { min-height: 40px; padding: 0 15px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; flex: 0 0 auto; color: #fff; background: var(--dark-1); border: 1px solid var(--dark-1); border-radius: 9px; font-size: 13px; font-weight: 800; }
+    .booking-proof-action svg { width: 17px; height: 17px; }
+    .booking-proof-filename { min-width: 0; overflow: hidden; color: var(--ink); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+    .booking-proof-picker.has-file .booking-proof-filename { font-weight: 700; }
     .booking-proof-submit { width: 100%; margin-top: 12px; padding: 13px 18px; border: 0; border-radius: 10px; color: #fff; background: var(--dark-1); font-weight: 900; cursor: pointer; }
     .booking-proof-submit:disabled { opacity: .45; cursor: not-allowed; }
     .booking-account-required .success-link {
@@ -6234,7 +6253,7 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
     .booking-template-salon-white .summary-rating span,
     .booking-template-salon-white .summary-address,
     .booking-template-salon-white .summary-empty,
-    .booking-template-salon-white .summary-card-line span { color: #8A7F76; }
+    .booking-template-salon-white .summary-card-line span { color: #62574F; }
     .booking-template-salon-white .summary-divider,
     .booking-template-salon-white .summary-card-line { border-color: #EDE4DE; }
     .booking-template-salon-white .summary-card-line strong,
@@ -6247,6 +6266,23 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
     }
     .booking-template-salon-white .primary-line strong,
     .booking-template-salon-white .primary-line b { color: #BD7E67; }
+    .booking-template-salon-white .booking-deposit-card > p,
+    .booking-template-salon-white .booking-deposit-amount span,
+    .booking-template-salon-white .booking-transfer-details span,
+    .booking-template-salon-white .booking-proof-help,
+    .booking-template-salon-white .booking-proof-filename { color: #62574F; }
+    .booking-template-salon-white .booking-proof-picker {
+      border-color: #DCCFC7;
+      border-radius: 4px;
+    }
+    .booking-template-salon-white .booking-proof-picker:hover { background: #FDF7F4; border-color: #D9A793; }
+    .booking-template-salon-white .booking-proof-action {
+      color: #FFFFFF;
+      background: #D9A793;
+      border-color: #D9A793;
+      border-radius: 3px;
+      font-weight: 600;
+    }
     .booking-template-salon-white .fresha-continue {
       color: #A99D95;
       background: #F4EEEA;

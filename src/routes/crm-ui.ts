@@ -15143,6 +15143,12 @@ const crmHtml = `<!doctype html>
               <input class="field" id="business-facebook" type="url" placeholder="https://facebook.com/tucomercio">
               <small>Opcional. Si queda vac&iacute;o no se muestra el acceso.</small>
             </div>
+
+            <div class="settings-field">
+              <label for="business-tiktok">TikTok</label>
+              <input class="field" id="business-tiktok" type="url" placeholder="https://tiktok.com/@tucomercio">
+              <small>Link p&uacute;blico para la landing y las respuestas del bot.</small>
+            </div>
               </div>
             </details>
 
@@ -17474,6 +17480,7 @@ const crmHtml = `<!doctype html>
       businessEmail: document.getElementById('business-email'),
       businessInstagram: document.getElementById('business-instagram'),
       businessFacebook: document.getElementById('business-facebook'),
+      businessTiktok: document.getElementById('business-tiktok'),
       paymentTransferEnabled: document.getElementById('payment-transfer-enabled'),
       paymentAlias: document.getElementById('payment-alias'),
       paymentCbu: document.getElementById('payment-cbu'),
@@ -22387,6 +22394,7 @@ const crmHtml = `<!doctype html>
       els.businessEmail.value = state.business?.contactEmail || ''
       els.businessInstagram.value = state.business?.instagramUrl || ''
       els.businessFacebook.value = state.business?.facebookUrl || ''
+      els.businessTiktok.value = state.business?.tiktokUrl || ''
       els.landingOpeningYear.value = state.business?.landingOpeningYear || ''
       els.landingAddress.value = state.business?.publicAddress || ''
       els.landingAddressArea.value = state.business?.publicAddressArea || ''
@@ -23455,6 +23463,7 @@ const crmHtml = `<!doctype html>
       const contactEmail = els.businessEmail.value.trim()
       const instagramUrl = els.businessInstagram.value.trim()
       const facebookUrl = els.businessFacebook.value.trim()
+      const tiktokUrl = els.businessTiktok.value.trim()
       const publicAddress = els.landingAddress.value.trim()
       const publicAddressArea = els.landingAddressArea.value.trim()
       const publicMapsUrl = els.landingMapsUrl.value.trim()
@@ -23475,6 +23484,7 @@ const crmHtml = `<!doctype html>
       const contactEmailChanged = contactEmail !== (state.business?.contactEmail || '')
       const instagramChanged = instagramUrl !== (state.business?.instagramUrl || '')
       const facebookChanged = facebookUrl !== (state.business?.facebookUrl || '')
+      const tiktokChanged = tiktokUrl !== (state.business?.tiktokUrl || '')
       const publicAddressChanged = publicAddress !== (state.business?.publicAddress || '')
       const publicAddressAreaChanged = publicAddressArea !== (state.business?.publicAddressArea || '')
       const publicMapsUrlChanged = publicMapsUrl !== (state.business?.publicMapsUrl || '')
@@ -23496,7 +23506,7 @@ const crmHtml = `<!doctype html>
             })
           })
         }
-        if (nameChanged || logoChanged || contactEmailChanged || instagramChanged || facebookChanged || publicAddressChanged || publicAddressAreaChanged || publicMapsUrlChanged || openingYearChanged) {
+        if (nameChanged || logoChanged || contactEmailChanged || instagramChanged || facebookChanged || tiktokChanged || publicAddressChanged || publicAddressAreaChanged || publicMapsUrlChanged || openingYearChanged) {
           state.business = await getJson('/businesses/' + state.businessId, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
@@ -23506,6 +23516,7 @@ const crmHtml = `<!doctype html>
               ...(contactEmailChanged ? { contactEmail: contactEmail || null } : {}),
               ...(instagramChanged ? { instagramUrl: instagramUrl || null } : {}),
               ...(facebookChanged ? { facebookUrl: facebookUrl || null } : {}),
+              ...(tiktokChanged ? { tiktokUrl: tiktokUrl || null } : {}),
               ...(publicAddressChanged ? { publicAddress: publicAddress || null } : {}),
               ...(publicAddressAreaChanged ? { publicAddressArea: publicAddressArea || null } : {}),
               ...(publicMapsUrlChanged ? { publicMapsUrl: publicMapsUrl || null } : {}),

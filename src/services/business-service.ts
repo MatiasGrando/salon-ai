@@ -102,6 +102,7 @@ export class BusinessService {
     publicMapsUrl?: string | null
     instagramUrl?: string | null
     facebookUrl?: string | null
+    tiktokUrl?: string | null
   }) {
     const business = await prisma.business.findUnique({
       where: {

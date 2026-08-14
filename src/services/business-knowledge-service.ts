@@ -16,6 +16,7 @@ export type BusinessKnowledge = {
   publicMapsUrl: string | null
   instagramUrl: string | null
   facebookUrl: string | null
+  tiktokUrl: string | null
   businessHours: Array<{
     dayOfWeek: number
     startTime: string
@@ -61,6 +62,7 @@ export class BusinessKnowledgeService {
         publicMapsUrl: true,
         instagramUrl: true,
         facebookUrl: true,
+        tiktokUrl: true,
         businessHours: {
           orderBy: { dayOfWeek: 'asc' },
           select: { dayOfWeek: true, startTime: true, endTime: true }
@@ -303,6 +305,12 @@ function answerTopic(business: BusinessKnowledge, topic: BusinessInformationTopi
     return business.facebookUrl
       ? `El Facebook de ${business.name} es ${business.facebookUrl}`
       : missingInformation('el Facebook del local')
+  }
+
+  if (topic === 'tiktok') {
+    return business.tiktokUrl
+      ? `El TikTok de ${business.name} es ${business.tiktokUrl}`
+      : missingInformation('el TikTok del local')
   }
 
   if (topic === 'services' || topic === 'prices') {

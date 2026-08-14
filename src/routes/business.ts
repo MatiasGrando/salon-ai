@@ -171,6 +171,7 @@ export async function businessRoutes(app: FastifyInstance) {
       publicMapsUrl?: string | null
       instagramUrl?: string | null
       facebookUrl?: string | null
+      tiktokUrl?: string | null
     }
     const name = body.name?.trim()
     const slug = body.slug === undefined ? undefined : normalizeOptionalText(body.slug)
@@ -190,6 +191,7 @@ export async function businessRoutes(app: FastifyInstance) {
     const publicMapsUrl = normalizeMapsUrl(body.publicMapsUrl)
     const instagramUrl = normalizeOptionalUrl(body.instagramUrl)
     const facebookUrl = normalizeOptionalUrl(body.facebookUrl)
+    const tiktokUrl = normalizeOptionalUrl(body.tiktokUrl)
 
     if (body.name !== undefined && !name) {
       return reply.status(400).send({
@@ -251,6 +253,12 @@ export async function businessRoutes(app: FastifyInstance) {
       })
     }
 
+    if (body.tiktokUrl !== undefined && tiktokUrl === undefined) {
+      return reply.status(400).send({
+        message: 'El link de TikTok debe ser una URL valida'
+      })
+    }
+
     if (body.contactEmail !== undefined && contactEmail === undefined) {
       return reply.status(400).send({
         message: 'El email del comercio debe ser valido'
@@ -282,7 +290,8 @@ export async function businessRoutes(app: FastifyInstance) {
       publicAddressArea === undefined &&
       publicMapsUrl === undefined &&
       instagramUrl === undefined &&
-      facebookUrl === undefined
+      facebookUrl === undefined &&
+      tiktokUrl === undefined
     ) {
       return reply.status(400).send({
         message: 'No hay cambios para guardar'
@@ -310,7 +319,8 @@ export async function businessRoutes(app: FastifyInstance) {
         ...(publicAddressArea !== undefined ? { publicAddressArea } : {}),
         ...(publicMapsUrl !== undefined ? { publicMapsUrl } : {}),
         ...(instagramUrl !== undefined ? { instagramUrl } : {}),
-        ...(facebookUrl !== undefined ? { facebookUrl } : {})
+        ...(facebookUrl !== undefined ? { facebookUrl } : {}),
+        ...(tiktokUrl !== undefined ? { tiktokUrl } : {})
       })
     } catch (error) {
       return reply.status(400).send({ message: businessSlugErrorMessage(error) })

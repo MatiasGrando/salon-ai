@@ -160,6 +160,7 @@ model Business {
   publicMapsUrl        String?
   instagramUrl         String?
   facebookUrl          String?
+  tiktokUrl            String?
   botEnabled           Boolean                    @default(true)
   aiEnabled            Boolean                    @default(true)
   whatsappConfig       BusinessWhatsAppConfig?

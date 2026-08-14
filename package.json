@@ -56,6 +56,7 @@
     "test:conversation-batching": "tsx scripts/inbound-message-batcher-contract-test.ts",
     "test:whatsapp-greeting-latency": "tsx scripts/whatsapp-greeting-latency-diagnostic-test.ts",
     "test:instagram-hybrid": "tsx scripts/instagram-hybrid-contract-test.ts",
+    "test:tiktok-social": "tsx scripts/tiktok-social-link-contract-test.ts",
     "test:forja-salon": "tsx scripts/forja-salon-eval-contract-test.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

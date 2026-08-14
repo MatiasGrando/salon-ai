@@ -52,6 +52,7 @@ export const BUSINESS_INFORMATION_TOPICS = [
   'email',
   'instagram',
   'facebook',
+  'tiktok',
   'services',
   'professionals',
   'prices',
@@ -1306,6 +1307,7 @@ function detectBusinessInformationTopics(
   if (containsAny(normalized, ['correo', 'email', 'mail del local'])) add('email')
   if (containsAny(normalized, ['instagram', 'ig del local', 'insta del local'])) add('instagram')
   if (containsAny(normalized, ['facebook'])) add('facebook')
+  if (containsAny(normalized, ['tiktok', 'tik tok', 'tik-tok'])) add('tiktok')
   if (containsAny(normalized, [
     'que servicios tienen', 'que servicios hacen', 'que servicios hay', 'cuales servicios hay',
     'servicios disponibles', 'mostrame los servicios', 'mostrar servicios', 'ver servicios',
