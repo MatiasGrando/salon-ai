@@ -745,8 +745,8 @@ export function mergeConversationRouting(
         ? null
         : quoteBookingExtraction({
             standaloneQuoteRequest,
-            aiExtraction: aiRouting.bookingExtraction,
-            deterministicExtraction: deterministic.bookingExtraction,
+            aiExtraction: aiRouting.bookingExtraction ?? null,
+            deterministicExtraction: deterministic.bookingExtraction ?? null,
             catalogQuery,
             catalog,
             message: originalMessage

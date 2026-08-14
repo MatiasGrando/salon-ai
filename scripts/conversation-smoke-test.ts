@@ -99,8 +99,14 @@ async function main() {
         },
         {
           message: 'Hola Manola',
-          includes: ['nombre'],
+          includes: ['Cami', 'llamás'],
           excludes: ['Manola', service.name]
+        },
+        {
+          message: 'quiero saber los horarios',
+          includes: ['horario', 'ayudar en algo más'],
+          excludes: ['cómo te llamás'],
+          currentStep: 'START'
         }
       ]
     },
@@ -114,8 +120,14 @@ async function main() {
         },
         {
           message: 'Hola Manu quiero un turno',
-          includes: ['Cami', 'nombre'],
+          includes: ['Cami', 'llamás'],
           excludes: ['Manu', service.name]
+        },
+        {
+          message: 'Matías',
+          includes: ['Matías'],
+          currentStep: 'ASK_SERVICE',
+          selectedCustomerName: 'Matías'
         }
       ]
     },
@@ -135,8 +147,9 @@ async function main() {
       steps: [
         {
           message: 'Hola Manu quiero un turno',
-          includes: ['Cami', service.name],
-          excludes: ['Manu', 'nombre']
+          includes: ['Cami', 'tipo de servicio'],
+          excludes: ['Manu', 'nombre'],
+          currentStep: 'ASK_SERVICE'
         }
       ]
     },
@@ -150,8 +163,25 @@ async function main() {
         },
         {
           message: 'Hola soy Manola',
-          includes: ['Manola', service.name],
-          customerName: 'Manola'
+          includes: ['Manola', 'ayudar'],
+          selectedCustomerName: 'Manola'
+        }
+      ]
+    },
+    {
+      name: 'extrae nombre y servicio de una frase compuesta',
+      phone: `${testPhonePrefix}compound-name-service`,
+      steps: [
+        {
+          message: 'reset total',
+          includes: ['Cami']
+        },
+        {
+          message: `hola soy Mati, quiero ${service.name}`,
+          includes: [professional.name],
+          excludes: ['¿Me decís tu nombre?'],
+          currentStep: 'ASK_PROFESSIONAL',
+          selectedCustomerName: 'Mati'
         }
       ]
     },
@@ -169,7 +199,7 @@ async function main() {
         },
         {
           message: 'Mati',
-          includes: [service.name]
+          currentStep: 'ASK_SERVICE'
         },
         {
           message: 'lavado de pelo',
@@ -190,12 +220,13 @@ async function main() {
       steps: [
         {
           message: 'reset total',
-          includes: ['Cami', 'nombre']
+          includes: ['Cami']
         },
         {
           message: 'hola que tal',
-          includes: ['nombre'],
-          excludes: ['Soy Cami', 'soy Cami']
+          includes: ['Todo bien', 'ayudar'],
+          excludes: ['nombre', 'Soy Cami', 'soy Cami'],
+          currentStep: 'START'
         }
       ]
     },
@@ -210,7 +241,10 @@ async function main() {
         },
         {
           message: `hola soy Mati, quiero ${service.name}`,
-          includes: [service.name]
+          includes: [professional.name],
+          excludes: ['¿Me decís tu nombre?'],
+          currentStep: 'ASK_PROFESSIONAL',
+          selectedCustomerName: 'Mati'
         },
         {
           message: 'manana',
@@ -218,7 +252,7 @@ async function main() {
         },
         {
           message: professional.name,
-          includes: ['Horarios disponibles']
+          includes: ['franja horaria']
         },
         {
           message: 'el primero que tengas',

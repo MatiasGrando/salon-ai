@@ -70,6 +70,10 @@ export type BookingV2PersistedState = {
   quoteOnly?: BookingV2QuoteOnly | null
   pendingDeposit?: BookingV2PendingDeposit | null
   contextPause?: BookingV2ContextPause | null
+  optionalNamePrompt?: {
+    promptedAt: string
+    resumeMessage: string | null
+  } | null
   unsupportedServiceRequest?: BookingV2UnsupportedServiceRequest | null
   queuedServices?: BookingV2QueuedService[]
   combinedServices?: BookingV2CombinedService[]
@@ -110,6 +114,7 @@ export function stateFromConversation(
     quoteOnly: readQuoteOnly(conversation.bookingV2State),
     pendingDeposit: readPendingDeposit(conversation.bookingV2State),
     contextPause: readContextPause(conversation.bookingV2State),
+    optionalNamePrompt: readOptionalNamePrompt(conversation.bookingV2State),
     unsupportedServiceRequest: readUnsupportedServiceRequest(conversation.bookingV2State),
     queuedServices: readQueuedServices(conversation.bookingV2State),
     combinedServices: readCombinedServices(conversation.bookingV2State),
@@ -132,7 +137,7 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
     selectedDate: state.draft.date,
     selectedTime: state.draft.time,
     misunderstandingCount: state.misunderstandingCount,
-    bookingV2State: state.pendingProposal || state.pendingRequest || state.pendingInformationSelection || state.lastInformationServiceId || state.pendingServiceDisambiguation || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.combinedServiceDecisionQueue !== null || state.advisorQuote || state.quoteOnly || state.pendingDeposit || state.contextPause || state.unsupportedServiceRequest || state.queuedServices.length || state.combinedServices.length || state.addonSuggestion || state.addonOfferCompletedServiceId || state.pendingCombinedAvailability || state.pendingAvailabilityResolution || state.pendingServiceSeparation || state.pendingServiceReplacement || state.pendingCoordinatedAvailability
+    bookingV2State: state.pendingProposal || state.pendingRequest || state.pendingInformationSelection || state.lastInformationServiceId || state.pendingServiceDisambiguation || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.combinedServiceDecisionQueue !== null || state.advisorQuote || state.quoteOnly || state.pendingDeposit || state.contextPause || state.optionalNamePrompt || state.unsupportedServiceRequest || state.queuedServices.length || state.combinedServices.length || state.addonSuggestion || state.addonOfferCompletedServiceId || state.pendingCombinedAvailability || state.pendingAvailabilityResolution || state.pendingServiceSeparation || state.pendingServiceReplacement || state.pendingCoordinatedAvailability
       ? {
           version: 1,
           pendingProposal: state.pendingProposal,
@@ -156,6 +161,7 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
           ...(state.quoteOnly ? { quoteOnly: state.quoteOnly } : {}),
           ...(state.pendingDeposit ? { pendingDeposit: state.pendingDeposit } : {}),
           ...(state.contextPause ? { contextPause: state.contextPause } : {}),
+          ...(state.optionalNamePrompt ? { optionalNamePrompt: state.optionalNamePrompt } : {}),
           ...(state.unsupportedServiceRequest
             ? { unsupportedServiceRequest: state.unsupportedServiceRequest }
             : {}),
@@ -181,6 +187,23 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
             ? { pendingCoordinatedAvailability: state.pendingCoordinatedAvailability }
             : {})
         }
+      : null
+  }
+}
+
+function readOptionalNamePrompt(value: unknown): NonNullable<BookingV2State['optionalNamePrompt']> | null {
+  if (!value || typeof value !== 'object') return null
+  const candidate = (value as { optionalNamePrompt?: unknown }).optionalNamePrompt
+  if (!candidate || typeof candidate !== 'object') return null
+  const prompt = candidate as { promptedAt?: unknown; resumeMessage?: unknown }
+  if (typeof prompt.promptedAt !== 'string' || Number.isNaN(new Date(prompt.promptedAt).getTime())) {
+    return null
+  }
+  if (prompt.resumeMessage !== null && typeof prompt.resumeMessage !== 'string') return null
+  return {
+    promptedAt: prompt.promptedAt,
+    resumeMessage: typeof prompt.resumeMessage === 'string' && prompt.resumeMessage.trim()
+      ? prompt.resumeMessage.trim()
       : null
   }
 }
@@ -513,7 +536,7 @@ function readPendingInformationSelection(value: unknown): BookingV2PendingInform
   )).slice(0, 5)
   const requestedInformation = Array.from(new Set(
     candidate.requestedInformation.filter((item): item is BookingV2PendingInformationSelection['requestedInformation'][number] =>
-      ['general', 'price', 'duration', 'professionals'].includes(item)
+      ['general', 'price', 'deposit', 'duration', 'professionals'].includes(item)
     )
   ))
   return serviceIds.length > 1 && requestedInformation.length

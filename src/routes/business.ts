@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import type { Prisma } from '@prisma/client'
+import type { Prisma } from '../generated/prisma/client.js'
 import { prisma } from '../config/prisma.js'
 import { whatsappConfig } from '../config/whatsapp.js'
 import { getBusinessWhatsAppState } from '../services/business-whatsapp-settings.js'

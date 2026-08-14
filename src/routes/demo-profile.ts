@@ -90,7 +90,7 @@ export async function demoProfileRoutes(app: FastifyInstance) {
       return profiles.filter((profile) => profile !== null)
     }
     return prisma.business.findMany({
-      where: { isDemo: true, createdByUserId: request.auth.user.id },
+      where: { isDemo: true, createdByUserId: user.id },
       orderBy: { name: 'asc' },
       select
     })
@@ -213,14 +213,18 @@ export async function demoProfileRoutes(app: FastifyInstance) {
   })
 
   app.post('/admin/demo-profiles/:id/chat', async (request, reply) => {
+    const user = request.auth?.user
+    if (!user || !canUseCommercialDemos(user)) {
+      return reply.status(403).send({ message: 'No tenes permiso para usar perfiles demo' })
+    }
     const params = request.params as { id: string }
     const body = request.body as { message?: string; sessionId?: string }
     const message = body.message?.trim()
     const sessionId = cleanSessionId(body.sessionId)
     if (!message || !sessionId) return reply.status(400).send({ message: 'Falta el mensaje o la sesion demo' })
-    const business = await findAccessibleDemo(request.auth?.user, params.id)
+    const business = await findAccessibleDemo(user, params.id)
     if (!business) return reply.status(404).send({ message: 'No encontre ese perfil demo' })
-    const phone = `demo:${request.auth.user.id}:${sessionId}`
+    const phone = `demo:${user.id}:${sessionId}`
     const conversation = await prisma.conversation.upsert({
       where: { businessId_phone: { businessId: business.id, phone } },
       update: {},

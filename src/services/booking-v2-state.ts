@@ -61,7 +61,7 @@ export type BookingV2PendingRequest = {
 
 export type BookingV2PendingInformationSelection = {
   serviceIds: string[]
-  requestedInformation: Array<'general' | 'price' | 'duration' | 'professionals'>
+  requestedInformation: Array<'general' | 'price' | 'deposit' | 'duration' | 'professionals'>
   quoteOnly?: boolean
 }
 
@@ -199,6 +199,10 @@ export type BookingV2State = {
   quoteOnly: BookingV2QuoteOnly | null
   pendingDeposit: BookingV2PendingDeposit | null
   contextPause?: BookingV2ContextPause | null
+  optionalNamePrompt: {
+    promptedAt: string
+    resumeMessage: string | null
+  } | null
   unsupportedServiceRequest?: BookingV2UnsupportedServiceRequest | null
   queuedServices: BookingV2QueuedService[]
   combinedServices: BookingV2CombinedService[]
@@ -246,6 +250,7 @@ export function createEmptyBookingV2State(): BookingV2State {
     quoteOnly: null,
     pendingDeposit: null,
     contextPause: null,
+    optionalNamePrompt: null,
     unsupportedServiceRequest: null,
     queuedServices: [],
     combinedServices: [],

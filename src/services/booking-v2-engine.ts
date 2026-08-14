@@ -2113,7 +2113,7 @@ export class BookingV2Engine {
           filteredOptionIds: filtered.map((option) => option.id),
           page: 0,
           timeBand: choice?.type === 'TIME_BAND' ? choice.band : null,
-          requestedTime: choice?.type === 'EXACT_TIME' ? choice.time : null,
+          requestedTime: null,
           requestedWindow: choice?.type === 'TIME_WINDOW' ? choice : null
         }, input.catalog)
       }
@@ -2739,6 +2739,7 @@ export class BookingV2Engine {
       (service) => service.id === effectiveInterpretation.state.draft.service
     )
     if (
+      catalog &&
       selectedService &&
       effectiveInterpretation.state.quoteOnly &&
       selectedService.attentionMode === 'DIRECT_BOOKING' &&
@@ -2769,7 +2770,7 @@ export class BookingV2Engine {
         },
         combinedServices: [],
         guidedEstimate: null,
-      quoteOnly: { ...effectiveInterpretation.state.quoteOnly, remainingServiceIds, estimates },
+        quoteOnly: { ...effectiveInterpretation.state.quoteOnly, remainingServiceIds, estimates },
         misunderstandingCount: 0
       }
       if (nextServiceId) {
@@ -3267,7 +3268,7 @@ export class BookingV2Engine {
   private serviceDisambiguationResult(
     state: BookingV2State,
     catalog: BookingV2DomainCatalog,
-    outcome: BookingV2ProcessResult['outcome']
+    outcome: BookingV2Interpretation['outcome']
   ): BookingV2ProcessResult {
     const plan = buildBookingV2MessagePlan({
       state,

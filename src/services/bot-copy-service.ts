@@ -18,6 +18,18 @@ export class BotCopyService {
     return '¡Hola! Soy Cami 😊\n\n¿En qué te puedo ayudar?'
   }
 
+  socialGreeting() {
+    return '¡Hola! Todo bien 😊\n\n¿En qué te puedo ayudar?'
+  }
+
+  askOptionalNameAfterCorrection() {
+    return 'Soy Cami 😊 Antes de seguir, ¿cómo te llamás?'
+  }
+
+  customerNameReceived(customerName: string) {
+    return `Un gusto, ${getFirstName(customerName)} 😊 ¿En qué te puedo ayudar?`
+  }
+
   intentNotUnderstood() {
     return [
       'No estoy segura de haber entendido 😊',

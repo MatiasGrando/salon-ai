@@ -77,6 +77,12 @@ import {
   isQueuedConversationHandoff,
   queuedConversationHandoffPatch
 } from './conversation-handoff.js'
+import {
+  extractExplicitCustomerIntroduction,
+  extractMisaddressedAssistantGreeting,
+  extractPlainCustomerName,
+  isPureSocialGreeting
+} from './conversation-customer-intent.js'
 
 const bookingConversationFlow = new BookingConversationFlow()
 const bookingProvider = new InternalBookingProvider()
@@ -280,7 +286,7 @@ export class ConversationService {
       ? { ...storedBookingState, contextPause: null }
       : null
 
-    const conversation = existingConversation
+    let conversation = existingConversation
       ? await prisma.conversation.update({
           where: {
             id: existingConversation.id
@@ -582,6 +588,135 @@ export class ConversationService {
       })
     }
 
+    if (bookingV2Enabled && businessId && conversation.currentStep === 'START') {
+      let currentState = stateFromConversation(conversation)
+      const pendingOptionalName = currentState.optionalNamePrompt
+
+      if (pendingOptionalName) {
+        const explicitIntroduction = extractExplicitCustomerIntroduction(message)
+        const customerName = explicitIntroduction?.name ?? extractPlainCustomerName(message)
+
+        if (customerName) {
+          const nextState: BookingV2State = {
+            ...currentState,
+            draft: {
+              ...currentState.draft,
+              name: customerName
+            },
+            optionalNamePrompt: null,
+            misunderstandingCount: 0
+          }
+          conversation = await this.updateConversation(input.phone, businessId, {
+            currentStep: 'START',
+            ...conversationPatchFromState(nextState)
+          })
+
+          const resumeMessage = explicitIntroduction?.remainingMessage ?? pendingOptionalName.resumeMessage
+          if (resumeMessage) {
+            const continued = isGenericBookingV2Request(resumeMessage)
+              ? await this.handleBookingV2({
+                  phone: input.phone,
+                  message: resumeMessage,
+                  businessId,
+                  conversation,
+                  routing: deterministicBookingRouting(resumeMessage)
+                })
+              : await this.handleMessageCore({
+                  ...input,
+                  message: resumeMessage,
+                  businessId
+                })
+            return {
+              ...continued,
+              reply: `${botCopyService.customerNameReceived(customerName)}\n\n${continued.reply}`
+            }
+          }
+
+          return {
+            reply: botCopyService.customerNameReceived(customerName),
+            skipMisunderstandingTracking: true,
+            skipHumanize: true
+          }
+        }
+
+        currentState = {
+          ...currentState,
+          optionalNamePrompt: null
+        }
+        conversation = await this.updateConversation(input.phone, businessId, {
+          currentStep: 'START',
+          ...conversationPatchFromState(currentState)
+        })
+      }
+
+      const explicitIntroduction = extractExplicitCustomerIntroduction(message)
+      if (explicitIntroduction) {
+        const nextState: BookingV2State = {
+          ...stateFromConversation(conversation),
+          draft: {
+            ...stateFromConversation(conversation).draft,
+            name: explicitIntroduction.name
+          },
+          optionalNamePrompt: null,
+          misunderstandingCount: 0
+        }
+        conversation = await this.updateConversation(input.phone, businessId, {
+          currentStep: 'START',
+          ...conversationPatchFromState(nextState)
+        })
+
+        if (!explicitIntroduction.remainingMessage) {
+          return {
+            reply: botCopyService.customerNameReceived(explicitIntroduction.name),
+            skipMisunderstandingTracking: true,
+            skipHumanize: true
+          }
+        }
+        message = explicitIntroduction.remainingMessage
+      }
+
+      const misaddressedGreeting = extractMisaddressedAssistantGreeting(message)
+      if (misaddressedGreeting) {
+        const knownCustomerName = stateFromConversation(conversation).draft.name
+        if (knownCustomerName) {
+          if (!misaddressedGreeting.remainingMessage) {
+            return {
+              reply: `Soy Cami 😊 Hola ${knownCustomerName.split(/\s+/u)[0]}. ¿En qué te puedo ayudar?`,
+              skipMisunderstandingTracking: true,
+              skipHumanize: true
+            }
+          }
+          const continued = await this.handleMessageCore({
+            ...input,
+            message: misaddressedGreeting.remainingMessage,
+            businessId
+          })
+          return {
+            ...continued,
+            reply: `Soy Cami 😊\n\n${continued.reply}`
+          }
+        }
+
+        const nextState: BookingV2State = {
+          ...stateFromConversation(conversation),
+          optionalNamePrompt: {
+            promptedAt: new Date().toISOString(),
+            resumeMessage: misaddressedGreeting.remainingMessage
+          },
+          misunderstandingCount: 0
+        }
+        await this.updateConversation(input.phone, businessId, {
+          currentStep: 'START',
+          ...conversationPatchFromState(nextState)
+        })
+        return {
+          reply: botCopyService.askOptionalNameAfterCorrection(),
+          skipMisunderstandingTracking: true,
+          skipHumanize: true
+        }
+      }
+    }
+
     // Un saludo puro al inicio no necesita interpretacion semantica. Resolverlo
     // antes del router evita que una clasificacion probabilistica lo convierta
     // por error en una consulta de horarios u otra informacion del negocio.
@@ -593,7 +728,7 @@ export class ConversationService {
       const personality = await getBusinessAssistantPersonality(businessId)
       return {
         reply: applyAssistantPersonalityToReply(
-          botCopyService.welcome(),
+          existingConversation ? botCopyService.socialGreeting() : botCopyService.welcome(),
           personality
         ),
         skipMisunderstandingTracking: true,
@@ -1344,8 +1479,9 @@ export class ConversationService {
         skipHumanize: true
       }
     }
-    if (shouldResumeQuoteOnlyBooking(storedInformationState, input.message, input.routing)) {
-      const quotedServiceIds = storedInformationState.quoteOnly.estimates.map((estimate) => estimate.serviceId)
+    const storedQuoteOnly = storedInformationState.quoteOnly
+    if (storedQuoteOnly && shouldResumeQuoteOnlyBooking(storedInformationState, input.message, input.routing)) {
+      const quotedServiceIds = storedQuoteOnly.estimates.map((estimate) => estimate.serviceId)
       const [primaryServiceId, ...additionalServiceIds] = quotedServiceIds
       const bookingState: BookingV2State = {
         ...storedInformationState,
@@ -1622,7 +1758,10 @@ export class ConversationService {
               ...conversationPatchFromState(nextState)
             })
             return {
-              reply: applyAssistantPersonalityToReply(detailReply, assistantPersonality),
+              reply: applyAssistantPersonalityToReply(
+                detailReply ?? unresolvedServiceInformationReply(null),
+                assistantPersonality
+              ),
               skipMisunderstandingTracking: true,
               skipHumanize: true
             }
@@ -1809,7 +1948,8 @@ export class ConversationService {
 
     if (
       input.conversation.currentStep === 'CONFIRM' &&
-      bookingConfirmationChoice?.confidence >= 0.65 &&
+      bookingConfirmationChoice &&
+      bookingConfirmationChoice.confidence >= 0.65 &&
       bookingConfirmationChoice.choiceId === 'confirm_booking' &&
       input.conversation.selectedCustomerName &&
       input.conversation.selectedServiceId &&
@@ -1904,7 +2044,8 @@ export class ConversationService {
             : null
     if (
       input.conversation.currentStep === 'CONFIRM' &&
-      bookingConfirmationChoice?.confidence >= 0.65 &&
+      bookingConfirmationChoice &&
+      bookingConfirmationChoice.confidence >= 0.65 &&
       confirmationChangeField
     ) {
       const changedState = clearBookingV2StateFromField(
@@ -1929,7 +2070,8 @@ export class ConversationService {
 
     if (
       input.conversation.currentStep === 'CONFIRM' &&
-      bookingConfirmationChoice?.confidence >= 0.65 &&
+      bookingConfirmationChoice &&
+      bookingConfirmationChoice.confidence >= 0.65 &&
       bookingConfirmationChoice.choiceId === 'cancel_booking'
     ) {
       const stateBeforeCancellation = stateFromConversation(input.conversation)
@@ -1950,7 +2092,8 @@ export class ConversationService {
 
     if (
       input.conversation.currentStep === 'CONFIRM' &&
-      bookingConfirmationChoice?.confidence >= 0.65 &&
+      bookingConfirmationChoice &&
+      bookingConfirmationChoice.confidence >= 0.65 &&
       bookingConfirmationChoice.choiceId === 'review_options'
     ) {
       return {
@@ -3735,6 +3878,18 @@ export class ConversationService {
       data: dataToUpdate
     })
   }
+
+  private prismaConversationData(
+    data: ReturnType<typeof conversationPatchFromState>
+  ) {
+    const { bookingV2State, ...rest } = data
+    return {
+      ...rest,
+      bookingV2State: bookingV2State === null
+        ? Prisma.JsonNull
+        : bookingV2State as Prisma.InputJsonValue
+    }
+  }
 }
 
 function isHardResetMessage(message: string) {
@@ -3988,24 +4143,7 @@ function formatMoneyForConversation(value: number) {
 }
 
 export function isBookingV2GreetingOnlyMessage(message: string) {
-  const normalizedMessage = normalizeText(message)
-    .replace(/[^\p{Letter}\p{Number}\s]/gu, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-  return [
-    'hola',
-    'holaa',
-    'hola cami',
-    'buenas',
-    'buen dia',
-    'buenas tardes',
-    'buenas noches',
-    'hola como estas',
-    'como estas',
-    'como va',
-    'que tal',
-    'todo bien'
-  ].includes(normalizedMessage)
+  return isPureSocialGreeting(message)
 }
 
 export function isBookingV2InitialGreeting(currentStep: string, message: string) {
@@ -4015,6 +4153,24 @@ export function isBookingV2InitialGreeting(currentStep: string, message: string)
 function hasExplicitBookingRequest(message: string) {
   const normalizedMessage = normalizeText(message)
   return /\b(?:reserv(?:ar(?:lo|la|los|las)?|arlo|arla|arlos|arlas|ame|alo|ala|alos|alas)?|agend(?:ar(?:lo|la|los|las)?|arlo|arla|arlos|arlas|ame|alo|ala|alos|alas)?|saca(?:r|me)?(?: un)? turno|quiero un turno|necesito un turno)\b/.test(normalizedMessage)
+}
+
+function isGenericBookingV2Request(message: string) {
+  const normalizedMessage = normalizeText(message)
+    .replace(/[^\p{Letter}\p{Number}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return [
+    'quiero un turno',
+    'quiero reservar un turno',
+    'necesito un turno',
+    'necesito reservar un turno',
+    'quiero agendar un turno',
+    'quiero sacar un turno',
+    'reservar un turno',
+    'agendar un turno',
+    'sacar un turno'
+  ].includes(normalizedMessage)
 }
 
 export function hasQuoteOnlyBookingRequest(
@@ -4050,10 +4206,11 @@ function isPriceInformationRequest(routing: ConversationRouting) {
 }
 
 export function businessInformationTopicsForPendingSelection(
-  requestedInformation: Array<'general' | 'price' | 'duration' | 'professionals'>
+  requestedInformation: BookingV2PendingInformationSelection['requestedInformation']
 ): BusinessInformationTopic[] {
   const topics = new Set<BusinessInformationTopic>()
   if (requestedInformation.includes('price')) topics.add('prices')
+  if (requestedInformation.includes('deposit')) topics.add('prices')
   if (requestedInformation.includes('general')) topics.add('services')
   if (requestedInformation.includes('professionals')) topics.add('professionals')
   return [...topics]

@@ -51,6 +51,7 @@
     "test:customer-phone-identity": "tsx scripts/customer-phone-identity-contract-test.ts",
     "test:customer-phone-identity:live": "tsx scripts/customer-phone-lock-live-test.ts",
     "test:conversation": "tsx scripts/conversation-smoke-test.ts",
+    "test:conversation-customer-intent": "tsx scripts/conversation-customer-intent-contract-test.ts",
     "test:crm-egress": "tsx scripts/crm-conversation-egress-contract-test.ts",
     "test:conversation-context": "tsx scripts/conversation-context-contract-test.ts",
     "test:conversation-recovery": "tsx scripts/conversation-recovery-contract-test.ts",

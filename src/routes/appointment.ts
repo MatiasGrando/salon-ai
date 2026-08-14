@@ -175,8 +175,8 @@ export async function appointmentRoutes(app: FastifyInstance) {
 function appointmentForAuthenticatedUser<T extends {
   quotedPrice: number | null
   customer: { phone: string }
-  service: { price: number }
-  serviceItems: Array<{ service: { price: number } }>
+  service: { price: number | null }
+  serviceItems: Array<{ service: { price: number | null } }>
 }>(appointment: T, user: { role: string; canViewCustomers?: boolean; canViewFinancialAmounts?: boolean } | undefined) {
   if (!user || user.role !== 'STAFF') return appointment
 
