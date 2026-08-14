@@ -68,8 +68,8 @@ const DEMO_TEMPLATES: Record<DemoType, {
 
 export async function demoProfileRoutes(app: FastifyInstance) {
   app.get('/admin/demo-profiles', async (request, reply) => {
-    const role = request.auth?.user.role
-    if (!role || !['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(role)) {
+    const user = request.auth?.user
+    if (!user || !canUseCommercialDemos(user)) {
       return reply.status(403).send({ message: 'No tenes permiso para usar perfiles demo' })
     }
     const select = {
@@ -81,7 +81,7 @@ export async function demoProfileRoutes(app: FastifyInstance) {
       slug: true,
       landingTemplate: true
     } as const
-    if (role === 'ACCOUNT_ADMIN') {
+    if (user.role !== 'SUPER_ADMIN') {
       const profiles = await Promise.all(SHARED_SALES_DEMO_TYPES.map((demoType) => prisma.business.findFirst({
         where: { isDemo: true, demoType },
         orderBy: { name: 'asc' },
@@ -236,10 +236,10 @@ export async function demoProfileRoutes(app: FastifyInstance) {
 }
 
 async function findAccessibleDemo(
-  user: { id: string; role: string } | undefined,
+  user: { id: string; role: string; canCreateBusinesses: boolean } | undefined,
   businessId: string
 ) {
-  if (!user || !['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(user.role)) return null
+  if (!user || !canUseCommercialDemos(user)) return null
   return prisma.business.findFirst({
     where: {
       id: businessId,
@@ -260,6 +260,16 @@ async function findAccessibleDemo(
       aiEnabled: true
     }
   })
+}
+
+function canUseCommercialDemos(
+  user: { role: string; canCreateBusinesses: boolean } | undefined
+) {
+  return Boolean(user && (
+    user.role === 'SUPER_ADMIN' ||
+    user.role === 'ACCOUNT_ADMIN' ||
+    user.canCreateBusinesses
+  ))
 }
 
 function normalizeDemoType(value: string | undefined): DemoType | null {

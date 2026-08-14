@@ -18008,15 +18008,26 @@ const crmHtml = `<!doctype html>
       }
     }
 
+    function canSeeSalesAdministration() {
+      return state.currentUser?.role === 'SUPER_ADMIN' ||
+        state.currentUser?.role === 'ACCOUNT_ADMIN' ||
+        state.currentUser?.canCreateBusinesses === true
+    }
+
+    function isSalesAccountAdministrator() {
+      return state.currentUser?.role !== 'SUPER_ADMIN' && canSeeSalesAdministration()
+    }
+
     function renderAuthUi() {
       const isAccountAdmin = state.currentUser?.role === 'ACCOUNT_ADMIN'
-      const canSeeAdministration = state.currentUser?.role === 'SUPER_ADMIN' || isAccountAdmin
+      const isSalesAdmin = isSalesAccountAdministrator()
+      const canSeeAdministration = canSeeSalesAdministration()
       if (els.settingsAdminTab) els.settingsAdminTab.hidden = !canSeeAdministration
       if (els.superAdminPanel) {
         els.superAdminPanel.hidden = state.settingsView !== 'admin' || !canSeeAdministration
       }
-      if (isAccountAdmin && els.adminCreateBusinessForm) {
-        const canCreateBusinesses = state.currentUser?.canCreateBusinesses === true
+      if (els.adminCreateBusinessForm) {
+        const canCreateBusinesses = state.currentUser?.role === 'SUPER_ADMIN' || state.currentUser?.canCreateBusinesses === true
         for (const control of els.adminCreateBusinessForm.querySelectorAll('input, select, button')) control.disabled = !canCreateBusinesses
         if (!canCreateBusinesses) {
           els.adminCreateBusinessFeedback.textContent = 'El Superadmin debe habilitar el permiso para crear locales.'
@@ -18026,18 +18037,18 @@ const crmHtml = `<!doctype html>
       if (els.settingsMainTabs) {
         els.settingsMainTabs.hidden = false
         for (const button of els.settingsMainTabs.querySelectorAll('[data-settings-view]')) {
-          button.hidden = isAccountAdmin
-            ? state.business?.isDemo
-              ? !['assistant', 'landing', 'admin'].includes(button.dataset.settingsView)
-              : state.business
+          button.hidden = isSalesAdmin && state.business?.isDemo
+            ? !['assistant', 'landing', 'admin'].includes(button.dataset.settingsView)
+            : isAccountAdmin
+              ? state.business
                 ? false
                 : button.dataset.settingsView !== 'admin'
-            : button.dataset.settingsView === 'admin' && !canSeeAdministration
+              : button.dataset.settingsView === 'admin' && !canSeeAdministration
         }
       }
-      if (els.commercialDemoWorkspaceBanner) els.commercialDemoWorkspaceBanner.hidden = !(isAccountAdmin && state.business?.isDemo)
-      if (els.commercialDemoWorkspaceAccount) els.commercialDemoWorkspaceAccount.hidden = !(isAccountAdmin && state.currentSessionBusiness)
-      if (els.commercialDemoWorkspaceName && isAccountAdmin && state.business?.isDemo) {
+      if (els.commercialDemoWorkspaceBanner) els.commercialDemoWorkspaceBanner.hidden = !(isSalesAdmin && state.business?.isDemo)
+      if (els.commercialDemoWorkspaceAccount) els.commercialDemoWorkspaceAccount.hidden = !(isSalesAdmin && state.currentSessionBusiness)
+      if (els.commercialDemoWorkspaceName && isSalesAdmin && state.business?.isDemo) {
         els.commercialDemoWorkspaceName.textContent = 'Editando demo: ' + state.business.name
       }
       document.querySelectorAll('[data-mobile-section]').forEach((button) => {
@@ -18077,7 +18088,7 @@ const crmHtml = `<!doctype html>
     }
 
     async function loadDemoProfiles() {
-      state.demoProfiles = ['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(state.currentUser?.role)
+      state.demoProfiles = canSeeSalesAdministration()
         ? await getJson('/admin/demo-profiles')
         : []
       renderDemoProfileSelect()
@@ -18096,7 +18107,7 @@ const crmHtml = `<!doctype html>
     }
 
     function openDemoSimulator(options = {}) {
-      if (!['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(state.currentUser?.role)) return
+      if (!canSeeSalesAdministration()) return
       els.demoSimulatorDialog.hidden = false
       const canCreateProfiles = state.currentUser?.role === 'SUPER_ADMIN'
       const shouldCreateProfile = canCreateProfiles && options.createProfile
@@ -18152,7 +18163,7 @@ const crmHtml = `<!doctype html>
         setSection('services')
         return
       }
-      if (state.currentUser?.role !== 'ACCOUNT_ADMIN') return
+      if (!isSalesAccountAdministrator()) return
       try {
         const profile = await getJson('/admin/demo-profiles/' + encodeURIComponent(profileId) + '/access')
         state.business = profile
@@ -18172,7 +18183,7 @@ const crmHtml = `<!doctype html>
     }
 
     function exitCommercialDemo() {
-      if (state.currentUser?.role !== 'ACCOUNT_ADMIN') return
+      if (!isSalesAccountAdministrator()) return
       state.business = null
       state.businessId = null
       hydrateWorkspaceNav()
@@ -18183,7 +18194,7 @@ const crmHtml = `<!doctype html>
     }
 
     async function returnToAccountAdminBusiness() {
-      if (state.currentUser?.role !== 'ACCOUNT_ADMIN' || !state.currentSessionBusiness) return
+      if (!isSalesAccountAdministrator() || !state.currentSessionBusiness) return
       state.business = state.currentSessionBusiness
       state.businessId = state.currentSessionBusiness.id
       try {
@@ -18281,6 +18292,7 @@ const crmHtml = `<!doctype html>
     }
 
     function canManageStaffUsers() {
+      if (state.business?.isDemo && state.currentUser?.role !== 'SUPER_ADMIN') return false
       return state.currentUser?.role === 'SUPER_ADMIN' ||
         state.currentUser?.role === 'BUSINESS_ADMIN' ||
         (state.currentUser?.role === 'ACCOUNT_ADMIN' && Boolean(state.business) && !state.business?.isDemo)
@@ -18852,18 +18864,18 @@ const crmHtml = `<!doctype html>
 
     async function loadBusinessScopedBasics() {
       const businessQuery = state.businessId ? '?businessId=' + encodeURIComponent(state.businessId) : ''
-      const isAccountAdminDemo = state.currentUser?.role === 'ACCOUNT_ADMIN' && state.business?.isDemo === true
+      const isSalesAdminDemo = isSalesAccountAdministrator() && state.business?.isDemo === true
       state.businessHours = state.businessId
         ? await getJson('/business-hours?businessId=' + encodeURIComponent(state.businessId))
         : []
       const isStaff = state.currentUser?.role === 'STAFF'
-      state.paymentSettings = state.businessId && !isStaff && !isAccountAdminDemo
+      state.paymentSettings = state.businessId && !isStaff && !isSalesAdminDemo
         ? await getJson('/businesses/' + state.businessId + '/payment-settings')
         : null
-      state.whatsappSettings = state.businessId && !isStaff && !isAccountAdminDemo
+      state.whatsappSettings = state.businessId && !isStaff && !isSalesAdminDemo
         ? await getJson('/businesses/' + state.businessId + '/whatsapp-settings')
         : null
-      state.instagramSettings = state.businessId && !isStaff && !isAccountAdminDemo
+      state.instagramSettings = state.businessId && !isStaff && !isSalesAdminDemo
         ? await getJson('/businesses/' + state.businessId + '/instagram-settings')
         : null
       if (!isStaff) state.aiSettings = await getJson('/crm/ai-settings' + businessQuery)
@@ -18871,7 +18883,7 @@ const crmHtml = `<!doctype html>
       await loadStaffUsers()
       state.serviceCategories = await getJson('/service-categories' + businessQuery)
       state.services = await getJson('/services' + businessQuery)
-      state.customers = isAccountAdminDemo
+      state.customers = isSalesAdminDemo
         ? []
         : !isStaff || state.currentUser?.canViewCustomers
         ? await getJson('/customers' + businessQuery)
@@ -26025,7 +26037,7 @@ const crmHtml = `<!doctype html>
     }
 
     function setSettingsView(view) {
-      const canSeeAdministration = ['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(state.currentUser?.role)
+      const canSeeAdministration = canSeeSalesAdministration()
       const requestedView = ['commerce', 'assistant', 'landing', 'staff', 'meta', 'admin'].includes(view) ? view : 'commerce'
       state.settingsView = requestedView === 'admin' && !canSeeAdministration ? 'commerce' : requestedView
       const isAccountAdmin = state.currentUser?.role === 'ACCOUNT_ADMIN'

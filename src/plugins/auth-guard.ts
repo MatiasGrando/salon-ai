@@ -111,7 +111,7 @@ async function canAccessRequestedBusiness(request: FastifyRequest, auth: AuthCon
   collectBusinessId(request.body, requestedBusinessIds)
   await collectEntityBusinessId(request, requestedBusinessIds)
 
-  if (auth.user.role === 'ACCOUNT_ADMIN') {
+  if (auth.user.role === 'ACCOUNT_ADMIN' || auth.user.canCreateBusinesses) {
     if (requestedBusinessIds.size === 0) return true
     const ownedCount = await prisma.business.count({
       where: {

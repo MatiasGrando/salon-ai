@@ -842,7 +842,7 @@ function businessSlugErrorMessage(error: unknown) {
 async function canAccessBusiness(auth: AuthContext | undefined, businessId: string) {
   if (!auth) return false
   if (auth.user.role === 'SUPER_ADMIN') return true
-  if (auth.user.role === 'ACCOUNT_ADMIN') {
+  if (auth.user.role === 'ACCOUNT_ADMIN' || auth.user.canCreateBusinesses) {
     return Boolean(await prisma.business.findFirst({
       where: {
         id: businessId,
