@@ -5,27 +5,31 @@ import { inferDefaultAreaCodeFromPhone, normalizeCustomerPhone, phoneSearchVaria
 export class CustomerPhoneValidationError extends Error {}
 export class CustomerPhoneConflictError extends Error {}
 export class CustomerEmailValidationError extends Error {}
+export class CustomerBusinessScopeError extends Error {}
 
 type FindOrCreateCustomerInput = {
   name: string
   phone: string
   email?: string | null | undefined
-  businessId?: string | null | undefined
+  businessId: string
   defaultAreaCode?: string | null | undefined
 }
 
 type CreateProvisionalCustomerInput = {
   name: string
+  businessId: string
   email?: string | null | undefined
 }
 
 export async function createProvisionalCustomer(input: CreateProvisionalCustomerInput) {
   const name = input.name.trim()
+  const businessId = requireBusinessId(input.businessId)
   const email = normalizeCustomerEmail(input.email)
   if (!name) throw new CustomerPhoneValidationError('El nombre del cliente es requerido')
 
   return prisma.customer.create({
     data: {
+      businessId,
       name,
       phone: '',
       normalizedPhone: null,
@@ -40,7 +44,8 @@ export function customerHasContactIdentity(phone?: string | null) {
 
 export async function findOrCreateCustomerByPhone(input: FindOrCreateCustomerInput) {
   const name = input.name.trim()
-  const defaultAreaCode = input.defaultAreaCode || await defaultAreaCodeForBusiness(input.businessId)
+  const businessId = requireBusinessId(input.businessId)
+  const defaultAreaCode = input.defaultAreaCode || await defaultAreaCodeForBusiness(businessId)
   const normalized = normalizeCustomerPhone(input.phone, { defaultAreaCode })
   const email = normalizeCustomerEmail(input.email)
   if (!name) throw new CustomerPhoneValidationError('El nombre del cliente es requerido')
@@ -55,15 +60,17 @@ export async function findOrCreateCustomerByPhone(input: FindOrCreateCustomerInp
     normalized.display,
     ...digitVariants
   ].filter(Boolean))]
+  const lockKey = `${businessId}:${canonicalPhone}`
 
   return prisma.$transaction(async (transaction) => {
     await transaction.$queryRaw<Array<{ locked: number }>>`
       SELECT 1 AS "locked"
-      FROM pg_advisory_xact_lock(hashtext(${canonicalPhone}))
+      FROM pg_advisory_xact_lock(hashtext(${lockKey}))
     `
 
     let customer = await transaction.customer.findFirst({
       where: {
+        businessId,
         OR: [
           { normalizedPhone: canonicalPhone },
           { phone: { in: literalVariants } }
@@ -76,7 +83,8 @@ export async function findOrCreateCustomerByPhone(input: FindOrCreateCustomerInp
       const rows = await transaction.$queryRaw<Array<{ id: string }>>`
         SELECT "id"
         FROM "Customer"
-        WHERE regexp_replace("phone", '[^0-9]', '', 'g') IN (${Prisma.join(digitVariants)})
+        WHERE "businessId" = ${businessId}
+          AND regexp_replace("phone", '[^0-9]', '', 'g') IN (${Prisma.join(digitVariants)})
         ORDER BY "createdAt" ASC
         LIMIT 1
       `
@@ -97,22 +105,20 @@ export async function findOrCreateCustomerByPhone(input: FindOrCreateCustomerInp
           }
         })
       : await transaction.customer.create({
-          data: { name, phone: canonicalPhone, normalizedPhone: canonicalPhone, email: email ?? null }
+          data: { businessId, name, phone: canonicalPhone, normalizedPhone: canonicalPhone, email: email ?? null }
         })
 
-    if (input.businessId) {
-      await transaction.customerMarketingPreference.upsert({
-        where: { businessId_customerId: { businessId: input.businessId, customerId: customer.id } },
-        create: {
-          businessId: input.businessId,
-          customerId: customer.id,
-          status: 'ACTIVE',
-          source: 'DEFAULT',
-          optedInAt: new Date()
-        },
-        update: {}
-      })
-    }
+    await transaction.customerMarketingPreference.upsert({
+      where: { businessId_customerId: { businessId, customerId: customer.id } },
+      create: {
+        businessId,
+        customerId: customer.id,
+        status: 'ACTIVE',
+        source: 'DEFAULT',
+        optedInAt: new Date()
+      },
+      update: {}
+    })
 
     return { customer, wasExisting, nameConflict, canonicalPhone }
   })
@@ -120,7 +126,8 @@ export async function findOrCreateCustomerByPhone(input: FindOrCreateCustomerInp
 
 export async function updateCustomerIdentity(input: FindOrCreateCustomerInput & { customerId: string }) {
   const name = input.name.trim()
-  const defaultAreaCode = input.defaultAreaCode || await defaultAreaCodeForBusiness(input.businessId)
+  const businessId = requireBusinessId(input.businessId)
+  const defaultAreaCode = input.defaultAreaCode || await defaultAreaCodeForBusiness(businessId)
   const normalized = normalizeCustomerPhone(input.phone, { defaultAreaCode })
   const email = normalizeCustomerEmail(input.email)
   if (!name) throw new CustomerPhoneValidationError('El nombre del cliente es requerido')
@@ -129,17 +136,19 @@ export async function updateCustomerIdentity(input: FindOrCreateCustomerInput & 
   const canonicalPhone = normalized.phone
   const digitVariants = phoneSearchVariants(input.phone, { defaultAreaCode })
   const literalVariants = [...new Set([input.phone.trim(), canonicalPhone, `+${canonicalPhone}`, normalized.display, ...digitVariants].filter(Boolean))]
+  const lockKey = `${businessId}:${canonicalPhone}`
 
   return prisma.$transaction(async (transaction) => {
     await transaction.$queryRaw<Array<{ locked: number }>>`
       SELECT 1 AS "locked"
-      FROM pg_advisory_xact_lock(hashtext(${canonicalPhone}))
+      FROM pg_advisory_xact_lock(hashtext(${lockKey}))
     `
-    const current = await transaction.customer.findUnique({ where: { id: input.customerId } })
-    if (!current) throw new CustomerPhoneValidationError('No encontre ese cliente')
+    const current = await transaction.customer.findFirst({ where: { id: input.customerId, businessId } })
+    if (!current) throw new CustomerBusinessScopeError('Ese cliente no pertenece a este comercio')
 
     let conflict = await transaction.customer.findFirst({
       where: {
+        businessId,
         id: { not: input.customerId },
         OR: [
           { normalizedPhone: canonicalPhone },
@@ -152,7 +161,8 @@ export async function updateCustomerIdentity(input: FindOrCreateCustomerInput & 
       const rows = await transaction.$queryRaw<Array<{ id: string }>>`
         SELECT "id"
         FROM "Customer"
-        WHERE "id" <> ${input.customerId}
+        WHERE "businessId" = ${businessId}
+          AND "id" <> ${input.customerId}
           AND regexp_replace("phone", '[^0-9]', '', 'g') IN (${Prisma.join(digitVariants)})
         LIMIT 1
       `
@@ -190,8 +200,13 @@ function normalizeCustomerName(value: string) {
   return value.trim().toLocaleLowerCase('es').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ')
 }
 
-async function defaultAreaCodeForBusiness(businessId?: string | null) {
-  if (!businessId) return undefined
+function requireBusinessId(value: string) {
+  const businessId = value?.trim()
+  if (!businessId) throw new CustomerBusinessScopeError('El comercio es requerido para gestionar clientes')
+  return businessId
+}
+
+async function defaultAreaCodeForBusiness(businessId: string) {
   const business = await prisma.business.findUnique({
     where: { id: businessId },
     select: {

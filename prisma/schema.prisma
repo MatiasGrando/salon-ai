@@ -137,43 +137,44 @@ enum UserRole {
 }
 
 model Business {
-  id                   String                     @id @default(cuid())
-  customerCode         String                     @unique
-  name                 String
-  isDemo               Boolean                    @default(false)
-  demoType             String?
-  slug                 String?                    @unique
-  logoUrl              String?
-  landingEnabled       Boolean                    @default(true)
-  landingTemplate      String                     @default("classic")
-  landingSubtitle      String?
-  landingFeature       String?
-  landingOpeningYear   Int?
-  landingDescription   String?
+  id                     String                     @id @default(cuid())
+  customerCode           String                     @unique
+  name                   String
+  isDemo                 Boolean                    @default(false)
+  demoType               String?
+  slug                   String?                    @unique
+  logoUrl                String?
+  landingEnabled         Boolean                    @default(true)
+  landingTemplate        String                     @default("classic")
+  landingSubtitle        String?
+  landingFeature         String?
+  landingOpeningYear     Int?
+  landingDescription     String?
   landingTemplateContent Json?
-  coverImageUrl        String?
-  landingGalleryImages String?
-  publicWhatsapp       String?
-  contactEmail         String?
-  publicAddress        String?
-  publicAddressArea    String?
-  publicMapsUrl        String?
-  instagramUrl         String?
-  facebookUrl          String?
-  tiktokUrl            String?
-  botEnabled           Boolean                    @default(true)
-  aiEnabled            Boolean                    @default(true)
-  whatsappConfig       BusinessWhatsAppConfig?
-  instagramConfig      BusinessInstagramConfig?
-  featureSettings      BusinessFeatureSettings?
-  botConfigurations    BusinessBotConfiguration[]
-  paymentSettings      BusinessPaymentSettings?
-  accountAdminId       String?
-  accountAdmin         User?                      @relation("AccountAdminBusinesses", fields: [accountAdminId], references: [id], onDelete: SetNull)
-  createdByUserId      String?
-  createdByUser        User?                      @relation("CreatedBusinesses", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  coverImageUrl          String?
+  landingGalleryImages   String?
+  publicWhatsapp         String?
+  contactEmail           String?
+  publicAddress          String?
+  publicAddressArea      String?
+  publicMapsUrl          String?
+  instagramUrl           String?
+  facebookUrl            String?
+  tiktokUrl              String?
+  botEnabled             Boolean                    @default(true)
+  aiEnabled              Boolean                    @default(true)
+  whatsappConfig         BusinessWhatsAppConfig?
+  instagramConfig        BusinessInstagramConfig?
+  featureSettings        BusinessFeatureSettings?
+  botConfigurations      BusinessBotConfiguration[]
+  paymentSettings        BusinessPaymentSettings?
+  accountAdminId         String?
+  accountAdmin           User?                      @relation("AccountAdminBusinesses", fields: [accountAdminId], references: [id], onDelete: SetNull)
+  createdByUserId        String?
+  createdByUser          User?                      @relation("CreatedBusinesses", fields: [createdByUserId], references: [id], onDelete: SetNull)
 
   professionals           Professional[]
+  customers               Customer[]
   serviceCategories       ServiceCategory[]
   services                Service[]
   serviceCombinationRules ServiceCombinationRule[]
@@ -572,10 +573,12 @@ model ServiceAlias {
 model Customer {
   id String @id @default(cuid())
 
+  businessId      String?
+  business        Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
   name            String
   phone           String
   email           String?
-  normalizedPhone String? @unique
+  normalizedPhone String?
 
   appointments             Appointment[]
   notes                    CustomerNote[]
@@ -590,6 +593,9 @@ model Customer {
 
   createdAt DateTime @default(now())
 
+  @@unique([businessId, normalizedPhone])
+  @@index([businessId, phone])
+  @@index([businessId, createdAt])
   @@index([phone])
   @@index([email])
 }
@@ -680,7 +686,7 @@ model Appointment {
   startAt              DateTime
   quotedPrice          Int?
   totalDurationMinutes Int
-  coordinationGroupId String?
+  coordinationGroupId  String?
 
   status                  AppointmentStatus        @default(CONFIRMED)
   reminderDeliveries      ReminderDelivery[]

@@ -866,15 +866,13 @@ export class WhatsAppWebhookService {
   }
 
   private async applyMarketingOptOut(input: { businessId: string | null; phone: string; text: string }) {
+    if (!input.businessId) return false
     const customers = await prisma.customer.findMany({
+      where: { businessId: input.businessId },
       select: {
         id: true,
-        phone: true,
-        appointments: {
-          select: { professional: { select: { businessId: true } } },
-          orderBy: { startAt: 'desc' },
-          take: 5
-        }
+        businessId: true,
+        phone: true
       }
     })
     const customer = customers.find((item) => normalizeMarketingPhone(item.phone) === normalizeMarketingPhone(input.phone))
@@ -886,10 +884,7 @@ export class WhatsAppWebhookService {
         ? await marketingUnderstandingService.understandMarketingPreference(input.text)
         : null
     if (!shouldApplyMarketingOptOut(input.text, understanding)) return false
-    const customerBusinessIds = customer.appointments.map((appointment) => appointment.professional.businessId)
-    const businessId = input.businessId && customerBusinessIds.includes(input.businessId)
-      ? input.businessId
-      : customerBusinessIds[0] ?? input.businessId ?? await this.defaultBusinessId()
+    const businessId = customer.businessId
     if (!businessId) return false
 
     await prisma.customerMarketingPreference.upsert({
@@ -908,14 +903,6 @@ export class WhatsAppWebhookService {
       }
     })
     return true
-  }
-
-  private async defaultBusinessId() {
-    const business = await prisma.business.findFirst({
-      orderBy: { createdAt: 'asc' },
-      select: { id: true }
-    })
-    return business?.id ?? null
   }
 
   private async isDefaultBusinessAiEnabled() {

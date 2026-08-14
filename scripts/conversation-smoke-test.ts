@@ -1533,6 +1533,7 @@ async function seedAppointment(input: {
   const service = await prisma.service.findUniqueOrThrow({ where: { id: input.serviceId } })
   const customer = await prisma.customer.create({
     data: {
+      businessId: service.businessId,
       phone: input.phone,
       name: input.customerName
     }

@@ -16,8 +16,9 @@ try {
     return { id: 'walk-in-1', ...(input as any).data }
   }
 
-  const customer = await createProvisionalCustomer({ name: ' Juan ' })
+  const customer = await createProvisionalCustomer({ businessId: 'business-a', name: ' Juan ' })
   assert.equal(customer.name, 'Juan')
+  assert.equal(capturedCreate.data.businessId, 'business-a')
   assert.equal(capturedCreate.data.phone, '')
   assert.equal(capturedCreate.data.normalizedPhone, null)
   assert.equal(customerHasContactIdentity(''), false)

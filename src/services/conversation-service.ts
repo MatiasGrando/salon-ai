@@ -3648,6 +3648,7 @@ export class ConversationService {
   }
 
   private async findOrCreateCustomer(phone: string, name: string, businessId?: string | null) {
+    if (!businessId) throw new Error('No pude determinar el comercio para crear el cliente')
     const result = await findOrCreateCustomerByPhone({ name, phone, businessId })
     return result.customer
   }

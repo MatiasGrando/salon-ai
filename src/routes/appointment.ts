@@ -16,6 +16,7 @@ export async function appointmentRoutes(app: FastifyInstance) {
       customerId: string
       professionalId: string
       serviceId: string
+      serviceIds?: string[]
       startAt: string
       force?: boolean
     }
@@ -30,13 +31,17 @@ export async function appointmentRoutes(app: FastifyInstance) {
       customerId: body.customerId,
       professionalId: body.professionalId,
       serviceId: body.serviceId,
+      ...(body.serviceIds ? { serviceIds: body.serviceIds } : {}),
       startAt: body.startAt,
       ...(body.force === undefined ? {} : { force: body.force })
     })
 
     if (!result.ok) {
       return reply.status(result.statusCode).send({
-        message: result.message
+        message: result.message,
+        ...(result.code ? { code: result.code } : {}),
+        ...(result.forceable !== undefined ? { forceable: result.forceable } : {}),
+        ...(result.conflicts ? { conflicts: result.conflicts } : {})
       })
     }
 
@@ -110,6 +115,7 @@ export async function appointmentRoutes(app: FastifyInstance) {
       customerId: string
       professionalId: string
       serviceId: string
+      serviceIds?: string[]
       startAt: string
       force?: boolean
     }
@@ -131,7 +137,10 @@ export async function appointmentRoutes(app: FastifyInstance) {
 
     if (!result.ok) {
       return reply.status(result.statusCode).send({
-        message: result.message
+        message: result.message,
+        ...(result.code ? { code: result.code } : {}),
+        ...(result.forceable !== undefined ? { forceable: result.forceable } : {}),
+        ...(result.conflicts ? { conflicts: result.conflicts } : {})
       })
     }
 

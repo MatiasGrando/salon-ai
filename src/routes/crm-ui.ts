@@ -10438,6 +10438,12 @@ const crmHtml = `<!doctype html>
       box-shadow: inset 0 0 0 2px #2563eb;
     }
 
+    .agenda-cell.drag-warning,
+    .agenda-cell.closed.drag-target {
+      background: #fff7ed;
+      box-shadow: inset 0 0 0 2px #f97316;
+    }
+
     .agenda-cell.drag-invalid {
       background: #fff1f2;
       box-shadow: inset 0 0 0 2px #ef4444;
@@ -10615,6 +10621,7 @@ const crmHtml = `<!doctype html>
       color: #5f6c82;
       font-size: 14px;
       line-height: 1.5;
+      white-space: pre-line;
     }
 
     .confirmation-dialog .dialog-actions {
@@ -13442,6 +13449,8 @@ const crmHtml = `<!doctype html>
     .agenda-gcal-hour-cell:nth-child(2n) { border-bottom-color: #cbd5e1; }
     .agenda-gcal-hour-cell.closed { background: #f1f5f9; }
     .agenda-gcal-hour-cell.drag-target:not(.closed) { background: #eaf2ff; box-shadow: inset 0 0 0 2px #2563eb; }
+    .agenda-gcal-hour-cell.drag-warning,
+    .agenda-gcal-hour-cell.closed.drag-target { background: #fff7ed; box-shadow: inset 0 0 0 2px #f97316; }
     .agenda-gcal-hour-cell.drag-invalid { background: #fff1f2; box-shadow: inset 0 0 0 2px #ef4444; }
 
     .agenda-gcal-event,
@@ -16933,6 +16942,7 @@ const crmHtml = `<!doctype html>
       list: document.getElementById('conversation-list'),
       crmToast: document.getElementById('crm-toast'),
       confirmationDialog: document.getElementById('confirmation-dialog'),
+      confirmationTitle: document.getElementById('confirmation-dialog-title'),
       confirmationMessage: document.getElementById('confirmation-dialog-message'),
       advisorQuoteDialog: document.getElementById('advisor-quote-dialog'),
       advisorQuoteDialogForm: document.getElementById('advisor-quote-dialog-form'),
@@ -18289,6 +18299,10 @@ const crmHtml = `<!doctype html>
       return hasAgendaPermission('canEditAppointments')
     }
 
+    function canForceAppointmentOverrides() {
+      return state.currentUser?.role !== 'STAFF' || state.currentUser?.canForceAppointments === true
+    }
+
     function canCancelAppointments() {
       return hasAgendaPermission('canCancelAppointments')
     }
@@ -18779,6 +18793,7 @@ const crmHtml = `<!doctype html>
       if (state.pendingUiConfirmationResolve) {
         closeCrmConfirmation(false)
       }
+      els.confirmationTitle.textContent = options.title || '¿Estás seguro?'
       els.confirmationMessage.textContent = message
       els.confirmationAccept.textContent = options.confirmLabel || 'Sí, eliminar'
       els.confirmationAccept.className = options.danger === false ? 'primary' : 'danger'
@@ -20005,7 +20020,7 @@ const crmHtml = `<!doctype html>
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: value, phone, email, businessId: state.businessId })
           })
-          state.customers = await getJson('/customers')
+          state.customers = await getJson(businessScopedPath('/customers'))
           state.selectedCustomerId = created.id
           await loadCustomerOverview({ page: 1 })
           renderAppointmentFormOptions()
@@ -21504,6 +21519,13 @@ const crmHtml = `<!doctype html>
         .map((item) => item.service?.name)
         .filter(Boolean)
       return names.length ? names.join(' + ') : appointment?.service?.name || 'Servicio'
+    }
+
+    function appointmentServiceIds(appointment) {
+      const itemIds = (Array.isArray(appointment?.serviceItems) ? appointment.serviceItems : [])
+        .map((item) => item.serviceId || item.service?.id)
+        .filter(Boolean)
+      return Array.from(new Set([appointment?.serviceId, ...itemIds].filter(Boolean)))
     }
 
     function getAppointmentServicePrice(appointment) {
@@ -25184,7 +25206,8 @@ const crmHtml = `<!doctype html>
       moveAgendaAppointment(
         appointmentId,
         targetCell.dataset.cellDate,
-        Number(targetCell.dataset.cellMinute)
+        Number(targetCell.dataset.cellMinute),
+        targetCell.dataset.cellProfessionalId || undefined
       ).catch((error) => showCrmToast(error.message, 'error'))
     }
 
@@ -25213,10 +25236,11 @@ const crmHtml = `<!doctype html>
     }
 
     function updateAgendaPointerTarget(drag, clientX, clientY) {
-      const hovered = document.elementFromPoint(clientX, clientY)
-      const cell = hovered?.closest?.('[data-cell-date][data-cell-minute]')
-      for (const current of els.agendaGridWrap.querySelectorAll('.drag-target, .drag-invalid')) {
-        if (current !== cell) current.classList.remove('drag-target', 'drag-invalid')
+      const cell = document.elementsFromPoint(clientX, clientY)
+        .map((element) => element.closest?.('[data-cell-date][data-cell-minute]'))
+        .find(Boolean)
+      for (const current of els.agendaGridWrap.querySelectorAll('.drag-target, .drag-warning, .drag-invalid')) {
+        if (current !== cell) current.classList.remove('drag-target', 'drag-warning', 'drag-invalid')
       }
 
       if (!cell || !els.agendaGridWrap.contains(cell)) {
@@ -25226,26 +25250,24 @@ const crmHtml = `<!doctype html>
       }
 
       const appointment = state.agendaAppointments.find((item) => item.id === drag.appointmentId)
-      const differentProfessional = Boolean(
-        cell.dataset.cellProfessionalId &&
-        appointment?.professionalId &&
-        cell.dataset.cellProfessionalId !== appointment.professionalId
-      )
-      const invalidTarget = cell.classList.contains('closed') || differentProfessional
-      cell.classList.toggle('drag-invalid', invalidTarget)
-      cell.classList.toggle('drag-target', !invalidTarget)
-      if (invalidTarget) {
-        drag.targetCell = null
-        clearAgendaDropPreview()
-        return
-      }
+      if (!appointment) return
+      const targetProfessionalId = cell.dataset.cellProfessionalId || appointment.professionalId
+      const targetProfessional = state.professionals.find((item) => item.id === targetProfessionalId)
+      const serviceIds = appointmentServiceIds(appointment)
+      const assignedServiceIds = new Set((targetProfessional?.services || []).map((service) => service.id))
+      const serviceMismatch = Boolean(targetProfessional && serviceIds.some((serviceId) => !assignedServiceIds.has(serviceId)))
+      const warningTarget = cell.classList.contains('closed') || serviceMismatch
+      cell.classList.add('drag-target')
+      cell.classList.toggle('drag-warning', warningTarget && !serviceMismatch)
+      cell.classList.toggle('drag-invalid', serviceMismatch)
 
       drag.targetCell = cell
       renderAgendaDropPreview(
         drag.appointmentId,
         cell,
         cell.dataset.cellDate,
-        Number(cell.dataset.cellMinute)
+        Number(cell.dataset.cellMinute),
+        targetProfessionalId
       )
     }
 
@@ -25266,8 +25288,8 @@ const crmHtml = `<!doctype html>
     }
 
     function clearAgendaDragTargets() {
-      for (const cell of els.agendaGridWrap.querySelectorAll('.drag-target, .drag-invalid')) {
-        cell.classList.remove('drag-target', 'drag-invalid')
+      for (const cell of els.agendaGridWrap.querySelectorAll('.drag-target, .drag-warning, .drag-invalid')) {
+        cell.classList.remove('drag-target', 'drag-warning', 'drag-invalid')
       }
       clearAgendaDropPreview()
     }
@@ -25277,11 +25299,11 @@ const crmHtml = `<!doctype html>
       els.agendaGridWrap.querySelector('.agenda-drop-preview')?.remove()
     }
 
-    function renderAgendaDropPreview(appointmentId, cell, targetDateKey, targetMinute) {
+    function renderAgendaDropPreview(appointmentId, cell, targetDateKey, targetMinute, targetProfessionalId) {
       const appointment = state.agendaAppointments.find((item) => item.id === appointmentId)
       if (!appointment) return
 
-      const previewKey = appointmentId + ':' + targetDateKey + ':' + targetMinute
+      const previewKey = appointmentId + ':' + targetDateKey + ':' + targetMinute + ':' + targetProfessionalId
       if (state.agendaDragPreviewKey === previewKey && cell.querySelector('.agenda-drop-preview')) return
 
       clearAgendaDropPreview()
@@ -25295,8 +25317,10 @@ const crmHtml = `<!doctype html>
       const height = Math.max(24, duration * pixelsPerMinute - 4)
       const customer = appointment.customer?.name || 'Cliente'
       const service = appointmentServiceLabel(appointment)
-      const professionalIndex = activeProfessionals().findIndex((item) => item.id === appointment.professionalId)
-      const eventColor = agendaProfessionalColor(appointment.professionalId, professionalIndex)
+      const resolvedProfessionalId = targetProfessionalId || appointment.professionalId
+      const targetProfessional = state.professionals.find((item) => item.id === resolvedProfessionalId)
+      const professionalIndex = activeProfessionals().findIndex((item) => item.id === resolvedProfessionalId)
+      const eventColor = agendaProfessionalColor(resolvedProfessionalId, professionalIndex)
 
       const preview = document.createElement('article')
       preview.className = 'agenda-drop-preview'
@@ -25304,52 +25328,92 @@ const crmHtml = `<!doctype html>
       preview.style.setProperty('--agenda-event-color', eventColor)
       preview.innerHTML = '<strong>' + escapeHtml(formatTimeOnly(target) + ' - ' + formatTimeOnly(addMinutes(target, duration))) + '</strong>' +
         '<span>' + escapeHtml(service) + '</span>' +
-        '<span>' + escapeHtml(customer) + '</span>'
+        '<span>' + escapeHtml(customer + (targetProfessional ? ' · ' + targetProfessional.name : '')) + '</span>'
       if (targetMinute < displayRange.start || targetMinute >= displayRange.end) return
       cell.appendChild(preview)
     }
 
-    async function moveAgendaAppointment(appointmentId, targetDateKey, targetMinute) {
+    async function moveAgendaAppointment(appointmentId, targetDateKey, targetMinute, requestedProfessionalId) {
       const appointment = state.agendaAppointments.find((item) => item.id === appointmentId)
       if (!appointment) return
       if (state.agendaPendingAppointmentIds.has(appointmentId)) return
 
       const target = parseDateKey(targetDateKey)
       target.setHours(Math.floor(targetMinute / 60), targetMinute % 60, 0, 0)
-      if (new Date(appointment.startAt).getTime() === target.getTime()) return
+      const targetProfessionalId = requestedProfessionalId || appointment.professionalId
+      if (
+        new Date(appointment.startAt).getTime() === target.getTime() &&
+        appointment.professionalId === targetProfessionalId
+      ) return
 
-      const previousAppointment = { ...appointment }
+      const targetProfessional = state.professionals.find((item) => item.id === targetProfessionalId)
+      const serviceIds = appointmentServiceIds(appointment)
+      const payload = {
+        customerId: appointment.customerId,
+        professionalId: targetProfessionalId,
+        serviceId: appointment.serviceId,
+        serviceIds,
+        startAt: target.toISOString()
+      }
       state.agendaPendingAppointmentIds.add(appointmentId)
-      state.agendaAppointments = state.agendaAppointments.map((item) => {
-        return item.id === appointmentId
-          ? { ...item, startAt: target.toISOString(), status: 'CONFIRMED' }
-          : item
-      })
-      state.agendaSelectedDate = target
-      state.agendaMonthDate = new Date(target)
       renderAgenda()
 
       try {
-        const saved = await getJson('/appointments/' + appointmentId, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            customerId: appointment.customerId,
-            professionalId: appointment.professionalId,
-            serviceId: appointment.serviceId,
-            startAt: target.toISOString()
+        let saved
+        try {
+          saved = await getJson('/appointments/' + appointmentId, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
           })
-        })
+        } catch (error) {
+          const conflicts = Array.isArray(error.body?.conflicts) ? error.body.conflicts : []
+          if (error.body?.code !== 'APPOINTMENT_AVAILABILITY_CONFLICT' || error.body?.forceable !== true || !conflicts.length) {
+            throw error
+          }
+
+          const conflictList = conflicts.map((conflict) => '• ' + conflict.message).join('\n')
+          if (!canForceAppointmentOverrides()) {
+            throw new Error(conflictList + '\nNo tenés permiso para crear excepciones o sobreturnos.')
+          }
+
+          const targetDescription = (targetProfessional?.name || 'el profesional seleccionado') +
+            ' el ' + formatDateTime(target)
+          const wantsOverride = await requestCrmConfirmation(
+            'El turno no puede moverse normalmente a ' + targetDescription + ':\n\n' + conflictList +
+            '\n\n¿Querés continuar y evaluar una excepción?',
+            {
+              title: 'El cambio tiene conflictos',
+              confirmLabel: 'Continuar',
+              danger: false
+            }
+          )
+          if (!wantsOverride) return
+
+          const confirmedOverride = await requestCrmConfirmation(
+            'Esta es la confirmación final. El turno se guardará aunque exista una superposición, un bloqueo o el profesional no esté trabajando.\n\n' + conflictList,
+            {
+              title: 'Confirmar sobreturno o excepción',
+              confirmLabel: 'Sí, mover como excepción'
+            }
+          )
+          if (!confirmedOverride) return
+
+          saved = await getJson('/appointments/' + appointmentId, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...payload, force: true })
+          })
+        }
+
         state.agendaAppointments = state.agendaAppointments.map((item) => {
           return item.id === appointmentId ? { ...item, ...saved } : item
         })
+        state.agendaSelectedDate = target
+        state.agendaMonthDate = new Date(target)
+        showCrmToast('Turno movido a ' + (targetProfessional?.name || 'la nueva agenda') + '.', 'success')
       } catch (error) {
-        state.agendaAppointments = state.agendaAppointments.map((item) => {
-          return item.id === appointmentId ? previousAppointment : item
-        })
         showCrmToast(error.message, 'error')
-        renderAgenda()
-        return
       } finally {
         state.agendaPendingAppointmentIds.delete(appointmentId)
         state.agendaDraggingAppointmentId = null
@@ -25738,7 +25802,7 @@ const crmHtml = `<!doctype html>
             showCrmToast('Turno presencial cargado sin teléfono. Podés completar el contacto más adelante.', 'success')
           }
           customerId = customer.id
-          state.customers = await getJson('/customers')
+          state.customers = await getJson(businessScopedPath('/customers'))
           renderAppointmentFormOptions()
         } else {
           const selectedCustomer = state.customers.find((customer) => customer.id === customerId)

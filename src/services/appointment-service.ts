@@ -23,6 +23,11 @@ type CreateAppointmentInput = {
   coordinationGroupId?: string | null
 }
 
+export type AppointmentAvailabilityConflict = {
+  code: 'OUTSIDE_BUSINESS_HOURS' | 'OUTSIDE_PROFESSIONAL_HOURS' | 'SCHEDULE_BLOCK' | 'APPOINTMENT_OVERLAP'
+  message: string
+}
+
 type AppointmentMutationResult =
   | {
       ok: true
@@ -32,6 +37,9 @@ type AppointmentMutationResult =
       ok: false
       statusCode: number
       message: string
+      code?: 'PROFESSIONAL_SERVICE_MISMATCH' | 'APPOINTMENT_AVAILABILITY_CONFLICT'
+      forceable?: boolean
+      conflicts?: AppointmentAvailabilityConflict[]
     }
 
 type UpdateAppointmentInput = CreateAppointmentInput & {
@@ -130,6 +138,14 @@ export class AppointmentService {
         ok: false,
         statusCode: 400,
         message: 'Ese profesional no corresponde a ese servicio'
+      }
+    }
+
+    if (customer.businessId !== professional.businessId) {
+      return {
+        ok: false,
+        statusCode: 400,
+        message: 'Ese cliente no pertenece al comercio del turno'
       }
     }
 
@@ -362,6 +378,11 @@ export class AppointmentService {
     const existing = await prisma.appointment.findUnique({
       where: {
         id: input.id
+      },
+      include: {
+        serviceItems: {
+          orderBy: { sortOrder: 'asc' }
+        }
       }
     })
 
@@ -398,17 +419,17 @@ export class AppointmentService {
       }
     }
 
-    const [professional, service] = await Promise.all([
+    const serviceIds = normalizedServiceIds(input.serviceId, input.serviceIds)
+    const [professional, services, customer] = await Promise.all([
       prisma.professional.findUnique({
         where: {
           id: input.professionalId
         }
       }),
-      prisma.service.findUnique({
-        where: {
-          id: input.serviceId
-        }
-      })
+      prisma.service.findMany({
+        where: { id: { in: serviceIds } }
+      }),
+      prisma.customer.findUnique({ where: { id: input.customerId } })
     ])
 
     if (!professional) {
@@ -427,88 +448,107 @@ export class AppointmentService {
       }
     }
 
-    if (!service) {
+    if (services.length !== serviceIds.length) {
       return {
         ok: false,
         statusCode: 404,
-        message: 'No encontre ese servicio'
+        message: 'No encontre todos los servicios del turno'
       }
     }
 
-    if (professional.businessId !== service.businessId) {
+    if (!customer) {
+      return {
+        ok: false,
+        statusCode: 404,
+        message: 'No encontre ese cliente'
+      }
+    }
+
+    if (services.some((service) => professional.businessId !== service.businessId)) {
       return {
         ok: false,
         statusCode: 400,
-        message: 'Ese profesional no corresponde a ese servicio'
+        message: 'Ese profesional no corresponde a los servicios del turno'
       }
     }
 
-    if (!(await this.professionalOffersService(input.professionalId, input.serviceId))) {
+    if (customer.businessId !== professional.businessId) {
       return {
         ok: false,
-        statusCode: 409,
-        message: 'Ese profesional no realiza ese servicio'
+        statusCode: 400,
+        message: 'Ese cliente no pertenece al comercio del turno'
       }
     }
 
-    const durationLimits = reservationDurationLimits(service)
-    const professionalEndAt = addMinutes(startAt, durationLimits.professional)
-    const customerEndAt = addMinutes(startAt, durationLimits.business)
-    const isInsideBusinessHours = await this.isInsideBusinessHours({
-      businessId: professional.businessId,
-      startAt,
-      endAt: customerEndAt
-    })
-
-    if (!isInsideBusinessHours && !input.force) {
+    if (!(await this.professionalOffersServices(input.professionalId, serviceIds))) {
       return {
         ok: false,
         statusCode: 409,
-        message: 'Ese horario esta fuera del horario de atencion'
+        message: 'Ese profesional no realiza todos los servicios del turno',
+        code: 'PROFESSIONAL_SERVICE_MISMATCH',
+        forceable: false
       }
     }
 
-    const isInsideProfessionalHours = await this.isInsideProfessionalHours({
-      professionalId: input.professionalId,
-      startAt,
-      endAt: professionalEndAt
-    })
+    const servicesById = new Map(services.map((service) => [service.id, service]))
+    const orderedServices = serviceIds.map((serviceId) => servicesById.get(serviceId)!)
+    const professionalDuration = orderedServices.reduce(
+      (total, service) => total + reservationDurationLimits(service).professional,
+      0
+    )
+    const customerDuration = orderedServices.reduce(
+      (total, service) => total + reservationDurationLimits(service).business,
+      0
+    )
+    const professionalEndAt = addMinutes(startAt, professionalDuration)
+    const customerEndAt = addMinutes(startAt, customerDuration)
+    const [isInsideBusinessHours, isInsideProfessionalHours, hasScheduleBlock, hasOverlap] = await Promise.all([
+      this.isInsideBusinessHours({
+        businessId: professional.businessId,
+        startAt,
+        endAt: customerEndAt
+      }),
+      this.isInsideProfessionalHours({
+        professionalId: input.professionalId,
+        startAt,
+        endAt: professionalEndAt
+      }),
+      this.hasScheduleBlockOverlap({
+        businessId: professional.businessId,
+        professionalId: input.professionalId,
+        startAt,
+        endAt: professionalEndAt
+      }),
+      this.hasAppointmentOverlap({
+        professionalId: input.professionalId,
+        startAt,
+        endAt: professionalEndAt,
+        excludeAppointmentId: input.id
+      })
+    ])
+    const conflicts: AppointmentAvailabilityConflict[] = [
+      ...(!isInsideBusinessHours
+        ? [{ code: 'OUTSIDE_BUSINESS_HOURS' as const, message: 'El turno queda fuera del horario de atencion del local' }]
+        : []),
+      ...(!isInsideProfessionalHours
+        ? [{ code: 'OUTSIDE_PROFESSIONAL_HOURS' as const, message: 'El profesional no trabaja durante todo ese horario' }]
+        : []),
+      ...(hasScheduleBlock
+        ? [{ code: 'SCHEDULE_BLOCK' as const, message: 'El horario esta bloqueado en la agenda' }]
+        : []),
+      ...(hasOverlap
+        ? [{ code: 'APPOINTMENT_OVERLAP' as const, message: 'El profesional ya tiene otro turno en ese horario' }]
+        : [])
+    ]
 
-    if (!isInsideProfessionalHours && !input.force) {
+    if (conflicts.length && !input.force) {
       return {
         ok: false,
         statusCode: 409,
-        message: 'Ese profesional no trabaja en ese horario'
-      }
-    }
-
-    const hasScheduleBlock = await this.hasScheduleBlockOverlap({
-      businessId: professional.businessId,
-      professionalId: input.professionalId,
-      startAt,
-      endAt: professionalEndAt
-    })
-
-    if (hasScheduleBlock && !input.force) {
-      return {
-        ok: false,
-        statusCode: 409,
-        message: 'Ese horario esta bloqueado en la agenda'
-      }
-    }
-
-    const hasOverlap = await this.hasAppointmentOverlap({
-      professionalId: input.professionalId,
-      startAt,
-      endAt: professionalEndAt,
-      excludeAppointmentId: input.id
-    })
-
-    if (hasOverlap && !input.force) {
-      return {
-        ok: false,
-        statusCode: 409,
-        message: 'Ese horario ya no esta disponible'
+        message: conflicts[0]!.message,
+        code: 'APPOINTMENT_AVAILABILITY_CONFLICT',
+        forceable: true,
+        conflicts
       }
     }
 
@@ -521,17 +561,39 @@ export class AppointmentService {
         professionalId: input.professionalId,
         serviceId: input.serviceId,
         startAt,
-        totalDurationMinutes: service.duration,
+        totalDurationMinutes: professionalDuration,
         serviceItems: {
           deleteMany: {},
-          create: {
+          create: orderedServices.map((service, sortOrder) => ({
             serviceId: service.id,
-            sortOrder: 0,
+            sortOrder,
             durationMinutes: service.duration,
             price: service.price
-          }
+          }))
         },
         status: 'CONFIRMED'
+      },
+      include: {
+        customer: {
+          select: { id: true, name: true, phone: true }
+        },
+        professional: {
+          select: { id: true, name: true, businessId: true, isActive: true }
+        },
+        service: {
+          select: { id: true, name: true, duration: true, price: true }
+        },
+        serviceItems: {
+          include: {
+            service: {
+              select: { id: true, name: true, duration: true, price: true }
+            }
+          },
+          orderBy: { sortOrder: 'asc' }
+        },
+        bookingDeposit: {
+          select: { status: true, expiresAt: true }
+        }
       }
     })
 

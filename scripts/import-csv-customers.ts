@@ -19,6 +19,7 @@ if (!business) throw new Error(`No encontré un comercio llamado "${businessName
 const rows = parseCsv(await readFile(filePath, 'utf8'))
 const candidates = uniqueCandidates(rows)
 const existingPhones = new Set((await prisma.customer.findMany({
+  where: { businessId: business.id },
   select: { normalizedPhone: true }
 })).flatMap((customer) => customer.normalizedPhone ? [customer.normalizedPhone] : []))
 const candidatePhones = candidates.map((candidate) => candidate.phone)
@@ -63,7 +64,7 @@ const activePreferences = await prisma.customerMarketingPreference.count({
   where: { businessId: business.id, status: 'ACTIVE' }
 })
 const importedCustomers = await prisma.customer.findMany({
-  where: { normalizedPhone: { in: candidatePhones } },
+  where: { businessId: business.id, normalizedPhone: { in: candidatePhones } },
   select: {
     marketingPreferences: {
       where: { businessId: business.id, status: 'ACTIVE' },
@@ -98,7 +99,7 @@ async function findBusinessByName(name: string) {
 function uniqueCandidates(rows: CsvRow[]) {
   const byPhone = new Map<string, { name: string; phone: string; email: string | undefined }>()
   for (const row of rows) {
-    const phone = normalizeCustomerPhone(row['Número de móvil'] || row['Teléfono'])
+    const phone = normalizeCustomerPhone(row['Número de móvil'] || row['Teléfono'] || '')
     if (!phone.ok || byPhone.has(phone.phone)) continue
     const name = (row['Nombre completo'] || [row['Nombre'], row['Apellido']].filter(Boolean).join(' ') || 'Cliente importado').trim()
     const email = validEmail(row.Email)
@@ -111,7 +112,7 @@ function countDuplicatePhones(rows: CsvRow[]) {
   let duplicates = 0
   const phones = new Set<string>()
   for (const row of rows) {
-    const phone = normalizeCustomerPhone(row['Número de móvil'] || row['Teléfono'])
+    const phone = normalizeCustomerPhone(row['Número de móvil'] || row['Teléfono'] || '')
     if (!phone.ok) continue
     if (phones.has(phone.phone)) duplicates += 1
     phones.add(phone.phone)
@@ -121,7 +122,7 @@ function countDuplicatePhones(rows: CsvRow[]) {
 
 function validEmail(value: string | undefined) {
   try {
-    return normalizeCustomerEmail(value)
+    return normalizeCustomerEmail(value) ?? undefined
   } catch {
     return undefined
   }

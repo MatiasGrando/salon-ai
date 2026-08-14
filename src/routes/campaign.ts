@@ -681,7 +681,7 @@ export async function campaignRoutes(app: FastifyInstance) {
     }
 
     const campaign = await prisma.campaign.create({ data: normalized })
-    await replaceManualRecipients(campaign.id, body.manualCustomerIds)
+    await replaceManualRecipients(campaign.id, campaign.businessId, body.manualCustomerIds)
     return prisma.campaign.findUnique({
       where: { id: campaign.id },
       include: { manualRecipients: { select: { customerId: true, customer: { select: { id: true, name: true, phone: true } } } } }
@@ -714,7 +714,7 @@ export async function campaignRoutes(app: FastifyInstance) {
 
     const { businessId: _businessId, ...data } = normalized
     await prisma.campaign.update({ where: { id: params.id }, data })
-    if (body.manualCustomerIds !== undefined) await replaceManualRecipients(params.id, body.manualCustomerIds)
+    if (body.manualCustomerIds !== undefined) await replaceManualRecipients(params.id, current.businessId, body.manualCustomerIds)
     return prisma.campaign.findUnique({
       where: { id: params.id },
       include: { manualRecipients: { select: { customerId: true, customer: { select: { id: true, name: true, phone: true } } } } }
@@ -1252,7 +1252,7 @@ export async function campaignRoutes(app: FastifyInstance) {
 
     const campaign = await prisma.campaign.findUnique({ where: { id: params.id } })
     if (!campaign) return reply.status(404).send({ message: 'No encontre esa campana' })
-    const customer = await prisma.customer.findUnique({ where: { id: customerId } })
+    const customer = await prisma.customer.findFirst({ where: { id: customerId, businessId: campaign.businessId } })
     if (!customer) return reply.status(404).send({ message: 'No encontre ese cliente' })
 
     const sentAt = body.sentAt ? new Date(body.sentAt) : new Date()
@@ -1357,7 +1357,7 @@ export async function campaignRoutes(app: FastifyInstance) {
 
     const [business, customer] = await Promise.all([
       prisma.business.findUnique({ where: { id: businessId } }),
-      prisma.customer.findUnique({ where: { id: params.customerId } })
+      prisma.customer.findFirst({ where: { id: params.customerId, businessId } })
     ])
     if (!business || !customer) return reply.status(404).send({ message: 'No encontre el comercio o cliente' })
 
@@ -1847,8 +1847,8 @@ async function buildTemplateVariableContext(input: { businessId: string; custome
     : null
   const customerId = input.customerId || appointment?.customer.id
   const customer = customerId
-    ? await prisma.customer.findUnique({
-        where: { id: customerId },
+      ? await prisma.customer.findFirst({
+        where: { id: customerId, businessId: input.businessId },
         select: { id: true, name: true, phone: true }
       })
     : null
@@ -1923,13 +1923,20 @@ function uniqueCopyName(name: string) {
   return name.endsWith(suffix) ? name + ' 2' : name + suffix
 }
 
-async function replaceManualRecipients(campaignId: string, customerIds?: string[]) {
+async function replaceManualRecipients(campaignId: string, businessId: string, customerIds?: string[]) {
   const uniqueCustomerIds = Array.from(new Set((customerIds ?? []).map((id) => id.trim()).filter(Boolean)))
+  const localCustomers = uniqueCustomerIds.length
+    ? await prisma.customer.findMany({
+        where: { id: { in: uniqueCustomerIds }, businessId },
+        select: { id: true }
+      })
+    : []
+  const localCustomerIds = localCustomers.map((customer) => customer.id)
   await prisma.$transaction([
     prisma.campaignManualRecipient.deleteMany({ where: { campaignId } }),
-    ...(uniqueCustomerIds.length
+    ...(localCustomerIds.length
       ? [prisma.campaignManualRecipient.createMany({
-          data: uniqueCustomerIds.map((customerId) => ({ campaignId, customerId })),
+          data: localCustomerIds.map((customerId) => ({ campaignId, customerId })),
           skipDuplicates: true
         })]
       : [])

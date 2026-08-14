@@ -3,6 +3,7 @@ import { prisma } from '../config/prisma.js'
 import {
   createProvisionalCustomer,
   customerHasContactIdentity,
+  CustomerBusinessScopeError,
   CustomerEmailValidationError,
   CustomerPhoneConflictError,
   CustomerPhoneValidationError,
@@ -73,10 +74,7 @@ export async function customerRoutes(app: FastifyInstance) {
     const take = Math.min(20, Math.max(1, Number(query.take) || 12))
     return prisma.customer.findMany({
       where: {
-        OR: [
-          { appointments: { some: { professional: { businessId } } } },
-          { marketingPreferences: { some: { businessId } } }
-        ],
+        businessId,
         ...(search
           ? {
               AND: {
@@ -95,7 +93,7 @@ export async function customerRoutes(app: FastifyInstance) {
     })
   })
 
-  app.get('/customers/overview', async (request) => {
+  app.get('/customers/overview', async (request, reply) => {
     const query = request.query as {
       q?: string
       status?: 'all' | 'active' | 'inactive' | 'new'
@@ -116,30 +114,11 @@ export async function customerRoutes(app: FastifyInstance) {
     cutoff.setDate(cutoff.getDate() - inactiveDays)
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
     const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1)
+    const businessId = query.businessId?.trim()
+    if (!businessId) return reply.status(400).send({ message: 'businessId es requerido' })
 
     const customers = await prisma.customer.findMany({
-      where: query.businessId
-        ? {
-            OR: [
-              {
-                appointments: {
-                  some: {
-                    professional: {
-                      businessId: query.businessId
-                    }
-                  }
-                }
-              },
-              {
-                marketingPreferences: {
-                  some: {
-                    businessId: query.businessId
-                  }
-                }
-              }
-            ]
-          }
-        : {},
+      where: { businessId },
       select: {
         id: true,
         name: true,
@@ -151,20 +130,8 @@ export async function customerRoutes(app: FastifyInstance) {
 
     const appointments = await prisma.appointment.findMany({
       where: {
-        ...(query.businessId
-          ? {
-              professional: {
-                businessId: query.businessId
-              }
-            }
-          : {}),
-        ...(query.businessId
-          ? {
-              customerId: {
-                in: customers.map((customer) => customer.id)
-              }
-            }
-          : {})
+        professional: { businessId },
+        customerId: { in: customers.map((customer) => customer.id) }
       },
       select: {
         customerId: true,
@@ -195,11 +162,7 @@ export async function customerRoutes(app: FastifyInstance) {
     }
 
     const conversations = await prisma.conversation.findMany({
-      where: query.businessId
-        ? {
-            businessId: query.businessId
-          }
-        : {},
+      where: { businessId },
       select: {
         id: true,
         phone: true,
@@ -327,7 +290,7 @@ export async function customerRoutes(app: FastifyInstance) {
               customerId: {
                 in: pageCustomerIds
               },
-              ...(query.businessId ? { businessId: query.businessId } : {})
+              businessId
             },
             select: {
               customerId: true,
@@ -394,10 +357,13 @@ export async function customerRoutes(app: FastifyInstance) {
       email?: string | null
       businessId?: string
     }
+    const businessId = body.businessId?.trim() || request.auth?.user.businessId?.trim()
+    if (!businessId) return reply.status(400).send({ message: 'businessId es requerido' })
 
     try {
       if (!body.phone?.trim()) {
         const customer = await createProvisionalCustomer({
+          businessId,
           name: body.name || '',
           email: body.email
         })
@@ -412,10 +378,11 @@ export async function customerRoutes(app: FastifyInstance) {
         name: body.name || '',
         phone: body.phone || '',
         email: body.email,
-        businessId: body.businessId?.trim() || null
+        businessId
       })
       return { ...result.customer, wasExisting: result.wasExisting, nameConflict: result.nameConflict }
     } catch (error) {
+      if (error instanceof CustomerBusinessScopeError) return reply.status(403).send({ message: error.message })
       if (error instanceof CustomerPhoneValidationError || error instanceof CustomerEmailValidationError) {
         return reply.status(400).send({ message: error.message })
       }
@@ -423,42 +390,27 @@ export async function customerRoutes(app: FastifyInstance) {
     }
   })
 
-  app.get('/customers', async (request) => {
+  app.get('/customers', async (request, reply) => {
     const query = request.query as {
       businessId?: string
     }
-    return prisma.customer.findMany({
-      where: query.businessId
-        ? {
-            OR: [
-              {
-                appointments: {
-                  some: {
-                    professional: {
-                      businessId: query.businessId
-                    }
-                  }
-                }
-              },
-              {
-                marketingPreferences: {
-                  some: {
-                    businessId: query.businessId
-                  }
-                }
-              }
-            ]
-          }
-        : {}
-    })
+    const businessId = query.businessId?.trim()
+    if (!businessId) return reply.status(400).send({ message: 'businessId es requerido' })
+    const customers = await prisma.customer.findMany({ where: { businessId } })
+    return customers.map((customer) => ({
+      ...customer,
+      isProvisional: !customerHasContactIdentity(customer.phone)
+    }))
   })
 
   app.patch('/customers/:id', async (request, reply) => {
     const params = request.params as { id: string }
     const body = request.body as { name?: string; phone?: string; email?: string | null; businessId?: string }
     const name = body.name?.trim()
+    const businessId = body.businessId?.trim() || request.auth?.user.businessId?.trim()
+    if (!businessId) return reply.status(400).send({ message: 'businessId es requerido' })
 
-    if (!await canStaffAccessCustomer(request.auth?.user, params.id)) {
+    if (!await canUserAccessCustomer(request.auth?.user, params.id, businessId)) {
       return reply.status(403).send({ message: 'Ese cliente no pertenece a tu comercio' })
     }
 
@@ -466,7 +418,7 @@ export async function customerRoutes(app: FastifyInstance) {
       return reply.status(400).send({ message: 'El nombre del cliente es requerido' })
     }
 
-    const customer = await prisma.customer.findUnique({ where: { id: params.id } })
+    const customer = await prisma.customer.findFirst({ where: { id: params.id, businessId } })
     if (!customer) {
       return reply.status(404).send({ message: 'No encontre ese cliente' })
     }
@@ -489,9 +441,10 @@ export async function customerRoutes(app: FastifyInstance) {
         name,
         phone: body.phone,
         email: body.email,
-        businessId: body.businessId?.trim() || request.auth?.user.businessId || null
+        businessId
       })
     } catch (error) {
+      if (error instanceof CustomerBusinessScopeError) return reply.status(403).send({ message: error.message })
       if (error instanceof CustomerPhoneConflictError) return reply.status(409).send({ message: error.message })
       if (error instanceof CustomerPhoneValidationError || error instanceof CustomerEmailValidationError) {
         return reply.status(400).send({ message: error.message })
@@ -502,6 +455,9 @@ export async function customerRoutes(app: FastifyInstance) {
 
   app.delete('/customers/:id', async (request, reply) => {
     const params = request.params as { id: string }
+    if (!await canUserAccessCustomer(request.auth?.user, params.id)) {
+      return reply.status(403).send({ message: 'Ese cliente no pertenece a tu comercio' })
+    }
     const customer = await prisma.customer.findUnique({
       where: { id: params.id },
       select: { id: true, name: true, phone: true, email: true }
@@ -534,7 +490,7 @@ export async function customerRoutes(app: FastifyInstance) {
 
   app.get('/customers/:id/notes', async (request, reply) => {
     const params = request.params as { id: string }
-    if (!await canStaffAccessCustomer(request.auth?.user, params.id)) {
+    if (!await canUserAccessCustomer(request.auth?.user, params.id)) {
       return reply.status(403).send({ message: 'Ese cliente no pertenece a tu comercio' })
     }
     return prisma.customerNote.findMany({
@@ -548,7 +504,7 @@ export async function customerRoutes(app: FastifyInstance) {
     const body = request.body as { body?: string }
     const noteBody = body.body?.trim()
 
-    if (!await canStaffAccessCustomer(request.auth?.user, params.id)) {
+    if (!await canUserAccessCustomer(request.auth?.user, params.id)) {
       return reply.status(403).send({ message: 'Ese cliente no pertenece a tu comercio' })
     }
 
@@ -571,18 +527,23 @@ export async function customerRoutes(app: FastifyInstance) {
 
 }
 
-async function canStaffAccessCustomer(user: { role: string; businessId: string | null } | undefined, customerId: string) {
+async function canUserAccessCustomer(
+  user: { role: string; businessId: string | null } | undefined,
+  customerId: string,
+  requestedBusinessId?: string
+) {
   if (!user) return false
-  if (user.role !== 'STAFF') return true
+  if (user.role === 'SUPER_ADMIN') {
+    if (!requestedBusinessId) return true
+    return Boolean(await prisma.customer.findFirst({
+      where: { id: customerId, businessId: requestedBusinessId },
+      select: { id: true }
+    }))
+  }
   if (!user.businessId) return false
+  if (requestedBusinessId && requestedBusinessId !== user.businessId) return false
   const customer = await prisma.customer.findFirst({
-    where: {
-      id: customerId,
-      OR: [
-        { appointments: { some: { professional: { businessId: user.businessId } } } },
-        { marketingPreferences: { some: { businessId: user.businessId } } }
-      ]
-    },
+    where: { id: customerId, businessId: user.businessId },
     select: { id: true }
   })
   return Boolean(customer)
