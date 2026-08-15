@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { siFacebook, siInstagram, siTiktok, siWhatsapp, type SimpleIcon } from 'simple-icons'
 import { BusinessService, normalizeBusinessSlug } from '../services/business-service.js'
+import { findCustomSiteProfileBinding } from '../services/custom-site-profile-binding.js'
 import { formatArgentineMobilePhone, inferDefaultAreaCodeFromPhone } from '../services/phone-normalization-service.js'
 import { weexGoogleCalendarEnabled, weexGoogleClientId } from '../services/weex-account-service.js'
 import { formatCustomerDuration } from '../services/service-duration.js'
@@ -23,10 +24,8 @@ export async function landingUiRoutes(app: FastifyInstance) {
   })
 
   app.get('/', async (request, reply) => {
-    const slug = resolveSlugFromHost(request)
-    if (!slug) return reply.type('text/html').send(renderWeexHome())
-
-    const business = await businessService.findPublicBySlug(slug)
+    const business = await findPublicBusinessFromHost(request)
+    if (!business) return reply.type('text/html').send(renderWeexHome())
     if (!business || !business.landingEnabled) return reply.status(404).type('text/html').send(renderNotFound())
 
     return reply.type('text/html').send(renderLanding(business, '', previewLandingTemplate(request), isLandingDemoPreview(request)))
@@ -52,20 +51,14 @@ export async function landingUiRoutes(app: FastifyInstance) {
   })
 
   app.get('/reservar', async (request, reply) => {
-    const slug = resolveSlugFromHost(request)
-    if (!slug) return reply.status(404).type('text/html').send(renderNotFound())
-
-    const business = await businessService.findPublicBySlug(slug)
+    const business = await findPublicBusinessFromHost(request)
     if (!business || !business.landingEnabled) return reply.status(404).type('text/html').send(renderNotFound())
 
     return reply.type('text/html').send(renderBookingPlaceholder(business, '/', previewLandingTemplate(request)))
   })
 
   app.get('/cuenta', async (request, reply) => {
-    const slug = resolveSlugFromHost(request)
-    if (!slug) return reply.status(404).type('text/html').send(renderNotFound())
-
-    const business = await businessService.findPublicBySlug(slug)
+    const business = await findPublicBusinessFromHost(request)
     if (!business || !business.landingEnabled) return reply.status(404).type('text/html').send(renderNotFound())
 
     return reply.type('text/html').send(renderCustomerAccount(business, '/'))
@@ -98,6 +91,17 @@ export async function landingUiRoutes(app: FastifyInstance) {
 
     return reply.type('text/html').send(renderCustomerAccount(business, `/${slug}`))
   })
+}
+
+async function findPublicBusinessFromHost(request: FastifyRequest) {
+  const rawHost = request.headers['x-forwarded-host'] || request.headers.host
+  const customSiteBinding = findCustomSiteProfileBinding(rawHost)
+  if (customSiteBinding) {
+    return businessService.findPublicByCustomerCode(customSiteBinding.businessCustomerCode)
+  }
+
+  const slug = resolveSlugFromHost(request)
+  return slug ? businessService.findPublicBySlug(slug) : null
 }
 
 function resolveSlugFromHost(request: FastifyRequest) {

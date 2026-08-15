@@ -14,6 +14,31 @@ const RESERVED_SLUGS = new Set([
   'www'
 ])
 
+const publicBusinessInclude = {
+  businessHours: true,
+  services: {
+    where: { isBookable: true },
+    orderBy: [
+      { category: 'asc' as const },
+      { name: 'asc' as const }
+    ]
+  },
+  professionals: {
+    where: {
+      isActive: true
+    },
+    orderBy: {
+      name: 'asc' as const
+    }
+  },
+  whatsappConfig: {
+    select: {
+      displayPhoneNumber: true
+    }
+  },
+  paymentSettings: true
+} satisfies Prisma.BusinessInclude
+
 export class BusinessService {
   async create(name: string, requestedSlug?: string, ownership?: { accountAdminId?: string | null; createdByUserId?: string | null }) {
     const slug = await this.resolveAvailableSlug(requestedSlug || name)
@@ -139,30 +164,19 @@ export class BusinessService {
       where: {
         slug: normalizedSlug
       },
-      include: {
-        businessHours: true,
-        services: {
-          where: { isBookable: true },
-          orderBy: [
-            { category: 'asc' },
-            { name: 'asc' }
-          ]
-        },
-        professionals: {
-          where: {
-            isActive: true
-          },
-          orderBy: {
-            name: 'asc'
-          }
-        },
-        whatsappConfig: {
-          select: {
-            displayPhoneNumber: true
-          }
-        },
-        paymentSettings: true
-      }
+      include: publicBusinessInclude
+    })
+  }
+
+  async findPublicByCustomerCode(customerCode: string) {
+    const normalizedCustomerCode = customerCode.trim().toUpperCase()
+    if (!normalizedCustomerCode) return null
+
+    return prisma.business.findUnique({
+      where: {
+        customerCode: normalizedCustomerCode
+      },
+      include: publicBusinessInclude
     })
   }
 
