@@ -736,6 +736,27 @@ export class ConversationService {
       }
     }
 
+    // En los estados de menu no hay una reserva en armado que cancelar. Una
+    // orden inequivoca sobre un turno confirmado debe resolverse antes del
+    // router para que una clasificacion probabilistica no abra otra reserva.
+    if (
+      bookingV2Enabled &&
+      businessId &&
+      isMenuStep(conversation.currentStep) &&
+      isCancelAppointmentMessage(message, conversation.currentStep)
+    ) {
+      await this.updateConversation(input.phone, businessId, {
+        currentStep: 'CANCEL_SELECT_APPOINTMENT',
+        misunderstandingCount: 0
+      })
+
+      return this.buildMyAppointmentsReply(
+        input.phone,
+        businessId,
+        botCopyService.cancelAppointmentIntro()
+      )
+    }
+
     const canUseDeterministicBookingContinuation =
       bookingV2Enabled &&
       Boolean(businessId) &&

@@ -19,6 +19,7 @@ type Check = {
 
 type Step = Check & {
   message: string
+  useAi?: boolean
 }
 
 type Scenario = {
@@ -757,6 +758,60 @@ async function main() {
       ]
     },
     {
+      name: 'cancelar turnos consecutivos desde una reserva completada',
+      phone: `${testPhonePrefix}cancel-after-completed`,
+      setup: async () => {
+        await seedAppointment({
+          phone: `${testPhonePrefix}cancel-after-completed`,
+          customerName: 'Mati QA',
+          serviceId: service.id,
+          professionalId: professional.id,
+          startAt: dateWithOffset(32, 10)
+        })
+        await seedAppointment({
+          phone: `${testPhonePrefix}cancel-after-completed`,
+          customerName: 'Mati QA',
+          serviceId: service.id,
+          professionalId: professional.id,
+          startAt: dateWithOffset(33, 11)
+        })
+        await prisma.conversation.create({
+          data: {
+            phone: `${testPhonePrefix}cancel-after-completed`,
+            businessId: business.id,
+            currentStep: 'COMPLETED',
+            selectedCustomerName: 'Mati QA'
+          }
+        })
+      },
+      steps: [
+        {
+          message: 'hola quiero cancelar un turno',
+          useAi: false,
+          includes: ['cancelarlo', '1.', '2.', service.name],
+          excludes: ['tipo de servicio'],
+          currentStep: 'CANCEL_SELECT_APPOINTMENT'
+        },
+        {
+          message: '1',
+          includes: ['cancel', 'cancelar turno'],
+          currentStep: 'COMPLETED'
+        },
+        {
+          message: 'cancelar turno',
+          useAi: false,
+          includes: ['cancelarlo', '1.', service.name],
+          excludes: ['tipo de servicio', '2.'],
+          currentStep: 'CANCEL_SELECT_APPOINTMENT'
+        },
+        {
+          message: '1',
+          includes: ['cancel', 'cancelar turno'],
+          currentStep: 'COMPLETED'
+        }
+      ]
+    },
+    {
       name: 'entiende typo fuerte para cancelar',
       phone: `${testPhonePrefix}cancel-typo`,
       setup: async () => {
@@ -1416,7 +1471,8 @@ async function runScenario(scenario: Scenario) {
     for (const step of scenario.steps) {
       const result = await conversationService.handleMessage({
         phone: scenario.phone,
-        message: step.message
+        message: step.message,
+        ...(step.useAi === undefined ? {} : { useAi: step.useAi })
       })
 
       console.log(`Usuario: ${step.message}`)
