@@ -4852,10 +4852,13 @@ export function bookingCoordinationReplyButtons(input: {
       { id: `${prefix}estimate_exact_quote`, title: 'Pedir presupuesto' }
     ]
   }
-  if (input.plan.type === 'ask_service_addons' && input.plan.serviceIds.length) {
+  const addonServiceIds = input.plan.type === 'ask_service_addons'
+    ? input.plan.serviceIds
+    : input.state.addonSuggestion?.candidateServiceIds ?? []
+  if (addonServiceIds.length) {
     return [
       { id: `${prefix}addon_first`, title: 'Agregar opción 1' },
-      ...(input.plan.serviceIds.length > 1
+      ...(addonServiceIds.length > 1
         ? [{ id: `${prefix}addon_all`, title: 'Agregar todas' }]
         : []),
       { id: `${prefix}addon_continue`, title: 'No, continuar' }

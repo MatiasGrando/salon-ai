@@ -17,6 +17,7 @@ import {
   createEmptyBookingV2State,
   type BookingV2State
 } from '../src/services/booking-v2-state.js'
+import { bookingCoordinationReplyButtons } from '../src/services/conversation-service.js'
 
 const services = [
   {
@@ -796,6 +797,31 @@ await test('el bot ofrece extras configurados una sola vez y acepta uno menciona
   assert.match(first.reply, /Corte — agrega 30 min/)
   assert.match(first.reply, /Lavado — agrega 20 min/)
   assert.match(first.reply, /quiero solo corte y baño de crema/)
+  assert.deepEqual(
+    bookingCoordinationReplyButtons({
+      conversationId: 'conversation-1',
+      plan: first.plan,
+      state: first.state,
+      availabilityOptions: first.availabilityOptions
+    })?.map((button) => button.title),
+    ['Agregar opción 1', 'Agregar todas', 'No, continuar']
+  )
+
+  const resumedOffer = await engine().resume({
+    businessId: 'business-1',
+    conversation: first.conversationPatch
+  })
+  assert.equal(resumedOffer.plan.type, 'ask_service_addons')
+  assert.match(resumedOffer.reply, /Corte — agrega 30 min/)
+  assert.deepEqual(
+    bookingCoordinationReplyButtons({
+      conversationId: 'conversation-1',
+      plan: resumedOffer.plan,
+      state: resumedOffer.state,
+      availabilityOptions: resumedOffer.availabilityOptions
+    })?.map((button) => button.title),
+    ['Agregar opción 1', 'Agregar todas', 'No, continuar']
+  )
 
   const accepted = await engine().process({
     businessId: 'business-1',

@@ -2636,6 +2636,12 @@ export class BookingV2Engine {
         selectedServiceIds: combinedServiceIds(state)
       }, catalog, 'no_change')
     }
+    if (state.addonSuggestion?.candidateServiceIds.length) {
+      return this.guidedEstimateResult(state, {
+        type: 'ask_service_addons',
+        serviceIds: state.addonSuggestion.candidateServiceIds
+      }, catalog, 'no_change')
+    }
     const validationService = state.serviceValidation
       ? catalog.services.find((service) =>
           service.id === state.serviceValidation?.serviceId &&
