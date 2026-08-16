@@ -20,6 +20,8 @@ type CreateAppointmentInput = {
   force?: boolean
   status?: 'PENDING' | 'CONFIRMED'
   quotedPrice?: number | null
+  manualDepositPaid?: boolean
+  manualDepositAmount?: number | string | null
   coordinationGroupId?: string | null
 }
 
@@ -79,12 +81,24 @@ export class AppointmentService {
   async create(input: CreateAppointmentInput): Promise<AppointmentMutationResult> {
     await bookingDepositService.expireOverdue()
     const startAt = new Date(input.startAt)
+    const manualDeposit = normalizeManualDeposit(
+      input.manualDepositPaid === true,
+      input.manualDepositAmount
+    )
 
     if (Number.isNaN(startAt.getTime())) {
       return {
         ok: false,
         statusCode: 400,
         message: 'La fecha de inicio no parece valida'
+      }
+    }
+
+    if (!manualDeposit.ok) {
+      return {
+        ok: false,
+        statusCode: 400,
+        message: manualDeposit.message
       }
     }
 
@@ -240,6 +254,8 @@ export class AppointmentService {
         totalDurationMinutes: professionalDuration,
         status: input.status ?? 'CONFIRMED',
         quotedPrice: normalizeQuotedPrice(input.quotedPrice),
+        manualDepositPaid: manualDeposit.paid,
+        manualDepositAmount: manualDeposit.amount,
         coordinationGroupId: input.coordinationGroupId ?? null,
         serviceItems: {
           create: orderedServices.map((service, sortOrder) => ({
@@ -391,6 +407,23 @@ export class AppointmentService {
         ok: false,
         statusCode: 404,
         message: 'No encontre ese turno'
+      }
+    }
+    const updatesManualDeposit = input.manualDepositPaid !== undefined ||
+      input.manualDepositAmount !== undefined
+    const manualDeposit = updatesManualDeposit
+      ? normalizeManualDeposit(
+          input.manualDepositPaid ?? existing.manualDepositPaid,
+          input.manualDepositAmount === undefined
+            ? existing.manualDepositAmount
+            : input.manualDepositAmount
+        )
+      : null
+    if (manualDeposit && !manualDeposit.ok) {
+      return {
+        ok: false,
+        statusCode: 400,
+        message: manualDeposit.message
       }
     }
     if (
@@ -562,6 +595,12 @@ export class AppointmentService {
         serviceId: input.serviceId,
         startAt,
         totalDurationMinutes: professionalDuration,
+        ...(manualDeposit?.ok
+          ? {
+              manualDepositPaid: manualDeposit.paid,
+              manualDepositAmount: manualDeposit.amount
+            }
+          : {}),
         serviceItems: {
           deleteMany: {},
           create: orderedServices.map((service, sortOrder) => ({
@@ -1250,6 +1289,27 @@ function formatDisplayDate(date: Date) {
   const year = date.getFullYear()
 
   return `${day}/${month}/${year}`
+}
+
+export function normalizeManualDeposit(
+  paid: boolean,
+  amount: number | string | null | undefined
+) {
+  if (!paid) {
+    return { ok: true as const, paid: false, amount: null }
+  }
+  if (amount === null || amount === undefined || amount === '') {
+    return { ok: true as const, paid: true, amount: null }
+  }
+
+  const parsedAmount = typeof amount === 'number' ? amount : Number(amount.trim())
+  if (!Number.isInteger(parsedAmount) || parsedAmount <= 0) {
+    return {
+      ok: false as const,
+      message: 'El monto de la seña debe ser un numero entero mayor a 0'
+    }
+  }
+  return { ok: true as const, paid: true, amount: parsedAmount }
 }
 
 function normalizeQuotedPrice(value: number | null | undefined) {

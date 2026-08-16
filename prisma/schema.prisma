@@ -685,6 +685,8 @@ model Appointment {
 
   startAt              DateTime
   quotedPrice          Int?
+  manualDepositPaid    Boolean  @default(false)
+  manualDepositAmount  Int?
   totalDurationMinutes Int
   coordinationGroupId  String?
 

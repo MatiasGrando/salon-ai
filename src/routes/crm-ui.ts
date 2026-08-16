@@ -8315,6 +8315,32 @@ const crmHtml = `<!doctype html>
       line-height: 1.4;
     }
 
+    .appointment-deposit-option {
+      padding: 12px;
+      border: 1px solid #bbf7d0;
+      border-radius: 8px;
+      display: grid;
+      gap: 10px;
+      background: #f0fdf4;
+    }
+
+    .appointment-deposit-option > label {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      color: #166534;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .appointment-deposit-option small {
+      color: #166534;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .appointment-deposit-amount[hidden] { display: none; }
+
     .app[data-section="professionals"] {
       background: #f8fbff;
     }
@@ -14099,6 +14125,17 @@ const crmHtml = `<!doctype html>
             <a class="whatsapp" id="appointment-whatsapp" href="#" title="Abrir WhatsApp Desktop" aria-label="Abrir WhatsApp Desktop" data-icon="whatsapp"></a>
             <button id="appointment-open-chat" type="button" title="Abrir chat del cliente" aria-label="Abrir chat del cliente" data-icon="mail"></button>
           </div>
+          <div class="appointment-deposit-option">
+            <label>
+              <input id="appointment-deposit-paid" type="checkbox">
+              Dej&oacute; se&ntilde;a
+            </label>
+            <div class="form-row appointment-deposit-amount" id="appointment-deposit-amount-row" hidden>
+              <label for="appointment-deposit-amount">Monto de la se&ntilde;a <span class="optional-label">(opcional)</span></label>
+              <input class="field" id="appointment-deposit-amount" type="number" min="1" step="1" inputmode="numeric" placeholder="Ej: 20000">
+            </div>
+            <small>La se&ntilde;a quedar&aacute; registrada directamente en este turno manual.</small>
+          </div>
           <div class="exceptional-option">
             <label>
               <input id="appointment-force" type="checkbox">
@@ -17575,6 +17612,9 @@ const crmHtml = `<!doctype html>
       appointmentContactActions: document.getElementById('appointment-contact-actions'),
       appointmentWhatsapp: document.getElementById('appointment-whatsapp'),
       appointmentOpenChat: document.getElementById('appointment-open-chat'),
+      appointmentDepositPaid: document.getElementById('appointment-deposit-paid'),
+      appointmentDepositAmountRow: document.getElementById('appointment-deposit-amount-row'),
+      appointmentDepositAmount: document.getElementById('appointment-deposit-amount'),
       appointmentForce: document.getElementById('appointment-force'),
       appointmentFeedback: document.getElementById('appointment-feedback'),
       businessSettingsForm: document.getElementById('business-settings-form'),
@@ -24572,6 +24612,14 @@ const crmHtml = `<!doctype html>
       if (status === 'APPROVED') {
         return { color: '#16a34a', label: 'Comprobante verificado' }
       }
+      if (appointment.manualDepositPaid === true) {
+        return {
+          color: '#16a34a',
+          label: appointment.manualDepositAmount
+            ? 'Seña registrada: ' + formatCurrency(appointment.manualDepositAmount)
+            : 'Seña registrada'
+        }
+      }
       return null
     }
 
@@ -25603,6 +25651,13 @@ const crmHtml = `<!doctype html>
       })
     }
 
+    function syncAppointmentDepositFields() {
+      const paid = els.appointmentDepositPaid.checked
+      els.appointmentDepositAmountRow.hidden = !paid
+      els.appointmentDepositAmount.disabled = !paid
+      if (!paid) els.appointmentDepositAmount.value = ''
+    }
+
     function openAppointmentDialog(input = {}) {
       renderAppointmentFormOptions()
       els.appointmentFeedback.textContent = ''
@@ -25628,6 +25683,8 @@ const crmHtml = `<!doctype html>
         els.appointmentCustomer.value = appointment.customerId || ''
         els.appointmentCustomerName.value = appointment.customer?.name || ''
         els.appointmentCustomerPhone.value = appointment.customer?.phone || ''
+        els.appointmentDepositPaid.checked = appointment.manualDepositPaid === true
+        els.appointmentDepositAmount.value = appointment.manualDepositAmount || ''
         els.appointmentNoShow.textContent = appointment.status === 'NO_SHOW' ? 'Quitar ausente' : 'Marcar ausente'
         els.appointmentNoShow.className = appointment.status === 'NO_SHOW' ? 'secondary' : 'danger'
         els.appointmentFeedback.textContent = appointment.status === 'NO_SHOW' ? 'Este turno esta marcado como ausente.' : ''
@@ -25649,8 +25706,11 @@ const crmHtml = `<!doctype html>
         els.appointmentCustomerSearch.value = ''
         els.appointmentCustomerName.value = ''
         els.appointmentCustomerPhone.value = ''
+        els.appointmentDepositPaid.checked = false
+        els.appointmentDepositAmount.value = ''
       }
 
+      syncAppointmentDepositFields()
       syncAppointmentCustomerFields()
       const protectsScheduledCustomer = Boolean(appointment && !canViewAppointmentCustomerData())
       const customerSearchRow = els.appointmentCustomerSearch.closest('.form-row')
@@ -25793,6 +25853,9 @@ const crmHtml = `<!doctype html>
       const professionalId = els.appointmentProfessional.value
       const serviceId = els.appointmentService.value
       const force = els.appointmentForce.checked
+      const manualDepositPaid = els.appointmentDepositPaid.checked
+      const manualDepositAmountText = els.appointmentDepositAmount.value.trim()
+      const manualDepositAmount = manualDepositAmountText ? Number(manualDepositAmountText) : null
       let customerId = els.appointmentCustomer.value
 
       if (!startAt || !professionalId || !serviceId) {
@@ -25802,6 +25865,16 @@ const crmHtml = `<!doctype html>
 
       if (!appointmentServicesForProfessional(professionalId).some((service) => service.id === serviceId)) {
         els.appointmentFeedback.textContent = 'El profesional seleccionado no realiza ese servicio.'
+        return
+      }
+
+      if (
+        manualDepositPaid &&
+        manualDepositAmount !== null &&
+        (!Number.isInteger(manualDepositAmount) || manualDepositAmount <= 0)
+      ) {
+        els.appointmentFeedback.textContent = 'El monto de la seña debe ser un número entero mayor a 0.'
+        els.appointmentDepositAmount.focus()
         return
       }
 
@@ -25866,6 +25939,8 @@ const crmHtml = `<!doctype html>
             professionalId,
             serviceId,
             startAt: new Date(startAt).toISOString(),
+            manualDepositPaid,
+            manualDepositAmount,
             force
           })
         })
@@ -29579,6 +29654,7 @@ const crmHtml = `<!doctype html>
       openAppointmentDialog()
     })
     els.appointmentForm.addEventListener('submit', saveManualAppointment)
+    els.appointmentDepositPaid.addEventListener('change', syncAppointmentDepositFields)
     els.appointmentClose.addEventListener('click', closeAppointmentDialog)
     els.appointmentCancel.addEventListener('click', closeAppointmentDialog)
     els.appointmentDelete.addEventListener('click', deleteManualAppointment)

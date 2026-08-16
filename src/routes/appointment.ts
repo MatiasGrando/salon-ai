@@ -19,6 +19,8 @@ export async function appointmentRoutes(app: FastifyInstance) {
       serviceIds?: string[]
       startAt: string
       force?: boolean
+      manualDepositPaid?: boolean
+      manualDepositAmount?: number | string | null
     }
     if (!await canUseProfessional(request.auth?.user, body.professionalId)) {
       return reply.status(403).send({ message: 'Tu perfil solo puede gestionar la agenda profesional asignada' })
@@ -33,6 +35,8 @@ export async function appointmentRoutes(app: FastifyInstance) {
       serviceId: body.serviceId,
       ...(body.serviceIds ? { serviceIds: body.serviceIds } : {}),
       startAt: body.startAt,
+      ...(body.manualDepositPaid === undefined ? {} : { manualDepositPaid: body.manualDepositPaid }),
+      ...(body.manualDepositAmount === undefined ? {} : { manualDepositAmount: body.manualDepositAmount }),
       ...(body.force === undefined ? {} : { force: body.force })
     })
 
@@ -118,6 +122,8 @@ export async function appointmentRoutes(app: FastifyInstance) {
       serviceIds?: string[]
       startAt: string
       force?: boolean
+      manualDepositPaid?: boolean
+      manualDepositAmount?: number | string | null
     }
 
     if (!await canAccessAppointment(request.auth?.user, params.id)) {
@@ -174,6 +180,7 @@ export async function appointmentRoutes(app: FastifyInstance) {
 
 function appointmentForAuthenticatedUser<T extends {
   quotedPrice: number | null
+  manualDepositAmount: number | null
   customer: { phone: string }
   service: { price: number | null }
   serviceItems: Array<{ service: { price: number | null } }>
@@ -199,9 +206,14 @@ function appointmentForAuthenticatedUser<T extends {
     service,
     serviceItems
   }
-  return user.canViewFinancialAmounts
-    ? protectedAppointment
-    : omitKey(protectedAppointment, 'quotedPrice')
+  if (user.canViewFinancialAmounts) return protectedAppointment
+
+  const {
+    quotedPrice: _quotedPrice,
+    manualDepositAmount: _manualDepositAmount,
+    ...appointmentWithoutFinancialAmounts
+  } = protectedAppointment
+  return appointmentWithoutFinancialAmounts
 }
 
 function omitKey<T extends object, K extends keyof T>(value: T, key: K): Omit<T, K> {
