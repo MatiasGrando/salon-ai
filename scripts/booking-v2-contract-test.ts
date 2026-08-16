@@ -201,6 +201,92 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         message: 'a las 1500'
       }), true)
 
+      const businessCatalog = createBookingV2DomainCatalog({
+        displayMode: 'CATEGORIES_FIRST',
+        services: [
+          {
+            id: 'molecular',
+            name: 'Ordenador molecular',
+            aliases: ['ordenador', 'nutrición'],
+            duration: 90,
+            price: 65_000,
+            category: 'Nutrición'
+          },
+          {
+            id: 'cream-bath',
+            name: 'Baño de crema',
+            aliases: ['baño crema', 'nutrición'],
+            duration: 30,
+            price: 25_000,
+            category: 'Nutrición'
+          },
+          {
+            id: 'massage',
+            name: 'Masaje descontracturante',
+            aliases: ['masaje'],
+            duration: 60,
+            price: 30_000,
+            category: 'Masajes'
+          },
+          {
+            id: 'woman-cut',
+            name: 'Corte mujer',
+            aliases: ['corte'],
+            duration: 30,
+            price: 37_000,
+            category: 'Cortes'
+          },
+          {
+            id: 'man-cut',
+            name: 'Corte hombre',
+            aliases: ['corte'],
+            duration: 30,
+            price: 27_000,
+            category: 'Cortes'
+          }
+        ],
+        professionals: []
+      })
+      const businessEngine = new BookingV2Engine(
+        fakeDomainPort({ catalog: businessCatalog }),
+        fakeExtractor(null)
+      )
+      const selectedServiceState = acceptField(
+        acceptField(createEmptyBookingV2State(), 'name', 'Mati'),
+        'service',
+        'molecular'
+      )
+
+      for (const message of ['masaje', 'baño crema', 'nutricion', 'corte']) {
+        assert.equal(await businessEngine.canProcessWithoutGeneralRouter({
+          businessId: 'business-with-massages',
+          conversation: conversationPatchFromState(selectedServiceState),
+          message
+        }), true, message)
+      }
+
+      const addonState = {
+        ...selectedServiceState,
+        addonSuggestion: {
+          sourceServiceId: 'molecular',
+          candidateServiceIds: ['massage']
+        }
+      }
+      for (const message of ['continuar', 'seguir sin extras', 'masaje']) {
+        assert.equal(await businessEngine.canProcessWithoutGeneralRouter({
+          businessId: 'business-with-massages',
+          conversation: conversationPatchFromState(addonState),
+          message
+        }), true, message)
+      }
+
+      const otherBusinessEngine = new BookingV2Engine(fakeDomainPort(), fakeExtractor(null))
+      assert.equal(await otherBusinessEngine.canProcessWithoutGeneralRouter({
+        businessId: 'business-without-massages',
+        conversation: conversationPatchFromState(selectedServiceState),
+        message: 'masaje'
+      }), false, 'los alias no deben cruzarse entre negocios')
+
       const guidedCatalog = createBookingV2DomainCatalog({
         services: [{
           id: 'highlights',

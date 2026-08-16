@@ -242,6 +242,27 @@ export class BookingV2Engine {
     const catalog = await this.domain.loadCatalog(input.businessId)
     const state = sanitizeCatalogNameCollision(storedState, catalog)
 
+    // Antes de recurrir al router general, resolver contra el catálogo propio
+    // del negocio. Esto cubre nombres, alias, familias, categorías y variantes,
+    // incluso cuando ya hay un servicio principal y el cliente está eligiendo
+    // entre alternativas o adicionales que el bot acaba de ofrecer.
+    // Las coincidencias ambiguas también permanecen en el flujo determinístico:
+    // el motor puede mostrar las opciones concretas sin pedirle a la IA que elija.
+    if (resolveCatalogServiceSelection(actionableMessage, catalog)) return true
+
+    if (state.addonSuggestion) {
+      const mentionedAddonIds = selectedAddonIdsFromMessage(
+        actionableMessage,
+        state.addonSuggestion.candidateServiceIds,
+        catalog
+      )
+      const addonDecision = deterministicAddonDecision(
+        actionableMessage,
+        state.addonSuggestion.candidateServiceIds
+      )
+      if (mentionedAddonIds.length || addonDecision.type !== 'unresolved') return true
+    }
+
     if (state.guidedEstimate?.stage === 'awaiting_option') {
       const service = catalog.services.find((candidate) =>
         candidate.id === state.guidedEstimate?.serviceId
