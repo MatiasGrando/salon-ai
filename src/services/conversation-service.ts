@@ -736,6 +736,21 @@ export class ConversationService {
       }
     }
 
+    if (
+      bookingV2Enabled &&
+      businessId &&
+      conversation.currentStep === 'START' &&
+      isGenericBookingV2Request(message)
+    ) {
+      const currentState = stateFromConversation(conversation)
+      if (!hasActiveBookingData(currentState)) {
+        conversation = await this.updateConversation(input.phone, businessId, {
+          currentStep: 'START',
+          ...conversationPatchFromState(freshBookingV2State(currentState.draft.name))
+        })
+      }
+    }
+
     // En los estados de menu no hay una reserva en armado que cancelar. Una
     // orden inequivoca sobre un turno confirmado debe resolverse antes del
     // router para que una clasificacion probabilistica no abra otra reserva.
@@ -763,6 +778,10 @@ export class ConversationService {
       !isQueuedConversationHandoff(conversation) &&
       (conversation.currentStep === 'START' || isActiveBookingV2Step(conversation.currentStep)) &&
       (
+        (
+          conversation.currentStep === 'START' &&
+          isGenericBookingV2Request(message)
+        ) ||
         (
           conversation.currentStep === 'CONFIRM' &&
           isUnambiguousBookingConfirmation(message)
@@ -3973,7 +3992,8 @@ function conversationStepFromBookingV2Plan(plan: BookingV2MessagePlan) {
     plan.type === 'show_service_modification_menu' ||
     plan.type === 'ask_service_edit_target' ||
     plan.type === 'confirm_service_edit' ||
-    plan.type === 'ask_service_replacement'
+    plan.type === 'ask_service_replacement' ||
+    plan.type === 'clarify_unsupported_service'
   ) {
     return 'ASK_SERVICE'
   }
@@ -4054,6 +4074,29 @@ export function freshBookingV2State(customerName: string | null): BookingV2State
       name: customerName
     }
   }
+}
+
+function hasActiveBookingData(state: BookingV2State) {
+  return Boolean(
+    state.draft.service ||
+    state.draft.professional ||
+    state.draft.date ||
+    state.draft.time ||
+    state.pendingProposal ||
+    state.serviceValidation ||
+    state.guidedEstimate ||
+    state.advisorQuote ||
+    state.quoteOnly ||
+    state.pendingDeposit ||
+    state.combinedServices.length ||
+    state.queuedServices.length ||
+    state.addonSuggestion ||
+    state.pendingCombinedAvailability ||
+    state.pendingAvailabilityResolution ||
+    state.pendingServiceSeparation ||
+    state.pendingServiceReplacement ||
+    state.pendingCoordinatedAvailability
+  )
 }
 
 export function bookingV2StateAfterGoingBack(
@@ -4181,7 +4224,12 @@ function isGenericBookingV2Request(message: string) {
     .replace(/[^\p{Letter}\p{Number}\s]/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+  const bookingMessage = normalizedMessage
+    .replace(/^(?:hola+|holi+|buenas|buen dia|buenas tardes|buenas noches)\s+/, '')
+    .trim()
   return [
+    'turno',
+    'un turno',
     'quiero un turno',
     'quiero reservar un turno',
     'necesito un turno',
@@ -4191,7 +4239,7 @@ function isGenericBookingV2Request(message: string) {
     'reservar un turno',
     'agendar un turno',
     'sacar un turno'
-  ].includes(normalizedMessage)
+  ].includes(bookingMessage)
 }
 
 export function hasQuoteOnlyBookingRequest(
@@ -4739,6 +4787,20 @@ export function bookingCoordinationReplyButtons(input: {
   availabilityOptions?: Array<{ time: string }>
 }): Array<{ id: string; title: string }> | null {
   const prefix = `coord:${input.conversationId}:`
+  if (input.plan.type === 'clarify_unsupported_service') {
+    return unsupportedServiceDecisionButtons(input.conversationId)
+  }
+  if (
+    input.plan.type === 'ask_field' &&
+    input.plan.field === 'service' &&
+    input.state.pendingServiceDisambiguation?.serviceIds.length === 1
+  ) {
+    return [
+      { id: `${prefix}disambiguation_confirm`, title: 'Sí, es ese' },
+      { id: `${prefix}disambiguation_reject`, title: 'No, otro servicio' },
+      { id: `${prefix}human`, title: 'Solicitar atención' }
+    ]
+  }
   if (input.plan.type === 'ask_service_validation') {
     return [
       { id: `${prefix}validate_continue`, title: 'Seguir' },
@@ -4933,6 +4995,8 @@ export function bookingCoordinationMessageFromInteractiveReply(
   if (action === 'restart') return 'empezar de nuevo desde cero'
   if (action === 'validate_continue') return 'sí, seguimos'
   if (action === 'validate_help') return 'no estoy seguro, necesito asesoramiento'
+  if (action === 'disambiguation_confirm') return 'sí'
+  if (action === 'disambiguation_reject') return 'no'
   if (action === 'estimate_continue') return 'sí, quiero continuar con la reserva'
   if (action === 'estimate_exact_quote') return 'prefiero un presupuesto exacto'
   if (action === 'addon_first') return '1'

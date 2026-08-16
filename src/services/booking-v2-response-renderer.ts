@@ -140,6 +140,17 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
     ].join('\n')
   }
 
+  if (input.plan.type === 'clarify_unsupported_service') {
+    return [
+      input.plan.recognizedServiceLabels.length
+        ? `Entendí ${input.plan.recognizedServiceLabels.join(' y ')}.`
+        : null,
+      `No encontré “${input.plan.evidence}” como servicio del catálogo.`,
+      'Puede estar incluido dentro de otro tratamiento o necesitar confirmación del equipo.',
+      '¿Querés ver los servicios disponibles o solicitar atención?'
+    ].filter(Boolean).join('\n\n')
+  }
+
   if (input.plan.type === 'offer_combined_availability') {
     return [
       `Para el ${formatDate(input.plan.requestedDate)} no encontré un bloque continuo disponible para realizar todos los servicios juntos.`,
@@ -662,7 +673,9 @@ function serviceQuestion(
   return [
     serviceSuggestions?.length
       ? serviceSuggestionLabel
-        ? `Para ${serviceSuggestionLabel} tengo estas opciones 😊`
+        ? serviceSuggestions.length === 1
+          ? `Para ${serviceSuggestionLabel}, ¿te referís a este servicio? 😊`
+          : `Para ${serviceSuggestionLabel} tengo estas opciones 😊`
         : suggestionCategory
         ? `Para ${suggestionCategory} tengo estas opciones 😊`
         : 'Encontré más de una opción parecida 😊 ¿Cuál de estas querés?'
@@ -671,7 +684,9 @@ function serviceQuestion(
     ...(services.length > 1 && !services.some((service) => service.categoryAdviceEnabled)
       ? ['• No sé cuál necesito']
       : []),
-    quoteOnly ? '¿Cuál querés cotizar?' : containsAssistedServices ? '¿Cuál te interesa?' : '¿Cuál querés reservar?'
+    serviceSuggestions?.length === 1 && serviceSuggestionLabel
+      ? 'Podés responder sí o no.'
+      : quoteOnly ? '¿Cuál querés cotizar?' : containsAssistedServices ? '¿Cuál te interesa?' : '¿Cuál querés reservar?'
   ].join('\n')
 }
 

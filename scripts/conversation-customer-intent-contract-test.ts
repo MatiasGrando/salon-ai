@@ -36,6 +36,9 @@ assert.deepEqual(extractMisaddressedAssistantGreeting('holi Manola, quiero un tu
   addressedName: 'Manola',
   remainingMessage: 'quiero un turno'
 })
+assert.equal(extractMisaddressedAssistantGreeting('hola quiero un turno'), null)
+assert.equal(extractMisaddressedAssistantGreeting('hola necesito un turno'), null)
+assert.equal(extractMisaddressedAssistantGreeting('hola busco un turno'), null)
 assert.equal(extractMisaddressedAssistantGreeting('hola que tal'), null)
 assert.equal(extractMisaddressedAssistantGreeting('hola Cami'), null)
 

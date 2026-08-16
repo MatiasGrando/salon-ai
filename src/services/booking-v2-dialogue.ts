@@ -35,6 +35,11 @@ export type BookingV2MessagePlan =
       serviceIds: string[]
     }
   | {
+      type: 'clarify_unsupported_service'
+      evidence: string
+      recognizedServiceLabels: string[]
+    }
+  | {
       type: 'offer_combined_availability'
       requestedDate: string
       options: BookingV2CombinedAvailabilityOption[]

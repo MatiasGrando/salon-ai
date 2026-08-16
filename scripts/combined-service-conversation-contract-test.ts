@@ -248,6 +248,59 @@ function ambiguousFamiliesCatalog() {
   })
 }
 
+function glowColorAndCutsCatalog(illuminationAliases: string[] = []) {
+  return createBookingV2DomainCatalog({
+    services: [
+      {
+        id: 'iluminacion',
+        name: 'Iluminación (baby lights, balayage, contouring, etc)',
+        aliases: illuminationAliases,
+        duration: 60,
+        price: 160000,
+        category: 'Iluminación'
+      },
+      {
+        id: 'corte-hombre',
+        name: 'Corte hombre',
+        aliases: [],
+        duration: 30,
+        price: 27000,
+        category: 'Cortes',
+        parentServiceId: 'familia-corte',
+        parentServiceName: 'Corte',
+        parentSelectionMode: 'ONE_OF'
+      },
+      {
+        id: 'corte-mujer',
+        name: 'Corte mujer',
+        aliases: [],
+        duration: 30,
+        price: 37000,
+        category: 'Cortes',
+        parentServiceId: 'familia-corte',
+        parentServiceName: 'Corte',
+        parentSelectionMode: 'ONE_OF'
+      },
+      {
+        id: 'corte-barba',
+        name: 'Corte y barba',
+        aliases: [],
+        duration: 45,
+        price: 32000,
+        category: 'Cortes',
+        parentServiceId: 'familia-corte',
+        parentServiceName: 'Corte',
+        parentSelectionMode: 'ONE_OF'
+      }
+    ],
+    professionals: [{
+      id: 'juan',
+      name: 'Juan',
+      serviceIds: ['iluminacion', 'corte-hombre', 'corte-mujer', 'corte-barba']
+    }]
+  })
+}
+
 async function test(name: string, run: () => Promise<void> | void) {
   await run()
   console.log(`OK: ${name}`)
@@ -316,6 +369,95 @@ await test('dos familias ambiguas se preguntan en orden y se combinan al resolve
   assert.equal(corte.state.pendingServiceDisambiguation, null)
   assert.match(corte.reply, /Alisado sin formol/)
   assert.match(corte.reply, /Corte Hombre/)
+})
+
+await test('mechas sin alias se conserva y pide confirmar Iluminación antes de resolver corte', async () => {
+  const domainCatalog = glowColorAndCutsCatalog()
+  const first = await engine(domainCatalog).process({
+    businessId: 'business-1',
+    conversation: conversationPatchFromState(namedState()),
+    message: 'mechas y corte'
+  })
+  assert.equal(first.state.draft.service, null)
+  assert.deepEqual(first.state.pendingServiceDisambiguation?.serviceIds, ['iluminacion'])
+  assert.deepEqual(
+    first.state.pendingServiceDisambiguation?.remainingGroups?.[0]?.serviceIds,
+    ['corte-hombre', 'corte-mujer', 'corte-barba']
+  )
+  assert.match(first.reply, /Mechas.*¿te referís/i)
+  assert.match(first.reply, /Iluminación/i)
+  assert.doesNotMatch(first.reply, /¿Con quién preferís/i)
+  assert.deepEqual(
+    stateFromConversation(first.conversationPatch).pendingServiceDisambiguation?.serviceIds,
+    ['iluminacion']
+  )
+
+  const rejected = await engine(domainCatalog).process({
+    businessId: 'business-1',
+    conversation: first.conversationPatch,
+    message: 'no'
+  })
+  assert.equal(rejected.state.draft.service, null)
+  assert.deepEqual(
+    rejected.state.pendingServiceDisambiguation?.serviceIds,
+    ['corte-hombre', 'corte-mujer', 'corte-barba']
+  )
+  assert.match(rejected.reply, /Corte mujer/i)
+
+  const confirmed = await engine(domainCatalog).process({
+    businessId: 'business-1',
+    conversation: first.conversationPatch,
+    message: 'sí'
+  })
+  assert.equal(confirmed.state.draft.service, 'iluminacion')
+  assert.deepEqual(
+    confirmed.state.pendingServiceDisambiguation?.serviceIds,
+    ['corte-hombre', 'corte-mujer', 'corte-barba']
+  )
+  assert.match(confirmed.reply, /Corte mujer/i)
+
+  const selectedCut = await engine(domainCatalog).process({
+    businessId: 'business-1',
+    conversation: confirmed.conversationPatch,
+    message: 'corte mujer'
+  })
+  assert.deepEqual(
+    new Set(combinedServiceIds(selectedCut.state)),
+    new Set(['iluminacion', 'corte-mujer'])
+  )
+})
+
+await test('mechas configurado como alias se resuelve sin confirmación y conserva corte', async () => {
+  const domainCatalog = glowColorAndCutsCatalog(['mechas'])
+  const result = await engine(domainCatalog).process({
+    businessId: 'business-1',
+    conversation: conversationPatchFromState(namedState()),
+    message: 'mechas y corte'
+  })
+  assert.equal(result.state.draft.service, 'iluminacion')
+  assert.deepEqual(
+    result.state.pendingServiceDisambiguation?.serviceIds,
+    ['corte-hombre', 'corte-mujer', 'corte-barba']
+  )
+  assert.match(result.reply, /Corte mujer/i)
+  assert.doesNotMatch(result.reply, /Mechas.*¿te referís/i)
+})
+
+await test('un servicio desconocido no se descarta y los servicios reconocidos quedan pendientes', async () => {
+  const domainCatalog = glowColorAndCutsCatalog()
+  const result = await engine(domainCatalog).process({
+    businessId: 'business-1',
+    conversation: conversationPatchFromState(namedState()),
+    message: 'peinado galáctico y corte'
+  })
+  assert.equal(result.plan.type, 'clarify_unsupported_service')
+  assert.match(result.reply, /No encontré “Peinado galactico”/i)
+  assert.match(result.reply, /Entendí Corte/i)
+  assert.deepEqual(
+    result.state.pendingServiceDisambiguation?.serviceIds,
+    ['corte-hombre', 'corte-mujer', 'corte-barba']
+  )
+  assert.equal(result.state.unsupportedServiceRequest?.normalizedRequest, 'peinado galactico')
 })
 
 await test('conversación dorada: color y alisado ofrece el extra después de aclarar la familia', async () => {
@@ -1371,4 +1513,4 @@ await test('la búsqueda futura respeta el horizonte de 14 días y no ofrece el 
   assert.equal(visitedDates.includes('2026-10-16'), false)
 })
 
-console.log('\n31 pruebas específicas de conversaciones con servicios combinados pasaron.')
+console.log('\n39 pruebas específicas de conversaciones con servicios combinados pasaron.')

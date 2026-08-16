@@ -13,8 +13,10 @@ type Check = {
   currentStep?: string
   customerName?: string
   selectedCustomerName?: string
+  selectedServiceId?: string
   resetStateCleared?: boolean
   misunderstandingCount?: number
+  aiCallCount?: number
 }
 
 type Step = Check & {
@@ -89,6 +91,78 @@ async function main() {
           includes: ['Cami']
         }
       ]
+    },
+    {
+      name: 'saludo con pedido de turno no confunde quiero con el nombre de Cami',
+      phone: `${testPhonePrefix}greeting-booking-not-bot-name`,
+      steps: [
+        {
+          message: 'hola quiero un turno',
+          includes: ['¿Me decís tu nombre?'],
+          excludes: ['Soy Cami', 'categoría Otros'],
+          currentStep: 'ASK_CUSTOMER_NAME',
+          aiCallCount: 0
+        },
+        {
+          message: 'matias',
+          includes: ['tipo de servicio'],
+          excludes: ['Soy Cami', 'categoría Otros'],
+          currentStep: 'ASK_SERVICE',
+          selectedCustomerName: 'Matias',
+          aiCallCount: 0
+        },
+        {
+          message: 'mechas y corte',
+          includes: ['Mechas', '¿te referís', 'Iluminación'],
+          excludes: ['¿Con quién preferís?'],
+          currentStep: 'ASK_SERVICE',
+          replyButtonTitles: ['Sí, es ese', 'No, otro servicio', 'Solicitar atención'],
+          aiCallCount: 0
+        }
+      ]
+    },
+    {
+      name: 'una reserva nueva limpia el contador residual antes de preguntar el nombre',
+      phone: `${testPhonePrefix}fresh-booking-clears-residual`,
+      setup: async () => {
+        await prisma.conversation.create({
+          data: {
+            phone: `${testPhonePrefix}fresh-booking-clears-residual`,
+            businessId: business.id,
+            currentStep: 'START',
+            misunderstandingCount: 1
+          }
+        })
+      },
+      steps: [{
+        message: 'quiero un turno',
+        includes: ['¿Me decís tu nombre?'],
+        excludes: ['No estoy segura', 'categoría Otros'],
+        currentStep: 'ASK_CUSTOMER_NAME',
+        misunderstandingCount: 0,
+        aiCallCount: 0
+      }]
+    },
+    {
+      name: 'iniciar turno no descarta un servicio activo que se está completando',
+      phone: `${testPhonePrefix}active-service-is-preserved`,
+      setup: async () => {
+        await prisma.conversation.create({
+          data: {
+            phone: `${testPhonePrefix}active-service-is-preserved`,
+            businessId: business.id,
+            currentStep: 'START',
+            selectedCustomerName: 'Mati QA',
+            selectedServiceId: service.id,
+            misunderstandingCount: 1
+          }
+        })
+      },
+      steps: [{
+        message: 'quiero un turno',
+        excludes: ['¿Me decís tu nombre?'],
+        selectedServiceId: service.id
+      }]
     },
     {
       name: 'no toma saludo con nombre ajeno como nombre del cliente',
@@ -1483,8 +1557,10 @@ async function runScenario(scenario: Scenario) {
       await assertConversationStep(scenario.phone, step)
       await assertCustomerName(scenario.phone, step)
       await assertSelectedCustomerName(scenario.phone, step)
+      await assertSelectedServiceId(scenario.phone, step)
       await assertResetStateCleared(scenario.phone, step)
       await assertMisunderstandingCount(scenario.phone, step)
+      await assertAiCallCount(scenario.phone, step)
     }
   } finally {
     await cleanupTestScheduleBlocks()
@@ -1543,6 +1619,23 @@ async function assertCustomerName(phone: string, step: Step) {
   }
 }
 
+async function assertAiCallCount(phone: string, step: Step) {
+  if (step.aiCallCount === undefined) return
+  const conversation = await prisma.conversation.findFirst({
+    where: { phone },
+    select: { id: true }
+  })
+  if (!conversation) {
+    throw new Error('No encontré la conversación para verificar llamadas de IA.')
+  }
+  const count = await prisma.aiUsageEvent.count({
+    where: { conversationId: conversation.id }
+  })
+  if (count !== step.aiCallCount) {
+    throw new Error(`Esperaba ${step.aiCallCount} llamadas de IA, recibí ${count}.`)
+  }
+}
+
 async function assertSelectedCustomerName(phone: string, step: Step) {
   if (!step.selectedCustomerName) return
   const conversation = await prisma.conversation.findFirst({
@@ -1552,6 +1645,19 @@ async function assertSelectedCustomerName(phone: string, step: Step) {
   if (conversation?.selectedCustomerName !== step.selectedCustomerName) {
     throw new Error(
       `Esperaba nombre seleccionado ${step.selectedCustomerName}, recibí ${conversation?.selectedCustomerName ?? 'sin nombre'}.`
+    )
+  }
+}
+
+async function assertSelectedServiceId(phone: string, step: Step) {
+  if (!step.selectedServiceId) return
+  const conversation = await prisma.conversation.findFirst({
+    where: { phone },
+    select: { selectedServiceId: true }
+  })
+  if (conversation?.selectedServiceId !== step.selectedServiceId) {
+    throw new Error(
+      `Esperaba conservar el servicio ${step.selectedServiceId}, recibí ${conversation?.selectedServiceId ?? 'ninguno'}.`
     )
   }
 }

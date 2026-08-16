@@ -1062,7 +1062,7 @@ export class BookingV2Engine {
       initialState.pendingServiceDisambiguation,
       catalog
     )
-    if (pendingGroupResolution.selections.length) {
+    if (pendingGroupResolution.changed) {
       let state = applyResolvedServiceSelections(
         initialState,
         pendingGroupResolution.selections
@@ -1073,8 +1073,9 @@ export class BookingV2Engine {
           pendingGroupResolution.remainingGroups
         )
       }
+      const resolutionOutcome = pendingGroupResolution.selections.length ? 'accepted' : 'no_change'
       if (state.quoteOnly && state.pendingServiceDisambiguation) {
-        return this.serviceDisambiguationResult(state, catalog, 'accepted')
+        return this.serviceDisambiguationResult(state, catalog, resolutionOutcome)
       }
       state = prepareQuoteOnlySelectedServices(state)
       const nextField = state.pendingServiceDisambiguation && state.draft.name
@@ -1083,9 +1084,9 @@ export class BookingV2Engine {
       const result = await this.fromInterpretation({
         state,
         nextField,
-        outcome: 'accepted',
+        outcome: resolutionOutcome,
         affectedField: 'service'
-      }, null, catalog, 'accepted', nextField === 'service'
+      }, null, catalog, resolutionOutcome, nextField === 'service'
         ? { serviceSuggestions: pendingServiceDisambiguationOptions(state, catalog) ?? [] }
         : undefined)
       return state.pendingServiceDisambiguation
@@ -1114,16 +1115,31 @@ export class BookingV2Engine {
     }
 
     const explicitServiceGroups = resolveExplicitServiceGroups(input.message, catalog)
-    if (!initialState.draft.service && explicitServiceGroups.length >= 2) {
+    const hasResolvableExplicitServiceGroup = explicitServiceGroups.some((group) =>
+      group.kind !== 'unresolved' ||
+      suggestedServiceIdsForUnresolvedEvidence(group.evidence, catalog).length > 0
+    )
+    if (
+      !initialState.draft.service &&
+      explicitServiceGroups.length >= 2 &&
+      hasResolvableExplicitServiceGroup
+    ) {
       const selections = explicitServiceGroups.flatMap((group) =>
         group.kind === 'selected'
           ? [{ serviceId: group.serviceId, evidence: group.evidence }]
           : []
       )
-      const ambiguousGroups = explicitServiceGroups.flatMap((group) =>
-        group.kind === 'ambiguous'
-          ? [{ serviceIds: group.serviceIds, evidence: group.evidence }]
-          : []
+      const ambiguousGroups = explicitServiceGroups.flatMap((group) => {
+        if (group.kind === 'ambiguous') {
+          return [{ serviceIds: group.serviceIds, evidence: group.evidence }]
+        }
+        if (group.kind !== 'unresolved') return []
+        const serviceIds = suggestedServiceIdsForUnresolvedEvidence(group.evidence, catalog)
+        return serviceIds.length ? [{ serviceIds, evidence: group.evidence }] : []
+      })
+      const unsupportedGroups = explicitServiceGroups.filter((group) =>
+        group.kind === 'unresolved' &&
+        !suggestedServiceIdsForUnresolvedEvidence(group.evidence, catalog).length
       )
       const serviceConsultationState = initialState.quoteOnly
         ? {
@@ -1134,7 +1150,32 @@ export class BookingV2Engine {
       let state = applyResolvedServiceSelections(serviceConsultationState, selections)
       state = {
         ...state,
-        pendingServiceDisambiguation: pendingServiceDisambiguationFromGroups(ambiguousGroups)
+        pendingServiceDisambiguation: pendingServiceDisambiguationFromGroups(ambiguousGroups),
+        unsupportedServiceRequest: unsupportedGroups.length
+          ? {
+              normalizedRequest: normalize(unsupportedGroups.map((group) => group.evidence).join(' y ')),
+              count: 1
+            }
+          : null
+      }
+      if (unsupportedGroups.length) {
+        const recognizedServiceLabels = explicitServiceGroups.flatMap((group) => {
+          if (group.kind === 'selected') {
+            const service = catalog.services.find((candidate) => candidate.id === group.serviceId)
+            return service ? [service.name] : []
+          }
+          if (group.kind === 'ambiguous') {
+            return [ambiguousServiceReference(group.evidence) ?? group.evidence]
+          }
+          return []
+        })
+        return this.guidedEstimateResult(state, {
+          type: 'clarify_unsupported_service',
+          evidence: unsupportedGroups.map((group) =>
+            ambiguousServiceReference(group.evidence) ?? group.evidence.trim()
+          ).join(' y '),
+          recognizedServiceLabels: Array.from(new Set(recognizedServiceLabels))
+        }, catalog, selections.length ? 'accepted' : 'no_change')
       }
       if (state.quoteOnly && state.pendingServiceDisambiguation) {
         return this.serviceDisambiguationResult(state, catalog, selections.length ? 'accepted' : 'no_change')
@@ -3427,7 +3468,7 @@ function pendingServiceDisambiguationOptions(
   const services = state.pendingServiceDisambiguation.serviceIds
     .map((serviceId) => catalog.services.find((service) => service.id === serviceId))
     .filter((service): service is BookingV2DomainCatalog['services'][number] => Boolean(service))
-  return services.length > 1 ? services : undefined
+  return services.length ? services : undefined
 }
 
 function withoutServiceSelection(
@@ -4185,8 +4226,9 @@ function ambiguousServiceReference(evidence: string) {
   const ignored = new Set([
     'a', 'al', 'averiguar', 'buenas', 'buenos', 'como', 'con', 'consulta', 'cotizacion',
     'de', 'del', 'dia', 'el', 'en', 'hacer', 'hacerme', 'hola', 'informacion', 'la', 'las',
-    'los', 'me', 'necesito', 'noche', 'para', 'por', 'presupuesto', 'precio', 'queria',
-    'quiero', 'quisiera', 'saber', 'tarde', 'un', 'una', 'va', 'y'
+    'disponibilidad', 'horario', 'horarios', 'los', 'me', 'necesito', 'noche', 'para',
+    'por', 'presupuesto', 'presupuestos', 'precio', 'precios', 'queria', 'quiero',
+    'quisiera', 'saber', 'tarde', 'turno', 'turnos', 'un', 'una', 'va', 'y'
   ])
   const words = normalize(evidence)
     .split(' ')
@@ -4431,6 +4473,7 @@ function queueServicesFromExtraction(
 type ExplicitServiceGroup =
   | { kind: 'selected'; serviceId: string; evidence: string }
   | { kind: 'ambiguous'; serviceIds: string[]; evidence: string }
+  | { kind: 'unresolved'; evidence: string }
 
 function resolveExplicitServiceGroups(
   message: string,
@@ -4468,6 +4511,9 @@ function resolveExplicitServiceGroups(
       const resolved = unprotectedClause
         ? resolveCatalogServiceSelection(unprotectedClause, catalog)
         : null
+      const unresolvedEvidence = !resolved
+        ? unresolvedServiceEvidence(unprotectedClause, catalog)
+        : null
       return [
         ...protectedMatches.map((service) => ({
           kind: 'selected' as const,
@@ -4478,7 +4524,9 @@ function resolveExplicitServiceGroups(
           ? [{ kind: 'selected' as const, serviceId: resolved.serviceId, evidence: clause.trim() }]
           : resolved?.kind === 'ambiguous'
             ? [{ kind: 'ambiguous' as const, serviceIds: resolved.serviceIds, evidence: clause.trim() }]
-            : [])
+            : unresolvedEvidence
+              ? [{ kind: 'unresolved' as const, evidence: unresolvedEvidence }]
+              : [])
       ]
     })
 
@@ -4486,11 +4534,60 @@ function resolveExplicitServiceGroups(
   return groups.filter((group) => {
     const key = group.kind === 'selected'
       ? `selected:${group.serviceId}`
-      : `ambiguous:${group.serviceIds.join(':')}`
+      : group.kind === 'ambiguous'
+        ? `ambiguous:${group.serviceIds.join(':')}`
+        : `unresolved:${normalize(group.evidence)}`
     if (seen.has(key)) return false
     seen.add(key)
     return true
   }).slice(0, 5)
+}
+
+function unresolvedServiceEvidence(
+  clause: string,
+  catalog: BookingV2DomainCatalog
+) {
+  const normalizedClause = normalize(clause)
+  if (/^(?:soy|me llamo|mi nombre es)\b/.test(normalizedClause)) return null
+  const reference = ambiguousServiceReference(clause)
+  if (!reference) return null
+  const normalizedReference = normalize(reference)
+  const nonServiceReferences = new Set([
+    'hoy', 'manana', 'pasado manana', 'proximos dias', 'otra fecha',
+    'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo',
+    'manana temprano', 'mediodia', 'tarde', 'noche', 'cualquier horario',
+    'cualquier profesional', 'primera disponible', 'primero disponible'
+  ])
+  if (nonServiceReferences.has(normalizedReference)) return null
+  if (catalog.professionals.some((professional) =>
+    normalize(professional.name) === normalizedReference
+  )) return null
+  return clause.trim() || null
+}
+
+function suggestedServiceIdsForUnresolvedEvidence(
+  evidence: string,
+  catalog: BookingV2DomainCatalog
+) {
+  const reference = normalize(evidence)
+  if (!/\b(?:mecha|mechas|reflejo|reflejos|clarito|claritos|highlight|highlights)\b/.test(reference)) {
+    return []
+  }
+  const illuminationTerms = [
+    'iluminacion', 'balayage', 'baby lights', 'babylights', 'contouring',
+    'mecha', 'mechas', 'reflejo', 'reflejos', 'highlight', 'highlights'
+  ]
+  return catalog.services.flatMap((service) => {
+    const signature = normalize([
+      service.name,
+      service.category ?? '',
+      service.parentServiceName ?? '',
+      ...service.aliases
+    ].join(' '))
+    return illuminationTerms.some((term) => signature.includes(term))
+      ? [service.id]
+      : []
+  })
 }
 
 function selectableServiceLabels(service: BookingV2DomainCatalog['services'][number]) {
@@ -4528,10 +4625,26 @@ function resolvePendingServiceDisambiguation(
   pending: BookingV2PendingServiceDisambiguation | null,
   catalog: BookingV2DomainCatalog
 ) {
-  if (!pending) return { selections: [], remainingGroups: [] }
+  if (!pending) return { selections: [], remainingGroups: [], changed: false }
   const selections: Array<{ serviceId: string; evidence: string }> = []
   const remainingGroups: BookingV2ServiceDisambiguationGroup[] = []
-  for (const group of pendingServiceDisambiguationGroups(pending)) {
+  const groups = pendingServiceDisambiguationGroups(pending)
+  const singleSuggestionConfirmation = groups[0]?.serviceIds.length === 1
+    ? detectDeterministicConfirmation(message)?.intent ?? null
+    : null
+  let changed = false
+  for (const [index, group] of groups.entries()) {
+    if (
+      index === 0 &&
+      group.serviceIds.length === 1 &&
+      (singleSuggestionConfirmation === 'confirm' || singleSuggestionConfirmation === 'reject')
+    ) {
+      changed = true
+      if (singleSuggestionConfirmation === 'confirm') {
+        selections.push({ serviceId: group.serviceIds[0]!, evidence: group.evidence })
+      }
+      continue
+    }
     const serviceIds = new Set(group.serviceIds)
     const groupCatalog = {
       ...catalog,
@@ -4540,11 +4653,12 @@ function resolvePendingServiceDisambiguation(
     const resolution = resolveCatalogServiceSelection(message, groupCatalog)
     if (resolution?.kind === 'selected' && serviceIds.has(resolution.serviceId)) {
       selections.push({ serviceId: resolution.serviceId, evidence: message.trim() })
+      changed = true
     } else {
       remainingGroups.push(group)
     }
   }
-  return { selections, remainingGroups }
+  return { selections, remainingGroups, changed }
 }
 
 function applyResolvedServiceSelections(
@@ -4754,6 +4868,7 @@ function isServiceDecisionPlan(plan: BookingV2MessagePlan) {
     'ask_estimate_decision',
     'ask_service_validation',
     'ask_category_advice_confirmation',
+    'clarify_unsupported_service',
     'handoff'
   ].includes(plan.type)
 }
@@ -4821,7 +4936,7 @@ function sanitizeCatalogNameCollision(
           catalog.serviceIds.has(serviceId) && ids.indexOf(serviceId) === index
         )
       }))
-      .filter((group) => group.serviceIds.length > 1)
+      .filter((group) => group.serviceIds.length > 0)
     sanitizedState = {
       ...sanitizedState,
       pendingServiceDisambiguation: pendingServiceDisambiguationFromGroups(groups)

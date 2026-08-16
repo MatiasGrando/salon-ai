@@ -86,7 +86,7 @@ export function extractMisaddressedAssistantGreeting(
 
   const addressedName = match[1]?.trim() ?? ''
   const normalizedName = normalizeText(addressedName)
-  if (!addressedName || assistantNames.has(normalizedName) || greetingWords.has(normalizedName)) {
+  if (!addressedName || assistantNames.has(normalizedName) || nonNameWords.has(normalizedName)) {
     return null
   }
 

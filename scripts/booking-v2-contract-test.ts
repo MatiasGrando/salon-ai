@@ -3759,6 +3759,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     run: async () => {
       const cases = [
         ['mati', 'Mati'],
+        ['matias', 'Matias'],
         ['maría josé', 'María José'],
         ['ana-maría', 'Ana-María']
       ] as const

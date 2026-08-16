@@ -242,7 +242,7 @@ function readServiceDisambiguationGroup(value: unknown): BookingV2ServiceDisambi
       .filter((serviceId): serviceId is string => typeof serviceId === 'string' && Boolean(serviceId.trim()))
       .map((serviceId) => serviceId.trim())
   )).slice(0, 5)
-  if (serviceIds.length < 2) return null
+  if (serviceIds.length < 1) return null
   return {
     serviceIds,
     evidence: typeof pending.evidence === 'string' ? pending.evidence.trim().slice(0, 500) : ''
