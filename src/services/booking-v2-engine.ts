@@ -19,6 +19,7 @@ import {
 } from './booking-v2-service-validation.js'
 import {
   BookingV2EstimateDecisionExtractor,
+  detectDeterministicEstimateDecision,
   type EstimateDecisionExtraction
 } from './booking-v2-estimate-decision-extractor.js'
 import {
@@ -155,13 +156,21 @@ export class BookingV2Engine {
 
   async canProcessWithoutGeneralRouter(input: BookingV2ProcessInput) {
     const actionableMessage = bookingCoordinationActionableReply(input.message)
+    const storedState = stateFromConversation(input.conversation)
+
+    // Una decisión inequívoca sobre el estimativo pertenece al flujo de
+    // reservas. Resolverla antes del router evita que respuestas breves como
+    // "continuar" se confundan con una consulta nueva y también evita una
+    // llamada innecesaria a IA. Si no hay coincidencia determinista, el router
+    // general conserva la oportunidad de reconocer una pregunta contextual.
+    if (storedState.guidedEstimate?.stage === 'awaiting_decision') {
+      return Boolean(detectDeterministicEstimateDecision(actionableMessage))
+    }
+
     if (!isDeterministicBookingContinuationMessage(actionableMessage)) return false
 
     const catalog = await this.domain.loadCatalog(input.businessId)
-    const state = sanitizeCatalogNameCollision(
-      stateFromConversation(input.conversation),
-      catalog
-    )
+    const state = sanitizeCatalogNameCollision(storedState, catalog)
 
     if (state.guidedEstimate?.stage === 'awaiting_option') {
       const service = catalog.services.find((candidate) =>

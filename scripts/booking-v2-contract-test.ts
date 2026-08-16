@@ -234,6 +234,32 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         conversation: conversationPatchFromState(guidedState),
         message: '2'
       }), true)
+
+      const awaitingDecisionState = {
+        ...guidedState,
+        guidedEstimate: {
+          serviceId: 'highlights',
+          stage: 'awaiting_decision' as const,
+          optionId: 'long',
+          optionLabel: 'Cabello largo',
+          priceMin: 30_000,
+          priceMax: 40_000
+        }
+      }
+      for (const message of ['continuar', 'quiero reservar', 'sí', 'pedir presupuesto']) {
+        assert.equal(await guidedEngine.canProcessWithoutGeneralRouter({
+          businessId: 'business-1',
+          conversation: conversationPatchFromState(awaitingDecisionState),
+          message
+        }), true, message)
+      }
+      for (const message of ['me decís el procedimiento?', 'tengo otra consulta', 'no sé']) {
+        assert.equal(await guidedEngine.canProcessWithoutGeneralRouter({
+          businessId: 'business-1',
+          conversation: conversationPatchFromState(awaitingDecisionState),
+          message
+        }), false, message)
+      }
     }
   },
   {

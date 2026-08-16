@@ -18,7 +18,7 @@ export class BookingV2EstimateDecisionExtractor {
     allowsBooking: boolean
     requiresPhoto: boolean
   }): Promise<EstimateDecisionExtraction> {
-    const deterministicDecision = deterministicEstimateDecision(input.message)
+    const deterministicDecision = detectDeterministicEstimateDecision(input.message)
     if (deterministicDecision) return deterministicDecision
 
     if (!isAiExecutionEnabled()) return { decision: 'unclear', confidence: 0 }
@@ -74,7 +74,9 @@ export class BookingV2EstimateDecisionExtractor {
   }
 }
 
-function deterministicEstimateDecision(message: string): EstimateDecisionExtraction | null {
+export function detectDeterministicEstimateDecision(
+  message: string
+): EstimateDecisionExtraction | null {
   const normalized = normalizeText(message)
   if (!normalized) return null
 
