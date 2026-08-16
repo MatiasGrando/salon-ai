@@ -63,6 +63,7 @@ import {
   businessInformationTopicsForPendingSelection,
   bookingCoordinationMessageFromInteractiveReply,
   bookingCoordinationReplyButtons,
+  bookingDatePromptForOptions,
   bookingV2StateAfterGoingBack,
   clearBookingV2StateFromField,
   composeBusinessInformationResumeReply,
@@ -312,6 +313,110 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(isMyAppointmentsMessage('2', 'START'), true)
       assert.equal(isMyAppointmentsMessage('2', 'START', { allowMenuShortcut: false }), false)
       assert.equal(isMyAppointmentsMessage('mis turnos', 'START', { allowMenuShortcut: false }), true)
+    }
+  },
+  {
+    name: 'botones de fecha simple muestran solo días con disponibilidad real',
+    run: async () => {
+      const currentDate = new Date('2026-08-16T15:00:00.000Z')
+      const today = '2026-08-16'
+      const tomorrow = '2026-08-17'
+      const slot = { time: '15:00', professionalId: 'professional-1', professionalName: 'Nico' }
+      const state = acceptField(
+        acceptField(createEmptyBookingV2State(), 'name', 'Mati'),
+        'service',
+        'haircut'
+      )
+      const todayOnlyEngine = new BookingV2Engine(fakeDomainPort({
+        availabilityByDate: {
+          [today]: [slot],
+          [tomorrow]: []
+        }
+      }), fakeExtractor(null))
+      const todayOnly = await todayOnlyEngine.simpleDateOptions({
+        businessId: 'business-1',
+        state,
+        currentDate
+      })
+      assert.deepEqual(todayOnly.dates, [today])
+      const todayButtons = bookingCoordinationReplyButtons({
+        conversationId: 'conversation-1',
+        plan: { type: 'ask_field', field: 'date', reason: 'missing', misunderstandingCount: 0 },
+        state,
+        dateOptions: todayOnly.dates
+      })
+      assert.deepEqual(todayButtons?.map((button) => button.title), ['Hoy', 'Otra fecha'])
+      assert.doesNotMatch(bookingDatePromptForOptions(todayOnly.dates), /mañana/i)
+
+      const tomorrowOnlyEngine = new BookingV2Engine(fakeDomainPort({
+        availabilityByDate: {
+          [today]: [],
+          [tomorrow]: [slot]
+        }
+      }), fakeExtractor(null))
+      const tomorrowOnly = await tomorrowOnlyEngine.simpleDateOptions({
+        businessId: 'business-1',
+        state,
+        currentDate
+      })
+      const tomorrowButtons = bookingCoordinationReplyButtons({
+        conversationId: 'conversation-1',
+        plan: { type: 'ask_field', field: 'date', reason: 'missing', misunderstandingCount: 0 },
+        state,
+        dateOptions: tomorrowOnly.dates
+      })
+      assert.deepEqual(tomorrowButtons?.map((button) => button.title), ['Mañana', 'Otra fecha'])
+      assert.doesNotMatch(bookingDatePromptForOptions(tomorrowOnly.dates), /disponibles hoy\b/i)
+
+      const nextEngine = new BookingV2Engine(fakeDomainPort({
+        availabilityByDate: {
+          [today]: [],
+          [tomorrow]: []
+        },
+        nextAvailabilityOptions: [
+          { date: '2026-08-19', ...slot },
+          { date: '2026-08-20', ...slot }
+        ]
+      }), fakeExtractor(null))
+      const upcoming = await nextEngine.simpleDateOptions({
+        businessId: 'business-1',
+        state,
+        currentDate
+      })
+      assert.deepEqual(upcoming.dates, ['2026-08-19', '2026-08-20'])
+      const upcomingButtons = bookingCoordinationReplyButtons({
+        conversationId: 'conversation-1',
+        plan: { type: 'ask_field', field: 'date', reason: 'missing', misunderstandingCount: 0 },
+        state,
+        dateOptions: upcoming.dates
+      })
+      assert.deepEqual(upcomingButtons?.map((button) => button.title), [
+        'Mié 19',
+        'Jue 20',
+        'Otra fecha'
+      ])
+      assert.match(bookingDatePromptForOptions(upcoming.dates), /próximas fechas/i)
+
+      const unavailableEngine = new BookingV2Engine(fakeDomainPort({
+        availabilityByDate: {
+          [today]: [],
+          [tomorrow]: []
+        },
+        nextAvailabilityOptions: []
+      }), fakeExtractor(null))
+      const unavailable = await unavailableEngine.simpleDateOptions({
+        businessId: 'business-1',
+        state,
+        currentDate
+      })
+      const unavailableButtons = bookingCoordinationReplyButtons({
+        conversationId: 'conversation-1',
+        plan: { type: 'ask_field', field: 'date', reason: 'missing', misunderstandingCount: 0 },
+        state,
+        dateOptions: unavailable.dates
+      })
+      assert.deepEqual(unavailableButtons?.map((button) => button.title), ['Otra fecha'])
+      assert.match(bookingDatePromptForOptions(unavailable.dates), /otra fecha/i)
     }
   },
   {
@@ -7700,6 +7805,11 @@ function fakeDomainPort(input?: {
     professionalId: string
     professionalName: string
   }>
+  availabilityByDate?: Record<string, Array<{
+    time: string
+    professionalId: string
+    professionalName: string
+  }>>
 }) {
   const domainCatalog = input?.catalog ?? fakeDomainCatalog()
   const availabilityOptions = input?.availabilityOptions ?? [
@@ -7741,7 +7851,7 @@ function fakeDomainPort(input?: {
       availabilityCalls.push(request.date)
       return {
         ok: true as const,
-        options: availabilityOptions
+        options: input?.availabilityByDate?.[request.date] ?? availabilityOptions
       }
     },
     async findNextAvailabilityOptions(request: { afterDate: string }) {

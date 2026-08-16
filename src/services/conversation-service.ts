@@ -345,8 +345,14 @@ export class ConversationService {
             }
           : null
       })
+      const presentation = await presentBookingV2Result({
+        businessId,
+        conversationId: conversation.id,
+        result: resumed
+      })
       return {
-        reply: resumed.reply,
+        reply: presentation.reply,
+        ...(presentation.buttons ? { replyButtons: presentation.buttons } : {}),
         skipMisunderstandingTracking: true,
         skipHumanize: true
       }
@@ -415,8 +421,14 @@ export class ConversationService {
         currentStep: conversationStepFromBookingV2Plan(resumed.plan),
         ...resumed.conversationPatch
       })
+      const presentation = await presentBookingV2Result({
+        businessId,
+        conversationId: conversation.id,
+        result: resumed
+      })
       return {
-        reply: resumed.reply,
+        reply: presentation.reply,
+        ...(presentation.buttons ? { replyButtons: presentation.buttons } : {}),
         skipMisunderstandingTracking: true,
         skipHumanize: true
       }
@@ -438,8 +450,14 @@ export class ConversationService {
         currentStep: conversationStepFromBookingV2Plan(booking.plan),
         ...booking.conversationPatch
       })
+      const presentation = await presentBookingV2Result({
+        businessId,
+        conversationId: conversation.id,
+        result: booking
+      })
       return {
-        reply: booking.reply,
+        reply: presentation.reply,
+        ...(presentation.buttons ? { replyButtons: presentation.buttons } : {}),
         skipMisunderstandingTracking: true,
         skipHumanize: true
       }
@@ -479,8 +497,14 @@ export class ConversationService {
           currentStep: conversationStepFromBookingV2Plan(resumed.plan),
           ...resumed.conversationPatch
         })
+        const presentation = await presentBookingV2Result({
+          businessId,
+          conversationId: conversation.id,
+          result: resumed
+        })
         return {
-          reply: resumed.reply,
+          reply: presentation.reply,
+          ...(presentation.buttons ? { replyButtons: presentation.buttons } : {}),
           skipMisunderstandingTracking: true,
           skipHumanize: true
         }
@@ -529,8 +553,14 @@ export class ConversationService {
         currentStep: conversationStepFromBookingV2Plan(resumed.plan),
         ...resumed.conversationPatch
       })
+      const presentation = await presentBookingV2Result({
+        businessId,
+        conversationId: conversation.id,
+        result: resumed
+      })
       return {
-        reply: resumed.reply,
+        reply: presentation.reply,
+        ...(presentation.buttons ? { replyButtons: presentation.buttons } : {}),
         skipMisunderstandingTracking: true,
         skipHumanize: true
       }
@@ -1504,15 +1534,14 @@ export class ConversationService {
         ...estimated.conversationPatch,
         lastAvailability: null
       })
-      const replyButtons = bookingCoordinationReplyButtons({
+      const presentation = await presentBookingV2Result({
+        businessId: input.businessId,
         conversationId: input.conversation.id,
-        plan: estimated.plan,
-        state: estimated.state,
-        availabilityOptions: estimated.availabilityOptions
+        result: estimated
       })
       return {
-        reply: applyAssistantPersonalityToReply(estimated.reply, assistantPersonality),
-        ...(replyButtons ? { replyButtons } : {}),
+        reply: applyAssistantPersonalityToReply(presentation.reply, assistantPersonality),
+        ...(presentation.buttons ? { replyButtons: presentation.buttons } : {}),
         skipMisunderstandingTracking: true,
         skipHumanize: true
       }
@@ -1555,8 +1584,14 @@ export class ConversationService {
         ...priced.conversationPatch,
         lastAvailability: null
       })
+      const presentation = await presentBookingV2Result({
+        businessId: input.businessId,
+        conversationId: input.conversation.id,
+        result: priced
+      })
       return {
-        reply: applyAssistantPersonalityToReply(priced.reply, assistantPersonality),
+        reply: applyAssistantPersonalityToReply(presentation.reply, assistantPersonality),
+        ...(presentation.buttons ? { replyButtons: presentation.buttons } : {}),
         skipMisunderstandingTracking: true,
         skipHumanize: true
       }
@@ -1602,8 +1637,14 @@ export class ConversationService {
         ...estimated.conversationPatch,
         lastAvailability: null
       })
+      const presentation = await presentBookingV2Result({
+        businessId: input.businessId,
+        conversationId: input.conversation.id,
+        result: estimated
+      })
       return {
-        reply: applyAssistantPersonalityToReply(estimated.reply, assistantPersonality),
+        reply: applyAssistantPersonalityToReply(presentation.reply, assistantPersonality),
+        ...(presentation.buttons ? { replyButtons: presentation.buttons } : {}),
         skipMisunderstandingTracking: true,
         skipHumanize: true
       }
@@ -1649,8 +1690,14 @@ export class ConversationService {
         ...verified.conversationPatch,
         lastAvailability: null
       })
+      const presentation = await presentBookingV2Result({
+        businessId: input.businessId,
+        conversationId: input.conversation.id,
+        result: verified
+      })
       return {
-        reply: applyAssistantPersonalityToReply(verified.reply, assistantPersonality),
+        reply: applyAssistantPersonalityToReply(presentation.reply, assistantPersonality),
+        ...(presentation.buttons ? { replyButtons: presentation.buttons } : {}),
         skipMisunderstandingTracking: true,
         skipHumanize: true
       }
@@ -1683,7 +1730,17 @@ export class ConversationService {
             currentStep: conversationStepValue(input.conversation.currentStep),
             ...estimated.conversationPatch
           })
-          return { reply: applyAssistantPersonalityToReply(estimated.reply, assistantPersonality), skipMisunderstandingTracking: true, skipHumanize: true }
+          const presentation = await presentBookingV2Result({
+            businessId: input.businessId,
+            conversationId: input.conversation.id,
+            result: estimated
+          })
+          return {
+            reply: applyAssistantPersonalityToReply(presentation.reply, assistantPersonality),
+            ...(presentation.buttons ? { replyButtons: presentation.buttons } : {}),
+            skipMisunderstandingTracking: true,
+            skipHumanize: true
+          }
         }
         const detailReply = await businessKnowledgeService.answer({
           businessId: input.businessId,
@@ -1828,20 +1885,21 @@ export class ConversationService {
           currentStep: conversationStepValue(input.conversation.currentStep),
           misunderstandingCount: 0
         })
-        const resumedButtons = resumed
-          ? bookingCoordinationReplyButtons({
+        const resumedPresentation = resumed
+          ? await presentBookingV2Result({
+              businessId: input.businessId,
               conversationId: input.conversation.id,
-              plan: resumed.plan,
-              state: resumed.state,
-              availabilityOptions: resumed.availabilityOptions
+              result: resumed
             })
           : null
         return {
           reply: applyAssistantPersonalityToReply(
-            resumed ? composeBusinessInformationResumeReply(scheduleReply, resumed.reply) : scheduleReply,
+            resumedPresentation
+              ? composeBusinessInformationResumeReply(scheduleReply, resumedPresentation.reply)
+              : scheduleReply,
             assistantPersonality
           ),
-          ...(resumedButtons ? { replyButtons: resumedButtons } : {}),
+          ...(resumedPresentation?.buttons ? { replyButtons: resumedPresentation.buttons } : {}),
           skipMisunderstandingTracking: true,
           skipHumanize: true
         }
@@ -1920,27 +1978,26 @@ export class ConversationService {
           currentStep: conversationStepValue(input.conversation.currentStep),
           ...conversationPatchFromState(detailState)
         })
+        const resumedPresentation = resumed
+          ? await presentBookingV2Result({
+              businessId: input.businessId,
+              conversationId: input.conversation.id,
+              result: resumed
+            })
+          : null
         const requiredReply = applyAssistantPersonalityToReply(
-          resumed && detailReply
-            ? composeBusinessInformationResumeReply(detailReply, resumed.reply)
+          resumedPresentation && detailReply
+            ? composeBusinessInformationResumeReply(detailReply, resumedPresentation.reply)
             : detailReply ?? 'No tengo ese detalle cargado de forma confiable.',
           assistantPersonality
         )
         const needsHumanRecovery = businessInformationNeedsHuman(requiredReply)
-        const resumedButtons = resumed
-          ? bookingCoordinationReplyButtons({
-              conversationId: input.conversation.id,
-              plan: resumed.plan,
-              state: resumed.state,
-              availabilityOptions: resumed.availabilityOptions
-            })
-          : null
         return {
           reply: requiredReply,
           ...(needsHumanRecovery
             ? { replyButtons: recoveryDecisionButtons(input.conversation.id) }
-            : resumedButtons
-              ? { replyButtons: resumedButtons }
+            : resumedPresentation?.buttons
+              ? { replyButtons: resumedPresentation.buttons }
             : {}),
           skipMisunderstandingTracking: true,
           skipHumanize: true
@@ -2345,23 +2402,22 @@ export class ConversationService {
         ...conversationPatchFromState(nextInformationState)
       })
 
+      const resumedPresentation = await presentBookingV2Result({
+        businessId: input.businessId,
+        conversationId: input.conversation.id,
+        result: resumed
+      })
       const requiredReply = applyAssistantPersonalityToReply(
-        composeBusinessInformationResumeReply(informationReply, resumed.reply),
+        composeBusinessInformationResumeReply(informationReply, resumedPresentation.reply),
         assistantPersonality
       )
       const needsHumanRecovery = businessInformationNeedsHuman(informationReply)
-      const resumedButtons = bookingCoordinationReplyButtons({
-        conversationId: input.conversation.id,
-        plan: resumed.plan,
-        state: resumed.state,
-        availabilityOptions: resumed.availabilityOptions
-      })
       return {
         reply: requiredReply,
         ...(needsHumanRecovery
           ? { replyButtons: recoveryDecisionButtons(input.conversation.id) }
-          : resumedButtons
-            ? { replyButtons: resumedButtons }
+          : resumedPresentation.buttons
+            ? { replyButtons: resumedPresentation.buttons }
           : {}),
         skipMisunderstandingTracking: true,
         skipHumanize: true
@@ -2474,8 +2530,13 @@ export class ConversationService {
         : null
     })
 
+    const presentation = await presentBookingV2Result({
+      businessId: input.businessId,
+      conversationId: input.conversation.id,
+      result
+    })
     const requiredReply = applyAssistantPersonalityToReply(
-      informationReply ? `${informationReply}\n\n${result.reply}` : result.reply,
+      informationReply ? `${informationReply}\n\n${presentation.reply}` : presentation.reply,
       assistantPersonality
     )
     // La respuesta ya contiene los datos deterministas y la personalidad del
@@ -2485,12 +2546,7 @@ export class ConversationService {
     const needsRecoveryButtons = result.plan.type === 'ask_field' &&
       result.plan.reason === 'not_understood' &&
       result.state.misunderstandingCount >= 2
-    const coordinationButtons = bookingCoordinationReplyButtons({
-      conversationId: input.conversation.id,
-      plan: result.plan,
-      state: result.state,
-      availabilityOptions: result.availabilityOptions
-    })
+    const coordinationButtons = presentation.buttons
     const standardProfessionalButtons = !coordinationButtons &&
       result.plan.type === 'ask_field' &&
       result.plan.field === 'professional'
@@ -2734,15 +2790,14 @@ export class ConversationService {
         businessId: input.businessId,
         conversation: conversationPatchFromState(input.state)
       })
-      const replyButtons = bookingCoordinationReplyButtons({
+      const presentation = await presentBookingV2Result({
+        businessId: input.businessId,
         conversationId: input.conversation.id,
-        plan: resumed.plan,
-        state: resumed.state,
-        availabilityOptions: resumed.availabilityOptions
+        result: resumed
       })
       return {
-        reply: resumed.reply,
-        ...(replyButtons ? { replyButtons } : {}),
+        reply: presentation.reply,
+        ...(presentation.buttons ? { replyButtons: presentation.buttons } : {}),
         skipMisunderstandingTracking: true,
         skipHumanize: true
       }
@@ -2796,15 +2851,14 @@ export class ConversationService {
         ...resumed.conversationPatch,
         lastAvailability: null
       })
-      const replyButtons = bookingCoordinationReplyButtons({
+      const presentation = await presentBookingV2Result({
+        businessId: input.businessId,
         conversationId: input.conversation.id,
-        plan: resumed.plan,
-        state: resumed.state,
-        availabilityOptions: resumed.availabilityOptions
+        result: resumed
       })
       return {
-        reply: applyAssistantPersonalityToReply(resumed.reply, input.assistantPersonality),
-        ...(replyButtons ? { replyButtons } : {}),
+        reply: applyAssistantPersonalityToReply(presentation.reply, input.assistantPersonality),
+        ...(presentation.buttons ? { replyButtons: presentation.buttons } : {}),
         skipMisunderstandingTracking: true,
         skipHumanize: true
       }
@@ -2828,15 +2882,14 @@ export class ConversationService {
         businessId: input.businessId,
         conversation: conversationPatchFromState(input.state)
       })
-      const replyButtons = bookingCoordinationReplyButtons({
+      const presentation = await presentBookingV2Result({
+        businessId: input.businessId,
         conversationId: input.conversation.id,
-        plan: resumed.plan,
-        state: resumed.state,
-        availabilityOptions: resumed.availabilityOptions
+        result: resumed
       })
       return {
-        reply: resumed.reply,
-        ...(replyButtons ? { replyButtons } : {}),
+        reply: presentation.reply,
+        ...(presentation.buttons ? { replyButtons: presentation.buttons } : {}),
         skipMisunderstandingTracking: true,
         skipHumanize: true
       }
@@ -2993,17 +3046,16 @@ export class ConversationService {
       ...resumed.conversationPatch,
       lastAvailability: null
     })
-    const replyButtons = bookingCoordinationReplyButtons({
+    const presentation = await presentBookingV2Result({
+      businessId: input.businessId,
       conversationId: input.conversationId,
-      plan: resumed.plan,
-      state: resumed.state,
-      availabilityOptions: resumed.availabilityOptions
+      result: resumed
     })
     return {
       reply: `${pending.assignmentMode === 'MULTIPLE_PROFESSIONALS'
         ? 'No pude confirmar las dos reservas'
-        : 'No pude confirmar la reserva'}: ${message}\n\n${resumed.reply}`,
-      ...(replyButtons ? { replyButtons } : {}),
+        : 'No pude confirmar la reserva'}: ${message}\n\n${presentation.reply}`,
+      ...(presentation.buttons ? { replyButtons: presentation.buttons } : {}),
       skipMisunderstandingTracking: true,
       skipHumanize: true
     }
@@ -4972,6 +5024,7 @@ export function bookingCoordinationReplyButtons(input: {
   plan: BookingV2MessagePlan
   state: BookingV2State
   availabilityOptions?: Array<{ time: string }>
+  dateOptions?: string[]
 }): Array<{ id: string; title: string }> | null {
   const prefix = `coord:${input.conversationId}:`
   if (input.plan.type === 'clarify_unsupported_service') {
@@ -5034,6 +5087,20 @@ export function bookingCoordinationReplyButtons(input: {
     ]
   }
   if (input.plan.type === 'ask_field' && input.plan.field === 'date') {
+    if (input.dateOptions) {
+      return [
+        ...input.dateOptions.slice(0, 2).map((date) => {
+          const title = coordinatedDateButtonTitle(date)
+          const action = title === 'Hoy'
+            ? 'booking_date_today'
+            : title === 'Mañana'
+              ? 'booking_date_tomorrow'
+              : `date:${date}`
+          return { id: `${prefix}${action}`, title }
+        }),
+        { id: `${prefix}booking_date_other`, title: 'Otra fecha' }
+      ]
+    }
     return [
       { id: `${prefix}booking_date_today`, title: 'Hoy' },
       { id: `${prefix}booking_date_tomorrow`, title: 'Mañana' },
@@ -5172,6 +5239,58 @@ export function bookingCoordinationReplyButtons(input: {
     ]
   }
   return null
+}
+
+export async function presentBookingV2Result(input: {
+  businessId: string
+  conversationId: string
+  result: BookingV2ProcessResult
+}) {
+  const asksDate = input.result.plan.type === 'ask_field' &&
+    input.result.plan.field === 'date'
+  const dateOptions = asksDate
+    ? await bookingV2Engine.simpleDateOptions({
+        businessId: input.businessId,
+        state: input.result.state
+      })
+    : null
+  const reply = dateOptions?.checkedTodayAndTomorrow
+    ? replaceBookingDatePrompt(input.result.reply, dateOptions.dates)
+    : input.result.reply
+  const buttons = bookingCoordinationReplyButtons({
+    conversationId: input.conversationId,
+    plan: input.result.plan,
+    state: input.result.state,
+    availabilityOptions: input.result.availabilityOptions,
+    ...(dateOptions?.checkedTodayAndTomorrow
+      ? { dateOptions: dateOptions.dates }
+      : {})
+  })
+  return { reply, buttons }
+}
+
+export function replaceBookingDatePrompt(reply: string, availableDates: string[]) {
+  const currentPrompt = 'Perfecto 😊 ¿Qué día te gustaría venir? Puede ser hoy, mañana o una fecha específica.'
+  return reply.replace(currentPrompt, bookingDatePromptForOptions(availableDates))
+}
+
+export function bookingDatePromptForOptions(availableDates: string[]) {
+  const labels = availableDates.map((date) => coordinatedDateButtonTitle(date))
+  const hasToday = labels.includes('Hoy')
+  const hasTomorrow = labels.includes('Mañana')
+  if (hasToday && hasTomorrow) {
+    return 'Perfecto 😊 ¿Qué día te gustaría venir? Puede ser hoy, mañana o una fecha específica.'
+  }
+  if (hasToday) {
+    return 'Perfecto 😊 Tengo horarios disponibles hoy. También podés elegir otra fecha.'
+  }
+  if (hasTomorrow) {
+    return 'Perfecto 😊 Tengo horarios disponibles mañana. También podés elegir otra fecha.'
+  }
+  if (availableDates.length) {
+    return 'No encontré horarios disponibles hoy ni mañana. Te muestro las próximas fechas con disponibilidad, o podés elegir otra.'
+  }
+  return 'No encontré horarios disponibles hoy ni mañana. Escribime otra fecha y busco disponibilidad.'
 }
 
 export function bookingCoordinationMessageFromInteractiveReply(

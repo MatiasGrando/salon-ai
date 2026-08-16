@@ -17,7 +17,10 @@ import {
   createEmptyBookingV2State,
   type BookingV2State
 } from '../src/services/booking-v2-state.js'
-import { bookingCoordinationReplyButtons } from '../src/services/conversation-service.js'
+import {
+  bookingCoordinationReplyButtons,
+  presentBookingV2Result
+} from '../src/services/conversation-service.js'
 
 const services = [
   {
@@ -804,6 +807,15 @@ await test('el bot ofrece extras configurados una sola vez y acepta uno menciona
       state: first.state,
       availabilityOptions: first.availabilityOptions
     })?.map((button) => button.title),
+    ['Agregar opción 1', 'Agregar todas', 'No, continuar']
+  )
+  const presentedOffer = await presentBookingV2Result({
+    businessId: 'business-1',
+    conversationId: 'conversation-1',
+    result: first
+  })
+  assert.deepEqual(
+    presentedOffer.buttons?.map((button) => button.title),
     ['Agregar opción 1', 'Agregar todas', 'No, continuar']
   )
 

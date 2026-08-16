@@ -136,6 +136,11 @@ export type BookingV2ProcessResult = {
   outcome: BookingV2Interpretation['outcome'] | 'proposal_confirmed' | 'proposal_rejected'
 }
 
+export type BookingV2SimpleDateOptions = {
+  dates: string[]
+  checkedTodayAndTomorrow: boolean
+}
+
 export class BookingV2Engine {
   constructor(
     private readonly domain: BookingV2DomainPort = new BookingV2DomainService(),
@@ -153,6 +158,59 @@ export class BookingV2Engine {
   async hasMultipleServiceConsultation(input: { businessId: string; message: string }) {
     const catalog = await this.domain.loadCatalog(input.businessId)
     return resolveExplicitServiceGroups(input.message, catalog).length >= 2
+  }
+
+  async simpleDateOptions(input: {
+    businessId: string
+    state: BookingV2State
+    currentDate?: Date
+  }): Promise<BookingV2SimpleDateOptions> {
+    const serviceId = input.state.draft.service
+    if (!serviceId) return { dates: [], checkedTodayAndTomorrow: false }
+
+    const catalog = await this.domain.loadCatalog(input.businessId)
+    if (!catalog.serviceIds.has(serviceId)) {
+      return { dates: [], checkedTodayAndTomorrow: false }
+    }
+    const selectedServiceIds = combinedServiceIds(input.state)
+    const today = dateInTimeZone(
+      input.currentDate ?? new Date(),
+      'America/Buenos_Aires'
+    ).toISOString().slice(0, 10)
+    const tomorrow = addIsoDateDays(today, 1)
+    if (!tomorrow) return { dates: [], checkedTodayAndTomorrow: false }
+
+    const availabilityByDate = await Promise.all([today, tomorrow].map(async (date) => {
+      const availability = await this.domain.findAvailabilityOptions({
+        catalog,
+        serviceId,
+        serviceIds: selectedServiceIds,
+        professionalId: input.state.draft.professional,
+        date
+      })
+      return availability.ok && availability.options.length ? date : null
+    }))
+    const quickDates = availabilityByDate.filter((date): date is string => Boolean(date))
+    if (quickDates.length) {
+      return { dates: quickDates, checkedTodayAndTomorrow: true }
+    }
+
+    const upcoming = this.domain.findNextAvailabilityOptions
+      ? await this.domain.findNextAvailabilityOptions({
+          catalog,
+          serviceId,
+          serviceIds: selectedServiceIds,
+          professionalId: input.state.draft.professional,
+          afterDate: tomorrow,
+          horizonDays: 14,
+          maxDates: 2,
+          maxSlotsPerDate: 1
+        })
+      : []
+    return {
+      dates: Array.from(new Set(upcoming.map((option) => option.date))).slice(0, 2),
+      checkedTodayAndTomorrow: true
+    }
   }
 
   async canProcessWithoutGeneralRouter(input: BookingV2ProcessInput) {
