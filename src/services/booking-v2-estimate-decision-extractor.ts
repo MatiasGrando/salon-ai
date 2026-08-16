@@ -80,23 +80,41 @@ export function detectDeterministicEstimateDecision(
   const normalized = normalizeText(message)
   if (!normalized) return null
 
-  if (/^(no|nop|mejor no|no me|no quiero|no sigamos|no continuemos)\b/.test(normalized)) {
+  if (
+    /^(no|nop|mejor no|no me|no quiero|no sigamos|no continuemos)\b/.test(normalized) ||
+    /\b(?:sin presupuesto|no (?:quiero|necesito|hace falta|me interesa)(?: el| un)? presupuesto|no (?:quiero|necesito|me interesa)(?: la| una)? cotizacion)\b/.test(normalized)
+  ) {
     return null
   }
 
-  if ([
+  const explicitExactQuote = [
     'presupuesto exacto',
     'pedir presupuesto',
     'consultar presupuesto',
     'quiero un presupuesto',
+    'quiero presupuesto',
+    'prefiero presupuesto',
+    'vamos con el presupuesto',
+    'vamos con presupuesto',
+    'dale con el presupuesto',
     'cotizacion exacta',
     'cotizacion precisa',
+    'quiero una cotizacion',
+    'quiero cotizacion',
     'precio exacto',
     'precio final',
+    'valor exacto',
+    'valor final',
+    'monto exacto',
+    'total exacto',
     'que lo revise el equipo',
     'que lo revise una profesional',
     'quiero que me asesoren'
-  ].some((phrase) => normalized.includes(phrase))) {
+  ].some((phrase) => normalized.includes(phrase))
+  const bareQuoteChoice = /^(?:(?:si|dale|bueno|ok|okay|perfecto)\s+)?(?:el\s+|un\s+|una\s+)?(?:presupuesto|cotizacion)(?:\s+(?:exact[oa]|precis[oa]))?$/.test(normalized)
+  const exactShortcut = /^(?:(?:si|dale|bueno|ok|okay|perfecto)\s+)?(?:(?:quiero|prefiero|dame|pasame|vamos con)\s+)?(?:el\s+|la\s+)?exact[oa]$/.test(normalized)
+
+  if (explicitExactQuote || bareQuoteChoice || exactShortcut) {
     return { decision: 'request_exact_quote', confidence: 0.98 }
   }
 

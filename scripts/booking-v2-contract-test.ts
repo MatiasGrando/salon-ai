@@ -26,7 +26,10 @@ import {
   BookingV2Engine,
   isDeterministicBookingContinuationMessage
 } from '../src/services/booking-v2-engine.js'
-import { BookingV2EstimateDecisionExtractor } from '../src/services/booking-v2-estimate-decision-extractor.js'
+import {
+  BookingV2EstimateDecisionExtractor,
+  detectDeterministicEstimateDecision
+} from '../src/services/booking-v2-estimate-decision-extractor.js'
 import { BookingV2ServiceValidationClassifier } from '../src/services/booking-v2-service-validation.js'
 import { detectDeterministicConfirmation } from '../src/services/conversation-confirmation-intent.js'
 import {
@@ -252,7 +255,16 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           priceMax: 40_000
         }
       }
-      for (const message of ['continuar', 'quiero reservar', 'sí', 'pedir presupuesto']) {
+      for (const message of [
+        'continuar',
+        'quiero reservar',
+        'sí',
+        'pedir presupuesto',
+        'presupuesto',
+        'dale presupuesto',
+        'dale exacto',
+        'presupuesto exacto'
+      ]) {
         assert.equal(await guidedEngine.canProcessWithoutGeneralRouter({
           businessId: 'business-1',
           conversation: conversationPatchFromState(awaitingDecisionState),
@@ -5724,6 +5736,42 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         assert.equal(
           routing.intents.some((intent) => intent.type === 'book_appointment'),
           true,
+          message
+        )
+      }
+    }
+  },
+  {
+    name: 'decisión del estimativo prioriza formas breves de pedir presupuesto exacto',
+    run: async () => {
+      const extractor = new BookingV2EstimateDecisionExtractor()
+      for (const message of [
+        'presupuesto',
+        'dale presupuesto',
+        'dale exacto',
+        'exacto',
+        'quiero exacto',
+        'vamos con el presupuesto',
+        'cotización',
+        'precio final'
+      ]) {
+        const result = await extractor.extract({
+          message,
+          serviceName: 'Ordenador molecular',
+          allowsBooking: true,
+          requiresPhoto: false
+        })
+        assert.deepEqual(
+          result,
+          { decision: 'request_exact_quote', confidence: 0.98 },
+          message
+        )
+      }
+
+      for (const message of ['no quiero presupuesto', 'sin presupuesto', 'no necesito cotización']) {
+        assert.equal(
+          detectDeterministicEstimateDecision(message),
+          null,
           message
         )
       }
