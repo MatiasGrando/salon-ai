@@ -235,7 +235,7 @@ function readPendingServiceDisambiguation(value: unknown): BookingV2PendingServi
 
 function readServiceDisambiguationGroup(value: unknown): BookingV2ServiceDisambiguationGroup | null {
   if (!value || typeof value !== 'object') return null
-  const pending = value as { serviceIds?: unknown; evidence?: unknown }
+  const pending = value as { serviceIds?: unknown; evidence?: unknown; catalogFallback?: unknown }
   if (!Array.isArray(pending.serviceIds)) return null
   const serviceIds = Array.from(new Set(
     pending.serviceIds
@@ -245,7 +245,8 @@ function readServiceDisambiguationGroup(value: unknown): BookingV2ServiceDisambi
   if (serviceIds.length < 1) return null
   return {
     serviceIds,
-    evidence: typeof pending.evidence === 'string' ? pending.evidence.trim().slice(0, 500) : ''
+    evidence: typeof pending.evidence === 'string' ? pending.evidence.trim().slice(0, 500) : '',
+    ...(pending.catalogFallback === true ? { catalogFallback: true } : {})
   }
 }
 

@@ -685,7 +685,7 @@ function serviceQuestion(
       ? ['• No sé cuál necesito']
       : []),
     serviceSuggestions?.length === 1 && serviceSuggestionLabel
-      ? 'Podés responder sí o no.'
+      ? 'Podés confirmar si es ese, ver los servicios o pedir atención.'
       : quoteOnly ? '¿Cuál querés cotizar?' : containsAssistedServices ? '¿Cuál te interesa?' : '¿Cuál querés reservar?'
   ].join('\n')
 }

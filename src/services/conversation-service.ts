@@ -4793,12 +4793,13 @@ export function bookingCoordinationReplyButtons(input: {
   if (
     input.plan.type === 'ask_field' &&
     input.plan.field === 'service' &&
-    input.state.pendingServiceDisambiguation?.serviceIds.length === 1
+    input.state.pendingServiceDisambiguation?.serviceIds.length === 1 &&
+    !input.state.pendingServiceDisambiguation.catalogFallback
   ) {
     return [
       { id: `${prefix}disambiguation_confirm`, title: 'Sí, es ese' },
-      { id: `${prefix}disambiguation_reject`, title: 'No, otro servicio' },
-      { id: `${prefix}human`, title: 'Solicitar atención' }
+      { id: `${prefix}disambiguation_reject`, title: 'No, ver servicios' },
+      { id: `${prefix}human`, title: 'Necesito atención' }
     ]
   }
   if (input.plan.type === 'ask_service_validation') {

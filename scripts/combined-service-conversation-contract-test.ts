@@ -248,8 +248,12 @@ function ambiguousFamiliesCatalog() {
   })
 }
 
-function glowColorAndCutsCatalog(illuminationAliases: string[] = []) {
+function glowColorAndCutsCatalog(
+  illuminationAliases: string[] = [],
+  displayMode: 'ALL_SERVICES' | 'CATEGORIES_FIRST' = 'ALL_SERVICES'
+) {
   return createBookingV2DomainCatalog({
+    displayMode,
     services: [
       {
         id: 'iluminacion',
@@ -398,11 +402,27 @@ await test('mechas sin alias se conserva y pide confirmar Iluminación antes de 
     message: 'no'
   })
   assert.equal(rejected.state.draft.service, null)
+  assert.equal(rejected.state.pendingServiceDisambiguation?.catalogFallback, true)
   assert.deepEqual(
-    rejected.state.pendingServiceDisambiguation?.serviceIds,
+    rejected.state.pendingServiceDisambiguation?.remainingGroups?.[0]?.serviceIds,
     ['corte-hombre', 'corte-mujer', 'corte-barba']
   )
+  assert.match(rejected.reply, /no voy a tomar Mechas como el servicio sugerido/i)
+  assert.match(rejected.reply, /Estos son los servicios disponibles/i)
+  assert.match(rejected.reply, /Iluminación/i)
   assert.match(rejected.reply, /Corte mujer/i)
+
+  const replacementForMechas = await engine(domainCatalog).process({
+    businessId: 'business-1',
+    conversation: rejected.conversationPatch,
+    message: 'Iluminación (baby lights, balayage, contouring, etc)'
+  })
+  assert.equal(replacementForMechas.state.draft.service, 'iluminacion')
+  assert.deepEqual(
+    replacementForMechas.state.pendingServiceDisambiguation?.serviceIds,
+    ['corte-hombre', 'corte-mujer', 'corte-barba']
+  )
+  assert.match(replacementForMechas.reply, /Corte mujer/i)
 
   const confirmed = await engine(domainCatalog).process({
     businessId: 'business-1',
@@ -425,6 +445,38 @@ await test('mechas sin alias se conserva y pide confirmar Iluminación antes de 
     new Set(combinedServiceIds(selectedCut.state)),
     new Set(['iluminacion', 'corte-mujer'])
   )
+})
+
+await test('rechazar una equivalencia muestra categorías y conserva los demás servicios', async () => {
+  const domainCatalog = glowColorAndCutsCatalog([], 'CATEGORIES_FIRST')
+  const first = await engine(domainCatalog).process({
+    businessId: 'business-1',
+    conversation: conversationPatchFromState(namedState()),
+    message: 'mechas y corte'
+  })
+  const rejected = await engine(domainCatalog).process({
+    businessId: 'business-1',
+    conversation: first.conversationPatch,
+    message: 'no'
+  })
+
+  assert.equal(rejected.state.pendingServiceDisambiguation?.catalogFallback, true)
+  assert.match(rejected.reply, /Qué tipo de servicio buscás/i)
+  assert.match(rejected.reply, /Iluminación/i)
+  assert.match(rejected.reply, /Cortes/i)
+  assert.doesNotMatch(rejected.reply, /Corte mujer —/i)
+
+  const selected = await engine(domainCatalog).process({
+    businessId: 'business-1',
+    conversation: rejected.conversationPatch,
+    message: 'Iluminación'
+  })
+  assert.equal(selected.state.draft.service, 'iluminacion')
+  assert.deepEqual(
+    selected.state.pendingServiceDisambiguation?.serviceIds,
+    ['corte-hombre', 'corte-mujer', 'corte-barba']
+  )
+  assert.match(selected.reply, /Corte mujer/i)
 })
 
 await test('mechas configurado como alias se resuelve sin confirmación y conserva corte', async () => {

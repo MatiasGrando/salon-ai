@@ -1057,6 +1057,15 @@ export class BookingV2Engine {
 
     }
 
+    if (initialState.pendingServiceDisambiguation?.catalogFallback) {
+      const catalogNavigationResult = await this.handleCatalogNavigation({
+        message: input.message,
+        state: initialState,
+        catalog
+      })
+      if (catalogNavigationResult) return catalogNavigationResult
+    }
+
     const pendingGroupResolution = resolvePendingServiceDisambiguation(
       input.message,
       initialState.pendingServiceDisambiguation,
@@ -1089,6 +1098,15 @@ export class BookingV2Engine {
       }, null, catalog, resolutionOutcome, nextField === 'service'
         ? { serviceSuggestions: pendingServiceDisambiguationOptions(state, catalog) ?? [] }
         : undefined)
+      if (pendingGroupResolution.catalogFallbackEvidence) {
+        return {
+          ...result,
+          reply: [
+            `Entendido, no voy a tomar ${ambiguousServiceReference(pendingGroupResolution.catalogFallbackEvidence) ?? pendingGroupResolution.catalogFallbackEvidence} como el servicio sugerido.`,
+            result.reply
+          ].join('\n\n')
+        }
+      }
       return state.pendingServiceDisambiguation
         ? result
         : withMultipleServicesAcknowledgement(result, catalog)
@@ -1454,7 +1472,10 @@ export class BookingV2Engine {
   }): Promise<BookingV2ProcessResult | null> {
     if (
       input.catalog.displayMode !== 'CATEGORIES_FIRST' ||
-      nextMissingField(input.state.draft, input.catalog.bookingFlowOrder) !== 'service'
+      (
+        !input.state.pendingServiceDisambiguation?.catalogFallback &&
+        nextMissingField(input.state.draft, input.catalog.bookingFlowOrder) !== 'service'
+      )
     ) {
       return null
     }
@@ -3465,6 +3486,13 @@ function pendingServiceDisambiguationOptions(
   catalog: BookingV2DomainCatalog | null
 ) {
   if (!catalog || !state.pendingServiceDisambiguation) return undefined
+  if (state.pendingServiceDisambiguation.catalogFallback) {
+    if (state.catalogNavigation?.view === 'CATEGORY' && state.catalogNavigation.categoryKey) {
+      const services = catalogServicesForCategory(catalog, state.catalogNavigation.categoryKey)
+      return services.length ? services : undefined
+    }
+    return undefined
+  }
   const services = state.pendingServiceDisambiguation.serviceIds
     .map((serviceId) => catalog.services.find((service) => service.id === serviceId))
     .filter((service): service is BookingV2DomainCatalog['services'][number] => Boolean(service))
@@ -4625,14 +4653,23 @@ function resolvePendingServiceDisambiguation(
   pending: BookingV2PendingServiceDisambiguation | null,
   catalog: BookingV2DomainCatalog
 ) {
-  if (!pending) return { selections: [], remainingGroups: [], changed: false }
+  if (!pending) {
+    return {
+      selections: [],
+      remainingGroups: [],
+      changed: false,
+      catalogFallbackEvidence: null
+    }
+  }
   const selections: Array<{ serviceId: string; evidence: string }> = []
   const remainingGroups: BookingV2ServiceDisambiguationGroup[] = []
   const groups = pendingServiceDisambiguationGroups(pending)
-  const singleSuggestionConfirmation = groups[0]?.serviceIds.length === 1
+  const singleSuggestionConfirmation = groups[0]?.serviceIds.length === 1 &&
+    !groups[0]?.catalogFallback
     ? detectDeterministicConfirmation(message)?.intent ?? null
     : null
   let changed = false
+  let catalogFallbackEvidence: string | null = null
   for (const [index, group] of groups.entries()) {
     if (
       index === 0 &&
@@ -4642,23 +4679,35 @@ function resolvePendingServiceDisambiguation(
       changed = true
       if (singleSuggestionConfirmation === 'confirm') {
         selections.push({ serviceId: group.serviceIds[0]!, evidence: group.evidence })
+      } else {
+        remainingGroups.push({ ...group, catalogFallback: true })
+        catalogFallbackEvidence = group.evidence
       }
       continue
     }
     const serviceIds = new Set(group.serviceIds)
     const groupCatalog = {
       ...catalog,
-      services: catalog.services.filter((service) => serviceIds.has(service.id))
+      services: group.catalogFallback
+        ? catalog.services
+        : catalog.services.filter((service) => serviceIds.has(service.id))
     }
     const resolution = resolveCatalogServiceSelection(message, groupCatalog)
-    if (resolution?.kind === 'selected' && serviceIds.has(resolution.serviceId)) {
+    if (
+      resolution?.kind === 'selected' &&
+      (group.catalogFallback || serviceIds.has(resolution.serviceId))
+    ) {
       selections.push({ serviceId: resolution.serviceId, evidence: message.trim() })
       changed = true
+      if (group.catalogFallback) {
+        remainingGroups.push(...groups.slice(index + 1))
+        break
+      }
     } else {
       remainingGroups.push(group)
     }
   }
-  return { selections, remainingGroups, changed }
+  return { selections, remainingGroups, changed, catalogFallbackEvidence }
 }
 
 function applyResolvedServiceSelections(

@@ -68,6 +68,7 @@ export type BookingV2PendingInformationSelection = {
 export type BookingV2ServiceDisambiguationGroup = {
   serviceIds: string[]
   evidence: string
+  catalogFallback?: boolean
 }
 
 export type BookingV2PendingServiceDisambiguation = BookingV2ServiceDisambiguationGroup & {

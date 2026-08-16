@@ -116,7 +116,7 @@ async function main() {
           includes: ['Mechas', '¿te referís', 'Iluminación'],
           excludes: ['¿Con quién preferís?'],
           currentStep: 'ASK_SERVICE',
-          replyButtonTitles: ['Sí, es ese', 'No, otro servicio', 'Solicitar atención'],
+          replyButtonTitles: ['Sí, es ese', 'No, ver servicios', 'Necesito atención'],
           aiCallCount: 0
         }
       ]
