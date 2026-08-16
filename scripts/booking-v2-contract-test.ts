@@ -6833,7 +6833,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         ['tiene contraindicaciones el ordenador', ['general']]
       ] as const
 
-      const engine = new BookingV2Engine(fakeDomainPort({ catalog }), fakeExtractor(null))
+      const engine = new BookingV2Engine(fakeDomainPort(), fakeExtractor(null))
       for (const [message, expectedInformation] of cases) {
         assert.equal(isDeterministicServiceInformationQuestion(message), true, message)
         assert.deepEqual(deterministicServiceInformationRequest(message), expectedInformation, message)

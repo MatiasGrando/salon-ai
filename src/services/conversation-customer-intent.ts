@@ -30,9 +30,15 @@ const greetingWords = new Set([
 const nonNameWords = new Set([
   ...greetingWords,
   'quiero',
+  'queria',
+  'quería',
   'necesito',
   'busco',
   'quisiera',
+  'vengo',
+  'podria',
+  'podría',
+  'puedo',
   'reservar',
   'agendar',
   'sacar',
@@ -90,7 +96,10 @@ export function extractMisaddressedAssistantGreeting(
     return null
   }
 
-  const remainingMessage = (match[2] ?? '')
+  const rawRemainingMessage = match[2] ?? ''
+  if (!looksLikeAddressedNameContinuation(rawRemainingMessage)) return null
+
+  const remainingMessage = rawRemainingMessage
     .replace(/^[,;:.!¡¿?\s-]+/gu, '')
     .trim()
 
@@ -98,6 +107,15 @@ export function extractMisaddressedAssistantGreeting(
     addressedName: formatCustomerName(addressedName) ?? addressedName,
     remainingMessage: remainingMessage || null
   }
+}
+
+function looksLikeAddressedNameContinuation(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed) return true
+  if (/^[,;:.!¡¿?\-]/u.test(trimmed)) return true
+
+  const normalized = normalizeText(trimmed)
+  return /^(?:como\s+estas|como\s+va|que\s+tal|todo\s+bien|buen\s+dia|buenas|quiero|queria|quisiera|necesito|busco|vengo|reservar|agendar|sacar|consultar|saber|ver|cancelar|cambiar|modificar)\b/.test(normalized)
 }
 
 export function isPureSocialGreeting(message: string) {
