@@ -1471,6 +1471,17 @@ export class ConversationService {
   }): Promise<HandleMessageResult> {
     const assistantPersonality = await getBusinessAssistantPersonality(input.businessId)
     let storedInformationState = stateFromConversation(input.conversation)
+    const restartedConsultationState = stateAfterExplicitConsultationReplacement(
+      storedInformationState,
+      input.routing
+    )
+    if (restartedConsultationState !== storedInformationState) {
+      storedInformationState = restartedConsultationState
+      input.conversation = {
+        ...input.conversation,
+        ...conversationPatchFromState(restartedConsultationState)
+      }
+    }
     if (storedInformationState.pendingCoordinatedAvailability?.phase === 'OPTION_SELECTED') {
       return this.handleCoordinatedBookingConfirmation({
         phone: input.phone,
@@ -1844,7 +1855,9 @@ export class ConversationService {
     if (serviceDetailIntent) {
       const explicitServiceId = input.routing.catalogQuery?.serviceId ??
         input.routing.bookingExtraction?.service.value ??
-        input.conversation.selectedServiceId
+        storedInformationState.lastInformationServiceId ??
+        input.conversation.selectedServiceId ??
+        storedInformationState.guidedEstimate?.serviceId
       const detailCatalogQuery = input.routing.catalogQuery ?? (explicitServiceId
         ? {
             serviceId: explicitServiceId,
@@ -1863,10 +1876,7 @@ export class ConversationService {
               requestedInformation: ['general'],
             }
           })
-        : unresolvedServiceInformationReply(await businessKnowledgeService.answer({
-            businessId: input.businessId,
-            topics: ['services']
-          }))
+        : unresolvedServiceInformationReply(null)
       if (input.routing.bookingMessage) {
         informationReply = appendBusinessInformationReply(informationReply, detailReply)
       } else {
@@ -1894,15 +1904,22 @@ export class ConversationService {
             }
           }
         }
+        const detailState: BookingV2State = detailCatalogQuery?.serviceId
+          ? { ...storedInformationState, lastInformationServiceId: detailCatalogQuery.serviceId }
+          : storedInformationState
         const resumed = shouldResumeBookingV2AfterInformation(
           input.conversation.currentStep,
-          storedInformationState
+          detailState
         )
           ? await bookingV2Engine.resume({
               businessId: input.businessId,
-              conversation: input.conversation
+              conversation: conversationPatchFromState(detailState)
             })
           : null
+        await this.updateConversation(input.phone, input.businessId, {
+          currentStep: conversationStepValue(input.conversation.currentStep),
+          ...conversationPatchFromState(detailState)
+        })
         const requiredReply = applyAssistantPersonalityToReply(
           resumed && detailReply
             ? composeBusinessInformationResumeReply(detailReply, resumed.reply)
@@ -4370,13 +4387,55 @@ export function hasQuoteOnlyBookingRequest(
 export function shouldResumeQuoteOnlyBooking(
   state: BookingV2State,
   message: string,
-  routing?: Pick<ConversationRouting, 'intents'>
+  routing?: Pick<ConversationRouting, 'intents' | 'bookingExtraction'>
 ) {
+  const requestedServiceId = routing?.bookingExtraction?.service.value ?? null
+  const quotedServiceIds = new Set([
+    ...state.quoteOnly?.estimates.map((estimate) => estimate.serviceId) ?? [],
+    ...state.quoteOnly?.remainingServiceIds ?? [],
+    state.guidedEstimate?.serviceId
+  ].filter((serviceId): serviceId is string => Boolean(serviceId)))
   return Boolean(state.quoteOnly) && state.quoteOnly?.mode !== 'price' &&
     !state.pendingServiceDisambiguation &&
     !state.pendingInformationSelection &&
     !state.guidedEstimate &&
+    (!requestedServiceId || quotedServiceIds.has(requestedServiceId)) &&
     hasQuoteOnlyBookingRequest(message, routing)
+}
+
+export function stateAfterExplicitConsultationReplacement(
+  state: BookingV2State,
+  routing: ConversationRouting
+): BookingV2State {
+  if (!state.quoteOnly) return state
+  const hasBookingTask = Boolean(routing.bookingMessage) && routing.intents.some((intent) =>
+    intent.type === 'book_appointment' && intent.confidence >= 0.65
+  )
+  if (!hasBookingTask) return state
+
+  const requestedServiceIds = [
+    routing.bookingExtraction?.service.value,
+    ...(routing.bookingExtraction?.additionalServices ?? []).map((service) => service.value)
+  ].filter((serviceId): serviceId is string => Boolean(serviceId))
+  if (!requestedServiceIds.length) return state
+
+  const consultedServiceIds = new Set([
+    ...state.quoteOnly.estimates.map((estimate) => estimate.serviceId),
+    ...state.quoteOnly.remainingServiceIds,
+    state.guidedEstimate?.serviceId,
+    state.draft.service
+  ].filter((serviceId): serviceId is string => Boolean(serviceId)))
+  if (requestedServiceIds.every((serviceId) => consultedServiceIds.has(serviceId))) {
+    return state
+  }
+
+  const fresh = freshBookingV2State(state.draft.name)
+  return {
+    ...fresh,
+    ...(state.lastInformationServiceId !== undefined
+      ? { lastInformationServiceId: state.lastInformationServiceId }
+      : {})
+  }
 }
 
 function isPriceInformationRequest(routing: ConversationRouting) {

@@ -16,6 +16,7 @@ import {
   isAmbiguousCatalogAffirmation,
   isNaturalServiceBookingRequest
 } from './service-catalog-presentation-intent.js'
+import { isDeterministicServiceDetailQuestion } from './service-detail-intent.js'
 
 export const CONVERSATION_INTENTS = [
   'book_appointment',
@@ -143,8 +144,15 @@ export class ConversationRouter {
   async route(input: ConversationRouterInput): Promise<ConversationRouting> {
     const deterministic = deterministicConversationRouting(input.message, {
       currentStep: input.currentStep,
-      catalog: input.catalog
+      catalog: input.catalog,
+      draftServiceId: input.draft.service
     })
+    if (isCompleteDeterministicInformationRouting(deterministic)) {
+      return {
+        ...applyExpectedFieldCatalogFallback(deterministic, input),
+        source: 'deterministic'
+      }
+    }
     if (!isAiExecutionEnabled()) {
       return {
         ...applyExpectedFieldCatalogFallback(deterministic, input),
@@ -503,13 +511,25 @@ export function deterministicConversationRouting(
   context?: {
     currentStep?: string
     catalog?: ConversationRouterInput['catalog']
+    draftServiceId?: string | null
   }
 ): ConversationRouting {
   const normalized = normalizeText(message)
+  const serviceDetail = isDeterministicServiceDetailQuestion(message)
   const topics = detectBusinessInformationTopics(normalized, context?.currentStep)
-  const catalogQuery = context?.catalog
+    .filter((topic) => !(serviceDetail && topic === 'booking_channels'))
+  let catalogQuery = context?.catalog
     ? deterministicCatalogQuery(message, context.catalog)
     : null
+  if (serviceDetail && !catalogQuery?.serviceId && context?.draftServiceId) {
+    catalogQuery = {
+      serviceId: context.draftServiceId,
+      candidateServiceIds: [context.draftServiceId],
+      requestedInformation: ['general'],
+      confidence: 1,
+      evidence: message.trim()
+    }
+  }
   const hasExplicitBookingSignal = hasExplicitBookingIntent(normalized)
   const hasCatalogBookingSignal = !catalogQuery &&
     hasCatalogGroundedBookingIntent(normalized, context?.catalog)
@@ -520,6 +540,14 @@ export function deterministicConversationRouting(
     confidence: 0.95,
     evidence: message.trim()
   }))
+  if (serviceDetail) {
+    intents.push({
+      type: 'service_detail',
+      topic: null,
+      confidence: 1,
+      evidence: message.trim()
+    })
+  }
   if (hasExplicitQuoteRequest(normalized)) {
     intents.push({
       type: 'request_quote',
@@ -556,6 +584,22 @@ export function deterministicConversationRouting(
     catalogQuery,
     source: 'deterministic'
   }
+}
+
+function isCompleteDeterministicInformationRouting(
+  routing: Omit<ConversationRouting, 'source'>
+) {
+  if (routing.bookingMessage) return false
+  if (!routing.intents.length || routing.intents.some((intent) => intent.type === 'unknown')) {
+    return false
+  }
+  const serviceDetail = routing.intents.some((intent) =>
+    intent.type === 'service_detail' && intent.confidence >= 0.65
+  )
+  if (serviceDetail) return true
+  return routing.intents.every((intent) =>
+    intent.type === 'business_information' && intent.confidence >= 0.65
+  )
 }
 
 export function businessInformationTopicsFromRouting(routing: ConversationRouting) {
@@ -670,6 +714,13 @@ export function mergeConversationRouting(
     deterministic.bookingMessage === null &&
     (!hasGroundedAiBookingTask || hasExactCatalogPriceQuery)
   const intents = aiRouting.intents.filter((intent) => {
+    if (
+      serviceDetailIntent &&
+      intent.type === 'business_information' &&
+      intent.topic === 'booking_channels'
+    ) {
+      return false
+    }
     if (
       suppressGenericCatalogInformation &&
       (
@@ -984,10 +1035,10 @@ function deterministicCatalogQuery(
   if (containsAny(normalized, ['quien lo hace', 'quien hace', 'profesional', 'profesionales', 'quien atiende'])) {
     requestedInformation.push('professionals')
   }
-  if (!requestedInformation.includes('price') && containsAny(normalized, [
+  if (!requestedInformation.includes('price') && (isDeterministicServiceDetailQuestion(message) || containsAny(normalized, [
     'informacion', 'info', 'contame', 'consultar', 'consulta', 'explicame',
     'detalle', 'detalles', 'de que se trata'
-  ])) {
+  ]))) {
     requestedInformation.push('general')
   }
   if (!requestedInformation.length) return null

@@ -80,7 +80,10 @@ export class ConversationRouterContextService {
       currentStep: input.currentStep,
       lastBotMessage,
       recentMessages,
-      draft: state.draft,
+      draft: {
+        ...state.draft,
+        service: state.lastInformationServiceId ?? state.draft.service
+      },
       business: {
         name: business?.name ?? 'el local',
         availableInformation: availableInformationForBusiness(business)

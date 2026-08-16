@@ -86,6 +86,7 @@ import {
   shouldResumeBookingV2AfterInformation,
   shouldResumeQuoteOnlyBooking,
   shouldStartQuoteOnlyRequest,
+  stateAfterExplicitConsultationReplacement,
   unresolvedServiceInformationReply,
   withBusinessInformationFollowUp
 } from '../src/services/conversation-service.js'
@@ -6741,6 +6742,114 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(routing.catalogQuery?.serviceId, 'session')
       assert.deepEqual(routing.catalogQuery?.requestedInformation, ['price'])
       assert.equal(routing.bookingMessage, null)
+    }
+  },
+  {
+    name: 'consulta de lavado y procedimiento reutiliza el servicio contextual sin abrir canales de reserva',
+    run: async () => {
+      const catalog = {
+        services: [
+          {
+            id: 'molecular',
+            name: 'Ordenador molecular',
+            description: 'Incluye nutrición, reposo, secado y planchado.',
+            aliases: ['ordenador']
+          }
+        ],
+        professionals: []
+      }
+      for (const message of [
+        'Si solicito un turno, ¿cuáles son los pasos? ¿Me lavan el cabello en el lugar?',
+        '¿Me lavan el pelo ahí?',
+        '¿Cuál es el procedimiento?'
+      ]) {
+        const routing = deterministicConversationRouting(message, {
+          currentStep: 'START',
+          catalog,
+          draftServiceId: 'molecular'
+        })
+        assert.equal(routing.intents.some((intent) => intent.type === 'service_detail'), true, message)
+        assert.equal(
+          routing.intents.some((intent) => intent.topic === 'booking_channels'),
+          false,
+          message
+        )
+        assert.equal(routing.catalogQuery?.serviceId, 'molecular', message)
+        assert.deepEqual(routing.catalogQuery?.requestedInformation, ['general'], message)
+        assert.equal(routing.bookingMessage, null, message)
+      }
+
+      const withoutService = deterministicConversationRouting('¿Me lavan?', {
+        currentStep: 'START',
+        catalog
+      })
+      assert.equal(withoutService.intents.some((intent) => intent.type === 'service_detail'), true)
+      assert.equal(withoutService.catalogQuery, null)
+      assert.match(unresolvedServiceInformationReply(null), /¿Sobre qué servicio querés consultar\?/)
+
+      const engine = new BookingV2Engine(fakeDomainPort(), fakeExtractor(null))
+      assert.equal(await engine.canProcessWithoutGeneralRouter({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState({
+          ...acceptField(createEmptyBookingV2State(), 'name', 'Mati'),
+          draft: {
+            ...acceptField(createEmptyBookingV2State(), 'name', 'Mati').draft,
+            service: 'haircut'
+          }
+        }),
+        message: 'quiero saber más sobre corte'
+      }), false)
+    }
+  },
+  {
+    name: 'preguntar por dónde reservar mantiene la respuesta de canales fuera del procedimiento',
+    run: () => {
+      const routing = deterministicConversationRouting('¿Cómo puedo reservar?', {
+        currentStep: 'START'
+      })
+      assert.deepEqual(businessInformationTopicsFromRouting(routing), ['booking_channels'])
+      assert.equal(routing.intents.some((intent) => intent.type === 'service_detail'), false)
+    }
+  },
+  {
+    name: 'una reserva explícita de otro servicio descarta el presupuesto anterior',
+    run: () => {
+      const state: BookingV2State = {
+        ...acceptField(createEmptyBookingV2State(), 'name', 'Mati'),
+        draft: {
+          ...acceptField(createEmptyBookingV2State(), 'name', 'Mati').draft,
+          service: 'molecular'
+        },
+        guidedEstimate: {
+          serviceId: 'molecular',
+          stage: 'awaiting_option',
+          optionId: null,
+          optionLabel: null,
+          priceMin: null,
+          priceMax: null
+        },
+        quoteOnly: { remainingServiceIds: ['illumination'], estimates: [] }
+      }
+      const routing: ConversationRouting = {
+        intents: [{
+          type: 'book_appointment',
+          topic: null,
+          confidence: 0.98,
+          evidence: 'quiero un turno de corte mujer'
+        }],
+        bookingMessage: 'quiero un turno de corte mujer',
+        bookingExtraction: extraction({
+          service: field('woman-cut', 0.98, 'corte mujer')
+        }),
+        catalogQuery: null,
+        source: 'ai'
+      }
+      const restarted = stateAfterExplicitConsultationReplacement(state, routing)
+      assert.equal(restarted.draft.name, 'Mati')
+      assert.equal(restarted.draft.service, null)
+      assert.equal(restarted.guidedEstimate, null)
+      assert.equal(restarted.quoteOnly, null)
+      assert.equal(shouldResumeQuoteOnlyBooking(state, routing.bookingMessage!, routing), false)
     }
   },
   {
