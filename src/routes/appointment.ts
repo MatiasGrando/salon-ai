@@ -35,6 +35,7 @@ export async function appointmentRoutes(app: FastifyInstance) {
       serviceId: body.serviceId,
       ...(body.serviceIds ? { serviceIds: body.serviceIds } : {}),
       startAt: body.startAt,
+      origin: 'MANUAL',
       ...(body.manualDepositPaid === undefined ? {} : { manualDepositPaid: body.manualDepositPaid }),
       ...(body.manualDepositAmount === undefined ? {} : { manualDepositAmount: body.manualDepositAmount }),
       ...(body.force === undefined ? {} : { force: body.force })

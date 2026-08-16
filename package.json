@@ -44,6 +44,7 @@
     "test:demo-profile-access": "tsx scripts/demo-profile-access-contract-test.ts",
     "test:manual-appointment-filter": "tsx scripts/manual-appointment-service-filter-contract-test.ts",
     "test:manual-appointment-deposit": "tsx scripts/manual-appointment-deposit-contract-test.ts",
+    "test:appointment-origin": "tsx scripts/appointment-origin-contract-test.ts",
     "test:manual-appointment-customer-search": "tsx scripts/manual-appointment-customer-search-contract-test.ts",
     "test:manual-appointment-without-phone": "tsx scripts/manual-appointment-without-phone-contract-test.ts",
     "test:text-encoding": "tsx scripts/text-encoding-contract-test.ts",

@@ -20,6 +20,13 @@ enum AppointmentStatus {
   NO_SHOW
 }
 
+enum AppointmentOrigin {
+  BOT
+  WEB
+  MANUAL
+  UNKNOWN
+}
+
 enum ConversationStep {
   START
   ASK_SERVICE
@@ -684,6 +691,7 @@ model Appointment {
   service   Service @relation(fields: [serviceId], references: [id])
 
   startAt              DateTime
+  origin               AppointmentOrigin @default(UNKNOWN)
   quotedPrice          Int?
   manualDepositPaid    Boolean  @default(false)
   manualDepositAmount  Int?

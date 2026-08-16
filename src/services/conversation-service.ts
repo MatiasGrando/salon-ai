@@ -2946,6 +2946,7 @@ export class ConversationService {
           serviceId: segment.serviceId,
           serviceIds: [segment.serviceId],
           startAt: `${input.selected.date}T${segment.startTime}:00`,
+          origin: 'BOT',
           status: 'PENDING',
           quotedPrice: acceptedAdvisorQuoteAmount(input.state, segment.serviceId)
         })
@@ -3340,6 +3341,7 @@ export class ConversationService {
       serviceId: input.conversation.selectedServiceId,
       serviceIds: selectedServiceIds,
       startAt: `${input.conversation.selectedDate}T${input.conversation.selectedTime}:00`,
+      origin: 'BOT',
       status: 'PENDING',
       quotedPrice: acceptedAdvisorQuoteAmount(state, service.id)
     })

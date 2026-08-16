@@ -8341,6 +8341,52 @@ const crmHtml = `<!doctype html>
 
     .appointment-deposit-amount[hidden] { display: none; }
 
+    .appointment-origin-summary {
+      min-height: 38px;
+      padding: 9px 12px;
+      border: 1px solid #dbe4f0;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      color: #475569;
+      background: #f8fafc;
+      font-size: 12px;
+    }
+
+    .appointment-origin-summary[hidden] { display: none; }
+
+    .appointment-origin-badge {
+      width: 18px;
+      height: 18px;
+      flex: 0 0 18px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid currentColor;
+      border-radius: 50%;
+      color: #475569;
+      background: rgba(255, 255, 255, .92);
+      font-size: 9px;
+      line-height: 1;
+      font-weight: 900;
+      vertical-align: middle;
+    }
+
+    .appointment-origin-badge.origin-bot { color: #7c3aed; }
+    .appointment-origin-badge.origin-web { color: #2563eb; }
+    .appointment-origin-badge.origin-manual { color: #475569; }
+    .appointment-origin-badge.origin-unknown { color: #a16207; }
+
+    .agenda-event .appointment-origin-badge,
+    .agenda-gcal-event .appointment-origin-badge,
+    .agenda-mobile-item .appointment-origin-badge {
+      display: inline-flex;
+      margin-top: 0;
+      overflow: visible;
+      white-space: nowrap;
+    }
+
     .app[data-section="professionals"] {
       background: #f8fbff;
     }
@@ -14125,6 +14171,10 @@ const crmHtml = `<!doctype html>
             <a class="whatsapp" id="appointment-whatsapp" href="#" title="Abrir WhatsApp Desktop" aria-label="Abrir WhatsApp Desktop" data-icon="whatsapp"></a>
             <button id="appointment-open-chat" type="button" title="Abrir chat del cliente" aria-label="Abrir chat del cliente" data-icon="mail"></button>
           </div>
+          <div class="appointment-origin-summary" id="appointment-origin-row" hidden>
+            <span id="appointment-origin-badge" aria-hidden="true"></span>
+            <span>Origen: <strong id="appointment-origin-label"></strong></span>
+          </div>
           <div class="appointment-deposit-option">
             <label>
               <input id="appointment-deposit-paid" type="checkbox">
@@ -17612,6 +17662,9 @@ const crmHtml = `<!doctype html>
       appointmentContactActions: document.getElementById('appointment-contact-actions'),
       appointmentWhatsapp: document.getElementById('appointment-whatsapp'),
       appointmentOpenChat: document.getElementById('appointment-open-chat'),
+      appointmentOriginRow: document.getElementById('appointment-origin-row'),
+      appointmentOriginBadge: document.getElementById('appointment-origin-badge'),
+      appointmentOriginLabel: document.getElementById('appointment-origin-label'),
       appointmentDepositPaid: document.getElementById('appointment-deposit-paid'),
       appointmentDepositAmountRow: document.getElementById('appointment-deposit-amount-row'),
       appointmentDepositAmount: document.getElementById('appointment-deposit-amount'),
@@ -24591,9 +24644,10 @@ const crmHtml = `<!doctype html>
       const depositClass = depositIndicator ? ' has-deposit' : ''
       const depositStyle = depositIndicator ? ';--agenda-deposit-color:' + depositIndicator.color : ''
       const depositTitle = depositIndicator ? ' - ' + depositIndicator.label : ''
-      return '<article class="agenda-gcal-event' + depositClass + (noShow ? ' no-show' : '') + (pending ? ' is-pending' : '') + '" data-appointment-id="' + appointment.id + '" data-overlap-count="' + columns + '" style="top:' + top + 'px;height:' + height + 'px;left:' + left + ';right:auto;width:' + width + ';--agenda-event-color:' + color + depositStyle + '" title="' + escapeHtml(time + ' - ' + customer + ' - ' + service + ' con ' + professional + depositTitle) + '">' +
+      const origin = appointmentOriginMeta(appointment.origin)
+      return '<article class="agenda-gcal-event' + depositClass + (noShow ? ' no-show' : '') + (pending ? ' is-pending' : '') + '" data-appointment-id="' + appointment.id + '" data-overlap-count="' + columns + '" style="top:' + top + 'px;height:' + height + 'px;left:' + left + ';right:auto;width:' + width + ';--agenda-event-color:' + color + depositStyle + '" title="' + escapeHtml(time + ' - ' + customer + ' - ' + service + ' con ' + professional + ' - ' + origin.label + depositTitle) + '">' +
         '<button class="agenda-gcal-event-main" type="button" data-agenda-edit-appointment>' +
-          '<strong>' + escapeHtml(customer) + '</strong>' +
+          '<strong>' + appointmentOriginBadgeHtml(origin) + ' ' + escapeHtml(customer) + '</strong>' +
           '<span>' + escapeHtml(time + ' - ' + service) + '</span>' +
           '<span class="agenda-gcal-event-professional">' + escapeHtml(professional) + '</span>' +
         '</button>' +
@@ -24621,6 +24675,17 @@ const crmHtml = `<!doctype html>
         }
       }
       return null
+    }
+
+    function appointmentOriginMeta(origin) {
+      if (origin === 'BOT') return { code: 'B', label: 'Bot de WhatsApp', className: 'origin-bot' }
+      if (origin === 'WEB') return { code: 'W', label: 'Sitio web', className: 'origin-web' }
+      if (origin === 'MANUAL') return { code: 'M', label: 'Carga manual', className: 'origin-manual' }
+      return { code: '?', label: 'Origen anterior sin identificar', className: 'origin-unknown' }
+    }
+
+    function appointmentOriginBadgeHtml(origin) {
+      return '<span class="appointment-origin-badge ' + origin.className + '" title="' + escapeHtml(origin.label) + '" aria-label="' + escapeHtml(origin.label) + '">' + origin.code + '</span>'
     }
 
     function renderAgendaMobileBlock(block, hourHeight) {
@@ -25004,10 +25069,11 @@ const crmHtml = `<!doctype html>
           const professionalIndex = activeProfessionals().findIndex((item) => item.id === appointment.professionalId)
           const color = agendaProfessionalColor(appointment.professionalId, professionalIndex)
           const noShow = appointment.status === 'NO_SHOW'
+          const origin = appointmentOriginMeta(appointment.origin)
           return '<button class="agenda-mobile-item' + (noShow ? ' no-show' : '') + '" type="button" data-appointment-id="' + appointment.id + '" style="--agenda-event-color:' + color + '">' +
             '<span class="agenda-mobile-time">' + escapeHtml(formatTimeOnly(start)) + '<small>' + escapeHtml(formatTimeOnly(addMinutes(start, duration))) + '</small></span>' +
             '<span class="agenda-mobile-copy"><strong>' + escapeHtml(appointment.customer?.name || 'Cliente') + '</strong><span>' + escapeHtml(appointmentServiceLabel(appointment) + ' · ' + (appointment.professional?.name || 'Profesional')) + '</span></span>' +
-            '<span class="agenda-mobile-status">' + (noShow ? 'Ausente' : 'Turno') + '</span>' +
+            '<span class="agenda-mobile-status">' + appointmentOriginBadgeHtml(origin) + (noShow ? ' Ausente' : '') + '</span>' +
           '</button>'
         })
 
@@ -25158,6 +25224,7 @@ const crmHtml = `<!doctype html>
         const noShow = appointment.status === 'NO_SHOW'
         const pending = state.agendaPendingAppointmentIds.has(appointment.id)
         const depositIndicator = agendaDepositIndicator(appointment)
+        const origin = appointmentOriginMeta(appointment.origin)
 
         const event = document.createElement('article')
         event.className = 'agenda-event' + (depositIndicator ? ' has-deposit' : '') + (placement.columns > 1 ? ' is-overlap' : '') + (noShow ? ' no-show' : '') + (pending ? ' is-pending' : '')
@@ -25168,10 +25235,10 @@ const crmHtml = `<!doctype html>
         event.style.width = 'calc(' + (100 / placement.columns) + '% - ' + widthOffset + 'px)'
         event.style.setProperty('--agenda-event-color', eventColor)
         if (depositIndicator) event.style.setProperty('--agenda-deposit-color', depositIndicator.color)
-        event.title = customer + ' - ' + service + ' con ' + professional + (depositIndicator ? ' - ' + depositIndicator.label : '') + (noShow ? ' - Ausente' : '') + (pending ? ' - Guardando cambio' : '')
+        event.title = customer + ' - ' + service + ' con ' + professional + ' - ' + origin.label + (depositIndicator ? ' - ' + depositIndicator.label : '') + (noShow ? ' - Ausente' : '') + (pending ? ' - Guardando cambio' : '')
         event.innerHTML = '<strong>' + escapeHtml(formatTimeOnly(start) + ' - ' + formatTimeOnly(addMinutes(start, duration))) + '</strong>' +
           '<span>' + escapeHtml(service) + '</span>' +
-          '<span>' + escapeHtml(customer + (noShow ? ' - Ausente' : '')) + '</span>'
+          '<span>' + appointmentOriginBadgeHtml(origin) + ' ' + escapeHtml(customer + (noShow ? ' - Ausente' : '')) + '</span>'
         event.dataset.appointmentId = appointment.id
         event.draggable = false
         event.addEventListener('click', (clickEvent) => {
@@ -25685,6 +25752,11 @@ const crmHtml = `<!doctype html>
         els.appointmentCustomerPhone.value = appointment.customer?.phone || ''
         els.appointmentDepositPaid.checked = appointment.manualDepositPaid === true
         els.appointmentDepositAmount.value = appointment.manualDepositAmount || ''
+        const origin = appointmentOriginMeta(appointment.origin)
+        els.appointmentOriginRow.hidden = false
+        els.appointmentOriginBadge.className = 'appointment-origin-badge ' + origin.className
+        els.appointmentOriginBadge.textContent = origin.code
+        els.appointmentOriginLabel.textContent = origin.label
         els.appointmentNoShow.textContent = appointment.status === 'NO_SHOW' ? 'Quitar ausente' : 'Marcar ausente'
         els.appointmentNoShow.className = appointment.status === 'NO_SHOW' ? 'secondary' : 'danger'
         els.appointmentFeedback.textContent = appointment.status === 'NO_SHOW' ? 'Este turno esta marcado como ausente.' : ''
@@ -25708,6 +25780,7 @@ const crmHtml = `<!doctype html>
         els.appointmentCustomerPhone.value = ''
         els.appointmentDepositPaid.checked = false
         els.appointmentDepositAmount.value = ''
+        els.appointmentOriginRow.hidden = true
       }
 
       syncAppointmentDepositFields()

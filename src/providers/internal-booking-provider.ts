@@ -14,7 +14,7 @@ export class InternalBookingProvider implements BookingProvider {
   }
 
   createAppointment(input: BookingCreateAppointmentInput) {
-    return appointmentService.create(input)
+    return appointmentService.create({ ...input, origin: 'BOT' })
   }
 
   async cancelAppointment(appointmentId: string) {

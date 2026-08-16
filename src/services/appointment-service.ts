@@ -17,6 +17,7 @@ type CreateAppointmentInput = {
   serviceId: string
   serviceIds?: string[]
   startAt: string
+  origin?: 'BOT' | 'WEB' | 'MANUAL' | 'UNKNOWN'
   force?: boolean
   status?: 'PENDING' | 'CONFIRMED'
   quotedPrice?: number | null
@@ -251,6 +252,7 @@ export class AppointmentService {
         professionalId: input.professionalId,
         serviceId: input.serviceId,
         startAt,
+        origin: input.origin ?? 'UNKNOWN',
         totalDurationMinutes: professionalDuration,
         status: input.status ?? 'CONFIRMED',
         quotedPrice: normalizeQuotedPrice(input.quotedPrice),

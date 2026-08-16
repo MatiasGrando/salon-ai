@@ -246,6 +246,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       professionalId,
       serviceId,
       startAt: `${date}T${time}:00`,
+      origin: 'WEB',
       status: depositCalculation ? 'PENDING' : 'CONFIRMED',
       quotedPrice: estimateSelection.priceMin
     })
@@ -435,6 +436,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
           professionalId: segment.professionalId,
           serviceId: segment.serviceId,
           startAt: `${date}T${segment.startTime}:00`,
+          origin: 'WEB',
           status: 'PENDING',
           quotedPrice: resolved.estimate.priceMin,
           coordinationGroupId
