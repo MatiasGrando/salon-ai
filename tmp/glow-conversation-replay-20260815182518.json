@@ -1,0 +1,860 @@
+{
+  "generatedAt": "2026-08-15T18:26:21.411Z",
+  "business": {
+    "id": "cmrw86lgr00042xob5k2pm1k5",
+    "name": "Glow",
+    "featureSettings": {
+      "bookingV2Enabled": true,
+      "bookingFlowOrder": "PROFESSIONAL_FIRST",
+      "serviceCatalogDisplayMode": "CATEGORIES_FIRST"
+    }
+  },
+  "phone": "qa-glow-replay-20260815182518",
+  "records": [
+    {
+      "session": "Conversación 1 — primera solicitud",
+      "turn": 1,
+      "visibleMessages": [
+        "Buenas tardes"
+      ],
+      "engineMessage": "Buenas tardes",
+      "inputKind": "text",
+      "deliveryMode": "text",
+      "interactiveReplyId": null,
+      "replies": [
+        "Soy Cami 😊 Antes de seguir, ¿cómo te llamás?"
+      ],
+      "buttons": [],
+      "aiCalls": [],
+      "state": {
+        "currentStep": "START",
+        "selectedCustomerName": null,
+        "selectedService": null,
+        "selectedProfessional": null,
+        "selectedDate": null,
+        "selectedTime": null,
+        "draft": null,
+        "combinedServices": [],
+        "queuedServices": [],
+        "guidedEstimate": null,
+        "pendingInformationSelection": null
+      }
+    },
+    {
+      "session": "Conversación 1 — primera solicitud",
+      "turn": 2,
+      "visibleMessages": [
+        "Quiero solicitar un turno"
+      ],
+      "engineMessage": "Quiero solicitar un turno",
+      "inputKind": "text",
+      "deliveryMode": "text",
+      "interactiveReplyId": null,
+      "replies": [
+        "¿Me decís tu nombre?"
+      ],
+      "buttons": [],
+      "aiCalls": [
+        {
+          "source": "conversation_router",
+          "model": "gpt-4o-mini-2024-07-18",
+          "inputTokens": 4493,
+          "cachedInputTokens": 2048,
+          "outputTokens": 152,
+          "totalTokens": 4645,
+          "responseId": "resp_0b97a97c62ec7709016a80af1149b08195be79518741492e72"
+        }
+      ],
+      "state": {
+        "currentStep": "ASK_CUSTOMER_NAME",
+        "selectedCustomerName": null,
+        "selectedService": null,
+        "selectedProfessional": null,
+        "selectedDate": null,
+        "selectedTime": null,
+        "draft": null,
+        "combinedServices": [],
+        "queuedServices": [],
+        "guidedEstimate": null,
+        "pendingInformationSelection": null
+      }
+    },
+    {
+      "session": "Conversación 1 — primera solicitud",
+      "turn": 3,
+      "visibleMessages": [
+        "Cecilia"
+      ],
+      "engineMessage": "Cecilia",
+      "inputKind": "text",
+      "deliveryMode": "text",
+      "interactiveReplyId": null,
+      "replies": [
+        "¿Qué tipo de servicio buscás? 😊\n• Nutrición\n• Peinados\n• Cortes\n• Iluminación\n• Otros\n• Ver todos los servicios\n¿Cuál te interesa?"
+      ],
+      "buttons": [],
+      "aiCalls": [],
+      "state": {
+        "currentStep": "ASK_SERVICE",
+        "selectedCustomerName": "Cecilia",
+        "selectedService": null,
+        "selectedProfessional": null,
+        "selectedDate": null,
+        "selectedTime": null,
+        "draft": null,
+        "combinedServices": [],
+        "queuedServices": [],
+        "guidedEstimate": null,
+        "pendingInformationSelection": null
+      }
+    },
+    {
+      "session": "Conversación 1 — primera solicitud",
+      "turn": 4,
+      "visibleMessages": [
+        "Quiero saber precio y procedimiento para hacerme iluminación y ordenador"
+      ],
+      "engineMessage": "Quiero saber precio y procedimiento para hacerme iluminación y ordenador",
+      "inputKind": "text",
+      "deliveryMode": "text",
+      "interactiveReplyId": null,
+      "replies": [
+        "El precio de Iluminación (baby lights, balayage, contouring, etc) se define según largo, cantidad de producto y tipo de trabajo técnico realizado.\n\n✅ Incluye:\n• baño de luz\n• lavado profundo\n• secado\n\n❌ No incluye: brushing ni planchado\n\nCon una foto tuya y una referencia de lo que buscabas, podemos orientarte mejor con el presupuesto 😊\nTambién podemos ayudarte si nos contestas la siguiente pregunta (para un estimativo preciso lo ideal son las fotos 😉)\n• 1. Hasta los hombros\n• 2. Debajo de los hombros\n• 3. Media espalda"
+      ],
+      "buttons": [],
+      "aiCalls": [
+        {
+          "source": "conversation_router",
+          "model": "gpt-4o-mini-2024-07-18",
+          "inputTokens": 4624,
+          "cachedInputTokens": 2048,
+          "outputTokens": 345,
+          "totalTokens": 4969,
+          "responseId": "resp_0f48a3ba1b8e0514016a80af15dc9487d2b03743e34ffb4745"
+        }
+      ],
+      "state": {
+        "currentStep": "ASK_SERVICE",
+        "selectedCustomerName": "Cecilia",
+        "selectedService": "Iluminación (baby lights, balayage, contouring, etc)",
+        "selectedProfessional": null,
+        "selectedDate": null,
+        "selectedTime": null,
+        "draft": null,
+        "combinedServices": [],
+        "queuedServices": [],
+        "guidedEstimate": {
+          "stage": "awaiting_option",
+          "optionId": null,
+          "priceMax": null,
+          "priceMin": null,
+          "serviceId": "cms7gmv3500002xmpz4q4r6ez",
+          "optionLabel": null
+        },
+        "pendingInformationSelection": null
+      }
+    },
+    {
+      "session": "Conversación 1 — primera solicitud",
+      "turn": 5,
+      "visibleMessages": [
+        "Me interesa hacerme un ordenador"
+      ],
+      "engineMessage": "Me interesa hacerme un ordenador",
+      "inputKind": "text",
+      "deliveryMode": "text",
+      "interactiveReplyId": null,
+      "replies": [
+        "Disculpame, no pude identificar la opción.\nTambién podemos ayudarte si nos contestas la siguiente pregunta (para un estimativo preciso lo ideal son las fotos 😉)\n• 1. Hasta los hombros\n• 2. Debajo de los hombros\n• 3. Media espalda"
+      ],
+      "buttons": [],
+      "aiCalls": [
+        {
+          "source": "conversation_router",
+          "model": "gpt-4o-mini-2024-07-18",
+          "inputTokens": 4885,
+          "cachedInputTokens": 0,
+          "outputTokens": 243,
+          "totalTokens": 5128,
+          "responseId": "resp_0e9fbb810b5aecd7016a80af1b32d881908de3ea22c05bd9a5"
+        },
+        {
+          "source": "booking_estimate_option",
+          "model": "gpt-4o-mini-2024-07-18",
+          "inputTokens": 371,
+          "cachedInputTokens": 0,
+          "outputTokens": 11,
+          "totalTokens": 382,
+          "responseId": "resp_0b638bd559b8a2a4016a80af1e76088196a06f5a174f33942e"
+        }
+      ],
+      "state": {
+        "currentStep": "ASK_SERVICE",
+        "selectedCustomerName": "Cecilia",
+        "selectedService": "Iluminación (baby lights, balayage, contouring, etc)",
+        "selectedProfessional": null,
+        "selectedDate": null,
+        "selectedTime": null,
+        "draft": null,
+        "combinedServices": [],
+        "queuedServices": [],
+        "guidedEstimate": {
+          "stage": "awaiting_option",
+          "optionId": null,
+          "priceMax": null,
+          "priceMin": null,
+          "serviceId": "cms7gmv3500002xmpz4q4r6ez",
+          "optionLabel": null
+        },
+        "pendingInformationSelection": null
+      }
+    },
+    {
+      "session": "Conversación 1 — primera solicitud",
+      "turn": 6,
+      "visibleMessages": [
+        "1"
+      ],
+      "engineMessage": "1",
+      "inputKind": "text",
+      "deliveryMode": "text",
+      "interactiveReplyId": null,
+      "replies": [
+        "El precio de Ordenador molecular varía en funcion del largo y cantidad de cabello...\n¿Qué largo tiene tu cabello?\n• 1. Hasta los hombros\n• 2. Debajo de los hombros"
+      ],
+      "buttons": [],
+      "aiCalls": [],
+      "state": {
+        "currentStep": "ASK_SERVICE",
+        "selectedCustomerName": "Cecilia",
+        "selectedService": "Ordenador molecular",
+        "selectedProfessional": null,
+        "selectedDate": null,
+        "selectedTime": null,
+        "draft": null,
+        "combinedServices": [],
+        "queuedServices": [],
+        "guidedEstimate": {
+          "stage": "awaiting_option",
+          "optionId": null,
+          "priceMax": null,
+          "priceMin": null,
+          "serviceId": "cms7h732e00012xmpe59u3f5q",
+          "optionLabel": null
+        },
+        "pendingInformationSelection": null
+      }
+    },
+    {
+      "session": "Conversación 1 — primera solicitud",
+      "turn": 7,
+      "visibleMessages": [
+        "Si solicito un turno cuáles son los pasos a seguir? Me lavan el cabello en el lugar?"
+      ],
+      "engineMessage": "Si solicito un turno cuáles son los pasos a seguir? Me lavan el cabello en el lugar?",
+      "inputKind": "text",
+      "deliveryMode": "text",
+      "interactiveReplyId": null,
+      "replies": [
+        "Estos son los servicios disponibles:\nNutrición:\n• Alisado (sin formol)\n• Baño de crema\n• Ordenador molecular\nPeinados:\n• Brushing\n• Planchado\nCortes:\n• Corte hombre\n• Corte mujer\n• Corte y barba\nIluminación:\n• Iluminación (baby lights, balayage, contouring, etc)\nOtros:\n• Tintura completo\n• Tintura raíces\n\nPodés reservar por este chat o desde https://glow.weex.com.ar/reservar"
+      ],
+      "buttons": [],
+      "aiCalls": [
+        {
+          "source": "conversation_router",
+          "model": "gpt-4o-mini-2024-07-18",
+          "inputTokens": 4888,
+          "cachedInputTokens": 0,
+          "outputTokens": 83,
+          "totalTokens": 4971,
+          "responseId": "resp_0e93f8ff310cd430016a80af20f2ec87d2bd8fb9e67f8e752c"
+        }
+      ],
+      "state": {
+        "currentStep": "ASK_SERVICE",
+        "selectedCustomerName": "Cecilia",
+        "selectedService": "Ordenador molecular",
+        "selectedProfessional": null,
+        "selectedDate": null,
+        "selectedTime": null,
+        "draft": null,
+        "combinedServices": [],
+        "queuedServices": [],
+        "guidedEstimate": {
+          "stage": "awaiting_option",
+          "optionId": null,
+          "priceMax": null,
+          "priceMin": null,
+          "serviceId": "cms7h732e00012xmpe59u3f5q",
+          "optionLabel": null
+        },
+        "pendingInformationSelection": {
+          "serviceIds": [
+            "cms7hjcn900022xmpe5qu8go5",
+            "cmsdz4gdm00002xledt8c4637",
+            "cmsgu20gv00162xmpjbacklyk",
+            "cms6shmcy000d2xqqxix7jub0",
+            "cms6sm08x000e2xqqucjmoi5g",
+            "cmsgue3pd00182xmpo0rosf2p",
+            "cms7gmv3500002xmpz4q4r6ez",
+            "cms7h732e00012xmpe59u3f5q",
+            "cmsgu9kq000172xmptgqka6iy",
+            "cms6ulof8000g2xqqmxf5bamy",
+            "cms6tqcok000f2xqqhdya78wd"
+          ],
+          "requestedInformation": [
+            "general"
+          ]
+        }
+      }
+    },
+    {
+      "session": "Conversación 2 — 5 de agosto",
+      "turn": 1,
+      "visibleMessages": [
+        "Hola"
+      ],
+      "engineMessage": "Hola",
+      "inputKind": "text",
+      "deliveryMode": "text",
+      "interactiveReplyId": null,
+      "replies": [
+        "¡Hola! Todo bien 😊\n\n¿En qué te puedo ayudar?"
+      ],
+      "buttons": [],
+      "aiCalls": [],
+      "state": {
+        "currentStep": "START",
+        "selectedCustomerName": "Cecilia",
+        "selectedService": null,
+        "selectedProfessional": null,
+        "selectedDate": null,
+        "selectedTime": null,
+        "draft": null,
+        "combinedServices": [],
+        "queuedServices": [],
+        "guidedEstimate": null,
+        "pendingInformationSelection": null
+      }
+    },
+    {
+      "session": "Conversación 2 — 5 de agosto",
+      "turn": 2,
+      "visibleMessages": [
+        "Quiero un turno"
+      ],
+      "engineMessage": "Quiero un turno",
+      "inputKind": "text",
+      "deliveryMode": "text",
+      "interactiveReplyId": null,
+      "replies": [
+        "¿Qué tipo de servicio buscás? 😊\n• Nutrición\n• Peinados\n• Cortes\n• Iluminación\n• Otros\n• Ver todos los servicios\n¿Cuál te interesa?"
+      ],
+      "buttons": [],
+      "aiCalls": [
+        {
+          "source": "conversation_router",
+          "model": "gpt-4o-mini-2024-07-18",
+          "inputTokens": 4784,
+          "cachedInputTokens": 2048,
+          "outputTokens": 179,
+          "totalTokens": 4963,
+          "responseId": "resp_036b42bc1a91a731016a80af2541f481938f20090f2e8b0f8b"
+        }
+      ],
+      "state": {
+        "currentStep": "ASK_SERVICE",
+        "selectedCustomerName": "Cecilia",
+        "selectedService": null,
+        "selectedProfessional": null,
+        "selectedDate": null,
+        "selectedTime": null,
+        "draft": null,
+        "combinedServices": [],
+        "queuedServices": [],
+        "guidedEstimate": null,
+        "pendingInformationSelection": null
+      }
+    },
+    {
+      "session": "Conversación 2 — 5 de agosto",
+      "turn": 3,
+      "visibleMessages": [
+        "Quiero hacerme unas mechas, ordenador y corte"
+      ],
+      "engineMessage": "Quiero hacerme unas mechas, ordenador y corte",
+      "inputKind": "text",
+      "deliveryMode": "text",
+      "interactiveReplyId": null,
+      "replies": [
+        "El precio de Ordenador molecular varía en funcion del largo y cantidad de cabello...\n¿Qué largo tiene tu cabello?\n• 1. Hasta los hombros\n• 2. Debajo de los hombros"
+      ],
+      "buttons": [],
+      "aiCalls": [],
+      "state": {
+        "currentStep": "ASK_SERVICE",
+        "selectedCustomerName": "Cecilia",
+        "selectedService": "Ordenador molecular",
+        "selectedProfessional": null,
+        "selectedDate": null,
+        "selectedTime": null,
+        "draft": null,
+        "combinedServices": [],
+        "queuedServices": [],
+        "guidedEstimate": {
+          "stage": "awaiting_option",
+          "optionId": null,
+          "priceMax": null,
+          "priceMin": null,
+          "serviceId": "cms7h732e00012xmpe59u3f5q",
+          "optionLabel": null
+        },
+        "pendingInformationSelection": null
+      }
+    },
+    {
+      "session": "Conversación 2 — 5 de agosto",
+      "turn": 4,
+      "visibleMessages": [
+        "Hasta los hombros"
+      ],
+      "engineMessage": "Hasta los hombros",
+      "inputKind": "text",
+      "deliveryMode": "text",
+      "interactiveReplyId": null,
+      "replies": [
+        "Para Hasta los hombros, el valor estimado de Ordenador molecular es entre $ 65.000 y $ 85.000.\n\n💵 15% OFF en efectivo\n\nPara que podamos respetar la duración de tu turno y brindar un servicio puntual, te pedimos que asistas al salón con el cabello limpio y seco, lavado únicamente con shampoo neutro ideal(puede ser shampoo normal también pero sin crema de enjuague, baño de crema, aceites ni otros productos).\n\nDe esta manera podemos comenzar el servicio inmediatamente y cumplir con los tiempos previstos.\n\nEn caso de asistir con el cabello sucio, húmedo o con cualquier producto aplicado, será necesario realizar un lavado y secado previo en el salón, lo que puede generar una demora en el servicio y tendrá el costo correspondiente.\n\n¿Querés continuar con la reserva o preferís que el equipo prepare un presupuesto exacto?"
+      ],
+      "buttons": [
+        {
+          "id": "coord:cmsuphr1b0000cgvcs380h9os:estimate_continue",
+          "title": "Continuar reserva"
+        },
+        {
+          "id": "coord:cmsuphr1b0000cgvcs380h9os:estimate_exact_quote",
+          "title": "Pedir presupuesto"
+        }
+      ],
+      "aiCalls": [
+        {
+          "source": "conversation_router",
+          "model": "gpt-4o-mini-2024-07-18",
+          "inputTokens": 4802,
+          "cachedInputTokens": 2048,
+          "outputTokens": 264,
+          "totalTokens": 5066,
+          "responseId": "resp_066c3f4098dd9184016a80af29c2dc87d1a1367806618a163f"
+        },
+        {
+          "source": "booking_estimate_option",
+          "model": "gpt-4o-mini-2024-07-18",
+          "inputTokens": 309,
+          "cachedInputTokens": 0,
+          "outputTokens": 19,
+          "totalTokens": 328,
+          "responseId": "resp_0c799de9d0f4a024016a80af2de2c88194b6845dd0917c3644"
+        }
+      ],
+      "state": {
+        "currentStep": "ASK_SERVICE",
+        "selectedCustomerName": "Cecilia",
+        "selectedService": "Ordenador molecular",
+        "selectedProfessional": null,
+        "selectedDate": null,
+        "selectedTime": null,
+        "draft": null,
+        "combinedServices": [],
+        "queuedServices": [],
+        "guidedEstimate": {
+          "stage": "awaiting_decision",
+          "optionId": "estimate-1785413431148-0",
+          "priceMax": 85000,
+          "priceMin": 65000,
+          "serviceId": "cms7h732e00012xmpe59u3f5q",
+          "optionLabel": "Hasta los hombros"
+        },
+        "pendingInformationSelection": null
+      }
+    },
+    {
+      "session": "Conversación 2 — 5 de agosto",
+      "turn": 5,
+      "visibleMessages": [
+        "Me dirías el procedimiento del ordenador"
+      ],
+      "engineMessage": "Me dirías el procedimiento del ordenador",
+      "inputKind": "text",
+      "deliveryMode": "text",
+      "interactiveReplyId": null,
+      "replies": [
+        "Sobre Ordenador molecular:\nTratamiento de nutrición profunda que reordena la fibra capilar desde el interior.\n\n✔ Reduce frizz\n✔ Suaviza ondas leves\n✔ Aporta brillo y textura sedosa\n✔ Mejora visiblemente la calidad del cabello\n\n⏳ Duración: hasta 3 meses\n🧴 Proceso: nutrición + reposo + secado + planchado\n\n🔹 Mucho menos agresivo que un alisado\n🔹 Apto para cabellos procesados\n🔹 No modifica el color\n🔹 Puede repetirse sin problemas\nDuración: 90 min.\nPrecio: desde $ 65.000.\n\n¿Preferís continuar con la reserva o pedir un presupuesto exacto?"
+      ],
+      "buttons": [],
+      "aiCalls": [
+        {
+          "source": "conversation_router",
+          "model": "gpt-4o-mini-2024-07-18",
+          "inputTokens": 5023,
+          "cachedInputTokens": 0,
+          "outputTokens": 48,
+          "totalTokens": 5071,
+          "responseId": "resp_00d4501ec0403b59016a80af2fcbb88190bacd460ccc40c422"
+        }
+      ],
+      "state": {
+        "currentStep": "ASK_SERVICE",
+        "selectedCustomerName": "Cecilia",
+        "selectedService": "Ordenador molecular",
+        "selectedProfessional": null,
+        "selectedDate": null,
+        "selectedTime": null,
+        "draft": null,
+        "combinedServices": [],
+        "queuedServices": [],
+        "guidedEstimate": {
+          "stage": "awaiting_decision",
+          "optionId": "estimate-1785413431148-0",
+          "priceMax": 85000,
+          "priceMin": 65000,
+          "serviceId": "cms7h732e00012xmpe59u3f5q",
+          "optionLabel": "Hasta los hombros"
+        },
+        "pendingInformationSelection": null
+      }
+    },
+    {
+      "session": "Conversación 2 — 5 de agosto",
+      "turn": 6,
+      "visibleMessages": [
+        "Continuar reserva"
+      ],
+      "engineMessage": "Continuar reserva",
+      "inputKind": "text",
+      "deliveryMode": "text",
+      "interactiveReplyId": null,
+      "replies": [
+        "Sobre Ordenador molecular:\nTratamiento de nutrición profunda que reordena la fibra capilar desde el interior.\n\n✔ Reduce frizz\n✔ Suaviza ondas leves\n✔ Aporta brillo y textura sedosa\n✔ Mejora visiblemente la calidad del cabello\n\n⏳ Duración: hasta 3 meses\n🧴 Proceso: nutrición + reposo + secado + planchado\n\n🔹 Mucho menos agresivo que un alisado\n🔹 Apto para cabellos procesados\n🔹 No modifica el color\n🔹 Puede repetirse sin problemas\nDuración: 90 min.\nPrecio: desde $ 65.000.\n\nPara Corte tengo estas opciones 😊\n• Corte hombre — $ 27.000\n• Corte mujer — $ 37.000\n• Corte y barba — $ 32.000\n• No sé cuál necesito\n¿Cuál querés reservar?"
+      ],
+      "buttons": [],
+      "aiCalls": [
+        {
+          "source": "conversation_router",
+          "model": "gpt-4o-mini-2024-07-18",
+          "inputTokens": 5135,
+          "cachedInputTokens": 2048,
+          "outputTokens": 219,
+          "totalTokens": 5354,
+          "responseId": "resp_0ff15b45688d418e016a80af32a0148197b3a162e73b3151cb"
+        }
+      ],
+      "state": {
+        "currentStep": "ASK_SERVICE",
+        "selectedCustomerName": "Cecilia",
+        "selectedService": "Ordenador molecular",
+        "selectedProfessional": null,
+        "selectedDate": null,
+        "selectedTime": null,
+        "draft": null,
+        "combinedServices": [],
+        "queuedServices": [],
+        "guidedEstimate": {
+          "stage": "completed",
+          "optionId": "estimate-1785413431148-0",
+          "priceMax": 85000,
+          "priceMin": 65000,
+          "serviceId": "cms7h732e00012xmpe59u3f5q",
+          "optionLabel": "Hasta los hombros"
+        },
+        "pendingInformationSelection": null
+      }
+    },
+    {
+      "session": "Conversación 3 — 13 de agosto",
+      "turn": 1,
+      "visibleMessages": [
+        "Hola"
+      ],
+      "engineMessage": "Hola",
+      "inputKind": "text",
+      "deliveryMode": "text",
+      "interactiveReplyId": null,
+      "replies": [
+        "¡Hola! Todo bien 😊\n\n¿En qué te puedo ayudar?"
+      ],
+      "buttons": [],
+      "aiCalls": [],
+      "state": {
+        "currentStep": "START",
+        "selectedCustomerName": "Cecilia",
+        "selectedService": null,
+        "selectedProfessional": null,
+        "selectedDate": null,
+        "selectedTime": null,
+        "draft": null,
+        "combinedServices": [],
+        "queuedServices": [],
+        "guidedEstimate": null,
+        "pendingInformationSelection": null
+      }
+    },
+    {
+      "session": "Conversación 3 — 13 de agosto",
+      "turn": 2,
+      "visibleMessages": [
+        "Quiero un turno"
+      ],
+      "engineMessage": "Quiero un turno",
+      "inputKind": "text",
+      "deliveryMode": "text",
+      "interactiveReplyId": null,
+      "replies": [
+        "¿Qué tipo de servicio buscás? 😊\n• Nutrición\n• Peinados\n• Cortes\n• Iluminación\n• Otros\n• Ver todos los servicios\n¿Cuál te interesa?"
+      ],
+      "buttons": [],
+      "aiCalls": [
+        {
+          "source": "conversation_router",
+          "model": "gpt-4o-mini-2024-07-18",
+          "inputTokens": 5091,
+          "cachedInputTokens": 0,
+          "outputTokens": 158,
+          "totalTokens": 5249,
+          "responseId": "resp_01f5d352b30c820a016a80af37654c8193ae7a50182e143b8f"
+        }
+      ],
+      "state": {
+        "currentStep": "ASK_SERVICE",
+        "selectedCustomerName": "Cecilia",
+        "selectedService": null,
+        "selectedProfessional": null,
+        "selectedDate": null,
+        "selectedTime": null,
+        "draft": null,
+        "combinedServices": [],
+        "queuedServices": [],
+        "guidedEstimate": null,
+        "pendingInformationSelection": null
+      }
+    },
+    {
+      "session": "Conversación 3 — 13 de agosto",
+      "turn": 3,
+      "visibleMessages": [
+        "Iluminación y corte"
+      ],
+      "engineMessage": "Iluminación y corte",
+      "inputKind": "text",
+      "deliveryMode": "text",
+      "interactiveReplyId": null,
+      "replies": [
+        "El precio de Iluminación (baby lights, balayage, contouring, etc) se define según largo, cantidad de producto y tipo de trabajo técnico realizado.\n\n✅ Incluye:\n• baño de luz\n• lavado profundo\n• secado\n\n❌ No incluye: brushing ni planchado\n\nCon una foto tuya y una referencia de lo que buscabas, podemos orientarte mejor con el presupuesto 😊\nTambién podemos ayudarte si nos contestas la siguiente pregunta (para un estimativo preciso lo ideal son las fotos 😉)\n• 1. Hasta los hombros\n• 2. Debajo de los hombros\n• 3. Media espalda"
+      ],
+      "buttons": [],
+      "aiCalls": [],
+      "state": {
+        "currentStep": "ASK_SERVICE",
+        "selectedCustomerName": "Cecilia",
+        "selectedService": "Iluminación (baby lights, balayage, contouring, etc)",
+        "selectedProfessional": null,
+        "selectedDate": null,
+        "selectedTime": null,
+        "draft": null,
+        "combinedServices": [],
+        "queuedServices": [],
+        "guidedEstimate": {
+          "stage": "awaiting_option",
+          "optionId": null,
+          "priceMax": null,
+          "priceMin": null,
+          "serviceId": "cms7gmv3500002xmpz4q4r6ez",
+          "optionLabel": null
+        },
+        "pendingInformationSelection": null
+      }
+    },
+    {
+      "session": "Conversación 3 — 13 de agosto",
+      "turn": 4,
+      "visibleMessages": [
+        "Foto enviada por el cliente",
+        "Foto recibida"
+      ],
+      "engineMessage": "Foto recibida",
+      "inputKind": "image",
+      "deliveryMode": "text",
+      "interactiveReplyId": null,
+      "replies": [
+        "Para Debajo de los hombros, el valor estimado de Iluminación (baby lights, balayage, contouring, etc) es entre $ 160.000 y $ 210.000.\n\nVaría según el tono base y el deseado\n\n✨ Al llegar al salón, la profesional evaluará tu cabello y, si fuera necesario, ajustará el presupuesto según el trabajo a realizar. Siempre te informaremos el valor final antes de comenzar.\n\n💵 15% off en efectivo (desde $130.000 aprox).\n\n¿Querés continuar con la reserva o preferís que el equipo prepare un presupuesto exacto?"
+      ],
+      "buttons": [
+        {
+          "id": "coord:cmsuphr1b0000cgvcs380h9os:estimate_continue",
+          "title": "Continuar reserva"
+        },
+        {
+          "id": "coord:cmsuphr1b0000cgvcs380h9os:estimate_exact_quote",
+          "title": "Pedir presupuesto"
+        }
+      ],
+      "aiCalls": [
+        {
+          "source": "conversation_router",
+          "model": "gpt-4o-mini-2024-07-18",
+          "inputTokens": 5063,
+          "cachedInputTokens": 0,
+          "outputTokens": 264,
+          "totalTokens": 5327,
+          "responseId": "resp_09600319d556f4b1016a80af3c96c881968fc8d49747731472"
+        },
+        {
+          "source": "booking_estimate_option",
+          "model": "gpt-4o-mini-2024-07-18",
+          "inputTokens": 368,
+          "cachedInputTokens": 0,
+          "outputTokens": 21,
+          "totalTokens": 389,
+          "responseId": "resp_025010bd31ee8433016a80af40c3448196bac652ad480a9e16"
+        }
+      ],
+      "state": {
+        "currentStep": "ASK_SERVICE",
+        "selectedCustomerName": "Cecilia",
+        "selectedService": "Iluminación (baby lights, balayage, contouring, etc)",
+        "selectedProfessional": null,
+        "selectedDate": null,
+        "selectedTime": null,
+        "draft": null,
+        "combinedServices": [],
+        "queuedServices": [],
+        "guidedEstimate": {
+          "stage": "awaiting_decision",
+          "optionId": "estimate-1785412623301-1",
+          "priceMax": 210000,
+          "priceMin": 160000,
+          "serviceId": "cms7gmv3500002xmpz4q4r6ez",
+          "optionLabel": "Debajo de los hombros"
+        },
+        "pendingInformationSelection": null
+      }
+    },
+    {
+      "session": "Conversación 3 — 13 de agosto",
+      "turn": 5,
+      "visibleMessages": [
+        "Hasta los hombros"
+      ],
+      "engineMessage": "Hasta los hombros",
+      "inputKind": "text",
+      "deliveryMode": "text",
+      "interactiveReplyId": null,
+      "replies": [
+        "¿Preferís continuar con la reserva o pedir un presupuesto exacto?"
+      ],
+      "buttons": [
+        {
+          "id": "coord:cmsuphr1b0000cgvcs380h9os:estimate_continue",
+          "title": "Continuar reserva"
+        },
+        {
+          "id": "coord:cmsuphr1b0000cgvcs380h9os:estimate_exact_quote",
+          "title": "Pedir presupuesto"
+        }
+      ],
+      "aiCalls": [
+        {
+          "source": "conversation_router",
+          "model": "gpt-4o-mini-2024-07-18",
+          "inputTokens": 5001,
+          "cachedInputTokens": 0,
+          "outputTokens": 194,
+          "totalTokens": 5195,
+          "responseId": "resp_00f269a0f9af033a016a80af42e38887d289e3f766add176c4"
+        },
+        {
+          "source": "booking_estimate_decision",
+          "model": "gpt-4o-mini-2024-07-18",
+          "inputTokens": 229,
+          "cachedInputTokens": 0,
+          "outputTokens": 13,
+          "totalTokens": 242,
+          "responseId": "resp_06cb289887f38412016a80af4656ec87d29d02af75765448a8"
+        }
+      ],
+      "state": {
+        "currentStep": "ASK_SERVICE",
+        "selectedCustomerName": "Cecilia",
+        "selectedService": "Iluminación (baby lights, balayage, contouring, etc)",
+        "selectedProfessional": null,
+        "selectedDate": null,
+        "selectedTime": null,
+        "draft": null,
+        "combinedServices": [],
+        "queuedServices": [],
+        "guidedEstimate": {
+          "stage": "awaiting_decision",
+          "optionId": "estimate-1785412623301-1",
+          "priceMax": 210000,
+          "priceMin": 160000,
+          "serviceId": "cms7gmv3500002xmpz4q4r6ez",
+          "optionLabel": "Debajo de los hombros"
+        },
+        "pendingInformationSelection": null
+      }
+    },
+    {
+      "session": "Conversación 3 — 13 de agosto",
+      "turn": 6,
+      "visibleMessages": [
+        "Y quisiera hacerme esto"
+      ],
+      "engineMessage": "Y quisiera hacerme esto",
+      "inputKind": "text",
+      "deliveryMode": "text",
+      "interactiveReplyId": null,
+      "replies": [
+        "Para Corte tengo estas opciones 😊\n• Corte hombre — $ 27.000\n• Corte mujer — $ 37.000\n• Corte y barba — $ 32.000\n• No sé cuál necesito\n¿Cuál querés reservar?"
+      ],
+      "buttons": [],
+      "aiCalls": [
+        {
+          "source": "conversation_router",
+          "model": "gpt-4o-mini-2024-07-18",
+          "inputTokens": 4879,
+          "cachedInputTokens": 2048,
+          "outputTokens": 207,
+          "totalTokens": 5086,
+          "responseId": "resp_05cd50a2c99657bc016a80af482f9c8193bee8460be5fe06dd"
+        },
+        {
+          "source": "booking_estimate_decision",
+          "model": "gpt-4o-mini-2024-07-18",
+          "inputTokens": 230,
+          "cachedInputTokens": 0,
+          "outputTokens": 13,
+          "totalTokens": 243,
+          "responseId": "resp_0a1cafac254a2531016a80af4b77c48193aeceb2bb1c66fc4e"
+        }
+      ],
+      "state": {
+        "currentStep": "ASK_SERVICE",
+        "selectedCustomerName": "Cecilia",
+        "selectedService": "Iluminación (baby lights, balayage, contouring, etc)",
+        "selectedProfessional": null,
+        "selectedDate": null,
+        "selectedTime": null,
+        "draft": null,
+        "combinedServices": [],
+        "queuedServices": [],
+        "guidedEstimate": {
+          "stage": "completed",
+          "optionId": "estimate-1785412623301-1",
+          "priceMax": 210000,
+          "priceMin": 160000,
+          "serviceId": "cms7gmv3500002xmpz4q4r6ez",
+          "optionLabel": "Debajo de los hombros"
+        },
+        "pendingInformationSelection": null
+      }
+    }
+  ]
+}
