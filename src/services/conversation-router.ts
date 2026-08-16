@@ -16,7 +16,10 @@ import {
   isAmbiguousCatalogAffirmation,
   isNaturalServiceBookingRequest
 } from './service-catalog-presentation-intent.js'
-import { isDeterministicServiceDetailQuestion } from './service-detail-intent.js'
+import {
+  deterministicServiceInformationRequest,
+  isDeterministicServiceDetailQuestion
+} from './service-detail-intent.js'
 
 export const CONVERSATION_INTENTS = [
   'book_appointment',
@@ -521,11 +524,12 @@ export function deterministicConversationRouting(
   let catalogQuery = context?.catalog
     ? deterministicCatalogQuery(message, context.catalog)
     : null
-  if (serviceDetail && !catalogQuery?.serviceId && context?.draftServiceId) {
+  const contextualInformation = deterministicServiceInformationRequest(message)
+  if (contextualInformation.length && !catalogQuery?.serviceId && context?.draftServiceId) {
     catalogQuery = {
       serviceId: context.draftServiceId,
       candidateServiceIds: [context.draftServiceId],
-      requestedInformation: ['general'],
+      requestedInformation: contextualInformation,
       confidence: 1,
       evidence: message.trim()
     }
@@ -1020,20 +1024,11 @@ function deterministicCatalogQuery(
   catalog: ConversationRouterInput['catalog']
 ): CatalogQuery | null {
   const normalized = normalizeEvidenceText(message)
-  const requestedInformation: CatalogQueryInformation[] = []
-  if (containsAny(normalized, [
-    'precio', 'precios', 'cuanto cuesta', 'cuanto sale', 'cuanto me sale', 'cuanto vale', 'valor'
-  ])) {
-    requestedInformation.push('price')
-  }
+  const requestedInformation: CatalogQueryInformation[] = [
+    ...deterministicServiceInformationRequest(message)
+  ]
   if (isDepositInformationRequest(message)) {
     requestedInformation.push('deposit')
-  }
-  if (containsAny(normalized, ['cuanto dura', 'duracion', 'demora'])) {
-    requestedInformation.push('duration')
-  }
-  if (containsAny(normalized, ['quien lo hace', 'quien hace', 'profesional', 'profesionales', 'quien atiende'])) {
-    requestedInformation.push('professionals')
   }
   if (!requestedInformation.includes('price') && (isDeterministicServiceDetailQuestion(message) || containsAny(normalized, [
     'informacion', 'info', 'contame', 'consultar', 'consulta', 'explicame',

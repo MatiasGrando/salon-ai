@@ -78,7 +78,7 @@ import type {
   BookingAvailabilitySearchResult
 } from './booking-availability-search.js'
 import { orderBookingServicesByPriority } from './booking-service-order.js'
-import { isDeterministicServiceDetailQuestion } from './service-detail-intent.js'
+import { isDeterministicServiceInformationQuestion } from './service-detail-intent.js'
 
 type BookingV2DomainPort = Pick<
   BookingV2DomainService,
@@ -159,10 +159,10 @@ export class BookingV2Engine {
     const actionableMessage = bookingCoordinationActionableReply(input.message)
     const storedState = stateFromConversation(input.conversation)
 
-    // Las preguntas sobre el procedimiento deben conservar el servicio como
-    // contexto y ser respondidas por la capa informativa. No son una nueva
-    // selección aunque contengan literalmente el nombre del tratamiento.
-    if (isDeterministicServiceDetailQuestion(actionableMessage)) return false
+    // Las preguntas informativas deben conservar el servicio como contexto y
+    // ser respondidas por la capa informativa. No son una nueva selección
+    // aunque contengan literalmente el nombre del tratamiento.
+    if (isDeterministicServiceInformationQuestion(actionableMessage)) return false
 
     // Una decisión inequívoca sobre el estimativo pertenece al flujo de
     // reservas. Resolverla antes del router evita que respuestas breves como

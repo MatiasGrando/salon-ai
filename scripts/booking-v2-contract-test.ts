@@ -111,6 +111,10 @@ import {
 } from '../src/services/photo-quote-acknowledgement-service.js'
 import { conversationCompletionPatchFromAppointment } from '../src/services/conversation-opportunity-service.js'
 import { reservationFitsAvailabilityWindow } from '../src/services/service-duration.js'
+import {
+  deterministicServiceInformationRequest,
+  isDeterministicServiceInformationQuestion
+} from '../src/services/service-detail-intent.js'
 
 const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
   {
@@ -6799,6 +6803,72 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         }),
         message: 'quiero saber más sobre corte'
       }), false)
+    }
+  },
+  {
+    name: 'consultas informativas de un servicio no inician una reserva ni llaman al router general',
+    run: async () => {
+      const catalog = {
+        services: [
+          {
+            id: 'molecular',
+            name: 'Ordenador molecular',
+            description: 'Incluye nutrición, reposo, secado y planchado.',
+            aliases: ['ordenador']
+          }
+        ],
+        professionals: []
+      }
+      const cases = [
+        ['procedimiento del ordenador', ['general']],
+        ['precio del ordenador', ['price']],
+        ['qué incluye el ordenador', ['general']],
+        ['duración del ordenador', ['duration']],
+        ['quién lo hace al ordenador', ['professionals']],
+        ['con qué profesional puedo hacerme el ordenador', ['professionals']],
+        ['cuánto tiempo dura el ordenador', ['duration']],
+        ['viene con lavado el ordenador', ['general']],
+        ['costo y cuánto tarda el ordenador', ['price', 'duration']],
+        ['qué cuidados requiere el ordenador', ['general']],
+        ['tiene contraindicaciones el ordenador', ['general']]
+      ] as const
+
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog }), fakeExtractor(null))
+      for (const [message, expectedInformation] of cases) {
+        assert.equal(isDeterministicServiceInformationQuestion(message), true, message)
+        assert.deepEqual(deterministicServiceInformationRequest(message), expectedInformation, message)
+
+        const routing = deterministicConversationRouting(message, {
+          currentStep: 'START',
+          catalog
+        })
+        assert.equal(routing.source, 'deterministic', message)
+        assert.equal(routing.bookingMessage, null, message)
+        assert.equal(routing.catalogQuery?.serviceId, 'molecular', message)
+        assert.deepEqual(routing.catalogQuery?.requestedInformation, expectedInformation, message)
+        assert.equal(await engine.canProcessWithoutGeneralRouter({
+          businessId: 'business-1',
+          conversation: conversationPatchFromState(createEmptyBookingV2State()),
+          message
+        }), false, message)
+      }
+    }
+  },
+  {
+    name: 'consulta informativa breve reutiliza el servicio activo sin seleccionarlo otra vez',
+    run: () => {
+      const routing = deterministicConversationRouting('¿cuánto tarda y quién lo hace?', {
+        currentStep: 'ASK_NAME',
+        catalog: {
+          services: [{ id: 'molecular', name: 'Ordenador molecular', aliases: ['ordenador'] }],
+          professionals: []
+        },
+        draftServiceId: 'molecular'
+      })
+
+      assert.equal(routing.bookingMessage, null)
+      assert.equal(routing.catalogQuery?.serviceId, 'molecular')
+      assert.deepEqual(routing.catalogQuery?.requestedInformation, ['duration', 'professionals'])
     }
   },
   {
