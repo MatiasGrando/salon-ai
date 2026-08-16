@@ -38,6 +38,7 @@ assert.doesNotMatch(conversationSource, /aiEnabled:\s*false/)
 assert.match(conversationSource, /isQueuedConversationHandoff\(conversation\)/)
 assert.match(conversationSource, /humanHandoffBookingLocked\(\)/)
 assert.match(conversationSource, /businessInformationTopicsFromRouting\(input\.routing\)/)
+assert.match(conversationSource, /El equipo sigue teniendo tus imágenes/)
 
 const postSaleSource = readFileSync('src/services/post-sale-service.ts', 'utf8')
 assert.match(postSaleSource, /queuedConversationHandoffPatch\(now\)/)

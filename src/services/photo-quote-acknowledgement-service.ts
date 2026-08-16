@@ -19,8 +19,27 @@ export class PhotoQuoteAcknowledgementService {
     businessId: string | null
     phone: string
     selectedServiceId: string | null
+    pendingPhotoQuote: {
+      serviceId: string
+      requestedAt: string
+      expiresAt: string
+    } | null
+    now?: Date
   }) {
-    if (!input.businessId || !input.selectedServiceId) return null
+    const now = input.now ?? new Date()
+    const pending = input.pendingPhotoQuote
+    if (
+      !input.businessId ||
+      !input.selectedServiceId ||
+      !pending ||
+      pending.serviceId !== input.selectedServiceId ||
+      !Number.isFinite(Date.parse(pending.requestedAt)) ||
+      !Number.isFinite(Date.parse(pending.expiresAt)) ||
+      Date.parse(pending.requestedAt) > now.getTime() ||
+      Date.parse(pending.expiresAt) <= now.getTime()
+    ) {
+      return null
+    }
     const service = await this.db.service.findFirst({
       where: {
         id: input.selectedServiceId,
@@ -35,6 +54,7 @@ export class PhotoQuoteAcknowledgementService {
       where: {
         id: input.conversationId,
         currentStep: 'HUMAN_HANDOFF',
+        humanHandoffResolvedAt: null,
         aiEnabled: true,
         photoQuoteAcknowledgedAt: null
       },

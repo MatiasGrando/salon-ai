@@ -23,6 +23,7 @@ import {
   photoQuoteAcknowledgementService
 } from './photo-quote-acknowledgement-service.js'
 import { InboundMessageBatcher } from './inbound-message-batcher.js'
+import { stateFromConversation } from './booking-v2-conversation-state.js'
 import {
   isGreetingLatencyDiagnosticMessage,
   LatencyDiagnostic
@@ -90,6 +91,7 @@ type AutomaticInboundMessage = {
   businessId: string | null
   previousActivityAt: Date
   interactiveReplyId?: string
+  hasImageAttachment?: boolean
   latencyDiagnostic?: LatencyDiagnostic
 }
 
@@ -503,7 +505,8 @@ export class WhatsAppWebhookService {
             conversationId: conversation.id,
             businessId: conversation.businessId,
             phone: message.from,
-            selectedServiceId: conversation.selectedServiceId
+            selectedServiceId: conversation.selectedServiceId,
+            pendingPhotoQuote: stateFromConversation(conversation).pendingPhotoQuote ?? null
           })
         : null
 
@@ -544,6 +547,7 @@ export class WhatsAppWebhookService {
         ...(message.interactiveReplyId
           ? { interactiveReplyId: message.interactiveReplyId }
           : {}),
+        ...(message.media?.type === 'image' ? { hasImageAttachment: true } : {}),
         ...(latencyDiagnostic ? { latencyDiagnostic } : {})
       }
       const automaticTask = inboundMessageBatcher.enqueue({
@@ -596,6 +600,9 @@ export class WhatsAppWebhookService {
           ...(firstMessage.interactiveReplyId
             ? { interactiveReplyId: firstMessage.interactiveReplyId }
             : {}),
+          ...(batch.some((message) => message.hasImageAttachment)
+            ? { hasImageAttachment: true }
+            : {}),
           previousActivityAt: firstMessage.previousActivityAt,
           useAi
         })
@@ -603,6 +610,16 @@ export class WhatsAppWebhookService {
     const conversationResult = latencyDiagnostic
       ? await latencyDiagnostic.measure('conversation_processing', processConversation)
       : await processConversation()
+
+    if ('suppressOutbound' in conversationResult && conversationResult.suppressOutbound) {
+      return {
+        reply: '',
+        messages: [],
+        deliveries: [],
+        inboundBatchSize: batch.length,
+        suppressed: true
+      }
+    }
 
     const gate = latencyDiagnostic
       ? await latencyDiagnostic.measure('outbound_gate', async () => firstMessage.businessId

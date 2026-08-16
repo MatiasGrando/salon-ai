@@ -15,6 +15,7 @@ import {
   type BookingV2CategoryAdvice,
   type BookingV2CatalogNavigation,
   type BookingV2GuidedEstimate,
+  type BookingV2PendingPhotoQuote,
   type BookingV2PendingRequest,
   type BookingV2PendingInformationSelection,
   type BookingV2PendingServiceDisambiguation,
@@ -65,6 +66,7 @@ export type BookingV2PersistedState = {
   catalogNavigation?: BookingV2CatalogNavigation | null
   serviceValidation?: BookingV2ServiceValidation | null
   guidedEstimate?: BookingV2GuidedEstimate | null
+  pendingPhotoQuote?: BookingV2PendingPhotoQuote | null
   combinedServiceDecisionQueue?: string[] | null
   advisorQuote?: BookingV2AdvisorQuote | null
   quoteOnly?: BookingV2QuoteOnly | null
@@ -109,6 +111,7 @@ export function stateFromConversation(
     catalogNavigation: readCatalogNavigation(conversation.bookingV2State),
     serviceValidation: readServiceValidation(conversation.bookingV2State),
     guidedEstimate: readGuidedEstimate(conversation.bookingV2State),
+    pendingPhotoQuote: readPendingPhotoQuote(conversation.bookingV2State),
     combinedServiceDecisionQueue: readCombinedServiceDecisionQueue(conversation.bookingV2State),
     advisorQuote: readAdvisorQuote(conversation.bookingV2State),
     quoteOnly: readQuoteOnly(conversation.bookingV2State),
@@ -137,7 +140,7 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
     selectedDate: state.draft.date,
     selectedTime: state.draft.time,
     misunderstandingCount: state.misunderstandingCount,
-    bookingV2State: state.pendingProposal || state.pendingRequest || state.pendingInformationSelection || state.lastInformationServiceId || state.pendingServiceDisambiguation || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.combinedServiceDecisionQueue !== null || state.advisorQuote || state.quoteOnly || state.pendingDeposit || state.contextPause || state.optionalNamePrompt || state.unsupportedServiceRequest || state.queuedServices.length || state.combinedServices.length || state.addonSuggestion || state.addonOfferCompletedServiceId || state.pendingCombinedAvailability || state.pendingAvailabilityResolution || state.pendingServiceSeparation || state.pendingServiceReplacement || state.pendingCoordinatedAvailability
+    bookingV2State: state.pendingProposal || state.pendingRequest || state.pendingInformationSelection || state.lastInformationServiceId || state.pendingServiceDisambiguation || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.pendingPhotoQuote || state.combinedServiceDecisionQueue !== null || state.advisorQuote || state.quoteOnly || state.pendingDeposit || state.contextPause || state.optionalNamePrompt || state.unsupportedServiceRequest || state.queuedServices.length || state.combinedServices.length || state.addonSuggestion || state.addonOfferCompletedServiceId || state.pendingCombinedAvailability || state.pendingAvailabilityResolution || state.pendingServiceSeparation || state.pendingServiceReplacement || state.pendingCoordinatedAvailability
       ? {
           version: 1,
           pendingProposal: state.pendingProposal,
@@ -154,6 +157,7 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
           ...(state.catalogNavigation ? { catalogNavigation: state.catalogNavigation } : {}),
           ...(state.serviceValidation ? { serviceValidation: state.serviceValidation } : {}),
           ...(state.guidedEstimate ? { guidedEstimate: state.guidedEstimate } : {}),
+          ...(state.pendingPhotoQuote ? { pendingPhotoQuote: state.pendingPhotoQuote } : {}),
           ...(state.combinedServiceDecisionQueue !== null
             ? { combinedServiceDecisionQueue: state.combinedServiceDecisionQueue }
             : {}),
@@ -658,6 +662,33 @@ function readGuidedEstimate(value: unknown): BookingV2GuidedEstimate | null {
     optionLabel: candidate.optionLabel ?? null,
     priceMin: candidate.priceMin ?? null,
     priceMax: candidate.priceMax ?? null
+  }
+}
+
+function readPendingPhotoQuote(value: unknown): BookingV2PendingPhotoQuote | null {
+  if (!value || typeof value !== 'object') return null
+  const persisted = value as { version?: unknown; pendingPhotoQuote?: unknown }
+  if (
+    persisted.version !== 1 ||
+    !persisted.pendingPhotoQuote ||
+    typeof persisted.pendingPhotoQuote !== 'object'
+  ) {
+    return null
+  }
+  const candidate = persisted.pendingPhotoQuote as Partial<BookingV2PendingPhotoQuote>
+  if (
+    typeof candidate.serviceId !== 'string' ||
+    typeof candidate.requestedAt !== 'string' ||
+    typeof candidate.expiresAt !== 'string' ||
+    !Number.isFinite(Date.parse(candidate.requestedAt)) ||
+    !Number.isFinite(Date.parse(candidate.expiresAt))
+  ) {
+    return null
+  }
+  return {
+    serviceId: candidate.serviceId,
+    requestedAt: candidate.requestedAt,
+    expiresAt: candidate.expiresAt
   }
 }
 

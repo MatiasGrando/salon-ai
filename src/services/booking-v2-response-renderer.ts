@@ -327,7 +327,9 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
         ? ['Disculpame, no pude identificar la opción.']
         : explanation ? [explanation] : []),
       question,
-      ...options.map((option, index) => `• ${index + 1}. ${option.label}`)
+      ...options.map((option, index) => `• ${index + 1}. ${option.label}`),
+      'Respondé con el número o con el largo.',
+      'Si preferís que el equipo prepare un presupuesto exacto, usá el botón “Presupuesto exacto”.'
     ].join('\n')
   }
 

@@ -1195,6 +1195,7 @@ export async function crmRoutes(app: FastifyInstance) {
         status: 'awaiting_acceptance' as const,
         quotedAt: new Date().toISOString()
       },
+      pendingPhotoQuote: null,
       pendingDeposit: null,
       misunderstandingCount: 0
     }

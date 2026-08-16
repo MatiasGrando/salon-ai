@@ -166,6 +166,12 @@ export class BookingV2Engine {
     if (storedState.guidedEstimate?.stage === 'awaiting_decision') {
       return Boolean(detectDeterministicEstimateDecision(actionableMessage))
     }
+    if (
+      storedState.guidedEstimate?.stage === 'awaiting_option' &&
+      detectDeterministicEstimateDecision(actionableMessage)?.decision === 'request_exact_quote'
+    ) {
+      return true
+    }
 
     if (!isDeterministicBookingContinuationMessage(actionableMessage)) return false
 
@@ -205,6 +211,33 @@ export class BookingV2Engine {
 
     return nextMissingField(state.draft, catalog.bookingFlowOrder) === 'time' &&
       parseTime(actionableMessage) !== null
+  }
+
+  async receiveImageForExactQuote(
+    input: Omit<BookingV2ProcessInput, 'message'>
+  ): Promise<BookingV2ProcessResult | null> {
+    const catalog = await this.domain.loadCatalog(input.businessId)
+    const state = sanitizeCatalogNameCollision(
+      stateFromConversation(input.conversation),
+      catalog
+    )
+    const guidedEstimate = state.guidedEstimate
+    if (
+      guidedEstimate?.stage !== 'awaiting_option' ||
+      guidedEstimate.serviceId !== state.draft.service
+    ) {
+      return null
+    }
+    const service = catalog.services.find((candidate) =>
+      candidate.id === guidedEstimate.serviceId &&
+      candidate.attentionMode === 'GUIDED_ESTIMATE' &&
+      candidate.requiresPhoto === true
+    )
+    if (!service) return null
+    return this.guidedEstimateResult(state, {
+      type: 'handoff',
+      reason: 'photo_required'
+    }, catalog, 'accepted')
   }
 
   async process(input: BookingV2ProcessInput): Promise<BookingV2ProcessResult> {
@@ -868,6 +901,13 @@ export class BookingV2Engine {
         option.attentionMode === 'GUIDED_ESTIMATE'
       )
       if (service && initialState.guidedEstimate.stage === 'awaiting_option') {
+        const estimateDecision = detectDeterministicEstimateDecision(input.message)
+        if (estimateDecision?.decision === 'request_exact_quote') {
+          return this.guidedEstimateResult(initialState, {
+            type: 'handoff',
+            reason: service.requiresPhoto ? 'photo_required' : 'estimate_quote_requested'
+          }, catalog, 'accepted')
+        }
         if (!(service.estimateOptions?.length) && service.price !== null && service.price > 0) {
           const state: BookingV2State = {
             ...initialState,
@@ -3318,7 +3358,10 @@ export class BookingV2Engine {
     catalog: BookingV2DomainCatalog,
     outcome: BookingV2ProcessResult['outcome']
   ): BookingV2ProcessResult {
-    const reconciledState = reconcileBookingV2Agenda(state, plan, [])
+    const stateWithPhotoQuote = plan.type === 'handoff' && plan.reason === 'photo_required'
+      ? withPendingPhotoQuote(state)
+      : state
+    const reconciledState = reconcileBookingV2Agenda(stateWithPhotoQuote, plan, [])
     const reply = renderBookingV2Response({
       plan,
       draft: reconciledState.draft,
@@ -5131,6 +5174,21 @@ function dateInTimeZone(value: Date, timeZone: string) {
   const read = (type: Intl.DateTimeFormatPartTypes) =>
     Number(parts.find((part) => part.type === type)?.value)
   return new Date(Date.UTC(read('year'), read('month') - 1, read('day')))
+}
+
+const PHOTO_QUOTE_REQUEST_WINDOW_MS = 24 * 60 * 60 * 1_000
+
+function withPendingPhotoQuote(state: BookingV2State, now = new Date()): BookingV2State {
+  const serviceId = state.guidedEstimate?.serviceId ?? state.draft.service
+  if (!serviceId) return state
+  return {
+    ...state,
+    pendingPhotoQuote: {
+      serviceId,
+      requestedAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + PHOTO_QUOTE_REQUEST_WINDOW_MS).toISOString()
+    }
+  }
 }
 
 function parseTime(message: string) {

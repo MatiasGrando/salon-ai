@@ -34,6 +34,12 @@ export type BookingV2GuidedEstimate = {
   priceMax: number | null
 }
 
+export type BookingV2PendingPhotoQuote = {
+  serviceId: string
+  requestedAt: string
+  expiresAt: string
+}
+
 export type BookingV2ServiceValidation = {
   serviceId: string
   stage: 'awaiting_confirmation' | 'completed'
@@ -195,6 +201,7 @@ export type BookingV2State = {
   catalogNavigation: BookingV2CatalogNavigation | null
   serviceValidation: BookingV2ServiceValidation | null
   guidedEstimate: BookingV2GuidedEstimate | null
+  pendingPhotoQuote: BookingV2PendingPhotoQuote | null
   combinedServiceDecisionQueue: string[] | null
   advisorQuote: BookingV2AdvisorQuote | null
   quoteOnly: BookingV2QuoteOnly | null
@@ -246,6 +253,7 @@ export function createEmptyBookingV2State(): BookingV2State {
     catalogNavigation: null,
     serviceValidation: null,
     guidedEstimate: null,
+    pendingPhotoQuote: null,
     combinedServiceDecisionQueue: null,
     advisorQuote: null,
     quoteOnly: null,
@@ -399,6 +407,9 @@ export function acceptField(
     guidedEstimate: field === 'service' && state.draft[field] !== value
       ? null
       : state.guidedEstimate,
+    pendingPhotoQuote: field === 'service' && state.draft[field] !== value
+      ? null
+      : state.pendingPhotoQuote,
     combinedServiceDecisionQueue: field === 'service' && state.draft[field] !== value
       ? null
       : state.combinedServiceDecisionQueue,
@@ -482,6 +493,7 @@ export function confirmProposal(state: BookingV2State): BookingV2State {
       catalogNavigation: proposal.field === 'service' ? null : state.catalogNavigation,
       serviceValidation: proposal.field === 'service' ? null : state.serviceValidation,
       guidedEstimate: proposal.field === 'service' ? null : state.guidedEstimate,
+      pendingPhotoQuote: proposal.field === 'service' ? null : state.pendingPhotoQuote,
       advisorQuote: proposal.field === 'service' ? null : state.advisorQuote,
       pendingDeposit: null,
       misunderstandingCount: 0

@@ -77,6 +77,7 @@ import {
   isQueuedConversationHandoff,
   queuedConversationHandoffPatch
 } from './conversation-handoff.js'
+import { PHOTO_QUOTE_ACKNOWLEDGEMENT } from './photo-quote-acknowledgement-service.js'
 import {
   extractExplicitCustomerIntroduction,
   extractMisaddressedAssistantGreeting,
@@ -102,6 +103,7 @@ type HandleMessageInput = {
   useAi?: boolean
   interactiveReplyId?: string
   previousActivityAt?: Date
+  hasImageAttachment?: boolean
 }
 
 type HandleMessageResult = {
@@ -111,6 +113,7 @@ type HandleMessageResult = {
   depositRequestId?: string
   skipMisunderstandingTracking?: boolean
   skipHumanize?: boolean
+  suppressOutbound?: boolean
 }
 
 type ConversationStepValue =
@@ -568,6 +571,77 @@ export class ConversationService {
       }
     }
 
+    if (bookingV2Enabled && businessId) {
+      const currentState = stateFromConversation(conversation)
+      if (
+        currentState.pendingPhotoQuote &&
+        !isPendingPhotoQuoteActive(currentState.pendingPhotoQuote)
+      ) {
+        const resetState = freshBookingV2State(currentState.draft.name)
+        conversation = await this.updateConversation(input.phone, businessId, {
+          currentStep: 'START',
+          ...conversationPatchFromState(resetState),
+          humanHandoffAt: null,
+          humanHandoffResolvedAt: null,
+          photoQuoteAcknowledgedAt: null
+        })
+        if (input.hasImageAttachment) {
+          return {
+            reply: 'Recibí la imagen, pero la solicitud anterior de presupuesto ya venció y no la envié al equipo. Decime qué servicio querés consultar y empezamos una solicitud nueva.',
+            skipMisunderstandingTracking: true,
+            skipHumanize: true
+          }
+        }
+      }
+    }
+
+    if (input.hasImageAttachment && bookingV2Enabled && businessId) {
+      const imageState = stateFromConversation(conversation)
+      const pendingPhotoQuote = imageState.pendingPhotoQuote
+
+      if (
+        pendingPhotoQuote &&
+        isPendingPhotoQuoteActive(pendingPhotoQuote) &&
+        isQueuedConversationHandoff(conversation)
+      ) {
+        if (conversation.photoQuoteAcknowledgedAt) {
+          return {
+            reply: '',
+            messages: [],
+            suppressOutbound: true,
+            skipMisunderstandingTracking: true,
+            skipHumanize: true
+          }
+        }
+        await this.updateConversation(input.phone, businessId, {
+          currentStep: 'HUMAN_HANDOFF',
+          photoQuoteAcknowledgedAt: new Date()
+        })
+        return {
+          reply: PHOTO_QUOTE_ACKNOWLEDGEMENT,
+          skipMisunderstandingTracking: true,
+          skipHumanize: true
+        }
+      }
+
+      const imageQuote = await bookingV2Engine.receiveImageForExactQuote({
+        businessId,
+        conversation
+      })
+      if (imageQuote) {
+        await this.updateConversation(input.phone, businessId, {
+          ...imageQuote.conversationPatch,
+          ...queuedConversationHandoffPatch(),
+          photoQuoteAcknowledgedAt: new Date()
+        })
+        return {
+          reply: PHOTO_QUOTE_ACKNOWLEDGEMENT,
+          skipMisunderstandingTracking: true,
+          skipHumanize: true
+        }
+      }
+    }
+
     if (coordinationButtonMessage && bookingV2Enabled && businessId) {
       if (coordinationButtonMessage === 'solicitar atención') {
         await this.updateConversation(input.phone, businessId, {
@@ -820,10 +894,14 @@ export class ConversationService {
       !hardResetRequested &&
       isQueuedConversationHandoff(conversation)
     ) {
+      const queuedPhotoQuote = stateFromConversation(conversation).pendingPhotoQuote
       return this.handleQueuedHumanHandoffMessage({
         message,
         businessId,
-        routing: bookingV2Routing
+        routing: bookingV2Routing,
+        pendingPhotoQuoteActive: Boolean(
+          queuedPhotoQuote && isPendingPhotoQuoteActive(queuedPhotoQuote)
+        )
       })
     }
 
@@ -2438,6 +2516,7 @@ export class ConversationService {
     message: string
     businessId: string
     routing: ConversationRouting
+    pendingPhotoQuoteActive: boolean
   }): Promise<HandleMessageResult> {
     const assistantPersonality = await getBusinessAssistantPersonality(input.businessId)
     const topics = businessInformationTopicsFromRouting(input.routing)
@@ -2451,11 +2530,16 @@ export class ConversationService {
         })
       : null
     if (informationReply) {
+      const photoQuoteNotice = input.pendingPhotoQuoteActive
+        ? 'El equipo sigue teniendo tus imágenes y te responderá por el presupuesto apenas pueda.'
+        : null
       return {
         reply: applyAssistantPersonalityToReply(
           input.routing.bookingMessage
             ? `${informationReply}\n\n${botCopyService.humanHandoffBookingLocked()}`
-            : informationReply,
+            : photoQuoteNotice
+              ? `${informationReply}\n\n${photoQuoteNotice}`
+              : informationReply,
           assistantPersonality
         ),
         skipMisunderstandingTracking: true,
@@ -4193,6 +4277,7 @@ export function clearBookingV2StateFromField(
     categoryAdvice: field === 'service' ? null : state.categoryAdvice,
     serviceValidation: field === 'service' ? null : state.serviceValidation,
     guidedEstimate: field === 'service' ? null : state.guidedEstimate,
+    pendingPhotoQuote: field === 'service' ? null : state.pendingPhotoQuote,
     advisorQuote: field === 'service' ? null : state.advisorQuote,
     combinedServices: field === 'service' ? [] : state.combinedServices,
     addonSuggestion: field === 'service' ? null : state.addonSuggestion,
@@ -4702,12 +4787,26 @@ export function splitWhatsAppReply(reply: string, maxLength = 650) {
 }
 
 function withOutboundMessages(result: HandleMessageResult): HandleMessageResult {
+  if (result.suppressOutbound) return { ...result, messages: [] }
   const messages = result.messages?.map((message) => message.trim()).filter(Boolean) ??
     splitWhatsAppReply(result.reply)
   return {
     ...result,
     messages
   }
+}
+
+export function isPendingPhotoQuoteActive(
+  pending: { serviceId: string; requestedAt: string; expiresAt: string },
+  now = new Date()
+) {
+  const requestedAt = Date.parse(pending.requestedAt)
+  const expiresAt = Date.parse(pending.expiresAt)
+  return Boolean(pending.serviceId) &&
+    Number.isFinite(requestedAt) &&
+    Number.isFinite(expiresAt) &&
+    requestedAt <= now.getTime() &&
+    expiresAt > now.getTime()
 }
 
 export function pendingRequestFromRouting(input: {
@@ -4837,6 +4936,11 @@ export function bookingCoordinationReplyButtons(input: {
       { id: `${prefix}validate_help`, title: 'Necesito ayuda' }
     ]
   }
+  if (input.plan.type === 'ask_estimate_option') {
+    return [
+      { id: `${prefix}estimate_exact_quote`, title: 'Presupuesto exacto' }
+    ]
+  }
   if (
     !input.state.quoteOnly &&
     (
@@ -4849,7 +4953,7 @@ export function bookingCoordinationReplyButtons(input: {
       ...(input.plan.allowsBooking
         ? [{ id: `${prefix}estimate_continue`, title: 'Continuar reserva' }]
         : []),
-      { id: `${prefix}estimate_exact_quote`, title: 'Pedir presupuesto' }
+      { id: `${prefix}estimate_exact_quote`, title: 'Presupuesto exacto' }
     ]
   }
   const addonServiceIds = input.plan.type === 'ask_service_addons'

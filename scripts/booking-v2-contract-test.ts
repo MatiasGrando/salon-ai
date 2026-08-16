@@ -71,6 +71,7 @@ import {
   isExplicitProfessionalScheduleQuestion,
   isGroundedUnsupportedServiceRequest,
   isMyAppointmentsMessage,
+  isPendingPhotoQuoteActive,
   isPendingServiceVerificationSelection,
   isPostBookingWellbeingQuestion,
   mergeBookingV2AgendaFromRouting,
@@ -2639,7 +2640,13 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         conversationId: 'conversation-1',
         businessId: 'business-1',
         phone: '5491100000000',
-        selectedServiceId: 'illumination'
+        selectedServiceId: 'illumination',
+        pendingPhotoQuote: {
+          serviceId: 'illumination',
+          requestedAt: '2026-08-16T01:00:00.000Z',
+          expiresAt: '2026-08-17T01:00:00.000Z'
+        },
+        now: new Date('2026-08-16T02:00:00.000Z')
       }
       const first = await service.acknowledge(input)
       const second = await service.acknowledge(input)
@@ -2648,6 +2655,18 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(sends.length, 1)
       assert.equal(outboundMessages.length, 1)
       assert.equal(outboundMessages[0]?.body, PHOTO_QUOTE_ACKNOWLEDGEMENT)
+
+      assert.equal(await service.acknowledge({
+        ...input,
+        pendingPhotoQuote: {
+          ...input.pendingPhotoQuote,
+          expiresAt: '2026-08-16T01:30:00.000Z'
+        }
+      }), null)
+      assert.equal(await service.acknowledge({
+        ...input,
+        pendingPhotoQuote: null
+      }), null)
     }
   },
   {
@@ -3507,11 +3526,19 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           ],
           estimateDisclaimer: 'Es un valor estimativo.',
           estimateAllowsBooking: true
+        }, {
+          id: 'woman-cut',
+          name: 'Corte mujer',
+          aliases: ['corte de mujer'],
+          duration: 30,
+          price: 37000,
+          category: 'Cortes',
+          attentionMode: 'DIRECT_BOOKING'
         }],
         professionals: [{
           id: 'professional-1',
           name: 'Tamara',
-          serviceIds: ['highlights']
+          serviceIds: ['highlights', 'woman-cut']
         }]
       })
       const engine = new BookingV2Engine(
@@ -3537,6 +3564,52 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(selected.plan.type, 'ask_estimate_option')
       assert.equal(selected.reply.includes('¿Qué largo'), true)
       assert.equal(selected.reply.includes('2. Hasta media espalda'), true)
+      assert.equal(selected.reply.includes('Presupuesto exacto'), true)
+      const optionButtons = bookingCoordinationReplyButtons({
+        conversationId: 'conversation-1',
+        plan: selected.plan,
+        state: selected.state
+      })
+      assert.deepEqual(optionButtons?.map((button) => button.title), ['Presupuesto exacto'])
+
+      const exactFromOption = await engine.process({
+        businessId: 'business-1',
+        conversation: selected.conversationPatch,
+        message: bookingCoordinationMessageFromInteractiveReply(
+          optionButtons?.[0]?.id,
+          'conversation-1'
+        ) ?? ''
+      })
+      assert.deepEqual(exactFromOption.plan, { type: 'handoff', reason: 'photo_required' })
+      assert.equal(exactFromOption.state.pendingPhotoQuote?.serviceId, 'highlights')
+      assert.equal(isPendingPhotoQuoteActive(exactFromOption.state.pendingPhotoQuote!), true)
+      assert.equal(
+        stateFromConversation(exactFromOption.conversationPatch).pendingPhotoQuote?.serviceId,
+        'highlights'
+      )
+
+      const exactFromImage = await engine.receiveImageForExactQuote({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState({
+          ...selected.state,
+          combinedServices: [{ serviceId: 'woman-cut', evidence: 'corte' }]
+        })
+      })
+      assert.deepEqual(exactFromImage?.plan, { type: 'handoff', reason: 'photo_required' })
+      assert.equal(exactFromImage?.state.pendingPhotoQuote?.serviceId, 'highlights')
+      assert.deepEqual(
+        exactFromImage?.state.combinedServices,
+        [{ serviceId: 'woman-cut', evidence: 'corte' }]
+      )
+
+      const unrelatedImage = await engine.receiveImageForExactQuote({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState({
+          ...selected.state,
+          guidedEstimate: null
+        })
+      })
+      assert.equal(unrelatedImage, null)
 
       const selectedWithAvailabilityPreference = await engine.process({
         businessId: 'business-1',
@@ -3578,7 +3651,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       })
       assert.deepEqual(
         estimateButtons?.map((button) => button.title),
-        ['Continuar reserva', 'Pedir presupuesto']
+        ['Continuar reserva', 'Presupuesto exacto']
       )
       const continueButtonMessage = bookingCoordinationMessageFromInteractiveReply(
         estimateButtons?.[0]?.id,

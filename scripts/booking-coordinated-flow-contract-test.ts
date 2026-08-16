@@ -1137,7 +1137,7 @@ const estimateButtons = bookingCoordinationReplyButtons({
 })
 assert.deepEqual(
   estimateButtons?.map((button) => button.title),
-  ['Continuar reserva', 'Pedir presupuesto']
+  ['Continuar reserva', 'Presupuesto exacto']
 )
 assert.equal(estimateButtons?.every((button) => button.title.length <= 20), true)
 assert.equal(new Set(estimateButtons?.map((button) => button.id)).size, 2)
