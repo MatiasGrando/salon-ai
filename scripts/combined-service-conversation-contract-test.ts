@@ -295,12 +295,35 @@ function glowColorAndCutsCatalog(
         parentServiceId: 'familia-corte',
         parentServiceName: 'Corte',
         parentSelectionMode: 'ONE_OF'
+      },
+      {
+        id: 'bano-crema',
+        name: 'Baño de crema',
+        aliases: [],
+        duration: 30,
+        price: 35000,
+        category: 'Nutrición'
+      },
+      {
+        id: 'tratamiento-nutritivo',
+        name: 'Tratamiento nutritivo',
+        aliases: [],
+        duration: 45,
+        price: 45000,
+        category: 'Nutrición'
       }
     ],
     professionals: [{
       id: 'juan',
       name: 'Juan',
-      serviceIds: ['iluminacion', 'corte-hombre', 'corte-mujer', 'corte-barba']
+      serviceIds: [
+        'iluminacion',
+        'corte-hombre',
+        'corte-mujer',
+        'corte-barba',
+        'bano-crema',
+        'tratamiento-nutritivo'
+      ]
     }]
   })
 }
@@ -477,6 +500,29 @@ await test('rechazar una equivalencia muestra categorías y conserva los demás 
     ['corte-hombre', 'corte-mujer', 'corte-barba']
   )
   assert.match(selected.reply, /Corte mujer/i)
+
+  const openedNutrition = await engine(domainCatalog).process({
+    businessId: 'business-1',
+    conversation: rejected.conversationPatch,
+    message: 'nutricion'
+  })
+  assert.equal(openedNutrition.state.pendingServiceDisambiguation?.catalogFallback, true)
+  assert.match(openedNutrition.reply, /Para Nutrición tengo estas opciones/i)
+  assert.match(openedNutrition.reply, /Baño de crema/i)
+  assert.doesNotMatch(openedNutrition.reply, /Para Mechas/i)
+
+  const selectedNutrition = await engine(domainCatalog).process({
+    businessId: 'business-1',
+    conversation: openedNutrition.conversationPatch,
+    message: 'Baño de crema'
+  })
+  assert.equal(selectedNutrition.state.draft.service, 'bano-crema')
+  assert.deepEqual(
+    selectedNutrition.state.pendingServiceDisambiguation?.serviceIds,
+    ['corte-hombre', 'corte-mujer', 'corte-barba']
+  )
+  assert.match(selectedNutrition.reply, /Corte mujer/i)
+  assert.doesNotMatch(selectedNutrition.reply, /Para Mechas/i)
 })
 
 await test('mechas configurado como alias se resuelve sin confirmación y conserva corte', async () => {

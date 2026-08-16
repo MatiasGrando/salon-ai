@@ -1726,24 +1726,33 @@ export class ConversationService {
       if (input.routing.bookingMessage) {
         informationReply = appendBusinessInformationReply(informationReply, scheduleReply)
       } else {
-        const resumedReply = shouldResumeBookingV2AfterInformation(
+        const resumed = shouldResumeBookingV2AfterInformation(
           input.conversation.currentStep,
           storedInformationState
         )
-          ? (await bookingV2Engine.resume({
+          ? await bookingV2Engine.resume({
               businessId: input.businessId,
               conversation: input.conversation
-            })).reply
+            })
           : null
         await this.updateConversation(input.phone, input.businessId, {
           currentStep: conversationStepValue(input.conversation.currentStep),
           misunderstandingCount: 0
         })
+        const resumedButtons = resumed
+          ? bookingCoordinationReplyButtons({
+              conversationId: input.conversation.id,
+              plan: resumed.plan,
+              state: resumed.state,
+              availabilityOptions: resumed.availabilityOptions
+            })
+          : null
         return {
           reply: applyAssistantPersonalityToReply(
-            resumedReply ? composeBusinessInformationResumeReply(scheduleReply, resumedReply) : scheduleReply,
+            resumed ? composeBusinessInformationResumeReply(scheduleReply, resumed.reply) : scheduleReply,
             assistantPersonality
           ),
+          ...(resumedButtons ? { replyButtons: resumedButtons } : {}),
           skipMisunderstandingTracking: true,
           skipHumanize: true
         }
@@ -1807,25 +1816,36 @@ export class ConversationService {
             }
           }
         }
-        const resumedReply = shouldResumeBookingV2AfterInformation(
+        const resumed = shouldResumeBookingV2AfterInformation(
           input.conversation.currentStep,
           storedInformationState
         )
-          ? (await bookingV2Engine.resume({
+          ? await bookingV2Engine.resume({
               businessId: input.businessId,
               conversation: input.conversation
-            })).reply
+            })
           : null
         const requiredReply = applyAssistantPersonalityToReply(
-          resumedReply && detailReply
-            ? composeBusinessInformationResumeReply(detailReply, resumedReply)
+          resumed && detailReply
+            ? composeBusinessInformationResumeReply(detailReply, resumed.reply)
             : detailReply ?? 'No tengo ese detalle cargado de forma confiable.',
           assistantPersonality
         )
+        const needsHumanRecovery = businessInformationNeedsHuman(requiredReply)
+        const resumedButtons = resumed
+          ? bookingCoordinationReplyButtons({
+              conversationId: input.conversation.id,
+              plan: resumed.plan,
+              state: resumed.state,
+              availabilityOptions: resumed.availabilityOptions
+            })
+          : null
         return {
           reply: requiredReply,
-          ...(businessInformationNeedsHuman(requiredReply)
+          ...(needsHumanRecovery
             ? { replyButtons: recoveryDecisionButtons(input.conversation.id) }
+            : resumedButtons
+              ? { replyButtons: resumedButtons }
             : {}),
           skipMisunderstandingTracking: true,
           skipHumanize: true
@@ -2234,10 +2254,19 @@ export class ConversationService {
         composeBusinessInformationResumeReply(informationReply, resumed.reply),
         assistantPersonality
       )
+      const needsHumanRecovery = businessInformationNeedsHuman(informationReply)
+      const resumedButtons = bookingCoordinationReplyButtons({
+        conversationId: input.conversation.id,
+        plan: resumed.plan,
+        state: resumed.state,
+        availabilityOptions: resumed.availabilityOptions
+      })
       return {
         reply: requiredReply,
-        ...(businessInformationNeedsHuman(informationReply)
+        ...(needsHumanRecovery
           ? { replyButtons: recoveryDecisionButtons(input.conversation.id) }
+          : resumedButtons
+            ? { replyButtons: resumedButtons }
           : {}),
         skipMisunderstandingTracking: true,
         skipHumanize: true

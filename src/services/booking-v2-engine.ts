@@ -3274,7 +3274,8 @@ export class BookingV2Engine {
     const serviceSuggestions = renderContext?.serviceSuggestions ??
       pendingServiceDisambiguationOptions(effectiveInterpretation.state, catalog) ??
       offeredCategoryServices(effectiveInterpretation.state, catalog)
-    const serviceSuggestionLabel = effectiveInterpretation.state.pendingServiceDisambiguation
+    const serviceSuggestionLabel = effectiveInterpretation.state.pendingServiceDisambiguation &&
+      !effectiveInterpretation.state.pendingServiceDisambiguation.catalogFallback
       ? ambiguousServiceReference(effectiveInterpretation.state.pendingServiceDisambiguation.evidence)
       : null
 
@@ -3349,7 +3350,8 @@ export class BookingV2Engine {
     }, catalog.bookingFlowOrder)
     const reconciledState = reconcileBookingV2Agenda(state, plan, [])
     const serviceSuggestions = pendingServiceDisambiguationOptions(reconciledState, catalog)
-    const serviceSuggestionLabel = reconciledState.pendingServiceDisambiguation
+    const serviceSuggestionLabel = reconciledState.pendingServiceDisambiguation &&
+      !reconciledState.pendingServiceDisambiguation.catalogFallback
       ? ambiguousServiceReference(reconciledState.pendingServiceDisambiguation.evidence)
       : null
     const reply = renderBookingV2Response({
@@ -4641,7 +4643,11 @@ function pendingServiceDisambiguationGroups(
   pending: BookingV2PendingServiceDisambiguation
 ): BookingV2ServiceDisambiguationGroup[] {
   return [
-    { serviceIds: pending.serviceIds, evidence: pending.evidence },
+    {
+      serviceIds: pending.serviceIds,
+      evidence: pending.evidence,
+      ...(pending.catalogFallback ? { catalogFallback: true } : {})
+    },
     ...(pending.remainingGroups ?? [])
   ]
 }
