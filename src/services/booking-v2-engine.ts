@@ -954,7 +954,8 @@ export class BookingV2Engine {
         if (!option) {
           return this.guidedEstimateResult(initialState, {
             type: 'ask_estimate_option',
-            reason: 'not_understood'
+            reason: 'not_understood',
+            options: estimatePlanOptions(service.estimateOptions ?? [])
           }, catalog, 'no_change')
         }
         const state: BookingV2State = {
@@ -2727,7 +2728,8 @@ export class BookingV2Engine {
       }
       return this.guidedEstimateResult(state, {
         type: 'ask_estimate_option',
-        reason: 'missing'
+        reason: 'missing',
+        options: estimatePlanOptions(guidedService.estimateOptions ?? [])
       }, catalog, 'no_change')
     }
     if (guidedService && state.guidedEstimate?.stage === 'awaiting_decision') {
@@ -2996,7 +2998,8 @@ export class BookingV2Engine {
           }
           plan = {
             type: 'ask_estimate_option',
-            reason: 'missing'
+            reason: 'missing',
+            options: estimatePlanOptions(selectedService.estimateOptions ?? [])
           }
         }
       }
@@ -4278,6 +4281,10 @@ function deterministicEstimateOption(
   message: string,
   options: NonNullable<BookingV2DomainCatalog['services'][number]['estimateOptions']>
 ) {
+  const interactiveOptionId = /^estimate-option:(.+)$/.exec(message.trim())?.[1]
+  if (interactiveOptionId) {
+    return options.find((option) => option.id === interactiveOptionId) ?? null
+  }
   const normalizedMessage = normalize(message).trim()
   const numericMatch = normalizedMessage.match(/^(?:opcion )?(\d+)$/)
   const ordinalIndex = new Map([
@@ -4287,6 +4294,12 @@ function deterministicEstimateOption(
   const selectedIndex = numericMatch ? Number(numericMatch[1]) : ordinalIndex
   if (!selectedIndex || selectedIndex < 1 || selectedIndex > options.length) return null
   return options[selectedIndex - 1] ?? null
+}
+
+function estimatePlanOptions(
+  options: NonNullable<BookingV2DomainCatalog['services'][number]['estimateOptions']>
+) {
+  return options.map((option) => ({ id: option.id, label: option.label }))
 }
 
 function genericServiceFamilyMatches(

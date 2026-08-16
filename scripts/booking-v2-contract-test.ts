@@ -2877,7 +2877,18 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       })
       assert.match(lengthQuestion.reply, /El precio de Tintura completo puede variar/)
       assert.match(lengthQuestion.reply, /¿Qué largo tiene tu cabello\?/)
-      assert.match(lengthQuestion.reply, /3\. Debajo de la escápula/)
+      assert.doesNotMatch(lengthQuestion.reply, /3\. Debajo de la escápula/)
+      const lengthButtons = bookingCoordinationReplyButtons({
+        conversationId: 'conversation-1',
+        plan: lengthQuestion.plan,
+        state: lengthQuestion.state
+      })
+      assert.deepEqual(lengthButtons?.map((button) => button.title), [
+        'Hasta los hombros',
+        'Hasta la escápula',
+        'Debajo de escápula'
+      ])
+      assert.equal(lengthButtons?.every((button) => button.title.length <= 20), true)
 
       const summary = await engine.process({
         businessId: 'business-1',
@@ -3568,22 +3579,35 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       })
       assert.equal(selected.plan.type, 'ask_estimate_option')
       assert.equal(selected.reply.includes('¿Qué largo'), true)
-      assert.equal(selected.reply.includes('2. Hasta media espalda'), true)
-      assert.equal(selected.reply.includes('Presupuesto exacto'), true)
+      assert.equal(selected.reply.includes('2. Hasta media espalda'), false)
+      assert.equal(selected.reply.includes('presupuesto exacto'), true)
       const optionButtons = bookingCoordinationReplyButtons({
         conversationId: 'conversation-1',
         plan: selected.plan,
         state: selected.state
       })
-      assert.deepEqual(optionButtons?.map((button) => button.title), ['Presupuesto exacto'])
+      assert.deepEqual(
+        optionButtons?.map((button) => button.title),
+        ['Hasta los hombros', 'Hasta media espalda']
+      )
+      assert.equal(optionButtons?.every((button) => button.title.length <= 20), true)
+      assert.equal(new Set(optionButtons?.map((button) => button.id)).size, 2)
+
+      const selectedFromButton = await engine.process({
+        businessId: 'business-1',
+        conversation: selected.conversationPatch,
+        message: bookingCoordinationMessageFromInteractiveReply(
+          optionButtons?.[1]?.id,
+          'conversation-1'
+        ) ?? ''
+      })
+      assert.equal(selectedFromButton.plan.type, 'show_estimate')
+      assert.equal(selectedFromButton.state.guidedEstimate?.optionId, 'long')
 
       const exactFromOption = await engine.process({
         businessId: 'business-1',
         conversation: selected.conversationPatch,
-        message: bookingCoordinationMessageFromInteractiveReply(
-          optionButtons?.[0]?.id,
-          'conversation-1'
-        ) ?? ''
+        message: 'presupuesto exacto'
       })
       assert.deepEqual(exactFromOption.plan, { type: 'handoff', reason: 'photo_required' })
       assert.equal(exactFromOption.state.pendingPhotoQuote?.serviceId, 'highlights')

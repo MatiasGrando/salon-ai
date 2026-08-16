@@ -4996,6 +4996,12 @@ export function bookingCoordinationReplyButtons(input: {
     ]
   }
   if (input.plan.type === 'ask_estimate_option') {
+    if (input.plan.options.length > 0 && input.plan.options.length <= 3) {
+      return input.plan.options.map((option, index) => ({
+        id: `${prefix}estimate_option:${encodeURIComponent(option.id)}`,
+        title: estimateOptionButtonTitle(option.label, index)
+      }))
+    }
     return [
       { id: `${prefix}estimate_exact_quote`, title: 'Presupuesto exacto' }
     ]
@@ -5195,6 +5201,15 @@ export function bookingCoordinationMessageFromInteractiveReply(
   if (action === 'disambiguation_reject') return 'no'
   if (action === 'estimate_continue') return 'sí, quiero continuar con la reserva'
   if (action === 'estimate_exact_quote') return 'prefiero un presupuesto exacto'
+  if (action.startsWith('estimate_option:')) {
+    const encodedOptionId = action.slice('estimate_option:'.length)
+    if (!encodedOptionId) return null
+    try {
+      return `estimate-option:${decodeURIComponent(encodedOptionId)}`
+    } catch {
+      return null
+    }
+  }
   if (action === 'addon_first') return '1'
   if (action === 'addon_all') return 'agregar todos los servicios sugeridos'
   if (action === 'addon_continue') return 'No, continuar'
@@ -5222,6 +5237,25 @@ function withoutProfessionalButtonTitle(professionalName?: string | null) {
   const firstName = professionalName?.trim().split(/\s+/)[0]
   const title = firstName ? `Buscar sin ${firstName}` : 'Cambiar profesional'
   return title.length <= 20 ? title : 'Cambiar profesional'
+}
+
+function estimateOptionButtonTitle(label: string, index: number) {
+  const title = label.trim().replace(/\s+/g, ' ')
+  if (title.length <= 20) return title
+
+  const withoutParenthetical = title.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim()
+  if (withoutParenthetical.length <= 20) return withoutParenthetical
+
+  const compact = withoutParenthetical
+    .replace(/\bde los\b/giu, 'de')
+    .replace(/\bde las\b/giu, 'de')
+    .replace(/\bde la\b/giu, 'de')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (compact.length <= 20) return compact
+
+  const shortened = compact.slice(0, 20).replace(/\s+\S*$/, '').trim()
+  return shortened || `Opción ${index + 1}`
 }
 
 function coordinatedDateButtonTitle(date: string) {

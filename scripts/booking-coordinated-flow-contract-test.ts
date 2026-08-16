@@ -1163,6 +1163,51 @@ assert.deepEqual(await estimateDecisionExtractor.extract({
   requiresPhoto: false
 }), { decision: 'request_exact_quote', confidence: 0.98 })
 
+const estimateOptionButtons = bookingCoordinationReplyButtons({
+  conversationId: 'conversation-1',
+  plan: {
+    type: 'ask_estimate_option',
+    reason: 'missing',
+    options: [
+      { id: 'short', label: 'Hasta los hombros' },
+      { id: 'medium', label: 'Debajo de los hombros' },
+      { id: 'long', label: 'Debajo de la escápula' }
+    ]
+  },
+  state: denseState
+})
+assert.deepEqual(estimateOptionButtons?.map((button) => button.title), [
+  'Hasta los hombros',
+  'Debajo de hombros',
+  'Debajo de escápula'
+])
+assert.deepEqual(
+  estimateOptionButtons?.map((button) => bookingCoordinationMessageFromInteractiveReply(
+    button.id,
+    'conversation-1'
+  )),
+  ['estimate-option:short', 'estimate-option:medium', 'estimate-option:long']
+)
+
+const largeEstimateOptionButtons = bookingCoordinationReplyButtons({
+  conversationId: 'conversation-1',
+  plan: {
+    type: 'ask_estimate_option',
+    reason: 'missing',
+    options: [
+      { id: 'one', label: 'Opción uno' },
+      { id: 'two', label: 'Opción dos' },
+      { id: 'three', label: 'Opción tres' },
+      { id: 'four', label: 'Opción cuatro' }
+    ]
+  },
+  state: denseState
+})
+assert.deepEqual(
+  largeEstimateOptionButtons?.map((button) => button.title),
+  ['Presupuesto exacto']
+)
+
 const standardTimeButtons = bookingCoordinationReplyButtons({
   conversationId: 'conversation-1',
   plan: { type: 'ask_field', field: 'time', reason: 'missing', misunderstandingCount: 0 },
@@ -1249,6 +1294,8 @@ for (const buttons of [
   bookingDateButtons,
   addonButtons,
   estimateButtons,
+  estimateOptionButtons,
+  largeEstimateOptionButtons,
   validationButtons,
   decisionButtons,
   modificationButtons,

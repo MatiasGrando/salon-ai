@@ -321,15 +321,22 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
       service?.estimateExplanation?.trim()
     )
     const question = service?.estimateQuestion?.trim() || '¿Cuál de estas opciones se parece más a tu caso?'
-    const options = service?.estimateOptions ?? []
+    const options = input.plan.options
+    const usesReplyButtons = options.length > 0 && options.length <= 3
     return [
       ...(input.plan.reason === 'not_understood'
         ? ['Disculpame, no pude identificar la opción.']
         : explanation ? [explanation] : []),
       question,
-      ...options.map((option, index) => `• ${index + 1}. ${option.label}`),
-      'Respondé con el número o con el largo.',
-      'Si preferís que el equipo prepare un presupuesto exacto, usá el botón “Presupuesto exacto”.'
+      ...(usesReplyButtons
+        ? ['Elegí una opción.']
+        : [
+            ...options.map((option, index) => `• ${index + 1}. ${option.label}`),
+            'Respondé con el número o con el largo.'
+          ]),
+      usesReplyButtons
+        ? 'Si preferís que el equipo prepare un presupuesto exacto, escribí “presupuesto exacto”.'
+        : 'Si preferís que el equipo prepare un presupuesto exacto, usá el botón “Presupuesto exacto”.'
     ].join('\n')
   }
 

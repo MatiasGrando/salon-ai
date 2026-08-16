@@ -112,6 +112,10 @@ export type BookingV2MessagePlan =
   | {
       type: 'ask_estimate_option'
       reason: 'missing' | 'not_understood'
+      options: Array<{
+        id: string
+        label: string
+      }>
     }
   | {
       type: 'show_estimate'
