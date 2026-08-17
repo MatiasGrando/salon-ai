@@ -10,6 +10,7 @@ import {
   verifyPassword
 } from '../services/auth-service.js'
 import { BusinessService } from '../services/business-service.js'
+import { refreshBusinessOnboarding } from '../services/business-onboarding-service.js'
 
 const businessService = new BusinessService()
 
@@ -30,6 +31,11 @@ export async function authRoutes(app: FastifyInstance) {
 
     if (!user || !user.isActive || !await verifyPassword(password, user.passwordHash)) {
       return reply.status(401).send({ message: 'Email o contrasena incorrectos' })
+    }
+
+    if (!user.firstLoginAt) {
+      await prisma.user.update({ where: { id: user.id }, data: { firstLoginAt: new Date() } })
+      if (user.businessId) await refreshBusinessOnboarding(user.businessId)
     }
 
     const session = await createSession(user.id)
@@ -64,7 +70,7 @@ export async function authRoutes(app: FastifyInstance) {
   app.post('/admin/businesses', async (request, reply) => {
     const auth = await getAuthFromRequest(request)
     if (!auth) return reply.status(401).send({ message: 'Necesitas iniciar sesion' })
-    const canCreateBusiness = auth.user.role === 'SUPER_ADMIN' || auth.user.canCreateBusinesses
+    const canCreateBusiness = ['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(auth.user.role)
     if (!canCreateBusiness) return reply.status(403).send({ message: 'No tenes permiso para crear comercios' })
 
     const body = request.body as {
@@ -72,15 +78,18 @@ export async function authRoutes(app: FastifyInstance) {
       adminName?: string
       adminEmail?: string
       adminPassword?: string
-      accountAdminId?: string | null
+      contactPhone?: string
+      planId?: string
     }
     const businessName = body.businessName?.trim()
     const adminName = body.adminName?.trim()
     const adminEmail = body.adminEmail?.trim().toLowerCase()
     const adminPassword = body.adminPassword?.trim()
+    const contactPhone = body.contactPhone?.trim()
+    const planId = body.planId?.trim()
 
-    if (!businessName || !adminName || !adminEmail || !adminPassword) {
-      return reply.status(400).send({ message: 'Completa comercio, nombre, email y contrasena del administrador' })
+    if (!businessName || !adminName || !adminEmail || !adminPassword || !contactPhone || !planId) {
+      return reply.status(400).send({ message: 'Completa comercio, nombre, email, telefono, contrasena y plan' })
     }
     if (adminPassword.length < 8) {
       return reply.status(400).send({ message: 'La contrasena debe tener al menos 8 caracteres' })
@@ -88,30 +97,18 @@ export async function authRoutes(app: FastifyInstance) {
 
     const existing = await prisma.user.findUnique({ where: { email: adminEmail } })
     if (existing) return reply.status(409).send({ message: 'Ya existe un usuario con ese email' })
+    if (!await prisma.businessPlan.findUnique({ where: { id: planId }, select: { id: true } })) {
+      return reply.status(400).send({ message: 'El plan seleccionado no es valido' })
+    }
 
     let business
     try {
-      const requestedOwnerValue = body.accountAdminId?.trim()
-      const requestedAccountAdminId = auth.user.role === 'SUPER_ADMIN'
-        ? requestedOwnerValue === '__UNASSIGNED__'
-          ? null
-          : requestedOwnerValue || auth.user.id
-        : auth.user.id
-      if (requestedAccountAdminId && requestedAccountAdminId !== auth.user.id) {
-        const accountAdmin = await prisma.user.findFirst({
-          where: {
-            id: requestedAccountAdminId,
-            role: { in: ['ACCOUNT_ADMIN', 'BUSINESS_ADMIN'] },
-            isActive: true,
-            canCreateBusinesses: true
-          },
-          select: { id: true }
-        })
-        if (!accountAdmin) return reply.status(400).send({ message: 'El responsable comercial no es valido' })
-      }
       business = await businessService.create(businessName, undefined, {
-        accountAdminId: requestedAccountAdminId,
-        createdByUserId: auth.user.id
+        accountAdminId: auth.user.id,
+        createdByUserId: auth.user.id,
+        contactPhone,
+        contactEmail: adminEmail,
+        planId
       })
     } catch {
       return reply.status(400).send({ message: 'No pude generar el subdominio para ese comercio' })
@@ -125,6 +122,7 @@ export async function authRoutes(app: FastifyInstance) {
         businessId: business.id
       }
     })
+    await refreshBusinessOnboarding(business.id)
 
     return {
       business,

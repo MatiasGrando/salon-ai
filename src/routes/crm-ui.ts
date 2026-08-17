@@ -4812,6 +4812,101 @@ const crmHtml = `<!doctype html>
       display: grid;
     }
 
+    .app[data-section="accounts"] {
+      grid-template-columns: var(--workspace-nav-width) minmax(0, 1fr);
+      background: #090a0c;
+    }
+
+    .app[data-section="accounts"] .sidebar,
+    .app[data-section="accounts"] .chat,
+    .app[data-section="accounts"] .details {
+      display: none;
+    }
+
+    .accounts-view {
+      grid-column: 2;
+      min-width: 0;
+      min-height: 0;
+      display: none;
+      padding: 28px;
+      color: #f8f5ef;
+      background: #090a0c;
+      overflow: auto;
+    }
+
+    .app[data-section="accounts"] .accounts-view { display: block; }
+    .accounts-shell { width: 100%; max-width: 1440px; margin: 0 auto; display: grid; gap: 20px; }
+    .accounts-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
+    .accounts-header h2 { margin: 0; font-family: Georgia, serif; font-size: 34px; line-height: 1.05; }
+    .accounts-header p { max-width: 680px; margin: 8px 0 0; color: #b7afa3; font-size: 14px; }
+    .accounts-new { min-height: 42px; padding: 0 20px; border: 0; border-radius: 12px; color: #17120a; background: #d8aa50; font-weight: 800; }
+    .accounts-stats { display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 14px; }
+    .accounts-stat { min-height: 118px; padding: 18px; border: 1px solid #303033; border-radius: 18px; background: #1a1a1d; }
+    .accounts-stat span { display: block; color: #a89884; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+    .accounts-stat strong { display: block; margin-top: 10px; color: #fff; font-size: 28px; }
+    .accounts-stat small { display: block; margin-top: 6px; color: #d8aa50; font-weight: 700; }
+    .accounts-toolbar { padding: 12px; display: grid; grid-template-columns: minmax(260px, 1fr) 220px; gap: 10px; border: 1px solid #303033; border-radius: 16px; background: #1a1a1d; }
+    .accounts-toolbar input,
+    .accounts-toolbar select { min-height: 42px; border: 1px solid #343438; border-radius: 11px; padding: 0 14px; color: #fff; background: #222225; }
+    .accounts-table-card { border: 1px solid #303033; border-radius: 18px; background: #19191c; overflow: hidden; }
+    .accounts-table-wrap { overflow-x: auto; }
+    .accounts-table { width: 100%; border-collapse: collapse; min-width: 1040px; }
+    .accounts-table th { padding: 14px 16px; color: #9d8e7d; background: #202023; font-size: 10px; letter-spacing: .07em; text-align: left; text-transform: uppercase; }
+    .accounts-table td { padding: 14px 16px; border-top: 1px solid #303033; color: #ded9d1; font-size: 13px; vertical-align: middle; }
+    .accounts-table tbody tr { cursor: pointer; }
+    .accounts-table tbody tr:hover { background: #202024; }
+    .account-name-cell { display: grid; grid-template-columns: 38px minmax(0, 1fr); gap: 10px; align-items: center; }
+    .account-avatar { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 10px; color: #17120a; background: #d8aa50; font-weight: 900; }
+    .account-name-cell strong,
+    .account-contact strong { display: block; color: #fff; }
+    .account-name-cell small,
+    .account-contact small { display: block; margin-top: 3px; color: #9d9489; }
+    .account-chip { width: max-content; padding: 5px 9px; display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; color: #c9c2b7; background: #29292c; font-size: 11px; font-weight: 800; }
+    .account-chip.active { color: #65e69a; background: #113322; }
+    .account-chip.onboarding { color: #f4c861; background: #372b0d; }
+    .account-chip.paused,
+    .account-chip.cancelled { color: #aaa39a; background: #28282a; }
+    .account-progress { min-width: 145px; }
+    .account-progress-head { margin-bottom: 6px; display: flex; justify-content: space-between; color: #d9d3ca; font-size: 11px; }
+    .account-progress-track { height: 6px; border-radius: 999px; background: #343438; overflow: hidden; }
+    .account-progress-track i { height: 100%; display: block; border-radius: inherit; background: #d8aa50; }
+    .account-progress small { margin-top: 6px; display: block; color: #9d9489; }
+    .accounts-pagination { min-height: 58px; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; border-top: 1px solid #303033; color: #a89e91; }
+    .accounts-page-actions { display: flex; gap: 7px; }
+    .accounts-page-actions button { width: 36px; height: 36px; border: 1px solid #343438; border-radius: 9px; color: #fff; background: #222225; }
+    .accounts-page-actions button:disabled { opacity: .35; }
+    .account-panel-backdrop { position: fixed; inset: 0; z-index: 70; background: rgba(0,0,0,.55); }
+    .account-panel { position: fixed; top: 0; right: 0; bottom: 0; z-index: 71; width: min(520px, 100vw); padding: 22px; color: #f8f5ef; background: #151518; box-shadow: -20px 0 60px rgba(0,0,0,.45); overflow-y: auto; }
+    .account-panel-head { padding-bottom: 18px; display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; border-bottom: 1px solid #303033; }
+    .account-panel-head h3 { margin: 0; font-size: 24px; }
+    .account-panel-head p { margin: 6px 0 0; color: #a99f93; }
+    .account-panel-close { width: 38px; height: 38px; border: 1px solid #343438; border-radius: 10px; color: #fff; background: #222225; }
+    .account-panel-section { padding: 18px 0; border-bottom: 1px solid #303033; }
+    .account-panel-section h4 { margin: 0 0 12px; color: #d8aa50; font-size: 12px; letter-spacing: .05em; text-transform: uppercase; }
+    .account-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .account-detail-item { padding: 12px; border-radius: 11px; background: #202023; }
+    .account-detail-item span { display: block; color: #9d9489; font-size: 10px; text-transform: uppercase; }
+    .account-detail-item strong { margin-top: 5px; display: block; color: #fff; font-size: 13px; overflow-wrap: anywhere; }
+    .account-checklist { display: grid; gap: 8px; }
+    .account-check { padding: 10px 12px; display: flex; align-items: center; gap: 9px; border-radius: 10px; color: #c4bdb3; background: #202023; }
+    .account-check b { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; color: #8f877e; background: #303034; }
+    .account-check.complete { color: #e9e5df; }
+    .account-check.complete b { color: #65e69a; background: #113322; }
+    .account-open-crm { width: 100%; min-height: 44px; margin-top: 18px; border: 0; border-radius: 11px; color: #17120a; background: #d8aa50; font-weight: 850; }
+    .account-create-dialog { width: min(680px, 100%); }
+
+    @media (max-width: 1100px) {
+      .accounts-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @media (max-width: 760px) {
+      .accounts-view { padding: 16px; }
+      .accounts-header { align-items: stretch; flex-direction: column; }
+      .accounts-toolbar { grid-template-columns: 1fr; }
+      .accounts-stats { grid-template-columns: 1fr 1fr; }
+      .account-detail-grid { grid-template-columns: 1fr; }
+    }
+
     .customers-shell {
       min-width: 0;
       min-height: 0;
@@ -13941,6 +14036,53 @@ const crmHtml = `<!doctype html>
 
     </aside>
 
+    <section class="accounts-view" id="accounts-view">
+      <div class="accounts-shell">
+        <header class="accounts-header">
+          <div>
+            <h2>Gesti&oacute;n de cuentas</h2>
+            <p>Consult&aacute; el estado de cada comercio, su implementaci&oacute;n, responsable y plan.</p>
+          </div>
+          <button class="accounts-new" id="account-new-button" type="button">+ Nueva cuenta</button>
+        </header>
+        <section class="accounts-stats" aria-label="Resumen de cuentas">
+          <article class="accounts-stat"><span>Total de cuentas</span><strong id="account-stat-total">0</strong><small>Cuentas registradas</small></article>
+          <article class="accounts-stat"><span>Cuentas activas</span><strong id="account-stat-active">0</strong><small id="account-stat-active-copy">0% del total</small></article>
+          <article class="accounts-stat"><span>Nuevas este mes</span><strong id="account-stat-new">0</strong><small>Altas recientes</small></article>
+          <article class="accounts-stat"><span>En onboarding</span><strong id="account-stat-onboarding">0</strong><small>Necesitan acompa&ntilde;amiento</small></article>
+          <article class="accounts-stat"><span>Cuentas propias</span><strong id="account-stat-owned">0</strong><small id="account-stat-owned-copy">Responsable actual</small></article>
+        </section>
+        <div class="accounts-toolbar">
+          <input id="account-search" type="search" placeholder="Buscar por comercio, c&oacute;digo, tel&eacute;fono o correo" autocomplete="off">
+          <select id="account-status-filter" aria-label="Filtrar por estado">
+            <option value="">Todos los estados</option>
+            <option value="ONBOARDING">Onboarding</option>
+            <option value="ACTIVE">Activa</option>
+            <option value="PAUSED">Pausada</option>
+            <option value="CANCELLED">Cancelada</option>
+          </select>
+        </div>
+        <section class="accounts-table-card">
+          <div class="accounts-table-wrap">
+            <table class="accounts-table">
+              <thead><tr><th>Cuenta</th><th>Contacto</th><th>Administrador</th><th>Estado</th><th>Onboarding</th><th>Plan</th><th>Registro</th></tr></thead>
+              <tbody id="account-table-body"><tr><td colspan="7">Cargando cuentas...</td></tr></tbody>
+            </table>
+          </div>
+          <footer class="accounts-pagination">
+            <span id="account-pagination-copy">0 cuentas</span>
+            <div class="accounts-page-actions">
+              <button id="account-page-prev" type="button" aria-label="P&aacute;gina anterior">&lsaquo;</button>
+              <button id="account-page-next" type="button" aria-label="P&aacute;gina siguiente">&rsaquo;</button>
+            </div>
+          </footer>
+        </section>
+      </div>
+    </section>
+
+    <div class="account-panel-backdrop" id="account-panel-backdrop" hidden></div>
+    <aside class="account-panel" id="account-panel" hidden></aside>
+
     <section class="customers-view" id="customers-view">
       <div class="customers-shell">
         <header class="customers-header">
@@ -14215,6 +14357,28 @@ const crmHtml = `<!doctype html>
           <button class="secondary" id="confirmation-cancel" type="button">Cancelar</button>
           <button class="danger" id="confirmation-accept" type="button">S&iacute;, eliminar</button>
         </div>
+      </section>
+    </div>
+
+    <div class="dialog-backdrop" id="account-create-dialog" hidden>
+      <section class="dialog account-create-dialog" role="dialog" aria-modal="true" aria-labelledby="account-create-dialog-title">
+        <header class="dialog-header">
+          <div><h3 id="account-create-dialog-title">Nueva cuenta</h3><small>La cuenta quedar&aacute; asignada autom&aacute;ticamente a quien realiza el alta.</small></div>
+          <button class="icon-button" id="account-create-close" type="button" title="Cerrar">X</button>
+        </header>
+        <form class="settings-form" id="account-create-form">
+          <div class="settings-field"><label for="account-business-name">Nombre del comercio</label><input class="field" id="account-business-name" required></div>
+          <div class="settings-field"><label for="account-owner-name">Nombre del administrador</label><input class="field" id="account-owner-name" autocomplete="name" required></div>
+          <div class="settings-field"><label for="account-owner-email">Email de acceso</label><input class="field" id="account-owner-email" type="email" autocomplete="email" required></div>
+          <div class="settings-field"><label for="account-contact-phone">Tel&eacute;fono</label><input class="field" id="account-contact-phone" type="tel" autocomplete="tel" required></div>
+          <div class="settings-field"><label for="account-plan">Plan</label><select class="field" id="account-plan" required></select></div>
+          <div class="settings-field"><label for="account-owner-password">Contrase&ntilde;a inicial</label><input class="field" id="account-owner-password" type="password" minlength="8" autocomplete="new-password" required></div>
+          <p class="settings-feedback full" id="account-create-feedback" role="status" aria-live="polite"></p>
+          <div class="dialog-actions full">
+            <button class="secondary" id="account-create-cancel" type="button">Cancelar</button>
+            <button class="primary" id="account-create-submit" type="submit">Crear cuenta</button>
+          </div>
+        </form>
       </section>
     </div>
 
@@ -15714,7 +15878,7 @@ const crmHtml = `<!doctype html>
         <section class="settings-panel" id="super-admin-panel" data-settings-panel="admin" hidden>
           <h3>Administraci&oacute;n de cuentas</h3>
           <p>Herramientas reservadas para superadministradores y administradores de cuentas.</p>
-          <div class="account-admin-management account-admin-management-first">
+          <div class="account-admin-management account-admin-management-first" hidden>
           <h3>Alta de comercio</h3>
           <p>Cre&aacute; un comercio y su usuario administrador. Despu&eacute;s el negocio completa horarios, profesionales, servicios y WhatsApp.</p>
           <form class="admin-create-form" id="admin-create-business-form">
@@ -16880,6 +17044,14 @@ const crmHtml = `<!doctype html>
       demoChatSessionId: null,
       accountAdmins: [],
       accountAdminCandidates: [],
+      managedAccounts: [],
+      managedAccountPlans: [],
+      managedAccountSummary: { total: 0, active: 0, onboarding: 0, newThisMonth: 0, administrators: [] },
+      managedAccountPagination: { page: 1, take: 25, total: 0, totalPages: 1 },
+      managedAccountSearch: '',
+      managedAccountStatus: '',
+      managedAccountSearchTimer: null,
+      selectedManagedAccountId: null,
       customerOverview: [],
       currentUser: null,
       currentSessionBusiness: null,
@@ -17771,7 +17943,35 @@ const crmHtml = `<!doctype html>
       accountAdminCancel: document.getElementById('account-admin-cancel'),
       accountAdminSubmit: document.getElementById('account-admin-submit'),
       accountAdminFeedback: document.getElementById('account-admin-feedback'),
-      accountAdminList: document.getElementById('account-admin-list')
+      accountAdminList: document.getElementById('account-admin-list'),
+      accountNewButton: document.getElementById('account-new-button'),
+      accountSearch: document.getElementById('account-search'),
+      accountStatusFilter: document.getElementById('account-status-filter'),
+      accountTableBody: document.getElementById('account-table-body'),
+      accountStatTotal: document.getElementById('account-stat-total'),
+      accountStatActive: document.getElementById('account-stat-active'),
+      accountStatActiveCopy: document.getElementById('account-stat-active-copy'),
+      accountStatNew: document.getElementById('account-stat-new'),
+      accountStatOnboarding: document.getElementById('account-stat-onboarding'),
+      accountStatOwned: document.getElementById('account-stat-owned'),
+      accountStatOwnedCopy: document.getElementById('account-stat-owned-copy'),
+      accountPaginationCopy: document.getElementById('account-pagination-copy'),
+      accountPagePrev: document.getElementById('account-page-prev'),
+      accountPageNext: document.getElementById('account-page-next'),
+      accountPanelBackdrop: document.getElementById('account-panel-backdrop'),
+      accountPanel: document.getElementById('account-panel'),
+      accountCreateDialog: document.getElementById('account-create-dialog'),
+      accountCreateForm: document.getElementById('account-create-form'),
+      accountCreateClose: document.getElementById('account-create-close'),
+      accountCreateCancel: document.getElementById('account-create-cancel'),
+      accountCreateSubmit: document.getElementById('account-create-submit'),
+      accountCreateFeedback: document.getElementById('account-create-feedback'),
+      accountBusinessName: document.getElementById('account-business-name'),
+      accountOwnerName: document.getElementById('account-owner-name'),
+      accountOwnerEmail: document.getElementById('account-owner-email'),
+      accountContactPhone: document.getElementById('account-contact-phone'),
+      accountPlan: document.getElementById('account-plan'),
+      accountOwnerPassword: document.getElementById('account-owner-password')
     }
 
     function initials(phone) {
@@ -17875,6 +18075,7 @@ const crmHtml = `<!doctype html>
       message: '<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"></path>',
       more: '<circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle>',
       bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path>',
+      briefcase: '<rect x="3" y="7" width="18" height="13" rx="2"></rect><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><path d="M3 12h18"></path><path d="M10 12v2h4v-2"></path>',
       document: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path><path d="M8 13h8"></path><path d="M8 17h8"></path>',
       whatsapp: '<path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479s1.065 2.875 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.262.489 1.693.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.29.173-1.414-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.981.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884a9.82 9.82 0 0 1 6.988 2.894 9.825 9.825 0 0 1 2.9 6.988c-.003 5.45-4.437 9.884-9.882 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.3-1.654a11.882 11.882 0 0 0 5.688 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z"></path>',
       paperclip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>',
@@ -17913,6 +18114,7 @@ const crmHtml = `<!doctype html>
       if (els.appShell) els.appShell.dataset.section = currentSection
       document.body.dataset.currentSection = currentSection
       const items = [
+        { section: 'accounts', label: 'Cuentas', icon: 'briefcase' },
         { section: 'conversations', label: 'Conversaciones', icon: 'message' },
         { section: 'agenda', label: 'Agenda', icon: 'calendar' },
         { section: 'customers', label: 'Clientes', icon: 'users' },
@@ -17972,8 +18174,9 @@ const crmHtml = `<!doctype html>
 
     function staffVisibleSections() {
       if (state.currentUser?.role === 'ACCOUNT_ADMIN') {
-        return state.business ? ['conversations', 'agenda', 'customers', 'professionals', 'services', 'campaigns', 'reports', 'settings'] : ['settings']
+        return state.business ? ['accounts', 'conversations', 'agenda', 'customers', 'professionals', 'services', 'campaigns', 'reports', 'settings'] : ['accounts']
       }
+      if (state.currentUser?.role === 'SUPER_ADMIN') return ['accounts', 'conversations', 'agenda', 'customers', 'professionals', 'services', 'campaigns', 'reports', 'settings']
       if (state.currentUser?.role !== 'STAFF') return ['conversations', 'agenda', 'customers', 'professionals', 'services', 'campaigns', 'reports', 'settings']
       return [
         state.currentUser.canViewConversations ? 'conversations' : null,
@@ -18102,9 +18305,7 @@ const crmHtml = `<!doctype html>
     }
 
     function canSeeSalesAdministration() {
-      return state.currentUser?.role === 'SUPER_ADMIN' ||
-        state.currentUser?.role === 'ACCOUNT_ADMIN' ||
-        state.currentUser?.canCreateBusinesses === true
+      return state.currentUser?.role === 'SUPER_ADMIN' || state.currentUser?.role === 'ACCOUNT_ADMIN'
     }
 
     function isSalesAccountAdministrator() {
@@ -18471,6 +18672,181 @@ const crmHtml = `<!doctype html>
         els.adminCreateBusinessFeedback.className = 'settings-feedback visible error'
       } finally {
         setButtonLoading(els.adminCreateBusinessSubmit, false)
+      }
+    }
+
+    function managedAccountInitials(name) {
+      return String(name || '')
+        .trim()
+        .split(/\s+/)
+        .slice(0, 2)
+        .map((part) => part.charAt(0))
+        .join('')
+        .toUpperCase() || '--'
+    }
+
+    function managedAccountStatusLabel(status) {
+      return ({ ONBOARDING: 'Onboarding', ACTIVE: 'Activa', PAUSED: 'Pausada', CANCELLED: 'Cancelada' })[status] || status
+    }
+
+    function managedAccountStatusClass(status) {
+      return String(status || '').toLowerCase()
+    }
+
+    function formatManagedAccountDate(value) {
+      if (!value) return '--'
+      return new Date(value).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })
+    }
+
+    async function loadManagedAccounts() {
+      if (!['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(state.currentUser?.role)) return
+      const params = new URLSearchParams({
+        page: String(state.managedAccountPagination.page || 1),
+        take: String(state.managedAccountPagination.take || 25)
+      })
+      if (state.managedAccountSearch) params.set('search', state.managedAccountSearch)
+      if (state.managedAccountStatus) params.set('status', state.managedAccountStatus)
+      const result = await getJson('/admin/accounts?' + params.toString())
+      state.managedAccounts = result.accounts || []
+      state.managedAccountSummary = result.summary || state.managedAccountSummary
+      state.managedAccountPagination = result.pagination || state.managedAccountPagination
+      renderManagedAccounts()
+    }
+
+    function renderManagedAccounts() {
+      if (!els.accountTableBody) return
+      const summary = state.managedAccountSummary
+      const total = Number(summary.total || 0)
+      els.accountStatTotal.textContent = total
+      els.accountStatActive.textContent = summary.active || 0
+      els.accountStatActiveCopy.textContent = total ? Math.round((summary.active || 0) / total * 100) + '% del total' : 'Sin cuentas activas'
+      els.accountStatNew.textContent = summary.newThisMonth || 0
+      els.accountStatOnboarding.textContent = summary.onboarding || 0
+      const ownAdmin = (summary.administrators || []).find((admin) => admin.id === state.currentUser?.id)
+      els.accountStatOwned.textContent = ownAdmin?._count?.managedBusinesses || 0
+      els.accountStatOwnedCopy.textContent = state.currentUser?.role === 'SUPER_ADMIN' ? 'Creadas y asignadas a vos' : 'Tu cartera actual'
+
+      els.accountTableBody.innerHTML = state.managedAccounts.length
+        ? state.managedAccounts.map((account) => {
+            const onboarding = account.onboarding || { progress: 0, completedSteps: 0, totalSteps: 8, missingSteps: ['Validar onboarding'] }
+            const missing = onboarding.missingSteps?.[0] || 'Onboarding completo'
+            const primaryUser = account.primaryUser
+            return '<tr data-managed-account-id="' + escapeHtml(account.id) + '" tabindex="0">' +
+              '<td><div class="account-name-cell"><span class="account-avatar">' + escapeHtml(managedAccountInitials(account.name)) + '</span><div><strong>' + escapeHtml(account.name) + '</strong><small>' + escapeHtml(account.customerCode) + '</small></div></div></td>' +
+              '<td><div class="account-contact"><strong>' + escapeHtml(primaryUser?.name || 'Sin responsable del comercio') + '</strong><small>' + escapeHtml(account.contactPhone || 'Sin telefono') + ' &middot; ' + escapeHtml(account.contactEmail || primaryUser?.email || 'Sin email') + '</small></div></td>' +
+              '<td><span class="account-chip">' + escapeHtml(account.accountAdmin?.name || 'Sin asignar') + '</span></td>' +
+              '<td><span class="account-chip ' + escapeHtml(managedAccountStatusClass(account.accountStatus)) + '">' + escapeHtml(managedAccountStatusLabel(account.accountStatus)) + '</span></td>' +
+              '<td><div class="account-progress"><div class="account-progress-head"><span>' + onboarding.completedSteps + ' de ' + onboarding.totalSteps + '</span><strong>' + onboarding.progress + '%</strong></div><div class="account-progress-track"><i style="width:' + Math.max(0, Math.min(100, onboarding.progress)) + '%"></i></div><small>' + escapeHtml(missing) + '</small></div></td>' +
+              '<td><span class="account-chip">' + escapeHtml(account.plan?.name || 'Sin plan') + '</span></td>' +
+              '<td>' + escapeHtml(formatManagedAccountDate(account.createdAt)) + '</td>' +
+            '</tr>'
+          }).join('')
+        : '<tr><td colspan="7"><div class="empty">No encontramos cuentas con estos filtros.</div></td></tr>'
+
+      const pagination = state.managedAccountPagination
+      const start = pagination.total ? (pagination.page - 1) * pagination.take + 1 : 0
+      const end = Math.min(pagination.total, pagination.page * pagination.take)
+      els.accountPaginationCopy.textContent = 'Mostrando ' + start + '-' + end + ' de ' + pagination.total + ' cuentas'
+      els.accountPagePrev.disabled = pagination.page <= 1
+      els.accountPageNext.disabled = pagination.page >= pagination.totalPages
+    }
+
+    async function openManagedAccount(id) {
+      state.selectedManagedAccountId = id
+      els.accountPanelBackdrop.hidden = false
+      els.accountPanel.hidden = false
+      els.accountPanel.innerHTML = '<div class="empty">Validando onboarding...</div>'
+      try {
+        const account = await getJson('/admin/accounts/' + encodeURIComponent(id))
+        renderManagedAccountPanel(account)
+        const index = state.managedAccounts.findIndex((item) => item.id === id)
+        if (index >= 0) state.managedAccounts[index] = { ...state.managedAccounts[index], ...account }
+        renderManagedAccounts()
+      } catch (error) {
+        els.accountPanel.innerHTML = '<div class="error">' + escapeHtml(error.message) + '</div>'
+      }
+    }
+
+    function closeManagedAccount() {
+      state.selectedManagedAccountId = null
+      els.accountPanelBackdrop.hidden = true
+      els.accountPanel.hidden = true
+      els.accountPanel.innerHTML = ''
+    }
+
+    function renderManagedAccountPanel(account) {
+      const onboarding = account.onboarding || { progress: 0, completedSteps: 0, totalSteps: 8, steps: [] }
+      els.accountPanel.innerHTML =
+        '<header class="account-panel-head"><div><h3>' + escapeHtml(account.name) + '</h3><p>' + escapeHtml(account.customerCode) + ' &middot; Alta ' + escapeHtml(formatManagedAccountDate(account.createdAt)) + '</p></div><button class="account-panel-close" type="button" data-close-managed-account aria-label="Cerrar">X</button></header>' +
+        '<section class="account-panel-section"><h4>Cuenta</h4><div class="account-detail-grid">' +
+          '<div class="account-detail-item"><span>Estado</span><strong>' + escapeHtml(managedAccountStatusLabel(account.accountStatus)) + '</strong></div>' +
+          '<div class="account-detail-item"><span>Plan</span><strong>' + escapeHtml(account.plan?.name || 'Sin plan') + '</strong></div>' +
+          '<div class="account-detail-item"><span>Responsable</span><strong>' + escapeHtml(account.accountAdmin?.name || 'Sin asignar') + '</strong></div>' +
+          '<div class="account-detail-item"><span>Creada por</span><strong>' + escapeHtml(account.createdByUser?.name || 'Sin registro') + '</strong></div>' +
+        '</div></section>' +
+        '<section class="account-panel-section"><h4>Contacto principal</h4><div class="account-detail-grid">' +
+          '<div class="account-detail-item"><span>Nombre</span><strong>' + escapeHtml(account.primaryUser?.name || 'Sin nombre') + '</strong></div>' +
+          '<div class="account-detail-item"><span>Telefono</span><strong>' + escapeHtml(account.contactPhone || 'Sin telefono') + '</strong></div>' +
+          '<div class="account-detail-item"><span>Email</span><strong>' + escapeHtml(account.contactEmail || account.primaryUser?.email || 'Sin email') + '</strong></div>' +
+          '<div class="account-detail-item"><span>Primer acceso</span><strong>' + escapeHtml(account.primaryUser?.firstLoginAt ? formatManagedAccountDate(account.primaryUser.firstLoginAt) : 'Pendiente') + '</strong></div>' +
+        '</div></section>' +
+        '<section class="account-panel-section"><h4>Onboarding &middot; ' + onboarding.progress + '%</h4><div class="account-checklist">' +
+          (onboarding.steps || []).map((step) => '<div class="account-check ' + (step.completed ? 'complete' : '') + '"><b>' + (step.completed ? '&#10003;' : '&middot;') + '</b><span>' + escapeHtml(step.label) + '</span></div>').join('') +
+        '</div></section>' +
+        '<section class="account-panel-section"><h4>Datos operativos</h4><div class="account-detail-grid">' +
+          '<div class="account-detail-item"><span>Servicios</span><strong>' + Number(account.counts?.services || 0) + '</strong></div>' +
+          '<div class="account-detail-item"><span>Profesionales</span><strong>' + Number(account.counts?.professionals || 0) + '</strong></div>' +
+          '<div class="account-detail-item"><span>Horarios</span><strong>' + Number(account.counts?.businessHours || 0) + '</strong></div>' +
+          '<div class="account-detail-item"><span>Conversaciones</span><strong>' + Number(account.counts?.conversations || 0) + '</strong></div>' +
+        '</div></section>'
+      els.accountPanel.querySelector('[data-close-managed-account]')?.addEventListener('click', closeManagedAccount)
+    }
+
+    async function ensureManagedAccountPlans() {
+      if (!state.managedAccountPlans.length) state.managedAccountPlans = await getJson('/admin/account-plans')
+      els.accountPlan.innerHTML = '<option value="">Seleccionar plan</option>' + state.managedAccountPlans.map((plan) => '<option value="' + escapeHtml(plan.id) + '">' + escapeHtml(plan.name) + '</option>').join('')
+    }
+
+    async function openManagedAccountCreate() {
+      els.accountCreateForm.reset()
+      els.accountCreateFeedback.textContent = ''
+      els.accountCreateFeedback.className = 'settings-feedback full'
+      await ensureManagedAccountPlans()
+      els.accountCreateDialog.hidden = false
+      els.accountBusinessName.focus()
+    }
+
+    function closeManagedAccountCreate() {
+      els.accountCreateDialog.hidden = true
+      els.accountCreateForm.reset()
+    }
+
+    async function createManagedAccount(event) {
+      event.preventDefault()
+      if (!setButtonLoading(els.accountCreateSubmit, true, 'Creando...')) return
+      els.accountCreateFeedback.textContent = ''
+      try {
+        const result = await getJson('/admin/accounts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            businessName: els.accountBusinessName.value.trim(),
+            adminName: els.accountOwnerName.value.trim(),
+            adminEmail: els.accountOwnerEmail.value.trim(),
+            adminPassword: els.accountOwnerPassword.value,
+            contactPhone: els.accountContactPhone.value.trim(),
+            planId: els.accountPlan.value
+          })
+        })
+        closeManagedAccountCreate()
+        state.managedAccountPagination.page = 1
+        await loadManagedAccounts()
+        showCrmToast('Cuenta creada: ' + result.name + ' · ' + result.customerCode, 'success')
+      } catch (error) {
+        els.accountCreateFeedback.textContent = error.message
+        els.accountCreateFeedback.className = 'settings-feedback visible error full'
+      } finally {
+        setButtonLoading(els.accountCreateSubmit, false)
       }
     }
 
@@ -18912,13 +19288,22 @@ const crmHtml = `<!doctype html>
     async function loadBasics() {
       hydrateWorkspaceNav()
       await loadAccountAdmins()
-      const businesses = await getJson('/businesses')
+      const isAccountRole = ['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(state.currentUser?.role)
+      const businesses = isAccountRole
+        ? state.currentSessionBusiness ? [state.currentSessionBusiness] : []
+        : await getJson('/businesses')
       state.businesses = businesses
       state.business = state.currentUser?.role === 'ACCOUNT_ADMIN'
         ? state.currentSessionBusiness || null
         : state.currentSessionBusiness || businesses[0] || null
       state.businessId = state.business?.id || null
       await loadDemoProfiles()
+      if (isAccountRole && !state.business) {
+        setSection('accounts')
+        await loadManagedAccounts()
+        renderAuthUi()
+        return
+      }
       if (state.currentUser?.role === 'ACCOUNT_ADMIN') {
         if (state.business) {
           await loadBusinessScopedBasics()
@@ -27945,6 +28330,7 @@ const crmHtml = `<!doctype html>
       const mobileTitle = document.getElementById('mobile-current-section-title')
       if (mobileTitle) {
         const labels = {
+          accounts: 'Cuentas',
           conversations: 'Conversaciones',
           agenda: 'Agenda',
           customers: 'Clientes',
@@ -27975,6 +28361,12 @@ const crmHtml = `<!doctype html>
 
       if (section === 'customers') {
         loadCustomerOverview().catch(() => {})
+      }
+
+      if (section === 'accounts') {
+        loadManagedAccounts().catch((error) => {
+          els.accountTableBody.innerHTML = '<tr><td colspan="7"><div class="error">' + escapeHtml(error.message) + '</div></td></tr>'
+        })
       }
 
       if (section === 'professionals') {
@@ -29447,6 +29839,41 @@ const crmHtml = `<!doctype html>
     })
     els.loginForm.addEventListener('submit', loginToCrm)
     bindLogoutButton()
+    els.accountNewButton?.addEventListener('click', () => openManagedAccountCreate().catch((error) => showCrmToast(error.message, 'error')))
+    els.accountCreateClose?.addEventListener('click', closeManagedAccountCreate)
+    els.accountCreateCancel?.addEventListener('click', closeManagedAccountCreate)
+    els.accountCreateForm?.addEventListener('submit', createManagedAccount)
+    els.accountPanelBackdrop?.addEventListener('click', closeManagedAccount)
+    els.accountSearch?.addEventListener('input', () => {
+      state.managedAccountSearch = els.accountSearch.value.trim()
+      state.managedAccountPagination.page = 1
+      clearTimeout(state.managedAccountSearchTimer)
+      state.managedAccountSearchTimer = setTimeout(() => loadManagedAccounts().catch(() => {}), 250)
+    })
+    els.accountStatusFilter?.addEventListener('change', () => {
+      state.managedAccountStatus = els.accountStatusFilter.value
+      state.managedAccountPagination.page = 1
+      loadManagedAccounts().catch(() => {})
+    })
+    els.accountPagePrev?.addEventListener('click', () => {
+      if (state.managedAccountPagination.page <= 1) return
+      state.managedAccountPagination.page -= 1
+      loadManagedAccounts().catch(() => {})
+    })
+    els.accountPageNext?.addEventListener('click', () => {
+      if (state.managedAccountPagination.page >= state.managedAccountPagination.totalPages) return
+      state.managedAccountPagination.page += 1
+      loadManagedAccounts().catch(() => {})
+    })
+    els.accountTableBody?.addEventListener('click', (event) => {
+      const row = event.target.closest('[data-managed-account-id]')
+      if (row) openManagedAccount(row.dataset.managedAccountId)
+    })
+    els.accountTableBody?.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return
+      const row = event.target.closest('[data-managed-account-id]')
+      if (row) openManagedAccount(row.dataset.managedAccountId)
+    })
     els.adminCreateBusinessForm.addEventListener('submit', createAdminBusiness)
     els.accountAdminForm?.addEventListener('submit', saveAccountAdmin)
     els.accountAdminCancel?.addEventListener('click', resetAccountAdminForm)

@@ -5,6 +5,7 @@ import { whatsappConfig } from '../config/whatsapp.js'
 import { getBusinessWhatsAppState } from '../services/business-whatsapp-settings.js'
 import { BusinessService } from '../services/business-service.js'
 import type { AuthContext } from '../services/auth-service.js'
+import { refreshBusinessOnboarding } from '../services/business-onboarding-service.js'
 
 const service = new BusinessService()
 const LANDING_TEMPLATES = new Set(['classic', 'editorial', 'salon-white', 'luxe-nails'])
@@ -12,7 +13,7 @@ const LANDING_TEMPLATES = new Set(['classic', 'editorial', 'salon-white', 'luxe-
 export async function businessRoutes(app: FastifyInstance) {
 
   app.post('/businesses', async (request, reply) => {
-    if (!request.auth || request.auth.user.role !== 'SUPER_ADMIN' && !request.auth.user.canCreateBusinesses) {
+    if (!request.auth || !['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(request.auth.user.role)) {
       return reply.status(403).send({ message: 'No tenes permiso para crear comercios' })
     }
 
@@ -332,6 +333,7 @@ export async function businessRoutes(app: FastifyInstance) {
       })
     }
 
+    await refreshBusinessOnboarding(params.id)
     return business
   })
 
@@ -343,6 +345,7 @@ export async function businessRoutes(app: FastifyInstance) {
     const business = await prisma.business.findUnique({ where: { id: params.id }, select: { id: true } })
     if (!business) return reply.status(404).send({ message: 'No encontre ese local' })
     await ensureBusinessSettings(params.id)
+    await refreshBusinessOnboarding(params.id)
     return getBusinessWhatsAppState(params.id)
   })
 
@@ -482,6 +485,7 @@ export async function businessRoutes(app: FastifyInstance) {
       }
     })
 
+    await refreshBusinessOnboarding(params.id)
     return getBusinessWhatsAppState(params.id)
   })
 
@@ -566,6 +570,7 @@ export async function businessRoutes(app: FastifyInstance) {
       })
     }
 
+    await refreshBusinessOnboarding(params.id)
     return getBusinessWhatsAppState(params.id)
   })
 

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
 import { validateWeeklyHours } from '../services/weekly-hours.js'
+import { refreshBusinessOnboarding } from '../services/business-onboarding-service.js'
 
 export async function businessHoursRoutes(app: FastifyInstance) {
 
@@ -31,7 +32,7 @@ export async function businessHoursRoutes(app: FastifyInstance) {
       })
     }
 
-    return prisma.businessHours.create({
+    const created = await prisma.businessHours.create({
       data: {
         businessId: body.businessId,
         dayOfWeek: body.dayOfWeek,
@@ -39,6 +40,8 @@ export async function businessHoursRoutes(app: FastifyInstance) {
         endTime: body.endTime
       }
     })
+    await refreshBusinessOnboarding(body.businessId)
+    return created
   })
 
   app.post('/business-hours/setup', async (request, reply) => {
@@ -138,6 +141,7 @@ export async function businessHoursRoutes(app: FastifyInstance) {
         data: hours
       })
     ])
+    await refreshBusinessOnboarding(body.businessId)
 
     return prisma.businessHours.findMany({
       where: {

@@ -143,6 +143,23 @@ enum UserRole {
   STAFF
 }
 
+enum BusinessAccountStatus {
+  ONBOARDING
+  ACTIVE
+  PAUSED
+  CANCELLED
+}
+
+model BusinessPlan {
+  id   String @id @default(cuid())
+  name String @unique
+
+  businesses Business[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model Business {
   id                     String                     @id @default(cuid())
   customerCode           String                     @unique
@@ -161,6 +178,7 @@ model Business {
   coverImageUrl          String?
   landingGalleryImages   String?
   publicWhatsapp         String?
+  contactPhone           String?
   contactEmail           String?
   publicAddress          String?
   publicAddressArea      String?
@@ -179,6 +197,10 @@ model Business {
   accountAdmin           User?                      @relation("AccountAdminBusinesses", fields: [accountAdminId], references: [id], onDelete: SetNull)
   createdByUserId        String?
   createdByUser          User?                      @relation("CreatedBusinesses", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  planId                 String?
+  plan                   BusinessPlan?              @relation(fields: [planId], references: [id], onDelete: SetNull)
+  accountStatus          BusinessAccountStatus      @default(ONBOARDING)
+  onboardingStatus       BusinessOnboardingStatus?
 
   professionals           Professional[]
   customers               Customer[]
@@ -209,7 +231,28 @@ model Business {
 
   @@index([accountAdminId])
   @@index([createdByUserId])
+  @@index([planId])
+  @@index([accountStatus])
   @@index([isDemo, createdByUserId])
+}
+
+model BusinessOnboardingStatus {
+  businessId          String   @id
+  business            Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  accountCreated      Boolean  @default(true)
+  ownerLoggedIn       Boolean  @default(false)
+  profileComplete     Boolean  @default(false)
+  hasServices         Boolean  @default(false)
+  hasProfessionals    Boolean  @default(false)
+  hasBusinessHours    Boolean  @default(false)
+  whatsappConnected   Boolean  @default(false)
+  landingConfigured   Boolean  @default(false)
+  completedSteps      Int      @default(1)
+  totalSteps          Int      @default(8)
+  progress            Int      @default(13)
+  updatedAt           DateTime @updatedAt
+
+  @@index([progress])
 }
 
 model User {
@@ -221,6 +264,7 @@ model User {
   role                UserRole @default(BUSINESS_ADMIN)
   isActive            Boolean  @default(true)
   canCreateBusinesses Boolean  @default(false)
+  firstLoginAt        DateTime?
 
   businessId                 String?
   business                   Business?     @relation(fields: [businessId], references: [id], onDelete: SetNull)

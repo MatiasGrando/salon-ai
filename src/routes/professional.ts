@@ -5,6 +5,7 @@ import {
   validateWeeklyHours,
   type WeeklyHourInput
 } from '../services/weekly-hours.js'
+import { refreshBusinessOnboarding } from '../services/business-onboarding-service.js'
 
 type WorkingHourInput = WeeklyHourInput
 
@@ -89,6 +90,7 @@ export async function professionalRoutes(app: FastifyInstance) {
       include: professionalInclude
     })
 
+    await refreshBusinessOnboarding(businessId)
     return serializeProfessional(professional)
   })
 
@@ -209,7 +211,7 @@ export async function professionalRoutes(app: FastifyInstance) {
       }
     }
 
-    return prisma.$transaction(async (tx) => {
+    const updatedProfessional = await prisma.$transaction(async (tx) => {
       await tx.professional.update({
         where: {
           id: params.id
@@ -275,6 +277,8 @@ export async function professionalRoutes(app: FastifyInstance) {
       maxWait: 10_000,
       timeout: 20_000
     })
+    await refreshBusinessOnboarding(existing.businessId)
+    return updatedProfessional
   })
 
   app.patch('/professionals/:id/status', async (request, reply) => {
@@ -302,6 +306,7 @@ export async function professionalRoutes(app: FastifyInstance) {
       include: professionalInclude
     })
 
+    await refreshBusinessOnboarding(professional.businessId)
     return serializeProfessional(professional)
   })
 
@@ -309,6 +314,11 @@ export async function professionalRoutes(app: FastifyInstance) {
     const params = request.params as {
       id: string
     }
+    const existingProfessional = await prisma.professional.findUnique({
+      where: { id: params.id },
+      select: { businessId: true }
+    })
+    if (!existingProfessional) return reply.status(404).send({ message: 'No encontre ese profesional' })
 
     const futureAppointmentCount = await prisma.appointment.count({
       where: {
@@ -346,6 +356,7 @@ export async function professionalRoutes(app: FastifyInstance) {
           deactivatedAt: new Date()
         }
       })
+      await refreshBusinessOnboarding(existingProfessional.businessId)
 
       return {
         deleted: false,
@@ -370,6 +381,7 @@ export async function professionalRoutes(app: FastifyInstance) {
         }
       })
     ])
+    await refreshBusinessOnboarding(existingProfessional.businessId)
 
     return {
       deleted: true

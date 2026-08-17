@@ -22,6 +22,7 @@ import { instagramSettingsRoutes } from './routes/instagram-settings.js'
 import { campaignRoutes } from './routes/campaign.js'
 import { reportRoutes } from './routes/report.js'
 import { authRoutes } from './routes/auth.js'
+import { accountManagementRoutes } from './routes/account-management.js'
 import { staffUserRoutes } from './routes/staff-user.js'
 import { postSaleRoutes } from './routes/post-sale.js'
 import { weexLeadAdminRoutes, weexLeadCampaignRoutes } from './routes/weex-lead-campaign.js'
@@ -51,6 +52,7 @@ await app.register(weexSupportBotV1Routes)
 await app.register(whatsappWebhookRoutes)
 await app.register(instagramWebhookRoutes)
 await authGuard(app)
+await app.register(accountManagementRoutes)
 await app.register(businessRoutes)
 await app.register(instagramSettingsRoutes)
 await app.register(professionalRoutes)

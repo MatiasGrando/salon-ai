@@ -40,7 +40,13 @@ const publicBusinessInclude = {
 } satisfies Prisma.BusinessInclude
 
 export class BusinessService {
-  async create(name: string, requestedSlug?: string, ownership?: { accountAdminId?: string | null; createdByUserId?: string | null }) {
+  async create(name: string, requestedSlug?: string, ownership?: {
+    accountAdminId?: string | null
+    createdByUserId?: string | null
+    contactPhone?: string | null
+    contactEmail?: string | null
+    planId?: string | null
+  }) {
     const slug = await this.resolveAvailableSlug(requestedSlug || name)
 
     for (let attempt = 0; attempt < 10; attempt += 1) {
@@ -55,6 +61,9 @@ export class BusinessService {
             slug,
             accountAdminId: ownership?.accountAdminId || null,
             createdByUserId: ownership?.createdByUserId || null,
+            contactPhone: ownership?.contactPhone || null,
+            contactEmail: ownership?.contactEmail || null,
+            planId: ownership?.planId || null,
             whatsappConfig: {
               create: {}
             },

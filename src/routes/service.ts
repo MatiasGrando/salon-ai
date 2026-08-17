@@ -3,6 +3,7 @@ import { prisma } from '../config/prisma.js'
 import { Prisma } from '../generated/prisma/client.js'
 import { serviceCanContinueToBooking } from '../services/booking-v2-deposit.js'
 import { normalizeCustomerDuration } from '../services/service-duration.js'
+import { refreshBusinessOnboarding } from '../services/business-onboarding-service.js'
 
 const SERVICE_WRITE_TRANSACTION_TIMEOUT_MS = 15_000
 
@@ -398,7 +399,7 @@ export async function serviceRoutes(app: FastifyInstance) {
         : {})
     }
 
-    return prisma.$transaction(async (tx) => {
+    const createdService = await prisma.$transaction(async (tx) => {
       const created = await tx.service.create({
         data: data as any,
         include: serviceCatalogInclude
@@ -428,6 +429,8 @@ export async function serviceRoutes(app: FastifyInstance) {
         include: serviceCatalogInclude
       })
     }, { timeout: SERVICE_WRITE_TRANSACTION_TIMEOUT_MS })
+    await refreshBusinessOnboarding(businessId)
+    return createdService
   })
 
   app.get('/services', async (request) => {
@@ -847,6 +850,7 @@ export async function serviceRoutes(app: FastifyInstance) {
       where: { id: params.id },
       select: {
         id: true,
+        businessId: true,
         isBookable: true,
         variants: {
           select: { id: true }
@@ -866,6 +870,7 @@ export async function serviceRoutes(app: FastifyInstance) {
         prisma.serviceAlias.deleteMany({ where: { serviceId: service.id } }),
         prisma.service.delete({ where: { id: service.id } })
       ])
+      await refreshBusinessOnboarding(service.businessId)
       return { deleted: true }
     }
 
@@ -899,6 +904,7 @@ export async function serviceRoutes(app: FastifyInstance) {
         }
       })
     ])
+    await refreshBusinessOnboarding(service.businessId)
 
     return {
       deleted: true,
