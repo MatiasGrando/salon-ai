@@ -4880,6 +4880,8 @@ const crmHtml = `<!doctype html>
     .account-panel-head { padding-bottom: 18px; display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; border-bottom: 1px solid #303033; }
     .account-panel-head h3 { margin: 0; font-size: 24px; }
     .account-panel-head p { margin: 6px 0 0; color: #a99f93; }
+    .account-panel-head-actions { display: flex; align-items: center; gap: 8px; }
+    .account-panel-edit { min-height: 38px; padding: 0 13px; border: 1px solid #5b4a2c; border-radius: 10px; color: #f0d79f; background: #29251d; font-weight: 800; white-space: nowrap; }
     .account-panel-close { width: 38px; height: 38px; border: 1px solid #343438; border-radius: 10px; color: #fff; background: #222225; }
     .account-panel-section { padding: 18px 0; border-bottom: 1px solid #303033; }
     .account-panel-section h4 { margin: 0 0 12px; color: #d8aa50; font-size: 12px; letter-spacing: .05em; text-transform: uppercase; }
@@ -4893,6 +4895,20 @@ const crmHtml = `<!doctype html>
     .account-check.complete { color: #e9e5df; }
     .account-check.complete b { color: #65e69a; background: #113322; }
     .account-open-crm { width: 100%; min-height: 44px; margin-top: 18px; border: 0; border-radius: 11px; color: #17120a; background: #d8aa50; font-weight: 850; }
+    .account-edit-form { padding: 18px 0; display: grid; gap: 15px; }
+    .account-edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 10px; }
+    .account-edit-field { display: grid; gap: 7px; }
+    .account-edit-field.full { grid-column: 1 / -1; }
+    .account-edit-field label { color: #d9c7a5; font-size: 11px; font-weight: 800; letter-spacing: .035em; text-transform: uppercase; }
+    .account-edit-field input,
+    .account-edit-field select { min-width: 0; min-height: 44px; padding: 0 12px; border: 1px solid #3a3a3f; border-radius: 10px; color: #fff; background: #242427; color-scheme: dark; }
+    .account-edit-field input:focus,
+    .account-edit-field select:focus { border-color: #d8aa50; outline: 0; box-shadow: 0 0 0 3px rgba(216, 170, 80, .16); }
+    .account-edit-field small { color: #9d9489; line-height: 1.35; }
+    .account-edit-actions { padding-top: 16px; display: flex; justify-content: flex-end; gap: 9px; border-top: 1px solid #303033; }
+    .account-edit-actions button { min-height: 42px; padding: 0 16px; border-radius: 10px; font-weight: 800; }
+    .account-edit-actions .secondary { border-color: #414147; color: #fff; background: #29292d; }
+    .account-edit-actions .primary { color: #17120a; background: #d8aa50; }
     #account-create-dialog {
       z-index: 90;
       background: rgba(3, 6, 12, .78);
@@ -4979,6 +4995,8 @@ const crmHtml = `<!doctype html>
       .accounts-toolbar { grid-template-columns: 1fr; }
       .accounts-stats { grid-template-columns: 1fr 1fr; }
       .account-detail-grid { grid-template-columns: 1fr; }
+      .account-edit-grid { grid-template-columns: 1fr; }
+      .account-edit-field.full { grid-column: auto; }
       .account-create-dialog .settings-form { grid-template-columns: 1fr; padding: 18px; }
       .account-create-dialog .full { grid-column: auto; }
       .account-create-dialog .dialog-actions { margin: 2px -18px -18px; padding: 14px 18px; }
@@ -18842,7 +18860,7 @@ const crmHtml = `<!doctype html>
             const primaryUser = account.primaryUser
             return '<tr data-managed-account-id="' + escapeHtml(account.id) + '" tabindex="0">' +
               '<td><div class="account-name-cell"><span class="account-avatar">' + escapeHtml(managedAccountInitials(account.name)) + '</span><div><strong>' + escapeHtml(account.name) + '</strong><small>' + escapeHtml(account.customerCode) + '</small></div></div></td>' +
-              '<td><div class="account-contact"><strong>' + escapeHtml(primaryUser?.name || 'Sin responsable del comercio') + '</strong><small>' + escapeHtml(account.contactPhone || 'Sin telefono') + ' &middot; ' + escapeHtml(account.contactEmail || primaryUser?.email || 'Sin email') + '</small></div></td>' +
+              '<td><div class="account-contact"><strong>' + escapeHtml(primaryUser?.name || account.contactName || 'Sin responsable del comercio') + '</strong><small>' + escapeHtml(account.contactPhone || 'Sin telefono') + ' &middot; ' + escapeHtml(account.contactEmail || primaryUser?.email || 'Sin email') + '</small></div></td>' +
               '<td><span class="account-chip">' + escapeHtml(account.accountAdmin?.name || 'Sin asignar') + '</span></td>' +
               '<td><span class="account-chip ' + escapeHtml(managedAccountStatusClass(account.accountStatus)) + '">' + escapeHtml(managedAccountStatusLabel(account.accountStatus)) + '</span></td>' +
               '<td><div class="account-progress"><div class="account-progress-head"><span>' + onboarding.completedSteps + ' de ' + onboarding.totalSteps + '</span><strong>' + onboarding.progress + '%</strong></div><div class="account-progress-track"><i style="width:' + Math.max(0, Math.min(100, onboarding.progress)) + '%"></i></div><small>' + escapeHtml(missing) + '</small></div></td>' +
@@ -18886,7 +18904,7 @@ const crmHtml = `<!doctype html>
     function renderManagedAccountPanel(account) {
       const onboarding = account.onboarding || { progress: 0, completedSteps: 0, totalSteps: 8, steps: [] }
       els.accountPanel.innerHTML =
-        '<header class="account-panel-head"><div><h3>' + escapeHtml(account.name) + '</h3><p>' + escapeHtml(account.customerCode) + ' &middot; Alta ' + escapeHtml(formatManagedAccountDate(account.createdAt)) + '</p></div><button class="account-panel-close" type="button" data-close-managed-account aria-label="Cerrar">X</button></header>' +
+        '<header class="account-panel-head"><div><h3>' + escapeHtml(account.name) + '</h3><p>' + escapeHtml(account.customerCode) + ' &middot; Alta ' + escapeHtml(formatManagedAccountDate(account.createdAt)) + '</p></div><div class="account-panel-head-actions"><button class="account-panel-edit" type="button" data-edit-managed-account>Editar datos</button><button class="account-panel-close" type="button" data-close-managed-account aria-label="Cerrar">X</button></div></header>' +
         '<section class="account-panel-section"><h4>Cuenta</h4><div class="account-detail-grid">' +
           '<div class="account-detail-item"><span>Estado</span><strong>' + escapeHtml(managedAccountStatusLabel(account.accountStatus)) + '</strong></div>' +
           '<div class="account-detail-item"><span>Plan</span><strong>' + escapeHtml(account.plan?.name || 'Sin plan') + '</strong></div>' +
@@ -18894,7 +18912,7 @@ const crmHtml = `<!doctype html>
           '<div class="account-detail-item"><span>Creada por</span><strong>' + escapeHtml(account.createdByUser?.name || 'Sin registro') + '</strong></div>' +
         '</div></section>' +
         '<section class="account-panel-section"><h4>Contacto principal</h4><div class="account-detail-grid">' +
-          '<div class="account-detail-item"><span>Nombre</span><strong>' + escapeHtml(account.primaryUser?.name || 'Sin nombre') + '</strong></div>' +
+          '<div class="account-detail-item"><span>Nombre</span><strong>' + escapeHtml(account.primaryUser?.name || account.contactName || 'Sin nombre') + '</strong></div>' +
           '<div class="account-detail-item"><span>Telefono</span><strong>' + escapeHtml(account.contactPhone || 'Sin telefono') + '</strong></div>' +
           '<div class="account-detail-item"><span>Email</span><strong>' + escapeHtml(account.contactEmail || account.primaryUser?.email || 'Sin email') + '</strong></div>' +
           '<div class="account-detail-item"><span>Primer acceso</span><strong>' + escapeHtml(account.primaryUser?.firstLoginAt ? formatManagedAccountDate(account.primaryUser.firstLoginAt) : 'Pendiente') + '</strong></div>' +
@@ -18910,7 +18928,79 @@ const crmHtml = `<!doctype html>
         '</div></section>' +
         '<button class="account-open-crm" type="button" data-enter-managed-account>Ingresar al CRM de esta cuenta</button>'
       els.accountPanel.querySelector('[data-close-managed-account]')?.addEventListener('click', closeManagedAccount)
+      els.accountPanel.querySelector('[data-edit-managed-account]')?.addEventListener('click', () => openManagedAccountEdit(account))
       els.accountPanel.querySelector('[data-enter-managed-account]')?.addEventListener('click', () => enterManagedAccountWorkspace(account))
+    }
+
+    async function openManagedAccountEdit(account) {
+      await ensureManagedAccountPlans()
+      const isSuperAdmin = state.currentUser?.role === 'SUPER_ADMIN'
+      const planOptions = '<option value="">Sin plan</option>' + state.managedAccountPlans.map((plan) => {
+        return '<option value="' + escapeHtml(plan.id) + '" ' + (plan.id === account.plan?.id ? 'selected' : '') + '>' + escapeHtml(plan.name) + '</option>'
+      }).join('')
+      const statusOptions = [
+        ['ONBOARDING', 'En onboarding'],
+        ['ACTIVE', 'Activa'],
+        ['PAUSED', 'Pausada'],
+        ['CANCELLED', 'Cancelada']
+      ].map(([value, label]) => '<option value="' + value + '" ' + (value === account.accountStatus ? 'selected' : '') + '>' + label + '</option>').join('')
+      const administratorOptions = '<option value="">Sin asignar</option>' + (state.managedAccountSummary.administrators || []).map((administrator) => {
+        return '<option value="' + escapeHtml(administrator.id) + '" ' + (administrator.id === account.accountAdmin?.id ? 'selected' : '') + '>' + escapeHtml(administrator.name) + '</option>'
+      }).join('')
+      const accessHelp = account.primaryUser
+        ? 'Este email tambi&eacute;n se actualizar&aacute; para el inicio de sesi&oacute;n del administrador.'
+        : 'Este comercio antiguo no tiene un administrador de acceso vinculado; se actualizar&aacute; el contacto.'
+
+      els.accountPanel.innerHTML =
+        '<header class="account-panel-head"><div><h3>Editar comercio</h3><p>' + escapeHtml(account.name) + ' &middot; ' + escapeHtml(account.customerCode) + '</p></div><button class="account-panel-close" type="button" data-cancel-managed-account-edit aria-label="Cancelar edicion">X</button></header>' +
+        '<form class="account-edit-form" id="account-edit-form"><div class="account-edit-grid">' +
+          '<div class="account-edit-field full"><label for="account-edit-name">Nombre del comercio</label><input id="account-edit-name" name="businessName" value="' + escapeHtml(account.name || '') + '" required></div>' +
+          '<div class="account-edit-field"><label for="account-edit-contact-name">Contacto principal</label><input id="account-edit-contact-name" name="contactName" value="' + escapeHtml(account.primaryUser?.name || account.contactName || '') + '" required></div>' +
+          '<div class="account-edit-field"><label for="account-edit-phone">Tel&eacute;fono</label><input id="account-edit-phone" name="contactPhone" type="tel" value="' + escapeHtml(account.contactPhone || '') + '" required></div>' +
+          '<div class="account-edit-field full"><label for="account-edit-email">Email de acceso y contacto</label><input id="account-edit-email" name="contactEmail" type="email" value="' + escapeHtml(account.contactEmail || account.primaryUser?.email || '') + '" required><small>' + accessHelp + '</small></div>' +
+          '<div class="account-edit-field"><label for="account-edit-plan">Plan</label><select id="account-edit-plan" name="planId">' + planOptions + '</select></div>' +
+          '<div class="account-edit-field"><label for="account-edit-status">Estado</label><select id="account-edit-status" name="accountStatus" required>' + statusOptions + '</select></div>' +
+          (isSuperAdmin ? '<div class="account-edit-field full"><label for="account-edit-responsible">Responsable de cuenta</label><select id="account-edit-responsible" name="accountAdminId">' + administratorOptions + '</select></div>' : '') +
+        '</div><p class="settings-feedback" id="account-edit-feedback" role="status" aria-live="polite"></p><div class="account-edit-actions"><button class="secondary" type="button" data-cancel-managed-account-edit>Cancelar</button><button class="primary" type="submit" data-save-managed-account>Guardar cambios</button></div></form>'
+      for (const button of els.accountPanel.querySelectorAll('[data-cancel-managed-account-edit]')) {
+        button.addEventListener('click', () => renderManagedAccountPanel(account))
+      }
+      els.accountPanel.querySelector('#account-edit-form')?.addEventListener('submit', (event) => updateManagedAccount(event, account))
+    }
+
+    async function updateManagedAccount(event, account) {
+      event.preventDefault()
+      const form = event.currentTarget
+      const submit = form.querySelector('[data-save-managed-account]')
+      const feedback = form.querySelector('#account-edit-feedback')
+      if (!setButtonLoading(submit, true, 'Guardando...')) return
+      feedback.textContent = ''
+      feedback.className = 'settings-feedback'
+      const values = new FormData(form)
+      try {
+        await getJson('/admin/accounts/' + encodeURIComponent(account.id), {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            businessName: values.get('businessName'),
+            contactName: values.get('contactName'),
+            contactEmail: values.get('contactEmail'),
+            contactPhone: values.get('contactPhone'),
+            planId: values.get('planId') || null,
+            accountStatus: values.get('accountStatus'),
+            ...(state.currentUser?.role === 'SUPER_ADMIN' ? { accountAdminId: values.get('accountAdminId') || null } : {})
+          })
+        })
+        const updated = await getJson('/admin/accounts/' + encodeURIComponent(account.id))
+        renderManagedAccountPanel(updated)
+        await loadManagedAccounts()
+        showCrmToast('Datos del comercio actualizados.', 'success')
+      } catch (error) {
+        feedback.textContent = error.message
+        feedback.className = 'settings-feedback visible error'
+      } finally {
+        setButtonLoading(submit, false)
+      }
     }
 
     async function enterManagedAccountWorkspace(account) {

@@ -43,6 +43,7 @@ export class BusinessService {
   async create(name: string, requestedSlug?: string, ownership?: {
     accountAdminId?: string | null
     createdByUserId?: string | null
+    contactName?: string | null
     contactPhone?: string | null
     contactEmail?: string | null
     planId?: string | null
@@ -61,6 +62,7 @@ export class BusinessService {
             slug,
             accountAdminId: ownership?.accountAdminId || null,
             createdByUserId: ownership?.createdByUserId || null,
+            contactName: ownership?.contactName || null,
             contactPhone: ownership?.contactPhone || null,
             contactEmail: ownership?.contactEmail || null,
             planId: ownership?.planId || null,

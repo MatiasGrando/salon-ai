@@ -127,6 +127,92 @@ export async function accountManagementRoutes(app: FastifyInstance) {
     }
   })
 
+  app.patch('/admin/accounts/:id', async (request, reply) => {
+    if (!canManageAccounts(request.auth)) return reply.status(403).send({ message: 'No tenes permiso para gestionar cuentas' })
+    const params = request.params as { id: string }
+    if (!await canAccessManagedAccount(request.auth!, params.id)) {
+      return reply.status(404).send({ message: 'No encontre esa cuenta' })
+    }
+    const body = request.body as {
+      businessName?: string
+      contactName?: string
+      contactEmail?: string
+      contactPhone?: string
+      planId?: string | null
+      accountStatus?: string
+      accountAdminId?: string | null
+    }
+    const businessName = body.businessName?.trim()
+    const contactName = body.contactName?.trim()
+    const contactEmail = body.contactEmail?.trim().toLowerCase()
+    const contactPhone = normalizeContactPhone(body.contactPhone)
+    const planId = body.planId?.trim() || null
+    const accountStatus = normalizeAccountStatus(body.accountStatus)
+    if (!businessName || !contactName || !contactEmail || !contactPhone || !accountStatus) {
+      return reply.status(400).send({ message: 'Completa comercio, contacto, email, telefono y estado' })
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
+      return reply.status(400).send({ message: 'El email de contacto no es valido' })
+    }
+    if (planId && !await prisma.businessPlan.findUnique({ where: { id: planId }, select: { id: true } })) {
+      return reply.status(400).send({ message: 'El plan seleccionado no es valido' })
+    }
+
+    const account = await prisma.business.findUnique({
+      where: { id: params.id },
+      include: {
+        users: {
+          where: { role: 'BUSINESS_ADMIN' },
+          orderBy: { createdAt: 'asc' },
+          take: 1
+        }
+      }
+    })
+    if (!account) return reply.status(404).send({ message: 'No encontre esa cuenta' })
+    const primaryUser = account.users[0]
+    if (primaryUser) {
+      const emailOwner = await prisma.user.findUnique({ where: { email: contactEmail }, select: { id: true } })
+      if (emailOwner && emailOwner.id !== primaryUser.id) {
+        return reply.status(409).send({ message: 'Ese email ya pertenece a otro usuario' })
+      }
+    }
+
+    let accountAdminId = account.accountAdminId
+    if (request.auth!.user.role === 'SUPER_ADMIN') {
+      accountAdminId = body.accountAdminId?.trim() || null
+      if (accountAdminId) {
+        const administrator = await prisma.user.findFirst({
+          where: { id: accountAdminId, role: { in: ['SUPER_ADMIN', 'ACCOUNT_ADMIN'] }, isActive: true },
+          select: { id: true }
+        })
+        if (!administrator) return reply.status(400).send({ message: 'El responsable seleccionado no es valido' })
+      }
+    }
+
+    await prisma.$transaction(async (transaction) => {
+      await transaction.business.update({
+        where: { id: params.id },
+        data: {
+          name: businessName,
+          contactName,
+          contactEmail,
+          contactPhone,
+          planId,
+          accountStatus,
+          accountAdminId
+        }
+      })
+      if (primaryUser) {
+        await transaction.user.update({
+          where: { id: primaryUser.id },
+          data: { name: contactName, email: contactEmail }
+        })
+      }
+    })
+    await refreshBusinessOnboarding(params.id)
+    return { id: params.id, updated: true }
+  })
+
   app.post('/admin/accounts', async (request, reply) => {
     if (!canManageAccounts(request.auth)) return reply.status(403).send({ message: 'No tenes permiso para gestionar cuentas' })
     const body = request.body as {
@@ -165,6 +251,7 @@ export async function accountManagementRoutes(app: FastifyInstance) {
       business = await businessService.create(businessName, undefined, {
         accountAdminId: request.auth!.user.id,
         createdByUserId: request.auth!.user.id,
+        contactName: adminName,
         contactPhone,
         contactEmail: adminEmail,
         planId
@@ -219,6 +306,7 @@ function serializeAccountListItem(account: {
   id: string
   customerCode: string
   name: string
+  contactName: string | null
   contactPhone: string | null
   contactEmail: string | null
   accountStatus: string
@@ -246,6 +334,7 @@ function serializeAccountListItem(account: {
     id: account.id,
     customerCode: account.customerCode,
     name: account.name,
+    contactName: account.contactName,
     contactPhone: account.contactPhone,
     contactEmail: account.contactEmail,
     accountStatus: account.accountStatus,

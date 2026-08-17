@@ -178,6 +178,7 @@ model Business {
   coverImageUrl          String?
   landingGalleryImages   String?
   publicWhatsapp         String?
+  contactName            String?
   contactPhone           String?
   contactEmail           String?
   publicAddress          String?
