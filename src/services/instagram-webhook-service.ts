@@ -14,6 +14,7 @@ import {
   type ConversationRouterInput,
   type ConversationRouting
 } from './conversation-router.js'
+import { isBusinessAccountUnavailable } from './business-account-access.js'
 
 type VerifyWebhookInput = {
   mode: string | undefined
@@ -69,6 +70,7 @@ export class InstagramWebhookService {
           business: {
             select: {
               id: true,
+              accountStatus: true,
               name: true,
               slug: true,
               landingEnabled: true,
@@ -112,6 +114,11 @@ export class InstagramWebhookService {
       })
       if (!config) {
         results.push({ messageId: event.messageId, skipped: true, reason: 'Cuenta de Instagram no configurada' })
+        continue
+      }
+
+      if (isBusinessAccountUnavailable(config.business.accountStatus)) {
+        results.push({ messageId: event.messageId, skipped: true, reason: 'Cuenta pausada o cancelada' })
         continue
       }
 

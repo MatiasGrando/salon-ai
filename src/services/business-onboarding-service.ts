@@ -63,13 +63,6 @@ export async function refreshBusinessOnboarding(businessId: string) {
     update: { ...flags, completedSteps, totalSteps, progress }
   })
 
-  if (progress === 100) {
-    await prisma.business.updateMany({
-      where: { id: businessId, accountStatus: 'ONBOARDING' },
-      data: { accountStatus: 'ACTIVE' }
-    })
-  }
-
   return serializeBusinessOnboarding(status)
 }
 

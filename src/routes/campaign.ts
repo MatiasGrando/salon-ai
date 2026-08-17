@@ -1030,7 +1030,12 @@ export async function campaignRoutes(app: FastifyInstance) {
         status: 'FAILED',
         retryCount: { lt: 3 },
         nextAttemptAt: { lte: now },
-        campaign: { type: 'AUTOMATED', status: 'ACTIVE', whatsappTemplate: { status: 'APPROVED' } }
+        campaign: {
+          type: 'AUTOMATED',
+          status: 'ACTIVE',
+          business: { accountStatus: 'ACTIVE' },
+          whatsappTemplate: { status: 'APPROVED' }
+        }
       },
       include: {
         customer: { select: { id: true, name: true, phone: true } },

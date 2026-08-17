@@ -1,5 +1,6 @@
 import { prisma } from '../config/prisma.js'
 import { whatsappConfig } from '../config/whatsapp.js'
+import { businessAccountAccessMessage, isBusinessAccountOperational, isBusinessAccountUnavailable } from './business-account-access.js'
 
 export type WhatsAppCloudCredentials = {
   accessToken?: string
@@ -16,7 +17,7 @@ export async function getBusinessWhatsAppState(businessId: string) {
   const [config, settings, business] = await Promise.all([
     prisma.businessWhatsAppConfig.findUnique({ where: { businessId } }),
     prisma.businessFeatureSettings.findUnique({ where: { businessId } }),
-    prisma.business.findUnique({ where: { id: businessId }, select: { id: true, botEnabled: true, aiEnabled: true } })
+    prisma.business.findUnique({ where: { id: businessId }, select: { id: true, botEnabled: true, aiEnabled: true, accountStatus: true } })
   ])
 
   const hasBusinessCredentials = Boolean(config?.accessToken && config.phoneNumberId && config.wabaId)
@@ -36,6 +37,7 @@ export async function getBusinessWhatsAppState(businessId: string) {
 
   const baseReasons: string[] = []
   if (!business) baseReasons.push('No encontre el comercio.')
+  if (business && isBusinessAccountUnavailable(business.accountStatus)) baseReasons.push(businessAccountAccessMessage(business.accountStatus))
   if (!hasBusinessCredentials && !usingInternalFallback) baseReasons.push('WhatsApp todavia no esta conectado.')
   if (connectionStatus !== 'CONNECTED') baseReasons.push(connectionStatusReason(connectionStatus))
   if (!realWhatsappEnabled) baseReasons.push('Los envios reales de WhatsApp estan desactivados para este comercio.')
@@ -43,6 +45,8 @@ export async function getBusinessWhatsAppState(businessId: string) {
 
   const campaignsLocked = Boolean(settings?.campaignSendingLocked) || !settings?.campaignsEnabled
   const remindersLocked = Boolean(settings?.reminderSendingLocked) || !settings?.remindersEnabled
+  const operationalReasons = [...baseReasons]
+  if (business && !isBusinessAccountOperational(business.accountStatus)) operationalReasons.push(businessAccountAccessMessage(business.accountStatus))
 
   return {
     config,
@@ -71,20 +75,21 @@ export async function getBusinessWhatsAppState(businessId: string) {
     gates: {
       canSendTests: baseReasons.length === 0,
       canCreateTemplates: baseReasons.length === 0,
-      canSendCampaigns: baseReasons.length === 0 && !campaignsLocked && billingOwner === 'CLIENT',
-      canSendReminders: baseReasons.length === 0 && !remindersLocked,
-      canSendBotReplies: baseReasons.length === 0 && (business?.botEnabled ?? settings?.botEnabled ?? true)
+      canSendCampaigns: operationalReasons.length === 0 && !campaignsLocked && billingOwner === 'CLIENT',
+      canSendReminders: operationalReasons.length === 0 && !remindersLocked,
+      canSendBotReplies: operationalReasons.length === 0 && (business?.botEnabled ?? settings?.botEnabled ?? true)
     },
     reasons: {
       base: baseReasons,
+      bot: operationalReasons,
       campaigns: [
-        ...baseReasons,
+        ...operationalReasons,
         ...(!settings?.campaignsEnabled ? ['Las campanas estan desactivadas para este comercio.'] : []),
         ...(settings?.campaignSendingLocked ? ['Las campanas reales estan bloqueadas hasta completar la conexion de WhatsApp.'] : []),
         ...(billingOwner === 'SALON_AI' ? ['Las campanas masivas no pueden salir con la cuenta interna de Weex.'] : [])
       ],
       reminders: [
-        ...baseReasons,
+        ...operationalReasons,
         ...(!settings?.remindersEnabled ? ['Los recordatorios estan desactivados para este comercio.'] : []),
         ...(settings?.reminderSendingLocked ? ['Los recordatorios reales estan bloqueados hasta completar la conexion de WhatsApp.'] : [])
       ]
@@ -115,6 +120,8 @@ export async function assertBusinessCanSendWhatsApp(businessId: string, purpose:
     ? state.reasons.campaigns
     : purpose === 'REMINDER'
     ? state.reasons.reminders
+    : purpose === 'BOT'
+    ? state.reasons.bot
     : state.reasons.base
   const allowed = purpose === 'CAMPAIGN'
     ? state.gates.canSendCampaigns

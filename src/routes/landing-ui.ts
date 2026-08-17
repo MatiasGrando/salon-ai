@@ -7,6 +7,7 @@ import { findCustomSiteProfileBinding } from '../services/custom-site-profile-bi
 import { formatArgentineMobilePhone, inferDefaultAreaCodeFromPhone } from '../services/phone-normalization-service.js'
 import { weexGoogleCalendarEnabled, weexGoogleClientId } from '../services/weex-account-service.js'
 import { formatCustomerDuration } from '../services/service-duration.js'
+import { isBusinessAccountUnavailable } from '../services/business-account-access.js'
 
 const businessService = new BusinessService()
 const baseDomain = (process.env.PUBLIC_BASE_DOMAIN || 'weex.com.ar').toLowerCase()
@@ -26,6 +27,7 @@ export async function landingUiRoutes(app: FastifyInstance) {
   app.get('/', async (request, reply) => {
     const business = await findPublicBusinessFromHost(request)
     if (!business) return reply.type('text/html').send(renderWeexHome())
+    if (isBusinessAccountUnavailable(business.accountStatus)) return reply.status(503).type('text/html').send(renderBusinessUnavailable())
     if (!business || !business.landingEnabled) return reply.status(404).type('text/html').send(renderNotFound())
 
     return reply.type('text/html').send(renderLanding(business, '', previewLandingTemplate(request), isLandingDemoPreview(request)))
@@ -52,6 +54,7 @@ export async function landingUiRoutes(app: FastifyInstance) {
 
   app.get('/reservar', async (request, reply) => {
     const business = await findPublicBusinessFromHost(request)
+    if (business && isBusinessAccountUnavailable(business.accountStatus)) return reply.status(503).type('text/html').send(renderBusinessUnavailable())
     if (!business || !business.landingEnabled) return reply.status(404).type('text/html').send(renderNotFound())
 
     return reply.type('text/html').send(renderBookingPlaceholder(business, '/', previewLandingTemplate(request)))
@@ -59,6 +62,7 @@ export async function landingUiRoutes(app: FastifyInstance) {
 
   app.get('/cuenta', async (request, reply) => {
     const business = await findPublicBusinessFromHost(request)
+    if (business && isBusinessAccountUnavailable(business.accountStatus)) return reply.status(503).type('text/html').send(renderBusinessUnavailable())
     if (!business || !business.landingEnabled) return reply.status(404).type('text/html').send(renderNotFound())
 
     return reply.type('text/html').send(renderCustomerAccount(business, '/'))
@@ -68,6 +72,7 @@ export async function landingUiRoutes(app: FastifyInstance) {
     const params = request.params as { slug: string }
     const slug = normalizeBusinessSlug(params.slug)
     const business = await businessService.findPublicBySlug(slug)
+    if (business && isBusinessAccountUnavailable(business.accountStatus)) return reply.status(503).type('text/html').send(renderBusinessUnavailable())
     if (!business || !business.landingEnabled) return reply.status(404).type('text/html').send(renderNotFound())
 
     return reply.type('text/html').send(renderLanding(business, `/${slug}`, previewLandingTemplate(request), isLandingDemoPreview(request)))
@@ -77,6 +82,7 @@ export async function landingUiRoutes(app: FastifyInstance) {
     const params = request.params as { slug: string }
     const slug = normalizeBusinessSlug(params.slug)
     const business = await businessService.findPublicBySlug(slug)
+    if (business && isBusinessAccountUnavailable(business.accountStatus)) return reply.status(503).type('text/html').send(renderBusinessUnavailable())
     const demoPreview = Boolean(business && isLocalDemoPreview(request, business))
     if (!business || (!business.landingEnabled && !demoPreview)) return reply.status(404).type('text/html').send(renderNotFound())
 
@@ -87,6 +93,7 @@ export async function landingUiRoutes(app: FastifyInstance) {
     const params = request.params as { slug: string }
     const slug = normalizeBusinessSlug(params.slug)
     const business = await businessService.findPublicBySlug(slug)
+    if (business && isBusinessAccountUnavailable(business.accountStatus)) return reply.status(503).type('text/html').send(renderBusinessUnavailable())
     if (!business || !business.landingEnabled) return reply.status(404).type('text/html').send(renderNotFound())
 
     return reply.type('text/html').send(renderCustomerAccount(business, `/${slug}`))
@@ -3595,6 +3602,21 @@ function renderNotFound() {
           <span class="eyebrow">Weex</span>
           <h1>No encontramos esta landing.</h1>
           <p>Revisa el subdominio o pedile al comercio su enlace de reservas.</p>
+        </section>
+      </main>
+    `
+  })
+}
+
+function renderBusinessUnavailable() {
+  return htmlPage({
+    title: 'Comercio no disponible',
+    body: `
+      <main class="booking-shell">
+        <section class="booking-card">
+          <span class="eyebrow">Weex</span>
+          <h1>Este comercio no est&aacute; disponible temporalmente.</h1>
+          <p>Consult&aacute; directamente con el comercio para recibir asistencia.</p>
         </section>
       </main>
     `

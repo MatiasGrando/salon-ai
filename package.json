@@ -34,6 +34,7 @@
     "test:business-customer-code": "tsx scripts/business-customer-code-contract-test.ts",
     "test:account-management": "tsx scripts/account-management-contract-test.ts",
     "test:account-billing": "tsx scripts/account-billing-contract-test.ts",
+    "test:business-account-access": "tsx scripts/business-account-access-contract-test.ts",
     "test:crm-ui-syntax": "tsx scripts/crm-ui-inline-syntax-test.ts",
     "sync:weex-bot-v1": "tsx scripts/sync-weex-support-bot-v1.ts",
     "test:business-bot-configuration": "tsx scripts/business-bot-configuration-contract-test.ts",

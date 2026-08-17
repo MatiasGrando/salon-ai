@@ -8,6 +8,7 @@ import { CommunicationService } from '../application/communications/communicatio
 import { PrismaCommunicationRepository } from '../infrastructure/communications/prisma-communication-repository.js'
 import { assertPostSaleManualTransition, canAutomaticPostSaleSend, partitionLatestPostSales, type PostSaleManualStatus } from '../domain/communications/post-sale.js'
 import { customerDurationRange } from './service-duration.js'
+import { isBusinessAccountOperational } from './business-account-access.js'
 
 const whatsappCloudApi = new WhatsAppCloudApi()
 const recordCommunicationAttempt = new RecordCommunicationAttempt(new PrismaCommunicationAttemptRepository())
@@ -19,9 +20,13 @@ type ConversationIdRow = { id: string }
 export async function prepareDuePostSales(input: { businessId?: string; limit?: number } = {}) {
   const now = new Date()
   const limit = Math.max(1, Math.min(100, input.limit ?? 25))
+  if (input.businessId && !await businessIsOperational(input.businessId)) {
+    return { prepared: 0, failed: 0, skipped: 1, superseded: 0, total: 0, blocked: true }
+  }
   const automations = await prisma.postSaleAutomation.findMany({
     where: {
       ...(input.businessId ? { businessId: input.businessId } : {}),
+      business: { accountStatus: 'ACTIVE' },
       mode: { in: ['MANUAL_ASSISTED', 'AUTOMATIC_API'] }
     },
     include: { template: true }
@@ -163,6 +168,9 @@ async function supersedeOlderPendingPostSales(businessId: string | undefined, no
 export async function processDuePostSales(input: { businessId?: string; limit?: number } = {}) {
   const now = new Date()
   const limit = Math.max(1, Math.min(100, input.limit ?? 25))
+  if (input.businessId && !await businessIsOperational(input.businessId)) {
+    return { prepared: 0, total: 0, sent: 0, failed: 0, skipped: 1, blocked: true, message: 'La cuenta no esta activa.' }
+  }
   await prisma.postSaleDelivery.updateMany({
     where: {
       ...(input.businessId ? { businessId: input.businessId } : {}),
@@ -184,6 +192,7 @@ export async function processDuePostSales(input: { businessId?: string; limit?: 
   const automations = await prisma.postSaleAutomation.findMany({
     where: {
       ...(input.businessId ? { businessId: input.businessId } : {}),
+      business: { accountStatus: 'ACTIVE' },
       mode: 'AUTOMATIC_API',
       template: { status: 'APPROVED', category: 'UTILITY' }
     },
@@ -332,6 +341,11 @@ export async function processDuePostSales(input: { businessId?: string; limit?: 
     skipped,
     total: preparation.prepared + sent + failed + preparation.failed
   }
+}
+
+async function businessIsOperational(businessId: string) {
+  const business = await prisma.business.findUnique({ where: { id: businessId }, select: { accountStatus: true } })
+  return isBusinessAccountOperational(business?.accountStatus)
 }
 
 export async function transitionManualPostSale(input: {

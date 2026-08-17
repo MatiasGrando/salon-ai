@@ -34,6 +34,7 @@ export function startMarketingScheduler(app: FastifyInstance) {
         where: {
           type: 'AUTOMATED',
           status: 'ACTIVE',
+          business: { accountStatus: 'ACTIVE' },
           whatsappTemplate: { status: 'APPROVED' },
           OR: [
             { scheduleMode: 'IMMEDIATE' },
@@ -76,6 +77,7 @@ export function startMarketingScheduler(app: FastifyInstance) {
         where: {
           type: 'ONE_TIME',
           status: 'SCHEDULED',
+          business: { accountStatus: 'ACTIVE' },
           scheduleMode: 'SCHEDULED',
           scheduledAt: { lte: now },
           whatsappTemplate: { status: 'APPROVED' }
@@ -93,6 +95,7 @@ export function startMarketingScheduler(app: FastifyInstance) {
         where: {
           type: 'AUTOMATED',
           status: 'ACTIVE',
+          business: { accountStatus: 'ACTIVE' },
           scheduleMode: 'SCHEDULED',
           scheduledAt: { lte: now },
           whatsappTemplate: { status: 'APPROVED' },
@@ -115,6 +118,7 @@ export function startMarketingScheduler(app: FastifyInstance) {
       const businesses = await prisma.reminderAutomation.findMany({
         where: {
           channel: 'WHATSAPP',
+          business: { accountStatus: 'ACTIVE' },
           OR: [
             { mode: { in: ['MANUAL_ASSISTED', 'AUTOMATIC_API'] } },
             { enabled: true }

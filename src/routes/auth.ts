@@ -11,6 +11,7 @@ import {
 } from '../services/auth-service.js'
 import { BusinessService } from '../services/business-service.js'
 import { refreshBusinessOnboarding } from '../services/business-onboarding-service.js'
+import { businessAccountAccessMessage, isBusinessAccountUnavailable } from '../services/business-account-access.js'
 
 const businessService = new BusinessService()
 
@@ -31,6 +32,13 @@ export async function authRoutes(app: FastifyInstance) {
 
     if (!user || !user.isActive || !await verifyPassword(password, user.passwordHash)) {
       return reply.status(401).send({ message: 'Email o contrasena incorrectos' })
+    }
+
+    if (['BUSINESS_ADMIN', 'STAFF'].includes(user.role) && isBusinessAccountUnavailable(user.business?.accountStatus)) {
+      return reply.status(423).send({
+        message: businessAccountAccessMessage(user.business?.accountStatus),
+        accountStatus: user.business?.accountStatus
+      })
     }
 
     if (!user.firstLoginAt) {
@@ -61,6 +69,14 @@ export async function authRoutes(app: FastifyInstance) {
       include: { business: true, professional: true }
     })
     if (!user || !user.isActive) return reply.status(401).send({ message: 'Necesitas iniciar sesion' })
+    if (['BUSINESS_ADMIN', 'STAFF'].includes(user.role) && isBusinessAccountUnavailable(user.business?.accountStatus)) {
+      await destroySessionFromRequest(request)
+      reply.header('Set-Cookie', buildExpiredSessionCookie())
+      return reply.status(423).send({
+        message: businessAccountAccessMessage(user.business?.accountStatus),
+        accountStatus: user.business?.accountStatus
+      })
+    }
     return {
       user: publicUser(user),
       business: user.business

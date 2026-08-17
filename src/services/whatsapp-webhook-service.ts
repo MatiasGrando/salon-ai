@@ -28,6 +28,7 @@ import {
   isGreetingLatencyDiagnosticMessage,
   LatencyDiagnostic
 } from './latency-diagnostic.js'
+import { isBusinessAccountUnavailable } from './business-account-access.js'
 
 type VerifyWebhookInput = {
   mode: string | undefined
@@ -165,6 +166,16 @@ export class WhatsAppWebhookService {
         phoneNumberId: message.phoneNumberId,
         businessId: targetBusinessId
       })
+
+      if (targetBusiness && isBusinessAccountUnavailable(targetBusiness.business.accountStatus)) {
+        results.push({
+          messageId: message.id,
+          from: message.from,
+          skipped: true,
+          reason: 'Cuenta pausada o cancelada'
+        })
+        continue
+      }
 
       const conversationUpsert = buildIncomingConversationUpsert(
         targetBusinessId,
@@ -848,7 +859,8 @@ export class WhatsAppWebhookService {
             connectionStatus: 'CONNECTED'
           },
           select: {
-            businessId: true
+            businessId: true,
+            business: { select: { accountStatus: true } }
           }
         })
       : null
@@ -863,7 +875,8 @@ export class WhatsAppWebhookService {
         },
         select: {
           businessId: true,
-          displayPhoneNumber: true
+          displayPhoneNumber: true,
+          business: { select: { accountStatus: true } }
         }
       })
       targetBusiness = candidates.find((candidate) => {

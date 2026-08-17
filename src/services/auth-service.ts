@@ -33,6 +33,7 @@ export type AuthUser = {
   canViewOperationalReports: boolean
   canViewFinancialAmounts: boolean
   canCreateBusinesses: boolean
+  businessAccountStatus: 'ONBOARDING' | 'ACTIVE' | 'PAUSED' | 'CANCELLED' | null
 }
 
 export type AuthContext = {
@@ -80,7 +81,7 @@ export async function getAuthFromRequest(request: FastifyRequest): Promise<AuthC
   const session = await prisma.userSession.findUnique({
     where: { tokenHash: hashSessionToken(token) },
     include: {
-      user: true
+      user: { include: { business: { select: { accountStatus: true } } } }
     }
   })
   if (!session || session.expiresAt.getTime() <= Date.now() || !session.user.isActive) {
@@ -114,7 +115,8 @@ export async function getAuthFromRequest(request: FastifyRequest): Promise<AuthC
       canManageDeposits: session.user.canManageDeposits,
       canViewOperationalReports: session.user.canViewOperationalReports,
       canViewFinancialAmounts: session.user.canViewFinancialAmounts,
-      canCreateBusinesses: session.user.role === 'SUPER_ADMIN' || session.user.canCreateBusinesses
+      canCreateBusinesses: session.user.role === 'SUPER_ADMIN' || session.user.canCreateBusinesses,
+      businessAccountStatus: session.user.business?.accountStatus ?? null
     }
   }
 }

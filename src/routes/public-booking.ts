@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
+import { isBusinessAccountUnavailable } from '../services/business-account-access.js'
 import { randomUUID } from 'node:crypto'
 import { prisma } from '../config/prisma.js'
 import { AppointmentService } from '../services/appointment-service.js'
@@ -621,7 +622,9 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     const params = request.params as { slug: string }
     const query = request.query as { phone?: string }
     const business = await businessService.findPublicBySlug(params.slug)
-    if (!business || !business.landingEnabled) return reply.status(404).send({ message: 'No encontre esta landing' })
+    if (!business || !business.landingEnabled || isBusinessAccountUnavailable(business.accountStatus)) {
+      return reply.status(404).send({ message: 'No encontre esta landing' })
+    }
 
     const defaultAreaCode = inferDefaultAreaCodeFromPhone(publicWhatsappNumber(business))
     const phone = normalizePhone(query.phone, { defaultAreaCode })
@@ -935,6 +938,7 @@ function resolvePublicEstimateSelection(service: {
 async function findAvailablePublicBookingBusiness(request: FastifyRequest, slug: string) {
   const business = await businessService.findPublicBySlug(slug)
   if (!business) return null
+  if (isBusinessAccountUnavailable(business.accountStatus)) return null
   if (business.landingEnabled) return business
   const query = request.query as { preview?: string }
   const rawHost = request.headers['x-forwarded-host'] || request.headers.host

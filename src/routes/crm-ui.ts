@@ -19121,16 +19121,19 @@ const crmHtml = `<!doctype html>
     function openManagedAccountStatusAction(account, action) {
       const definitions = {
         ACTIVATE: { title: 'Activar cuenta', copy: 'La cuenta comenzar&aacute; a facturarse desde el pr&oacute;ximo d&iacute;a de cobro configurado.', submit: 'Activar cuenta', reason: false },
-        PAUSE: { title: 'Pausar cuenta', copy: 'No se generar&aacute;n cargos nuevos mientras permanezca pausada. Las deudas anteriores se conservan.', submit: 'Pausar cuenta', reason: true },
-        CANCEL: { title: 'Cancelar cuenta', copy: 'La cuenta dejar&aacute; de generar cargos futuros y conservar&aacute; todos sus datos e historial.', submit: 'Cancelar cuenta', reason: true },
-        REACTIVATE: { title: 'Reactivar cuenta', copy: 'La facturaci&oacute;n se retomar&aacute; desde el pr&oacute;ximo d&iacute;a de cobro, sin cobrar los meses pausados.', submit: 'Reactivar cuenta', reason: account.accountStatus === 'CANCELLED' }
+        PAUSE: { title: 'Pausar cuenta', copy: 'Se cerrar&aacute;n las sesiones del comercio y se detendr&aacute;n el bot, la landing, las reservas y las automatizaciones. No se generar&aacute;n cargos nuevos y las deudas anteriores se conservan.', submit: 'Pausar cuenta', reason: true },
+        CANCEL: { title: 'Cancelar cuenta', copy: 'Se bloquear&aacute; el acceso del comercio y se detendr&aacute;n el bot, la landing, las reservas y las automatizaciones. No habr&aacute; cargos futuros y los datos se conservar&aacute;n.', submit: 'Cancelar cuenta', reason: true },
+        REACTIVATE: { title: 'Reactivar cuenta', copy: 'Se restaurar&aacute; el acceso y cada canal volver&aacute; con su configuraci&oacute;n anterior. La facturaci&oacute;n se retomar&aacute; desde el pr&oacute;ximo d&iacute;a de cobro, sin cobrar los meses pausados.', submit: 'Reactivar cuenta', reason: account.accountStatus === 'CANCELLED' }
       }
       const definition = definitions[action]
       if (!definition) return
       const reasonField = definition.reason
         ? '<div class="account-edit-field full"><label for="account-status-reason">Motivo</label><input id="account-status-reason" name="reason" maxlength="300" required placeholder="Dej&aacute; una referencia clara para el historial"></div>'
         : ''
-      els.accountPanel.innerHTML = '<header class="account-panel-head"><div><h3>' + definition.title + '</h3><p>' + escapeHtml(account.name) + ' · ' + escapeHtml(account.customerCode) + '</p></div><button class="account-panel-close" type="button" data-cancel-status-action aria-label="Volver">X</button></header><form class="account-edit-form" id="account-status-action-form"><p class="account-billing-copy">' + definition.copy + '</p><div class="account-edit-grid">' + reasonField + '</div><p class="settings-feedback" id="account-status-action-feedback" role="status"></p><div class="account-edit-actions"><button class="secondary" type="button" data-cancel-status-action>Cancelar</button><button class="' + (action === 'CANCEL' ? 'danger' : 'primary') + '" type="submit">' + definition.submit + '</button></div></form>'
+      const confirmationField = action === 'CANCEL'
+        ? '<div class="account-edit-field full"><label for="account-status-confirmation">Escrib&iacute; ' + escapeHtml(account.name) + ' para confirmar</label><input id="account-status-confirmation" name="confirmationName" required autocomplete="off"></div>'
+        : ''
+      els.accountPanel.innerHTML = '<header class="account-panel-head"><div><h3>' + definition.title + '</h3><p>' + escapeHtml(account.name) + ' · ' + escapeHtml(account.customerCode) + '</p></div><button class="account-panel-close" type="button" data-cancel-status-action aria-label="Volver">X</button></header><form class="account-edit-form" id="account-status-action-form"><p class="account-billing-copy">' + definition.copy + '</p><div class="account-edit-grid">' + reasonField + confirmationField + '</div><p class="settings-feedback" id="account-status-action-feedback" role="status"></p><div class="account-edit-actions"><button class="secondary" type="button" data-cancel-status-action>Cancelar</button><button class="' + (action === 'CANCEL' ? 'danger' : 'primary') + '" type="submit">' + definition.submit + '</button></div></form>'
       for (const button of els.accountPanel.querySelectorAll('[data-cancel-status-action]')) button.addEventListener('click', () => renderManagedAccountPanel(account))
       els.accountPanel.querySelector('#account-status-action-form')?.addEventListener('submit', async (event) => {
         event.preventDefault()
@@ -19141,7 +19144,11 @@ const crmHtml = `<!doctype html>
           await getJson('/admin/accounts/' + encodeURIComponent(account.id) + '/status', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action, reason: values.get('reason') || null })
+            body: JSON.stringify({
+              action,
+              reason: values.get('reason') || null,
+              confirmationName: values.get('confirmationName') || null
+            })
           })
           const updated = await getJson('/admin/accounts/' + encodeURIComponent(account.id))
           renderManagedAccountPanel(updated)

@@ -3,6 +3,7 @@ import { WhatsAppCloudApi } from '../integrations/whatsapp-cloud-api.js'
 import { assertBusinessCanSendWhatsApp } from './business-whatsapp-settings.js'
 import { RecordCommunicationAttempt } from '../application/communications/record-communication-attempt.js'
 import { PrismaCommunicationAttemptRepository } from '../infrastructure/communications/prisma-communication-attempt-repository.js'
+import { isBusinessAccountOperational } from './business-account-access.js'
 import {
   assertReminderManualTransition,
   canAutomaticReminderSend,
@@ -16,6 +17,9 @@ const recordCommunicationAttempt = new RecordCommunicationAttempt(new PrismaComm
 export async function prepareDueReminders(input: { businessId?: string; automationId?: string; limit?: number } = {}) {
   const now = new Date()
   const limit = Math.max(1, Math.min(100, input.limit ?? 25))
+  if (input.businessId && !await businessIsOperational(input.businessId)) {
+    return { prepared: 0, failed: 0, skipped: 1, total: 0, blocked: true }
+  }
   await prisma.reminderDelivery.updateMany({
     where: {
       ...(input.businessId ? { businessId: input.businessId } : {}),
@@ -29,6 +33,7 @@ export async function prepareDueReminders(input: { businessId?: string; automati
     where: {
       ...(input.businessId ? { businessId: input.businessId } : {}),
       ...(input.automationId ? { id: input.automationId } : {}),
+      business: { accountStatus: 'ACTIVE' },
       channel: 'WHATSAPP',
       mode: { in: ['MANUAL_ASSISTED', 'AUTOMATIC_API'] }
     }
@@ -122,6 +127,9 @@ export async function prepareDueReminders(input: { businessId?: string; automati
 export async function processDueReminders(input: { businessId: string; limit?: number }) {
   const now = new Date()
   const limit = Math.max(1, Math.min(100, input.limit ?? 25))
+  if (!await businessIsOperational(input.businessId)) {
+    return { prepared: 0, total: 0, sent: 0, failed: 0, skipped: 1, blocked: true, message: 'La cuenta no esta activa.' }
+  }
   await prisma.reminderDelivery.updateMany({
     where: {
       businessId: input.businessId,
@@ -252,6 +260,11 @@ export async function processDueReminders(input: { businessId: string; limit?: n
     }
   }
   return { ...preparation, sent, failed, skipped, total: preparation.prepared + preparation.failed + sent + failed }
+}
+
+async function businessIsOperational(businessId: string) {
+  const business = await prisma.business.findUnique({ where: { id: businessId }, select: { accountStatus: true } })
+  return isBusinessAccountOperational(business?.accountStatus)
 }
 
 export async function transitionManualReminder(input: {

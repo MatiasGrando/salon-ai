@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { getAuthFromRequest, type AuthContext } from '../services/auth-service.js'
 import { prisma } from '../config/prisma.js'
 import { canStaffAccessRoute, staffAuditAction } from '../services/staff-permission-service.js'
+import { businessAccountAccessMessage, isBusinessAccountUnavailable } from '../services/business-account-access.js'
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -16,6 +17,12 @@ export async function authGuard(app: FastifyInstance) {
     const auth = await getAuthFromRequest(request)
     if (!auth) return reply.status(401).send({ message: 'Necesitas iniciar sesion' })
     request.auth = auth
+    if (['BUSINESS_ADMIN', 'STAFF'].includes(auth.user.role) && isBusinessAccountUnavailable(auth.user.businessAccountStatus)) {
+      return reply.status(423).send({
+        message: businessAccountAccessMessage(auth.user.businessAccountStatus),
+        accountStatus: auth.user.businessAccountStatus
+      })
+    }
     if (auth.user.role === 'ACCOUNT_ADMIN' && !isAccountAdminRoute(request, auth)) {
       return reply.status(403).send({ message: 'Tu cuenta solo tiene acceso al tablero de alta de locales' })
     }

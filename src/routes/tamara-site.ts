@@ -2,12 +2,17 @@ import type { FastifyInstance, FastifyReply } from 'fastify'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { sendTamaraContactEmail } from '../services/tamara-contact-email-service.js'
+import { BusinessService } from '../services/business-service.js'
+import { findCustomSiteProfileBinding } from '../services/custom-site-profile-binding.js'
+import { isBusinessAccountUnavailable } from '../services/business-account-access.js'
 
 const tamaraHost = 'tamaragrando.weex.com.ar'
 const tamaraSiteDir = join(process.cwd(), 'src', 'assets', 'tamara-site')
 const contactAttempts = new Map<string, number[]>()
 const contactWindowMs = 10 * 60 * 1000
 const contactLimit = 5
+const businessService = new BusinessService()
+const tamaraBinding = findCustomSiteProfileBinding(tamaraHost)
 
 const tamaraAssets = [
   { url: '/tamara-grando-profile-dark.png', file: 'tamara-grando-profile-dark.png', contentType: 'image/png' },
@@ -40,12 +45,14 @@ const tamaraAssets = [
 
 export async function tamaraSiteRoutes(app: FastifyInstance) {
   app.get('/', { constraints: { host: tamaraHost } }, async (_request, reply) => {
+    if (await customSiteIsUnavailable()) return reply.status(503).type('text/html; charset=utf-8').send(renderUnavailableSite())
     const html = await readFile(join(tamaraSiteDir, 'index.html'))
     applySiteHeaders(reply)
     return reply.type('text/html; charset=utf-8').send(html)
   })
 
   app.post('/contacto', { constraints: { host: tamaraHost } }, async (request, reply) => {
+    if (await customSiteIsUnavailable()) return reply.status(503).send({ message: 'Este sitio no esta disponible temporalmente.' })
     const body = request.body as {
       name?: unknown
       contact?: unknown
@@ -90,6 +97,16 @@ export async function tamaraSiteRoutes(app: FastifyInstance) {
       return reply.type(asset.contentType).send(buffer)
     })
   }
+}
+
+async function customSiteIsUnavailable() {
+  if (!tamaraBinding) return false
+  const business = await businessService.findPublicByCustomerCode(tamaraBinding.businessCustomerCode)
+  return Boolean(business && isBusinessAccountUnavailable(business.accountStatus))
+}
+
+function renderUnavailableSite() {
+  return '<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Comercio no disponible | Weex</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f5f7fb;color:#111827;font-family:Arial,sans-serif}.card{width:min(520px,calc(100% - 48px));padding:36px;border:1px solid #d8deea;border-radius:18px;background:#fff;box-shadow:0 18px 50px rgba(15,23,42,.1)}span{color:#2563eb;font-weight:800}h1{font-size:28px;margin:14px 0 10px}p{color:#526078;line-height:1.6;margin:0}</style></head><body><main class="card"><span>Weex</span><h1>Este comercio no est&aacute; disponible temporalmente.</h1><p>Consult&aacute; directamente con el comercio para recibir asistencia.</p></main></body></html>'
 }
 
 function cleanText(value: unknown, maxLength: number) {

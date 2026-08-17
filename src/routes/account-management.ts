@@ -321,7 +321,7 @@ export async function accountManagementRoutes(app: FastifyInstance) {
     if (!await canAccessManagedAccount(request.auth!, params.id)) {
       return reply.status(404).send({ message: 'No encontre esa cuenta' })
     }
-    const body = request.body as { action?: string; reason?: string | null }
+    const body = request.body as { action?: string; reason?: string | null; confirmationName?: string | null }
     const action = body.action?.trim().toUpperCase()
     const reason = body.reason?.trim() || null
     const account = await prisma.business.findUnique({
@@ -337,6 +337,9 @@ export async function accountManagementRoutes(app: FastifyInstance) {
     }
     if (['PAUSE', 'CANCEL'].includes(action || '') && !reason) {
       return reply.status(400).send({ message: 'Indica el motivo del cambio' })
+    }
+    if (action === 'CANCEL' && body.confirmationName?.trim().toLocaleLowerCase('es') !== account.name.trim().toLocaleLowerCase('es')) {
+      return reply.status(400).send({ message: 'Escribi el nombre exacto del comercio para confirmar la cancelacion' })
     }
     if (account.accountStatus === 'CANCELLED' && transition === 'ACTIVE' && !reason) {
       return reply.status(400).send({ message: 'Indica el motivo de la reactivacion' })
@@ -358,6 +361,16 @@ export async function accountManagementRoutes(app: FastifyInstance) {
           changedByRole: request.auth!.user.role as 'SUPER_ADMIN' | 'ACCOUNT_ADMIN'
         }
       })
+      if (transition === 'PAUSED' || transition === 'CANCELLED') {
+        await transaction.userSession.deleteMany({
+          where: {
+            user: {
+              businessId: account.id,
+              role: { in: ['BUSINESS_ADMIN', 'STAFF'] }
+            }
+          }
+        })
+      }
     })
     if (transition === 'ACTIVE') {
       await initializeAccountBilling(account.id, normalizeBillingDay(account.billingSettings?.billingDay) || 1)
