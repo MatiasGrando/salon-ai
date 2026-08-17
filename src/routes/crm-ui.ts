@@ -4893,7 +4893,81 @@ const crmHtml = `<!doctype html>
     .account-check.complete { color: #e9e5df; }
     .account-check.complete b { color: #65e69a; background: #113322; }
     .account-open-crm { width: 100%; min-height: 44px; margin-top: 18px; border: 0; border-radius: 11px; color: #17120a; background: #d8aa50; font-weight: 850; }
-    .account-create-dialog { width: min(680px, 100%); }
+    #account-create-dialog {
+      z-index: 90;
+      background: rgba(3, 6, 12, .78);
+      backdrop-filter: blur(4px);
+    }
+    .account-create-dialog {
+      width: min(680px, 100%);
+      grid-template-rows: auto minmax(0, 1fr);
+      border: 1px solid #343438;
+      border-radius: 18px;
+      color: #f8f5ef;
+      background: #19191c;
+      box-shadow: 0 28px 80px rgba(0, 0, 0, .6);
+      overflow: hidden;
+    }
+    .account-create-dialog .dialog-header {
+      min-height: 76px;
+      padding: 18px 22px;
+      border-bottom-color: #303033;
+      background: #1f1f22;
+    }
+    .account-create-dialog .dialog-header h3 { color: #fff; font-size: 20px; }
+    .account-create-dialog .dialog-header small { display: block; margin-top: 5px; color: #a99f93; }
+    .account-create-dialog .dialog-header .icon-button {
+      width: 38px;
+      height: 38px;
+      border: 1px solid #3a3a3f;
+      color: #e9e5df;
+      background: #29292d;
+    }
+    .account-create-dialog .settings-form {
+      min-height: 0;
+      margin: 0;
+      padding: 22px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px 14px;
+      overflow-y: auto;
+    }
+    .account-create-dialog .settings-field { gap: 7px; }
+    .account-create-dialog .settings-field > label {
+      color: #d9c7a5;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .035em;
+      text-transform: uppercase;
+    }
+    .account-create-dialog .field {
+      height: 44px;
+      border: 1px solid #3a3a3f;
+      border-radius: 10px;
+      color: #fff;
+      background: #242427;
+    }
+    .account-create-dialog .field::placeholder { color: #7f786f; }
+    .account-create-dialog .field:focus {
+      border-color: #d8aa50;
+      box-shadow: 0 0 0 3px rgba(216, 170, 80, .16);
+    }
+    .account-create-dialog select.field { color-scheme: dark; }
+    .account-create-dialog select.field option { color: #fff; background: #242427; }
+    .account-create-dialog .full { grid-column: 1 / -1; }
+    .account-create-dialog .settings-feedback { min-height: 0; margin: -2px 0 0; }
+    .account-create-dialog .dialog-actions {
+      margin: 2px -22px -22px;
+      padding: 16px 22px;
+      border-top: 1px solid #303033;
+      background: #1f1f22;
+    }
+    .account-create-dialog .dialog-actions button { min-width: 116px; min-height: 42px; border-radius: 10px; }
+    .account-create-dialog .dialog-actions .secondary {
+      border: 1px solid #414147;
+      color: #e8e2da;
+      background: #29292d;
+    }
+    .account-create-dialog .dialog-actions .primary { color: #17120a; background: #d8aa50; }
 
     @media (max-width: 1100px) {
       .accounts-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -4905,6 +4979,9 @@ const crmHtml = `<!doctype html>
       .accounts-toolbar { grid-template-columns: 1fr; }
       .accounts-stats { grid-template-columns: 1fr 1fr; }
       .account-detail-grid { grid-template-columns: 1fr; }
+      .account-create-dialog .settings-form { grid-template-columns: 1fr; padding: 18px; }
+      .account-create-dialog .full { grid-column: auto; }
+      .account-create-dialog .dialog-actions { margin: 2px -18px -18px; padding: 14px 18px; }
     }
 
     .customers-shell {
@@ -14065,7 +14142,7 @@ const crmHtml = `<!doctype html>
         <section class="accounts-table-card">
           <div class="accounts-table-wrap">
             <table class="accounts-table">
-              <thead><tr><th>Cuenta</th><th>Contacto</th><th>Administrador</th><th>Estado</th><th>Onboarding</th><th>Plan</th><th>Registro</th></tr></thead>
+              <thead><tr><th>Cuenta</th><th>Contacto</th><th>Responsable de cuenta</th><th>Estado</th><th>Onboarding</th><th>Plan</th><th>Registro</th></tr></thead>
               <tbody id="account-table-body"><tr><td colspan="7">Cargando cuentas...</td></tr></tbody>
             </table>
           </div>
@@ -14368,7 +14445,7 @@ const crmHtml = `<!doctype html>
         </header>
         <form class="settings-form" id="account-create-form">
           <div class="settings-field"><label for="account-business-name">Nombre del comercio</label><input class="field" id="account-business-name" required></div>
-          <div class="settings-field"><label for="account-owner-name">Nombre del administrador</label><input class="field" id="account-owner-name" autocomplete="name" required></div>
+          <div class="settings-field"><label for="account-owner-name">Administrador del comercio</label><input class="field" id="account-owner-name" autocomplete="name" required></div>
           <div class="settings-field"><label for="account-owner-email">Email de acceso</label><input class="field" id="account-owner-email" type="email" autocomplete="email" required></div>
           <div class="settings-field"><label for="account-contact-phone">Tel&eacute;fono</label><input class="field" id="account-contact-phone" type="tel" autocomplete="tel" required></div>
           <div class="settings-field"><label for="account-plan">Plan</label><select class="field" id="account-plan" required></select></div>
