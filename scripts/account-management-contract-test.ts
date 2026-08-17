@@ -31,5 +31,6 @@ assert.match(ui, /id="account-plan"/)
 assert.match(ui, /data-enter-managed-account/)
 assert.match(ui, /support-return-accounts/)
 assert.match(ui, /data-edit-managed-account/)
+assert.match(ui, /state\.businessId = state\.business\?\.id \|\| null\s+\/\/ El menu inicial[\s\S]*?hydrateWorkspaceNav\(\)/)
 
 console.log('Account management contract tests passed')

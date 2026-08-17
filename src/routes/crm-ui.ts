@@ -19509,6 +19509,9 @@ const crmHtml = `<!doctype html>
         ? state.currentSessionBusiness || null
         : state.currentSessionBusiness || businesses[0] || null
       state.businessId = state.business?.id || null
+      // El menu inicial se arma antes de conocer el comercio. Al resolverlo,
+      // hay que reconstruirlo para habilitar las opciones operativas del perfil.
+      hydrateWorkspaceNav()
       await loadDemoProfiles()
       if (isAccountRole && !state.business) {
         setSection('accounts')
