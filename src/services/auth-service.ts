@@ -150,7 +150,7 @@ export function buildExpiredSessionCookie() {
 export async function ensureBootstrapSuperAdmin() {
   const email = process.env.SUPER_ADMIN_EMAIL?.trim().toLowerCase()
   const password = process.env.SUPER_ADMIN_PASSWORD?.trim()
-  const name = process.env.SUPER_ADMIN_NAME?.trim() || 'Salon AI Admin'
+  const name = process.env.SUPER_ADMIN_NAME?.trim() || 'Weex Admin'
   if (!email || !password) return
 
   const existing = await prisma.user.findUnique({ where: { email } })

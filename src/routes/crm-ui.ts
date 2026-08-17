@@ -81,7 +81,7 @@ const crmHtml = `<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>CRM Salon AI</title>
+  <title>Weex</title>
   <style>
     :root {
       color-scheme: light;
@@ -13931,8 +13931,8 @@ const crmHtml = `<!doctype html>
   <section class="login-view" id="login-view">
     <form class="login-card login-form" id="login-form">
       <div>
-        <h1>CRM Salon AI</h1>
-        <p>Ingresa con tu usuario para abrir el comercio que corresponde.</p>
+        <h1>Weex</h1>
+        <p>Administr&aacute; tu negocio desde un solo lugar.</p>
       </div>
       <label>Email
         <input id="login-email" type="email" autocomplete="email" required>
@@ -13941,7 +13941,7 @@ const crmHtml = `<!doctype html>
         <input id="login-password" type="password" autocomplete="current-password" required>
       </label>
       <p class="login-feedback" id="login-feedback" role="status" aria-live="polite"></p>
-      <button id="login-submit" type="submit">Entrar al CRM</button>
+      <button id="login-submit" type="submit">Ingresar a Weex</button>
     </form>
   </section>
   <nav class="mobile-nav" aria-label="Navegacion CRM">
@@ -13949,16 +13949,16 @@ const crmHtml = `<!doctype html>
       <button class="mobile-menu-toggle" id="mobile-menu-toggle" type="button" aria-label="Abrir menu" aria-expanded="false" aria-controls="mobile-section-nav">☰</button>
       <div class="mobile-current-title">
         <strong id="mobile-current-section-title">Conversaciones</strong>
-        <span>CRM Salon AI</span>
+        <span>Weex</span>
       </div>
     </div>
     <button class="mobile-nav-overlay" id="mobile-nav-overlay" type="button" aria-label="Cerrar menu" hidden></button>
     <div class="mobile-section-nav" id="mobile-section-nav" aria-label="Secciones CRM">
       <div class="mobile-drawer-head">
-        <div class="brand-mark">S</div>
+        <div class="brand-mark">W</div>
         <div>
-          <strong>CRM Salon AI</strong>
-          <span>Atencion y reservas</span>
+          <strong>Weex</strong>
+          <span>Administr&aacute; tu negocio</span>
         </div>
       </div>
       <button class="active" type="button" data-mobile-section="conversations">Chats</button>
@@ -13982,10 +13982,10 @@ const crmHtml = `<!doctype html>
     <div class="crm-toast" id="crm-toast" role="status" aria-live="polite"></div>
     <nav class="workspace-nav" aria-label="Secciones CRM">
       <div class="crm-brand">
-        <div class="brand-mark">S</div>
+        <div class="brand-mark">W</div>
         <div>
-          <strong>CRM Salon AI</strong>
-          <span>Atencion y reservas</span>
+          <strong>Weex</strong>
+          <span>Administr&aacute; tu negocio</span>
         </div>
       </div>
       <div class="workspace-nav-menu">
@@ -14004,7 +14004,7 @@ const crmHtml = `<!doctype html>
       <button type="button" data-nav-section="settings"><span>⚙</span><strong>Ajustes</strong></button>
       </div>
       <div class="nav-user">
-        <div class="mini-avatar">C</div>
+        <div class="mini-avatar">--</div>
         <div class="nav-user-status"><span class="nav-online-dot"></span>Online</div>
         <button class="nav-logout" id="logout-button" type="button" data-logout-button aria-label="Salir"><span class="nav-logout-icon" aria-hidden="true">&#x21AA;</span><strong>Salir</strong></button>
       </div>
@@ -15593,7 +15593,7 @@ const crmHtml = `<!doctype html>
             </div>
             <div class="settings-field">
               <label for="business-name">Nombre del local</label>
-              <input class="field" id="business-name" placeholder="Ej: CRM Salon AI" required>
+              <input class="field" id="business-name" placeholder="Ej: Bellara Nails" required>
             </div>
 
             <div class="settings-field">
@@ -16344,7 +16344,7 @@ const crmHtml = `<!doctype html>
             <div class="whatsapp-manual-guide" id="whatsapp-manual-guide" hidden>
               <strong>Carga manual asistida</strong>
               <span>Pedile al comercio acceso a Meta Business Suite y copi&aacute; estos datos desde Cuentas de WhatsApp: WABA ID, Phone Number ID, n&uacute;mero visible y token del comercio.</span>
-              <span>El popup autom&aacute;tico de Meta queda reservado para cuando Salon AI tenga revisi&oacute;n de Technology Provider/BSP.</span>
+              <span>El popup autom&aacute;tico de Meta queda reservado para cuando Weex tenga revisi&oacute;n de Technology Provider/BSP.</span>
             </div>
             <div class="whatsapp-control-list">
               <label class="automation-control">
@@ -16363,7 +16363,7 @@ const crmHtml = `<!doctype html>
                 <span class="automation-switch" aria-hidden="true"></span>
               </label>
               <label class="automation-control">
-                <div class="automation-copy"><strong>Facturaci&oacute;n cliente</strong><span>Si paga Salon AI, las campa&ntilde;as masivas quedan bloqueadas.</span><small id="billing-owner-status">Cliente</small></div>
+                <div class="automation-copy"><strong>Facturaci&oacute;n cliente</strong><span>Si paga Weex, las campa&ntilde;as masivas quedan bloqueadas.</span><small id="billing-owner-status">Cliente</small></div>
                 <input id="billing-owner-toggle" type="checkbox" checked>
                 <span class="automation-switch" aria-hidden="true"></span>
               </label>
@@ -18254,10 +18254,10 @@ const crmHtml = `<!doctype html>
 
       nav.innerHTML =
         '<div class="crm-brand">' +
-          '<div class="brand-mark">S</div>' +
+          '<div class="brand-mark">W</div>' +
           '<div>' +
-            '<strong>CRM Salon AI</strong>' +
-            '<span>Atenci&oacute;n y reservas</span>' +
+            '<strong>Weex</strong>' +
+            '<span>Administr&aacute; tu negocio</span>' +
           '</div>' +
         '</div>' +
         '<div class="workspace-nav-menu">' +
@@ -18277,10 +18277,10 @@ const crmHtml = `<!doctype html>
         }).join('') +
         '</div>' +
         '<div class="nav-user">' +
-          '<div class="mini-avatar">JS</div>' +
+          '<div class="mini-avatar">--</div>' +
           '<div class="nav-user-info">' +
-            '<strong>Juan Sal&oacute;n</strong>' +
-            '<span>Administrador</span>' +
+            '<strong>Cargando...</strong>' +
+            '<span>Usuario</span>' +
           '</div>' +
           '<div class="nav-user-status">' +
             '<span class="nav-online-dot"></span>Online' +
@@ -23570,7 +23570,7 @@ const crmHtml = `<!doctype html>
       els.realWhatsappStatus.textContent = features.realWhatsappEnabled ? 'Activo' : 'Bloqueado'
       els.campaignSendingStatus.textContent = campaignReady ? 'Activas' : 'Bloqueadas'
       els.reminderSendingStatus.textContent = reminderReady ? 'Activos' : 'Bloqueados'
-      els.billingOwnerStatus.textContent = features.billingOwner === 'SALON_AI' ? 'Salon AI' : 'Cliente'
+      els.billingOwnerStatus.textContent = features.billingOwner === 'SALON_AI' ? 'Weex' : 'Cliente'
       els.campaignSendingToggle.disabled = connection.mode === 'INTERNAL_TEST' || features.billingOwner === 'SALON_AI'
       els.whatsappWabaId.value = connection.wabaId || ''
       els.whatsappPhoneNumberId.value = connection.phoneNumberId || ''
@@ -23990,7 +23990,7 @@ const crmHtml = `<!doctype html>
     }
 
     function updateBusinessBrand() {
-      const name = state.business?.name || 'CRM Salon AI'
+      const name = state.business?.name || 'Weex'
       const logoUrl = state.business?.logoUrl || null
       const brandName = document.querySelector('.workspace-nav .crm-brand strong')
       const brandMark = document.querySelector('.workspace-nav .brand-mark')
@@ -28560,7 +28560,7 @@ const crmHtml = `<!doctype html>
           reports: 'Reportes',
           settings: 'Ajustes'
         }
-        mobileTitle.textContent = labels[section] || 'CRM Salon AI'
+        mobileTitle.textContent = labels[section] || 'Weex'
       }
       const buttons = document.querySelectorAll('.workspace-nav button[data-nav-section]')
       buttons.forEach((button) => {
@@ -30140,7 +30140,7 @@ const crmHtml = `<!doctype html>
       saveWhatsappSettingsPatch({
         billingOwner: els.billingOwnerToggle.checked ? 'CLIENT' : 'SALON_AI',
         campaignSendingLocked: !els.billingOwnerToggle.checked
-      }, els.billingOwnerToggle.checked ? 'Facturacion a cargo del cliente.' : 'Campanas masivas bloqueadas para facturacion Salon AI.')
+      }, els.billingOwnerToggle.checked ? 'Facturacion a cargo del cliente.' : 'Campanas masivas bloqueadas para facturacion Weex.')
     })
     els.globalBotToggle.addEventListener('change', toggleGlobalBot)
     els.globalAiToggle.addEventListener('change', toggleGlobalAi)

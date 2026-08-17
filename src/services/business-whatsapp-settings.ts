@@ -81,7 +81,7 @@ export async function getBusinessWhatsAppState(businessId: string) {
         ...baseReasons,
         ...(!settings?.campaignsEnabled ? ['Las campanas estan desactivadas para este comercio.'] : []),
         ...(settings?.campaignSendingLocked ? ['Las campanas reales estan bloqueadas hasta completar la conexion de WhatsApp.'] : []),
-        ...(billingOwner === 'SALON_AI' ? ['Las campanas masivas no pueden salir con la cuenta interna de Salon AI.'] : [])
+        ...(billingOwner === 'SALON_AI' ? ['Las campanas masivas no pueden salir con la cuenta interna de Weex.'] : [])
       ],
       reminders: [
         ...baseReasons,
