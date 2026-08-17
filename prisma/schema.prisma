@@ -176,15 +176,15 @@ model BusinessPlan {
 }
 
 model Business {
-  id                     String                     @id @default(cuid())
-  customerCode           String                     @unique
+  id                     String                        @id @default(cuid())
+  customerCode           String                        @unique
   name                   String
-  isDemo                 Boolean                    @default(false)
+  isDemo                 Boolean                       @default(false)
   demoType               String?
-  slug                   String?                    @unique
+  slug                   String?                       @unique
   logoUrl                String?
-  landingEnabled         Boolean                    @default(true)
-  landingTemplate        String                     @default("classic")
+  landingEnabled         Boolean                       @default(true)
+  landingTemplate        String                        @default("classic")
   landingSubtitle        String?
   landingFeature         String?
   landingOpeningYear     Int?
@@ -202,23 +202,24 @@ model Business {
   instagramUrl           String?
   facebookUrl            String?
   tiktokUrl              String?
-  botEnabled             Boolean                    @default(true)
-  aiEnabled              Boolean                    @default(true)
+  botEnabled             Boolean                       @default(true)
+  aiEnabled              Boolean                       @default(true)
   whatsappConfig         BusinessWhatsAppConfig?
   instagramConfig        BusinessInstagramConfig?
   featureSettings        BusinessFeatureSettings?
   botConfigurations      BusinessBotConfiguration[]
   paymentSettings        BusinessPaymentSettings?
   accountAdminId         String?
-  accountAdmin           User?                      @relation("AccountAdminBusinesses", fields: [accountAdminId], references: [id], onDelete: SetNull)
+  accountAdmin           User?                         @relation("AccountAdminBusinesses", fields: [accountAdminId], references: [id], onDelete: SetNull)
   createdByUserId        String?
-  createdByUser          User?                      @relation("CreatedBusinesses", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdByUser          User?                         @relation("CreatedBusinesses", fields: [createdByUserId], references: [id], onDelete: SetNull)
   planId                 String?
-  plan                   BusinessPlan?              @relation(fields: [planId], references: [id], onDelete: SetNull)
-  accountStatus          BusinessAccountStatus      @default(ONBOARDING)
+  plan                   BusinessPlan?                 @relation(fields: [planId], references: [id], onDelete: SetNull)
+  accountStatus          BusinessAccountStatus         @default(ONBOARDING)
   onboardingStatus       BusinessOnboardingStatus?
   billingSettings        BusinessBillingSettings?
   accountCharges         BusinessAccountCharge[]
+  accountStatusChanges   BusinessAccountStatusChange[]
 
   professionals           Professional[]
   customers               Customer[]
@@ -252,6 +253,21 @@ model Business {
   @@index([planId])
   @@index([accountStatus])
   @@index([isDemo, createdByUserId])
+}
+
+model BusinessAccountStatusChange {
+  id            String                @id @default(cuid())
+  businessId    String
+  business      Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  fromStatus    BusinessAccountStatus
+  toStatus      BusinessAccountStatus
+  reason        String?
+  changedById   String
+  changedByName String
+  changedByRole UserRole
+  createdAt     DateTime              @default(now())
+
+  @@index([businessId, createdAt])
 }
 
 model BusinessBillingSettings {

@@ -174,6 +174,7 @@ export async function accountManagementRoutes(app: FastifyInstance) {
         onboardingStatus: true,
         billingSettings: true,
         accountCharges: { orderBy: { dueAt: 'desc' }, take: 24 },
+        accountStatusChanges: { orderBy: { createdAt: 'desc' }, take: 10 },
         users: {
           where: { role: 'BUSINESS_ADMIN' },
           select: { id: true, name: true, email: true, firstLoginAt: true, createdAt: true },
@@ -184,7 +185,7 @@ export async function accountManagementRoutes(app: FastifyInstance) {
     })
     if (!account) return reply.status(404).send({ message: 'No encontre esa cuenta' })
     const workspaceBusiness = Object.fromEntries(
-      Object.entries(account).filter(([key]) => !['plan', 'accountAdmin', 'createdByUser', 'onboardingStatus', 'billingSettings', 'accountCharges', 'users', '_count'].includes(key))
+      Object.entries(account).filter(([key]) => !['plan', 'accountAdmin', 'createdByUser', 'onboardingStatus', 'billingSettings', 'accountCharges', 'accountStatusChanges', 'users', '_count'].includes(key))
     )
     return {
       ...serializeAccountListItem(account),
@@ -192,6 +193,7 @@ export async function accountManagementRoutes(app: FastifyInstance) {
       users: account.users,
       counts: account._count,
       workspaceBusiness,
+      statusHistory: account.accountStatusChanges,
       billing: {
         settings: account.billingSettings ? serializeBillingSettings(account.billingSettings) : null,
         charges: account.accountCharges.map(serializeAccountCharge)
@@ -224,11 +226,10 @@ export async function accountManagementRoutes(app: FastifyInstance) {
     const contactEmail = body.contactEmail?.trim().toLowerCase()
     const contactPhone = normalizeContactPhone(body.contactPhone)
     const planId = body.planId?.trim() || null
-    const accountStatus = normalizeAccountStatus(body.accountStatus)
     const billingDay = normalizeBillingDay(body.billingDay)
     const discount = normalizeDiscount(body)
-    if (!businessName || !contactName || !contactEmail || !contactPhone || !accountStatus || !billingDay || discount === undefined) {
-      return reply.status(400).send({ message: 'Completa comercio, contacto, email, telefono y estado' })
+    if (!businessName || !contactName || !contactEmail || !contactPhone || !billingDay || discount === undefined) {
+      return reply.status(400).send({ message: 'Completa comercio, contacto, email y telefono' })
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
       return reply.status(400).send({ message: 'El email de contacto no es valido' })
@@ -250,12 +251,6 @@ export async function accountManagementRoutes(app: FastifyInstance) {
       }
     })
     if (!account) return reply.status(404).send({ message: 'No encontre esa cuenta' })
-    if (account.accountStatus === 'CANCELLED' && accountStatus === 'ACTIVE' && request.auth!.user.role !== 'SUPER_ADMIN') {
-      return reply.status(403).send({ message: 'Solo el Super Admin puede reactivar una cuenta cancelada' })
-    }
-    if (accountStatus === 'ACTIVE' && account.accountStatus !== 'ACTIVE' && (!selectedPlan || Number(selectedPlan.price) <= 0)) {
-      return reply.status(400).send({ message: 'Configura un plan con precio antes de activar la cuenta' })
-    }
     const primaryUser = account.users[0]
     if (primaryUser) {
       const emailOwner = await prisma.user.findUnique({ where: { email: contactEmail }, select: { id: true } })
@@ -285,7 +280,6 @@ export async function accountManagementRoutes(app: FastifyInstance) {
           contactEmail,
           contactPhone,
           planId,
-          accountStatus,
           accountAdminId
         }
       })
@@ -317,11 +311,58 @@ export async function accountManagementRoutes(app: FastifyInstance) {
         }
       })
     })
-    if (accountStatus === 'ACTIVE' && (account.accountStatus !== 'ACTIVE' || !account.billingSettings?.activatedAt) && selectedPlan && Number(selectedPlan.price) > 0) {
-      await initializeAccountBilling(params.id, billingDay)
-    }
     await refreshBusinessOnboarding(params.id)
     return { id: params.id, updated: true }
+  })
+
+  app.post('/admin/accounts/:id/status', async (request, reply) => {
+    if (!canManageAccounts(request.auth)) return reply.status(403).send({ message: 'No tenes permiso para cambiar el estado de cuentas' })
+    const params = request.params as { id: string }
+    if (!await canAccessManagedAccount(request.auth!, params.id)) {
+      return reply.status(404).send({ message: 'No encontre esa cuenta' })
+    }
+    const body = request.body as { action?: string; reason?: string | null }
+    const action = body.action?.trim().toUpperCase()
+    const reason = body.reason?.trim() || null
+    const account = await prisma.business.findUnique({
+      where: { id: params.id },
+      include: { plan: { select: { price: true } }, billingSettings: true }
+    })
+    if (!account) return reply.status(404).send({ message: 'No encontre esa cuenta' })
+
+    const transition = resolveAccountStatusTransition(account.accountStatus, action)
+    if (!transition) return reply.status(409).send({ message: 'Esa accion no corresponde al estado actual de la cuenta' })
+    if (account.accountStatus === 'CANCELLED' && transition === 'ACTIVE' && request.auth!.user.role !== 'SUPER_ADMIN') {
+      return reply.status(403).send({ message: 'Solo el Super Admin puede reactivar una cuenta cancelada' })
+    }
+    if (['PAUSE', 'CANCEL'].includes(action || '') && !reason) {
+      return reply.status(400).send({ message: 'Indica el motivo del cambio' })
+    }
+    if (account.accountStatus === 'CANCELLED' && transition === 'ACTIVE' && !reason) {
+      return reply.status(400).send({ message: 'Indica el motivo de la reactivacion' })
+    }
+    if (transition === 'ACTIVE' && (!account.plan || Number(account.plan.price) <= 0)) {
+      return reply.status(400).send({ message: 'Configura un plan con precio antes de activar la cuenta' })
+    }
+
+    await prisma.$transaction(async (transaction) => {
+      await transaction.business.update({ where: { id: account.id }, data: { accountStatus: transition } })
+      await transaction.businessAccountStatusChange.create({
+        data: {
+          businessId: account.id,
+          fromStatus: account.accountStatus,
+          toStatus: transition,
+          reason,
+          changedById: request.auth!.user.id,
+          changedByName: request.auth!.user.name,
+          changedByRole: request.auth!.user.role as 'SUPER_ADMIN' | 'ACCOUNT_ADMIN'
+        }
+      })
+    })
+    if (transition === 'ACTIVE') {
+      await initializeAccountBilling(account.id, normalizeBillingDay(account.billingSettings?.billingDay) || 1)
+    }
+    return { id: account.id, accountStatus: transition, updated: true }
   })
 
   app.post('/admin/accounts', async (request, reply) => {
@@ -462,6 +503,14 @@ function normalizeAccountStatus(value?: string) {
   return ['ONBOARDING', 'ACTIVE', 'PAUSED', 'CANCELLED'].includes(value || '')
     ? value as 'ONBOARDING' | 'ACTIVE' | 'PAUSED' | 'CANCELLED'
     : undefined
+}
+
+function resolveAccountStatusTransition(current: string, action?: string) {
+  if (current === 'ONBOARDING' && action === 'ACTIVATE') return 'ACTIVE' as const
+  if (current === 'ACTIVE' && action === 'PAUSE') return 'PAUSED' as const
+  if (current !== 'CANCELLED' && action === 'CANCEL') return 'CANCELLED' as const
+  if (['PAUSED', 'CANCELLED'].includes(current) && action === 'REACTIVATE') return 'ACTIVE' as const
+  return undefined
 }
 
 function normalizeContactPhone(value?: string) {

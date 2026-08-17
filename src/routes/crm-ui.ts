@@ -4903,6 +4903,14 @@ const crmHtml = `<!doctype html>
     .account-check.complete b { color: #65e69a; background: #113322; }
     .account-open-crm { width: 100%; min-height: 44px; margin-top: 18px; border: 0; border-radius: 11px; color: #17120a; background: #d8aa50; font-weight: 850; }
     .account-plan-features { margin: 10px 0 0; padding-left: 18px; color: #c4bdb3; font-size: 12px; line-height: 1.6; }
+    .account-status-actions { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+    .account-status-actions button { min-height: 38px; padding: 0 13px; border: 1px solid #5b4a2c; border-radius: 9px; color: #f0d79f; background: #29251d; font-weight: 800; }
+    .account-status-actions button.primary { border: 0; color: #17120a; background: #d8aa50; }
+    .account-status-actions button.danger { border-color: #673437; color: #ff9b9b; background: #321a1d; }
+    .account-status-history { display: grid; gap: 8px; }
+    .account-status-history article { padding: 10px 12px; border-radius: 10px; background: #202023; }
+    .account-status-history strong { display: block; color: #e9e5df; font-size: 12px; }
+    .account-status-history small { display: block; margin-top: 4px; color: #9d9489; line-height: 1.4; }
     .account-billing-copy { margin: 8px 0 0; color: #9d9489; font-size: 12px; }
     .account-charge-list { display: grid; gap: 9px; }
     .account-charge { padding: 12px; border-radius: 11px; background: #202023; }
@@ -18863,6 +18871,11 @@ const crmHtml = `<!doctype html>
       return new Date(value).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })
     }
 
+    function formatManagedAccountDateTime(value) {
+      if (!value) return '--'
+      return new Date(value).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })
+    }
+
     function formatManagedAccountMoney(value) {
       return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(Number(value || 0))
     }
@@ -18969,6 +18982,19 @@ const crmHtml = `<!doctype html>
         ? (settings.discountType === 'PERCENTAGE' ? settings.discountValue + '%' : formatManagedAccountMoney(settings.discountValue)) + ' hasta ' + formatManagedAccountDate(settings.discountUntil)
         : 'Sin descuento vigente'
       const chargeStatusLabel = { PENDING: 'Pendiente', OVERDUE: 'Vencido', PAID: 'Pagado', BONIFIED: 'Bonificado' }
+      const statusActions = account.accountStatus === 'ONBOARDING'
+        ? [{ action: 'ACTIVATE', label: 'Activar cuenta', className: 'primary' }, { action: 'CANCEL', label: 'Cancelar cuenta', className: 'danger' }]
+        : account.accountStatus === 'ACTIVE'
+          ? [{ action: 'PAUSE', label: 'Pausar cuenta', className: '' }, { action: 'CANCEL', label: 'Cancelar cuenta', className: 'danger' }]
+          : account.accountStatus === 'PAUSED'
+            ? [{ action: 'REACTIVATE', label: 'Reactivar cuenta', className: 'primary' }, { action: 'CANCEL', label: 'Cancelar cuenta', className: 'danger' }]
+            : state.currentUser?.role === 'SUPER_ADMIN'
+              ? [{ action: 'REACTIVATE', label: 'Reactivar cuenta', className: 'primary' }]
+              : []
+      const statusActionsHtml = statusActions.map((item) => '<button class="' + item.className + '" type="button" data-account-status-action="' + item.action + '">' + item.label + '</button>').join('')
+      const statusHistoryHtml = account.statusHistory?.length
+        ? account.statusHistory.map((change) => '<article><strong>' + escapeHtml(managedAccountStatusLabel(change.fromStatus)) + ' &rarr; ' + escapeHtml(managedAccountStatusLabel(change.toStatus)) + '</strong><small>' + escapeHtml(change.changedByName) + ' · ' + escapeHtml(formatManagedAccountDateTime(change.createdAt)) + (change.reason ? '<br>' + escapeHtml(change.reason) : '') + '</small></article>').join('')
+        : '<div class="empty">Sin cambios de estado registrados.</div>'
       const chargesHtml = billing.charges?.length
         ? billing.charges.map((charge) => '<article class="account-charge"><div class="account-charge-head"><strong>' + escapeHtml(charge.period) + ' · ' + escapeHtml(charge.planName) + '</strong><span>' + escapeHtml(formatManagedAccountMoney(charge.netAmount)) + '</span></div><small>Vence ' + escapeHtml(formatManagedAccountDate(charge.dueAt)) + ' · ' + escapeHtml(chargeStatusLabel[charge.effectiveStatus] || charge.effectiveStatus) + (charge.discountAmount ? ' · Descuento ' + escapeHtml(formatManagedAccountMoney(charge.discountAmount)) : '') + '</small>' +
           (charge.status === 'PENDING' ? '<div class="account-charge-actions"><button type="button" data-charge-action="payment" data-charge-id="' + escapeHtml(charge.id) + '">Registrar transferencia</button><button type="button" data-charge-action="due-date" data-charge-id="' + escapeHtml(charge.id) + '">Cambiar vencimiento</button>' + (state.currentUser?.role === 'SUPER_ADMIN' ? '<button type="button" data-charge-action="bonification" data-charge-id="' + escapeHtml(charge.id) + '">Bonificar</button>' : '') + '</div>' : '') + '</article>').join('')
@@ -18980,7 +19006,7 @@ const crmHtml = `<!doctype html>
           '<div class="account-detail-item"><span>Plan</span><strong>' + escapeHtml(account.plan?.name || 'Sin plan') + (account.plan ? ' · ' + escapeHtml(formatManagedAccountMoney(account.plan.price)) : '') + '</strong></div>' +
           '<div class="account-detail-item"><span>Responsable</span><strong>' + escapeHtml(account.accountAdmin?.name || 'Sin asignar') + '</strong></div>' +
           '<div class="account-detail-item"><span>Creada por</span><strong>' + escapeHtml(account.createdByUser?.name || 'Sin registro') + '</strong></div>' +
-        '</div>' + (planFeatures.length ? '<ul class="account-plan-features">' + planFeatures.map((feature) => '<li>' + escapeHtml(feature) + '</li>').join('') + '</ul>' : '') + '</section>' +
+        '</div>' + (planFeatures.length ? '<ul class="account-plan-features">' + planFeatures.map((feature) => '<li>' + escapeHtml(feature) + '</li>').join('') + '</ul>' : '') + (statusActionsHtml ? '<div class="account-status-actions">' + statusActionsHtml + '</div>' : '') + '</section>' +
         '<section class="account-panel-section"><h4>Contacto principal</h4><div class="account-detail-grid">' +
           '<div class="account-detail-item"><span>Nombre</span><strong>' + escapeHtml(account.primaryUser?.name || account.contactName || 'Sin nombre') + '</strong></div>' +
           '<div class="account-detail-item"><span>Telefono</span><strong>' + escapeHtml(account.contactPhone || 'Sin telefono') + '</strong></div>' +
@@ -19000,12 +19026,16 @@ const crmHtml = `<!doctype html>
           '<div class="account-detail-item"><span>Horarios</span><strong>' + Number(account.counts?.businessHours || 0) + '</strong></div>' +
           '<div class="account-detail-item"><span>Conversaciones</span><strong>' + Number(account.counts?.conversations || 0) + '</strong></div>' +
         '</div></section>' +
+        '<section class="account-panel-section"><h4>Historial de estado</h4><div class="account-status-history">' + statusHistoryHtml + '</div></section>' +
         '<button class="account-open-crm" type="button" data-enter-managed-account>Ingresar al CRM de esta cuenta</button>'
       els.accountPanel.querySelector('[data-close-managed-account]')?.addEventListener('click', closeManagedAccount)
       els.accountPanel.querySelector('[data-edit-managed-account]')?.addEventListener('click', () => openManagedAccountEdit(account))
       els.accountPanel.querySelector('[data-enter-managed-account]')?.addEventListener('click', () => enterManagedAccountWorkspace(account))
       for (const button of els.accountPanel.querySelectorAll('[data-charge-action]')) {
         button.addEventListener('click', () => openManagedChargeAction(account, button.dataset.chargeId, button.dataset.chargeAction))
+      }
+      for (const button of els.accountPanel.querySelectorAll('[data-account-status-action]')) {
+        button.addEventListener('click', () => openManagedAccountStatusAction(account, button.dataset.accountStatusAction))
       }
     }
 
@@ -19015,12 +19045,6 @@ const crmHtml = `<!doctype html>
       const planOptions = '<option value="">Sin plan</option>' + state.managedAccountPlans.map((plan) => {
         return '<option value="' + escapeHtml(plan.id) + '" ' + (plan.id === account.plan?.id ? 'selected' : '') + '>' + escapeHtml(plan.name) + ' · ' + escapeHtml(formatManagedAccountMoney(plan.price)) + '</option>'
       }).join('')
-      const statusOptions = [
-        ['ONBOARDING', 'En onboarding'],
-        ['ACTIVE', 'Activa'],
-        ['PAUSED', 'Pausada'],
-        ['CANCELLED', 'Cancelada']
-      ].map(([value, label]) => '<option value="' + value + '" ' + (value === account.accountStatus ? 'selected' : '') + '>' + label + '</option>').join('')
       const administratorOptions = '<option value="">Sin asignar</option>' + (state.managedAccountSummary.administrators || []).map((administrator) => {
         return '<option value="' + escapeHtml(administrator.id) + '" ' + (administrator.id === account.accountAdmin?.id ? 'selected' : '') + '>' + escapeHtml(administrator.name) + '</option>'
       }).join('')
@@ -19040,7 +19064,7 @@ const crmHtml = `<!doctype html>
           '<div class="account-edit-field"><label for="account-edit-phone">Tel&eacute;fono</label><input id="account-edit-phone" name="contactPhone" type="tel" value="' + escapeHtml(account.contactPhone || '') + '" required></div>' +
           '<div class="account-edit-field full"><label for="account-edit-email">Email de acceso y contacto</label><input id="account-edit-email" name="contactEmail" type="email" value="' + escapeHtml(account.contactEmail || account.primaryUser?.email || '') + '" required><small>' + accessHelp + '</small></div>' +
           '<div class="account-edit-field"><label for="account-edit-plan">Plan</label><select id="account-edit-plan" name="planId">' + planOptions + '</select></div>' +
-          '<div class="account-edit-field"><label for="account-edit-status">Estado</label><select id="account-edit-status" name="accountStatus" required>' + statusOptions + '</select></div>' +
+          '<div class="account-edit-field"><label>Estado</label><input value="' + escapeHtml(managedAccountStatusLabel(account.accountStatus)) + '" disabled><small>El estado se cambia desde las acciones de la cuenta.</small></div>' +
           '<div class="account-edit-field"><label for="account-edit-billing-day">D&iacute;a de cobro</label><select id="account-edit-billing-day" name="billingDay"><option value="1" ' + (billingSettings.billingDay === 1 ? 'selected' : '') + '>D&iacute;a 1</option><option value="15" ' + (billingSettings.billingDay === 15 ? 'selected' : '') + '>D&iacute;a 15</option></select></div>' +
           '<div class="account-edit-field"><label for="account-edit-discount-type">Tipo de descuento</label><select id="account-edit-discount-type" name="discountType"><option value="">Sin descuento</option><option value="PERCENTAGE" ' + (discountType === 'PERCENTAGE' ? 'selected' : '') + '>Porcentaje</option><option value="FIXED" ' + (discountType === 'FIXED' ? 'selected' : '') + '>Monto fijo</option></select></div>' +
           '<div class="account-edit-field"><label for="account-edit-discount-value">Valor del descuento</label><input id="account-edit-discount-value" name="discountValue" type="number" min="0" step="0.01" value="' + escapeHtml(billingSettings.discountValue || '') + '"></div>' +
@@ -19074,7 +19098,6 @@ const crmHtml = `<!doctype html>
             contactEmail: values.get('contactEmail'),
             contactPhone: values.get('contactPhone'),
             planId: values.get('planId') || null,
-            accountStatus: values.get('accountStatus'),
             billingDay: Number(values.get('billingDay')),
             discountType: values.get('discountType') || null,
             discountValue: values.get('discountValue') ? Number(values.get('discountValue')) : null,
@@ -19093,6 +19116,42 @@ const crmHtml = `<!doctype html>
       } finally {
         setButtonLoading(submit, false)
       }
+    }
+
+    function openManagedAccountStatusAction(account, action) {
+      const definitions = {
+        ACTIVATE: { title: 'Activar cuenta', copy: 'La cuenta comenzar&aacute; a facturarse desde el pr&oacute;ximo d&iacute;a de cobro configurado.', submit: 'Activar cuenta', reason: false },
+        PAUSE: { title: 'Pausar cuenta', copy: 'No se generar&aacute;n cargos nuevos mientras permanezca pausada. Las deudas anteriores se conservan.', submit: 'Pausar cuenta', reason: true },
+        CANCEL: { title: 'Cancelar cuenta', copy: 'La cuenta dejar&aacute; de generar cargos futuros y conservar&aacute; todos sus datos e historial.', submit: 'Cancelar cuenta', reason: true },
+        REACTIVATE: { title: 'Reactivar cuenta', copy: 'La facturaci&oacute;n se retomar&aacute; desde el pr&oacute;ximo d&iacute;a de cobro, sin cobrar los meses pausados.', submit: 'Reactivar cuenta', reason: account.accountStatus === 'CANCELLED' }
+      }
+      const definition = definitions[action]
+      if (!definition) return
+      const reasonField = definition.reason
+        ? '<div class="account-edit-field full"><label for="account-status-reason">Motivo</label><input id="account-status-reason" name="reason" maxlength="300" required placeholder="Dej&aacute; una referencia clara para el historial"></div>'
+        : ''
+      els.accountPanel.innerHTML = '<header class="account-panel-head"><div><h3>' + definition.title + '</h3><p>' + escapeHtml(account.name) + ' · ' + escapeHtml(account.customerCode) + '</p></div><button class="account-panel-close" type="button" data-cancel-status-action aria-label="Volver">X</button></header><form class="account-edit-form" id="account-status-action-form"><p class="account-billing-copy">' + definition.copy + '</p><div class="account-edit-grid">' + reasonField + '</div><p class="settings-feedback" id="account-status-action-feedback" role="status"></p><div class="account-edit-actions"><button class="secondary" type="button" data-cancel-status-action>Cancelar</button><button class="' + (action === 'CANCEL' ? 'danger' : 'primary') + '" type="submit">' + definition.submit + '</button></div></form>'
+      for (const button of els.accountPanel.querySelectorAll('[data-cancel-status-action]')) button.addEventListener('click', () => renderManagedAccountPanel(account))
+      els.accountPanel.querySelector('#account-status-action-form')?.addEventListener('submit', async (event) => {
+        event.preventDefault()
+        const form = event.currentTarget
+        const feedback = form.querySelector('#account-status-action-feedback')
+        const values = new FormData(form)
+        try {
+          await getJson('/admin/accounts/' + encodeURIComponent(account.id) + '/status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action, reason: values.get('reason') || null })
+          })
+          const updated = await getJson('/admin/accounts/' + encodeURIComponent(account.id))
+          renderManagedAccountPanel(updated)
+          await loadManagedAccounts()
+          showCrmToast('Estado de la cuenta actualizado.', 'success')
+        } catch (error) {
+          feedback.textContent = error.message
+          feedback.className = 'settings-feedback visible error'
+        }
+      })
     }
 
     function openManagedChargeAction(account, chargeId, action) {
