@@ -13876,6 +13876,37 @@ const crmHtml = `<!doctype html>
       .agenda-block-popover .agenda-block-panel { width: 100%; max-height: min(82dvh, 720px); border-radius: 18px 18px 10px 10px; }
       .agenda-block-popover .agenda-block-panel .block-grid { grid-template-columns: 1fr; }
     }
+
+    /* Alta de cuentas: contraste final, aislado de los formularios claros del CRM. */
+    #account-create-dialog .account-create-dialog { background: #18181b !important; }
+    #account-create-dialog .account-create-dialog .dialog-header { background: #202024 !important; }
+    #account-create-dialog .account-create-dialog .settings-form {
+      background: #18181b !important;
+      color: #fff !important;
+    }
+    #account-create-dialog .account-create-dialog .settings-field > label {
+      color: #f0d79f !important;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    #account-create-dialog .account-create-dialog .field {
+      min-height: 48px;
+      border-color: #4a4a50 !important;
+      color: #fff !important;
+      background: #29292d !important;
+      font-size: 15px;
+      font-weight: 600;
+      color-scheme: dark;
+    }
+    #account-create-dialog .account-create-dialog .field::placeholder { color: #aaa39a !important; opacity: 1; }
+    #account-create-dialog .account-create-dialog .field:focus {
+      border-color: #e2b85f !important;
+      box-shadow: 0 0 0 3px rgba(226, 184, 95, .24) !important;
+    }
+    #account-create-dialog .account-create-dialog .dialog-actions { background: #202024 !important; }
+    #account-create-dialog .account-create-dialog .dialog-actions .secondary { color: #fff !important; }
+    #account-create-dialog .account-create-dialog .dialog-actions .primary { background: #e2b85f !important; }
+    .support-business-badge { border: 0; cursor: pointer; }
   </style>
 </head>
 <body data-mobile-view="inbox" data-current-section="conversations" data-auth="checking">
@@ -13974,7 +14005,7 @@ const crmHtml = `<!doctype html>
         </label>
         <button class="demo-profile-action secondary" id="demo-profile-create-open" type="button">+ Perfil demo</button>
         <button class="demo-profile-action" id="demo-simulator-open" type="button">Probar bot</button>
-        <span class="support-business-badge">S&uacute;per Admin</span>
+        <button class="support-business-badge" id="support-return-accounts" type="button">S&uacute;per Admin &middot; Cuentas</button>
       </div>
       <button class="icon-button conversation-refresh" id="refresh" type="button" title="Actualizar" data-icon="refresh"></button>
     </header>
@@ -14444,12 +14475,12 @@ const crmHtml = `<!doctype html>
           <button class="icon-button" id="account-create-close" type="button" title="Cerrar">X</button>
         </header>
         <form class="settings-form" id="account-create-form">
-          <div class="settings-field"><label for="account-business-name">Nombre del comercio</label><input class="field" id="account-business-name" required></div>
-          <div class="settings-field"><label for="account-owner-name">Administrador del comercio</label><input class="field" id="account-owner-name" autocomplete="name" required></div>
-          <div class="settings-field"><label for="account-owner-email">Email de acceso</label><input class="field" id="account-owner-email" type="email" autocomplete="email" required></div>
-          <div class="settings-field"><label for="account-contact-phone">Tel&eacute;fono</label><input class="field" id="account-contact-phone" type="tel" autocomplete="tel" required></div>
+          <div class="settings-field"><label for="account-business-name">Nombre del comercio</label><input class="field" id="account-business-name" placeholder="Ej: Bellara Nails" required></div>
+          <div class="settings-field"><label for="account-owner-name">Administrador del comercio</label><input class="field" id="account-owner-name" autocomplete="name" placeholder="Nombre y apellido" required></div>
+          <div class="settings-field"><label for="account-owner-email">Email de acceso</label><input class="field" id="account-owner-email" type="email" autocomplete="email" placeholder="admin@comercio.com" required></div>
+          <div class="settings-field"><label for="account-contact-phone">Tel&eacute;fono</label><input class="field" id="account-contact-phone" type="tel" autocomplete="tel" placeholder="Ej: +54 9 11 1234-5678" required></div>
           <div class="settings-field"><label for="account-plan">Plan</label><select class="field" id="account-plan" required></select></div>
-          <div class="settings-field"><label for="account-owner-password">Contrase&ntilde;a inicial</label><input class="field" id="account-owner-password" type="password" minlength="8" autocomplete="new-password" required></div>
+          <div class="settings-field"><label for="account-owner-password">Contrase&ntilde;a inicial</label><input class="field" id="account-owner-password" type="password" minlength="8" autocomplete="new-password" placeholder="M&iacute;nimo 8 caracteres" required></div>
           <p class="settings-feedback full" id="account-create-feedback" role="status" aria-live="polite"></p>
           <div class="dialog-actions full">
             <button class="secondary" id="account-create-cancel" type="button">Cancelar</button>
@@ -17316,6 +17347,7 @@ const crmHtml = `<!doctype html>
       logoutButton: document.getElementById('logout-button'),
       supportBusinessSwitcher: document.getElementById('support-business-switcher'),
       supportBusinessSelect: document.getElementById('support-business-select'),
+      supportReturnAccounts: document.getElementById('support-return-accounts'),
       demoProfileCreateOpen: document.getElementById('demo-profile-create-open'),
       demoSimulatorOpen: document.getElementById('demo-simulator-open'),
       demoSimulatorDialog: document.getElementById('demo-simulator-dialog'),
@@ -18875,8 +18907,29 @@ const crmHtml = `<!doctype html>
           '<div class="account-detail-item"><span>Profesionales</span><strong>' + Number(account.counts?.professionals || 0) + '</strong></div>' +
           '<div class="account-detail-item"><span>Horarios</span><strong>' + Number(account.counts?.businessHours || 0) + '</strong></div>' +
           '<div class="account-detail-item"><span>Conversaciones</span><strong>' + Number(account.counts?.conversations || 0) + '</strong></div>' +
-        '</div></section>'
+        '</div></section>' +
+        '<button class="account-open-crm" type="button" data-enter-managed-account>Ingresar al CRM de esta cuenta</button>'
       els.accountPanel.querySelector('[data-close-managed-account]')?.addEventListener('click', closeManagedAccount)
+      els.accountPanel.querySelector('[data-enter-managed-account]')?.addEventListener('click', () => enterManagedAccountWorkspace(account))
+    }
+
+    async function enterManagedAccountWorkspace(account) {
+      const business = account?.workspaceBusiness
+      if (!business?.id) {
+        showCrmToast('No pude abrir el perfil de esta cuenta.', 'error')
+        return
+      }
+      state.businesses = [business, ...state.businesses.filter((item) => item.id !== business.id)]
+      closeManagedAccount()
+      setSection('conversations')
+      await switchSupportBusiness(business.id)
+      renderAuthUi()
+    }
+
+    async function returnToManagedAccounts() {
+      if (!canSeeSalesAdministration()) return
+      setSection('accounts')
+      await loadManagedAccounts()
     }
 
     async function ensureManagedAccountPlans() {
@@ -29838,6 +29891,7 @@ const crmHtml = `<!doctype html>
     els.supportBusinessSelect?.addEventListener('change', (event) => {
       switchSupportBusiness(event.target.value)
     })
+    els.supportReturnAccounts?.addEventListener('click', returnToManagedAccounts)
     els.demoProfileCreateOpen?.addEventListener('click', () => openDemoSimulator({ createProfile: true }))
     els.commercialDemoList?.addEventListener('click', (event) => {
       const enterButton = event.target.closest('[data-commercial-demo-enter]')

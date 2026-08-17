@@ -115,11 +115,15 @@ export async function accountManagementRoutes(app: FastifyInstance) {
       }
     })
     if (!account) return reply.status(404).send({ message: 'No encontre esa cuenta' })
+    const workspaceBusiness = Object.fromEntries(
+      Object.entries(account).filter(([key]) => !['plan', 'accountAdmin', 'createdByUser', 'onboardingStatus', 'users', '_count'].includes(key))
+    )
     return {
       ...serializeAccountListItem(account),
       createdByUser: account.createdByUser,
       users: account.users,
-      counts: account._count
+      counts: account._count,
+      workspaceBusiness
     }
   })
 
