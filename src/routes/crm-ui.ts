@@ -18885,6 +18885,15 @@ const crmHtml = `<!doctype html>
       renderManagedAccounts()
     }
 
+    function renderManagedAccountsLoadError() {
+      if (!els.accountTableBody) return
+      els.accountTableBody.innerHTML = '<tr><td colspan="7"><div class="empty">No pudimos cargar las cuentas en este momento.<br><button class="accounts-plans" id="account-load-retry" type="button">Reintentar</button></div></td></tr>'
+      document.getElementById('account-load-retry')?.addEventListener('click', () => {
+        els.accountTableBody.innerHTML = '<tr><td colspan="7"><div class="empty">Cargando cuentas...</div></td></tr>'
+        loadManagedAccounts().catch(renderManagedAccountsLoadError)
+      })
+    }
+
     function renderManagedAccounts() {
       if (!els.accountTableBody) return
       const summary = state.managedAccountSummary
@@ -28753,9 +28762,7 @@ const crmHtml = `<!doctype html>
       }
 
       if (section === 'accounts') {
-        loadManagedAccounts().catch((error) => {
-          els.accountTableBody.innerHTML = '<tr><td colspan="7"><div class="error">' + escapeHtml(error.message) + '</div></td></tr>'
-        })
+        loadManagedAccounts().catch(renderManagedAccountsLoadError)
       }
 
       if (section === 'professionals') {

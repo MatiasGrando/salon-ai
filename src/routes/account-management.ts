@@ -75,7 +75,7 @@ export async function accountManagementRoutes(app: FastifyInstance) {
     const chargeScope = { business: { is: where }, dueAt: { gte: billingMonth.start, lt: billingMonth.end } }
     const now = new Date()
     const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
-    const [accounts, total, active, onboarding, newThisMonth, administrators, billed, collected, pending, overdue] = await prisma.$transaction([
+    const [accounts, total, active, onboarding, newThisMonth, administrators, billed, collected, pending, overdue] = await Promise.all([
       prisma.business.findMany({
         where,
         include: {
