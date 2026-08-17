@@ -136,12 +136,7 @@ export async function authRoutes(app: FastifyInstance) {
     if (auth.user.role !== 'SUPER_ADMIN') return reply.status(403).send({ message: 'Solo el super admin puede administrar este rol' })
 
     return prisma.user.findMany({
-      where: {
-        OR: [
-          { role: 'ACCOUNT_ADMIN' },
-          { role: 'BUSINESS_ADMIN', canCreateBusinesses: true }
-        ]
-      },
+      where: { role: 'ACCOUNT_ADMIN' },
       select: {
         id: true,
         name: true,
@@ -188,7 +183,7 @@ export async function authRoutes(app: FastifyInstance) {
     const user = await prisma.$transaction(async (transaction) => {
       const updated = await transaction.user.update({
         where: { id: current.id },
-        data: { canCreateBusinesses: true }
+        data: { role: 'ACCOUNT_ADMIN', canCreateBusinesses: true }
       })
       if (current.businessId) {
         await transaction.business.update({
@@ -211,16 +206,9 @@ export async function authRoutes(app: FastifyInstance) {
       email?: string
       password?: string
       isActive?: boolean
-      canCreateBusinesses?: boolean
     }
     const current = await prisma.user.findFirst({
-      where: {
-        id: params.id,
-        OR: [
-          { role: 'ACCOUNT_ADMIN' },
-          { role: 'BUSINESS_ADMIN', canCreateBusinesses: true }
-        ]
-      }
+      where: { id: params.id, role: 'ACCOUNT_ADMIN' }
     })
     if (!current) return reply.status(404).send({ message: 'No encontre ese administrador de cuentas' })
     const name = body.name === undefined ? undefined : body.name.trim()
@@ -240,18 +228,10 @@ export async function authRoutes(app: FastifyInstance) {
           ...(email !== undefined ? { email } : {}),
           ...(password !== undefined ? { passwordHash: await hashPassword(password) } : {}),
           ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
-          ...(body.canCreateBusinesses !== undefined ? { canCreateBusinesses: body.canCreateBusinesses } : {}),
-          ...(body.canCreateBusinesses === false && current.role === 'ACCOUNT_ADMIN' && current.businessId
-            ? { role: 'BUSINESS_ADMIN' as const }
-            : {})
+          role: 'ACCOUNT_ADMIN',
+          canCreateBusinesses: true
         }
       })
-      if (body.canCreateBusinesses === false) {
-        await transaction.business.updateMany({
-          where: { accountAdminId: current.id },
-          data: { accountAdminId: null }
-        })
-      }
       return updated
     })
     return publicUser(user)
@@ -263,13 +243,7 @@ export async function authRoutes(app: FastifyInstance) {
     if (auth.user.role !== 'SUPER_ADMIN') return reply.status(403).send({ message: 'Solo el super admin puede eliminar esta cuenta' })
     const params = request.params as { id: string }
     const current = await prisma.user.findFirst({
-      where: {
-        id: params.id,
-        OR: [
-          { role: 'ACCOUNT_ADMIN' },
-          { role: 'BUSINESS_ADMIN', canCreateBusinesses: true }
-        ]
-      },
+      where: { id: params.id, role: 'ACCOUNT_ADMIN' },
       select: { id: true, name: true, role: true, businessId: true, _count: { select: { managedBusinesses: true } } }
     })
     if (!current) return reply.status(404).send({ message: 'No encontre ese administrador de cuentas' })

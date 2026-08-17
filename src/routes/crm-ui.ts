@@ -16044,19 +16044,18 @@ const crmHtml = `<!doctype html>
 
           <div class="account-admin-management" id="account-admin-management">
             <h3>Administradores de cuentas</h3>
-            <p>Habilit&aacute; este permiso en una cuenta existente. La persona conservar&aacute; el CRM completo de su local y adem&aacute;s podr&aacute; crear nuevos locales.</p>
+            <p>Asign&aacute; el rol Administrador de cuentas a un usuario existente. Conservar&aacute; el CRM de su local y podr&aacute; gestionar los comercios que tenga asignados.</p>
             <form class="admin-create-form" id="account-admin-form">
               <input id="account-admin-id" type="hidden">
               <div class="settings-field full" id="account-admin-existing-field">
                 <label for="account-admin-existing-user">Cuenta existente</label>
                 <select class="field" id="account-admin-existing-user"></select>
-                <small>El permiso se agrega al acceso actual; no reemplaza las conversaciones, agenda, clientes ni ajustes del local.</small>
+                <small>El rol se agrega al acceso actual; no reemplaza las conversaciones, agenda, clientes ni ajustes del local.</small>
               </div>
               <div class="settings-field" id="account-admin-status-field" hidden>
                 <label for="account-admin-status">Estado</label>
                 <select class="field" id="account-admin-status"><option value="active">Activo</option><option value="inactive">Inactivo</option></select>
               </div>
-              <label class="settings-check full" id="account-admin-can-create-field" hidden><input id="account-admin-can-create" type="checkbox" checked> Puede crear nuevos locales</label>
               <div class="settings-actions full">
                 <button class="secondary" id="account-admin-cancel" type="button" hidden>Cancelar edici&oacute;n</button>
                 <button class="primary" id="account-admin-submit" type="submit">Habilitar permiso</button>
@@ -18065,8 +18064,6 @@ const crmHtml = `<!doctype html>
       accountAdminExistingUser: document.getElementById('account-admin-existing-user'),
       accountAdminStatusField: document.getElementById('account-admin-status-field'),
       accountAdminStatus: document.getElementById('account-admin-status'),
-      accountAdminCanCreateField: document.getElementById('account-admin-can-create-field'),
-      accountAdminCanCreate: document.getElementById('account-admin-can-create'),
       accountAdminCancel: document.getElementById('account-admin-cancel'),
       accountAdminSubmit: document.getElementById('account-admin-submit'),
       accountAdminFeedback: document.getElementById('account-admin-feedback'),
@@ -19115,7 +19112,7 @@ const crmHtml = `<!doctype html>
             return '<article class="account-admin-card">' +
               '<div><strong>' + escapeHtml(user.name) + '</strong><span>' + escapeHtml(user.email) + ' · ' +
                 (user.isActive ? 'Activo' : 'Inactivo') + ' · ' +
-                (user.canCreateBusinesses ? 'Puede crear locales' : 'Sin permiso de alta') + ' · ' +
+                'Rol Administrador de cuentas · ' +
                 String(user._count?.managedBusinesses || 0) + ' locales · ' +
                 (keepsLocalAccess ? 'Conserva el CRM completo' : 'Cuenta independiente') + '</span></div>' +
               '<div class="account-admin-actions">' +
@@ -19132,10 +19129,8 @@ const crmHtml = `<!doctype html>
       els.accountAdminId.value = ''
       els.accountAdminExistingField.hidden = false
       els.accountAdminStatusField.hidden = true
-      els.accountAdminCanCreateField.hidden = true
       els.accountAdminStatus.value = 'active'
-      els.accountAdminCanCreate.checked = true
-      els.accountAdminSubmit.textContent = 'Habilitar permiso'
+      els.accountAdminSubmit.textContent = 'Asignar rol'
       els.accountAdminCancel.hidden = true
       els.accountAdminFeedback.className = 'settings-feedback'
       els.accountAdminFeedback.textContent = ''
@@ -19148,9 +19143,7 @@ const crmHtml = `<!doctype html>
       els.accountAdminId.value = user.id
       els.accountAdminExistingField.hidden = true
       els.accountAdminStatusField.hidden = false
-      els.accountAdminCanCreateField.hidden = false
       els.accountAdminStatus.value = user.isActive ? 'active' : 'inactive'
-      els.accountAdminCanCreate.checked = user.canCreateBusinesses
       els.accountAdminSubmit.textContent = 'Guardar cambios'
       els.accountAdminCancel.hidden = false
       els.accountAdminStatus.focus()
@@ -19166,8 +19159,7 @@ const crmHtml = `<!doctype html>
           : '/admin/account-admins/assign'
         const payload = id
           ? {
-              isActive: els.accountAdminStatus.value === 'active',
-              canCreateBusinesses: els.accountAdminCanCreate.checked
+              isActive: els.accountAdminStatus.value === 'active'
             }
           : { userId: els.accountAdminExistingUser.value }
         await getJson(url, {
@@ -19178,7 +19170,7 @@ const crmHtml = `<!doctype html>
         await loadAccountAdmins()
         resetAccountAdminForm()
         renderAccountAdmins()
-        els.accountAdminFeedback.textContent = id ? 'Administrador actualizado.' : 'Permiso habilitado en la cuenta existente.'
+        els.accountAdminFeedback.textContent = id ? 'Administrador actualizado.' : 'Rol Administrador de cuentas asignado.'
         els.accountAdminFeedback.className = 'settings-feedback visible success'
       } catch (error) {
         els.accountAdminFeedback.textContent = error.message
