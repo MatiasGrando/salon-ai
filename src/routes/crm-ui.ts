@@ -4837,15 +4837,22 @@ const crmHtml = `<!doctype html>
     .app[data-section="accounts"] .accounts-view { display: block; }
     .accounts-shell { width: 100%; max-width: 1440px; margin: 0 auto; display: grid; gap: 20px; }
     .accounts-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
+    .accounts-header-actions { display: flex; gap: 9px; flex-wrap: wrap; }
     .accounts-header h2 { margin: 0; font-family: Georgia, serif; font-size: 34px; line-height: 1.05; }
     .accounts-header p { max-width: 680px; margin: 8px 0 0; color: #b7afa3; font-size: 14px; }
     .accounts-new { min-height: 42px; padding: 0 20px; border: 0; border-radius: 12px; color: #17120a; background: #d8aa50; font-weight: 800; }
+    .accounts-plans { min-height: 42px; padding: 0 16px; border: 1px solid #5b4a2c; border-radius: 12px; color: #f0d79f; background: #29251d; font-weight: 800; }
     .accounts-stats { display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 14px; }
     .accounts-stat { min-height: 118px; padding: 18px; border: 1px solid #303033; border-radius: 18px; background: #1a1a1d; }
     .accounts-stat span { display: block; color: #a89884; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
     .accounts-stat strong { display: block; margin-top: 10px; color: #fff; font-size: 28px; }
     .accounts-stat small { display: block; margin-top: 6px; color: #d8aa50; font-weight: 700; }
-    .accounts-toolbar { padding: 12px; display: grid; grid-template-columns: minmax(260px, 1fr) 220px; gap: 10px; border: 1px solid #303033; border-radius: 16px; background: #1a1a1d; }
+    .accounts-billing-stats { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 14px; }
+    .accounts-billing-stat { padding: 15px 18px; border: 1px solid #303033; border-radius: 14px; background: #151518; }
+    .accounts-billing-stat span { display: block; color: #a89884; font-size: 10px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
+    .accounts-billing-stat strong { display: block; margin-top: 7px; color: #fff; font-size: 21px; }
+    .accounts-billing-stat.overdue strong { color: #ff7a7a; }
+    .accounts-toolbar { padding: 12px; display: grid; grid-template-columns: minmax(260px, 1fr) 220px 170px; gap: 10px; border: 1px solid #303033; border-radius: 16px; background: #1a1a1d; }
     .accounts-toolbar input,
     .accounts-toolbar select { min-height: 42px; border: 1px solid #343438; border-radius: 11px; padding: 0 14px; color: #fff; background: #222225; }
     .accounts-table-card { border: 1px solid #303033; border-radius: 18px; background: #19191c; overflow: hidden; }
@@ -4895,6 +4902,20 @@ const crmHtml = `<!doctype html>
     .account-check.complete { color: #e9e5df; }
     .account-check.complete b { color: #65e69a; background: #113322; }
     .account-open-crm { width: 100%; min-height: 44px; margin-top: 18px; border: 0; border-radius: 11px; color: #17120a; background: #d8aa50; font-weight: 850; }
+    .account-plan-features { margin: 10px 0 0; padding-left: 18px; color: #c4bdb3; font-size: 12px; line-height: 1.6; }
+    .account-billing-copy { margin: 8px 0 0; color: #9d9489; font-size: 12px; }
+    .account-charge-list { display: grid; gap: 9px; }
+    .account-charge { padding: 12px; border-radius: 11px; background: #202023; }
+    .account-charge-head { display: flex; justify-content: space-between; gap: 10px; }
+    .account-charge-head strong { color: #fff; }
+    .account-charge-head span { color: #d8aa50; font-weight: 800; }
+    .account-charge small { display: block; margin-top: 5px; color: #9d9489; }
+    .account-charge-actions { margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
+    .account-charge-actions button { min-height: 32px; padding: 0 10px; border: 1px solid #414147; border-radius: 8px; color: #eee7dc; background: #29292d; font-size: 11px; font-weight: 750; }
+    .account-plan-editor { padding: 16px 0; display: grid; gap: 14px; }
+    .account-plan-card { padding: 15px; border: 1px solid #303033; border-radius: 14px; background: #202023; }
+    .account-plan-card .account-edit-grid { margin-bottom: 12px; }
+    .account-plan-card textarea { min-height: 76px; padding: 10px 12px; resize: vertical; border: 1px solid #3a3a3f; border-radius: 10px; color: #fff; background: #242427; }
     .account-edit-form { padding: 18px 0; display: grid; gap: 15px; }
     .account-edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 10px; }
     .account-edit-field { display: grid; gap: 7px; }
@@ -4987,6 +5008,7 @@ const crmHtml = `<!doctype html>
 
     @media (max-width: 1100px) {
       .accounts-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .accounts-billing-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
 
     @media (max-width: 760px) {
@@ -14169,7 +14191,10 @@ const crmHtml = `<!doctype html>
             <h2>Gesti&oacute;n de cuentas</h2>
             <p>Consult&aacute; el estado de cada comercio, su implementaci&oacute;n, responsable y plan.</p>
           </div>
-          <button class="accounts-new" id="account-new-button" type="button">+ Nueva cuenta</button>
+          <div class="accounts-header-actions">
+            <button class="accounts-plans" id="account-plans-button" type="button" hidden>Configurar planes</button>
+            <button class="accounts-new" id="account-new-button" type="button">+ Nueva cuenta</button>
+          </div>
         </header>
         <section class="accounts-stats" aria-label="Resumen de cuentas">
           <article class="accounts-stat"><span>Total de cuentas</span><strong id="account-stat-total">0</strong><small>Cuentas registradas</small></article>
@@ -14177,6 +14202,12 @@ const crmHtml = `<!doctype html>
           <article class="accounts-stat"><span>Nuevas este mes</span><strong id="account-stat-new">0</strong><small>Altas recientes</small></article>
           <article class="accounts-stat"><span>En onboarding</span><strong id="account-stat-onboarding">0</strong><small>Necesitan acompa&ntilde;amiento</small></article>
           <article class="accounts-stat"><span>Cuentas propias</span><strong id="account-stat-owned">0</strong><small id="account-stat-owned-copy">Responsable actual</small></article>
+        </section>
+        <section class="accounts-billing-stats" aria-label="Resumen de facturaci&oacute;n">
+          <article class="accounts-billing-stat"><span>Facturado neto</span><strong id="account-billing-billed">$0</strong></article>
+          <article class="accounts-billing-stat"><span>Cobrado</span><strong id="account-billing-collected">$0</strong></article>
+          <article class="accounts-billing-stat"><span>Pendiente</span><strong id="account-billing-pending">$0</strong></article>
+          <article class="accounts-billing-stat overdue"><span>Vencido</span><strong id="account-billing-overdue">$0</strong></article>
         </section>
         <div class="accounts-toolbar">
           <input id="account-search" type="search" placeholder="Buscar por comercio, c&oacute;digo, tel&eacute;fono o correo" autocomplete="off">
@@ -14187,6 +14218,7 @@ const crmHtml = `<!doctype html>
             <option value="PAUSED">Pausada</option>
             <option value="CANCELLED">Cancelada</option>
           </select>
+          <input id="account-billing-month" type="month" aria-label="Mes de facturaci&oacute;n">
         </div>
         <section class="accounts-table-card">
           <div class="accounts-table-wrap">
@@ -14498,6 +14530,7 @@ const crmHtml = `<!doctype html>
           <div class="settings-field"><label for="account-owner-email">Email de acceso</label><input class="field" id="account-owner-email" type="email" autocomplete="email" placeholder="admin@comercio.com" required></div>
           <div class="settings-field"><label for="account-contact-phone">Tel&eacute;fono</label><input class="field" id="account-contact-phone" type="tel" autocomplete="tel" placeholder="Ej: +54 9 11 1234-5678" required></div>
           <div class="settings-field"><label for="account-plan">Plan</label><select class="field" id="account-plan" required></select></div>
+          <div class="settings-field"><label for="account-billing-day">D&iacute;a de cobro</label><select class="field" id="account-billing-day" required><option value="1">D&iacute;a 1</option><option value="15">D&iacute;a 15</option></select></div>
           <div class="settings-field"><label for="account-owner-password">Contrase&ntilde;a inicial</label><input class="field" id="account-owner-password" type="password" minlength="8" autocomplete="new-password" placeholder="M&iacute;nimo 8 caracteres" required></div>
           <p class="settings-feedback full" id="account-create-feedback" role="status" aria-live="polite"></p>
           <div class="dialog-actions full">
@@ -17175,6 +17208,7 @@ const crmHtml = `<!doctype html>
       managedAccountPagination: { page: 1, take: 25, total: 0, totalPages: 1 },
       managedAccountSearch: '',
       managedAccountStatus: '',
+      managedAccountBillingMonth: new Date().toISOString().slice(0, 7),
       managedAccountSearchTimer: null,
       selectedManagedAccountId: null,
       customerOverview: [],
@@ -18069,8 +18103,10 @@ const crmHtml = `<!doctype html>
       accountAdminFeedback: document.getElementById('account-admin-feedback'),
       accountAdminList: document.getElementById('account-admin-list'),
       accountNewButton: document.getElementById('account-new-button'),
+      accountPlansButton: document.getElementById('account-plans-button'),
       accountSearch: document.getElementById('account-search'),
       accountStatusFilter: document.getElementById('account-status-filter'),
+      accountBillingMonth: document.getElementById('account-billing-month'),
       accountTableBody: document.getElementById('account-table-body'),
       accountStatTotal: document.getElementById('account-stat-total'),
       accountStatActive: document.getElementById('account-stat-active'),
@@ -18079,6 +18115,10 @@ const crmHtml = `<!doctype html>
       accountStatOnboarding: document.getElementById('account-stat-onboarding'),
       accountStatOwned: document.getElementById('account-stat-owned'),
       accountStatOwnedCopy: document.getElementById('account-stat-owned-copy'),
+      accountBillingBilled: document.getElementById('account-billing-billed'),
+      accountBillingCollected: document.getElementById('account-billing-collected'),
+      accountBillingPending: document.getElementById('account-billing-pending'),
+      accountBillingOverdue: document.getElementById('account-billing-overdue'),
       accountPaginationCopy: document.getElementById('account-pagination-copy'),
       accountPagePrev: document.getElementById('account-page-prev'),
       accountPageNext: document.getElementById('account-page-next'),
@@ -18095,6 +18135,7 @@ const crmHtml = `<!doctype html>
       accountOwnerEmail: document.getElementById('account-owner-email'),
       accountContactPhone: document.getElementById('account-contact-phone'),
       accountPlan: document.getElementById('account-plan'),
+      accountBillingDay: document.getElementById('account-billing-day'),
       accountOwnerPassword: document.getElementById('account-owner-password')
     }
 
@@ -18822,11 +18863,16 @@ const crmHtml = `<!doctype html>
       return new Date(value).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })
     }
 
+    function formatManagedAccountMoney(value) {
+      return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(Number(value || 0))
+    }
+
     async function loadManagedAccounts() {
       if (!['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(state.currentUser?.role)) return
       const params = new URLSearchParams({
         page: String(state.managedAccountPagination.page || 1),
-        take: String(state.managedAccountPagination.take || 25)
+        take: String(state.managedAccountPagination.take || 25),
+        billingMonth: state.managedAccountBillingMonth
       })
       if (state.managedAccountSearch) params.set('search', state.managedAccountSearch)
       if (state.managedAccountStatus) params.set('status', state.managedAccountStatus)
@@ -18834,6 +18880,8 @@ const crmHtml = `<!doctype html>
       state.managedAccounts = result.accounts || []
       state.managedAccountSummary = result.summary || state.managedAccountSummary
       state.managedAccountPagination = result.pagination || state.managedAccountPagination
+      if (els.accountPlansButton) els.accountPlansButton.hidden = state.currentUser?.role !== 'SUPER_ADMIN'
+      if (els.accountBillingMonth) els.accountBillingMonth.value = state.managedAccountBillingMonth
       renderManagedAccounts()
     }
 
@@ -18849,6 +18897,11 @@ const crmHtml = `<!doctype html>
       const ownAdmin = (summary.administrators || []).find((admin) => admin.id === state.currentUser?.id)
       els.accountStatOwned.textContent = ownAdmin?._count?.managedBusinesses || 0
       els.accountStatOwnedCopy.textContent = state.currentUser?.role === 'SUPER_ADMIN' ? 'Creadas y asignadas a vos' : 'Tu cartera actual'
+      const billing = summary.billing || {}
+      els.accountBillingBilled.textContent = formatManagedAccountMoney(billing.billed)
+      els.accountBillingCollected.textContent = formatManagedAccountMoney(billing.collected)
+      els.accountBillingPending.textContent = formatManagedAccountMoney(billing.pending)
+      els.accountBillingOverdue.textContent = formatManagedAccountMoney(billing.overdue)
 
       els.accountTableBody.innerHTML = state.managedAccounts.length
         ? state.managedAccounts.map((account) => {
@@ -18900,20 +18953,35 @@ const crmHtml = `<!doctype html>
 
     function renderManagedAccountPanel(account) {
       const onboarding = account.onboarding || { progress: 0, completedSteps: 0, totalSteps: 8, steps: [] }
+      const billing = account.billing || { settings: null, charges: [] }
+      const settings = billing.settings || { billingDay: 1 }
+      const planFeatures = account.plan?.features || []
+      const discountCopy = settings.discountType
+        ? (settings.discountType === 'PERCENTAGE' ? settings.discountValue + '%' : formatManagedAccountMoney(settings.discountValue)) + ' hasta ' + formatManagedAccountDate(settings.discountUntil)
+        : 'Sin descuento vigente'
+      const chargeStatusLabel = { PENDING: 'Pendiente', OVERDUE: 'Vencido', PAID: 'Pagado', BONIFIED: 'Bonificado' }
+      const chargesHtml = billing.charges?.length
+        ? billing.charges.map((charge) => '<article class="account-charge"><div class="account-charge-head"><strong>' + escapeHtml(charge.period) + ' · ' + escapeHtml(charge.planName) + '</strong><span>' + escapeHtml(formatManagedAccountMoney(charge.netAmount)) + '</span></div><small>Vence ' + escapeHtml(formatManagedAccountDate(charge.dueAt)) + ' · ' + escapeHtml(chargeStatusLabel[charge.effectiveStatus] || charge.effectiveStatus) + (charge.discountAmount ? ' · Descuento ' + escapeHtml(formatManagedAccountMoney(charge.discountAmount)) : '') + '</small>' +
+          (charge.status === 'PENDING' ? '<div class="account-charge-actions"><button type="button" data-charge-action="payment" data-charge-id="' + escapeHtml(charge.id) + '">Registrar transferencia</button><button type="button" data-charge-action="due-date" data-charge-id="' + escapeHtml(charge.id) + '">Cambiar vencimiento</button>' + (state.currentUser?.role === 'SUPER_ADMIN' ? '<button type="button" data-charge-action="bonification" data-charge-id="' + escapeHtml(charge.id) + '">Bonificar</button>' : '') + '</div>' : '') + '</article>').join('')
+        : '<div class="empty">Todav&iacute;a no hay cargos generados.</div>'
       els.accountPanel.innerHTML =
         '<header class="account-panel-head"><div><h3>' + escapeHtml(account.name) + '</h3><p>' + escapeHtml(account.customerCode) + ' &middot; Alta ' + escapeHtml(formatManagedAccountDate(account.createdAt)) + '</p></div><div class="account-panel-head-actions"><button class="account-panel-edit" type="button" data-edit-managed-account>Editar datos</button><button class="account-panel-close" type="button" data-close-managed-account aria-label="Cerrar">X</button></div></header>' +
         '<section class="account-panel-section"><h4>Cuenta</h4><div class="account-detail-grid">' +
           '<div class="account-detail-item"><span>Estado</span><strong>' + escapeHtml(managedAccountStatusLabel(account.accountStatus)) + '</strong></div>' +
-          '<div class="account-detail-item"><span>Plan</span><strong>' + escapeHtml(account.plan?.name || 'Sin plan') + '</strong></div>' +
+          '<div class="account-detail-item"><span>Plan</span><strong>' + escapeHtml(account.plan?.name || 'Sin plan') + (account.plan ? ' · ' + escapeHtml(formatManagedAccountMoney(account.plan.price)) : '') + '</strong></div>' +
           '<div class="account-detail-item"><span>Responsable</span><strong>' + escapeHtml(account.accountAdmin?.name || 'Sin asignar') + '</strong></div>' +
           '<div class="account-detail-item"><span>Creada por</span><strong>' + escapeHtml(account.createdByUser?.name || 'Sin registro') + '</strong></div>' +
-        '</div></section>' +
+        '</div>' + (planFeatures.length ? '<ul class="account-plan-features">' + planFeatures.map((feature) => '<li>' + escapeHtml(feature) + '</li>').join('') + '</ul>' : '') + '</section>' +
         '<section class="account-panel-section"><h4>Contacto principal</h4><div class="account-detail-grid">' +
           '<div class="account-detail-item"><span>Nombre</span><strong>' + escapeHtml(account.primaryUser?.name || account.contactName || 'Sin nombre') + '</strong></div>' +
           '<div class="account-detail-item"><span>Telefono</span><strong>' + escapeHtml(account.contactPhone || 'Sin telefono') + '</strong></div>' +
           '<div class="account-detail-item"><span>Email</span><strong>' + escapeHtml(account.contactEmail || account.primaryUser?.email || 'Sin email') + '</strong></div>' +
           '<div class="account-detail-item"><span>Primer acceso</span><strong>' + escapeHtml(account.primaryUser?.firstLoginAt ? formatManagedAccountDate(account.primaryUser.firstLoginAt) : 'Pendiente') + '</strong></div>' +
         '</div></section>' +
+        '<section class="account-panel-section"><h4>Facturaci&oacute;n</h4><div class="account-detail-grid">' +
+          '<div class="account-detail-item"><span>D&iacute;a de cobro</span><strong>D&iacute;a ' + Number(settings.billingDay || 1) + '</strong></div>' +
+          '<div class="account-detail-item"><span>Descuento</span><strong>' + escapeHtml(discountCopy) + '</strong></div>' +
+        '</div><p class="account-billing-copy">La cuenta se factura solamente cuando est&aacute; activa. La activaci&oacute;n es manual.</p><div class="account-charge-list">' + chargesHtml + '</div></section>' +
         '<section class="account-panel-section"><h4>Onboarding &middot; ' + onboarding.progress + '%</h4><div class="account-checklist">' +
           (onboarding.steps || []).map((step) => '<div class="account-check ' + (step.completed ? 'complete' : '') + '"><b>' + (step.completed ? '&#10003;' : '&middot;') + '</b><span>' + escapeHtml(step.label) + '</span></div>').join('') +
         '</div></section>' +
@@ -18927,13 +18995,16 @@ const crmHtml = `<!doctype html>
       els.accountPanel.querySelector('[data-close-managed-account]')?.addEventListener('click', closeManagedAccount)
       els.accountPanel.querySelector('[data-edit-managed-account]')?.addEventListener('click', () => openManagedAccountEdit(account))
       els.accountPanel.querySelector('[data-enter-managed-account]')?.addEventListener('click', () => enterManagedAccountWorkspace(account))
+      for (const button of els.accountPanel.querySelectorAll('[data-charge-action]')) {
+        button.addEventListener('click', () => openManagedChargeAction(account, button.dataset.chargeId, button.dataset.chargeAction))
+      }
     }
 
     async function openManagedAccountEdit(account) {
       await ensureManagedAccountPlans()
       const isSuperAdmin = state.currentUser?.role === 'SUPER_ADMIN'
       const planOptions = '<option value="">Sin plan</option>' + state.managedAccountPlans.map((plan) => {
-        return '<option value="' + escapeHtml(plan.id) + '" ' + (plan.id === account.plan?.id ? 'selected' : '') + '>' + escapeHtml(plan.name) + '</option>'
+        return '<option value="' + escapeHtml(plan.id) + '" ' + (plan.id === account.plan?.id ? 'selected' : '') + '>' + escapeHtml(plan.name) + ' · ' + escapeHtml(formatManagedAccountMoney(plan.price)) + '</option>'
       }).join('')
       const statusOptions = [
         ['ONBOARDING', 'En onboarding'],
@@ -18948,6 +19019,10 @@ const crmHtml = `<!doctype html>
         ? 'Este email tambi&eacute;n se actualizar&aacute; para el inicio de sesi&oacute;n del administrador.'
         : 'Este comercio antiguo no tiene un administrador de acceso vinculado; se actualizar&aacute; el contacto.'
 
+      const billingSettings = account.billing?.settings || { billingDay: 1 }
+      const discountType = billingSettings.discountType || ''
+      const discountUntil = billingSettings.discountUntil ? String(billingSettings.discountUntil).slice(0, 10) : ''
+
       els.accountPanel.innerHTML =
         '<header class="account-panel-head"><div><h3>Editar comercio</h3><p>' + escapeHtml(account.name) + ' &middot; ' + escapeHtml(account.customerCode) + '</p></div><button class="account-panel-close" type="button" data-cancel-managed-account-edit aria-label="Cancelar edicion">X</button></header>' +
         '<form class="account-edit-form" id="account-edit-form"><div class="account-edit-grid">' +
@@ -18957,6 +19032,12 @@ const crmHtml = `<!doctype html>
           '<div class="account-edit-field full"><label for="account-edit-email">Email de acceso y contacto</label><input id="account-edit-email" name="contactEmail" type="email" value="' + escapeHtml(account.contactEmail || account.primaryUser?.email || '') + '" required><small>' + accessHelp + '</small></div>' +
           '<div class="account-edit-field"><label for="account-edit-plan">Plan</label><select id="account-edit-plan" name="planId">' + planOptions + '</select></div>' +
           '<div class="account-edit-field"><label for="account-edit-status">Estado</label><select id="account-edit-status" name="accountStatus" required>' + statusOptions + '</select></div>' +
+          '<div class="account-edit-field"><label for="account-edit-billing-day">D&iacute;a de cobro</label><select id="account-edit-billing-day" name="billingDay"><option value="1" ' + (billingSettings.billingDay === 1 ? 'selected' : '') + '>D&iacute;a 1</option><option value="15" ' + (billingSettings.billingDay === 15 ? 'selected' : '') + '>D&iacute;a 15</option></select></div>' +
+          '<div class="account-edit-field"><label for="account-edit-discount-type">Tipo de descuento</label><select id="account-edit-discount-type" name="discountType"><option value="">Sin descuento</option><option value="PERCENTAGE" ' + (discountType === 'PERCENTAGE' ? 'selected' : '') + '>Porcentaje</option><option value="FIXED" ' + (discountType === 'FIXED' ? 'selected' : '') + '>Monto fijo</option></select></div>' +
+          '<div class="account-edit-field"><label for="account-edit-discount-value">Valor del descuento</label><input id="account-edit-discount-value" name="discountValue" type="number" min="0" step="0.01" value="' + escapeHtml(billingSettings.discountValue || '') + '"></div>' +
+          '<div class="account-edit-field"><label for="account-edit-discount-until">Descuento hasta inclusive</label><input id="account-edit-discount-until" name="discountUntil" type="date" value="' + escapeHtml(discountUntil) + '"></div>' +
+          '<div class="account-edit-field full"><label for="account-edit-discount-reason">Motivo del descuento</label><input id="account-edit-discount-reason" name="discountReason" value="' + escapeHtml(billingSettings.discountReason || '') + '" placeholder="Ej: Promoci&oacute;n por 3 meses"></div>' +
+          '<div class="account-edit-field full"><small>Las cuentas nuevas comienzan en onboarding. Para empezar a facturar, cambi&aacute; su estado a Activa y guard&aacute; los cambios.</small></div>' +
           (isSuperAdmin ? '<div class="account-edit-field full"><label for="account-edit-responsible">Responsable de cuenta</label><select id="account-edit-responsible" name="accountAdminId">' + administratorOptions + '</select></div>' : '') +
         '</div><p class="settings-feedback" id="account-edit-feedback" role="status" aria-live="polite"></p><div class="account-edit-actions"><button class="secondary" type="button" data-cancel-managed-account-edit>Cancelar</button><button class="primary" type="submit" data-save-managed-account>Guardar cambios</button></div></form>'
       for (const button of els.accountPanel.querySelectorAll('[data-cancel-managed-account-edit]')) {
@@ -18985,6 +19066,11 @@ const crmHtml = `<!doctype html>
             contactPhone: values.get('contactPhone'),
             planId: values.get('planId') || null,
             accountStatus: values.get('accountStatus'),
+            billingDay: Number(values.get('billingDay')),
+            discountType: values.get('discountType') || null,
+            discountValue: values.get('discountValue') ? Number(values.get('discountValue')) : null,
+            discountUntil: values.get('discountUntil') || null,
+            discountReason: values.get('discountReason') || null,
             ...(state.currentUser?.role === 'SUPER_ADMIN' ? { accountAdminId: values.get('accountAdminId') || null } : {})
           })
         })
@@ -18997,6 +19083,93 @@ const crmHtml = `<!doctype html>
         feedback.className = 'settings-feedback visible error'
       } finally {
         setButtonLoading(submit, false)
+      }
+    }
+
+    function openManagedChargeAction(account, chargeId, action) {
+      const charge = account.billing?.charges?.find((item) => item.id === chargeId)
+      if (!charge) return
+      const definitions = {
+        payment: {
+          title: 'Registrar transferencia',
+          method: 'POST',
+          path: 'payment',
+          fields: '<div class="account-edit-field"><label for="charge-payment-date">Fecha de transferencia</label><input id="charge-payment-date" name="paymentDate" type="date" required value="' + new Date().toISOString().slice(0, 10) + '"></div><div class="account-edit-field full"><label for="charge-reference">Referencia o comprobante (opcional)</label><input id="charge-reference" name="reference" placeholder="Ej: operaci&oacute;n 12345"></div><div class="account-edit-field full"><label for="charge-note">Observaci&oacute;n (opcional)</label><input id="charge-note" name="note"></div>',
+          success: 'Transferencia registrada.'
+        },
+        bonification: {
+          title: 'Bonificar cargo completo',
+          method: 'POST',
+          path: 'bonification',
+          fields: '<div class="account-edit-field full"><label for="charge-reason">Motivo</label><input id="charge-reason" name="reason" required placeholder="Ej: Mes bonificado por acuerdo comercial"></div>',
+          success: 'Cargo bonificado.'
+        },
+        'due-date': {
+          title: 'Cambiar vencimiento',
+          method: 'PATCH',
+          path: 'due-date',
+          fields: '<div class="account-edit-field"><label for="charge-due-date">Nueva fecha</label><input id="charge-due-date" name="dueDate" type="date" required value="' + escapeHtml(String(charge.dueAt).slice(0, 10)) + '"></div><div class="account-edit-field full"><label for="charge-reason">Motivo</label><input id="charge-reason" name="reason" required></div>',
+          success: 'Vencimiento actualizado.'
+        }
+      }
+      const definition = definitions[action]
+      if (!definition) return
+      els.accountPanel.innerHTML = '<header class="account-panel-head"><div><h3>' + definition.title + '</h3><p>' + escapeHtml(account.name) + ' · ' + escapeHtml(charge.period) + ' · ' + escapeHtml(formatManagedAccountMoney(charge.netAmount)) + '</p></div><button class="account-panel-close" type="button" data-cancel-charge-action aria-label="Volver">X</button></header><form class="account-edit-form" id="charge-action-form"><div class="account-edit-grid">' + definition.fields + '</div><p class="settings-feedback" id="charge-action-feedback" role="status"></p><div class="account-edit-actions"><button class="secondary" type="button" data-cancel-charge-action>Cancelar</button><button class="primary" type="submit">Guardar</button></div></form>'
+      for (const button of els.accountPanel.querySelectorAll('[data-cancel-charge-action]')) button.addEventListener('click', () => renderManagedAccountPanel(account))
+      els.accountPanel.querySelector('#charge-action-form')?.addEventListener('submit', async (event) => {
+        event.preventDefault()
+        const form = event.currentTarget
+        const feedback = form.querySelector('#charge-action-feedback')
+        const values = Object.fromEntries(new FormData(form).entries())
+        try {
+          await getJson('/admin/accounts/' + encodeURIComponent(account.id) + '/charges/' + encodeURIComponent(charge.id) + '/' + definition.path, {
+            method: definition.method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(values)
+          })
+          const updated = await getJson('/admin/accounts/' + encodeURIComponent(account.id))
+          renderManagedAccountPanel(updated)
+          await loadManagedAccounts()
+          showCrmToast(definition.success, 'success')
+        } catch (error) {
+          feedback.textContent = error.message
+          feedback.className = 'settings-feedback visible error'
+        }
+      })
+    }
+
+    async function openManagedPlanEditor() {
+      state.managedAccountPlans = await getJson('/admin/account-plans')
+      els.accountPanelBackdrop.hidden = false
+      els.accountPanel.hidden = false
+      els.accountPanel.innerHTML = '<header class="account-panel-head"><div><h3>Planes</h3><p>Defin&iacute; el precio y qu&eacute; incluye cada plan.</p></div><button class="account-panel-close" type="button" data-close-plan-editor aria-label="Cerrar">X</button></header><div class="account-plan-editor">' + state.managedAccountPlans.map((plan) => '<form class="account-plan-card" data-plan-form="' + escapeHtml(plan.id) + '"><div class="account-edit-grid"><div class="account-edit-field"><label>Nombre</label><input name="name" value="' + escapeHtml(plan.name) + '" required></div><div class="account-edit-field"><label>Precio mensual</label><input name="price" type="number" min="0" step="0.01" value="' + escapeHtml(plan.price) + '" required></div><div class="account-edit-field full"><label>Descripci&oacute;n</label><input name="description" value="' + escapeHtml(plan.description || '') + '"></div><div class="account-edit-field full"><label>Incluye (un punto por l&iacute;nea)</label><textarea name="features">' + escapeHtml((plan.features || []).join('\\n')) + '</textarea></div><label class="account-check ' + (plan.isActive ? 'complete' : '') + '"><input name="isActive" type="checkbox" ' + (plan.isActive ? 'checked' : '') + '> Plan disponible para nuevas cuentas</label></div><p class="settings-feedback" role="status"></p><div class="account-edit-actions"><button class="primary" type="submit">Guardar plan</button></div></form>').join('') + '</div>'
+      els.accountPanel.querySelector('[data-close-plan-editor]')?.addEventListener('click', closeManagedAccount)
+      for (const form of els.accountPanel.querySelectorAll('[data-plan-form]')) {
+        form.addEventListener('submit', async (event) => {
+          event.preventDefault()
+          const values = new FormData(form)
+          const feedback = form.querySelector('.settings-feedback')
+          try {
+            await getJson('/admin/account-plans/' + encodeURIComponent(form.dataset.planForm), {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name: values.get('name'),
+                price: Number(values.get('price')),
+                description: values.get('description') || null,
+                features: String(values.get('features') || '').split(/\\r?\\n/),
+                isActive: values.get('isActive') === 'on'
+              })
+            })
+            state.managedAccountPlans = []
+            feedback.textContent = 'Plan actualizado.'
+            feedback.className = 'settings-feedback visible success'
+            await loadManagedAccounts()
+          } catch (error) {
+            feedback.textContent = error.message
+            feedback.className = 'settings-feedback visible error'
+          }
+        })
       }
     }
 
@@ -19021,7 +19194,7 @@ const crmHtml = `<!doctype html>
 
     async function ensureManagedAccountPlans() {
       if (!state.managedAccountPlans.length) state.managedAccountPlans = await getJson('/admin/account-plans')
-      els.accountPlan.innerHTML = '<option value="">Seleccionar plan</option>' + state.managedAccountPlans.map((plan) => '<option value="' + escapeHtml(plan.id) + '">' + escapeHtml(plan.name) + '</option>').join('')
+      els.accountPlan.innerHTML = '<option value="">Seleccionar plan</option>' + state.managedAccountPlans.filter((plan) => plan.isActive !== false).map((plan) => '<option value="' + escapeHtml(plan.id) + '">' + escapeHtml(plan.name) + ' · ' + escapeHtml(formatManagedAccountMoney(plan.price)) + '</option>').join('')
     }
 
     async function openManagedAccountCreate() {
@@ -19052,7 +19225,8 @@ const crmHtml = `<!doctype html>
             adminEmail: els.accountOwnerEmail.value.trim(),
             adminPassword: els.accountOwnerPassword.value,
             contactPhone: els.accountContactPhone.value.trim(),
-            planId: els.accountPlan.value
+            planId: els.accountPlan.value,
+            billingDay: Number(els.accountBillingDay.value)
           })
         })
         closeManagedAccountCreate()
@@ -30056,6 +30230,7 @@ const crmHtml = `<!doctype html>
     els.loginForm.addEventListener('submit', loginToCrm)
     bindLogoutButton()
     els.accountNewButton?.addEventListener('click', () => openManagedAccountCreate().catch((error) => showCrmToast(error.message, 'error')))
+    els.accountPlansButton?.addEventListener('click', () => openManagedPlanEditor().catch((error) => showCrmToast(error.message, 'error')))
     els.accountCreateClose?.addEventListener('click', closeManagedAccountCreate)
     els.accountCreateCancel?.addEventListener('click', closeManagedAccountCreate)
     els.accountCreateForm?.addEventListener('submit', createManagedAccount)
@@ -30069,6 +30244,11 @@ const crmHtml = `<!doctype html>
     els.accountStatusFilter?.addEventListener('change', () => {
       state.managedAccountStatus = els.accountStatusFilter.value
       state.managedAccountPagination.page = 1
+      loadManagedAccounts().catch(() => {})
+    })
+    els.accountBillingMonth?.addEventListener('change', () => {
+      if (!els.accountBillingMonth.value) return
+      state.managedAccountBillingMonth = els.accountBillingMonth.value
       loadManagedAccounts().catch(() => {})
     })
     els.accountPagePrev?.addEventListener('click', () => {
