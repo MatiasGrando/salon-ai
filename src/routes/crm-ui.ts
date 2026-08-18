@@ -17110,6 +17110,8 @@ const crmHtml = `<!doctype html>
     } else {
 
     const CRM_AUTO_REFRESH_MS = 15000
+    const CONVERSATION_CACHE_TTL_MS = 60000
+    const CONVERSATION_CACHE_LIMIT = 12
     const ASSISTANT_PERSONALITY_PRESETS = {
       warm: {
         role: 'recepcionista virtual',
@@ -17195,6 +17197,11 @@ const crmHtml = `<!doctype html>
       messages: [],
       messageNextCursor: null,
       appointments: [],
+      conversationCache: new Map(),
+      conversationMarketingCache: new Map(),
+      conversationLoadRequest: 0,
+      conversationLoadController: null,
+      conversationLoadingId: null,
       professionals: [],
       staffUsers: [],
       staffPresets: [],
@@ -19844,6 +19851,12 @@ const crmHtml = `<!doctype html>
       if (!nextBusiness) return
       state.business = nextBusiness
       state.businessId = nextBusiness.id
+      state.conversationLoadController?.abort()
+      state.conversationLoadRequest += 1
+      state.conversationLoadController = null
+      state.conversationLoadingId = null
+      state.conversationCache.clear()
+      state.conversationMarketingCache.clear()
       state.selected = null
       state.messages = []
       state.messageNextCursor = null
@@ -20810,79 +20823,209 @@ const crmHtml = `<!doctype html>
       }
     }
 
+    function conversationActivityCacheKey(conversation) {
+      const value = latestConversationActivityValue(conversation)
+      const timestamp = value ? new Date(value).getTime() : 0
+      return Number.isFinite(timestamp) ? timestamp : 0
+    }
+
+    function clearSelectedConversationData() {
+      state.messages = []
+      state.messageNextCursor = null
+      state.appointments = []
+      state.customerNotes = []
+    }
+
+    function restoreConversationCache(cached) {
+      state.messages = cached.messages.slice()
+      state.messageNextCursor = cached.messageNextCursor
+      state.appointments = cached.appointments.slice()
+      state.customerNotes = cached.customerNotes.slice()
+    }
+
+    function cacheSelectedConversation(conversation) {
+      if (!conversation || state.selected?.id !== conversation.id) return
+      state.conversationCache.delete(conversation.id)
+      state.conversationCache.set(conversation.id, {
+        messages: state.messages.slice(),
+        messageNextCursor: state.messageNextCursor,
+        appointments: state.appointments.slice(),
+        customerNotes: state.customerNotes.slice(),
+        activityAt: conversationActivityCacheKey(conversation),
+        cachedAt: Date.now()
+      })
+      while (state.conversationCache.size > CONVERSATION_CACHE_LIMIT) {
+        const oldestId = state.conversationCache.keys().next().value
+        if (!oldestId) break
+        state.conversationCache.delete(oldestId)
+      }
+    }
+
     async function selectConversation(id, options = {}) {
       const conversation = state.conversations.find((item) => item.id === id)
       if (!conversation) return
       if (conversationActionsUsePopover()) els.chatMoreMenu.open = false
       state.readConversationIds.add(id)
       state.selected = conversation
-      await refreshSelectedConversation()
+      if (state.conversationLoadingId && state.conversationLoadingId !== id) {
+        state.conversationLoadController?.abort()
+        state.conversationLoadRequest += 1
+        state.conversationLoadController = null
+        state.conversationLoadingId = null
+      }
+      const cached = state.conversationCache.get(id) || null
+      const cacheIsFresh = Boolean(
+        cached &&
+        !options.forceRefresh &&
+        Date.now() - cached.cachedAt < CONVERSATION_CACHE_TTL_MS &&
+        cached.activityAt === conversationActivityCacheKey(conversation)
+      )
+      if (cached) restoreConversationCache(cached)
+      else clearSelectedConversationData()
+      renderConversations()
+      renderSelected({ loading: !cached })
+      renderCustomerNotes({ loading: !cached })
       if (isMobile() && options.openChat !== false) {
         setMobileView('chat')
       }
+      if (cacheIsFresh) return
+      if (state.conversationLoadingId === id) return
+      state.conversationLoadController?.abort()
+      const controller = new AbortController()
+      const requestId = ++state.conversationLoadRequest
+      state.conversationLoadController = controller
+      state.conversationLoadingId = id
+      await refreshSelectedConversation({ requestId, signal: controller.signal, skipMarketing: true })
     }
 
     async function refreshSelectedConversation(options = {}) {
       if (!state.selected) return
+      const conversation = state.selected
+      const conversationId = conversation.id
+      if (options.requestId === undefined && state.conversationLoadingId === conversationId) return
+      const requestId = options.requestId ?? ++state.conversationLoadRequest
+      if (options.requestId === undefined) state.conversationLoadingId = conversationId
       const messageScroll = options.preserveReadingPosition
         ? {
             mode: els.messages.scrollHeight - els.messages.scrollTop - els.messages.clientHeight < 72 ? 'bottom' : 'preserve',
             top: els.messages.scrollTop
           }
         : { mode: 'bottom', top: 0 }
-      await loadConversationMessages({ mergeExisting: options.preserveReadingPosition === true })
-      await Promise.all([loadAppointments(), loadCustomerNotes()])
-      renderSelected({ messageScroll })
+      const results = await Promise.allSettled([
+        fetchConversationMessages(conversationId, {
+          mergeExisting: options.preserveReadingPosition === true,
+          messages: state.messages,
+          nextCursor: state.messageNextCursor,
+          signal: options.signal
+        }),
+        fetchConversationAppointments(conversation, options.signal),
+        fetchConversationCustomerNotes(conversation, options.signal)
+      ])
+      if (requestId !== state.conversationLoadRequest || state.selected?.id !== conversationId) return
+      const [messageResult, appointmentResult, noteResult] = results
+      if (messageResult.status === 'fulfilled') {
+        state.messages = messageResult.value.messages
+        state.messageNextCursor = messageResult.value.nextCursor
+      }
+      if (appointmentResult.status === 'fulfilled') state.appointments = appointmentResult.value
+      if (noteResult.status === 'fulfilled') state.customerNotes = noteResult.value
+      if (results.every((result) => result.status === 'fulfilled')) {
+        cacheSelectedConversation(conversation)
+      }
+      renderSelected({ messageScroll, skipMarketing: options.skipMarketing })
+      renderCustomerNotes()
       renderConversations()
+      if (messageResult.status === 'rejected' && state.messages.length === 0 && messageResult.reason?.name !== 'AbortError') {
+        els.messages.innerHTML = '<div class="error">No pude cargar los mensajes. Intenta nuevamente.</div>'
+      }
+      if (state.conversationLoadingId === conversationId) {
+        state.conversationLoadingId = null
+        state.conversationLoadController = null
+      }
+    }
+
+    async function fetchConversationMessages(conversationId, options = {}) {
+      const params = new URLSearchParams({ paginated: 'true', take: '50' })
+      if (options.older && options.nextCursor) params.set('cursor', options.nextCursor)
+      const page = await getJson('/crm/conversations/' + conversationId + '/messages?' + params.toString(), {
+        signal: options.signal
+      })
+      if (options.mergeExisting) {
+        const messagesById = new Map((options.messages || []).map((message) => [message.id, message]))
+        for (const message of page.items) messagesById.set(message.id, message)
+        return {
+          messages: Array.from(messagesById.values())
+            .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()),
+          nextCursor: options.nextCursor || null
+        }
+      }
+      return {
+        messages: options.older ? page.items.concat(options.messages || []) : page.items,
+        nextCursor: page.nextCursor || null
+      }
     }
 
     async function loadConversationMessages(options = {}) {
       if (!state.selected) return
-      const params = new URLSearchParams({ paginated: 'true', take: '100' })
-      if (options.older && state.messageNextCursor) params.set('cursor', state.messageNextCursor)
-      const page = await getJson('/crm/conversations/' + state.selected.id + '/messages?' + params.toString())
-      if (options.mergeExisting) {
-        const messagesById = new Map(state.messages.map((message) => [message.id, message]))
-        for (const message of page.items) messagesById.set(message.id, message)
-        state.messages = Array.from(messagesById.values())
-          .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime())
-      } else {
-        state.messageNextCursor = page.nextCursor || null
-        state.messages = options.older ? page.items.concat(state.messages) : page.items
-      }
+      const conversation = state.selected
+      const result = await fetchConversationMessages(conversation.id, {
+        older: options.older,
+        messages: state.messages,
+        nextCursor: state.messageNextCursor
+      })
+      if (state.selected?.id !== conversation.id) return
+      state.messages = result.messages
+      state.messageNextCursor = result.nextCursor
+      cacheSelectedConversation(conversation)
       if (options.older) renderMessages({ preserveScroll: true })
     }
 
-    async function loadAppointments() {
-      state.appointments = []
-      if (!state.selected) return
+    async function fetchConversationAppointments(conversation, signal) {
       const params = new URLSearchParams({
-        customerPhone: state.selected.phone,
+        customerPhone: conversation.phone,
         from: new Date().toISOString()
       })
       if (state.businessId) params.set('businessId', state.businessId)
-      const all = await getJson('/appointments?' + params.toString())
+      const all = await getJson('/appointments?' + params.toString(), { signal })
       const now = Date.now()
-      state.appointments = all
-        .filter((appointment) => appointment.customer?.phone === state.selected.phone)
+      return all
+        .filter((appointment) => appointment.customer?.phone === conversation.phone)
         .filter(isActiveAppointment)
         .filter((appointment) => new Date(appointment.startAt).getTime() >= now)
         .sort((left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime())
     }
 
-    async function loadCustomerNotes() {
-      state.customerNotes = []
+    async function loadAppointments() {
       if (!state.selected) return
-      const customer = customerForPhone(state.selected.phone)
-      if (!customer) {
-        renderCustomerNotes()
-        return
-      }
-      state.customerNotes = await getJson('/customers/' + customer.id + '/notes')
+      const conversation = state.selected
+      const appointments = await fetchConversationAppointments(conversation)
+      if (state.selected?.id !== conversation.id) return
+      state.appointments = appointments
+      cacheSelectedConversation(conversation)
+    }
+
+    async function fetchConversationCustomerNotes(conversation, signal) {
+      const customer = customerForPhone(conversation.phone)
+      if (!customer) return []
+      return getJson('/customers/' + customer.id + '/notes', { signal })
+    }
+
+    async function loadCustomerNotes() {
+      if (!state.selected) return
+      const conversation = state.selected
+      const customerNotes = await fetchConversationCustomerNotes(conversation)
+      if (state.selected?.id !== conversation.id) return
+      state.customerNotes = customerNotes
+      cacheSelectedConversation(conversation)
       renderCustomerNotes()
     }
 
-    function renderCustomerNotes() {
+    function renderCustomerNotes(options = {}) {
+      if (options.loading) {
+        els.customerNotesList.className = 'customer-note-empty'
+        els.customerNotesList.textContent = 'Cargando notas...'
+        return
+      }
       if (!state.customerNotes.length) {
         els.customerNotesList.className = 'customer-note-empty'
         els.customerNotesList.textContent = 'Todavia no hay notas para este cliente.'
@@ -21066,37 +21209,69 @@ const crmHtml = `<!doctype html>
       els.detailWhatsapp.href = whatsappAppUrl(selected.phone)
       els.detailStep.textContent = conversationStepLabel(selected.currentStep, selected.aiEnabled, selected)
       els.detailStep.className = conversationStepChipClass(selected.currentStep, selected.aiEnabled)
-      els.detailMarketingStatus.textContent = customer ? 'Consultando...' : 'Sin cliente'
-      els.detailMarketingStatus.className = 'chip'
+      const cachedMarketing = state.conversationMarketingCache.get(selected.id)
+      if (!customer) {
+        els.detailMarketingStatus.textContent = 'Sin cliente'
+        els.detailMarketingStatus.className = 'chip'
+      } else if (
+        cachedMarketing?.preference &&
+        Date.now() - cachedMarketing.cachedAt < CONVERSATION_CACHE_TTL_MS
+      ) {
+        renderConversationMarketingStatus(cachedMarketing.preference)
+      } else if (!options.skipMarketing) {
+        els.detailMarketingStatus.textContent = 'Consultando...'
+        els.detailMarketingStatus.className = 'chip'
+        loadConversationMarketingStatus(customer, selected.id)
+      }
       els.detailUpdated.textContent = formatDateTime(latestConversationActivityValue(selected))
       els.customerEdit.disabled = !customer
       els.archiveConversation.hidden = !canReplyConversation
       els.archiveConversation.disabled = canResolveHandoff && !selected.archivedAt
       els.archiveConversation.textContent = selected.archivedAt ? 'Restaurar chat' : 'Archivar chat'
-      if (customer) loadConversationMarketingStatus(customer, selected.id)
-
-      renderMessages(options.messageScroll || {})
+      if (options.loading) {
+        els.messages.innerHTML = '<div class="empty">Cargando conversaci&oacute;n...</div>'
+      } else {
+        renderMessages(options.messageScroll || {})
+      }
       updateComposerAvailability()
-      renderAppointments()
+      renderAppointments({ loading: options.loading })
     }
 
     async function loadConversationMarketingStatus(customer, conversationId) {
       if (!state.businessId) return
+      const cached = state.conversationMarketingCache.get(conversationId)
+      if (
+        cached?.preference &&
+        Date.now() - cached.cachedAt < CONVERSATION_CACHE_TTL_MS
+      ) {
+        renderConversationMarketingStatus(cached.preference)
+        return
+      }
       try {
         const preference = await getJson('/customers/' + customer.id + '/marketing-preference?businessId=' + encodeURIComponent(state.businessId))
         if (state.selected?.id !== conversationId) return
-        const authorized = preference.status === 'ACTIVE'
-        els.detailMarketingStatus.textContent = authorized
-          ? 'Promociones activas'
-          : preference.status === 'OPTED_OUT'
-            ? 'Baja de promociones'
-            : preference.status === 'DECLINED' ? 'Promociones rechazadas' : 'Promociones desactivadas'
-        els.detailMarketingStatus.className = 'chip ' + (authorized ? 'success' : 'warn')
+        state.conversationMarketingCache.set(conversationId, { preference, cachedAt: Date.now() })
+        while (state.conversationMarketingCache.size > CONVERSATION_CACHE_LIMIT) {
+          const oldestId = state.conversationMarketingCache.keys().next().value
+          if (!oldestId) break
+          state.conversationMarketingCache.delete(oldestId)
+        }
+        renderConversationMarketingStatus(preference)
       } catch {
         if (state.selected?.id !== conversationId) return
         els.detailMarketingStatus.textContent = 'No disponible'
         els.detailMarketingStatus.className = 'chip warn'
       }
+    }
+
+    function renderConversationMarketingStatus(preference) {
+      const authorized = preference.status === 'ACTIVE'
+      els.detailMarketingStatus.textContent = authorized
+        ? 'Promociones activas'
+        : preference.status === 'OPTED_OUT'
+          ? 'Baja de promociones'
+          : preference.status === 'DECLINED' ? 'Promociones rechazadas' : 'Promociones desactivadas'
+      els.detailMarketingStatus.className = 'chip ' + (authorized ? 'success' : 'warn')
     }
 
     function whatsappReplyWindowState(conversation = state.selected) {
@@ -21231,9 +21406,13 @@ const crmHtml = `<!doctype html>
       return message.providerErrorMessage || message.providerErrorCode || 'WhatsApp rechazo el envio.'
     }
 
-    function renderAppointments() {
+    function renderAppointments(options = {}) {
       els.appointmentCount.textContent = String(state.appointments.length)
       if (els.topAppointmentTotal) els.topAppointmentTotal.textContent = String(state.appointments.length)
+      if (options.loading) {
+        els.appointments.innerHTML = '<div class="empty">Cargando turnos...</div>'
+        return
+      }
       if (!state.selected) {
         els.appointments.innerHTML = '<div class="empty">Sin cliente seleccionado.</div>'
         return
@@ -22566,7 +22745,7 @@ const crmHtml = `<!doctype html>
           })
         })
         els.replyText.value = ''
-        await selectConversation(state.selected.id)
+        await selectConversation(state.selected.id, { forceRefresh: true })
         await loadConversations()
         if (result.delivery && result.delivery.sent === false) {
           showCrmToast('WhatsApp no pudo enviar el mensaje: ' + (result.delivery.errorMessage || result.delivery.reason || 'revisa la configuracion o la ventana de 24 hs.'), 'error')
