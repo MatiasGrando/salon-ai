@@ -776,12 +776,22 @@ function professionalQuestion(
           .map((option) => option.professionalId)
       )
     : null
-  const professionals = catalog?.professionals.filter((professional) =>
-    (serviceIds.length === 0 || serviceIds.every((serviceId) =>
+  const compatibleProfessionals = catalog?.professionals.filter((professional) =>
+    serviceIds.length === 0 || serviceIds.every((serviceId) =>
       professional.serviceIds.includes(serviceId)
-    )) &&
-    (!availableProfessionalIds || availableProfessionalIds.has(professional.id))
+    )
   ) ?? []
+  const professionalsAtSelectedTime = availableProfessionalIds
+    ? compatibleProfessionals.filter((professional) =>
+        availableProfessionalIds.has(professional.id)
+      )
+    : compatibleProfessionals
+  // Si el profesional mencionado no hizo match y la hora pedida tampoco
+  // coincide con un turno exacto, seguimos necesitando aclarar quién atenderá.
+  // No confundimos ese caso con un servicio sin profesionales habilitados.
+  const professionals = professionalsAtSelectedTime.length
+    ? professionalsAtSelectedTime
+    : compatibleProfessionals
 
   if (!professionals.length) {
     const service = catalog?.services.find((option) => option.id === serviceIds[0])

@@ -5439,6 +5439,44 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'profesional sin match pregunta por profesionales aunque la hora no coincida con la grilla',
+    run: () => {
+      const catalog = createBookingV2DomainCatalog({
+        services: [
+          { id: 'haircut', name: 'Corte hombre', aliases: ['Corte'], duration: 30, price: 25000, category: 'Cortes' }
+        ],
+        professionals: [
+          { id: 'professional-1', name: 'Ramiro', serviceIds: ['haircut'] }
+        ]
+      })
+      const reply = renderBookingV2Response({
+        plan: {
+          type: 'ask_field',
+          field: 'professional',
+          reason: 'missing',
+          misunderstandingCount: 0
+        },
+        draft: {
+          name: 'Felipe',
+          service: 'haircut',
+          professional: null,
+          date: '2026-08-18',
+          time: '19:20'
+        },
+        catalog,
+        availabilityOptions: [
+          { time: '19:00', professionalId: 'professional-1', professionalName: 'Ramiro' },
+          { time: '19:30', professionalId: 'professional-1', professionalName: 'Ramiro' }
+        ]
+      })
+
+      assert.equal(reply.includes('Podés atenderte con:'), true)
+      assert.equal(reply.includes('• Ramiro'), true)
+      assert.equal(reply.includes('¿Con quién preferís?'), true)
+      assert.equal(reply.includes('no tengo profesionales habilitados'), false)
+    }
+  },
+  {
     name: 'renderiza todos los horarios sin cortar despues del sexto',
     run: () => {
       const availabilityOptions = [
