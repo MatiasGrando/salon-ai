@@ -3577,6 +3577,69 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'servicio y día consultan una reserva aunque disponible esté mal escrito',
+    run: () => {
+      const catalog = {
+        services: [
+          { id: 'man-cut', name: 'Corte hombre', aliases: ['corte hombre'] }
+        ],
+        professionals: [
+          { id: 'alan', name: 'Alan', aliases: [] }
+        ]
+      }
+      const messages = [
+        'Corte hombre tenes disponle hoy con Alan?',
+        'Corte hombre tenes disponible hoy con Alan?',
+        'Corte hombre hoy con Alan?'
+      ]
+
+      for (const message of messages) {
+        const deterministic = deterministicConversationRouting(message, {
+          currentStep: 'START',
+          catalog
+        })
+        assert.equal(deterministic.bookingMessage, message, message)
+
+        const routing = mergeConversationRouting({
+          intents: [
+            {
+              type: 'service_detail',
+              topic: null,
+              confidence: 0.91,
+              evidence: 'Corte hombre'
+            },
+            {
+              type: 'business_information',
+              topic: 'services',
+              confidence: 0.91,
+              evidence: 'Corte hombre'
+            }
+          ],
+          bookingMessage: null,
+          bookingExtraction: null,
+          catalogQuery: {
+            serviceId: 'man-cut',
+            candidateServiceIds: ['man-cut'],
+            requestedInformation: ['general'],
+            confidence: 0.91,
+            evidence: 'Corte hombre'
+          }
+        }, deterministic, message, catalog)
+
+        assert.equal(routing.bookingMessage, message, message)
+        assert.equal(routing.catalogQuery, null, message)
+        assert.equal(
+          routing.intents.some((intent) =>
+            intent.type === 'service_detail' ||
+            (intent.type === 'business_information' && intent.topic === 'services')
+          ),
+          false,
+          message
+        )
+      }
+    }
+  },
+  {
     name: 'conversación dorada: verificar color y corte antes de completar presupuesto',
     run: async () => {
       const catalog = createBookingV2DomainCatalog({

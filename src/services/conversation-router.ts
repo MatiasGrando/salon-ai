@@ -1476,11 +1476,22 @@ function hasCatalogGroundedAppointmentAvailabilityRequest(
   catalog: ConversationRouterInput['catalog'] | undefined
 ) {
   if (!catalog?.services.length) return false
+  const hasCatalogService = resolveCatalogQueryServices(normalizedMessage, catalog).length > 0
+  if (!hasCatalogService) return false
   const asksForAppointmentAvailability =
-    /\b(?:hay|tienen|tenes|tendran|consigo|conseguir|busco|buscar)\s+(?:alguna\s+)?(?:fecha|turno|lugar|espacio|disponibilidad)\b/.test(normalizedMessage) ||
-    /\b(?:fecha|turno|lugar|espacio|disponibilidad)\s+para\b/.test(normalizedMessage)
-  return asksForAppointmentAvailability &&
-    resolveCatalogQueryServices(normalizedMessage, catalog).length > 0
+    /\b(?:hay|tienen|tenes|tendran|consigo|conseguir|busco|buscar)\s+(?:alguna\s+)?(?:fecha|turno|lugar|espacio|disponibilidad|disponible|disponibles|disponle|disponles)\b/.test(normalizedMessage) ||
+    /\b(?:fecha|turno|lugar|espacio|disponibilidad|disponible|disponibles|disponle|disponles)\s+para\b/.test(normalizedMessage)
+  const isExplicitInformationRequest = /\b(?:informacion|info|contame|consultar|consulta|explicame|detalle|detalles|de que se trata|que incluye|como se hace|precio|precios|costo|costos|cuanto sale|cuanto cuesta|duracion|cuanto dura)\b/.test(normalizedMessage)
+  return asksForAppointmentAvailability || (
+    hasAppointmentDayReference(normalizedMessage) &&
+    !isExplicitInformationRequest
+  )
+}
+
+function hasAppointmentDayReference(normalizedMessage: string) {
+  return /\b(?:hoy|manana|pasado manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/.test(normalizedMessage) ||
+    /\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b/.test(normalizedMessage) ||
+    /\b\d{1,2}\s+de\s+(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\b/.test(normalizedMessage)
 }
 
 function hasApproximateBookingTurnRequest(normalized: string) {
