@@ -31,7 +31,10 @@ import {
   conversationPatchFromState,
   stateFromConversation
 } from './booking-v2-conversation-state.js'
-import { createServiceConsultationQueue } from './service-consultation-queue.js'
+import {
+  createServiceConsultationQueue,
+  isPriceServiceConsultation
+} from './service-consultation-queue.js'
 import {
   calculateBookingV2Deposit,
   renderBookingV2DepositRequest
@@ -502,12 +505,13 @@ export class ConversationService {
       }
     }
     if (otherQueryMenuAction === 'book_appointment' && bookingV2Enabled && businessId) {
-      const nextState: BookingV2State = {
+      const menuState: BookingV2State = {
         ...recoveryState,
         catalogNavigation: null,
         unsupportedServiceRequest: null,
         misunderstandingCount: 0
       }
+      const nextState = bookingStateFromCompletedServiceConsultation(menuState)
       const booking = await bookingV2Engine.process({
         businessId,
         conversation: conversationPatchFromState(nextState),
@@ -1627,7 +1631,8 @@ export class ConversationService {
     }
     const quoteOnlyRequest = isQuoteOnlyRouting(input.routing, input.message)
     const priceInformationRequest = isPriceInformationRequest(input.routing)
-    const multiServicePriceRequest = !quoteOnlyRequest && priceInformationRequest &&
+    const multiServicePriceRequest = !quoteOnlyRequest && !input.routing.bookingMessage &&
+      priceInformationRequest &&
       await bookingV2Engine.hasMultipleServiceConsultation({
         businessId: input.businessId,
         message: input.message
@@ -1730,24 +1735,7 @@ export class ConversationService {
     }
     const storedQuoteOnly = storedInformationState.quoteOnly
     if (storedQuoteOnly && shouldResumeQuoteOnlyBooking(storedInformationState, input.message, input.routing)) {
-      const quotedServiceIds = storedQuoteOnly.estimates.map((estimate) => estimate.serviceId)
-      const [primaryServiceId, ...additionalServiceIds] = quotedServiceIds
-      const bookingState: BookingV2State = {
-        ...storedInformationState,
-        draft: {
-          ...storedInformationState.draft,
-          service: primaryServiceId ?? storedInformationState.draft.service,
-          professional: null,
-          date: null,
-          time: null
-        },
-        quoteOnly: null,
-        guidedEstimate: null,
-        combinedServices: additionalServiceIds.map((serviceId) => ({
-          serviceId,
-          evidence: 'presupuesto consultado'
-        }))
-      }
+      const bookingState = bookingStateFromCompletedServiceConsultation(storedInformationState)
       await this.updateConversation(input.phone, input.businessId, {
         currentStep: conversationStepValue(input.conversation.currentStep),
         ...conversationPatchFromState(bookingState)
@@ -1756,6 +1744,7 @@ export class ConversationService {
         ...input.conversation,
         ...conversationPatchFromState(bookingState)
       }
+      storedInformationState = bookingState
     }
     if (isPendingServiceVerificationSelection(storedInformationState, input.routing)) {
       const verified = await bookingV2Engine.process({
@@ -4692,7 +4681,7 @@ export function isBookingV2InitialGreeting(currentStep: string, message: string)
 
 function hasExplicitBookingRequest(message: string) {
   const normalizedMessage = normalizeText(message)
-  return /\b(?:reserv(?:ar(?:lo|la|los|las)?|arlo|arla|arlos|arlas|ame|alo|ala|alos|alas)?|agend(?:ar(?:lo|la|los|las)?|arlo|arla|arlos|arlas|ame|alo|ala|alos|alas)?|saca(?:r|me)?(?: un)? turno|quiero un turno|necesito un turno)\b/.test(normalizedMessage)
+  return /\b(?:reserv(?:a|ar(?:lo|la|los|las)?|arlo|arla|arlos|arlas|ame|alo|ala|alos|alas)?|agend(?:a|ar(?:lo|la|los|las)?|arlo|arla|arlos|arlas|ame|alo|ala|alos|alas)?|saca(?:r|me)?(?: un)? turno|quiero un turno|necesito un turno|turno|(?:quiero|queria|quisiera|necesito|dame|pedir|sacar|agendar|reservar)(?: una)? cita|cita|(?:da|des|dar|consegui|conseguir)(?:me)?(?: el| un)? turno|quiero hacerlo|quiero hacermelo|que me des el turno)\b/.test(normalizedMessage)
 }
 
 function isGenericBookingV2Request(message: string) {
@@ -4706,7 +4695,13 @@ function isGenericBookingV2Request(message: string) {
   return [
     'turno',
     'un turno',
+    'cita',
+    'una cita',
+    'reservar',
+    'reserva',
+    'agendar',
     'quiero un turno',
+    'quiero una cita',
     'quiero reservar un turno',
     'necesito un turno',
     'necesito reservar un turno',
@@ -4714,7 +4709,9 @@ function isGenericBookingV2Request(message: string) {
     'quiero sacar un turno',
     'reservar un turno',
     'agendar un turno',
-    'sacar un turno'
+    'sacar un turno',
+    'reservar una cita',
+    'agendar una cita'
   ].includes(bookingMessage)
 }
 
@@ -4740,12 +4737,55 @@ export function shouldResumeQuoteOnlyBooking(
     ...state.quoteOnly?.remainingServiceIds ?? [],
     state.guidedEstimate?.serviceId
   ].filter((serviceId): serviceId is string => Boolean(serviceId)))
-  return Boolean(state.quoteOnly) && state.quoteOnly?.mode !== 'price' &&
+  return Boolean(state.quoteOnly) &&
     !state.pendingServiceDisambiguation &&
     !state.pendingInformationSelection &&
     !state.guidedEstimate &&
     (!requestedServiceId || quotedServiceIds.has(requestedServiceId)) &&
     hasQuoteOnlyBookingRequest(message, routing)
+}
+
+export function bookingStateFromCompletedServiceConsultation(
+  state: BookingV2State
+): BookingV2State {
+  const quotedServiceIds = Array.from(new Set(
+    state.quoteOnly?.estimates.map((estimate) => estimate.serviceId) ?? []
+  ))
+  if (!quotedServiceIds.length) return state
+
+  const [primaryServiceId, ...additionalServiceIds] = quotedServiceIds
+  const primaryEstimate = state.quoteOnly?.estimates.find((estimate) =>
+    estimate.serviceId === primaryServiceId
+  )
+  const completedGuidedEstimate = primaryEstimate &&
+    Object.prototype.hasOwnProperty.call(primaryEstimate, 'optionId')
+    ? {
+        serviceId: primaryEstimate.serviceId,
+        stage: 'completed' as const,
+        optionId: primaryEstimate.optionId ?? null,
+        optionLabel: primaryEstimate.optionLabel ?? null,
+        priceMin: primaryEstimate.priceMin,
+        priceMax: primaryEstimate.priceMax
+      }
+    : null
+  return {
+    ...state,
+    draft: {
+      ...state.draft,
+      service: primaryServiceId ?? state.draft.service,
+      professional: null,
+      date: null,
+      time: null
+    },
+    quoteOnly: null,
+    guidedEstimate: completedGuidedEstimate,
+    pendingInformationSelection: null,
+    combinedServices: additionalServiceIds.map((serviceId) => ({
+      serviceId,
+      evidence: 'presupuesto consultado'
+    })),
+    misunderstandingCount: 0
+  }
 }
 
 export function stateAfterExplicitConsultationReplacement(
@@ -5401,6 +5441,12 @@ export function bookingCoordinationReplyButtons(input: {
         : []),
       { id: `${prefix}estimate_exact_quote`, title: 'Presupuesto exacto' }
     ]
+  }
+  if (
+    input.plan.type === 'quote_complete' &&
+    isPriceServiceConsultation(input.state.quoteOnly)
+  ) {
+    return otherQueryMenuButtons(input.conversationId)
   }
   const addonServiceIds = input.plan.type === 'ask_service_addons'
     ? input.plan.serviceIds

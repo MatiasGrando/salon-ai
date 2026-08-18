@@ -2895,7 +2895,9 @@ export class BookingV2Engine {
       : [{
           serviceId: guidedEstimate.serviceId,
           priceMin: guidedEstimate.priceMin,
-          priceMax: guidedEstimate.priceMax
+          priceMax: guidedEstimate.priceMax,
+          optionId: guidedEstimate.optionId,
+          optionLabel: guidedEstimate.optionLabel
         }]
     const estimates = [
       ...(state.quoteOnly?.estimates ?? []).filter(
@@ -4765,10 +4767,13 @@ function resolveExplicitServiceGroups(
         (value, service) => value.replaceAll(service.marker, ' '),
         clause
       ).trim()
-      const resolved = unprotectedClause
+      const informationalClause = unprotectedClause &&
+        isDeterministicServiceInformationQuestion(unprotectedClause) &&
+        !clauseMentionsCatalogService(unprotectedClause, catalog)
+      const resolved = unprotectedClause && !informationalClause
         ? resolveCatalogServiceSelection(unprotectedClause, catalog)
         : null
-      const unresolvedEvidence = !resolved
+      const unresolvedEvidence = !resolved && !informationalClause
         ? unresolvedServiceEvidence(unprotectedClause, catalog)
         : null
       return [
@@ -4800,12 +4805,40 @@ function resolveExplicitServiceGroups(
   }).slice(0, 5)
 }
 
+function clauseMentionsCatalogService(
+  clause: string,
+  catalog: BookingV2DomainCatalog
+) {
+  const genericContextTokens = new Set([
+    'cabello', 'hacer', 'hacerme', 'pelo', 'servicio', 'tratamiento'
+  ])
+  const clauseTokens = serviceSelectionTokens(clause)
+    .filter((token) => !genericContextTokens.has(token))
+  return catalog.services.some((service) =>
+    [service.name, ...service.aliases].some((label) => {
+      const labelTokens = serviceSelectionTokens(label)
+        .filter((token) => !genericContextTokens.has(token))
+      return clauseTokens.some((clauseToken) =>
+        labelTokens.some((labelToken) => serviceTokensMatch(clauseToken, labelToken))
+      )
+    })
+  )
+}
+
 function unresolvedServiceEvidence(
   clause: string,
   catalog: BookingV2DomainCatalog
 ) {
   const normalizedClause = normalize(clause)
   if (/^(?:soy|me llamo|mi nombre es)\b/.test(normalizedClause)) return null
+  if (
+    /\b(?:pelo|cabello)\b/.test(normalizedClause) &&
+    /\b(?:corto|corta|medio|media|largo|larga|hombro|hombros)\b/.test(normalizedClause)
+  ) return null
+  // En pedidos mixtos, la conjunción también puede separar el servicio de
+  // una consulta de precio ("balayage y cuál sería el costo"). Esa segunda
+  // parte aporta contexto, pero no representa otro servicio del catálogo.
+  if (isDeterministicServiceInformationQuestion(clause)) return null
   const reference = ambiguousServiceReference(clause)
   if (!reference) return null
   const normalizedReference = normalize(reference)

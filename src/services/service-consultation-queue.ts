@@ -4,6 +4,8 @@ export type ServiceConsultationEstimate = {
   serviceId: string
   priceMin: number
   priceMax: number | null
+  optionId?: string | null
+  optionLabel?: string | null
 }
 
 export type ServiceConsultationQueue = {

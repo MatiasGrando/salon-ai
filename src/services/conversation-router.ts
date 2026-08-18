@@ -1423,7 +1423,13 @@ function hasExplicitBookingIntent(normalized: string) {
 }
 
 function hasExplicitBookingAction(normalized: string) {
-  return containsAny(normalized, [
+  return [
+    'turno',
+    'cita',
+    'reservar',
+    'reserva',
+    'agendar'
+  ].includes(normalized) || containsAny(normalized, [
     'quiero reservar',
     'queria reservar',
     'quisiera reservar',
@@ -1454,7 +1460,16 @@ function hasExplicitBookingAction(normalized: string) {
     'me agendas',
     'reservame',
     'coordinar un turno',
-    'programar un turno'
+    'programar un turno',
+    'quiero una cita',
+    'queria una cita',
+    'quisiera una cita',
+    'necesito una cita',
+    'pedir una cita',
+    'reservar una cita',
+    'agendar una cita',
+    'agendame una cita',
+    'dame una cita'
   ]) || hasApproximateBookingTurnRequest(normalized)
 }
 
@@ -1496,7 +1511,7 @@ function hasAppointmentDayReference(normalizedMessage: string) {
 
 function hasApproximateBookingTurnRequest(normalized: string) {
   const tokens = normalized.split(' ').filter(Boolean)
-  if (!tokens.some((token) => token === 'turno' || token === 'turnos')) return false
+  if (!tokens.some((token) => ['turno', 'turnos', 'cita', 'citas'].includes(token))) return false
   const bookingVerbs = ['quiero', 'queria', 'quisiera', 'necesito', 'reservar', 'agendar']
   return tokens.some((token) =>
     token.length >= 4 && bookingVerbs.some((verb) => editDistanceAtMostOne(token, verb))

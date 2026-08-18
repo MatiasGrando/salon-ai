@@ -64,6 +64,7 @@ import {
   bookingCoordinationMessageFromInteractiveReply,
   bookingCoordinationReplyButtons,
   bookingDatePromptForOptions,
+  bookingStateFromCompletedServiceConsultation,
   bookingV2StateAfterGoingBack,
   clearBookingV2StateFromField,
   composeBusinessInformationResumeReply,
@@ -3577,6 +3578,102 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'disponibilidad y precio en el mismo mensaje conservan la intención de reserva',
+    run: async () => {
+      const catalog = createBookingV2DomainCatalog({
+        services: [{
+          id: 'highlights',
+          name: 'Iluminación (baby lights, balayage, contouring, etc)',
+          aliases: ['balayage'],
+          category: 'Iluminación',
+          duration: 180,
+          price: 160000,
+          attentionMode: 'GUIDED_ESTIMATE',
+          requiresPhoto: false,
+          estimateExplanation: 'El precio depende del largo.',
+          estimateQuestion: '¿Qué largo tiene tu cabello?',
+          estimateOptions: [{
+            id: 'long',
+            label: 'Debajo de los hombros',
+            priceMin: 160000,
+            priceMax: 210000,
+            note: null
+          }],
+          estimateDisclaimer: null,
+          estimateAllowsBooking: true
+        }],
+        professionals: [{
+          id: 'professional-1',
+          name: 'Sofía',
+          serviceIds: ['highlights']
+        }]
+      })
+      const message = 'Hola, quería saber si tenían turno disponible para hacerme un balayage y cuál sería el costo aprox, tengo el pelo de largo medio'
+      const routing = deterministicConversationRouting(message, {
+        currentStep: 'START',
+        catalog
+      })
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog }), fakeExtractor(null))
+
+      assert.equal(routing.bookingMessage, message)
+      assert.deepEqual(businessInformationTopicsFromRouting(routing), ['prices'])
+      assert.equal(routing.catalogQuery?.serviceId, 'highlights')
+      assert.equal(await engine.hasMultipleServiceConsultation({
+        businessId: 'business-1',
+        message
+      }), false)
+      assert.equal(isQuoteOnlyRouting(routing, message), false)
+
+      const estimateQuestion = await engine.resume({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState({
+          ...createEmptyBookingV2State(),
+          draft: {
+            name: null,
+            service: 'highlights',
+            professional: null,
+            date: null,
+            time: null
+          },
+          quoteOnly: {
+            mode: 'price',
+            remainingServiceIds: [],
+            estimates: []
+          }
+        })
+      })
+      assert.equal(estimateQuestion.plan.type, 'ask_estimate_option')
+
+      const priceSummary = await engine.process({
+        businessId: 'business-1',
+        conversation: estimateQuestion.conversationPatch,
+        message: 'estimate-option:long'
+      })
+      assert.equal(priceSummary.plan.type, 'quote_complete')
+      assert.equal(priceSummary.state.quoteOnly?.estimates[0]?.optionLabel, 'Debajo de los hombros')
+
+      const bookingState = bookingStateFromCompletedServiceConsultation(priceSummary.state)
+      assert.equal(bookingState.draft.service, 'highlights')
+      assert.equal(bookingState.guidedEstimate?.stage, 'completed')
+      assert.equal(bookingState.guidedEstimate?.optionLabel, 'Debajo de los hombros')
+
+      const nameQuestion = await engine.process({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(bookingState),
+        message: 'turno'
+      })
+      assert.match(nameQuestion.reply, /nombre/i)
+      const afterName = await engine.process({
+        businessId: 'business-1',
+        conversation: nameQuestion.conversationPatch,
+        message: 'Natalia'
+      })
+      assert.notEqual(afterName.plan.type, 'ask_estimate_option')
+      assert.equal(afterName.state.draft.service, 'highlights')
+      assert.equal(afterName.state.guidedEstimate?.optionLabel, 'Debajo de los hombros')
+    }
+  },
+  {
     name: 'servicio y día consultan una reserva aunque disponible esté mal escrito',
     run: () => {
       const catalog = {
@@ -3799,6 +3896,10 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(hasQuoteOnlyBookingRequest('quiero reservarlo'), true)
       assert.equal(hasQuoteOnlyBookingRequest('agendalo por favor'), true)
       assert.equal(hasQuoteOnlyBookingRequest('sacame un turno'), true)
+      assert.equal(hasQuoteOnlyBookingRequest('turno'), true)
+      assert.equal(hasQuoteOnlyBookingRequest('reservar'), true)
+      assert.equal(hasQuoteOnlyBookingRequest('quiero una cita'), true)
+      assert.equal(hasQuoteOnlyBookingRequest('si, que me des el turno para hacerlo'), true)
       assert.equal(hasQuoteOnlyBookingRequest('me parece bien'), false)
       assert.equal(hasQuoteOnlyBookingRequest('me parece bien', {
         intents: [{ type: 'confirm_booking', topic: null, confidence: 0.91, evidence: 'me parece bien' }]
@@ -3833,6 +3934,34 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         intents: [{ type: 'book_appointment', topic: null, confidence: 0.98, evidence: '1' }]
       }), false)
       assert.equal(shouldResumeQuoteOnlyBooking(completedQuoteState(), 'sí'), true)
+
+      const completedPriceState = {
+        ...completedQuoteState(),
+        quoteOnly: {
+          ...completedQuoteState().quoteOnly!,
+          mode: 'price' as const
+        }
+      }
+      assert.equal(shouldResumeQuoteOnlyBooking(completedPriceState, 'reservar'), true)
+      const bookingState = bookingStateFromCompletedServiceConsultation(completedPriceState)
+      assert.equal(bookingState.quoteOnly, null)
+      assert.equal(bookingState.draft.service, 'highlights')
+      assert.deepEqual(
+        bookingState.combinedServices.map((service) => service.serviceId),
+        ['cut']
+      )
+      assert.deepEqual(bookingCoordinationReplyButtons({
+        conversationId: 'conversation-1',
+        plan: {
+          type: 'quote_complete',
+          estimates: completedPriceState.quoteOnly.estimates
+        },
+        state: completedPriceState
+      })?.map((button) => button.title), [
+        'Ver servicios',
+        'Reservar turno',
+        'Gestionar mi turno'
+      ])
     }
   },
   {
