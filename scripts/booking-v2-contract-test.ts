@@ -52,6 +52,7 @@ import {
   isDepositInformationRequest,
   mergeConversationRouting,
   normalizeConversationRouting,
+  withoutProfessionalMentionAsCustomerName,
   type ConversationRouting
 } from '../src/services/conversation-router.js'
 import {
@@ -79,6 +80,7 @@ import {
   isPendingPhotoQuoteActive,
   isPendingServiceVerificationSelection,
   isPostBookingWellbeingQuestion,
+  isUnambiguousBookingConfirmation,
   mergeBookingV2AgendaFromRouting,
   pendingRequestFromRouting,
   pendingInformationSelectionRequest,
@@ -94,6 +96,7 @@ import {
   shouldPrioritizeGuidedEstimateOptionReply,
   shouldShowBookingV2IntentFallback,
   shouldRouteBookingV2HumanHandoff,
+  shouldReplayPendingBookingRequest,
   shouldResumeBookingV2AfterInformation,
   shouldResumeQuoteOnlyBooking,
   shouldStartQuoteOnlyRequest,
@@ -128,6 +131,27 @@ import {
 } from '../src/services/service-detail-intent.js'
 
 const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
+  {
+    name: 'una mención al profesional nunca se guarda como nombre del cliente',
+    run: () => {
+      const routing = withoutProfessionalMentionAsCustomerName({
+        intents: [{
+          type: 'professional_preference',
+          topic: null,
+          confidence: 0.9,
+          evidence: 'con Rama'
+        }],
+        bookingMessage: 'turno para cortarme el pelo con Rama hoy',
+        bookingExtraction: extraction({
+          name: field('Rama', 0.9, 'Rama'),
+          professional: field('ramiro', 0.9, 'Rama')
+        }),
+        catalogQuery: null
+      })
+      assert.equal(routing.bookingExtraction?.name.value, null)
+      assert.equal(routing.bookingExtraction?.professional.value, 'ramiro')
+    }
+  },
   {
     name: 'la consulta preliminar conserva profesional fecha y hora mínima al iniciar la reserva',
     run: () => {
@@ -179,12 +203,21 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         message: '¿Rama tiene algún espacio para hoy a partir de las 18.30?',
         professionalId: 'professional-1',
         date: '2026-08-18',
+        hasBookingRequest: false,
         hasAvailabilityIntent: true
       }), true)
       assert.equal(shouldHandleProfessionalAvailabilityInquiry({
         message: '¿Qué horarios tiene Rama?',
         professionalId: 'professional-1',
         date: null,
+        hasBookingRequest: false,
+        hasAvailabilityIntent: true
+      }), false)
+      assert.equal(shouldHandleProfessionalAvailabilityInquiry({
+        message: '¿Hay turno para cortarme el pelo con Rama hoy a eso de las 7:20?',
+        professionalId: 'professional-1',
+        date: '2026-08-18',
+        hasBookingRequest: true,
         hasAvailabilityIntent: true
       }), false)
       assert.equal(
@@ -204,6 +237,40 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       )
       assert.equal(preliminaryAvailabilityDecisionFromMessage('sí, reservar'), 'book')
       assert.equal(preliminaryAvailabilityDecisionFromMessage('no gracias'), 'decline')
+    }
+  },
+  {
+    name: 'conserva la extracción adelantada hasta resolver un servicio ambiguo',
+    run: () => {
+      const pendingRequest = {
+        message: 'quiero cortarme el pelo con Rama hoy a las 19:20',
+        intents: ['book_appointment'],
+        extraction: null,
+        createdAt: '2026-08-18T14:44:00.000Z'
+      }
+      const storedState: BookingV2State = {
+        ...createEmptyBookingV2State(),
+        draft: {
+          ...createEmptyBookingV2State().draft,
+          name: 'Felipe',
+          date: '2026-08-18',
+          time: '19:20'
+        },
+        pendingRequest,
+        pendingServiceDisambiguation: {
+          serviceIds: ['corte-hombre', 'corte-mujer', 'corte-barba'],
+          evidence: 'cortarme el pelo'
+        }
+      }
+      const stillAmbiguous: BookingV2State = { ...storedState }
+      assert.equal(shouldReplayPendingBookingRequest(storedState, stillAmbiguous), false)
+
+      const resolved: BookingV2State = {
+        ...storedState,
+        draft: { ...storedState.draft, service: 'corte-hombre' },
+        pendingServiceDisambiguation: null
+      }
+      assert.equal(shouldReplayPendingBookingRequest(storedState, resolved), true)
     }
   },
   {
@@ -5163,6 +5230,51 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'motor mantiene ambiguo cortarme el pelo dentro de un pedido completo',
+    run: async () => {
+      const domainCatalog = createBookingV2DomainCatalog({
+        services: [
+          { id: 'man-cut', name: 'Corte hombre', aliases: [], duration: 30, price: 15000, category: 'Cortes' },
+          { id: 'woman-cut', name: 'Corte mujer', aliases: [], duration: 45, price: 18000, category: 'Cortes' }
+        ],
+        professionals: [
+          { id: 'ramiro', name: 'Ramiro', serviceIds: ['man-cut', 'woman-cut'] }
+        ]
+      })
+      const extractor = fakeExtractor(extraction({
+        service: field('man-cut', 0.98, 'cortarme el pelo'),
+        professional: field('ramiro', 0.9, 'Rama'),
+        date: field('2026-08-18', 0.95, 'hoy'),
+        time: field('19:20', 0.9, 'a eso de las 19:20')
+      }))
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog: domainCatalog }), extractor)
+
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: null,
+        currentDate: new Date('2026-08-18T14:44:00.000Z'),
+        message: 'Buenas, de casualidad hay turno para cortarme el pelo con Rama hoy a eso de las 19:20 en Villa Urquiza?'
+      })
+
+      assert.equal(result.state.draft.service, null)
+      assert.deepEqual(
+        new Set(result.state.pendingServiceDisambiguation?.serviceIds),
+        new Set(['man-cut', 'woman-cut'])
+      )
+      assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'name')
+
+      const named = await engine.process({
+        businessId: 'business-1',
+        conversation: result.conversationPatch,
+        currentDate: new Date('2026-08-18T14:45:00.000Z'),
+        message: 'Felipe'
+      })
+      assert.match(named.reply, /Para Corte tengo estas opciones/)
+      assert.doesNotMatch(named.reply, /Casualidad|Rama|Villa Urquiza/)
+      assert.equal(extractor.calls.length, 1)
+    }
+  },
+  {
     name: 'servicio ambiguo adelantado espera el nombre y se desambigua antes del profesional',
     run: async () => {
       const domainCatalog = createBookingV2DomainCatalog({
@@ -5320,6 +5432,44 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       )
       assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'time')
       assert.equal(result.reply.includes('• Nico: 16:00'), true)
+    }
+  },
+  {
+    name: 'motor ofrece solo los horarios mas cercanos cuando la hora pedida no esta disponible',
+    run: async () => {
+      const engine = new BookingV2Engine(
+        fakeDomainPort({
+          availabilityOptions: [
+            '12:00', '15:00', '18:00', '18:30', '19:00'
+          ].map((time) => ({
+            time,
+            professionalId: 'professional-1',
+            professionalName: 'Ramiro'
+          }))
+        }),
+        fakeExtractor(extraction({
+          time: field('19:20', 0.95, 'a eso de las 19:20')
+        }))
+      )
+
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Felipe',
+          selectedServiceId: 'haircut',
+          selectedProfessionalId: 'professional-1',
+          selectedDate: '2026-08-18',
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: 'a eso de las 19:20'
+      })
+
+      assert.deepEqual(result.availabilityOptions.map((option) => option.time), ['19:00', '18:30', '18:00'])
+      assert.match(result.reply, /No tengo exactamente las 19:20/)
+      assert.match(result.reply, /Ramiro: 19:00, 18:30, 18:00/)
+      assert.doesNotMatch(result.reply, /12:00|15:00|todos los horarios/)
     }
   },
   {
@@ -8295,6 +8445,17 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
   {
     name: 'confirmaciones naturales se resuelven antes de consultar IA',
     run: async () => {
+      for (const message of [
+        'Confirmar turno',
+        'confirmar el turno',
+        'Confirmar reserva',
+        'confirmar las reservas'
+      ]) {
+        assert.equal(isUnambiguousBookingConfirmation(message), true, message)
+      }
+      assert.equal(isUnambiguousBookingConfirmation('turno'), false)
+      assert.equal(isUnambiguousBookingConfirmation('cambiar turno'), false)
+
       const confirmations = ['sí', 'si dale', 'sí, seguimos', 'me parece bien, avancemos', 'mandale']
       for (const message of confirmations) {
         assert.deepEqual(detectDeterministicConfirmation(message), {

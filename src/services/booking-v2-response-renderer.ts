@@ -18,6 +18,7 @@ export type BookingV2RenderInput = {
   draft: BookingDraft
   catalog?: BookingV2DomainCatalog | null
   availabilityOptions?: BookingV2AvailabilityOption[]
+  unavailableRequestedTime?: string | null
   unavailableDate?: string | null
   unavailableReason?: BookingAvailabilityUnavailableReason | null
   serviceSuggestions?: BookingV2DomainCatalog['services']
@@ -423,6 +424,13 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
       return `${reason} ¿Querés probar mañana u otra fecha?`
     }
     if (input.plan.field === 'time' && input.availabilityOptions?.length) {
+      if (input.unavailableRequestedTime) {
+        return [
+          `No tengo exactamente las ${input.unavailableRequestedTime}. Los horarios más cercanos disponibles son:`,
+          formatAvailabilityOptions(input.availabilityOptions, true),
+          '¿Cuál te queda mejor?'
+        ].join('\n')
+      }
       return [
         'Estos son todos los horarios disponibles 😊',
         formatAvailabilityOptions(input.availabilityOptions),
@@ -940,7 +948,7 @@ function formatDate(value: string | null) {
   return `${match[3]}/${match[2]}/${match[1]}`
 }
 
-function formatAvailabilityOptions(options: BookingV2AvailabilityOption[]) {
+function formatAvailabilityOptions(options: BookingV2AvailabilityOption[], preserveTimeOrder = false) {
   const optionsByProfessional = new Map<string, {
     professionalName: string
     times: Set<string>
@@ -957,7 +965,9 @@ function formatAvailabilityOptions(options: BookingV2AvailabilityOption[]) {
 
   return Array.from(optionsByProfessional.values())
     .map((group) =>
-      `• ${group.professionalName}: ${Array.from(group.times).sort().join(', ')}`
+      `• ${group.professionalName}: ${(preserveTimeOrder
+        ? Array.from(group.times)
+        : Array.from(group.times).sort()).join(', ')}`
     )
     .join('\n')
 }

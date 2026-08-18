@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { prisma } from '../src/config/prisma.js'
@@ -65,7 +66,7 @@ const AI_SOURCE_LABELS: Record<string, string> = {
   booking_service_validation: 'validación del servicio seleccionado'
 }
 
-const sessions: ReplaySession[] = [
+const defaultSessions: ReplaySession[] = [
   {
     name: 'Conversación 1 — primera solicitud',
     turns: [
@@ -117,19 +118,27 @@ const sessions: ReplaySession[] = [
   }
 ]
 
+const replayInput = loadReplayInput()
+const sessions = replayInput?.sessions ?? defaultSessions
+const restoreDate = replayInput?.fakeNow ? installFakeNow(replayInput.fakeNow) : null
 const conversationService = new ConversationService()
+const businessSlug = requiredBusinessSlug()
 const runId = new Date().toISOString().replace(/\D/g, '').slice(0, 14)
-const phone = `qa-glow-replay-${runId}`
+// Número argentino ficticio y estable por ejecución. Permite atravesar la
+// validación real de identidad al confirmar un turno y se elimina al finalizar.
+const phone = `+549115550${runId.slice(-4)}`
 const outputDirectory = resolve('tmp')
 const markdownPath = resolve(outputDirectory, `glow-conversation-replay-${runId}.md`)
 const jsonPath = resolve(outputDirectory, `glow-conversation-replay-${runId}.json`)
 
 async function main() {
   const business = await prisma.business.findUnique({
-    where: { slug: 'glow' },
+    where: { slug: businessSlug },
     select: {
       id: true,
       name: true,
+      isDemo: true,
+      demoType: true,
       aiEnabled: true,
       featureSettings: {
         select: {
@@ -150,12 +159,15 @@ async function main() {
   })
 
   if (!business) throw new Error('No encontré el negocio Glow.')
+  if (businessSlug.startsWith('qa-sandbox-') && (!business.isDemo || business.demoType !== 'QA_SANDBOX')) {
+    throw new Error('El destino solicitado no es un entorno QA aislado válido.')
+  }
   if (!business.aiEnabled) throw new Error('Glow no tiene la IA habilitada.')
   if (!business.featureSettings?.bookingV2Enabled) {
     throw new Error('Glow no tiene Booking V2 habilitado.')
   }
 
-  await cleanupQaConversation(phone)
+  await cleanupQaConversation(phone, business.id)
   const conversation = await prisma.conversation.create({
     data: {
       businessId: business.id,
@@ -260,9 +272,62 @@ async function main() {
     console.log(`\nInforme Markdown: ${markdownPath}`)
     console.log(`Datos JSON: ${jsonPath}`)
   } finally {
-    await cleanupQaConversation(phone)
+    await cleanupQaConversation(phone, business.id)
     await prisma.$disconnect()
+    restoreDate?.()
   }
+}
+
+function loadReplayInput(): { sessions: ReplaySession[]; fakeNow: Date | null } | null {
+  const inputPath = process.env.QA_REPLAY_INPUT?.trim()
+  if (!inputPath) return null
+
+  const parsed = JSON.parse(readFileSync(resolve(inputPath), 'utf8')) as {
+    name?: unknown
+    fakeNow?: unknown
+    turns?: Array<{ message?: unknown; visibleMessages?: unknown; engineMessage?: unknown }>
+  }
+  const name = typeof parsed.name === 'string' && parsed.name.trim()
+    ? parsed.name.trim()
+    : 'Conversación QA'
+  if (!Array.isArray(parsed.turns) || parsed.turns.length === 0) {
+    throw new Error('El archivo QA debe incluir al menos un turno.')
+  }
+
+  const turns: ReplayInput[] = parsed.turns.map((turn, index) => {
+    const visibleMessages = Array.isArray(turn.visibleMessages)
+      ? turn.visibleMessages.filter((message): message is string => typeof message === 'string' && Boolean(message.trim()))
+      : typeof turn.message === 'string' && turn.message.trim()
+        ? [turn.message.trim()]
+        : []
+    if (!visibleMessages.length) throw new Error(`El turno ${index + 1} no tiene mensajes válidos.`)
+    return {
+      visibleMessages,
+      ...(typeof turn.engineMessage === 'string' && turn.engineMessage.trim()
+        ? { engineMessage: turn.engineMessage.trim() }
+        : {})
+    }
+  })
+
+  const fakeNow = typeof parsed.fakeNow === 'string' ? new Date(parsed.fakeNow) : null
+  if (fakeNow && Number.isNaN(fakeNow.getTime())) throw new Error('fakeNow no contiene una fecha válida.')
+  return { sessions: [{ name, turns }], fakeNow }
+}
+
+function installFakeNow(fakeNow: Date) {
+  const RealDate = Date
+  const FakeDate = function (...args: unknown[]) {
+    return args.length === 0
+      ? new RealDate(fakeNow.getTime())
+      : Reflect.construct(RealDate, args)
+  } as unknown as DateConstructor
+  Object.setPrototypeOf(FakeDate, RealDate)
+  Object.defineProperty(FakeDate, 'prototype', { value: RealDate.prototype })
+  FakeDate.now = () => fakeNow.getTime()
+  FakeDate.parse = RealDate.parse
+  FakeDate.UTC = RealDate.UTC
+  globalThis.Date = FakeDate
+  return () => { globalThis.Date = RealDate }
 }
 
 function whatsappImageText() {
@@ -472,7 +537,7 @@ function printTurn(record: ReplayRecord) {
 
 function renderMarkdown(input: { businessName: string; records: ReplayRecord[] }) {
   const lines = [
-    '# Reproducción literal de conversaciones de Glow',
+    `# Reproducción literal de conversaciones de ${input.businessName}`,
     '',
     `Generado: ${new Date().toISOString()}`,
     '',
@@ -541,23 +606,50 @@ function renderMarkdown(input: { businessName: string; records: ReplayRecord[] }
   return `${lines.join('\n')}\n`
 }
 
-async function cleanupQaConversation(qaPhone: string) {
+async function cleanupQaConversation(qaPhone: string, businessId: string) {
   const conversations = await prisma.conversation.findMany({
     where: { phone: qaPhone },
     select: { id: true }
   })
   const conversationIds = conversations.map((conversation) => conversation.id)
-  if (!conversationIds.length) return
+  if (conversationIds.length) {
+    await prisma.aiUsageEvent.deleteMany({
+      where: { conversationId: { in: conversationIds } }
+    })
+    await prisma.message.deleteMany({
+      where: { conversationId: { in: conversationIds } }
+    })
+    await prisma.conversation.deleteMany({
+      where: { id: { in: conversationIds } }
+    })
+  }
 
-  await prisma.aiUsageEvent.deleteMany({
-    where: { conversationId: { in: conversationIds } }
+  const normalizedPhone = qaPhone.replace(/\D/g, '')
+  const customers = await prisma.customer.findMany({
+    where: {
+      businessId,
+      OR: [
+        { phone: qaPhone },
+        { phone: normalizedPhone },
+        { normalizedPhone }
+      ]
+    },
+    select: { id: true }
   })
-  await prisma.message.deleteMany({
-    where: { conversationId: { in: conversationIds } }
+  const customerIds = customers.map((customer) => customer.id)
+  if (!customerIds.length) return
+
+  const appointments = await prisma.appointment.findMany({
+    where: { customerId: { in: customerIds } },
+    select: { id: true }
   })
-  await prisma.conversation.deleteMany({
-    where: { id: { in: conversationIds } }
-  })
+  const appointmentIds = appointments.map((appointment) => appointment.id)
+  if (appointmentIds.length) {
+    await prisma.bookingDeposit.deleteMany({ where: { appointmentId: { in: appointmentIds } } })
+    await prisma.aiUsageEvent.deleteMany({ where: { appointmentId: { in: appointmentIds } } })
+    await prisma.appointment.deleteMany({ where: { id: { in: appointmentIds } } })
+  }
+  await prisma.customer.deleteMany({ where: { id: { in: customerIds } } })
 }
 
 main().catch(async (error) => {
@@ -565,3 +657,11 @@ main().catch(async (error) => {
   await prisma.$disconnect()
   process.exit(1)
 })
+
+function requiredBusinessSlug() {
+  const value = process.env.QA_BUSINESS_SLUG?.trim()
+  if (!value) {
+    throw new Error('Indicá explícitamente QA_BUSINESS_SLUG antes de reproducir conversaciones.')
+  }
+  return value
+}

@@ -283,18 +283,19 @@ export class ConversationRouter {
       // decidir si una consulta informativa tambien contiene una reserva.
       const prioritizedRouting = applyContextualRoutingPriorities(routing, input)
       const groundedRouting = applyExpectedFieldCatalogFallback(prioritizedRouting, input)
+      const safeRouting = withoutProfessionalMentionAsCustomerName(groundedRouting)
 
       console.info('[conversation-router] routed message', {
         currentStep: input.currentStep,
         source: 'ai',
-        intents: groundedRouting.intents.map((intent) => ({
+        intents: safeRouting.intents.map((intent) => ({
           type: intent.type,
           topic: intent.topic,
           confidence: intent.confidence
         }))
       })
 
-      return { ...groundedRouting, source: 'ai' }
+      return { ...safeRouting, source: 'ai' }
     } catch (error) {
       console.warn('[conversation-router] AI routing failed; using deterministic fallback', error)
       return {
@@ -561,6 +562,43 @@ export function normalizeConversationRouting(input: AiConversationRouting): Omit
       ? normalizeExtraction(input.bookingExtraction)
       : null,
     catalogQuery: normalizeCatalogQuery(input.catalogQuery)
+  }
+}
+
+export function withoutProfessionalMentionAsCustomerName(
+  routing: Omit<ConversationRouting, 'source'>
+): Omit<ConversationRouting, 'source'> {
+  const extraction = routing.bookingExtraction
+  if (!extraction?.name.value || !extraction.name.evidence.trim()) return routing
+
+  const nameEvidence = normalizeEvidenceText(extraction.name.evidence)
+  const professionalEvidence = [
+    extraction.professional.value && extraction.professional.confidence >= 0.55
+      ? extraction.professional.evidence
+      : '',
+    ...routing.intents
+      .filter((intent) =>
+        ['professional_preference', 'professional_schedule'].includes(intent.type) &&
+        intent.confidence >= 0.65
+      )
+      .map((intent) => intent.evidence)
+  ]
+    .map(normalizeEvidenceText)
+    .filter(Boolean)
+
+  const conflictsWithProfessional = professionalEvidence.some((evidence) =>
+    evidence === nameEvidence ||
+    evidence.includes(nameEvidence) ||
+    nameEvidence.includes(evidence)
+  )
+  if (!conflictsWithProfessional) return routing
+
+  return {
+    ...routing,
+    bookingExtraction: {
+      ...extraction,
+      name: { value: null, confidence: 0, evidence: '' }
+    }
   }
 }
 

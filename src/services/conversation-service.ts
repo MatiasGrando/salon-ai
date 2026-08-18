@@ -1931,6 +1931,10 @@ export class ConversationService {
       message: input.message,
       professionalId,
       date: availabilityDate,
+      hasBookingRequest: input.routing.intents.some((intent) =>
+        ['book_appointment', 'edit_booking'].includes(intent.type) &&
+        intent.confidence >= 0.65
+      ),
       hasAvailabilityIntent: input.routing.intents.some((intent) =>
         ['availability_preference', 'professional_schedule'].includes(intent.type) &&
         intent.confidence >= 0.65
@@ -2584,11 +2588,8 @@ export class ConversationService {
 
     if (!result.state.draft.name && pendingRequest) {
       result = withPendingBookingRequest(result, pendingRequest)
-    } else if (
-      result.state.draft.name &&
-      storedState.pendingRequest &&
-      !result.state.draft.service
-    ) {
+    } else if (shouldReplayPendingBookingRequest(storedState, result.state)) {
+      const pendingRequestToReplay = storedState.pendingRequest!
       const replayState: BookingV2State = {
         ...result.state,
         pendingRequest: null
@@ -2596,12 +2597,16 @@ export class ConversationService {
       result = await bookingV2Engine.process({
         businessId: input.businessId,
         conversation: conversationPatchFromState(replayState),
-        message: storedState.pendingRequest.message,
-        understandingExtraction: storedState.pendingRequest.extraction ?? null
+        message: pendingRequestToReplay.message,
+        understandingExtraction: pendingRequestToReplay.extraction ?? null
       })
     }
 
-    if (result.state.draft.name && result.state.pendingRequest) {
+    if (
+      result.state.draft.name &&
+      result.state.pendingRequest &&
+      !result.state.pendingServiceDisambiguation
+    ) {
       result = withPendingBookingRequest(result, null)
     }
 
@@ -4884,6 +4889,14 @@ export function isUnambiguousBookingConfirmation(message: string) {
     .trim()
   if (!normalizedMessage) return false
 
+  // Los botones de confirmación se traducen a estas frases antes de entrar al
+  // flujo. Son órdenes completas y no necesitan una clasificación probabilística.
+  if (
+    /^(?:confirmar|confirma|confirmame|confirmo)(?: (?:el|mi|la|las))? (?:turno|reserva|reservas)(?: por favor)?$/.test(normalizedMessage)
+  ) {
+    return true
+  }
+
   const tokens = normalizedMessage.split(' ')
   const blockers = new Set([
     'cambiar', 'cambiame', 'cambiemos', 'cambio', 'cancelar', 'consulta',
@@ -4972,8 +4985,13 @@ export function shouldHandleProfessionalAvailabilityInquiry(input: {
   message: string
   professionalId: string | null
   date: string | null
+  hasBookingRequest: boolean
   hasAvailabilityIntent: boolean
 }) {
+  // Una solicitud de reserva debe recorrer siempre Booking V2 para que cada
+  // campo extraído se valide, se conserve y se pregunte en el orden canónico.
+  // La disponibilidad preliminar queda reservada para consultas informativas.
+  if (input.hasBookingRequest) return false
   if (!input.professionalId || !input.date || !input.hasAvailabilityIntent) return false
   const normalizedMessage = normalizeText(input.message)
   const asksForFreeSpace = /\b(?:disponibilidad|disponible|espacio|espacios|lugar|lugares|turno|turnos|hueco|huecos)\b/.test(
@@ -5329,6 +5347,25 @@ function withPendingBookingRequest(
     state,
     conversationPatch: conversationPatchFromState(state)
   }
+}
+
+export function shouldReplayPendingBookingRequest(
+  storedState: BookingV2State,
+  resultState: BookingV2State
+) {
+  if (!resultState.draft.name || !storedState.pendingRequest) return false
+
+  // Si el servicio sigue ambiguo, la extracción original debe permanecer
+  // pendiente. Se vuelve a aplicar recién cuando el cliente elige el servicio,
+  // para recuperar profesional, fecha y horario enviados por adelantado.
+  if (resultState.pendingServiceDisambiguation) return false
+
+  const serviceStillMissing = !resultState.draft.service
+  const ambiguousServiceWasResolved = Boolean(
+    storedState.pendingServiceDisambiguation &&
+    resultState.draft.service
+  )
+  return serviceStillMissing || ambiguousServiceWasResolved
 }
 
 function isActiveBookingV2Step(currentStep: string) {

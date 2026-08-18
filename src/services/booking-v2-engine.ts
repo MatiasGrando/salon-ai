@@ -2986,6 +2986,7 @@ export class BookingV2Engine {
     let availabilityOptions: BookingV2AvailabilityOption[] = []
     let unavailableDate: string | null = null
     let unavailableReason: BookingAvailabilityUnavailableReason | null = null
+    let unavailableRequestedTime: string | null = null
 
     const selectedService = catalog?.services.find(
       (service) => service.id === effectiveInterpretation.state.draft.service
@@ -3408,6 +3409,8 @@ export class BookingV2Engine {
             }
           : buildBookingV2MessagePlan(effectiveInterpretation, catalog.bookingFlowOrder)
       } else if (availabilityResolution.status === 'REQUESTED_TIME_UNAVAILABLE') {
+        unavailableRequestedTime = proposedTime
+        availabilityOptions = closestAvailabilityOptions(availabilityOptions, proposedTime)
         const state = applyBookingAvailabilityTransition(
           effectiveInterpretation.state,
           resolutionPlan.transition
@@ -3469,6 +3472,7 @@ export class BookingV2Engine {
       catalogNavigation: effectiveInterpretation.state.catalogNavigation,
       catalog,
       availabilityOptions,
+      unavailableRequestedTime,
       unavailableDate,
       unavailableReason,
       combinedServices: effectiveInterpretation.state.combinedServices,
@@ -4458,9 +4462,13 @@ function genericServiceFamilyMatches(
       'buenas', 'buenos', 'como', 'dia', 'hola', 'noche', 'tarde', 'va'
     ].includes(token))
     .join(' ')
+  const signatureTokens = new Set(signature.split(' '))
+  const genericHaircutMention = ['corte', 'cortar', 'cortarme', 'cortarte', 'cortarse']
+    .some((token) => signatureTokens.has(token)) &&
+    ['pelo', 'cabello'].some((token) => signatureTokens.has(token))
   const familyTerms = /^(?:color|coloracion|colorearme|tenir|tenirme|tintura|tinturarme)(?: pelo| cabello)?$/.test(reference)
     ? ['color', 'coloracion', 'tintura', 'iluminacion', 'balayage', 'babylights', 'contouring', 'mechas']
-    : /^(?:corte|cortar|cortarme|cortarme pelo|corte pelo)$/.test(reference)
+    : genericHaircutMention || /^(?:corte|cortar|cortarme|cortarme pelo|corte pelo)$/.test(reference)
       ? ['corte']
       : null
   if (!familyTerms) return []
@@ -4475,6 +4483,14 @@ function genericServiceFamilyMatches(
 }
 
 function ambiguousServiceReference(evidence: string) {
+  const normalizedEvidence = normalize(evidence)
+  const evidenceTokens = new Set(normalizedEvidence.split(' ').filter(Boolean))
+  if (
+    ['corte', 'cortar', 'cortarme', 'cortarte', 'cortarse'].some((token) => evidenceTokens.has(token)) &&
+    ['pelo', 'cabello'].some((token) => evidenceTokens.has(token))
+  ) {
+    return 'Corte'
+  }
   const ignored = new Set([
     'a', 'al', 'averiguar', 'buenas', 'buenos', 'como', 'con', 'consulta', 'cotizacion',
     'de', 'del', 'dia', 'el', 'en', 'hacer', 'hacerme', 'hola', 'informacion', 'la', 'las',
@@ -4482,7 +4498,7 @@ function ambiguousServiceReference(evidence: string) {
     'por', 'presupuesto', 'presupuestos', 'precio', 'precios', 'queria', 'quiero',
     'quisiera', 'saber', 'tarde', 'turno', 'turnos', 'un', 'una', 'va', 'y'
   ])
-  const words = normalize(evidence)
+  const words = normalizedEvidence
     .split(' ')
     .filter((word) => word && !ignored.has(word))
     .map((word) => /^(?:cortar|cortarme|cortarse)$/.test(word) ? 'corte' : word)
@@ -5432,4 +5448,33 @@ function timeToValidate(plan: BookingV2MessagePlan, state: BookingV2State) {
   if (plan.type === 'confirm_booking') return state.draft.time
   if (plan.type === 'confirm_field' && plan.field === 'time') return plan.value
   return null
+}
+
+function closestAvailabilityOptions(
+  options: BookingV2AvailabilityOption[],
+  requestedTime: string | null,
+  limit = 3
+) {
+  const requestedMinutes = timeInMinutes(requestedTime)
+  if (requestedMinutes === null) return options
+
+  return [...options]
+    .sort((left, right) => {
+      const leftMinutes = timeInMinutes(left.time)
+      const rightMinutes = timeInMinutes(right.time)
+      const leftDistance = leftMinutes === null
+        ? Number.POSITIVE_INFINITY
+        : Math.abs(leftMinutes - requestedMinutes)
+      const rightDistance = rightMinutes === null
+        ? Number.POSITIVE_INFINITY
+        : Math.abs(rightMinutes - requestedMinutes)
+      return leftDistance - rightDistance || (leftMinutes ?? 0) - (rightMinutes ?? 0)
+    })
+    .slice(0, limit)
+}
+
+function timeInMinutes(value: string | null) {
+  const match = /^(\d{2}):(\d{2})$/.exec(value ?? '')
+  if (!match) return null
+  return Number(match[1]) * 60 + Number(match[2])
 }
