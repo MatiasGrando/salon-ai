@@ -94,6 +94,15 @@ export type BookingV2AgendaItem = {
   createdAt: string
 }
 
+export type BookingV2PreliminaryAvailability = {
+  phase: 'AWAITING_BOOKING_DECISION' | 'BOOKING'
+  professionalId: string
+  professionalName: string
+  date: string
+  timeFrom: string | null
+  referenceServiceId: string
+}
+
 export type BookingV2PendingDeposit = {
   depositId: string
   appointmentId: string
@@ -221,6 +230,7 @@ export type BookingV2State = {
   pendingServiceSeparation: BookingV2PendingServiceSeparation | null
   pendingServiceReplacement: BookingV2PendingServiceReplacement | null
   pendingCoordinatedAvailability: BookingV2PendingCoordinatedAvailability | null
+  preliminaryAvailability: BookingV2PreliminaryAvailability | null
   misunderstandingCount: number
 }
 
@@ -270,6 +280,7 @@ export function createEmptyBookingV2State(): BookingV2State {
     pendingServiceSeparation: null,
     pendingServiceReplacement: null,
     pendingCoordinatedAvailability: null,
+    preliminaryAvailability: null,
     misunderstandingCount: 0
   }
 }
@@ -390,6 +401,14 @@ export function acceptField(
   )
   if (timeBeforeDependencySelection) {
     draft = { ...draft, time: timeBeforeDependencySelection }
+  }
+  if (field === 'service' && state.preliminaryAvailability?.phase === 'BOOKING') {
+    draft = {
+      ...draft,
+      professional: state.preliminaryAvailability.professionalId,
+      date: state.preliminaryAvailability.date,
+      time: null
+    }
   }
 
   return {

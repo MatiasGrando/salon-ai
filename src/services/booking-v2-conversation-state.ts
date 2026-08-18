@@ -24,6 +24,7 @@ import {
   type BookingV2ServiceValidation,
   type BookingV2UnsupportedServiceRequest,
   type BookingV2PendingDeposit,
+  type BookingV2PreliminaryAvailability,
   type BookingProposal,
   type BookingV2State
 } from './booking-v2-state.js'
@@ -86,6 +87,7 @@ export type BookingV2PersistedState = {
   pendingServiceSeparation?: BookingV2PendingServiceSeparation | null
   pendingServiceReplacement?: BookingV2PendingServiceReplacement | null
   pendingCoordinatedAvailability?: BookingV2PendingCoordinatedAvailability | null
+  preliminaryAvailability?: BookingV2PreliminaryAvailability | null
 }
 
 export function stateFromConversation(
@@ -128,6 +130,7 @@ export function stateFromConversation(
     pendingServiceSeparation: readPendingServiceSeparation(conversation.bookingV2State),
     pendingServiceReplacement: readPendingServiceReplacement(conversation.bookingV2State),
     pendingCoordinatedAvailability: readPendingCoordinatedAvailability(conversation.bookingV2State),
+    preliminaryAvailability: readPreliminaryAvailability(conversation.bookingV2State),
     misunderstandingCount: conversation.misunderstandingCount
   }
 }
@@ -140,7 +143,7 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
     selectedDate: state.draft.date,
     selectedTime: state.draft.time,
     misunderstandingCount: state.misunderstandingCount,
-    bookingV2State: state.pendingProposal || state.pendingRequest || state.pendingInformationSelection || state.lastInformationServiceId || state.pendingServiceDisambiguation || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.pendingPhotoQuote || state.combinedServiceDecisionQueue !== null || state.advisorQuote || state.quoteOnly || state.pendingDeposit || state.contextPause || state.optionalNamePrompt || state.unsupportedServiceRequest || state.queuedServices.length || state.combinedServices.length || state.addonSuggestion || state.addonOfferCompletedServiceId || state.pendingCombinedAvailability || state.pendingAvailabilityResolution || state.pendingServiceSeparation || state.pendingServiceReplacement || state.pendingCoordinatedAvailability
+    bookingV2State: state.pendingProposal || state.pendingRequest || state.pendingInformationSelection || state.lastInformationServiceId || state.pendingServiceDisambiguation || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.pendingPhotoQuote || state.combinedServiceDecisionQueue !== null || state.advisorQuote || state.quoteOnly || state.pendingDeposit || state.contextPause || state.optionalNamePrompt || state.unsupportedServiceRequest || state.queuedServices.length || state.combinedServices.length || state.addonSuggestion || state.addonOfferCompletedServiceId || state.pendingCombinedAvailability || state.pendingAvailabilityResolution || state.pendingServiceSeparation || state.pendingServiceReplacement || state.pendingCoordinatedAvailability || state.preliminaryAvailability
       ? {
           version: 1,
           pendingProposal: state.pendingProposal,
@@ -189,9 +192,40 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
             : {}),
           ...(state.pendingCoordinatedAvailability
             ? { pendingCoordinatedAvailability: state.pendingCoordinatedAvailability }
+            : {}),
+          ...(state.preliminaryAvailability
+            ? { preliminaryAvailability: state.preliminaryAvailability }
             : {})
         }
       : null
+  }
+}
+
+function readPreliminaryAvailability(value: unknown): BookingV2PreliminaryAvailability | null {
+  if (!value || typeof value !== 'object') return null
+  const candidate = (value as { preliminaryAvailability?: unknown }).preliminaryAvailability
+  if (!candidate || typeof candidate !== 'object') return null
+  const pending = candidate as Partial<BookingV2PreliminaryAvailability>
+  if (
+    pending.phase !== 'AWAITING_BOOKING_DECISION' &&
+    pending.phase !== 'BOOKING'
+  ) return null
+  if (
+    typeof pending.professionalId !== 'string' || !pending.professionalId.trim() ||
+    typeof pending.professionalName !== 'string' || !pending.professionalName.trim() ||
+    typeof pending.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(pending.date) ||
+    typeof pending.referenceServiceId !== 'string' || !pending.referenceServiceId.trim() ||
+    !(pending.timeFrom === null || (
+      typeof pending.timeFrom === 'string' && /^\d{2}:\d{2}$/.test(pending.timeFrom)
+    ))
+  ) return null
+  return {
+    phase: pending.phase,
+    professionalId: pending.professionalId.trim(),
+    professionalName: pending.professionalName.trim(),
+    date: pending.date,
+    timeFrom: pending.timeFrom ?? null,
+    referenceServiceId: pending.referenceServiceId.trim()
   }
 }
 

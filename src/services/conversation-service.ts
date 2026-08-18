@@ -9,6 +9,7 @@ import { normalizeText } from './message-understanding-service.js'
 import { runWithAiEnabled, setAiUsageAttribution } from './ai-execution-context.js'
 import { linkAiUsageToAppointment } from './ai-usage-service.js'
 import { BookingV2Engine, type BookingV2ProcessResult } from './booking-v2-engine.js'
+import { BookingV2DomainService } from './booking-v2-domain.js'
 import type { BookingV2MessagePlan } from './booking-v2-dialogue.js'
 import type {
   BookingField,
@@ -84,6 +85,7 @@ import {
   extractPlainCustomerName,
   isPureSocialGreeting
 } from './conversation-customer-intent.js'
+import { reservationDurationLimits } from './service-duration.js'
 
 const bookingConversationFlow = new BookingConversationFlow()
 const bookingProvider = new InternalBookingProvider()
@@ -91,6 +93,7 @@ const appointmentService = new AppointmentService()
 const botCopyService = new BotCopyService()
 const aiMessageUnderstandingService = new AiMessageUnderstandingService()
 const bookingV2Engine = new BookingV2Engine()
+const bookingV2DomainService = new BookingV2DomainService()
 const conversationRouter = new ConversationRouter()
 const conversationRouterContextService = new ConversationRouterContextService()
 const businessKnowledgeService = new BusinessKnowledgeService()
@@ -202,6 +205,10 @@ export class ConversationService {
         catalogRecoveryActionFromInteractiveReply(input.interactiveReplyId, existingConversation.id) ||
         unsupportedServiceActionFromInteractiveReply(input.interactiveReplyId, existingConversation.id) ||
         otherQueryMenuActionFromInteractiveReply(input.interactiveReplyId, existingConversation.id)
+        || preliminaryAvailabilityActionFromInteractiveReply(
+          input.interactiveReplyId,
+          existingConversation.id
+        )
         || bookingCoordinationMessageFromInteractiveReply(
           input.interactiveReplyId,
           existingConversation.id
@@ -410,6 +417,16 @@ export class ConversationService {
     }
 
     const recoveryState = stateFromConversation(conversation)
+    if (recoveryState.preliminaryAvailability?.phase === 'AWAITING_BOOKING_DECISION') {
+      return this.handlePreliminaryAvailabilityDecision({
+        phone: input.phone,
+        message,
+        ...(input.interactiveReplyId ? { interactiveReplyId: input.interactiveReplyId } : {}),
+        businessId: businessId!,
+        conversation,
+        state: recoveryState
+      })
+    }
     const otherQueryMenuAction = otherQueryMenuActionFromInteractiveReply(
       input.interactiveReplyId,
       conversation.id
@@ -1916,6 +1933,32 @@ export class ConversationService {
       detectDeterministicConfirmation(input.message)
     )
     const professionalId = input.routing.bookingExtraction?.professional.value ?? null
+    const availabilityDate = input.routing.bookingExtraction?.date.value ?? null
+    const availabilityTimeFrom = preliminaryAvailabilityTimeFrom(
+      input.message,
+      input.routing.bookingExtraction?.time.value ?? null
+    )
+    if (shouldHandleProfessionalAvailabilityInquiry({
+      message: input.message,
+      professionalId,
+      date: availabilityDate,
+      hasAvailabilityIntent: input.routing.intents.some((intent) =>
+        ['availability_preference', 'professional_schedule'].includes(intent.type) &&
+        intent.confidence >= 0.65
+      )
+    })) {
+      const preliminaryAvailability = await this.preliminaryProfessionalAvailability({
+        phone: input.phone,
+        businessId: input.businessId,
+        conversationId: input.conversation.id,
+        state: storedInformationState,
+        professionalId: professionalId!,
+        date: availabilityDate!,
+        timeFrom: availabilityTimeFrom,
+        assistantPersonality
+      })
+      if (preliminaryAvailability) return preliminaryAvailability
+    }
     if (shouldHandleProfessionalScheduleInformation({
       hasProfessionalScheduleIntent: Boolean(professionalScheduleIntent),
       hasPendingCoordinatedAvailability: Boolean(storedInformationState.pendingCoordinatedAvailability),
@@ -2797,6 +2840,187 @@ export class ConversationService {
       `${professional.name} atiende:`,
       ...formatProfessionalWorkingHours(professional.workingHours)
     ].join('\n')
+  }
+
+  private async preliminaryProfessionalAvailability(input: {
+    phone: string
+    businessId: string
+    conversationId: string
+    state: BookingV2State
+    professionalId: string
+    date: string
+    timeFrom: string | null
+    assistantPersonality: AssistantPersonality
+  }): Promise<HandleMessageResult | null> {
+    const catalog = await bookingV2DomainService.loadCatalog(input.businessId)
+    const professional = catalog.professionals.find((candidate) =>
+      candidate.id === input.professionalId
+    )
+    if (!professional) return null
+
+    const referenceService = catalog.services
+      .filter((service) =>
+        professional.serviceIds.includes(service.id) &&
+        (service.attentionMode ?? 'DIRECT_BOOKING') === 'DIRECT_BOOKING'
+      )
+      .sort((left, right) =>
+        reservationDurationLimits(left).business - reservationDurationLimits(right).business
+      )[0]
+    if (!referenceService) return null
+
+    const availability = await bookingV2DomainService.findAvailabilityOptions({
+      catalog,
+      serviceId: referenceService.id,
+      professionalId: professional.id,
+      date: input.date
+    })
+    if (!availability.ok) return null
+
+    const duration = reservationDurationLimits(referenceService).business
+    const options = availability.options.filter((option) =>
+      !input.timeFrom || option.time >= input.timeFrom
+    )
+    if (!options.length) {
+      return {
+        reply: applyAssistantPersonalityToReply(
+          [
+            `No encontré espacios disponibles con ${professional.name} para el ${formatIsoDateForConversation(input.date)}${input.timeFrom ? ` a partir de las ${input.timeFrom}` : ''}.`,
+            '¿Te puedo ayudar en algo más?'
+          ].join('\n\n'),
+          input.assistantPersonality
+        ),
+        replyButtons: otherQueryMenuButtons(input.conversationId),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+
+    const nextState: BookingV2State = {
+      ...input.state,
+      preliminaryAvailability: {
+        phase: 'AWAITING_BOOKING_DECISION',
+        professionalId: professional.id,
+        professionalName: professional.name,
+        date: input.date,
+        timeFrom: input.timeFrom,
+        referenceServiceId: referenceService.id
+      },
+      misunderstandingCount: 0
+    }
+    await this.updateConversation(input.phone, input.businessId, {
+      currentStep: 'START',
+      ...conversationPatchFromState(nextState),
+      lastAvailability: null
+    })
+    const timeCondition = input.timeFrom ? ` a partir de las ${input.timeFrom}` : ''
+    return {
+      reply: applyAssistantPersonalityToReply(
+        [
+          `${professional.name} tiene estos espacios de referencia para el ${formatIsoDateForConversation(input.date)}${timeCondition} 😊`,
+          options.map((option) =>
+            `• ${option.time} a ${addMinutesToTime(option.time, duration)}`
+          ).join('\n'),
+          'Los horarios definitivos dependen de la duración del servicio que elijas.',
+          '¿Querés reservar?'
+        ].join('\n\n'),
+        input.assistantPersonality
+      ),
+      replyButtons: preliminaryAvailabilityDecisionButtons(input.conversationId),
+      skipMisunderstandingTracking: true,
+      skipHumanize: true
+    }
+  }
+
+  private async handlePreliminaryAvailabilityDecision(input: {
+    phone: string
+    message: string
+    interactiveReplyId?: string
+    businessId: string
+    conversation: {
+      id: string
+      currentStep: string
+      selectedCustomerName: string | null
+      selectedServiceId: string | null
+      selectedProfessionalId: string | null
+      selectedDate: string | null
+      selectedTime: string | null
+      misunderstandingCount: number
+      bookingV2State?: unknown
+    }
+    state: BookingV2State
+  }): Promise<HandleMessageResult> {
+    const pending = input.state.preliminaryAvailability!
+    const action = preliminaryAvailabilityActionFromInteractiveReply(
+      input.interactiveReplyId,
+      input.conversation.id
+    ) ?? preliminaryAvailabilityDecisionFromMessage(input.message)
+    const personality = await getBusinessAssistantPersonality(input.businessId)
+
+    if (action === 'decline') {
+      const resetState = freshBookingV2State(input.state.draft.name)
+      await this.updateConversation(input.phone, input.businessId, {
+        currentStep: 'START',
+        ...conversationPatchFromState(resetState),
+        lastAvailability: null
+      })
+      return {
+        reply: applyAssistantPersonalityToReply(
+          'Está bien 😊 ¿Te puedo ayudar en algo más?',
+          personality
+        ),
+        replyButtons: otherQueryMenuButtons(input.conversation.id),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+
+    if (action !== 'book') {
+      return {
+        reply: applyAssistantPersonalityToReply(
+          '¿Querés reservar? Podés responder sí o no.',
+          personality
+        ),
+        replyButtons: preliminaryAvailabilityDecisionButtons(input.conversation.id),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
+
+    const bookingState: BookingV2State = {
+      ...input.state,
+      draft: {
+        ...input.state.draft,
+        service: null,
+        professional: pending.professionalId,
+        date: pending.date,
+        time: null
+      },
+      preliminaryAvailability: {
+        ...pending,
+        phase: 'BOOKING'
+      },
+      misunderstandingCount: 0
+    }
+    const resumed = await bookingV2Engine.resume({
+      businessId: input.businessId,
+      conversation: conversationPatchFromState(bookingState)
+    })
+    await this.updateConversation(input.phone, input.businessId, {
+      currentStep: conversationStepFromBookingV2Plan(resumed.plan),
+      ...resumed.conversationPatch,
+      lastAvailability: null
+    })
+    const presentation = await presentBookingV2Result({
+      businessId: input.businessId,
+      conversationId: input.conversation.id,
+      result: resumed
+    })
+    return {
+      reply: applyAssistantPersonalityToReply(presentation.reply, personality),
+      ...(presentation.buttons ? { replyButtons: presentation.buttons } : {}),
+      skipMisunderstandingTracking: true,
+      skipHumanize: true
+    }
   }
 
   private async recoverBookingAvailabilityFailure(input: {
@@ -4704,6 +4928,41 @@ export function isExplicitProfessionalScheduleQuestion(message: string) {
   return asksWorkingSchedule || asksWhetherWorkingAtTime
 }
 
+export function shouldHandleProfessionalAvailabilityInquiry(input: {
+  message: string
+  professionalId: string | null
+  date: string | null
+  hasAvailabilityIntent: boolean
+}) {
+  if (!input.professionalId || !input.date || !input.hasAvailabilityIntent) return false
+  const normalizedMessage = normalizeText(input.message)
+  const asksForFreeSpace = /\b(?:disponibilidad|disponible|espacio|espacios|lugar|lugares|turno|turnos|hueco|huecos)\b/.test(
+    normalizedMessage
+  )
+  const namesConcreteDate = /\b(?:hoy|manana|pasado|lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/.test(
+    normalizedMessage
+  ) || /\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b/.test(normalizedMessage)
+  return asksForFreeSpace && namesConcreteDate
+}
+
+export function preliminaryAvailabilityTimeFrom(
+  message: string,
+  extractedTime: string | null
+) {
+  const normalizedMessage = normalizeText(message)
+  const match = /\b(?:a\s+partir\s+de|desde|despues\s+de)\s+(?:las?\s+)?(\d{1,2})(?:[:.]?(\d{2}))?\b/.exec(
+    normalizedMessage
+  )
+  if (match?.[1]) {
+    const hours = Number(match[1])
+    const minutes = Number(match[2] ?? '0')
+    if (hours <= 23 && minutes <= 59) {
+      return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+    }
+  }
+  return extractedTime
+}
+
 export function shouldPrioritizeGuidedEstimateOptionReply(
   state: BookingV2State,
   message: string
@@ -5546,6 +5805,36 @@ export function otherQueryMenuButtons(conversationId: string) {
   ]
 }
 
+export function preliminaryAvailabilityDecisionButtons(conversationId: string) {
+  return [
+    { id: `preliminary_availability_book:${conversationId}`, title: 'Sí, reservar' },
+    { id: `preliminary_availability_decline:${conversationId}`, title: 'No' }
+  ]
+}
+
+export function preliminaryAvailabilityActionFromInteractiveReply(
+  replyId: string | undefined,
+  conversationId: string
+) {
+  if (replyId === `preliminary_availability_book:${conversationId}`) return 'book' as const
+  if (replyId === `preliminary_availability_decline:${conversationId}`) return 'decline' as const
+  return null
+}
+
+export function preliminaryAvailabilityDecisionFromMessage(message: string) {
+  const normalizedMessage = normalizeText(message)
+    .replace(/[^\p{Letter}\p{Number}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (/^(?:si|dale|bueno|ok|okay|quiero|reservar|si reservar|quiero reservar)$/.test(normalizedMessage)) {
+    return 'book' as const
+  }
+  if (/^(?:no|no gracias|por ahora no|ahora no)$/.test(normalizedMessage)) {
+    return 'decline' as const
+  }
+  return null
+}
+
 export function handoffCancellationButtons(conversationId: string) {
   return [{
     id: `handoff_cancel:${conversationId}`,
@@ -5906,6 +6195,20 @@ function formatTime(date: Date) {
   const minutes = String(date.getMinutes()).padStart(2, '0')
 
   return `${hours}:${minutes}`
+}
+
+function formatIsoDateForConversation(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : value
+}
+
+function addMinutesToTime(value: string, minutesToAdd: number) {
+  const match = /^(\d{2}):(\d{2})$/.exec(value)
+  if (!match?.[1] || !match[2]) return value
+  const totalMinutes = Number(match[1]) * 60 + Number(match[2]) + minutesToAdd
+  const hours = Math.floor(totalMinutes / 60) % 24
+  const minutes = totalMinutes % 60
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
 }
 
 function canHumanizeSafely(reply: string) {

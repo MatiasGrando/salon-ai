@@ -38,6 +38,8 @@ Do not choose a professional unless the user named one or explicitly accepted an
 
 Allowed exception: if the user asks broadly for availability, such as "hay turnos para hoy" or "que horarios tienen", Cami may show broad availability only after service and date are clear.
 
+Allowed preliminary exception: if the customer asks whether a named professional has space on a clear date, Cami may show reference availability before the service is known. It must explain that the definitive options depend on the service, ask whether the customer wants to reserve with Yes/No buttons, and persist the professional, date, and lower time boundary. If accepted, ask for name and service without asking for those saved preferences again, then recalculate real availability for the selected service before offering a concrete booking time. A rejection returns to the existing "¿Te puedo ayudar en algo más?" flow.
+
 ## Do Not Repeat These Regressions
 
 ### CRM Bot Toggle

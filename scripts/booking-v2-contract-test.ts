@@ -81,10 +81,15 @@ import {
   mergeBookingV2AgendaFromRouting,
   pendingRequestFromRouting,
   pendingInformationSelectionRequest,
+  preliminaryAvailabilityActionFromInteractiveReply,
+  preliminaryAvailabilityDecisionButtons,
+  preliminaryAvailabilityDecisionFromMessage,
+  preliminaryAvailabilityTimeFrom,
   professionalSelectionButtons,
   resolvePendingInformationSelectionFromLabels,
   splitWhatsAppReply,
   shouldHandleProfessionalScheduleInformation,
+  shouldHandleProfessionalAvailabilityInquiry,
   shouldPrioritizeGuidedEstimateOptionReply,
   shouldShowBookingV2IntentFallback,
   shouldRouteBookingV2HumanHandoff,
@@ -122,6 +127,70 @@ import {
 } from '../src/services/service-detail-intent.js'
 
 const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
+  {
+    name: 'la consulta preliminar conserva profesional fecha y hora mínima al iniciar la reserva',
+    run: () => {
+      const preliminaryState: BookingV2State = {
+        ...createEmptyBookingV2State(),
+        draft: {
+          name: 'Alejandro',
+          service: null,
+          professional: 'professional-1',
+          date: '2026-08-18',
+          time: null
+        },
+        preliminaryAvailability: {
+          phase: 'BOOKING',
+          professionalId: 'professional-1',
+          professionalName: 'Nico',
+          date: '2026-08-18',
+          timeFrom: '18:30',
+          referenceServiceId: 'haircut'
+        }
+      }
+      const restored = stateFromConversation(conversationPatchFromState(preliminaryState))
+      assert.deepEqual(restored.preliminaryAvailability, preliminaryState.preliminaryAvailability)
+
+      const withService = acceptField(restored, 'service', 'haircut')
+      assert.equal(withService.draft.professional, 'professional-1')
+      assert.equal(withService.draft.date, '2026-08-18')
+      assert.equal(withService.draft.time, null)
+    }
+  },
+  {
+    name: 'la disponibilidad puntual ofrece reservar con botones si no y entiende la decisión',
+    run: () => {
+      assert.equal(shouldHandleProfessionalAvailabilityInquiry({
+        message: '¿Rama tiene algún espacio para hoy a partir de las 18.30?',
+        professionalId: 'professional-1',
+        date: '2026-08-18',
+        hasAvailabilityIntent: true
+      }), true)
+      assert.equal(shouldHandleProfessionalAvailabilityInquiry({
+        message: '¿Qué horarios tiene Rama?',
+        professionalId: 'professional-1',
+        date: null,
+        hasAvailabilityIntent: true
+      }), false)
+      assert.equal(
+        preliminaryAvailabilityTimeFrom('a partir de las 18.30', null),
+        '18:30'
+      )
+      assert.deepEqual(preliminaryAvailabilityDecisionButtons('conversation-1'), [
+        { id: 'preliminary_availability_book:conversation-1', title: 'Sí, reservar' },
+        { id: 'preliminary_availability_decline:conversation-1', title: 'No' }
+      ])
+      assert.equal(
+        preliminaryAvailabilityActionFromInteractiveReply(
+          'preliminary_availability_book:conversation-1',
+          'conversation-1'
+        ),
+        'book'
+      )
+      assert.equal(preliminaryAvailabilityDecisionFromMessage('sí, reservar'), 'book')
+      assert.equal(preliminaryAvailabilityDecisionFromMessage('no gracias'), 'decline')
+    }
+  },
   {
     name: 'conserva profesional y hora enviados junto al servicio hasta recibir la fecha',
     run: async () => {

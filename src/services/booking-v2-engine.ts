@@ -3252,7 +3252,7 @@ export class BookingV2Engine {
         page: 0,
         timeBand: null,
         requestedTime: null,
-        requestedWindow: null,
+        requestedWindow: preliminaryAvailabilityWindow(effectiveInterpretation.state),
         selectedOptionId: null
       }
       const result = await this.searchCoordinatedAvailability({
@@ -3270,7 +3270,7 @@ export class BookingV2Engine {
         result,
         date: effectiveInterpretation.state.draft.date,
         requestedTime: null,
-        requestedWindow: null
+        requestedWindow: pending.requestedWindow
       })
     }
 
@@ -3859,6 +3859,17 @@ function coordinatedTimeToMinutes(value: string) {
   const hours = Number(match[1])
   const minutes = Number(match[2])
   return hours <= 23 && minutes <= 59 ? hours * 60 + minutes : null
+}
+
+function preliminaryAvailabilityWindow(state: BookingV2State) {
+  const preliminary = state.preliminaryAvailability
+  if (
+    preliminary?.phase !== 'BOOKING' ||
+    !preliminary.timeFrom ||
+    preliminary.date !== state.draft.date ||
+    preliminary.professionalId !== state.draft.professional
+  ) return null
+  return { startTime: preliminary.timeFrom, endTime: '23:59' }
 }
 
 function filteredCoordinatedOptions(pending: BookingV2PendingCoordinatedAvailability) {
