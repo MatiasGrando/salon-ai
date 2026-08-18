@@ -81,6 +81,7 @@ import {
   mergeBookingV2AgendaFromRouting,
   pendingRequestFromRouting,
   pendingInformationSelectionRequest,
+  professionalSelectionButtons,
   resolvePendingInformationSelectionFromLabels,
   splitWhatsAppReply,
   shouldHandleProfessionalScheduleInformation,
@@ -404,9 +405,22 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
   {
     name: 'botones de fecha simple muestran solo días con disponibilidad real',
     run: async () => {
-      const currentDate = new Date('2026-08-16T15:00:00.000Z')
-      const today = '2026-08-16'
-      const tomorrow = '2026-08-17'
+      const currentDate = new Date()
+      const today = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Buenos_Aires',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      }).format(currentDate)
+      const tomorrowDate = new Date(`${today}T12:00:00Z`)
+      tomorrowDate.setUTCDate(tomorrowDate.getUTCDate() + 1)
+      const tomorrow = tomorrowDate.toISOString().slice(0, 10)
+      const firstUpcomingDate = new Date(`${today}T12:00:00Z`)
+      firstUpcomingDate.setUTCDate(firstUpcomingDate.getUTCDate() + 3)
+      const secondUpcomingDate = new Date(`${today}T12:00:00Z`)
+      secondUpcomingDate.setUTCDate(secondUpcomingDate.getUTCDate() + 4)
+      const firstUpcoming = firstUpcomingDate.toISOString().slice(0, 10)
+      const secondUpcoming = secondUpcomingDate.toISOString().slice(0, 10)
       const slot = { time: '15:00', professionalId: 'professional-1', professionalName: 'Nico' }
       const state = acceptField(
         acceptField(createEmptyBookingV2State(), 'name', 'Mati'),
@@ -460,8 +474,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           [tomorrow]: []
         },
         nextAvailabilityOptions: [
-          { date: '2026-08-19', ...slot },
-          { date: '2026-08-20', ...slot }
+          { date: firstUpcoming, ...slot },
+          { date: secondUpcoming, ...slot }
         ]
       }), fakeExtractor(null))
       const upcoming = await nextEngine.simpleDateOptions({
@@ -469,18 +483,15 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         state,
         currentDate
       })
-      assert.deepEqual(upcoming.dates, ['2026-08-19', '2026-08-20'])
+      assert.deepEqual(upcoming.dates, [firstUpcoming, secondUpcoming])
       const upcomingButtons = bookingCoordinationReplyButtons({
         conversationId: 'conversation-1',
         plan: { type: 'ask_field', field: 'date', reason: 'missing', misunderstandingCount: 0 },
         state,
         dateOptions: upcoming.dates
       })
-      assert.deepEqual(upcomingButtons?.map((button) => button.title), [
-        'Mié 19',
-        'Jue 20',
-        'Otra fecha'
-      ])
+      assert.equal(upcomingButtons?.length, 3)
+      assert.equal(upcomingButtons?.at(-1)?.title, 'Otra fecha')
       assert.match(bookingDatePromptForOptions(upcoming.dates), /próximas fechas/i)
 
       const unavailableEngine = new BookingV2Engine(fakeDomainPort({
@@ -1432,8 +1443,49 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         misunderstandingCount: 0
       })
       assert.equal(result.reply.includes('• Nico'), true)
-      assert.equal(result.reply.includes('• Cualquier profesional'), true)
+      assert.equal(result.reply.includes('• Cualquier profesional'), false)
       assert.equal(result.reply.includes('Ana'), false)
+    }
+  },
+  {
+    name: 'motor conserva una fecha adelantada junto con el servicio antes de pedir nombre',
+    run: async () => {
+      const engine = new BookingV2Engine(fakeDomainPort(), fakeExtractor(null))
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: null,
+        message: 'queria coordinar un turno para corte de pelo el dia viernes',
+        currentDate: new Date('2026-08-18T15:00:00Z'),
+        understandingExtraction: null
+      })
+
+      assert.equal(result.state.draft.service, 'haircut')
+      assert.equal(result.state.draft.date, '2026-08-21')
+      assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'name')
+    }
+  },
+  {
+    name: 'motor acepta una presentacion natural cuando espera el nombre',
+    run: async () => {
+      const engine = new BookingV2Engine(fakeDomainPort(), fakeExtractor(null))
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: null,
+          selectedServiceId: 'haircut',
+          selectedProfessionalId: null,
+          selectedDate: '2026-08-21',
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: 'Mi nombre es fernanda',
+        understandingExtraction: null
+      })
+
+      assert.equal(result.state.draft.name, 'Fernanda')
+      assert.equal(result.state.draft.date, '2026-08-21')
+      assert.equal(result.plan.type === 'ask_field' ? result.plan.field : null, 'professional')
     }
   },
   {
@@ -1483,7 +1535,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(proposed.plan.type, 'confirm_field')
       assert.equal(proposed.reply.includes('• Tamara'), true)
       assert.equal(proposed.reply.includes('• Lucas'), true)
-      assert.equal(proposed.reply.includes('• Cualquier profesional'), true)
+      assert.equal(proposed.reply.includes('• Cualquier profesional'), false)
       assert.equal(proposed.reply.includes('¿Te agendo con Tamara?'), true)
 
       const confirmed = await engine.process({
@@ -1814,7 +1866,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
-    name: 'nombre repetido tras la vista previa confirma la propuesta pendiente sin entrar en loop',
+    name: 'presentacion explicita acepta el nombre sin crear una propuesta ni entrar en loop',
     run: async () => {
       const catalog = createBookingV2DomainCatalog({
         services: [{
@@ -1843,20 +1895,9 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         })
       })
 
-      assert.equal(first.state.draft.name, null)
-      assert.equal(first.state.pendingProposal?.field, 'name')
-      assert.equal(first.state.pendingProposal?.value, 'matias')
-      assert.match(first.reply, /¿Me decís tu nombre\?/)
-
-      const second = await engine.process({
-        businessId: 'business-1',
-        conversation: conversationPatchFromState(first.state),
-        message: 'matias'
-      })
-
-      assert.equal(second.state.draft.name, 'Matias')
-      assert.equal(second.state.pendingProposal, null)
-      assert.doesNotMatch(second.reply, /¿Me decís tu nombre\?/)
+      assert.equal(first.state.draft.name, 'Matias')
+      assert.equal(first.state.pendingProposal, null)
+      assert.doesNotMatch(first.reply, /¿Me decís tu nombre\?/)
       assert.equal(extractor.calls.length, 0)
     }
   },
@@ -5472,8 +5513,22 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
       assert.equal(reply.includes('Podés atenderte con:'), true)
       assert.equal(reply.includes('• Ramiro'), true)
-      assert.equal(reply.includes('¿Con quién preferís?'), true)
+      assert.equal(reply.includes('¿Querés atenderte con Ramiro?'), true)
       assert.equal(reply.includes('no tengo profesionales habilitados'), false)
+    }
+  },
+  {
+    name: 'selector muestra botones para los primeros tres profesionales sin opcion generica',
+    run: () => {
+      const buttons = professionalSelectionButtons('conversation-1', [
+        { id: 'professional-1', name: 'Ramiro' },
+        { id: 'professional-2', name: 'Tamara' },
+        { id: 'professional-3', name: 'Lucas' },
+        { id: 'professional-4', name: 'Ana' }
+      ])
+
+      assert.deepEqual(buttons.map((button) => button.title), ['Ramiro', 'Tamara', 'Lucas'])
+      assert.equal(buttons.some((button) => button.id.endsWith(':any')), false)
     }
   },
   {

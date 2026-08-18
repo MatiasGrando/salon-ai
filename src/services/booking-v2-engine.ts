@@ -80,6 +80,7 @@ import type {
 } from './booking-availability-search.js'
 import { orderBookingServicesByPriority } from './booking-service-order.js'
 import { isDeterministicServiceInformationQuestion } from './service-detail-intent.js'
+import { extractExplicitCustomerIntroduction } from './conversation-customer-intent.js'
 
 type BookingV2DomainPort = Pick<
   BookingV2DomainService,
@@ -1365,23 +1366,34 @@ export class BookingV2Engine {
         })
     if (catalogNavigationResult) return catalogNavigationResult
 
+    let stateForExtraction = initialState
+    const explicitIntroduction = extractExplicitCustomerIntroduction(input.message)
     const deterministicName = resolveExpectedName(input.message, initialState, catalog)
     if (deterministicName) {
       const state = acceptField(initialState, 'name', deterministicName)
-      return this.fromInterpretation({
-        state,
-        nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
-        outcome: 'accepted',
-        affectedField: 'name'
-      }, null, catalog)
+      if (!explicitIntroduction?.remainingMessage) {
+        return this.fromInterpretation({
+          state,
+          nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
+          outcome: 'accepted',
+          affectedField: 'name'
+        }, null, catalog)
+      }
+      stateForExtraction = state
+      input = { ...input, message: explicitIntroduction.remainingMessage }
     }
 
-    let stateForExtraction = initialState
     const deterministicService = hasStructuredMultipleServices
       ? null
-      : resolveExpectedService(input.message, initialState, catalog)
+      : resolveExpectedService(input.message, stateForExtraction, catalog)
     if (deterministicService?.kind === 'selected') {
-      const state = acceptField(initialState, 'service', deterministicService.serviceId)
+      let state = acceptField(stateForExtraction, 'service', deterministicService.serviceId)
+      const mentionedDate = input.understandingExtraction
+        ? null
+        : resolveMentionedDate(input.message, input.currentDate ?? new Date())
+      if (mentionedDate) {
+        state = acceptField(state, 'date', mentionedDate)
+      }
       const hasAheadBookingPreference = Boolean(
         input.understandingExtraction?.professional.value &&
         input.understandingExtraction.professional.evidence &&
@@ -1394,9 +1406,9 @@ export class BookingV2Engine {
         input.understandingExtraction?.time.value &&
         input.understandingExtraction.time.evidence &&
         input.understandingExtraction.time.confidence >= 0.65
-      )
+      ) || Boolean(mentionedDate)
       if (
-        nextMissingField(initialState.draft, catalog.bookingFlowOrder) === 'service' &&
+        nextMissingField(stateForExtraction.draft, catalog.bookingFlowOrder) === 'service' &&
         !hasAheadBookingPreference
       ) {
         return this.fromInterpretation({
@@ -1414,7 +1426,7 @@ export class BookingV2Engine {
       )
       const adviceCategory = sharedAdviceCategory(serviceSuggestions)
       const state: BookingV2State = {
-        ...initialState,
+        ...stateForExtraction,
         pendingServiceDisambiguation: {
           serviceIds: deterministicService.serviceIds,
           evidence: input.message.trim()
@@ -1426,7 +1438,7 @@ export class BookingV2Engine {
             }
           : null
       }
-      if (nextMissingField(initialState.draft, catalog.bookingFlowOrder) === 'service') {
+      if (nextMissingField(stateForExtraction.draft, catalog.bookingFlowOrder) === 'service') {
         return this.fromInterpretation({
           state,
           nextField: 'service',
@@ -4007,6 +4019,11 @@ function resolveExpectedName(
 ) {
   if (nextMissingField(state.draft, catalog.bookingFlowOrder) !== 'name') return null
 
+  const explicitIntroduction = extractExplicitCustomerIntroduction(message)
+  if (explicitIntroduction?.name && !nameCollidesWithCatalog(explicitIntroduction.name, catalog)) {
+    return explicitIntroduction.name
+  }
+
   const candidate = message.trim().replace(/\s+/g, ' ')
   if (
     candidate.length < 2 ||
@@ -4436,6 +4453,13 @@ function resolveExpectedDate(
   bookingFlowOrder: BookingV2DomainCatalog['bookingFlowOrder']
 ) {
   if (nextMissingField(state.draft, bookingFlowOrder) !== 'date') return null
+  return resolveMentionedDate(message, currentDate)
+}
+
+function resolveMentionedDate(
+  message: string,
+  currentDate: Date
+) {
   const normalized = normalize(message)
   const date = dateInTimeZone(currentDate, 'America/Buenos_Aires')
   const tokens = new Set(normalized.split(' ').filter(Boolean))

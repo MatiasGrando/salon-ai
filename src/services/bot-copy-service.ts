@@ -137,8 +137,7 @@ export class BotCopyService {
     return [
       input.prefix,
       'Perfecto 😊 ¿Preferís atenderte con alguien en particular?',
-      ...options,
-      '• Cualquier profesional'
+      ...options
     ].filter(Boolean).join('\n')
   }
 

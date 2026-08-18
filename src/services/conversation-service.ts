@@ -2773,17 +2773,9 @@ export class ConversationService {
       },
       select: { id: true, name: true },
       orderBy: [{ createdAt: 'asc' }, { name: 'asc' }],
-      take: 2
+      take: 3
     })
-    const buttons = professionals.map((professional) => ({
-      id: `professional:${input.conversationId}:${professional.id}`,
-      title: professional.name.trim().slice(0, 20)
-    }))
-    buttons.push({
-      id: `professional:${input.conversationId}:any`,
-      title: 'Sin preferencia'
-    })
-    return buttons.slice(0, 3)
+    return professionalSelectionButtons(input.conversationId, professionals)
   }
 
   private async professionalScheduleReply(businessId: string, professionalId: string) {
@@ -5500,6 +5492,16 @@ export function recoveryDecisionButtons(conversationId: string) {
     { id: `recovery_other:${conversationId}`, title: 'Otra consulta' },
     { id: `recovery_handoff:${conversationId}`, title: 'Hablar con equipo' }
   ]
+}
+
+export function professionalSelectionButtons(
+  conversationId: string,
+  professionals: Array<{ id: string; name: string }>
+) {
+  return professionals.slice(0, 3).map((professional) => ({
+    id: `professional:${conversationId}:${professional.id}`,
+    title: professional.name.trim().slice(0, 20)
+  }))
 }
 
 export function catalogRecoveryDecisionButtons(conversationId: string) {

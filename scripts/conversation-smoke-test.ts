@@ -526,8 +526,8 @@ async function main() {
         },
         {
           message: 'para hoy si es posible',
-          includes: [professional.name, 'Cualquier profesional'],
-          excludes: ['Horarios disponibles']
+          includes: [professional.name],
+          excludes: ['Cualquier profesional', 'Horarios disponibles']
         }
       ]
     },
@@ -1108,7 +1108,8 @@ async function main() {
         },
         {
           message: 'volver al paso anterior',
-          includes: [professional.name, 'Cualquier profesional'],
+          includes: [professional.name],
+          excludes: ['Cualquier profesional'],
           currentStep: 'ASK_PROFESSIONAL'
         }
       ]
@@ -1387,8 +1388,8 @@ async function main() {
         },
         {
           message: 'Podria ser para el 10/7 a las 14:00 hs?',
-          includes: [professional.name, 'Cualquier profesional'],
-          excludes: ['confirmo', 'Fecha:', 'Horario:']
+          includes: [professional.name],
+          excludes: ['Cualquier profesional', 'confirmo', 'Fecha:', 'Horario:']
         }
       ]
     },

@@ -800,10 +800,17 @@ function professionalQuestion(
       : 'Por el momento no tengo profesionales disponibles. Si querés, puedo derivarte con una persona del local.'
   }
 
+  if (professionals.length === 1) {
+    return [
+      'Podés atenderte con:',
+      `• ${professionals[0]!.name}`,
+      `¿Querés atenderte con ${professionals[0]!.name}?`
+    ].join('\n')
+  }
+
   return [
     'Podés atenderte con:',
     ...professionals.map((professional) => `• ${professional.name}`),
-    '• Cualquier profesional',
     '¿Con quién preferís?'
   ].join('\n')
 }
@@ -821,7 +828,6 @@ function professionalSuggestionConfirmation(
   return [
     'Podés atenderte con:',
     ...professionals.map((professional) => `• ${professional.name}`),
-    '• Cualquier profesional',
     `¿Te agendo con ${suggestedName}?`
   ].join('\n')
 }
