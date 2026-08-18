@@ -210,6 +210,8 @@ If the user provides service + date + time but no professional, do not choose a 
 
 Every Booking V2 message must pass through the conversation router, even while a booking is in progress.
 
+At `START`, questions such as `hoy te quedó algún turno disponible a la tarde?` are booking availability requests, not opening-hours questions. Appointment words such as `turno`, `lugar`, `espacio` or `hueco` combined with availability language must take priority over `opening_hours`. Once that flow has started, a short follow-up such as `¿o mañana?` must update the requested date while preserving the pending booking and asking only for the next missing field.
+
 If the customer asks about business information such as opening hours, address, website, booking link, phone, email, Instagram, Facebook, services, or prices:
 
 - answer only with data loaded from the current business;

@@ -6260,6 +6260,81 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'router prioriza disponibilidad de turnos sobre horarios del local',
+    run: () => {
+      for (const message of [
+        'Hola! Hoy te quedo algun turno disponible a la tarde?',
+        '¿Tienen algún lugar libre mañana?',
+        'Hay turnos para hoy por la tarde?'
+      ]) {
+        const deterministic = deterministicConversationRouting(message, { currentStep: 'START' })
+        assert.equal(deterministic.bookingMessage, message, message)
+        assert.deepEqual(businessInformationTopicsFromRouting(deterministic), [], message)
+        assert.equal(
+          deterministic.intents.some((intent) => intent.type === 'book_appointment'),
+          true,
+          message
+        )
+        assert.equal(
+          deterministic.intents.some((intent) => intent.type === 'availability_preference'),
+          true,
+          message
+        )
+
+        const prioritized = applyContextualRoutingPriorities({
+          intents: [{
+            type: 'business_information',
+            topic: 'opening_hours',
+            confidence: 0.99,
+            evidence: message
+          }],
+          bookingMessage: null,
+          bookingExtraction: null,
+          catalogQuery: null
+        }, {
+          message,
+          currentStep: 'START'
+        })
+        assert.deepEqual(
+          prioritized.intents.filter((intent) => intent.type === 'business_information'),
+          [],
+          message
+        )
+        assert.equal(prioritized.bookingMessage, message, message)
+      }
+    }
+  },
+  {
+    name: 'router conserva una alternativa breve de fecha dentro de la reserva',
+    run: () => {
+      const message = '¿O mañana?'
+      const deterministic = deterministicConversationRouting(message, { currentStep: 'ASK_CUSTOMER_NAME' })
+      assert.equal(deterministic.bookingMessage, message)
+      assert.deepEqual(businessInformationTopicsFromRouting(deterministic), [])
+      assert.equal(
+        deterministic.intents.some((intent) => intent.type === 'availability_preference'),
+        true
+      )
+
+      const prioritized = applyContextualRoutingPriorities({
+        intents: [{
+          type: 'business_information',
+          topic: 'opening_hours',
+          confidence: 0.99,
+          evidence: message
+        }],
+        bookingMessage: null,
+        bookingExtraction: null,
+        catalogQuery: null
+      }, {
+        message,
+        currentStep: 'ASK_CUSTOMER_NAME'
+      })
+      assert.deepEqual(businessInformationTopicsFromRouting({ ...prioritized, source: 'deterministic' }), [])
+      assert.equal(prioritized.bookingMessage, message)
+    }
+  },
+  {
     name: 'navegacion abreviada del catalogo sigue dentro de la reserva',
     run: () => {
       for (const message of ['ver todos los servicios', 'todos', 'si ver', 'sí']) {

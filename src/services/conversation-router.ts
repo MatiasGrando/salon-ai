@@ -201,6 +201,7 @@ export class ConversationRouter {
           'Usa catalogQuery.general cuando pide informacion o detalles generales; price para precio; deposit para consultar el monto de la seña o anticipo; duration para duracion; professionals para quien lo realiza.',
           'Una consulta puntual no inicia ni modifica una reserva: bookingMessage debe ser null salvo que tambien exprese claramente que quiere reservar o cambiar.',
           'Si currentStep es START y preguntan genericamente por los horarios, interpretalo como opening_hours del negocio, no como disponibilidad para reservar.',
+          'Una pregunta por turnos, lugares, espacios o huecos disponibles es una consulta de reserva, especialmente si menciona hoy, manana o una franja como a la tarde. No la clasifiques como opening_hours aunque pregunte en forma interrogativa.',
           'Si currentStep es ASK_TIME, una pregunta por horarios se refiere a disponibilidad de turnos, salvo que mencione explicitamente abrir, cerrar u horario del local.',
           'Usa availability_preference para dias concretos o franjas como despues de las 18, por la manana o solo sabados.',
           'Rangos amplios como "esta semana" no son una fecha concreta: si el cliente ya pidio reservar, conserva book_appointment pero deja bookingExtraction.date en null y permite que el flujo solicite el dia.',
@@ -382,6 +383,59 @@ export function applyContextualRoutingPriorities(
   routing: Omit<ConversationRouting, 'source'>,
   input: Pick<ConversationRouterInput, 'message' | 'currentStep'>
 ): Omit<ConversationRouting, 'source'> {
+  if (
+    input.currentStep !== 'START' &&
+    isBareAppointmentDatePreference(normalizeEvidenceText(input.message))
+  ) {
+    const intents = routing.intents.filter((intent) =>
+      intent.type !== 'unknown' &&
+      !(intent.type === 'business_information' && intent.topic === 'opening_hours')
+    )
+    if (!intents.some((intent) => intent.type === 'availability_preference')) {
+      intents.push({
+        type: 'availability_preference',
+        topic: null,
+        confidence: 1,
+        evidence: input.message.trim()
+      })
+    }
+    return {
+      ...routing,
+      intents,
+      bookingMessage: input.message.trim() || null,
+      catalogQuery: null
+    }
+  }
+
+  if (hasDirectAppointmentAvailabilityRequest(normalizeEvidenceText(input.message))) {
+    const intents = routing.intents.filter((intent) =>
+      intent.type !== 'unknown' &&
+      !(intent.type === 'business_information' && intent.topic === 'opening_hours')
+    )
+    if (!intents.some((intent) => intent.type === 'book_appointment')) {
+      intents.push({
+        type: 'book_appointment',
+        topic: null,
+        confidence: 1,
+        evidence: input.message.trim()
+      })
+    }
+    if (!intents.some((intent) => intent.type === 'availability_preference')) {
+      intents.push({
+        type: 'availability_preference',
+        topic: null,
+        confidence: 1,
+        evidence: input.message.trim()
+      })
+    }
+    return {
+      ...routing,
+      intents,
+      bookingMessage: input.message.trim() || null,
+      catalogQuery: null
+    }
+  }
+
   const catalogPresentationIntent = input.currentStep === 'ASK_SERVICE'
     ? detectContextualServiceCatalogPresentationIntent(input.message)
     : detectServiceCatalogPresentationIntent(input.message)
@@ -542,9 +596,15 @@ export function deterministicConversationRouting(
     normalized,
     context?.catalog
   )
+  const hasDirectAvailabilityBookingSignal = hasDirectAppointmentAvailabilityRequest(normalized)
+  const hasContextualDateBookingSignal = context?.currentStep !== undefined &&
+    context.currentStep !== 'START' &&
+    isBareAppointmentDatePreference(normalizeEvidenceText(message))
   const hasBookingSignal = hasExplicitBookingSignal ||
     hasCatalogBookingSignal ||
-    hasAvailabilityBookingSignal
+    hasAvailabilityBookingSignal ||
+    hasDirectAvailabilityBookingSignal ||
+    hasContextualDateBookingSignal
   const intents: RoutedIntent[] = topics.map((topic) => ({
     type: 'business_information',
     topic,
@@ -576,6 +636,29 @@ export function deterministicConversationRouting(
         : 'services',
       confidence: catalogQuery.confidence,
       evidence: catalogQuery.evidence
+    })
+  }
+
+  if (hasDirectAvailabilityBookingSignal) {
+    intents.push({
+      type: 'book_appointment',
+      topic: null,
+      confidence: 1,
+      evidence: message.trim()
+    }, {
+      type: 'availability_preference',
+      topic: null,
+      confidence: 1,
+      evidence: message.trim()
+    })
+  }
+
+  if (hasContextualDateBookingSignal) {
+    intents.push({
+      type: 'availability_preference',
+      topic: null,
+      confidence: 1,
+      evidence: message.trim()
     })
   }
 
@@ -1500,6 +1583,24 @@ function hasCatalogGroundedAppointmentAvailabilityRequest(
   return asksForAppointmentAvailability || (
     hasAppointmentDayReference(normalizedMessage) &&
     !isExplicitInformationRequest
+  )
+}
+
+function hasDirectAppointmentAvailabilityRequest(normalizedMessage: string) {
+  const mentionsAppointment = /\b(?:turno|turnos|cita|citas|lugar|lugares|espacio|espacios|hueco|huecos)\b/.test(
+    normalizedMessage
+  )
+  if (!mentionsAppointment) return false
+
+  return /\b(?:disponibilidad|disponible|disponibles|libre|libres)\b/.test(normalizedMessage) ||
+    /\b(?:hay|tenes|tienen|tendran|queda|quedan|quedo|consigo|conseguir)\b/.test(normalizedMessage)
+}
+
+function isBareAppointmentDatePreference(normalizedMessage: string) {
+  return /^(?:(?:o|y|mejor)\s+)?(?:para\s+)?(?:hoy|manana|pasado\s+manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo)$/.test(
+    normalizedMessage
+  ) || /^(?:(?:o|y|mejor)\s+)?(?:para\s+)?(?:el\s+)?\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?$/.test(
+    normalizedMessage
   )
 }
 
