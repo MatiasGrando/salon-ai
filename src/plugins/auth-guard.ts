@@ -125,7 +125,7 @@ async function canAccessRequestedBusiness(request: FastifyRequest, auth: AuthCon
         id: { in: [...requestedBusinessIds] },
         OR: [
           { id: auth.user.businessId || '__NO_BUSINESS__' },
-          { isDemo: true, demoType: { in: ['NAILS', 'HAIR_SALON'] } }
+          { isDemo: true, demoType: { in: ['NAILS', 'HAIR_SALON', 'BARBERSHOP', 'PILATES'] } }
         ]
       }
     })

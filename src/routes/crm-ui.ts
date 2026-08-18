@@ -14562,7 +14562,7 @@ const crmHtml = `<!doctype html>
           </div>
           <form class="demo-profile-create" id="demo-profile-create-form" hidden>
             <label>Nombre del perfil<input id="demo-profile-name" maxlength="80" placeholder="Ej: Weex Nails" required></label>
-            <label>Rubro<select id="demo-profile-type"><option value="NAILS">Nails</option><option value="BARBERSHOP">Barber&iacute;a</option><option value="HAIR_SALON">Peluquer&iacute;a</option><option value="BEAUTY">Est&eacute;tica</option></select></label>
+            <label>Rubro<select id="demo-profile-type"><option value="NAILS">Nails</option><option value="BARBERSHOP">Barber&iacute;a</option><option value="HAIR_SALON">Peluquer&iacute;a</option><option value="BEAUTY">Est&eacute;tica</option><option value="PILATES">Pilates</option></select></label>
             <button class="primary" id="demo-profile-create-submit" type="submit">Crear</button>
             <button class="secondary" id="demo-profile-create-cancel" type="button">Cancelar</button>
           </form>
@@ -18601,17 +18601,17 @@ const crmHtml = `<!doctype html>
 
     function renderCommercialDemos() {
       if (!els.commercialDemoList) return
-      const allowedTypes = ['NAILS', 'HAIR_SALON']
+      const allowedTypes = ['NAILS', 'HAIR_SALON', 'BARBERSHOP', 'PILATES']
       const profiles = allowedTypes
         .map((demoType) => state.demoProfiles.find((profile) => profile.demoType === demoType))
         .filter(Boolean)
       if (!profiles.length) {
-        els.commercialDemoList.innerHTML = '<div class="commercial-demo-empty">Las demos comerciales todav&iacute;a no est&aacute;n disponibles. Un superadministrador debe crear una demo de u&ntilde;as y otra de peluquer&iacute;a.</div>'
+        els.commercialDemoList.innerHTML = '<div class="commercial-demo-empty">Las demos comerciales todav&iacute;a no est&aacute;n disponibles. Un superadministrador debe crear los perfiles demo compartidos.</div>'
         return
       }
-      const typeLabels = { NAILS: 'U&ntilde;as', HAIR_SALON: 'Peluquer&iacute;a' }
+      const typeLabels = { NAILS: 'U&ntilde;as', HAIR_SALON: 'Peluquer&iacute;a', BARBERSHOP: 'Barber&iacute;a', PILATES: 'Pilates' }
       els.commercialDemoList.innerHTML = profiles.map((profile) => {
-        const fallback = profile.demoType === 'NAILS' ? 'U' : 'P'
+        const fallback = { NAILS: 'U', HAIR_SALON: 'P', BARBERSHOP: 'B', PILATES: 'P' }[profile.demoType] || 'D'
         const logo = profile.logoUrl
           ? '<img src="' + escapeHtml(profile.logoUrl) + '" alt="">'
           : fallback

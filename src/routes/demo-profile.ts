@@ -10,8 +10,8 @@ import type {} from '../plugins/auth-guard.js'
 const conversationService = new ConversationService()
 const businessService = new BusinessService()
 
-type DemoType = 'NAILS' | 'BARBERSHOP' | 'HAIR_SALON' | 'BEAUTY'
-const SHARED_SALES_DEMO_TYPES = ['NAILS', 'HAIR_SALON'] as const
+export type DemoType = 'NAILS' | 'BARBERSHOP' | 'HAIR_SALON' | 'BEAUTY' | 'PILATES'
+const SHARED_SALES_DEMO_TYPES = ['NAILS', 'HAIR_SALON', 'BARBERSHOP', 'PILATES'] as const
 
 const DEMO_TEMPLATES: Record<DemoType, {
   label: string
@@ -34,10 +34,10 @@ const DEMO_TEMPLATES: Record<DemoType, {
   BARBERSHOP: {
     label: 'Barberia',
     assistantName: 'Tomi',
-    professionals: ['Lucas', 'Nico'],
+    professionals: ['Lucas'],
     services: [
       { name: 'Corte clasico', category: 'Cabello', duration: 45, price: 16000 },
-      { name: 'Corte y barba', category: 'Combos', duration: 75, price: 25000, depositMode: 'FIXED', depositValue: 8000 },
+      { name: 'Corte y barba', category: 'Combos', duration: 75, price: 25000 },
       { name: 'Perfilado de barba', category: 'Barba', duration: 30, price: 11000 }
     ],
     emojis: ['✂️', '🙌']
@@ -63,6 +63,17 @@ const DEMO_TEMPLATES: Record<DemoType, {
       { name: 'Perfilado de cejas', category: 'Mirada', duration: 30, price: 14000 }
     ],
     emojis: ['✨', '🌸']
+  },
+  PILATES: {
+    label: 'Pilates',
+    assistantName: 'Vale',
+    professionals: ['Carla', 'Meli'],
+    services: [
+      { name: 'Clase de Pilates Reformer', category: 'Clases', duration: 50, price: 18000 },
+      { name: 'Clase individual', category: 'Personalizado', duration: 50, price: 28000 },
+      { name: 'Evaluacion postural', category: 'Evaluaciones', duration: 40, price: 16000 }
+    ],
+    emojis: ['🧘', '✨']
   }
 }
 
@@ -119,72 +130,7 @@ export async function demoProfileRoutes(app: FastifyInstance) {
     const type = normalizeDemoType(body.type)
     if (!name || !type) return reply.status(400).send({ message: 'Completa el nombre y el tipo de demo' })
 
-    const template = DEMO_TEMPLATES[type]
-    const business = await businessService.create(name, undefined, {
-      accountAdminId: request.auth.user.id,
-      createdByUserId: request.auth.user.id
-    })
-
-    try {
-      await prisma.$transaction(async (tx) => {
-        await tx.business.update({
-          where: { id: business.id },
-          data: { isDemo: true, demoType: type, landingEnabled: false }
-        })
-        await tx.businessFeatureSettings.update({
-          where: { businessId: business.id },
-          data: {
-            bookingV2Enabled: true,
-            assistantPersonality: {
-              preset: type === 'BARBERSHOP' ? 'relaxed' : 'warm',
-              name: template.assistantName,
-              role: `recepcionista virtual de ${template.label.toLowerCase()}`,
-              treatment: 'vos',
-              emojiLevel: 'moderate',
-              responseLength: 'short',
-              preferredEmojis: template.emojis,
-              customInstructions: `Representa a ${name}. Responde siempre como parte de este negocio demo.`
-            } as Prisma.InputJsonValue
-          }
-        })
-        await tx.businessHours.createMany({
-          data: [1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({ businessId: business.id, dayOfWeek, startTime: '09:00', endTime: '20:00' }))
-        })
-        const professionals: Array<{ id: string }> = []
-        for (const professionalName of template.professionals) {
-          professionals.push(await tx.professional.create({ data: { businessId: business.id, name: professionalName } }))
-        }
-        const services: Array<{ id: string }> = []
-        for (const [sortOrder, service] of template.services.entries()) {
-          services.push(await tx.service.create({
-            data: {
-              businessId: business.id,
-              name: service.name,
-              category: service.category,
-              duration: service.duration,
-              price: service.price,
-              sortOrder,
-              depositMode: service.depositMode ?? 'NONE',
-              depositValue: service.depositValue ?? null
-            }
-          }))
-        }
-        await tx.professionalService.createMany({
-          data: professionals.flatMap((professional) => services.map((service) => ({ professionalId: professional.id, serviceId: service.id })))
-        })
-        await tx.professionalHours.createMany({
-          data: professionals.flatMap((professional) => [1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({ professionalId: professional.id, dayOfWeek, startTime: '09:00', endTime: '20:00' })))
-        })
-        await tx.businessPaymentSettings.upsert({
-          where: { businessId: business.id },
-          create: { businessId: business.id, transferEnabled: true, alias: `${slugAlias(name)}.demo`, accountHolder: name },
-          update: {}
-        })
-      })
-    } catch (error) {
-      await prisma.business.delete({ where: { id: business.id } }).catch(() => null)
-      throw error
-    }
+    const business = await createDemoProfileBusiness(name, type, request.auth.user.id)
 
     return reply.status(201).send(await prisma.business.findUnique({ where: { id: business.id } }))
   })
@@ -237,6 +183,77 @@ export async function demoProfileRoutes(app: FastifyInstance) {
     await prisma.message.create({ data: { conversationId: conversation.id, phone, direction: 'OUTBOUND', body: result.reply, status: 'sent', metadata: { provider: 'demo_simulator' } } })
     return { ...result, conversationId: conversation.id }
   })
+}
+
+export async function createDemoProfileBusiness(name: string, type: DemoType, ownerUserId: string) {
+  const template = DEMO_TEMPLATES[type]
+  const business = await businessService.create(name, undefined, {
+    accountAdminId: ownerUserId,
+    createdByUserId: ownerUserId
+  })
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.business.update({
+        where: { id: business.id },
+        data: { isDemo: true, demoType: type, landingEnabled: false }
+      })
+      await tx.businessFeatureSettings.update({
+        where: { businessId: business.id },
+        data: {
+          bookingV2Enabled: true,
+          assistantPersonality: {
+            preset: type === 'BARBERSHOP' ? 'relaxed' : 'warm',
+            name: template.assistantName,
+            role: `recepcionista virtual de ${template.label.toLowerCase()}`,
+            treatment: 'vos',
+            emojiLevel: 'moderate',
+            responseLength: 'short',
+            preferredEmojis: template.emojis,
+            customInstructions: `Representa a ${name}. Responde siempre como parte de este negocio demo.`
+          } as Prisma.InputJsonValue
+        }
+      })
+      await tx.businessHours.createMany({
+        data: [1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({ businessId: business.id, dayOfWeek, startTime: '09:00', endTime: '20:00' }))
+      })
+      const professionals: Array<{ id: string }> = []
+      for (const professionalName of template.professionals) {
+        professionals.push(await tx.professional.create({ data: { businessId: business.id, name: professionalName } }))
+      }
+      const services: Array<{ id: string }> = []
+      for (const [sortOrder, service] of template.services.entries()) {
+        services.push(await tx.service.create({
+          data: {
+            businessId: business.id,
+            name: service.name,
+            category: service.category,
+            duration: service.duration,
+            price: service.price,
+            sortOrder,
+            depositMode: service.depositMode ?? 'NONE',
+            depositValue: service.depositValue ?? null
+          }
+        }))
+      }
+      await tx.professionalService.createMany({
+        data: professionals.flatMap((professional) => services.map((service) => ({ professionalId: professional.id, serviceId: service.id })))
+      })
+      await tx.professionalHours.createMany({
+        data: professionals.flatMap((professional) => [1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({ professionalId: professional.id, dayOfWeek, startTime: '09:00', endTime: '20:00' })))
+      })
+      await tx.businessPaymentSettings.upsert({
+        where: { businessId: business.id },
+        create: { businessId: business.id, transferEnabled: true, alias: `${slugAlias(name)}.demo`, accountHolder: name },
+        update: {}
+      })
+    })
+  } catch (error) {
+    await prisma.business.delete({ where: { id: business.id } }).catch(() => null)
+    throw error
+  }
+
+  return business
 }
 
 async function findAccessibleDemo(
