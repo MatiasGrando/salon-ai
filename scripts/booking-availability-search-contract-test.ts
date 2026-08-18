@@ -4,6 +4,11 @@ import {
   type BookingAvailabilitySearchService
 } from '../src/services/booking-availability-search.js'
 import {
+  aggregateBookingAvailabilityUnavailableReason,
+  bookingAvailabilityUnavailableReason,
+  classifyBookingAvailabilityUnavailable
+} from '../src/services/booking-availability-reason.js'
+import {
   BookingV2DomainService,
   createBookingV2DomainCatalog
 } from '../src/services/booking-v2-domain.js'
@@ -254,5 +259,35 @@ assert.equal(repeatedBlock.status, 'AVAILABLE')
 assert.equal(repeatedBlock.options.length, 1)
 assert.equal(repeatedBlock.options[0]?.startTime, '10:00')
 assert.equal(repeatedBlock.options[0]?.endTime, '12:00')
+
+assert.deepEqual(classifyBookingAvailabilityUnavailable({
+  businessHasHours: false,
+  professionalHasHours: false,
+  hasOverlappingWindow: false,
+  businessFullDayBlocked: false,
+  professionalFullDayBlocked: false
+}), bookingAvailabilityUnavailableReason('BUSINESS_CLOSED'))
+
+assert.deepEqual(classifyBookingAvailabilityUnavailable({
+  businessHasHours: true,
+  professionalHasHours: false,
+  hasOverlappingWindow: false,
+  businessFullDayBlocked: false,
+  professionalFullDayBlocked: false,
+  professionalName: 'Gaspar'
+}), bookingAvailabilityUnavailableReason('PROFESSIONAL_NOT_WORKING', 'Gaspar'))
+
+assert.deepEqual(classifyBookingAvailabilityUnavailable({
+  businessHasHours: true,
+  professionalHasHours: true,
+  hasOverlappingWindow: true,
+  businessFullDayBlocked: false,
+  professionalFullDayBlocked: false
+}), bookingAvailabilityUnavailableReason('NO_SLOTS'))
+
+assert.deepEqual(aggregateBookingAvailabilityUnavailableReason([
+  bookingAvailabilityUnavailableReason('PROFESSIONAL_NOT_WORKING', 'Gaspar'),
+  bookingAvailabilityUnavailableReason('PROFESSIONAL_NOT_WORKING', 'Nico')
+], false), bookingAvailabilityUnavailableReason('NO_SLOTS'))
 
 console.log('booking-availability-search-contract-test: OK')

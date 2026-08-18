@@ -9,6 +9,10 @@ import { ensureDefaultMarketingPreference } from './marketing-preference-service
 import {
   reservationDurationLimits
 } from './service-duration.js'
+import {
+  classifyBookingAvailabilityUnavailable,
+  type BookingAvailabilityUnavailableReason
+} from './booking-availability-reason.js'
 
 const availabilitySlotInterval = 30
 
@@ -72,6 +76,7 @@ type FindAvailabilityResult =
       ok: true
       slots: string[]
       unavailableReason?: string | null
+      unavailable?: BookingAvailabilityUnavailableReason | null
     }
   | {
       ok: false
@@ -1091,14 +1096,19 @@ export class AppointmentService {
       resultByIndex.set(current.index, {
         ok: true,
         slots,
-        unavailableReason: slots.length === 0
-          ? explainBlockedAvailability({
-              blocks: relevantBlocks,
-              dayStart: current.dayStart,
-              dayEnd: current.dayEnd,
-              professionalName: current.professional.name
-            })
-          : null
+        ...(() => {
+          if (slots.length > 0) return { unavailableReason: null, unavailable: null }
+          const unavailable = explainUnavailableAvailability({
+            businessHours: relevantBusinessHours,
+            professionalHours: relevantProfessionalHours,
+            windows,
+            blocks: relevantBlocks,
+            dayStart: current.dayStart,
+            dayEnd: current.dayEnd,
+            professionalName: current.professional.name
+          })
+          return { unavailableReason: unavailable.message, unavailable }
+        })()
       })
     }
     return prepared.map((_, index) => resultByIndex.get(index)!)
@@ -1345,7 +1355,10 @@ function hasAppointmentIntervalOverlap(
   })
 }
 
-function explainBlockedAvailability(input: {
+function explainUnavailableAvailability(input: {
+  businessHours: Array<{ startTime: string; endTime: string }>
+  professionalHours: Array<{ startTime: string; endTime: string }>
+  windows: Array<{ start: number; businessEnd: number; professionalEnd: number }>
   blocks: Array<{
     professionalId: string | null
     reason: string
@@ -1357,45 +1370,17 @@ function explainBlockedAvailability(input: {
   dayEnd: Date
   professionalName: string
 }) {
-  const fullDayBlock = input.blocks.find((block) => {
-    return block.startAt <= input.dayStart &&
-      block.endAt >= input.dayEnd &&
-      ['HOLIDAY', 'VACATION'].includes(block.reason)
+  const fullDayBlocks = input.blocks.filter((block) =>
+    block.startAt <= input.dayStart && block.endAt >= input.dayEnd
+  )
+  return classifyBookingAvailabilityUnavailable({
+    businessHasHours: input.businessHours.length > 0,
+    professionalHasHours: input.professionalHours.length > 0,
+    hasOverlappingWindow: input.windows.length > 0,
+    businessFullDayBlocked: fullDayBlocks.some((block) => block.professionalId === null),
+    professionalFullDayBlocked: fullDayBlocks.some((block) => block.professionalId !== null),
+    professionalName: input.professionalName
   })
-
-  if (!fullDayBlock) {
-    return null
-  }
-
-  const reopenText = fullDayBlock.endAt > input.dayEnd
-    ? ` Volvemos a abrir el ${formatDisplayDate(fullDayBlock.endAt)}.`
-    : ''
-
-  if (fullDayBlock.professionalId) {
-    const professionalReturnText = fullDayBlock.endAt > input.dayEnd
-      ? ` ${input.professionalName} vuelve el ${formatDisplayDate(fullDayBlock.endAt)}.`
-      : ''
-
-    if (fullDayBlock.reason === 'VACATION') {
-      return `${input.professionalName} esta de vacaciones ese dia.${professionalReturnText} Si queres, buscamos otro profesional u otra fecha.`
-    }
-
-    return `${input.professionalName} no atiende ese dia.${professionalReturnText} Si queres, buscamos otro profesional u otra fecha.`
-  }
-
-  if (fullDayBlock.reason === 'HOLIDAY') {
-    return `Ese dia el salon va a estar cerrado por feriado.${reopenText} Podemos buscar otro dia.`
-  }
-
-  return `Ese dia el salon va a estar cerrado por vacaciones.${reopenText} Podemos buscar otra fecha.`
-}
-
-function formatDisplayDate(date: Date) {
-  const day = String(date.getDate()).padStart(2, '0')
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const year = date.getFullYear()
-
-  return `${day}/${month}/${year}`
 }
 
 export function normalizeManualDeposit(

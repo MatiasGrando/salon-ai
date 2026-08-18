@@ -1,3 +1,8 @@
+import {
+  aggregateBookingAvailabilityUnavailableReason,
+  type BookingAvailabilityUnavailableReason
+} from './booking-availability-reason.js'
+
 export type BookingAvailabilitySearchMode =
   | { type: 'DATE'; date: string; requestedTime?: string | null }
   | {
@@ -62,6 +67,7 @@ export type BookingAvailabilitySearchResult = {
   requestedTime: string | null
   individualAvailabilityFound: boolean
   errors: Array<{ professionalId: string; serviceIds: string[]; message: string }>
+  unavailable?: BookingAvailabilityUnavailableReason | null | undefined
 }
 
 export type BookingAvailabilitySlotLoader = (input: {
@@ -69,7 +75,11 @@ export type BookingAvailabilitySlotLoader = (input: {
   professionalId: string
   serviceIds: string[]
 }) => Promise<
-  | { ok: true; slots: string[] }
+  | {
+      ok: true
+      slots: string[]
+      unavailable?: BookingAvailabilityUnavailableReason | null | undefined
+    }
   | { ok: false; message: string }
 >
 
@@ -203,7 +213,8 @@ export class BookingAvailabilitySearchEngine {
           candidates,
           professionalNames,
           preferredProfessionalId: effectivePreferredProfessionalId,
-          requestedTime
+          requestedTime,
+          hasRequiredProfessional: Boolean(requiredProfessionalId)
         })
       : await this.loadMultipleProfessionalOptions({
           date,
@@ -252,7 +263,8 @@ export class BookingAvailabilitySearchEngine {
       searchedDates,
       requestedTime,
       loaded.individualAvailabilityFound,
-      loaded.errors
+      loaded.errors,
+      loaded.unavailable
     )
   }
 
@@ -263,6 +275,7 @@ export class BookingAvailabilitySearchEngine {
     professionalNames: Map<string, string>
     preferredProfessionalId: string | null
     requestedTime: string | null
+    hasRequiredProfessional: boolean
   }) {
     const commonProfessionalIds = input.candidates[0]?.professionalIds.filter((professionalId) =>
       input.candidates.every((candidate) => candidate.professionalIds.includes(professionalId))
@@ -296,6 +309,10 @@ export class BookingAvailabilitySearchEngine {
     return {
       options,
       errors,
+      unavailable: aggregateBookingAvailabilityUnavailableReason(
+        calls.flatMap((call) => call.response.ok ? [call.response.unavailable] : []),
+        input.hasRequiredProfessional
+      ),
       individualAvailabilityFound: options.length > 0,
       providerUnavailable: commonProfessionalIds.length > 0 && calls.every((call) => !call.response.ok),
       compatibleAssignmentFound: commonProfessionalIds.length > 0
@@ -351,6 +368,12 @@ export class BookingAvailabilitySearchEngine {
       return {
         options: [],
         errors,
+        unavailable: aggregateBookingAvailabilityUnavailableReason(
+          loadedByService.flatMap(({ calls }) => calls.flatMap((call) =>
+            call.response.ok ? [call.response.unavailable] : []
+          )),
+          false
+        ),
         individualAvailabilityFound,
         providerUnavailable,
         compatibleAssignmentFound: true
@@ -384,6 +407,7 @@ export class BookingAvailabilitySearchEngine {
     return {
       options: partials.map((segments) => buildOption(input.date, segments, input.preferredProfessionalId)),
       errors,
+      unavailable: null,
       individualAvailabilityFound,
       providerUnavailable,
       compatibleAssignmentFound: true
@@ -511,9 +535,10 @@ function result(
   searchedDates: string[],
   requestedTime: string | null,
   individualAvailabilityFound: boolean,
-  errors: BookingAvailabilitySearchResult['errors']
+  errors: BookingAvailabilitySearchResult['errors'],
+  unavailable: BookingAvailabilityUnavailableReason | null = null
 ): BookingAvailabilitySearchResult {
-  return { status, options, searchedDates, requestedTime, individualAvailabilityFound, errors }
+  return { status, options, searchedDates, requestedTime, individualAvailabilityFound, errors, unavailable }
 }
 
 function limitFutureOptionsFairly(
@@ -536,9 +561,10 @@ function emptyResult(
   searchedDates: string[],
   requestedTime: string | null,
   individualAvailabilityFound = false,
-  errors: BookingAvailabilitySearchResult['errors'] = []
+  errors: BookingAvailabilitySearchResult['errors'] = [],
+  unavailable: BookingAvailabilityUnavailableReason | null = null
 ) {
-  return result(status, [], searchedDates, requestedTime, individualAvailabilityFound, errors)
+  return result(status, [], searchedDates, requestedTime, individualAvailabilityFound, errors, unavailable)
 }
 
 function boundedInteger(value: number | undefined, fallback: number, min: number, max: number) {

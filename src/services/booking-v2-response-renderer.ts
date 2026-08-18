@@ -1,6 +1,7 @@
 import type { BookingV2DomainCatalog } from './booking-v2-domain.js'
 import { catalogCategoryOptions } from './booking-v2-domain.js'
 import type { BookingV2AvailabilityOption } from './booking-v2-domain.js'
+import type { BookingAvailabilityUnavailableReason } from './booking-availability-reason.js'
 import type { BookingV2MessagePlan } from './booking-v2-dialogue.js'
 import { isPriceServiceConsultation } from './service-consultation-queue.js'
 import {
@@ -18,6 +19,7 @@ export type BookingV2RenderInput = {
   catalog?: BookingV2DomainCatalog | null
   availabilityOptions?: BookingV2AvailabilityOption[]
   unavailableDate?: string | null
+  unavailableReason?: BookingAvailabilityUnavailableReason | null
   serviceSuggestions?: BookingV2DomainCatalog['services']
   serviceSuggestionLabel?: string | null
   agenda?: BookingV2AgendaItem[]
@@ -107,6 +109,9 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
     }
     if (input.plan.reason === 'PROVIDER_ERROR') {
       return 'No pude consultar todas las agendas en este momento. Podemos volver a intentar o pedirle ayuda al equipo.'
+    }
+    if (input.plan.unavailableReason) {
+      return input.plan.unavailableReason.message
     }
     return `No encontré disponibilidad para el ${formatDate(input.plan.date)}${professional}.`
   }
@@ -411,7 +416,9 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
 
   if (input.plan.type === 'ask_field') {
     if (input.plan.field === 'date' && input.unavailableDate) {
-      return `El ${formatDate(input.unavailableDate)} no tiene horarios disponibles para esa reserva. ¿Querés probar mañana u otra fecha?`
+      const reason = input.unavailableReason?.message ??
+        `El ${formatDate(input.unavailableDate)} no tiene horarios disponibles para esa reserva.`
+      return `${reason} ¿Querés probar mañana u otra fecha?`
     }
     if (input.plan.field === 'time' && input.availabilityOptions?.length) {
       return [

@@ -11,6 +11,7 @@ import type { BookingV2Catalog } from './booking-v2-interpreter.js'
 import type { BookingV2CatalogOption } from './booking-v2-extractor.js'
 import { ANY_PROFESSIONAL_ID, type BookingFlowOrder } from './booking-v2-state.js'
 import { reservationDurationLimits } from './service-duration.js'
+import type { BookingAvailabilityUnavailableReason } from './booking-availability-reason.js'
 
 type PrismaClientLike = typeof defaultPrisma
 
@@ -102,6 +103,7 @@ export type BookingV2AvailabilityResult =
   | {
       ok: true
       options: BookingV2AvailabilityOption[]
+      unavailable?: BookingAvailabilityUnavailableReason | null | undefined
     }
   | {
       ok: false
@@ -300,6 +302,7 @@ export class BookingV2DomainService {
     }
     return {
       ok: true,
+      unavailable: result.unavailable,
       options: result.options.flatMap((option) => {
         const firstSegment = option.segments[0]
         return firstSegment
@@ -390,7 +393,7 @@ export class BookingV2DomainService {
         date: request.date
       })
       return availability.ok
-        ? { ok: true, slots: availability.slots }
+        ? { ok: true, slots: availability.slots, unavailable: availability.unavailable }
         : { ok: false, message: availability.message }
     })
     return searchEngine.search({

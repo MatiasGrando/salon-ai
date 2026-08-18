@@ -8,6 +8,7 @@ import type { BookingV2AvailabilityOption, BookingV2DomainCatalog } from './book
 import { BookingV2Extractor, type BookingV2Extraction } from './booking-v2-extractor.js'
 import { buildBookingV2MessagePlan, type BookingV2MessagePlan } from './booking-v2-dialogue.js'
 import { renderBookingV2Response } from './booking-v2-response-renderer.js'
+import type { BookingAvailabilityUnavailableReason } from './booking-availability-reason.js'
 import {
   queueRemainingServices,
   restartServiceConsultationQueue
@@ -2484,6 +2485,7 @@ export class BookingV2Engine {
       type: 'coordinated_date_unavailable',
       date: input.date,
       reason,
+      unavailableReason: input.result.unavailable,
       requestedTime: input.requestedTime,
       professionalName: input.pending.requireRequestedProfessional
         ? professionalNameById(input.catalog, input.pending.requestedProfessionalId)
@@ -2938,6 +2940,7 @@ export class BookingV2Engine {
     let plan = buildBookingV2MessagePlan(effectiveInterpretation, catalog?.bookingFlowOrder)
     let availabilityOptions: BookingV2AvailabilityOption[] = []
     let unavailableDate: string | null = null
+    let unavailableReason: BookingAvailabilityUnavailableReason | null = null
 
     const selectedService = catalog?.services.find(
       (service) => service.id === effectiveInterpretation.state.draft.service
@@ -3274,6 +3277,7 @@ export class BookingV2Engine {
       })
 
       availabilityOptions = availability.ok ? availability.options : []
+      unavailableReason = availability.ok ? availability.unavailable ?? null : null
       const proposedTime = timeToValidate(plan, effectiveInterpretation.state)
       const shouldSearchUpcoming = availabilityOptions.length === 0 &&
         Boolean(this.domain.findNextAvailabilityOptions)
@@ -3421,6 +3425,7 @@ export class BookingV2Engine {
       catalog,
       availabilityOptions,
       unavailableDate,
+      unavailableReason,
       combinedServices: effectiveInterpretation.state.combinedServices,
       quoteOnly: effectiveInterpretation.state.quoteOnly,
       ...(serviceSuggestions ? { serviceSuggestions } : {}),

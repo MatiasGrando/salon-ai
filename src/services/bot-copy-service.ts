@@ -341,6 +341,13 @@ export class BotCopyService {
     ].join('\n')
   }
 
+  humanHandoffCancelled() {
+    return [
+      'Listo, cancelé la solicitud de atención antes de que la tomara el equipo.',
+      '¿Con qué más te puedo ayudar?'
+    ].join('\n')
+  }
+
   humanHandoffBookingLocked() {
     return 'El equipo ya está avisado y va a continuar con vos por acá. Mientras esperás puedo responder consultas básicas, pero no iniciar ni modificar reservas.'
   }

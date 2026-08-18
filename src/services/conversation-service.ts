@@ -215,7 +215,6 @@ export class ConversationService {
       !hardResetRequested &&
       !hasDirectInteractiveAction &&
       existingConversation &&
-      bookingV2Enabled &&
       businessId &&
       contextWindow !== 'expired' &&
       (contextWindow === 'paused' || hasPendingContextDecision)
@@ -278,6 +277,7 @@ export class ConversationService {
         })
         return {
           reply: botCopyService.humanHandoffQueued(),
+          replyButtons: handoffCancellationButtons(existingConversation.id),
           skipMisunderstandingTracking: true,
           skipHumanize: true
         }
@@ -330,6 +330,57 @@ export class ConversationService {
       businessId: businessId ?? null,
       conversationId: conversation.id
     })
+
+    if (
+      bookingV2Enabled &&
+      businessId &&
+      isQueuedConversationHandoff(conversation) &&
+      isHandoffCancellationRequest(input.interactiveReplyId, message, conversation.id)
+    ) {
+      const currentState = stateFromConversation(conversation)
+      const resetState = bookingV2Enabled
+        ? this.prismaConversationData(conversationPatchFromState(
+            freshBookingV2State(currentState.draft.name)
+          ))
+        : {
+            selectedServiceId: null,
+            selectedProfessionalId: null,
+            selectedDate: null,
+            selectedTime: null,
+            selectedCustomerName: null,
+            bookingV2State: Prisma.JsonNull
+          }
+      const cancelled = await prisma.conversation.updateMany({
+        where: {
+          id: conversation.id,
+          currentStep: 'HUMAN_HANDOFF',
+          aiEnabled: true,
+          humanHandoffResolvedAt: null
+        },
+        data: {
+          ...resetState,
+          currentStep: bookingV2Enabled ? 'START' : 'ASK_CUSTOMER_NAME',
+          aiEnabled: true,
+          humanHandoffAt: conversation.humanHandoffAt,
+          humanHandoffResolvedAt: new Date(),
+          photoQuoteAcknowledgedAt: null,
+          lastAvailability: Prisma.JsonNull
+        }
+      })
+      if (cancelled.count === 0) {
+        return {
+          reply: botCopyService.humanHandoffBookingLocked(),
+          skipMisunderstandingTracking: true,
+          skipHumanize: true
+        }
+      }
+      return {
+        reply: botCopyService.humanHandoffCancelled(),
+        replyButtons: otherQueryMenuButtons(conversation.id),
+        skipMisunderstandingTracking: true,
+        skipHumanize: true
+      }
+    }
 
     if (contextAction === 'continue' && bookingV2Enabled && businessId) {
       const resumed = await bookingV2Engine.resume({ businessId, conversation })
@@ -470,6 +521,7 @@ export class ConversationService {
       })
       return {
         reply: botCopyService.humanHandoffQueued(),
+        replyButtons: handoffCancellationButtons(conversation.id),
         skipMisunderstandingTracking: true,
         skipHumanize: true
       }
@@ -526,6 +578,7 @@ export class ConversationService {
       })
       return {
         reply: botCopyService.humanHandoffQueued(),
+        replyButtons: handoffCancellationButtons(conversation.id),
         skipMisunderstandingTracking: true,
         skipHumanize: true
       }
@@ -649,6 +702,7 @@ export class ConversationService {
         })
         return {
           reply: PHOTO_QUOTE_ACKNOWLEDGEMENT,
+          replyButtons: handoffCancellationButtons(conversation.id),
           skipMisunderstandingTracking: true,
           skipHumanize: true
         }
@@ -666,6 +720,7 @@ export class ConversationService {
         })
         return {
           reply: PHOTO_QUOTE_ACKNOWLEDGEMENT,
+          replyButtons: handoffCancellationButtons(conversation.id),
           skipMisunderstandingTracking: true,
           skipHumanize: true
         }
@@ -679,6 +734,7 @@ export class ConversationService {
         })
         return {
           reply: botCopyService.humanHandoffQueued(),
+          replyButtons: handoffCancellationButtons(conversation.id),
           skipMisunderstandingTracking: true,
           skipHumanize: true
         }
@@ -928,6 +984,7 @@ export class ConversationService {
       return this.handleQueuedHumanHandoffMessage({
         message,
         businessId,
+        conversationId: conversation.id,
         routing: bookingV2Routing,
         pendingPhotoQuoteActive: Boolean(
           queuedPhotoQuote && isPendingPhotoQuoteActive(queuedPhotoQuote)
@@ -1024,7 +1081,8 @@ export class ConversationService {
       })
 
       return {
-        reply: botCopyService.humanHandoffQueued()
+        reply: botCopyService.humanHandoffQueued(),
+        replyButtons: handoffCancellationButtons(conversation.id)
       }
     }
 
@@ -1187,6 +1245,7 @@ export class ConversationService {
     message: string
     businessId: string
     conversation: {
+      id: string
       currentStep: string
       selectedCustomerName: string | null
       selectedServiceId: string | null
@@ -1328,6 +1387,9 @@ export class ConversationService {
         `Perfecto, avanzamos con ${serviceName} por ${formatMoneyForConversation(quote.amount)}.\n\n${resumed.reply}`,
         personality
       ),
+      ...(isHandoff
+        ? { replyButtons: handoffCancellationButtons(input.conversation.id) }
+        : {}),
       skipMisunderstandingTracking: true,
       skipHumanize: true
     }
@@ -2028,6 +2090,7 @@ export class ConversationService {
             botCopyService.unsupportedServiceHandoff(),
             assistantPersonality
           ),
+          replyButtons: handoffCancellationButtons(input.conversation.id),
           skipMisunderstandingTracking: true,
           skipHumanize: true
         }
@@ -2438,6 +2501,7 @@ export class ConversationService {
             botCopyService.repeatedMisunderstandingHandoff(),
             assistantPersonality
           ),
+          replyButtons: handoffCancellationButtons(input.conversation.id),
           skipMisunderstandingTracking: true,
           skipHumanize: true
         }
@@ -2571,6 +2635,9 @@ export class ConversationService {
           ].filter((serviceId): serviceId is string => Boolean(serviceId))))
         })
       : null)
+    const finalReplyButtons = isHandoff
+      ? handoffCancellationButtons(input.conversation.id)
+      : replyButtons
     return {
       reply: composedReply,
       messages: result.messages
@@ -2579,7 +2646,7 @@ export class ConversationService {
             assistantPersonality
           ))
         : splitWhatsAppReply(composedReply),
-      ...(replyButtons ? { replyButtons } : {}),
+      ...(finalReplyButtons ? { replyButtons: finalReplyButtons } : {}),
       skipMisunderstandingTracking: true,
       skipHumanize: true
     }
@@ -2588,6 +2655,7 @@ export class ConversationService {
   private async handleQueuedHumanHandoffMessage(input: {
     message: string
     businessId: string
+    conversationId: string
     routing: ConversationRouting
     pendingPhotoQuoteActive: boolean
   }): Promise<HandleMessageResult> {
@@ -2615,6 +2683,7 @@ export class ConversationService {
               : informationReply,
           assistantPersonality
         ),
+        replyButtons: handoffCancellationButtons(input.conversationId),
         skipMisunderstandingTracking: true,
         skipHumanize: true
       }
@@ -2626,6 +2695,7 @@ export class ConversationService {
           : botCopyService.humanHandoffAlreadyQueued(),
         assistantPersonality
       ),
+      replyButtons: handoffCancellationButtons(input.conversationId),
       skipMisunderstandingTracking: true,
       skipHumanize: true
     }
@@ -2872,6 +2942,7 @@ export class ConversationService {
         reply: selected.segments.length > 1
           ? 'Conservo la combinación elegida y le pido al equipo que continúe con vos por acá. La respuesta puede demorar unos minutos.'
           : 'Conservo el horario elegido y le pido al equipo que continúe con vos por acá. La respuesta puede demorar unos minutos.',
+        replyButtons: handoffCancellationButtons(input.conversation.id),
         skipMisunderstandingTracking: true,
         skipHumanize: true
       }
@@ -3154,6 +3225,9 @@ export class ConversationService {
             `Ahora seguimos con la reserva de ${nextService.name}.`,
             resumed.reply
           ].join('\n\n'),
+          ...(isHandoff
+            ? { replyButtons: handoffCancellationButtons(input.conversation.id) }
+            : {}),
           skipMisunderstandingTracking: true,
           skipHumanize: true
         }
@@ -3837,13 +3911,14 @@ export class ConversationService {
     const delay = calculateArrivalDelayMinutes(message, nextAppointment.startAt)
 
     if (delay === null || delay > 5) {
-      await this.updateConversation(phone, businessId, {
+      const queuedConversation = await this.updateConversation(phone, businessId, {
         ...queuedConversationHandoffPatch(),
         bookingV2State: null
       })
 
       return {
         reply: botCopyService.lateArrivalHandoffQueued(),
+        replyButtons: handoffCancellationButtons(queuedConversation.id),
         skipHumanize: true
       }
     }
@@ -5467,6 +5542,24 @@ export function otherQueryMenuButtons(conversationId: string) {
     { id: `other_book:${conversationId}`, title: 'Reservar turno' },
     { id: `other_manage:${conversationId}`, title: 'Gestionar mi turno' }
   ]
+}
+
+export function handoffCancellationButtons(conversationId: string) {
+  return [{
+    id: `handoff_cancel:${conversationId}`,
+    title: 'Cancelar atención'
+  }]
+}
+
+export function isHandoffCancellationRequest(
+  replyId: string | undefined,
+  message: string,
+  conversationId: string
+) {
+  if (replyId === `handoff_cancel:${conversationId}`) return true
+  const normalizedMessage = normalizeText(message)
+  return normalizedMessage === 'cancelar atencion' ||
+    normalizedMessage === 'cancelar solicitud de atencion'
 }
 
 export function manageAppointmentDecisionButtons(conversationId: string) {

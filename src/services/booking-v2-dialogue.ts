@@ -3,6 +3,7 @@ import type { BookingV2Interpretation } from './booking-v2-interpreter.js'
 import type { BookingV2CombinedAvailabilityOption } from './booking-v2-state.js'
 import type { BookingV2CoordinatedTimeBand } from './booking-v2-state.js'
 import type { BookingAvailabilitySearchOption } from './booking-availability-search.js'
+import type { BookingAvailabilityUnavailableReason } from './booking-availability-reason.js'
 
 export type BookingV2MessagePlan =
   | {
@@ -85,6 +86,7 @@ export type BookingV2MessagePlan =
       requestedTime?: string | null
       professionalName?: string | null
       canSearchWithoutProfessional?: boolean
+      unavailableReason?: BookingAvailabilityUnavailableReason | null | undefined
     }
   | {
       type: 'show_coordinated_selection'

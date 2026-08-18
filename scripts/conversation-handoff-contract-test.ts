@@ -39,6 +39,14 @@ assert.match(conversationSource, /isQueuedConversationHandoff\(conversation\)/)
 assert.match(conversationSource, /humanHandoffBookingLocked\(\)/)
 assert.match(conversationSource, /businessInformationTopicsFromRouting\(input\.routing\)/)
 assert.match(conversationSource, /El equipo sigue teniendo tus imágenes/)
+assert.match(conversationSource, /handoff_cancel:\$\{conversationId\}/)
+assert.match(conversationSource, /isQueuedConversationHandoff\(conversation\)[\s\S]*?isHandoffCancellationRequest/)
+assert.match(conversationSource, /humanHandoffResolvedAt:\s*new Date\(\)/)
+assert.match(conversationSource, /title:\s*'Cancelar atención'/)
+assert.match(
+  conversationSource,
+  /conversation\.updateMany\([\s\S]*?currentStep:\s*'HUMAN_HANDOFF'[\s\S]*?aiEnabled:\s*true[\s\S]*?humanHandoffResolvedAt:\s*null/
+)
 
 const postSaleSource = readFileSync('src/services/post-sale-service.ts', 'utf8')
 assert.match(postSaleSource, /queuedConversationHandoffPatch\(now\)/)

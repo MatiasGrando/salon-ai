@@ -123,10 +123,14 @@ export async function publicBookingRoutes(app: FastifyInstance) {
 
     const slots: Array<{ time: string; professionalId: string; professionalName: string }> = []
     const errors: string[] = []
+    const unavailableReasons: string[] = []
     const results = [{ professional: professionals[0]!, result: availability }]
 
     for (const { professional, result } of results) {
       if (result.ok) {
+        if (result.slots.length === 0 && result.unavailableReason) {
+          unavailableReasons.push(result.unavailableReason)
+        }
         for (const time of result.slots) {
           slots.push({
             time,
@@ -143,7 +147,9 @@ export async function publicBookingRoutes(app: FastifyInstance) {
 
     return {
       slots,
-      message: slots.length ? null : errors[0] || 'No hay horarios disponibles para esa fecha'
+      message: slots.length
+        ? null
+        : unavailableReasons[0] || errors[0] || 'No quedan turnos disponibles para ese día.'
     }
   })
 
@@ -165,7 +171,9 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     })
     return {
       options: availability.options,
-      message: availability.options.length ? null : coordinatedAvailabilityMessage(availability.status),
+      message: availability.options.length
+        ? null
+        : availability.unavailable?.message || coordinatedAvailabilityMessage(availability.status),
       status: availability.status
     }
   })
@@ -835,7 +843,7 @@ async function searchPublicCoordinatedAvailability(input: {
       date: request.date
     })
     return result.ok
-      ? { ok: true as const, slots: result.slots }
+      ? { ok: true as const, slots: result.slots, unavailable: result.unavailable }
       : { ok: false as const, message: result.message }
   })
   const services = input.services.map((service) => {

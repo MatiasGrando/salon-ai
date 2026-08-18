@@ -1,3 +1,5 @@
+import type { BookingAvailabilityUnavailableReason } from '../services/booking-availability-reason.js'
+
 export type BookingAvailabilityInput = {
   professionalId: string
   serviceId: string
@@ -10,6 +12,7 @@ export type BookingAvailabilityResult =
       ok: true
       slots: string[]
       unavailableReason?: string | null
+      unavailable?: BookingAvailabilityUnavailableReason | null
     }
   | {
       ok: false
