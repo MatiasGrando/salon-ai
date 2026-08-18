@@ -834,6 +834,7 @@ model Appointment {
   createdAt DateTime @default(now())
 
   @@index([coordinationGroupId])
+  @@index([professionalId, startAt])
 }
 
 model AppointmentServiceItem {
@@ -886,6 +887,8 @@ model BusinessHours {
 
   startTime String
   endTime   String
+
+  @@index([businessId, dayOfWeek])
 }
 
 model ProfessionalHours {
@@ -900,6 +903,8 @@ model ProfessionalHours {
   endTime   String
 
   createdAt DateTime @default(now())
+
+  @@index([professionalId, dayOfWeek])
 }
 
 model Conversation {
@@ -1065,6 +1070,8 @@ model ScheduleBlock {
   endAt   DateTime
 
   createdAt DateTime @default(now())
+
+  @@index([businessId, professionalId, startAt])
 }
 
 model Campaign {

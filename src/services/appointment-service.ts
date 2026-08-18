@@ -1,4 +1,5 @@
 import { prisma } from '../config/prisma.js'
+import type { Prisma } from '../generated/prisma/client.js'
 import {
   markConversationOpportunityConverted,
   reopenConversationOpportunityForInvalidatedAppointment
@@ -227,49 +228,55 @@ export class AppointmentService {
       }
     }
 
-    const hasOverlap = await this.hasAppointmentOverlap({
-      professionalId: input.professionalId,
-      startAt,
-      endAt: professionalEndAt
+    await ensureDefaultMarketingPreference({
+      businessId: professional.businessId,
+      customerId: input.customerId
     })
 
-    if (hasOverlap && !input.force) {
+    const appointment = await prisma.$transaction(async (transaction) => {
+      await this.lockProfessionalAgenda(transaction, input.professionalId)
+
+      if (!input.force && await this.hasAppointmentOverlap({
+        professionalId: input.professionalId,
+        startAt,
+        endAt: professionalEndAt
+      }, transaction)) {
+        return null
+      }
+
+      return transaction.appointment.create({
+        data: {
+          customerId: input.customerId,
+          professionalId: input.professionalId,
+          serviceId: input.serviceId,
+          startAt,
+          origin: input.origin ?? 'UNKNOWN',
+          totalDurationMinutes: professionalDuration,
+          status: input.status ?? 'CONFIRMED',
+          quotedPrice: normalizeQuotedPrice(input.quotedPrice),
+          manualDepositPaid: manualDeposit.paid,
+          manualDepositAmount: manualDeposit.amount,
+          coordinationGroupId: input.coordinationGroupId ?? null,
+          serviceItems: {
+            create: orderedServices.map((service, sortOrder) => ({
+              serviceId: service.id,
+              sortOrder,
+              durationMinutes: service.duration,
+              price: service.price
+            }))
+          }
+        },
+        include: { serviceItems: { include: { service: true }, orderBy: { sortOrder: 'asc' } } }
+      })
+    })
+
+    if (!appointment) {
       return {
         ok: false,
         statusCode: 409,
         message: 'Ese horario ya no esta disponible'
       }
     }
-
-    await ensureDefaultMarketingPreference({
-      businessId: professional.businessId,
-      customerId: input.customerId
-    })
-
-    const appointment = await prisma.appointment.create({
-      data: {
-        customerId: input.customerId,
-        professionalId: input.professionalId,
-        serviceId: input.serviceId,
-        startAt,
-        origin: input.origin ?? 'UNKNOWN',
-        totalDurationMinutes: professionalDuration,
-        status: input.status ?? 'CONFIRMED',
-        quotedPrice: normalizeQuotedPrice(input.quotedPrice),
-        manualDepositPaid: manualDeposit.paid,
-        manualDepositAmount: manualDeposit.amount,
-        coordinationGroupId: input.coordinationGroupId ?? null,
-        serviceItems: {
-          create: orderedServices.map((service, sortOrder) => ({
-            serviceId: service.id,
-            sortOrder,
-            durationMinutes: service.duration,
-            price: service.price
-          }))
-        }
-      },
-      include: { serviceItems: { include: { service: true }, orderBy: { sortOrder: 'asc' } } }
-    })
 
     if (appointment.status === 'CONFIRMED') {
       try {
@@ -373,22 +380,40 @@ export class AppointmentService {
       }
     }
 
-    const updated = await prisma.appointment.update({
-      where: { id: appointment.id },
-      data: {
-        totalDurationMinutes: professionalDuration,
-        serviceItems: {
-          deleteMany: {},
-          create: orderedServices.map((service, sortOrder) => ({
-            serviceId: service.id,
-            sortOrder,
-            durationMinutes: service.duration,
-            price: service.price
-          }))
-        }
-      },
-      include: { serviceItems: { include: { service: true }, orderBy: { sortOrder: 'asc' } } }
+    const updated = await prisma.$transaction(async (transaction) => {
+      await this.lockProfessionalAgenda(transaction, appointment.professionalId)
+      if (await this.hasAppointmentOverlap({
+        professionalId: appointment.professionalId,
+        startAt: appointment.startAt,
+        endAt: professionalEndAt,
+        excludeAppointmentId: appointment.id
+      }, transaction)) {
+        return null
+      }
+      return transaction.appointment.update({
+        where: { id: appointment.id },
+        data: {
+          totalDurationMinutes: professionalDuration,
+          serviceItems: {
+            deleteMany: {},
+            create: orderedServices.map((service, sortOrder) => ({
+              serviceId: service.id,
+              sortOrder,
+              durationMinutes: service.duration,
+              price: service.price
+            }))
+          }
+        },
+        include: { serviceItems: { include: { service: true }, orderBy: { sortOrder: 'asc' } } }
+      })
     })
+    if (!updated) {
+      return {
+        ok: false,
+        statusCode: 409,
+        message: 'El horario retenido ya no tiene tiempo suficiente para sumar esos servicios'
+      }
+    }
     return { ok: true, appointment: updated }
   }
 
@@ -587,56 +612,81 @@ export class AppointmentService {
       }
     }
 
-    const appointment = await prisma.appointment.update({
-      where: {
-        id: input.id
-      },
-      data: {
-        customerId: input.customerId,
+    const appointment = await prisma.$transaction(async (transaction) => {
+      await this.lockProfessionalAgenda(transaction, input.professionalId)
+      if (!input.force && await this.hasAppointmentOverlap({
         professionalId: input.professionalId,
-        serviceId: input.serviceId,
         startAt,
-        totalDurationMinutes: professionalDuration,
-        ...(manualDeposit?.ok
-          ? {
-              manualDepositPaid: manualDeposit.paid,
-              manualDepositAmount: manualDeposit.amount
-            }
-          : {}),
-        serviceItems: {
-          deleteMany: {},
-          create: orderedServices.map((service, sortOrder) => ({
-            serviceId: service.id,
-            sortOrder,
-            durationMinutes: service.duration,
-            price: service.price
-          }))
-        },
-        status: 'CONFIRMED'
-      },
-      include: {
-        customer: {
-          select: { id: true, name: true, phone: true }
-        },
-        professional: {
-          select: { id: true, name: true, businessId: true, isActive: true }
-        },
-        service: {
-          select: { id: true, name: true, duration: true, price: true }
-        },
-        serviceItems: {
-          include: {
-            service: {
-              select: { id: true, name: true, duration: true, price: true }
-            }
-          },
-          orderBy: { sortOrder: 'asc' }
-        },
-        bookingDeposit: {
-          select: { status: true, expiresAt: true }
-        }
+        endAt: professionalEndAt,
+        excludeAppointmentId: input.id
+      }, transaction)) {
+        return null
       }
+      return transaction.appointment.update({
+        where: {
+          id: input.id
+        },
+        data: {
+          customerId: input.customerId,
+          professionalId: input.professionalId,
+          serviceId: input.serviceId,
+          startAt,
+          totalDurationMinutes: professionalDuration,
+          ...(manualDeposit?.ok
+            ? {
+                manualDepositPaid: manualDeposit.paid,
+                manualDepositAmount: manualDeposit.amount
+              }
+            : {}),
+          serviceItems: {
+            deleteMany: {},
+            create: orderedServices.map((service, sortOrder) => ({
+              serviceId: service.id,
+              sortOrder,
+              durationMinutes: service.duration,
+              price: service.price
+            }))
+          },
+          status: 'CONFIRMED'
+        },
+        include: {
+          customer: {
+            select: { id: true, name: true, phone: true }
+          },
+          professional: {
+            select: { id: true, name: true, businessId: true, isActive: true }
+          },
+          service: {
+            select: { id: true, name: true, duration: true, price: true }
+          },
+          serviceItems: {
+            include: {
+              service: {
+                select: { id: true, name: true, duration: true, price: true }
+              }
+            },
+            orderBy: { sortOrder: 'asc' }
+          },
+          bookingDeposit: {
+            select: { status: true, expiresAt: true }
+          }
+        }
+      })
     })
+
+    if (!appointment) {
+      return {
+        ok: false,
+        statusCode: 409,
+        message: 'El profesional ya tiene otro turno en ese horario',
+        code: 'APPOINTMENT_AVAILABILITY_CONFLICT',
+        forceable: true,
+        conflicts: [{
+          code: 'APPOINTMENT_OVERLAP',
+          message: 'El profesional ya tiene otro turno en ese horario'
+        }]
+      }
+    }
 
     return {
       ok: true,
@@ -718,19 +768,43 @@ export class AppointmentService {
       }
     }
 
-    const updatedAppointment = await prisma.appointment.update({
-        where: {
-          id: appointmentId
-        },
-        data: {
-          status
-        },
-        include: {
-          customer: true,
-          professional: true,
-          service: true
-        }
-      })
+    const updatedAppointment = status === 'CONFIRMED'
+      ? await prisma.$transaction(async (transaction) => {
+          await this.lockProfessionalAgenda(transaction, appointment.professionalId)
+          if (await this.hasAppointmentOverlap({
+            professionalId: appointment.professionalId,
+            startAt: appointment.startAt,
+            endAt: addMinutes(appointment.startAt, appointment.totalDurationMinutes),
+            excludeAppointmentId: appointment.id
+          }, transaction)) {
+            return null
+          }
+          return transaction.appointment.update({
+            where: { id: appointmentId },
+            data: { status },
+            include: {
+              customer: true,
+              professional: true,
+              service: true
+            }
+          })
+        })
+      : await prisma.appointment.update({
+          where: { id: appointmentId },
+          data: { status },
+          include: {
+            customer: true,
+            professional: true,
+            service: true
+          }
+        })
+    if (!updatedAppointment) {
+      return {
+        ok: false as const,
+        statusCode: 409,
+        message: 'Ese horario ya no esta disponible'
+      }
+    }
     if (status === 'CANCELLED' || status === 'NO_SHOW') {
       await prisma.bookingDeposit.updateMany({
         where: {
@@ -838,167 +912,196 @@ export class AppointmentService {
   }
 
   async findAvailability(input: FindAvailabilityInput): Promise<FindAvailabilityResult> {
-    await bookingDepositService.expireOverdue()
-    const dayStart = parseDate(input.date)
+    return (await this.findAvailabilityMany([input]))[0]!
+  }
 
-    if (!dayStart) {
-      return {
-        ok: false,
-        statusCode: 400,
-        message: 'La fecha no parece valida'
-      }
-    }
-
-    const serviceIds = normalizedServiceIds(input.serviceId, input.serviceIds)
-    const [professional, services] = await Promise.all([
-      prisma.professional.findUnique({
-        where: {
-          id: input.professionalId
+  async findAvailabilityMany(inputs: FindAvailabilityInput[]): Promise<FindAvailabilityResult[]> {
+    if (!inputs.length) return []
+    const now = new Date()
+    const prepared = inputs.map((input) => ({
+      input,
+      dayStart: parseDate(input.date),
+      serviceIds: normalizedServiceIds(input.serviceId, input.serviceIds)
+    }))
+    const professionalIds = Array.from(new Set(prepared.map((item) => item.input.professionalId)))
+    const serviceIds = Array.from(new Set(prepared.flatMap((item) => item.serviceIds)))
+    const [professionals, services] = await Promise.all([
+      prisma.professional.findMany({
+        where: { id: { in: professionalIds } },
+        select: {
+          id: true,
+          name: true,
+          businessId: true,
+          isActive: true,
+          serviceLinks: {
+            where: { serviceId: { in: serviceIds } },
+            select: { serviceId: true }
+          }
         }
       }),
       prisma.service.findMany({
-        where: { id: { in: serviceIds } }
+        where: { id: { in: serviceIds } },
+        select: {
+          id: true,
+          businessId: true,
+          duration: true,
+          customerDurationMin: true,
+          customerDurationMax: true
+        }
       })
     ])
+    const professionalsById = new Map(professionals.map((professional) => [professional.id, professional]))
+    const servicesById = new Map(services.map((service) => [service.id, service]))
+    const validPrepared = prepared.flatMap((item, index) => {
+      if (!item.dayStart) return []
+      const professional = professionalsById.get(item.input.professionalId)
+      if (!professional?.isActive) return []
+      const selectedServices = item.serviceIds.map((serviceId) => servicesById.get(serviceId))
+      if (selectedServices.some((service) => !service)) return []
+      if (selectedServices.some((service) => service!.businessId !== professional.businessId)) return []
+      const offeredServiceIds = new Set(professional.serviceLinks.map((link) => link.serviceId))
+      if (item.serviceIds.some((serviceId) => !offeredServiceIds.has(serviceId))) return []
+      return [{
+        index,
+        item,
+        professional,
+        services: selectedServices.map((service) => service!),
+        dayStart: item.dayStart,
+        dayEnd: addDays(item.dayStart, 1)
+      }]
+    })
 
-    if (!professional) {
-      return {
-        ok: false,
-        statusCode: 404,
-        message: 'No encontre ese profesional'
+    const resultByIndex = new Map<number, FindAvailabilityResult>()
+    for (const [index, item] of prepared.entries()) {
+      const professional = professionalsById.get(item.input.professionalId)
+      if (!item.dayStart) {
+        resultByIndex.set(index, { ok: false, statusCode: 400, message: 'La fecha no parece valida' })
+      } else if (!professional) {
+        resultByIndex.set(index, { ok: false, statusCode: 404, message: 'No encontre ese profesional' })
+      } else if (!professional.isActive) {
+        resultByIndex.set(index, { ok: false, statusCode: 409, message: 'Ese profesional no esta activo' })
+      } else {
+        const selectedServices = item.serviceIds.map((serviceId) => servicesById.get(serviceId))
+        if (selectedServices.some((service) => !service)) {
+          resultByIndex.set(index, { ok: false, statusCode: 404, message: 'No encontre ese servicio' })
+        } else if (selectedServices.some((service) => service!.businessId !== professional.businessId)) {
+          resultByIndex.set(index, { ok: false, statusCode: 400, message: 'Ese profesional no corresponde a ese servicio' })
+        } else {
+          const offeredServiceIds = new Set(professional.serviceLinks.map((link) => link.serviceId))
+          if (item.serviceIds.some((serviceId) => !offeredServiceIds.has(serviceId))) {
+            resultByIndex.set(index, {
+              ok: false,
+              statusCode: 409,
+              message: 'Ese profesional no realiza todos los servicios seleccionados'
+            })
+          }
+        }
       }
     }
+    if (!validPrepared.length) return prepared.map((_, index) => resultByIndex.get(index)!)
 
-    if (!professional.isActive) {
-      return {
-        ok: false,
-        statusCode: 409,
-        message: 'Ese profesional no esta activo'
-      }
-    }
-
-    if (services.length !== serviceIds.length) {
-      return {
-        ok: false,
-        statusCode: 404,
-        message: 'No encontre ese servicio'
-      }
-    }
-
-    if (services.some((service) => professional.businessId !== service.businessId)) {
-      return {
-        ok: false,
-        statusCode: 400,
-        message: 'Ese profesional no corresponde a ese servicio'
-      }
-    }
-
-    if (!(await this.professionalOffersServices(input.professionalId, serviceIds))) {
-      return {
-        ok: false,
-        statusCode: 409,
-        message: 'Ese profesional no realiza todos los servicios seleccionados'
-      }
-    }
-
-    const professionalDuration = services.reduce(
-      (total, service) => total + reservationDurationLimits(service).professional,
-      0
-    )
-    const customerDuration = services.reduce(
-      (total, service) => total + reservationDurationLimits(service).business,
-      0
-    )
-    const dayOfWeek = dayStart.getDay()
-    const dayEnd = addDays(dayStart, 1)
+    const earliestDay = new Date(Math.min(...validPrepared.map((item) => item.dayStart.getTime())))
+    const latestDay = new Date(Math.max(...validPrepared.map((item) => item.dayEnd.getTime())))
+    const businessIds = Array.from(new Set(validPrepared.map((item) => item.professional.businessId)))
+    const dayOfWeeks = Array.from(new Set(validPrepared.map((item) => item.dayStart.getDay())))
+    const validProfessionalIds = Array.from(new Set(validPrepared.map((item) => item.professional.id)))
     const [businessHours, professionalHours, scheduleBlocks, appointments] = await Promise.all([
       prisma.businessHours.findMany({
-        where: {
-          businessId: professional.businessId,
-          dayOfWeek
-        }
+        where: { businessId: { in: businessIds }, dayOfWeek: { in: dayOfWeeks } },
+        select: { businessId: true, dayOfWeek: true, startTime: true, endTime: true }
       }),
       prisma.professionalHours.findMany({
-        where: {
-          professionalId: input.professionalId,
-          dayOfWeek
-        }
+        where: { professionalId: { in: validProfessionalIds }, dayOfWeek: { in: dayOfWeeks } },
+        select: { professionalId: true, dayOfWeek: true, startTime: true, endTime: true }
       }),
       prisma.scheduleBlock.findMany({
         where: {
-          businessId: professional.businessId,
-          startAt: {
-            lt: dayEnd
-          },
-          endAt: {
-            gt: dayStart
-          },
-          OR: [
-            {
-              professionalId: input.professionalId
-            },
-            {
-              professionalId: null
-            }
-          ]
+          businessId: { in: businessIds },
+          startAt: { lt: latestDay },
+          endAt: { gt: earliestDay },
+          OR: [{ professionalId: { in: validProfessionalIds } }, { professionalId: null }]
+        },
+        select: {
+          businessId: true,
+          professionalId: true,
+          reason: true,
+          title: true,
+          startAt: true,
+          endAt: true
         }
       }),
       prisma.appointment.findMany({
         where: {
-          professionalId: input.professionalId,
-          startAt: {
-            gte: dayStart,
-            lt: dayEnd
-          },
-          status: {
-            notIn: ['CANCELLED', 'NO_SHOW']
+          professionalId: { in: validProfessionalIds },
+          startAt: { gte: earliestDay, lt: latestDay },
+          status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+          NOT: {
+            status: 'PENDING',
+            bookingDeposit: {
+              is: { status: 'PENDING_PROOF', expiresAt: { lte: now } }
+            }
           }
         },
-        include: {
-          service: true
-        }
+        select: { professionalId: true, startAt: true, totalDurationMinutes: true }
       })
     ])
 
-    const windows = getAvailabilityWindows(businessHours, professionalHours)
-    const slots: string[] = []
-
-    for (const window of windows) {
-      for (
-        let slotStartMinutes = window.start;
-        slotStartMinutes + professionalDuration <= window.professionalEnd &&
-          slotStartMinutes + customerDuration <= window.businessEnd;
-        slotStartMinutes += availabilitySlotInterval
-      ) {
-        const startAt = setMinutesSinceMidnight(dayStart, slotStartMinutes)
-        const endAt = addMinutes(startAt, professionalDuration)
-
-        if (startAt <= new Date()) {
-          continue
-        }
-
-        if (hasBlockedIntervalOverlap(scheduleBlocks, startAt, endAt)) {
-          continue
-        }
-
-        if (!hasAppointmentIntervalOverlap(appointments, startAt, endAt)) {
-          slots.push(formatTime(startAt))
+    for (const current of validPrepared) {
+      const dayOfWeek = current.dayStart.getDay()
+      const relevantBusinessHours = businessHours.filter((hours) =>
+        hours.businessId === current.professional.businessId && hours.dayOfWeek === dayOfWeek
+      )
+      const relevantProfessionalHours = professionalHours.filter((hours) =>
+        hours.professionalId === current.professional.id && hours.dayOfWeek === dayOfWeek
+      )
+      const relevantBlocks = scheduleBlocks.filter((block) =>
+        block.businessId === current.professional.businessId &&
+        (block.professionalId === null || block.professionalId === current.professional.id) &&
+        block.startAt < current.dayEnd && block.endAt > current.dayStart
+      )
+      const relevantAppointments = appointments.filter((appointment) =>
+        appointment.professionalId === current.professional.id &&
+        appointment.startAt >= current.dayStart && appointment.startAt < current.dayEnd
+      )
+      const professionalDuration = current.services.reduce(
+        (total, service) => total + reservationDurationLimits(service).professional,
+        0
+      )
+      const customerDuration = current.services.reduce(
+        (total, service) => total + reservationDurationLimits(service).business,
+        0
+      )
+      const windows = getAvailabilityWindows(relevantBusinessHours, relevantProfessionalHours)
+      const slots: string[] = []
+      for (const window of windows) {
+        for (
+          let slotStartMinutes = window.start;
+          slotStartMinutes + professionalDuration <= window.professionalEnd &&
+            slotStartMinutes + customerDuration <= window.businessEnd;
+          slotStartMinutes += availabilitySlotInterval
+        ) {
+          const startAt = setMinutesSinceMidnight(current.dayStart, slotStartMinutes)
+          const endAt = addMinutes(startAt, professionalDuration)
+          if (startAt <= now || hasBlockedIntervalOverlap(relevantBlocks, startAt, endAt)) continue
+          if (!hasAppointmentIntervalOverlap(relevantAppointments, startAt, endAt)) {
+            slots.push(formatTime(startAt))
+          }
         }
       }
+      resultByIndex.set(current.index, {
+        ok: true,
+        slots,
+        unavailableReason: slots.length === 0
+          ? explainBlockedAvailability({
+              blocks: relevantBlocks,
+              dayStart: current.dayStart,
+              dayEnd: current.dayEnd,
+              professionalName: current.professional.name
+            })
+          : null
+      })
     }
-
-    return {
-      ok: true,
-      slots,
-      unavailableReason: slots.length === 0
-        ? explainBlockedAvailability({
-            blocks: scheduleBlocks,
-            dayStart,
-            dayEnd,
-            professionalName: professional.name
-          })
-        : null
-    }
+    return prepared.map((_, index) => resultByIndex.get(index)!)
   }
 
   private async isInsideBusinessHours(input: {
@@ -1060,8 +1163,8 @@ export class AppointmentService {
     startAt: Date
     endAt: Date
     excludeAppointmentId?: string
-  }) {
-    const appointments = await prisma.appointment.findMany({
+  }, client: Pick<Prisma.TransactionClient, 'appointment'> = prisma) {
+    const appointments = await client.appointment.findMany({
       where: {
         ...(input.excludeAppointmentId ? { id: { not: input.excludeAppointmentId } } : {}),
         professionalId: input.professionalId,
@@ -1072,20 +1175,26 @@ export class AppointmentService {
           notIn: ['CANCELLED', 'NO_SHOW']
         }
       },
-      include: {
-        service: true
-      }
+      select: { startAt: true, totalDurationMinutes: true }
     })
 
     return appointments.some((appointment) => {
       const existingStart = appointment.startAt
-      const existingEnd = addMinutes(
-        existingStart,
-        appointment.totalDurationMinutes ?? appointment.service.duration
-      )
+      const existingEnd = addMinutes(existingStart, appointment.totalDurationMinutes)
 
       return existingStart < input.endAt && existingEnd > input.startAt
     })
+  }
+
+  private async lockProfessionalAgenda(
+    transaction: Prisma.TransactionClient,
+    professionalId: string
+  ) {
+    const lockKey = `appointment-agenda:${professionalId}`
+    await transaction.$queryRaw<Array<{ locked: number }>>`
+      SELECT 1 AS "locked"
+      FROM pg_advisory_xact_lock(hashtext(${lockKey}))
+    `
   }
 
   private async professionalOffersService(professionalId: string, serviceId: string) {
@@ -1224,17 +1333,13 @@ function hasAppointmentIntervalOverlap(
   appointments: Array<{
     startAt: Date
     totalDurationMinutes: number
-    service: { duration: number }
   }>,
   startAt: Date,
   endAt: Date
 ) {
   return appointments.some((appointment) => {
     const existingStart = appointment.startAt
-    const existingEnd = addMinutes(
-      existingStart,
-      appointment.totalDurationMinutes ?? appointment.service.duration
-    )
+    const existingEnd = addMinutes(existingStart, appointment.totalDurationMinutes)
 
     return existingStart < endAt && existingEnd > startAt
   })

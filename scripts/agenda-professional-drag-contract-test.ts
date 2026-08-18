@@ -8,6 +8,7 @@ const prismaClient = prisma as any
 const originals = {
   appointmentFindUnique: prismaClient.appointment.findUnique,
   appointmentUpdate: prismaClient.appointment.update,
+  transaction: prismaClient.$transaction,
   professionalFindUnique: prismaClient.professional.findUnique,
   serviceFindMany: prismaClient.service.findMany,
   customerFindUnique: prismaClient.customer.findUnique
@@ -50,6 +51,8 @@ try {
   }
 
   const service = new AppointmentService() as any
+  prismaClient.$transaction = async (callback: (transaction: any) => unknown) => callback(prismaClient)
+  service.lockProfessionalAgenda = async () => undefined
   service.professionalOffersServices = async () => false
   service.isInsideBusinessHours = async () => true
   service.isInsideProfessionalHours = async () => true
@@ -152,6 +155,7 @@ try {
 } finally {
   prismaClient.appointment.findUnique = originals.appointmentFindUnique
   prismaClient.appointment.update = originals.appointmentUpdate
+  prismaClient.$transaction = originals.transaction
   prismaClient.professional.findUnique = originals.professionalFindUnique
   prismaClient.service.findMany = originals.serviceFindMany
   prismaClient.customer.findUnique = originals.customerFindUnique

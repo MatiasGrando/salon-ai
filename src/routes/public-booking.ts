@@ -11,6 +11,7 @@ import { customerDurationRange, formatCustomerDuration, reservationDurationLimit
 import { calculateBookingV2Deposit } from '../services/booking-v2-deposit.js'
 import { bookingDepositService } from '../services/booking-deposit-service.js'
 import { BookingAvailabilitySearchEngine } from '../services/booking-availability-search.js'
+import { InternalBookingProvider } from '../providers/internal-booking-provider.js'
 import {
   createGoogleCalendarEventForAppointment,
   getWeexAuthFromRequest,
@@ -20,6 +21,7 @@ import {
 
 const businessService = new BusinessService()
 const appointmentService = new AppointmentService()
+const availabilityProvider = new InternalBookingProvider()
 
 export async function publicBookingRoutes(app: FastifyInstance) {
   app.get('/public/booking/:slug/catalog', async (request, reply) => {
@@ -119,14 +121,17 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     const slots: Array<{ time: string; professionalId: string; professionalName: string }> = []
     const errors: string[] = []
 
-    const results = await Promise.all(professionals.map(async (professional) => ({
-      professional,
-      result: await appointmentService.findAvailability({
+    const availabilityResults = await appointmentService.findAvailabilityMany(
+      professionals.map((professional) => ({
         professionalId: professional.id,
         serviceId,
         date
-      })
-    })))
+      }))
+    )
+    const results = professionals.map((professional, index) => ({
+      professional,
+      result: availabilityResults[index]!
+    }))
 
     for (const { professional, result } of results) {
       if (result.ok) {
@@ -819,7 +824,7 @@ async function searchPublicCoordinatedAvailability(input: {
     })
   ])
   const searchEngine = new BookingAvailabilitySearchEngine(async (request) => {
-    const result = await appointmentService.findAvailability({
+    const result = await availabilityProvider.getAvailability({
       professionalId: request.professionalId,
       serviceId: request.serviceIds[0]!,
       serviceIds: request.serviceIds,
