@@ -64,7 +64,9 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
     const professional = input.plan.professionalName
       ? ` manteniendo a ${input.plan.professionalName}`
       : ''
-    return `¿A qué hora te gustaría comenzar${context}${professional}? También podés escribir un rango, por ejemplo “de 13 a 15”.`
+    return input.plan.date
+      ? `¿A qué hora te gustaría comenzar${context}${professional}? También podés escribir un rango, por ejemplo “de 13 a 15”.`
+      : `¿A qué hora exacta te gustaría comenzar${context}${professional}? Por ejemplo, “a las 13” o “13:30”.`
   }
 
   if (input.plan.type === 'show_coordinated_more_options') {

@@ -350,6 +350,30 @@ assert.deepEqual(searchCalls.at(-1), {
   professionalId: null
 })
 assert.equal(selectedDateFromWhatsAppButton.plan.type, 'ask_coordinated_time_preference')
+const exactTimePrompt = await engine.process({
+  businessId: 'business-1',
+  conversation: selectedDateFromWhatsAppButton.conversationPatch,
+  message: 'Horario exacto',
+  currentDate: new Date('2026-08-09T15:00:00-03:00')
+})
+assert.equal(exactTimePrompt.plan.type, 'ask_coordinated_search_time')
+assert.equal(exactTimePrompt.state.pendingCoordinatedAvailability?.phase, 'AWAITING_SEARCH_TIME')
+assert.match(exactTimePrompt.reply, /También podés escribir un rango/)
+const selectedRangeAfterExactTime = await engine.process({
+  businessId: 'business-1',
+  conversation: exactTimePrompt.conversationPatch,
+  message: 'de 13 a 15',
+  currentDate: new Date('2026-08-09T15:00:00-03:00')
+})
+assert.equal(selectedRangeAfterExactTime.plan.type, 'offer_coordinated_options')
+assert.deepEqual(
+  selectedRangeAfterExactTime.state.pendingCoordinatedAvailability?.requestedWindow,
+  { startTime: '13:00', endTime: '15:00' }
+)
+assert.deepEqual(
+  selectedRangeAfterExactTime.state.pendingCoordinatedAvailability?.filteredOptionIds,
+  [option('13:00', '15:00', 'lucas').id]
+)
 assert.equal(shouldHandleProfessionalScheduleInformation({
   hasProfessionalScheduleIntent: true,
   hasPendingCoordinatedAvailability: true,

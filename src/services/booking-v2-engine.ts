@@ -2090,7 +2090,7 @@ export class BookingV2Engine {
     }
 
     if (pending.phase === 'AWAITING_SEARCH_TIME') {
-      if (choice?.type !== 'EXACT_TIME') {
+      if (choice?.type !== 'EXACT_TIME' && choice?.type !== 'TIME_WINDOW') {
         return this.guidedEstimateResult(input.state, {
           type: 'ask_coordinated_search_time',
           date: pending.options.length ? pending.date : null,
@@ -2100,8 +2100,21 @@ export class BookingV2Engine {
         }, input.catalog, 'no_change')
       }
       if (pending.date && pending.options.length) {
-        const filtered = pending.options.filter((option) => option.startTime === choice.time)
+        const filtered = choice.type === 'EXACT_TIME'
+          ? pending.options.filter((option) => option.startTime === choice.time)
+          : pending.options.filter((option) => optionFitsTimeWindow(option, choice))
         if (filtered.length) {
+          if (choice.type === 'TIME_WINDOW') {
+            return this.showCoordinatedOptions(input.state, {
+              ...pending,
+              phase: 'AWAITING_OPTION',
+              filteredOptionIds: filtered.map((option) => option.id),
+              page: 0,
+              timeBand: null,
+              requestedTime: null,
+              requestedWindow: { startTime: choice.startTime, endTime: choice.endTime }
+            }, input.catalog)
+          }
           return this.coordinatedSelectionResult(
             input.state,
             pending,
@@ -2114,18 +2127,30 @@ export class BookingV2Engine {
           pendingCoordinatedAvailability: {
             ...pending,
             phase: 'AWAITING_TIME_PREFERENCE',
-            requestedTime: choice.time
+            requestedTime: choice.type === 'EXACT_TIME' ? choice.time : null,
+            requestedWindow: choice.type === 'TIME_WINDOW'
+              ? { startTime: choice.startTime, endTime: choice.endTime }
+              : null
           }
         }
         return this.guidedEstimateResult(state, {
           type: 'coordinated_date_unavailable',
           date: pending.date,
           reason: 'REQUESTED_TIME_UNAVAILABLE',
-          requestedTime: choice.time,
+          requestedTime: choice.type === 'EXACT_TIME' ? choice.time : null,
           professionalName: pending.requireRequestedProfessional
             ? professionalNameById(input.catalog, pending.requestedProfessionalId)
             : null,
           canSearchWithoutProfessional: pending.requireRequestedProfessional
+        }, input.catalog, 'no_change')
+      }
+      if (choice.type === 'TIME_WINDOW') {
+        return this.guidedEstimateResult(input.state, {
+          type: 'ask_coordinated_search_time',
+          date: null,
+          professionalName: pending.requireRequestedProfessional
+            ? professionalNameById(input.catalog, pending.requestedProfessionalId)
+            : null
         }, input.catalog, 'no_change')
       }
       const today = dateInTimeZone(
@@ -2278,7 +2303,9 @@ export class BookingV2Engine {
         result,
         date,
         requestedTime,
-        requestedWindow: timeChoice?.type === 'TIME_WINDOW' ? timeChoice : null
+        requestedWindow: timeChoice?.type === 'TIME_WINDOW'
+          ? { startTime: timeChoice.startTime, endTime: timeChoice.endTime }
+          : null
       })
     }
 
@@ -2324,7 +2351,9 @@ export class BookingV2Engine {
           page: 0,
           timeBand: choice?.type === 'TIME_BAND' ? choice.band : null,
           requestedTime: null,
-          requestedWindow: choice?.type === 'TIME_WINDOW' ? choice : null
+          requestedWindow: choice?.type === 'TIME_WINDOW'
+            ? { startTime: choice.startTime, endTime: choice.endTime }
+            : null
         }, input.catalog)
       }
       if (choice?.type === 'EXACT_TIME') {
@@ -2347,7 +2376,9 @@ export class BookingV2Engine {
           pendingCoordinatedAvailability: {
             ...pending,
             requestedTime: choice.type === 'EXACT_TIME' ? choice.time : null,
-            requestedWindow: choice.type === 'TIME_WINDOW' ? choice : null
+            requestedWindow: choice.type === 'TIME_WINDOW'
+              ? { startTime: choice.startTime, endTime: choice.endTime }
+              : null
           }
         }
         return this.guidedEstimateResult(state, {

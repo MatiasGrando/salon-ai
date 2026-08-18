@@ -387,7 +387,9 @@ export function acceptField(
   value: string
 ): BookingV2State {
   const timeBeforeDependencySelection = (
-    field === 'professional' || (field === 'date' && state.draft.date === null)
+    (field === 'service' && state.draft.service === null) ||
+    field === 'professional' ||
+    (field === 'date' && state.draft.date === null)
   )
     ? state.draft.time
     : null

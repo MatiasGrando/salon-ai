@@ -158,6 +158,20 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'la primera selección de servicio conserva la hora adelantada y un cambio la invalida',
+    run: () => {
+      let state = acceptField(createEmptyBookingV2State(), 'date', '2026-08-18')
+      state = acceptField(state, 'time', '13:00')
+
+      const firstSelection = acceptField(state, 'service', 'haircut')
+      assert.equal(firstSelection.draft.date, '2026-08-18')
+      assert.equal(firstSelection.draft.time, '13:00')
+
+      const changedSelection = acceptField(firstSelection, 'service', 'haircut-and-beard')
+      assert.equal(changedSelection.draft.time, null)
+    }
+  },
+  {
     name: 'la disponibilidad puntual ofrece reservar con botones si no y entiende la decisión',
     run: () => {
       assert.equal(shouldHandleProfessionalAvailabilityInquiry({
@@ -7419,9 +7433,9 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     run: () => {
       const catalog = {
         services: [
-          { id: 'haircut', name: 'Corte Hombre', description: 'Corte de pelo.' },
-          { id: 'haircut-color', name: 'Corte y color', description: 'Corte con color.' },
-          { id: 'roots', name: 'Raíces', description: 'Coloración de raíces.' }
+          { id: 'haircut', name: 'Corte Hombre', aliases: ['Cortes'], description: 'Corte de pelo.' },
+          { id: 'haircut-color', name: 'Corte y color', aliases: ['Cortes'], description: 'Corte con color.' },
+          { id: 'roots', name: 'Raíces', aliases: ['Color'], description: 'Coloración de raíces.' }
         ],
         professionals: []
       }
@@ -7447,6 +7461,18 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.deepEqual(ambiguous.catalogQuery?.requestedInformation, ['price'])
       assert.deepEqual(businessInformationTopicsFromRouting(ambiguous), ['prices'])
       assert.equal(ambiguous.bookingMessage, null)
+
+      const categoryPrice = deterministicConversationRouting(
+        'Cortes. Cuanto estaría?',
+        { currentStep: 'ASK_SERVICE', catalog }
+      )
+      assert.equal(categoryPrice.catalogQuery?.serviceId, null)
+      assert.deepEqual(
+        new Set(categoryPrice.catalogQuery?.candidateServiceIds),
+        new Set(['haircut', 'haircut-color'])
+      )
+      assert.deepEqual(categoryPrice.catalogQuery?.requestedInformation, ['price'])
+      assert.deepEqual(businessInformationTopicsFromRouting(categoryPrice), ['prices'])
     }
   },
   {
@@ -7556,6 +7582,36 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.match(answer ?? '', /Corte Hombre — \$\s15\.000/)
       assert.match(answer ?? '', /Corte y color — \$\s40\.000/)
       assert.match(answer ?? '', /¿Sobre cuál querés más información\?/)
+
+      const categoryAnswer = renderCatalogServiceQuery({
+        name: 'Salon Demo',
+        slug: null,
+        landingEnabled: false,
+        publicWhatsapp: null,
+        contactEmail: null,
+        publicAddress: null,
+        publicAddressArea: null,
+        publicMapsUrl: null,
+        instagramUrl: null,
+        facebookUrl: null,
+        tiktokUrl: null,
+        businessHours: [],
+        services: [
+          { id: 'haircut', name: 'Corte Hombre', category: 'Cortes', duration: 30, price: 27000 },
+          { id: 'haircut-color', name: 'Corte y color', category: 'Cortes', duration: 60, price: 40000 },
+          { id: 'bath', name: 'Baño de crema', category: 'Nutrición', duration: 30, price: 25000 }
+        ],
+        professionals: []
+      }, {
+        serviceId: null,
+        candidateServiceIds: ['haircut', 'haircut-color'],
+        requestedInformation: ['price'],
+        confidence: 0.82,
+        evidence: 'Cortes. Cuanto estaría?'
+      })
+      assert.match(categoryAnswer ?? '', /Corte Hombre — \$\s27\.000/)
+      assert.match(categoryAnswer ?? '', /Corte y color — \$\s40\.000/)
+      assert.doesNotMatch(categoryAnswer ?? '', /Baño de crema/)
     }
   },
   {
