@@ -6463,6 +6463,138 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'conversación mixta de Ivo conserva precio y entra a reservar un corte ambiguo',
+    run: async () => {
+      const message = [
+        'Hola como estan? Aca ivo.',
+        'Queria consultarles si tienen fecha para corte para esta semana en Monroe?',
+        'Cuanto está actualmente el corte?'
+      ].join(' ')
+      const routerCatalog = {
+        services: [
+          { id: 'man-cut', name: 'Corte hombre', aliases: ['corte'] },
+          { id: 'woman-cut', name: 'Corte mujer', aliases: ['corte'] },
+          { id: 'beard-cut', name: 'Corte y barba', aliases: ['corte'] }
+        ],
+        professionals: [
+          { id: 'nico', name: 'Nico' }
+        ]
+      }
+      const deterministic = deterministicConversationRouting(message, {
+        currentStep: 'START',
+        catalog: routerCatalog
+      })
+
+      assert.equal(deterministic.bookingMessage, message)
+      assert.deepEqual(deterministic.catalogQuery?.requestedInformation, ['price'])
+      assert.deepEqual(
+        new Set(deterministic.catalogQuery?.candidateServiceIds),
+        new Set(['man-cut', 'woman-cut', 'beard-cut'])
+      )
+
+      const routing = mergeConversationRouting({
+        intents: [
+          {
+            type: 'book_appointment',
+            topic: null,
+            confidence: 0.97,
+            evidence: 'si tienen fecha para corte para esta semana'
+          },
+          {
+            type: 'business_information',
+            topic: 'prices',
+            confidence: 0.98,
+            evidence: 'Cuanto está actualmente el corte'
+          }
+        ],
+        bookingMessage: message,
+        bookingExtraction: extraction({
+          name: field('Ivo', 0.96, 'Aca ivo'),
+          service: field(null, 0.72, 'corte'),
+          date: field(null, 0, '')
+        }),
+        catalogQuery: {
+          serviceId: null,
+          candidateServiceIds: ['man-cut', 'woman-cut', 'beard-cut'],
+          requestedInformation: ['price'],
+          confidence: 0.95,
+          evidence: 'corte'
+        }
+      }, deterministic, message, routerCatalog)
+
+      assert.equal(routing.bookingMessage, message)
+      assert.deepEqual(routing.catalogQuery?.requestedInformation, ['price'])
+
+      const domainCatalog = createBookingV2DomainCatalog({
+        services: [
+          { id: 'man-cut', name: 'Corte hombre', aliases: ['corte'], duration: 30, price: 27000, category: null },
+          { id: 'woman-cut', name: 'Corte mujer', aliases: ['corte'], duration: 45, price: 37000, category: null },
+          { id: 'beard-cut', name: 'Corte y barba', aliases: ['corte'], duration: 45, price: 32000, category: null }
+        ],
+        professionals: [
+          { id: 'nico', name: 'Nico', serviceIds: ['man-cut', 'woman-cut', 'beard-cut'] }
+        ]
+      })
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog: domainCatalog }))
+      const initial = await engine.process({
+        businessId: 'business-1',
+        conversation: null,
+        message,
+        understandingExtraction: routing.bookingExtraction ?? null
+      })
+
+      assert.equal(initial.state.draft.name, 'Ivo')
+      assert.equal(initial.state.draft.service, null)
+      assert.equal(initial.state.draft.date, null)
+      assert.deepEqual(
+        new Set(initial.state.pendingServiceDisambiguation?.serviceIds),
+        new Set(['man-cut', 'woman-cut', 'beard-cut'])
+      )
+      assert.equal(initial.plan.type, 'ask_field')
+      assert.equal(initial.plan.type === 'ask_field' ? initial.plan.field : null, 'service')
+
+      const selected = await engine.process({
+        businessId: 'business-1',
+        conversation: initial.conversationPatch,
+        message: 'Corte hombre',
+        understandingExtraction: extraction({
+          service: field('man-cut', 0.98, 'Corte hombre')
+        })
+      })
+
+      assert.equal(selected.state.draft.name, 'Ivo')
+      assert.equal(selected.state.draft.service, 'man-cut')
+      assert.equal(selected.state.draft.date, null)
+      assert.equal(selected.plan.type, 'ask_field')
+      assert.equal(selected.plan.type === 'ask_field' ? selected.plan.field : null, 'professional')
+
+      const serviceReply = renderCatalogServiceQuery({
+        name: 'Monroe',
+        slug: null,
+        landingEnabled: false,
+        publicWhatsapp: null,
+        contactEmail: null,
+        publicAddress: null,
+        publicAddressArea: null,
+        publicMapsUrl: null,
+        instagramUrl: null,
+        facebookUrl: null,
+        tiktokUrl: null,
+        businessHours: [],
+        services: [{ id: 'man-cut', name: 'Corte hombre', duration: 30, price: 27000 }],
+        professionals: []
+      }, {
+        serviceId: 'man-cut',
+        candidateServiceIds: ['man-cut'],
+        requestedInformation: ['general', 'price'],
+        confidence: 1,
+        evidence: 'Corte hombre'
+      })
+      assert.match(serviceReply ?? '', /Precio: \$\s?27\.000/)
+      assert.doesNotMatch(serviceReply ?? '', /no tengo|procedimiento|deriv/iu)
+    }
+  },
+  {
     name: 'router no deja que la ia convierta horarios del local en una reserva',
     run: () => {
       const message = 'queria saber los horarios'

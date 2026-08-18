@@ -202,7 +202,8 @@ export class ConversationRouter {
           'Una consulta puntual no inicia ni modifica una reserva: bookingMessage debe ser null salvo que tambien exprese claramente que quiere reservar o cambiar.',
           'Si currentStep es START y preguntan genericamente por los horarios, interpretalo como opening_hours del negocio, no como disponibilidad para reservar.',
           'Si currentStep es ASK_TIME, una pregunta por horarios se refiere a disponibilidad de turnos, salvo que mencione explicitamente abrir, cerrar u horario del local.',
-          'Usa availability_preference para dias o franjas como despues de las 18, por la manana o solo sabados.',
+          'Usa availability_preference para dias concretos o franjas como despues de las 18, por la manana o solo sabados.',
+          'Rangos amplios como "esta semana" no son una fecha concreta: si el cliente ya pidio reservar, conserva book_appointment pero deja bookingExtraction.date en null y permite que el flujo solicite el dia.',
           'Usa professional_preference cuando selecciona, nombra como preferencia o cambia profesional para su reserva.',
           'Usa professional_schedule cuando pregunta qué días u horarios trabaja o atiende un profesional específico. Es una consulta informativa: no lo tomes como elección y bookingMessage debe ser null.',
           'Ejemplos de professional_schedule: "qué horarios tiene Tamara", "cuándo atiende Tami" o "qué días trabaja Marcos". Extrae el ID del profesional mencionado en bookingExtraction.professional.',
@@ -537,7 +538,13 @@ export function deterministicConversationRouting(
   const hasExplicitBookingSignal = hasExplicitBookingIntent(normalized)
   const hasCatalogBookingSignal = !catalogQuery &&
     hasCatalogGroundedBookingIntent(normalized, context?.catalog)
-  const hasBookingSignal = hasExplicitBookingSignal || hasCatalogBookingSignal
+  const hasAvailabilityBookingSignal = hasCatalogGroundedAppointmentAvailabilityRequest(
+    normalized,
+    context?.catalog
+  )
+  const hasBookingSignal = hasExplicitBookingSignal ||
+    hasCatalogBookingSignal ||
+    hasAvailabilityBookingSignal
   const intents: RoutedIntent[] = topics.map((topic) => ({
     type: 'business_information',
     topic,
@@ -1462,6 +1469,18 @@ function hasCatalogGroundedBookingIntent(
   ].some((pattern) => pattern.test(normalizedMessage))
   if (!expressesServiceChoice) return false
   return resolveCatalogQueryServices(normalizedMessage, catalog).length > 0
+}
+
+function hasCatalogGroundedAppointmentAvailabilityRequest(
+  normalizedMessage: string,
+  catalog: ConversationRouterInput['catalog'] | undefined
+) {
+  if (!catalog?.services.length) return false
+  const asksForAppointmentAvailability =
+    /\b(?:hay|tienen|tenes|tendran|consigo|conseguir|busco|buscar)\s+(?:alguna\s+)?(?:fecha|turno|lugar|espacio|disponibilidad)\b/.test(normalizedMessage) ||
+    /\b(?:fecha|turno|lugar|espacio|disponibilidad)\s+para\b/.test(normalizedMessage)
+  return asksForAppointmentAvailability &&
+    resolveCatalogQueryServices(normalizedMessage, catalog).length > 0
 }
 
 function hasApproximateBookingTurnRequest(normalized: string) {
