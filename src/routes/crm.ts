@@ -659,7 +659,7 @@ export async function crmRoutes(app: FastifyInstance) {
   })
 
   app.get('/crm/deposits', async (request, reply) => {
-    const query = request.query as { businessId?: string; view?: 'active' | 'resolved' | 'all' }
+    const query = request.query as { businessId?: string; view?: 'active' | 'resolved' | 'all'; summary?: string }
     const authUser = request.auth?.user
     if (!authUser) return reply.status(401).send({ message: 'Sesion requerida' })
     const businessId = query.businessId || authUser.businessId
@@ -670,6 +670,17 @@ export async function crmRoutes(app: FastifyInstance) {
     await bookingDepositService.expireOverdue()
     const activeStatuses: Array<'PENDING_PROOF' | 'PROOF_RECEIVED'> = ['PENDING_PROOF', 'PROOF_RECEIVED']
     const view = query.view || 'active'
+    if (query.summary === 'true') {
+      const [activeCount, reviewCount] = await Promise.all([
+        prisma.bookingDeposit.count({
+          where: { businessId, status: { in: [...activeStatuses] } }
+        }),
+        prisma.bookingDeposit.count({
+          where: { businessId, status: 'PROOF_RECEIVED' }
+        })
+      ])
+      return { activeCount, reviewCount }
+    }
     const deposits = await prisma.bookingDeposit.findMany({
       where: view === 'active'
         ? { businessId, status: { in: activeStatuses } }

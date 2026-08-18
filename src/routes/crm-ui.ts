@@ -17186,6 +17186,7 @@ const crmHtml = `<!doctype html>
       deposits: [],
       depositCount: 0,
       depositReviewCount: 0,
+      depositsCachedAt: 0,
       selectedDeposit: null,
       conversationNextCursor: null,
       conversationSearchTimer: null,
@@ -17193,6 +17194,10 @@ const crmHtml = `<!doctype html>
       conversationCounts: { active: 0, archived: 0, handoff: 0 },
       loadedArchiveView: 'active',
       loadedConversationFilter: 'all',
+      conversationViewCache: new Map(),
+      conversationTabRequest: 0,
+      conversationTabController: null,
+      conversationTabLoading: false,
       selected: null,
       messages: [],
       messageNextCursor: null,
@@ -19852,11 +19857,16 @@ const crmHtml = `<!doctype html>
       state.business = nextBusiness
       state.businessId = nextBusiness.id
       state.conversationLoadController?.abort()
+      state.conversationTabController?.abort()
       state.conversationLoadRequest += 1
+      state.conversationTabRequest += 1
       state.conversationLoadController = null
       state.conversationLoadingId = null
+      state.conversationTabController = null
+      state.conversationTabLoading = false
       state.conversationCache.clear()
       state.conversationMarketingCache.clear()
+      state.conversationViewCache.clear()
       state.selected = null
       state.messages = []
       state.messageNextCursor = null
@@ -19864,6 +19874,7 @@ const crmHtml = `<!doctype html>
       state.deposits = []
       state.depositCount = 0
       state.depositReviewCount = 0
+      state.depositsCachedAt = 0
       state.selectedDeposit = null
       state.conversationNextCursor = null
       state.conversationCounts = { active: 0, archived: 0, handoff: 0 }
@@ -20407,6 +20418,7 @@ const crmHtml = `<!doctype html>
     async function loadConversations(options = {}) {
       if (state.isRefreshing) return
       state.isRefreshing = true
+      const requestedFilter = state.conversationFilter
       const archiveView = state.conversationFilter === 'archived' ? 'archived' : 'active'
       const serverFilter = conversationServerFilterForCurrentTab()
       const params = new URLSearchParams()
@@ -20420,6 +20432,7 @@ const crmHtml = `<!doctype html>
 
       try {
         const page = await getJson('/crm/conversations' + query)
+        if (requestedFilter !== state.conversationFilter) return
         state.loadedArchiveView = archiveView
         state.loadedConversationFilter = serverFilter
         state.conversationNextCursor = page.nextCursor || null
@@ -20432,6 +20445,7 @@ const crmHtml = `<!doctype html>
           state.conversations = page.items
         }
         state.conversations.sort((left, right) => latestConversationActivityAt(right) - latestConversationActivityAt(left))
+        cacheCurrentConversationView()
         if (els.topConversationTotal) els.topConversationTotal.textContent = String(state.conversationCounts.active)
         renderConversations()
         renderAiControls()
@@ -20472,7 +20486,7 @@ const crmHtml = `<!doctype html>
     }
 
     async function refreshDepositCount() {
-      const params = new URLSearchParams({ view: 'active' })
+      const params = new URLSearchParams({ view: 'active', summary: 'true' })
       if (state.businessId) params.set('businessId', state.businessId)
       try {
         const result = await getJson('/crm/deposits?' + params.toString())
@@ -20489,8 +20503,13 @@ const crmHtml = `<!doctype html>
       const params = new URLSearchParams({ view: 'active' })
       if (state.businessId) params.set('businessId', state.businessId)
       try {
-        const result = await getJson('/crm/deposits?' + params.toString())
+        const result = await getJson('/crm/deposits?' + params.toString(), { signal: options.signal })
+        if (
+          state.conversationFilter !== 'deposits' ||
+          (options.tabRequestId !== undefined && options.tabRequestId !== state.conversationTabRequest)
+        ) return
         state.deposits = result.items || []
+        state.depositsCachedAt = Date.now()
         state.depositCount = result.activeCount || 0
         state.depositReviewCount = result.reviewCount || 0
         els.depositCount.textContent = String(state.depositCount)
@@ -20503,6 +20522,7 @@ const crmHtml = `<!doctype html>
         else if (state.selectedDeposit) renderSelectedDeposit()
         else renderEmptyDepositSelection()
       } catch (error) {
+        if (error.name === 'AbortError') return
         els.list.innerHTML = '<div class="error">' + escapeHtml(error.message) + '</div>'
       }
     }
@@ -20648,6 +20668,118 @@ const crmHtml = `<!doctype html>
       els.appointmentCount.textContent = '0'
     }
 
+    function conversationViewKey(archiveView, serverFilter) {
+      return archiveView + ':' + serverFilter
+    }
+
+    function cacheCurrentConversationView() {
+      if (state.conversationFilter === 'deposits') return
+      const key = conversationViewKey(state.loadedArchiveView, state.loadedConversationFilter)
+      state.conversationViewCache.delete(key)
+      state.conversationViewCache.set(key, {
+        conversations: state.conversations.slice(),
+        conversationNextCursor: state.conversationNextCursor,
+        conversationCounts: { ...state.conversationCounts },
+        lastConversationSyncAt: state.lastConversationSyncAt,
+        cachedAt: Date.now()
+      })
+      while (state.conversationViewCache.size > 4) {
+        const oldestKey = state.conversationViewCache.keys().next().value
+        if (!oldestKey) break
+        state.conversationViewCache.delete(oldestKey)
+      }
+    }
+
+    function restoreConversationView(cached, archiveView, serverFilter) {
+      state.conversations = cached.conversations.slice()
+      state.conversationNextCursor = cached.conversationNextCursor
+      state.conversationCounts = { ...cached.conversationCounts }
+      state.lastConversationSyncAt = cached.lastConversationSyncAt
+      state.loadedArchiveView = archiveView
+      state.loadedConversationFilter = serverFilter
+    }
+
+    function renderConversationTabActive() {
+      for (const tab of els.conversationTabs.querySelectorAll('[data-conversation-filter]')) {
+        tab.classList.toggle('active', tab.dataset.conversationFilter === state.conversationFilter)
+      }
+    }
+
+    function renderConversationTabLoading(label) {
+      cancelSelectedConversationLoad()
+      renderConversationTabActive()
+      els.conversationMore.hidden = true
+      els.list.innerHTML = '<div class="empty">Cargando ' + escapeHtml(label) + '...</div>'
+      state.selected = null
+      state.selectedDeposit = null
+      clearSelectedConversationData()
+      els.chatAvatar.textContent = '--'
+      els.chatPhone.textContent = 'Cargando...'
+      els.chatStatus.textContent = 'Actualizando bandeja'
+      els.messages.innerHTML = '<div class="empty">Cargando conversaciones...</div>'
+      els.replyForm.hidden = true
+      renderAppointments({ loading: true })
+      renderCustomerNotes({ loading: true })
+    }
+
+    async function showCachedConversationView(cached, archiveView, serverFilter) {
+      cancelSelectedConversationLoad()
+      restoreConversationView(cached, archiveView, serverFilter)
+      state.selected = null
+      renderConversations()
+      renderAiControls()
+      if (state.conversations[0]) {
+        await selectConversation(state.conversations[0].id, { openChat: false })
+      } else {
+        els.chatPhone.textContent = 'Sin conversaciones'
+        els.chatStatus.textContent = 'No hay conversaciones en esta bandeja'
+        els.messages.innerHTML = '<div class="empty">No hay conversaciones para mostrar.</div>'
+      }
+    }
+
+    async function loadConversationFilterView(filter, tabRequestId, signal) {
+      const archiveView = filter === 'archived' ? 'archived' : 'active'
+      const serverFilter = filter === 'handoff' ? 'handoff' : 'all'
+      const params = new URLSearchParams({
+        take: '30',
+        paginated: 'true',
+        archive: archiveView
+      })
+      if (serverFilter === 'handoff') params.set('filter', 'handoff')
+      if (state.businessId) params.set('businessId', state.businessId)
+      try {
+        const page = await getJson('/crm/conversations?' + params.toString(), { signal })
+        if (tabRequestId !== state.conversationTabRequest || state.conversationFilter !== filter) return
+        state.loadedArchiveView = archiveView
+        state.loadedConversationFilter = serverFilter
+        state.conversationNextCursor = page.nextCursor || null
+        state.conversationCounts = page.counts || state.conversationCounts
+        state.lastConversationSyncAt = page.latestActivityAt || state.lastConversationSyncAt
+        state.conversations = page.items || []
+        state.conversations.sort((left, right) => latestConversationActivityAt(right) - latestConversationActivityAt(left))
+        cacheCurrentConversationView()
+        renderConversations()
+        renderAiControls()
+        if (state.conversations[0]) {
+          await selectConversation(state.conversations[0].id, { openChat: false })
+        } else {
+          els.chatPhone.textContent = 'Sin conversaciones'
+          els.chatStatus.textContent = 'No hay conversaciones en esta bandeja'
+          els.messages.innerHTML = '<div class="empty">No hay conversaciones para mostrar.</div>'
+        }
+      } catch (error) {
+        if (error.name === 'AbortError') return
+        if (tabRequestId === state.conversationTabRequest) {
+          els.list.innerHTML = '<div class="error">' + escapeHtml(error.message) + '</div>'
+        }
+      } finally {
+        if (tabRequestId === state.conversationTabRequest) {
+          state.conversationTabLoading = false
+          state.conversationTabController = null
+        }
+      }
+    }
+
     function conversationServerFilterForCurrentTab() {
       return state.conversationFilter === 'handoff' ? 'handoff' : 'all'
     }
@@ -20682,8 +20814,17 @@ const crmHtml = `<!doctype html>
     }
 
     async function refreshConversationSummary() {
+      if (state.conversationTabLoading) return
       if (state.conversationFilter === 'deposits') {
-        await loadDeposits({ keepSelection: true })
+        const previousActiveCount = state.depositCount
+        const previousReviewCount = state.depositReviewCount
+        await refreshDepositCount()
+        if (
+          state.depositCount !== previousActiveCount ||
+          state.depositReviewCount !== previousReviewCount
+        ) {
+          await loadDeposits({ keepSelection: true })
+        }
         return
       }
       void refreshDepositCount()
@@ -20720,6 +20861,7 @@ const crmHtml = `<!doctype html>
         mergeConversationUpdates(page.items || [])
         state.lastConversationSyncAt = page.latestActivityAt || latestActivityAt || state.lastConversationSyncAt
         state.conversations.sort((left, right) => latestConversationActivityAt(right) - latestConversationActivityAt(left))
+        cacheCurrentConversationView()
 
         if (state.selected) {
           const fresh = state.conversations.find((item) => item.id === state.selected.id)
@@ -20834,6 +20976,13 @@ const crmHtml = `<!doctype html>
       state.messageNextCursor = null
       state.appointments = []
       state.customerNotes = []
+    }
+
+    function cancelSelectedConversationLoad() {
+      state.conversationLoadController?.abort()
+      state.conversationLoadRequest += 1
+      state.conversationLoadController = null
+      state.conversationLoadingId = null
     }
 
     function restoreConversationCache(cached) {
@@ -30625,24 +30774,74 @@ const crmHtml = `<!doctype html>
     els.conversationTabs.addEventListener('click', async (event) => {
       const tab = event.target.closest('[data-conversation-filter]')
       if (!tab) return
-      state.conversationFilter = tab.dataset.conversationFilter
-      if (state.conversationFilter === 'deposits') {
+      const nextFilter = tab.dataset.conversationFilter
+      if (nextFilter === state.conversationFilter) return
+      if (state.conversationFilter !== 'deposits') cacheCurrentConversationView()
+      state.conversationTabController?.abort()
+      state.conversationTabController = null
+      state.conversationTabLoading = false
+      state.conversationFilter = nextFilter
+      renderConversationTabActive()
+      const tabRequestId = ++state.conversationTabRequest
+      if (nextFilter === 'deposits') {
+        cancelSelectedConversationLoad()
         state.selected = null
         state.selectedDeposit = null
-        await loadDeposits()
+        if (Date.now() - state.depositsCachedAt < CONVERSATION_CACHE_TTL_MS) {
+          renderDeposits()
+          if (state.deposits[0]) await selectDeposit(state.deposits[0].id)
+          else renderEmptyDepositSelection()
+          return
+        }
+        renderConversationTabLoading('pagos')
+        const controller = new AbortController()
+        state.conversationTabController = controller
+        state.conversationTabLoading = true
+        await loadDeposits({ tabRequestId, signal: controller.signal })
+        if (tabRequestId === state.conversationTabRequest) {
+          state.conversationTabLoading = false
+          state.conversationTabController = null
+        }
         return
       }
       state.selectedDeposit = null
       els.replyForm.hidden = false
-      const archiveView = state.conversationFilter === 'archived' ? 'archived' : 'active'
-      const serverFilter = conversationServerFilterForCurrentTab()
+      const archiveView = nextFilter === 'archived' ? 'archived' : 'active'
+      const serverFilter = nextFilter === 'handoff' ? 'handoff' : 'all'
       if (archiveView !== state.loadedArchiveView || serverFilter !== state.loadedConversationFilter) {
-        state.selected = null
-        state.conversationNextCursor = null
-        await loadConversations()
+        const cached = state.conversationViewCache.get(conversationViewKey(archiveView, serverFilter))
+        if (cached && Date.now() - cached.cachedAt < CONVERSATION_CACHE_TTL_MS) {
+          await showCachedConversationView(cached, archiveView, serverFilter)
+          return
+        }
+        renderConversationTabLoading(nextFilter === 'handoff' ? 'derivados' : 'archivados')
+        const controller = new AbortController()
+        state.conversationTabController = controller
+        state.conversationTabLoading = true
+        await loadConversationFilterView(nextFilter, tabRequestId, controller.signal)
       } else {
         renderConversations()
-        ensureVisibleConversationsForCurrentFilter().catch((error) => showCrmToast(error.message, 'error'))
+        const visibleConversations = filteredConversations()
+        if (!visibleConversations.some((conversation) => conversation.id === state.selected?.id)) {
+          cancelSelectedConversationLoad()
+          state.selected = null
+          clearSelectedConversationData()
+          if (visibleConversations[0]) {
+            await selectConversation(visibleConversations[0].id, { openChat: false })
+          } else {
+            els.chatPhone.textContent = 'Sin conversaciones'
+            els.chatStatus.textContent = 'No hay conversaciones en esta bandeja'
+            els.messages.innerHTML = '<div class="empty">No hay conversaciones para mostrar.</div>'
+          }
+        }
+        try {
+          await ensureVisibleConversationsForCurrentFilter()
+          if (!state.selected && filteredConversations()[0]) {
+            await selectConversation(filteredConversations()[0].id, { openChat: false })
+          }
+        } catch (error) {
+          showCrmToast(error.message, 'error')
+        }
       }
     })
     els.conversationMore.addEventListener('click', () => loadConversations({ append: true }))
