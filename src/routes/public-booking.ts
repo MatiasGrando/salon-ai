@@ -108,30 +108,22 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       professionalId?: string
       date?: string
     }
-    const business = await findAvailablePublicBookingBusiness(request, params.slug)
-    if (!business) return reply.status(404).send({ message: 'No encontre esta landing' })
     if (!query.serviceId || !query.professionalId || !query.date) return reply.status(400).send({ message: 'Servicio, profesional y fecha son requeridos' })
     const serviceId = query.serviceId
     const professionalId = query.professionalId
     const date = query.date
 
-    const professionals = await professionalsForService(business.id, serviceId, professionalId)
+    const [business, professionals, availability] = await Promise.all([
+      findAvailablePublicBookingBusinessAccess(request, params.slug),
+      professionalsForServiceSlug(params.slug, serviceId, professionalId),
+      appointmentService.findAvailability({ professionalId, serviceId, date })
+    ])
+    if (!business) return reply.status(404).send({ message: 'No encontre esta landing' })
     if (professionals.length === 0) return reply.status(404).send({ message: 'No hay profesionales para ese servicio' })
 
     const slots: Array<{ time: string; professionalId: string; professionalName: string }> = []
     const errors: string[] = []
-
-    const availabilityResults = await appointmentService.findAvailabilityMany(
-      professionals.map((professional) => ({
-        professionalId: professional.id,
-        serviceId,
-        date
-      }))
-    )
-    const results = professionals.map((professional, index) => ({
-      professional,
-      result: availabilityResults[index]!
-    }))
+    const results = [{ professional: professionals[0]!, result: availability }]
 
     for (const { professional, result } of results) {
       if (result.ok) {
@@ -690,35 +682,47 @@ async function professionalsForService(businessId: string, serviceId: string, pr
       businessId,
       depositMode: { in: ['NONE', 'FIXED', 'PERCENTAGE'] }
     },
-    select: { id: true, attentionMode: true, estimateAllowsBooking: true }
-  })
-  if (!service || !serviceCanBookFromWeb(service)) return []
-
-  const links = await prisma.professionalService.findMany({
-    where: {
-      serviceId,
-      professional: {
-        businessId,
-        isActive: true,
-        ...(professionalId ? { id: professionalId } : {})
-      }
-    },
     select: {
-      professional: {
+      id: true,
+      attentionMode: true,
+      estimateAllowsBooking: true,
+      professionalLinks: {
+        where: {
+          professional: {
+            businessId,
+            isActive: true,
+            ...(professionalId ? { id: professionalId } : {})
+          }
+        },
         select: {
-          id: true,
-          name: true
-        }
-      }
-    },
-    orderBy: {
-      professional: {
-        name: 'asc'
+          professional: { select: { id: true, name: true } }
+        },
+        orderBy: { professional: { name: 'asc' } }
       }
     }
   })
+  if (!service || !serviceCanBookFromWeb(service)) return []
+  return service.professionalLinks.map((link) => link.professional)
+}
 
-  return links.map((link) => link.professional)
+async function professionalsForServiceSlug(slug: string, serviceId: string, professionalId: string) {
+  const service = await prisma.service.findFirst({
+    where: {
+      id: serviceId,
+      business: { slug },
+      depositMode: { in: ['NONE', 'FIXED', 'PERCENTAGE'] }
+    },
+    select: {
+      attentionMode: true,
+      estimateAllowsBooking: true,
+      professionalLinks: {
+        where: { professional: { id: professionalId, isActive: true } },
+        select: { professional: { select: { id: true, name: true } } }
+      }
+    }
+  })
+  if (!service || !serviceCanBookFromWeb(service)) return []
+  return service.professionalLinks.map((link) => link.professional)
 }
 
 async function findOrCreatePublicCustomer(input: {
@@ -944,6 +948,25 @@ async function findAvailablePublicBookingBusiness(request: FastifyRequest, slug:
   const business = await businessService.findPublicBySlug(slug)
   if (!business) return null
   if (isBusinessAccountUnavailable(business.accountStatus)) return null
+  if (business.landingEnabled) return business
+  const query = request.query as { preview?: string }
+  const rawHost = request.headers['x-forwarded-host'] || request.headers.host
+  const host = (Array.isArray(rawHost) ? rawHost[0] : rawHost)?.split(':')[0]?.toLowerCase()
+  const localDemoPreview = (host === 'localhost' || host === '127.0.0.1') && business.isDemo && query.preview === '1'
+  return localDemoPreview ? business : null
+}
+
+async function findAvailablePublicBookingBusinessAccess(request: FastifyRequest, slug: string) {
+  const business = await prisma.business.findUnique({
+    where: { slug },
+    select: {
+      id: true,
+      accountStatus: true,
+      landingEnabled: true,
+      isDemo: true
+    }
+  })
+  if (!business || isBusinessAccountUnavailable(business.accountStatus)) return null
   if (business.landingEnabled) return business
   const query = request.query as { preview?: string }
   const rawHost = request.headers['x-forwarded-host'] || request.headers.host

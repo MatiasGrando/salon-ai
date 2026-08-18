@@ -101,7 +101,9 @@ try {
   assert.equal(serviceSource.includes('await bookingDepositService.expireOverdue()\n    const dayStart'), false)
   assert.match(serviceSource, /bookingDeposit:\s*\{\s*is:\s*\{ status: 'PENDING_PROOF'/)
   assert.match(providerSource, /pendingAvailability/)
-  assert.match(publicRouteSource, /appointmentService\.findAvailabilityMany/)
+  assert.match(publicRouteSource, /findAvailablePublicBookingBusinessAccess/)
+  assert.match(publicRouteSource, /professionalsForServiceSlug/)
+  assert.match(publicRouteSource, /appointmentService\.findAvailability\(\{ professionalId, serviceId, date \}\)/)
   assert.match(publicRouteSource, /availabilityProvider\.getAvailability/)
   for (const index of [
     '@@index([professionalId, startAt])',
