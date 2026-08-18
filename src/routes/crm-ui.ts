@@ -25761,7 +25761,7 @@ const crmHtml = `<!doctype html>
         .join('')
       const blocks = filteredAgendaBlocksForRange(day, addDays(day, 1))
         .filter((block) => !block.professionalId || block.professionalId === professional.id)
-        .map((block) => renderAgendaMobileBlock(block, hourHeight))
+        .map((block) => renderAgendaMobileBlock(block, day, hourHeight))
         .join('')
       const now = new Date()
       const nowLine = dateKey(day) === dateKey(now)
@@ -25794,7 +25794,7 @@ const crmHtml = `<!doctype html>
         .map((appointment) => renderAgendaMobileEvent(appointment, hourHeight, eventLayout.get(appointment.id)))
         .join('')
       const dayBlocks = filteredAgendaBlocksForRange(day, addDays(day, 1))
-        .map((block) => renderAgendaMobileBlock(block, hourHeight))
+        .map((block) => renderAgendaMobileBlock(block, day, hourHeight))
         .join('')
       return '<div class="agenda-gcal-day-column" data-gcal-day="' + key + '">' + cells + events + dayBlocks + '</div>'
     }
@@ -25865,16 +25865,29 @@ const crmHtml = `<!doctype html>
       return '<span class="appointment-origin-badge ' + origin.className + '" title="' + escapeHtml(origin.label) + '" aria-label="' + escapeHtml(origin.label) + '">' + origin.code + '</span>'
     }
 
-    function renderAgendaMobileBlock(block, hourHeight) {
-      const start = new Date(block.startAt)
-      const end = new Date(block.endAt)
-      const startMinute = start.getHours() * 60 + start.getMinutes()
-      const duration = Math.max(15, Math.round((end.getTime() - start.getTime()) / 60000))
+    function renderAgendaMobileBlock(block, day, hourHeight) {
+      const blockStart = new Date(block.startAt)
+      const blockEnd = new Date(block.endAt)
+      const dayStart = startOfDay(day)
+      const dayEnd = addDays(dayStart, 1)
+      const segmentStart = new Date(Math.max(blockStart.getTime(), dayStart.getTime()))
+      const segmentEnd = new Date(Math.min(blockEnd.getTime(), dayEnd.getTime()))
+      if (segmentEnd <= segmentStart) return ''
+
+      const startMinute = segmentStart.getHours() * 60 + segmentStart.getMinutes()
+      const duration = Math.max(15, Math.round((segmentEnd.getTime() - segmentStart.getTime()) / 60000))
       const top = (startMinute / 60) * hourHeight + 2
       const height = Math.max(34, (duration / 60) * hourHeight - 4)
+      const coversDayStart = blockStart <= dayStart
+      const coversDayEnd = blockEnd >= dayEnd
+      const timeLabel = coversDayStart && coversDayEnd
+        ? 'Todo el d&iacute;a'
+        : (coversDayStart ? '00:00' : formatTimeOnly(segmentStart)) + ' - ' + (coversDayEnd ? '24:00' : formatTimeOnly(segmentEnd))
+      const scope = block.professional?.name || 'Todo el sal&oacute;n'
       return '<button class="agenda-gcal-block" type="button" data-block-id="' + block.id + '" style="top:' + top + 'px;height:' + height + 'px">' +
         '<strong>' + escapeHtml(block.title || scheduleBlockReasonLabel(block.reason)) + '</strong>' +
-        '<span>' + escapeHtml(formatTimeOnly(start) + ' - ' + formatTimeOnly(end)) + '</span>' +
+        '<span>' + timeLabel + '</span>' +
+        '<span>' + escapeHtml(scope) + '</span>' +
       '</button>'
     }
 
