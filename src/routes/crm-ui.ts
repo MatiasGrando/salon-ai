@@ -29968,7 +29968,9 @@ const crmHtml = `<!doctype html>
     }
 
     function isPendingHandoff(conversation) {
-      return conversation.currentStep === 'HUMAN_HANDOFF' && !conversation.humanHandoffResolvedAt
+      return conversation.aiEnabled === false || (
+        conversation.currentStep === 'HUMAN_HANDOFF' && !conversation.humanHandoffResolvedAt
+      )
     }
 
     function isConversationUnread(conversation) {

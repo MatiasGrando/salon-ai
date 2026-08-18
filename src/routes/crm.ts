@@ -1628,12 +1628,21 @@ function conversationListWhere(input: {
     ...(input.archiveView === 'active' ? { archivedAt: null } : {}),
     ...(input.archiveView === 'archived' ? { archivedAt: { not: null } } : {}),
     ...(input.filter === 'handoff'
-      ? {
-          currentStep: 'HUMAN_HANDOFF',
-          humanHandoffResolvedAt: null
-        }
+      ? pendingConversationHandoffWhere()
       : {})
   } satisfies Prisma.ConversationWhereInput
+}
+
+function pendingConversationHandoffWhere(): Prisma.ConversationWhereInput {
+  return {
+    OR: [
+      { aiEnabled: false },
+      {
+        currentStep: 'HUMAN_HANDOFF',
+        humanHandoffResolvedAt: null
+      }
+    ]
+  }
 }
 
 async function conversationCounts(businessId?: string) {
@@ -1647,8 +1656,7 @@ async function conversationCounts(businessId?: string) {
       where: {
         ...countWhere,
         archivedAt: null,
-        currentStep: 'HUMAN_HANDOFF',
-        humanHandoffResolvedAt: null
+        ...pendingConversationHandoffWhere()
       }
     })
   ])

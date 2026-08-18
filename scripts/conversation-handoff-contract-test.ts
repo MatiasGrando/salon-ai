@@ -63,5 +63,15 @@ assert.match(
   crmSource,
   /conversation\.currentStep === 'HUMAN_HANDOFF'[\s\S]*?takenConversationHandoffPatch\(\{ queuedAt: conversation\.humanHandoffAt \}\)/
 )
+assert.match(
+  crmSource,
+  /function pendingConversationHandoffWhere\(\)[\s\S]*?OR:\s*\[[\s\S]*?aiEnabled:\s*false[\s\S]*?currentStep:\s*'HUMAN_HANDOFF'[\s\S]*?humanHandoffResolvedAt:\s*null/
+)
+
+const crmUiSource = readFileSync('src/routes/crm-ui.ts', 'utf8')
+assert.match(
+  crmUiSource,
+  /function isPendingHandoff\(conversation\)[\s\S]*?conversation\.aiEnabled === false[\s\S]*?conversation\.currentStep === 'HUMAN_HANDOFF'/
+)
 
 console.log('conversation-handoff-contract-test: OK')
