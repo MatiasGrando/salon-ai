@@ -136,6 +136,19 @@ export function stateFromConversation(
   }
 }
 
+export function cleanBookingStateAfterResolvedHandoff(
+  conversation: BookingV2ConversationSnapshot
+): BookingV2State {
+  const state = createEmptyBookingV2State()
+  return {
+    ...state,
+    draft: {
+      ...state.draft,
+      name: conversation.selectedCustomerName
+    }
+  }
+}
+
 export function conversationPatchFromState(state: BookingV2State): BookingV2ConversationPatch {
   return {
     selectedCustomerName: state.draft.name,

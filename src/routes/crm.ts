@@ -19,6 +19,7 @@ import {
   normalizeCatalogDisplayMode
 } from '../services/booking-v2-domain.js'
 import {
+  cleanBookingStateAfterResolvedHandoff,
   conversationPatchFromState,
   stateFromConversation
 } from '../services/booking-v2-conversation-state.js'
@@ -33,7 +34,10 @@ import {
   type BookingV2State
 } from '../services/booking-v2-state.js'
 import { normalizeConversationContextSettings } from '../services/conversation-context-settings.js'
-import { takenConversationHandoffPatch } from '../services/conversation-handoff.js'
+import {
+  resolvedConversationHandoffPatch,
+  takenConversationHandoffPatch
+} from '../services/conversation-handoff.js'
 import { sendBookingConfirmationEmail } from '../services/booking-confirmation-email-service.js'
 import { customerDurationRange } from '../services/service-duration.js'
 import {
@@ -951,17 +955,16 @@ export async function crmRoutes(app: FastifyInstance) {
     }
 
     const isEnablingAi = body.aiEnabled
-    const bookingFlowOrder = isEnablingAi
-      ? normalizeBookingFlowOrder((await prisma.businessFeatureSettings.findUnique({
-          where: { businessId: conversation.businessId },
-          select: { bookingFlowOrder: true }
-        }))?.bookingFlowOrder)
-      : 'PROFESSIONAL_FIRST'
-    const preservedState = isEnablingAi
-      ? stateFromConversation(conversation)
+    const isResolvingHandoff = isEnablingAi && (
+      conversation.currentStep === 'HUMAN_HANDOFF' || !conversation.aiEnabled
+    )
+    const nextState = isEnablingAi
+      ? isResolvingHandoff
+        ? cleanBookingStateAfterResolvedHandoff(conversation)
+        : stateFromConversation(conversation)
       : null
-    const preservedPatch = preservedState
-      ? conversationPatchFromState(preservedState)
+    const nextPatch = nextState
+      ? conversationPatchFromState(nextState)
       : null
     if (isEnablingAi) {
       const activeDeposit = await prisma.bookingDeposit.findFirst({
@@ -984,14 +987,18 @@ export async function crmRoutes(app: FastifyInstance) {
       },
       data: body.aiEnabled
         ? {
-            aiEnabled: true,
-            currentStep: conversationStepForPersistedBookingState(preservedState!, bookingFlowOrder),
-            ...preservedPatch!,
-            bookingV2State: preservedPatch?.bookingV2State
-              ? preservedPatch.bookingV2State as Prisma.InputJsonValue
+            ...(isResolvingHandoff
+              ? resolvedConversationHandoffPatch()
+              : { aiEnabled: true }),
+            ...(isResolvingHandoff ? {} : {
+              currentStep: conversationStepForPersistedBookingState(nextState!)
+            }),
+            ...nextPatch!,
+            bookingV2State: nextPatch?.bookingV2State
+              ? nextPatch.bookingV2State as Prisma.InputJsonValue
               : Prisma.JsonNull,
             supportBotState: Prisma.JsonNull,
-            humanHandoffResolvedAt: isEnablingAi ? new Date() : conversation.humanHandoffResolvedAt
+            ...(isResolvingHandoff ? { lastAvailability: Prisma.JsonNull } : {})
           }
         : takenConversationHandoffPatch({ queuedAt: conversation.humanHandoffAt })
     })

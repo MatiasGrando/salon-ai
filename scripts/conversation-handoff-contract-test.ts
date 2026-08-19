@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import {
+  cleanBookingStateAfterResolvedHandoff,
+  conversationPatchFromState
+} from '../src/services/booking-v2-conversation-state.js'
+import {
   conversationHandoffStage,
   isQueuedConversationHandoff,
   queuedConversationHandoffPatch,
+  resolvedConversationHandoffPatch,
   takenConversationHandoffPatch
 } from '../src/services/conversation-handoff.js'
 
@@ -22,6 +27,31 @@ assert.equal(conversationHandoffStage({ ...queued, aiEnabled: false }), 'TAKEN')
 const taken = takenConversationHandoffPatch({ queuedAt: now })
 assert.equal(conversationHandoffStage(taken), 'TAKEN')
 assert.equal(taken.humanHandoffAt, now)
+const resolved = resolvedConversationHandoffPatch(now)
+assert.deepEqual(resolved, {
+  currentStep: 'START',
+  aiEnabled: true,
+  misunderstandingCount: 0,
+  humanHandoffResolvedAt: now
+})
+const cleanBookingPatch = conversationPatchFromState(cleanBookingStateAfterResolvedHandoff({
+  selectedCustomerName: 'Mati QA',
+  selectedServiceId: 'service-1',
+  selectedProfessionalId: 'professional-1',
+  selectedDate: '2026-08-20',
+  selectedTime: '14:00',
+  misunderstandingCount: 2,
+  bookingV2State: { version: 1, pendingProposal: null }
+}))
+assert.deepEqual(cleanBookingPatch, {
+  selectedCustomerName: 'Mati QA',
+  selectedServiceId: null,
+  selectedProfessionalId: null,
+  selectedDate: null,
+  selectedTime: null,
+  misunderstandingCount: 0,
+  bookingV2State: null
+})
 assert.equal(conversationHandoffStage({
   ...queued,
   humanHandoffResolvedAt: new Date('2026-08-10T12:05:00.000Z')
@@ -67,6 +97,9 @@ assert.match(
   crmSource,
   /function pendingConversationHandoffWhere\(\)[\s\S]*?OR:\s*\[[\s\S]*?aiEnabled:\s*false[\s\S]*?currentStep:\s*'HUMAN_HANDOFF'[\s\S]*?humanHandoffResolvedAt:\s*null/
 )
+assert.match(crmSource, /isResolvingHandoff[\s\S]*?cleanBookingStateAfterResolvedHandoff\(conversation\)/)
+assert.match(crmSource, /isResolvingHandoff[\s\S]*?resolvedConversationHandoffPatch\(\)/)
+assert.match(crmSource, /isResolvingHandoff[\s\S]*?lastAvailability:\s*Prisma\.JsonNull/)
 
 const crmUiSource = readFileSync('src/routes/crm-ui.ts', 'utf8')
 assert.match(
