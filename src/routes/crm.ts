@@ -44,6 +44,7 @@ import {
   createGoogleCalendarEventForAppointment,
   weexGoogleCalendarEnabled
 } from '../services/weex-account-service.js'
+import { subscribeToCrmRealtimeEvents } from '../services/crm-realtime-events.js'
 
 const whatsappCloudApi = new WhatsAppCloudApi()
 const bookingV2Engine = new BookingV2Engine()
@@ -110,6 +111,48 @@ function safeMediaFilename(
 }
 
 export async function crmRoutes(app: FastifyInstance) {
+  app.get('/crm/events', async (request, reply) => {
+    const query = request.query as { businessId?: string }
+    const businessId = query.businessId || request.auth?.user.businessId
+    if (!businessId) {
+      return reply.status(400).send({ message: 'Selecciona un comercio para recibir eventos' })
+    }
+
+    reply.hijack()
+    const response = reply.raw
+    response.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no'
+    })
+    response.write('retry: 5000\n\n')
+
+    let closed = false
+    const unsubscribe = subscribeToCrmRealtimeEvents({
+      businessId,
+      send: (event) => {
+        if (response.writableEnded || response.destroyed) throw new Error('La conexión de eventos se cerró')
+        response.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`)
+      }
+    })
+    const heartbeat = setInterval(() => {
+      if (!response.writableEnded && !response.destroyed) response.write(': ping\n\n')
+    }, 25_000)
+    heartbeat.unref()
+
+    const close = () => {
+      if (closed) return
+      closed = true
+      clearInterval(heartbeat)
+      unsubscribe()
+    }
+    request.raw.once('close', close)
+    response.once('close', close)
+
+    return reply
+  })
+
   app.post('/crm/maintenance/delete-qa-data', async (request, reply) => {
     const body = request.body as { confirm?: string }
     if (body.confirm !== 'delete-all-qa-cami-data') {
@@ -301,14 +344,17 @@ export async function crmRoutes(app: FastifyInstance) {
       ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {})
     })
 
-    const latestMessages = await latestMessagesByConversationId(
-      conversations.map((conversation) => conversation.id)
-    )
+    const conversationIds = conversations.map((conversation) => conversation.id)
+    const [latestMessages, latestInboundMessages] = await Promise.all([
+      latestMessagesByConversationId(conversationIds),
+      latestInboundMessagesByConversationId(conversationIds)
+    ])
     const conversationsWithLatestMessage = conversations.map((conversation) => ({
       ...conversation,
       messages: latestMessages.has(conversation.id)
         ? [latestMessages.get(conversation.id)!]
-        : []
+        : [],
+      latestInboundMessage: latestInboundMessages.get(conversation.id) ?? null
     }))
 
     const hasMore = conversationsWithLatestMessage.length > take
@@ -1819,6 +1865,26 @@ async function latestMessagesByConversationId(conversationIds: string[]) {
   `)
 
   return new Map(messages.map((message) => [message.conversationId, message]))
+}
+
+async function latestInboundMessagesByConversationId(conversationIds: string[]) {
+  if (conversationIds.length === 0) return new Map<string, LatestInboundMessage>()
+
+  const messages = await prisma.$queryRaw<LatestInboundMessage[]>(Prisma.sql`
+    SELECT DISTINCT ON ("conversationId") "id", "conversationId", "createdAt"
+    FROM "Message"
+    WHERE "conversationId" IN (${Prisma.join(conversationIds)})
+      AND "direction" = 'INBOUND'
+    ORDER BY "conversationId", "createdAt" DESC, "id" DESC
+  `)
+
+  return new Map(messages.map((message) => [message.conversationId, message]))
+}
+
+type LatestInboundMessage = {
+  id: string
+  conversationId: string
+  createdAt: Date
 }
 
 async function sendCrmAutomatedMessage(input: {

@@ -5895,34 +5895,27 @@ export function bookingCoordinationReplyButtons(input: {
     ]
   }
   if (input.plan.type === 'ask_coordinated_date') {
-    const dateButtons = input.plan.quickDates.slice(0, 2).map((date) => ({
+    const dateButtons = input.plan.quickDates.slice(0, 9).map((date) => ({
       id: `${prefix}date:${date}`,
       title: coordinatedDateButtonTitle(date)
     }))
+    if (dateButtons.length >= 3) {
+      return [...dateButtons, { id: `${prefix}other_date`, title: 'Otra fecha' }]
+    }
     if (dateButtons.length === 2) {
       return [...dateButtons, { id: `${prefix}other_date`, title: 'Otra fecha' }]
     }
     if (dateButtons.length === 1) {
       return [
         ...dateButtons,
-        { id: `${prefix}next_days`, title: 'Próximos días' },
+        { id: `${prefix}next_days`, title: 'Ver días disponibles' },
         { id: `${prefix}other_date`, title: 'Otra fecha' }
       ]
     }
-    return input.state.pendingCoordinatedAvailability?.requireRequestedProfessional
-      ? [
-          { id: `${prefix}next_days`, title: 'Próximos días' },
-          {
-            id: `${prefix}without_professional`,
-            title: withoutProfessionalButtonTitle(input.plan.professionalName)
-          },
-          { id: `${prefix}other_date`, title: 'Otra fecha' }
-        ]
-      : [
-          { id: `${prefix}next_days`, title: 'Próximos días' },
-          { id: `${prefix}other_date`, title: 'Elegir una fecha' },
-          { id: `${prefix}human`, title: 'Solicitar atención' }
-        ]
+    return [
+      { id: `${prefix}next_days`, title: 'Ver días disponibles' },
+      { id: `${prefix}other_date`, title: 'Otra fecha' }
+    ]
   }
   if (input.plan.type === 'ask_coordinated_time_preference') {
     const labels = {

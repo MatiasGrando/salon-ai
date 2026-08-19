@@ -38,6 +38,7 @@
     "test:account-billing": "tsx scripts/account-billing-contract-test.ts",
     "test:business-account-access": "tsx scripts/business-account-access-contract-test.ts",
     "test:crm-ui-syntax": "tsx scripts/crm-ui-inline-syntax-test.ts",
+    "test:crm-realtime-events": "tsx scripts/crm-realtime-events-contract-test.ts",
     "sync:weex-bot-v1": "tsx scripts/sync-weex-support-bot-v1.ts",
     "test:business-bot-configuration": "tsx scripts/business-bot-configuration-contract-test.ts",
     "assign:weex-bot-v1": "tsx scripts/assign-weex-support-bot-v1.ts",

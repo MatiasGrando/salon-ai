@@ -29,6 +29,7 @@ import {
   LatencyDiagnostic
 } from './latency-diagnostic.js'
 import { isBusinessAccountUnavailable } from './business-account-access.js'
+import { publishIncomingConversationMessage } from './crm-realtime-events.js'
 
 type VerifyWebhookInput = {
   mode: string | undefined
@@ -287,6 +288,14 @@ export class WhatsAppWebhookService {
           updatedAt: new Date()
         }
       })
+      if (conversation.businessId) {
+        publishIncomingConversationMessage({
+          businessId: conversation.businessId,
+          conversationId: conversation.id,
+          messageId: inboundMessage.id,
+          receivedAt: inboundMessage.createdAt.toISOString()
+        })
+      }
       latencyDiagnostic?.checkpoint('persist_inbound')
       await reopenClosedConversationOpportunity(conversation.id)
       await linkInstagramReferral(message.text, conversation.id, conversation.businessId)
@@ -642,6 +651,9 @@ export class WhatsAppWebhookService {
         : null
     const hasReplyButtons = Boolean(conversationResult.replyButtons?.length)
     const hasInteractiveList = (conversationResult.replyButtons?.length ?? 0) > 3
+    const isDateSelectionList = hasInteractiveList && Boolean(conversationResult.replyButtons?.every((button) =>
+      /:date:\d{4}-\d{2}-\d{2}$/.test(button.id) || button.id.endsWith(':other_date')
+    ))
     const outboundReplies = hasReplyButtons
       ? [conversationResult.reply]
       : conversationResult.messages?.length
@@ -660,8 +672,8 @@ export class WhatsAppWebhookService {
                   to: firstMessage.phone,
                   text: replyText,
                   rows: conversationResult.replyButtons!,
-                  buttonText: 'Ver opciones',
-                  sectionTitle: 'Elegí una opción'
+                  buttonText: isDateSelectionList ? 'Ver días disponibles' : 'Ver opciones',
+                  sectionTitle: isDateSelectionList ? 'Elegí una fecha' : 'Elegí una opción'
                 })
               : whatsappCloudApi.sendReplyButtonsMessage({
                 businessId: firstMessage.businessId!,

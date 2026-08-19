@@ -177,6 +177,7 @@ export function canStaffAccessRoute(user: StaffAuthorizationUser, method: string
     if (/\/deposit\/(?:approve|reject)$/.test(path)) return user.canManageDeposits
     return verb === 'GET' ? user.canViewConversations : user.canReplyConversations
   }
+  if (path === '/crm/events') return verb === 'GET' && user.canViewConversations
   if (path.startsWith('/crm/deposits')) {
     return verb === 'GET' ? user.canViewConversations : user.canManageDeposits
   }

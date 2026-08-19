@@ -17222,7 +17222,7 @@ const crmHtml = `<!doctype html>
       document.body.innerHTML = '<main class="crm-shell"><section class="settings-card"><h1>Conectando WhatsApp...</h1><p>Ya podes volver a la ventana principal.</p></section></main>'
     } else {
 
-    const CRM_AUTO_REFRESH_MS = 15000
+    const CRM_FALLBACK_REFRESH_MS = 2 * 60 * 1000
     const CONVERSATION_CACHE_TTL_MS = 60000
     const CONVERSATION_CACHE_LIMIT = 12
     const ASSISTANT_PERSONALITY_PRESETS = {
@@ -17485,8 +17485,11 @@ const crmHtml = `<!doctype html>
       pendingUiConfirmationResolve: null,
       crmToastTimer: null,
       isRefreshing: false,
-      autoRefreshTimer: null,
-      lastConversationSyncAt: null
+      realtimeEventSource: null,
+      realtimeFallbackTimer: null,
+      lastConversationSyncAt: null,
+      knownInboundMessageIds: new Set(),
+      messageSoundContext: null
     }
 
     const els = {
@@ -18588,6 +18591,7 @@ const crmHtml = `<!doctype html>
     }
 
     async function logoutFromCrm() {
+      stopCrmRealtimeEvents()
       await getJson('/auth/logout', { method: 'POST' }).catch(() => null)
       window.location.reload()
     }
@@ -18826,9 +18830,12 @@ const crmHtml = `<!doctype html>
       }
       els.demoChatMessages.innerHTML = state.demoChatMessages.map((message) => {
         const replyButtons = Array.isArray(message.replyButtons) ? message.replyButtons : []
+        const isDateSelectionList = replyButtons.length > 3 && replyButtons.every((button) =>
+          /:date:\d{4}-\d{2}-\d{2}$/.test(button.id) || button.id.endsWith(':other_date')
+        )
         const interactiveList = replyButtons.length > 3
-          ? '<details class="demo-chat-interactive-list"' + (message.replyButtonsDisabled ? ' aria-disabled="true"' : '') + '><summary>Ver opciones de horario</summary>' +
-            '<div class="demo-chat-interactive-list-title">Eleg&iacute; una opci&oacute;n</div>' +
+          ? '<details class="demo-chat-interactive-list"' + (message.replyButtonsDisabled ? ' aria-disabled="true"' : '') + '><summary>' + (isDateSelectionList ? 'Ver d&iacute;as disponibles' : 'Ver opciones de horario') + '</summary>' +
+            '<div class="demo-chat-interactive-list-title">' + (isDateSelectionList ? 'Eleg&iacute; una fecha' : 'Eleg&iacute; una opci&oacute;n') + '</div>' +
             replyButtons.map((button) => {
               const disabled = message.replyButtonsDisabled ? ' disabled' : ''
               return '<button class="demo-chat-interactive-list-option" type="button" data-demo-chat-reply-id="' + escapeHtml(button.id) + '" data-demo-chat-reply-title="' + escapeHtml(button.title) + '"' + disabled + '>' + escapeHtml(button.title) + '</button>'
@@ -20002,6 +20009,7 @@ const crmHtml = `<!doctype html>
       if (!['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(state.currentUser?.role) || !businessId || businessId === state.businessId) return
       const nextBusiness = state.businesses.find((business) => business.id === businessId)
       if (!nextBusiness) return
+      stopCrmRealtimeEvents()
       state.business = nextBusiness
       state.businessId = nextBusiness.id
       state.conversationLoadController?.abort()
@@ -20027,6 +20035,7 @@ const crmHtml = `<!doctype html>
       state.conversationNextCursor = null
       state.conversationCounts = { active: 0, archived: 0, handoff: 0 }
       state.lastConversationSyncAt = null
+      state.knownInboundMessageIds.clear()
       state.customerOverview = []
       state.selectedCustomerId = null
       state.agendaAppointments = []
@@ -20059,6 +20068,7 @@ const crmHtml = `<!doctype html>
         renderAppointmentFormOptions()
         await loadAgenda()
         await loadConversations()
+        startCrmRealtimeEvents()
         if (els.appShell?.dataset.section === 'customers') await loadCustomerOverview()
         if (els.appShell?.dataset.section === 'reports') await loadReports()
         showCrmToast('Revisando conversaciones de ' + nextBusiness.name + '.', 'success')
@@ -20072,13 +20082,17 @@ const crmHtml = `<!doctype html>
       if (state.currentUser?.role === 'ACCOUNT_ADMIN') {
         if (state.business) {
           await loadConversations()
+          startCrmRealtimeEvents()
           setSection('conversations')
           return
         }
         setSection('settings')
         return
       }
-      if (state.currentUser?.role !== 'STAFF' || state.currentUser?.canViewConversations) await loadConversations()
+      if (state.currentUser?.role !== 'STAFF' || state.currentUser?.canViewConversations) {
+        await loadConversations()
+        startCrmRealtimeEvents()
+      }
       if (isMobile()) setMobileView('inbox')
     }
 
@@ -20593,6 +20607,7 @@ const crmHtml = `<!doctype html>
           state.conversations = page.items
         }
         state.conversations.sort((left, right) => latestConversationActivityAt(right) - latestConversationActivityAt(left))
+        rememberKnownInboundMessages(page.items || [])
         cacheCurrentConversationView()
         if (els.topConversationTotal) els.topConversationTotal.textContent = String(state.conversationCounts.active)
         renderConversations()
@@ -20905,6 +20920,7 @@ const crmHtml = `<!doctype html>
         state.lastConversationSyncAt = page.latestActivityAt || state.lastConversationSyncAt
         state.conversations = page.items || []
         state.conversations.sort((left, right) => latestConversationActivityAt(right) - latestConversationActivityAt(left))
+        rememberKnownInboundMessages(page.items || [])
         cacheCurrentConversationView()
         renderConversations()
         renderAiControls()
@@ -20961,6 +20977,60 @@ const crmHtml = `<!doctype html>
       return false
     }
 
+    function startCrmRealtimeEvents() {
+      stopCrmRealtimeEvents()
+      if (!state.businessId || !window.EventSource) {
+        startCrmRealtimeFallback()
+        return
+      }
+
+      const params = new URLSearchParams({ businessId: state.businessId })
+      const source = new EventSource('/crm/events?' + params.toString())
+      state.realtimeEventSource = source
+      source.addEventListener('conversation_message_received', (event) => {
+        let payload
+        try {
+          payload = JSON.parse(event.data)
+        } catch {
+          return
+        }
+        if (payload.businessId !== state.businessId || !payload.messageId) return
+        if (!state.knownInboundMessageIds.has(payload.messageId)) {
+          state.knownInboundMessageIds.add(payload.messageId)
+          playIncomingMessageSound()
+        }
+        refreshConversationSummary().catch(() => null)
+      })
+      source.addEventListener('open', () => {
+        if (state.realtimeEventSource === source) stopCrmRealtimeFallback()
+      })
+      source.addEventListener('error', () => {
+        if (state.realtimeEventSource === source) startCrmRealtimeFallback()
+      })
+    }
+
+    function stopCrmRealtimeEvents() {
+      state.realtimeEventSource?.close()
+      state.realtimeEventSource = null
+      stopCrmRealtimeFallback()
+    }
+
+    function startCrmRealtimeFallback() {
+      if (state.realtimeFallbackTimer) return
+      const refresh = () => {
+        if (document.body.dataset.auth !== 'ready') return
+        refreshConversationSummary().catch(() => null)
+      }
+      refresh()
+      state.realtimeFallbackTimer = setInterval(refresh, CRM_FALLBACK_REFRESH_MS)
+    }
+
+    function stopCrmRealtimeFallback() {
+      if (!state.realtimeFallbackTimer) return
+      clearInterval(state.realtimeFallbackTimer)
+      state.realtimeFallbackTimer = null
+    }
+
     async function refreshConversationSummary() {
       if (state.conversationTabLoading) return
       if (state.conversationFilter === 'deposits') {
@@ -21006,6 +21076,7 @@ const crmHtml = `<!doctype html>
       try {
         const page = await getJson('/crm/conversations?' + params.toString())
         state.conversationCounts = page.counts || state.conversationCounts
+        notifyAboutNewInboundMessages(page.items || [])
         mergeConversationUpdates(page.items || [])
         state.lastConversationSyncAt = page.latestActivityAt || latestActivityAt || state.lastConversationSyncAt
         state.conversations.sort((left, right) => latestConversationActivityAt(right) - latestConversationActivityAt(left))
@@ -21047,6 +21118,66 @@ const crmHtml = `<!doctype html>
         }
       }
       state.conversations = Array.from(byId.values())
+    }
+
+    function rememberKnownInboundMessages(conversations) {
+      for (const conversation of conversations) {
+        const messageId = conversation.latestInboundMessage?.id
+        if (messageId) state.knownInboundMessageIds.add(messageId)
+      }
+    }
+
+    function notifyAboutNewInboundMessages(conversations) {
+      let receivedNewMessage = false
+      const lastSyncedAt = state.lastConversationSyncAt
+        ? new Date(state.lastConversationSyncAt).getTime()
+        : 0
+      for (const conversation of conversations) {
+        const incomingMessage = conversation.latestInboundMessage
+        const messageId = incomingMessage?.id
+        if (!messageId || state.knownInboundMessageIds.has(messageId)) continue
+        state.knownInboundMessageIds.add(messageId)
+        const receivedAt = incomingMessage?.createdAt
+          ? new Date(incomingMessage.createdAt).getTime()
+          : 0
+        if (!receivedAt || receivedAt <= lastSyncedAt) continue
+        receivedNewMessage = true
+      }
+      if (receivedNewMessage) playIncomingMessageSound()
+    }
+
+    function enableIncomingMessageSound() {
+      if (state.messageSoundContext) {
+        state.messageSoundContext.resume?.().catch(() => null)
+        return
+      }
+      const AudioContext = window.AudioContext || window.webkitAudioContext
+      if (!AudioContext) return
+      try {
+        state.messageSoundContext = new AudioContext()
+        state.messageSoundContext.resume?.().catch(() => null)
+      } catch {
+        state.messageSoundContext = null
+      }
+    }
+
+    function playIncomingMessageSound() {
+      const context = state.messageSoundContext
+      if (!context || context.state !== 'running') return
+      const startedAt = context.currentTime
+      for (const [offset, frequency] of [[0, 880], [0.12, 1175]]) {
+        const oscillator = context.createOscillator()
+        const gain = context.createGain()
+        oscillator.type = 'sine'
+        oscillator.frequency.setValueAtTime(frequency, startedAt + offset)
+        gain.gain.setValueAtTime(0.0001, startedAt + offset)
+        gain.gain.exponentialRampToValueAtTime(0.055, startedAt + offset + 0.012)
+        gain.gain.exponentialRampToValueAtTime(0.0001, startedAt + offset + 0.11)
+        oscillator.connect(gain)
+        gain.connect(context.destination)
+        oscillator.start(startedAt + offset)
+        oscillator.stop(startedAt + offset + 0.12)
+      }
     }
 
     function renderConversations() {
@@ -31233,16 +31364,15 @@ const crmHtml = `<!doctype html>
 
     hydrateIcons()
 
+    document.addEventListener('pointerdown', enableIncomingMessageSound, { once: true, capture: true })
+    document.addEventListener('keydown', enableIncomingMessageSound, { once: true, capture: true })
+
     loadSession()
       .then((hasSession) => hasSession ? startCrm() : null)
       .catch((error) => {
         els.list.innerHTML = '<div class="error">' + escapeHtml(error.message) + '</div>'
       })
 
-    state.autoRefreshTimer = setInterval(() => {
-      if (document.body.dataset.auth !== 'ready' || document.hidden) return
-      refreshConversationSummary().catch(() => null)
-    }, CRM_AUTO_REFRESH_MS)
     }
   </script>
 </body>

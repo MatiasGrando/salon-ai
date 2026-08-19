@@ -303,9 +303,9 @@ const dateButtons = bookingCoordinationReplyButtons({
   state: started.state
 })
 assert.equal(Boolean(dateButtons?.[0]?.title), true)
-assert.deepEqual(dateButtons?.slice(1).map((button) => button.title), ['Próximos días', 'Otra fecha'])
+assert.deepEqual(dateButtons?.slice(1).map((button) => button.title), ['Ver días disponibles', 'Otra fecha'])
 assert.match(started.reply, /En estos días puedo coordinar todos los servicios/)
-assert.match(started.reply, /“hoy” o “mañana”/)
+assert.match(started.reply, /“mañana”, “el viernes” o “20\/8”/)
 assert.equal(
   bookingCoordinationMessageFromInteractiveReply(dateButtons?.[0]?.id, 'conversation-1'),
   '2026-08-10'
@@ -688,6 +688,49 @@ const fiveDateReply = renderBookingV2Response({
 })
 assert.equal((fiveDateReply.match(/^• /gm) ?? []).length, 5)
 assert.match(fiveDateReply, /manteniendo a Tamara/)
+const fiveDateButtons = bookingCoordinationReplyButtons({
+  conversationId: 'conversation-1',
+  plan: {
+    type: 'ask_coordinated_date',
+    quickDates: ['2026-08-10', '2026-08-12', '2026-08-13', '2026-08-15', '2026-08-17'],
+    professionalName: 'Tamara',
+    assignmentMode: 'SINGLE_PROFESSIONAL'
+  },
+  state: selectedTomorrow.state
+})
+assert.equal(fiveDateButtons?.length, 6)
+assert.equal(fiveDateButtons?.at(-1)?.id, 'coord:conversation-1:other_date')
+const chooseAnotherDate = await engine.process({
+  businessId: 'business-1',
+  conversation: selectedTomorrow.conversationPatch,
+  message: 'cambiar fecha',
+  currentDate: new Date('2026-08-09T15:00:00-03:00')
+})
+assert.equal(chooseAnotherDate.plan.type, 'ask_coordinated_date')
+assert.deepEqual(chooseAnotherDate.plan.type === 'ask_coordinated_date' ? chooseAnotherDate.plan.quickDates : null, [])
+assert.match(chooseAnotherDate.reply, /“mañana”, “el viernes” o “20\/8”/)
+const chooseAnotherDateButtons = bookingCoordinationReplyButtons({
+  conversationId: 'conversation-1',
+  plan: chooseAnotherDate.plan,
+  state: chooseAnotherDate.state
+})
+assert.deepEqual(chooseAnotherDateButtons?.map((button) => button.title), [
+  'Ver días disponibles',
+  'Otra fecha'
+])
+assert.equal(chooseAnotherDateButtons?.some((button) => button.title.startsWith('Buscar sin')), false)
+const requestedProfessionalDatePrompt = renderBookingV2Response({
+  plan: {
+    type: 'ask_coordinated_date',
+    quickDates: [],
+    professionalName: 'Tamara',
+    assignmentMode: 'SINGLE_PROFESSIONAL'
+  },
+  draft: requestedProfessionalState.draft,
+  catalog
+})
+assert.match(requestedProfessionalDatePrompt, /Mantenemos Color Completo con Tamara/)
+assert.match(requestedProfessionalDatePrompt, /“mañana”, “el viernes” o “20\/8”/)
 
 const unavailableToday = await engine.process({
   businessId: 'business-1',

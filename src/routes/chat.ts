@@ -3,6 +3,7 @@ import { prisma } from '../config/prisma.js'
 import { ConversationService } from '../services/conversation-service.js'
 import { reopenClosedConversationOpportunity } from '../services/conversation-opportunity-service.js'
 import { capturePostSaleResponse } from '../services/post-sale-service.js'
+import { publishIncomingConversationMessage } from '../services/crm-realtime-events.js'
 
 const service = new ConversationService()
 
@@ -48,7 +49,7 @@ export async function chatRoutes(app: FastifyInstance) {
       }
     })
 
-    await prisma.message.create({
+    const inboundMessage = await prisma.message.create({
       data: {
         conversationId: conversation.id,
         phone: body.phone,
@@ -59,6 +60,12 @@ export async function chatRoutes(app: FastifyInstance) {
           provider: 'internal_chat'
         }
       }
+    })
+    publishIncomingConversationMessage({
+      businessId: targetBusiness.id,
+      conversationId: conversation.id,
+      messageId: inboundMessage.id,
+      receivedAt: inboundMessage.createdAt.toISOString()
     })
 
     await reopenClosedConversationOpportunity(conversation.id)

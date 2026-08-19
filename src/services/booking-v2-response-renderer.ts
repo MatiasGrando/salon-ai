@@ -38,23 +38,32 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
   }
 
   if (input.plan.type === 'ask_coordinated_date') {
+    const dateExamples = 'Podés escribirme, por ejemplo: “mañana”, “el viernes” o “20/8”.'
     const availableDates = input.plan.quickDates.length
       ? [
           input.plan.professionalName
             ? `En estos días puedo coordinar todos los servicios en horarios consecutivos, manteniendo a ${input.plan.professionalName} 😊`
             : 'En estos días puedo coordinar todos los servicios en horarios consecutivos, con profesionales distintos 😊',
           ...input.plan.quickDates.slice(0, 5).map((date) => `• ${formatDate(date)}`),
-          'Elegí uno de estos días o escribime otra fecha, por ejemplo “hoy” o “mañana”.'
+          `Elegí una de estas fechas o escribime otra. ${dateExamples}`
         ].join('\n')
       : null
+    const datePrompt = input.plan.requestedTime
+      ? `¿Para qué día querés venir para comenzar a las ${input.plan.requestedTime}?`
+      : '¿Para qué día querés venir?'
     return [
-      input.plan.assignmentMode === 'SINGLE_PROFESSIONAL'
-        ? null
-        : 'Perfecto 😊 Voy a coordinar los servicios con profesionales distintos, en horarios consecutivos, para que puedas hacer todo en una sola visita.',
+      availableDates
+        ? input.plan.assignmentMode === 'SINGLE_PROFESSIONAL'
+          ? null
+          : 'Perfecto 😊 Voy a coordinar los servicios con profesionales distintos, en horarios consecutivos, para que puedas hacer todo en una sola visita.'
+        : input.plan.professionalName
+          ? `Perfecto 😊 Mantenemos ${labelForService(input.draft.service, input.catalog)} con ${input.plan.professionalName}.`
+          : input.plan.assignmentMode === 'SINGLE_PROFESSIONAL'
+            ? null
+            : 'Perfecto 😊 Voy a coordinar los servicios con profesionales distintos, en horarios consecutivos, para que puedas hacer todo en una sola visita.',
       availableDates,
-      input.plan.requestedTime
-        ? `¿Qué día te gustaría venir para comenzar a las ${input.plan.requestedTime}?`
-        : availableDates ? null : '¿Qué día te gustaría venir?'
+      availableDates ? null : datePrompt,
+      availableDates ? null : dateExamples
     ].filter(Boolean).join('\n\n')
   }
 
