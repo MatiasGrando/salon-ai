@@ -1140,6 +1140,49 @@ export class BookingV2Engine {
         }
       }
 
+      if (initialState.pendingProposal.field === 'date') {
+        const normalizedMessage = normalize(input.message)
+        if (/^(?:elegir|escribir|quiero|prefiero)?\s*(?:otra fecha|otro dia|una fecha especifica)$/.test(normalizedMessage)) {
+          return this.fromState(rejectProposal(initialState), 'proposal_rejected', null, catalog)
+        }
+
+        const explicitDate = resolveExpectedDate(
+          input.message,
+          initialState,
+          input.currentDate ?? new Date(),
+          catalog.bookingFlowOrder
+        )
+        if (explicitDate) {
+          if (explicitDate === initialState.pendingProposal.value) {
+            return this.fromState(confirmProposal(initialState), 'proposal_confirmed', null, catalog)
+          }
+          const state = {
+            ...initialState,
+            pendingProposal: {
+              ...initialState.pendingProposal,
+              value: explicitDate
+            }
+          }
+          return this.fromInterpretation({
+            state,
+            nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
+            outcome: 'confirmation_required',
+            affectedField: 'date'
+          }, null, catalog)
+        }
+        if (confirmsProposedDayOfMonth(input.message, initialState.pendingProposal.value)) {
+          return this.fromState(confirmProposal(initialState), 'proposal_confirmed', null, catalog)
+        }
+      }
+
+      const deterministicConfirmation = detectDeterministicConfirmation(input.message)
+      if (deterministicConfirmation?.intent === 'confirm') {
+        return this.fromState(confirmProposal(initialState), 'proposal_confirmed', null, catalog)
+      }
+      if (deterministicConfirmation?.intent === 'reject') {
+        return this.fromState(rejectProposal(initialState), 'proposal_rejected', null, catalog)
+      }
+
       const choice = await this.choiceExtractor.extract({
         message: input.message,
         question: '¿Confirmás la opción propuesta para continuar con la reserva?',
@@ -1160,6 +1203,44 @@ export class BookingV2Engine {
         outcome: 'confirmation_required',
         affectedField: initialState.pendingProposal.field
       }, null, catalog)
+    }
+
+    if (
+      nextMissingField(initialState.draft, catalog.bookingFlowOrder) === 'time' &&
+      initialState.draft.date
+    ) {
+      const dateNavigation = detectBookingCoordinationChoice({
+        message: input.message,
+        phase: 'TIME_PREFERENCE'
+      })
+      if (dateNavigation?.type === 'CHOOSE_OTHER_DATE') {
+        const state: BookingV2State = {
+          ...initialState,
+          draft: clearFieldAndDependents(initialState.draft, 'date'),
+          pendingProposal: null,
+          pendingAvailabilityResolution: null
+        }
+        return this.fromInterpretation({
+          state,
+          nextField: 'date',
+          outcome: 'accepted',
+          affectedField: 'date'
+        }, null, catalog)
+      }
+
+      const replacementDate = resolveMentionedDate(
+        input.message,
+        input.currentDate ?? new Date()
+      )
+      if (replacementDate && replacementDate !== initialState.draft.date) {
+        const state = acceptField(initialState, 'date', replacementDate)
+        return this.fromInterpretation({
+          state,
+          nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
+          outcome: 'accepted',
+          affectedField: 'date'
+        }, null, catalog)
+      }
     }
 
     const serviceChoice =
@@ -1455,9 +1536,33 @@ export class BookingV2Engine {
       stateForExtraction = state
     }
 
-    const deterministicProfessional = input.understandingExtraction
-      ? null
-      : resolveExpectedProfessional(input.message, stateForExtraction, catalog)
+    // Las fechas explicitas son datos adelantados validos aunque el flujo
+    // todavia este esperando el nombre, el servicio o el profesional. Esto es
+    // especialmente importante cuando el servicio es ambiguo: si esperamos a
+    // que `date` sea el siguiente campo, el pedido original ya no vuelve a
+    // procesarse despues de elegir al profesional y la fecha se pierde.
+    if (
+      !stateForExtraction.draft.date &&
+      input.understandingExtraction !== undefined &&
+      !input.understandingExtraction?.date.value
+    ) {
+      const mentionedDate = resolveMentionedDate(
+        input.message,
+        input.currentDate ?? new Date()
+      )
+      if (mentionedDate) {
+        stateForExtraction = acceptField(stateForExtraction, 'date', mentionedDate)
+      }
+    }
+
+    // Una confirmación literal ante una única profesional compatible es una
+    // respuesta cerrada y no depende de la interpretación de IA. El router
+    // puede haber usado IA para clasificar el mensaje, pero no debe anular
+    // esta transición determinista ni repetir la misma pregunta.
+    const deterministicProfessional = !input.understandingExtraction ||
+      detectDeterministicConfirmation(input.message)?.intent === 'confirm'
+      ? resolveExpectedProfessional(input.message, stateForExtraction, catalog)
+      : null
     if (deterministicProfessional?.kind === 'ambiguous') {
       return this.guidedEstimateResult(initialState, {
         type: 'clarify_professional',
@@ -1924,15 +2029,16 @@ export class BookingV2Engine {
       : pending.phase === 'AWAITING_TIME_PREFERENCE' || pending.phase === 'AWAITING_SEARCH_TIME'
         ? 'TIME_PREFERENCE' as const
         : 'OPTION' as const
+    const explicitDate = resolveCoordinatedDate(
+      input.input.message,
+      input.input.currentDate ?? new Date(),
+      input.input.understandingExtraction?.date.value ?? null
+    )
     let choice = detectBookingCoordinationChoice({
       message: input.input.message,
       phase
     })
-    const hasExplicitDate = pending.phase === 'AWAITING_DATE' && Boolean(resolveCoordinatedDate(
-      input.input.message,
-      input.input.currentDate ?? new Date(),
-      input.input.understandingExtraction?.date.value ?? null
-    ))
+    const hasExplicitDate = pending.phase === 'AWAITING_DATE' && Boolean(explicitDate)
     if (!choice && !hasExplicitDate) {
       choice = await this.semanticCoordinatedChoice({
         message: input.input.message,
@@ -1966,6 +2072,71 @@ export class BookingV2Engine {
         action: 'change',
         serviceIds: pending.serviceIds
       }, input.catalog, 'accepted')
+    }
+    if (choice?.type === 'CHOOSE_OTHER_DATE' && pending.phase !== 'AWAITING_DATE') {
+      const state: BookingV2State = {
+        ...input.state,
+        draft: {
+          ...input.state.draft,
+          date: null,
+          time: null
+        },
+        pendingCoordinatedAvailability: {
+          ...pending,
+          phase: 'AWAITING_DATE',
+          date: null,
+          options: [],
+          filteredOptionIds: [],
+          page: 0,
+          timeBand: null,
+          requestedTime: null,
+          requestedWindow: null,
+          selectedOptionId: null,
+          quickDates: []
+        }
+      }
+      return this.guidedEstimateResult(state, {
+        type: 'ask_coordinated_date',
+        quickDates: [],
+        assignmentMode: pending.assignmentMode,
+        professionalName: pending.requireRequestedProfessional
+          ? professionalNameById(input.catalog, pending.requestedProfessionalId)
+          : null
+      }, input.catalog, 'accepted')
+    }
+    if (explicitDate && pending.phase !== 'AWAITING_DATE') {
+      const result = await this.searchCoordinatedAvailability({
+        catalog: input.catalog,
+        serviceIds: pending.serviceIds,
+        mode: { type: 'DATE', date: explicitDate, requestedTime: null },
+        maxResults: 25,
+        assignmentMode: pending.assignmentMode,
+        requiredProfessionalId: pending.requireRequestedProfessional
+          ? pending.requestedProfessionalId
+          : null
+      })
+      return this.coordinatedSearchResult({
+        state: {
+          ...input.state,
+          draft: {
+            ...input.state.draft,
+            date: explicitDate,
+            time: null
+          }
+        },
+        pending: {
+          ...pending,
+          date: explicitDate,
+          requestedTime: null,
+          requestedWindow: null,
+          selectedOptionId: null
+        },
+        catalog: input.catalog,
+        result,
+        date: explicitDate,
+        requestedTime: null,
+        requestedWindow: null
+      })
     }
     if (choice?.type === 'SHOW_SEARCH_MENU') {
       const state: BookingV2State = {
@@ -2125,6 +2296,21 @@ export class BookingV2Engine {
             filtered[0]!,
             input.catalog
           )
+        }
+        if (choice.type === 'EXACT_TIME') {
+          const alternatives = nearestCoordinatedOptions(pending.options, choice.time)
+          if (alternatives.length) {
+            return this.showCoordinatedOptions(input.state, {
+              ...pending,
+              phase: 'AWAITING_OPTION',
+              filteredOptionIds: alternatives.map((option) => option.id),
+              page: 0,
+              timeBand: null,
+              requestedTime: choice.time,
+              requestedWindow: null,
+              selectedOptionId: null
+            }, input.catalog)
+          }
         }
         const state: BookingV2State = {
           ...input.state,
@@ -3842,6 +4028,8 @@ function resolveCoordinatedDate(message: string, currentDate: Date, extractedDat
   if (isoDate) return isoDate
   const normalized = normalize(message)
   const date = dateInTimeZone(currentDate, 'America/Buenos_Aires')
+  const explicitDate = explicitCalendarDate(message, date)
+  if (explicitDate) return explicitDate
   if (/\bhoy\b/.test(normalized)) return date.toISOString().slice(0, 10)
   if (/\bmanana\b/.test(normalized)) {
     date.setUTCDate(date.getUTCDate() + 1)
@@ -4560,6 +4748,8 @@ function resolveMentionedDate(
 ) {
   const normalized = normalize(message)
   const date = dateInTimeZone(currentDate, 'America/Buenos_Aires')
+  const explicitDate = explicitCalendarDate(message, date)
+  if (explicitDate) return explicitDate
   const tokens = new Set(normalized.split(' ').filter(Boolean))
   if (tokens.has('hoy')) return date.toISOString().slice(0, 10)
   if (tokens.has('manana')) {
@@ -4573,6 +4763,78 @@ function resolveMentionedDate(
   const daysUntilRequested = (requestedWeekday - date.getUTCDay() + 7) % 7
   date.setUTCDate(date.getUTCDate() + (daysUntilRequested || 7))
   return date.toISOString().slice(0, 10)
+}
+
+function explicitCalendarDate(message: string, today: Date) {
+  const normalized = message
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+
+  const isoMatch = /\b(\d{4})-(\d{1,2})-(\d{1,2})\b/.exec(normalized)
+  if (isoMatch) {
+    return validFutureCalendarDate(
+      Number(isoMatch[1]),
+      Number(isoMatch[2]),
+      Number(isoMatch[3]),
+      today
+    )
+  }
+
+  const shortMatch = /(?:^|\s)(\d{1,2})\s*[/-]\s*(\d{1,2})(?:\s*[/-]\s*(\d{2}|\d{4}))?(?=$|\s)/.exec(normalized)
+  if (shortMatch) {
+    const suppliedYear = shortMatch[3]
+      ? Number(shortMatch[3].length === 2 ? `20${shortMatch[3]}` : shortMatch[3])
+      : null
+    const year = suppliedYear ?? inferredCalendarYear(
+      Number(shortMatch[1]),
+      Number(shortMatch[2]),
+      today
+    )
+    return validFutureCalendarDate(year, Number(shortMatch[2]), Number(shortMatch[1]), today)
+  }
+
+  const months = new Map([
+    ['enero', 1], ['febrero', 2], ['marzo', 3], ['abril', 4], ['mayo', 5], ['junio', 6],
+    ['julio', 7], ['agosto', 8], ['septiembre', 9], ['setiembre', 9], ['octubre', 10],
+    ['noviembre', 11], ['diciembre', 12]
+  ])
+  const writtenMatch = /\b(?:el\s+)?(\d{1,2})\s+(?:de\s+)?([a-z]+)(?:\s+(?:de\s+)?(\d{4}))?\b/.exec(normalized)
+  const monthName = writtenMatch?.[2]
+  const month = monthName ? months.get(monthName) : null
+  if (!writtenMatch || !month) return null
+  const year = writtenMatch[3]
+    ? Number(writtenMatch[3])
+    : inferredCalendarYear(Number(writtenMatch[1]), month, today)
+  return validFutureCalendarDate(year, month, Number(writtenMatch[1]), today)
+}
+
+function confirmsProposedDayOfMonth(message: string, proposedDate: string | null) {
+  if (!proposedDate || !/^\d{4}-\d{2}-\d{2}$/.test(proposedDate)) return false
+  const normalized = normalize(message)
+  const dayMatch = /^(?:(?:si|dale|claro|perfecto|ok|okay|obvio|porsupuesto|por supuesto)\s+)?(?:el\s+)?(?:dia\s+)?(\d{1,2})(?:\s+(?:si|dale|claro|perfecto|ok|okay|obvio|porsupuesto|por supuesto))?$/.exec(normalized)
+  if (!dayMatch) return false
+  return Number(dayMatch[1]) === Number(proposedDate.slice(8, 10))
+}
+
+function inferredCalendarYear(day: number, month: number, today: Date) {
+  const currentYear = today.getUTCFullYear()
+  const candidate = new Date(Date.UTC(currentYear, month - 1, day))
+  return candidate < today ? currentYear + 1 : currentYear
+}
+
+function validFutureCalendarDate(year: number, month: number, day: number, today: Date) {
+  const candidate = new Date(Date.UTC(year, month - 1, day))
+  if (
+    candidate.getUTCFullYear() !== year ||
+    candidate.getUTCMonth() !== month - 1 ||
+    candidate.getUTCDate() !== day ||
+    candidate < today
+  ) {
+    return null
+  }
+  return candidate.toISOString().slice(0, 10)
 }
 
 const WEEKDAYS_BY_NAME = new Map([

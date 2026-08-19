@@ -66,6 +66,7 @@ import {
   bookingCoordinationReplyButtons,
   bookingDatePromptForOptions,
   bookingStateFromCompletedServiceConsultation,
+  bookingStateForMenuReservation,
   bookingV2StateAfterGoingBack,
   clearBookingV2StateFromField,
   composeBusinessInformationResumeReply,
@@ -100,9 +101,11 @@ import {
   shouldResumeBookingV2AfterInformation,
   shouldResumeQuoteOnlyBooking,
   shouldStartQuoteOnlyRequest,
+  bookingV2StateAfterPendingInformationSelection,
   stateAfterExplicitConsultationReplacement,
   unresolvedServiceInformationReply,
-  withBusinessInformationFollowUp
+  withBusinessInformationFollowUp,
+  withInitialAssistantIntroduction
 } from '../src/services/conversation-service.js'
 import { BotCopyService } from '../src/services/bot-copy-service.js'
 import { removeCurrentInboundFromHistory } from '../src/services/conversation-router-context-service.js'
@@ -1806,7 +1809,9 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         businessId: 'business-1',
         conversation: prompt.conversationPatch,
         message: 'Sí',
-        understandingExtraction: null
+        // El recorrido productivo ya pasó por el router de IA. La
+        // confirmación cerrada debe seguir resolviéndose de forma determinista.
+        understandingExtraction: extraction({})
       })
 
       assert.equal(confirmed.state.draft.professional, 'tamara-grando')
@@ -4041,6 +4046,59 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'elegir un servicio para consultar su precio retoma la reserva activa',
+    run: async () => {
+      const state: BookingV2State = {
+        ...acceptField(createEmptyBookingV2State(), 'name', 'Beca'),
+        draft: {
+          name: 'Beca',
+          service: null,
+          professional: null,
+          date: '2026-08-19',
+          time: '13:00'
+        },
+        pendingInformationSelection: {
+          serviceIds: ['woman-cut', 'man-cut'],
+          requestedInformation: ['price']
+        }
+      }
+      const selected = bookingV2StateAfterPendingInformationSelection(state, 'woman-cut')
+
+      assert.equal(selected.draft.name, 'Beca')
+      assert.equal(selected.draft.service, 'woman-cut')
+      assert.equal(selected.draft.date, '2026-08-19')
+      assert.equal(selected.draft.time, '13:00')
+      assert.equal(selected.pendingInformationSelection, null)
+      assert.equal(selected.lastInformationServiceId, 'woman-cut')
+      assert.equal(shouldResumeBookingV2AfterInformation('ASK_SERVICE', selected), true)
+
+      const catalog = createBookingV2DomainCatalog({
+        services: [{
+          id: 'woman-cut',
+          name: 'Corte mujer',
+          aliases: ['corte mujer'],
+          duration: 30,
+          price: 37000,
+          category: null
+        }],
+        professionals: [{
+          id: 'sebastian',
+          name: 'Sebastián',
+          serviceIds: ['woman-cut']
+        }]
+      })
+      const resumed = await new BookingV2Engine(
+        fakeDomainPort({ catalog }),
+        fakeExtractor(null)
+      ).resume({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(selected)
+      })
+      assert.equal(resumed.state.draft.service, 'woman-cut')
+      assert.equal(resumed.plan.type === 'ask_field' ? resumed.plan.field : null, 'professional')
+    }
+  },
+  {
     name: 'consulta de precio después de un resumen no reanuda una reserva',
     run: () => {
       const quoteState = completedQuoteState()
@@ -5183,6 +5241,180 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'propuesta de fecha acepta otra fecha escrita o vuelve a preguntarla desde el boton',
+    run: async () => {
+      const engine = new BookingV2Engine(
+        fakeDomainPort(),
+        fakeExtractor(null),
+        fakeServiceValidationClassifier(),
+        fakeEstimateDecisionExtractor(),
+        fakeEstimateOptionExtractor(),
+        fakeChoiceExtractor()
+      )
+      let completeUntilDate = createEmptyBookingV2State()
+      completeUntilDate = acceptField(completeUntilDate, 'name', 'Pablo')
+      completeUntilDate = acceptField(completeUntilDate, 'service', 'haircut')
+      completeUntilDate = acceptField(completeUntilDate, 'professional', 'professional-1')
+      const proposedState = proposeField(completeUntilDate, {
+        field: 'date',
+        value: '2026-08-20',
+        confidence: 0.7,
+        evidence: 'mañana'
+      })
+      const conversation = conversationPatchFromState(proposedState)
+
+      for (const [message, expectedDate] of [
+        ['hoy', '2026-08-19'],
+        ['el viernes', '2026-08-21'],
+        ['25/8', '2026-08-25'],
+        ['el 25/8', '2026-08-25']
+      ] as const) {
+        const result = await engine.process({
+          businessId: 'business-1',
+          conversation,
+          message,
+          currentDate: new Date('2026-08-19T15:00:00.000Z')
+        })
+        assert.equal(result.state.draft.date, null)
+        assert.equal(result.state.pendingProposal?.value, expectedDate)
+        assert.equal(result.plan.type, 'confirm_field')
+        assert.match(result.reply, /Querés venir (?:hoy |mañana |el )/i)
+
+        const confirmed = await engine.process({
+          businessId: 'business-1',
+          conversation: result.conversationPatch,
+          message: 'Sí',
+          currentDate: new Date('2026-08-19T15:00:00.000Z')
+        })
+        assert.equal(confirmed.state.draft.date, expectedDate)
+        assert.equal(confirmed.state.pendingProposal, null)
+      }
+
+      const otherDate = await engine.process({
+        businessId: 'business-1',
+        conversation,
+        message: 'Otra fecha',
+        currentDate: new Date('2026-08-19T15:00:00.000Z')
+      })
+      assert.equal(otherDate.state.draft.date, null)
+      assert.equal(otherDate.state.pendingProposal, null)
+      assert.equal(otherDate.plan.type, 'ask_field')
+      assert.equal(otherDate.plan.field, 'date')
+      assert.match(otherDate.reply, /Qué día te gustaría venir/i)
+
+      for (const message of [
+        'mañana', 'sí mañana', 'dale mañana',
+        '20/8', '20/08', '20/08/2026', '20', 'el 20',
+        'dale', 'por supuesto', 'porsupuesto'
+      ]) {
+        const confirmed = await engine.process({
+          businessId: 'business-1',
+          conversation,
+          message,
+          currentDate: new Date('2026-08-19T15:00:00.000Z')
+        })
+        assert.equal(confirmed.state.draft.date, '2026-08-20', message)
+        assert.equal(confirmed.state.pendingProposal, null, message)
+      }
+
+      const todayProposal = conversationPatchFromState({
+        ...proposedState,
+        pendingProposal: {
+          ...proposedState.pendingProposal!,
+          value: '2026-08-19',
+          evidence: 'hoy'
+        }
+      })
+      for (const message of ['hoy', 'sí hoy', 'dale hoy']) {
+        const confirmed = await engine.process({
+          businessId: 'business-1',
+          conversation: todayProposal,
+          message,
+          currentDate: new Date('2026-08-19T15:00:00.000Z')
+        })
+        assert.equal(confirmed.state.draft.date, '2026-08-19', message)
+        assert.equal(confirmed.state.pendingProposal, null, message)
+      }
+
+      const buttons = bookingCoordinationReplyButtons({
+        conversationId: 'conversation-1',
+        plan: {
+          type: 'confirm_field',
+          field: 'date',
+          value: '2026-08-20',
+          evidence: 'mañana'
+        },
+        state: proposedState
+      })
+      assert.deepEqual(buttons?.map((button) => button.title), ['Sí', 'Otra fecha'])
+      assert.equal(
+        bookingCoordinationMessageFromInteractiveReply(
+          'coord:conversation-1:proposal_confirm',
+          'conversation-1'
+        ),
+        'sí'
+      )
+    }
+  },
+  {
+    name: 'reservar nuevamente conserva la fecha solo como propuesta y descarta el horario',
+    run: async () => {
+      let previousState = createEmptyBookingV2State()
+      previousState = acceptField(previousState, 'name', 'Pablo')
+      previousState = acceptField(previousState, 'service', 'haircut')
+      previousState = acceptField(previousState, 'professional', 'professional-1')
+      previousState = acceptField(previousState, 'date', '2026-08-20')
+      previousState = acceptField(previousState, 'time', '18:00')
+
+      const restarted = bookingStateForMenuReservation(previousState)
+      assert.equal(restarted.draft.name, 'Pablo')
+      assert.equal(restarted.draft.service, 'haircut')
+      assert.equal(restarted.draft.professional, 'professional-1')
+      assert.equal(restarted.draft.date, null)
+      assert.equal(restarted.draft.time, null)
+      assert.equal(restarted.pendingProposal?.field, 'date')
+      assert.equal(restarted.pendingProposal?.value, '2026-08-20')
+
+      const resumed = await new BookingV2Engine(fakeDomainPort(), fakeExtractor(null)).resume({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(restarted)
+      })
+      assert.equal(resumed.plan.type, 'confirm_field')
+      assert.match(resumed.reply, /Querés venir/)
+    }
+  },
+  {
+    name: 'seleccion simple de horario permite cambiar la fecha sin reiniciar la reserva',
+    run: async () => {
+      const engine = new BookingV2Engine(fakeDomainPort(), fakeExtractor(null))
+      let state = createEmptyBookingV2State()
+      state = acceptField(state, 'name', 'Matías')
+      state = acceptField(state, 'service', 'haircut')
+      state = acceptField(state, 'professional', 'professional-1')
+      state = acceptField(state, 'date', '2026-08-20')
+
+      const asksAnotherDate = await engine.process({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(state),
+        message: 'cambiar fecha',
+        currentDate: new Date('2026-08-19T15:00:00.000Z')
+      })
+      assert.equal(asksAnotherDate.state.draft.date, null)
+      assert.equal(asksAnotherDate.state.draft.time, null)
+      assert.equal(asksAnotherDate.plan.type, 'ask_field')
+      assert.equal(asksAnotherDate.plan.type === 'ask_field' ? asksAnotherDate.plan.field : null, 'date')
+
+      const changesDirectlyToFriday = await engine.process({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(state),
+        message: 'el viernes',
+        currentDate: new Date('2026-08-19T15:00:00.000Z')
+      })
+      assert.equal(changesDirectlyToFriday.state.draft.date, '2026-08-21')
+      assert.equal(changesDirectlyToFriday.state.draft.time, null)
+    }
+  },
+  {
     name: 'motor corta el loop de fecha despues de tres respuestas sin avance',
     run: async () => {
       const engine = new BookingV2Engine(fakeDomainPort(), fakeExtractor(null))
@@ -5454,6 +5686,73 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(selected.state.draft.service, 'sin-formol')
       assert.equal(selected.state.pendingServiceDisambiguation, null)
       assert.equal(selected.plan.type === 'ask_field' ? selected.plan.field : null, 'professional')
+    }
+  },
+  {
+    name: 'servicio ambiguo conserva manana mientras completa nombre y profesional',
+    run: async () => {
+      const catalog = createBookingV2DomainCatalog({
+        services: [
+          { id: 'man-cut', name: 'Corte hombre', aliases: [], duration: 30, price: 27000, category: 'Cortes' },
+          { id: 'woman-cut', name: 'Corte mujer', aliases: [], duration: 30, price: 37000, category: 'Cortes' },
+          { id: 'cut-beard', name: 'Corte y barba', aliases: [], duration: 45, price: 32000, category: 'Cortes' }
+        ],
+        professionals: [
+          { id: 'ramiro', name: 'Ramiro', serviceIds: ['man-cut', 'woman-cut', 'cut-beard'] }
+        ]
+      })
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog }), fakeExtractor(null))
+      const currentDate = new Date('2026-08-19T17:22:00.000Z')
+
+      const initial = await engine.process({
+        businessId: 'business-1',
+        conversation: null,
+        message: 'Hola queria pedir un turno para corte manana en Monroe',
+        currentDate,
+        understandingExtraction: null
+      })
+
+      assert.equal(initial.state.draft.date, '2026-08-20')
+      assert.equal(initial.plan.type === 'ask_field' ? initial.plan.field : null, 'name')
+      assert.deepEqual(
+        new Set(initial.state.pendingServiceDisambiguation?.serviceIds),
+        new Set(['man-cut', 'woman-cut', 'cut-beard'])
+      )
+
+      const named = await engine.process({
+        businessId: 'business-1',
+        conversation: initial.conversationPatch,
+        message: 'Nicolás',
+        currentDate,
+        understandingExtraction: null
+      })
+      assert.equal(named.state.draft.date, '2026-08-20')
+      assert.equal(named.plan.type === 'ask_field' ? named.plan.field : null, 'service')
+
+      const selected = await engine.process({
+        businessId: 'business-1',
+        conversation: named.conversationPatch,
+        message: 'Corte hombre',
+        currentDate,
+        understandingExtraction: null
+      })
+      assert.equal(selected.state.draft.service, 'man-cut')
+      assert.equal(selected.state.draft.date, '2026-08-20')
+      assert.equal(selected.plan.type === 'ask_field' ? selected.plan.field : null, 'professional')
+
+      const professional = await engine.process({
+        businessId: 'business-1',
+        conversation: selected.conversationPatch,
+        message: 'Ramiro',
+        currentDate,
+        understandingExtraction: null
+      })
+      assert.equal(professional.state.draft.professional, 'ramiro')
+      assert.equal(professional.state.draft.date, '2026-08-20')
+      assert.notEqual(
+        professional.plan.type === 'ask_field' ? professional.plan.field : null,
+        'date'
+      )
     }
   },
   {
@@ -6369,6 +6668,21 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(isBookingV2InitialGreeting('START', 'Hola'), true)
       assert.equal(isBookingV2InitialGreeting('ASK_SERVICE', 'Hola'), false)
       assert.equal(isBookingV2InitialGreeting('START', 'Hola, hasta que hora estan abiertos?'), false)
+    }
+  },
+  {
+    name: 'la primera respuesta operativa presenta al asistente sin alterar el flujo',
+    run: () => {
+      const personality = normalizeAssistantPersonality({ name: 'Cami' })
+      const introduced = withInitialAssistantIntroduction({
+        reply: '¿Me decís tu nombre?',
+        replyButtons: [{ id: 'name', title: 'Continuar' }],
+        messages: ['¿Me decís tu nombre?']
+      }, personality)
+
+      assert.equal(introduced.reply, '¡Hola! Soy Cami 😊\n\n¿Me decís tu nombre?')
+      assert.deepEqual(introduced.replyButtons, [{ id: 'name', title: 'Continuar' }])
+      assert.equal(introduced.messages, undefined)
     }
   },
   {

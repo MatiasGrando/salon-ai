@@ -21,12 +21,12 @@ export function detectDeterministicConfirmation(message: string): DeterministicC
   const affirmativeTokens = [
     'si', 'dale', 'claro', 'ok', 'okay', 'perfecto', 'confirmo', 'confirmado',
     'avancemos', 'sigamos', 'seguimos', 'continuemos', 'continuar', 'mandale',
-    'hagamoslo', 'reservemoslo', 'reservar'
+    'hagamoslo', 'reservemoslo', 'reservar', 'obvio', 'porsupuesto'
   ]
   const affirmativePhrases = [
     'de una', 'me parece bien', 'me sirve', 'esta bien', 'quedamos asi',
     'quiero seguir', 'quiero continuar', 'quiero reservar', 'seguir con ese',
-    'continuar con ese'
+    'continuar con ese', 'por supuesto'
   ]
   if (
     affirmativeTokens.some((token) => tokens.has(token)) ||

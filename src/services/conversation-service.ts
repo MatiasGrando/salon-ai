@@ -22,8 +22,10 @@ import type {
 import {
   clearFieldAndDependents,
   addCombinedServices,
+  acceptField,
   combinedServiceIds,
   createEmptyBookingV2State,
+  proposeField,
   advanceToNextQueuedService,
   pendingDepositAppointmentIds
 } from './booking-v2-state.js'
@@ -117,6 +119,10 @@ type HandleMessageInput = {
   hasImageAttachment?: boolean
 }
 
+type HandleMessageRuntimeInput = HandleMessageInput & {
+  introduceAssistantOnReply?: boolean
+}
+
 type HandleMessageResult = {
   reply: string
   messages?: string[]
@@ -144,7 +150,18 @@ type ConversationStepValue =
 export class ConversationService {
   async handleMessage(input: HandleMessageInput): Promise<HandleMessageResult> {
     return runWithAiEnabled(input.useAi !== false, async () => {
-      const result = await this.handleMessageCore(input)
+      const runtimeInput: HandleMessageRuntimeInput = { ...input }
+      let result = await this.handleMessageCore(runtimeInput)
+      if (
+        runtimeInput.introduceAssistantOnReply &&
+        !isBookingV2GreetingOnlyMessage(input.message)
+      ) {
+        const businessId = await this.resolveBusinessId(input.businessId)
+        if (businessId) {
+          const personality = await getBusinessAssistantPersonality(businessId)
+          result = withInitialAssistantIntroduction(result, personality)
+        }
+      }
       if (!result.skipMisunderstandingTracking) {
         await this.trackMisunderstanding(input.phone, input.businessId, result.reply)
       }
@@ -161,7 +178,7 @@ export class ConversationService {
     })
   }
 
-  private async handleMessageCore(input: HandleMessageInput): Promise<HandleMessageResult> {
+  private async handleMessageCore(input: HandleMessageRuntimeInput): Promise<HandleMessageResult> {
     let message = input.message.trim()
     const businessId = await this.resolveBusinessId(input.businessId)
     const existingConversation = businessId
@@ -201,6 +218,18 @@ export class ConversationService {
           context: normalizeConversationContextSettings()
         }
     const bookingV2Enabled = runtimeSettings.bookingV2Enabled
+    if (bookingV2Enabled && businessId) {
+      input.introduceAssistantOnReply = !existingConversation || (
+        existingConversation.currentStep === 'START' &&
+        !await prisma.message.findFirst({
+          where: {
+            conversationId: existingConversation.id,
+            direction: 'OUTBOUND'
+          },
+          select: { id: true }
+        })
+      )
+    }
     const previousActivityAt = input.previousActivityAt ?? existingConversation?.updatedAt ?? new Date()
     if (
       businessId &&
@@ -529,13 +558,20 @@ export class ConversationService {
         unsupportedServiceRequest: null,
         misunderstandingCount: 0
       }
-      const nextState = bookingStateFromCompletedServiceConsultation(menuState)
-      const booking = await bookingV2Engine.process({
-        businessId,
-        conversation: conversationPatchFromState(nextState),
-        message: 'quiero reservar un turno',
-        understandingExtraction: null
-      })
+      const nextState = bookingStateForMenuReservation(
+        bookingStateFromCompletedServiceConsultation(menuState)
+      )
+      const booking = nextState.pendingProposal?.field === 'date'
+        ? await bookingV2Engine.resume({
+            businessId,
+            conversation: conversationPatchFromState(nextState)
+          })
+        : await bookingV2Engine.process({
+            businessId,
+            conversation: conversationPatchFromState(nextState),
+            message: 'quiero reservar un turno',
+            understandingExtraction: null
+          })
       await this.updateConversation(input.phone, businessId, {
         currentStep: conversationStepFromBookingV2Plan(booking.plan),
         ...booking.conversationPatch
@@ -1884,6 +1920,41 @@ export class ConversationService {
           ...storedInformationState,
           pendingInformationSelection: null,
           lastInformationServiceId: selectedServiceId
+        }
+        if (shouldResumeBookingV2AfterInformation(
+          input.conversation.currentStep,
+          storedInformationState
+        )) {
+          const bookingState = bookingV2StateAfterPendingInformationSelection(
+            storedInformationState,
+            selectedServiceId
+          )
+          const resumed = await bookingV2Engine.resume({
+            businessId: input.businessId,
+            conversation: conversationPatchFromState(bookingState)
+          })
+          await this.updateConversation(input.phone, input.businessId, {
+            currentStep: conversationStepFromBookingV2Plan(resumed.plan),
+            ...resumed.conversationPatch,
+            lastAvailability: null
+          })
+          const presentation = await presentBookingV2Result({
+            businessId: input.businessId,
+            conversationId: input.conversation.id,
+            result: resumed
+          })
+          return {
+            reply: applyAssistantPersonalityToReply(
+              composeBusinessInformationResumeReply(
+                detailReply ?? 'No encontré información para esa opción.',
+                presentation.reply
+              ),
+              assistantPersonality
+            ),
+            ...(presentation.buttons ? { replyButtons: presentation.buttons } : {}),
+            skipMisunderstandingTracking: true,
+            skipHumanize: true
+          }
         }
         await this.updateConversation(input.phone, input.businessId, {
           currentStep: conversationStepValue(input.conversation.currentStep),
@@ -5004,6 +5075,37 @@ export function bookingStateFromCompletedServiceConsultation(
   }
 }
 
+export function bookingStateForMenuReservation(state: BookingV2State): BookingV2State {
+  const previousDate = state.draft.date ?? (
+    state.pendingProposal?.field === 'date'
+      ? state.pendingProposal.value
+      : null
+  )
+  if (!previousDate) {
+    return {
+      ...state,
+      draft: { ...state.draft, time: null }
+    }
+  }
+
+  return proposeField({
+    ...state,
+    draft: {
+      ...state.draft,
+      date: null,
+      time: null
+    },
+    pendingProposal: null,
+    pendingCoordinatedAvailability: null,
+    pendingAvailabilityResolution: null
+  }, {
+    field: 'date',
+    value: previousDate,
+    confidence: 0.7,
+    evidence: 'fecha de la reserva anterior'
+  })
+}
+
 export function stateAfterExplicitConsultationReplacement(
   state: BookingV2State,
   routing: ConversationRouting
@@ -5366,11 +5468,44 @@ export function withBusinessInformationFollowUp(informationReply: string) {
   return `${informationReply.trim()}\n\n¿Te puedo ayudar en algo más?`
 }
 
+export function withInitialAssistantIntroduction(
+  result: HandleMessageResult,
+  personality: AssistantPersonality
+): HandleMessageResult {
+  const normalizedReply = normalizeText(result.reply)
+  const normalizedName = normalizeText(personality.name)
+  if (
+    normalizedReply.startsWith(`soy ${normalizedName}`) ||
+    normalizedReply.startsWith(`hola soy ${normalizedName}`)
+  ) {
+    return result
+  }
+  const introduction = applyAssistantPersonalityToReply('¡Hola! Soy Cami 😊', personality)
+  const { messages: _messages, ...resultWithoutMessages } = result
+  return {
+    ...resultWithoutMessages,
+    // La presentación y la respuesta operativa deben salir como una sola
+    // secuencia. Los mensajes se vuelven a dividir al finalizar el manejo.
+    reply: `${introduction}\n\n${result.reply.trim()}`
+  }
+}
+
 export function shouldResumeBookingV2AfterInformation(
   currentStep: string,
   state: BookingV2State
 ) {
   return isActiveBookingV2Step(currentStep) && !state.quoteOnly
+}
+
+export function bookingV2StateAfterPendingInformationSelection(
+  state: BookingV2State,
+  serviceId: string
+) {
+  return {
+    ...acceptField(state, 'service', serviceId),
+    pendingInformationSelection: null,
+    lastInformationServiceId: serviceId
+  }
 }
 
 export function composeBusinessInformationResumeReply(
@@ -5664,6 +5799,12 @@ export function bookingCoordinationReplyButtons(input: {
       { id: `${prefix}validate_help`, title: 'Necesito ayuda' }
     ]
   }
+  if (input.plan.type === 'confirm_field' && input.plan.field === 'date') {
+    return [
+      { id: `${prefix}proposal_confirm`, title: 'Sí' },
+      { id: `${prefix}booking_date_other`, title: 'Otra fecha' }
+    ]
+  }
   if (input.plan.type === 'ask_estimate_option') {
     if (input.plan.options.length > 0 && input.plan.options.length <= 3) {
       return input.plan.options.map((option, index) => ({
@@ -5793,9 +5934,10 @@ export function bookingCoordinationReplyButtons(input: {
       id: `${prefix}band:${band.toLowerCase()}`,
       title: labels[band]
     }))
-    if (buttons.length < 3) {
-      buttons.push({ id: `${prefix}exact_time`, title: 'Horario exacto' })
-    }
+    buttons.push(
+      { id: `${prefix}exact_time`, title: 'Horario exacto' },
+      { id: `${prefix}booking_date_other`, title: 'Cambiar fecha' }
+    )
     return buttons
   }
   if (input.plan.type === 'offer_coordinated_options') {
@@ -5938,6 +6080,7 @@ export function bookingCoordinationMessageFromInteractiveReply(
   if (action === 'restart') return 'empezar de nuevo desde cero'
   if (action === 'validate_continue') return 'sí, seguimos'
   if (action === 'validate_help') return 'no estoy seguro, necesito asesoramiento'
+  if (action === 'proposal_confirm') return 'sí'
   if (action === 'disambiguation_confirm') return 'sí'
   if (action === 'disambiguation_reject') return 'no'
   if (action === 'estimate_continue') return 'sí, quiero continuar con la reserva'

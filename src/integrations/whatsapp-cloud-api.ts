@@ -13,6 +13,12 @@ type SendReplyButtonsMessageInput = SendTextMessageInput & {
   buttons: Array<{ id: string; title: string }>
 }
 
+type SendInteractiveListMessageInput = SendTextMessageInput & {
+  rows: Array<{ id: string; title: string; description?: string }>
+  buttonText?: string
+  sectionTitle?: string
+}
+
 export function buildWhatsAppReplyButtonsPayload(input: SendReplyButtonsMessageInput) {
   const requestedButtons = input.buttons.slice(0, 3)
   const normalizedTitles = requestedButtons.map((button) => button.title.trim().toLocaleLowerCase('es'))
@@ -39,6 +45,34 @@ export function buildWhatsAppReplyButtonsPayload(input: SendReplyButtonsMessageI
           type: 'reply',
           reply: { id: button.id, title: button.title }
         }))
+      }
+    }
+  }
+}
+
+export function buildWhatsAppInteractiveListPayload(input: SendInteractiveListMessageInput) {
+  const rows = input.rows.slice(0, 10).map((row) => ({
+    id: row.id.trim(),
+    title: row.title.trim(),
+    ...(row.description?.trim() ? { description: row.description.trim() } : {})
+  }))
+  if (!rows.length) throw new Error('Se necesita al menos una opción para la lista de WhatsApp')
+  if (rows.some((row) => !row.id || !row.title || row.title.length > 24 || (row.description?.length ?? 0) > 72)) {
+    throw new Error('Las listas de WhatsApp requieren id, títulos de hasta 24 caracteres y descripciones de hasta 72')
+  }
+  return {
+    messaging_product: 'whatsapp',
+    to: input.to,
+    type: 'interactive',
+    interactive: {
+      type: 'list',
+      body: { text: input.text },
+      action: {
+        button: (input.buttonText?.trim() || 'Ver opciones').slice(0, 20),
+        sections: [{
+          title: (input.sectionTitle?.trim() || 'Elegí una opción').slice(0, 24),
+          rows
+        }]
       }
     }
   }
@@ -389,6 +423,45 @@ export class WhatsAppCloudApi {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(buildWhatsAppReplyButtonsPayload({ ...input, to: recipientPhone }))
+      }
+    )
+
+    if (!response.ok) {
+      const errorBody = await response.text()
+      const parsedError = parseWhatsAppError(errorBody)
+      return {
+        sent: false,
+        to: recipientPhone,
+        status: response.status,
+        error: errorBody,
+        errorType: parsedError.type,
+        errorCode: parsedError.code,
+        errorSubcode: parsedError.subcode,
+        fbtraceId: parsedError.fbtraceId,
+        errorMessage: parsedError.message
+      }
+    }
+
+    return { sent: true, to: recipientPhone, response: await response.json() }
+  }
+
+  async sendInteractiveListMessage(input: SendInteractiveListMessageInput) {
+    const config = await resolveBusinessWhatsAppCredentials(input.businessId)
+    const recipientPhone = formatRecipientPhone(input.to, config)
+
+    if (!config.accessToken || !config.phoneNumberId) {
+      return { sent: false, to: recipientPhone, reason: 'WHATSAPP_ACCESS_TOKEN o WHATSAPP_PHONE_NUMBER_ID no configurado' }
+    }
+
+    const response = await fetch(
+      `https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/messages`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${config.accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(buildWhatsAppInteractiveListPayload({ ...input, to: recipientPhone }))
       }
     )
 

@@ -63,11 +63,9 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
       ? ` para el ${formatDate(input.plan.date)}`
       : ' en los próximos días'
     const professional = input.plan.professionalName
-      ? ` manteniendo a ${input.plan.professionalName}`
+      ? ` con ${input.plan.professionalName}`
       : ''
-    return input.plan.date
-      ? `¿A qué hora te gustaría comenzar${context}${professional}? También podés escribir un rango, por ejemplo “de 13 a 15”.`
-      : `¿A qué hora exacta te gustaría comenzar${context}${professional}? Por ejemplo, “a las 13” o “13:30”.`
+    return `¿A qué hora te gustaría comenzar${context}${professional}? Escribí una hora, por ejemplo “16:30”.`
   }
 
   if (input.plan.type === 'show_coordinated_more_options') {
@@ -87,7 +85,7 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
     return [
       `Encontré disponibilidad para el ${formatDate(input.plan.date)}${input.plan.professionalName ? ` manteniendo a ${input.plan.professionalName}` : ''} 😊`,
       '¿En qué franja horaria preferís venir?',
-      'También podés escribirme una hora o un rango, por ejemplo: “a las 12” o “de 13 a 15”.'
+      'También podés escribirme una hora, un rango o “cambiar fecha”; por ejemplo: “a las 12” o “de 13 a 15”.'
     ].join('\n\n')
   }
 
@@ -849,9 +847,25 @@ function confirmationForField(
 ) {
   if (field === 'service') return `¿Querés reservar ${labelForService(value, catalog)}?`
   if (field === 'professional') return `¿Querés atenderte con ${labelForProfessional(value, catalog)}?`
-  if (field === 'date') return `¿Querés venir el ${formatDate(value)}?`
+  if (field === 'date') return `¿Querés venir ${confirmationDateLabel(value)}?`
   if (field === 'time') return `¿Querés reservar a las ${value}?`
   return `¿Tu nombre es ${value}?`
+}
+
+function confirmationDateLabel(value: string) {
+  const today = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Buenos_Aires',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(new Date())
+  if (value === today) return `hoy ${formatDate(value)}`
+
+  const tomorrow = new Date(`${today}T12:00:00.000Z`)
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
+  if (value === tomorrow.toISOString().slice(0, 10)) return `mañana ${formatDate(value)}`
+
+  return `el ${formatDate(value)}`
 }
 
 function correctionConfirmationForField(

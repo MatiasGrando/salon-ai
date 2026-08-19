@@ -5,4 +5,6 @@ node_modules
 /src/generated/prisma
 dev-server.log
 .codex-remote-attachments/
+/measurements/database-usage/*.json
+/measurements/database-usage/*.md
 /starter/._.

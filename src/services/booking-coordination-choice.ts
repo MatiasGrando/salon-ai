@@ -80,7 +80,10 @@ export function detectBookingCoordinationChoice(input: {
   if (/\b(?:buscar|encontrar|probar)\b.*\b(?:horario|hora)\b|\bhorario (?:especifico|exacto)\b/.test(normalized)) {
     return { type: 'SEARCH_TIME' }
   }
-  if (/\b(?:otra fecha|otro dia|elegir fecha|fecha especifica)\b/.test(normalized)) {
+  if (
+    /\b(?:otra fecha|otro dia|elegir fecha|fecha especifica)\b/.test(normalized) ||
+    /\b(?:cambiar|cambio|modificar|volver a elegir)\s+(?:la\s+|de\s+)?(?:fecha|dia)\b/.test(normalized)
+  ) {
     return { type: 'CHOOSE_OTHER_DATE' }
   }
   if (/\b(?:otras busquedas|otra busqueda|opciones de busqueda|buscar de otra forma)\b/.test(normalized)) {
@@ -182,10 +185,16 @@ function parseRelativeTimePreference(normalized: string): BookingCoordinationCho
 }
 
 function parseExactTime(normalized: string) {
-  const timeText = normalized.replace(/\b\d{4}-\d{2}-\d{2}\b/g, ' ')
+  const timeText = normalized
+    .replace(/\b\d{4}-\d{2}-\d{2}\b/g, ' ')
+    .replace(/\b(\d{1,2})\s*[.,]\s*(\d{2})(?!:)\b/g, '$1:$2')
   const colonTime = /(?:^|\b)([01]?\d|2[0-3]):([0-5]\d)(?:\s*(?:h|hs|hrs|horas))?(?:\b|$)/.exec(timeText)
   if (colonTime?.[1] && colonTime[2]) {
     return normalizeFlexibleTime(colonTime[1], colonTime[2], true)
+  }
+  const spacedTime = /^(?:a\s+las?\s+)?([01]?\d|2[0-3])\s+([0-5]\d)(?:\s*(?:h|hs|hrs|horas))?$/.exec(timeText.trim())
+  if (spacedTime?.[1] && spacedTime[2]) {
+    return normalizeFlexibleTime(spacedTime[1], spacedTime[2], true)
   }
   const compact = /(?:^|\b)(?:a\s+las?\s+|la\s+de\s+las?\s+)?(\d{3,4})(?:\s*(?:h|hs|hrs|horas))?(?:\b|$)/.exec(timeText)
   if (compact?.[1]) return normalizeFlexibleTime(compact[1], undefined, true)

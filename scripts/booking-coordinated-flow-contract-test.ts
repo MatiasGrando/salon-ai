@@ -28,7 +28,10 @@ import {
 import { detectDeterministicConfirmation } from '../src/services/conversation-confirmation-intent.js'
 import { BookingV2EstimateDecisionExtractor } from '../src/services/booking-v2-estimate-decision-extractor.js'
 import { renderBookingV2Response } from '../src/services/booking-v2-response-renderer.js'
-import { buildWhatsAppReplyButtonsPayload } from '../src/integrations/whatsapp-cloud-api.js'
+import {
+  buildWhatsAppInteractiveListPayload,
+  buildWhatsAppReplyButtonsPayload
+} from '../src/integrations/whatsapp-cloud-api.js'
 import { WhatsAppWebhookService } from '../src/services/whatsapp-webhook-service.js'
 
 const catalog = createBookingV2DomainCatalog({
@@ -358,7 +361,8 @@ const exactTimePrompt = await engine.process({
 })
 assert.equal(exactTimePrompt.plan.type, 'ask_coordinated_search_time')
 assert.equal(exactTimePrompt.state.pendingCoordinatedAvailability?.phase, 'AWAITING_SEARCH_TIME')
-assert.match(exactTimePrompt.reply, /También podés escribir un rango/)
+assert.match(exactTimePrompt.reply, /Escribí una hora, por ejemplo “16:30”/)
+assert.doesNotMatch(exactTimePrompt.reply, /rango/)
 const selectedRangeAfterExactTime = await engine.process({
   businessId: 'business-1',
   conversation: exactTimePrompt.conversationPatch,
@@ -501,6 +505,20 @@ for (const message of ['18h', '18hs', '18 hs', '18 hrs', '18 horas', '18:30 hs',
   })
 }
 assert.deepEqual(detectBookingCoordinationChoice({
+  message: '16. 30',
+  phase: 'TIME_PREFERENCE'
+}), { type: 'EXACT_TIME', time: '16:30' })
+assert.deepEqual(detectBookingCoordinationChoice({
+  message: '16 30',
+  phase: 'TIME_PREFERENCE'
+}), { type: 'EXACT_TIME', time: '16:30' })
+for (const message of ['cambiar fecha', 'cambiar de día', 'volver a elegir fecha', 'prefiero otra fecha']) {
+  assert.deepEqual(detectBookingCoordinationChoice({
+    message,
+    phase: 'TIME_PREFERENCE'
+  }), { type: 'CHOOSE_OTHER_DATE' }, message)
+}
+assert.deepEqual(detectBookingCoordinationChoice({
   message: 'opción 16',
   phase: 'OPTION'
 }), { type: 'OPTION', index: 15 })
@@ -600,8 +618,30 @@ const bandButtons = bookingCoordinationReplyButtons({
 assert.deepEqual(bandButtons?.map((button) => button.title), [
   'Por la mañana',
   'Al mediodía',
-  'Por la tarde'
+  'Por la tarde',
+  'Horario exacto',
+  'Cambiar fecha'
 ])
+const changedDirectlyToToday = await engine.process({
+  businessId: 'business-1',
+  conversation: selectedTomorrow.conversationPatch,
+  message: '¿Hoy no tenés nada?',
+  currentDate: new Date('2026-08-09T15:00:00-03:00')
+})
+assert.equal(changedDirectlyToToday.plan.type, 'coordinated_date_unavailable')
+assert.equal(changedDirectlyToToday.state.pendingCoordinatedAvailability?.date, '2026-08-09')
+assert.equal(searchCalls.at(-1)?.date, '2026-08-09')
+const changeDateFromList = await engine.process({
+  businessId: 'business-1',
+  conversation: selectedTomorrow.conversationPatch,
+  message: bookingCoordinationMessageFromInteractiveReply(
+    bandButtons?.[4]?.id,
+    'conversation-1'
+  ) ?? ''
+})
+assert.equal(changeDateFromList.plan.type, 'ask_coordinated_date')
+assert.equal(changeDateFromList.state.pendingCoordinatedAvailability?.phase, 'AWAITING_DATE')
+assert.equal(changeDateFromList.state.draft.date, null)
 const canonicalAfternoonButtonMessage = bookingCoordinationMessageFromInteractiveReply(
   bandButtons?.[2]?.id,
   'conversation-1'
@@ -629,7 +669,8 @@ const twoBandButtons = bookingCoordinationReplyButtons({
 assert.deepEqual(twoBandButtons?.map((button) => button.title), [
   'Por la mañana',
   'Por la tarde',
-  'Horario exacto'
+  'Horario exacto',
+  'Cambiar fecha'
 ])
 assert.equal(
   bookingCoordinationMessageFromInteractiveReply(twoBandButtons?.[2]?.id, 'conversation-1'),
@@ -904,6 +945,37 @@ assert.deepEqual(
 )
 assert.match(denseNearbyTimes.reply, /alternativas más cercanas/)
 assert.doesNotMatch(denseNearbyTimes.reply, /08:00 a/)
+
+const lateOptions = ['17:30', '18:00', '18:30', '19:00'].map((time) =>
+  datedOption('2026-08-10', time)
+)
+const lateState = {
+  ...denseState,
+  pendingCoordinatedAvailability: {
+    ...denseState.pendingCoordinatedAvailability,
+    options: lateOptions,
+    filteredOptionIds: lateOptions.map((item) => item.id)
+  }
+}
+const lateExactTimePrompt = await engine.process({
+  businessId: 'business-1',
+  conversation: conversationPatchFromState(lateState),
+  message: 'Horario exacto'
+})
+assert.equal(lateExactTimePrompt.state.pendingCoordinatedAvailability?.phase, 'AWAITING_SEARCH_TIME')
+const lateNearbyTimes = await engine.process({
+  businessId: 'business-1',
+  conversation: lateExactTimePrompt.conversationPatch,
+  message: '18:15'
+})
+assert.equal(lateNearbyTimes.plan.type, 'offer_coordinated_options')
+if (lateNearbyTimes.plan.type !== 'offer_coordinated_options') throw new Error('Plan inesperado')
+assert.deepEqual(
+  lateNearbyTimes.plan.options.map((item) => item.startTime),
+  ['18:00', '18:30', '17:30', '19:00']
+)
+assert.match(lateNearbyTimes.reply, /No encontré una opción que comience exactamente a las 18:15/)
+assert.match(lateNearbyTimes.reply, /alternativas más cercanas/)
 
 const denseMidday = await engine.process({
   businessId: 'business-1',
@@ -1381,6 +1453,42 @@ for (const buttons of [
     true
   )
   if (!buttons?.length) continue
+  if (buttons.length > 3) {
+    const payload = buildWhatsAppInteractiveListPayload({
+      to: '5491112345678',
+      text: 'Elegí una opción',
+      rows: buttons,
+      buttonText: 'Ver opciones',
+      sectionTitle: 'Elegí una opción'
+    })
+    assert.equal(payload.interactive.type, 'list')
+    assert.equal(payload.interactive.action.sections[0]?.rows.length, buttons.length)
+    for (const row of payload.interactive.action.sections[0]?.rows ?? []) {
+      const incoming = new WhatsAppWebhookService().extractIncomingMessages({
+        entry: [{
+          changes: [{
+            value: {
+              messages: [{
+                id: `wamid.${row.id}`,
+                from: '5491112345678',
+                type: 'interactive',
+                interactive: {
+                  type: 'list_reply',
+                  list_reply: row
+                }
+              }]
+            }
+          }]
+        }]
+      })[0]
+      assert.equal(incoming?.interactiveReplyId, row.id)
+      assert.ok(bookingCoordinationMessageFromInteractiveReply(
+        incoming?.interactiveReplyId,
+        'conversation-1'
+      ))
+    }
+    continue
+  }
   const payload = buildWhatsAppReplyButtonsPayload({
     to: '5491112345678',
     text: 'Elegí una opción',

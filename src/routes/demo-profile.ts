@@ -170,9 +170,10 @@ export async function demoProfileRoutes(app: FastifyInstance) {
       return reply.status(403).send({ message: 'No tenes permiso para usar perfiles demo' })
     }
     const params = request.params as { id: string }
-    const body = request.body as { message?: string; sessionId?: string }
+    const body = request.body as { message?: string; sessionId?: string; interactiveReplyId?: string }
     const message = body.message?.trim()
     const sessionId = cleanSessionId(body.sessionId)
+    const interactiveReplyId = body.interactiveReplyId?.trim() || undefined
     if (!message || !sessionId) return reply.status(400).send({ message: 'Falta el mensaje o la sesion demo' })
     const business = await findAccessibleDemo(user, params.id)
     if (!business) return reply.status(404).send({ message: 'No encontre ese perfil demo' })
@@ -182,10 +183,28 @@ export async function demoProfileRoutes(app: FastifyInstance) {
       update: {},
       create: { businessId: business.id, phone }
     })
-    await prisma.message.create({ data: { conversationId: conversation.id, phone, direction: 'INBOUND', body: message, status: 'received', metadata: { provider: 'demo_simulator' } } })
+    await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        phone,
+        direction: 'INBOUND',
+        body: message,
+        status: 'received',
+        metadata: {
+          provider: 'demo_simulator',
+          ...(interactiveReplyId ? { interactiveReplyId } : {})
+        }
+      }
+    })
     await reopenClosedConversationOpportunity(conversation.id)
     if (!business.botEnabled) return { reply: null, skipped: true, reason: 'Bot desactivado' }
-    const result = await conversationService.handleMessage({ phone, message, businessId: business.id, useAi: business.aiEnabled })
+    const result = await conversationService.handleMessage({
+      phone,
+      message,
+      businessId: business.id,
+      useAi: business.aiEnabled,
+      ...(interactiveReplyId ? { interactiveReplyId } : {})
+    })
     await prisma.message.create({ data: { conversationId: conversation.id, phone, direction: 'OUTBOUND', body: result.reply, status: 'sent', metadata: { provider: 'demo_simulator' } } })
     return { ...result, conversationId: conversation.id }
   })

@@ -10975,8 +10975,25 @@ const crmHtml = `<!doctype html>
       line-height: 1.5;
     }
 
-    .demo-chat-bubble {
+    .demo-chat-message {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
       max-width: min(82%, 540px);
+    }
+
+    .demo-chat-message.user {
+      align-self: flex-end;
+      align-items: flex-end;
+    }
+
+    .demo-chat-message.bot {
+      align-self: flex-start;
+      align-items: flex-start;
+    }
+
+    .demo-chat-bubble {
+      max-width: 100%;
       padding: 10px 12px;
       border-radius: 11px;
       color: #17213a;
@@ -10993,6 +11010,102 @@ const crmHtml = `<!doctype html>
 
     .demo-chat-bubble.bot {
       align-self: flex-start;
+    }
+
+    .demo-chat-quick-replies {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      max-width: 100%;
+    }
+
+    .demo-chat-quick-replies-label {
+      width: 100%;
+      color: #64748b;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .demo-chat-quick-reply {
+      min-height: 34px;
+      padding: 7px 11px;
+      border: 1px solid #2563eb;
+      border-radius: 8px;
+      color: #1d4ed8;
+      background: #fff;
+      cursor: pointer;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .demo-chat-quick-reply:hover:not(:disabled) {
+      color: #fff;
+      background: #2563eb;
+    }
+
+    .demo-chat-quick-reply:disabled {
+      border-color: #cbd5e1;
+      color: #94a3b8;
+      background: #f8fafc;
+      cursor: default;
+    }
+
+    .demo-chat-interactive-list {
+      width: min(360px, 100%);
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      overflow: hidden;
+      background: #fff;
+    }
+
+    .demo-chat-interactive-list summary {
+      padding: 10px 12px;
+      color: #1d4ed8;
+      font-size: 13px;
+      font-weight: 800;
+      cursor: pointer;
+      list-style: none;
+    }
+
+    .demo-chat-interactive-list summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .demo-chat-interactive-list-title {
+      padding: 9px 12px;
+      border-top: 1px solid #e2e8f0;
+      border-bottom: 1px solid #e2e8f0;
+      color: #64748b;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .demo-chat-interactive-list-option {
+      display: block;
+      width: 100%;
+      padding: 11px 12px;
+      border: 0;
+      border-bottom: 1px solid #e2e8f0;
+      color: #0f172a;
+      background: #fff;
+      text-align: left;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .demo-chat-interactive-list-option:last-child {
+      border-bottom: 0;
+    }
+
+    .demo-chat-interactive-list-option:hover:not(:disabled) {
+      background: #eff6ff;
+    }
+
+    .demo-chat-interactive-list-option:disabled,
+    .demo-chat-interactive-list[aria-disabled="true"] summary {
+      color: #94a3b8;
+      cursor: default;
     }
 
     .demo-chat-compose {
@@ -18712,7 +18825,25 @@ const crmHtml = `<!doctype html>
         return
       }
       els.demoChatMessages.innerHTML = state.demoChatMessages.map((message) => {
-        return '<div class="demo-chat-bubble ' + message.role + '">' + escapeHtml(message.text) + '</div>'
+        const replyButtons = Array.isArray(message.replyButtons) ? message.replyButtons : []
+        const interactiveList = replyButtons.length > 3
+          ? '<details class="demo-chat-interactive-list"' + (message.replyButtonsDisabled ? ' aria-disabled="true"' : '') + '><summary>Ver opciones de horario</summary>' +
+            '<div class="demo-chat-interactive-list-title">Eleg&iacute; una opci&oacute;n</div>' +
+            replyButtons.map((button) => {
+              const disabled = message.replyButtonsDisabled ? ' disabled' : ''
+              return '<button class="demo-chat-interactive-list-option" type="button" data-demo-chat-reply-id="' + escapeHtml(button.id) + '" data-demo-chat-reply-title="' + escapeHtml(button.title) + '"' + disabled + '>' + escapeHtml(button.title) + '</button>'
+            }).join('') +
+            '</details>'
+          : ''
+        const quickReplies = replyButtons.length && !interactiveList
+          ? '<div class="demo-chat-quick-replies"><span class="demo-chat-quick-replies-label">Opciones que ver&iacute;a el cliente:</span>' +
+            replyButtons.map((button) => {
+              const disabled = message.replyButtonsDisabled ? ' disabled' : ''
+              return '<button class="demo-chat-quick-reply" type="button" data-demo-chat-reply-id="' + escapeHtml(button.id) + '" data-demo-chat-reply-title="' + escapeHtml(button.title) + '"' + disabled + '>' + escapeHtml(button.title) + '</button>'
+            }).join('') +
+            '</div>'
+          : ''
+        return '<div class="demo-chat-message ' + message.role + '"><div class="demo-chat-bubble ' + message.role + '">' + escapeHtml(message.text) + '</div>' + (interactiveList || quickReplies) + '</div>'
       }).join('')
       els.demoChatMessages.scrollTop = els.demoChatMessages.scrollHeight
     }
@@ -18743,23 +18874,40 @@ const crmHtml = `<!doctype html>
       }
     }
 
-    async function sendDemoChatMessage(event) {
-      event.preventDefault()
+    async function sendDemoChatMessage(event, selectedReply = null) {
+      event?.preventDefault()
       const profileId = els.demoProfileSelect.value
-      const message = els.demoChatInput.value.trim()
+      const message = selectedReply?.title || els.demoChatInput.value.trim()
       if (!profileId || !message) return
       if (!state.demoChatSessionId) startNewDemoChat()
+      state.demoChatMessages = state.demoChatMessages.map((chatMessage) => {
+        if (chatMessage.role !== 'bot' || !chatMessage.replyButtons?.length) return chatMessage
+        return { ...chatMessage, replyButtonsDisabled: true }
+      })
       state.demoChatMessages.push({ role: 'user', text: message })
-      els.demoChatInput.value = ''
+      if (!selectedReply) els.demoChatInput.value = ''
       renderDemoChatMessages()
       if (!setButtonLoading(els.demoChatSend, true, 'Pensando...')) return
       try {
         const result = await getJson('/admin/demo-profiles/' + encodeURIComponent(profileId) + '/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message, sessionId: state.demoChatSessionId })
+          body: JSON.stringify({
+            message,
+            sessionId: state.demoChatSessionId,
+            ...(selectedReply?.id ? { interactiveReplyId: selectedReply.id } : {})
+          })
         })
-        state.demoChatMessages.push({ role: 'bot', text: result.reply || result.reason || 'El bot no genero una respuesta.' })
+        const replyButtons = Array.isArray(result.replyButtons)
+          ? result.replyButtons
+            .filter((button) => button?.id && button?.title)
+            .map((button) => ({ id: String(button.id), title: String(button.title) }))
+          : []
+        state.demoChatMessages.push({
+          role: 'bot',
+          text: result.reply || result.reason || 'El bot no genero una respuesta.',
+          replyButtons
+        })
         renderDemoChatMessages()
       } catch (error) {
         state.demoChatMessages.push({ role: 'bot', text: 'No pude responder: ' + error.message })
@@ -30594,6 +30742,14 @@ const crmHtml = `<!doctype html>
     })
     els.demoNewChat?.addEventListener('click', startNewDemoChat)
     els.demoProfileSelect?.addEventListener('change', startNewDemoChat)
+    els.demoChatMessages?.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-demo-chat-reply-id]')
+      if (!button || button.disabled) return
+      sendDemoChatMessage(null, {
+        id: button.dataset.demoChatReplyId,
+        title: button.dataset.demoChatReplyTitle
+      })
+    })
     els.demoChatForm?.addEventListener('submit', sendDemoChatMessage)
     els.businessSettingsForm.addEventListener('submit', saveBusinessSettings)
     els.landingSettingsForm.addEventListener('submit', saveLandingSettings)
