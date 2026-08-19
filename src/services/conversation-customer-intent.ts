@@ -24,6 +24,16 @@ const greetingWords = new Set([
   'soy',
   'me',
   'mi',
+  'con',
+  'por',
+  'para',
+  'el',
+  'la',
+  'los',
+  'las',
+  'un',
+  'una',
+  'cliente',
   'que',
   'qué'
 ])
@@ -59,10 +69,17 @@ const nonNameWords = new Set([
 export function extractExplicitCustomerIntroduction(
   message: string
 ): ExplicitCustomerIntroduction | null {
-  const marker = /\b(?:yo\s+)?(?:soy|me\s+llamo|mi\s+nombre\s+es)\s+/iu.exec(message)
-  if (!marker) return null
+  const marker = /\b(?:yo\s+)?(?:soy|me\s+llamo|mi\s+nombre\s+es|te\s+habla)\s+/iu.exec(message) ??
+    /^(?:(?:hola+|holi+|buenas|buen\s+d[ií]a|buenas\s+tardes|buenas\s+noches)[,;:.!¡¿?\s-]+)?habla\s+/iu.exec(message.trim())
+  if (marker) {
+    return introductionFromMarker(message, marker.index, marker[0])
+  }
 
-  const tail = message.slice(marker.index + marker[0].length).trim()
+  return extractColloquialCustomerIntroduction(message)
+}
+
+function introductionFromMarker(message: string, markerIndex: number, markerText: string) {
+  const tail = message.slice(markerIndex + markerText.length).trim()
   if (!tail) return null
 
   const boundary = findIntroductionBoundary(tail)
@@ -82,6 +99,22 @@ export function extractExplicitCustomerIntroduction(
     name,
     remainingMessage: remainingMessage || null
   }
+}
+
+function extractColloquialCustomerIntroduction(message: string): ExplicitCustomerIntroduction | null {
+  const trimmed = message.trim()
+  const match = /^(?:(?:hola+|holi+|buenas|buen\s+d[ií]a|buenas\s+tardes|buenas\s+noches)[,;:.!¡¿?\s-]+)?([\p{Letter}][\p{Letter}'’\-]{1,39}(?:\s+[\p{Letter}][\p{Letter}'’\-]{1,39}){0,3})\s+(?:por\s+ac[aá]|de\s+este\s+lado)(?=$|[,;:.!¡¿?\s-])/iu.exec(trimmed)
+  if (!match?.[1]) return null
+
+  const name = formatCustomerName(match[1])
+  if (!name || !looksLikeCustomerName(name)) return null
+
+  const remainingMessage = trimmed.slice(match[0].length)
+    .replace(/^[,;:.!¡¿?\s-]+/gu, '')
+    .replace(/^y\s+(?=(?:quiero|necesito|busco|quisiera|vengo|queria|quería)\b)/iu, '')
+    .trim()
+
+  return { name, remainingMessage: remainingMessage || null }
 }
 
 export function extractMisaddressedAssistantGreeting(

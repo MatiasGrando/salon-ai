@@ -27,6 +27,28 @@ assert.deepEqual(extractExplicitCustomerIntroduction('mi nombre es ANA MARIA y q
   name: 'Ana Maria',
   remainingMessage: 'quiero reservar'
 })
+assert.deepEqual(extractExplicitCustomerIntroduction('Hola Tami te habla Santi'), {
+  name: 'Santi',
+  remainingMessage: null
+})
+assert.deepEqual(extractExplicitCustomerIntroduction('Te habla Santiago, quiero reservar un corte'), {
+  name: 'Santiago',
+  remainingMessage: 'quiero reservar un corte'
+})
+assert.deepEqual(extractExplicitCustomerIntroduction('Habla Santi'), {
+  name: 'Santi',
+  remainingMessage: null
+})
+assert.deepEqual(extractExplicitCustomerIntroduction('Santi por acá, quiero un turno'), {
+  name: 'Santi',
+  remainingMessage: 'quiero un turno'
+})
+assert.deepEqual(extractExplicitCustomerIntroduction('Buenas, Santiago de este lado'), {
+  name: 'Santiago',
+  remainingMessage: null
+})
+assert.equal(extractExplicitCustomerIntroduction('Habla con Santi'), null)
+assert.equal(extractExplicitCustomerIntroduction('Te habla por el turno de Santi'), null)
 
 assert.deepEqual(extractMisaddressedAssistantGreeting('hola Juan'), {
   addressedName: 'Juan',
