@@ -14168,6 +14168,7 @@ const crmHtml = `<!doctype html>
         <button class="demo-profile-action" id="demo-simulator-open" type="button">Probar bot</button>
         <button class="support-business-badge" id="support-return-accounts" type="button">S&uacute;per Admin &middot; Cuentas</button>
       </div>
+      <button class="demo-profile-action secondary conversation-sound-test" id="test-incoming-sound" type="button">Probar sonido</button>
       <button class="icon-button conversation-refresh" id="refresh" type="button" title="Actualizar" data-icon="refresh"></button>
     </header>
 
@@ -17223,6 +17224,7 @@ const crmHtml = `<!doctype html>
     } else {
 
     const CRM_FALLBACK_REFRESH_MS = 2 * 60 * 1000
+    const CRM_LOCAL_EVENT_SYNC_MS = 10 * 1000
     const CONVERSATION_CACHE_TTL_MS = 60000
     const CONVERSATION_CACHE_LIMIT = 12
     const ASSISTANT_PERSONALITY_PRESETS = {
@@ -17554,6 +17556,7 @@ const crmHtml = `<!doctype html>
       commercialDemoWorkspaceName: document.getElementById('commercial-demo-workspace-name'),
       commercialDemoWorkspaceAccount: document.getElementById('commercial-demo-workspace-account'),
       commercialDemoWorkspaceExit: document.getElementById('commercial-demo-workspace-exit'),
+      testIncomingSound: document.getElementById('test-incoming-sound'),
       refresh: document.getElementById('refresh'),
       handoffCount: document.getElementById('handoff-count'),
       topConversationTotal: document.getElementById('top-conversation-total'),
@@ -20980,7 +20983,7 @@ const crmHtml = `<!doctype html>
     function startCrmRealtimeEvents() {
       stopCrmRealtimeEvents()
       if (!state.businessId || !window.EventSource) {
-        startCrmRealtimeFallback()
+        startCrmRealtimeFallback(isLocalCrm() ? CRM_LOCAL_EVENT_SYNC_MS : CRM_FALLBACK_REFRESH_MS)
         return
       }
 
@@ -21002,10 +21005,17 @@ const crmHtml = `<!doctype html>
         refreshConversationSummary().catch(() => null)
       })
       source.addEventListener('open', () => {
-        if (state.realtimeEventSource === source) stopCrmRealtimeFallback()
+        if (state.realtimeEventSource !== source) return
+        if (isLocalCrm()) {
+          startCrmRealtimeFallback(CRM_LOCAL_EVENT_SYNC_MS)
+          return
+        }
+        stopCrmRealtimeFallback()
       })
       source.addEventListener('error', () => {
-        if (state.realtimeEventSource === source) startCrmRealtimeFallback()
+        if (state.realtimeEventSource === source) {
+          startCrmRealtimeFallback(isLocalCrm() ? CRM_LOCAL_EVENT_SYNC_MS : CRM_FALLBACK_REFRESH_MS)
+        }
       })
     }
 
@@ -21015,14 +21025,18 @@ const crmHtml = `<!doctype html>
       stopCrmRealtimeFallback()
     }
 
-    function startCrmRealtimeFallback() {
+    function isLocalCrm() {
+      return window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    }
+
+    function startCrmRealtimeFallback(intervalMs = CRM_FALLBACK_REFRESH_MS) {
       if (state.realtimeFallbackTimer) return
       const refresh = () => {
         if (document.body.dataset.auth !== 'ready') return
         refreshConversationSummary().catch(() => null)
       }
       refresh()
-      state.realtimeFallbackTimer = setInterval(refresh, CRM_FALLBACK_REFRESH_MS)
+      state.realtimeFallbackTimer = setInterval(refresh, intervalMs)
     }
 
     function stopCrmRealtimeFallback() {
@@ -21146,19 +21160,35 @@ const crmHtml = `<!doctype html>
       if (receivedNewMessage) playIncomingMessageSound()
     }
 
-    function enableIncomingMessageSound() {
+    async function enableIncomingMessageSound() {
       if (state.messageSoundContext) {
-        state.messageSoundContext.resume?.().catch(() => null)
-        return
+        try {
+          await state.messageSoundContext.resume?.()
+          return state.messageSoundContext.state === 'running'
+        } catch {
+          return false
+        }
       }
       const AudioContext = window.AudioContext || window.webkitAudioContext
-      if (!AudioContext) return
+      if (!AudioContext) return false
       try {
         state.messageSoundContext = new AudioContext()
-        state.messageSoundContext.resume?.().catch(() => null)
+        await state.messageSoundContext.resume?.()
+        return state.messageSoundContext.state === 'running'
       } catch {
         state.messageSoundContext = null
+        return false
       }
+    }
+
+    async function testIncomingMessageSound() {
+      const enabled = await enableIncomingMessageSound()
+      if (!enabled) {
+        showCrmToast('No pude activar el sonido. Revisá que esta pestaña no esté silenciada.', 'error')
+        return
+      }
+      playIncomingMessageSound()
+      showCrmToast('Sonido activado. Te avisaré cuando llegue un mensaje.', 'success')
     }
 
     function playIncomingMessageSound() {
@@ -31364,8 +31394,9 @@ const crmHtml = `<!doctype html>
 
     hydrateIcons()
 
-    document.addEventListener('pointerdown', enableIncomingMessageSound, { once: true, capture: true })
-    document.addEventListener('keydown', enableIncomingMessageSound, { once: true, capture: true })
+    document.addEventListener('pointerdown', () => { void enableIncomingMessageSound() }, { once: true, capture: true })
+    document.addEventListener('keydown', () => { void enableIncomingMessageSound() }, { once: true, capture: true })
+    els.testIncomingSound.addEventListener('click', () => { void testIncomingMessageSound() })
 
     loadSession()
       .then((hasSession) => hasSession ? startCrm() : null)
