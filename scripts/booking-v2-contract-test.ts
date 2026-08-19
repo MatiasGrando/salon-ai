@@ -1296,6 +1296,43 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'consulta el día completo antes de limitar alternativas cercanas a una hora pedida',
+    run: async () => {
+      const domainCatalog = createBookingV2DomainCatalog({
+        services: [
+          { id: 'haircut', name: 'Corte', aliases: ['corte de pelo'], duration: 30, price: 15000, category: null }
+        ],
+        professionals: [
+          { id: 'professional-1', name: 'Ramiro', serviceIds: ['haircut'] }
+        ]
+      })
+      const provider = fakeBookingProvider({
+        'professional-1': [
+          '11:00', '11:30', '12:00', '12:30', '13:00', '13:30', '14:00', '14:30',
+          '15:00', '15:30', '16:00', '16:30', '17:00', '17:30', '18:00', '18:30',
+          '19:00', '19:30'
+        ]
+      })
+      const domain = new BookingV2DomainService({} as never, provider)
+
+      const availability = await domain.findAvailabilityOptions({
+        catalog: domainCatalog,
+        serviceId: 'haircut',
+        professionalId: 'professional-1',
+        date: '2026-07-10',
+        requestedTime: '19:20'
+      })
+
+      assert.equal(availability.ok, true)
+      if (availability.ok) {
+        assert.deepEqual(
+          availability.options.slice(0, 3).map((option) => option.time),
+          ['19:30', '19:00', '18:30']
+        )
+      }
+    }
+  },
+  {
     name: 'reutiliza los datos existentes de la conversacion vieja',
     run: () => {
       const state = stateFromConversation({

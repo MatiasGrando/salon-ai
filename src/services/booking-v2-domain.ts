@@ -285,12 +285,17 @@ export class BookingV2DomainService {
     serviceIds?: string[]
     date: string
     professionalId?: string | null
+    requestedTime?: string | null
   }): Promise<BookingV2AvailabilityResult> {
     const result = await this.searchAvailability({
       catalog: input.catalog,
       serviceId: input.serviceId,
       ...(input.serviceIds === undefined ? {} : { serviceIds: input.serviceIds }),
-      mode: { type: 'DATE', date: input.date },
+      mode: {
+        type: 'DATE',
+        date: input.date,
+        ...(input.requestedTime ? { requestedTime: input.requestedTime } : {})
+      },
       assignmentMode: 'SINGLE_PROFESSIONAL',
       ...(input.professionalId === undefined ? {} : { professionalId: input.professionalId })
     })

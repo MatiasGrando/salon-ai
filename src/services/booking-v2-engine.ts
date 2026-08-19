@@ -3318,17 +3318,18 @@ export class BookingV2Engine {
       effectiveInterpretation.state.draft.date &&
       shouldValidateAvailability(plan)
     ) {
+      const proposedTime = timeToValidate(plan, effectiveInterpretation.state)
       const availability = await this.domain.findAvailabilityOptions({
         catalog,
         serviceId: effectiveInterpretation.state.draft.service,
         serviceIds: selectedServiceIds,
         professionalId: effectiveInterpretation.state.draft.professional,
-        date: effectiveInterpretation.state.draft.date
+        date: effectiveInterpretation.state.draft.date,
+        ...(proposedTime ? { requestedTime: proposedTime } : {})
       })
 
       availabilityOptions = availability.ok ? availability.options : []
       unavailableReason = availability.ok ? availability.unavailable ?? null : null
-      const proposedTime = timeToValidate(plan, effectiveInterpretation.state)
       const shouldSearchUpcoming = availabilityOptions.length === 0 &&
         Boolean(this.domain.findNextAvailabilityOptions)
       const nextOptions = shouldSearchUpcoming && this.domain.findNextAvailabilityOptions
