@@ -13,6 +13,8 @@ export type BookingCoordinationChoice =
   | { type: 'CHOOSE_OTHER_DATE' }
   | { type: 'TIME_BAND'; band: BookingV2CoordinatedTimeBand }
   | { type: 'EXACT_TIME'; time: string }
+  | { type: 'AFTER_TIME'; time: string; inclusive: boolean }
+  | { type: 'BEFORE_TIME'; time: string; inclusive: boolean }
   | { type: 'TIME_WINDOW'; startTime: string; endTime: string }
   | { type: 'OPTION'; index: number }
 
@@ -111,6 +113,8 @@ export function detectBookingCoordinationChoice(input: {
     }
   }
 
+  const relativeTime = parseRelativeTimePreference(normalized)
+  if (relativeTime) return relativeTime
   const timeWindow = parseTimeWindow(normalized)
   if (timeWindow) return { type: 'TIME_WINDOW', ...timeWindow }
   const exactTime = parseExactTime(normalized)
@@ -151,7 +155,7 @@ export function optionFitsTimeWindow(
 }
 
 function parseTimeWindow(normalized: string) {
-  const match = /(?:^|\b)(?:de|entre)?\s*(\d{1,4})(?::?(\d{2}))?\s*(?:a|y|hasta)\s*(?:las?\s*)?(\d{1,4})(?::?(\d{2}))?(?:\b|$)/.exec(normalized)
+  const match = /(?:^|\b)(?:de|entre)?\s*(?:las?\s*)?(\d{1,4})(?::?(\d{2}))?\s*(?:a|y|hasta)\s*(?:las?\s*)?(\d{1,4})(?::?(\d{2}))?(?:\b|$)/.exec(normalized)
   if (!match?.[1] || !match[3]) return null
   const startTime = normalizeFlexibleTime(match[1], match[2], true)
   const endTime = normalizeFlexibleTime(match[3], match[4], true)
@@ -162,14 +166,31 @@ function parseTimeWindow(normalized: string) {
   return { startTime, endTime }
 }
 
+function parseRelativeTimePreference(normalized: string): BookingCoordinationChoice | null {
+  const match = /\b(desde|a\s+partir\s+de|despues\s+de|antes\s+de|hasta)\s+(?:las?\s+)?(\d{1,2})(?::(\d{2}))?\s*(?:h|hs|hrs|horas)?(?:\b|$)/.exec(normalized)
+  if (!match?.[1] || !match[2]) return null
+  const time = normalizeFlexibleTime(match[2], match[3], true)
+  if (!time) return null
+  const direction = match[1]
+  if (direction === 'desde' || direction === 'a partir de') {
+    return { type: 'AFTER_TIME', time, inclusive: true }
+  }
+  if (direction === 'despues de') {
+    return { type: 'AFTER_TIME', time, inclusive: false }
+  }
+  return { type: 'BEFORE_TIME', time, inclusive: direction === 'hasta' }
+}
+
 function parseExactTime(normalized: string) {
   const timeText = normalized.replace(/\b\d{4}-\d{2}-\d{2}\b/g, ' ')
-  const colonTime = /(?:^|\b)([01]?\d|2[0-3]):([0-5]\d)(?:\b|$)/.exec(timeText)
+  const colonTime = /(?:^|\b)([01]?\d|2[0-3]):([0-5]\d)(?:\s*(?:h|hs|hrs|horas))?(?:\b|$)/.exec(timeText)
   if (colonTime?.[1] && colonTime[2]) {
     return normalizeFlexibleTime(colonTime[1], colonTime[2], true)
   }
-  const compact = /(?:^|\b)(?:a\s+las?\s+|la\s+de\s+las?\s+)?(\d{3,4})(?:\s*(?:h|hs|hrs))?(?:\b|$)/.exec(timeText)
+  const compact = /(?:^|\b)(?:a\s+las?\s+|la\s+de\s+las?\s+)?(\d{3,4})(?:\s*(?:h|hs|hrs|horas))?(?:\b|$)/.exec(timeText)
   if (compact?.[1]) return normalizeFlexibleTime(compact[1], undefined, true)
+  const suffixedHour = /(?:^|\b)(?:a\s+las?\s+|cerca\s+de\s+las?\s+|la\s+de\s+las?\s+)?(\d{1,2})\s*(?:h|hs|hrs|horas)(?:\b|$)/.exec(timeText)
+  if (suffixedHour?.[1]) return normalizeFlexibleTime(suffixedHour[1], undefined, true)
   const explicit = /(?:^|\b)(?:a\s+las?\s+|cerca\s+de\s+las?\s+|la\s+de\s+las?\s+)(\d{1,2})(?::(\d{2}))?(?:\b|$)/.exec(timeText)
   if (!explicit?.[1]) return null
   return normalizeFlexibleTime(explicit[1], explicit[2], true)

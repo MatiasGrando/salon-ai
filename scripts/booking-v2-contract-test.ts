@@ -6673,6 +6673,40 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         true
       )
 
+      const confirmedTime = applyContextualRoutingPriorities({
+        intents: [
+          {
+            type: 'professional_schedule',
+            topic: null,
+            confidence: 0.91,
+            evidence: '18hs'
+          },
+          {
+            type: 'availability_preference',
+            topic: null,
+            confidence: 0.86,
+            evidence: '18hs'
+          }
+        ],
+        bookingMessage: '18hs',
+        bookingExtraction: extraction({
+          time: field('18:00', 0.98, '18hs')
+        }),
+        catalogQuery: null
+      }, {
+        message: 'sí, dale 18hs',
+        currentStep: 'ASK_TIME'
+      })
+      assert.equal(confirmedTime.bookingMessage, 'sí, dale 18hs')
+      assert.equal(
+        confirmedTime.intents.some((intent) => intent.type === 'professional_schedule'),
+        false
+      )
+      assert.equal(
+        confirmedTime.intents.some((intent) => intent.type === 'availability_preference'),
+        true
+      )
+
       const realQuestion = applyContextualRoutingPriorities({
         intents: [{
           type: 'professional_schedule',

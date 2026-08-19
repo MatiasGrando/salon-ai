@@ -468,6 +468,18 @@ assert.deepEqual(detectBookingCoordinationChoice({
   phase: 'TIME_PREFERENCE'
 }), { type: 'TIME_WINDOW', startTime: '13:00', endTime: '15:00' })
 assert.deepEqual(detectBookingCoordinationChoice({
+  message: 'tenés algo después de las 18?',
+  phase: 'TIME_PREFERENCE'
+}), { type: 'AFTER_TIME', time: '18:00', inclusive: false })
+assert.deepEqual(detectBookingCoordinationChoice({
+  message: 'desde las 18hs',
+  phase: 'TIME_PREFERENCE'
+}), { type: 'AFTER_TIME', time: '18:00', inclusive: true })
+assert.deepEqual(detectBookingCoordinationChoice({
+  message: 'entre las 18 y las 20',
+  phase: 'TIME_PREFERENCE'
+}), { type: 'TIME_WINDOW', startTime: '18:00', endTime: '20:00' })
+assert.deepEqual(detectBookingCoordinationChoice({
   message: 'mostrame todos los horarios',
   phase: 'OPTION'
 }), { type: 'SHOW_MORE' })
@@ -479,6 +491,15 @@ assert.deepEqual(detectBookingCoordinationChoice({
   message: '16',
   phase: 'TIME_PREFERENCE'
 }), { type: 'EXACT_TIME', time: '16:00' })
+for (const message of ['18h', '18hs', '18 hs', '18 hrs', '18 horas', '18:30 hs', 'sí, dale 18hs']) {
+  assert.deepEqual(detectBookingCoordinationChoice({
+    message,
+    phase: 'OPTION'
+  }), {
+    type: 'EXACT_TIME',
+    time: message === '18:30 hs' ? '18:30' : '18:00'
+  })
+}
 assert.deepEqual(detectBookingCoordinationChoice({
   message: 'opción 16',
   phase: 'OPTION'
@@ -549,6 +570,22 @@ const quotedAfternoon = await engine.process({
 assert.equal(quotedAfternoon.plan.type, 'offer_coordinated_options')
 if (quotedAfternoon.plan.type !== 'offer_coordinated_options') throw new Error('Plan inesperado')
 assert.deepEqual(quotedAfternoon.plan.options.map((item) => item.startTime), ['15:00'])
+const afterNoon = await engine.process({
+  businessId: 'business-1',
+  conversation: selectedTomorrow.conversationPatch,
+  message: '¿Tenés algo después de las 12?'
+})
+assert.equal(afterNoon.plan.type, 'offer_coordinated_options')
+if (afterNoon.plan.type !== 'offer_coordinated_options') throw new Error('Plan inesperado')
+assert.deepEqual(afterNoon.plan.options.map((item) => item.startTime), ['13:00', '15:00'])
+const selectedAfterNoon = await engine.process({
+  businessId: 'business-1',
+  conversation: afterNoon.conversationPatch,
+  message: '15hs'
+})
+assert.equal(selectedAfterNoon.plan.type, 'show_coordinated_selection')
+if (selectedAfterNoon.plan.type !== 'show_coordinated_selection') throw new Error('Plan inesperado')
+assert.equal(selectedAfterNoon.plan.option.startTime, '15:00')
 const quotedExactTimeButton = await engine.process({
   businessId: 'business-1',
   conversation: selectedTomorrow.conversationPatch,

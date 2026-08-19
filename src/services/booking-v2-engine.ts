@@ -3865,6 +3865,26 @@ function filterCoordinatedOptions(
   if (choice?.type === 'EXACT_TIME') {
     return options.filter((option) => option.startTime === choice.time)
   }
+  if (choice?.type === 'AFTER_TIME') {
+    const requestedMinutes = coordinatedTimeToMinutes(choice.time)
+    if (requestedMinutes === null) return []
+    return options.filter((option) => {
+      const optionMinutes = coordinatedTimeToMinutes(option.startTime)
+      return optionMinutes !== null && (
+        choice.inclusive ? optionMinutes >= requestedMinutes : optionMinutes > requestedMinutes
+      )
+    })
+  }
+  if (choice?.type === 'BEFORE_TIME') {
+    const requestedMinutes = coordinatedTimeToMinutes(choice.time)
+    if (requestedMinutes === null) return []
+    return options.filter((option) => {
+      const optionMinutes = coordinatedTimeToMinutes(option.startTime)
+      return optionMinutes !== null && (
+        choice.inclusive ? optionMinutes <= requestedMinutes : optionMinutes < requestedMinutes
+      )
+    })
+  }
   if (choice?.type === 'TIME_WINDOW') {
     return options.filter((option) => optionFitsTimeWindow(option, choice))
   }

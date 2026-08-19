@@ -1511,6 +1511,7 @@ function containsAny(value: string, phrases: string[]) {
 
 function isCompactTimeSelection(message: string) {
   const compact = normalizeEvidenceText(message)
+    .replace(/^(?:(?:si|dale|ok(?:ey)?|perfecto|listo|genial|buenisimo|de una)[\s,!.]*)+/, '')
     .replace(/^(?:a\s+las?|para\s+las?)\s+/, '')
     .replace(/\s*(?:h|hs|hrs|horas)$/, '')
     .trim()
