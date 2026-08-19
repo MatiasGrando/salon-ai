@@ -4168,6 +4168,19 @@ function resolveExpectedProfessional(
   )
   if (compatibleProfessionals.length === 0) return null
 
+  // Cuando hay una sola persona compatible, la respuesta muestra una pregunta
+  // cerrada ("¿Querés atenderte con ...?"). Una afirmación literal acepta esa
+  // única opción sin obligar al cliente a repetir el nombre del profesional.
+  if (
+    compatibleProfessionals.length === 1 &&
+    detectDeterministicConfirmation(message)?.intent === 'confirm'
+  ) {
+    return {
+      kind: 'selected' as const,
+      professionalId: compatibleProfessionals[0]!.id
+    }
+  }
+
   const normalizedMessage = normalize(message)
     .replace(/^(?:con|quiero con|prefiero|elijo a|con la|con el)\s+/, '')
   if ([

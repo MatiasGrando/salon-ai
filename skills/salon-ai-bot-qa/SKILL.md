@@ -75,6 +75,12 @@ If the message is a confirmation, create the appointment. Do not ask if the user
 
 Do not infer a professional from a date-only message.
 
+When the professional step shows exactly one compatible professional and asks
+whether the customer wants to book with that person, a literal affirmative
+reply such as `si`, `sí`, `dale` or `perfecto` must select that professional and
+advance. If more than one compatible professional is shown, a bare affirmative
+must not silently choose one.
+
 Bad:
 User: "para hoy si es posible"
 Cami: "te busco con Agustin"

@@ -1700,6 +1700,79 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'si confirma a la unica profesional compatible sin repetir la pregunta',
+    run: async () => {
+      const singleProfessionalCatalog = createBookingV2DomainCatalog({
+        services: [{
+          id: 'follow-up',
+          name: 'Seguimiento',
+          aliases: ['seguimiento'],
+          duration: 60,
+          price: 20000,
+          category: null
+        }],
+        professionals: [{
+          id: 'tamara-grando',
+          name: 'Tamara Grando',
+          serviceIds: ['follow-up']
+        }]
+      })
+      const engine = new BookingV2Engine(
+        fakeDomainPort({ catalog: singleProfessionalCatalog }),
+        fakeExtractor(null)
+      )
+      const conversation = {
+        selectedCustomerName: 'Tami',
+        selectedServiceId: 'follow-up',
+        selectedProfessionalId: null,
+        selectedDate: null,
+        selectedTime: null,
+        misunderstandingCount: 0,
+        bookingV2State: null
+      }
+
+      const prompt = await engine.resume({
+        businessId: 'business-1',
+        conversation
+      })
+      assert.equal(prompt.plan.type === 'ask_field' ? prompt.plan.field : null, 'professional')
+      assert.match(prompt.reply, /¿Querés atenderte con Tamara Grando\?/i)
+      assert.equal(await engine.canProcessWithoutGeneralRouter({
+        businessId: 'business-1',
+        conversation: prompt.conversationPatch,
+        message: 'Sí'
+      }), true)
+
+      const confirmed = await engine.process({
+        businessId: 'business-1',
+        conversation: prompt.conversationPatch,
+        message: 'Sí',
+        understandingExtraction: null
+      })
+
+      assert.equal(confirmed.state.draft.professional, 'tamara-grando')
+      assert.equal(confirmed.plan.type === 'ask_field' ? confirmed.plan.field : null, 'date')
+      assert.doesNotMatch(confirmed.reply, /¿Querés atenderte con Tamara Grando\?/i)
+
+      const multipleProfessionalCatalog = createBookingV2DomainCatalog({
+        services: singleProfessionalCatalog.services,
+        professionals: [
+          ...singleProfessionalCatalog.professionals,
+          { id: 'sofia', name: 'Sofía', serviceIds: ['follow-up'] }
+        ]
+      })
+      const multipleProfessionalEngine = new BookingV2Engine(
+        fakeDomainPort({ catalog: multipleProfessionalCatalog }),
+        fakeExtractor(null)
+      )
+      assert.equal(await multipleProfessionalEngine.canProcessWithoutGeneralRouter({
+        businessId: 'business-1',
+        conversation,
+        message: 'Sí'
+      }), false)
+    }
+  },
+  {
     name: 'propone profesional ante typo de una letra sin entrar en loop',
     run: async () => {
       const typoCatalog = createBookingV2DomainCatalog({
