@@ -89,6 +89,11 @@ import {
   isPureSocialGreeting
 } from './conversation-customer-intent.js'
 import { reservationDurationLimits } from './service-duration.js'
+import {
+  isAppointmentReminderMessage,
+  isStandaloneReminderAcknowledgement,
+  reminderAcknowledgementReply
+} from './reminder-response-intent.js'
 
 const bookingConversationFlow = new BookingConversationFlow()
 const bookingProvider = new InternalBookingProvider()
@@ -197,6 +202,19 @@ export class ConversationService {
         }
     const bookingV2Enabled = runtimeSettings.bookingV2Enabled
     const previousActivityAt = input.previousActivityAt ?? existingConversation?.updatedAt ?? new Date()
+    if (
+      businessId &&
+      existingConversation &&
+      isStandaloneReminderAcknowledgement(message)
+    ) {
+      const reminderAcknowledgement = await this.tryHandleReminderAcknowledgement({
+        businessId,
+        phone: input.phone,
+        conversationId: existingConversation.id,
+        message
+      })
+      if (reminderAcknowledgement) return reminderAcknowledgement
+    }
     const contextWindow = existingConversation
       ? conversationContextWindow(existingConversation.currentStep, previousActivityAt, runtimeSettings.context)
       : 'active'
@@ -1054,7 +1072,9 @@ export class ConversationService {
 
     if (
       (bookingV2Routing?.intents.some((intent) =>
-        intent.type === 'cancel_appointment' && intent.confidence >= 0.65
+        intent.type === 'cancel_appointment' &&
+        intent.confidence >= 0.65 &&
+        !isStandaloneReminderAcknowledgement(message)
       ) ?? false) ||
       (!bookingV2Enabled && isCancelAppointmentMessage(message, conversation.currentStep))
     ) {
@@ -4000,6 +4020,117 @@ export class ConversationService {
     })
   }
 
+  private async tryHandleReminderAcknowledgement(input: {
+    businessId: string
+    phone: string
+    conversationId: string
+    message: string
+  }): Promise<HandleMessageResult | null> {
+    const phoneDigits = input.phone.replace(/\D/g, '')
+    if (!phoneDigits) return null
+
+    const latestOutbound = await prisma.message.findFirst({
+      where: {
+        conversationId: input.conversationId,
+        direction: 'OUTBOUND'
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { body: true, providerMessageId: true, createdAt: true }
+    })
+    const latestOutboundIsReminder = Boolean(
+      latestOutbound && isAppointmentReminderMessage(latestOutbound.body)
+    )
+
+    const reminder = await prisma.reminderDelivery.findFirst({
+      where: {
+        businessId: input.businessId,
+        status: 'SENT',
+        sentAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
+        customer: {
+          OR: [
+            { normalizedPhone: phoneDigits },
+            { phone: { in: [input.phone, phoneDigits, `+${phoneDigits}`] } }
+          ]
+        },
+        appointment: {
+          status: 'CONFIRMED',
+          startAt: { gt: new Date() }
+        }
+      },
+      orderBy: { sentAt: 'desc' },
+      include: {
+        appointment: {
+          select: {
+            startAt: true,
+            service: { select: { name: true } }
+          }
+        }
+      }
+    })
+    const fallbackAppointment = !reminder && latestOutboundIsReminder
+      ? await prisma.appointment.findFirst({
+          where: {
+            status: 'CONFIRMED',
+            startAt: { gt: new Date() },
+            professional: { businessId: input.businessId },
+            customer: {
+              OR: [
+                { normalizedPhone: phoneDigits },
+                { phone: { in: [input.phone, phoneDigits, `+${phoneDigits}`] } }
+              ]
+            }
+          },
+          orderBy: { startAt: 'asc' },
+          select: {
+            startAt: true,
+            service: { select: { name: true } }
+          }
+        })
+      : null
+    if (!reminder?.sentAt && !fallbackAppointment) return null
+
+    const recordedReminderIsLatest = Boolean(
+      reminder?.sentAt &&
+      latestOutbound &&
+      (
+        (reminder.providerMessageId && latestOutbound.providerMessageId === reminder.providerMessageId) ||
+        (
+          reminder.messageSnapshot &&
+          latestOutbound.body.trim() === reminder.messageSnapshot.trim() &&
+          latestOutbound.createdAt.getTime() >= reminder.sentAt.getTime() - 60_000
+        )
+      )
+    )
+    const unrecordedReminderIsLatest = Boolean(
+      reminder?.sentAt &&
+      (!latestOutbound || latestOutbound.createdAt <= reminder.sentAt)
+    )
+    if (!latestOutboundIsReminder && !recordedReminderIsLatest && !unrecordedReminderIsLatest) {
+      return null
+    }
+
+    const appointment = reminder?.appointment ?? fallbackAppointment
+    if (!appointment) return null
+
+    await prisma.conversation.update({
+      where: { id: input.conversationId },
+      data: {
+        lastMessage: input.message,
+        archivedAt: null,
+        misunderstandingCount: 0
+      }
+    })
+
+    return {
+      reply: reminderAcknowledgementReply({
+        serviceName: appointment.service.name,
+        startAt: appointment.startAt
+      }),
+      skipMisunderstandingTracking: true,
+      skipHumanize: true
+    }
+  }
+
   private async tryHandleOrchestratedIntent(input: {
     phone: string
     message: string
@@ -4020,6 +4151,13 @@ export class ConversationService {
     })
 
     if (!result) {
+      return null
+    }
+
+    if (
+      result.intent === 'cancel_appointment' &&
+      isStandaloneReminderAcknowledgement(input.message)
+    ) {
       return null
     }
 

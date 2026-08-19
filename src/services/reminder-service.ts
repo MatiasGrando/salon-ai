@@ -255,8 +255,17 @@ export async function processDueReminders(input: { businessId: string; limit?: n
         occurredAt,
         metadata: { appointmentId: delivery.appointmentId, scheduledFor: delivery.scheduledFor.toISOString() }
       })
-      if (result.sent) sent += 1
-      else failed += 1
+      if (result.sent) {
+        await recordReminderOutboundMessage({
+          businessId: input.businessId,
+          phone: delivery.customer.phone,
+          text: resolved.previewText,
+          providerMessageId: updated.providerMessageId
+        })
+        sent += 1
+      } else {
+        failed += 1
+      }
     }
   }
   return { ...preparation, sent, failed, skipped, total: preparation.prepared + preparation.failed + sent + failed }
@@ -329,8 +338,54 @@ export async function transitionManualReminder(input: {
       occurredAt: now,
       metadata: { appointmentId: delivery.appointmentId, scheduledFor: delivery.scheduledFor.toISOString() }
     })
+    await recordReminderOutboundMessage({
+      businessId: delivery.businessId,
+      phone: delivery.customer.phone,
+      text: delivery.messageSnapshot || 'Recordatorio de turno',
+      providerMessageId: delivery.providerMessageId
+    })
   }
   return prisma.reminderDelivery.findUniqueOrThrow({ where: { id: delivery.id } })
+}
+
+async function recordReminderOutboundMessage(input: {
+  businessId: string
+  phone: string
+  text: string
+  providerMessageId: string | null
+}) {
+  const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT id FROM "Conversation"
+    WHERE "businessId" = ${input.businessId}
+      AND regexp_replace(phone, '[^0-9]', '', 'g') = regexp_replace(${input.phone}, '[^0-9]', '', 'g')
+    ORDER BY "updatedAt" DESC
+    LIMIT 1
+  `
+  const conversationId = rows[0]?.id ?? (await prisma.conversation.create({
+    data: {
+      businessId: input.businessId,
+      phone: input.phone,
+      lastMessage: input.text
+    }
+  })).id
+
+  await prisma.$transaction([
+    prisma.message.create({
+      data: {
+        conversationId,
+        phone: input.phone,
+        direction: 'OUTBOUND',
+        body: input.text,
+        status: 'sent',
+        ...(input.providerMessageId ? { providerMessageId: input.providerMessageId } : {}),
+        metadata: { provider: 'whatsapp', automation: 'reminder' }
+      }
+    }),
+    prisma.conversation.update({
+      where: { id: conversationId },
+      data: { lastMessage: input.text, archivedAt: null }
+    })
+  ])
 }
 
 function resolveReminderTemplate(
