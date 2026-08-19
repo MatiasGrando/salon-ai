@@ -14,6 +14,18 @@ assert.match(demoRoute, /BARBERSHOP: \{[\s\S]*?professionals: \['Lucas'\]/)
 assert.match(demoRoute, /function canUseCommercialDemos/)
 assert.match(demoRoute, /user\.canCreateBusinesses/)
 assert.match(demoRoute, /demoType: \{ in: \[\.\.\.SHARED_SALES_DEMO_TYPES\] \}/)
+assert.match(demoRoute, /demoType: 'QA_SANDBOX'/)
+assert.match(demoRoute, /createdByUserId: user\.id/)
+assert.match(
+  demoRoute,
+  /user\.role === 'SUPER_ADMIN'[\s\S]*?demoType: 'QA_SANDBOX'/,
+  'Los sandbox QA deben estar disponibles para superadmin.'
+)
+assert.doesNotMatch(
+  demoRoute,
+  /demoType: 'QA_SANDBOX'[\s\S]{0,200}?accountAdminId: user\.id/,
+  'Los administradores de cuenta no deben recibir sandbox QA.'
+)
 assert.match(demoRoute, /app\.get\('\/admin\/demo-profiles\/:id\/preview'/)
 assert.match(demoRoute, /app\.get\('\/admin\/demo-profiles\/:id\/access'/)
 assert.match(demoRoute, /renderLanding\(publicBusiness/)
@@ -27,6 +39,7 @@ assert.match(authGuard, /isAccountAdminDemoWorkspaceRoute/)
 assert.match(authGuard, /auth\.user\.role === 'ACCOUNT_ADMIN' \|\| auth\.user\.canCreateBusinesses/)
 assert.match(authGuard, /collectEntityBusinessId/)
 assert.match(authGuard, /demoType: \{ in: \['NAILS', 'HAIR_SALON', 'BARBERSHOP', 'PILATES'\] \}/)
+assert.doesNotMatch(authGuard, /demoType: 'QA_SANDBOX'/)
 assert.match(authGuard, /path === '\/professionals'/)
 assert.match(authGuard, /path === '\/services'/)
 assert.match(authGuard, /path === '\/crm\/ai-settings'/)

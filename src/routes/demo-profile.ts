@@ -101,7 +101,13 @@ export async function demoProfileRoutes(app: FastifyInstance) {
       return profiles.filter((profile) => profile !== null)
     }
     return prisma.business.findMany({
-      where: { isDemo: true, createdByUserId: user.id },
+      where: {
+        isDemo: true,
+        OR: [
+          { createdByUserId: user.id },
+          { demoType: 'QA_SANDBOX' }
+        ]
+      },
       orderBy: { name: 'asc' },
       select
     })
@@ -266,7 +272,12 @@ async function findAccessibleDemo(
       id: businessId,
       isDemo: true,
       ...(user.role === 'SUPER_ADMIN'
-        ? { createdByUserId: user.id }
+        ? {
+            OR: [
+              { createdByUserId: user.id },
+              { demoType: 'QA_SANDBOX' }
+            ]
+          }
         : { demoType: { in: [...SHARED_SALES_DEMO_TYPES] } })
     },
     select: {
