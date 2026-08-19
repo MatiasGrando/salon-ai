@@ -106,6 +106,7 @@ export function stateFromConversation(
     pendingProposal: readPendingProposal(conversation.bookingV2State),
     pendingRequest: readPendingRequest(conversation.bookingV2State),
     pendingInformationSelection: readPendingInformationSelection(conversation.bookingV2State),
+    pendingProfessionalScheduleSelection: readPendingProfessionalScheduleSelection(conversation.bookingV2State),
     lastInformationServiceId: readLastInformationServiceId(conversation.bookingV2State),
     pendingServiceDisambiguation: readPendingServiceDisambiguation(conversation.bookingV2State),
     agenda: readAgenda(conversation.bookingV2State),
@@ -143,13 +144,16 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
     selectedDate: state.draft.date,
     selectedTime: state.draft.time,
     misunderstandingCount: state.misunderstandingCount,
-    bookingV2State: state.pendingProposal || state.pendingRequest || state.pendingInformationSelection || state.lastInformationServiceId || state.pendingServiceDisambiguation || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.pendingPhotoQuote || state.combinedServiceDecisionQueue !== null || state.advisorQuote || state.quoteOnly || state.pendingDeposit || state.contextPause || state.optionalNamePrompt || state.unsupportedServiceRequest || state.queuedServices.length || state.combinedServices.length || state.addonSuggestion || state.addonOfferCompletedServiceId || state.pendingCombinedAvailability || state.pendingAvailabilityResolution || state.pendingServiceSeparation || state.pendingServiceReplacement || state.pendingCoordinatedAvailability || state.preliminaryAvailability
+    bookingV2State: state.pendingProposal || state.pendingRequest || state.pendingInformationSelection || state.pendingProfessionalScheduleSelection || state.lastInformationServiceId || state.pendingServiceDisambiguation || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.pendingPhotoQuote || state.combinedServiceDecisionQueue !== null || state.advisorQuote || state.quoteOnly || state.pendingDeposit || state.contextPause || state.optionalNamePrompt || state.unsupportedServiceRequest || state.queuedServices.length || state.combinedServices.length || state.addonSuggestion || state.addonOfferCompletedServiceId || state.pendingCombinedAvailability || state.pendingAvailabilityResolution || state.pendingServiceSeparation || state.pendingServiceReplacement || state.pendingCoordinatedAvailability || state.preliminaryAvailability
       ? {
           version: 1,
           pendingProposal: state.pendingProposal,
           ...(state.pendingRequest ? { pendingRequest: state.pendingRequest } : {}),
           ...(state.pendingInformationSelection
             ? { pendingInformationSelection: state.pendingInformationSelection }
+            : {}),
+          ...(state.pendingProfessionalScheduleSelection
+            ? { pendingProfessionalScheduleSelection: true }
             : {}),
           ...(state.lastInformationServiceId ? { lastInformationServiceId: state.lastInformationServiceId } : {}),
           ...(state.pendingServiceDisambiguation
@@ -581,6 +585,12 @@ function readPendingInformationSelection(value: unknown): BookingV2PendingInform
   return serviceIds.length > 1 && requestedInformation.length
     ? { serviceIds, requestedInformation, ...(candidate.quoteOnly === true ? { quoteOnly: true } : {}) }
     : null
+}
+
+function readPendingProfessionalScheduleSelection(value: unknown) {
+  if (!value || typeof value !== 'object') return false
+  const persisted = value as { version?: unknown; pendingProfessionalScheduleSelection?: unknown }
+  return persisted.version === 1 && persisted.pendingProfessionalScheduleSelection === true
 }
 
 function readCategoryAdvice(value: unknown): BookingV2CategoryAdvice | null {

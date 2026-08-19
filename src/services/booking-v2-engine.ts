@@ -239,6 +239,10 @@ export class BookingV2Engine {
       return true
     }
 
+    if (storedState.pendingProfessionalScheduleSelection && actionableMessage) {
+      return true
+    }
+
     if (!isDeterministicBookingContinuationMessage(actionableMessage)) return false
 
     const catalog = await this.domain.loadCatalog(input.businessId)

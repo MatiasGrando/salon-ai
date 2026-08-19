@@ -1599,6 +1599,28 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'persiste la selección pendiente de un profesional para consultar sus horarios',
+    run: async () => {
+      const state: BookingV2State = {
+        ...createEmptyBookingV2State(),
+        pendingProfessionalScheduleSelection: true
+      }
+      const patch = conversationPatchFromState(state)
+      const restored = stateFromConversation({
+        ...patch,
+        bookingV2State: patch.bookingV2State
+      })
+      assert.equal(restored.pendingProfessionalScheduleSelection, true)
+
+      const engine = new BookingV2Engine(fakeDomainPort(), fakeExtractor(null))
+      assert.equal(await engine.canProcessWithoutGeneralRouter({
+        businessId: 'business-1',
+        conversation: patch,
+        message: 'Ramiro'
+      }), true)
+    }
+  },
+  {
     name: 'motor conserva una fecha adelantada junto con el servicio antes de pedir nombre',
     run: async () => {
       const engine = new BookingV2Engine(fakeDomainPort(), fakeExtractor(null))

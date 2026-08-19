@@ -242,7 +242,7 @@ export class BookingAvailabilitySearchEngine {
       if (ranked.length) {
         return result(
           'REQUESTED_TIME_UNAVAILABLE',
-          ranked.slice(0, maxResults),
+          nearestOptionsToRequestedTime(ranked, requestedTime).slice(0, maxResults),
           searchedDates,
           requestedTime,
           loaded.individualAvailabilityFound,
@@ -527,6 +527,35 @@ function rankOptions(
     seenBlocks.add(block)
     return true
   })
+}
+
+function nearestOptionsToRequestedTime(
+  options: BookingAvailabilitySearchOption[],
+  requestedTime: string
+) {
+  const requestedMinutes = timeInMinutes(requestedTime)
+  if (requestedMinutes === null) return options
+
+  return [...options].sort((left, right) => {
+    const leftMinutes = timeInMinutes(left.startTime)
+    const rightMinutes = timeInMinutes(right.startTime)
+    const leftDistance = leftMinutes === null
+      ? Number.POSITIVE_INFINITY
+      : Math.abs(leftMinutes - requestedMinutes)
+    const rightDistance = rightMinutes === null
+      ? Number.POSITIVE_INFINITY
+      : Math.abs(rightMinutes - requestedMinutes)
+    if (leftDistance !== rightDistance) return leftDistance - rightDistance
+
+    // Ante la misma cercanía, es preferible sugerir un horario posterior al pedido.
+    return (rightMinutes ?? 0) - (leftMinutes ?? 0) || left.id.localeCompare(right.id)
+  })
+}
+
+function timeInMinutes(value: string) {
+  const match = /^(\d{2}):(\d{2})$/.exec(value)
+  if (!match) return null
+  return Number(match[1]) * 60 + Number(match[2])
 }
 
 function result(

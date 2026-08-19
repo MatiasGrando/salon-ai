@@ -81,6 +81,29 @@ const unavailableTime = await engine.search({
 assert.equal(unavailableTime.status, 'REQUESTED_TIME_UNAVAILABLE')
 assert.equal(unavailableTime.options[0]?.startTime, '15:00')
 
+const nearestTimeEngine = new BookingAvailabilitySearchEngine(async (input) => ({
+  ok: true as const,
+  slots: input.professionalId === 'julian'
+    ? [
+        '11:00', '11:30', '12:00', '12:30', '13:00', '13:30', '14:00', '14:30',
+        '15:00', '15:30', '16:00', '16:30', '17:00', '17:30', '18:00', '18:30',
+        '19:00', '19:30'
+      ]
+    : []
+}))
+const unavailableLateTime = await nearestTimeEngine.search({
+  mode: { type: 'DATE', date: '2026-08-10', requestedTime: '19:20' },
+  services: [services[1]!],
+  professionals,
+  assignmentMode: 'SINGLE_PROFESSIONAL',
+  maxResults: 3
+})
+assert.equal(unavailableLateTime.status, 'REQUESTED_TIME_UNAVAILABLE')
+assert.deepEqual(
+  unavailableLateTime.options.map((option) => option.startTime),
+  ['19:30', '19:00', '18:30']
+)
+
 const noContinuousBlock = await engine.search({
   mode: { type: 'DATE', date: '2026-08-11' },
   services,

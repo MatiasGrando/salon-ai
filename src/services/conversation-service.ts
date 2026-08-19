@@ -1625,6 +1625,43 @@ export class ConversationService {
         assistantPersonality
       })
     }
+    if (storedInformationState.pendingProfessionalScheduleSelection) {
+      if (hasExplicitBookingRequest(input.message)) {
+        storedInformationState = {
+          ...storedInformationState,
+          pendingProfessionalScheduleSelection: false
+        }
+        input.conversation = {
+          ...input.conversation,
+          ...conversationPatchFromState(storedInformationState)
+        }
+      } else {
+        const professionalId = await this.resolveProfessionalScheduleSelection({
+          businessId: input.businessId,
+          message: input.message,
+          extractedProfessionalId: input.routing.bookingExtraction?.professional.value ?? null
+        })
+        const nextState: BookingV2State = {
+          ...storedInformationState,
+          pendingProfessionalScheduleSelection: !professionalId
+        }
+        await this.updateConversation(input.phone, input.businessId, {
+          currentStep: conversationStepValue(input.conversation.currentStep),
+          ...conversationPatchFromState(nextState),
+          misunderstandingCount: 0
+        })
+        return {
+          reply: applyAssistantPersonalityToReply(
+            professionalId
+              ? await this.professionalScheduleReply(input.businessId, professionalId)
+              : '¿De qué profesional querés consultar los horarios?',
+            assistantPersonality
+          ),
+          skipMisunderstandingTracking: true,
+          skipHumanize: true
+        }
+      }
+    }
     if (shouldPrioritizeGuidedEstimateOptionReply(storedInformationState, input.message)) {
       const estimated = await bookingV2Engine.process({
         businessId: input.businessId,
@@ -1999,8 +2036,13 @@ export class ConversationService {
               conversation: input.conversation
             })
           : null
+        const nextScheduleState: BookingV2State = {
+          ...storedInformationState,
+          pendingProfessionalScheduleSelection: !professionalId
+        }
         await this.updateConversation(input.phone, input.businessId, {
           currentStep: conversationStepValue(input.conversation.currentStep),
+          ...conversationPatchFromState(nextScheduleState),
           misunderstandingCount: 0
         })
         const resumedPresentation = resumed
@@ -2854,6 +2896,37 @@ export class ConversationService {
       `${professional.name} atiende:`,
       ...formatProfessionalWorkingHours(professional.workingHours)
     ].join('\n')
+  }
+
+  private async resolveProfessionalScheduleSelection(input: {
+    businessId: string
+    message: string
+    extractedProfessionalId: string | null
+  }) {
+    if (input.extractedProfessionalId) {
+      const extracted = await prisma.professional.findFirst({
+        where: {
+          id: input.extractedProfessionalId,
+          businessId: input.businessId,
+          isActive: true
+        },
+        select: { id: true }
+      })
+      if (extracted) return extracted.id
+    }
+    const reference = normalizeText(input.message)
+      .replace(/^(?:con|el|la|profesional)\s+/, '')
+      .trim()
+    if (!reference) return null
+    const professionals = await prisma.professional.findMany({
+      where: { businessId: input.businessId, isActive: true },
+      select: { id: true, name: true }
+    })
+    const matches = professionals.filter((professional) => {
+      const name = normalizeText(professional.name)
+      return name === reference || name.split(/\s+/).includes(reference)
+    })
+    return matches.length === 1 ? matches[0]!.id : null
   }
 
   private async preliminaryProfessionalAvailability(input: {
