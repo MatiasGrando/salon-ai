@@ -27,6 +27,7 @@ export class BookingV2ChoiceExtractor {
           'Las decisiones indirectas pero claras tambien cuentan: expresiones de que algo no sirve, es demasiado caro, quiere dejarlo o no desea avanzar deben asociarse a la opcion de rechazo disponible.',
           'Expresiones como me cierra, hagamoslo, avancemos o quedamos asi deben asociarse a la opcion de aceptacion o confirmacion disponible.',
           'Devolve el ID exacto de una opcion solo si la eleccion es clara y unica.',
+          'Si existe una opción que indica que ninguna alternativa coincide, elegila cuando no haya una relación clara con las demás. Nunca elijas otra opción solo por descarte.',
           'Usa choiceId null solamente si pregunta otra cosa, quiere cambiar de tema o la decision realmente admite mas de una opcion.',
           'No respondas al cliente ni inventes opciones.'
         ].join('\n'),

@@ -6225,6 +6225,96 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'en una categoría, el nombre compartido y partes del servicio eligen la opción única',
+    run: async () => {
+      const catalog = createBookingV2DomainCatalog({
+        displayMode: 'CATEGORIES_FIRST',
+        services: [
+          {
+            id: 'color-adjustment',
+            name: 'Arreglo de color',
+            // El catálogo de producción incorpora el nombre de la categoría
+            // como alias navegable de cada servicio.
+            aliases: ['Iluminación'],
+            duration: 120,
+            price: 160000,
+            category: 'Iluminación'
+          },
+          {
+            id: 'highlights',
+            name: 'Iluminación (baby lights, balayage, contouring, etc)',
+            aliases: ['Iluminación'],
+            duration: 120,
+            price: 160000,
+            category: 'Iluminación'
+          },
+          {
+            id: 'man-cut',
+            name: 'Corte hombre',
+            aliases: [],
+            duration: 30,
+            price: 27000,
+            category: 'Cortes'
+          }
+        ],
+        professionals: [
+          {
+            id: 'professional-1',
+            name: 'Tamara',
+            serviceIds: ['color-adjustment', 'highlights', 'man-cut']
+          }
+        ]
+      })
+      const extractor = fakeExtractor(null)
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog }), extractor)
+      const conversation = {
+        selectedCustomerName: 'Matías',
+        selectedServiceId: null,
+        selectedProfessionalId: null,
+        selectedDate: null,
+        selectedTime: null,
+        misunderstandingCount: 0,
+        bookingV2State: null
+      }
+
+      const category = await engine.process({
+        businessId: 'business-1',
+        conversation,
+        message: 'Hola, quiero una iluminación'
+      })
+
+      assert.equal(category.state.draft.service, null)
+      assert.equal(category.state.catalogNavigation?.categoryName, 'Iluminación')
+      assert.match(category.reply, /Para Iluminación tengo estas opciones/)
+      assert.match(category.reply, /Arreglo de color/)
+      assert.match(category.reply, /Iluminación \(baby lights, balayage, contouring, etc\)/)
+
+      for (const message of [
+        'iluminación',
+        'quiero iluminación',
+        'baby light',
+        'balayage',
+        'contouring'
+      ]) {
+        const selected = await engine.process({
+          businessId: 'business-1',
+          conversation: category.conversationPatch,
+          message
+        })
+
+        assert.equal(selected.state.draft.service, 'highlights', message)
+        assert.equal(
+          selected.plan.type === 'ask_field' ? selected.plan.field : null,
+          'professional',
+          message
+        )
+        assert.doesNotMatch(selected.reply, /Para Iluminación tengo estas opciones/, message)
+      }
+
+      assert.equal(extractor.calls.length, 0)
+    }
+  },
+  {
     name: 'categoria navegable muestra solo sus servicios',
     run: async () => {
       const catalog = createBookingV2DomainCatalog({

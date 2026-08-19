@@ -251,7 +251,7 @@ const selectedCategoryService = await engineFor(reservableCategoriesCatalog).pro
 assert.equal(selectedCategoryService.state.draft.service, 'raices')
 assert.match(selectedCategoryService.reply, /Tamara/)
 assert.doesNotMatch(selectedCategoryService.reply, /Lucas/)
-assert.match(selectedCategoryService.reply, /con qui[eé]n/i)
+assert.match(selectedCategoryService.reply, /¿Querés atenderte con Tamara\?/)
 
 const resumedCategory = await engineFor(categoriesCatalog).resume({
   businessId: 'business-1',
@@ -275,6 +275,103 @@ const semanticCategory = await engineFor(categoriesCatalog, {
 })
 assert.equal(semanticCategory.state.catalogNavigation?.categoryName, 'Coloración')
 assert.match(semanticCategory.reply, /Color completo/)
+
+const semanticCategoriesCatalog = createBookingV2DomainCatalog({
+  displayMode: 'CATEGORIES_FIRST',
+  services: [
+    {
+      id: 'color-adjustment',
+      name: 'Arreglo de color',
+      aliases: ['corrección de color'],
+      description: 'Ajuste de un trabajo de color ya realizado.',
+      duration: 120,
+      price: 160000,
+      category: 'Iluminación',
+      categoryId: 'illumination'
+    },
+    {
+      id: 'highlights',
+      name: 'Iluminación (baby lights, balayage, contouring, etc)',
+      aliases: ['balayage', 'baby lights'],
+      description: 'Técnicas de iluminación para dar reflejos, mechas y claritos al cabello.',
+      duration: 120,
+      price: 160000,
+      category: 'Iluminación',
+      categoryId: 'illumination'
+    },
+    {
+      id: 'brushing',
+      name: 'Brushing',
+      aliases: ['brushing con secador'],
+      description: 'Peinado con brushing para dar forma y movimiento.',
+      duration: 30,
+      price: 25000,
+      category: 'Peinados',
+      categoryId: 'hairstyles'
+    }
+  ],
+  professionals: []
+})
+const semanticCategoryCalls: Array<{
+  message: string
+  choices: Array<{ id: string; meaning: string }>
+}> = []
+const semanticCategoryEngine = engineFor(semanticCategoriesCatalog, {
+  async extract(input: {
+    message: string
+    choices: Array<{ id: string; meaning: string }>
+  }) {
+    semanticCategoryCalls.push(input)
+    const illumination = input.choices.find((choice) =>
+      choice.id === 'category:id:illumination'
+    )
+    const noCategory = input.choices.find((choice) =>
+      choice.id === 'no_category_match'
+    )
+    if (input.message === 'quiero unos claritos' || input.message === 'quiero hacerme reflejos') {
+      return illumination ? { choiceId: illumination.id, confidence: 0.96 } : { choiceId: null, confidence: 0 }
+    }
+    if (input.message === 'quiero un efecto galaxia') {
+      return noCategory ? { choiceId: noCategory.id, confidence: 0.99 } : { choiceId: null, confidence: 0 }
+    }
+    return { choiceId: null, confidence: 0 }
+  }
+})
+
+for (const message of ['quiero unos claritos', 'quiero hacerme reflejos']) {
+  const result = await semanticCategoryEngine.process({
+    businessId: 'business-1',
+    conversation: conversationPatchFromState(namedState),
+    message
+  })
+  assert.equal(result.state.catalogNavigation?.categoryName, 'Iluminación', message)
+  assert.match(result.reply, /Iluminación \(baby lights, balayage, contouring, etc\)/, message)
+}
+
+const unknownSemanticCategory = await semanticCategoryEngine.process({
+  businessId: 'business-1',
+  conversation: conversationPatchFromState(namedState),
+  message: 'quiero un efecto galaxia'
+})
+assert.equal(unknownSemanticCategory.state.catalogNavigation, null)
+assert.match(unknownSemanticCategory.reply, /¿Qué tipo de servicio buscás\?/)
+assert.match(unknownSemanticCategory.reply, /Iluminación/)
+assert.match(unknownSemanticCategory.reply, /Peinados/)
+assert.doesNotMatch(unknownSemanticCategory.reply, /Para Peinados tengo estas opciones/)
+
+const semanticCategoryCall = semanticCategoryCalls.find((call) =>
+  call.message === 'quiero unos claritos'
+)
+const illuminationChoice = semanticCategoryCall?.choices.find((choice) =>
+  choice.id === 'category:id:illumination'
+)
+assert.match(illuminationChoice?.meaning ?? '', /Arreglo de color/)
+assert.match(illuminationChoice?.meaning ?? '', /balayage/)
+assert.match(illuminationChoice?.meaning ?? '', /reflejos, mechas y claritos/)
+assert.equal(
+  semanticCategoryCall?.choices.some((choice) => choice.id === 'no_category_match'),
+  true
+)
 
 const showAll = await engineFor(categoriesCatalog).process({
   businessId: 'business-1',
@@ -374,18 +471,20 @@ const firstFailure = await engineFor(categoriesCatalog).process({
   conversation: conversationPatchFromState(namedState),
   message: 'algo distinto que no figura'
 })
-assert.equal(firstFailure.state.misunderstandingCount, 1)
-assert.match(firstFailure.reply, /No estoy segura/i)
+assert.equal(firstFailure.state.misunderstandingCount, 0)
+assert.match(firstFailure.reply, /¿Qué tipo de servicio buscás\?/)
+assert.match(firstFailure.reply, /Coloración/)
+assert.match(firstFailure.reply, /Cortes/)
 
 const secondFailure = await engineFor(categoriesCatalog).process({
   businessId: 'business-1',
   conversation: firstFailure.conversationPatch,
   message: 'sigue sin ser ninguna'
 })
-assert.equal(secondFailure.state.misunderstandingCount, 2)
-assert.match(secondFailure.reply, /Ver todos los servicios/)
-assert.match(secondFailure.reply, /Hablar con el equipo/)
-assert.match(secondFailure.reply, /Volver a empezar/)
+assert.equal(secondFailure.state.misunderstandingCount, 0)
+assert.match(secondFailure.reply, /¿Qué tipo de servicio buscás\?/)
+assert.match(secondFailure.reply, /Coloración/)
+assert.match(secondFailure.reply, /Cortes/)
 
 const allServicesMenu = await engineFor(allServicesCatalog).resume({
   businessId: 'business-1',
