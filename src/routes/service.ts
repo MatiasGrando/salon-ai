@@ -14,6 +14,7 @@ export async function serviceRoutes(app: FastifyInstance) {
       name?: string
       sortOrder?: number
       adviceEnabled?: boolean
+      aliases?: unknown
     }
     const businessId = body.businessId?.trim()
     const name = body.name?.trim()
@@ -23,6 +24,8 @@ export async function serviceRoutes(app: FastifyInstance) {
         message: 'businessId y name son requeridos'
       })
     }
+    const aliases = normalizeServiceCategoryAliases(body.aliases)
+    if (!aliases.ok) return reply.status(400).send({ message: aliases.message })
 
     const duplicate = await prisma.serviceCategory.findFirst({
       where: {
@@ -35,15 +38,31 @@ export async function serviceRoutes(app: FastifyInstance) {
         message: 'Ya existe una categoria con ese nombre'
       })
     }
+    const aliasConflict = await findServiceCategoryAliasConflict({
+      businessId,
+      categoryName: name,
+      aliases: aliases.values
+    })
+    if (aliasConflict) return reply.status(409).send({ message: aliasConflict })
 
     return prisma.serviceCategory.create({
       data: {
         businessId,
         name,
         sortOrder: normalizeSortOrder(body.sortOrder),
-        adviceEnabled: body.adviceEnabled === true
+        adviceEnabled: body.adviceEnabled === true,
+        ...(aliases.values.length
+          ? {
+              aliases: {
+                create: aliases.values.map((alias) => ({
+                  name: alias,
+                  normalizedName: normalizeCategoryAlias(alias)
+                }))
+              }
+            }
+          : {})
       },
-      include: { _count: { select: { services: true } } }
+      include: { aliases: true, _count: { select: { services: true } } }
     })
   })
 
@@ -51,7 +70,7 @@ export async function serviceRoutes(app: FastifyInstance) {
     const query = request.query as { businessId?: string }
     return prisma.serviceCategory.findMany({
       where: query.businessId ? { businessId: query.businessId } : {},
-      include: { _count: { select: { services: true } } },
+      include: { aliases: { orderBy: { createdAt: 'asc' } }, _count: { select: { services: true } } },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }]
     })
   })
@@ -63,11 +82,15 @@ export async function serviceRoutes(app: FastifyInstance) {
       sortOrder?: number
       isActive?: boolean
       adviceEnabled?: boolean
+      aliases?: unknown
     }
     const category = await prisma.serviceCategory.findUnique({
       where: { id: params.id }
     })
     const name = body.name?.trim()
+    const aliases = body.aliases === undefined
+      ? null
+      : normalizeServiceCategoryAliases(body.aliases)
 
     if (!category) {
       return reply.status(404).send({ message: 'No encontre la categoria' })
@@ -75,6 +98,7 @@ export async function serviceRoutes(app: FastifyInstance) {
     if (!name) {
       return reply.status(400).send({ message: 'name es requerido' })
     }
+    if (aliases && !aliases.ok) return reply.status(400).send({ message: aliases.message })
 
     const duplicate = await prisma.serviceCategory.findFirst({
       where: {
@@ -88,6 +112,19 @@ export async function serviceRoutes(app: FastifyInstance) {
         message: 'Ya existe una categoria con ese nombre'
       })
     }
+    const existingAliases = aliases
+      ? aliases.values
+      : (await prisma.serviceCategoryAlias.findMany({
+          where: { categoryId: category.id },
+          select: { name: true }
+        })).map((alias) => alias.name)
+    const aliasConflict = await findServiceCategoryAliasConflict({
+      businessId: category.businessId,
+      categoryId: category.id,
+      categoryName: name,
+      aliases: existingAliases
+    })
+    if (aliasConflict) return reply.status(409).send({ message: aliasConflict })
 
     const updated = await prisma.$transaction(async (tx) => {
       const result = await tx.serviceCategory.update({
@@ -105,11 +142,27 @@ export async function serviceRoutes(app: FastifyInstance) {
         where: { catalogCategoryId: category.id },
         data: { category: name }
       })
+      if (aliases) {
+        await tx.serviceCategoryAlias.deleteMany({ where: { categoryId: category.id } })
+        if (aliases.values.length) {
+          await tx.serviceCategoryAlias.createMany({
+            data: aliases.values.map((alias) => ({
+              categoryId: category.id,
+              name: alias,
+              normalizedName: normalizeCategoryAlias(alias)
+            }))
+          })
+        }
+      }
       return result
     })
 
     return {
       ...updated,
+      aliases: await prisma.serviceCategoryAlias.findMany({
+        where: { categoryId: category.id },
+        orderBy: { createdAt: 'asc' }
+      }),
       _count: {
         services: await prisma.service.count({
           where: { catalogCategoryId: category.id }
@@ -1364,6 +1417,91 @@ function normalizeEstimateOptions(value: unknown) {
 function normalizeOptionalText(value?: string | null) {
   const normalized = value?.trim()
   return normalized ? normalized.slice(0, 1000) : null
+}
+
+const MAX_SERVICE_CATEGORY_ALIASES = 20
+const MAX_SERVICE_CATEGORY_ALIAS_LENGTH = 80
+
+export function normalizeCategoryAlias(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/[^\p{Letter}\p{Number}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+export function normalizeServiceCategoryAliases(value: unknown):
+  | { ok: true; values: string[] }
+  | { ok: false; message: string } {
+  if (value === undefined || value === null) return { ok: true, values: [] }
+  if (!Array.isArray(value)) {
+    return { ok: false, message: 'Los aliases de la categoría deben enviarse como una lista' }
+  }
+  if (value.length > MAX_SERVICE_CATEGORY_ALIASES) {
+    return {
+      ok: false,
+      message: `Podés cargar hasta ${MAX_SERVICE_CATEGORY_ALIASES} aliases por categoría`
+    }
+  }
+
+  const values: string[] = []
+  const normalizedValues = new Set<string>()
+  for (const entry of value) {
+    if (typeof entry !== 'string') {
+      return { ok: false, message: 'Cada alias de categoría debe ser texto' }
+    }
+    const name = entry.trim()
+    const normalizedName = normalizeCategoryAlias(name)
+    if (!normalizedName) continue
+    if (name.length > MAX_SERVICE_CATEGORY_ALIAS_LENGTH) {
+      return {
+        ok: false,
+        message: `Cada alias puede tener hasta ${MAX_SERVICE_CATEGORY_ALIAS_LENGTH} caracteres`
+      }
+    }
+    if (normalizedValues.has(normalizedName)) continue
+    normalizedValues.add(normalizedName)
+    values.push(name)
+  }
+  return { ok: true, values }
+}
+
+async function findServiceCategoryAliasConflict(input: {
+  businessId: string
+  categoryId?: string
+  categoryName: string
+  aliases: string[]
+}) {
+  const normalizedCategoryName = normalizeCategoryAlias(input.categoryName)
+  const normalizedAliases = input.aliases.map(normalizeCategoryAlias)
+  if (normalizedAliases.includes(normalizedCategoryName)) {
+    return 'Un alias no puede ser igual al nombre de la categoría'
+  }
+
+  const categories = await prisma.serviceCategory.findMany({
+    where: {
+      businessId: input.businessId,
+      ...(input.categoryId ? { id: { not: input.categoryId } } : {})
+    },
+    select: {
+      name: true,
+      aliases: { select: { name: true, normalizedName: true } }
+    }
+  })
+  const requestedLabels = new Set([normalizedCategoryName, ...normalizedAliases])
+  for (const category of categories) {
+    const labels = [
+      normalizeCategoryAlias(category.name),
+      ...category.aliases.map((alias) => alias.normalizedName || normalizeCategoryAlias(alias.name))
+    ]
+    if (labels.some((label) => requestedLabels.has(label))) {
+      return `Ese nombre o alias ya se usa en la categoría ${category.name}`
+    }
+  }
+  return null
 }
 
 function normalizeServicePriceMode(value?: string) {

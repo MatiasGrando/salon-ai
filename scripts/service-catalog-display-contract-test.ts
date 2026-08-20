@@ -22,6 +22,10 @@ import {
   detectContextualServiceCatalogPresentationIntent,
   detectServiceCatalogPresentationIntent
 } from '../src/services/service-catalog-presentation-intent.js'
+import {
+  normalizeCategoryAlias,
+  normalizeServiceCategoryAliases
+} from '../src/routes/service.js'
 
 const categoriesCatalog = createBookingV2DomainCatalog({
   displayMode: 'CATEGORIES_FIRST',
@@ -33,7 +37,8 @@ const categoriesCatalog = createBookingV2DomainCatalog({
       duration: 90,
       price: 65000,
       category: 'Coloración',
-      categoryId: 'color'
+      categoryId: 'color',
+      categoryAliases: ['teñir', 'tintura']
     },
     {
       id: 'raices',
@@ -42,7 +47,8 @@ const categoriesCatalog = createBookingV2DomainCatalog({
       duration: 60,
       price: 40000,
       category: 'Coloración',
-      categoryId: 'color'
+      categoryId: 'color',
+      categoryAliases: ['teñir', 'tintura']
     },
     {
       id: 'corte',
@@ -156,6 +162,12 @@ function engineFor(
 
 const namedState = acceptField(createEmptyBookingV2State(), 'name', 'Mati')
 
+assert.equal(normalizeCategoryAlias('  Teñir  '), 'tenir')
+assert.deepEqual(
+  normalizeServiceCategoryAliases([' Teñir ', 'teñir', 'Tintura']),
+  { ok: true, values: ['Teñir', 'Tintura'] }
+)
+
 assert.equal(normalizeCatalogDisplayMode(undefined), 'ALL_SERVICES')
 assert.equal(normalizeCatalogDisplayMode('CATEGORIES_FIRST'), 'CATEGORIES_FIRST')
 assert.equal(normalizeCatalogDisplayMode('INVALID'), 'ALL_SERVICES')
@@ -163,6 +175,7 @@ assert.deepEqual(
   catalogCategoryOptions(categoriesCatalog).map((category) => category.name),
   ['Coloración', 'Cortes']
 )
+assert.deepEqual(catalogCategoryOptions(categoriesCatalog)[0]?.aliases, ['teñir', 'tintura'])
 for (const message of [
   'quiero saber qué servicios tienen',
   'quiero saber de todos los servicios',
@@ -287,7 +300,8 @@ const semanticCategoriesCatalog = createBookingV2DomainCatalog({
       duration: 120,
       price: 160000,
       category: 'Iluminación',
-      categoryId: 'illumination'
+      categoryId: 'illumination',
+      categoryAliases: ['aclarar el cabello']
     },
     {
       id: 'highlights',
@@ -366,6 +380,7 @@ const illuminationChoice = semanticCategoryCall?.choices.find((choice) =>
   choice.id === 'category:id:illumination'
 )
 assert.match(illuminationChoice?.meaning ?? '', /Arreglo de color/)
+assert.match(illuminationChoice?.meaning ?? '', /Aliases de la categoría: aclarar el cabello/)
 assert.match(illuminationChoice?.meaning ?? '', /balayage/)
 assert.match(illuminationChoice?.meaning ?? '', /reflejos, mechas y claritos/)
 assert.equal(
@@ -456,6 +471,32 @@ assert.equal(naturalColorRequest.state.catalogNavigation?.categoryName, 'Colorac
 assert.match(naturalColorRequest.reply, /Color completo/)
 assert.match(naturalColorRequest.reply, /Raíces/)
 assert.doesNotMatch(naturalColorRequest.reply, /• Corte/)
+
+const reflexiveCategoryAlias = await engineFor(categoriesCatalog).process({
+  businessId: 'business-1',
+  conversation: conversationPatchFromState(namedState),
+  message: 'quiero teñirme el sábado'
+})
+assert.equal(reflexiveCategoryAlias.state.catalogNavigation?.categoryName, 'Coloración')
+assert.match(reflexiveCategoryAlias.reply, /Color completo/)
+assert.match(reflexiveCategoryAlias.reply, /Raíces/)
+
+const categoryAliasBeforeName = await engineFor(categoriesCatalog).process({
+  businessId: 'business-1',
+  conversation: null,
+  message: 'hola me quiero teñir'
+})
+assert.equal(categoryAliasBeforeName.state.catalogNavigation?.categoryName, 'Coloración')
+assert.match(categoryAliasBeforeName.reply, /nombre/i)
+const categoryAliasAfterName = await engineFor(categoriesCatalog).process({
+  businessId: 'business-1',
+  conversation: categoryAliasBeforeName.conversationPatch,
+  message: 'Matías'
+})
+assert.equal(categoryAliasAfterName.state.catalogNavigation?.categoryName, 'Coloración')
+assert.match(categoryAliasAfterName.reply, /Color completo/)
+assert.match(categoryAliasAfterName.reply, /Raíces/)
+assert.doesNotMatch(categoryAliasAfterName.reply, /Iluminación/)
 
 const explicitColorBooking = await engineFor(categoriesCatalog).process({
   businessId: 'business-1',

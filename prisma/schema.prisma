@@ -670,12 +670,27 @@ model ServiceCategory {
   business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   services Service[]
+  aliases  ServiceCategoryAlias[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([businessId, name])
   @@index([businessId, sortOrder])
+}
+
+model ServiceCategoryAlias {
+  id             String @id @default(cuid())
+  name           String
+  normalizedName String
+
+  categoryId String
+  category   ServiceCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([categoryId, normalizedName])
+  @@index([normalizedName])
 }
 
 model ProfessionalService {

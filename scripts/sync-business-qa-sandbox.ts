@@ -47,7 +47,9 @@ async function main() {
       featureSettings: true,
       paymentSettings: true,
       businessHours: true,
-      serviceCategories: true,
+      serviceCategories: {
+        include: { aliases: true }
+      },
       services: {
         include: {
           aliases: true
@@ -174,10 +176,24 @@ async function main() {
         businessId: _businessId,
         createdAt: _categoryCreatedAt,
         updatedAt: _categoryUpdatedAt,
+        aliases,
         ...categoryData
       } = category
       const copy = await tx.serviceCategory.create({
-        data: { ...categoryData, businessId: created.id }
+        data: {
+          ...categoryData,
+          businessId: created.id,
+          ...(aliases.length
+            ? {
+                aliases: {
+                  create: aliases.map((alias) => ({
+                    name: alias.name,
+                    normalizedName: alias.normalizedName
+                  }))
+                }
+              }
+            : {})
+        }
       })
       categoryIds.set(sourceCategoryId, copy.id)
     }

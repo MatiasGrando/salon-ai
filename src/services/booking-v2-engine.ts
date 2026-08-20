@@ -1451,11 +1451,27 @@ export class BookingV2Engine {
         })
     if (catalogNavigationResult) return catalogNavigationResult
 
-    let stateForExtraction = initialState
+    const deferredCategory =
+      catalog.displayMode === 'CATEGORIES_FIRST' &&
+      nextMissingField(initialState.draft, catalog.bookingFlowOrder) !== 'service'
+        ? bareCatalogCategoryMention(input.message, catalogCategoryOptions(catalog))
+        : null
+    let stateForExtraction: BookingV2State = deferredCategory
+      ? {
+          ...initialState,
+          catalogNavigation: {
+            view: 'CATEGORY',
+            categoryKey: deferredCategory.key,
+            categoryName: deferredCategory.name,
+            pendingCategoryKey: null,
+            pendingCategoryName: null
+          }
+        }
+      : initialState
     const explicitIntroduction = extractExplicitCustomerIntroduction(input.message)
-    const deterministicName = resolveExpectedName(input.message, initialState, catalog)
+    const deterministicName = resolveExpectedName(input.message, stateForExtraction, catalog)
     if (deterministicName) {
-      const state = acceptField(initialState, 'name', deterministicName)
+      const state = acceptField(stateForExtraction, 'name', deterministicName)
       if (!explicitIntroduction?.remainingMessage) {
         return this.fromInterpretation({
           state,
@@ -1468,7 +1484,7 @@ export class BookingV2Engine {
       input = { ...input, message: explicitIntroduction.remainingMessage }
     }
 
-    const deterministicService = hasStructuredMultipleServices
+    const deterministicService = hasStructuredMultipleServices || deferredCategory
       ? null
       : resolveExpectedService(input.message, stateForExtraction, catalog)
     if (deterministicService?.kind === 'selected') {
@@ -1684,7 +1700,9 @@ export class BookingV2Engine {
           pendingServiceDisambiguationGroups(stateForExtraction.pendingServiceDisambiguation)
             .flatMap((group) => group.serviceIds)
         )
-      : groundedExtraction
+      : deferredCategory
+        ? withoutServiceSelection(groundedExtraction, catalog.services.map((service) => service.id))
+        : groundedExtraction
 
     const baseInterpretation = applyBookingV2Extraction(
       stateForExtraction,
@@ -1872,7 +1890,9 @@ export class BookingV2Engine {
     }
 
     const exactCategory = categories.find((category) =>
-      selectionSignature(category.name) === selectionSignature(input.message)
+      [category.name, ...category.aliases].some((label) =>
+        selectionSignature(label) === selectionSignature(input.message)
+      )
     )
     if (exactCategory) {
       return this.openCatalogCategory(input.state, input.catalog, exactCategory)
@@ -4727,7 +4747,7 @@ function catalogForServiceSelection(
 
 function bareCatalogCategoryMention(
   message: string,
-  categories: Array<{ key: string; name: string }>
+  categories: Array<{ key: string; name: string; aliases: string[] }>
 ) {
   const conversationalTokens = new Set([
     'hola', 'buenas', 'buenos', 'buena', 'bueno', 'dia', 'tarde', 'noche',
@@ -4740,19 +4760,19 @@ function bareCatalogCategoryMention(
   )
   if (!messageTokens.length) return null
 
-  return categories.find((category) => {
-    const categoryTokens = serviceSelectionTokens(category.name)
-    return categoryTokens.length === messageTokens.length &&
-      categoryTokens.every((categoryToken) =>
-        messageTokens.some((messageToken) =>
-          serviceTokensMatch(categoryToken, messageToken)
-        )
+  const matches = categories.filter((category) =>
+    [category.name, ...category.aliases].some((label) => {
+      const categoryTokens = serviceSelectionTokens(label)
+      return categoryTokens.length > 0 && categoryTokens.every((categoryToken) =>
+        messageTokens.some((messageToken) => serviceTokensMatch(categoryToken, messageToken))
       )
-  }) ?? null
+    })
+  )
+  return matches.length === 1 ? matches[0] ?? null : null
 }
 
 function categorySemanticChoiceMeaning(
-  category: { key: string; name: string },
+  category: { key: string; name: string; aliases: string[] },
   catalog: BookingV2DomainCatalog
 ) {
   const services = catalogServicesForCategory(catalog, category.key)
@@ -4771,6 +4791,7 @@ function categorySemanticChoiceMeaning(
   })
   return [
     `Categoría ${category.name}. Elegila únicamente si el pedido se relaciona claramente con alguno de estos servicios.`,
+    ...(category.aliases.length ? [`Aliases de la categoría: ${category.aliases.join(', ')}`] : []),
     ...details
   ].join('\n')
 }
@@ -5017,11 +5038,21 @@ function serviceLabelMatchScore(messageTokens: string[], labelTokens: string[]) 
 
 function serviceTokensMatch(left: string, right: string) {
   if (left === right) return true
+  if (spanishInfinitiveMatchesReflexive(left, right) || spanishInfinitiveMatchesReflexive(right, left)) {
+    return true
+  }
   const canonicalLeft = singularServiceToken(left)
   const canonicalRight = singularServiceToken(right)
   if (canonicalLeft === canonicalRight) return true
   if (left.length < 6 || right.length < 6) return false
   return editDistanceAtMostOne(left, right)
+}
+
+function spanishInfinitiveMatchesReflexive(infinitive: string, candidate: string) {
+  if (!/(?:ar|er|ir)$/.test(infinitive)) return false
+  return ['me', 'te', 'se', 'nos', 'lo', 'la', 'los', 'las'].some((suffix) =>
+    candidate === `${infinitive}${suffix}`
+  )
 }
 
 function singularServiceToken(token: string) {

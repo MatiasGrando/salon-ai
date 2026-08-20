@@ -1951,7 +1951,7 @@ const crmHtml = `<!doctype html>
       }
     }
 
-    @container conversation-chat (max-width: 820px) {
+    @container conversation-chat (max-width: 960px) {
       .app[data-section="conversations"] .chat-title {
         flex: 1 1 auto;
         overflow: hidden;
@@ -15313,6 +15313,11 @@ const crmHtml = `<!doctype html>
             <button class="primary" id="service-category-save" type="button">Agregar</button>
             <button class="secondary" id="service-category-cancel" type="button" hidden>Cancelar edici&oacute;n</button>
           </div>
+          <div class="service-form-group">
+            <label for="service-category-aliases">Aliases de la categor&iacute;a (opcional)</label>
+            <div class="service-form-help">Agreg&aacute; las formas principales que usan tus clientes, separadas por coma. Por ejemplo: cortar, corte. No hace falta cargar variantes como cortarme o cortarse.</div>
+            <input class="field" id="service-category-aliases" placeholder="Ej: cortar, corte" autocomplete="off">
+          </div>
           <label class="service-photo-option">
             <input id="service-category-advice-enabled" type="checkbox">
             <span>Ofrecer asesoramiento profesional para elegir un servicio</span>
@@ -17859,6 +17864,7 @@ const crmHtml = `<!doctype html>
       serviceCategoryClose: document.getElementById('service-category-close'),
       serviceCategoryId: document.getElementById('service-category-id'),
       serviceCategoryName: document.getElementById('service-category-name'),
+      serviceCategoryAliases: document.getElementById('service-category-aliases'),
       serviceCategoryAdviceEnabled: document.getElementById('service-category-advice-enabled'),
       serviceCategorySave: document.getElementById('service-category-save'),
       serviceCategoryCancel: document.getElementById('service-category-cancel'),
@@ -18678,9 +18684,19 @@ const crmHtml = `<!doctype html>
       els.supportBusinessSwitcher.classList.toggle('visible', canSwitchBusinesses)
       if (!canSwitchBusinesses) return
 
-      els.supportBusinessSelect.innerHTML = state.businesses.map((business) => {
+      const availableBusinesses = [
+        ...state.businesses,
+        ...state.demoProfiles.filter((profile) =>
+          !state.businesses.some((business) => business.id === profile.id)
+        )
+      ]
+      els.supportBusinessSelect.innerHTML = availableBusinesses.map((business) => {
         const customerCode = business.customerCode ? ' · ' + business.customerCode : ''
-        const demoLabel = business.isDemo ? 'Demo · ' : ''
+        const demoLabel = business.demoType === 'QA_SANDBOX'
+          ? 'QA · '
+          : business.isDemo || state.demoProfiles.some((profile) => profile.id === business.id)
+            ? 'Demo · '
+            : ''
         return '<option value="' + escapeHtml(business.id) + '">' + escapeHtml(demoLabel + business.name + customerCode) + '</option>'
       }).join('')
       els.supportBusinessSelect.value = state.businessId || ''
@@ -18693,6 +18709,7 @@ const crmHtml = `<!doctype html>
         : []
       renderDemoProfileSelect()
       renderCommercialDemos()
+      renderSupportBusinessSwitcher()
     }
 
     function renderDemoProfileSelect() {
@@ -18723,9 +18740,10 @@ const crmHtml = `<!doctype html>
     function renderCommercialDemos() {
       if (!els.commercialDemoList) return
       const allowedTypes = ['NAILS', 'HAIR_SALON', 'BARBERSHOP', 'PILATES']
-      const profiles = allowedTypes
-        .map((demoType) => state.demoProfiles.find((profile) => profile.demoType === demoType))
-        .filter(Boolean)
+      const profiles = state.demoProfiles.filter((profile) =>
+        allowedTypes.includes(profile.demoType) ||
+        (state.currentUser?.role === 'SUPER_ADMIN' && profile.demoType === 'QA_SANDBOX')
+      )
       if (!profiles.length) {
         els.commercialDemoList.innerHTML = '<div class="commercial-demo-empty">Las demos comerciales todav&iacute;a no est&aacute;n disponibles. Un superadministrador debe crear los perfiles demo compartidos.</div>'
         return
@@ -18739,7 +18757,7 @@ const crmHtml = `<!doctype html>
         return '<article class="commercial-demo-card">' +
           '<div class="commercial-demo-card-head">' +
             '<div class="commercial-demo-logo">' + logo + '</div>' +
-            '<div><strong>' + escapeHtml(profile.name) + '</strong><span>Demo de ' + (typeLabels[profile.demoType] || 'belleza') + '</span></div>' +
+            '<div><strong>' + escapeHtml(profile.name) + '</strong><span>' + (profile.demoType === 'QA_SANDBOX' ? 'Entorno QA' : 'Demo de ' + (typeLabels[profile.demoType] || 'belleza')) + '</span></div>' +
           '</div>' +
           '<div class="commercial-demo-actions">' +
             '<a href="/admin/demo-profiles/' + encodeURIComponent(profile.id) + '/preview" target="_blank" rel="noopener">Ver landing</a>' +
@@ -20011,7 +20029,14 @@ const crmHtml = `<!doctype html>
 
     async function switchSupportBusiness(businessId) {
       if (!['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(state.currentUser?.role) || !businessId || businessId === state.businessId) return
-      const nextBusiness = state.businesses.find((business) => business.id === businessId)
+      let nextBusiness = state.businesses.find((business) => business.id === businessId)
+      if (!nextBusiness && state.currentUser?.role === 'SUPER_ADMIN') {
+        const isAccessibleDemo = state.demoProfiles.some((profile) => profile.id === businessId)
+        if (isAccessibleDemo) {
+          nextBusiness = await getJson('/admin/demo-profiles/' + encodeURIComponent(businessId) + '/access')
+          state.businesses = [nextBusiness, ...state.businesses]
+        }
+      }
       if (!nextBusiness) return
       stopCrmRealtimeEvents()
       state.business = nextBusiness
@@ -20732,14 +20757,6 @@ const crmHtml = `<!doctype html>
     async function selectDeposit(id) {
       const deposit = state.deposits.find((item) => item.id === id)
       if (!deposit) return
-      if (deposit.source === 'WHATSAPP' && deposit.conversationId) {
-        state.conversationFilter = 'all'
-        state.selectedDeposit = null
-        await loadConversations()
-        const conversation = state.conversations.find((item) => item.id === deposit.conversationId)
-        if (conversation) await selectConversation(conversation.id)
-        return
-      }
       state.selected = null
       state.selectedDeposit = deposit
       renderDeposits()
@@ -20755,7 +20772,7 @@ const crmHtml = `<!doctype html>
       const canManage = state.currentUser?.role !== 'STAFF' || state.currentUser?.canManageDeposits
       els.chatAvatar.textContent = contactInitials(customer.name, customer.phone)
       els.chatPhone.textContent = customer.name
-      els.chatStatus.textContent = 'Reserva desde la pagina · ' + customer.phone
+      els.chatStatus.textContent = (deposit.source === 'WHATSAPP' ? 'Reserva por WhatsApp' : 'Reserva desde la pagina') + ' · ' + customer.phone
       els.stepChip.textContent = deposit.status === 'PROOF_RECEIVED' ? 'Comprobante recibido' : 'Esperando seña'
       els.stepChip.className = 'chip step-confirm'
       els.depositApprove.hidden = !canManage
@@ -20772,11 +20789,13 @@ const crmHtml = `<!doctype html>
       els.archiveConversation.hidden = true
       els.replyForm.hidden = true
 
-      const proofUrl = '/crm/deposits/' + encodeURIComponent(deposit.id) + '/proof'
+      const proofUrl = deposit.source === 'WHATSAPP' && deposit.proofMessageId
+        ? '/crm/messages/' + encodeURIComponent(deposit.proofMessageId) + '/media'
+        : '/crm/deposits/' + encodeURIComponent(deposit.id) + '/proof'
       const proof = deposit.status === 'PROOF_RECEIVED'
         ? deposit.proofMimeType?.startsWith('image/')
           ? '<a href="' + proofUrl + '" target="_blank" rel="noopener"><img class="deposit-proof-preview" src="' + proofUrl + '" alt="Comprobante de pago"></a>'
-          : '<a class="deposit-proof-document" href="' + proofUrl + '" target="_blank" rel="noopener">Abrir comprobante PDF</a>'
+          : '<a class="deposit-proof-document" href="' + proofUrl + '" target="_blank" rel="noopener">Abrir comprobante</a>'
         : '<div class="empty">El cliente todav&iacute;a no envi&oacute; el comprobante.</div>'
       const reviewActions = canManage
         ? '<div class="deposit-review-actions">' +
@@ -23490,6 +23509,12 @@ const crmHtml = `<!doctype html>
       }
     }
 
+    function selectedDepositReviewUrl(deposit, action) {
+      return deposit.source === 'WHATSAPP' && deposit.conversationId
+        ? '/crm/conversations/' + encodeURIComponent(deposit.conversationId) + '/deposit/' + action
+        : '/crm/deposits/' + encodeURIComponent(deposit.id) + '/' + action
+    }
+
     async function approveSelectedDeposit() {
       if (state.selectedDeposit) {
         const deposit = state.selectedDeposit
@@ -23500,7 +23525,7 @@ const crmHtml = `<!doctype html>
         )) return
         if (!setButtonLoading(els.depositApprove, true, 'Confirmando...')) return
         try {
-          await getJson('/crm/deposits/' + deposit.id + '/approve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+          await getJson(selectedDepositReviewUrl(deposit, 'approve'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
           state.selectedDeposit = null
           await loadDeposits()
           await loadAgenda()
@@ -23546,7 +23571,7 @@ const crmHtml = `<!doctype html>
         )) return
         if (!setButtonLoading(els.depositReject, true, 'Rechazando...')) return
         try {
-          await getJson('/crm/deposits/' + deposit.id + '/reject', {
+          await getJson(selectedDepositReviewUrl(deposit, 'reject'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ reason: 'El comprobante no pudo ser validado' })
@@ -29640,6 +29665,10 @@ const crmHtml = `<!doctype html>
       }
       const id = els.serviceCategoryId.value
       const name = els.serviceCategoryName.value.trim()
+      const aliases = els.serviceCategoryAliases.value
+        .split(',')
+        .map((alias) => alias.trim())
+        .filter(Boolean)
       const adviceEnabled = els.serviceCategoryAdviceEnabled.checked
       if (!name) {
         els.serviceCategoryFeedback.textContent = 'Escribí el nombre de la categoría.'
@@ -29655,6 +29684,7 @@ const crmHtml = `<!doctype html>
           body: JSON.stringify({
             businessId: state.businessId,
             name,
+            aliases,
             adviceEnabled
           })
         })
@@ -29696,6 +29726,7 @@ const crmHtml = `<!doctype html>
       if (!category) return
       els.serviceCategoryId.value = category.id
       els.serviceCategoryName.value = category.name
+      els.serviceCategoryAliases.value = (category.aliases || []).map((alias) => alias.name).join(', ')
       els.serviceCategoryAdviceEnabled.checked = category.adviceEnabled === true
       els.serviceCategorySave.textContent = 'Guardar'
       els.serviceCategoryCancel.hidden = false
@@ -29725,6 +29756,7 @@ const crmHtml = `<!doctype html>
     function resetServiceCategoryForm() {
       els.serviceCategoryId.value = ''
       els.serviceCategoryName.value = ''
+      els.serviceCategoryAliases.value = ''
       els.serviceCategoryAdviceEnabled.checked = false
       els.serviceCategorySave.textContent = 'Agregar'
       els.serviceCategoryCancel.hidden = true

@@ -27,6 +27,7 @@ export type BookingV2ServiceOption = {
   priceMode?: 'FIXED' | 'STARTING_AT'
   category: string | null
   categoryId?: string | null
+  categoryAliases?: string[]
   categoryAdviceEnabled?: boolean
   parentServiceId?: string | null
   parentServiceName?: string | null
@@ -96,6 +97,7 @@ export type BookingV2CombinationRule = {
 export type BookingV2CategoryOption = {
   key: string
   name: string
+  aliases: string[]
   serviceIds: string[]
 }
 
@@ -168,7 +170,8 @@ export class BookingV2DomainService {
           catalogCategory: {
             select: {
               name: true,
-              adviceEnabled: true
+              adviceEnabled: true,
+              aliases: { select: { name: true }, orderBy: { createdAt: 'asc' } }
             }
           },
           parentService: {
@@ -256,6 +259,7 @@ export class BookingV2DomainService {
           priceMode: service.priceMode,
           category,
           categoryId: service.catalogCategoryId,
+          categoryAliases: service.catalogCategory?.aliases?.map((alias) => alias.name) ?? [],
           categoryAdviceEnabled: service.catalogCategory?.adviceEnabled === true,
           parentServiceId: service.parentServiceId,
           parentServiceName: service.parentService?.name ?? null,
@@ -552,7 +556,10 @@ export function catalogCategoryOptions(
       : name === 'Otros'
         ? 'uncategorized'
         : `name:${normalizeCategoryKey(name)}`
-    const category = categories.get(key) ?? { key, name, serviceIds: [] }
+    const category = categories.get(key) ?? { key, name, aliases: [], serviceIds: [] }
+    for (const alias of service.categoryAliases ?? []) {
+      if (!category.aliases.includes(alias)) category.aliases.push(alias)
+    }
     category.serviceIds.push(service.id)
     categories.set(key, category)
   }
