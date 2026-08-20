@@ -1562,12 +1562,6 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
       <main class="fresha-booking" data-booking-slug="${escapeAttribute(slug)}">
         <div class="booking-brand-rail">
           <a class="booking-brand" href="${escapeAttribute(backPath)}">
-            <span class="booking-brand-mark" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-                <circle cx="6" cy="6" r="2.6"></circle><circle cx="6" cy="18" r="2.6"></circle>
-                <line x1="8.1" y1="7.6" x2="20" y2="18"></line><line x1="8.1" y1="16.4" x2="20" y2="6"></line>
-              </svg>
-            </span>
             <span class="booking-brand-name">
               <strong>${escapeHtml(business.name)}</strong>
               <span>${escapeHtml(subtitle)}</span>
@@ -1951,6 +1945,46 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             return (state.catalog.professionals || []).filter((professional) => allowed.has(professional.id))
           }
 
+          function renderDateNavigator(dateChips) {
+            return '<div class="date-navigator">' +
+              '<button class="date-nav-button" type="button" data-date-nav="-1" aria-label="Ver fechas anteriores">&#8249;</button>' +
+              '<div class="date-track">' + dateChips + '</div>' +
+              '<button class="date-nav-button" type="button" data-date-nav="1" aria-label="Ver fechas siguientes">&#8250;</button>' +
+            '</div>'
+          }
+
+          function setupDateNavigation() {
+            const navigator = els.content.querySelector('.date-navigator')
+            if (!navigator) return
+            const track = navigator.querySelector('.date-track')
+            const previous = navigator.querySelector('[data-date-nav="-1"]')
+            const next = navigator.querySelector('[data-date-nav="1"]')
+            if (!track || !previous || !next) return
+
+            function updateDateNavigation() {
+              previous.disabled = track.scrollLeft <= 2
+              next.disabled = track.scrollLeft >= track.scrollWidth - track.clientWidth - 2
+            }
+
+            navigator.querySelectorAll('[data-date-nav]').forEach((button) => {
+              button.addEventListener('click', () => {
+                const direction = Number(button.dataset.dateNav)
+                track.scrollBy({ left: direction * Math.max(180, track.clientWidth * .8), behavior: 'smooth' })
+              })
+            })
+            track.addEventListener('scroll', updateDateNavigation, { passive: true })
+
+            requestAnimationFrame(() => {
+              const selected = track.querySelector('.date-chip.selected')
+              if (selected) {
+                const selectedRect = selected.getBoundingClientRect()
+                const trackRect = track.getBoundingClientRect()
+                track.scrollLeft += selectedRect.left - trackRect.left - ((trackRect.width - selectedRect.width) / 2)
+              }
+              updateDateNavigation()
+            })
+          }
+
           async function renderTimeStep() {
             if (isMultiService()) {
               await renderCoordinatedTimeStep()
@@ -1969,9 +2003,10 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             els.content.innerHTML =
               '<div class="filter-row"><span class="fresha-pill">' + escapeHtml(professionalName(state.professionalId) || 'Selecciona profesional') + '</span></div>' +
               '<div class="section-label">Selecciona una fecha</div>' +
-              '<div class="date-track">' + dateChips + '</div>' +
+              renderDateNavigator(dateChips) +
               '<div class="section-label">Escoge una hora</div>' +
               '<div class="slots" id="booking-slots">' + renderSlotsLoading() + '</div>'
+            setupDateNavigation()
             updateContinue(false)
             await loadSlots()
           }
@@ -1988,9 +2023,10 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             els.content.innerHTML =
               '<p class="booking-service-help">Buscamos primero una persona que pueda hacer todo. Si no existe, coordinamos profesionales distintos sin espera entre servicios.</p>' +
               '<div class="section-label">Seleccion&aacute; una fecha</div>' +
-              '<div class="date-track">' + dateChips + '</div>' +
+              renderDateNavigator(dateChips) +
               '<div class="section-label">Itinerarios disponibles</div>' +
               '<div id="booking-itineraries">' + renderSlotsLoading() + '</div>'
+            setupDateNavigation()
             state.itinerary = null
             updateContinue(false)
             try {
@@ -4230,17 +4266,6 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
       gap: 13px;
       min-width: 0;
     }
-    .booking-brand-mark {
-      width: 42px;
-      height: 42px;
-      flex: 0 0 42px;
-      display: grid;
-      place-items: center;
-      color: var(--gold);
-      border: 1px solid var(--gold);
-      border-radius: 50%;
-    }
-    .booking-brand-mark svg { width: 22px; height: 22px; }
     .booking-brand-name { display: grid; gap: 2px; min-width: 0; }
     .booking-brand-name strong {
       overflow: hidden;
@@ -4610,14 +4635,52 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
       font-size: 16px;
       font-weight: 900;
     }
+    .date-navigator {
+      display: grid;
+      grid-template-columns: 38px minmax(0, 1fr) 38px;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 32px;
+    }
+    .date-nav-button {
+      width: 38px;
+      height: 44px;
+      display: grid;
+      place-items: center;
+      padding: 0;
+      color: var(--burgundy);
+      background: #FFFAF0;
+      border: 1px solid var(--cream-line);
+      border-radius: 8px;
+      font-size: 26px;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .date-nav-button:hover:not(:disabled) { border-color: var(--gold); }
+    .date-nav-button:disabled {
+      opacity: .35;
+      cursor: default;
+    }
     .date-track {
       display: flex;
       gap: 10px;
-      margin-bottom: 32px;
+      min-width: 0;
+      padding: 0 0 8px;
       overflow-x: auto;
-      scrollbar-width: none;
+      overscroll-behavior-inline: contain;
+      scroll-snap-type: x proximity;
+      scrollbar-color: var(--gold) rgba(201,161,59,.12);
+      scrollbar-width: thin;
     }
-    .date-track::-webkit-scrollbar { display: none; }
+    .date-track::-webkit-scrollbar { height: 7px; }
+    .date-track::-webkit-scrollbar-track {
+      background: rgba(201,161,59,.12);
+      border-radius: 999px;
+    }
+    .date-track::-webkit-scrollbar-thumb {
+      background: var(--gold);
+      border-radius: 999px;
+    }
     .date-chip {
       width: 64px;
       flex: 0 0 64px;
@@ -4627,6 +4690,7 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
       border: 1px solid var(--cream-line);
       border-radius: 8px;
       text-align: center;
+      scroll-snap-align: start;
       cursor: pointer;
     }
     .date-chip span,
@@ -6139,11 +6203,6 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
       margin-bottom: 24px;
       color: #2B2420;
     }
-    .booking-template-salon-white .booking-brand-mark {
-      color: #BD7E67;
-      background: #F6E6DE;
-      border-color: #E8C7B9;
-    }
     .booking-template-salon-white .booking-brand-name strong {
       color: #2B2420;
       font-family: "Playfair Display", Georgia, serif;
@@ -6216,6 +6275,7 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
     .booking-template-salon-white .fresha-options { gap: 12px; }
     .booking-template-salon-white .fresha-option,
     .booking-template-salon-white .date-chip,
+    .booking-template-salon-white .date-nav-button,
     .booking-template-salon-white .slot,
     .booking-template-salon-white .slots-loading,
     .booking-template-salon-white .booking-account-ready,
