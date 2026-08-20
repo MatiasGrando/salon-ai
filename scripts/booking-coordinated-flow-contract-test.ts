@@ -622,6 +622,23 @@ assert.deepEqual(bandButtons?.map((button) => button.title), [
   'Horario exacto',
   'Cambiar fecha'
 ])
+const canonicalMorningButtonMessage = bookingCoordinationMessageFromInteractiveReply(
+  bandButtons?.[0]?.id,
+  'conversation-1'
+)
+assert.equal(canonicalMorningButtonMessage, 'por la mañana')
+const selectedMorningFromWhatsAppButton = await engine.process({
+  businessId: 'business-1',
+  conversation: selectedTomorrow.conversationPatch,
+  message: canonicalMorningButtonMessage ?? '',
+  currentDate: new Date('2026-08-06T15:00:00-03:00')
+})
+assert.equal(selectedMorningFromWhatsAppButton.plan.type, 'offer_coordinated_options')
+if (selectedMorningFromWhatsAppButton.plan.type !== 'offer_coordinated_options') {
+  throw new Error('Plan inesperado')
+}
+assert.deepEqual(selectedMorningFromWhatsAppButton.plan.options.map((item) => item.startTime), ['09:00'])
+assert.equal(selectedMorningFromWhatsAppButton.state.pendingCoordinatedAvailability?.date, '2026-08-10')
 const changedDirectlyToToday = await engine.process({
   businessId: 'business-1',
   conversation: selectedTomorrow.conversationPatch,

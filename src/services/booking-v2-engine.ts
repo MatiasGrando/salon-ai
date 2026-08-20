@@ -2080,7 +2080,7 @@ export class BookingV2Engine {
       : pending.phase === 'AWAITING_TIME_PREFERENCE' || pending.phase === 'AWAITING_SEARCH_TIME'
         ? 'TIME_PREFERENCE' as const
         : 'OPTION' as const
-    const explicitDate = resolveCoordinatedDate(
+    const resolvedExplicitDate = resolveCoordinatedDate(
       input.input.message,
       input.input.currentDate ?? new Date(),
       input.input.understandingExtraction?.date.value ?? null
@@ -2089,7 +2089,7 @@ export class BookingV2Engine {
       message: input.input.message,
       phase
     })
-    const hasExplicitDate = pending.phase === 'AWAITING_DATE' && Boolean(explicitDate)
+    const hasExplicitDate = pending.phase === 'AWAITING_DATE' && Boolean(resolvedExplicitDate)
     if (!choice && !hasExplicitDate) {
       choice = await this.semanticCoordinatedChoice({
         message: input.input.message,
@@ -2102,6 +2102,9 @@ export class BookingV2Engine {
         time: input.input.understandingExtraction.time.value
       }
     }
+    const explicitDate = pending.phase !== 'AWAITING_DATE' && choice?.type === 'TIME_BAND'
+      ? null
+      : resolvedExplicitDate
 
     if (choice?.type === 'REQUEST_HUMAN') {
       return this.guidedEstimateResult({
