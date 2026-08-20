@@ -305,6 +305,7 @@ const dateButtons = bookingCoordinationReplyButtons({
 assert.equal(Boolean(dateButtons?.[0]?.title), true)
 assert.deepEqual(dateButtons?.slice(1).map((button) => button.title), ['Ver días disponibles', 'Otra fecha'])
 assert.match(started.reply, /En estos días puedo coordinar todos los servicios/)
+assert.match(started.reply, /• Lunes 10\/08\/2026/)
 assert.match(started.reply, /“mañana”, “el viernes” o “20\/8”/)
 assert.equal(
   bookingCoordinationMessageFromInteractiveReply(dateButtons?.[0]?.id, 'conversation-1'),
@@ -705,6 +706,7 @@ const fiveDateReply = renderBookingV2Response({
 })
 assert.equal((fiveDateReply.match(/^• /gm) ?? []).length, 5)
 assert.match(fiveDateReply, /manteniendo a Tamara/)
+assert.match(fiveDateReply, /• Lunes 10\/08\/2026/)
 const fiveDateButtons = bookingCoordinationReplyButtons({
   conversationId: 'conversation-1',
   plan: {

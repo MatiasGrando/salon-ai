@@ -50,7 +50,7 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
           input.plan.professionalName
             ? `En estos días puedo coordinar todos los servicios en horarios consecutivos, manteniendo a ${input.plan.professionalName} 😊`
             : 'En estos días puedo coordinar todos los servicios en horarios consecutivos, con profesionales distintos 😊',
-          ...input.plan.quickDates.slice(0, 5).map((date) => `• ${formatDate(date)}`),
+          ...input.plan.quickDates.slice(0, 5).map((date) => `• ${formatDateWithWeekday(date)}`),
           `Elegí una de estas fechas o escribime otra. ${dateExamples}`
         ].join('\n')
       : null
@@ -989,6 +989,17 @@ function formatDate(value: string | null) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
   if (!match) return value
   return `${match[3]}/${match[2]}/${match[1]}`
+}
+
+function formatDateWithWeekday(value: string) {
+  const formattedDate = formatDate(value)
+  const parsed = new Date(`${value}T12:00:00Z`)
+  if (Number.isNaN(parsed.getTime())) return formattedDate
+  const weekday = new Intl.DateTimeFormat('es-AR', {
+    timeZone: 'UTC',
+    weekday: 'long'
+  }).format(parsed)
+  return `${weekday.charAt(0).toUpperCase()}${weekday.slice(1)} ${formattedDate}`
 }
 
 function formatAvailabilityOptions(options: BookingV2AvailabilityOption[], preserveTimeOrder = false) {
