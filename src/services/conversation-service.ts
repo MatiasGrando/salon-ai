@@ -4611,7 +4611,8 @@ export class ConversationService {
     const business = await prisma.business.findFirst({
       orderBy: {
         createdAt: 'asc'
-      }
+      },
+      select: { id: true }
     })
 
     return business?.id ?? null

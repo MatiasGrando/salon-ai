@@ -131,16 +131,53 @@ export class BookingV2DomainService {
           businessId,
           isBookable: true
         },
-        include: {
-          aliases: true,
+        // El catálogo de reservas no muestra imágenes. Seleccionar sólo los
+        // datos de la reserva evita transferir los data URLs de cada servicio.
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          duration: true,
+          customerDurationMin: true,
+          customerDurationMax: true,
+          category: true,
+          price: true,
+          priceMode: true,
+          attentionMode: true,
+          requiresPhoto: true,
+          estimateExplanation: true,
+          estimateQuestion: true,
+          estimateOptions: true,
+          estimateDisclaimer: true,
+          estimateAllowsBooking: true,
+          validationEnabled: true,
+          validationMessage: true,
+          validationQuestion: true,
+          depositMode: true,
+          depositValue: true,
+          bookingOrderPriority: true,
+          catalogCategoryId: true,
+          parentServiceId: true,
+          aliases: {
+            select: { name: true }
+          },
           suggestedAddons: {
             select: { addonServiceId: true },
             orderBy: { sortOrder: 'asc' }
           },
-          catalogCategory: true,
+          catalogCategory: {
+            select: {
+              name: true,
+              adviceEnabled: true
+            }
+          },
           parentService: {
-            include: {
-              aliases: true
+            select: {
+              name: true,
+              variantSelectionMode: true,
+              aliases: {
+                select: { name: true }
+              }
             }
           }
         },
@@ -152,7 +189,11 @@ export class BookingV2DomainService {
           isActive: true,
           acceptsBotBookings: true
         },
-        include: {
+        // El bot sólo necesita identidad y vínculos con servicios; el avatar
+        // pertenece a la interfaz visual y no a la reserva.
+        select: {
+          id: true,
+          name: true,
           serviceLinks: {
             select: { serviceId: true }
           }

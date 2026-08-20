@@ -6172,9 +6172,13 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     name: 'dominio ofrece al bot solo profesionales habilitados para reservas automaticas',
     run: async () => {
       let professionalQuery: unknown = null
+      let serviceQuery: unknown = null
       const domain = new BookingV2DomainService({
         service: {
-          findMany: async () => []
+          findMany: async (query: unknown) => {
+            serviceQuery = query
+            return []
+          }
         },
         professional: {
           findMany: async (query: unknown) => {
@@ -6191,6 +6195,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         isActive: true,
         acceptsBotBookings: true
       })
+      assert.equal((serviceQuery as { select?: Record<string, unknown> })?.select?.imageUrl, undefined)
+      assert.equal((professionalQuery as { select?: Record<string, unknown> })?.select?.avatarUrl, undefined)
     }
   },
   {

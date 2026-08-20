@@ -50,6 +50,29 @@ const whatsappCloudApi = new WhatsAppCloudApi()
 const bookingV2Engine = new BookingV2Engine()
 const WHATSAPP_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000
 
+// Las listas del CRM sólo necesitan el estado de la seña. El archivo binario
+// se descarga exclusivamente desde /crm/deposits/:id/proof cuando se lo abre.
+const conversationDepositSelect = {
+  id: true,
+  status: true,
+  amount: true
+} satisfies Prisma.BookingDepositSelect
+
+const crmDepositAppointmentSelect = {
+  id: true,
+  startAt: true,
+  coordinationGroupId: true,
+  customer: {
+    select: { name: true, phone: true, email: true }
+  },
+  professional: {
+    select: { name: true }
+  },
+  service: {
+    select: { name: true }
+  }
+} satisfies Prisma.AppointmentSelect
+
 function conversationStepForPersistedBookingState(
   state: BookingV2State,
   bookingFlowOrder: BookingFlowOrder = 'PROFESSIONAL_FIRST'
@@ -324,15 +347,7 @@ export async function crmRoutes(app: FastifyInstance) {
       where,
       include: {
         bookingDeposits: {
-          include: {
-            appointment: {
-              include: {
-                customer: true,
-                professional: true,
-                service: true
-              }
-            }
-          },
+          select: conversationDepositSelect,
           orderBy: { createdAt: 'desc' },
           take: 1
         }
@@ -753,11 +768,7 @@ export async function crmRoutes(app: FastifyInstance) {
         updatedAt: true,
         conversationId: true,
         appointment: {
-          include: {
-            customer: true,
-            professional: true,
-            service: true
-          }
+          select: crmDepositAppointmentSelect
         }
       },
       orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }],
@@ -775,7 +786,7 @@ export async function crmRoutes(app: FastifyInstance) {
     const coordinatedAppointments = coordinationGroupIds.length
       ? await prisma.appointment.findMany({
           where: { coordinationGroupId: { in: coordinationGroupIds } },
-          include: { customer: true, professional: true, service: true },
+          select: crmDepositAppointmentSelect,
           orderBy: { startAt: 'asc' }
         })
       : []
@@ -1643,14 +1654,16 @@ async function findCrmBusiness(businessId?: string) {
     return prisma.business.findUnique({
       where: {
         id: businessId
-      }
+      },
+      select: { id: true, botEnabled: true, aiEnabled: true }
     })
   }
 
   return prisma.business.findFirst({
     orderBy: {
       createdAt: 'asc'
-    }
+    },
+    select: { id: true, botEnabled: true, aiEnabled: true }
   })
 }
 
@@ -1799,15 +1812,21 @@ async function findActiveConversationDeposit(conversationId: string) {
       conversationId,
       status: { in: ['PENDING_PROOF', 'PROOF_RECEIVED'] }
     },
-    include: {
+    select: {
+      id: true,
+      businessId: true,
+      appointmentId: true,
+      conversationId: true,
+      status: true,
       conversation: true,
       appointment: {
-        include: {
-          customer: true,
-          professional: true,
-          service: true,
+        select: {
+          startAt: true,
+          customer: { select: { phone: true } },
+          professional: { select: { name: true } },
+          service: { select: { name: true } },
           serviceItems: {
-            include: { service: true },
+            select: { service: { select: { name: true } } },
             orderBy: { sortOrder: 'asc' }
           }
         }
@@ -1823,15 +1842,7 @@ async function conversationWithLatestDeposit(conversationId: string) {
       where: { id: conversationId },
       include: {
         bookingDeposits: {
-          include: {
-            appointment: {
-              include: {
-                customer: true,
-                professional: true,
-                service: true
-              }
-            }
-          },
+          select: conversationDepositSelect,
           orderBy: { createdAt: 'desc' },
           take: 1
         }

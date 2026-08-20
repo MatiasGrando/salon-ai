@@ -11,6 +11,33 @@ const botCopyService = new BotCopyService()
 const messageUnderstandingService = new MessageUnderstandingService()
 const aiMessageUnderstandingService = new AiMessageUnderstandingService()
 
+// Estas consultas alimentan la conversación de reservas. Las imágenes se
+// muestran en el CRM, no en el chat, por lo que no deben viajar con cada mensaje.
+const bookingServiceSelect = {
+  id: true,
+  name: true,
+  description: true,
+  duration: true,
+  customerDurationMin: true,
+  customerDurationMax: true,
+  category: true,
+  price: true,
+  priceMode: true,
+  isBookable: true,
+  businessId: true,
+  aliases: {
+    select: { name: true }
+  }
+} satisfies Prisma.ServiceSelect
+
+const bookingProfessionalSelect = {
+  id: true,
+  name: true,
+  businessId: true,
+  isActive: true,
+  acceptsBotBookings: true
+} satisfies Prisma.ProfessionalSelect
+
 type ConversationState = {
   phone: string
   currentStep: string
@@ -123,7 +150,8 @@ export class BookingConversationFlow {
       const selectedService = await prisma.service.findUnique({
         where: {
           id: conversation.selectedServiceId
-        }
+        },
+        select: bookingServiceSelect
       })
 
       if (!selectedService) {
@@ -238,7 +266,8 @@ export class BookingConversationFlow {
           ? await prisma.service.findUnique({
               where: {
                 id: conversation.selectedServiceId
-              }
+              },
+              select: bookingServiceSelect
             })
           : null
 
@@ -653,9 +682,7 @@ export class BookingConversationFlow {
       where: {
         id: input.conversation.selectedServiceId
       },
-      include: {
-        aliases: true
-      }
+      select: bookingServiceSelect
     })
 
     if (!selectedService) {
@@ -782,7 +809,8 @@ export class BookingConversationFlow {
         const selectedService = await prisma.service.findUnique({
           where: {
             id: input.conversation.selectedServiceId
-          }
+          },
+          select: bookingServiceSelect
         })
 
         if (selectedService) {
@@ -845,7 +873,8 @@ export class BookingConversationFlow {
       const selectedService = await prisma.service.findUnique({
         where: {
           id: input.conversation.selectedServiceId
-        }
+        },
+        select: bookingServiceSelect
       })
 
       if (!selectedService) {
@@ -995,7 +1024,8 @@ export class BookingConversationFlow {
       const selectedService = await prisma.service.findUnique({
         where: {
           id: input.conversation.selectedServiceId
-        }
+        },
+        select: bookingServiceSelect
       })
 
       if (!selectedService) {
@@ -1227,7 +1257,8 @@ export class BookingConversationFlow {
       const selectedService = await prisma.service.findUnique({
         where: {
           id: input.conversation.selectedServiceId
-        }
+        },
+        select: bookingServiceSelect
       })
 
       if (!selectedService) {
@@ -1246,7 +1277,8 @@ export class BookingConversationFlow {
       const selectedService = await prisma.service.findUnique({
         where: {
           id: input.conversation.selectedServiceId
-        }
+        },
+        select: bookingServiceSelect
       })
       const professionalName = await this.findProfessionalName(input.conversation.selectedProfessionalId)
 
@@ -1272,7 +1304,8 @@ export class BookingConversationFlow {
       const selectedService = await prisma.service.findUnique({
         where: {
           id: input.conversation.selectedServiceId
-        }
+        },
+        select: bookingServiceSelect
       })
 
       if (!selectedService) {
@@ -1359,7 +1392,8 @@ export class BookingConversationFlow {
       const selectedService = await prisma.service.findUnique({
         where: {
           id: input.conversation.selectedServiceId
-        }
+        },
+        select: bookingServiceSelect
       })
 
       if (selectedService) {
@@ -1537,7 +1571,8 @@ export class BookingConversationFlow {
       const selectedService = await prisma.service.findUnique({
         where: {
           id: input.conversation.selectedServiceId
-        }
+        },
+        select: bookingServiceSelect
       })
 
       if (selectedService) {
@@ -1579,9 +1614,7 @@ export class BookingConversationFlow {
         ...(businessId ? { businessId } : {}),
         isBookable: true
       },
-      include: {
-        aliases: true
-      },
+      select: bookingServiceSelect,
       orderBy: {
         name: 'asc'
       }
@@ -1655,6 +1688,7 @@ export class BookingConversationFlow {
             }
           : {})
       },
+      select: bookingProfessionalSelect,
       orderBy: {
         name: 'asc'
       }
@@ -1685,12 +1719,14 @@ export class BookingConversationFlow {
       prisma.service.findUnique({
         where: {
           id: input.selectedServiceId
-        }
+        },
+        select: bookingServiceSelect
       }),
       prisma.professional.findUnique({
         where: {
           id: input.selectedProfessionalId
-        }
+        },
+        select: bookingProfessionalSelect
       })
     ])
 
@@ -1716,9 +1752,7 @@ export class BookingConversationFlow {
 
     const services = await prisma.service.findMany({
       where: input.businessId ? { businessId: input.businessId } : {},
-      include: {
-        aliases: true
-      },
+      select: bookingServiceSelect,
       orderBy: {
         name: 'asc'
       }
@@ -1734,6 +1768,7 @@ export class BookingConversationFlow {
         isActive: true,
         acceptsBotBookings: true
       },
+      select: bookingProfessionalSelect,
       orderBy: {
         name: 'asc'
       }
@@ -1928,9 +1963,7 @@ export class BookingConversationFlow {
         ...(input.businessId ? { businessId: input.businessId } : {}),
         isBookable: true
       },
-      include: {
-        aliases: true
-      },
+      select: bookingServiceSelect,
       orderBy: {
         name: 'asc'
       }
@@ -1946,6 +1979,7 @@ export class BookingConversationFlow {
         isActive: true,
         acceptsBotBookings: true
       },
+      select: bookingProfessionalSelect,
       orderBy: {
         name: 'asc'
       }
@@ -2021,6 +2055,7 @@ export class BookingConversationFlow {
         isActive: true,
         acceptsBotBookings: true
       },
+      select: bookingProfessionalSelect,
       orderBy: {
         name: 'asc'
       }
@@ -2067,7 +2102,8 @@ export class BookingConversationFlow {
       const service = await prisma.service.findUnique({
         where: {
           id: input.serviceId
-        }
+        },
+        select: bookingServiceSelect
       })
 
       if (service) {
@@ -2193,9 +2229,7 @@ export class BookingConversationFlow {
         ...(businessId ? { businessId } : {}),
         isBookable: true
       },
-      include: {
-        aliases: true
-      },
+      select: bookingServiceSelect,
       orderBy: {
         name: 'asc'
       }
@@ -2218,7 +2252,8 @@ export class BookingConversationFlow {
     const professional = await prisma.professional.findUnique({
       where: {
         id: professionalId
-      }
+      },
+      select: bookingProfessionalSelect
     })
 
     return professional?.name ?? null
@@ -2231,6 +2266,7 @@ export class BookingConversationFlow {
         isActive: true,
         acceptsBotBookings: true
       },
+      select: bookingProfessionalSelect,
       orderBy: {
         name: 'asc'
       }
@@ -2273,6 +2309,7 @@ export class BookingConversationFlow {
         isActive: true,
         acceptsBotBookings: true
       },
+      select: bookingProfessionalSelect,
       orderBy: {
         name: 'asc'
       }
@@ -2301,7 +2338,8 @@ export class BookingConversationFlow {
       const professional = await prisma.professional.findUnique({
         where: {
           id: input.professionalId
-        }
+        },
+        select: bookingProfessionalSelect
       })
 
       if (!professional || !professional.isActive || !professional.acceptsBotBookings) {
@@ -2344,7 +2382,8 @@ export class BookingConversationFlow {
     const service = await prisma.service.findUnique({
       where: {
         id: input.serviceId
-      }
+      },
+      select: bookingServiceSelect
     })
 
     if (!service) {
@@ -2365,6 +2404,7 @@ export class BookingConversationFlow {
           }
         }
       },
+      select: bookingProfessionalSelect,
       orderBy: {
         name: 'asc'
       }

@@ -3,10 +3,13 @@ import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import pg from 'pg'
 
-type NumericValue = string | number | null
+type NumericValue = string | number | boolean | null
 
 type StatementSnapshot = {
   queryId: string
+  userId?: string
+  roleName?: string
+  topLevel?: boolean
   calls: number
   rows: number
   totalExecMs: number
@@ -20,6 +23,7 @@ type StatementSnapshot = {
 type DatabaseCounters = Record<string, number>
 
 type UsageSnapshot = {
+  statementIdentityVersion?: number
   capturedAt: string
   label: string
   database: string
@@ -82,22 +86,27 @@ try {
     `)
   const statementsResult = await client.query<Record<string, NumericValue>>(`
       SELECT
-        queryid::text AS query_id,
-        calls,
-        rows,
-        total_exec_time,
-        shared_blks_hit,
-        shared_blks_read,
-        temp_blks_read,
-        temp_blks_written,
-        LEFT(REGEXP_REPLACE(query, E'[\\n\\r\\t ]+', ' ', 'g'), 1200) AS query
-      FROM pg_stat_statements
-      WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-      ORDER BY rows DESC
+        statements.queryid::text AS query_id,
+        statements.userid::text AS user_id,
+        COALESCE(roles.rolname, 'unknown') AS role_name,
+        statements.toplevel AS top_level,
+        statements.calls,
+        statements.rows,
+        statements.total_exec_time,
+        statements.shared_blks_hit,
+        statements.shared_blks_read,
+        statements.temp_blks_read,
+        statements.temp_blks_written,
+        LEFT(REGEXP_REPLACE(statements.query, E'[\\n\\r\\t ]+', ' ', 'g'), 1200) AS query
+      FROM pg_stat_statements AS statements
+      LEFT JOIN pg_roles AS roles ON roles.oid = statements.userid
+      WHERE statements.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+      ORDER BY statements.rows DESC
       LIMIT 2000
     `)
 
   const snapshot: UsageSnapshot = {
+    statementIdentityVersion: 2,
     capturedAt: new Date().toISOString(),
     label,
     database: identityResult.rows[0]?.database ?? 'unknown',
@@ -106,6 +115,9 @@ try {
     databaseCounters: numericRecord(countersResult.rows[0] ?? {}),
     statements: statementsResult.rows.map((row) => ({
       queryId: String(row.query_id),
+      userId: String(row.user_id),
+      roleName: String(row.role_name ?? 'unknown'),
+      topLevel: row.top_level === true || row.top_level === 'true',
       calls: numeric(row.calls),
       rows: numeric(row.rows),
       totalExecMs: numeric(row.total_exec_time),
@@ -162,10 +174,13 @@ function numericRecord(row: Record<string, NumericValue>) {
 }
 
 function buildReport(previous: UsageSnapshot, current: UsageSnapshot) {
-  const previousStatements = new Map(previous.statements.map((statement) => [statement.queryId, statement]))
   const resetChanged = previous.statsResetAt !== current.statsResetAt
+  const statementsComparable = !resetChanged &&
+    previous.statementIdentityVersion === 2 &&
+    current.statementIdentityVersion === 2
+  const previousStatements = new Map(previous.statements.map((statement) => [statementKey(statement), statement]))
   const deltas = current.statements.map((statement): StatementDelta => {
-    const before = resetChanged ? undefined : previousStatements.get(statement.queryId)
+    const before = statementsComparable ? previousStatements.get(statementKey(statement)) : undefined
     return {
       ...statement,
       callsDelta: delta(statement.calls, before?.calls),
@@ -177,10 +192,12 @@ function buildReport(previous: UsageSnapshot, current: UsageSnapshot) {
       tempBlocksWrittenDelta: delta(statement.tempBlocksWritten, before?.tempBlocksWritten)
     }
   })
-  const busiest = deltas
-    .filter((statement) => statement.callsDelta > 0 || statement.rowsDelta > 0)
-    .sort((left, right) => right.rowsDelta - left.rowsDelta || right.callsDelta - left.callsDelta)
-    .slice(0, 20)
+  const busiest = statementsComparable
+    ? deltas
+        .filter((statement) => statement.callsDelta > 0 || statement.rowsDelta > 0)
+        .sort((left, right) => right.rowsDelta - left.rowsDelta || right.callsDelta - left.callsDelta)
+        .slice(0, 20)
+    : []
   const counterRows = Object.keys(current.databaseCounters).map((key) => {
     const value = delta(current.databaseCounters[key] ?? 0, resetChanged ? undefined : previous.databaseCounters[key])
     return `| ${key} | ${formatNumber(value)} |`
@@ -193,16 +210,24 @@ function buildReport(previous: UsageSnapshot, current: UsageSnapshot) {
     `- Desde: ${previous.capturedAt} (${previous.label})\n` +
     `- Hasta: ${current.capturedAt} (${current.label})\n` +
     `- Egress de Supabase en el período: ${egressDelta === null ? 'no informado' : `${egressDelta.toFixed(3)} GB`}\n` +
-    `- Reinicio de estadísticas detectado: ${resetChanged ? 'sí; los deltas SQL no son comparables' : 'no'}\n\n` +
+    `- Reinicio de estadísticas detectado: ${resetChanged ? 'sí; los deltas SQL no son comparables' : 'no'}\n` +
+    `- Consultas SQL comparables: ${statementsComparable ? 'sí' : 'no; esta medición establece una nueva línea de base por usuario y origen'}\n\n` +
     `## Contadores de PostgreSQL\n\n| Contador | Diferencia |\n|---|---:|\n${counterRows.join('\n')}\n\n` +
     `## Consultas con más filas devueltas\n\n` +
     (busiest.length
       ? busiest.map((statement, index) =>
           `${index + 1}. **${formatNumber(statement.rowsDelta)} filas** en ${formatNumber(statement.callsDelta)} ejecuciones; ` +
-          `${statement.totalExecMsDelta.toFixed(1)} ms acumulados.\n   \`${compactQuery(statement.query)}\``
+          `${statement.totalExecMsDelta.toFixed(1)} ms acumulados; rol ${statement.roleName ?? 'desconocido'}; ` +
+          `nivel ${statement.topLevel === false ? 'interno' : 'principal'}.\n   \`${compactQuery(statement.query)}\``
         ).join('\n\n')
-      : 'No hubo actividad SQL nueva en el período.') +
+      : statementsComparable
+        ? 'No hubo actividad SQL nueva en el período.'
+        : 'La próxima medición mostrará deltas SQL correctos contra esta nueva línea de base.') +
     `\n`
+}
+
+function statementKey(statement: StatementSnapshot) {
+  return `${statement.userId ?? 'legacy'}:${statement.topLevel ?? 'legacy'}:${statement.queryId}`
 }
 
 function delta(current: number, previous: number | undefined) {
