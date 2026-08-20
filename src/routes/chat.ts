@@ -3,7 +3,10 @@ import { prisma } from '../config/prisma.js'
 import { ConversationService } from '../services/conversation-service.js'
 import { reopenClosedConversationOpportunity } from '../services/conversation-opportunity-service.js'
 import { capturePostSaleResponse } from '../services/post-sale-service.js'
-import { publishIncomingConversationMessage } from '../services/crm-realtime-events.js'
+import {
+  publishConversationUpdated,
+  publishIncomingConversationMessage
+} from '../services/crm-realtime-events.js'
 
 const service = new ConversationService()
 
@@ -153,6 +156,12 @@ export async function chatRoutes(app: FastifyInstance) {
           provider: 'internal_chat'
         }
       }
+    })
+
+    publishConversationUpdated({
+      businessId: targetBusiness.id,
+      conversationId: conversation.id,
+      updatedAt: new Date().toISOString()
     })
 
     return result

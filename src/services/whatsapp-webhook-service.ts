@@ -29,7 +29,10 @@ import {
   LatencyDiagnostic
 } from './latency-diagnostic.js'
 import { isBusinessAccountUnavailable } from './business-account-access.js'
-import { publishIncomingConversationMessage } from './crm-realtime-events.js'
+import {
+  publishConversationUpdated,
+  publishIncomingConversationMessage
+} from './crm-realtime-events.js'
 
 type VerifyWebhookInput = {
   mode: string | undefined
@@ -633,6 +636,13 @@ export class WhatsAppWebhookService {
       : await processConversation()
 
     if ('suppressOutbound' in conversationResult && conversationResult.suppressOutbound) {
+      if (firstMessage.businessId) {
+        publishConversationUpdated({
+          businessId: firstMessage.businessId,
+          conversationId: firstMessage.conversationId,
+          updatedAt: new Date().toISOString()
+        })
+      }
       return {
         reply: '',
         messages: [],
@@ -776,6 +786,14 @@ export class WhatsAppWebhookService {
         phone: firstMessage.phone,
         businessId: firstMessage.businessId,
         depositId: conversationResult.depositRequestId
+      })
+    }
+
+    if (firstMessage.businessId) {
+      publishConversationUpdated({
+        businessId: firstMessage.businessId,
+        conversationId: firstMessage.conversationId,
+        updatedAt: new Date().toISOString()
       })
     }
 

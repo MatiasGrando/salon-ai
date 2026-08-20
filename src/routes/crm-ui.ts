@@ -17489,6 +17489,7 @@ const crmHtml = `<!doctype html>
       isRefreshing: false,
       realtimeEventSource: null,
       realtimeFallbackTimer: null,
+      realtimeStateRefreshTimer: null,
       lastConversationSyncAt: null,
       knownInboundMessageIds: new Set(),
       messageSoundContext: null
@@ -21004,6 +21005,16 @@ const crmHtml = `<!doctype html>
         }
         refreshConversationSummary().catch(() => null)
       })
+      source.addEventListener('conversation_updated', (event) => {
+        let payload
+        try {
+          payload = JSON.parse(event.data)
+        } catch {
+          return
+        }
+        if (payload.businessId !== state.businessId || !payload.conversationId) return
+        scheduleConversationStateRefresh()
+      })
       source.addEventListener('open', () => {
         if (state.realtimeEventSource !== source) return
         if (isLocalCrm()) {
@@ -21022,7 +21033,22 @@ const crmHtml = `<!doctype html>
     function stopCrmRealtimeEvents() {
       state.realtimeEventSource?.close()
       state.realtimeEventSource = null
+      if (state.realtimeStateRefreshTimer) clearTimeout(state.realtimeStateRefreshTimer)
+      state.realtimeStateRefreshTimer = null
       stopCrmRealtimeFallback()
+    }
+
+    function scheduleConversationStateRefresh() {
+      if (state.realtimeStateRefreshTimer) clearTimeout(state.realtimeStateRefreshTimer)
+      const refreshWhenReady = () => {
+        if (state.isRefreshing || state.conversationTabLoading) {
+          state.realtimeStateRefreshTimer = setTimeout(refreshWhenReady, 200)
+          return
+        }
+        state.realtimeStateRefreshTimer = null
+        refreshConversationSummary().catch(() => null)
+      }
+      state.realtimeStateRefreshTimer = setTimeout(refreshWhenReady, 0)
     }
 
     function isLocalCrm() {
