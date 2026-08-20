@@ -20846,7 +20846,6 @@ const crmHtml = `<!doctype html>
       state.conversationViewCache.set(key, {
         conversations: state.conversations.slice(),
         conversationNextCursor: state.conversationNextCursor,
-        conversationCounts: { ...state.conversationCounts },
         lastConversationSyncAt: state.lastConversationSyncAt,
         cachedAt: Date.now()
       })
@@ -20860,7 +20859,6 @@ const crmHtml = `<!doctype html>
     function restoreConversationView(cached, archiveView, serverFilter) {
       state.conversations = cached.conversations.slice()
       state.conversationNextCursor = cached.conversationNextCursor
-      state.conversationCounts = { ...cached.conversationCounts }
       state.lastConversationSyncAt = cached.lastConversationSyncAt
       state.loadedArchiveView = archiveView
       state.loadedConversationFilter = serverFilter
@@ -31167,7 +31165,9 @@ const crmHtml = `<!doctype html>
       const archiveView = nextFilter === 'archived' ? 'archived' : 'active'
       const serverFilter = nextFilter === 'handoff' ? 'handoff' : 'all'
       if (archiveView !== state.loadedArchiveView || serverFilter !== state.loadedConversationFilter) {
-        const cached = state.conversationViewCache.get(conversationViewKey(archiveView, serverFilter))
+        const cached = serverFilter === 'handoff'
+          ? null
+          : state.conversationViewCache.get(conversationViewKey(archiveView, serverFilter))
         if (cached && Date.now() - cached.cachedAt < CONVERSATION_CACHE_TTL_MS) {
           await showCachedConversationView(cached, archiveView, serverFilter)
           return

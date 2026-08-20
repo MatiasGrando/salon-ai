@@ -67,6 +67,20 @@ assert.match(
   'el CRM debe refrescar el estado visual cuando termina el procesamiento de una conversación'
 )
 assert.match(
+  crmUiSource,
+  /const cached = serverFilter === 'handoff'\s*\? null\s*:\s*state\.conversationViewCache\.get/,
+  'la bandeja de derivados siempre debe consultar su estado actual al abrirse'
+)
+const restoreConversationViewSource = crmUiSource.slice(
+  crmUiSource.indexOf('function restoreConversationView('),
+  crmUiSource.indexOf('function renderConversationTabActive(')
+)
+assert.doesNotMatch(
+  restoreConversationViewSource,
+  /state\.conversationCounts\s*=/,
+  'una bandeja almacenada no debe reemplazar los contadores globales actuales'
+)
+assert.match(
   whatsappWebhookSource,
   /publishConversationUpdated\([\s\S]*?conversationId:\s*firstMessage\.conversationId/,
   'el webhook debe publicar el cambio de estado después de procesar la conversación'
