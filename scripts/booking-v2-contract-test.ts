@@ -2224,8 +2224,88 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.deepEqual(result.plan, { type: 'ask_specific_date' })
       assert.equal(result.state.draft.date, null)
       assert.equal(result.state.misunderstandingCount, 0)
-      assert.match(result.reply, /Escribime qué día/)
+      assert.match(result.reply, /“mañana”, “este sábado”, “25 de agosto” o “25\/8”/)
+      const buttons = bookingCoordinationReplyButtons({
+        conversationId: 'conversation-1',
+        plan: result.plan,
+        state: result.state
+      })
+      assert.deepEqual(buttons?.map((button) => button.title), [
+        'Próximo día libre',
+        'Ver días disponibles'
+      ])
       assert.equal(extractor.calls.length, 0)
+    }
+  },
+  {
+    name: 'otra fecha muestra cinco días disponibles y permite avanzar a los siguientes',
+    run: async () => {
+      let state = createEmptyBookingV2State()
+      state = acceptField(state, 'name', 'Mati')
+      state = acceptField(state, 'service', 'haircut')
+      state = acceptField(state, 'professional', 'professional-1')
+      const availableDates = [
+        '2026-08-21',
+        '2026-08-22',
+        '2026-08-24',
+        '2026-08-25',
+        '2026-08-26'
+      ]
+      const domain = fakeDomainPort({
+        nextAvailabilityOptions: availableDates.map((date) => ({
+          date,
+          time: '15:00',
+          professionalId: 'professional-1',
+          professionalName: 'Nico'
+        }))
+      })
+      const engine = new BookingV2Engine(domain, fakeExtractor(null))
+
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(state),
+        message: 'ver días disponibles',
+        currentDate: new Date('2026-08-20T15:00:00.000Z')
+      })
+
+      assert.deepEqual(
+        result.plan.type === 'ask_specific_date' ? result.plan.quickDates : null,
+        availableDates
+      )
+      assert.match(result.reply, /“viernes”, “25 de agosto” o “25\/8”/)
+      const buttons = bookingCoordinationReplyButtons({
+        conversationId: 'conversation-1',
+        plan: result.plan,
+        state: result.state
+      })
+      assert.deepEqual(buttons?.map((button) => button.title), [
+        'Viernes 21/08',
+        'Sábado 22/08',
+        'Lunes 24/08',
+        'Martes 25/08',
+        'Miércoles 26/08',
+        'Mostrar más fechas'
+      ])
+      const moreDatesMessage = bookingCoordinationMessageFromInteractiveReply(
+        buttons?.at(-1)?.id,
+        'conversation-1'
+      )
+      assert.equal(moreDatesMessage, 'mostrar más fechas después de 2026-08-26')
+      await engine.process({
+        businessId: 'business-1',
+        conversation: result.conversationPatch,
+        message: moreDatesMessage ?? '',
+        currentDate: new Date('2026-08-20T15:00:00.000Z')
+      })
+      assert.equal(domain.nextAvailabilityCalls.at(-1), '2026-08-26')
+
+      const nextAvailable = await engine.process({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(state),
+        message: 'próximo día libre',
+        currentDate: new Date('2026-08-20T15:00:00.000Z')
+      })
+      assert.equal(nextAvailable.state.draft.date, '2026-08-21')
     }
   },
   {

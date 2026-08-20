@@ -1609,6 +1609,37 @@ export class BookingV2Engine {
       }, null, catalog)
     }
 
+    const specificDateAvailabilityAction =
+      nextMissingField(stateForExtraction.draft, catalog.bookingFlowOrder) === 'date'
+        ? parseSpecificDateAvailabilityAction(input.message)
+        : null
+    if (specificDateAvailabilityAction) {
+      const afterDate = specificDateAvailabilityAction.afterDate ?? dateInTimeZone(
+        input.currentDate ?? new Date(),
+        'America/Buenos_Aires'
+      ).toISOString().slice(0, 10)
+      const quickDates = await this.findSimpleAvailableDates({
+        state: stateForExtraction,
+        catalog,
+        afterDate,
+        maxDates: specificDateAvailabilityAction.type === 'next' ? 1 : 5
+      })
+      if (specificDateAvailabilityAction.type === 'next' && quickDates[0]) {
+        const state = acceptField(stateForExtraction, 'date', quickDates[0])
+        return this.fromInterpretation({
+          state,
+          nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
+          outcome: 'accepted',
+          affectedField: 'date'
+        }, null, catalog)
+      }
+      return this.guidedEstimateResult(stateForExtraction, {
+        type: 'ask_specific_date',
+        quickDates,
+        searchedAvailability: true
+      }, catalog, 'no_change')
+    }
+
     const deterministicDate = input.understandingExtraction
       ? null
       : resolveExpectedDate(
@@ -3791,6 +3822,27 @@ export class BookingV2Engine {
     }
   }
 
+  private async findSimpleAvailableDates(input: {
+    state: BookingV2State
+    catalog: BookingV2DomainCatalog
+    afterDate: string
+    maxDates: number
+  }) {
+    const serviceId = input.state.draft.service
+    if (!serviceId || !this.domain.findNextAvailabilityOptions) return []
+    const options = await this.domain.findNextAvailabilityOptions({
+      catalog: input.catalog,
+      serviceId,
+      serviceIds: combinedServiceIds(input.state),
+      professionalId: input.state.draft.professional,
+      afterDate: input.afterDate,
+      horizonDays: 30,
+      maxDates: input.maxDates,
+      maxSlotsPerDate: 1
+    })
+    return Array.from(new Set(options.map((option) => option.date))).slice(0, input.maxDates)
+  }
+
   private serviceDisambiguationResult(
     state: BookingV2State,
     catalog: BookingV2DomainCatalog,
@@ -5910,6 +5962,24 @@ export function isDeterministicBookingContinuationMessage(message: string) {
 
   const normalized = normalize(trimmed)
   return !/\b(?:ademas|aunque|cancelar|cambiar|cambiame|consulta|cuanto|direccion|duda|explicar|hablar|incluye|informacion|pero|precio|presupuesto|sale|tambien)\b/.test(normalized)
+}
+
+function parseSpecificDateAvailabilityAction(message: string): {
+  type: 'next' | 'list'
+  afterDate?: string
+} | null {
+  const rawDate = /(\d{4}-\d{2}-\d{2})/.exec(message)?.[1]
+  if (rawDate && normalize(message.replace(rawDate, '')) === 'mostrar mas fechas despues de') {
+    return { type: 'list', afterDate: rawDate }
+  }
+  const normalized = normalize(message)
+  if (/^(?:proximo|primer) dia (?:libre|disponible)$/.test(normalized)) {
+    return { type: 'next' }
+  }
+  if (/^(?:ver|mostrar) (?:dias|fechas) disponibles$/.test(normalized)) {
+    return { type: 'list' }
+  }
+  return null
 }
 
 function shouldValidateAvailability(plan: BookingV2MessagePlan) {

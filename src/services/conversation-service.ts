@@ -5813,6 +5813,25 @@ export function bookingCoordinationReplyButtons(input: {
       { id: `${prefix}booking_date_other`, title: 'Otra fecha' }
     ]
   }
+  if (input.plan.type === 'ask_specific_date') {
+    if (input.plan.quickDates?.length) {
+      const dateButtons = input.plan.quickDates.slice(0, 5).map((date) => ({
+        id: `${prefix}date:${date}`,
+        title: availableDateListTitle(date)
+      }))
+      const lastDate = input.plan.quickDates.at(-1)
+      return lastDate
+        ? [
+            ...dateButtons,
+            { id: `${prefix}more_dates:${lastDate}`, title: 'Mostrar más fechas' }
+          ]
+        : dateButtons
+    }
+    return [
+      { id: `${prefix}next_available_date`, title: 'Próximo día libre' },
+      { id: `${prefix}available_dates`, title: 'Ver días disponibles' }
+    ]
+  }
   if (input.plan.type === 'ask_estimate_option') {
     if (input.plan.options.length > 0 && input.plan.options.length <= 3) {
       return input.plan.options.map((option, index) => ({
@@ -6133,6 +6152,8 @@ export function bookingCoordinationMessageFromInteractiveReply(
   if (action === 'booking_date_today') return 'hoy'
   if (action === 'booking_date_tomorrow') return 'mañana'
   if (action === 'booking_date_other') return 'elegir otra fecha'
+  if (action === 'next_available_date') return 'próximo día libre'
+  if (action === 'available_dates') return 'ver días disponibles'
   if (action === 'booking_confirm') return 'confirmar turno'
   if (action === 'booking_change_time') return 'cambiar horario'
   if (action === 'booking_cancel') return 'cancelar reserva'
@@ -6141,6 +6162,8 @@ export function bookingCoordinationMessageFromInteractiveReply(
   if (action === 'band:morning') return 'por la mañana'
   if (action === 'band:midday') return 'al mediodía'
   if (action === 'band:afternoon') return 'por la tarde'
+  const moreDatesAfter = /^more_dates:(\d{4}-\d{2}-\d{2})$/.exec(action)?.[1]
+  if (moreDatesAfter) return `mostrar más fechas después de ${moreDatesAfter}`
   const date = /^date:(\d{4}-\d{2}-\d{2})$/.exec(action)?.[1]
   if (date) return date
   const option = /^option:([12])$/.exec(action)?.[1]
@@ -6207,6 +6230,18 @@ function coordinatedDateButtonTitle(date: string) {
     return formatted.charAt(0).toUpperCase() + formatted.slice(1)
   }
   return date.slice(0, 20)
+}
+
+function availableDateListTitle(date: string) {
+  const parsed = new Date(`${date}T12:00:00Z`)
+  if (Number.isNaN(parsed.getTime())) return date.slice(0, 24)
+  const weekday = new Intl.DateTimeFormat('es-AR', {
+    timeZone: 'UTC',
+    weekday: 'long'
+  }).format(parsed)
+  const [, month, day] = date.split('-')
+  const dayAndMonth = `${day}/${month}`
+  return `${weekday.charAt(0).toUpperCase()}${weekday.slice(1)} ${dayAndMonth}`
 }
 
 export function contextActionFromInteractiveReply(replyId: string | undefined, conversationId: string) {

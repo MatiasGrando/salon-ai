@@ -34,7 +34,13 @@ export type BookingV2RenderInput = {
 
 export function renderBookingV2Response(input: BookingV2RenderInput): string {
   if (input.plan.type === 'ask_specific_date') {
-    return 'Escribime qué día te gustaría venir. Puede ser un día de la semana o una fecha específica.'
+    if (input.plan.quickDates?.length) {
+      return 'Estas son las próximas fechas con disponibilidad. Elegí una opción o escribí otra fecha, por ejemplo “viernes”, “25 de agosto” o “25/8”.'
+    }
+    if (input.plan.searchedAvailability) {
+      return 'No encontré fechas disponibles próximamente. Podés escribir otra fecha, por ejemplo “viernes”, “25 de agosto” o “25/8”.'
+    }
+    return 'Dale 😊 ¿Qué día te gustaría venir? Podés escribir “mañana”, “este sábado”, “25 de agosto” o “25/8”.'
   }
 
   if (input.plan.type === 'ask_coordinated_date') {

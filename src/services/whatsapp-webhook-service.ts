@@ -662,7 +662,9 @@ export class WhatsAppWebhookService {
     const hasReplyButtons = Boolean(conversationResult.replyButtons?.length)
     const hasInteractiveList = (conversationResult.replyButtons?.length ?? 0) > 3
     const isDateSelectionList = hasInteractiveList && Boolean(conversationResult.replyButtons?.every((button) =>
-      /:date:\d{4}-\d{2}-\d{2}$/.test(button.id) || button.id.endsWith(':other_date')
+      /:date:\d{4}-\d{2}-\d{2}$/.test(button.id) ||
+      /:more_dates:\d{4}-\d{2}-\d{2}$/.test(button.id) ||
+      button.id.endsWith(':other_date')
     ))
     const outboundReplies = hasReplyButtons
       ? [conversationResult.reply]
