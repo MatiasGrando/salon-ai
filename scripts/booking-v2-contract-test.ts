@@ -75,6 +75,7 @@ import {
   isBookingV2ConversationClosing,
   isBookingV2GreetingOnlyMessage,
   isBookingV2InitialGreeting,
+  isGenericBookingV2Request,
   isExplicitProfessionalScheduleQuestion,
   isGroundedUnsupportedServiceRequest,
   isMyAppointmentsMessage,
@@ -6745,6 +6746,26 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         ).bookingMessage !== null,
         true
       )
+    }
+  },
+  {
+    name: 'solicitar o agendar una consulta inicia la reserva de forma determinística',
+    run: () => {
+      assert.equal(isGenericBookingV2Request('Quiero solicitar un turno'), true)
+      assert.equal(isGenericBookingV2Request('Solicito agendar la consulta'), true)
+      assert.equal(isGenericBookingV2Request('Solicito agendar la Consulta Web con Tamara Grando'), true)
+      assert.equal(
+        isGenericBookingV2Request(
+          'Hola, mi nombre es Ricardo. Solicito agendar la Consulta Web con Tamara Grando.\n\nMotivo de la consulta: Quiero mejorar mi rendimiento.'
+        ),
+        true
+      )
+      assert.equal(isGenericBookingV2Request('solicitar el servicio'), false)
+
+      const routing = deterministicConversationRouting(
+        'Hola, solicito agendar la Consulta Web.'
+      )
+      assert.equal(routing.bookingMessage, 'Hola, solicito agendar la Consulta Web.')
     }
   },
   {

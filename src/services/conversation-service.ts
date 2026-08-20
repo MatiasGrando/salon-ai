@@ -4968,10 +4968,10 @@ export function isBookingV2InitialGreeting(currentStep: string, message: string)
 
 function hasExplicitBookingRequest(message: string) {
   const normalizedMessage = normalizeText(message)
-  return /\b(?:reserv(?:a|ar(?:lo|la|los|las)?|arlo|arla|arlos|arlas|ame|alo|ala|alos|alas)?|agend(?:a|ar(?:lo|la|los|las)?|arlo|arla|arlos|arlas|ame|alo|ala|alos|alas)?|saca(?:r|me)?(?: un)? turno|quiero un turno|necesito un turno|turno|(?:quiero|queria|quisiera|necesito|dame|pedir|sacar|agendar|reservar)(?: una)? cita|cita|(?:da|des|dar|consegui|conseguir)(?:me)?(?: el| un)? turno|quiero hacerlo|quiero hacermelo|que me des el turno)\b/.test(normalizedMessage)
+  return /\b(?:reserv(?:a|ar(?:lo|la|los|las)?|arlo|arla|arlos|arlas|ame|alo|ala|alos|alas)?|agend(?:a|ar(?:lo|la|los|las)?|arlo|arla|arlos|arlas|ame|alo|ala|alos|alas)?|saca(?:r|me)?(?: un)? turno|quiero un turno|necesito un turno|turno|(?:quiero|queria|quisiera|necesito|dame|pedir|solicitar|sacar|agendar|reservar)(?: una)? cita|cita|(?:da|des|dar|consegui|conseguir)(?:me)?(?: el| un)? turno|quiero hacerlo|quiero hacermelo|que me des el turno)\b/.test(normalizedMessage)
 }
 
-function isGenericBookingV2Request(message: string) {
+export function isGenericBookingV2Request(message: string) {
   const normalizedMessage = normalizeText(message)
     .replace(/[^\p{Letter}\p{Number}\s]/gu, ' ')
     .replace(/\s+/g, ' ')
@@ -4979,7 +4979,7 @@ function isGenericBookingV2Request(message: string) {
   const bookingMessage = normalizedMessage
     .replace(/^(?:hola+|holi+|buenas|buen dia|buenas tardes|buenas noches)\s+/, '')
     .trim()
-  return [
+  const genericRequests = [
     'turno',
     'un turno',
     'cita',
@@ -4992,14 +4992,21 @@ function isGenericBookingV2Request(message: string) {
     'quiero reservar un turno',
     'necesito un turno',
     'necesito reservar un turno',
+    'quiero solicitar un turno',
+    'necesito solicitar un turno',
+    'solicitar un turno',
+    'solicito agendar un turno',
     'quiero agendar un turno',
     'quiero sacar un turno',
     'reservar un turno',
     'agendar un turno',
     'sacar un turno',
     'reservar una cita',
-    'agendar una cita'
-  ].includes(bookingMessage)
+    'agendar una cita',
+    'solicitar una cita'
+  ]
+  return genericRequests.includes(bookingMessage) ||
+    /\bsolicito\s+agendar\s+(?:la|una)\s+consulta\b/.test(bookingMessage)
 }
 
 export function hasQuoteOnlyBookingRequest(

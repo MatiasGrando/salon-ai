@@ -30,7 +30,7 @@ assert.match(
 assert.match(tamaraSite, /id="consultation-whatsapp-form"/)
 assert.match(tamaraSite, /name="name" type="text"/)
 assert.match(tamaraSite, /name="description" maxlength="1200"/)
-assert.match(tamaraSite, /mi nombre es \$\{name\} y quiero solicitar el servicio Consulta Web con Tamara Grando\./)
+assert.match(tamaraSite, /mi nombre es \$\{name\}\. Solicito agendar la Consulta Web con Tamara Grando\./)
 assert.match(tamaraSite, /Motivo de la consulta: \$\{description\}/)
 assert.match(tamaraSite, /https:\/\/wa\.me\/5491168255528\?text=\$\{encodeURIComponent\(message\)\}/)
 assert.match(tamaraSite, /href="https:\/\/wa\.me\/5491168255528"[^>]*>WhatsApp: \+54 9 11 6825-5528<\/a>/)
