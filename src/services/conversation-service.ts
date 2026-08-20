@@ -126,7 +126,7 @@ type HandleMessageRuntimeInput = HandleMessageInput & {
 type HandleMessageResult = {
   reply: string
   messages?: string[]
-  replyButtons?: Array<{ id: string; title: string }>
+  replyButtons?: Array<{ id: string; title: string; description?: string }>
   depositRequestId?: string
   skipMisunderstandingTracking?: boolean
   skipHumanize?: boolean
@@ -5784,7 +5784,7 @@ export function bookingCoordinationReplyButtons(input: {
   state: BookingV2State
   availabilityOptions?: Array<{ time: string }>
   dateOptions?: string[]
-}): Array<{ id: string; title: string }> | null {
+}): Array<{ id: string; title: string; description?: string }> | null {
   const prefix = `coord:${input.conversationId}:`
   if (input.plan.type === 'clarify_unsupported_service') {
     return unsupportedServiceDecisionButtons(input.conversationId)
@@ -5952,6 +5952,38 @@ export function bookingCoordinationReplyButtons(input: {
     return buttons
   }
   if (input.plan.type === 'show_coordinated_search_menu') {
+    if (
+      input.plan.date &&
+      input.plan.requestedTime &&
+      input.plan.professionalName &&
+      input.plan.canSearchWithoutProfessional
+    ) {
+      const professionalName = input.plan.professionalName
+      const date = shortBookingDate(input.plan.date)
+      const requestedTime = input.plan.requestedTime
+      return [
+        {
+          id: `${prefix}more`,
+          title: 'Todos los horarios',
+          description: `Ver todos los horarios de ${professionalName} del ${date}.`
+        },
+        {
+          id: `${prefix}next_days`,
+          title: professionalListTitle('Otros días con', professionalName, 'Otros días, mismo prof.'),
+          description: `Buscar cualquier horario de ${professionalName} en próximas fechas.`
+        },
+        {
+          id: `${prefix}search_time`,
+          title: 'Hora en próximos días',
+          description: `Indicá una hora y mirá qué días ${professionalName} está disponible.`
+        },
+        {
+          id: `${prefix}without_professional`,
+          title: `${requestedTime} con otra persona`,
+          description: `Mantener las ${requestedTime} y buscar otro profesional el ${date}.`
+        }
+      ]
+    }
     return [
       { id: `${prefix}more`, title: 'Más horarios' },
       { id: `${prefix}next_days`, title: 'Próximos días' },
@@ -6122,6 +6154,17 @@ function withoutProfessionalButtonTitle(professionalName?: string | null) {
   const firstName = professionalName?.trim().split(/\s+/)[0]
   const title = firstName ? `Buscar sin ${firstName}` : 'Cambiar profesional'
   return title.length <= 20 ? title : 'Cambiar profesional'
+}
+
+function professionalListTitle(prefix: string, professionalName: string, fallback: string) {
+  const firstName = professionalName.trim().split(/\s+/)[0] || professionalName
+  const title = `${prefix} ${firstName}`
+  return title.length <= 24 ? title : fallback
+}
+
+function shortBookingDate(date: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)
+  return match ? `${match[3]}/${match[2]}` : date
 }
 
 function estimateOptionButtonTitle(label: string, index: number) {

@@ -2198,7 +2198,13 @@ export class BookingV2Engine {
         }
       }
       return this.guidedEstimateResult(state, {
-        type: 'show_coordinated_search_menu'
+        type: 'show_coordinated_search_menu',
+        date: pending.date,
+        requestedTime: pending.requestedTime,
+        professionalName: pending.requireRequestedProfessional
+          ? professionalNameById(input.catalog, pending.requestedProfessionalId)
+          : null,
+        canSearchWithoutProfessional: pending.requireRequestedProfessional
       }, input.catalog, 'no_change')
     }
     if (choice?.type === 'SEARCH_WITHOUT_PROFESSIONAL' && pending.requireRequestedProfessional) {
@@ -2311,7 +2317,13 @@ export class BookingV2Engine {
         }, input.catalog, 'accepted')
       }
       return this.guidedEstimateResult(input.state, {
-        type: 'show_coordinated_search_menu'
+        type: 'show_coordinated_search_menu',
+        date: pending.date,
+        requestedTime: pending.requestedTime,
+        professionalName: pending.requireRequestedProfessional
+          ? professionalNameById(input.catalog, pending.requestedProfessionalId)
+          : null,
+        canSearchWithoutProfessional: pending.requireRequestedProfessional
       }, input.catalog, 'no_change')
     }
 
@@ -2981,7 +2993,13 @@ export class BookingV2Engine {
       }
       if (pending.phase === 'AWAITING_SEARCH_MENU') {
         return this.guidedEstimateResult(state, {
-          type: 'show_coordinated_search_menu'
+          type: 'show_coordinated_search_menu',
+          date: pending.date,
+          requestedTime: pending.requestedTime,
+          professionalName: pending.requireRequestedProfessional
+            ? professionalNameById(catalog, pending.requestedProfessionalId)
+            : null,
+          canSearchWithoutProfessional: pending.requireRequestedProfessional
         }, catalog, 'no_change')
       }
       if (pending.phase === 'AWAITING_SEARCH_TIME') {

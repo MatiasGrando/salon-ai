@@ -1020,6 +1020,58 @@ assert.deepEqual(
 assert.match(lateNearbyTimes.reply, /No encontré una opción que comience exactamente a las 18:15/)
 assert.match(lateNearbyTimes.reply, /alternativas más cercanas/)
 
+const requestedProfessionalLateState = {
+  ...lateState,
+  draft: {
+    ...lateState.draft,
+    professional: 'tamara'
+  },
+  pendingCoordinatedAvailability: {
+    ...lateState.pendingCoordinatedAvailability,
+    requestedProfessionalId: 'tamara',
+    requireRequestedProfessional: true
+  }
+}
+const requestedProfessionalTimePrompt = await engine.process({
+  businessId: 'business-1',
+  conversation: conversationPatchFromState(requestedProfessionalLateState),
+  message: 'Horario exacto'
+})
+const requestedProfessionalNearbyTimes = await engine.process({
+  businessId: 'business-1',
+  conversation: requestedProfessionalTimePrompt.conversationPatch,
+  message: '18:15'
+})
+const contextualSearchMenu = await engine.process({
+  businessId: 'business-1',
+  conversation: requestedProfessionalNearbyTimes.conversationPatch,
+  message: 'otras búsquedas'
+})
+assert.equal(contextualSearchMenu.plan.type, 'show_coordinated_search_menu')
+assert.match(contextualSearchMenu.reply, /Mantener a Tamara y ver todos los horarios/)
+assert.match(contextualSearchMenu.reply, /Elegir una hora y ver en qué próximos días Tamara está disponible/)
+const contextualSearchMenuButtons = bookingCoordinationReplyButtons({
+  conversationId: 'conversation-1',
+  plan: contextualSearchMenu.plan,
+  state: contextualSearchMenu.state
+})
+assert.deepEqual(contextualSearchMenuButtons?.map((button) => button.title), [
+  'Todos los horarios',
+  'Otros días con Tamara',
+  'Hora en próximos días',
+  '18:15 con otra persona'
+])
+assert.deepEqual(contextualSearchMenuButtons?.map((button) => button.description), [
+  'Ver todos los horarios de Tamara del 10/08.',
+  'Buscar cualquier horario de Tamara en próximas fechas.',
+  'Indicá una hora y mirá qué días Tamara está disponible.',
+  'Mantener las 18:15 y buscar otro profesional el 10/08.'
+])
+assert.equal(
+  bookingCoordinationMessageFromInteractiveReply(contextualSearchMenuButtons?.[3]?.id, 'conversation-1'),
+  'buscar sin el profesional solicitado'
+)
+
 const denseMidday = await engine.process({
   businessId: 'business-1',
   conversation: conversationPatchFromState(denseState),
@@ -1483,6 +1535,7 @@ for (const buttons of [
   moreButtons,
   optionButtons,
   searchMenuButtons,
+  contextualSearchMenuButtons,
   nextDateButtons,
   futureBandButtons,
   timeDateButtons,

@@ -82,6 +82,20 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
   }
 
   if (input.plan.type === 'show_coordinated_search_menu') {
+    if (
+      input.plan.date &&
+      input.plan.requestedTime &&
+      input.plan.professionalName &&
+      input.plan.canSearchWithoutProfessional
+    ) {
+      return [
+        '¿Qué preferís priorizar para seguir buscando?',
+        `• Mantener a ${input.plan.professionalName} y ver todos los horarios del ${formatDate(input.plan.date)}.`,
+        `• Mantener a ${input.plan.professionalName} y buscar cualquier horario en próximos días.`,
+        `• Elegir una hora y ver en qué próximos días ${input.plan.professionalName} está disponible en ese horario.`,
+        `• Mantener las ${input.plan.requestedTime} y buscar otro profesional para el ${formatDate(input.plan.date)}.`
+      ].join('\n')
+    }
     return [
       '¿Cómo querés seguir buscando?',
       '• Ver todos los horarios del día',

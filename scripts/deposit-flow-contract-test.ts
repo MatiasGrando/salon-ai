@@ -242,6 +242,32 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.ok(crmUi.includes('Se&ntilde;as'))
       assert.ok(crmUi.includes('data-deposit-review-approve'))
       assert.ok(crmUi.includes('Aceptar se&ntilde;a y confirmar turno'))
+      assert.equal(
+        crmUi.includes("if (deposit.source === 'WHATSAPP' && deposit.conversationId)"),
+        false,
+        'una seña de WhatsApp debe permanecer en la bandeja de señas'
+      )
+      assert.ok(
+        crmUi.includes("'/crm/messages/' + encodeURIComponent(deposit.proofMessageId) + '/media'"),
+        'la bandeja debe mostrar el comprobante de WhatsApp desde el mensaje original'
+      )
+      assert.ok(
+        crmUi.includes("selectedDepositReviewUrl(deposit, 'approve')"),
+        'la bandeja de señas debe elegir la ruta de aprobación según el origen'
+      )
+      assert.ok(
+        crmUi.includes("'/crm/conversations/' + state.selected.id + '/deposit/approve'"),
+        'la seña también debe poder aprobarse desde la conversación derivada'
+      )
+      assert.ok(
+        crmUi.includes("deposit.source === 'WHATSAPP' && deposit.conversationId") &&
+          crmUi.includes("'/crm/conversations/' + encodeURIComponent(deposit.conversationId) + '/deposit/' + action"),
+        'una seña de WhatsApp debe usar el flujo de revisión de su conversación'
+      )
+      assert.ok(
+        crmUi.includes('@container conversation-chat (max-width: 960px)'),
+        'el menú de acciones debe entrar en modo tres puntos en paneles medianos'
+      )
       assert.ok(crmUi.includes('void refreshDepositCount()'))
       assert.ok(crmUi.includes('handoffCount + state.depositReviewCount'))
     }
