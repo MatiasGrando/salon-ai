@@ -23,7 +23,16 @@ assert.match(landingUi, /findPublicBusinessFromHost\(request\)/)
 assert.match(landingUi, /findPublicByCustomerCode\(customSiteBinding\.businessCustomerCode\)/)
 assert.match(businessService, /async findPublicByCustomerCode\(customerCode: string\)/)
 
-assert.match(tamaraSite, /href="\/reservar" class="btn btn-primary">Quiero mi consulta<\/a>/)
+assert.match(
+  tamaraSite,
+  /<button class="btn btn-primary" type="button" data-open-consultation>Quiero mi consulta<\/button>/
+)
+assert.match(tamaraSite, /id="consultation-whatsapp-form"/)
+assert.match(tamaraSite, /name="name" type="text"/)
+assert.match(tamaraSite, /name="description" maxlength="1200"/)
+assert.match(tamaraSite, /mi nombre es \$\{name\} y quiero solicitar el servicio Consulta Web con Tamara Grando\./)
+assert.match(tamaraSite, /Motivo de la consulta: \$\{description\}/)
+assert.match(tamaraSite, /https:\/\/wa\.me\/5491123909530\?text=\$\{encodeURIComponent\(message\)\}/)
 assert.match(tamaraSite, /href="\/reservar" class="btn btn-outline">Agendar una consulta →<\/a>/)
 assert.match(tamaraSite, /href="\/reservar" class="btn btn-outline" style="width:100%;">Agendar consulta directa<\/a>/)
 assert.match(tamaraSite, /<a class="radio-opt" href="\/reservar">Agendar consulta<\/a>/)

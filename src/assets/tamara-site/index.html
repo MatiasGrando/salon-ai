@@ -435,6 +435,48 @@
   .form-feedback.error{color:#ffadb0;background:rgba(228,34,43,.1);border:1px solid rgba(228,34,43,.38);}
   @media(max-width:900px){.cta-section{grid-template-columns:1fr;padding:44px 26px;}}
 
+  /* CONSULTATION DIALOG */
+  .consultation-dialog-backdrop{
+    position:fixed;inset:0;z-index:300;display:grid;place-items:center;padding:24px;
+    background:rgba(4,4,5,.82);backdrop-filter:blur(8px);
+  }
+  .consultation-dialog-backdrop[hidden]{display:none;}
+  .consultation-dialog{
+    width:min(520px,100%);max-height:calc(100vh - 48px);overflow:auto;
+    background:var(--bg-alt);border:1px solid rgba(245,244,241,.16);border-radius:14px;
+    box-shadow:0 28px 90px rgba(0,0,0,.55);
+  }
+  .consultation-dialog-head{
+    display:flex;align-items:flex-start;justify-content:space-between;gap:20px;
+    padding:28px 30px 20px;border-bottom:1px solid var(--border);
+  }
+  .consultation-dialog-head h2{font-size:30px;margin-bottom:7px;}
+  .consultation-dialog-head p{color:var(--muted);font-size:14px;line-height:1.5;}
+  .consultation-dialog-close{
+    width:38px;height:38px;flex:0 0 auto;border:1px solid var(--border);border-radius:50%;
+    background:var(--card);color:var(--text);font-size:22px;line-height:1;cursor:pointer;
+  }
+  .consultation-dialog-form{padding:26px 30px 30px;}
+  .consultation-dialog-form textarea{
+    width:100%;min-height:138px;resize:vertical;background:var(--card);border:1px solid var(--border);
+    border-radius:6px;padding:12px 14px;color:var(--text);font-size:14.5px;
+    font-family:'Work Sans',sans-serif;line-height:1.5;
+  }
+  .consultation-dialog-form textarea::placeholder{color:var(--muted-2);}
+  .consultation-dialog-form input:focus,.consultation-dialog-form textarea:focus{
+    outline:2px solid rgba(201,255,62,.34);border-color:var(--lime);
+  }
+  .consultation-dialog-form .btn{width:100%;margin-top:6px;}
+  .consultation-dialog-form .btn svg{width:20px;height:20px;fill:currentColor;}
+  .consultation-dialog-note{margin-top:13px;color:var(--muted-2);font-size:12px;text-align:center;}
+  @media(max-width:620px){
+    .consultation-dialog-backdrop{padding:14px;align-items:end;}
+    .consultation-dialog{max-height:calc(100svh - 28px);}
+    .consultation-dialog-head{padding:24px 20px 18px;}
+    .consultation-dialog-head h2{font-size:26px;}
+    .consultation-dialog-form{padding:22px 20px 24px;}
+  }
+
   /* FOOTER */
   footer{background:var(--bg-alt);border-top:1px solid var(--border);padding:70px 0 30px;}
   .footer-grid{display:grid;grid-template-columns:1.5fr 1fr 1.15fr;gap:64px;margin-bottom:60px;}
@@ -544,10 +586,38 @@
       <li><a href="#contacto">Contacto</a></li>
     </ul>
     <div class="nav-cta">
-      <a href="/reservar" class="btn btn-primary">Quiero mi consulta</a>
+      <button class="btn btn-primary" type="button" data-open-consultation>Quiero mi consulta</button>
     </div>
   </div>
 </nav>
+
+<div class="consultation-dialog-backdrop" id="consultation-dialog" hidden>
+  <section class="consultation-dialog" role="dialog" aria-modal="true" aria-labelledby="consultation-dialog-title">
+    <div class="consultation-dialog-head">
+      <div>
+        <h2 id="consultation-dialog-title">Quiero mi consulta</h2>
+        <p>Contanos brevemente sobre vos para que Tamara pueda conocer tu caso.</p>
+      </div>
+      <button class="consultation-dialog-close" type="button" data-close-consultation aria-label="Cerrar formulario">&times;</button>
+    </div>
+    <form class="consultation-dialog-form" id="consultation-whatsapp-form" novalidate>
+      <div class="field">
+        <label for="consultation-name">Nombre y apellido</label>
+        <input id="consultation-name" name="name" type="text" autocomplete="name" maxlength="100" placeholder="¿Cómo te llamás?" required>
+      </div>
+      <div class="field">
+        <label for="consultation-description">¿Cuál es el motivo de tu consulta?</label>
+        <textarea id="consultation-description" name="description" maxlength="1200" placeholder="Contanos qué te gustaría trabajar o en qué podemos ayudarte" required></textarea>
+      </div>
+      <button class="btn btn-primary" type="submit">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1-.2.2-.7.8-.8.9-.2.2-.3.2-.5.1-.2-.1-1-.4-1.9-1.2-.7-.6-1.2-1.4-1.3-1.6-.1-.2 0-.4.1-.5l.4-.4c.1-.1.2-.2.2-.4.1-.1 0-.3 0-.4-.1-.1-.6-1.4-.8-1.9-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.4.1-.6.3-.2.2-.8.8-.8 1.9s.8 2.2.9 2.4c.1.2 1.6 2.5 4 3.5.6.2 1 .4 1.3.5.6.2 1.1.2 1.5.1.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.1-1.2-.1-.1-.2-.2-.4-.3z"/></svg>
+        Enviar consulta
+      </button>
+      <div class="form-feedback" id="consultation-feedback" role="status" aria-live="polite"></div>
+      <p class="consultation-dialog-note">Se abrirá WhatsApp con tu consulta preparada para enviar.</p>
+    </form>
+  </section>
+</div>
 
 <section id="inicio" class="hero">
   <div class="hero-bg"></div>
@@ -941,6 +1011,71 @@
 
     move(false);
     start();
+  })();
+</script>
+<script>
+  (() => {
+    const dialog = document.getElementById('consultation-dialog');
+    const form = document.getElementById('consultation-whatsapp-form');
+    const nameInput = document.getElementById('consultation-name');
+    const descriptionInput = document.getElementById('consultation-description');
+    const feedback = document.getElementById('consultation-feedback');
+    const openButtons = [...document.querySelectorAll('[data-open-consultation]')];
+    const closeButton = dialog?.querySelector('[data-close-consultation]');
+    let previouslyFocused = null;
+
+    if (!dialog || !form || !nameInput || !descriptionInput || !feedback || !closeButton) return;
+
+    const showFeedback = message => {
+      feedback.textContent = message;
+      feedback.className = `form-feedback${message ? ' visible error' : ''}`;
+    };
+
+    const openDialog = () => {
+      previouslyFocused = document.activeElement;
+      dialog.hidden = false;
+      document.body.style.overflow = 'hidden';
+      showFeedback('');
+      requestAnimationFrame(() => nameInput.focus());
+    };
+
+    const closeDialog = () => {
+      dialog.hidden = true;
+      document.body.style.overflow = '';
+      showFeedback('');
+      if (previouslyFocused instanceof HTMLElement) previouslyFocused.focus();
+    };
+
+    openButtons.forEach(button => button.addEventListener('click', openDialog));
+    closeButton.addEventListener('click', closeDialog);
+    dialog.addEventListener('click', event => {
+      if (event.target === dialog) closeDialog();
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && !dialog.hidden) closeDialog();
+    });
+
+    form.addEventListener('submit', event => {
+      event.preventDefault();
+      showFeedback('');
+
+      const name = nameInput.value.trim().replace(/\s+/g, ' ');
+      const description = descriptionInput.value.trim().replace(/\s+/g, ' ');
+      if (name.length < 2) {
+        showFeedback('Ingresá tu nombre y apellido.');
+        nameInput.focus();
+        return;
+      }
+      if (description.length < 10) {
+        showFeedback('Contanos brevemente el motivo de tu consulta.');
+        descriptionInput.focus();
+        return;
+      }
+
+      const message = `Hola, mi nombre es ${name} y quiero solicitar el servicio Consulta Web con Tamara Grando.\n\nMotivo de la consulta: ${description}`;
+      const whatsappUrl = `https://wa.me/5491123909530?text=${encodeURIComponent(message)}`;
+      window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+    });
   })();
 </script>
 <script>
