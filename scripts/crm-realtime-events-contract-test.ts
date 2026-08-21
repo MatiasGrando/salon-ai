@@ -100,13 +100,18 @@ assert.match(
 )
 assert.match(
   crmUiSource,
-  /source\.addEventListener\('open',[\s\S]*?CRM_REALTIME_SAFETY_POLLING_ENABLED[\s\S]*?startCrmRealtimeFallback\(\)[\s\S]*?stopCrmRealtimeFallback\(\)/,
-  'el primer despliegue debe conservar el sondeo como red de seguridad'
+  /source\.addEventListener\('open',[\s\S]*?stopCrmRealtimeFallback\(\)/,
+  'el sondeo debe detenerse cuando el canal de eventos está conectado'
 )
 assert.match(
   realtimeConfigSource,
-  /CRM_REALTIME_EVENTS_ENABLED,\s*true\)[\s\S]*?CRM_REALTIME_SAFETY_POLLING_ENABLED,\s*true\)[\s\S]*?fallbackRefreshMs:\s*15_000/,
-  'los eventos y el sondeo de seguridad deben quedar activos por defecto con respaldo cada 15 segundos'
+  /CRM_REALTIME_EVENTS_ENABLED,\s*true\)[\s\S]*?fallbackRefreshMs:\s*15_000/,
+  'los eventos deben quedar activos por defecto y conservar un respaldo ante desconexiones'
+)
+assert.equal(
+  crmUiSource.includes('CRM_REALTIME_SAFETY_POLLING_ENABLED'),
+  false,
+  'no debe mantenerse un sondeo paralelo mientras funcionan los eventos'
 )
 assert.match(
   crmUiSource,

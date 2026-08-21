@@ -17231,7 +17231,6 @@ const crmHtml = `<!doctype html>
 
     const CRM_FALLBACK_REFRESH_MS = ${crmRealtimeConfig.fallbackRefreshMs}
     const CRM_REALTIME_EVENTS_ENABLED = ${crmRealtimeConfig.eventsEnabled ? 'true' : 'false'}
-    const CRM_REALTIME_SAFETY_POLLING_ENABLED = ${crmRealtimeConfig.safetyPollingEnabled ? 'true' : 'false'}
     const CRM_REALTIME_DEBOUNCE_MS = 180
     const CONVERSATION_CACHE_TTL_MS = 60000
     const CONVERSATION_CACHE_LIMIT = 12
@@ -21061,8 +21060,7 @@ const crmHtml = `<!doctype html>
       })
       source.addEventListener('open', () => {
         if (state.realtimeEventSource !== source) return
-        if (CRM_REALTIME_SAFETY_POLLING_ENABLED) startCrmRealtimeFallback()
-        else stopCrmRealtimeFallback()
+        stopCrmRealtimeFallback()
       })
       source.addEventListener('error', () => {
         if (state.realtimeEventSource === source) {

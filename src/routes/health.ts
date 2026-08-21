@@ -13,7 +13,6 @@ export async function healthRoutes(app: FastifyInstance) {
       crmRealtime: {
         status: 'ok',
         eventsEnabled: crmRealtimeConfig.eventsEnabled,
-        safetyPollingEnabled: crmRealtimeConfig.safetyPollingEnabled,
         fallbackRefreshSeconds: crmRealtimeConfig.fallbackRefreshMs / 1000
       }
     }

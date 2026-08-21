@@ -2,7 +2,6 @@ import 'dotenv/config'
 
 export const crmRealtimeConfig = {
   eventsEnabled: booleanEnvironmentValue(process.env.CRM_REALTIME_EVENTS_ENABLED, true),
-  safetyPollingEnabled: booleanEnvironmentValue(process.env.CRM_REALTIME_SAFETY_POLLING_ENABLED, true),
   fallbackRefreshMs: 15_000
 }
 
