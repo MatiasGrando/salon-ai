@@ -186,7 +186,7 @@ function parseRelativeTimePreference(normalized: string): BookingCoordinationCho
 
 function parseExactTime(normalized: string) {
   const timeText = normalized
-    .replace(/\b\d{4}-\d{2}-\d{2}\b/g, ' ')
+    .replace(/\b(?:\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4})\b/g, ' ')
     .replace(/\b(\d{1,2})\s*[.,]\s*(\d{2})(?!:)\b/g, '$1:$2')
   const colonTime = /(?:^|\b)([01]?\d|2[0-3]):([0-5]\d)(?:\s*(?:h|hs|hrs|horas))?(?:\b|$)/.exec(timeText)
   if (colonTime?.[1] && colonTime[2]) {

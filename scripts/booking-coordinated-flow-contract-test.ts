@@ -307,6 +307,19 @@ assert.deepEqual(dateButtons?.slice(1).map((button) => button.title), ['Ver día
 assert.match(started.reply, /En estos días puedo coordinar todos los servicios/)
 assert.match(started.reply, /• Lunes 10\/08\/2026/)
 assert.match(started.reply, /“mañana”, “el viernes” o “20\/8”/)
+const selectedWrittenDate = await engine.process({
+  businessId: 'business-1',
+  conversation: started.conversationPatch,
+  message: 'Sábado 29/08/2026',
+  currentDate: new Date('2026-08-21T17:22:00-03:00')
+})
+assert.equal(selectedWrittenDate.state.pendingCoordinatedAvailability?.date, '2026-08-29')
+assert.deepEqual(searchCalls.at(-1), {
+  type: 'DATE',
+  date: '2026-08-29',
+  requestedTime: null,
+  professionalId: null
+})
 assert.equal(
   bookingCoordinationMessageFromInteractiveReply(dateButtons?.[0]?.id, 'conversation-1'),
   '2026-08-10'
@@ -513,6 +526,14 @@ assert.deepEqual(detectBookingCoordinationChoice({
   message: '16 30',
   phase: 'TIME_PREFERENCE'
 }), { type: 'EXACT_TIME', time: '16:30' })
+assert.equal(detectBookingCoordinationChoice({
+  message: 'Sábado 29/08/2026',
+  phase: 'TIME_PREFERENCE'
+}), null)
+assert.deepEqual(detectBookingCoordinationChoice({
+  message: 'Sábado 29/08/2026 a las 15:30',
+  phase: 'TIME_PREFERENCE'
+}), { type: 'EXACT_TIME', time: '15:30' })
 for (const message of ['cambiar fecha', 'cambiar de día', 'volver a elegir fecha', 'prefiero otra fecha']) {
   assert.deepEqual(detectBookingCoordinationChoice({
     message,
