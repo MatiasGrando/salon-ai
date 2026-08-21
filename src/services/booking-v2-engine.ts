@@ -1393,7 +1393,6 @@ export class BookingV2Engine {
         state,
         message: input.message,
         catalog,
-        extraction: input.understandingExtraction,
         currentDate: input.currentDate ?? new Date()
       })
       state = {
@@ -1450,23 +1449,37 @@ export class BookingV2Engine {
       )
     )
 
+    // El catálogo puede responder inmediatamente con categorías cuando falta
+    // el servicio. Antes de ese retorno conservamos preferencias inequívocas
+    // enviadas por adelantado, como "mañana a las 11".
+    const stateWithAheadFields = nextMissingField(
+      initialState.draft,
+      catalog.bookingFlowOrder
+    ) === 'service'
+      ? acceptMentionedAheadFields({
+          state: initialState,
+          message: input.message,
+          catalog,
+          currentDate: input.currentDate ?? new Date()
+        })
+      : initialState
     const catalogNavigationResult = hasStructuredMultipleServices
       ? null
       : await this.handleCatalogNavigation({
           message: input.message,
-          state: initialState,
+          state: stateWithAheadFields,
           catalog
         })
     if (catalogNavigationResult) return catalogNavigationResult
 
     const deferredCategory =
       catalog.displayMode === 'CATEGORIES_FIRST' &&
-      nextMissingField(initialState.draft, catalog.bookingFlowOrder) !== 'service'
+      nextMissingField(stateWithAheadFields.draft, catalog.bookingFlowOrder) !== 'service'
         ? bareCatalogCategoryMention(input.message, catalogCategoryOptions(catalog))
         : null
     let stateForExtraction: BookingV2State = deferredCategory
       ? {
-          ...initialState,
+          ...stateWithAheadFields,
           catalogNavigation: {
             view: 'CATEGORY',
             categoryKey: deferredCategory.key,
@@ -1475,7 +1488,7 @@ export class BookingV2Engine {
             pendingCategoryName: null
           }
         }
-      : initialState
+      : stateWithAheadFields
     const explicitIntroduction = extractExplicitCustomerIntroduction(input.message)
     const deterministicName = resolveExpectedName(input.message, stateForExtraction, catalog)
     if (deterministicName) {
@@ -4633,21 +4646,20 @@ function acceptMentionedAheadFields(input: {
   state: BookingV2State
   message: string
   catalog: BookingV2DomainCatalog
-  extraction: BookingV2Extraction | null | undefined
   currentDate: Date
 }) {
   let state = input.state
-  if (!state.draft.date && !hasConfidentAheadField(input.extraction?.date)) {
+  if (!state.draft.date) {
     const date = resolveMentionedDate(input.message, input.currentDate)
     if (date) state = acceptField(state, 'date', date)
   }
-  if (!state.draft.professional && !hasConfidentAheadField(input.extraction?.professional)) {
+  if (!state.draft.professional) {
     const professional = resolveMentionedProfessionalPreference(input.message, state, input.catalog)
     if (professional?.kind === 'selected') {
       state = acceptField(state, 'professional', professional.professionalId)
     }
   }
-  if (!state.draft.time && !hasConfidentAheadField(input.extraction?.time)) {
+  if (!state.draft.time) {
     const time = parseMentionedBookingTime(input.message)
     if (time) state = acceptField(state, 'time', time)
   }
@@ -6094,18 +6106,6 @@ function parseMentionedBookingTime(message: string) {
   const minute = Number(match[2] ?? '0')
   if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
-}
-
-function hasConfidentAheadField(field: {
-  value: string | null
-  confidence: number
-  evidence: string
-} | undefined) {
-  return Boolean(
-    field?.value &&
-    field.evidence.trim() &&
-    field.confidence >= 0.65
-  )
 }
 
 export function isDeterministicBookingContinuationMessage(message: string) {

@@ -128,6 +128,7 @@ import {
   PhotoQuoteAcknowledgementService
 } from '../src/services/photo-quote-acknowledgement-service.js'
 import { conversationCompletionPatchFromAppointment } from '../src/services/conversation-opportunity-service.js'
+import { extractExplicitCustomerIntroduction } from '../src/services/conversation-customer-intent.js'
 import { reservationFitsAvailabilityWindow } from '../src/services/service-duration.js'
 import {
   deterministicServiceInformationRequest,
@@ -452,6 +453,92 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(
         afterGreetingNamed.plan.type === 'ask_field' ? afterGreetingNamed.plan.field : null,
         'time'
+      )
+    }
+  },
+  {
+    name: 'conserva nombre fecha y hora antes de mostrar categorías con o sin saludo previo',
+    run: async () => {
+      const catalog = createBookingV2DomainCatalog({
+        displayMode: 'CATEGORIES_FIRST',
+        services: [{
+          id: 'tintura-raices',
+          name: 'Tintura raíces',
+          aliases: ['raíces'],
+          duration: 60,
+          price: 45000,
+          category: 'Color'
+        }],
+        professionals: [{
+          id: 'sebastian',
+          name: 'Sebastián',
+          serviceIds: ['tintura-raices']
+        }]
+      })
+      const bookingEngine = new BookingV2Engine(
+        fakeDomainPort({ catalog }),
+        fakeExtractor(null),
+        undefined,
+        undefined,
+        undefined,
+        fakeChoiceExtractor()
+      )
+      const fullMessage = 'Hola! como están? soy Flor Cerutti, podré ir mañana a las 11 por favor?'
+      const introduction = extractExplicitCustomerIntroduction(fullMessage)
+      assert.deepEqual(introduction, {
+        name: 'Flor Cerutti',
+        remainingMessage: 'podré ir mañana a las 11 por favor?'
+      })
+
+      const runRequest = async () => bookingEngine.process({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(
+          acceptField(createEmptyBookingV2State(), 'name', introduction!.name)
+        ),
+        message: introduction!.remainingMessage!,
+        understandingExtraction: extraction({
+          date: field('2026-08-22', 0.99, 'mañana'),
+          time: field('11:00', 0.99, 'a las 11')
+        }),
+        currentDate: new Date('2026-08-21T15:00:00.000Z')
+      })
+
+      const directRequest = await runRequest()
+      assert.deepEqual(directRequest.state.draft, {
+        name: 'Flor Cerutti',
+        service: null,
+        professional: null,
+        date: '2026-08-22',
+        time: '11:00'
+      })
+      assert.match(directRequest.reply, /Qué tipo de servicio buscás/i)
+
+      // Un saludo puro se responde antes y deja la conversación en START; el
+      // turno siguiente debe conservar exactamente las mismas preferencias.
+      assert.equal(isBookingV2InitialGreeting('START', 'Hola'), true)
+      const afterPreviousGreeting = await runRequest()
+      assert.deepEqual(afterPreviousGreeting.state.draft, directRequest.state.draft)
+
+      const selectedService = await bookingEngine.process({
+        businessId: 'business-1',
+        conversation: directRequest.conversationPatch,
+        message: 'tengo que hacerme raíces',
+        understandingExtraction: extraction({
+          service: field('tintura-raices', 0.99, 'raíces')
+        }),
+        currentDate: new Date('2026-08-21T15:00:00.000Z')
+      })
+      assert.deepEqual(selectedService.state.draft, {
+        name: 'Flor Cerutti',
+        service: 'tintura-raices',
+        professional: null,
+        date: '2026-08-22',
+        time: '11:00'
+      })
+      assert.equal(selectedService.plan.type, 'ask_field')
+      assert.equal(
+        selectedService.plan.type === 'ask_field' ? selectedService.plan.field : null,
+        'professional'
       )
     }
   },
