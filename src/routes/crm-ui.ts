@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { crmRealtimeConfig } from '../config/crm-realtime.js'
 
 export async function crmUiRoutes(app: FastifyInstance) {
   app.get('/crm', async (_request, reply) => {
@@ -17228,7 +17229,9 @@ const crmHtml = `<!doctype html>
       document.body.innerHTML = '<main class="crm-shell"><section class="settings-card"><h1>Conectando WhatsApp...</h1><p>Ya podes volver a la ventana principal.</p></section></main>'
     } else {
 
-    const CRM_FALLBACK_REFRESH_MS = 2 * 60 * 1000
+    const CRM_FALLBACK_REFRESH_MS = ${crmRealtimeConfig.fallbackRefreshMs}
+    const CRM_REALTIME_EVENTS_ENABLED = ${crmRealtimeConfig.eventsEnabled ? 'true' : 'false'}
+    const CRM_REALTIME_SAFETY_POLLING_ENABLED = ${crmRealtimeConfig.safetyPollingEnabled ? 'true' : 'false'}
     const CRM_REALTIME_DEBOUNCE_MS = 180
     const CONVERSATION_CACHE_TTL_MS = 60000
     const CONVERSATION_CACHE_LIMIT = 12
@@ -21006,7 +21009,8 @@ const crmHtml = `<!doctype html>
 
     function startCrmRealtimeEvents() {
       stopCrmRealtimeEvents()
-      if (!state.businessId || !window.EventSource) {
+      if (!state.businessId) return
+      if (!CRM_REALTIME_EVENTS_ENABLED || !window.EventSource) {
         startCrmRealtimeFallback()
         return
       }
@@ -21057,7 +21061,8 @@ const crmHtml = `<!doctype html>
       })
       source.addEventListener('open', () => {
         if (state.realtimeEventSource !== source) return
-        stopCrmRealtimeFallback()
+        if (CRM_REALTIME_SAFETY_POLLING_ENABLED) startCrmRealtimeFallback()
+        else stopCrmRealtimeFallback()
       })
       source.addEventListener('error', () => {
         if (state.realtimeEventSource === source) {

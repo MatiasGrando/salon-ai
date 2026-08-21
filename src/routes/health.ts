@@ -2,13 +2,20 @@ import type { FastifyInstance } from 'fastify'
 import { openAiConfig } from '../config/openai.js'
 import { prisma } from '../config/prisma.js'
 import { whatsappConfig } from '../config/whatsapp.js'
+import { crmRealtimeConfig } from '../config/crm-realtime.js'
 
 export async function healthRoutes(app: FastifyInstance) {
   app.get('/health', async (request, reply) => {
     const checks = {
       database: await checkDatabase(),
       whatsapp: checkWhatsAppConfig(),
-      openai: checkOpenAiConfig()
+      openai: checkOpenAiConfig(),
+      crmRealtime: {
+        status: 'ok',
+        eventsEnabled: crmRealtimeConfig.eventsEnabled,
+        safetyPollingEnabled: crmRealtimeConfig.safetyPollingEnabled,
+        fallbackRefreshSeconds: crmRealtimeConfig.fallbackRefreshMs / 1000
+      }
     }
 
     const isHealthy = Object.values(checks).every((check) => check.status !== 'error')

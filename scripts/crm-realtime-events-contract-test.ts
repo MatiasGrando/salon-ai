@@ -71,6 +71,7 @@ const whatsappWebhookSource = readFileSync(
 const crmRouteSource = readFileSync(new URL('../src/routes/crm.ts', import.meta.url), 'utf8')
 const publicBookingRouteSource = readFileSync(new URL('../src/routes/public-booking.ts', import.meta.url), 'utf8')
 const demoProfileRouteSource = readFileSync(new URL('../src/routes/demo-profile.ts', import.meta.url), 'utf8')
+const realtimeConfigSource = readFileSync(new URL('../src/config/crm-realtime.ts', import.meta.url), 'utf8')
 
 assert.match(
   crmUiSource,
@@ -94,8 +95,18 @@ assert.match(
 )
 assert.match(
   crmUiSource,
-  /source\.addEventListener\('open',[\s\S]*?stopCrmRealtimeFallback\(\)/,
-  'el sondeo de respaldo debe detenerse mientras SSE está conectado'
+  /if \(!CRM_REALTIME_EVENTS_ENABLED \|\| !window\.EventSource\)[\s\S]*?startCrmRealtimeFallback\(\)/,
+  'el interruptor debe permitir volver al sondeo sin abrir el canal de eventos'
+)
+assert.match(
+  crmUiSource,
+  /source\.addEventListener\('open',[\s\S]*?CRM_REALTIME_SAFETY_POLLING_ENABLED[\s\S]*?startCrmRealtimeFallback\(\)[\s\S]*?stopCrmRealtimeFallback\(\)/,
+  'el primer despliegue debe conservar el sondeo como red de seguridad'
+)
+assert.match(
+  realtimeConfigSource,
+  /CRM_REALTIME_EVENTS_ENABLED,\s*true\)[\s\S]*?CRM_REALTIME_SAFETY_POLLING_ENABLED,\s*true\)[\s\S]*?fallbackRefreshMs:\s*15_000/,
+  'los eventos y el sondeo de seguridad deben quedar activos por defecto con respaldo cada 15 segundos'
 )
 assert.match(
   crmUiSource,
