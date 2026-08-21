@@ -6,6 +6,7 @@ import {
 } from './booking-v2-domain.js'
 import type { BookingV2AvailabilityOption, BookingV2DomainCatalog } from './booking-v2-domain.js'
 import { BookingV2Extractor, type BookingV2Extraction } from './booking-v2-extractor.js'
+import { logBookingExtractionDiagnostic } from './booking-extraction-diagnostic.js'
 import { buildBookingV2MessagePlan, type BookingV2MessagePlan } from './booking-v2-dialogue.js'
 import { renderBookingV2Response } from './booking-v2-response-renderer.js'
 import type { BookingAvailabilityUnavailableReason } from './booking-availability-reason.js'
@@ -1495,6 +1496,18 @@ export class BookingV2Engine {
       if (mentionedDate) {
         state = acceptField(state, 'date', mentionedDate)
       }
+      const mentionedProfessional = input.understandingExtraction
+        ? null
+        : resolveMentionedProfessionalPreference(input.message, state, catalog)
+      if (mentionedProfessional?.kind === 'selected') {
+        state = acceptField(state, 'professional', mentionedProfessional.professionalId)
+      }
+      const mentionedTime = input.understandingExtraction
+        ? null
+        : parseMentionedBookingTime(input.message)
+      if (mentionedTime) {
+        state = acceptField(state, 'time', mentionedTime)
+      }
       const hasAheadBookingPreference = Boolean(
         input.understandingExtraction?.professional.value &&
         input.understandingExtraction.professional.evidence &&
@@ -1507,7 +1520,11 @@ export class BookingV2Engine {
         input.understandingExtraction?.time.value &&
         input.understandingExtraction.time.evidence &&
         input.understandingExtraction.time.confidence >= 0.65
-      ) || Boolean(mentionedDate)
+      ) || Boolean(
+        mentionedDate ||
+        mentionedProfessional?.kind === 'selected' ||
+        mentionedTime
+      )
       if (
         nextMissingField(stateForExtraction.draft, catalog.bookingFlowOrder) === 'service' &&
         !hasAheadBookingPreference
@@ -1568,6 +1585,40 @@ export class BookingV2Engine {
       )
       if (mentionedDate) {
         stateForExtraction = acceptField(stateForExtraction, 'date', mentionedDate)
+      }
+    }
+
+    // El router determinista puede entregar `null` como extracción para evitar
+    // una llamada innecesaria a IA. En ese caso conservamos también los datos
+    // adelantados inequívocos del mensaje inicial, aunque todavía falte pedir
+    // el nombre del cliente. Se aplican juntos para que ninguno se pierda al
+    // avanzar al siguiente turno de la conversación.
+    if (
+      !stateForExtraction.draft.professional &&
+      input.understandingExtraction !== undefined &&
+      !input.understandingExtraction?.professional.value
+    ) {
+      const mentionedProfessional = resolveMentionedProfessionalPreference(
+        input.message,
+        stateForExtraction,
+        catalog
+      )
+      if (mentionedProfessional?.kind === 'selected') {
+        stateForExtraction = acceptField(
+          stateForExtraction,
+          'professional',
+          mentionedProfessional.professionalId
+        )
+      }
+    }
+    if (
+      !stateForExtraction.draft.time &&
+      input.understandingExtraction !== undefined &&
+      !input.understandingExtraction?.time.value
+    ) {
+      const mentionedTime = parseMentionedBookingTime(input.message)
+      if (mentionedTime) {
+        stateForExtraction = acceptField(stateForExtraction, 'time', mentionedTime)
       }
     }
 
@@ -1725,6 +1776,12 @@ export class BookingV2Engine {
       catalog,
       stateForExtraction
     )
+    logBookingExtractionDiagnostic('engine_grounding', {
+      expectedField: nextMissingField(stateForExtraction.draft, catalog.bookingFlowOrder),
+      draftBefore: stateForExtraction.draft,
+      rawExtraction,
+      groundedExtraction
+    })
     const extraction = stateForExtraction.pendingServiceDisambiguation
       ? withoutServiceSelection(
           groundedExtraction,
@@ -1740,6 +1797,13 @@ export class BookingV2Engine {
       extraction,
       this.domain.toInterpreterCatalog(catalog)
     )
+    logBookingExtractionDiagnostic('engine_applied', {
+      extraction,
+      draftAfter: baseInterpretation.state.draft,
+      pendingProposal: baseInterpretation.state.pendingProposal,
+      outcome: baseInterpretation.outcome,
+      nextField: baseInterpretation.nextField
+    })
     const stateWithCombinedServices = queueServicesFromExtraction(
       baseInterpretation.state,
       extraction,
@@ -4537,6 +4601,26 @@ function resolveExpectedProfessional(
   return resolveProfessionalReference(message, compatibleProfessionals)
 }
 
+function resolveMentionedProfessionalPreference(
+  message: string,
+  state: BookingV2State,
+  catalog: BookingV2DomainCatalog
+) {
+  // En un mensaje compuesto solo tomamos el nombre como preferencia cuando la
+  // persona lo vincula explícitamente con "con". Así evitamos confundir el
+  // nombre del cliente con el de un profesional del catálogo.
+  if (!/\bcon\b/.test(normalize(message))) return null
+
+  const selectedService = state.draft.service
+  const selectedServiceIds = combinedServiceIds(state)
+  const compatibleProfessionals = catalog.professionals.filter((professional) =>
+    !selectedService || selectedServiceIds.every((serviceId) =>
+      professional.serviceIds.includes(serviceId)
+    )
+  )
+  return resolveProfessionalReference(message, compatibleProfessionals)
+}
+
 function resolveProfessionalReference(
   message: string,
   professionals: BookingV2DomainCatalog['professionals']
@@ -5950,6 +6034,25 @@ function parseTime(message: string) {
 
   const match = /(?:^|\s)(\d{1,2})(?::(\d{2}))?\s*(?:h|hs|hrs|horas)?(?:\s|$)/.exec(normalized)
   if (!match) return null
+  const hour = Number(match[1])
+  const minute = Number(match[2] ?? '0')
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+}
+
+function parseMentionedBookingTime(message: string) {
+  const normalized = message
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/\s+/g, ' ')
+  const explicitMatch = /\b(?:a|para)\s+las?\s+(\d{1,2})(?::(\d{2}))?\b/.exec(normalized)
+  const clockMatch = /\b(\d{1,2}):(\d{2})\b/.exec(normalized)
+  const suffixedMatch = /\b(\d{1,2})(?::(\d{2}))?\s*(?:h|hs|hrs|horas)\b/.exec(normalized)
+  const match = explicitMatch ?? clockMatch ?? suffixedMatch
+  if (!match?.[1]) return null
+
   const hour = Number(match[1])
   const minute = Number(match[2] ?? '0')
   if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null

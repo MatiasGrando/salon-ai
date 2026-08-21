@@ -9,6 +9,7 @@ import { normalizeText } from './message-understanding-service.js'
 import { runWithAiEnabled, setAiUsageAttribution } from './ai-execution-context.js'
 import { linkAiUsageToAppointment } from './ai-usage-service.js'
 import { BookingV2Engine, type BookingV2ProcessResult } from './booking-v2-engine.js'
+import { logBookingExtractionDiagnostic } from './booking-extraction-diagnostic.js'
 import { BookingV2DomainService } from './booking-v2-domain.js'
 import type { BookingV2MessagePlan } from './booking-v2-dialogue.js'
 import type {
@@ -2707,6 +2708,15 @@ export class ConversationService {
       routing: input.routing
     })
 
+    logBookingExtractionDiagnostic('router_output', {
+      routingSource: input.routing.source,
+      currentStep: input.conversation.currentStep,
+      draftBefore: storedState.draft,
+      bookingMessage: input.routing.bookingMessage,
+      bookingExtraction: input.routing.bookingExtraction,
+      pendingRequest
+    })
+
     let result = await bookingV2Engine.process({
       businessId: input.businessId,
       conversation: conversationPatchFromState(stateWithAgenda),
@@ -2717,6 +2727,13 @@ export class ConversationService {
       // camino productivo. Pasar null explicitamente evita que BookingV2Engine
       // realice una segunda extraccion con IA para el mismo mensaje.
       understandingExtraction: input.routing.bookingExtraction ?? null
+    })
+
+    logBookingExtractionDiagnostic('engine_result', {
+      draftAfter: result.state.draft,
+      pendingProposal: result.state.pendingProposal,
+      pendingRequest: result.state.pendingRequest,
+      plan: result.plan
     })
 
     if (!result.state.draft.name && pendingRequest) {
@@ -2732,6 +2749,12 @@ export class ConversationService {
         conversation: conversationPatchFromState(replayState),
         message: pendingRequestToReplay.message,
         understandingExtraction: pendingRequestToReplay.extraction ?? null
+      })
+      logBookingExtractionDiagnostic('pending_request_replayed', {
+        originalMessage: pendingRequestToReplay.message,
+        extraction: pendingRequestToReplay.extraction,
+        draftAfter: result.state.draft,
+        plan: result.plan
       })
     }
 

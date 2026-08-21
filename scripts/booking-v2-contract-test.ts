@@ -317,6 +317,76 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'el mensaje inicial compuesto conserva servicio profesional fecha y hora sin llamar a IA',
+    run: async () => {
+      const catalog = createBookingV2DomainCatalog({
+        services: [{
+          id: 'corte-hombre',
+          name: 'Corte hombre',
+          aliases: ['corte de hombre'],
+          duration: 30,
+          price: 15000,
+          category: null
+        }],
+        professionals: [{
+          id: 'ramiro',
+          name: 'Ramiro',
+          serviceIds: ['corte-hombre']
+        }]
+      })
+      const extractor = fakeExtractor(null)
+      const engine = new BookingV2Engine(fakeDomainPort({
+        catalog,
+        availabilityOptions: [{
+          time: '15:00',
+          professionalId: 'ramiro',
+          professionalName: 'Ramiro'
+        }]
+      }), extractor)
+
+      const first = await engine.process({
+        businessId: 'business-1',
+        conversation: null,
+        message: 'hola quiero agendar con ramiro un corte hombre mañana a las 15:00',
+        understandingExtraction: null,
+        currentDate: new Date('2026-08-20T15:00:00.000Z')
+      })
+
+      assert.deepEqual(first.state.draft, {
+        name: null,
+        service: 'corte-hombre',
+        professional: 'ramiro',
+        date: '2026-08-21',
+        time: '15:00'
+      })
+      assert.deepEqual(first.plan, {
+        type: 'ask_field',
+        field: 'name',
+        reason: 'missing',
+        misunderstandingCount: 0
+      })
+      assert.equal(extractor.calls.length, 0)
+
+      const named = await engine.process({
+        businessId: 'business-1',
+        conversation: first.conversationPatch,
+        message: 'matias',
+        understandingExtraction: null,
+        currentDate: new Date('2026-08-20T15:00:00.000Z')
+      })
+
+      assert.deepEqual(named.state.draft, {
+        name: 'Matias',
+        service: 'corte-hombre',
+        professional: 'ramiro',
+        date: '2026-08-21',
+        time: '15:00'
+      })
+      assert.equal(named.plan.type, 'confirm_booking')
+      assert.equal(extractor.calls.length, 0)
+    }
+  },
+  {
     name: 'las selecciones inequívocas pueden evitar el router general',
     run: async () => {
       const engine = new BookingV2Engine(fakeDomainPort(), fakeExtractor(null))
