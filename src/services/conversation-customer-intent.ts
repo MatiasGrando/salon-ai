@@ -157,19 +157,11 @@ export function isPureSocialGreeting(message: string) {
     .replace(/\s+/g, ' ')
     .trim()
 
+  const greetingSequence = /^(?:(?:hola+|holi+|buenos dias|buen dia|buenas tardes|buenas noches|buenas)(?:\s+|$))+(?:(?:como estas|como va|que tal|todo bien))?$/
+  if (greetingSequence.test(normalized)) return true
+
   return [
-    'hola',
-    'holaa',
-    'holaaa',
-    'holi',
     'hola cami',
-    'buenas',
-    'buen dia',
-    'buenas tardes',
-    'buenas noches',
-    'hola como estas',
-    'hola que tal',
-    'hola todo bien',
     'como estas',
     'como va',
     'que tal',

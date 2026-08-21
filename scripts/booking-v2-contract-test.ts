@@ -61,6 +61,7 @@ import {
 } from '../src/services/business-knowledge-service.js'
 import {
   acceptedAdvisorQuoteAmount,
+  businessInformationTopicsOutsideCatalogCategory,
   businessInformationTopicsForPendingSelection,
   bookingCoordinationMessageFromInteractiveReply,
   bookingCoordinationReplyButtons,
@@ -6665,6 +6666,49 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'una reserva con tratamientos y valores prioriza la categoria mencionada',
+    run: async () => {
+      const catalog = createBookingV2DomainCatalog({
+        displayMode: 'ALL_SERVICES',
+        services: [
+          { id: 'formol-free', name: 'Alisado sin formol', aliases: ['nutrición'], duration: 120, price: 85000, priceMode: 'STARTING_AT', category: 'Nutrición' },
+          { id: 'cream-bath', name: 'Baño de crema', aliases: ['nutrición'], duration: 30, price: 25000, category: 'Nutrición' },
+          { id: 'molecular', name: 'Ordenador molecular', aliases: ['nutrición'], duration: 90, price: 65000, priceMode: 'STARTING_AT', category: 'Nutrición' },
+          { id: 'haircut', name: 'Corte mujer', aliases: ['corte'], duration: 45, price: 37000, category: 'Cortes' }
+        ],
+        professionals: []
+      })
+      const extractor = fakeExtractor(null)
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog }), extractor)
+      const message = 'Queria solicitar un turno para una nutricion, queria saber cuales son los tratamientos que tienen y valores por favor. Gracias!'
+
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: null,
+          selectedServiceId: null,
+          selectedProfessionalId: null,
+          selectedDate: null,
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message,
+        understandingExtraction: null
+      })
+
+      assert.equal(result.state.draft.service, null)
+      assert.equal(result.state.catalogNavigation?.categoryName, 'Nutrición')
+      assert.match(result.reply, /Para Nutrición tengo estas opciones/)
+      assert.match(result.reply, /Alisado sin formol — desde \$\s?85\.000/)
+      assert.match(result.reply, /Baño de crema — \$\s?25\.000/)
+      assert.match(result.reply, /Ordenador molecular — desde \$\s?65\.000/)
+      assert.doesNotMatch(result.reply, /Corte mujer/)
+      assert.doesNotMatch(result.reply, /No encontré/)
+      assert.equal(extractor.calls.length, 0)
+    }
+  },
+  {
     name: 'frases naturales seleccionan servicios dentro de la categoria',
     run: async () => {
       const catalog = createBookingV2DomainCatalog({
@@ -7085,10 +7129,14 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     run: () => {
       assert.equal(isBookingV2GreetingOnlyMessage('Hola'), true)
       assert.equal(isBookingV2GreetingOnlyMessage('buenas tardes'), true)
+      assert.equal(isBookingV2GreetingOnlyMessage('hola, buenas tardes!'), true)
+      assert.equal(isBookingV2GreetingOnlyMessage('Hola, buen día. ¿Cómo estás?'), true)
       assert.equal(isBookingV2GreetingOnlyMessage('hola como estas?'), true)
       assert.equal(isBookingV2GreetingOnlyMessage('Hola, hasta que hora estan abiertos?'), false)
+      assert.equal(isBookingV2GreetingOnlyMessage('hola, buenas tardes, quiero un turno'), false)
       assert.equal(isBookingV2GreetingOnlyMessage('hola quiero reservar'), false)
       assert.equal(isBookingV2InitialGreeting('START', 'Hola'), true)
+      assert.equal(isBookingV2InitialGreeting('START', 'hola, buenas tardes!'), true)
       assert.equal(isBookingV2InitialGreeting('ASK_SERVICE', 'Hola'), false)
       assert.equal(isBookingV2InitialGreeting('START', 'Hola, hasta que hora estan abiertos?'), false)
     }
@@ -7779,6 +7827,53 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.deepEqual(
         businessInformationTopicsFromRouting({ ...priceMerged, source: 'ai' }),
         ['prices']
+      )
+    }
+  },
+  {
+    name: 'router acota tratamientos y valores a la categoria de una reserva',
+    run: () => {
+      const catalog = {
+        services: [
+          { id: 'formol-free', name: 'Alisado sin formol', aliases: ['Nutrición'] },
+          { id: 'cream-bath', name: 'Baño de crema', aliases: ['Nutrición'] },
+          { id: 'molecular', name: 'Ordenador molecular', aliases: ['Nutrición'] },
+          { id: 'haircut', name: 'Corte mujer', aliases: ['Cortes'] }
+        ],
+        professionals: []
+      }
+      const message = 'Queria solicitar un turno para una nutricion, queria saber cuales son los tratamientos que tienen y valores por favor. Gracias!'
+      const deterministic = deterministicConversationRouting(message, {
+        currentStep: 'START',
+        catalog
+      })
+      const merged = mergeConversationRouting({
+        intents: [
+          { type: 'book_appointment', topic: null, confidence: 0.97, evidence: 'solicitar un turno' },
+          { type: 'business_information', topic: 'prices', confidence: 0.95, evidence: 'valores' },
+          { type: 'unsupported_service', topic: null, confidence: 0.9, evidence: 'tratamientos que tienen' }
+        ],
+        bookingMessage: message,
+        bookingExtraction: null,
+        catalogQuery: null
+      }, deterministic, message, catalog)
+
+      assert.equal(merged.bookingMessage, message)
+      assert.equal(merged.catalogQuery?.serviceId, null)
+      assert.deepEqual(merged.catalogQuery?.candidateServiceIds, [
+        'formol-free',
+        'cream-bath',
+        'molecular'
+      ])
+      assert.deepEqual(merged.catalogQuery?.requestedInformation, ['price'])
+      assert.equal(isGroundedUnsupportedServiceRequest(message, { ...merged, source: 'ai' }), false)
+      assert.deepEqual(
+        businessInformationTopicsOutsideCatalogCategory(['prices', 'services']),
+        []
+      )
+      assert.deepEqual(
+        businessInformationTopicsOutsideCatalogCategory(['prices', 'address']),
+        ['address']
       )
     }
   },

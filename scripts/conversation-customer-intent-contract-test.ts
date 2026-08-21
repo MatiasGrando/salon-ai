@@ -72,6 +72,10 @@ assert.equal(extractMisaddressedAssistantGreeting('hola Cami'), null)
 
 assert.equal(isPureSocialGreeting('hola que tal'), true)
 assert.equal(isPureSocialGreeting('¡Holi!'), true)
+assert.equal(isPureSocialGreeting('hola, buenas tardes!'), true)
+assert.equal(isPureSocialGreeting('Hola, buen día. ¿Cómo estás?'), true)
+assert.equal(isPureSocialGreeting('hola, buenas tardes, quiero un turno'), false)
+assert.equal(isPureSocialGreeting('hola, buenas tardes, ¿hasta qué hora están abiertos?'), false)
 assert.equal(isPureSocialGreeting('quiero un turno'), false)
 
 assert.equal(extractPlainCustomerName('Matías Grando'), 'Matías Grando')

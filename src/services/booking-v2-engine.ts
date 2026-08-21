@@ -1355,6 +1355,36 @@ export class BookingV2Engine {
       })
     }
 
+    // Una categoría nombrada de forma inequívoca define el alcance antes de
+    // intentar separar varios servicios del texto. Esto evita que pedidos como
+    // "turno para nutrición, qué tratamientos y valores tienen" conviertan
+    // "tratamientos que tienen" en un supuesto servicio no soportado. También
+    // prevalece cuando el mismo rótulo existe como categoría y como servicio.
+    const mentionedCategory = !initialState.draft.service
+      ? prioritizedCatalogCategoryMention(input.message, catalogCategoryOptions(catalog))
+      : null
+    if (mentionedCategory) {
+      let categoryState = acceptMentionedAheadFields({
+        state: initialState,
+        message: input.message,
+        catalog,
+        currentDate: input.currentDate ?? new Date()
+      })
+      const adviceCategory = sharedAdviceCategory(
+        catalogServicesForCategory(catalog, mentionedCategory.key)
+      )
+      if (adviceCategory) {
+        categoryState = {
+          ...categoryState,
+          categoryAdvice: {
+            categoryName: adviceCategory,
+            stage: 'offered'
+          }
+        }
+      }
+      return this.openCatalogCategory(categoryState, catalog, mentionedCategory)
+    }
+
     const explicitServiceGroups = resolveExplicitServiceGroups(input.message, catalog)
     const hasResolvableExplicitServiceGroup = explicitServiceGroups.some((group) =>
       group.kind !== 'unresolved' ||
@@ -4971,6 +5001,19 @@ function bareCatalogCategoryMention(
     })
   )
   return matches.length === 1 ? matches[0] ?? null : null
+}
+
+function prioritizedCatalogCategoryMention(
+  message: string,
+  categories: Array<{ key: string; name: string; aliases: string[] }>
+) {
+  const category = bareCatalogCategoryMention(message, categories)
+  if (!category) return null
+
+  const normalizedMessage = normalize(message)
+  const explicitlyStartsBooking = /\b(?:turno|cita|reservar|reserva|agendar|solicitar)\b/.test(normalizedMessage)
+  const asksForCategoryContents = /\b(?:tratamiento|tratamientos|servicio|servicios|opcion|opciones|alternativa|alternativas)\b/.test(normalizedMessage)
+  return explicitlyStartsBooking || asksForCategoryContents ? category : null
 }
 
 function categorySemanticChoiceMeaning(

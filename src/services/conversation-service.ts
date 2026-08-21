@@ -2792,8 +2792,22 @@ export class ConversationService {
       conversationId: input.conversation.id,
       result
     })
+    const presentationInformationTopics = result.state.catalogNavigation?.view === 'CATEGORY'
+      ? businessInformationTopicsOutsideCatalogCategory(informationTopics)
+      : informationTopics
+    const presentationInformationReply = informationReply &&
+      presentationInformationTopics.length !== informationTopics.length
+      ? presentationInformationTopics.length
+        ? await businessKnowledgeService.answer({
+            businessId: input.businessId,
+            topics: presentationInformationTopics
+          })
+        : null
+      : informationReply
     const requiredReply = applyAssistantPersonalityToReply(
-      informationReply ? `${informationReply}\n\n${presentation.reply}` : presentation.reply,
+      presentationInformationReply
+        ? `${presentationInformationReply}\n\n${presentation.reply}`
+        : presentation.reply,
       assistantPersonality
     )
     // La respuesta ya contiene los datos deterministas y la personalidad del
@@ -2835,7 +2849,9 @@ export class ConversationService {
       reply: composedReply,
       messages: result.messages
         ? result.messages.map((message, index) => applyAssistantPersonalityToReply(
-            index === 0 && informationReply ? `${informationReply}\n\n${message}` : message,
+            index === 0 && presentationInformationReply
+              ? `${presentationInformationReply}\n\n${message}`
+              : message,
             assistantPersonality
           ))
         : splitWhatsAppReply(composedReply),
@@ -5190,6 +5206,12 @@ export function businessInformationTopicsForPendingSelection(
   if (requestedInformation.includes('general')) topics.add('services')
   if (requestedInformation.includes('professionals')) topics.add('professionals')
   return [...topics]
+}
+
+export function businessInformationTopicsOutsideCatalogCategory(
+  topics: BusinessInformationTopic[]
+) {
+  return topics.filter((topic) => topic !== 'services' && topic !== 'prices')
 }
 
 export function isPendingServiceVerificationSelection(
