@@ -18,7 +18,6 @@ const tamaraAssets = [
   { url: '/tamara-grando-profile-dark.png', file: 'tamara-grando-profile-dark.png', contentType: 'image/png' },
   { url: '/tamara-hero-v1.png', file: 'tamara-hero-v1.png', contentType: 'image/png' },
   { url: '/tamara-hero-portrait.jpeg', file: 'tamara-hero-portrait.jpeg', contentType: 'image/jpeg' },
-  { url: '/tamara-social-preview-v2.jpg', file: 'tamara-social-preview-v2.jpg', contentType: 'image/jpeg' },
   { url: '/experience-01.jpeg', file: 'experience-01.jpeg', contentType: 'image/jpeg' },
   { url: '/experience-02.jpeg', file: 'experience-02.jpeg', contentType: 'image/jpeg' },
   { url: '/experience-03.jpeg', file: 'experience-03.jpeg', contentType: 'image/jpeg' },
