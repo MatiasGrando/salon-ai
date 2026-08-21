@@ -13,7 +13,14 @@ export type ConversationUpdatedEvent = {
   updatedAt: string
 }
 
-export type CrmRealtimeEvent = IncomingConversationMessageEvent | ConversationUpdatedEvent
+export type DepositUpdatedEvent = {
+  type: 'deposit_updated'
+  businessId: string
+  depositId: string
+  updatedAt: string
+}
+
+export type CrmRealtimeEvent = IncomingConversationMessageEvent | ConversationUpdatedEvent | DepositUpdatedEvent
 
 type CrmRealtimeSubscriber = {
   businessId: string
@@ -44,6 +51,15 @@ export function publishIncomingConversationMessage(input: Omit<IncomingConversat
 export function publishConversationUpdated(input: Omit<ConversationUpdatedEvent, 'type'>) {
   const event: ConversationUpdatedEvent = {
     type: 'conversation_updated',
+    ...input
+  }
+
+  publishCrmRealtimeEvent(event)
+}
+
+export function publishDepositUpdated(input: Omit<DepositUpdatedEvent, 'type'>) {
+  const event: DepositUpdatedEvent = {
+    type: 'deposit_updated',
     ...input
   }
 

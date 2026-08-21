@@ -4,6 +4,10 @@ import { prisma } from '../config/prisma.js'
 import { ConversationService } from '../services/conversation-service.js'
 import { BusinessService } from '../services/business-service.js'
 import { reopenClosedConversationOpportunity } from '../services/conversation-opportunity-service.js'
+import {
+  publishConversationUpdated,
+  publishIncomingConversationMessage
+} from '../services/crm-realtime-events.js'
 import { renderLanding } from './landing-ui.js'
 import type {} from '../plugins/auth-guard.js'
 
@@ -183,7 +187,7 @@ export async function demoProfileRoutes(app: FastifyInstance) {
       update: {},
       create: { businessId: business.id, phone }
     })
-    await prisma.message.create({
+    const inboundMessage = await prisma.message.create({
       data: {
         conversationId: conversation.id,
         phone,
@@ -196,6 +200,12 @@ export async function demoProfileRoutes(app: FastifyInstance) {
         }
       }
     })
+    publishIncomingConversationMessage({
+      businessId: business.id,
+      conversationId: conversation.id,
+      messageId: inboundMessage.id,
+      receivedAt: inboundMessage.createdAt.toISOString()
+    })
     await reopenClosedConversationOpportunity(conversation.id)
     if (!business.botEnabled) return { reply: null, skipped: true, reason: 'Bot desactivado' }
     const result = await conversationService.handleMessage({
@@ -206,6 +216,11 @@ export async function demoProfileRoutes(app: FastifyInstance) {
       ...(interactiveReplyId ? { interactiveReplyId } : {})
     })
     await prisma.message.create({ data: { conversationId: conversation.id, phone, direction: 'OUTBOUND', body: result.reply, status: 'sent', metadata: { provider: 'demo_simulator' } } })
+    publishConversationUpdated({
+      businessId: business.id,
+      conversationId: conversation.id,
+      updatedAt: new Date().toISOString()
+    })
     return { ...result, conversationId: conversation.id }
   })
 }

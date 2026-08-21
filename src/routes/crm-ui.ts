@@ -17229,7 +17229,7 @@ const crmHtml = `<!doctype html>
     } else {
 
     const CRM_FALLBACK_REFRESH_MS = 2 * 60 * 1000
-    const CRM_LOCAL_EVENT_SYNC_MS = 10 * 1000
+    const CRM_REALTIME_DEBOUNCE_MS = 180
     const CONVERSATION_CACHE_TTL_MS = 60000
     const CONVERSATION_CACHE_LIMIT = 12
     const ASSISTANT_PERSONALITY_PRESETS = {
@@ -17495,6 +17495,12 @@ const crmHtml = `<!doctype html>
       realtimeEventSource: null,
       realtimeFallbackTimer: null,
       realtimeStateRefreshTimer: null,
+      realtimeRefreshInFlight: false,
+      realtimePendingConversationIds: new Set(),
+      realtimePendingFullConversationIds: new Set(),
+      realtimePendingMessageIds: new Set(),
+      realtimeNeedsCountsRefresh: false,
+      realtimeNeedsDepositRefresh: false,
       lastConversationSyncAt: null,
       knownInboundMessageIds: new Set(),
       messageSoundContext: null
@@ -21001,7 +21007,7 @@ const crmHtml = `<!doctype html>
     function startCrmRealtimeEvents() {
       stopCrmRealtimeEvents()
       if (!state.businessId || !window.EventSource) {
-        startCrmRealtimeFallback(isLocalCrm() ? CRM_LOCAL_EVENT_SYNC_MS : CRM_FALLBACK_REFRESH_MS)
+        startCrmRealtimeFallback()
         return
       }
 
@@ -21020,7 +21026,11 @@ const crmHtml = `<!doctype html>
           state.knownInboundMessageIds.add(payload.messageId)
           playIncomingMessageSound()
         }
-        refreshConversationSummary().catch(() => null)
+        queueConversationRealtimeRefresh(payload.conversationId, {
+          messagesOnly: true,
+          messageId: payload.messageId,
+          refreshCounts: true
+        })
       })
       source.addEventListener('conversation_updated', (event) => {
         let payload
@@ -21030,19 +21040,28 @@ const crmHtml = `<!doctype html>
           return
         }
         if (payload.businessId !== state.businessId || !payload.conversationId) return
-        scheduleConversationStateRefresh()
+        queueConversationRealtimeRefresh(payload.conversationId, {
+          refreshCounts: true,
+          refreshDeposits: true
+        })
+      })
+      source.addEventListener('deposit_updated', (event) => {
+        let payload
+        try {
+          payload = JSON.parse(event.data)
+        } catch {
+          return
+        }
+        if (payload.businessId !== state.businessId || !payload.depositId) return
+        queueCrmRealtimeMetadataRefresh({ refreshDeposits: true })
       })
       source.addEventListener('open', () => {
         if (state.realtimeEventSource !== source) return
-        if (isLocalCrm()) {
-          startCrmRealtimeFallback(CRM_LOCAL_EVENT_SYNC_MS)
-          return
-        }
         stopCrmRealtimeFallback()
       })
       source.addEventListener('error', () => {
         if (state.realtimeEventSource === source) {
-          startCrmRealtimeFallback(isLocalCrm() ? CRM_LOCAL_EVENT_SYNC_MS : CRM_FALLBACK_REFRESH_MS)
+          startCrmRealtimeFallback()
         }
       })
     }
@@ -21052,24 +21071,182 @@ const crmHtml = `<!doctype html>
       state.realtimeEventSource = null
       if (state.realtimeStateRefreshTimer) clearTimeout(state.realtimeStateRefreshTimer)
       state.realtimeStateRefreshTimer = null
+      state.realtimePendingConversationIds.clear()
+      state.realtimePendingFullConversationIds.clear()
+      state.realtimePendingMessageIds.clear()
+      state.realtimeNeedsCountsRefresh = false
+      state.realtimeNeedsDepositRefresh = false
       stopCrmRealtimeFallback()
+    }
+
+    function queueConversationRealtimeRefresh(conversationId, options = {}) {
+      if (!conversationId) return
+      state.realtimePendingConversationIds.add(conversationId)
+      if (!options.messagesOnly) state.realtimePendingFullConversationIds.add(conversationId)
+      if (options.messageId) state.realtimePendingMessageIds.add(options.messageId)
+      if (options.refreshCounts) state.realtimeNeedsCountsRefresh = true
+      if (options.refreshDeposits) state.realtimeNeedsDepositRefresh = true
+      scheduleConversationStateRefresh()
+    }
+
+    function queueCrmRealtimeMetadataRefresh(options = {}) {
+      if (options.refreshCounts) state.realtimeNeedsCountsRefresh = true
+      if (options.refreshDeposits) state.realtimeNeedsDepositRefresh = true
+      scheduleConversationStateRefresh()
     }
 
     function scheduleConversationStateRefresh() {
       if (state.realtimeStateRefreshTimer) clearTimeout(state.realtimeStateRefreshTimer)
-      const refreshWhenReady = () => {
-        if (state.isRefreshing || state.conversationTabLoading) {
+      const refreshWhenReady = async () => {
+        if (state.isRefreshing || state.conversationTabLoading || state.realtimeRefreshInFlight) {
           state.realtimeStateRefreshTimer = setTimeout(refreshWhenReady, 200)
           return
         }
         state.realtimeStateRefreshTimer = null
-        refreshConversationSummary().catch(() => null)
+        const conversationIds = Array.from(state.realtimePendingConversationIds)
+        const fullConversationIds = new Set(state.realtimePendingFullConversationIds)
+        const messageIds = Array.from(state.realtimePendingMessageIds)
+        const refreshCounts = state.realtimeNeedsCountsRefresh
+        const refreshDeposits = state.realtimeNeedsDepositRefresh
+        state.realtimePendingConversationIds.clear()
+        state.realtimePendingFullConversationIds.clear()
+        state.realtimePendingMessageIds.clear()
+        state.realtimeNeedsCountsRefresh = false
+        state.realtimeNeedsDepositRefresh = false
+        state.realtimeRefreshInFlight = true
+        try {
+          await refreshConversationsFromRealtime({
+            conversationIds,
+            fullConversationIds,
+            messageIds,
+            refreshCounts,
+            refreshDeposits
+          })
+        } catch (error) {
+          console.error(error)
+        } finally {
+          state.realtimeRefreshInFlight = false
+          if (state.realtimePendingConversationIds.size) scheduleConversationStateRefresh()
+        }
       }
-      state.realtimeStateRefreshTimer = setTimeout(refreshWhenReady, 0)
+      state.realtimeStateRefreshTimer = setTimeout(refreshWhenReady, CRM_REALTIME_DEBOUNCE_MS)
     }
 
-    function isLocalCrm() {
-      return window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    async function refreshConversationsFromRealtime(input) {
+      const conversationResults = await Promise.allSettled(
+        input.conversationIds.map((conversationId) => fetchRealtimeConversation(conversationId))
+      )
+      const messageResults = await Promise.allSettled(
+        input.messageIds.map((messageId) => fetchRealtimeMessage(messageId))
+      )
+      const refreshedConversations = conversationResults
+        .filter((result) => result.status === 'fulfilled' && result.value)
+        .map((result) => result.value)
+      const refreshedMessages = messageResults
+        .filter((result) => result.status === 'fulfilled' && result.value)
+        .map((result) => result.value)
+
+      for (const conversation of refreshedConversations) {
+        mergeRealtimeConversation(conversation)
+      }
+
+      const selectedConversation = refreshedConversations.find((conversation) =>
+        conversation.id === state.selected?.id
+      )
+      const selectedMessages = refreshedMessages.filter((message) =>
+        message.conversationId === state.selected?.id
+      )
+      if (selectedConversation || selectedMessages.length) {
+        if (selectedConversation) state.selected = selectedConversation
+        await refreshSelectedConversationFromRealtime({
+          messages: selectedMessages,
+          refreshAppointments: Boolean(selectedConversation && input.fullConversationIds.has(selectedConversation.id))
+        })
+      }
+
+      if (input.refreshCounts) {
+        await refreshRealtimeConversationCounts()
+      }
+      if (input.refreshDeposits) {
+        if (state.conversationFilter === 'deposits') {
+          await loadDeposits({ keepSelection: true })
+        } else {
+          await refreshDepositCount()
+        }
+      }
+
+      state.conversations.sort((left, right) => latestConversationActivityAt(right) - latestConversationActivityAt(left))
+      cacheCurrentConversationView()
+      renderConversations()
+      renderAiControls()
+    }
+
+    async function fetchRealtimeConversation(conversationId) {
+      const params = new URLSearchParams()
+      if (state.businessId) params.set('businessId', state.businessId)
+      const query = params.toString() ? '?' + params.toString() : ''
+      return getJson('/crm/conversations/' + encodeURIComponent(conversationId) + query)
+    }
+
+    async function fetchRealtimeMessage(messageId) {
+      const params = new URLSearchParams()
+      if (state.businessId) params.set('businessId', state.businessId)
+      const query = params.toString() ? '?' + params.toString() : ''
+      return getJson('/crm/messages/' + encodeURIComponent(messageId) + query)
+    }
+
+    function mergeRealtimeConversation(conversation) {
+      const belongsToArchiveView = state.loadedArchiveView === 'archived'
+        ? Boolean(conversation.archivedAt)
+        : !conversation.archivedAt
+      const belongsToServerFilter = state.loadedConversationFilter === 'handoff'
+        ? isPendingHandoff(conversation)
+        : true
+      const existingIndex = state.conversations.findIndex((item) => item.id === conversation.id)
+      if (!belongsToArchiveView || !belongsToServerFilter) {
+        if (existingIndex >= 0) state.conversations.splice(existingIndex, 1)
+        return
+      }
+      if (existingIndex >= 0) state.conversations.splice(existingIndex, 1, conversation)
+      else state.conversations.unshift(conversation)
+    }
+
+    async function refreshSelectedConversationFromRealtime(options = {}) {
+      if (!state.selected) return
+      const conversation = state.selected
+      const nearBottom = els.messages.scrollHeight - els.messages.scrollTop - els.messages.clientHeight < 72
+      const previousScrollTop = els.messages.scrollTop
+      const messagesById = new Map(state.messages.map((message) => [message.id, message]))
+      for (const message of conversation.messages || []) messagesById.set(message.id, message)
+      for (const message of options.messages || []) messagesById.set(message.id, message)
+      state.messages = Array.from(messagesById.values())
+        .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime())
+      if (options.refreshAppointments) {
+        try {
+          state.appointments = await fetchConversationAppointments(conversation)
+        } catch (error) {
+          console.error(error)
+        }
+      }
+      if (state.selected?.id !== conversation.id) return
+      cacheSelectedConversation(conversation)
+      renderSelected({
+        messageScroll: nearBottom
+          ? { mode: 'bottom', top: 0 }
+          : { mode: 'preserve', top: previousScrollTop },
+        skipMarketing: true
+      })
+    }
+
+    async function refreshRealtimeConversationCounts() {
+      const params = new URLSearchParams()
+      if (state.businessId) params.set('businessId', state.businessId)
+      const query = params.toString() ? '?' + params.toString() : ''
+      const summary = await getJson('/crm/conversations/summary' + query)
+      state.conversationCounts = summary.counts || state.conversationCounts
+      state.lastConversationSyncAt = summary.latestActivityAt || state.lastConversationSyncAt
+      if (els.topConversationTotal) els.topConversationTotal.textContent = String(state.conversationCounts.active)
+      els.count.textContent = String(state.conversationCounts.active)
     }
 
     function startCrmRealtimeFallback(intervalMs = CRM_FALLBACK_REFRESH_MS) {

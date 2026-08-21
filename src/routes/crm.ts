@@ -44,7 +44,10 @@ import {
   createGoogleCalendarEventForAppointment,
   weexGoogleCalendarEnabled
 } from '../services/weex-account-service.js'
-import { subscribeToCrmRealtimeEvents } from '../services/crm-realtime-events.js'
+import {
+  publishConversationUpdated,
+  subscribeToCrmRealtimeEvents
+} from '../services/crm-realtime-events.js'
 
 const whatsappCloudApi = new WhatsAppCloudApi()
 const bookingV2Engine = new BookingV2Engine()
@@ -408,6 +411,39 @@ export async function crmRoutes(app: FastifyInstance) {
       counts,
       latestActivityAt
     }
+  })
+
+  app.get('/crm/conversations/:id', async (request, reply) => {
+    const params = request.params as { id: string }
+    const query = request.query as { businessId?: string }
+    const authUser = request.auth?.user
+    const businessId = authUser?.role === 'SUPER_ADMIN'
+      ? query.businessId
+      : authUser?.businessId ?? undefined
+    const conversation = await conversationListItemById(params.id, businessId)
+    if (!conversation) {
+      return reply.status(404).send({ message: 'No encontre esa conversacion' })
+    }
+    return conversation
+  })
+
+  app.get('/crm/messages/:id', async (request, reply) => {
+    const params = request.params as { id: string }
+    const query = request.query as { businessId?: string }
+    const authUser = request.auth?.user
+    const businessId = authUser?.role === 'SUPER_ADMIN'
+      ? query.businessId
+      : authUser?.businessId ?? undefined
+    const message = await prisma.message.findFirst({
+      where: {
+        id: params.id,
+        ...(businessId ? { conversation: { businessId } } : {})
+      }
+    })
+    if (!message) {
+      return reply.status(404).send({ message: 'No encontre ese mensaje' })
+    }
+    return message
   })
 
   app.get('/crm/ai-settings', async (request) => {
@@ -954,10 +990,12 @@ export async function crmRoutes(app: FastifyInstance) {
       return reply.status(409).send({ message: 'Resolve la derivacion antes de archivar la conversacion' })
     }
 
-    return prisma.conversation.update({
+    const updated = await prisma.conversation.update({
       where: { id: params.id },
       data: { archivedAt: body.archived ? new Date() : null }
     })
+    publishCrmConversationUpdated(updated)
+    return updated
   })
 
   app.patch('/crm/conversations/:id/opportunity/close', async (request, reply) => {
@@ -1038,7 +1076,7 @@ export async function crmRoutes(app: FastifyInstance) {
       }
     }
 
-    return prisma.conversation.update({
+    const updated = await prisma.conversation.update({
       where: {
         id: params.id
       },
@@ -1059,6 +1097,8 @@ export async function crmRoutes(app: FastifyInstance) {
           }
         : takenConversationHandoffPatch({ queuedAt: conversation.humanHandoffAt })
     })
+    publishCrmConversationUpdated(updated)
+    return updated
   })
 
   app.post('/crm/conversations/:id/service-resolution', async (request, reply) => {
@@ -1170,7 +1210,7 @@ export async function crmRoutes(app: FastifyInstance) {
       where: { businessId: conversation.businessId },
       select: { bookingFlowOrder: true }
     }))?.bookingFlowOrder)
-    await prisma.conversation.update({
+    const updated = await prisma.conversation.update({
       where: { id: conversation.id },
       data: {
         currentStep: conversationStepForPersistedBookingState(resumed.state, bookingFlowOrder),
@@ -1184,6 +1224,7 @@ export async function crmRoutes(app: FastifyInstance) {
         lastAvailability: Prisma.JsonNull
       }
     })
+    publishCrmConversationUpdated(updated)
     return conversationWithLatestDeposit(conversation.id)
   })
 
@@ -1275,7 +1316,7 @@ export async function crmRoutes(app: FastifyInstance) {
       misunderstandingCount: 0
     }
     const patch = conversationPatchFromState(quotedState)
-    await prisma.conversation.update({
+    const updated = await prisma.conversation.update({
       where: { id: conversation.id },
       data: {
         currentStep: 'ASK_SERVICE',
@@ -1286,6 +1327,7 @@ export async function crmRoutes(app: FastifyInstance) {
         bookingV2State: patch.bookingV2State as Prisma.InputJsonValue
       }
     })
+    publishCrmConversationUpdated(updated)
     return conversationWithLatestDeposit(conversation.id)
   })
 
@@ -1438,6 +1480,11 @@ export async function crmRoutes(app: FastifyInstance) {
         : confirmationText,
       provider: 'crm_deposit_review'
     })
+    publishCrmConversationUpdated({
+      id: deposit.conversationId,
+      businessId: deposit.businessId,
+      updatedAt: new Date()
+    })
     return conversationWithLatestDeposit(deposit.conversationId)
   })
 
@@ -1502,6 +1549,11 @@ export async function crmRoutes(app: FastifyInstance) {
       phone: deposit.conversation.phone,
       text: `No pudimos validar el comprobante de la seña: ${reason}. Liberamos el horario para evitar una confirmación incorrecta. El equipo te ayudará a resolverlo por acá.`,
       provider: 'crm_deposit_review'
+    })
+    publishCrmConversationUpdated({
+      id: deposit.conversationId,
+      businessId: deposit.businessId,
+      updatedAt: new Date()
     })
     return conversationWithLatestDeposit(deposit.conversationId)
   })
@@ -1610,7 +1662,7 @@ export async function crmRoutes(app: FastifyInstance) {
       data: messageData
     })
 
-    await prisma.conversation.update({
+    const updated = await prisma.conversation.update({
       where: {
         id: conversation.id
       },
@@ -1624,6 +1676,7 @@ export async function crmRoutes(app: FastifyInstance) {
             })
       }
     })
+    publishCrmConversationUpdated(updated)
 
     return {
       message,
@@ -1865,6 +1918,50 @@ async function conversationWithLatestDeposit(conversationId: string) {
   }
 }
 
+async function conversationListItemById(conversationId: string, businessId?: string) {
+  const conversation = await prisma.conversation.findFirst({
+    where: {
+      id: conversationId,
+      ...(businessId ? { businessId } : {})
+    },
+    include: {
+      bookingDeposits: {
+        select: conversationDepositSelect,
+        orderBy: { createdAt: 'desc' },
+        take: 1
+      }
+    }
+  })
+  if (!conversation) return null
+
+  const [latestMessage, latestInboundMessage] = await Promise.all([
+    prisma.message.findFirst({
+      where: { conversationId },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }]
+    }),
+    prisma.message.findFirst({
+      where: { conversationId, direction: 'INBOUND' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { id: true, conversationId: true, createdAt: true }
+    })
+  ])
+  const lastInboundMessageAt = latestInboundMessage?.createdAt ?? null
+  const whatsappReplyWindowExpiresAt = lastInboundMessageAt
+    ? new Date(lastInboundMessageAt.getTime() + WHATSAPP_REPLY_WINDOW_MS)
+    : null
+
+  return {
+    ...conversation,
+    messages: latestMessage ? [latestMessage] : [],
+    latestInboundMessage,
+    lastInboundMessageAt,
+    whatsappReplyWindowExpiresAt,
+    canReplyOnWhatsApp: Boolean(
+      whatsappReplyWindowExpiresAt && whatsappReplyWindowExpiresAt.getTime() > Date.now()
+    )
+  }
+}
+
 async function latestMessagesByConversationId(conversationIds: string[]) {
   if (conversationIds.length === 0) return new Map<string, Message>()
 
@@ -1931,6 +2028,19 @@ async function sendCrmAutomatedMessage(input: {
     }
   })
   return delivery
+}
+
+function publishCrmConversationUpdated(conversation: {
+  id: string
+  businessId: string | null
+  updatedAt: Date
+}) {
+  if (!conversation.businessId) return
+  publishConversationUpdated({
+    businessId: conversation.businessId,
+    conversationId: conversation.id,
+    updatedAt: conversation.updatedAt.toISOString()
+  })
 }
 
 function formatDepositAppointmentDate(startAt: Date) {

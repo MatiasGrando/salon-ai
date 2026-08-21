@@ -10,6 +10,7 @@ import { findOrCreateCustomerByPhone } from '../services/customer-identity-servi
 import { customerDurationRange, formatCustomerDuration, reservationDurationLimits } from '../services/service-duration.js'
 import { calculateBookingV2Deposit } from '../services/booking-v2-deposit.js'
 import { bookingDepositService } from '../services/booking-deposit-service.js'
+import { publishDepositUpdated } from '../services/crm-realtime-events.js'
 import { BookingAvailabilitySearchEngine } from '../services/booking-availability-search.js'
 import { InternalBookingProvider } from '../providers/internal-booking-provider.js'
 import {
@@ -290,6 +291,13 @@ export async function publicBookingRoutes(app: FastifyInstance) {
         throw error
       }
     }
+    if (deposit) {
+      publishDepositUpdated({
+        businessId: business.id,
+        depositId: deposit.id,
+        updatedAt: deposit.updatedAt.toISOString()
+      })
+    }
 
     const appointment = await prisma.appointment.findUnique({
       where: {
@@ -486,6 +494,13 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       await Promise.allSettled(appointmentIds.map((appointmentId) => appointmentService.cancel(appointmentId)))
       return reply.status(409).send({ message: 'No pudimos confirmar todos los horarios. Elegí otra opción.' })
     }
+    if (deposit) {
+      publishDepositUpdated({
+        businessId: business.id,
+        depositId: deposit.id,
+        updatedAt: deposit.updatedAt.toISOString()
+      })
+    }
 
     if (weexAuth?.account.phone) {
       await linkExistingCustomersByPhone(weexAuth.account.id, customerPhone, defaultAreaCode)
@@ -562,6 +577,11 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       ...(body.filename !== undefined ? { filename: body.filename } : {})
     })
     if (!received.ok) return reply.status(received.statusCode).send({ message: received.message })
+    publishDepositUpdated({
+      businessId: business.id,
+      depositId: deposit.id,
+      updatedAt: new Date().toISOString()
+    })
     return { deposit: received.deposit }
   })
 
