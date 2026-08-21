@@ -135,6 +135,12 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
       ? ` manteniendo a ${input.plan.professionalName}`
       : ''
     if (input.plan.reason === 'REQUESTED_TIME_UNAVAILABLE' && input.plan.requestedTime) {
+      if (input.plan.searchedHorizonDays) {
+        const withProfessional = input.plan.professionalName
+          ? ` con ${input.plan.professionalName}`
+          : ''
+        return `No encontré disponibilidad a las ${input.plan.requestedTime}${withProfessional} en los próximos ${input.plan.searchedHorizonDays} días.`
+      }
       return `No encontré una opción que comience a las ${input.plan.requestedTime} el ${formatDate(input.plan.date)}${professional}.`
     }
     if (input.plan.reason === 'PROVIDER_ERROR') {

@@ -1116,7 +1116,7 @@ const searchMenuButtons = bookingCoordinationReplyButtons({
   state: denseSearchMenu.state
 })
 assert.deepEqual(searchMenuButtons?.map((button) => button.title), [
-  'Más horarios',
+  'Todos los horarios',
   'Próximos días',
   'Buscar por hora'
 ])
@@ -1311,6 +1311,41 @@ const selectedTimeDate = await navigationEngine.process({
 assert.equal(selectedTimeDate.plan.type, 'show_coordinated_selection')
 if (selectedTimeDate.plan.type !== 'show_coordinated_selection') throw new Error('Plan inesperado')
 assert.equal(selectedTimeDate.plan.option.startTime, '15:00')
+
+const noDatesAtTen = await navigationEngine.process({
+  businessId: 'business-1',
+  conversation: askFutureTime.conversationPatch,
+  message: 'a las 10',
+  currentDate: new Date('2026-08-09T15:00:00-03:00')
+})
+assert.equal(noDatesAtTen.plan.type, 'coordinated_date_unavailable')
+if (noDatesAtTen.plan.type !== 'coordinated_date_unavailable') throw new Error('Plan inesperado')
+assert.equal(noDatesAtTen.plan.searchedHorizonDays, 14)
+assert.equal(
+  noDatesAtTen.reply,
+  'No encontré disponibilidad a las 10:00 en los próximos 14 días.'
+)
+assert.doesNotMatch(noDatesAtTen.reply, /09\/08\/2026/)
+
+const askRequestedProfessionalFutureTime = await navigationEngine.process({
+  businessId: 'business-1',
+  conversation: contextualSearchMenu.conversationPatch,
+  message: bookingCoordinationMessageFromInteractiveReply(
+    contextualSearchMenuButtons?.[2]?.id,
+    'conversation-1'
+  ) ?? ''
+})
+const noRequestedProfessionalDatesAtTen = await navigationEngine.process({
+  businessId: 'business-1',
+  conversation: askRequestedProfessionalFutureTime.conversationPatch,
+  message: '10',
+  currentDate: new Date('2026-08-09T15:00:00-03:00')
+})
+assert.equal(
+  noRequestedProfessionalDatesAtTen.reply,
+  'No encontré disponibilidad a las 10:00 con Tamara en los próximos 14 días.'
+)
+assert.doesNotMatch(noRequestedProfessionalDatesAtTen.reply, /09\/08\/2026/)
 
 for (const semanticChoiceId of ['show_more', 'next_days', 'search_time'] as const) {
   const fallbackEngine = new BookingV2Engine(

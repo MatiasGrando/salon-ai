@@ -6027,7 +6027,7 @@ export function bookingCoordinationReplyButtons(input: {
       ]
     }
     return [
-      { id: `${prefix}more`, title: 'Más horarios' },
+      { id: `${prefix}more`, title: 'Todos los horarios' },
       { id: `${prefix}next_days`, title: 'Próximos días' },
       { id: `${prefix}search_time`, title: 'Buscar por hora' }
     ]

@@ -2564,7 +2564,8 @@ export class BookingV2Engine {
         professionalName: pending.requireRequestedProfessional
           ? professionalNameById(input.catalog, pending.requestedProfessionalId)
           : null,
-        canSearchWithoutProfessional: pending.requireRequestedProfessional
+        canSearchWithoutProfessional: pending.requireRequestedProfessional,
+        searchedHorizonDays: 14
       }, input.catalog, 'no_change')
     }
 

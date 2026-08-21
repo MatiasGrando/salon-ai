@@ -96,6 +96,7 @@ export type BookingV2MessagePlan =
       requestedTime?: string | null
       professionalName?: string | null
       canSearchWithoutProfessional?: boolean
+      searchedHorizonDays?: number
       unavailableReason?: BookingAvailabilityUnavailableReason | null | undefined
     }
   | {
