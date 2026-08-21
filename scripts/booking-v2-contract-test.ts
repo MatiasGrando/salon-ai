@@ -387,6 +387,75 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'un pedido específico después del saludo conserva profesional y fecha omitidos por el router',
+    run: async () => {
+      const catalog = createBookingV2DomainCatalog({
+        services: [{
+          id: 'corte-barba',
+          name: 'Corte y barba',
+          aliases: ['corte con barba'],
+          duration: 30,
+          price: 15000,
+          category: null
+        }],
+        professionals: [{
+          id: 'ramiro',
+          name: 'Ramiro',
+          serviceIds: ['corte-barba']
+        }]
+      })
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog }), fakeExtractor(null))
+
+      // El saludo puro ya se resolvió y dejó la conversación en START. El
+      // pedido específico siguiente llega con una extracción estructurada que
+      // puede omitir datos inequívocos presentes en el texto.
+      const afterGreetingRequest = await engine.process({
+        businessId: 'business-1',
+        conversation: null,
+        message: 'Turno para corte y barba hoy con Ramiro?',
+        understandingExtraction: extraction({
+          service: field('corte-barba', 0.99, 'corte y barba')
+        }),
+        currentDate: new Date('2026-08-21T15:00:00.000Z')
+      })
+
+      assert.deepEqual(afterGreetingRequest.state.draft, {
+        name: null,
+        service: 'corte-barba',
+        professional: 'ramiro',
+        date: '2026-08-21',
+        time: null
+      })
+      assert.deepEqual(afterGreetingRequest.plan, {
+        type: 'ask_field',
+        field: 'name',
+        reason: 'missing',
+        misunderstandingCount: 0
+      })
+
+      const afterGreetingNamed = await engine.process({
+        businessId: 'business-1',
+        conversation: afterGreetingRequest.conversationPatch,
+        message: 'matias',
+        understandingExtraction: null,
+        currentDate: new Date('2026-08-21T15:00:00.000Z')
+      })
+
+      assert.deepEqual(afterGreetingNamed.state.draft, {
+        name: 'Matias',
+        service: 'corte-barba',
+        professional: 'ramiro',
+        date: '2026-08-21',
+        time: null
+      })
+      assert.equal(afterGreetingNamed.plan.type, 'ask_field')
+      assert.equal(
+        afterGreetingNamed.plan.type === 'ask_field' ? afterGreetingNamed.plan.field : null,
+        'time'
+      )
+    }
+  },
+  {
     name: 'las selecciones inequívocas pueden evitar el router general',
     run: async () => {
       const engine = new BookingV2Engine(fakeDomainPort(), fakeExtractor(null))

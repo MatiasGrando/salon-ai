@@ -1389,6 +1389,13 @@ export class BookingV2Engine {
           }
         : initialState
       let state = applyResolvedServiceSelections(serviceConsultationState, selections)
+      state = acceptMentionedAheadFields({
+        state,
+        message: input.message,
+        catalog,
+        extraction: input.understandingExtraction,
+        currentDate: input.currentDate ?? new Date()
+      })
       state = {
         ...state,
         pendingServiceDisambiguation: pendingServiceDisambiguationFromGroups(ambiguousGroups),
@@ -4622,6 +4629,31 @@ function resolveMentionedProfessionalPreference(
   return resolveProfessionalReference(message, compatibleProfessionals)
 }
 
+function acceptMentionedAheadFields(input: {
+  state: BookingV2State
+  message: string
+  catalog: BookingV2DomainCatalog
+  extraction: BookingV2Extraction | null | undefined
+  currentDate: Date
+}) {
+  let state = input.state
+  if (!state.draft.date && !hasConfidentAheadField(input.extraction?.date)) {
+    const date = resolveMentionedDate(input.message, input.currentDate)
+    if (date) state = acceptField(state, 'date', date)
+  }
+  if (!state.draft.professional && !hasConfidentAheadField(input.extraction?.professional)) {
+    const professional = resolveMentionedProfessionalPreference(input.message, state, input.catalog)
+    if (professional?.kind === 'selected') {
+      state = acceptField(state, 'professional', professional.professionalId)
+    }
+  }
+  if (!state.draft.time && !hasConfidentAheadField(input.extraction?.time)) {
+    const time = parseMentionedBookingTime(input.message)
+    if (time) state = acceptField(state, 'time', time)
+  }
+  return state
+}
+
 function resolveProfessionalReference(
   message: string,
   professionals: BookingV2DomainCatalog['professionals']
@@ -5398,10 +5430,14 @@ function resolveExplicitServiceGroups(
       const informationalClause = unprotectedClause &&
         isDeterministicServiceInformationQuestion(unprotectedClause) &&
         !clauseMentionsCatalogService(unprotectedClause, catalog)
-      const resolved = unprotectedClause && !informationalClause
+      // Si la cláusula ya contenía un servicio compuesto protegido (por
+      // ejemplo, "Corte y barba"), el texto restante describe la reserva:
+      // fecha, profesional, horario, etc. No debe convertirse en un segundo
+      // servicio inexistente como "Hoy Ramiro".
+      const resolved = unprotectedClause && !informationalClause && !protectedMatches.length
         ? resolveCatalogServiceSelection(unprotectedClause, catalog)
         : null
-      const unresolvedEvidence = !resolved && !informationalClause
+      const unresolvedEvidence = !resolved && !informationalClause && !protectedMatches.length
         ? unresolvedServiceEvidence(unprotectedClause, catalog)
         : null
       return [
@@ -6058,6 +6094,18 @@ function parseMentionedBookingTime(message: string) {
   const minute = Number(match[2] ?? '0')
   if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+}
+
+function hasConfidentAheadField(field: {
+  value: string | null
+  confidence: number
+  evidence: string
+} | undefined) {
+  return Boolean(
+    field?.value &&
+    field.evidence.trim() &&
+    field.confidence >= 0.65
+  )
 }
 
 export function isDeterministicBookingContinuationMessage(message: string) {
