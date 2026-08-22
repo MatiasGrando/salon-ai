@@ -60,6 +60,7 @@
     "test:manual-appointment-without-phone": "tsx scripts/manual-appointment-without-phone-contract-test.ts",
     "test:text-encoding": "tsx scripts/text-encoding-contract-test.ts",
     "test:appointment-payload": "tsx scripts/appointment-payload-contract-test.ts",
+    "test:appointment-notes-display": "tsx scripts/appointment-notes-display-contract-test.ts",
     "test:agenda-professional-drag": "tsx scripts/agenda-professional-drag-contract-test.ts",
     "test:staff-secretary": "tsx scripts/staff-secretary-contract-test.ts",
     "test:customer-phone-identity": "tsx scripts/customer-phone-identity-contract-test.ts",

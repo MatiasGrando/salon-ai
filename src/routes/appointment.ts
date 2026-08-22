@@ -21,6 +21,7 @@ export async function appointmentRoutes(app: FastifyInstance) {
       force?: boolean
       manualDepositPaid?: boolean
       manualDepositAmount?: number | string | null
+      notes?: string | null
     }
     if (!await canUseProfessional(request.auth?.user, body.professionalId)) {
       return reply.status(403).send({ message: 'Tu perfil solo puede gestionar la agenda profesional asignada' })
@@ -38,6 +39,7 @@ export async function appointmentRoutes(app: FastifyInstance) {
       origin: 'MANUAL',
       ...(body.manualDepositPaid === undefined ? {} : { manualDepositPaid: body.manualDepositPaid }),
       ...(body.manualDepositAmount === undefined ? {} : { manualDepositAmount: body.manualDepositAmount }),
+      ...(body.notes === undefined ? {} : { notes: body.notes }),
       ...(body.force === undefined ? {} : { force: body.force })
     })
 
@@ -125,6 +127,7 @@ export async function appointmentRoutes(app: FastifyInstance) {
       force?: boolean
       manualDepositPaid?: boolean
       manualDepositAmount?: number | string | null
+      notes?: string | null
     }
 
     if (!await canAccessAppointment(request.auth?.user, params.id)) {

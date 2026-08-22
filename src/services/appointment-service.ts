@@ -28,6 +28,7 @@ type CreateAppointmentInput = {
   quotedPrice?: number | null
   manualDepositPaid?: boolean
   manualDepositAmount?: number | string | null
+  notes?: string | null
   coordinationGroupId?: string | null
 }
 
@@ -92,6 +93,7 @@ export class AppointmentService {
       input.manualDepositPaid === true,
       input.manualDepositAmount
     )
+    const notes = normalizeAppointmentNotes(input.notes)
 
     if (Number.isNaN(startAt.getTime())) {
       return {
@@ -106,6 +108,14 @@ export class AppointmentService {
         ok: false,
         statusCode: 400,
         message: manualDeposit.message
+      }
+    }
+
+    if (!notes.ok) {
+      return {
+        ok: false,
+        statusCode: 400,
+        message: notes.message
       }
     }
 
@@ -261,6 +271,7 @@ export class AppointmentService {
           quotedPrice: normalizeQuotedPrice(input.quotedPrice),
           manualDepositPaid: manualDeposit.paid,
           manualDepositAmount: manualDeposit.amount,
+          notes: notes.value,
           coordinationGroupId: input.coordinationGroupId ?? null,
           serviceItems: {
             create: orderedServices.map((service, sortOrder) => ({
@@ -451,11 +462,19 @@ export class AppointmentService {
             : input.manualDepositAmount
         )
       : null
+    const notes = input.notes === undefined ? null : normalizeAppointmentNotes(input.notes)
     if (manualDeposit && !manualDeposit.ok) {
       return {
         ok: false,
         statusCode: 400,
         message: manualDeposit.message
+      }
+    }
+    if (notes && !notes.ok) {
+      return {
+        ok: false,
+        statusCode: 400,
+        message: notes.message
       }
     }
     if (
@@ -643,6 +662,7 @@ export class AppointmentService {
                 manualDepositAmount: manualDeposit.amount
               }
             : {}),
+          ...(notes?.ok ? { notes: notes.value } : {}),
           serviceItems: {
             deleteMany: {},
             create: orderedServices.map((service, sortOrder) => ({
@@ -1402,6 +1422,21 @@ export function normalizeManualDeposit(
     }
   }
   return { ok: true as const, paid: true, amount: parsedAmount }
+}
+
+export function normalizeAppointmentNotes(value: string | null | undefined) {
+  if (value === null || value === undefined) {
+    return { ok: true as const, value: null }
+  }
+  if (typeof value !== 'string') {
+    return { ok: false as const, message: 'Los comentarios adicionales no son validos' }
+  }
+
+  const normalized = value.trim()
+  if (normalized.length > 2000) {
+    return { ok: false as const, message: 'Los comentarios adicionales no pueden superar los 2000 caracteres' }
+  }
+  return { ok: true as const, value: normalized || null }
 }
 
 function normalizeQuotedPrice(value: number | null | undefined) {

@@ -14598,6 +14598,10 @@ const crmHtml = `<!doctype html>
             <span id="appointment-origin-badge" aria-hidden="true"></span>
             <span>Origen: <strong id="appointment-origin-label"></strong></span>
           </div>
+          <div class="form-row">
+            <label for="appointment-notes">Comentarios adicionales <span class="optional-label">(opcional)</span></label>
+            <textarea class="field" id="appointment-notes" maxlength="2000" rows="3" placeholder="Indicaciones, aclaraciones o informaci&oacute;n relevante para el profesional"></textarea>
+          </div>
           <div class="appointment-deposit-option">
             <label>
               <input id="appointment-deposit-paid" type="checkbox">
@@ -18157,6 +18161,7 @@ const crmHtml = `<!doctype html>
       appointmentOriginRow: document.getElementById('appointment-origin-row'),
       appointmentOriginBadge: document.getElementById('appointment-origin-badge'),
       appointmentOriginLabel: document.getElementById('appointment-origin-label'),
+      appointmentNotes: document.getElementById('appointment-notes'),
       appointmentDepositPaid: document.getElementById('appointment-deposit-paid'),
       appointmentDepositAmountRow: document.getElementById('appointment-deposit-amount-row'),
       appointmentDepositAmount: document.getElementById('appointment-deposit-amount'),
@@ -26465,8 +26470,8 @@ const crmHtml = `<!doctype html>
       const origin = appointmentOriginMeta(appointment.origin)
       return '<article class="agenda-gcal-event' + depositClass + (noShow ? ' no-show' : '') + (pending ? ' is-pending' : '') + '" data-appointment-id="' + appointment.id + '" data-overlap-count="' + columns + '" style="top:' + top + 'px;height:' + height + 'px;left:' + left + ';right:auto;width:' + width + ';--agenda-event-color:' + color + depositStyle + '" title="' + escapeHtml(time + ' - ' + customer + ' - ' + service + ' con ' + professional + ' - ' + origin.label + depositTitle) + '">' +
         '<button class="agenda-gcal-event-main" type="button" data-agenda-edit-appointment>' +
-          '<strong>' + appointmentOriginBadgeHtml(origin) + ' ' + escapeHtml(customer) + '</strong>' +
-          '<span>' + escapeHtml(time + ' - ' + service) + '</span>' +
+          '<strong>' + escapeHtml(service) + '</strong>' +
+          '<span>' + appointmentOriginBadgeHtml(origin) + ' ' + escapeHtml(customer + (noShow ? ' - Ausente' : '')) + '</span>' +
           '<span class="agenda-gcal-event-professional">' + escapeHtml(professional) + '</span>' +
         '</button>' +
         (canCreateAppointments() ? '<button class="agenda-gcal-event-add" type="button" data-agenda-new-at aria-label="Crear otro turno a las ' + escapeHtml(time) + '" title="Crear otro turno en este horario"><span aria-hidden="true">+</span><span class="agenda-gcal-event-add-label">Otro</span></button>' : '') +
@@ -26903,7 +26908,7 @@ const crmHtml = `<!doctype html>
           const origin = appointmentOriginMeta(appointment.origin)
           return '<button class="agenda-mobile-item' + (noShow ? ' no-show' : '') + '" type="button" data-appointment-id="' + appointment.id + '" style="--agenda-event-color:' + color + '">' +
             '<span class="agenda-mobile-time">' + escapeHtml(formatTimeOnly(start)) + '<small>' + escapeHtml(formatTimeOnly(addMinutes(start, duration))) + '</small></span>' +
-            '<span class="agenda-mobile-copy"><strong>' + escapeHtml(appointment.customer?.name || 'Cliente') + '</strong><span>' + escapeHtml(appointmentServiceLabel(appointment) + ' · ' + (appointment.professional?.name || 'Profesional')) + '</span></span>' +
+            '<span class="agenda-mobile-copy"><strong>' + escapeHtml(appointmentServiceLabel(appointment)) + '</strong><span>' + escapeHtml((appointment.customer?.name || 'Cliente') + ' · ' + (appointment.professional?.name || 'Profesional')) + '</span></span>' +
             '<span class="agenda-mobile-status">' + appointmentOriginBadgeHtml(origin) + (noShow ? ' Ausente' : '') + '</span>' +
           '</button>'
         })
@@ -27067,9 +27072,9 @@ const crmHtml = `<!doctype html>
         event.style.setProperty('--agenda-event-color', eventColor)
         if (depositIndicator) event.style.setProperty('--agenda-deposit-color', depositIndicator.color)
         event.title = customer + ' - ' + service + ' con ' + professional + ' - ' + origin.label + (depositIndicator ? ' - ' + depositIndicator.label : '') + (noShow ? ' - Ausente' : '') + (pending ? ' - Guardando cambio' : '')
-        event.innerHTML = '<strong>' + escapeHtml(formatTimeOnly(start) + ' - ' + formatTimeOnly(addMinutes(start, duration))) + '</strong>' +
-          '<span>' + escapeHtml(service) + '</span>' +
-          '<span>' + appointmentOriginBadgeHtml(origin) + ' ' + escapeHtml(customer + (noShow ? ' - Ausente' : '')) + '</span>'
+        event.innerHTML = '<strong>' + escapeHtml(service) + '</strong>' +
+          '<span>' + appointmentOriginBadgeHtml(origin) + ' ' + escapeHtml(customer + (noShow ? ' - Ausente' : '')) + '</span>' +
+          '<span>' + escapeHtml(professional) + '</span>'
         event.dataset.appointmentId = appointment.id
         event.draggable = false
         event.addEventListener('click', (clickEvent) => {
@@ -27307,9 +27312,9 @@ const crmHtml = `<!doctype html>
       preview.className = 'agenda-drop-preview'
       preview.style.height = height + 'px'
       preview.style.setProperty('--agenda-event-color', eventColor)
-      preview.innerHTML = '<strong>' + escapeHtml(formatTimeOnly(target) + ' - ' + formatTimeOnly(addMinutes(target, duration))) + '</strong>' +
-        '<span>' + escapeHtml(service) + '</span>' +
-        '<span>' + escapeHtml(customer + (targetProfessional ? ' · ' + targetProfessional.name : '')) + '</span>'
+      preview.innerHTML = '<strong>' + escapeHtml(service) + '</strong>' +
+        '<span>' + escapeHtml(customer + (targetProfessional ? ' · ' + targetProfessional.name : '')) + '</span>' +
+        '<span>' + escapeHtml(formatTimeOnly(target) + ' - ' + formatTimeOnly(addMinutes(target, duration))) + '</span>'
       if (targetMinute < displayRange.start || targetMinute >= displayRange.end) return
       cell.appendChild(preview)
     }
@@ -27581,6 +27586,7 @@ const crmHtml = `<!doctype html>
         els.appointmentCustomer.value = appointment.customerId || ''
         els.appointmentCustomerName.value = appointment.customer?.name || ''
         els.appointmentCustomerPhone.value = appointment.customer?.phone || ''
+        els.appointmentNotes.value = appointment.notes || ''
         els.appointmentDepositPaid.checked = appointment.manualDepositPaid === true
         els.appointmentDepositAmount.value = appointment.manualDepositAmount || ''
         const origin = appointmentOriginMeta(appointment.origin)
@@ -27609,6 +27615,7 @@ const crmHtml = `<!doctype html>
         els.appointmentCustomerSearch.value = ''
         els.appointmentCustomerName.value = ''
         els.appointmentCustomerPhone.value = ''
+        els.appointmentNotes.value = ''
         els.appointmentDepositPaid.checked = false
         els.appointmentDepositAmount.value = ''
         els.appointmentOriginRow.hidden = true
@@ -27760,6 +27767,7 @@ const crmHtml = `<!doctype html>
       const manualDepositPaid = els.appointmentDepositPaid.checked
       const manualDepositAmountText = els.appointmentDepositAmount.value.trim()
       const manualDepositAmount = manualDepositAmountText ? Number(manualDepositAmountText) : null
+      const notes = els.appointmentNotes.value.trim()
       let customerId = els.appointmentCustomer.value
 
       if (!startAt || !professionalId || !serviceId) {
@@ -27845,6 +27853,7 @@ const crmHtml = `<!doctype html>
             startAt: new Date(startAt).toISOString(),
             manualDepositPaid,
             manualDepositAmount,
+            notes: notes || null,
             force
           })
         })

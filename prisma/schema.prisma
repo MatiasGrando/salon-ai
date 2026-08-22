@@ -834,6 +834,7 @@ model Appointment {
   quotedPrice          Int?
   manualDepositPaid    Boolean           @default(false)
   manualDepositAmount  Int?
+  notes                String?
   totalDurationMinutes Int
   coordinationGroupId  String?
 
