@@ -168,10 +168,11 @@ export type BookingV2PendingCombinedAvailability = {
 }
 
 export type BookingV2PendingServiceSeparation = {
-  reason: 'blocked_combination' | 'no_common_professional'
+  reason: 'blocked_combination' | 'no_common_professional' | 'service_set_change'
   edit?: {
     action: 'menu' | 'change' | 'remove'
     serviceIds: string[] | null
+    addServiceIds?: string[] | null
   } | null
 }
 

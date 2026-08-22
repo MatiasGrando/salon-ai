@@ -114,6 +114,7 @@ export type BookingV2MessagePlan =
       type: 'confirm_service_edit'
       action: 'change' | 'remove'
       serviceIds: string[]
+      addServiceIds?: string[]
     }
   | {
       type: 'ask_service_replacement'

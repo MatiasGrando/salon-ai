@@ -193,7 +193,8 @@ export class ConversationRouter {
           'Usa business_information para preguntas sobre horarios del local, direccion, web, formas de reservar, contacto, redes, servicios, profesionales o precios.',
           'Modismos como "cuando levantan la persiana", "cuando abren las puertas" o "desde que hora atienden" preguntan opening_hours; nunca significan volver de paso.',
           'Una consulta por costo, valor, inversion o cuanto sale es business_information con topic prices, aunque no use la palabra precio.',
-          'Usa deposit_information cuando pregunta cuánto debe adelantar, abonar antes, pagar para confirmar o dejar para asegurar un lugar. Es una consulta sobre la seña, no inicia ni modifica una reserva; usa evidencia textual exacta.',
+          'Usa deposit_information solamente cuando pregunta por dinero que debe adelantar, abonar, pagar, transferir o dejar para confirmar o asegurar un lugar. Es una consulta sobre la seña, no inicia ni modifica una reserva; usa evidencia textual exacta.',
+          'Preguntas temporales como "cuánto tiempo antes tendría que ir", "con cuánta anticipación llego" o "cuántos días antes reservo" nunca son deposit_information si no mencionan una acción de pago, seña o anticipo.',
           'Usa request_quote solo cuando pide un presupuesto personalizado o exacto; no lo uses para una consulta general de precio.',
           'Para consultas sobre un servicio puntual, completa catalogQuery con su ID y la informacion pedida aunque el cliente no use palabras literales como servicio o precio.',
           'En catalogQuery usa serviceId para una coincidencia unica y candidateServiceIds con todos los candidatos cuando la referencia es ambigua; no elijas uno arbitrariamente.',
@@ -1043,7 +1044,8 @@ export function hasGroundedDepositInformationIntent(
   routing: Pick<ConversationRouting, 'intents'>,
   originalMessage: string
 ) {
-  return routing.intents.some((intent) => isGroundedDepositInformationIntent(intent, originalMessage))
+  return hasDepositPaymentMeaning(originalMessage) &&
+    routing.intents.some((intent) => isGroundedDepositInformationIntent(intent, originalMessage))
 }
 
 function isGroundedDepositInformationIntent(intent: RoutedIntent, originalMessage: string) {
@@ -1185,9 +1187,32 @@ export function isDepositInformationRequest(message: string) {
     'cuanto', 'de cuanto', 'monto', 'valor', 'importe', 'hay que dejar', 'hay que pagar'
   ]
   const mentionsDeposit = containsAny(normalized, depositTerms)
+  const asksTemporalAmount = containsAny(normalized, [
+    'cuanto tiempo', 'cuantos dias', 'cuantas horas', 'con cuanta anticipacion',
+    'cuanto antes', 'que tan temprano'
+  ])
+  if (asksTemporalAmount && !mentionsDeposit && !hasDepositPaymentMeaning(message)) return false
   const asksReservationAmount = containsAny(normalized, ['reserva', 'reservar']) &&
     containsAny(normalized, amountTerms)
   return (mentionsDeposit || asksReservationAmount) && containsAny(normalized, amountTerms)
+}
+
+function hasDepositPaymentMeaning(message: string) {
+  const normalized = normalizeText(message)
+  if (containsAny(normalized, ['seña', 'sena', 'anticipo'])) return true
+
+  const paymentAction = containsAny(normalized, [
+    'abonar', 'abono', 'pagar', 'pago', 'transferir', 'transferencia',
+    'depositar', 'deposito', 'adelantar', 'adelanto', 'dejar dinero',
+    'dejar para reservar', 'dejar para confirmar', 'dejar para asegurar'
+  ])
+  const reservationPurpose = containsAny(normalized, [
+    'reservar', 'reserva', 'confirmar', 'confirmacion', 'asegurar', 'guardar el lugar'
+  ])
+  const asksAmount = containsAny(normalized, [
+    'cuanto', 'de cuanto', 'monto', 'valor', 'importe', 'que tendria que'
+  ])
+  return paymentAction && (reservationPurpose || asksAmount)
 }
 
 function resolveCatalogQueryServices(

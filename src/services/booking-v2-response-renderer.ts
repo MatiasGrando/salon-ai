@@ -241,6 +241,12 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
     const labels = input.plan.serviceIds.map((serviceId) =>
       labelForService(serviceId, input.catalog)
     ).join(' y ')
+    const addedLabels = (input.plan.addServiceIds ?? []).map((serviceId) =>
+      labelForService(serviceId, input.catalog)
+    ).join(' y ')
+    if (input.plan.action === 'remove' && addedLabels) {
+      return `¿Confirmás que querés quitar ${labels} y agregar ${addedLabels}? Todavía no modifiqué tu selección.`
+    }
     return input.plan.action === 'change'
       ? `¿Confirmás que querés cambiar ${labels}? Todavía no modifiqué tu selección.`
       : `¿Confirmás que querés quitar ${labels} de la reserva? Todavía no modifiqué tu selección.`

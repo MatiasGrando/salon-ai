@@ -2961,12 +2961,15 @@ export class ConversationService {
         aliases: { select: { name: true } }
       }
     })
+    const serviceById = new Map(services.map((service) => [service.id, service]))
     return resolvePendingInformationSelectionFromLabels(
       input.message,
-      services.map((service) => ({
-        id: service.id,
-        labels: [service.name, ...service.aliases.map((alias) => alias.name)]
-      }))
+      input.serviceIds.flatMap((serviceId) => {
+        const service = serviceById.get(serviceId)
+        return service
+          ? [{ id: service.id, labels: [service.name, ...service.aliases.map((alias) => alias.name)] }]
+          : []
+      })
     )
   }
 
@@ -5945,6 +5948,7 @@ export function bookingCoordinationReplyButtons(input: {
   state: BookingV2State
   availabilityOptions?: Array<{ time: string }>
   dateOptions?: string[]
+  serviceOptions?: Array<{ id: string; name: string }>
 }): Array<{ id: string; title: string; description?: string }> | null {
   const prefix = `coord:${input.conversationId}:`
   if (input.plan.type === 'clarify_unsupported_service') {
@@ -5960,6 +5964,29 @@ export function bookingCoordinationReplyButtons(input: {
       { id: `${prefix}disambiguation_confirm`, title: 'Sí, es ese' },
       { id: `${prefix}disambiguation_reject`, title: 'No, ver servicios' },
       { id: `${prefix}human`, title: 'Necesito atención' }
+    ]
+  }
+  if (
+    input.plan.type === 'ask_field' &&
+    input.plan.field === 'service' &&
+    input.serviceOptions?.length
+  ) {
+    const pending = input.state.pendingServiceDisambiguation
+    const canSkipCurrentGroup = Boolean(
+      pending &&
+      (input.state.draft.service || input.state.combinedServices.length || pending.remainingGroups?.length)
+    )
+    return [
+      ...input.serviceOptions.map((service, index) => ({
+        id: `${prefix}disambiguation_option:${index + 1}`,
+        title: service.name
+      })),
+      ...(canSkipCurrentGroup
+        ? [{
+            id: `${prefix}disambiguation_skip`,
+            title: pendingServiceSkipButtonTitle(pending?.evidence ?? 'servicio')
+          }]
+        : [])
     ]
   }
   if (input.plan.type === 'ask_service_validation') {
@@ -6073,6 +6100,12 @@ export function bookingCoordinationReplyButtons(input: {
       { id: `${prefix}booking_confirm`, title: 'Confirmar turno' },
       { id: `${prefix}booking_change_time`, title: 'Cambiar horario' },
       { id: `${prefix}booking_cancel`, title: 'Cancelar reserva' }
+    ]
+  }
+  if (input.plan.type === 'confirm_service_edit') {
+    return [
+      { id: `${prefix}service_edit_confirm`, title: 'Sí, confirmar' },
+      { id: `${prefix}service_edit_cancel`, title: 'No, conservar' }
     ]
   }
   if (input.plan.type === 'offer_separate_services' && input.plan.reason === 'no_common_professional') {
@@ -6234,16 +6267,32 @@ export async function presentBookingV2Result(input: {
   const reply = dateOptions?.checkedTodayAndTomorrow
     ? replaceBookingDatePrompt(input.result.reply, dateOptions.dates)
     : input.result.reply
+  const serviceOptions = input.result.plan.type === 'ask_field' && input.result.plan.field === 'service'
+    ? await bookingV2Engine.serviceOptionsForState({
+        businessId: input.businessId,
+        state: input.result.state
+      })
+    : []
   const buttons = bookingCoordinationReplyButtons({
     conversationId: input.conversationId,
     plan: input.result.plan,
     state: input.result.state,
     availabilityOptions: input.result.availabilityOptions,
+    ...(serviceOptions.length ? { serviceOptions } : {}),
     ...(dateOptions?.checkedTodayAndTomorrow
       ? { dateOptions: dateOptions.dates }
       : {})
   })
   return { reply, buttons }
+}
+
+function pendingServiceSkipButtonTitle(evidence: string) {
+  const cleaned = evidence.trim().replace(/\s+/g, ' ')
+    .replace(/^(?:un|una|el|la|los|las)\s+/i, '')
+  const subject = cleaned
+    ? cleaned.charAt(0).toLocaleUpperCase('es') + cleaned.slice(1)
+    : 'Servicio'
+  return `Seguir sin ${subject}`
 }
 
 export function replaceBookingDatePrompt(reply: string, availableDates: string[]) {
@@ -6296,6 +6345,11 @@ export function bookingCoordinationMessageFromInteractiveReply(
   if (action === 'proposal_confirm') return 'sí'
   if (action === 'disambiguation_confirm') return 'sí'
   if (action === 'disambiguation_reject') return 'no'
+  if (action === 'disambiguation_skip') return 'skip pending service'
+  const disambiguationOption = /^disambiguation_option:([1-9])$/.exec(action)?.[1]
+  if (disambiguationOption) return disambiguationOption
+  if (action === 'service_edit_confirm') return 'sí, confirmo'
+  if (action === 'service_edit_cancel') return 'no, conservar'
   if (action === 'estimate_continue') return 'sí, quiero continuar con la reserva'
   if (action === 'estimate_exact_quote') return 'prefiero un presupuesto exacto'
   if (action.startsWith('estimate_option:')) {
@@ -6851,10 +6905,28 @@ export function resolvePendingInformationSelectionFromLabels(
     .trim()
   if (!normalizedMessage) return null
 
+  const ordinalIndex = pendingSelectionOrdinalIndex(normalizedMessage, services.length)
+  if (ordinalIndex !== null) return services[ordinalIndex]?.id ?? null
+
   const matches = services.filter((service) =>
     service.labels.some((label) => normalizeText(label) === normalizedMessage)
   )
   return matches.length === 1 ? matches[0]?.id ?? null : null
+}
+
+function pendingSelectionOrdinalIndex(message: string, optionCount: number) {
+  const numeric = /^(?:(?:opcion|numero|la)\s+)?([1-9])(?:\s+opcion)?$/.exec(message)?.[1]
+  const numericIndex = numeric ? Number(numeric) - 1 : -1
+  if (numericIndex >= 0 && numericIndex < optionCount) return numericIndex
+  const ordinals = [
+    /^(?:la\s+)?(?:primera|primer)(?:\s+opcion)?$/,
+    /^(?:la\s+)?segunda(?:\s+opcion)?$/,
+    /^(?:la\s+)?tercera(?:\s+opcion)?$/,
+    /^(?:la\s+)?cuarta(?:\s+opcion)?$/,
+    /^(?:la\s+)?quinta(?:\s+opcion)?$/
+  ]
+  const ordinalIndex = ordinals.findIndex((pattern) => pattern.test(message))
+  return ordinalIndex >= 0 && ordinalIndex < optionCount ? ordinalIndex : null
 }
 
 export function looksLikeExpectedCustomerName(message: string, currentStep: string) {

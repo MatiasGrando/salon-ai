@@ -400,9 +400,13 @@ function readPendingServiceSeparation(value: unknown): BookingV2PendingServiceSe
   if (!candidate || typeof candidate !== 'object') return null
   const pending = candidate as { reason?: unknown; edit?: unknown }
   const reason = pending.reason
-  if (reason !== 'blocked_combination' && reason !== 'no_common_professional') return null
+  if (
+    reason !== 'blocked_combination' &&
+    reason !== 'no_common_professional' &&
+    reason !== 'service_set_change'
+  ) return null
   if (!pending.edit || typeof pending.edit !== 'object') return { reason }
-  const edit = pending.edit as { action?: unknown; serviceIds?: unknown }
+  const edit = pending.edit as { action?: unknown; serviceIds?: unknown; addServiceIds?: unknown }
   if (edit.action !== 'menu' && edit.action !== 'change' && edit.action !== 'remove') return { reason }
   const serviceIds = edit.serviceIds === null
     ? null
@@ -412,7 +416,20 @@ function readPendingServiceSeparation(value: unknown): BookingV2PendingServiceSe
           .map((serviceId) => serviceId.trim())
           .slice(0, 5)
       : null
-  return { reason, edit: { action: edit.action, serviceIds } }
+  const addServiceIds = Array.isArray(edit.addServiceIds)
+    ? edit.addServiceIds
+        .filter((serviceId): serviceId is string => typeof serviceId === 'string' && Boolean(serviceId.trim()))
+        .map((serviceId) => serviceId.trim())
+        .slice(0, 5)
+    : null
+  return {
+    reason,
+    edit: {
+      action: edit.action,
+      serviceIds,
+      ...(addServiceIds?.length ? { addServiceIds } : {})
+    }
+  }
 }
 
 function readPendingServiceReplacement(value: unknown): BookingV2PendingServiceReplacement | null {

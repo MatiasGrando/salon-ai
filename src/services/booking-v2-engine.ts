@@ -163,6 +163,20 @@ export class BookingV2Engine {
     return resolveExplicitServiceGroups(input.message, catalog).length >= 2
   }
 
+  async serviceOptionsForState(input: { businessId: string; state: BookingV2State }) {
+    const catalog = await this.domain.loadCatalog(input.businessId)
+    const pendingIds = input.state.pendingServiceDisambiguation?.serviceIds ?? []
+    const services = pendingIds.length
+      ? pendingIds.flatMap((serviceId) => {
+          const service = catalog.services.find((candidate) => candidate.id === serviceId)
+          return service ? [service] : []
+        })
+      : input.state.catalogNavigation?.view === 'CATEGORY' && input.state.catalogNavigation.categoryKey
+        ? catalogServicesForCategory(catalog, input.state.catalogNavigation.categoryKey)
+        : []
+    return services.map((service) => ({ id: service.id, name: service.name }))
+  }
+
   async simpleDateOptions(input: {
     businessId: string
     state: BookingV2State
@@ -444,6 +458,19 @@ export class BookingV2Engine {
               ]
             })
         if (decision.confidence >= 0.7 && decision.choiceId === 'cancel_edit') {
+          if (pending.edit.addServiceIds?.length) {
+            const state: BookingV2State = {
+              ...initialState,
+              pendingServiceSeparation: null,
+              misunderstandingCount: 0
+            }
+            return this.fromInterpretation({
+              state,
+              nextField: nextMissingField(state.draft, catalog.bookingFlowOrder),
+              outcome: 'no_change',
+              affectedField: 'service'
+            }, null, catalog)
+          }
           const state: BookingV2State = {
             ...initialState,
             pendingServiceSeparation: { reason: pending.reason },
@@ -451,14 +478,15 @@ export class BookingV2Engine {
           }
           return this.guidedEstimateResult(state, {
             type: 'offer_separate_services',
-            reason: pending.reason
+            reason: pending.reason === 'blocked_combination' ? 'blocked_combination' : 'no_common_professional'
           }, catalog, 'proposal_rejected')
         }
         if (decision.confidence >= 0.7 && decision.choiceId === 'confirm_edit') {
           const state = applyConfirmedServiceEdit(
             initialState,
             pending.edit.action,
-            pending.edit.serviceIds
+            pending.edit.serviceIds,
+            pending.edit.addServiceIds ?? []
           )
           if (pending.edit.action === 'change' && state.draft.service) {
             const replacementState: BookingV2State = {
@@ -494,7 +522,10 @@ export class BookingV2Engine {
           : this.guidedEstimateResult(state, {
               type: 'confirm_service_edit',
               action: pending.edit.action,
-              serviceIds: pending.edit.serviceIds
+              serviceIds: pending.edit.serviceIds,
+              ...(pending.edit.addServiceIds?.length
+                ? { addServiceIds: pending.edit.addServiceIds }
+                : {})
             }, catalog, 'no_change')
       }
 
@@ -624,7 +655,7 @@ export class BookingV2Engine {
       }
       return this.guidedEstimateResult(state, {
         type: 'offer_separate_services',
-        reason: pending.reason
+        reason: pending.reason === 'blocked_combination' ? 'blocked_combination' : 'no_common_professional'
       }, catalog, 'no_change')
     }
 
@@ -668,6 +699,28 @@ export class BookingV2Engine {
         type: 'ask_service_replacement',
         selectedServiceIds
       }, catalog, 'no_change')
+    }
+
+    const mixedServiceChange = explicitMixedServiceSetChange(input.message, initialState, catalog)
+    if (mixedServiceChange) {
+      const state: BookingV2State = {
+        ...initialState,
+        pendingServiceSeparation: {
+          reason: 'service_set_change',
+          edit: {
+            action: 'remove',
+            serviceIds: mixedServiceChange.removeServiceIds,
+            addServiceIds: mixedServiceChange.addServiceIds
+          }
+        },
+        misunderstandingCount: 0
+      }
+      return this.guidedEstimateResult(state, {
+        type: 'confirm_service_edit',
+        action: 'remove',
+        serviceIds: mixedServiceChange.removeServiceIds,
+        addServiceIds: mixedServiceChange.addServiceIds
+      }, catalog, 'confirmation_required')
     }
 
     if (initialState.pendingCombinedAvailability) {
@@ -1978,6 +2031,13 @@ export class BookingV2Engine {
     const bareCategory = !isSelectingInsideCategory
       ? bareCatalogCategoryMention(input.message, categories)
       : null
+    if (
+      bareCategory &&
+      input.state.pendingServiceDisambiguation?.catalogFallback &&
+      directService?.kind === 'selected'
+    ) {
+      return null
+    }
     if (bareCategory) {
       return this.openCatalogCategory(input.state, input.catalog, bareCategory)
     }
@@ -3194,7 +3254,10 @@ export class BookingV2Engine {
         return this.guidedEstimateResult(state, {
           type: 'confirm_service_edit',
           action: pending.edit.action,
-          serviceIds: pending.edit.serviceIds
+          serviceIds: pending.edit.serviceIds,
+          ...(pending.edit.addServiceIds?.length
+            ? { addServiceIds: pending.edit.addServiceIds }
+            : {})
         }, catalog, 'no_change')
       }
       if (pending.edit?.action === 'change' || pending.edit?.action === 'remove') {
@@ -3206,7 +3269,7 @@ export class BookingV2Engine {
       }
       return this.guidedEstimateResult(state, {
         type: 'offer_separate_services',
-        reason: pending.reason
+        reason: pending.reason === 'blocked_combination' ? 'blocked_combination' : 'no_common_professional'
       }, catalog, 'no_change')
     }
     if (state.pendingServiceReplacement) {
@@ -4442,7 +4505,8 @@ function explicitConfirmationChoice(message: string): 'confirm_edit' | 'cancel_e
 function applyConfirmedServiceEdit(
   state: BookingV2State,
   action: 'change' | 'remove',
-  serviceIds: string[]
+  serviceIds: string[],
+  addServiceIds: string[] = []
 ): BookingV2State {
   const selectedServices = [
     ...(state.draft.service
@@ -4453,7 +4517,7 @@ function applyConfirmedServiceEdit(
   const removedIds = new Set(serviceIds)
   const remainingServices = selectedServices.filter((service) => !removedIds.has(service.serviceId))
   const primaryService = remainingServices[0] ?? null
-  return {
+  let nextState: BookingV2State = {
     ...state,
     draft: {
       ...state.draft,
@@ -4477,6 +4541,18 @@ function applyConfirmedServiceEdit(
     pendingServiceReplacement: null,
     pendingCoordinatedAvailability: null,
     misunderstandingCount: 0
+  }
+  for (const serviceId of addServiceIds) {
+    if (combinedServiceIds(nextState).includes(serviceId)) continue
+    nextState = nextState.draft.service
+      ? addCombinedServices(nextState, [{ serviceId, evidence: 'corrección confirmada' }])
+      : acceptField(nextState, 'service', serviceId)
+  }
+  return {
+    ...nextState,
+    pendingServiceSeparation: null,
+    addonSuggestion: null,
+    addonOfferCompletedServiceId: serviceSelectionKey(combinedServiceIds(nextState)) || null
   }
 }
 
@@ -5454,7 +5530,7 @@ function resolveExplicitServiceGroups(
   message: string,
   catalog: BookingV2DomainCatalog
 ): ExplicitServiceGroup[] {
-  if (!hasMultipleServiceSignal(message)) return []
+  if (!hasMultipleServiceSignal(message, catalog)) return []
   let protectedMessage = ` ${normalize(message.replace(/[,;]/g, ' servicecomma '))} `
   const protectedServices: Array<{ marker: string; serviceId: string; evidence: string }> = []
   const labelsWithConjunction = catalog.services.flatMap((service) =>
@@ -5650,6 +5726,26 @@ function resolvePendingServiceDisambiguation(
   const selections: Array<{ serviceId: string; evidence: string }> = []
   const remainingGroups: BookingV2ServiceDisambiguationGroup[] = []
   const groups = pendingServiceDisambiguationGroups(pending)
+  const currentGroup = groups[0] ?? null
+  if (currentGroup && shouldSkipPendingServiceGroup(message, currentGroup, catalog)) {
+    return {
+      selections: [],
+      remainingGroups: groups.slice(1),
+      changed: true,
+      catalogFallbackEvidence: null
+    }
+  }
+  const ordinalIndex = currentGroup
+    ? serviceOptionIndex(message, currentGroup.serviceIds.length)
+    : null
+  if (currentGroup && ordinalIndex !== null) {
+    return {
+      selections: [{ serviceId: currentGroup.serviceIds[ordinalIndex]!, evidence: message.trim() }],
+      remainingGroups: groups.slice(1),
+      changed: true,
+      catalogFallbackEvidence: null
+    }
+  }
   const singleSuggestionConfirmation = groups[0]?.serviceIds.length === 1 &&
     !groups[0]?.catalogFallback
     ? detectDeterministicConfirmation(message)?.intent ?? null
@@ -5737,8 +5833,103 @@ function prepareQuoteOnlySelectedServices(state: BookingV2State) {
   }
 }
 
-function hasMultipleServiceSignal(message: string) {
-  return /\b(?:y|tambien|ademas|mas)\b/.test(normalize(message))
+function hasMultipleServiceSignal(message: string, catalog: BookingV2DomainCatalog) {
+  if (/\b(?:y|tambien|ademas|mas)\b/.test(normalize(message))) return true
+  if (!/[,;]/.test(message)) return false
+  const clauses = message.split(/[,;]/).map((clause) => clause.trim()).filter(Boolean)
+  const catalogReferences = clauses.filter((clause) =>
+    Boolean(resolveCatalogServiceSelection(clause, catalog))
+  )
+  return catalogReferences.length >= 2
+}
+
+function serviceOptionIndex(message: string, optionCount: number) {
+  const normalizedMessage = normalize(message)
+  const numeric = /^(?:(?:opcion|numero|la)\s+)?([1-9])(?:\s+opcion)?$/.exec(normalizedMessage)?.[1]
+  const numericIndex = numeric ? Number(numeric) - 1 : -1
+  if (numericIndex >= 0 && numericIndex < optionCount) return numericIndex
+  const ordinals = [
+    /^(?:la\s+)?(?:primera|primer)(?:\s+opcion)?$/,
+    /^(?:la\s+)?segunda(?:\s+opcion)?$/,
+    /^(?:la\s+)?tercera(?:\s+opcion)?$/,
+    /^(?:la\s+)?cuarta(?:\s+opcion)?$/,
+    /^(?:la\s+)?quinta(?:\s+opcion)?$/
+  ]
+  const ordinalIndex = ordinals.findIndex((pattern) => pattern.test(normalizedMessage))
+  return ordinalIndex >= 0 && ordinalIndex < optionCount ? ordinalIndex : null
+}
+
+function shouldSkipPendingServiceGroup(
+  message: string,
+  group: BookingV2ServiceDisambiguationGroup,
+  catalog: BookingV2DomainCatalog
+) {
+  const normalizedMessage = normalize(message)
+  if (normalizedMessage === 'skip pending service') return true
+  if (!/^(?:seguir|continuar)?\s*sin\b|^(?:no\s+(?:quiero|necesito|agregar|sumar)?|sacar|quitar|eliminar)\b/.test(normalizedMessage)) {
+    return false
+  }
+  const references = [
+    group.evidence,
+    ...group.serviceIds.flatMap((serviceId) => {
+      const service = catalog.services.find((candidate) => candidate.id === serviceId)
+      return service
+        ? [service.name, service.category ?? '', service.parentServiceName ?? '', ...service.aliases]
+        : []
+    })
+  ].filter(Boolean)
+  const messageTokens = serviceSelectionTokens(normalizedMessage)
+  return references.some((reference) =>
+    serviceSelectionTokens(reference).some((referenceToken) =>
+      messageTokens.some((messageToken) => serviceTokensMatch(referenceToken, messageToken))
+    )
+  )
+}
+
+function explicitMixedServiceSetChange(
+  message: string,
+  state: BookingV2State,
+  catalog: BookingV2DomainCatalog
+) {
+  const normalizedMessage = normalize(message)
+  if (!/\b(?:agregar|agrego|sumar|sumo|necesito|quiero)\b/.test(normalizedMessage)) return null
+  const selectedServiceIds = combinedServiceIds(state)
+  if (!selectedServiceIds.length) return null
+
+  const removeServiceIds = selectedServiceIds.filter((serviceId) => {
+    const service = catalog.services.find((candidate) => candidate.id === serviceId)
+    return service ? serviceHasNegativeMention(normalizedMessage, service) : false
+  })
+  if (!removeServiceIds.length) return null
+
+  const selected = new Set(selectedServiceIds)
+  const removed = new Set(removeServiceIds)
+  const contextualAddonIds = new Set(selectedServiceIds.flatMap((serviceId) =>
+    catalog.services.find((service) => service.id === serviceId)?.suggestedAddonIds ?? []
+  ))
+  const addServiceIds = resolveExplicitServiceGroups(message, catalog).flatMap((group) => {
+    if (group.kind === 'selected') return [group.serviceId]
+    if (group.kind !== 'ambiguous') return []
+    const contextual = group.serviceIds.filter((serviceId) => contextualAddonIds.has(serviceId))
+    return contextual.length === 1 ? contextual : []
+  }).filter((serviceId) => !selected.has(serviceId) && !removed.has(serviceId))
+
+  const uniqueAdditions = Array.from(new Set(addServiceIds))
+  return uniqueAdditions.length
+    ? { removeServiceIds, addServiceIds: uniqueAdditions }
+    : null
+}
+
+function serviceHasNegativeMention(
+  normalizedMessage: string,
+  service: BookingV2DomainCatalog['services'][number]
+) {
+  return [service.name, ...service.aliases].some((label) => {
+    const normalizedLabel = normalize(label)
+    if (!normalizedLabel) return false
+    const escapedLabel = normalizedLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return new RegExp(`\\b(?:no(?:\\s+(?:quiero|necesito))?|sin|sacar|quitar|eliminar)\\s+(?:el\\s+|la\\s+|los\\s+|las\\s+)?${escapedLabel}\\b`).test(normalizedMessage)
+  })
 }
 
 function selectedAddonIdsFromMessage(

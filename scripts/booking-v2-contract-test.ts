@@ -8118,6 +8118,14 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         resolvePendingInformationSelectionFromLabels('elijo mentoría individual por favor', services),
         'individual'
       )
+      assert.equal(
+        resolvePendingInformationSelectionFromLabels('la segunda opción', services),
+        'individual'
+      )
+      assert.equal(
+        resolvePendingInformationSelectionFromLabels('opción 1', services),
+        'group'
+      )
       assert.equal(resolvePendingInformationSelectionFromLabels('mentorías', services), null)
     }
   },
@@ -8162,6 +8170,24 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(hasGroundedDepositInformationIntent(routing, message), true)
       assert.equal(isDepositInformationRequest(message), false)
 
+      const temporalQuestion = 'Si quisiera hacerme una iluminación, ¿cuánto tiempo antes tendría que ir?'
+      const temporalRouting = mergeConversationRouting({
+        intents: [{
+          type: 'deposit_information',
+          topic: null,
+          confidence: 0.96,
+          evidence: 'cuánto tiempo antes tendría que ir'
+        }],
+        bookingMessage: null,
+        bookingExtraction: null,
+        catalogQuery: null
+      }, deterministicConversationRouting(temporalQuestion, { currentStep: 'START' }), temporalQuestion)
+      assert.equal(
+        hasGroundedDepositInformationIntent(temporalRouting, temporalQuestion),
+        false,
+        'una consulta temporal sin señal de pago no debe convertirse en seña'
+      )
+
       const lowConfidence = {
         ...routing,
         intents: [{
@@ -8187,6 +8213,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       })
       assert.equal(isDepositInformationRequest('¿De cuánto es la seña?'), true)
       assert.equal(isDepositInformationRequest('Quiero reservar mentoría grupal'), false)
+      assert.equal(isDepositInformationRequest('¿Cuánto tiempo antes debo reservar?'), false)
+      assert.equal(isDepositInformationRequest('¿Cuánto antes tengo que llegar?'), false)
       assert.equal(direct.bookingMessage, null)
       assert.equal(direct.catalogQuery?.serviceId, 'group')
       assert.deepEqual(direct.catalogQuery?.requestedInformation, ['deposit'])

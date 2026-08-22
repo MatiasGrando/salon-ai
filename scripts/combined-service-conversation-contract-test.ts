@@ -18,6 +18,7 @@ import {
   type BookingV2State
 } from '../src/services/booking-v2-state.js'
 import {
+  bookingCoordinationMessageFromInteractiveReply,
   bookingCoordinationReplyButtons,
   presentBookingV2Result
 } from '../src/services/conversation-service.js'
@@ -400,6 +401,137 @@ await test('dos familias ambiguas se preguntan en orden y se combinan al resolve
   assert.equal(corte.state.pendingServiceDisambiguation, null)
   assert.match(corte.reply, /Alisado sin formol/)
   assert.match(corte.reply, /Corte Hombre/)
+})
+
+await test('una selección ordinal resuelve la opción en el mismo orden mostrado', async () => {
+  const domainCatalog = ambiguousFamiliesCatalog()
+  const first = await engine(domainCatalog).process({
+    businessId: 'business-1',
+    conversation: conversationPatchFromState(namedState()),
+    message: 'Quiero un alisado y un corte'
+  })
+  const selected = await engine(domainCatalog).process({
+    businessId: 'business-1',
+    conversation: first.conversationPatch,
+    message: 'la segunda opción'
+  })
+
+  assert.equal(selected.state.draft.service, 'sin-formol')
+  assert.deepEqual(selected.state.pendingServiceDisambiguation?.serviceIds, ['corte-hombre', 'corte-barba'])
+})
+
+await test('una lista separada por comas conserva todos los servicios', async () => {
+  const result = await engine().process({
+    businessId: 'business-1',
+    conversation: conversationPatchFromState(namedState()),
+    message: 'Alisado, corte, lavado'
+  })
+
+  assert.deepEqual(new Set(combinedServiceIds(result.state)), new Set(['alisado', 'corte', 'lavado']))
+})
+
+await test('seguir sin el grupo pendiente conserva los demás servicios y avanza', async () => {
+  const domainCatalog = ambiguousFamiliesCatalog()
+  const first = await engine(domainCatalog).process({
+    businessId: 'business-1',
+    conversation: conversationPatchFromState(namedState()),
+    message: 'Quiero un alisado y un corte'
+  })
+  const alisado = await engine(domainCatalog).process({
+    businessId: 'business-1',
+    conversation: first.conversationPatch,
+    message: 'Alisado sin formol'
+  })
+  const skipped = await engine(domainCatalog).process({
+    businessId: 'business-1',
+    conversation: alisado.conversationPatch,
+    message: 'seguir sin corte'
+  })
+
+  assert.deepEqual(combinedServiceIds(skipped.state), ['sin-formol'])
+  assert.equal(skipped.state.pendingServiceDisambiguation, null)
+  assert.match(skipped.reply, /Podés atenderte con/i)
+})
+
+await test('los grupos pendientes muestran opciones interactivas y permiten omitir el actual', () => {
+  const state: BookingV2State = {
+    ...acceptField(namedState(), 'service', 'alisado'),
+    pendingServiceDisambiguation: {
+      serviceIds: ['corte', 'lavado'],
+      evidence: 'peinado'
+    }
+  }
+  const buttons = bookingCoordinationReplyButtons({
+    conversationId: 'conversation-1',
+    plan: { type: 'ask_field', field: 'service', reason: 'missing', misunderstandingCount: 0 },
+    state,
+    serviceOptions: [
+      { id: 'corte', name: 'Corte' },
+      { id: 'lavado', name: 'Lavado' }
+    ]
+  })
+
+  assert.deepEqual(buttons?.map((button) => button.title), ['Corte', 'Lavado', 'Seguir sin Peinado'])
+  assert.equal(
+    bookingCoordinationMessageFromInteractiveReply(buttons?.[1]?.id, 'conversation-1'),
+    '2'
+  )
+  assert.equal(
+    bookingCoordinationMessageFromInteractiveReply(buttons?.[2]?.id, 'conversation-1'),
+    'skip pending service'
+  )
+})
+
+await test('una categoría navegable muestra botones aunque no haya desambiguación pendiente', () => {
+  const state: BookingV2State = {
+    ...namedState(),
+    catalogNavigation: {
+      view: 'CATEGORY',
+      categoryKey: 'name:iluminacion',
+      categoryName: 'Iluminación',
+      pendingCategoryKey: null,
+      pendingCategoryName: null
+    }
+  }
+  const buttons = bookingCoordinationReplyButtons({
+    conversationId: 'conversation-1',
+    plan: { type: 'ask_field', field: 'service', reason: 'missing', misunderstandingCount: 0 },
+    state,
+    serviceOptions: [
+      { id: 'color', name: 'Arreglo de color' },
+      { id: 'alisado', name: 'Iluminación completa' }
+    ]
+  })
+
+  assert.deepEqual(buttons?.map((button) => button.title), ['Arreglo de color', 'Iluminación completa'])
+})
+
+await test('una corrección mixta confirma quitar y agregar antes de cambiar la reserva', async () => {
+  const selected = addCombinedServices(
+    acceptField(namedState(), 'service', 'alisado'),
+    [{ serviceId: 'color', evidence: 'color' }]
+  )
+  const proposed = await engine().process({
+    businessId: 'business-1',
+    conversation: conversationPatchFromState(selected),
+    message: 'Disculpá, necesito agregar corte y brusing, no color'
+  })
+
+  assert.equal(proposed.plan.type, 'confirm_service_edit')
+  assert.deepEqual(combinedServiceIds(proposed.state), ['alisado', 'color'])
+  assert.deepEqual(proposed.state.pendingServiceSeparation?.edit?.serviceIds, ['color'])
+  assert.deepEqual(
+    new Set(proposed.state.pendingServiceSeparation?.edit?.addServiceIds),
+    new Set(['corte', 'brushing'])
+  )
+
+  const confirmed = await engine().process({
+    businessId: 'business-1',
+    conversation: proposed.conversationPatch,
+    message: 'Sí, confirmo'
+  })
+  assert.deepEqual(new Set(combinedServiceIds(confirmed.state)), new Set(['alisado', 'corte', 'brushing']))
+  assert.equal(confirmed.state.pendingServiceSeparation, null)
 })
 
 await test('mechas sin alias se conserva y pide confirmar Iluminación antes de resolver corte', async () => {
