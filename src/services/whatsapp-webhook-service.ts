@@ -24,6 +24,14 @@ import {
 } from './photo-quote-acknowledgement-service.js'
 import { InboundMessageBatcher } from './inbound-message-batcher.js'
 import { withConversationProcessingLease } from './conversation-processing-lease.js'
+import {
+  admitConversationInteractivePromptReply,
+  createInteractivePromptToken,
+  interactivePromptConflictReply,
+  parseVersionedInteractiveReplyId,
+  resolveConversationInteractivePrompt,
+  versionInteractiveReplyId
+} from './conversation-interactive-prompt.js'
 import { stateFromConversation } from './booking-v2-conversation-state.js'
 import {
   isGreetingLatencyDiagnosticMessage,
@@ -100,6 +108,7 @@ type AutomaticInboundMessage = {
   businessId: string | null
   previousActivityAt: Date
   interactiveReplyId?: string
+  interactivePromptToken?: string
   hasImageAttachment?: boolean
   latencyDiagnostic?: LatencyDiagnostic
 }
@@ -229,6 +238,7 @@ export class WhatsAppWebhookService {
       latencyDiagnostic?.checkpoint('duplicate_check')
 
       const conversation = await prisma.conversation.upsert(conversationUpsert)
+      let resolvedInteractiveReplyId = message.interactiveReplyId
 
       const inboundMessageData: {
         conversationId: string
@@ -263,9 +273,34 @@ export class WhatsAppWebhookService {
         inboundMessageData.providerMessageId = message.id
       }
 
-      const inboundMessage = await prisma.message.create({
-        data: inboundMessageData
-      })
+      let inboundMessage
+      if (message.interactiveReplyId) {
+        const recordedReply = await admitConversationInteractivePromptReply({
+          conversationId: conversation.id,
+          incomingReplyId: message.interactiveReplyId,
+          persist: (transaction, admission) => transaction.message.create({
+            data: {
+              ...inboundMessageData,
+              status: admission.accepted ? 'received' : 'ignored_stale_button'
+            }
+          })
+        })
+        inboundMessage = recordedReply.value
+        if (!recordedReply.admission.accepted) {
+          results.push({
+            messageId: message.id,
+            from: message.from,
+            skipped: true,
+            reason: 'Botón vencido o ya utilizado'
+          })
+          continue
+        }
+        resolvedInteractiveReplyId = recordedReply.admission.replyId
+      } else {
+        inboundMessage = await prisma.message.create({
+          data: inboundMessageData
+        })
+      }
       const supportedDepositProof = isSupportedDepositProof(message.media)
       const expectedDepositId = pendingDepositIdFromState(conversation.bookingV2State)
       const depositProof = supportedDepositProof
@@ -573,14 +608,17 @@ export class WhatsAppWebhookService {
         text: message.text,
         businessId: conversation.businessId,
         previousActivityAt: conversation.updatedAt,
-        ...(message.interactiveReplyId
-          ? { interactiveReplyId: message.interactiveReplyId }
+        ...(resolvedInteractiveReplyId
+          ? { interactiveReplyId: resolvedInteractiveReplyId }
+          : {}),
+        ...(message.interactiveReplyId && parseVersionedInteractiveReplyId(message.interactiveReplyId)
+          ? { interactivePromptToken: parseVersionedInteractiveReplyId(message.interactiveReplyId)!.token }
           : {}),
         ...(message.media?.type === 'image' ? { hasImageAttachment: true } : {}),
         ...(latencyDiagnostic ? { latencyDiagnostic } : {})
       }
-      await prisma.message.update({
-        where: { id: inboundMessage.id },
+      await prisma.message.updateMany({
+        where: { id: inboundMessage.id, status: 'received' },
         data: { status: 'queued_bot' }
       })
       const automaticTask = inboundMessageBatcher.enqueue({
@@ -627,7 +665,42 @@ export class WhatsAppWebhookService {
     const latencyDiagnostic = firstMessage.latencyDiagnostic
     latencyDiagnostic?.checkpoint('batch_wait')
     const combinedMessage = batch.map((message) => message.text.trim()).filter(Boolean).join('\n')
+    const promptResolution = firstMessage.interactivePromptToken
+      ? await resolveConversationInteractivePrompt(
+          firstMessage.conversationId,
+          firstMessage.interactivePromptToken
+        )
+      : null
+    if (promptResolution?.status === 'stale') {
+      await prisma.message.updateMany({
+        where: {
+          id: { in: batch.map((message) => message.inboundMessageId) },
+          status: { in: ['received', 'queued_bot'] }
+        },
+        data: { status: 'ignored_stale_button' }
+      })
+      return {
+        reply: '',
+        messages: [],
+        deliveries: [],
+        inboundBatchSize: batch.length,
+        suppressed: true
+      }
+    }
+    const reconciledInboundMessageIds = promptResolution?.inboundMessageIds ?? []
+    const effectiveInteractiveReplyId = promptResolution?.status === 'selected'
+      ? promptResolution.replyId
+      : firstMessage.interactiveReplyId
     const processConversation = async () => {
+      if (promptResolution?.status === 'conflict') {
+        return {
+          ...interactivePromptConflictReply(promptResolution.choices),
+          messages: undefined,
+          depositRequestId: undefined,
+          skipMisunderstandingTracking: true,
+          skipHumanize: true
+        }
+      }
       const exclusiveSupportBotResult = firstMessage.businessId
         ? await handleExclusiveBusinessSupportBotMessage({
             businessId: firstMessage.businessId,
@@ -641,8 +714,8 @@ export class WhatsAppWebhookService {
           phone: firstMessage.phone,
           message: combinedMessage,
           ...(firstMessage.businessId ? { businessId: firstMessage.businessId } : {}),
-          ...(firstMessage.interactiveReplyId
-            ? { interactiveReplyId: firstMessage.interactiveReplyId }
+          ...(effectiveInteractiveReplyId
+            ? { interactiveReplyId: effectiveInteractiveReplyId }
             : {}),
           ...(batch.some((message) => message.hasImageAttachment)
             ? { hasImageAttachment: true }
@@ -655,7 +728,10 @@ export class WhatsAppWebhookService {
       ? await latencyDiagnostic.measure('conversation_processing', processConversation)
       : await processConversation()
 
-    const inboundMessageIds = batch.map((message) => message.inboundMessageId)
+    const inboundMessageIds = [...new Set([
+      ...batch.map((message) => message.inboundMessageId),
+      ...reconciledInboundMessageIds
+    ])]
     const latestReceivedAt = new Date(Math.max(...batch.map((message) => message.receivedAt.getTime())))
     const newerInbound = await prisma.message.findFirst({
       where: {
@@ -674,6 +750,10 @@ export class WhatsAppWebhookService {
     })
 
     if (newerInbound) {
+      await prisma.conversation.update({
+        where: { id: firstMessage.conversationId },
+        data: { activeInteractivePromptToken: null }
+      })
       return {
         reply: '',
         messages: [],
@@ -685,6 +765,10 @@ export class WhatsAppWebhookService {
     }
 
     if ('suppressOutbound' in conversationResult && conversationResult.suppressOutbound) {
+      await prisma.conversation.update({
+        where: { id: firstMessage.conversationId },
+        data: { activeInteractivePromptToken: null }
+      })
       if (firstMessage.businessId) {
         publishConversationUpdated({
           businessId: firstMessage.businessId,
@@ -709,6 +793,17 @@ export class WhatsAppWebhookService {
         ? await assertBusinessCanSendWhatsApp(firstMessage.businessId, 'BOT')
         : null
     const hasReplyButtons = Boolean(conversationResult.replyButtons?.length)
+    const interactivePromptToken = hasReplyButtons ? createInteractivePromptToken() : null
+    const outboundReplyButtons = interactivePromptToken
+      ? conversationResult.replyButtons!.map((button) => ({
+          ...button,
+          id: versionInteractiveReplyId(button.id, interactivePromptToken)
+        }))
+      : conversationResult.replyButtons
+    await prisma.conversation.update({
+      where: { id: firstMessage.conversationId },
+      data: { activeInteractivePromptToken: interactivePromptToken }
+    })
     const hasInteractiveList = (conversationResult.replyButtons?.length ?? 0) > 3
     const isDateSelectionList = hasInteractiveList && Boolean(conversationResult.replyButtons?.every((button) =>
       /:date:\d{4}-\d{2}-\d{2}$/.test(button.id) ||
@@ -732,7 +827,7 @@ export class WhatsAppWebhookService {
                   businessId: firstMessage.businessId!,
                   to: firstMessage.phone,
                   text: replyText,
-                  rows: conversationResult.replyButtons!,
+                  rows: outboundReplyButtons!,
                   buttonText: isDateSelectionList ? 'Ver días disponibles' : 'Ver opciones',
                   sectionTitle: isDateSelectionList ? 'Elegí una fecha' : 'Elegí una opción'
                 })
@@ -740,7 +835,7 @@ export class WhatsAppWebhookService {
                 businessId: firstMessage.businessId!,
                 to: firstMessage.phone,
                 text: replyText,
-                buttons: conversationResult.replyButtons!
+                buttons: outboundReplyButtons!
               })
             : whatsappCloudApi.sendTextMessage({
                 businessId: firstMessage.businessId!,
@@ -779,6 +874,7 @@ export class WhatsAppWebhookService {
         providerErrorMessage?: string
         metadata: Awaited<ReturnType<WhatsAppCloudApi['sendTextMessage']>> & {
           inboundBatchSize?: number
+          interactivePromptToken?: string
         }
       } = {
         conversationId: firstMessage.conversationId,
@@ -788,7 +884,8 @@ export class WhatsAppWebhookService {
         status: deliveryResult.sent ? 'sent' : 'failed',
         metadata: {
           ...deliveryResult,
-          ...(batch.length > 1 ? { inboundBatchSize: batch.length } : {})
+          ...(batch.length > 1 ? { inboundBatchSize: batch.length } : {}),
+          ...(interactivePromptToken ? { interactivePromptToken } : {})
         }
       }
 
@@ -837,6 +934,16 @@ export class WhatsAppWebhookService {
         phone: firstMessage.phone,
         businessId: firstMessage.businessId,
         depositId: conversationResult.depositRequestId
+      })
+    }
+
+    if (interactivePromptToken && deliveryResults.some((delivery) => !delivery.sent)) {
+      await prisma.conversation.updateMany({
+        where: {
+          id: firstMessage.conversationId,
+          activeInteractivePromptToken: interactivePromptToken
+        },
+        data: { activeInteractivePromptToken: null }
       })
     }
 

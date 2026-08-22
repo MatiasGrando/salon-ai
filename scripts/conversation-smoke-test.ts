@@ -5,6 +5,11 @@ import {
   isExplicitResetRequest,
   isUnambiguousBookingConfirmation
 } from '../src/services/conversation-service.js'
+import {
+  admitConversationInteractivePromptReply,
+  resolveConversationInteractivePrompt,
+  versionInteractiveReplyId
+} from '../src/services/conversation-interactive-prompt.js'
 
 type Check = {
   includes?: string[]
@@ -1541,6 +1546,8 @@ async function main() {
     throw new Error(`No encontré escenarios que coincidan con "${process.env.CONVERSATION_SCENARIO}".`)
   }
 
+  await assertInteractivePromptIsSingleUse(business.id)
+
   let failures = 0
 
   for (const scenario of scenariosToRun) {
@@ -1596,6 +1603,76 @@ async function runScenario(scenario: Scenario) {
   } finally {
     await cleanupTestScheduleBlocks()
     restoreDate?.()
+  }
+}
+
+async function assertInteractivePromptIsSingleUse(businessId: string) {
+  const phone = `${testPhonePrefix}interactive-prompt-lock`
+  await cleanupPhone(phone)
+  const token = 'b'.repeat(32)
+  const conversation = await prisma.conversation.create({
+    data: {
+      phone,
+      businessId,
+      activeInteractivePromptToken: token
+    }
+  })
+  try {
+    const recordReply = (replyId: string, title: string, promptToken = token) =>
+      admitConversationInteractivePromptReply({
+        conversationId: conversation.id,
+        incomingReplyId: versionInteractiveReplyId(replyId, promptToken),
+        persist: (transaction, admission) => transaction.message.create({
+          data: {
+            conversationId: conversation.id,
+            phone,
+            direction: 'INBOUND',
+            body: title,
+            status: admission.accepted ? 'queued_bot' : 'ignored_stale_button',
+            metadata: { interactiveReplyId: versionInteractiveReplyId(replyId, promptToken) }
+          }
+        })
+      })
+    const replies = await Promise.all([
+      recordReply(`coord:${conversation.id}:confirm_reservations`, 'Confirmar turno'),
+      recordReply(`coord:${conversation.id}:change_time`, 'Cambiar horario')
+    ])
+    assert.equal(replies.every((result) => result.admission.accepted), true)
+    const resolution = await resolveConversationInteractivePrompt(conversation.id, token)
+    assert.equal(resolution.status, 'conflict')
+    if (resolution.status === 'conflict') {
+      assert.deepEqual(resolution.choices.map((choice) => choice.title).sort(), [
+        'Cambiar horario',
+        'Confirmar turno'
+      ])
+    }
+    assert.equal(
+      (await resolveConversationInteractivePrompt(conversation.id, token)).status,
+      'stale'
+    )
+
+    const duplicateToken = 'c'.repeat(32)
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { activeInteractivePromptToken: duplicateToken }
+    })
+    const repeatedReplyId = `coord:${conversation.id}:change_time`
+    const duplicates = await Promise.all([
+      recordReply(repeatedReplyId, 'Cambiar horario', duplicateToken),
+      recordReply(repeatedReplyId, 'Cambiar horario', duplicateToken)
+    ])
+    assert.equal(duplicates.every((result) => result.admission.accepted), true)
+    const duplicateResolution = await resolveConversationInteractivePrompt(
+      conversation.id,
+      duplicateToken
+    )
+    assert.equal(duplicateResolution.status, 'selected')
+    if (duplicateResolution.status === 'selected') {
+      assert.equal(duplicateResolution.replyId, repeatedReplyId)
+      assert.equal(duplicateResolution.inboundMessageIds.length, 2)
+    }
+  } finally {
+    await cleanupPhone(phone)
   }
 }
 

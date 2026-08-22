@@ -805,6 +805,18 @@ export class ConversationService {
       }
     }
 
+    if (
+      coordinationButtonMessage &&
+      bookingV2Enabled &&
+      businessId &&
+      conversation.currentStep === 'COMPLETED'
+    ) {
+      return completedBookingReplyForCoordinationMessage(
+        coordinationButtonMessage,
+        conversation.id
+      )
+    }
+
     if (coordinationButtonMessage && bookingV2Enabled && businessId) {
       if (coordinationButtonMessage === 'solicitar atención') {
         await this.updateConversation(input.phone, businessId, {
@@ -6523,6 +6535,25 @@ export function manageAppointmentDecisionButtons(conversationId: string) {
     { id: `other_edit:${conversationId}`, title: 'Modificarlo' },
     { id: `other_cancel:${conversationId}`, title: 'Cancelarlo' }
   ]
+}
+
+export function completedBookingReplyForCoordinationMessage(
+  coordinationMessage: string,
+  conversationId: string
+): HandleMessageResult {
+  if (coordinationMessage === 'cambiar horario') {
+    return {
+      reply: 'La reserva ya quedó confirmada. Si querés cambiar el horario del turno confirmado, elegí “Modificarlo”.',
+      replyButtons: manageAppointmentDecisionButtons(conversationId),
+      skipMisunderstandingTracking: true,
+      skipHumanize: true
+    }
+  }
+  return {
+    reply: 'Esa opción pertenecía a una reserva que ya quedó confirmada. Tomá como válido el último mensaje que te envié.',
+    skipMisunderstandingTracking: true,
+    skipHumanize: true
+  }
 }
 
 export function otherQueryMenuActionFromInteractiveReply(

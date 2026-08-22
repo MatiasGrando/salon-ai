@@ -71,6 +71,7 @@ import {
   bookingV2StateAfterGoingBack,
   clearBookingV2StateFromField,
   composeBusinessInformationResumeReply,
+  completedBookingReplyForCoordinationMessage,
   freshBookingV2State,
   hasQuoteOnlyBookingRequest,
   isBookingV2ConversationClosing,
@@ -318,6 +319,28 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
       const withExactTime = mergeBookingTimePreferenceFromMessage(withWindow, 'a las 13:30')
       assert.equal(withExactTime.requestedTimeWindow, null)
+    }
+  },
+  {
+    name: 'un botón viejo después de confirmar no reactiva el estimativo',
+    run: () => {
+      const changeTime = completedBookingReplyForCoordinationMessage(
+        'cambiar horario',
+        'conversation-1'
+      )
+      assert.match(changeTime.reply, /ya quedó confirmada/i)
+      assert.doesNotMatch(changeTime.reply, /precio|largo del cabello|estimativo/i)
+      assert.deepEqual(changeTime.replyButtons?.map((button) => button.title), [
+        'Modificarlo',
+        'Cancelarlo'
+      ])
+
+      const repeatedConfirmation = completedBookingReplyForCoordinationMessage(
+        'confirmar las reservas',
+        'conversation-1'
+      )
+      assert.match(repeatedConfirmation.reply, /ya quedó confirmada/i)
+      assert.doesNotMatch(repeatedConfirmation.reply, /precio|estimativo/i)
     }
   },
   {

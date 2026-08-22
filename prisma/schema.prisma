@@ -950,6 +950,7 @@ model Conversation {
   archivedAt               DateTime?
   botProcessingToken       String?
   botProcessingUntil       DateTime?
+  activeInteractivePromptToken String?
 
   opportunityStatus        ConversationOpportunityStatus @default(OPEN)
   opportunityOpenedAt      DateTime                      @default(now())

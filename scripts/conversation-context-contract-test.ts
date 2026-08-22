@@ -14,6 +14,11 @@ import {
   conversationPatchFromState,
   stateFromConversation
 } from '../src/services/booking-v2-conversation-state.js'
+import {
+  interactivePromptConflictReply,
+  parseVersionedInteractiveReplyId,
+  versionInteractiveReplyId
+} from '../src/services/conversation-interactive-prompt.js'
 
 const now = new Date('2026-08-03T18:00:00.000Z')
 const defaults = normalizeConversationContextSettings()
@@ -85,6 +90,21 @@ const incoming = new WhatsAppWebhookService().extractIncomingMessages({
 })
 assert.equal(incoming[0]?.text, 'Continuar reserva')
 assert.equal(incoming[0]?.interactiveReplyId, buttons[0]?.id)
+
+const promptToken = 'a'.repeat(32)
+const versionedButtonId = versionInteractiveReplyId(buttons[0]!.id, promptToken)
+assert.deepEqual(parseVersionedInteractiveReplyId(versionedButtonId), {
+  token: promptToken,
+  replyId: buttons[0]!.id
+})
+assert.equal(parseVersionedInteractiveReplyId(buttons[0]!.id), null)
+const conflictReply = interactivePromptConflictReply([
+  { id: 'confirm', title: 'Confirmar turno' },
+  { id: 'change', title: 'Cambiar horario' }
+])
+assert.match(conflictReply.reply, /recibí más de una opción/i)
+assert.match(conflictReply.reply, /Confirmar turno.*Cambiar horario/i)
+assert.deepEqual(conflictReply.replyButtons.map((button) => button.id), ['confirm', 'change'])
 
 const pausedState = {
   ...createEmptyBookingV2State(),
