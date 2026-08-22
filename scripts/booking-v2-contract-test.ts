@@ -85,6 +85,8 @@ import {
   isPostBookingWellbeingQuestion,
   isUnambiguousBookingConfirmation,
   mergeBookingV2AgendaFromRouting,
+  mergeBookingTimePreferenceFromMessage,
+  mergePendingBookingRequests,
   pendingRequestFromRouting,
   pendingInformationSelectionRequest,
   preliminaryAvailabilityActionFromInteractiveReply,
@@ -277,6 +279,45 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         pendingServiceDisambiguation: null
       }
       assert.equal(shouldReplayPendingBookingRequest(storedState, resolved), true)
+    }
+  },
+  {
+    name: 'acumula nombre fecha hora servicio y rango mientras completa la reserva',
+    run: () => {
+      const first = {
+        message: 'quiero un turno para corte',
+        intents: ['book_appointment'],
+        extraction: extraction({ service: field('haircut', 0.98, 'corte') }),
+        createdAt: '2026-08-22T14:00:00.000Z'
+      }
+      const second = {
+        message: 'soy Antonella\npara mañana antes de las 3',
+        intents: ['book_appointment', 'availability_preference'],
+        extraction: extraction({
+          name: field('Antonella', 0.99, 'Antonella'),
+          date: field('2026-08-23', 0.99, 'mañana')
+        }),
+        createdAt: '2026-08-22T14:00:01.000Z'
+      }
+      const merged = mergePendingBookingRequests(first, second)
+      assert.equal(merged?.extraction?.name.value, 'Antonella')
+      assert.equal(merged?.extraction?.service.value, 'haircut')
+      assert.equal(merged?.extraction?.date.value, '2026-08-23')
+      assert.equal(merged?.message, 'quiero un turno para corte\nsoy Antonella\npara mañana antes de las 3')
+
+      const withWindow = mergeBookingTimePreferenceFromMessage(
+        createEmptyBookingV2State(),
+        'para mañana antes de las 3'
+      )
+      assert.deepEqual(withWindow.requestedTimeWindow, {
+        startTime: '00:00',
+        endTime: '14:59'
+      })
+      const restored = stateFromConversation(conversationPatchFromState(withWindow))
+      assert.deepEqual(restored.requestedTimeWindow, withWindow.requestedTimeWindow)
+
+      const withExactTime = mergeBookingTimePreferenceFromMessage(withWindow, 'a las 13:30')
+      assert.equal(withExactTime.requestedTimeWindow, null)
     }
   },
   {

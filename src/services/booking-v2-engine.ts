@@ -3694,7 +3694,8 @@ export class BookingV2Engine {
         page: 0,
         timeBand: null,
         requestedTime: null,
-        requestedWindow: preliminaryAvailabilityWindow(effectiveInterpretation.state),
+        requestedWindow: effectiveInterpretation.state.requestedTimeWindow ??
+          preliminaryAvailabilityWindow(effectiveInterpretation.state),
         selectedOptionId: null
       }
       const result = await this.searchCoordinatedAvailability({

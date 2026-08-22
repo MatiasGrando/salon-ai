@@ -137,6 +137,40 @@ export function detectBookingCoordinationChoice(input: {
   return null
 }
 
+export function bookingTimePreferenceFromMessage(message: string):
+  | { type: 'EXACT_TIME'; time: string }
+  | { type: 'TIME_WINDOW'; startTime: string; endTime: string }
+  | null {
+  const choice = detectBookingCoordinationChoice({ message })
+  if (!choice) return null
+  if (choice.type === 'EXACT_TIME') return choice
+  if (choice.type === 'TIME_WINDOW') return choice
+  if (choice.type === 'BEFORE_TIME') {
+    return {
+      type: 'TIME_WINDOW',
+      startTime: '00:00',
+      endTime: choice.inclusive ? choice.time : shiftMinute(choice.time, -1)
+    }
+  }
+  if (choice.type === 'AFTER_TIME') {
+    return {
+      type: 'TIME_WINDOW',
+      startTime: choice.inclusive ? choice.time : shiftMinute(choice.time, 1),
+      endTime: '23:59'
+    }
+  }
+  if (choice.type === 'TIME_BAND') {
+    if (choice.band === 'MORNING') {
+      return { type: 'TIME_WINDOW', startTime: '00:00', endTime: '11:59' }
+    }
+    if (choice.band === 'MIDDAY') {
+      return { type: 'TIME_WINDOW', startTime: '12:00', endTime: '14:59' }
+    }
+    return { type: 'TIME_WINDOW', startTime: '15:00', endTime: '23:59' }
+  }
+  return null
+}
+
 export function timeBelongsToBand(time: string, band: BookingV2CoordinatedTimeBand) {
   const minutes = timeToMinutes(time)
   if (minutes === null) return false
@@ -227,4 +261,11 @@ function timeToMinutes(value: string) {
   const hour = Number(match[1])
   const minute = Number(match[2])
   return hour <= 24 && minute <= 59 ? hour * 60 + minute : null
+}
+
+function shiftMinute(value: string, delta: number) {
+  const minutes = timeToMinutes(value)
+  if (minutes === null) return value
+  const shifted = Math.max(0, Math.min(23 * 60 + 59, minutes + delta))
+  return `${String(Math.floor(shifted / 60)).padStart(2, '0')}:${String(shifted % 60).padStart(2, '0')}`
 }

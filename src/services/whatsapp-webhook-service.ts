@@ -23,6 +23,7 @@ import {
   photoQuoteAcknowledgementService
 } from './photo-quote-acknowledgement-service.js'
 import { InboundMessageBatcher } from './inbound-message-batcher.js'
+import { withConversationProcessingLease } from './conversation-processing-lease.js'
 import { stateFromConversation } from './booking-v2-conversation-state.js'
 import {
   isGreetingLatencyDiagnosticMessage,
@@ -91,6 +92,8 @@ type WhatsAppWebhookPayload = {
 }
 
 type AutomaticInboundMessage = {
+  inboundMessageId: string
+  receivedAt: Date
   conversationId: string
   phone: string
   text: string
@@ -563,6 +566,8 @@ export class WhatsAppWebhookService {
       }
 
       const automaticMessage: AutomaticInboundMessage = {
+        inboundMessageId: inboundMessage.id,
+        receivedAt: inboundMessage.createdAt,
         conversationId: conversation.id,
         phone: message.from,
         text: message.text,
@@ -574,6 +579,10 @@ export class WhatsAppWebhookService {
         ...(message.media?.type === 'image' ? { hasImageAttachment: true } : {}),
         ...(latencyDiagnostic ? { latencyDiagnostic } : {})
       }
+      await prisma.message.update({
+        where: { id: inboundMessage.id },
+        data: { status: 'queued_bot' }
+      })
       const automaticTask = inboundMessageBatcher.enqueue({
         key: conversation.id,
         item: automaticMessage,
@@ -599,6 +608,17 @@ export class WhatsAppWebhookService {
   }
 
   private async processAutomaticInboundBatch(
+    batch: AutomaticInboundMessage[],
+    useAi: boolean
+  ) {
+    const firstMessage = batch[0]
+    if (!firstMessage) throw new Error('No hay mensajes para procesar')
+    return withConversationProcessingLease(firstMessage.conversationId, () =>
+      this.processAutomaticInboundBatchLocked(batch, useAi)
+    )
+  }
+
+  private async processAutomaticInboundBatchLocked(
     batch: AutomaticInboundMessage[],
     useAi: boolean
   ) {
@@ -634,6 +654,35 @@ export class WhatsAppWebhookService {
     const conversationResult = latencyDiagnostic
       ? await latencyDiagnostic.measure('conversation_processing', processConversation)
       : await processConversation()
+
+    const inboundMessageIds = batch.map((message) => message.inboundMessageId)
+    const latestReceivedAt = new Date(Math.max(...batch.map((message) => message.receivedAt.getTime())))
+    const newerInbound = await prisma.message.findFirst({
+      where: {
+        conversationId: firstMessage.conversationId,
+        direction: 'INBOUND',
+        status: { in: ['received', 'queued_bot'] },
+        id: { notIn: inboundMessageIds },
+        createdAt: { gte: latestReceivedAt }
+      },
+      select: { id: true }
+    })
+
+    await prisma.message.updateMany({
+      where: { id: { in: inboundMessageIds }, status: 'queued_bot' },
+      data: { status: 'processed_bot' }
+    })
+
+    if (newerInbound) {
+      return {
+        reply: '',
+        messages: [],
+        deliveries: [],
+        inboundBatchSize: batch.length,
+        suppressed: true,
+        supersededByInboundMessageId: newerInbound.id
+      }
+    }
 
     if ('suppressOutbound' in conversationResult && conversationResult.suppressOutbound) {
       if (firstMessage.businessId) {

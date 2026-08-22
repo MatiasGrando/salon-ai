@@ -948,6 +948,8 @@ model Conversation {
   humanHandoffResolvedAt   DateTime?
   photoQuoteAcknowledgedAt DateTime?
   archivedAt               DateTime?
+  botProcessingToken       String?
+  botProcessingUntil       DateTime?
 
   opportunityStatus        ConversationOpportunityStatus @default(OPEN)
   opportunityOpenedAt      DateTime                      @default(now())

@@ -9,6 +9,7 @@ import { normalizeText } from './message-understanding-service.js'
 import { runWithAiEnabled, setAiUsageAttribution } from './ai-execution-context.js'
 import { linkAiUsageToAppointment } from './ai-usage-service.js'
 import { BookingV2Engine, type BookingV2ProcessResult } from './booking-v2-engine.js'
+import type { BookingV2Extraction, ExtractedBookingField } from './booking-v2-extractor.js'
 import { logBookingExtractionDiagnostic } from './booking-extraction-diagnostic.js'
 import { BookingV2DomainService } from './booking-v2-domain.js'
 import type { BookingV2MessagePlan } from './booking-v2-dialogue.js'
@@ -78,6 +79,7 @@ import {
 import { detectDeterministicConfirmation } from './conversation-confirmation-intent.js'
 import {
   bookingCoordinationActionableReply,
+  bookingTimePreferenceFromMessage,
   detectBookingCoordinationChoice
 } from './booking-coordination-choice.js'
 import {
@@ -2698,35 +2700,55 @@ export class ConversationService {
       unsupportedServiceRequest: null,
       pendingInformationSelection: null
     }
+    const timePreference = bookingTimePreferenceFromMessage(input.message)
+    const bookingRouting = timePreference?.type === 'TIME_WINDOW' && input.routing.bookingExtraction
+      ? {
+          ...input.routing,
+          bookingExtraction: {
+            ...input.routing.bookingExtraction,
+            time: { value: null, confidence: 0, evidence: '' },
+            correction: input.routing.bookingExtraction.correction.field === 'time'
+              ? { field: null, newValue: null, confidence: 0, evidence: '' }
+              : input.routing.bookingExtraction.correction
+          }
+        }
+      : input.routing
     const stateWithAgenda = mergeBookingV2AgendaFromRouting({
       state: storedState,
-      routing: input.routing
+      routing: bookingRouting
     })
-    const pendingRequest = storedState.pendingRequest ?? pendingRequestFromRouting({
+    const stateWithTimePreference = mergeBookingTimePreferenceFromMessage(
+      stateWithAgenda,
+      input.message
+    )
+    const pendingRequest = mergePendingBookingRequests(
+      storedState.pendingRequest,
+      pendingRequestFromRouting({
       currentStep: input.conversation.currentStep,
       state: storedState,
-      routing: input.routing
-    })
+      routing: bookingRouting
+      })
+    )
 
     logBookingExtractionDiagnostic('router_output', {
-      routingSource: input.routing.source,
+      routingSource: bookingRouting.source,
       currentStep: input.conversation.currentStep,
       draftBefore: storedState.draft,
-      bookingMessage: input.routing.bookingMessage,
-      bookingExtraction: input.routing.bookingExtraction,
+      bookingMessage: bookingRouting.bookingMessage,
+      bookingExtraction: bookingRouting.bookingExtraction,
       pendingRequest
     })
 
     let result = await bookingV2Engine.process({
       businessId: input.businessId,
-      conversation: conversationPatchFromState(stateWithAgenda),
+      conversation: conversationPatchFromState(stateWithTimePreference),
       message: input.conversation.bookingV2State
         ? input.message
-        : input.routing.bookingMessage ?? input.message,
+        : bookingRouting.bookingMessage ?? input.message,
       // ConversationRouter es la unica capa de comprension general en el
       // camino productivo. Pasar null explicitamente evita que BookingV2Engine
       // realice una segunda extraccion con IA para el mismo mensaje.
-      understandingExtraction: input.routing.bookingExtraction ?? null
+      understandingExtraction: bookingRouting.bookingExtraction ?? null
     })
 
     logBookingExtractionDiagnostic('engine_result', {
@@ -5731,6 +5753,88 @@ export function pendingRequestFromRouting(input: {
     extraction: input.routing.bookingExtraction ?? null,
     createdAt: (input.now ?? new Date()).toISOString()
   }
+}
+
+export function mergePendingBookingRequests(
+  existing: BookingV2PendingRequest | null,
+  incoming: BookingV2PendingRequest | null
+): BookingV2PendingRequest | null {
+  if (!existing) return incoming
+  if (!incoming) return existing
+
+  return {
+    message: mergePendingMessages(existing.message, incoming.message),
+    intents: Array.from(new Set([...existing.intents, ...incoming.intents])).slice(0, 8),
+    extraction: mergePendingExtractions(existing.extraction ?? null, incoming.extraction ?? null),
+    createdAt: existing.createdAt
+  }
+}
+
+export function mergeBookingTimePreferenceFromMessage(
+  state: BookingV2State,
+  message: string
+): BookingV2State {
+  const preference = bookingTimePreferenceFromMessage(message)
+  if (!preference) return state
+  return {
+    ...state,
+    requestedTimeWindow: preference.type === 'TIME_WINDOW'
+      ? { startTime: preference.startTime, endTime: preference.endTime }
+      : null
+  }
+}
+
+function mergePendingMessages(existing: string, incoming: string) {
+  const lines = [...existing.split(/\r?\n/), ...incoming.split(/\r?\n/)]
+    .map((line) => line.trim())
+    .filter(Boolean)
+  return Array.from(new Set(lines)).join('\n').slice(0, 1200)
+}
+
+function mergePendingExtractions(
+  existing: BookingV2Extraction | null,
+  incoming: BookingV2Extraction | null
+): BookingV2Extraction | null {
+  if (!existing) return incoming
+  if (!incoming) return existing
+  return {
+    name: preferredPendingField(existing.name, incoming.name),
+    service: preferredPendingField(existing.service, incoming.service),
+    professional: preferredPendingField(existing.professional, incoming.professional),
+    date: preferredPendingField(existing.date, incoming.date),
+    time: preferredPendingField(existing.time, incoming.time),
+    additionalServices: mergeAdditionalPendingServices(
+      existing.additionalServices ?? [],
+      incoming.additionalServices ?? []
+    ),
+    correction: incoming.correction.confidence >= existing.correction.confidence
+      ? incoming.correction
+      : existing.correction
+  }
+}
+
+function preferredPendingField(
+  existing: ExtractedBookingField,
+  incoming: ExtractedBookingField
+) {
+  if (!incoming.value) return existing
+  if (!existing.value || incoming.confidence >= 0.65 || incoming.confidence >= existing.confidence) {
+    return incoming
+  }
+  return existing
+}
+
+function mergeAdditionalPendingServices(
+  existing: ExtractedBookingField[],
+  incoming: ExtractedBookingField[]
+) {
+  const merged = new Map<string, ExtractedBookingField>()
+  for (const field of [...existing, ...incoming]) {
+    if (!field.value) continue
+    const previous = merged.get(field.value)
+    if (!previous || field.confidence >= previous.confidence) merged.set(field.value, field)
+  }
+  return Array.from(merged.values()).slice(0, 4)
 }
 
 function withPendingBookingRequest(

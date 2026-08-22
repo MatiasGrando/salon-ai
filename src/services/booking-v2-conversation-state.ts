@@ -87,6 +87,7 @@ export type BookingV2PersistedState = {
   pendingServiceSeparation?: BookingV2PendingServiceSeparation | null
   pendingServiceReplacement?: BookingV2PendingServiceReplacement | null
   pendingCoordinatedAvailability?: BookingV2PendingCoordinatedAvailability | null
+  requestedTimeWindow?: { startTime: string; endTime: string } | null
   preliminaryAvailability?: BookingV2PreliminaryAvailability | null
 }
 
@@ -131,6 +132,7 @@ export function stateFromConversation(
     pendingServiceSeparation: readPendingServiceSeparation(conversation.bookingV2State),
     pendingServiceReplacement: readPendingServiceReplacement(conversation.bookingV2State),
     pendingCoordinatedAvailability: readPendingCoordinatedAvailability(conversation.bookingV2State),
+    requestedTimeWindow: readRequestedTimeWindow(conversation.bookingV2State),
     preliminaryAvailability: readPreliminaryAvailability(conversation.bookingV2State),
     misunderstandingCount: conversation.misunderstandingCount
   }
@@ -157,7 +159,7 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
     selectedDate: state.draft.date,
     selectedTime: state.draft.time,
     misunderstandingCount: state.misunderstandingCount,
-    bookingV2State: state.pendingProposal || state.pendingRequest || state.pendingInformationSelection || state.pendingProfessionalScheduleSelection || state.lastInformationServiceId || state.pendingServiceDisambiguation || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.pendingPhotoQuote || state.combinedServiceDecisionQueue !== null || state.advisorQuote || state.quoteOnly || state.pendingDeposit || state.contextPause || state.optionalNamePrompt || state.unsupportedServiceRequest || state.queuedServices.length || state.combinedServices.length || state.addonSuggestion || state.addonOfferCompletedServiceId || state.pendingCombinedAvailability || state.pendingAvailabilityResolution || state.pendingServiceSeparation || state.pendingServiceReplacement || state.pendingCoordinatedAvailability || state.preliminaryAvailability
+    bookingV2State: state.pendingProposal || state.pendingRequest || state.pendingInformationSelection || state.pendingProfessionalScheduleSelection || state.lastInformationServiceId || state.pendingServiceDisambiguation || state.agenda.length || state.categoryAdvice || state.catalogNavigation || state.serviceValidation || state.guidedEstimate || state.pendingPhotoQuote || state.combinedServiceDecisionQueue !== null || state.advisorQuote || state.quoteOnly || state.pendingDeposit || state.contextPause || state.optionalNamePrompt || state.unsupportedServiceRequest || state.queuedServices.length || state.combinedServices.length || state.addonSuggestion || state.addonOfferCompletedServiceId || state.pendingCombinedAvailability || state.pendingAvailabilityResolution || state.pendingServiceSeparation || state.pendingServiceReplacement || state.pendingCoordinatedAvailability || state.requestedTimeWindow || state.preliminaryAvailability
       ? {
           version: 1,
           pendingProposal: state.pendingProposal,
@@ -210,12 +212,30 @@ export function conversationPatchFromState(state: BookingV2State): BookingV2Conv
           ...(state.pendingCoordinatedAvailability
             ? { pendingCoordinatedAvailability: state.pendingCoordinatedAvailability }
             : {}),
+          ...(state.requestedTimeWindow
+            ? { requestedTimeWindow: state.requestedTimeWindow }
+            : {}),
           ...(state.preliminaryAvailability
             ? { preliminaryAvailability: state.preliminaryAvailability }
             : {})
         }
       : null
   }
+}
+
+function readRequestedTimeWindow(value: unknown) {
+  if (!value || typeof value !== 'object') return null
+  const candidate = (value as { requestedTimeWindow?: unknown }).requestedTimeWindow
+  if (!candidate || typeof candidate !== 'object') return null
+  const window = candidate as { startTime?: unknown; endTime?: unknown }
+  if (
+    typeof window.startTime !== 'string' ||
+    typeof window.endTime !== 'string' ||
+    !/^\d{2}:\d{2}$/.test(window.startTime) ||
+    !/^\d{2}:\d{2}$/.test(window.endTime) ||
+    window.startTime >= window.endTime
+  ) return null
+  return { startTime: window.startTime, endTime: window.endTime }
 }
 
 function readPreliminaryAvailability(value: unknown): BookingV2PreliminaryAvailability | null {

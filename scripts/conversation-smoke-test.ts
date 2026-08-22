@@ -1,4 +1,5 @@
 ﻿import { prisma } from '../src/config/prisma.js'
+import assert from 'node:assert/strict'
 import {
   ConversationService,
   isExplicitResetRequest,
@@ -14,6 +15,8 @@ type Check = {
   customerName?: string
   selectedCustomerName?: string
   selectedServiceId?: string
+  selectedDate?: string
+  requestedTimeWindow?: { startTime: string; endTime: string }
   resetStateCleared?: boolean
   misunderstandingCount?: number
   aiCallCount?: number
@@ -142,6 +145,32 @@ async function main() {
         misunderstandingCount: 0,
         aiCallCount: 0
       }]
+    },
+    {
+      name: 'mensajes separados conservan nombre servicio fecha y rango sin repreguntarlos',
+      phone: `${testPhonePrefix}split-advanced-fields`,
+      fakeNow: workingDayMorning,
+      steps: [
+        {
+          message: `quiero un turno para ${service.name}`,
+          includes: ['¿Me decís tu nombre?'],
+          currentStep: 'ASK_CUSTOMER_NAME'
+        },
+        {
+          message: 'para mañana antes de las 3',
+          includes: ['nombre'],
+          selectedDate: '2026-07-07',
+          requestedTimeWindow: { startTime: '00:00', endTime: '14:59' }
+        },
+        {
+          message: 'soy Antonella',
+          excludes: ['¿Me decís tu nombre?', '¿Qué día', '¿A qué hora'],
+          selectedCustomerName: 'Antonella',
+          selectedServiceId: service.id,
+          selectedDate: '2026-07-07',
+          requestedTimeWindow: { startTime: '00:00', endTime: '14:59' }
+        }
+      ]
     },
     {
       name: 'iniciar turno no descarta un servicio activo que se está completando',
@@ -1559,6 +1588,7 @@ async function runScenario(scenario: Scenario) {
       await assertCustomerName(scenario.phone, step)
       await assertSelectedCustomerName(scenario.phone, step)
       await assertSelectedServiceId(scenario.phone, step)
+      await assertSelectedDateAndTimeWindow(scenario.phone, step)
       await assertResetStateCleared(scenario.phone, step)
       await assertMisunderstandingCount(scenario.phone, step)
       await assertAiCallCount(scenario.phone, step)
@@ -1660,6 +1690,29 @@ async function assertSelectedServiceId(phone: string, step: Step) {
     throw new Error(
       `Esperaba conservar el servicio ${step.selectedServiceId}, recibí ${conversation?.selectedServiceId ?? 'ninguno'}.`
     )
+  }
+}
+
+async function assertSelectedDateAndTimeWindow(phone: string, step: Step) {
+  if (!step.selectedDate && !step.requestedTimeWindow) return
+  const conversation = await prisma.conversation.findFirst({
+    where: { phone },
+    select: { selectedDate: true, bookingV2State: true }
+  })
+  if (step.selectedDate && conversation?.selectedDate !== step.selectedDate) {
+    throw new Error(
+      `Esperaba conservar la fecha ${step.selectedDate}, recibí ${conversation?.selectedDate ?? 'ninguna'}.`
+    )
+  }
+  if (step.requestedTimeWindow) {
+    const persisted = conversation?.bookingV2State as { requestedTimeWindow?: unknown } | null
+    try {
+      assert.deepEqual(persisted?.requestedTimeWindow, step.requestedTimeWindow)
+    } catch {
+      throw new Error(
+        `Esperaba conservar el rango ${JSON.stringify(step.requestedTimeWindow)}, recibí ${JSON.stringify(persisted?.requestedTimeWindow ?? null)}.`
+      )
+    }
   }
 }
 

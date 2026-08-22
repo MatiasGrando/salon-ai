@@ -231,6 +231,7 @@ export type BookingV2State = {
   pendingServiceSeparation: BookingV2PendingServiceSeparation | null
   pendingServiceReplacement: BookingV2PendingServiceReplacement | null
   pendingCoordinatedAvailability: BookingV2PendingCoordinatedAvailability | null
+  requestedTimeWindow: { startTime: string; endTime: string } | null
   preliminaryAvailability: BookingV2PreliminaryAvailability | null
   misunderstandingCount: number
 }
@@ -282,6 +283,7 @@ export function createEmptyBookingV2State(): BookingV2State {
     pendingServiceSeparation: null,
     pendingServiceReplacement: null,
     pendingCoordinatedAvailability: null,
+    requestedTimeWindow: null,
     preliminaryAvailability: null,
     misunderstandingCount: 0
   }

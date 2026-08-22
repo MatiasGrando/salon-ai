@@ -23,6 +23,7 @@ import type {
 } from '../src/services/booking-availability-search.js'
 import {
   bookingCoordinationActionableReply,
+  bookingTimePreferenceFromMessage,
   detectBookingCoordinationChoice
 } from '../src/services/booking-coordination-choice.js'
 import { detectDeterministicConfirmation } from '../src/services/conversation-confirmation-intent.js'
@@ -493,6 +494,15 @@ assert.deepEqual(detectBookingCoordinationChoice({
   message: 'desde las 18hs',
   phase: 'TIME_PREFERENCE'
 }), { type: 'AFTER_TIME', time: '18:00', inclusive: true })
+assert.deepEqual(bookingTimePreferenceFromMessage('antes de las 3'), {
+  type: 'TIME_WINDOW',
+  startTime: '00:00',
+  endTime: '14:59'
+})
+assert.deepEqual(bookingTimePreferenceFromMessage('a las 3'), {
+  type: 'EXACT_TIME',
+  time: '15:00'
+})
 assert.deepEqual(detectBookingCoordinationChoice({
   message: 'entre las 18 y las 20',
   phase: 'TIME_PREFERENCE'
