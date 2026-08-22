@@ -19,7 +19,7 @@ export async function recordOpenAiResponseUsage(source: AiUsageSource, response:
   const usage = response.usage
   const inputTokens = usage.input_tokens ?? 0
   const cachedInputTokens = usage.input_tokens_details?.cached_tokens ?? 0
-  const cacheWriteTokens = usage.input_tokens_details?.cache_write_tokens ?? 0
+  const cacheWriteTokens = (usage.input_tokens_details as { cache_write_tokens?: number } | undefined)?.cache_write_tokens ?? 0
   const outputTokens = usage.output_tokens ?? 0
   const pricing = calculateAiUsageCostNanoUsd(response.model, {
     inputTokens,

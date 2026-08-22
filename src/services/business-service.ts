@@ -101,10 +101,13 @@ export class BusinessService {
     })
   }
 
-  async findAll(query?: string) {
+  async findAll(query?: string, includeImages = true) {
     const search = query?.trim()
     if (!search) {
-      return prisma.business.findMany({ orderBy: { name: 'asc' } })
+      return prisma.business.findMany({
+        ...(includeImages ? {} : { omit: { logoUrl: true, coverImageUrl: true, landingGalleryImages: true } }),
+        orderBy: { name: 'asc' }
+      })
     }
 
     return prisma.business.findMany({
@@ -114,6 +117,7 @@ export class BusinessService {
           { customerCode: { contains: search.toUpperCase(), mode: 'insensitive' } }
         ]
       },
+      ...(includeImages ? {} : { omit: { logoUrl: true, coverImageUrl: true, landingGalleryImages: true } }),
       orderBy: { name: 'asc' }
     })
   }

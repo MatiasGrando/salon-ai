@@ -4,6 +4,7 @@ import { Prisma } from '../generated/prisma/client.js'
 import { serviceCanContinueToBooking } from '../services/booking-v2-deposit.js'
 import { normalizeCustomerDuration } from '../services/service-duration.js'
 import { refreshBusinessOnboarding } from '../services/business-onboarding-service.js'
+import { storeBusinessImage } from '../services/media-storage-service.js'
 
 const SERVICE_WRITE_TRANSACTION_TIMEOUT_MS = 15_000
 
@@ -238,7 +239,7 @@ export async function serviceRoutes(app: FastifyInstance) {
     )
     const businessId = body.businessId?.trim()
     const category = body.category?.trim()
-    const imageUrl = normalizeServiceImageUrl(body.imageUrl)
+    let imageUrl = normalizeServiceImageUrl(body.imageUrl)
     const price = body.price === null || body.price === undefined || body.price === ''
       ? null
       : Number(body.price)
@@ -411,6 +412,19 @@ export async function serviceRoutes(app: FastifyInstance) {
       return reply.status(400).send({ message: relatedServices.message })
     }
 
+    if (imageUrl) {
+      try {
+        imageUrl = await storeBusinessImage({
+          businessId,
+          kind: 'services',
+          value: imageUrl,
+          maxBytes: 2 * 1024 * 1024
+        })
+      } catch (error) {
+        return reply.status(503).send({ message: mediaStorageErrorMessage(error) })
+      }
+    }
+
     const data = {
       name,
       description,
@@ -489,7 +503,10 @@ export async function serviceRoutes(app: FastifyInstance) {
   app.get('/services', async (request) => {
     const query = request.query as {
       businessId?: string
+      includeImages?: string
     }
+
+    const includeImages = query.includeImages !== 'false'
 
     return prisma.service.findMany({
       where: query.businessId
@@ -498,6 +515,7 @@ export async function serviceRoutes(app: FastifyInstance) {
           }
         : {},
       include: serviceCatalogInclude,
+      ...(includeImages ? {} : { omit: { imageUrl: true } }),
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }]
     })
   })
@@ -546,7 +564,7 @@ export async function serviceRoutes(app: FastifyInstance) {
     const price = body.price === null || body.price === undefined || body.price === ''
       ? null
       : Number(body.price)
-    const imageUrl = normalizeServiceImageUrl(body.imageUrl)
+    let imageUrl = normalizeServiceImageUrl(body.imageUrl)
 
     if (!name) {
       return reply.status(400).send({
@@ -794,6 +812,19 @@ export async function serviceRoutes(app: FastifyInstance) {
     })
     if (!relatedServices.ok) {
       return reply.status(400).send({ message: relatedServices.message })
+    }
+
+    if (imageUrl) {
+      try {
+        imageUrl = await storeBusinessImage({
+          businessId: existing.businessId,
+          kind: 'services',
+          value: imageUrl,
+          maxBytes: 2 * 1024 * 1024
+        })
+      } catch (error) {
+        return reply.status(503).send({ message: mediaStorageErrorMessage(error) })
+      }
     }
 
     return prisma.$transaction(async (tx) => {
@@ -1252,7 +1283,12 @@ function normalizeServiceImageUrl(imageUrl?: string | null) {
   if (imageUrl === null || imageUrl.trim() === '') return null
   const normalized = imageUrl.trim()
   const isImageDataUrl = /^data:image\/(png|jpeg|webp|gif);base64,[a-z0-9+/=]+$/i.test(normalized)
-  return isImageDataUrl && normalized.length <= 2_800_000 ? normalized : undefined
+  const isHttpsImageUrl = /^https:\/\/[a-z0-9.-]+(?:\/[^\s]*)?$/i.test(normalized)
+  return (isImageDataUrl && normalized.length <= 2_800_000) || isHttpsImageUrl ? normalized : undefined
+}
+
+function mediaStorageErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : 'No pude guardar la imagen en Supabase Storage.'
 }
 
 function normalizeServiceAttentionMode(value?: string) {

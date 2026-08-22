@@ -17330,9 +17330,13 @@ const crmHtml = `<!doctype html>
       conversationLoadController: null,
       conversationLoadingId: null,
       professionals: [],
+      professionalMediaBusinessId: null,
+      professionalMediaPromise: null,
       staffUsers: [],
       staffPresets: [],
       services: [],
+      serviceMediaBusinessId: null,
+      serviceMediaPromise: null,
       serviceCategories: [],
       customers: [],
       appointmentCustomerSearchTimer: null,
@@ -17428,6 +17432,8 @@ const crmHtml = `<!doctype html>
       businessLogoUrl: null,
       businessId: null,
       business: null,
+      businessMediaBusinessId: null,
+      businessMediaPromise: null,
       businessHours: [],
       paymentSettings: null,
       whatsappSettings: null,
@@ -19949,7 +19955,7 @@ const crmHtml = `<!doctype html>
       const isAccountRole = ['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(state.currentUser?.role)
       const businesses = isAccountRole
         ? state.currentSessionBusiness ? [state.currentSessionBusiness] : []
-        : await getJson('/businesses')
+        : await getJson('/businesses?includeImages=false')
       state.businesses = businesses
       state.business = state.currentUser?.role === 'ACCOUNT_ADMIN'
         ? state.currentSessionBusiness || null
@@ -20003,6 +20009,15 @@ const crmHtml = `<!doctype html>
 
     async function loadBusinessScopedBasics() {
       const businessQuery = state.businessId ? '?businessId=' + encodeURIComponent(state.businessId) : ''
+      const lightweightCatalogQuery = businessQuery
+        ? businessQuery + '&includeImages=false'
+        : '?includeImages=false'
+      state.professionalMediaBusinessId = null
+      state.professionalMediaPromise = null
+      state.serviceMediaBusinessId = null
+      state.serviceMediaPromise = null
+      state.businessMediaBusinessId = null
+      state.businessMediaPromise = null
       const isSalesAdminDemo = isSalesAccountAdministrator() && state.business?.isDemo === true
       state.businessHours = state.businessId
         ? await getJson('/business-hours?businessId=' + encodeURIComponent(state.businessId))
@@ -20018,10 +20033,10 @@ const crmHtml = `<!doctype html>
         ? await getJson('/businesses/' + state.businessId + '/instagram-settings')
         : null
       if (!isStaff) state.aiSettings = await getJson('/crm/ai-settings' + businessQuery)
-      state.professionals = await getJson('/professionals' + businessQuery)
+      state.professionals = await getJson('/professionals' + lightweightCatalogQuery)
       await loadStaffUsers()
       state.serviceCategories = await getJson('/service-categories' + businessQuery)
-      state.services = await getJson('/services' + businessQuery)
+      state.services = await getJson('/services' + lightweightCatalogQuery)
       state.customers = isSalesAdminDemo
         ? []
         : !isStaff || state.currentUser?.canViewCustomers
@@ -20033,6 +20048,68 @@ const crmHtml = `<!doctype html>
       return state.businessId
         ? path + '?businessId=' + encodeURIComponent(state.businessId)
         : path
+    }
+
+    function mediaCatalogPath(path) {
+      const params = new URLSearchParams()
+      if (state.businessId) params.set('businessId', state.businessId)
+      params.set('includeImages', 'true')
+      return path + '?' + params.toString()
+    }
+
+    async function ensureProfessionalMedia() {
+      const businessId = state.businessId
+      if (!businessId || state.professionalMediaBusinessId === businessId) return
+      if (state.professionalMediaPromise) return state.professionalMediaPromise
+      const request = getJson(mediaCatalogPath('/professionals'))
+        .then((professionals) => {
+          if (state.businessId !== businessId) return
+          state.professionals = professionals
+          state.professionalMediaBusinessId = businessId
+          renderProfessionals()
+        })
+        .finally(() => {
+          if (state.professionalMediaPromise === request) state.professionalMediaPromise = null
+        })
+      state.professionalMediaPromise = request
+      return request
+    }
+
+    async function ensureServiceMedia() {
+      const businessId = state.businessId
+      if (!businessId || state.serviceMediaBusinessId === businessId) return
+      if (state.serviceMediaPromise) return state.serviceMediaPromise
+      const request = getJson(mediaCatalogPath('/services'))
+        .then((services) => {
+          if (state.businessId !== businessId) return
+          state.services = services
+          state.serviceMediaBusinessId = businessId
+          renderServices()
+        })
+        .finally(() => {
+          if (state.serviceMediaPromise === request) state.serviceMediaPromise = null
+        })
+      state.serviceMediaPromise = request
+      return request
+    }
+
+    async function ensureBusinessMedia() {
+      const businessId = state.businessId
+      if (!businessId || state.businessMediaBusinessId === businessId) return
+      if (state.businessMediaPromise) return state.businessMediaPromise
+      const request = getJson('/businesses/' + encodeURIComponent(businessId) + '/media')
+        .then((media) => {
+          if (state.businessId !== businessId) return
+          state.business = { ...state.business, ...media }
+          state.businessMediaBusinessId = businessId
+          renderBusinessSettings()
+          renderAuthUi()
+        })
+        .finally(() => {
+          if (state.businessMediaPromise === request) state.businessMediaPromise = null
+        })
+      state.businessMediaPromise = request
+      return request
     }
 
     async function switchSupportBusiness(businessId) {
@@ -20049,6 +20126,9 @@ const crmHtml = `<!doctype html>
       stopCrmRealtimeEvents()
       state.business = nextBusiness
       state.businessId = nextBusiness.id
+      state.professionalMediaBusinessId = null
+      state.serviceMediaBusinessId = null
+      state.businessMediaBusinessId = null
       state.conversationLoadController?.abort()
       state.conversationTabController?.abort()
       state.conversationLoadRequest += 1
@@ -23950,6 +24030,7 @@ const crmHtml = `<!doctype html>
         els.professionalFeedback.textContent = id ? 'Profesional actualizado.' : 'Profesional creado.'
         hideProfessionalImpact()
         state.professionals = await getJson(businessScopedPath('/professionals'))
+        state.professionalMediaBusinessId = state.businessId
         renderProfessionals()
         renderStaffUsers()
         renderAgendaFilters()
@@ -24028,6 +24109,7 @@ const crmHtml = `<!doctype html>
         })
         els.professionalFeedback.textContent = professional._count?.appointments ? 'Profesional desactivado y oculto de nuevas reservas.' : 'Profesional eliminado.'
         state.professionals = await getJson(businessScopedPath('/professionals'))
+        state.professionalMediaBusinessId = state.businessId
         renderProfessionals()
         renderStaffUsers()
         renderAgendaFilters()
@@ -24104,6 +24186,7 @@ const crmHtml = `<!doctype html>
         })
         els.professionalFeedback.textContent = isActive ? 'Profesional activado.' : 'Profesional desactivado para nuevas reservas.'
         state.professionals = await getJson(businessScopedPath('/professionals'))
+        state.professionalMediaBusinessId = state.businessId
         renderProfessionals()
         renderStaffUsers()
         renderAgendaFilters()
@@ -25153,11 +25236,9 @@ const crmHtml = `<!doctype html>
       }
 
       clearBusinessSettingsFeedback()
-      const reader = new FileReader()
-      reader.addEventListener('load', () => {
-        setBusinessLogo(String(reader.result || ''))
-      })
-      reader.readAsDataURL(file)
+      optimizeImageFile(file, 512)
+        .then(setBusinessLogo)
+        .catch(() => showBusinessSettingsFeedback('No pude optimizar el logo seleccionado.', 'error'))
     }
 
     function setLandingCover(coverUrl) {
@@ -25188,11 +25269,9 @@ const crmHtml = `<!doctype html>
       }
 
       clearLandingSettingsFeedback()
-      const reader = new FileReader()
-      reader.addEventListener('load', () => {
-        setLandingCover(String(reader.result || ''))
-      })
-      reader.readAsDataURL(file)
+      optimizeImageFile(file, 1600)
+        .then(setLandingCover)
+        .catch(() => showLandingSettingsFeedback('No pude optimizar la portada seleccionada.', 'error'))
     }
 
     function parseLandingGalleryImages(value) {
@@ -25257,7 +25336,7 @@ const crmHtml = `<!doctype html>
         return
       }
 
-      Promise.all(files.map(readFileAsDataUrl))
+      Promise.all(files.map((file) => optimizeImageFile(file, 1200)))
         .then((images) => {
           clearLandingSettingsFeedback()
           setLandingGallery([...state.landingGalleryImages, ...images])
@@ -25275,6 +25354,28 @@ const crmHtml = `<!doctype html>
         reader.addEventListener('error', reject)
         reader.readAsDataURL(file)
       })
+    }
+
+    async function optimizeImageFile(file, maxDimension) {
+      if (file.type === 'image/gif') return readFileAsDataUrl(file)
+      const bitmap = await createImageBitmap(file)
+      try {
+        const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height))
+        const width = Math.max(1, Math.round(bitmap.width * scale))
+        const height = Math.max(1, Math.round(bitmap.height * scale))
+        const canvas = document.createElement('canvas')
+        canvas.width = width
+        canvas.height = height
+        const context = canvas.getContext('2d')
+        if (!context) throw new Error('No pude preparar la imagen')
+        context.drawImage(bitmap, 0, 0, width, height)
+        const blob = await new Promise((resolve, reject) => {
+          canvas.toBlob((result) => result ? resolve(result) : reject(new Error('No pude convertir la imagen')), 'image/webp', 0.82)
+        })
+        return readFileAsDataUrl(blob)
+      } finally {
+        bitmap.close()
+      }
     }
 
     function showBusinessSettingsFeedback(message, type) {
@@ -25476,6 +25577,7 @@ const crmHtml = `<!doctype html>
             landingGalleryImages: state.landingGalleryImages
           })
         })
+        state.businessMediaBusinessId = state.businessId
         renderLandingSettings()
         showLandingSettingsFeedback('Landing guardada correctamente.', 'success')
       } catch (error) {
@@ -25569,6 +25671,7 @@ const crmHtml = `<!doctype html>
               ...(openingYearChanged ? { landingOpeningYear: openingYear } : {})
             })
           })
+          state.businessMediaBusinessId = state.businessId
         }
         state.paymentSettings = await getJson('/businesses/' + state.businessId + '/payment-settings', {
           method: 'PATCH',
@@ -25811,11 +25914,11 @@ const crmHtml = `<!doctype html>
         return
       }
 
-      const reader = new FileReader()
-      reader.addEventListener('load', () => {
-        setProfessionalAvatar(String(reader.result || ''), true)
-      })
-      reader.readAsDataURL(file)
+      optimizeImageFile(file, 800)
+        .then((imageUrl) => setProfessionalAvatar(imageUrl, true))
+        .catch(() => {
+          els.professionalFeedback.textContent = 'No pude optimizar la foto seleccionada.'
+        })
     }
 
     function summarizeWorkingHourPills(hours) {
@@ -29711,7 +29814,12 @@ const crmHtml = `<!doctype html>
       }
 
       if (section === 'professionals') {
+        ensureProfessionalMedia().catch((error) => showCrmToast(error.message, 'error'))
         refreshScheduleBlockImpactPanel().catch((error) => showCrmToast(error.message, 'error'))
+      }
+
+      if (section === 'services') {
+        ensureServiceMedia().catch((error) => showCrmToast(error.message, 'error'))
       }
 
       if (section === 'reports') {
@@ -29725,7 +29833,10 @@ const crmHtml = `<!doctype html>
       }
       if (section === 'campaigns') setMarketingView(state.marketingView)
       if (section === 'campaigns' && !state.templatesLoaded) loadWhatsappTemplates()
-      if (section === 'settings') setSettingsView(state.settingsView)
+      if (section === 'settings') {
+        setSettingsView(state.settingsView)
+        ensureBusinessMedia().catch((error) => showCrmToast(error.message, 'error'))
+      }
       if (section === 'conversations' && isMobile()) setMobileView('inbox')
       closeMobileDrawer()
     }
@@ -30054,6 +30165,7 @@ const crmHtml = `<!doctype html>
         getJson('/service-categories' + businessQuery),
         getJson('/services' + businessQuery)
       ])
+      state.serviceMediaBusinessId = state.businessId
       renderServices()
       els.serviceCategory.value = selectedCategory
       els.serviceParent.value = selectedParent
@@ -30482,12 +30594,14 @@ const crmHtml = `<!doctype html>
         setServiceImage(null)
         return
       }
-      const reader = new FileReader()
-      reader.onload = () => {
-        setServiceImage(String(reader.result || ''))
-        els.serviceFeedback.textContent = ''
-      }
-      reader.readAsDataURL(file)
+      optimizeImageFile(file, 1000)
+        .then((imageUrl) => {
+          setServiceImage(imageUrl)
+          els.serviceFeedback.textContent = ''
+        })
+        .catch(() => {
+          els.serviceFeedback.textContent = 'No pude optimizar la imagen seleccionada.'
+        })
     }
 
     function escapeHtml(value) {

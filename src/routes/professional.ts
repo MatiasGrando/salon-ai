@@ -6,6 +6,7 @@ import {
   type WeeklyHourInput
 } from '../services/weekly-hours.js'
 import { refreshBusinessOnboarding } from '../services/business-onboarding-service.js'
+import { storeBusinessImage } from '../services/media-storage-service.js'
 
 type WorkingHourInput = WeeklyHourInput
 
@@ -24,7 +25,7 @@ export async function professionalRoutes(app: FastifyInstance) {
 
     const name = body.name?.trim()
     const description = normalizeDescription(body.description)
-    const avatarUrl = normalizeAvatarUrl(body.avatarUrl)
+    let avatarUrl = normalizeAvatarUrl(body.avatarUrl)
     const businessId = body.businessId?.trim()
     const workingHoursValidation = validateWeeklyHours(body.workingHours || [])
     if (!workingHoursValidation.ok) {
@@ -59,6 +60,19 @@ export async function professionalRoutes(app: FastifyInstance) {
         code: 'OUTSIDE_BUSINESS_HOURS',
         message: businessHoursValidation.message
       })
+    }
+
+    if (avatarUrl) {
+      try {
+        avatarUrl = await storeBusinessImage({
+          businessId,
+          kind: 'professionals',
+          value: avatarUrl,
+          maxBytes: 2 * 1024 * 1024
+        })
+      } catch (error) {
+        return reply.status(503).send({ message: mediaStorageErrorMessage(error) })
+      }
     }
 
     const professional = await prisma.professional.create({
@@ -98,14 +112,18 @@ export async function professionalRoutes(app: FastifyInstance) {
     const query = request.query as {
       activeOnly?: string
       businessId?: string
+      includeImages?: string
     }
+
+    const includeImages = query.includeImages !== 'false'
 
     const professionals = await prisma.professional.findMany({
       where: {
         ...(query.businessId ? { businessId: query.businessId } : {}),
         ...(query.activeOnly === 'true' ? { isActive: true } : {})
       },
-      include: professionalInclude,
+      include: includeImages ? professionalInclude : professionalIncludeWithoutImages,
+      ...(includeImages ? {} : { omit: { avatarUrl: true } }),
       orderBy: {
         createdAt: 'asc'
       }
@@ -145,7 +163,7 @@ export async function professionalRoutes(app: FastifyInstance) {
     const name = body.name?.trim()
     const description = normalizeDescription(body.description)
     const avatarUrlWasProvided = Object.prototype.hasOwnProperty.call(body, 'avatarUrl')
-    const avatarUrl = avatarUrlWasProvided ? normalizeAvatarUrl(body.avatarUrl) : undefined
+    let avatarUrl = avatarUrlWasProvided ? normalizeAvatarUrl(body.avatarUrl) : undefined
 
     if (!name) {
       return reply.status(400).send({
@@ -208,6 +226,19 @@ export async function professionalRoutes(app: FastifyInstance) {
           message: 'Hay turnos futuros que quedan fuera del nuevo horario.',
           impact
         })
+      }
+    }
+
+    if (avatarUrl) {
+      try {
+        avatarUrl = await storeBusinessImage({
+          businessId: existing.businessId,
+          kind: 'professionals',
+          value: avatarUrl,
+          maxBytes: 2 * 1024 * 1024
+        })
+      } catch (error) {
+        return reply.status(503).send({ message: mediaStorageErrorMessage(error) })
       }
     }
 
@@ -410,6 +441,22 @@ const professionalInclude = {
   }
 }
 
+const professionalIncludeWithoutImages = {
+  ...professionalInclude,
+  serviceLinks: {
+    include: {
+      service: {
+        omit: {
+          imageUrl: true
+        }
+      }
+    },
+    orderBy: {
+      createdAt: 'asc' as const
+    }
+  }
+} as const
+
 function serializeProfessional(professional: any) {
   if (!professional) {
     return professional
@@ -436,6 +483,10 @@ function normalizeAvatarUrl(avatarUrl?: string | null) {
 function normalizeDescription(description?: string | null) {
   const normalizedDescription = description?.trim()
   return normalizedDescription || null
+}
+
+function mediaStorageErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : 'No pude guardar la imagen en Supabase Storage.'
 }
 
 async function resolveServiceIdsForBusiness(businessId: string, serviceIds?: string[]) {

@@ -7,4 +7,5 @@ dev-server.log
 .codex-remote-attachments/
 /measurements/database-usage/*.json
 /measurements/database-usage/*.md
+/measurements/media-migration/*.json
 /starter/._.

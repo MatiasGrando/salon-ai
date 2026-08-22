@@ -14,6 +14,12 @@ import { refreshBusinessOnboarding } from '../services/business-onboarding-servi
 import { businessAccountAccessMessage, isBusinessAccountUnavailable } from '../services/business-account-access.js'
 
 const businessService = new BusinessService()
+const businessMediaOmit = {
+  logoUrl: true,
+  coverImageUrl: true,
+  landingGalleryImages: true
+} as const
+const professionalMediaOmit = { avatarUrl: true } as const
 
 export async function authRoutes(app: FastifyInstance) {
   app.post('/auth/login', async (request, reply) => {
@@ -27,7 +33,10 @@ export async function authRoutes(app: FastifyInstance) {
 
     const user = await prisma.user.findUnique({
       where: { email },
-      include: { business: true, professional: true }
+      include: {
+        business: { omit: businessMediaOmit },
+        professional: { omit: professionalMediaOmit }
+      }
     })
 
     if (!user || !user.isActive || !await verifyPassword(password, user.passwordHash)) {
@@ -66,7 +75,10 @@ export async function authRoutes(app: FastifyInstance) {
     if (!auth) return reply.status(401).send({ message: 'Necesitas iniciar sesion' })
     const user = await prisma.user.findUnique({
       where: { id: auth.user.id },
-      include: { business: true, professional: true }
+      include: {
+        business: { omit: businessMediaOmit },
+        professional: { omit: professionalMediaOmit }
+      }
     })
     if (!user || !user.isActive) return reply.status(401).send({ message: 'Necesitas iniciar sesion' })
     if (['BUSINESS_ADMIN', 'STAFF'].includes(user.role) && isBusinessAccountUnavailable(user.business?.accountStatus)) {

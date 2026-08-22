@@ -6,6 +6,7 @@ import { getBusinessWhatsAppState } from '../services/business-whatsapp-settings
 import { BusinessService } from '../services/business-service.js'
 import type { AuthContext } from '../services/auth-service.js'
 import { refreshBusinessOnboarding } from '../services/business-onboarding-service.js'
+import { storeBusinessImage } from '../services/media-storage-service.js'
 
 const service = new BusinessService()
 const LANDING_TEMPLATES = new Set(['classic', 'editorial', 'salon-white', 'luxe-nails'])
@@ -34,20 +35,43 @@ export async function businessRoutes(app: FastifyInstance) {
 
   app.get('/businesses', async (request, reply) => {
     if (!request.auth) return reply.status(401).send({ message: 'Necesitas iniciar sesion' })
-    const query = request.query as { q?: string }
-    if (request.auth.user.role === 'SUPER_ADMIN') return service.findAll(query.q)
+    const query = request.query as { q?: string; includeImages?: string }
+    const includeImages = query.includeImages !== 'false'
+    if (request.auth.user.role === 'SUPER_ADMIN') return service.findAll(query.q, includeImages)
     if (request.auth.user.role === 'ACCOUNT_ADMIN') {
       return prisma.business.findMany({
         where: {
           accountAdminId: request.auth.user.id,
           ...(query.q?.trim() ? { name: { contains: query.q.trim(), mode: 'insensitive' } } : {})
         },
+        ...(includeImages ? {} : { omit: { logoUrl: true, coverImageUrl: true, landingGalleryImages: true } }),
         orderBy: { name: 'asc' }
       })
     }
     if (!request.auth.user.businessId) return []
-    const business = await prisma.business.findUnique({ where: { id: request.auth.user.businessId } })
+    const business = await prisma.business.findUnique({
+      where: { id: request.auth.user.businessId },
+      ...(includeImages ? {} : { omit: { logoUrl: true, coverImageUrl: true, landingGalleryImages: true } })
+    })
     return business ? [business] : []
+  })
+
+  app.get('/businesses/:id/media', async (request, reply) => {
+    const params = request.params as { id: string }
+    if (!await canAccessBusiness(request.auth, params.id)) {
+      return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
+    }
+    const media = await prisma.business.findUnique({
+      where: { id: params.id },
+      select: {
+        id: true,
+        logoUrl: true,
+        coverImageUrl: true,
+        landingGalleryImages: true
+      }
+    })
+    if (!media) return reply.status(404).send({ message: 'No encontre ese local' })
+    return media
   })
 
   app.get('/businesses/:id/payment-settings', async (request, reply) => {
@@ -176,15 +200,15 @@ export async function businessRoutes(app: FastifyInstance) {
     }
     const name = body.name?.trim()
     const slug = body.slug === undefined ? undefined : normalizeOptionalText(body.slug)
-    const logoUrl = normalizeLogoUrl(body.logoUrl)
-    const coverImageUrl = normalizeCoverImageUrl(body.coverImageUrl)
+    let logoUrl = normalizeLogoUrl(body.logoUrl)
+    let coverImageUrl = normalizeCoverImageUrl(body.coverImageUrl)
     const landingTemplate = normalizeLandingTemplate(body.landingTemplate)
     const landingSubtitle = normalizeOptionalText(body.landingSubtitle)
     const landingFeature = normalizeOptionalText(body.landingFeature)
     const landingOpeningYear = normalizeOpeningYear(body.landingOpeningYear)
     const landingDescription = normalizeOptionalText(body.landingDescription)
     const landingTemplateContent = normalizeLandingTemplateContent(body.landingTemplateContent)
-    const landingGalleryImages = normalizeGalleryImages(body.landingGalleryImages)
+    let landingGalleryImages = normalizeGalleryImages(body.landingGalleryImages)
     const publicWhatsapp = normalizeOptionalText(body.publicWhatsapp)
     const contactEmail = normalizeOptionalEmail(body.contactEmail)
     const publicAddress = normalizeOptionalText(body.publicAddress)
@@ -296,6 +320,40 @@ export async function businessRoutes(app: FastifyInstance) {
     ) {
       return reply.status(400).send({
         message: 'No hay cambios para guardar'
+      })
+    }
+
+    try {
+      if (logoUrl) {
+        logoUrl = await storeBusinessImage({
+          businessId: params.id,
+          kind: 'logos',
+          value: logoUrl,
+          maxBytes: 2 * 1024 * 1024
+        })
+      }
+      if (coverImageUrl) {
+        coverImageUrl = await storeBusinessImage({
+          businessId: params.id,
+          kind: 'covers',
+          value: coverImageUrl,
+          maxBytes: 3 * 1024 * 1024
+        })
+      }
+      if (Array.isArray(body.landingGalleryImages) && body.landingGalleryImages.length) {
+        const storedGallery = await Promise.all(body.landingGalleryImages.map((imageUrl) =>
+          storeBusinessImage({
+            businessId: params.id,
+            kind: 'gallery',
+            value: imageUrl,
+            maxBytes: 3 * 1024 * 1024
+          })
+        ))
+        landingGalleryImages = normalizeGalleryImages(storedGallery as string[])
+      }
+    } catch (error) {
+      return reply.status(503).send({
+        message: error instanceof Error ? error.message : 'No pude guardar las imágenes en Supabase Storage.'
       })
     }
 
@@ -747,8 +805,11 @@ function normalizeImageUrl(imageUrl: string | null | undefined, maxSizeMb: numbe
 
   const normalized = imageUrl.trim()
   const isImageDataUrl = /^data:image\/(png|jpeg|webp|gif);base64,[a-z0-9+/=]+$/i.test(normalized)
+  const isHttpsImageUrl = /^https:\/\/[a-z0-9.-]+(?:\/[^\s]*)?$/i.test(normalized)
 
-  return isImageDataUrl && normalized.length <= maxSizeMb * 1_400_000 ? normalized : undefined
+  return (isImageDataUrl && normalized.length <= maxSizeMb * 1_400_000) || isHttpsImageUrl
+    ? normalized
+    : undefined
 }
 
 function normalizeOptionalText(value?: string | null) {

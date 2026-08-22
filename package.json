@@ -15,6 +15,7 @@
     "test:ai-usage": "tsx scripts/ai-usage-contract-test.ts",
     "test:database-pool-config": "tsx scripts/database-pool-config-contract-test.ts",
     "measure:database": "tsx scripts/database-usage-snapshot.ts",
+    "migrate:media": "tsx scripts/migrate-business-media-to-storage.ts",
     "test:booking-v2:understanding-live": "tsx scripts/booking-v2-understanding-live-test.ts",
     "test:assistant-personality": "tsx scripts/assistant-personality-contract-test.ts",
     "test:assistant-personality:live": "tsx scripts/assistant-personality-live-test.ts",
@@ -66,6 +67,7 @@
     "test:conversation": "tsx scripts/conversation-smoke-test.ts",
     "test:conversation-customer-intent": "tsx scripts/conversation-customer-intent-contract-test.ts",
     "test:crm-egress": "tsx scripts/crm-conversation-egress-contract-test.ts",
+    "test:media-storage": "tsx scripts/media-storage-contract-test.ts",
     "test:conversation-context": "tsx scripts/conversation-context-contract-test.ts",
     "test:conversation-recovery": "tsx scripts/conversation-recovery-contract-test.ts",
     "test:conversation-handoff": "tsx scripts/conversation-handoff-contract-test.ts",
@@ -95,6 +97,7 @@
     "openai": "^6.42.0",
     "pg": "^8.21.0",
     "prisma": "^7.8.0",
+    "sharp": "^0.35.3",
     "simple-icons": "^16.25.0"
   }
 }

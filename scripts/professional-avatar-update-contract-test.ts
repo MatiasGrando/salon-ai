@@ -91,7 +91,7 @@ try {
     }
   })
 
-  assert.equal(servicesOnlyResponse.statusCode, 200)
+  assert.equal(servicesOnlyResponse.statusCode, 200, servicesOnlyResponse.body)
   assert.equal(
     Object.prototype.hasOwnProperty.call(updatePayloads[0], 'avatarUrl'),
     false,
