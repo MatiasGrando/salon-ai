@@ -4,6 +4,15 @@ import { prisma } from '../src/config/prisma.js'
 import { professionalRoutes } from '../src/routes/professional.js'
 
 const app = Fastify()
+app.addHook('preHandler', async (request) => {
+  request.auth = {
+    user: {
+      id: 'business-admin-test',
+      role: 'BUSINESS_ADMIN',
+      businessId: 'business-test'
+    }
+  } as any
+})
 await app.register(professionalRoutes)
 
 const professionalId = 'professional-test'
@@ -25,7 +34,7 @@ const existingWorkingHours = [
 
 const prismaClient = prisma as any
 const originals = {
-  findProfessional: prismaClient.professional.findUnique,
+  findProfessional: prismaClient.professional.findFirst,
   createProfessional: prismaClient.professional.create,
   findServices: prismaClient.service.findMany,
   transaction: prismaClient.$transaction
@@ -48,7 +57,7 @@ const professional = {
 }
 
 try {
-  prismaClient.professional.findUnique = async () => professional
+  prismaClient.professional.findFirst = async () => professional
   prismaClient.professional.create = async ({ data }: { data: Record<string, unknown> }) => {
     createPayloads.push(data)
     return {
@@ -146,7 +155,7 @@ try {
   assert.equal(createPayloads[0]?.acceptsBotBookings, false)
   console.log('OK: el PATCH conserva el avatar omitido y permite quitarlo explícitamente.')
 } finally {
-  prismaClient.professional.findUnique = originals.findProfessional
+  prismaClient.professional.findFirst = originals.findProfessional
   prismaClient.professional.create = originals.createProfessional
   prismaClient.service.findMany = originals.findServices
   prismaClient.$transaction = originals.transaction

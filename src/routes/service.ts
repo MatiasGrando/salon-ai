@@ -5,6 +5,12 @@ import { serviceCanContinueToBooking } from '../services/booking-v2-deposit.js'
 import { normalizeCustomerDuration } from '../services/service-duration.js'
 import { refreshBusinessOnboarding } from '../services/business-onboarding-service.js'
 import { storeBusinessImage } from '../services/media-storage-service.js'
+import {
+  authorizedServiceCategoryWhere,
+  authorizedServiceWhere,
+  loadAuthorizedService
+} from '../services/tenant-resource-authorization.js'
+import { sendAuthorizationFailure } from '../services/authorization-response.js'
 
 const SERVICE_WRITE_TRANSACTION_TIMEOUT_MS = 15_000
 
@@ -85,8 +91,8 @@ export async function serviceRoutes(app: FastifyInstance) {
       adviceEnabled?: boolean
       aliases?: unknown
     }
-    const category = await prisma.serviceCategory.findUnique({
-      where: { id: params.id }
+    const category = await prisma.serviceCategory.findFirst({
+      where: authorizedServiceCategoryWhere(request.auth!.user, params.id)
     })
     const name = body.name?.trim()
     const aliases = body.aliases === undefined
@@ -94,7 +100,7 @@ export async function serviceRoutes(app: FastifyInstance) {
       : normalizeServiceCategoryAliases(body.aliases)
 
     if (!category) {
-      return reply.status(404).send({ message: 'No encontre la categoria' })
+      return sendAuthorizationFailure(reply, 'notFound')
     }
     if (!name) {
       return reply.status(400).send({ message: 'name es requerido' })
@@ -174,12 +180,12 @@ export async function serviceRoutes(app: FastifyInstance) {
 
   app.delete('/service-categories/:id', async (request, reply) => {
     const params = request.params as { id: string }
-    const category = await prisma.serviceCategory.findUnique({
-      where: { id: params.id },
+    const category = await prisma.serviceCategory.findFirst({
+      where: authorizedServiceCategoryWhere(request.auth!.user, params.id),
       select: { id: true }
     })
     if (!category) {
-      return reply.status(404).send({ message: 'No encontre la categoria' })
+      return sendAuthorizationFailure(reply, 'notFound')
     }
     await prisma.$transaction([
       prisma.service.updateMany({
@@ -593,8 +599,8 @@ export async function serviceRoutes(app: FastifyInstance) {
     const aliases = body.aliases
       ?.map((alias) => alias.trim())
       .filter(Boolean)
-    const existing = await prisma.service.findUnique({
-      where: { id: params.id },
+    const existing = await prisma.service.findFirst({
+      where: authorizedServiceWhere(request.auth!.user, params.id),
       select: {
         id: true,
         description: true,
@@ -628,7 +634,7 @@ export async function serviceRoutes(app: FastifyInstance) {
       }
     })
     if (!existing) {
-      return reply.status(404).send({ message: 'No encontre el servicio' })
+      return sendAuthorizationFailure(reply, 'notFound')
     }
     const combinationConfiguration = normalizeServiceCombinationConfiguration(body, true)
     if (!combinationConfiguration.ok) {
@@ -930,8 +936,8 @@ export async function serviceRoutes(app: FastifyInstance) {
       id: string
     }
 
-    const service = await prisma.service.findUnique({
-      where: { id: params.id },
+    const service = await prisma.service.findFirst({
+      where: authorizedServiceWhere(request.auth!.user, params.id),
       select: {
         id: true,
         businessId: true,
@@ -942,7 +948,7 @@ export async function serviceRoutes(app: FastifyInstance) {
       }
     })
     if (!service) {
-      return reply.status(404).send({ message: 'No encontre el servicio' })
+      return sendAuthorizationFailure(reply, 'notFound')
     }
 
     if (!service.isBookable) {
@@ -996,7 +1002,7 @@ export async function serviceRoutes(app: FastifyInstance) {
     }
   })
 
-  app.post('/services/:serviceId/aliases', async (request) => {
+  app.post('/services/:serviceId/aliases', async (request, reply) => {
 
     const params = request.params as {
       serviceId: string
@@ -1006,10 +1012,13 @@ export async function serviceRoutes(app: FastifyInstance) {
       aliases: string[]
     }
 
+    const service = await loadAuthorizedService(prisma, request.auth!.user, params.serviceId)
+    if (!service) return sendAuthorizationFailure(reply, 'notFound')
+
     return prisma.serviceAlias.createMany({
       data: body.aliases.map((alias) => ({
         name: alias,
-        serviceId: params.serviceId
+        serviceId: service.id
       }))
     })
   })

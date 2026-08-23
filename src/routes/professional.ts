@@ -7,6 +7,8 @@ import {
 } from '../services/weekly-hours.js'
 import { refreshBusinessOnboarding } from '../services/business-onboarding-service.js'
 import { storeBusinessImage } from '../services/media-storage-service.js'
+import { authorizedProfessionalWhere } from '../services/tenant-resource-authorization.js'
+import { sendAuthorizationFailure } from '../services/authorization-response.js'
 
 type WorkingHourInput = WeeklyHourInput
 
@@ -132,7 +134,7 @@ export async function professionalRoutes(app: FastifyInstance) {
     return professionals.map(serializeProfessional)
   })
 
-  app.get('/professionals/:id/appointments-impact', async (request) => {
+  app.get('/professionals/:id/appointments-impact', async (request, reply) => {
     const params = request.params as {
       id: string
     }
@@ -143,7 +145,12 @@ export async function professionalRoutes(app: FastifyInstance) {
       ? normalizeWeeklyHours(JSON.parse(query.workingHours) as WorkingHourInput[])
       : undefined
 
-    return getProfessionalAppointmentImpact(params.id, workingHours)
+    const professional = await prisma.professional.findFirst({
+      where: authorizedProfessionalWhere(request.auth!.user, params.id),
+      select: { id: true }
+    })
+    if (!professional) return sendAuthorizationFailure(reply, 'notFound')
+    return getProfessionalAppointmentImpact(professional.id, workingHours)
   })
 
   app.patch('/professionals/:id', async (request, reply) => {
@@ -181,19 +188,15 @@ export async function professionalRoutes(app: FastifyInstance) {
     }
     const workingHours = workingHoursValidation?.hours
 
-    const existing = await prisma.professional.findUnique({
-      where: {
-        id: params.id
-      },
+    const existing = await prisma.professional.findFirst({
+      where: authorizedProfessionalWhere(request.auth!.user, params.id),
       include: {
         workingHours: true
       }
     })
 
     if (!existing) {
-      return reply.status(404).send({
-        message: 'No encontre ese profesional'
-      })
+      return sendAuthorizationFailure(reply, 'notFound')
     }
 
     const serviceIdsResult = body.serviceIds
@@ -326,10 +329,14 @@ export async function professionalRoutes(app: FastifyInstance) {
       })
     }
 
+    const existing = await prisma.professional.findFirst({
+      where: authorizedProfessionalWhere(request.auth!.user, params.id),
+      select: { id: true }
+    })
+    if (!existing) return sendAuthorizationFailure(reply, 'notFound')
+
     const professional = await prisma.professional.update({
-      where: {
-        id: params.id
-      },
+      where: { id: existing.id },
       data: {
         isActive: body.isActive,
         deactivatedAt: body.isActive ? null : new Date()
@@ -345,11 +352,11 @@ export async function professionalRoutes(app: FastifyInstance) {
     const params = request.params as {
       id: string
     }
-    const existingProfessional = await prisma.professional.findUnique({
-      where: { id: params.id },
+    const existingProfessional = await prisma.professional.findFirst({
+      where: authorizedProfessionalWhere(request.auth!.user, params.id),
       select: { businessId: true }
     })
-    if (!existingProfessional) return reply.status(404).send({ message: 'No encontre ese profesional' })
+    if (!existingProfessional) return sendAuthorizationFailure(reply, 'notFound')
 
     const futureAppointmentCount = await prisma.appointment.count({
       where: {

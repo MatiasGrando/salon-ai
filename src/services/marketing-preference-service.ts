@@ -1,4 +1,5 @@
 import { prisma } from '../config/prisma.js'
+import type { Prisma, PrismaClient } from '../generated/prisma/client.js'
 
 export type MarketingOptOutUnderstanding = {
   action: 'opt_out' | 'none'
@@ -17,9 +18,9 @@ export function defaultMarketingPreferenceData(now = new Date()) {
 export async function ensureDefaultMarketingPreference(input: {
   businessId: string
   customerId: string
-}) {
+}, client: Pick<PrismaClient, 'customerMarketingPreference'> | Pick<Prisma.TransactionClient, 'customerMarketingPreference'> = prisma) {
   const defaults = defaultMarketingPreferenceData()
-  return prisma.customerMarketingPreference.upsert({
+  return client.customerMarketingPreference.upsert({
     where: {
       businessId_customerId: {
         businessId: input.businessId,

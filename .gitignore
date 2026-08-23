@@ -1,6 +1,7 @@
 node_modules
 # Keep environment variables out of version control
 .env
+.env.test.local
 
 /src/generated/prisma
 dev-server.log
@@ -9,3 +10,4 @@ dev-server.log
 /measurements/database-usage/*.md
 /measurements/media-migration/*.json
 /starter/._.
+.atl/

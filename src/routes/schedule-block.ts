@@ -1,6 +1,11 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
 import { staffCanUseProfessional } from '../services/staff-permission-service.js'
+import {
+  authorizedScheduleBlockWhere,
+  loadAuthorizedScheduleBlock
+} from '../services/tenant-resource-authorization.js'
+import { sendAuthorizationFailure } from '../services/authorization-response.js'
 
 const scheduleBlockReasons = [
   'ABSENCE',
@@ -212,27 +217,28 @@ export async function scheduleBlockRoutes(app: FastifyInstance) {
       id: string
     }
 
-    const existingBlock = await prisma.scheduleBlock.findUnique({
-      where: {
-        id: params.id
-      }
-    })
+    const authUser = request.auth?.user
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    const existingBlock = await loadAuthorizedScheduleBlock(prisma, authUser, params.id)
 
     if (!existingBlock) {
-      return reply.status(404).send({
-        message: 'No encontre ese bloqueo'
-      })
+      return sendAuthorizationFailure(reply, 'notFound')
     }
 
     if (request.auth?.user.role === 'STAFF' && !staffCanUseProfessional(request.auth.user, existingBlock.professionalId)) {
-      return reply.status(403).send({ message: 'Tu perfil no puede eliminar ese bloqueo' })
+      return sendAuthorizationFailure(reply, 'forbidden')
     }
 
-    await prisma.scheduleBlock.delete({
-      where: {
-        id: params.id
-      }
+    const deleted = await prisma.$transaction(async (transaction) => {
+      const scopedBlock = await loadAuthorizedScheduleBlock(transaction, authUser, params.id)
+      if (!scopedBlock) return false
+      if (authUser.role === 'STAFF' && !staffCanUseProfessional(authUser, scopedBlock.professionalId)) return false
+      const result = await transaction.scheduleBlock.deleteMany({
+        where: authorizedScheduleBlockWhere(authUser, params.id)
+      })
+      return result.count === 1
     })
+    if (!deleted) return sendAuthorizationFailure(reply, 'conflict')
 
     return {
       deleted: true

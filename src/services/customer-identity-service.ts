@@ -1,6 +1,11 @@
 import { Prisma } from '../generated/prisma/client.js'
 import { prisma } from '../config/prisma.js'
 import { inferDefaultAreaCodeFromPhone, normalizeCustomerPhone, phoneSearchVariants } from './phone-normalization-service.js'
+import type { BusinessAuthorizationUser } from './business-authorization.js'
+import {
+  authorizedCustomerWhere,
+  loadAuthorizedCustomer
+} from './tenant-resource-authorization.js'
 
 export class CustomerPhoneValidationError extends Error {}
 export class CustomerPhoneConflictError extends Error {}
@@ -124,7 +129,10 @@ export async function findOrCreateCustomerByPhone(input: FindOrCreateCustomerInp
   })
 }
 
-export async function updateCustomerIdentity(input: FindOrCreateCustomerInput & { customerId: string }) {
+export async function updateCustomerIdentity(input: FindOrCreateCustomerInput & {
+  customerId: string
+  authorizationUser?: BusinessAuthorizationUser
+}) {
   const name = input.name.trim()
   const businessId = requireBusinessId(input.businessId)
   const defaultAreaCode = input.defaultAreaCode || await defaultAreaCodeForBusiness(businessId)
@@ -143,8 +151,12 @@ export async function updateCustomerIdentity(input: FindOrCreateCustomerInput & 
       SELECT 1 AS "locked"
       FROM pg_advisory_xact_lock(hashtext(${lockKey}))
     `
-    const current = await transaction.customer.findFirst({ where: { id: input.customerId, businessId } })
-    if (!current) throw new CustomerBusinessScopeError('Ese cliente no pertenece a este comercio')
+    const current = input.authorizationUser
+      ? await loadAuthorizedCustomer(transaction, input.authorizationUser, input.customerId)
+      : await transaction.customer.findFirst({ where: { id: input.customerId, businessId } })
+    if (!current || current.businessId !== businessId) {
+      throw new CustomerBusinessScopeError('Ese cliente no pertenece a este comercio')
+    }
 
     let conflict = await transaction.customer.findFirst({
       where: {
@@ -171,7 +183,9 @@ export async function updateCustomerIdentity(input: FindOrCreateCustomerInput & 
     if (conflict) throw new CustomerPhoneConflictError('Ese telefono ya pertenece a otra ficha. Abrila desde el buscador en lugar de reemplazarlo.')
 
     return transaction.customer.update({
-      where: { id: input.customerId },
+      where: input.authorizationUser
+        ? { id: input.customerId, AND: authorizedCustomerWhere(input.authorizationUser, input.customerId) }
+        : { id: input.customerId },
       data: {
         name,
         phone: canonicalPhone,

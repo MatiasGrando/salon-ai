@@ -12,6 +12,14 @@ import {
   updateCustomerIdentity
 } from '../services/customer-identity-service.js'
 import { normalizePhone } from '../services/phone-normalization-service.js'
+import {
+  authorizedCustomerWhere,
+  loadAuthorizedBusiness,
+  loadAuthorizedCustomer
+} from '../services/tenant-resource-authorization.js'
+import { sendAuthorizationFailure } from '../services/authorization-response.js'
+
+class CustomerAuthorizationStateConflictError extends Error {}
 
 type CustomerOverviewAppointment = {
   customerId: string
@@ -69,6 +77,11 @@ export async function customerRoutes(app: FastifyInstance) {
     const query = request.query as { businessId?: string; q?: string; take?: string }
     const businessId = query.businessId?.trim()
     if (!businessId) return reply.status(400).send({ message: 'businessId es requerido' })
+    const authUser = request.auth?.user
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    if (!await loadAuthorizedBusiness(prisma, authUser, businessId)) {
+      return sendAuthorizationFailure(reply, 'notFound')
+    }
     const search = query.q?.trim() || ''
     const digits = search.replace(/\D/g, '')
     const take = Math.min(20, Math.max(1, Number(query.take) || 12))
@@ -116,6 +129,11 @@ export async function customerRoutes(app: FastifyInstance) {
     const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1)
     const businessId = query.businessId?.trim()
     if (!businessId) return reply.status(400).send({ message: 'businessId es requerido' })
+    const authUser = request.auth?.user
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    if (!await loadAuthorizedBusiness(prisma, authUser, businessId)) {
+      return sendAuthorizationFailure(reply, 'notFound')
+    }
 
     const customers = await prisma.customer.findMany({
       where: { businessId },
@@ -359,6 +377,11 @@ export async function customerRoutes(app: FastifyInstance) {
     }
     const businessId = body.businessId?.trim() || request.auth?.user.businessId?.trim()
     if (!businessId) return reply.status(400).send({ message: 'businessId es requerido' })
+    const authUser = request.auth?.user
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    if (!await loadAuthorizedBusiness(prisma, authUser, businessId)) {
+      return sendAuthorizationFailure(reply, 'notFound')
+    }
 
     try {
       if (!body.phone?.trim()) {
@@ -396,6 +419,11 @@ export async function customerRoutes(app: FastifyInstance) {
     }
     const businessId = query.businessId?.trim()
     if (!businessId) return reply.status(400).send({ message: 'businessId es requerido' })
+    const authUser = request.auth?.user
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    if (!await loadAuthorizedBusiness(prisma, authUser, businessId)) {
+      return sendAuthorizationFailure(reply, 'notFound')
+    }
     const customers = await prisma.customer.findMany({ where: { businessId } })
     return customers.map((customer) => ({
       ...customer,
@@ -410,26 +438,33 @@ export async function customerRoutes(app: FastifyInstance) {
     const businessId = body.businessId?.trim() || request.auth?.user.businessId?.trim()
     if (!businessId) return reply.status(400).send({ message: 'businessId es requerido' })
 
-    if (!await canUserAccessCustomer(request.auth?.user, params.id, businessId)) {
-      return reply.status(403).send({ message: 'Ese cliente no pertenece a tu comercio' })
-    }
-
     if (!name) {
       return reply.status(400).send({ message: 'El nombre del cliente es requerido' })
     }
 
-    const customer = await prisma.customer.findFirst({ where: { id: params.id, businessId } })
-    if (!customer) {
-      return reply.status(404).send({ message: 'No encontre ese cliente' })
-    }
+    const authUser = request.auth?.user
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    const customer = await loadAuthorizedCustomer(prisma, authUser, params.id)
+    if (!customer || customer.businessId !== businessId) return sendAuthorizationFailure(reply, 'notFound')
 
     if (!body.phone?.trim()) {
       try {
         const email = normalizeCustomerEmail(body.email)
-        return prisma.customer.update({
-          where: { id: params.id },
-          data: { name, ...(email !== undefined ? { email } : {}) }
+        const updated = await prisma.$transaction(async (transaction) => {
+          const scopedCustomer = await loadAuthorizedCustomer(transaction, authUser, params.id)
+          if (!scopedCustomer || scopedCustomer.businessId !== businessId) return null
+          const claimed = await transaction.customer.updateMany({
+            where: {
+              ...authorizedCustomerWhere(authUser, params.id),
+              businessId
+            },
+            data: { name, ...(email !== undefined ? { email } : {}) }
+          })
+          if (claimed.count !== 1) return null
+          return loadAuthorizedCustomer(transaction, authUser, params.id)
         })
+        if (!updated) return sendAuthorizationFailure(reply, 'conflict')
+        return updated
       } catch (error) {
         if (error instanceof CustomerEmailValidationError) return reply.status(400).send({ message: error.message })
         throw error
@@ -441,10 +476,11 @@ export async function customerRoutes(app: FastifyInstance) {
         name,
         phone: body.phone,
         email: body.email,
-        businessId
+        businessId,
+        authorizationUser: authUser
       })
     } catch (error) {
-      if (error instanceof CustomerBusinessScopeError) return reply.status(403).send({ message: error.message })
+      if (error instanceof CustomerBusinessScopeError) return sendAuthorizationFailure(reply, 'conflict')
       if (error instanceof CustomerPhoneConflictError) return reply.status(409).send({ message: error.message })
       if (error instanceof CustomerPhoneValidationError || error instanceof CustomerEmailValidationError) {
         return reply.status(400).send({ message: error.message })
@@ -455,46 +491,51 @@ export async function customerRoutes(app: FastifyInstance) {
 
   app.delete('/customers/:id', async (request, reply) => {
     const params = request.params as { id: string }
-    if (!await canUserAccessCustomer(request.auth?.user, params.id)) {
-      return reply.status(403).send({ message: 'Ese cliente no pertenece a tu comercio' })
-    }
-    const customer = await prisma.customer.findUnique({
-      where: { id: params.id },
-      select: { id: true, name: true, phone: true, email: true }
-    })
-    if (!customer) {
-      return reply.status(404).send({ message: 'No encontre ese cliente' })
-    }
+    const authUser = request.auth?.user
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    const customer = await loadAuthorizedCustomer(prisma, authUser, params.id)
+    if (!customer) return sendAuthorizationFailure(reply, 'notFound')
 
     const deleted = await prisma.$transaction(async (transaction) => {
-      const appointments = await transaction.appointment.deleteMany({
-        where: { customerId: customer.id }
+      const scopedCustomer = await loadAuthorizedCustomer(transaction, authUser, params.id)
+      if (!scopedCustomer) throw new CustomerAuthorizationStateConflictError()
+      const appointments = await transaction.appointment.deleteMany({ where: { customerId: scopedCustomer.id } })
+      const notes = await transaction.customerNote.deleteMany({ where: { customerId: scopedCustomer.id } })
+      const customers = await transaction.customer.deleteMany({
+        where: authorizedCustomerWhere(authUser, scopedCustomer.id)
       })
-      const notes = await transaction.customerNote.deleteMany({
-        where: { customerId: customer.id }
-      })
-      await transaction.customer.delete({ where: { id: customer.id } })
-      return {
-        appointments: appointments.count,
-        notes: notes.count,
-        customers: 1
-      }
+      if (customers.count !== 1) throw new CustomerAuthorizationStateConflictError()
+      return { appointments: appointments.count, notes: notes.count, customers: customers.count }
+    }).catch((error: unknown) => {
+      if (error instanceof CustomerAuthorizationStateConflictError) return null
+      throw error
     })
+    if (!deleted) return sendAuthorizationFailure(reply, 'conflict')
 
     return {
       deleted,
-      customer,
+      customer: {
+        id: customer.id,
+        name: customer.name,
+        phone: customer.phone,
+        email: customer.email
+      },
       conversationPreserved: true
     }
   })
 
   app.get('/customers/:id/notes', async (request, reply) => {
     const params = request.params as { id: string }
-    if (!await canUserAccessCustomer(request.auth?.user, params.id)) {
-      return reply.status(403).send({ message: 'Ese cliente no pertenece a tu comercio' })
+    const authUser = request.auth?.user
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    if (!await loadAuthorizedCustomer(prisma, authUser, params.id)) {
+      return sendAuthorizationFailure(reply, 'notFound')
     }
     return prisma.customerNote.findMany({
-      where: { customerId: params.id },
+      where: {
+        customerId: params.id,
+        customer: authorizedCustomerWhere(authUser, params.id)
+      },
       orderBy: { createdAt: 'desc' }
     })
   })
@@ -504,49 +545,27 @@ export async function customerRoutes(app: FastifyInstance) {
     const body = request.body as { body?: string }
     const noteBody = body.body?.trim()
 
-    if (!await canUserAccessCustomer(request.auth?.user, params.id)) {
-      return reply.status(403).send({ message: 'Ese cliente no pertenece a tu comercio' })
-    }
-
     if (!noteBody || noteBody.length > 1000) {
       return reply.status(400).send({ message: 'La nota debe tener entre 1 y 1000 caracteres' })
     }
 
-    const customer = await prisma.customer.findUnique({ where: { id: params.id } })
-    if (!customer) {
-      return reply.status(404).send({ message: 'No encontre ese cliente' })
+    const authUser = request.auth?.user
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    if (!await loadAuthorizedCustomer(prisma, authUser, params.id)) {
+      return sendAuthorizationFailure(reply, 'notFound')
     }
 
-    return prisma.customerNote.create({
-      data: {
-        customerId: params.id,
-        body: noteBody
-      }
+    const note = await prisma.$transaction(async (transaction) => {
+      const customer = await loadAuthorizedCustomer(transaction, authUser, params.id)
+      if (!customer) return null
+      return transaction.customerNote.create({
+        data: { customerId: customer.id, body: noteBody }
+      })
     })
+    if (!note) return sendAuthorizationFailure(reply, 'conflict')
+    return note
   })
 
-}
-
-async function canUserAccessCustomer(
-  user: { role: string; businessId: string | null } | undefined,
-  customerId: string,
-  requestedBusinessId?: string
-) {
-  if (!user) return false
-  if (user.role === 'SUPER_ADMIN') {
-    if (!requestedBusinessId) return true
-    return Boolean(await prisma.customer.findFirst({
-      where: { id: customerId, businessId: requestedBusinessId },
-      select: { id: true }
-    }))
-  }
-  if (!user.businessId) return false
-  if (requestedBusinessId && requestedBusinessId !== user.businessId) return false
-  const customer = await prisma.customer.findFirst({
-    where: { id: customerId, businessId: user.businessId },
-    select: { id: true }
-  })
-  return Boolean(customer)
 }
 
 function isActiveAppointment(appointment: { status: string }) {
