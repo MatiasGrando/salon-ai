@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import type { FunctionalSseSession, SseOpenResult, SseRecorderFacade } from '../observability/egress-baseline/types.js'
 import { prisma } from '../config/prisma.js'
 import { Prisma, type Message } from '../generated/prisma/client.js'
 import { assertBusinessCanSendWhatsApp } from '../services/business-whatsapp-settings.js'
@@ -152,45 +153,126 @@ function safeMediaFilename(
   return `${mediaType === 'image' ? 'imagen' : 'archivo'}.${extension}`
 }
 
-export async function crmRoutes(app: FastifyInstance) {
+export interface CrmRoutesOptions { readonly sseRecorder: SseRecorderFacade }
+
+export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions) {
+  const routeSessions = new Set<FunctionalSseSession>()
+  let routeClosing = false
+  app.addHook('preClose', async () => {
+    routeClosing = true
+    for (const session of [...routeSessions]) session.close('server_shutdown')
+  })
   app.get('/crm/events', async (request, reply) => {
     const query = request.query as { businessId?: string }
     const businessId = query.businessId || request.auth?.user.businessId
     if (!businessId) {
       return reply.status(400).send({ message: 'Selecciona un comercio para recibir eventos' })
     }
+    if (routeClosing || !options.sseRecorder.canOpenSse()) return reply.status(503).send({ message: 'Eventos temporalmente no disponibles' })
 
-    reply.hijack()
     const response = reply.raw
-    response.writeHead(200, {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no'
-    })
-    response.write('retry: 5000\n\n')
-
-    let closed = false
-    const unsubscribe = subscribeToCrmRealtimeEvents({
-      businessId,
-      send: (event) => {
-        if (response.writableEnded || response.destroyed) throw new Error('La conexión de eventos se cerró')
-        response.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`)
-      }
-    })
-    const heartbeat = setInterval(() => {
-      if (!response.writableEnded && !response.destroyed) response.write(': ping\n\n')
-    }, 25_000)
-    heartbeat.unref()
-
-    const close = () => {
-      if (closed) return
-      closed = true
-      clearInterval(heartbeat)
-      unsubscribe()
+    try {
+      reply.hijack()
+      response.writeHead(200, {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no'
+      })
+    } catch {
+      if (!response.destroyed) response.destroy()
+      return reply
     }
-    request.raw.once('close', close)
-    response.once('close', close)
+    if (routeClosing) {
+      try { response.end() } catch { if (!response.destroyed) response.destroy() }
+      return reply
+    }
+    let opened: SseOpenResult
+    try {
+      opened = options.sseRecorder.openSse(response)
+    } catch {
+      if (!response.destroyed) response.destroy()
+      return reply
+    }
+    if (opened.status === 'closing') {
+      try { response.end() } catch { if (!response.destroyed) response.destroy() }
+      return reply
+    }
+    if (routeClosing) {
+      opened.session.close('server_shutdown')
+      try { response.end() } catch { if (!response.destroyed) response.destroy() }
+      return reply
+    }
+    routeSessions.add(opened.session)
+
+    let unsubscribe = () => {}
+    let heartbeat: NodeJS.Timeout | null = null
+    const onRequestClose = () => opened.session.close('client_close')
+    const onResponseClose = () => opened.session.close('client_close')
+    const onResponseError = () => opened.session.close('write_failure')
+    opened.session.bindCleanup((reason) => {
+      routeSessions.delete(opened.session)
+      if (heartbeat) clearInterval(heartbeat)
+      heartbeat = null
+      try { unsubscribe() } catch {}
+      request.raw.removeListener('close', onRequestClose)
+      response.removeListener('close', onResponseClose)
+      response.removeListener('error', onResponseError)
+      if (reason === 'server_shutdown' && !response.writableEnded && !response.destroyed) {
+        try { response.end() } catch { try { response.destroy() } catch {} }
+      }
+      if ((reason === 'write_failure' || reason === 'unknown') && !response.destroyed) try { response.destroy() } catch {}
+    })
+    request.raw.once('close', onRequestClose)
+    response.once('close', onResponseClose)
+    response.once('error', onResponseError)
+
+    const retryChunk = 'retry: 5000\n\n'
+    opened.measurement?.control(retryChunk, true)
+    try {
+      const accepted = response.write(retryChunk)
+      if (!accepted) opened.measurement?.writeBackpressure()
+    } catch {
+      opened.measurement?.writeFailure()
+      opened.session.close('write_failure')
+      return reply
+    }
+
+    try {
+      unsubscribe = subscribeToCrmRealtimeEvents({
+        businessId,
+        send: (event) => {
+          if (response.writableEnded || response.destroyed) throw new Error('La conexión de eventos se cerró')
+          const chunk = `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`
+          opened.measurement?.business(chunk, true)
+          try {
+            const accepted = response.write(chunk)
+            if (!accepted) opened.measurement?.writeBackpressure()
+          } catch (error) {
+            opened.measurement?.writeFailure()
+            opened.session.close('write_failure')
+            throw error
+          }
+        }
+      })
+      heartbeat = setInterval(() => {
+        if (!response.writableEnded && !response.destroyed) {
+          const chunk = ': ping\n\n'
+          opened.measurement?.heartbeat(chunk, true)
+          try {
+            const accepted = response.write(chunk)
+            if (!accepted) opened.measurement?.writeBackpressure()
+          } catch {
+            opened.measurement?.writeFailure()
+            opened.session.close('write_failure')
+          }
+        }
+      }, 25_000)
+      heartbeat.unref()
+    } catch {
+      opened.session.close('unknown')
+      return reply
+    }
 
     return reply
   })

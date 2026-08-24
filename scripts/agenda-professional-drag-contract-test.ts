@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { prisma } from '../src/config/prisma.js'
 import { crmUiRoutes } from '../src/routes/crm-ui.js'
+import { DISABLED_POLLING_MARKER } from '../src/observability/egress-baseline/types.js'
 import { AppointmentService } from '../src/services/appointment-service.js'
 
 const prismaClient = prisma as any
@@ -133,7 +134,7 @@ try {
     get(path: string, handler: typeof crmHandler) {
       if (path === '/crm') crmHandler = handler
     }
-  } as any)
+  } as any, { pollingMarker: DISABLED_POLLING_MARKER })
   assert.ok(crmHandler)
   const activeCrmHandler = crmHandler as unknown as (
     (request: unknown, reply: any) => Promise<unknown>

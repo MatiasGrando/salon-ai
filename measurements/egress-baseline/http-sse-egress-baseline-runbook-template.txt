@@ -1,0 +1,134 @@
+PROJECT: salon-ai
+CHANGE: instrument-http-sse-egress-baseline
+
+PREDEPLOY APPROVALS
+- owner/approver:
+- controlled environment:
+- retention/access authority:
+- enablement and observation window:
+- provisional thresholds after baseline:
+- provider parsing/export canary:
+
+IDENTITY AND WINDOWS
+- commit/deployment/RAILWAY_REPLICA_ID/RAILWAY_DEPLOYMENT_ID:
+- T0/T1/T1-confirmation in local time and UTC:
+- effective flags (all default false):
+- unusual traffic observed:
+- jobs/scripts executed during the window:
+
+WINDOW SEMANTICS
+- T0: snapshot immediately before the declared controlled window or change begins.
+- T1: snapshot at the declared end of the controlled window.
+- T1-confirmation: later provider reading used only for delayed provider accounting; never exact reconciliation.
+
+EXPORT COMMANDS
+railway logs <deploymentId> --service <service> --environment <env> --since <T0> --until <T1> --filter '@message:egress_baseline_process_window' --json
+railway logs <deploymentId> --http --service <service> --environment <env> --since <T0> --until <T1> --json
+railway metrics --service <service> --environment <env> --cpu --memory --network --since <T0> --until <T1> --json
+npm run analyze:egress-baseline -- <export.ndjson>
+
+SAFETY SOURCES
+- CPU/memory: Railway per-replica metrics or redacted dashboard Replica view.
+- Event loop/heap: canonical processHealth from complete windows; one-window delay.
+- Edge latency: p95 totalDuration by deploymentInstanceId and minute.
+- stdout/overflow/drops: canonical chunk 0 values once per complete window; never cross-window deltas.
+- Any required source unavailable blocks widening: source unavailable = rollout bloqueado.
+
+Every field below is mandatory. Missing fields block rollout. Transient samples do not trigger rollback unless an approved immediate-severity rule says so.
+
+INDICATOR: CPU
+Owner:
+Baseline:
+Observation window:
+Aggregation: per-replica Railway samples, never relabeled service totals
+Sustained rule:
+Immediate rule:
+Recovery window:
+Unavailable behavior: block rollout
+
+INDICATOR: heap
+Owner:
+Baseline:
+Observation window:
+Aggregation: canonical chunk-0 processHealth once per complete window
+Sustained rule:
+Immediate rule:
+Recovery window:
+Unavailable behavior: block rollout; never substitute zero
+
+INDICATOR: event-loop
+Owner:
+Baseline:
+Observation window:
+Aggregation: canonical p95/max with one-window sampling delay
+Sustained rule:
+Immediate rule:
+Recovery window:
+Unavailable behavior: block rollout; never substitute zero
+
+INDICATOR: latency
+Owner:
+Baseline:
+Observation window:
+Aggregation: p95 totalDuration grouped by deploymentInstanceId and minute
+Sustained rule:
+Immediate rule:
+Recovery window:
+Unavailable behavior: block rollout
+
+INDICATOR: stdout
+Owner:
+Baseline:
+Observation window:
+Aggregation: sum canonical PendingBeforeFlush once per complete window; never cross-window differences
+Sustained rule:
+Immediate rule:
+Recovery window:
+Unavailable behavior: block rollout
+
+INDICATOR: overflow
+Owner:
+Baseline:
+Observation window:
+Aggregation: canonical chunk-0 overflow/fold/oversized counters once per complete window
+Sustained rule:
+Immediate rule:
+Recovery window:
+Unavailable behavior: block rollout
+
+INDICATOR: drops
+Owner:
+Baseline:
+Observation window:
+Aggregation: canonical droppedSnapshotsPendingBeforeFlush plus separate chunk/sequence gaps
+Sustained rule:
+Immediate rule:
+Recovery window:
+Unavailable behavior: block rollout
+
+FIVE DISTINCT LAYERS
+- httpSerializedResponseBytes — T0 value/status: ; T1 value/status: ; T1-confirmation value/status:
+- sseApplicationBytesAttempted — T0 value/status: ; T1 value/status: ; T1-confirmation value/status:
+- databaseProviderEgressDelta — T0 value/status: ; T1 value/status: ; T1-confirmation value/status:
+- storageProviderEgressDelta — T0 value/status: ; T1 value/status: ; T1-confirmation value/status:
+- railwayTransmitDelta — T0 value/status: ; T1 value/status: ; T1-confirmation value/status:
+These layers MUST NOT be reconciled as if equivalent or as billed delivery proof.
+For every layer, unavailable MUST be recorded as unavailable and never substituted with numeric zero.
+
+HTTP EXPORT PRIVACY
+- Process the HTTP export locally and retain only totalDuration and deploymentInstanceId.
+- Never retain raw path, user agent, IP, host, request ID or unrelated provider fields.
+
+STOP AND ROLLBACK
+- Stop on functional impact, malformed/rejected records, sustained/immediate safety breach, overflow/drop/gap, or unavailable required source.
+- First redeploy with affected flags false. Wait bounded recovery evidence.
+- Full application rollback only when disabling telemetry does not restore behavior, cannot be made safe, or pre-approved severity requires it.
+- No migrations exist for this change.
+
+PRIVACY AND RETENTION
+- Restrict exports and record retention/access authority above.
+- Never retain raw URL/query/body, headers, cookies, auth, PII, tenant/customer identifiers, provider payloads, errors/stacks, or media paths.
+
+SSE PROCESS-CRASH CAVEAT
+- Un crash del proceso puede omitir el contador `closed` y la duración final de una conexión SSE activa.
+- Esa ausencia no debe interpretarse como conexión entregada, activa globalmente ni finalización exitosa.
