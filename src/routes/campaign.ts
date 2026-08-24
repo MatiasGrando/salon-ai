@@ -13,6 +13,14 @@ import { toManualCommunicationExecutionViewModel } from './view-models/communica
 import { RecordCommunicationAttempt } from '../application/communications/record-communication-attempt.js'
 import { PrismaCommunicationAttemptRepository } from '../infrastructure/communications/prisma-communication-attempt-repository.js'
 import { prepareDueReminders, processDueReminders as processDueReminderDeliveries, transitionManualReminder } from '../services/reminder-service.js'
+import {
+  authorizedCampaignWhere,
+  authorizedWhatsAppTemplateWhere,
+  loadAuthorizedCampaignDelivery,
+  loadAuthorizedCustomer,
+  loadAuthorizedReminderAutomation
+} from '../services/tenant-resource-authorization.js'
+import { sendAuthorizationFailure } from '../services/authorization-response.js'
 
 const CAMPAIGN_TYPES = ['ONE_TIME', 'AUTOMATED'] as const
 const CAMPAIGN_CHANNELS = ['WHATSAPP', 'EMAIL', 'BOTH'] as const
@@ -141,8 +149,8 @@ export async function campaignRoutes(app: FastifyInstance) {
 
   app.patch('/whatsapp-templates/:id', async (request, reply) => {
     const params = request.params as { id: string }
-    const current = await prisma.whatsAppTemplate.findUnique({ where: { id: params.id } })
-    if (!current) return reply.status(404).send({ message: 'No encontre esa plantilla' })
+    const current = await prisma.whatsAppTemplate.findFirst({ where: authorizedWhatsAppTemplateWhere(request.auth!.user, params.id) })
+    if (!current) return sendAuthorizationFailure(reply, 'notFound')
     if (!['DRAFT', 'REJECTED'].includes(current.status)) {
       return reply.status(409).send({ message: 'Una plantilla enviada a Meta no puede editarse. Duplica la plantilla para crear otra version.' })
     }
@@ -194,11 +202,11 @@ export async function campaignRoutes(app: FastifyInstance) {
 
   app.delete('/whatsapp-templates/:id', async (request, reply) => {
     const params = request.params as { id: string }
-    const template = await prisma.whatsAppTemplate.findUnique({
-      where: { id: params.id },
+    const template = await prisma.whatsAppTemplate.findFirst({
+      where: authorizedWhatsAppTemplateWhere(request.auth!.user, params.id),
       include: { _count: { select: { campaigns: true } } }
     })
-    if (!template) return reply.status(404).send({ message: 'No encontre esa plantilla' })
+    if (!template) return sendAuthorizationFailure(reply, 'notFound')
     if (template._count.campaigns > 0) {
       return reply.status(409).send({ message: 'No se puede eliminar porque esta plantilla esta usada por una o mas campanas' })
     }
@@ -208,8 +216,8 @@ export async function campaignRoutes(app: FastifyInstance) {
 
   app.post('/whatsapp-templates/:id/submit', async (request, reply) => {
     const params = request.params as { id: string }
-    const template = await prisma.whatsAppTemplate.findUnique({ where: { id: params.id } })
-    if (!template) return reply.status(404).send({ message: 'No encontre esa plantilla' })
+    const template = await prisma.whatsAppTemplate.findFirst({ where: authorizedWhatsAppTemplateWhere(request.auth!.user, params.id) })
+    if (!template) return sendAuthorizationFailure(reply, 'notFound')
     if (!['DRAFT', 'REJECTED'].includes(template.status)) return reply.status(409).send({ message: 'La plantilla ya fue enviada a Meta' })
     const examples = parseTemplateExamples(template.exampleJson)
     const variables = extractNamedTemplateVariables(template.body)
@@ -246,8 +254,8 @@ export async function campaignRoutes(app: FastifyInstance) {
 
   app.post('/whatsapp-templates/:id/sync', async (request, reply) => {
     const params = request.params as { id: string }
-    const template = await prisma.whatsAppTemplate.findUnique({ where: { id: params.id } })
-    if (!template) return reply.status(404).send({ message: 'No encontre esa plantilla' })
+    const template = await prisma.whatsAppTemplate.findFirst({ where: authorizedWhatsAppTemplateWhere(request.auth!.user, params.id) })
+    if (!template) return sendAuthorizationFailure(reply, 'notFound')
     if (template.status === 'DRAFT') return reply.status(409).send({ message: 'Primero envia la plantilla a revision' })
     const result = await whatsappCloudApi.findMessageTemplate({ businessId: template.businessId, id: template.metaId, name: template.metaName, languageCode: template.language })
     if (!result.found || !result.template) {
@@ -272,8 +280,8 @@ export async function campaignRoutes(app: FastifyInstance) {
 
   app.get('/whatsapp-templates/:id/meta-diagnosis', async (request, reply) => {
     const params = request.params as { id: string }
-    const template = await prisma.whatsAppTemplate.findUnique({ where: { id: params.id } })
-    if (!template) return reply.status(404).send({ message: 'No encontre esa plantilla' })
+    const template = await prisma.whatsAppTemplate.findFirst({ where: authorizedWhatsAppTemplateWhere(request.auth!.user, params.id) })
+    if (!template) return sendAuthorizationFailure(reply, 'notFound')
 
     const listed = await whatsappCloudApi.listMessageTemplates({ businessId: template.businessId, name: template.metaName })
     if (!listed.listed) {
@@ -315,8 +323,8 @@ export async function campaignRoutes(app: FastifyInstance) {
     const phone = String(body.phone || '').replace(/\D/g, '')
     if (!body.confirmed) return reply.status(400).send({ message: 'Confirma que el numero de destino es tuyo' })
     if (phone.length < 8 || phone.length > 15) return reply.status(400).send({ message: 'Ingresa el numero completo con codigo de pais' })
-    const template = await prisma.whatsAppTemplate.findUnique({ where: { id: params.id } })
-    if (!template) return reply.status(404).send({ message: 'No encontre esa plantilla' })
+    const template = await prisma.whatsAppTemplate.findFirst({ where: authorizedWhatsAppTemplateWhere(request.auth!.user, params.id) })
+    if (!template) return sendAuthorizationFailure(reply, 'notFound')
     if (template.status !== 'APPROVED') return reply.status(409).send({ message: 'Meta debe aprobar la plantilla antes de probarla' })
     const gate = await assertBusinessCanSendWhatsApp(template.businessId, 'TEST')
     if (!gate.allowed) return reply.status(409).send({ message: gate.message })
@@ -371,8 +379,8 @@ export async function campaignRoutes(app: FastifyInstance) {
   app.post('/whatsapp-templates/:id/variable-preview', async (request, reply) => {
     const params = request.params as { id: string }
     const body = request.body as { customerId?: string; appointmentId?: string }
-    const template = await prisma.whatsAppTemplate.findUnique({ where: { id: params.id } })
-    if (!template) return reply.status(404).send({ message: 'No encontre esa plantilla' })
+    const template = await prisma.whatsAppTemplate.findFirst({ where: authorizedWhatsAppTemplateWhere(request.auth!.user, params.id) })
+    if (!template) return sendAuthorizationFailure(reply, 'notFound')
     if (template.status !== 'APPROVED') return reply.status(409).send({ message: 'La plantilla debe estar aprobada para usar datos reales' })
 
     const context = await buildTemplateVariableContext({
@@ -407,8 +415,8 @@ export async function campaignRoutes(app: FastifyInstance) {
 
   app.patch('/reminder-automations/:id', async (request, reply) => {
     const params = request.params as { id: string }
-    const current = await prisma.reminderAutomation.findUnique({ where: { id: params.id } })
-    if (!current) return reply.status(404).send({ message: 'No encontre ese recordatorio' })
+    const current = await loadAuthorizedReminderAutomation(prisma, request.auth!.user, params.id)
+    if (!current) return sendAuthorizationFailure(reply, 'notFound')
     const body = request.body as { name?: string; channel?: string; templateId?: string | null; enabled?: boolean; mode?: string; sendBeforeMinutes?: number | string }
     const normalized = await normalizeReminderAutomationInput({
       ...current,
@@ -425,8 +433,8 @@ export async function campaignRoutes(app: FastifyInstance) {
 
   app.delete('/reminder-automations/:id', async (request, reply) => {
     const params = request.params as { id: string }
-    const current = await prisma.reminderAutomation.findUnique({ where: { id: params.id } })
-    if (!current) return reply.status(404).send({ message: 'No encontre ese recordatorio' })
+    const current = await loadAuthorizedReminderAutomation(prisma, request.auth!.user, params.id)
+    if (!current) return sendAuthorizationFailure(reply, 'notFound')
     await prisma.reminderAutomation.delete({ where: { id: current.id } })
     return { deleted: true }
   })
@@ -616,8 +624,8 @@ export async function campaignRoutes(app: FastifyInstance) {
 
   app.post('/campaigns/:id/template/sync', async (request, reply) => {
     const params = request.params as { id: string }
-    const campaign = await prisma.campaign.findUnique({ where: { id: params.id } })
-    if (!campaign) return reply.status(404).send({ message: 'No encontre esa campana' })
+    const campaign = await prisma.campaign.findFirst({ where: authorizedCampaignWhere(request.auth!.user, params.id) })
+    if (!campaign) return sendAuthorizationFailure(reply, 'notFound')
     if (!campaign.templateName) return reply.status(400).send({ message: 'La campana no tiene una plantilla asociada' })
 
     const result = await whatsappCloudApi.findMessageTemplate({
@@ -690,8 +698,8 @@ export async function campaignRoutes(app: FastifyInstance) {
 
   app.patch('/campaigns/:id', async (request, reply) => {
     const params = request.params as { id: string }
-    const current = await prisma.campaign.findUnique({ where: { id: params.id } })
-    if (!current) return reply.status(404).send({ message: 'No encontre esa campana' })
+    const current = await prisma.campaign.findFirst({ where: authorizedCampaignWhere(request.auth!.user, params.id) })
+    if (!current) return sendAuthorizationFailure(reply, 'notFound')
 
     const body = request.body as CampaignInput
     const normalized = normalizeCampaignInput({ ...current, ...body }, reply, true)
@@ -723,8 +731,8 @@ export async function campaignRoutes(app: FastifyInstance) {
 
   app.post('/campaigns/:id/duplicate', async (request, reply) => {
     const params = request.params as { id: string }
-    const current = await prisma.campaign.findUnique({ where: { id: params.id } })
-    if (!current) return reply.status(404).send({ message: 'No encontre esa campana' })
+    const current = await prisma.campaign.findFirst({ where: authorizedCampaignWhere(request.auth!.user, params.id) })
+    if (!current) return sendAuthorizationFailure(reply, 'notFound')
 
     const duplicate = await prisma.campaign.create({
       data: {
@@ -807,23 +815,23 @@ export async function campaignRoutes(app: FastifyInstance) {
 
   app.get('/campaigns/:id/audience-preview', async (request, reply) => {
     const params = request.params as { id: string }
-    const campaign = await prisma.campaign.findUnique({
-      where: { id: params.id },
+    const campaign = await prisma.campaign.findFirst({
+      where: authorizedCampaignWhere(request.auth!.user, params.id),
       include: {
         manualRecipients: {
           include: { customer: { select: { id: true, name: true, phone: true } } }
         }
       }
     })
-    if (!campaign) return reply.status(404).send({ message: 'No encontre esa campana' })
+    if (!campaign) return sendAuthorizationFailure(reply, 'notFound')
 
     return calculateCampaignAudience(campaign)
   })
 
   app.get('/campaigns/:id/manual-executions/latest', async (request, reply) => {
     const params = request.params as { id: string }
-    const campaign = await prisma.campaign.findUnique({ where: { id: params.id }, select: { id: true, businessId: true } })
-    if (!campaign) return reply.status(404).send({ message: 'No encontré esa campaña' })
+    const campaign = await prisma.campaign.findFirst({ where: authorizedCampaignWhere(request.auth!.user, params.id), select: { id: true, businessId: true } })
+    if (!campaign) return sendAuthorizationFailure(reply, 'notFound')
     const execution = await prisma.communicationExecution.findFirst({
       where: { businessId: campaign.businessId, sourceType: 'CAMPAIGN', sourceId: campaign.id, mode: 'WHATSAPP_MANUAL' },
       include: { recipients: { include: { customer: { select: { id: true, name: true, phone: true } } }, orderBy: { createdAt: 'asc' } } },
@@ -834,11 +842,11 @@ export async function campaignRoutes(app: FastifyInstance) {
 
   app.post('/campaigns/:id/manual-executions', async (request, reply) => {
     const params = request.params as { id: string }
-    const campaign = await prisma.campaign.findUnique({
-      where: { id: params.id },
+    const campaign = await prisma.campaign.findFirst({
+      where: authorizedCampaignWhere(request.auth!.user, params.id),
       include: { manualRecipients: { include: { customer: { select: { id: true, name: true, phone: true } } } } }
     })
-    if (!campaign) return reply.status(404).send({ message: 'No encontré esa campaña' })
+    if (!campaign) return sendAuthorizationFailure(reply, 'notFound')
     if (!['WHATSAPP', 'BOTH'].includes(campaign.channel)) return reply.status(400).send({ message: 'La campaña debe incluir el canal WhatsApp' })
 
     const running = await prisma.communicationExecution.findFirst({
@@ -889,8 +897,8 @@ export async function campaignRoutes(app: FastifyInstance) {
     if (!status || !communicationStatuses.includes(status as CommunicationStatus) || !allowed.includes(status)) {
       return reply.status(400).send({ message: 'Estado de comunicación inválido' })
     }
-    const campaign = await prisma.campaign.findUnique({ where: { id: params.campaignId }, select: { id: true, businessId: true } })
-    if (!campaign) return reply.status(404).send({ message: 'No encontré esa campaña' })
+    const campaign = await prisma.campaign.findFirst({ where: authorizedCampaignWhere(request.auth!.user, params.campaignId), select: { id: true, businessId: true } })
+    if (!campaign) return sendAuthorizationFailure(reply, 'notFound')
     try {
       await manualCampaignCommunicationService.transition({
         executionId: params.executionId,
@@ -911,8 +919,8 @@ export async function campaignRoutes(app: FastifyInstance) {
 
   app.post('/campaigns/:id/execute-one-time', async (request, reply) => {
     const params = request.params as { id: string }
-    const campaign = await prisma.campaign.findUnique({
-      where: { id: params.id },
+    const campaign = await prisma.campaign.findFirst({
+      where: authorizedCampaignWhere(request.auth!.user, params.id),
       include: {
         whatsappTemplate: true,
         manualRecipients: {
@@ -920,7 +928,7 @@ export async function campaignRoutes(app: FastifyInstance) {
         }
       }
     })
-    if (!campaign) return reply.status(404).send({ message: 'No encontre esa campana' })
+    if (!campaign) return sendAuthorizationFailure(reply, 'notFound')
     if (campaign.type !== 'ONE_TIME') return reply.status(400).send({ message: 'Solo las campanas puntuales pueden ejecutarse una sola vez' })
     if (campaign.scheduleMode === 'SCHEDULED' && campaign.scheduledAt && campaign.scheduledAt > new Date()) {
       return reply.status(409).send({ message: 'La campana todavia no alcanzo su fecha programada' })
@@ -960,8 +968,8 @@ export async function campaignRoutes(app: FastifyInstance) {
     const params = request.params as { id: string }
     const body = (request.body ?? {}) as { limit?: number | string }
     const requestedLimit = Math.max(1, Math.min(100, Number(body.limit ?? 25) || 25))
-    const campaign = await prisma.campaign.findUnique({
-      where: { id: params.id },
+    const campaign = await prisma.campaign.findFirst({
+      where: authorizedCampaignWhere(request.auth!.user, params.id),
       include: {
         whatsappTemplate: true,
         manualRecipients: {
@@ -969,7 +977,7 @@ export async function campaignRoutes(app: FastifyInstance) {
         }
       }
     })
-    if (!campaign) return reply.status(404).send({ message: 'No encontre esa campana' })
+    if (!campaign) return sendAuthorizationFailure(reply, 'notFound')
     if (campaign.type !== 'AUTOMATED') return reply.status(400).send({ message: 'Solo las campanas automaticas usan este procesador' })
     if (campaign.status !== 'ACTIVE') return reply.status(400).send({ message: 'La campana automatica debe estar activa' })
     if (campaign.scheduleMode === 'SCHEDULED' && campaign.scheduledAt && campaign.scheduledAt > new Date()) {
@@ -1127,8 +1135,8 @@ export async function campaignRoutes(app: FastifyInstance) {
 
   app.get('/campaigns/:id/simulations/latest', async (request, reply) => {
     const params = request.params as { id: string }
-    const campaign = await prisma.campaign.findUnique({ where: { id: params.id }, select: { id: true } })
-    if (!campaign) return reply.status(404).send({ message: 'No encontre esa campana' })
+    const campaign = await prisma.campaign.findFirst({ where: authorizedCampaignWhere(request.auth!.user, params.id), select: { id: true } })
+    if (!campaign) return sendAuthorizationFailure(reply, 'notFound')
 
     const run = await prisma.campaignRun.findFirst({
       where: { campaignId: campaign.id, mode: 'SIMULATION' },
@@ -1146,15 +1154,15 @@ export async function campaignRoutes(app: FastifyInstance) {
 
   app.post('/campaigns/:id/simulate', async (request, reply) => {
     const params = request.params as { id: string }
-    const campaign = await prisma.campaign.findUnique({
-      where: { id: params.id },
+    const campaign = await prisma.campaign.findFirst({
+      where: authorizedCampaignWhere(request.auth!.user, params.id),
       include: {
         manualRecipients: {
           include: { customer: { select: { id: true, name: true, phone: true } } }
         }
       }
     })
-    if (!campaign) return reply.status(404).send({ message: 'No encontre esa campana' })
+    if (!campaign) return sendAuthorizationFailure(reply, 'notFound')
 
     const audience = await calculateCampaignAudience(campaign)
     const excludedCount = Object.values(audience.excluded).reduce((total, count) => total + Number(count || 0), 0)
@@ -1238,8 +1246,8 @@ export async function campaignRoutes(app: FastifyInstance) {
 
   app.get('/campaigns/:id/deliveries', async (request, reply) => {
     const params = request.params as { id: string }
-    const campaign = await prisma.campaign.findUnique({ where: { id: params.id } })
-    if (!campaign) return reply.status(404).send({ message: 'No encontre esa campana' })
+    const campaign = await prisma.campaign.findFirst({ where: authorizedCampaignWhere(request.auth!.user, params.id) })
+    if (!campaign) return sendAuthorizationFailure(reply, 'notFound')
 
     return prisma.campaignDelivery.findMany({
       where: { campaignId: campaign.id },
@@ -1255,8 +1263,8 @@ export async function campaignRoutes(app: FastifyInstance) {
     const customerId = body.customerId?.trim()
     if (!customerId) return reply.status(400).send({ message: 'customerId es requerido' })
 
-    const campaign = await prisma.campaign.findUnique({ where: { id: params.id } })
-    if (!campaign) return reply.status(404).send({ message: 'No encontre esa campana' })
+    const campaign = await prisma.campaign.findFirst({ where: authorizedCampaignWhere(request.auth!.user, params.id) })
+    if (!campaign) return sendAuthorizationFailure(reply, 'notFound')
     const customer = await prisma.customer.findFirst({ where: { id: customerId, businessId: campaign.businessId } })
     if (!customer) return reply.status(404).send({ message: 'No encontre ese cliente' })
 
@@ -1324,8 +1332,8 @@ export async function campaignRoutes(app: FastifyInstance) {
     if (!status || !allowed.includes(status)) {
       return reply.status(400).send({ message: 'Estado de entrega invalido' })
     }
-    const current = await prisma.campaignDelivery.findUnique({ where: { id: params.id } })
-    if (!current) return reply.status(404).send({ message: 'No encontre ese envio' })
+    const current = await loadAuthorizedCampaignDelivery(prisma, request.auth!.user, params.id)
+    if (!current) return sendAuthorizationFailure(reply, 'notFound')
 
     const changedAt = new Date()
     const updated = await prisma.campaignDelivery.update({
@@ -1360,31 +1368,36 @@ export async function campaignRoutes(app: FastifyInstance) {
       return reply.status(400).send({ message: 'Estado de marketing invalido' })
     }
 
-    const [business, customer] = await Promise.all([
-      prisma.business.findUnique({ where: { id: businessId } }),
-      prisma.customer.findFirst({ where: { id: params.customerId, businessId } })
-    ])
-    if (!business || !customer) return reply.status(404).send({ message: 'No encontre el comercio o cliente' })
+    const authUser = request.auth?.user
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    const customer = await loadAuthorizedCustomer(prisma, authUser, params.customerId)
+    if (!customer || customer.businessId !== businessId) return sendAuthorizationFailure(reply, 'notFound')
 
-    return prisma.customerMarketingPreference.upsert({
-      where: { businessId_customerId: { businessId, customerId: customer.id } },
-      create: {
-        businessId,
-        customerId: customer.id,
-        status,
-        source: body.source?.trim().toUpperCase() || 'MANUAL',
-        optedInAt: status === 'ACTIVE' ? new Date() : null,
-        declinedAt: status === 'DECLINED' ? new Date() : null,
-        optedOutAt: status === 'OPTED_OUT' ? new Date() : null
-      },
-      update: {
-        status,
-        source: body.source?.trim().toUpperCase() || 'MANUAL',
-        ...(status === 'ACTIVE' ? { optedInAt: new Date() } : {}),
-        declinedAt: status === 'DECLINED' ? new Date() : null,
-        optedOutAt: status === 'OPTED_OUT' ? new Date() : null
-      }
+    const preference = await prisma.$transaction(async (transaction) => {
+      const scopedCustomer = await loadAuthorizedCustomer(transaction, authUser, params.customerId)
+      if (!scopedCustomer || scopedCustomer.businessId !== businessId) return null
+      return transaction.customerMarketingPreference.upsert({
+        where: { businessId_customerId: { businessId, customerId: scopedCustomer.id } },
+        create: {
+          businessId,
+          customerId: scopedCustomer.id,
+          status,
+          source: body.source?.trim().toUpperCase() || 'MANUAL',
+          optedInAt: status === 'ACTIVE' ? new Date() : null,
+          declinedAt: status === 'DECLINED' ? new Date() : null,
+          optedOutAt: status === 'OPTED_OUT' ? new Date() : null
+        },
+        update: {
+          status,
+          source: body.source?.trim().toUpperCase() || 'MANUAL',
+          ...(status === 'ACTIVE' ? { optedInAt: new Date() } : {}),
+          declinedAt: status === 'DECLINED' ? new Date() : null,
+          optedOutAt: status === 'OPTED_OUT' ? new Date() : null
+        }
+      })
     })
+    if (!preference) return sendAuthorizationFailure(reply, 'conflict')
+    return preference
   })
 
   app.get('/customers/:customerId/marketing-preference', async (request, reply) => {
@@ -1392,8 +1405,12 @@ export async function campaignRoutes(app: FastifyInstance) {
     const query = request.query as { businessId?: string }
     const businessId = query.businessId?.trim()
     if (!businessId) return reply.status(400).send({ message: 'businessId es requerido' })
+    const authUser = request.auth?.user
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    const customer = await loadAuthorizedCustomer(prisma, authUser, params.customerId)
+    if (!customer || customer.businessId !== businessId) return sendAuthorizationFailure(reply, 'notFound')
     const preference = await prisma.customerMarketingPreference.findUnique({
-      where: { businessId_customerId: { businessId, customerId: params.customerId } }
+      where: { businessId_customerId: { businessId, customerId: customer.id } }
     })
     return {
       customerId: params.customerId,
@@ -1408,8 +1425,8 @@ export async function campaignRoutes(app: FastifyInstance) {
 
   app.delete('/campaigns/:id', async (request, reply) => {
     const params = request.params as { id: string }
-    const current = await prisma.campaign.findUnique({ where: { id: params.id } })
-    if (!current) return reply.status(404).send({ message: 'No encontre esa campana' })
+    const current = await prisma.campaign.findFirst({ where: authorizedCampaignWhere(request.auth!.user, params.id) })
+    if (!current) return sendAuthorizationFailure(reply, 'notFound')
     if (current.status === 'ACTIVE') {
       return reply.status(409).send({ message: 'Pausa la campana antes de eliminarla' })
     }

@@ -1,15 +1,26 @@
-﻿import { prisma } from '../src/config/prisma.js'
-import assert from 'node:assert/strict'
-import {
-  ConversationService,
-  isExplicitResetRequest,
-  isUnambiguousBookingConfirmation
-} from '../src/services/conversation-service.js'
-import {
-  admitConversationInteractivePromptReply,
-  resolveConversationInteractivePrompt,
-  versionInteractiveReplyId
-} from '../src/services/conversation-interactive-prompt.js'
+﻿import assert from 'node:assert/strict'
+import { resolveQaScriptEnvironment } from './qa-script-safety.js'
+
+const qaEnvironment = resolveQaScriptEnvironment(process.env)
+const businessId = qaEnvironment.businessId
+process.env.DATABASE_URL = qaEnvironment.databaseUrl
+const [
+  { prisma },
+  {
+    ConversationService,
+    isExplicitResetRequest,
+    isUnambiguousBookingConfirmation
+  },
+  {
+    admitConversationInteractivePromptReply,
+    resolveConversationInteractivePrompt,
+    versionInteractiveReplyId
+  }
+] = await Promise.all([
+  import('../src/config/prisma.js'),
+  import('../src/services/conversation-service.js'),
+  import('../src/services/conversation-interactive-prompt.js')
+])
 
 type Check = {
   includes?: string[]
@@ -49,7 +60,8 @@ async function main() {
   assertResetIntentGuard()
   assertBookingConfirmationGuard()
 
-  const business = await prisma.business.findFirst({
+  const business = await prisma.business.findUnique({
+    where: { id: businessId },
     include: {
       services: {
         orderBy: {
@@ -62,12 +74,12 @@ async function main() {
         }
       }
     },
-    orderBy: {
-      createdAt: 'asc'
-    }
   })
 
-  if (!business || business.services.length === 0 || business.professionals.length === 0) {
+  if (!business || !business.isDemo || business.demoType !== 'QA_SANDBOX') {
+    throw new Error('QA_BUSINESS_ID no identifica un negocio demo QA_SANDBOX.')
+  }
+  if (business.services.length === 0 || business.professionals.length === 0) {
     throw new Error('Necesito al menos un negocio, un servicio y un profesional cargados para correr las pruebas.')
   }
 
@@ -1582,6 +1594,7 @@ async function runScenario(scenario: Scenario) {
     for (const step of scenario.steps) {
       const result = await conversationService.handleMessage({
         phone: scenario.phone,
+        businessId,
         message: step.message,
         ...(step.useAi === undefined ? {} : { useAi: step.useAi })
       })
@@ -1915,7 +1928,8 @@ async function seedScheduleBlock(input: {
 async function cleanupPhone(phone: string) {
   const customers = await prisma.customer.findMany({
     where: {
-      phone
+      phone,
+      businessId
     },
     select: {
       id: true
@@ -1928,6 +1942,7 @@ async function cleanupPhone(phone: string) {
         customerId: {
           in: customers.map((customer) => customer.id)
         },
+        professional: { businessId },
         status: {
           not: 'CANCELLED'
         }
@@ -1940,13 +1955,15 @@ async function cleanupPhone(phone: string) {
 
   await prisma.message.deleteMany({
     where: {
-      phone
+      phone,
+      conversation: { businessId }
     }
   })
 
   await prisma.conversation.deleteMany({
     where: {
-      phone
+      phone,
+      businessId
     }
   })
 }
@@ -1954,6 +1971,7 @@ async function cleanupPhone(phone: string) {
 async function cleanupTestScheduleBlocks() {
   await prisma.scheduleBlock.deleteMany({
     where: {
+      businessId,
       title: {
         in: ['Feriado QA', 'Vacaciones QA']
       }

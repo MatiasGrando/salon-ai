@@ -3,6 +3,12 @@ import { getAuthFromRequest, type AuthContext } from '../services/auth-service.j
 import { prisma } from '../config/prisma.js'
 import { canStaffAccessRoute, staffAuditAction } from '../services/staff-permission-service.js'
 import { businessAccountAccessMessage, isBusinessAccountUnavailable } from '../services/business-account-access.js'
+import {
+  businessAccessWhere,
+  resolveBusinessScope
+} from '../services/business-authorization.js'
+
+const SHARED_COMMERCIAL_DEMO_TYPES = ['NAILS', 'HAIR_SALON', 'BARBERSHOP', 'PILATES'] as const
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -25,6 +31,9 @@ export async function authGuard(app: FastifyInstance) {
     }
     if (auth.user.role === 'ACCOUNT_ADMIN' && !isAccountAdminRoute(request, auth)) {
       return reply.status(403).send({ message: 'Tu cuenta solo tiene acceso al tablero de alta de locales' })
+    }
+    if (!await authorizeCommercialDemoWorkspace(request, auth)) {
+      return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
     }
     injectUserBusinessId(request, auth)
     injectStaffAgendaScope(request, auth)
@@ -65,10 +74,10 @@ function isAccountAdminRoute(request: FastifyRequest, auth: AuthContext) {
   if (method === 'GET' && /^\/admin\/demo-profiles\/[^/]+\/preview$/.test(path)) return true
   if (method === 'GET' && /^\/admin\/demo-profiles\/[^/]+\/access$/.test(path)) return true
   if (method === 'POST' && /^\/admin\/demo-profiles\/[^/]+\/chat$/.test(path)) return true
-  return isAccountAdminDemoWorkspaceRoute(method, path)
+  return isAccountAdminBusinessWorkspaceRoute(method, path)
 }
 
-function isAccountAdminDemoWorkspaceRoute(method: string, path: string) {
+function isAccountAdminBusinessWorkspaceRoute(method: string, path: string) {
   if (path === '/businesses') return method === 'GET'
   return path === '/business-hours'
     || path === '/business-hours/setup'
@@ -101,41 +110,85 @@ function injectStaffAgendaScope(request: FastifyRequest, auth: AuthContext) {
 }
 
 function injectUserBusinessId(request: FastifyRequest, auth: AuthContext) {
-  if (auth.user.role === 'SUPER_ADMIN' || !auth.user.businessId) return
+  if (auth.user.role === 'SUPER_ADMIN') return
+  const businessId = auth.user.authorizedBusinessIdOverride ?? auth.user.businessId
+  if (!businessId) return
   if (request.query && typeof request.query === 'object' && !('businessId' in request.query)) {
-    ;(request.query as { businessId?: string }).businessId = auth.user.businessId
+    ;(request.query as { businessId?: string }).businessId = businessId
   }
   if (request.body && typeof request.body === 'object' && !('businessId' in request.body)) {
-    ;(request.body as { businessId?: string }).businessId = auth.user.businessId
+    ;(request.body as { businessId?: string }).businessId = businessId
   }
 }
 
+async function authorizeCommercialDemoWorkspace(request: FastifyRequest, auth: AuthContext) {
+  const path = request.url.split('?')[0] || ''
+  const method = request.method.toUpperCase()
+  if (auth.user.role === 'SUPER_ADMIN' || !isAccountAdminBusinessWorkspaceRoute(method, path)) return true
+
+  const requestedBusinessIds = new Set<string>()
+  collectBusinessId(request.params, requestedBusinessIds)
+  collectBusinessId(request.query, requestedBusinessIds)
+  collectBusinessId(request.body, requestedBusinessIds)
+  const entityBusinessId = await workspaceEntityBusinessId(request, path)
+  if (entityBusinessId) requestedBusinessIds.add(entityBusinessId)
+  if (requestedBusinessIds.size !== 1) return true
+
+  const [businessId] = requestedBusinessIds
+  if (!businessId) return true
+  const qaSandbox = await prisma.business.findFirst({
+    where: { id: businessId, isDemo: true, demoType: 'QA_SANDBOX' },
+    select: { id: true }
+  })
+  if (qaSandbox) return false
+  if (!(auth.user.role === 'ACCOUNT_ADMIN' || auth.user.canCreateBusinesses)) return true
+
+  const sharedDemo = await prisma.business.findFirst({
+    where: {
+      id: businessId,
+      isDemo: true,
+      demoType: { in: [...SHARED_COMMERCIAL_DEMO_TYPES] }
+    },
+    select: { id: true }
+  })
+  if (sharedDemo) auth.user.authorizedBusinessIdOverride = sharedDemo.id
+  return true
+}
+
+async function workspaceEntityBusinessId(request: FastifyRequest, path: string) {
+  const params = request.params as { id?: string } | undefined
+  const id = params?.id
+  if (!id) return null
+  if (/^\/businesses\/[^/]+/.test(path)) return id
+  if (/^\/professionals\/[^/]+/.test(path)) {
+    return (await prisma.professional.findUnique({ where: { id }, select: { businessId: true } }))?.businessId ?? null
+  }
+  if (/^\/services\/[^/]+/.test(path)) {
+    return (await prisma.service.findUnique({ where: { id }, select: { businessId: true } }))?.businessId ?? null
+  }
+  if (/^\/service-categories\/[^/]+/.test(path)) {
+    return (await prisma.serviceCategory.findUnique({ where: { id }, select: { businessId: true } }))?.businessId ?? null
+  }
+  return null
+}
+
 async function canAccessRequestedBusiness(request: FastifyRequest, auth: AuthContext) {
-  if (auth.user.role === 'SUPER_ADMIN') return true
   const requestedBusinessIds = new Set<string>()
   collectBusinessId(request.params, requestedBusinessIds)
   collectBusinessId(request.query, requestedBusinessIds)
   collectBusinessId(request.body, requestedBusinessIds)
   await collectEntityBusinessId(request, requestedBusinessIds)
 
-  if (auth.user.role === 'ACCOUNT_ADMIN' || auth.user.canCreateBusinesses) {
-    if (requestedBusinessIds.size === 0) return true
-    const ownedCount = await prisma.business.count({
-      where: {
-        id: { in: [...requestedBusinessIds] },
-        OR: [
-          { id: auth.user.businessId || '__NO_BUSINESS__' },
-          { isDemo: true, demoType: { in: ['NAILS', 'HAIR_SALON', 'BARBERSHOP', 'PILATES'] } }
-        ]
-      }
-    })
-    return ownedCount === requestedBusinessIds.size
-  }
-  const allowedBusinessId = auth.user.businessId
-  if (!allowedBusinessId) return false
-
   if (requestedBusinessIds.size === 0) return true
-  return [...requestedBusinessIds].every((businessId) => businessId === allowedBusinessId)
+  const ownedCount = await prisma.business.count({
+    where: {
+      AND: [
+        businessAccessWhere(resolveBusinessScope(auth.user)),
+        { id: { in: [...requestedBusinessIds] } }
+      ]
+    }
+  })
+  return ownedCount === requestedBusinessIds.size
 }
 
 async function collectEntityBusinessId(request: FastifyRequest, result: Set<string>) {
@@ -148,14 +201,6 @@ async function collectEntityBusinessId(request: FastifyRequest, result: Set<stri
     result.add(id)
     return
   }
-  const businessId = /^\/professionals\/[^/]+/.test(path)
-    ? (await prisma.professional.findUnique({ where: { id }, select: { businessId: true } }))?.businessId
-    : /^\/services\/[^/]+/.test(path)
-      ? (await prisma.service.findUnique({ where: { id }, select: { businessId: true } }))?.businessId
-      : /^\/service-categories\/[^/]+/.test(path)
-        ? (await prisma.serviceCategory.findUnique({ where: { id }, select: { businessId: true } }))?.businessId
-        : null
-  if (businessId) result.add(businessId)
 }
 
 function collectBusinessId(source: unknown, result: Set<string>) {

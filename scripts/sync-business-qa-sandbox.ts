@@ -1,5 +1,10 @@
-import { prisma } from '../src/config/prisma.js'
 import type { Prisma } from '../src/generated/prisma/client.js'
+import { resolveQaScriptEnvironment } from './qa-script-safety.js'
+
+const qaEnvironment = resolveQaScriptEnvironment(process.env)
+const qaBusinessId = qaEnvironment.businessId
+process.env.DATABASE_URL = qaEnvironment.databaseUrl
+const { prisma } = await import('../src/config/prisma.js')
 
 const sourceSlug = requiredSourceSlug()
 const emptyAgenda = process.argv.includes('--empty-agenda')
@@ -10,13 +15,13 @@ occupancyUntil.setDate(occupancyUntil.getDate() + 120)
 
 async function main() {
   const existing = await prisma.business.findUnique({
-    where: { slug: sandboxSlug },
-    select: { id: true, name: true, isDemo: true, demoType: true }
+    where: { id: qaBusinessId },
+    select: { id: true, name: true, slug: true, isDemo: true, demoType: true }
   })
 
   if (existing) {
-    if (!existing.isDemo || existing.demoType !== 'QA_SANDBOX') {
-      throw new Error(`El slug ${sandboxSlug} ya existe y no pertenece a un entorno QA.`)
+    if (existing.slug !== sandboxSlug || !existing.isDemo || existing.demoType !== 'QA_SANDBOX') {
+      throw new Error(`QA_BUSINESS_ID no identifica el entorno ${sandboxSlug}.`)
     }
     console.log(`Entorno QA existente: ${existing.name} (${sandboxSlug})`)
     if (emptyAgenda) {
@@ -28,9 +33,9 @@ async function main() {
       })
       const appointmentIds = appointments.map((appointment) => appointment.id)
       if (appointmentIds.length) {
-        await prisma.bookingDeposit.deleteMany({ where: { appointmentId: { in: appointmentIds } } })
-        await prisma.aiUsageEvent.deleteMany({ where: { appointmentId: { in: appointmentIds } } })
-        await prisma.appointment.deleteMany({ where: { id: { in: appointmentIds } } })
+        await prisma.bookingDeposit.deleteMany({ where: { appointmentId: { in: appointmentIds }, appointment: { professional: { businessId: existing.id } } } })
+        await prisma.aiUsageEvent.deleteMany({ where: { appointmentId: { in: appointmentIds }, appointment: { professional: { businessId: existing.id } } } })
+        await prisma.appointment.deleteMany({ where: { id: { in: appointmentIds }, professional: { businessId: existing.id } } })
       }
       await prisma.customer.deleteMany({ where: { businessId: existing.id } })
       console.log(`Datos operativos QA vaciados: ${appointmentIds.length} turnos eliminados.`)
@@ -114,6 +119,7 @@ async function main() {
 
     const created = await tx.business.create({
       data: {
+        id: qaBusinessId,
         ...businessScalars,
         customerCode: `QA-${Date.now().toString(36).toUpperCase()}`,
         name: `${source.name} · QA aislado${emptyAgenda ? ' · agenda vacía' : ''}`,

@@ -13,6 +13,7 @@ export type AuthUser = {
   name: string
   role: 'SUPER_ADMIN' | 'ACCOUNT_ADMIN' | 'BUSINESS_ADMIN' | 'STAFF'
   businessId: string | null
+  authorizedBusinessIdOverride?: string
   professionalId: string | null
   staffProfile: string
   permissionPreset: string

@@ -7,6 +7,12 @@ import { BusinessService } from '../services/business-service.js'
 import type { AuthContext } from '../services/auth-service.js'
 import { refreshBusinessOnboarding } from '../services/business-onboarding-service.js'
 import { storeBusinessImage } from '../services/media-storage-service.js'
+import {
+  businessAccessWhere,
+  canCreateBusiness,
+  requireAuthorizedBusiness,
+  resolveBusinessScope
+} from '../services/business-authorization.js'
 
 const service = new BusinessService()
 const LANDING_TEMPLATES = new Set(['classic', 'editorial', 'salon-white', 'luxe-nails'])
@@ -14,7 +20,7 @@ const LANDING_TEMPLATES = new Set(['classic', 'editorial', 'salon-white', 'luxe-
 export async function businessRoutes(app: FastifyInstance) {
 
   app.post('/businesses', async (request, reply) => {
-    if (!request.auth || !['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(request.auth.user.role)) {
+    if (!request.auth || !canCreateBusiness(request.auth.user)) {
       return reply.status(403).send({ message: 'No tenes permiso para crear comercios' })
     }
 
@@ -41,7 +47,7 @@ export async function businessRoutes(app: FastifyInstance) {
     if (request.auth.user.role === 'ACCOUNT_ADMIN') {
       return prisma.business.findMany({
         where: {
-          accountAdminId: request.auth.user.id,
+          ...businessAccessWhere(resolveBusinessScope(request.auth.user)),
           ...(query.q?.trim() ? { name: { contains: query.q.trim(), mode: 'insensitive' } } : {})
         },
         ...(includeImages ? {} : { omit: { logoUrl: true, coverImageUrl: true, landingGalleryImages: true } }),
@@ -907,18 +913,5 @@ function businessSlugErrorMessage(error: unknown) {
 
 async function canAccessBusiness(auth: AuthContext | undefined, businessId: string) {
   if (!auth) return false
-  if (auth.user.role === 'SUPER_ADMIN') return true
-  if (auth.user.role === 'ACCOUNT_ADMIN' || auth.user.canCreateBusinesses) {
-    return Boolean(await prisma.business.findFirst({
-      where: {
-        id: businessId,
-        OR: [
-          { id: auth.user.businessId || '__NO_BUSINESS__' },
-          { isDemo: true, demoType: { in: ['NAILS', 'HAIR_SALON', 'BARBERSHOP', 'PILATES'] } }
-        ]
-      },
-      select: { id: true }
-    }))
-  }
-  return auth.user.businessId === businessId
+  return Boolean(await requireAuthorizedBusiness(prisma, auth.user, businessId))
 }

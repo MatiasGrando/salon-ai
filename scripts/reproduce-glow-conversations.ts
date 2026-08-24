@@ -1,9 +1,15 @@
 import { readFileSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { prisma } from '../src/config/prisma.js'
-import { ConversationService } from '../src/services/conversation-service.js'
-import { WhatsAppWebhookService } from '../src/services/whatsapp-webhook-service.js'
+import { resolveQaScriptEnvironment } from './qa-script-safety.js'
+
+const qaEnvironment = resolveQaScriptEnvironment(process.env)
+process.env.DATABASE_URL = qaEnvironment.databaseUrl
+const [{ prisma }, { ConversationService }, { WhatsAppWebhookService }] = await Promise.all([
+  import('../src/config/prisma.js'),
+  import('../src/services/conversation-service.js'),
+  import('../src/services/whatsapp-webhook-service.js')
+])
 
 type ReplayInput = {
   visibleMessages: string[]
@@ -132,8 +138,8 @@ const markdownPath = resolve(outputDirectory, `glow-conversation-replay-${runId}
 const jsonPath = resolve(outputDirectory, `glow-conversation-replay-${runId}.json`)
 
 async function main() {
-  const business = await prisma.business.findUnique({
-    where: { slug: businessSlug },
+  const business = await prisma.business.findFirst({
+    where: { id: qaEnvironment.businessId, slug: businessSlug },
     select: {
       id: true,
       name: true,
@@ -158,8 +164,8 @@ async function main() {
     }
   })
 
-  if (!business) throw new Error('No encontré el negocio Glow.')
-  if (businessSlug.startsWith('qa-sandbox-') && (!business.isDemo || business.demoType !== 'QA_SANDBOX')) {
+  if (!business) throw new Error('No encontré el negocio QA explícitamente solicitado.')
+  if (!business.isDemo || business.demoType !== 'QA_SANDBOX') {
     throw new Error('El destino solicitado no es un entorno QA aislado válido.')
   }
   if (!business.aiEnabled) throw new Error('Glow no tiene la IA habilitada.')
@@ -608,19 +614,19 @@ function renderMarkdown(input: { businessName: string; records: ReplayRecord[] }
 
 async function cleanupQaConversation(qaPhone: string, businessId: string) {
   const conversations = await prisma.conversation.findMany({
-    where: { phone: qaPhone },
+    where: { phone: qaPhone, businessId },
     select: { id: true }
   })
   const conversationIds = conversations.map((conversation) => conversation.id)
   if (conversationIds.length) {
     await prisma.aiUsageEvent.deleteMany({
-      where: { conversationId: { in: conversationIds } }
+      where: { conversationId: { in: conversationIds }, conversation: { businessId } }
     })
     await prisma.message.deleteMany({
-      where: { conversationId: { in: conversationIds } }
+      where: { conversationId: { in: conversationIds }, conversation: { businessId } }
     })
     await prisma.conversation.deleteMany({
-      where: { id: { in: conversationIds } }
+      where: { id: { in: conversationIds }, businessId }
     })
   }
 
@@ -640,16 +646,16 @@ async function cleanupQaConversation(qaPhone: string, businessId: string) {
   if (!customerIds.length) return
 
   const appointments = await prisma.appointment.findMany({
-    where: { customerId: { in: customerIds } },
+    where: { customerId: { in: customerIds }, professional: { businessId } },
     select: { id: true }
   })
   const appointmentIds = appointments.map((appointment) => appointment.id)
   if (appointmentIds.length) {
-    await prisma.bookingDeposit.deleteMany({ where: { appointmentId: { in: appointmentIds } } })
-    await prisma.aiUsageEvent.deleteMany({ where: { appointmentId: { in: appointmentIds } } })
-    await prisma.appointment.deleteMany({ where: { id: { in: appointmentIds } } })
+    await prisma.bookingDeposit.deleteMany({ where: { appointmentId: { in: appointmentIds }, businessId } })
+    await prisma.aiUsageEvent.deleteMany({ where: { appointmentId: { in: appointmentIds }, appointment: { professional: { businessId } } } })
+    await prisma.appointment.deleteMany({ where: { id: { in: appointmentIds }, professional: { businessId } } })
   }
-  await prisma.customer.deleteMany({ where: { id: { in: customerIds } } })
+  await prisma.customer.deleteMany({ where: { id: { in: customerIds }, businessId } })
 }
 
 main().catch(async (error) => {

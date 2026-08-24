@@ -13,6 +13,19 @@ import {
   classifyBookingAvailabilityUnavailable,
   type BookingAvailabilityUnavailableReason
 } from './booking-availability-reason.js'
+import type { BusinessAuthorizationUser } from './business-authorization.js'
+import {
+  authorizedAppointmentWhere,
+  loadAuthorizedAppointment,
+  loadAuthorizedCustomer,
+  loadAuthorizedProfessional,
+  loadAuthorizedService,
+  type TenantResourceAuthorizationClient
+} from './tenant-resource-authorization.js'
+import {
+  staffCanUseProfessional,
+  type StaffAuthorizationUser
+} from './staff-permission-service.js'
 
 const availabilitySlotInterval = 30
 
@@ -31,6 +44,8 @@ type CreateAppointmentInput = {
   notes?: string | null
   coordinationGroupId?: string | null
 }
+
+type AppointmentAuthorizationUser = BusinessAuthorizationUser & StaffAuthorizationUser
 
 export type AppointmentAvailabilityConflict = {
   code: 'OUTSIDE_BUSINESS_HOURS' | 'OUTSIDE_PROFESSIONAL_HOURS' | 'SCHEDULE_BLOCK' | 'APPOINTMENT_OVERLAP'
@@ -86,8 +101,10 @@ type FindAvailabilityResult =
     }
 
 export class AppointmentService {
-  async create(input: CreateAppointmentInput): Promise<AppointmentMutationResult> {
-    await bookingDepositService.expireOverdue()
+  async create(
+    input: CreateAppointmentInput,
+    authorizationUser?: AppointmentAuthorizationUser
+  ): Promise<AppointmentMutationResult> {
     const startAt = new Date(input.startAt)
     const manualDeposit = normalizeManualDeposit(
       input.manualDepositPaid === true,
@@ -120,17 +137,11 @@ export class AppointmentService {
     }
 
     const serviceIds = normalizedServiceIds(input.serviceId, input.serviceIds)
-    const [professional, services, customer] = await Promise.all([
-      prisma.professional.findUnique({
-        where: {
-          id: input.professionalId
-        }
-      }),
-      prisma.service.findMany({
-        where: { id: { in: serviceIds } }
-      }),
-      prisma.customer.findUnique({ where: { id: input.customerId } })
-    ])
+    const { professional, services, customer, complete } = authorizationUser
+      ? await loadAuthorizedAppointmentResources(prisma, authorizationUser, input, serviceIds)
+      : await loadAppointmentResources(prisma, input, serviceIds)
+
+    if (authorizationUser && !complete) return appointmentNotFound()
 
     if (!professional) {
       return {
@@ -138,6 +149,10 @@ export class AppointmentService {
         statusCode: 404,
         message: 'No encontre ese profesional'
       }
+    }
+
+    if (authorizationUser && !staffCanUseProfessional(authorizationUser, professional.id)) {
+      return appointmentForbidden()
     }
 
     if (!professional.isActive) {
@@ -165,6 +180,7 @@ export class AppointmentService {
     }
 
     if (services.some((service) => professional.businessId !== service.businessId)) {
+      if (authorizationUser) return appointmentNotFound()
       return {
         ok: false,
         statusCode: 400,
@@ -173,6 +189,7 @@ export class AppointmentService {
     }
 
     if (customer.businessId !== professional.businessId) {
+      if (authorizationUser) return appointmentNotFound()
       return {
         ok: false,
         statusCode: 400,
@@ -187,6 +204,8 @@ export class AppointmentService {
         message: 'Ese profesional no realiza todos los servicios seleccionados'
       }
     }
+
+    await bookingDepositService.expireOverdue()
 
     const servicesById = new Map(services.map((service) => [service.id, service]))
     const orderedServices = serviceIds.map((serviceId) => servicesById.get(serviceId)!)
@@ -243,13 +262,25 @@ export class AppointmentService {
       }
     }
 
-    await ensureDefaultMarketingPreference({
-      businessId: professional.businessId,
-      customerId: input.customerId
-    })
-
     const appointment = await prisma.$transaction(async (transaction) => {
       await this.lockProfessionalAgenda(transaction, input.professionalId)
+
+      if (authorizationUser) {
+        const scopedResources = await loadAuthorizedAppointmentResources(
+          transaction,
+          authorizationUser,
+          input,
+          serviceIds
+        )
+        if (!appointmentResourcesRemainAuthorized(scopedResources, authorizationUser)) {
+          return 'AUTHORIZATION_CONFLICT' as const
+        }
+      }
+
+      await ensureDefaultMarketingPreference({
+        businessId: professional.businessId,
+        customerId: input.customerId
+      }, transaction)
 
       if (!input.force && await this.hasAppointmentOverlap({
         professionalId: input.professionalId,
@@ -285,6 +316,8 @@ export class AppointmentService {
         include: { serviceItems: { include: { service: true }, orderBy: { sortOrder: 'asc' } } }
       })
     })
+
+    if (appointment === 'AUTHORIZATION_CONFLICT') return appointmentConflict()
 
     if (!appointment) {
       return {
@@ -433,24 +466,38 @@ export class AppointmentService {
     return { ok: true, appointment: updated }
   }
 
-  async update(input: UpdateAppointmentInput): Promise<AppointmentMutationResult> {
-    const existing = await prisma.appointment.findUnique({
-      where: {
-        id: input.id
-      },
-      include: {
-        serviceItems: {
-          orderBy: { sortOrder: 'asc' }
-        }
-      }
-    })
+  async update(
+    input: UpdateAppointmentInput,
+    authorizationUser?: AppointmentAuthorizationUser
+  ): Promise<AppointmentMutationResult> {
+    const existing = authorizationUser
+      ? await prisma.appointment.findFirst({
+          where: authorizedAppointmentWhere(authorizationUser, input.id),
+          include: {
+            serviceItems: {
+              orderBy: { sortOrder: 'asc' }
+            }
+          }
+        })
+      : await prisma.appointment.findUnique({
+          where: { id: input.id },
+          include: {
+            serviceItems: {
+              orderBy: { sortOrder: 'asc' }
+            }
+          }
+        })
 
     if (!existing) {
+      if (authorizationUser) return appointmentNotFound()
       return {
         ok: false,
         statusCode: 404,
         message: 'No encontre ese turno'
       }
+    }
+    if (authorizationUser && !staffCanUseProfessional(authorizationUser, existing.professionalId)) {
+      return appointmentForbidden()
     }
     const updatesManualDeposit = input.manualDepositPaid !== undefined ||
       input.manualDepositAmount !== undefined
@@ -477,7 +524,7 @@ export class AppointmentService {
         message: notes.message
       }
     }
-    if (
+    if (!authorizationUser &&
       existing.status === 'PENDING' &&
       await prisma.bookingDeposit.count({
         where: {
@@ -504,17 +551,11 @@ export class AppointmentService {
     }
 
     const serviceIds = normalizedServiceIds(input.serviceId, input.serviceIds)
-    const [professional, services, customer] = await Promise.all([
-      prisma.professional.findUnique({
-        where: {
-          id: input.professionalId
-        }
-      }),
-      prisma.service.findMany({
-        where: { id: { in: serviceIds } }
-      }),
-      prisma.customer.findUnique({ where: { id: input.customerId } })
-    ])
+    const { professional, services, customer, complete } = authorizationUser
+      ? await loadAuthorizedAppointmentResources(prisma, authorizationUser, input, serviceIds)
+      : await loadAppointmentResources(prisma, input, serviceIds)
+
+    if (authorizationUser && !complete) return appointmentNotFound()
 
     if (!professional) {
       return {
@@ -522,6 +563,10 @@ export class AppointmentService {
         statusCode: 404,
         message: 'No encontre ese profesional'
       }
+    }
+
+    if (authorizationUser && !staffCanUseProfessional(authorizationUser, professional.id)) {
+      return appointmentForbidden()
     }
 
     if (!professional.isActive) {
@@ -549,6 +594,7 @@ export class AppointmentService {
     }
 
     if (services.some((service) => professional.businessId !== service.businessId)) {
+      if (authorizationUser) return appointmentNotFound()
       return {
         ok: false,
         statusCode: 400,
@@ -557,6 +603,7 @@ export class AppointmentService {
     }
 
     if (customer.businessId !== professional.businessId) {
+      if (authorizationUser) return appointmentNotFound()
       return {
         ok: false,
         statusCode: 400,
@@ -638,6 +685,33 @@ export class AppointmentService {
 
     const appointment = await prisma.$transaction(async (transaction) => {
       await this.lockProfessionalAgenda(transaction, input.professionalId)
+      if (authorizationUser) {
+        const scopedAppointment = await loadAuthorizedAppointment(transaction, authorizationUser, input.id)
+        const scopedResources = await loadAuthorizedAppointmentResources(
+          transaction,
+          authorizationUser,
+          input,
+          serviceIds
+        )
+        if (
+          !scopedAppointment ||
+          !staffCanUseProfessional(authorizationUser, scopedAppointment.professionalId) ||
+          !appointmentResourcesRemainAuthorized(scopedResources, authorizationUser)
+        ) {
+          return 'AUTHORIZATION_CONFLICT' as const
+        }
+        if (
+          scopedAppointment.status === 'PENDING' &&
+          await transaction.bookingDeposit.count({
+            where: {
+              appointmentId: scopedAppointment.id,
+              status: { in: ['PENDING_PROOF', 'PROOF_RECEIVED'] }
+            }
+          })
+        ) {
+          return 'DEPOSIT_CONFLICT' as const
+        }
+      }
       if (!input.force && await this.hasAppointmentOverlap({
         professionalId: input.professionalId,
         startAt,
@@ -647,9 +721,7 @@ export class AppointmentService {
         return null
       }
       return transaction.appointment.update({
-        where: {
-          id: input.id
-        },
+        where: scopedAppointmentMutationWhere(authorizationUser, input.id),
         data: {
           customerId: input.customerId,
           professionalId: input.professionalId,
@@ -699,6 +771,15 @@ export class AppointmentService {
       })
     })
 
+    if (appointment === 'AUTHORIZATION_CONFLICT') return appointmentConflict()
+    if (appointment === 'DEPOSIT_CONFLICT') {
+      return {
+        ok: false,
+        statusCode: 409,
+        message: 'Resolve la seña pendiente antes de modificar este turno'
+      }
+    }
+
     if (!appointment) {
       return {
         ok: false,
@@ -719,39 +800,51 @@ export class AppointmentService {
     }
   }
 
-  async cancel(appointmentId: string) {
-    const appointment = await prisma.appointment.findUnique({
-      where: {
-        id: appointmentId
-      }
-    })
+  async cancel(appointmentId: string, authorizationUser?: AppointmentAuthorizationUser) {
+    const appointment = authorizationUser
+      ? await prisma.appointment.findFirst({
+          where: authorizedAppointmentWhere(authorizationUser, appointmentId)
+        })
+      : await prisma.appointment.findUnique({ where: { id: appointmentId } })
 
     if (!appointment) {
+      if (authorizationUser) return appointmentNotFound()
       return {
         ok: false as const,
         statusCode: 404,
         message: 'No encontre ese turno'
       }
     }
-    const cancelledAppointment = await prisma.appointment.update({
-        where: {
-          id: appointmentId
-        },
+    if (authorizationUser && !staffCanUseProfessional(authorizationUser, appointment.professionalId)) {
+      return appointmentForbidden()
+    }
+    const cancelledAppointment = await prisma.$transaction(async (transaction) => {
+      if (authorizationUser) {
+        const scopedAppointment = await loadAuthorizedAppointment(transaction, authorizationUser, appointmentId)
+        if (!scopedAppointment || !staffCanUseProfessional(authorizationUser, scopedAppointment.professionalId)) {
+          return null
+        }
+      }
+      const cancelled = await transaction.appointment.update({
+        where: scopedAppointmentMutationWhere(authorizationUser, appointmentId),
         data: {
           status: 'CANCELLED'
         }
       })
-    await prisma.bookingDeposit.updateMany({
-      where: {
-        appointmentId,
-        status: { in: ['PENDING_PROOF', 'PROOF_RECEIVED'] }
-      },
-      data: {
-        status: 'REJECTED',
-        reviewedAt: new Date(),
-        rejectionReason: 'Turno cancelado'
-      }
+      await transaction.bookingDeposit.updateMany({
+        where: {
+          appointmentId,
+          status: { in: ['PENDING_PROOF', 'PROOF_RECEIVED'] }
+        },
+        data: {
+          status: 'REJECTED',
+          reviewedAt: new Date(),
+          rejectionReason: 'Turno cancelado'
+        }
+      })
+      return cancelled
     })
+    if (!cancelledAppointment) return appointmentConflict()
     try {
       await reopenConversationOpportunityForInvalidatedAppointment(appointmentId)
     } catch (error) {
@@ -763,39 +856,45 @@ export class AppointmentService {
     }
   }
 
-  async updateStatus(appointmentId: string, status: AppointmentStatusInput) {
-    const appointment = await prisma.appointment.findUnique({
-      where: {
-        id: appointmentId
-      }
-    })
+  async updateStatus(
+    appointmentId: string,
+    status: AppointmentStatusInput,
+    authorizationUser?: AppointmentAuthorizationUser
+  ) {
+    const appointment = authorizationUser
+      ? await prisma.appointment.findFirst({
+          where: authorizedAppointmentWhere(authorizationUser, appointmentId)
+        })
+      : await prisma.appointment.findUnique({ where: { id: appointmentId } })
 
     if (!appointment) {
+      if (authorizationUser) return appointmentNotFound()
       return {
         ok: false as const,
         statusCode: 404,
         message: 'No encontre ese turno'
       }
     }
-    if (
-      status === 'CONFIRMED' &&
-      await prisma.bookingDeposit.count({
-        where: {
-          appointmentId,
-          status: { in: ['PENDING_PROOF', 'PROOF_RECEIVED'] }
-        }
-      })
-    ) {
-      return {
-        ok: false as const,
-        statusCode: 409,
-        message: 'Aproba el comprobante desde la conversacion antes de confirmar el turno'
-      }
+    if (authorizationUser && !staffCanUseProfessional(authorizationUser, appointment.professionalId)) {
+      return appointmentForbidden()
     }
-
     const updatedAppointment = status === 'CONFIRMED'
       ? await prisma.$transaction(async (transaction) => {
           await this.lockProfessionalAgenda(transaction, appointment.professionalId)
+          if (authorizationUser) {
+            const scopedAppointment = await loadAuthorizedAppointment(transaction, authorizationUser, appointmentId)
+            if (!scopedAppointment || !staffCanUseProfessional(authorizationUser, scopedAppointment.professionalId)) {
+              return 'AUTHORIZATION_CONFLICT' as const
+            }
+          }
+          if (await transaction.bookingDeposit.count({
+            where: {
+              appointmentId,
+              status: { in: ['PENDING_PROOF', 'PROOF_RECEIVED'] }
+            }
+          })) {
+            return 'DEPOSIT_CONFLICT' as const
+          }
           if (await this.hasAppointmentOverlap({
             professionalId: appointment.professionalId,
             startAt: appointment.startAt,
@@ -804,8 +903,8 @@ export class AppointmentService {
           }, transaction)) {
             return null
           }
-          return transaction.appointment.update({
-            where: { id: appointmentId },
+          const updated = await transaction.appointment.update({
+            where: scopedAppointmentMutationWhere(authorizationUser, appointmentId),
             data: { status },
             include: {
               customer: true,
@@ -813,16 +912,47 @@ export class AppointmentService {
               service: true
             }
           })
+          return updated
         })
-      : await prisma.appointment.update({
-          where: { id: appointmentId },
-          data: { status },
-          include: {
-            customer: true,
-            professional: true,
-            service: true
+      : await prisma.$transaction(async (transaction) => {
+          if (authorizationUser) {
+            const scopedAppointment = await loadAuthorizedAppointment(transaction, authorizationUser, appointmentId)
+            if (!scopedAppointment || !staffCanUseProfessional(authorizationUser, scopedAppointment.professionalId)) {
+              return 'AUTHORIZATION_CONFLICT' as const
+            }
           }
+          const updated = await transaction.appointment.update({
+            where: scopedAppointmentMutationWhere(authorizationUser, appointmentId),
+            data: { status },
+            include: {
+              customer: true,
+              professional: true,
+              service: true
+            }
+          })
+          if (status === 'CANCELLED' || status === 'NO_SHOW') {
+            await transaction.bookingDeposit.updateMany({
+              where: {
+                appointmentId,
+                status: { in: ['PENDING_PROOF', 'PROOF_RECEIVED'] }
+              },
+              data: {
+                status: 'REJECTED',
+                reviewedAt: new Date(),
+                rejectionReason: status === 'CANCELLED' ? 'Turno cancelado' : 'Turno marcado como ausente'
+              }
+            })
+          }
+          return updated
         })
+    if (updatedAppointment === 'AUTHORIZATION_CONFLICT') return appointmentConflict()
+    if (updatedAppointment === 'DEPOSIT_CONFLICT') {
+      return {
+        ok: false as const,
+        statusCode: 409,
+        message: 'Aproba el comprobante desde la conversacion antes de confirmar el turno'
+      }
+    }
     if (!updatedAppointment) {
       return {
         ok: false as const,
@@ -831,17 +961,6 @@ export class AppointmentService {
       }
     }
     if (status === 'CANCELLED' || status === 'NO_SHOW') {
-      await prisma.bookingDeposit.updateMany({
-        where: {
-          appointmentId,
-          status: { in: ['PENDING_PROOF', 'PROOF_RECEIVED'] }
-        },
-        data: {
-          status: 'REJECTED',
-          reviewedAt: new Date(),
-          rejectionReason: status === 'CANCELLED' ? 'Turno cancelado' : 'Turno marcado como ausente'
-        }
-      })
       try {
         await reopenConversationOpportunityForInvalidatedAppointment(appointmentId)
       } catch (error) {
@@ -1276,6 +1395,76 @@ export class AppointmentService {
 
     return scheduleBlock !== null
   }
+}
+
+async function loadAppointmentResources(
+  client: TenantResourceAuthorizationClient,
+  input: Pick<CreateAppointmentInput, 'professionalId' | 'customerId'>,
+  serviceIds: string[]
+) {
+  const [professional, services, customer] = await Promise.all([
+    client.professional.findUnique({ where: { id: input.professionalId } }),
+    client.service.findMany({ where: { id: { in: serviceIds } } }),
+    client.customer.findUnique({ where: { id: input.customerId } })
+  ])
+  return {
+    professional,
+    services,
+    customer,
+    complete: Boolean(professional && customer && services.length === serviceIds.length)
+  }
+}
+
+async function loadAuthorizedAppointmentResources(
+  client: TenantResourceAuthorizationClient,
+  user: AppointmentAuthorizationUser,
+  input: Pick<CreateAppointmentInput, 'professionalId' | 'customerId'>,
+  serviceIds: string[]
+) {
+  const professional = await loadAuthorizedProfessional(client, user, input.professionalId)
+  const services = []
+  for (const serviceId of serviceIds) {
+    const service = await loadAuthorizedService(client, user, serviceId)
+    if (service) services.push(service)
+  }
+  const customer = await loadAuthorizedCustomer(client, user, input.customerId)
+  return {
+    professional,
+    services,
+    customer,
+    complete: Boolean(professional && customer && services.length === serviceIds.length)
+  }
+}
+
+function appointmentResourcesRemainAuthorized(
+  resources: Awaited<ReturnType<typeof loadAuthorizedAppointmentResources>>,
+  user: AppointmentAuthorizationUser
+) {
+  if (!resources.complete || !resources.professional || !resources.customer) return false
+  if (!staffCanUseProfessional(user, resources.professional.id)) return false
+  return resources.customer.businessId === resources.professional.businessId &&
+    resources.services.every((service) => service.businessId === resources.professional!.businessId)
+}
+
+function scopedAppointmentMutationWhere(
+  user: AppointmentAuthorizationUser | undefined,
+  appointmentId: string
+): Prisma.AppointmentWhereUniqueInput {
+  return user
+    ? { id: appointmentId, AND: authorizedAppointmentWhere(user, appointmentId) }
+    : { id: appointmentId }
+}
+
+function appointmentNotFound(): AppointmentMutationResult {
+  return { ok: false, statusCode: 404, message: 'Recurso no encontrado' }
+}
+
+function appointmentForbidden(): AppointmentMutationResult {
+  return { ok: false, statusCode: 403, message: 'No tenes permiso para realizar esta accion' }
+}
+
+function appointmentConflict(): AppointmentMutationResult {
+  return { ok: false, statusCode: 409, message: 'El recurso cambio de estado' }
 }
 
 function addMinutes(date: Date, minutes: number) {

@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
 import { hashPassword } from '../services/auth-service.js'
 import { resolveStaffPermissions, STAFF_PRESET_DEFINITIONS, type StaffPermissions } from '../services/staff-permission-service.js'
+import { loadAuthorizedStaffUser } from '../services/tenant-resource-authorization.js'
+import { sendAuthorizationFailure } from '../services/authorization-response.js'
 
 type StaffBody = Partial<StaffPermissions> & {
   businessId?: string
@@ -64,9 +66,8 @@ export async function staffUserRoutes(app: FastifyInstance) {
     if (!canManageStaffUsers(request.auth)) return reply.status(403).send({ message: 'No tenes permiso para administrar usuarios staff' })
     const params = request.params as { id: string }
     const body = request.body as StaffBody
-    const existing = await prisma.user.findFirst({ where: { id: params.id, role: 'STAFF' } })
-    if (!existing) return reply.status(404).send({ message: 'No encontre esa cuenta staff' })
-    if (!await canAccessBusiness(request.auth, existing.businessId)) return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
+    const existing = await loadAuthorizedStaffUser(prisma, request.auth!.user, params.id)
+    if (!existing) return sendAuthorizationFailure(reply, 'notFound')
     if (!existing.businessId) return reply.status(400).send({ message: 'La cuenta staff no tiene comercio asignado' })
 
     const resolved = resolveStaffPermissions({
@@ -114,9 +115,8 @@ export async function staffUserRoutes(app: FastifyInstance) {
   app.delete('/staff-users/:id', async (request, reply) => {
     if (!canManageStaffUsers(request.auth)) return reply.status(403).send({ message: 'No tenes permiso para administrar usuarios staff' })
     const params = request.params as { id: string }
-    const existing = await prisma.user.findFirst({ where: { id: params.id, role: 'STAFF' } })
-    if (!existing) return reply.status(404).send({ message: 'No encontre esa cuenta staff' })
-    if (!await canAccessBusiness(request.auth, existing.businessId)) return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
+    const existing = await loadAuthorizedStaffUser(prisma, request.auth!.user, params.id)
+    if (!existing) return sendAuthorizationFailure(reply, 'notFound')
     if (!existing.businessId) return reply.status(400).send({ message: 'La cuenta staff no tiene comercio asignado' })
     await prisma.user.delete({ where: { id: existing.id } })
     return listStaffUsers(existing.businessId)
@@ -168,14 +168,4 @@ function resolveBusinessId(request: { auth?: { user: { role: string; businessId:
 
 function canManageStaffUsers(auth: { user: { role: string; businessId: string | null } } | undefined) {
   return auth?.user.role === 'SUPER_ADMIN' || auth?.user.role === 'ACCOUNT_ADMIN' || auth?.user.role === 'BUSINESS_ADMIN'
-}
-
-async function canAccessBusiness(auth: { user: { id: string; role: string; businessId: string | null } } | undefined, businessId?: string | null) {
-  if (!auth || !businessId) return false
-  if (auth.user.role === 'SUPER_ADMIN' || auth.user.businessId === businessId) return true
-  if (auth.user.role !== 'ACCOUNT_ADMIN') return false
-  return Boolean(await prisma.business.findFirst({
-    where: { id: businessId, accountAdminId: auth.user.id },
-    select: { id: true }
-  }))
 }

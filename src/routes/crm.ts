@@ -1,8 +1,19 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
 import { Prisma, type Message } from '../generated/prisma/client.js'
-import { WhatsAppCloudApi } from '../integrations/whatsapp-cloud-api.js'
 import { assertBusinessCanSendWhatsApp } from '../services/business-whatsapp-settings.js'
+import {
+  authorizedBookingDepositWhere,
+  authorizedConversationWhere,
+  authorizedMessageWhere,
+  loadAuthorizedBookingDeposit,
+  loadAuthorizedBusiness,
+  loadAuthorizedConversation,
+  type TenantResourceAuthorizationClient
+} from '../services/tenant-resource-authorization.js'
+import { sendAuthorizationFailure } from '../services/authorization-response.js'
+import type { AuthorizationProviders } from '../providers/authorization-providers.js'
+import type { BusinessAuthorizationUser } from '../services/business-authorization.js'
 import {
   closeConversationOpportunity,
   CONVERSATION_CLOSE_REASONS,
@@ -49,9 +60,14 @@ import {
   subscribeToCrmRealtimeEvents
 } from '../services/crm-realtime-events.js'
 
-const whatsappCloudApi = new WhatsAppCloudApi()
 const bookingV2Engine = new BookingV2Engine()
 const WHATSAPP_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000
+
+class AuthorizationStateConflictError extends Error {}
+class QaMaintenanceStateConflictError extends Error {}
+
+const QA_MAINTENANCE_CONFIRMATION = 'delete-all-qa-cami-data'
+const QA_PHONE_PREFIX = 'qa-cami-'
 
 // Las listas del CRM sólo necesitan el estado de la seña. El archivo binario
 // se descarga exclusivamente desde /crm/deposits/:id/proof cuando se lo abre.
@@ -180,143 +196,198 @@ export async function crmRoutes(app: FastifyInstance) {
   })
 
   app.post('/crm/maintenance/delete-qa-data', async (request, reply) => {
-    const body = request.body as { confirm?: string }
-    if (body.confirm !== 'delete-all-qa-cami-data') {
-      return reply.status(400).send({
-        message: 'confirm=delete-all-qa-cami-data es requerido'
-      })
+    const authUser = request.auth?.user
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    if (authUser.role !== 'SUPER_ADMIN') return sendAuthorizationFailure(reply, 'forbidden')
+
+    const body = (request.body ?? {}) as { businessId?: string; confirm?: string }
+    const businessId = body.businessId?.trim()
+    if (!businessId || body.confirm !== QA_MAINTENANCE_CONFIRMATION) {
+      return sendAuthorizationFailure(reply, 'malformed')
     }
 
-    const [customers, conversations] = await Promise.all([
-      prisma.customer.findMany({
-        where: { phone: { startsWith: 'qa-cami-' } },
-        select: { id: true, phone: true }
-      }),
-      prisma.conversation.findMany({
-        where: { phone: { startsWith: 'qa-cami-' } },
-        select: { id: true, phone: true }
-      })
-    ])
-    const customerIds = customers.map((customer) => customer.id)
-    const conversationIds = conversations.map((conversation) => conversation.id)
+    const configuredQaBusinessId = process.env.QA_BUSINESS_ID?.trim()
+    if (!configuredQaBusinessId) return sendAuthorizationFailure(reply, 'conflict')
+    if (businessId !== configuredQaBusinessId) return sendAuthorizationFailure(reply, 'malformed')
+
+    const target = await prisma.business.findUnique({
+      where: { id: businessId },
+      select: { id: true, isDemo: true, demoType: true }
+    })
+    if (!target) return sendAuthorizationFailure(reply, 'notFound')
+    if (!target.isDemo || target.demoType !== 'QA_SANDBOX') {
+      return sendAuthorizationFailure(reply, 'conflict')
+    }
 
     const result = await prisma.$transaction(async (transaction) => {
-      const deletedMessages = conversationIds.length
-        ? await transaction.message.deleteMany({ where: { conversationId: { in: conversationIds } } })
+      const scopedTarget = await transaction.business.findFirst({
+        where: { id: businessId, isDemo: true, demoType: 'QA_SANDBOX' },
+        select: { id: true }
+      })
+      if (!scopedTarget) throw new QaMaintenanceStateConflictError()
+
+      const customers = await transaction.customer.findMany({
+        where: { businessId, phone: { startsWith: QA_PHONE_PREFIX } },
+        select: { id: true, phone: true }
+      })
+      const conversations = await transaction.conversation.findMany({
+        where: { businessId, phone: { startsWith: QA_PHONE_PREFIX } },
+        select: { id: true, phone: true }
+      })
+      const customerIds = customers.map(({ id }) => id)
+      const conversationIds = conversations.map(({ id }) => id)
+      const appointments = customerIds.length
+        ? await transaction.appointment.findMany({
+            where: {
+              customerId: { in: customerIds },
+              customer: { businessId },
+              professional: { businessId }
+            },
+            select: { id: true }
+          })
+        : []
+      const appointmentIds = appointments.map(({ id }) => id)
+
+      const foreignDeposits = appointmentIds.length || conversationIds.length
+        ? await transaction.bookingDeposit.count({
+            where: {
+              businessId: { not: businessId },
+              OR: [
+                ...(appointmentIds.length ? [{ appointmentId: { in: appointmentIds } }] : []),
+                ...(conversationIds.length ? [{ conversationId: { in: conversationIds } }] : [])
+              ]
+            }
+          })
+        : 0
+      if (foreignDeposits) throw new QaMaintenanceStateConflictError()
+
+      const deposits = appointmentIds.length || conversationIds.length
+        ? await transaction.bookingDeposit.findMany({
+            where: {
+              businessId,
+              OR: [
+                ...(appointmentIds.length ? [{ appointmentId: { in: appointmentIds } }] : []),
+                ...(conversationIds.length ? [{ conversationId: { in: conversationIds } }] : [])
+              ]
+            },
+            select: { id: true }
+          })
+        : []
+      const depositIds = deposits.map(({ id }) => id)
+      const messages = conversationIds.length
+        ? await transaction.message.findMany({
+            where: {
+              conversationId: { in: conversationIds },
+              conversation: { businessId, phone: { startsWith: QA_PHONE_PREFIX } }
+            },
+            select: { id: true }
+          })
+        : []
+      const messageIds = messages.map(({ id }) => id)
+      const notes = customerIds.length
+        ? await transaction.customerNote.findMany({
+            where: {
+              customerId: { in: customerIds },
+              customer: { businessId, phone: { startsWith: QA_PHONE_PREFIX } }
+            },
+            select: { id: true }
+          })
+        : []
+      const noteIds = notes.map(({ id }) => id)
+
+      if (appointmentIds.length || conversationIds.length) {
+        await transaction.aiUsageEvent.deleteMany({
+          where: {
+            businessId,
+            OR: [
+              ...(appointmentIds.length ? [{ appointmentId: { in: appointmentIds } }] : []),
+              ...(conversationIds.length ? [{ conversationId: { in: conversationIds } }] : [])
+            ]
+          }
+        })
+      }
+      const deletedDeposits = depositIds.length
+        ? await transaction.bookingDeposit.deleteMany({
+            where: {
+              id: { in: depositIds },
+              businessId,
+              OR: [
+                ...(appointmentIds.length
+                  ? [{
+                      appointmentId: { in: appointmentIds },
+                      appointment: { customer: { businessId }, professional: { businessId } }
+                    }]
+                  : []),
+                ...(conversationIds.length
+                  ? [{ conversationId: { in: conversationIds }, conversation: { businessId } }]
+                  : [])
+              ]
+            }
+          })
         : { count: 0 }
+      if (deletedDeposits.count !== depositIds.length) throw new QaMaintenanceStateConflictError()
+      const deletedMessages = messageIds.length
+        ? await transaction.message.deleteMany({
+            where: {
+              id: { in: messageIds },
+              conversationId: { in: conversationIds },
+              conversation: { businessId, phone: { startsWith: QA_PHONE_PREFIX } }
+            }
+          })
+        : { count: 0 }
+      if (deletedMessages.count !== messageIds.length) throw new QaMaintenanceStateConflictError()
       const deletedConversations = conversationIds.length
-        ? await transaction.conversation.deleteMany({ where: { id: { in: conversationIds } } })
+        ? await transaction.conversation.deleteMany({
+            where: { id: { in: conversationIds }, businessId, phone: { startsWith: QA_PHONE_PREFIX } }
+          })
         : { count: 0 }
-      const deletedAppointments = customerIds.length
-        ? await transaction.appointment.deleteMany({ where: { customerId: { in: customerIds } } })
+      if (deletedConversations.count !== conversationIds.length) throw new QaMaintenanceStateConflictError()
+      const deletedAppointments = appointmentIds.length
+        ? await transaction.appointment.deleteMany({
+            where: {
+              id: { in: appointmentIds },
+              customer: { businessId, phone: { startsWith: QA_PHONE_PREFIX } },
+              professional: { businessId }
+            }
+          })
         : { count: 0 }
-      const deletedNotes = customerIds.length
-        ? await transaction.customerNote.deleteMany({ where: { customerId: { in: customerIds } } })
+      if (deletedAppointments.count !== appointmentIds.length) throw new QaMaintenanceStateConflictError()
+      const deletedNotes = noteIds.length
+        ? await transaction.customerNote.deleteMany({
+            where: {
+              id: { in: noteIds },
+              customerId: { in: customerIds },
+              customer: { businessId, phone: { startsWith: QA_PHONE_PREFIX } }
+            }
+          })
         : { count: 0 }
+      if (deletedNotes.count !== noteIds.length) throw new QaMaintenanceStateConflictError()
       const deletedCustomers = customerIds.length
-        ? await transaction.customer.deleteMany({ where: { id: { in: customerIds } } })
+        ? await transaction.customer.deleteMany({
+            where: { id: { in: customerIds }, businessId, phone: { startsWith: QA_PHONE_PREFIX } }
+          })
         : { count: 0 }
+      if (deletedCustomers.count !== customerIds.length) throw new QaMaintenanceStateConflictError()
 
       return {
-        messages: deletedMessages.count,
-        conversations: deletedConversations.count,
-        appointments: deletedAppointments.count,
-        notes: deletedNotes.count,
-        customers: deletedCustomers.count
-      }
-    })
-
-    return {
-      deleted: result,
-      customerPhones: customers.map((customer) => customer.phone),
-      conversationPhones: conversations.map((conversation) => conversation.phone)
-    }
-  })
-
-  app.get('/crm/maintenance/delete-qa-conversations', async (request, reply) => {
-    const query = request.query as {
-      date?: string
-      confirm?: string
-    }
-
-    if (query.confirm !== 'delete-qa-cami') {
-      return reply.status(400).send({
-        message: 'confirm=delete-qa-cami es requerido'
-      })
-    }
-
-    if (!query.date || !/^\d{4}-\d{2}-\d{2}$/.test(query.date)) {
-      return reply.status(400).send({
-        message: 'date debe tener formato YYYY-MM-DD'
-      })
-    }
-
-    const start = new Date(`${query.date}T00:00:00`)
-    const end = new Date(start)
-    end.setDate(end.getDate() + 1)
-
-    const conversations = await prisma.conversation.findMany({
-      where: {
-        phone: {
-          startsWith: 'qa-cami-'
+        businessId,
+        deleted: {
+          deposits: deletedDeposits.count,
+          messages: deletedMessages.count,
+          conversations: deletedConversations.count,
+          appointments: deletedAppointments.count,
+          notes: deletedNotes.count,
+          customers: deletedCustomers.count
         },
-        OR: [
-          {
-            updatedAt: {
-              gte: start,
-              lt: end
-            }
-          },
-          {
-            messages: {
-              some: {
-                createdAt: {
-                  gte: start,
-                  lt: end
-                }
-              }
-            }
-          }
-        ]
-      },
-      select: {
-        id: true,
-        phone: true
+        customerPhones: customers.map(({ phone }) => phone),
+        conversationPhones: conversations.map(({ phone }) => phone)
       }
+    }).catch((error: unknown) => {
+      if (error instanceof QaMaintenanceStateConflictError) return null
+      throw error
     })
-
-    const conversationIds = conversations.map((conversation) => conversation.id)
-
-    if (conversationIds.length === 0) {
-      return {
-        deletedConversations: 0,
-        deletedMessages: 0,
-        phones: []
-      }
-    }
-
-    const [deletedMessages, deletedConversations] = await prisma.$transaction([
-      prisma.message.deleteMany({
-        where: {
-          conversationId: {
-            in: conversationIds
-          }
-        }
-      }),
-      prisma.conversation.deleteMany({
-        where: {
-          id: {
-            in: conversationIds
-          }
-        }
-      })
-    ])
-
-    return {
-      deletedConversations: deletedConversations.count,
-      deletedMessages: deletedMessages.count,
-      phones: conversations.map((conversation) => conversation.phone)
-    }
+    if (!result) return sendAuthorizationFailure(reply, 'conflict')
+    return result
   })
 
   app.get('/crm/conversations', async (request) => {
@@ -415,33 +486,24 @@ export async function crmRoutes(app: FastifyInstance) {
 
   app.get('/crm/conversations/:id', async (request, reply) => {
     const params = request.params as { id: string }
-    const query = request.query as { businessId?: string }
     const authUser = request.auth?.user
-    const businessId = authUser?.role === 'SUPER_ADMIN'
-      ? query.businessId
-      : authUser?.businessId ?? undefined
-    const conversation = await conversationListItemById(params.id, businessId)
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    const conversation = await conversationListItemById(params.id, authUser)
     if (!conversation) {
-      return reply.status(404).send({ message: 'No encontre esa conversacion' })
+      return sendAuthorizationFailure(reply, 'notFound')
     }
     return conversation
   })
 
   app.get('/crm/messages/:id', async (request, reply) => {
     const params = request.params as { id: string }
-    const query = request.query as { businessId?: string }
     const authUser = request.auth?.user
-    const businessId = authUser?.role === 'SUPER_ADMIN'
-      ? query.businessId
-      : authUser?.businessId ?? undefined
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
     const message = await prisma.message.findFirst({
-      where: {
-        id: params.id,
-        ...(businessId ? { conversation: { businessId } } : {})
-      }
+      where: authorizedMessageWhere(authUser, params.id)
     })
     if (!message) {
-      return reply.status(404).send({ message: 'No encontre ese mensaje' })
+      return sendAuthorizationFailure(reply, 'notFound')
     }
     return message
   })
@@ -665,22 +727,19 @@ export async function crmRoutes(app: FastifyInstance) {
       paginated?: string
     }
 
-    const conversation = await prisma.conversation.findUnique({
-      where: {
-        id: params.id
-      }
-    })
+    const authUser = request.auth?.user
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    const conversation = await loadAuthorizedConversation(prisma, authUser, params.id)
 
     if (!conversation) {
-      return reply.status(404).send({
-        message: 'No encontre esa conversacion'
-      })
+      return sendAuthorizationFailure(reply, 'notFound')
     }
 
     const take = Math.min(Math.max(Number(query.take ?? 100) || 100, 1), 200)
     const messages = await prisma.message.findMany({
       where: {
-        conversationId: params.id
+        conversationId: params.id,
+        conversation: authorizedConversationWhere(authUser, params.id)
       },
       orderBy: {
         createdAt: 'desc'
@@ -706,8 +765,10 @@ export async function crmRoutes(app: FastifyInstance) {
 
   app.get('/crm/messages/:id/media', async (request, reply) => {
     const params = request.params as { id: string }
-    const message = await prisma.message.findUnique({
-      where: { id: params.id },
+    const authUser = request.auth?.user
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    const message = await prisma.message.findFirst({
+      where: authorizedMessageWhere(authUser, params.id),
       include: {
         conversation: {
           select: { businessId: true }
@@ -727,10 +788,10 @@ export async function crmRoutes(app: FastifyInstance) {
       : null
 
     if (!message || !mediaId || !mediaType) {
-      return reply.status(404).send({ message: 'No encontre ese archivo' })
+      return sendAuthorizationFailure(reply, 'notFound')
     }
 
-    const downloaded = await whatsappCloudApi.downloadMedia({
+    const downloaded = await app.authorizationProviders.media.download({
       businessId: message.conversation.businessId,
       mediaId
     })
@@ -762,11 +823,11 @@ export async function crmRoutes(app: FastifyInstance) {
   app.get('/crm/deposits', async (request, reply) => {
     const query = request.query as { businessId?: string; view?: 'active' | 'resolved' | 'all'; summary?: string }
     const authUser = request.auth?.user
-    if (!authUser) return reply.status(401).send({ message: 'Sesion requerida' })
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
     const businessId = query.businessId || authUser.businessId
-    if (!businessId) return reply.status(400).send({ message: 'Selecciona un comercio' })
-    if (authUser.role !== 'SUPER_ADMIN' && authUser.businessId !== businessId) {
-      return reply.status(403).send({ message: 'No tenes acceso a esas señas' })
+    if (!businessId) return sendAuthorizationFailure(reply, 'malformed')
+    if (!await loadAuthorizedBusiness(prisma, authUser, businessId)) {
+      return sendAuthorizationFailure(reply, 'notFound')
     }
     await bookingDepositService.expireOverdue()
     const activeStatuses: Array<'PENDING_PROOF' | 'PROOF_RECEIVED'> = ['PENDING_PROOF', 'PROOF_RECEIVED']
@@ -821,7 +882,10 @@ export async function crmRoutes(app: FastifyInstance) {
       .filter((id): id is string => Boolean(id))))
     const coordinatedAppointments = coordinationGroupIds.length
       ? await prisma.appointment.findMany({
-          where: { coordinationGroupId: { in: coordinationGroupIds } },
+          where: {
+            coordinationGroupId: { in: coordinationGroupIds },
+            professional: { businessId }
+          },
           select: crmDepositAppointmentSelect,
           orderBy: { startAt: 'asc' }
         })
@@ -843,9 +907,9 @@ export async function crmRoutes(app: FastifyInstance) {
   app.get('/crm/deposits/:id/proof', async (request, reply) => {
     const params = request.params as { id: string }
     const authUser = request.auth?.user
-    if (!authUser) return reply.status(401).send({ message: 'Sesion requerida' })
-    const deposit = await prisma.bookingDeposit.findUnique({
-      where: { id: params.id },
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    const deposit = await prisma.bookingDeposit.findFirst({
+      where: authorizedBookingDepositWhere(authUser, params.id),
       select: {
         businessId: true,
         source: true,
@@ -855,10 +919,7 @@ export async function crmRoutes(app: FastifyInstance) {
       }
     })
     if (!deposit?.proofData || deposit.source !== 'WEB') {
-      return reply.status(404).send({ message: 'No encontre ese comprobante' })
-    }
-    if (authUser.role !== 'SUPER_ADMIN' && authUser.businessId !== deposit.businessId) {
-      return reply.status(403).send({ message: 'No tenes acceso a ese comprobante' })
+      return sendAuthorizationFailure(reply, 'notFound')
     }
     const contentType = deposit.proofMimeType || 'application/octet-stream'
     const filename = safeMediaFilename(
@@ -876,37 +937,71 @@ export async function crmRoutes(app: FastifyInstance) {
   app.post('/crm/deposits/:id/approve', async (request, reply) => {
     const params = request.params as { id: string }
     const authUser = request.auth?.user
-    if (!authUser) return reply.status(401).send({ message: 'Sesion requerida' })
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    const deposit = await loadAuthorizedBookingDeposit(prisma, authUser, params.id)
+    if (!deposit || deposit.source !== 'WEB') return sendAuthorizationFailure(reply, 'notFound')
     await bookingDepositService.expireOverdue()
-    const deposit = await prisma.bookingDeposit.findUnique({ where: { id: params.id } })
-    if (!deposit || deposit.source !== 'WEB') return reply.status(404).send({ message: 'No encontre esa seña web' })
-    if (authUser.role !== 'SUPER_ADMIN' && authUser.businessId !== deposit.businessId) {
-      return reply.status(403).send({ message: 'No tenes acceso a esa seña' })
-    }
     if (deposit.status !== 'PROOF_RECEIVED') {
       return reply.status(409).send({ message: 'La seña no tiene un comprobante pendiente de revisión' })
     }
-    const reviewedAt = new Date()
-    const heldAppointmentIds = await coordinatedAppointmentIds(deposit.appointmentId)
+    const reviewedAt = app.clock()
     const approved = await prisma.$transaction(async (tx) => {
+      const scopedDeposit = await loadAuthorizedBookingDeposit(tx, authUser, params.id)
+      if (!scopedDeposit || scopedDeposit.source !== 'WEB' || scopedDeposit.status !== 'PROOF_RECEIVED') {
+        return { approved: false as const, heldAppointmentIds: [] }
+      }
+      const heldAppointmentIds = await coordinatedAppointmentIds(
+        tx,
+        scopedDeposit.appointmentId,
+        scopedDeposit.businessId
+      )
+      if (heldAppointmentIds.length === 0) {
+        return { approved: false as const, heldAppointmentIds: [] }
+      }
       const heldAppointment = await tx.appointment.count({
-        where: { id: { in: heldAppointmentIds }, status: 'PENDING' }
+        where: {
+          id: { in: heldAppointmentIds },
+          professional: { businessId: scopedDeposit.businessId },
+          status: 'PENDING'
+        }
       })
-      if (heldAppointment !== heldAppointmentIds.length) return false
+      if (heldAppointment !== heldAppointmentIds.length) {
+        return { approved: false as const, heldAppointmentIds: [] }
+      }
       const claimed = await tx.bookingDeposit.updateMany({
-        where: { id: deposit.id, status: 'PROOF_RECEIVED' },
+        where: {
+          ...authorizedBookingDepositWhere(authUser, scopedDeposit.id),
+          businessId: scopedDeposit.businessId,
+          source: 'WEB',
+          status: 'PROOF_RECEIVED'
+        },
         data: { status: 'APPROVED', reviewedAt, reviewedByUserId: authUser.id, rejectionReason: null }
       })
-      if (!claimed.count) return false
-      await tx.appointment.updateMany({
-        where: { id: { in: heldAppointmentIds }, status: 'PENDING' },
+      if (!claimed.count) return { approved: false as const, heldAppointmentIds: [] }
+      const confirmedAppointments = await tx.appointment.updateMany({
+        where: {
+          id: { in: heldAppointmentIds },
+          professional: { businessId: scopedDeposit.businessId },
+          status: 'PENDING'
+        },
         data: { status: 'CONFIRMED' }
       })
-      return true
+      if (confirmedAppointments.count !== heldAppointmentIds.length) {
+        throw new AuthorizationStateConflictError()
+      }
+      return { approved: true as const, heldAppointmentIds }
+    }).catch((error: unknown) => {
+      if (error instanceof AuthorizationStateConflictError) {
+        return { approved: false as const, heldAppointmentIds: [] }
+      }
+      throw error
     })
-    if (!approved) return reply.status(409).send({ message: 'La seña ya fue revisada o el turno venció' })
+    if (!approved.approved) return sendAuthorizationFailure(reply, 'conflict')
     const appointments = await prisma.appointment.findMany({
-      where: { id: { in: heldAppointmentIds } },
+      where: {
+        id: { in: approved.heldAppointmentIds },
+        professional: { businessId: deposit.businessId }
+      },
       include: {
         customer: {
           include: {
@@ -951,27 +1046,61 @@ export async function crmRoutes(app: FastifyInstance) {
     const params = request.params as { id: string }
     const body = request.body as { reason?: string }
     const authUser = request.auth?.user
-    if (!authUser) return reply.status(401).send({ message: 'Sesion requerida' })
-    const deposit = await prisma.bookingDeposit.findUnique({ where: { id: params.id } })
-    if (!deposit || deposit.source !== 'WEB') return reply.status(404).send({ message: 'No encontre esa seña web' })
-    if (authUser.role !== 'SUPER_ADMIN' && authUser.businessId !== deposit.businessId) {
-      return reply.status(403).send({ message: 'No tenes acceso a esa seña' })
-    }
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    const deposit = await loadAuthorizedBookingDeposit(prisma, authUser, params.id)
+    if (!deposit || deposit.source !== 'WEB') return sendAuthorizationFailure(reply, 'notFound')
     const reason = body.reason?.trim().slice(0, 300) || 'No pudimos validar el comprobante'
-    const heldAppointmentIds = await coordinatedAppointmentIds(deposit.appointmentId)
     const rejected = await prisma.$transaction(async (tx) => {
-      const claimed = await tx.bookingDeposit.updateMany({
-        where: { id: deposit.id, status: { in: ['PENDING_PROOF', 'PROOF_RECEIVED'] } },
-        data: { status: 'REJECTED', reviewedAt: new Date(), reviewedByUserId: authUser.id, rejectionReason: reason }
+      const scopedDeposit = await loadAuthorizedBookingDeposit(tx, authUser, params.id)
+      if (!scopedDeposit || scopedDeposit.source !== 'WEB') {
+        return { rejected: false as const, heldAppointmentIds: [] }
+      }
+      const heldAppointmentIds = await coordinatedAppointmentIds(
+        tx,
+        scopedDeposit.appointmentId,
+        scopedDeposit.businessId
+      )
+      if (heldAppointmentIds.length === 0) {
+        return { rejected: false as const, heldAppointmentIds: [] }
+      }
+      const heldAppointmentCount = await tx.appointment.count({
+        where: {
+          id: { in: heldAppointmentIds },
+          professional: { businessId: scopedDeposit.businessId }
+        }
       })
-      if (!claimed.count) return false
-      await tx.appointment.updateMany({
-        where: { id: { in: heldAppointmentIds }, status: 'PENDING' },
+      if (heldAppointmentCount !== heldAppointmentIds.length) {
+        return { rejected: false as const, heldAppointmentIds: [] }
+      }
+      const claimed = await tx.bookingDeposit.updateMany({
+        where: {
+          ...authorizedBookingDepositWhere(authUser, scopedDeposit.id),
+          businessId: scopedDeposit.businessId,
+          source: 'WEB',
+          status: { in: ['PENDING_PROOF', 'PROOF_RECEIVED'] }
+        },
+        data: { status: 'REJECTED', reviewedAt: app.clock(), reviewedByUserId: authUser.id, rejectionReason: reason }
+      })
+      if (!claimed.count) return { rejected: false as const, heldAppointmentIds: [] }
+      const cancelledAppointments = await tx.appointment.updateMany({
+        where: {
+          id: { in: heldAppointmentIds },
+          professional: { businessId: scopedDeposit.businessId },
+          status: 'PENDING'
+        },
         data: { status: 'CANCELLED' }
       })
-      return true
+      if (cancelledAppointments.count !== heldAppointmentIds.length) {
+        throw new AuthorizationStateConflictError()
+      }
+      return { rejected: true as const, heldAppointmentIds }
+    }).catch((error: unknown) => {
+      if (error instanceof AuthorizationStateConflictError) {
+        return { rejected: false as const, heldAppointmentIds: [] }
+      }
+      throw error
     })
-    if (!rejected) return reply.status(409).send({ message: 'La seña ya fue revisada o venció' })
+    if (!rejected.rejected) return sendAuthorizationFailure(reply, 'conflict')
     return { ok: true }
   })
 
@@ -979,21 +1108,29 @@ export async function crmRoutes(app: FastifyInstance) {
     const params = request.params as { id: string }
     const body = request.body as { archived?: boolean }
     if (typeof body.archived !== 'boolean') {
-      return reply.status(400).send({ message: 'archived debe ser boolean' })
+      return sendAuthorizationFailure(reply, 'malformed')
     }
 
-    const conversation = await prisma.conversation.findUnique({ where: { id: params.id } })
+    const authUser = request.auth?.user
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    const conversation = await loadAuthorizedConversation(prisma, authUser, params.id)
     if (!conversation) {
-      return reply.status(404).send({ message: 'No encontre esa conversacion' })
+      return sendAuthorizationFailure(reply, 'notFound')
     }
     if (body.archived && conversation.currentStep === 'HUMAN_HANDOFF' && !conversation.humanHandoffResolvedAt) {
       return reply.status(409).send({ message: 'Resolve la derivacion antes de archivar la conversacion' })
     }
 
-    const updated = await prisma.conversation.update({
-      where: { id: params.id },
+    const claimed = await prisma.conversation.updateMany({
+      where: {
+        ...authorizedConversationWhere(authUser, params.id),
+        updatedAt: conversation.updatedAt
+      },
       data: { archivedAt: body.archived ? new Date() : null }
     })
+    if (!claimed.count) return sendAuthorizationFailure(reply, 'conflict')
+    const updated = await loadAuthorizedConversation(prisma, authUser, params.id)
+    if (!updated) return sendAuthorizationFailure(reply, 'notFound')
     publishCrmConversationUpdated(updated)
     return updated
   })
@@ -1029,25 +1166,17 @@ export async function crmRoutes(app: FastifyInstance) {
     }
 
     if (typeof body.aiEnabled !== 'boolean') {
-      return reply.status(400).send({
-        message: 'aiEnabled debe ser boolean'
-      })
+      return sendAuthorizationFailure(reply, 'malformed')
     }
 
-    const conversation = await prisma.conversation.findUnique({
-      where: {
-        id: params.id
-      }
-    })
+    const authUser = request.auth?.user
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    const conversation = await loadAuthorizedConversation(prisma, authUser, params.id)
 
     if (!conversation) {
-      return reply.status(404).send({
-        message: 'No encontre esa conversacion'
-      })
+      return sendAuthorizationFailure(reply, 'notFound')
     }
-    if (!conversation.businessId) {
-      return reply.status(409).send({ message: 'La conversacion no pertenece a un comercio' })
-    }
+    if (!conversation.businessId) return sendAuthorizationFailure(reply, 'notFound')
 
     const isEnablingAi = body.aiEnabled
     const isResolvingHandoff = isEnablingAi && (
@@ -1065,6 +1194,7 @@ export async function crmRoutes(app: FastifyInstance) {
       const activeDeposit = await prisma.bookingDeposit.findFirst({
         where: {
           conversationId: conversation.id,
+          businessId: conversation.businessId,
           status: { in: ['PENDING_PROOF', 'PROOF_RECEIVED'] }
         },
         select: { id: true }
@@ -1076,9 +1206,10 @@ export async function crmRoutes(app: FastifyInstance) {
       }
     }
 
-    const updated = await prisma.conversation.update({
+    const claimed = await prisma.conversation.updateMany({
       where: {
-        id: params.id
+        ...authorizedConversationWhere(authUser, params.id),
+        updatedAt: conversation.updatedAt
       },
       data: body.aiEnabled
         ? {
@@ -1095,8 +1226,11 @@ export async function crmRoutes(app: FastifyInstance) {
             supportBotState: Prisma.JsonNull,
             ...(isResolvingHandoff ? { lastAvailability: Prisma.JsonNull } : {})
           }
-        : takenConversationHandoffPatch({ queuedAt: conversation.humanHandoffAt })
+          : takenConversationHandoffPatch({ queuedAt: conversation.humanHandoffAt })
     })
+    if (!claimed.count) return sendAuthorizationFailure(reply, 'conflict')
+    const updated = await loadAuthorizedConversation(prisma, authUser, params.id)
+    if (!updated) return sendAuthorizationFailure(reply, 'notFound')
     publishCrmConversationUpdated(updated)
     return updated
   })
@@ -1105,17 +1239,10 @@ export async function crmRoutes(app: FastifyInstance) {
     const params = request.params as { id: string }
     const body = request.body as { serviceId?: string | null }
     const authUser = request.auth?.user
-    if (!authUser) return reply.status(401).send({ message: 'Sesion requerida' })
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
 
-    const conversation = await prisma.conversation.findUnique({
-      where: { id: params.id }
-    })
-    if (!conversation || !conversation.businessId) {
-      return reply.status(404).send({ message: 'No encontre esa conversacion' })
-    }
-    if (authUser.role !== 'SUPER_ADMIN' && authUser.businessId !== conversation.businessId) {
-      return reply.status(403).send({ message: 'No tenes acceso a esa conversacion' })
-    }
+    const conversation = await loadAuthorizedConversation(prisma, authUser, params.id)
+    if (!conversation?.businessId) return sendAuthorizationFailure(reply, 'notFound')
     if (conversation.currentStep !== 'HUMAN_HANDOFF' || conversation.aiEnabled) {
       return reply.status(409).send({
         message: 'La conversacion no esta esperando la intervencion de un asesor'
@@ -1125,6 +1252,7 @@ export async function crmRoutes(app: FastifyInstance) {
     const activeDeposit = await prisma.bookingDeposit.findFirst({
       where: {
         conversationId: conversation.id,
+        businessId: conversation.businessId,
         status: { in: ['PENDING_PROOF', 'PROOF_RECEIVED'] }
       },
       select: { id: true }
@@ -1197,7 +1325,8 @@ export async function crmRoutes(app: FastifyInstance) {
       text: resumed.reply,
       provider: body.serviceId
         ? 'crm_advisor_service_resolution'
-        : 'crm_advisor_catalog_return'
+        : 'crm_advisor_catalog_return',
+      whatsapp: app.authorizationProviders.whatsapp
     })
     if (!delivery.sent) {
       return reply.status(502).send({
@@ -1210,8 +1339,13 @@ export async function crmRoutes(app: FastifyInstance) {
       where: { businessId: conversation.businessId },
       select: { bookingFlowOrder: true }
     }))?.bookingFlowOrder)
-    const updated = await prisma.conversation.update({
-      where: { id: conversation.id },
+    const claimed = await prisma.conversation.updateMany({
+      where: {
+        ...authorizedConversationWhere(authUser, conversation.id),
+        currentStep: 'HUMAN_HANDOFF',
+        aiEnabled: false,
+        updatedAt: conversation.updatedAt
+      },
       data: {
         currentStep: conversationStepForPersistedBookingState(resumed.state, bookingFlowOrder),
         aiEnabled: true,
@@ -1224,8 +1358,11 @@ export async function crmRoutes(app: FastifyInstance) {
         lastAvailability: Prisma.JsonNull
       }
     })
+    if (!claimed.count) return sendAuthorizationFailure(reply, 'conflict')
+    const updated = await loadAuthorizedConversation(prisma, authUser, conversation.id)
+    if (!updated) return sendAuthorizationFailure(reply, 'notFound')
     publishCrmConversationUpdated(updated)
-    return conversationWithLatestDeposit(conversation.id)
+    return conversationWithLatestDeposit(conversation.id, authUser)
   })
 
   app.post('/crm/conversations/:id/advisor-quote', async (request, reply) => {
@@ -1284,7 +1421,8 @@ export async function crmRoutes(app: FastifyInstance) {
       businessId: conversation.businessId,
       phone: conversation.phone,
       text: quoteText,
-      provider: 'crm_advisor_quote'
+      provider: 'crm_advisor_quote',
+      whatsapp: app.authorizationProviders.whatsapp
     })
     if (!delivery.sent) {
       return reply.status(502).send({
@@ -1328,29 +1466,28 @@ export async function crmRoutes(app: FastifyInstance) {
       }
     })
     publishCrmConversationUpdated(updated)
-    return conversationWithLatestDeposit(conversation.id)
+    return conversationWithLatestDeposit(conversation.id, authUser)
   })
 
   app.post('/crm/conversations/:id/deposit/approve', async (request, reply) => {
     const params = request.params as { id: string }
     const authUser = request.auth?.user
-    if (!authUser) return reply.status(401).send({ message: 'Sesion requerida' })
-    await bookingDepositService.expireOverdue()
-    const deposit = await findActiveConversationDeposit(params.id)
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    const authorizedConversation = await loadAuthorizedConversation(prisma, authUser, params.id)
+    if (!authorizedConversation?.businessId) return sendAuthorizationFailure(reply, 'notFound')
+    const deposit = await findActiveConversationDeposit(params.id, authorizedConversation.businessId)
     if (!deposit) {
-      return reply.status(404).send({ message: 'No hay una seña pendiente para esta conversación' })
+      return sendAuthorizationFailure(reply, 'notFound')
     }
+    await bookingDepositService.expireOverdue()
     if (!deposit.conversationId || !deposit.conversation) {
-      return reply.status(404).send({ message: 'La seña no pertenece a esta conversación' })
-    }
-    if (authUser.role !== 'SUPER_ADMIN' && authUser.businessId !== deposit.businessId) {
-      return reply.status(403).send({ message: 'No tenes acceso a esa seña' })
+      return sendAuthorizationFailure(reply, 'notFound')
     }
     if (deposit.status !== 'PROOF_RECEIVED') {
       return reply.status(409).send({ message: 'Todavía no se recibió un comprobante para aprobar' })
     }
 
-    const reviewedAt = new Date()
+    const reviewedAt = app.clock()
     const depositBookingState = stateFromConversation(deposit.conversation)
     const heldAppointmentIds = depositBookingState.pendingDeposit
       ? pendingDepositAppointmentIds(depositBookingState.pendingDeposit)
@@ -1373,13 +1510,16 @@ export async function crmRoutes(app: FastifyInstance) {
       const heldAppointments = await tx.appointment.count({
         where: {
           id: { in: heldAppointmentIds },
+          professional: { businessId: deposit.businessId },
           status: 'PENDING'
         }
       })
       if (heldAppointments !== heldAppointmentIds.length) return false
       const claimed = await tx.bookingDeposit.updateMany({
         where: {
-          id: deposit.id,
+          ...authorizedBookingDepositWhere(authUser, deposit.id),
+          businessId: deposit.businessId,
+          conversationId: deposit.conversationId,
           status: 'PROOF_RECEIVED'
         },
         data: {
@@ -1390,15 +1530,19 @@ export async function crmRoutes(app: FastifyInstance) {
         }
       })
       if (!claimed.count) return false
-      await tx.appointment.updateMany({
+      const confirmedAppointments = await tx.appointment.updateMany({
         where: {
           id: { in: heldAppointmentIds },
+          professional: { businessId: deposit.businessId },
           status: 'PENDING'
         },
         data: { status: 'CONFIRMED' }
       })
-      await tx.conversation.update({
-        where: { id: deposit.conversationId! },
+      if (confirmedAppointments.count !== heldAppointmentIds.length) {
+        throw new AuthorizationStateConflictError()
+      }
+      const conversationClaim = await tx.conversation.updateMany({
+        where: authorizedConversationWhere(authUser, deposit.conversationId!),
         data: resumedContinuation
           ? {
               currentStep: continuationRequiresHandoff
@@ -1428,7 +1572,11 @@ export async function crmRoutes(app: FastifyInstance) {
               lastAvailability: Prisma.JsonNull
             }
       })
+      if (conversationClaim.count !== 1) throw new AuthorizationStateConflictError()
       return true
+    }).catch((error: unknown) => {
+      if (error instanceof AuthorizationStateConflictError) return false
+      throw error
     })
     if (!approved) {
       return reply.status(409).send({ message: 'La seña ya fue revisada o la retención venció' })
@@ -1478,42 +1626,51 @@ export async function crmRoutes(app: FastifyInstance) {
             resumedContinuation.reply
           ].join('\n\n')
         : confirmationText,
-      provider: 'crm_deposit_review'
+      provider: 'crm_deposit_review',
+      whatsapp: app.authorizationProviders.whatsapp
     })
     publishCrmConversationUpdated({
       id: deposit.conversationId,
       businessId: deposit.businessId,
       updatedAt: new Date()
     })
-    return conversationWithLatestDeposit(deposit.conversationId)
+    return conversationWithLatestDeposit(deposit.conversationId, authUser)
   })
 
   app.post('/crm/conversations/:id/deposit/reject', async (request, reply) => {
     const params = request.params as { id: string }
     const body = request.body as { reason?: string }
     const authUser = request.auth?.user
-    if (!authUser) return reply.status(401).send({ message: 'Sesion requerida' })
-    await bookingDepositService.expireOverdue()
-    const deposit = await findActiveConversationDeposit(params.id)
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    const authorizedConversation = await loadAuthorizedConversation(prisma, authUser, params.id)
+    if (!authorizedConversation?.businessId) return sendAuthorizationFailure(reply, 'notFound')
+    const deposit = await findActiveConversationDeposit(params.id, authorizedConversation.businessId)
     if (!deposit) {
-      return reply.status(404).send({ message: 'No hay una seña pendiente para esta conversación' })
+      return sendAuthorizationFailure(reply, 'notFound')
     }
+    await bookingDepositService.expireOverdue()
     if (!deposit.conversationId || !deposit.conversation) {
-      return reply.status(404).send({ message: 'La seña no pertenece a esta conversación' })
-    }
-    if (authUser.role !== 'SUPER_ADMIN' && authUser.businessId !== deposit.businessId) {
-      return reply.status(403).send({ message: 'No tenes acceso a esa seña' })
+      return sendAuthorizationFailure(reply, 'notFound')
     }
     const reason = body.reason?.trim().slice(0, 300) || 'No pudimos validar el comprobante'
-    const reviewedAt = new Date()
+    const reviewedAt = app.clock()
     const depositBookingState = stateFromConversation(deposit.conversation)
     const heldAppointmentIds = depositBookingState.pendingDeposit
       ? pendingDepositAppointmentIds(depositBookingState.pendingDeposit)
       : [deposit.appointmentId]
     const rejected = await prisma.$transaction(async (tx) => {
+      const scopedAppointmentCount = await tx.appointment.count({
+        where: {
+          id: { in: heldAppointmentIds },
+          professional: { businessId: deposit.businessId }
+        }
+      })
+      if (scopedAppointmentCount !== heldAppointmentIds.length) return false
       const claimed = await tx.bookingDeposit.updateMany({
         where: {
-          id: deposit.id,
+          ...authorizedBookingDepositWhere(authUser, deposit.id),
+          businessId: deposit.businessId,
+          conversationId: deposit.conversationId,
           status: { in: ['PENDING_PROOF', 'PROOF_RECEIVED'] }
         },
         data: {
@@ -1524,21 +1681,29 @@ export async function crmRoutes(app: FastifyInstance) {
         }
       })
       if (!claimed.count) return false
-      await tx.appointment.updateMany({
+      const cancelledAppointments = await tx.appointment.updateMany({
         where: {
           id: { in: heldAppointmentIds },
+          professional: { businessId: deposit.businessId },
           status: 'PENDING'
         },
         data: { status: 'CANCELLED' }
       })
-      await tx.conversation.update({
-        where: { id: deposit.conversationId! },
+      if (cancelledAppointments.count !== heldAppointmentIds.length) {
+        throw new AuthorizationStateConflictError()
+      }
+      const conversationClaim = await tx.conversation.updateMany({
+        where: authorizedConversationWhere(authUser, deposit.conversationId!),
         data: {
           bookingV2State: Prisma.JsonNull,
           lastAvailability: Prisma.JsonNull
         }
       })
+      if (conversationClaim.count !== 1) throw new AuthorizationStateConflictError()
       return true
+    }).catch((error: unknown) => {
+      if (error instanceof AuthorizationStateConflictError) return false
+      throw error
     })
     if (!rejected) {
       return reply.status(409).send({ message: 'La seña ya fue revisada o la retención venció' })
@@ -1548,14 +1713,15 @@ export async function crmRoutes(app: FastifyInstance) {
       businessId: deposit.businessId,
       phone: deposit.conversation.phone,
       text: `No pudimos validar el comprobante de la seña: ${reason}. Liberamos el horario para evitar una confirmación incorrecta. El equipo te ayudará a resolverlo por acá.`,
-      provider: 'crm_deposit_review'
+      provider: 'crm_deposit_review',
+      whatsapp: app.authorizationProviders.whatsapp
     })
     publishCrmConversationUpdated({
       id: deposit.conversationId,
       businessId: deposit.businessId,
       updatedAt: new Date()
     })
-    return conversationWithLatestDeposit(deposit.conversationId)
+    return conversationWithLatestDeposit(deposit.conversationId, authUser)
   })
 
   app.post('/crm/conversations/:id/manual-replies', async (request, reply) => {
@@ -1570,29 +1736,25 @@ export async function crmRoutes(app: FastifyInstance) {
     const text = body.text?.trim()
 
     if (!text) {
-      return reply.status(400).send({
-        message: 'text es requerido'
-      })
+      return sendAuthorizationFailure(reply, 'malformed')
     }
 
-    const conversation = await prisma.conversation.findUnique({
-      where: {
-        id: params.id
-      }
-    })
+    const authUser = request.auth?.user
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    const conversation = await loadAuthorizedConversation(prisma, authUser, params.id)
 
     if (!conversation) {
-      return reply.status(404).send({
-        message: 'No encontre esa conversacion'
-      })
+      return sendAuthorizationFailure(reply, 'notFound')
     }
+    if (!conversation.businessId) return sendAuthorizationFailure(reply, 'notFound')
 
     const shouldSendWhatsApp = body.sendWhatsApp !== false
     if (shouldSendWhatsApp) {
       const latestInbound = await prisma.message.findFirst({
         where: {
           conversationId: conversation.id,
-          direction: 'INBOUND'
+          direction: 'INBOUND',
+          conversation: authorizedConversationWhere(authUser, conversation.id)
         },
         orderBy: {
           createdAt: 'desc'
@@ -1615,12 +1777,32 @@ export async function crmRoutes(app: FastifyInstance) {
       }
     }
     if (shouldSendWhatsApp) {
-      if (!conversation.businessId) return reply.status(409).send({ message: 'La conversacion no tiene comercio asociado para resolver WhatsApp.' })
       const gate = await assertBusinessCanSendWhatsApp(conversation.businessId, 'BOT')
       if (!gate.allowed) return reply.status(409).send({ message: gate.message })
     }
+    const pendingMessage = await prisma.$transaction(async (tx) => {
+      const scopedConversation = await loadAuthorizedConversation(tx, authUser, conversation.id)
+      if (!scopedConversation || scopedConversation.updatedAt.getTime() !== conversation.updatedAt.getTime()) {
+        return null
+      }
+      return tx.message.create({
+        data: {
+          conversationId: conversation.id,
+          phone: conversation.phone,
+          direction: 'OUTBOUND',
+          body: text,
+          status: 'pending',
+          metadata: {
+            provider: 'crm_manual',
+            delivery: { sent: false, reason: 'pending' }
+          }
+        }
+      })
+    })
+    if (!pendingMessage) return sendAuthorizationFailure(reply, 'conflict')
+
     const deliveryResult = shouldSendWhatsApp
-      ? await whatsappCloudApi.sendTextMessage({
+      ? await app.authorizationProviders.whatsapp.sendTextMessage({
           businessId: conversation.businessId,
           to: conversation.phone,
           text
@@ -1634,11 +1816,7 @@ export async function crmRoutes(app: FastifyInstance) {
     const providerMessageId = shouldSendWhatsApp
       ? getOutgoingProviderMessageId(deliveryResult)
       : null
-    const messageData = {
-      conversationId: conversation.id,
-      phone: conversation.phone,
-      direction: 'OUTBOUND' as const,
-      body: text,
+    const messageDeliveryData = {
       status: shouldSendWhatsApp
         ? deliveryResult.sent ? 'sent' : 'failed'
         : 'manual',
@@ -1658,28 +1836,46 @@ export async function crmRoutes(app: FastifyInstance) {
         : {})
     }
 
-    const message = await prisma.message.create({
-      data: messageData
+    const persisted = await prisma.$transaction(async (tx) => {
+      const conversationClaim = await tx.conversation.updateMany({
+        where: {
+          ...authorizedConversationWhere(authUser, conversation.id),
+          updatedAt: conversation.updatedAt
+        },
+        data: {
+          lastMessage: text,
+          archivedAt: null,
+          ...(conversation.currentStep === 'HUMAN_HANDOFF'
+            ? takenConversationHandoffPatch({ queuedAt: conversation.humanHandoffAt })
+            : {
+                humanHandoffResolvedAt: conversation.humanHandoffResolvedAt
+              })
+        }
+      })
+      if (!conversationClaim.count) throw new AuthorizationStateConflictError()
+      const messageClaim = await tx.message.updateMany({
+        where: {
+          ...authorizedMessageWhere(authUser, pendingMessage.id),
+          status: 'pending'
+        },
+        data: messageDeliveryData
+      })
+      if (!messageClaim.count) throw new AuthorizationStateConflictError()
+      const message = await tx.message.findFirst({
+        where: authorizedMessageWhere(authUser, pendingMessage.id)
+      })
+      const updated = await loadAuthorizedConversation(tx, authUser, conversation.id)
+      if (!message || !updated) throw new AuthorizationStateConflictError()
+      return { message, updated }
+    }).catch((error: unknown) => {
+      if (error instanceof AuthorizationStateConflictError) return null
+      throw error
     })
-
-    const updated = await prisma.conversation.update({
-      where: {
-        id: conversation.id
-      },
-      data: {
-        lastMessage: text,
-        archivedAt: null,
-        ...(conversation.currentStep === 'HUMAN_HANDOFF'
-          ? takenConversationHandoffPatch({ queuedAt: conversation.humanHandoffAt })
-          : {
-              humanHandoffResolvedAt: conversation.humanHandoffResolvedAt
-            })
-      }
-    })
-    publishCrmConversationUpdated(updated)
+    if (!persisted) return sendAuthorizationFailure(reply, 'conflict')
+    publishCrmConversationUpdated(persisted.updated)
 
     return {
-      message,
+      message: persisted.message,
       delivery: deliveryResult
     }
   })
@@ -1720,14 +1916,25 @@ async function findCrmBusiness(businessId?: string) {
   })
 }
 
-async function coordinatedAppointmentIds(primaryAppointmentId: string) {
-  const primary = await prisma.appointment.findUnique({
-    where: { id: primaryAppointmentId },
+async function coordinatedAppointmentIds(
+  client: TenantResourceAuthorizationClient,
+  primaryAppointmentId: string,
+  businessId: string
+) {
+  const primary = await client.appointment.findFirst({
+    where: {
+      id: primaryAppointmentId,
+      professional: { businessId }
+    },
     select: { coordinationGroupId: true }
   })
-  if (!primary?.coordinationGroupId) return [primaryAppointmentId]
-  const appointments = await prisma.appointment.findMany({
-    where: { coordinationGroupId: primary.coordinationGroupId },
+  if (!primary) return []
+  if (!primary.coordinationGroupId) return [primaryAppointmentId]
+  const appointments = await client.appointment.findMany({
+    where: {
+      coordinationGroupId: primary.coordinationGroupId,
+      professional: { businessId }
+    },
     select: { id: true }
   })
   return appointments.length
@@ -1845,7 +2052,9 @@ function latestConversationActivityAt(conversation: {
   return conversation.messages[0]?.createdAt.getTime() ?? conversation.updatedAt.getTime()
 }
 
-function getOutgoingProviderMessageId(deliveryResult: Awaited<ReturnType<WhatsAppCloudApi['sendTextMessage']>>) {
+function getOutgoingProviderMessageId(
+  deliveryResult: Awaited<ReturnType<AuthorizationProviders['whatsapp']['sendTextMessage']>>
+) {
   if (!deliveryResult.sent) {
     return undefined
   }
@@ -1859,10 +2068,11 @@ function getOutgoingProviderMessageId(deliveryResult: Awaited<ReturnType<WhatsAp
   return response.messages?.[0]?.id
 }
 
-async function findActiveConversationDeposit(conversationId: string) {
+async function findActiveConversationDeposit(conversationId: string, businessId: string) {
   return prisma.bookingDeposit.findFirst({
     where: {
       conversationId,
+      businessId,
       status: { in: ['PENDING_PROOF', 'PROOF_RECEIVED'] }
     },
     select: {
@@ -1889,10 +2099,13 @@ async function findActiveConversationDeposit(conversationId: string) {
   })
 }
 
-async function conversationWithLatestDeposit(conversationId: string) {
+async function conversationWithLatestDeposit(
+  conversationId: string,
+  user: BusinessAuthorizationUser
+) {
   const [conversation, latestMessage] = await Promise.all([
-    prisma.conversation.findUnique({
-      where: { id: conversationId },
+    prisma.conversation.findFirst({
+      where: authorizedConversationWhere(user, conversationId),
       include: {
         bookingDeposits: {
           select: conversationDepositSelect,
@@ -1902,7 +2115,10 @@ async function conversationWithLatestDeposit(conversationId: string) {
       }
     }),
     prisma.message.findFirst({
-      where: { conversationId },
+      where: {
+        conversationId,
+        conversation: authorizedConversationWhere(user, conversationId)
+      },
       orderBy: [
         { createdAt: 'desc' },
         { id: 'desc' }
@@ -1918,12 +2134,12 @@ async function conversationWithLatestDeposit(conversationId: string) {
   }
 }
 
-async function conversationListItemById(conversationId: string, businessId?: string) {
+async function conversationListItemById(
+  conversationId: string,
+  user: BusinessAuthorizationUser
+) {
   const conversation = await prisma.conversation.findFirst({
-    where: {
-      id: conversationId,
-      ...(businessId ? { businessId } : {})
-    },
+    where: authorizedConversationWhere(user, conversationId),
     include: {
       bookingDeposits: {
         select: conversationDepositSelect,
@@ -1936,11 +2152,18 @@ async function conversationListItemById(conversationId: string, businessId?: str
 
   const [latestMessage, latestInboundMessage] = await Promise.all([
     prisma.message.findFirst({
-      where: { conversationId },
+      where: {
+        conversationId,
+        conversation: authorizedConversationWhere(user, conversationId)
+      },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }]
     }),
     prisma.message.findFirst({
-      where: { conversationId, direction: 'INBOUND' },
+      where: {
+        conversationId,
+        direction: 'INBOUND',
+        conversation: authorizedConversationWhere(user, conversationId)
+      },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select: { id: true, conversationId: true, createdAt: true }
     })
@@ -2001,10 +2224,11 @@ async function sendCrmAutomatedMessage(input: {
   phone: string
   text: string
   provider: string
+  whatsapp: AuthorizationProviders['whatsapp']
 }) {
   const gate = await assertBusinessCanSendWhatsApp(input.businessId, 'BOT')
   const delivery = gate.allowed
-    ? await whatsappCloudApi.sendTextMessage({
+    ? await input.whatsapp.sendTextMessage({
         businessId: input.businessId,
         to: input.phone,
         text: input.text

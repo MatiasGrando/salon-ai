@@ -38,6 +38,8 @@
     "test:account-management": "tsx scripts/account-management-contract-test.ts",
     "test:account-billing": "tsx scripts/account-billing-contract-test.ts",
     "test:business-account-access": "tsx scripts/business-account-access-contract-test.ts",
+    "test:business-authorization": "tsx scripts/business-authorization-contract-test.ts",
+    "test:qa-script-safety": "tsx scripts/qa-script-safety-contract-test.ts",
     "test:crm-ui-syntax": "tsx scripts/crm-ui-inline-syntax-test.ts",
     "test:crm-realtime-events": "tsx scripts/crm-realtime-events-contract-test.ts",
     "sync:weex-bot-v1": "tsx scripts/sync-weex-support-bot-v1.ts",
@@ -86,6 +88,7 @@
   "devDependencies": {
     "@types/node": "^25.9.1",
     "pptxgenjs": "^4.0.1",
+    "supabase": "^2.115.0",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3"
   },

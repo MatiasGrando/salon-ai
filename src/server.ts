@@ -1,4 +1,5 @@
 import Fastify from 'fastify'
+import { pathToFileURL } from 'node:url'
 import { healthRoutes } from './routes/health.js'
 import { businessRoutes } from './routes/business.js'
 import { professionalRoutes } from './routes/professional.js'
@@ -31,58 +32,77 @@ import { demoProfileRoutes } from './routes/demo-profile.js'
 import { authGuard } from './plugins/auth-guard.js'
 import { ensureBootstrapSuperAdmin } from './services/auth-service.js'
 import { startMarketingScheduler } from './services/marketing-scheduler.js'
+import {
+  createProductionAuthorizationProviders,
+  installAuthorizationProviders,
+  type BuildAppOptions
+} from './providers/authorization-providers.js'
 
 process.env.TZ ??= 'America/Argentina/Buenos_Aires'
 
-const app = Fastify({
-  bodyLimit: 5 * 1024 * 1024
-})
 const port = Number(process.env.PORT ?? 3000)
 const host = process.env.HOST ?? '0.0.0.0'
 
-await app.register(healthRoutes)
-await app.register(authRoutes)
-await app.register(crmUiRoutes)
-await app.register(tamaraSiteRoutes)
-await app.register(landingUiRoutes)
-await app.register(publicBookingRoutes)
-await app.register(weexAccountRoutes)
-await app.register(weexLeadCampaignRoutes)
-await app.register(weexSupportBotV1Routes)
-await app.register(whatsappWebhookRoutes)
-await app.register(instagramWebhookRoutes)
-await authGuard(app)
-await app.register(accountManagementRoutes)
-await app.register(businessRoutes)
-await app.register(instagramSettingsRoutes)
-await app.register(professionalRoutes)
-await app.register(serviceRoutes)
-await app.register(customerRoutes)
-await app.register(appointmentRoutes)
-await app.register(businessHoursRoutes)
-await app.register(professionalHoursRoutes)
-await app.register(scheduleBlockRoutes)
-await app.register(availabilityRoutes)
-await app.register(chatRoutes)
-await app.register(crmRoutes)
-await app.register(campaignRoutes)
-await app.register(postSaleRoutes)
-await app.register(reportRoutes)
-await app.register(staffUserRoutes)
-await app.register(demoProfileRoutes)
-await app.register(weexLeadAdminRoutes)
-await ensureBootstrapSuperAdmin()
-startMarketingScheduler(app)
+export async function buildApp(options: BuildAppOptions = {}) {
+  const app = Fastify({
+    bodyLimit: 5 * 1024 * 1024
+  })
+  installAuthorizationProviders(app, options)
 
-if (process.env.NODE_ENV !== 'production') {
-  console.log(app.printRoutes())
+  await app.register(healthRoutes)
+  await app.register(authRoutes)
+  await app.register(crmUiRoutes)
+  await app.register(tamaraSiteRoutes)
+  await app.register(landingUiRoutes)
+  await app.register(publicBookingRoutes)
+  await app.register(weexAccountRoutes)
+  await app.register(weexLeadCampaignRoutes)
+  await app.register(weexSupportBotV1Routes)
+  await app.register(whatsappWebhookRoutes)
+  await app.register(instagramWebhookRoutes)
+  await authGuard(app)
+  await app.register(accountManagementRoutes)
+  await app.register(businessRoutes)
+  await app.register(instagramSettingsRoutes)
+  await app.register(professionalRoutes)
+  await app.register(serviceRoutes)
+  await app.register(customerRoutes)
+  await app.register(appointmentRoutes)
+  await app.register(businessHoursRoutes)
+  await app.register(professionalHoursRoutes)
+  await app.register(scheduleBlockRoutes)
+  await app.register(availabilityRoutes)
+  await app.register(chatRoutes)
+  await app.register(crmRoutes)
+  await app.register(campaignRoutes)
+  await app.register(postSaleRoutes)
+  await app.register(reportRoutes)
+  await app.register(staffUserRoutes)
+  await app.register(demoProfileRoutes)
+  await app.register(weexLeadAdminRoutes)
+
+  return app
 }
 
-app.listen({ port, host }, (err, address) => {
-  if (err) {
-    console.error(err)
-    process.exit(1)
+async function startServer() {
+  const app = await buildApp({
+    authorizationProviders: createProductionAuthorizationProviders()
+  })
+  await ensureBootstrapSuperAdmin()
+  startMarketingScheduler(app)
+
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(app.printRoutes())
   }
 
+  const address = await app.listen({ port, host })
   console.log(`Servidor iniciado en ${address}`)
-})
+}
+
+const entrypointPath = process.argv[1]
+if (entrypointPath && import.meta.url === pathToFileURL(entrypointPath).href) {
+  startServer().catch((error: unknown) => {
+    console.error(error)
+    process.exit(1)
+  })
+}

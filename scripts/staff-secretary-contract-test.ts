@@ -71,7 +71,7 @@ access(standard, 'PATCH', '/services/s1', false, 'staff no cambia servicios')
 access(standard, 'POST', '/campaigns', false, 'staff no hace marketing masivo')
 access(standard, 'GET', '/staff-users', false, 'staff no administra cuentas')
 access(standard, 'PATCH', '/crm/ai-settings', false, 'staff no cambia el bot')
-access(standard, 'GET', '/crm/maintenance/delete-qa-conversations', false, 'staff no ejecuta mantenimiento')
+access(standard, 'POST', '/crm/maintenance/delete-qa-data', false, 'staff no ejecuta mantenimiento')
 access(standard, 'PATCH', '/businesses/b1', false, 'staff no cambia el negocio')
 access(standard, 'GET', '/businesses/b1/whatsapp-embedded-signup-config', false, 'staff no ve credenciales de integraciones')
 
@@ -119,7 +119,8 @@ assert.ok(guard.includes("'/schedule-blocks'"), 'la agenda propia también limit
 
 const appointmentRoute = readFileSync(new URL('../src/routes/appointment.ts', import.meta.url), 'utf8')
 assert.ok(appointmentRoute.includes("omitKey(appointment.customer, 'phone')"), 'la API de agenda no debe entregar teléfonos al profesional')
-assert.ok(appointmentRoute.includes("omitKey(protectedAppointment, 'quotedPrice')"), 'la API de agenda no debe entregar importes sin permiso financiero')
+assert.ok(appointmentRoute.includes('quotedPrice: _quotedPrice'), 'la API de agenda no debe entregar el importe cotizado sin permiso financiero')
+assert.ok(appointmentRoute.includes('manualDepositAmount: _manualDepositAmount'), 'la API de agenda no debe entregar el importe de la seña sin permiso financiero')
 assert.ok(ui.includes('canViewAppointmentCustomerData()'), 'la agenda debe ocultar los datos del cliente según permisos')
 assert.ok(ui.includes('canOpenAppointmentConversations()'), 'la agenda debe ocultar el acceso al chat según permisos')
 assert.ok(ui.includes('canMessageAppointmentCustomer()'), 'la agenda debe ocultar WhatsApp cuando el staff no puede responder conversaciones')

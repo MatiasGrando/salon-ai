@@ -54,8 +54,8 @@ assert.equal(reservationFitsAvailabilityWindow({
 
 const appointmentSource = await readFile('src/services/appointment-service.ts', 'utf8')
 assert.equal(
-  appointmentSource.match(/const professionalEndAt = addMinutes\(startAt, durationLimits\.professional\)/g)?.length,
-  1
+  appointmentSource.match(/const professionalEndAt = addMinutes\(startAt, professionalDuration\)/g)?.length,
+  2
 )
 assert.ok((appointmentSource.match(/endAt: customerEndAt/g)?.length ?? 0) >= 2)
 assert.ok((appointmentSource.match(/endAt: professionalEndAt/g)?.length ?? 0) >= 6)
