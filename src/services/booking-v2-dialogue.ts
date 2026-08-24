@@ -29,6 +29,11 @@ export type BookingV2MessagePlan =
       professionalIds: string[]
     }
   | {
+      type: 'incompatible_professional'
+      professionalId: string
+      serviceIds: string[]
+    }
+  | {
       type: 'confirm_booking'
     }
   | {

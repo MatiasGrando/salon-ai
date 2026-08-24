@@ -1733,6 +1733,13 @@ export class BookingV2Engine {
       detectDeterministicConfirmation(input.message)?.intent === 'confirm'
       ? resolveExpectedProfessional(input.message, stateForExtraction, catalog)
       : null
+    if (deterministicProfessional?.kind === 'incompatible') {
+      return this.guidedEstimateResult(stateForExtraction, {
+        type: 'incompatible_professional',
+        professionalId: deterministicProfessional.professionalId,
+        serviceIds: combinedServiceIds(stateForExtraction)
+      }, catalog, 'no_change')
+    }
     if (deterministicProfessional?.kind === 'ambiguous') {
       return this.guidedEstimateResult(initialState, {
         type: 'clarify_professional',
@@ -4589,6 +4596,82 @@ function shouldCountFailedExpectedFieldAnswer(
   return !['hola', 'buenas', 'buen dia', 'buenas tardes', 'buenas noches'].includes(normalizedMessage)
 }
 
+const REJECTED_CUSTOMER_NAME_TOKENS = new Set([
+  'agendar',
+  'buen',
+  'buenas',
+  'cancelar',
+  'color',
+  'como',
+  'cortar',
+  'cortarme',
+  'cortarse',
+  'cortarte',
+  'corte',
+  'cualquiera',
+  'cuando',
+  'dia',
+  'direccion',
+  'domingo',
+  'es',
+  'gracias',
+  'hola',
+  'horario',
+  'horarios',
+  'hoy',
+  'jueves',
+  'llamo',
+  'lunes',
+  'manana',
+  'martes',
+  'me',
+  'mi',
+  'miercoles',
+  'necesito',
+  'ninguno',
+  'nombre',
+  'pagina',
+  'precio',
+  'profesional',
+  'profesionales',
+  'quiero',
+  'reset',
+  'reservar',
+  'reserva',
+  'sabado',
+  'servicio',
+  'servicios',
+  'soy',
+  'tarde',
+  'tal',
+  'total',
+  'turno',
+  'ubicacion',
+  'web',
+  'viernes'
+])
+
+function isPlausibleCustomerNameCandidate(
+  candidate: string,
+  catalog: BookingV2DomainCatalog
+) {
+  if (
+    candidate.length < 2 ||
+    candidate.length > 60 ||
+    !/^\p{Letter}+(?:[ '-]\p{Letter}+){0,2}$/u.test(candidate)
+  ) {
+    return false
+  }
+  const normalizedCandidate = normalize(candidate)
+  if (normalizedCandidate.split(' ').some((token) => REJECTED_CUSTOMER_NAME_TOKENS.has(token))) {
+    return false
+  }
+  if (['no', 'si', 'todo bien', 'no se', 'por favor'].includes(normalizedCandidate)) {
+    return false
+  }
+  return !nameCollidesWithCatalog(candidate, catalog)
+}
+
 function resolveExpectedName(
   message: string,
   state: BookingV2State,
@@ -4597,75 +4680,15 @@ function resolveExpectedName(
   if (nextMissingField(state.draft, catalog.bookingFlowOrder) !== 'name') return null
 
   const explicitIntroduction = extractExplicitCustomerIntroduction(message)
-  if (explicitIntroduction?.name && !nameCollidesWithCatalog(explicitIntroduction.name, catalog)) {
+  if (
+    explicitIntroduction?.name &&
+    isPlausibleCustomerNameCandidate(explicitIntroduction.name, catalog)
+  ) {
     return explicitIntroduction.name
   }
 
   const candidate = message.trim().replace(/\s+/g, ' ')
-  if (
-    candidate.length < 2 ||
-    candidate.length > 60 ||
-    !/^\p{Letter}+(?:[ '-]\p{Letter}+){0,2}$/u.test(candidate)
-  ) {
-    return null
-  }
-
-  const rejectedTokens = new Set([
-    'agendar',
-    'buen',
-    'buenas',
-    'cancelar',
-    'color',
-    'como',
-    'corte',
-    'cualquiera',
-    'cuando',
-    'dia',
-    'direccion',
-    'domingo',
-    'es',
-    'gracias',
-    'hola',
-    'horario',
-    'horarios',
-    'hoy',
-    'jueves',
-    'llamo',
-    'lunes',
-    'manana',
-    'martes',
-    'me',
-    'mi',
-    'miercoles',
-    'necesito',
-    'ninguno',
-    'nombre',
-    'pagina',
-    'precio',
-    'profesional',
-    'profesionales',
-    'quiero',
-    'reset',
-    'reservar',
-    'reserva',
-    'sabado',
-    'servicio',
-    'servicios',
-    'soy',
-    'tarde',
-    'tal',
-    'total',
-    'turno',
-    'ubicacion',
-    'web',
-    'viernes'
-  ])
-  const tokens = normalize(candidate).split(' ')
-  if (tokens.some((token) => rejectedTokens.has(token))) return null
-  if (['no', 'si', 'todo bien', 'no se', 'por favor'].includes(normalize(candidate))) {
-    return null
-  }
-  if (nameCollidesWithCatalog(candidate, catalog)) return null
+  if (!isPlausibleCustomerNameCandidate(candidate, catalog)) return null
 
   return candidate
     .split(' ')
@@ -4726,7 +4749,24 @@ function resolveExpectedProfessional(
     }
   }
 
-  return resolveProfessionalReference(message, compatibleProfessionals)
+  const compatibleResolution = resolveProfessionalReference(message, compatibleProfessionals)
+  if (compatibleResolution) return compatibleResolution
+
+  const catalogResolution = resolveProfessionalReference(message, catalog.professionals)
+  if (
+    catalogResolution &&
+    (catalogResolution.kind === 'selected' || catalogResolution.kind === 'probable') &&
+    !compatibleProfessionals.some((professional) =>
+      professional.id === catalogResolution.professionalId
+    )
+  ) {
+    return {
+      kind: 'incompatible' as const,
+      professionalId: catalogResolution.professionalId
+    }
+  }
+
+  return null
 }
 
 function resolveMentionedProfessionalPreference(
@@ -5155,9 +5195,23 @@ function genericServiceFamilyMatches(
     ].includes(token))
     .join(' ')
   const signatureTokens = new Set(signature.split(' '))
-  const genericHaircutMention = ['corte', 'cortar', 'cortarme', 'cortarte', 'cortarse']
-    .some((token) => signatureTokens.has(token)) &&
-    ['pelo', 'cabello'].some((token) => signatureTokens.has(token))
+  const hasHaircutMention = ['corte', 'cortar', 'cortarme', 'cortarte', 'cortarse']
+    .some((token) => signatureTokens.has(token))
+  const haircutFamily = hasHaircutMention
+    ? catalog.services.filter((service) =>
+        [service.name, service.category ?? '', ...service.aliases]
+          .map((label) => serviceSelectionTokens(label))
+          .some((tokens) => tokens.some((token) => serviceTokensMatch(token, 'corte')))
+      )
+    : []
+  const haircutQualifiers = new Set(haircutFamily.flatMap((service) =>
+    [service.name, ...service.aliases].flatMap(serviceSelectionTokens)
+      .filter((token) => !serviceTokensMatch(token, 'corte'))
+  ))
+  const hasSpecificHaircutQualifier = Array.from(signatureTokens).some((token) =>
+    Array.from(haircutQualifiers).some((qualifier) => serviceTokensMatch(token, qualifier))
+  )
+  const genericHaircutMention = haircutFamily.length > 1 && !hasSpecificHaircutQualifier
   const familyTerms = /^(?:color|coloracion|colorearme|tenir|tenirme|tintura|tinturarme)(?: pelo| cabello)?$/.test(reference)
     ? ['color', 'coloracion', 'tintura', 'iluminacion', 'balayage', 'babylights', 'contouring', 'mechas']
     : genericHaircutMention || /^(?:corte|cortar|cortarme|cortarme pelo|corte pelo)$/.test(reference)
@@ -5188,7 +5242,7 @@ function ambiguousServiceReference(evidence: string) {
     'de', 'del', 'dia', 'el', 'en', 'hacer', 'hacerme', 'hola', 'informacion', 'la', 'las',
     'disponibilidad', 'horario', 'horarios', 'los', 'me', 'necesito', 'noche', 'para',
     'por', 'presupuesto', 'presupuestos', 'precio', 'precios', 'queria', 'quiero',
-    'quisiera', 'saber', 'tarde', 'turno', 'turnos', 'un', 'una', 'va', 'y'
+    'quisiera', 'saber', 'solicitar', 'tarde', 'turno', 'turnos', 'un', 'una', 'va', 'y'
   ])
   const words = normalizedEvidence
     .split(' ')
@@ -5418,7 +5472,7 @@ function discardUngroundedCatalogSelections(
 ): BookingV2Extraction {
   const groundedName = !extraction.name.value ||
     (
-      !nameCollidesWithCatalog(extraction.name.value, catalog) &&
+      isPlausibleCustomerNameCandidate(extraction.name.value, catalog) &&
       messageGroundsEvidence(message, extraction.name.evidence)
     )
   const groundedService = !extraction.service.value || catalog.services.some((service) =>

@@ -510,6 +510,28 @@ export function renderBookingV2Response(input: BookingV2RenderInput): string {
     ].join('\n')
   }
 
+  if (input.plan.type === 'incompatible_professional') {
+    const professionalName = labelForProfessional(input.plan.professionalId, input.catalog)
+    const serviceNames = input.plan.serviceIds
+      .map((serviceId) => labelForService(serviceId, input.catalog))
+    const compatibleProfessionals = input.catalog?.professionals.filter((professional) =>
+      input.plan.serviceIds.every((serviceId) => professional.serviceIds.includes(serviceId))
+    ) ?? []
+    const serviceLabel = serviceNames.join(' y ') || 'el servicio elegido'
+    return [
+      `${professionalName} no atiende ${serviceLabel}.`,
+      compatibleProfessionals.length
+        ? [
+            `Para ${serviceLabel} podés atenderte con:`,
+            ...compatibleProfessionals.map((professional) => `• ${professional.name}`),
+            compatibleProfessionals.length === 1
+              ? `¿Querés atenderte con ${compatibleProfessionals[0]!.name}?`
+              : '¿Con quién preferís?'
+          ].join('\n')
+        : 'Por el momento no tengo otro profesional habilitado para ese servicio.'
+    ].join('\n\n')
+  }
+
   if (input.plan.type === 'confirm_field') {
     if (input.plan.field === 'professional') {
       return professionalSuggestionConfirmation(

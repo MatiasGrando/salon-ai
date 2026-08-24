@@ -75,6 +75,7 @@ import {
   freshBookingV2State,
   hasQuoteOnlyBookingRequest,
   isBookingV2ConversationClosing,
+  isDeterministicProfessionalSelectionCancellation,
   isBookingV2GreetingOnlyMessage,
   isBookingV2InitialGreeting,
   isGenericBookingV2Request,
@@ -95,6 +96,7 @@ import {
   preliminaryAvailabilityDecisionFromMessage,
   preliminaryAvailabilityTimeFrom,
   professionalSelectionButtons,
+  professionalSelectionWithHandoffButtons,
   resolvePendingInformationSelectionFromLabels,
   splitWhatsAppReply,
   shouldHandleProfessionalScheduleInformation,
@@ -5359,6 +5361,46 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'motor explica cuando el profesional pedido no realiza el servicio elegido',
+    run: async () => {
+      const domainCatalog = createBookingV2DomainCatalog({
+        services: [
+          { id: 'woman-cut', name: 'Corte mujer', aliases: [], duration: 45, price: 37000, category: 'Cortes' }
+        ],
+        professionals: [
+          { id: 'ramiro', name: 'Ramiro', serviceIds: [] },
+          { id: 'dmitry', name: 'Dmitry', serviceIds: ['woman-cut'] },
+          { id: 'sebastian', name: 'Sebastián', serviceIds: ['woman-cut'] }
+        ]
+      })
+      const engine = new BookingV2Engine(
+        fakeDomainPort({ catalog: domainCatalog }),
+        fakeExtractor(null)
+      )
+
+      const result = await engine.process({
+        businessId: 'business-1',
+        conversation: {
+          selectedCustomerName: 'Tobias',
+          selectedServiceId: 'woman-cut',
+          selectedProfessionalId: null,
+          selectedDate: null,
+          selectedTime: null,
+          misunderstandingCount: 0,
+          bookingV2State: null
+        },
+        message: 'quiero con ramiro',
+        understandingExtraction: null
+      })
+
+      assert.equal(result.state.draft.professional, null)
+      assert.equal(result.state.misunderstandingCount, 0)
+      assert.match(result.reply, /Ramiro no atiende Corte mujer/)
+      assert.match(result.reply, /Dmitry/)
+      assert.match(result.reply, /Sebastián/)
+    }
+  },
+  {
     name: 'motor reconoce un profesional por nombre apellido o nombre completo',
     run: async () => {
       const domainCatalog = createBookingV2DomainCatalog({
@@ -6008,6 +6050,59 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.match(named.reply, /Para Corte tengo estas opciones/)
       assert.doesNotMatch(named.reply, /Casualidad|Rama|Villa Urquiza/)
       assert.equal(extractor.calls.length, 1)
+    }
+  },
+  {
+    name: 'motor no adivina el tipo de corte cuando el cliente solo dice cortarme',
+    run: async () => {
+      const domainCatalog = createBookingV2DomainCatalog({
+        services: [
+          { id: 'man-cut', name: 'Corte hombre', aliases: [], duration: 30, price: 27000, category: 'Cortes' },
+          { id: 'woman-cut', name: 'Corte mujer', aliases: [], duration: 45, price: 37000, category: 'Cortes' },
+          { id: 'beard-cut', name: 'Corte y barba', aliases: [], duration: 45, price: 32000, category: 'Cortes' }
+        ],
+        professionals: [
+          { id: 'ramiro', name: 'Ramiro', serviceIds: ['man-cut', 'beard-cut'] },
+          { id: 'dmitry', name: 'Dmitry', serviceIds: ['woman-cut'] },
+          { id: 'sebastian', name: 'Sebastián', serviceIds: ['woman-cut'] }
+        ]
+      })
+      const extractor = fakeExtractor(extraction({
+        name: field('Cortarme', 0.96, 'cortarme'),
+        service: field('woman-cut', 0.98, 'cortarme')
+      }))
+      const engine = new BookingV2Engine(fakeDomainPort({ catalog: domainCatalog }), extractor)
+
+      const initial = await engine.process({
+        businessId: 'business-1',
+        conversation: null,
+        message: 'Quería solicitar un turno para cortarme',
+        understandingExtraction: extraction({
+          name: field('Cortarme', 0.96, 'cortarme'),
+          service: field('woman-cut', 0.98, 'cortarme')
+        })
+      })
+
+      assert.equal(initial.state.draft.name, null)
+      assert.equal(initial.state.draft.service, null)
+      assert.deepEqual(
+        new Set(initial.state.pendingServiceDisambiguation?.serviceIds),
+        new Set(['man-cut', 'woman-cut', 'beard-cut'])
+      )
+      assert.equal(initial.plan.type === 'ask_field' ? initial.plan.field : null, 'name')
+
+      const named = await engine.process({
+        businessId: 'business-1',
+        conversation: initial.conversationPatch,
+        message: 'Tobias',
+        understandingExtraction: null
+      })
+
+      assert.equal(named.plan.type === 'ask_field' ? named.plan.field : null, 'service')
+      assert.match(named.reply, /Para Corte tengo estas opciones/)
+      assert.match(named.reply, /Corte hombre/)
+      assert.match(named.reply, /Corte mujer/)
+      assert.match(named.reply, /Corte y barba/)
     }
   },
   {
@@ -6899,6 +6994,22 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'profesional incompatible ofrece alternativas y solicitar atencion en tres botones',
+    run: () => {
+      const buttons = professionalSelectionWithHandoffButtons('conversation-1', [
+        { id: 'professional-1', name: 'Dmitry' },
+        { id: 'professional-2', name: 'Sebastián' },
+        { id: 'professional-3', name: 'Cin' }
+      ])
+
+      assert.deepEqual(buttons, [
+        { id: 'professional:conversation-1:professional-1', title: 'Dmitry' },
+        { id: 'professional:conversation-1:professional-2', title: 'Sebastián' },
+        { id: 'coord:conversation-1:human', title: 'Solicitar atención' }
+      ])
+    }
+  },
+  {
     name: 'renderiza todos los horarios sin cortar despues del sexto',
     run: () => {
       const availabilityOptions = [
@@ -7306,6 +7417,29 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       }
       assert.equal(isBookingV2ConversationClosing('no, quiero otro horario'), false)
       assert.equal(isBookingV2ConversationClosing('quiero reservar'), false)
+    }
+  },
+  {
+    name: 'rechazar todos los profesionales cancela la reserva en vez de repetir la lista',
+    run: () => {
+      for (const message of ['no gracias', 'con ninguno, gracias', 'ninguno, gracias']) {
+        assert.equal(
+          isDeterministicProfessionalSelectionCancellation(message, 'ASK_PROFESSIONAL'),
+          true,
+          message
+        )
+      }
+      assert.equal(
+        isDeterministicProfessionalSelectionCancellation(
+          'ninguno de esos, quiero con Ramiro',
+          'ASK_PROFESSIONAL'
+        ),
+        false
+      )
+      assert.equal(
+        isDeterministicProfessionalSelectionCancellation('no gracias', 'ASK_SERVICE'),
+        false
+      )
     }
   },
   {

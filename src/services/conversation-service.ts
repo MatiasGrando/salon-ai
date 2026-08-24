@@ -1022,6 +1022,32 @@ export class ConversationService {
       )
     }
 
+    if (
+      bookingV2Enabled &&
+      businessId &&
+      isDeterministicProfessionalSelectionCancellation(message, conversation.currentStep)
+    ) {
+      const cancellationResult = await this.handleBookingV2Navigation({
+        phone: input.phone,
+        message,
+        businessId,
+        conversation,
+        routing: {
+          intents: [{
+            type: 'cancel_booking',
+            topic: null,
+            confidence: 1,
+            evidence: message.trim()
+          }],
+          bookingMessage: null,
+          bookingExtraction: null,
+          catalogQuery: null,
+          source: 'deterministic'
+        }
+      })
+      if (cancellationResult) return cancellationResult
+    }
+
     const canUseDeterministicBookingContinuation =
       bookingV2Enabled &&
       Boolean(businessId) &&
@@ -1503,7 +1529,14 @@ export class ConversationService {
     }
     routing: ConversationRouting
   }): Promise<HandleMessageResult | null> {
-    const routedNavigationIntent = input.routing.intents
+    const deterministicProfessionalCancellation =
+      isDeterministicProfessionalSelectionCancellation(
+        input.message,
+        input.conversation.currentStep
+      )
+    const routedNavigationIntent = deterministicProfessionalCancellation
+      ? 'cancel_booking'
+      : input.routing.intents
       .filter((intent) =>
         ['cancel_booking', 'go_back', 'restart_booking'].includes(intent.type) &&
         intent.confidence >= 0.65
@@ -1513,16 +1546,18 @@ export class ConversationService {
 
     // Cancelar o retroceder muta el borrador. Una segunda comprension acotada
     // evita que una consulta informativa mal clasificada borre la reserva.
-    const navigationChoice = await bookingV2ChoiceExtractor.extract({
-      message: input.message,
-      question: 'Dentro de la reserva en curso, ¿el cliente quiere cancelarla, volver un paso, reiniciarla o solamente está diciendo otra cosa?',
-      choices: [
-        { id: 'cancel_booking', meaning: 'Quiere abandonar la reserva en curso sin cancelar un turno confirmado.' },
-        { id: 'go_back', meaning: 'Quiere volver al paso o elección anterior de la reserva.' },
-        { id: 'restart_booking', meaning: 'Quiere borrar el avance y comenzar una nueva reserva desde cero.' },
-        { id: 'not_navigation', meaning: 'Es una consulta, respuesta o pedido distinto; no quiere navegar ni borrar la reserva.' }
-      ]
-    })
+    const navigationChoice = deterministicProfessionalCancellation
+      ? { choiceId: 'cancel_booking', confidence: 1 }
+      : await bookingV2ChoiceExtractor.extract({
+          message: input.message,
+          question: 'Dentro de la reserva en curso, ¿el cliente quiere cancelarla, volver un paso, reiniciarla o solamente está diciendo otra cosa?',
+          choices: [
+            { id: 'cancel_booking', meaning: 'Quiere abandonar la reserva en curso sin cancelar un turno confirmado.' },
+            { id: 'go_back', meaning: 'Quiere volver al paso o elección anterior de la reserva.' },
+            { id: 'restart_booking', meaning: 'Quiere borrar el avance y comenzar una nueva reserva desde cero.' },
+            { id: 'not_navigation', meaning: 'Es una consulta, respuesta o pedido distinto; no quiere navegar ni borrar la reserva.' }
+          ]
+        })
     if (navigationChoice.confidence < 0.65 || navigationChoice.choiceId === 'not_navigation') {
       return null
     }
@@ -2852,20 +2887,23 @@ export class ConversationService {
       result.plan.reason === 'not_understood' &&
       result.state.misunderstandingCount >= 2
     const coordinationButtons = presentation.buttons
-    const standardProfessionalButtons = !coordinationButtons &&
-      result.plan.type === 'ask_field' &&
-      result.plan.field === 'professional'
+    const professionalButtons = !coordinationButtons &&
+      (
+        (result.plan.type === 'ask_field' && result.plan.field === 'professional') ||
+        result.plan.type === 'incompatible_professional'
+      )
       ? await this.bookingV2MisunderstandingButtons({
           businessId: input.businessId,
           conversationId: input.conversation.id,
           field: 'professional',
+          includeHandoff: result.plan.type === 'incompatible_professional',
           serviceIds: Array.from(new Set([
             result.state.draft.service,
             ...result.state.combinedServices.map((service) => service.serviceId)
           ].filter((serviceId): serviceId is string => Boolean(serviceId))))
         })
       : null
-    const replyButtons = coordinationButtons ?? standardProfessionalButtons ?? (needsRecoveryButtons
+    const replyButtons = coordinationButtons ?? professionalButtons ?? (needsRecoveryButtons
       ? await this.bookingV2MisunderstandingButtons({
           businessId: input.businessId,
           conversationId: input.conversation.id,
@@ -2990,6 +3028,7 @@ export class ConversationService {
     conversationId: string
     field: string | null
     serviceIds: string[]
+    includeHandoff?: boolean
   }) {
     if (input.field === 'service') {
       const featureSettings = await prisma.businessFeatureSettings.findUnique({
@@ -3019,9 +3058,11 @@ export class ConversationService {
       },
       select: { id: true, name: true },
       orderBy: [{ createdAt: 'asc' }, { name: 'asc' }],
-      take: 3
+      take: input.includeHandoff ? 2 : 3
     })
-    return professionalSelectionButtons(input.conversationId, professionals)
+    return input.includeHandoff
+      ? professionalSelectionWithHandoffButtons(input.conversationId, professionals)
+      : professionalSelectionButtons(input.conversationId, professionals)
   }
 
   private async professionalScheduleReply(businessId: string, professionalId: string) {
@@ -6494,6 +6535,16 @@ export function professionalSelectionButtons(
   }))
 }
 
+export function professionalSelectionWithHandoffButtons(
+  conversationId: string,
+  professionals: Array<{ id: string; name: string }>
+) {
+  return [
+    ...professionalSelectionButtons(conversationId, professionals).slice(0, 2),
+    { id: `coord:${conversationId}:human`, title: 'Solicitar atención' }
+  ]
+}
+
 export function catalogRecoveryDecisionButtons(conversationId: string) {
   return [
     { id: `catalog_show_all:${conversationId}`, title: 'Ver todos' },
@@ -6550,6 +6601,19 @@ export function preliminaryAvailabilityActionFromInteractiveReply(
   if (replyId === `preliminary_availability_book:${conversationId}`) return 'book' as const
   if (replyId === `preliminary_availability_decline:${conversationId}`) return 'decline' as const
   return null
+}
+
+export function isDeterministicProfessionalSelectionCancellation(
+  message: string,
+  currentStep: string
+) {
+  if (currentStep !== 'ASK_PROFESSIONAL') return false
+  const normalizedMessage = normalizeText(message)
+    .replace(/[^\p{Letter}\p{Number}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  return /^(?:no gracias|(?:con )?ningun[oa](?: gracias)?)$/.test(normalizedMessage)
 }
 
 export function preliminaryAvailabilityDecisionFromMessage(message: string) {
