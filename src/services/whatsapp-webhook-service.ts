@@ -1,5 +1,6 @@
 import { whatsappConfig } from '../config/whatsapp.js'
 import { prisma } from '../config/prisma.js'
+import type { Prisma } from '../generated/prisma/client.js'
 import { WhatsAppCloudApi } from '../integrations/whatsapp-cloud-api.js'
 import { assertBusinessCanSendWhatsApp } from './business-whatsapp-settings.js'
 import { ConversationService } from './conversation-service.js'
@@ -111,6 +112,7 @@ type AutomaticInboundMessage = {
   text: string
   businessId: string | null
   previousActivityAt: Date
+  supportBotState: Prisma.JsonValue | null
   interactiveReplyId?: string
   interactivePromptToken?: string
   hasImageAttachment?: boolean
@@ -217,32 +219,40 @@ export class WhatsAppWebhookService {
         continue
       }
 
-      if (message.id) {
-        const existingMessage = await prisma.message.findUnique({
+      const existingConversationPromise = prisma.conversation.findUnique({
+        where: conversationUpsert.where,
+        include: conversationUpsert.include
+      })
+      const existingMessagePromise = message.id
+        ? prisma.message.findUnique({
           where: {
             providerMessageId: message.id
           }
         })
+        : Promise.resolve(null)
+      const [existingConversation, existingMessage] = await Promise.all([
+        existingConversationPromise,
+        existingMessagePromise
+      ])
 
-        if (existingMessage) {
-          console.info('[whatsapp-webhook] skipped duplicate message', {
-            messageId: message.id,
-            from: message.from
-          })
+      if (existingMessage) {
+        console.info('[whatsapp-webhook] skipped duplicate message', {
+          messageId: message.id,
+          from: message.from
+        })
 
-          results.push({
-            messageId: message.id,
-            from: message.from,
-            skipped: true,
-            reason: 'Mensaje duplicado'
-          })
+        results.push({
+          messageId: message.id,
+          from: message.from,
+          skipped: true,
+          reason: 'Mensaje duplicado'
+        })
 
-          continue
-        }
+        continue
       }
       latencyDiagnostic?.checkpoint('duplicate_check')
 
-      const conversation = await prisma.conversation.upsert(conversationUpsert)
+      const conversation = existingConversation ?? await prisma.conversation.upsert(conversationUpsert)
       let resolvedInteractiveReplyId = message.interactiveReplyId
       let recoverStaleTamaraReply = false
 
@@ -279,17 +289,31 @@ export class WhatsAppWebhookService {
         inboundMessageData.providerMessageId = message.id
       }
 
+      const conversationActivityData = {
+        lastMessage: message.text,
+        archivedAt: null,
+        updatedAt: new Date()
+      }
       let inboundMessage
       if (message.interactiveReplyId) {
         const recordedReply = await admitConversationInteractivePromptReply({
           conversationId: conversation.id,
           incomingReplyId: message.interactiveReplyId,
-          persist: (transaction, admission) => transaction.message.create({
-            data: {
-              ...inboundMessageData,
-              status: admission.accepted ? 'received' : 'ignored_stale_button'
+          persist: async (transaction, admission) => {
+            const value = await transaction.message.create({
+              data: {
+                ...inboundMessageData,
+                status: admission.accepted ? 'received' : 'ignored_stale_button'
+              }
+            })
+            if (admission.accepted) {
+              await transaction.conversation.update({
+                where: { id: conversation.id },
+                data: conversationActivityData
+              })
             }
-          })
+            return value
+          }
         })
         inboundMessage = recordedReply.value
         if (!recordedReply.admission.accepted) {
@@ -304,13 +328,21 @@ export class WhatsAppWebhookService {
             continue
           }
           resolvedInteractiveReplyId = TAMARA_STALE_INTERACTIVE_REPLY_ID
+          await prisma.conversation.update({
+            where: { id: conversation.id },
+            data: conversationActivityData
+          })
         } else {
           resolvedInteractiveReplyId = recordedReply.admission.replyId
         }
       } else {
-        inboundMessage = await prisma.message.create({
-          data: inboundMessageData
-        })
+        ;[inboundMessage] = await Promise.all([
+          prisma.message.create({ data: inboundMessageData }),
+          prisma.conversation.update({
+            where: { id: conversation.id },
+            data: conversationActivityData
+          })
+        ])
       }
       const supportedDepositProof = isSupportedDepositProof(message.media)
       const expectedDepositId = pendingDepositIdFromState(conversation.bookingV2State)
@@ -330,16 +362,6 @@ export class WhatsAppWebhookService {
         })
         : null
 
-      await prisma.conversation.update({
-        where: {
-          id: conversation.id
-        },
-        data: {
-          lastMessage: message.text,
-          archivedAt: null,
-          updatedAt: new Date()
-        }
-      })
       if (conversation.businessId) {
         publishIncomingConversationMessage({
           businessId: conversation.businessId,
@@ -620,6 +642,7 @@ export class WhatsAppWebhookService {
         text: message.text,
         businessId: conversation.businessId,
         previousActivityAt: conversation.updatedAt,
+        supportBotState: conversation.supportBotState,
         ...(resolvedInteractiveReplyId
           ? { interactiveReplyId: resolvedInteractiveReplyId }
           : {}),
@@ -629,10 +652,12 @@ export class WhatsAppWebhookService {
         ...(message.media?.type === 'image' ? { hasImageAttachment: true } : {}),
         ...(latencyDiagnostic ? { latencyDiagnostic } : {})
       }
-      await prisma.message.updateMany({
-        where: { id: inboundMessage.id, status: 'received' },
-        data: { status: 'queued_bot' }
-      })
+      if (!automaticMessage.interactivePromptToken) {
+        await prisma.message.updateMany({
+          where: { id: inboundMessage.id, status: 'received' },
+          data: { status: 'queued_bot' }
+        })
+      }
       const automaticTask = inboundMessageBatcher.enqueue({
         key: conversation.id,
         item: automaticMessage,
@@ -719,7 +744,12 @@ export class WhatsAppWebhookService {
             conversationId: firstMessage.conversationId,
             message: combinedMessage,
             ...(effectiveInteractiveReplyId ? { interactiveReplyId: effectiveInteractiveReplyId } : {}),
-            previousActivityAt: firstMessage.previousActivityAt
+            previousActivityAt: firstMessage.previousActivityAt,
+            conversationSnapshot: {
+              supportBotState: firstMessage.supportBotState,
+              updatedAt: firstMessage.previousActivityAt,
+              phone: firstMessage.phone
+            }
           })
         : null
       if (exclusiveSupportBotResult) return exclusiveSupportBotResult

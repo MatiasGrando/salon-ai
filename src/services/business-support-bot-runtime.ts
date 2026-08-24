@@ -23,6 +23,11 @@ export async function handleExclusiveBusinessSupportBotMessage(input: {
   message: string
   interactiveReplyId?: string
   previousActivityAt?: Date
+  conversationSnapshot?: {
+    supportBotState: Prisma.JsonValue | null
+    updatedAt: Date
+    phone: string
+  }
 }) {
   const configuration = await prisma.businessBotConfiguration.findFirst({
     where: {
@@ -94,13 +99,18 @@ async function handleTamaraOptionsBotMessage(
     message: string
     interactiveReplyId?: string
     previousActivityAt?: Date
+    conversationSnapshot?: {
+      supportBotState: Prisma.JsonValue | null
+      updatedAt: Date
+      phone: string
+    }
   },
   configuration: { botKey: string; definition: Prisma.JsonValue }
 ) {
-  const conversation = await prisma.conversation.findUnique({
-    where: { id: input.conversationId },
-    select: { supportBotState: true, updatedAt: true }
-  })
+  const conversation = input.conversationSnapshot ?? await prisma.conversation.findUnique({
+      where: { id: input.conversationId },
+      select: { supportBotState: true, updatedAt: true, phone: true }
+    })
   if (!conversation) throw new Error('No encontré la conversación del bot')
 
   const definition = configuration.definition && typeof configuration.definition === 'object' && !Array.isArray(configuration.definition)
@@ -114,7 +124,7 @@ async function handleTamaraOptionsBotMessage(
   const result = previousState
     ? await tamaraBot.handle({
         businessId: input.businessId,
-        phone: await conversationPhone(input.conversationId),
+        phone: conversation.phone,
         message: input.message,
         ...(input.interactiveReplyId ? { interactiveReplyId: input.interactiveReplyId } : {}),
         state: previousState,
@@ -122,7 +132,7 @@ async function handleTamaraOptionsBotMessage(
       })
     : await tamaraBot.start({
         businessId: input.businessId,
-        phone: await conversationPhone(input.conversationId)
+        phone: conversation.phone
       })
 
   await prisma.conversation.update({
@@ -169,12 +179,6 @@ async function handleTamaraOptionsBotMessage(
     supportBot: configuration.botKey,
     handoff: result.handoff
   }
-}
-
-async function conversationPhone(conversationId: string) {
-  const conversation = await prisma.conversation.findUnique({ where: { id: conversationId }, select: { phone: true } })
-  if (!conversation) throw new Error('No encontré la conversación del bot')
-  return conversation.phone
 }
 
 async function resolveCustomerIdentity(message: string): Promise<WeexSupportBotCustomerIdentity | undefined> {

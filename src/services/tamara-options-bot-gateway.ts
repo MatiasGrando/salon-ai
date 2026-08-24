@@ -38,10 +38,21 @@ export class PrismaTamaraOptionsBotGateway implements TamaraOptionsBotGateway {
   }
 
   async getWorkingHours(input: { businessId: string }) {
-    const professional = await this.resolveProfessional(input.businessId)
-    if (!professional) return []
+    const professional = this.configuredProfessionalId
+      ? null
+      : await this.resolveProfessional(input.businessId)
+    if (!this.configuredProfessionalId && !professional) return []
     const rows = await prisma.professionalHours.findMany({
-      where: { professionalId: professional.id },
+      where: this.configuredProfessionalId
+        ? {
+            professionalId: this.configuredProfessionalId,
+            professional: {
+              businessId: input.businessId,
+              isActive: true,
+              acceptsBotBookings: true
+            }
+          }
+        : { professionalId: professional!.id },
       orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }]
     })
     const grouped = new Map<number, string[]>()
