@@ -312,8 +312,46 @@ assert.equal(staleDateReply.state.invalidAttempts, 0)
 assert.match(staleDateReply.message, /lista anterior ya venció/i)
 assert.ok(staleDateReply.options.some((option) => option.title === 'Martes 25/08'))
 
-for (const result of [start, proposal, appointments, selectedAppointment, bookingCategory, bookingService, bookingDate, bookingAvailableDates, bookingTime]) {
+const navigableResults = [
+  start,
+  invalid,
+  proposal,
+  proposalByChat,
+  namedProposal,
+  expired,
+  appointments,
+  selectedAppointment,
+  bookingCategory,
+  bookingService,
+  bookingDate,
+  bookingAvailableDates,
+  bookingTime,
+  specificTimePrompt,
+  nearbyTimes,
+  searchedUpcomingDays,
+  bookingName,
+  bookingConfirm,
+  rescheduleDate,
+  rescheduleAvailableDates,
+  rescheduleTime,
+  rescheduleConfirm,
+  exactDatePrompt,
+  exactDateTime,
+  staleDateReply
+]
+
+for (const result of navigableResults) {
   assert.ok(result.options.length <= 10, `${result.state.node} excede el máximo de opciones interactivas`)
+  for (const navigation of [
+    { id: 'global:back', title: 'Volver' },
+    { id: 'global:menu', title: 'Menú principal' },
+    { id: 'global:human', title: 'Atención humana' }
+  ]) {
+    assert.ok(
+      result.options.some((option) => option.id === navigation.id && option.title === navigation.title),
+      `${result.state.node} debe conservar la opción ${navigation.title}`
+    )
+  }
 }
 
 console.log('Tamara options bot contract: OK (opciones estrictas, timeout, propuestas y retención)')

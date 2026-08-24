@@ -673,7 +673,16 @@ export class TamaraOptionsBot {
   }
 
   private result(state: TamaraOptionsBotState, message: string, options: TamaraBotOption[]): TamaraOptionsBotResult {
-    return { status: 'active', message, options, state }
+    const requiredNavigation = [BACK, MENU, HUMAN]
+    const normalizedOptions = options.filter((option, index) => options.findIndex((current) => current.id === option.id) === index)
+    for (const option of requiredNavigation) {
+      if (!normalizedOptions.some((current) => current.id === option.id)) normalizedOptions.push(option)
+    }
+    const requiredIds = new Set(requiredNavigation.map((option) => option.id))
+    for (let index = normalizedOptions.length - 1; normalizedOptions.length > 10 && index >= 0; index -= 1) {
+      if (!requiredIds.has(normalizedOptions[index]!.id)) normalizedOptions.splice(index, 1)
+    }
+    return { status: 'active', message, options: normalizedOptions, state }
   }
 
   private invalid(state: TamaraOptionsBotState, options: TamaraBotOption[], message = 'La respuesta no coincide con ninguna opción disponible. Elegí una opción de la lista.') {
