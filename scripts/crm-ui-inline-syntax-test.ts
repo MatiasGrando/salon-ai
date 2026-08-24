@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import Fastify from 'fastify'
 import { crmUiRoutes } from '../src/routes/crm-ui.js'
+import { DISABLED_POLLING_MARKER } from '../src/observability/egress-baseline/types.js'
 
 const app = Fastify()
-await app.register(crmUiRoutes)
+await app.register(crmUiRoutes, { pollingMarker: DISABLED_POLLING_MARKER })
 const response = await app.inject({ method: 'GET', url: '/crm' })
 assert.equal(response.statusCode, 200)
 assert.match(response.body, /<title>Weex<\/title>/)

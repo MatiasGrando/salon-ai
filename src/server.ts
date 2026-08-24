@@ -37,6 +37,8 @@ import {
   installAuthorizationProviders,
   type BuildAppOptions
 } from './providers/authorization-providers.js'
+import { resolveEgressBaselineConfig } from './config/egress-baseline.js'
+import { installEgressBaseline } from './observability/egress-baseline/install.js'
 
 process.env.TZ ??= 'America/Argentina/Buenos_Aires'
 
@@ -47,11 +49,12 @@ export async function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({
     bodyLimit: 5 * 1024 * 1024
   })
+  const baseline = installEgressBaseline(app, resolveEgressBaselineConfig(process.env))
   installAuthorizationProviders(app, options)
 
   await app.register(healthRoutes)
   await app.register(authRoutes)
-  await app.register(crmUiRoutes)
+  await app.register(crmUiRoutes, { pollingMarker: baseline.pollingMarker })
   await app.register(tamaraSiteRoutes)
   await app.register(landingUiRoutes)
   await app.register(publicBookingRoutes)
@@ -73,7 +76,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(scheduleBlockRoutes)
   await app.register(availabilityRoutes)
   await app.register(chatRoutes)
-  await app.register(crmRoutes)
+  await app.register(crmRoutes, { sseRecorder: baseline.sseRecorder })
   await app.register(campaignRoutes)
   await app.register(postSaleRoutes)
   await app.register(reportRoutes)

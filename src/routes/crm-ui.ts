@@ -1,7 +1,11 @@
 import type { FastifyInstance } from 'fastify'
 import { crmRealtimeConfig } from '../config/crm-realtime.js'
+import type { PollingMarkerConfig } from '../observability/egress-baseline/types.js'
 
-export async function crmUiRoutes(app: FastifyInstance) {
+export interface CrmUiRoutesOptions { readonly pollingMarker: PollingMarkerConfig }
+
+export async function crmUiRoutes(app: FastifyInstance, options: CrmUiRoutesOptions) {
+  const crmHtml = renderCrmHtml(options)
   app.get('/crm', async (_request, reply) => {
     return reply.type('text/html').send(crmHtml)
   })
@@ -77,7 +81,11 @@ export function appendPreferredEmoji(
   return { value, added: true, reason: null }
 }
 
-const crmHtml = `<!doctype html>
+export function renderCrmHtml(options: CrmUiRoutesOptions) {
+  const markerEffective = options.pollingMarker.effective ? 'true' : 'false'
+  const markerHeader = options.pollingMarker.headerName
+  const markerValue = options.pollingMarker.headerValue
+  return `<!doctype html>
 <html lang="es">
 <head>
   <meta charset="utf-8">
@@ -18516,8 +18524,22 @@ const crmHtml = `<!doctype html>
       ].filter(Boolean)
     }
 
-    async function getJson(url, options) {
-      const response = await fetch(url, options)
+    const FALLBACK_REQUEST_CONTEXT = Object.freeze({ refreshMode: 'fallback-poll' })
+
+    function buildGetJsonRequestOptions(options = {}) {
+      const { requestContext, ...requestInit } = options
+      const headers = new Headers(requestInit.headers || {})
+      const marker = document.querySelector('meta[name="crm-polling-marker"]')
+      if (
+        marker?.dataset.effective === 'true' &&
+        requestContext?.refreshMode === 'fallback-poll' &&
+        !headers.has(marker.dataset.header)
+      ) headers.set(marker.dataset.header, marker.dataset.value)
+      return { ...requestInit, headers }
+    }
+
+    async function getJson(url, options = {}) {
+      const response = await fetch(url, buildGetJsonRequestOptions(options))
       if (!response.ok) {
         const body = await response.json().catch(() => ({}))
         if (response.status === 401 && !url.startsWith('/auth/')) showLogin()
@@ -20770,11 +20792,11 @@ const crmHtml = `<!doctype html>
       }
     }
 
-    async function refreshDepositCount() {
+    async function refreshDepositCount(options = {}) {
       const params = new URLSearchParams({ view: 'active', summary: 'true' })
       if (state.businessId) params.set('businessId', state.businessId)
       try {
-        const result = await getJson('/crm/deposits?' + params.toString())
+        const result = await getJson('/crm/deposits?' + params.toString(), options)
         state.depositCount = result.activeCount || 0
         state.depositReviewCount = result.reviewCount || 0
         els.depositCount.textContent = String(state.depositCount)
@@ -20788,7 +20810,7 @@ const crmHtml = `<!doctype html>
       const params = new URLSearchParams({ view: 'active' })
       if (state.businessId) params.set('businessId', state.businessId)
       try {
-        const result = await getJson('/crm/deposits?' + params.toString(), { signal: options.signal })
+        const result = await getJson('/crm/deposits?' + params.toString(), { signal: options.signal, requestContext: options.requestContext })
         if (
           state.conversationFilter !== 'deposits' ||
           (options.tabRequestId !== undefined && options.tabRequestId !== state.conversationTabRequest)
@@ -21341,7 +21363,7 @@ const crmHtml = `<!doctype html>
       if (state.realtimeFallbackTimer) return
       const refresh = () => {
         if (document.body.dataset.auth !== 'ready') return
-        refreshConversationSummary().catch(() => null)
+        refreshConversationSummary({ requestContext: FALLBACK_REQUEST_CONTEXT }).catch(() => null)
       }
       refresh()
       state.realtimeFallbackTimer = setInterval(refresh, intervalMs)
@@ -21353,25 +21375,25 @@ const crmHtml = `<!doctype html>
       state.realtimeFallbackTimer = null
     }
 
-    async function refreshConversationSummary() {
+    async function refreshConversationSummary(options = {}) {
       if (state.conversationTabLoading) return
       if (state.conversationFilter === 'deposits') {
         const previousActiveCount = state.depositCount
         const previousReviewCount = state.depositReviewCount
-        await refreshDepositCount()
+        await refreshDepositCount(options)
         if (
           state.depositCount !== previousActiveCount ||
           state.depositReviewCount !== previousReviewCount
         ) {
-          await loadDeposits({ keepSelection: true })
+          await loadDeposits({ keepSelection: true, requestContext: options.requestContext })
         }
         return
       }
-      void refreshDepositCount()
+      void refreshDepositCount(options)
       const params = new URLSearchParams()
       if (state.businessId) params.set('businessId', state.businessId)
       const query = params.toString() ? '?' + params.toString() : ''
-      const summary = await getJson('/crm/conversations/summary' + query)
+      const summary = await getJson('/crm/conversations/summary' + query, options)
       const latestKnown = state.lastConversationSyncAt ? new Date(state.lastConversationSyncAt).getTime() : 0
       const latestRemote = summary.latestActivityAt ? new Date(summary.latestActivityAt).getTime() : 0
       state.conversationCounts = summary.counts || state.conversationCounts
@@ -21381,11 +21403,11 @@ const crmHtml = `<!doctype html>
       els.count.textContent = String(state.conversationCounts.active)
 
       if (!state.lastConversationSyncAt || latestRemote > latestKnown) {
-        await loadConversationUpdates(summary.latestActivityAt)
+        await loadConversationUpdates(summary.latestActivityAt, options)
       }
     }
 
-    async function loadConversationUpdates(latestActivityAt) {
+    async function loadConversationUpdates(latestActivityAt, options = {}) {
       if (state.isRefreshing || !state.lastConversationSyncAt) return
       state.isRefreshing = true
       const params = new URLSearchParams()
@@ -21396,7 +21418,7 @@ const crmHtml = `<!doctype html>
       if (state.businessId) params.set('businessId', state.businessId)
 
       try {
-        const page = await getJson('/crm/conversations?' + params.toString())
+        const page = await getJson('/crm/conversations?' + params.toString(), options)
         state.conversationCounts = page.counts || state.conversationCounts
         notifyAboutNewInboundMessages(page.items || [])
         mergeConversationUpdates(page.items || [])
@@ -21411,7 +21433,7 @@ const crmHtml = `<!doctype html>
             const freshActivity = latestConversationActivityAt(fresh)
             state.selected = fresh
             if (freshActivity > selectedActivity) {
-              await refreshSelectedConversation({ preserveReadingPosition: true })
+              await refreshSelectedConversation({ preserveReadingPosition: true, requestContext: options.requestContext })
             } else {
               renderSelected()
             }
@@ -21682,10 +21704,11 @@ const crmHtml = `<!doctype html>
           mergeExisting: options.preserveReadingPosition === true,
           messages: state.messages,
           nextCursor: state.messageNextCursor,
-          signal: options.signal
+          signal: options.signal,
+          requestContext: options.requestContext
         }),
-        fetchConversationAppointments(conversation, options.signal),
-        fetchConversationCustomerNotes(conversation, options.signal)
+        fetchConversationAppointments(conversation, { signal: options.signal, requestContext: options.requestContext }),
+        fetchConversationCustomerNotes(conversation, { signal: options.signal, requestContext: options.requestContext })
       ])
       if (requestId !== state.conversationLoadRequest || state.selected?.id !== conversationId) return
       const [messageResult, appointmentResult, noteResult] = results
@@ -21714,7 +21737,8 @@ const crmHtml = `<!doctype html>
       const params = new URLSearchParams({ paginated: 'true', take: '50' })
       if (options.older && options.nextCursor) params.set('cursor', options.nextCursor)
       const page = await getJson('/crm/conversations/' + conversationId + '/messages?' + params.toString(), {
-        signal: options.signal
+        signal: options.signal,
+        requestContext: options.requestContext
       })
       if (options.mergeExisting) {
         const messagesById = new Map((options.messages || []).map((message) => [message.id, message]))
@@ -21746,13 +21770,13 @@ const crmHtml = `<!doctype html>
       if (options.older) renderMessages({ preserveScroll: true })
     }
 
-    async function fetchConversationAppointments(conversation, signal) {
+    async function fetchConversationAppointments(conversation, options = {}) {
       const params = new URLSearchParams({
         customerPhone: conversation.phone,
         from: new Date().toISOString()
       })
       if (state.businessId) params.set('businessId', state.businessId)
-      const all = await getJson('/appointments?' + params.toString(), { signal })
+      const all = await getJson('/appointments?' + params.toString(), { signal: options.signal, requestContext: options.requestContext })
       const now = Date.now()
       return all
         .filter((appointment) => appointment.customer?.phone === conversation.phone)
@@ -21770,10 +21794,10 @@ const crmHtml = `<!doctype html>
       cacheSelectedConversation(conversation)
     }
 
-    async function fetchConversationCustomerNotes(conversation, signal) {
+    async function fetchConversationCustomerNotes(conversation, options = {}) {
       const customer = customerForPhone(conversation.phone)
       if (!customer) return []
-      return getJson('/customers/' + customer.id + '/notes', { signal })
+      return getJson('/customers/' + customer.id + '/notes', { signal: options.signal, requestContext: options.requestContext })
     }
 
     async function loadCustomerNotes() {
@@ -31768,4 +31792,5 @@ const crmHtml = `<!doctype html>
     }
   </script>
 </body>
-</html>`
+</html>`.replace('</head>', `<meta name="crm-polling-marker" data-effective="${markerEffective}" data-header="${markerHeader}" data-value="${markerValue}">\n</head>`)
+}
