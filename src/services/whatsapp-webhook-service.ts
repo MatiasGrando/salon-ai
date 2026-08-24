@@ -42,6 +42,10 @@ import {
   publishConversationUpdated,
   publishIncomingConversationMessage
 } from './crm-realtime-events.js'
+import {
+  TAMARA_OPTIONS_BOT_KEY,
+  TAMARA_STALE_INTERACTIVE_REPLY_ID
+} from './tamara-options-bot.js'
 
 type VerifyWebhookInput = {
   mode: string | undefined
@@ -170,9 +174,10 @@ export class WhatsAppWebhookService {
     })
 
     for (const message of messages) {
-      const latencyDiagnostic = isGreetingLatencyDiagnosticMessage(message.text)
+      const greetingLatencyDiagnostic = isGreetingLatencyDiagnosticMessage(message.text)
+      const latencyDiagnostic = greetingLatencyDiagnostic
         ? new LatencyDiagnostic('whatsapp_greeting')
-        : null
+        : new LatencyDiagnostic('whatsapp_inbound')
       const targetBusiness = await this.resolveTargetBusiness(message)
       latencyDiagnostic?.checkpoint('resolve_business')
       const targetBusinessId = targetBusiness?.businessId ?? null
@@ -239,6 +244,7 @@ export class WhatsAppWebhookService {
 
       const conversation = await prisma.conversation.upsert(conversationUpsert)
       let resolvedInteractiveReplyId = message.interactiveReplyId
+      let recoverStaleTamaraReply = false
 
       const inboundMessageData: {
         conversationId: string
@@ -287,15 +293,20 @@ export class WhatsAppWebhookService {
         })
         inboundMessage = recordedReply.value
         if (!recordedReply.admission.accepted) {
-          results.push({
-            messageId: message.id,
-            from: message.from,
-            skipped: true,
-            reason: 'Botón vencido o ya utilizado'
-          })
-          continue
+          recoverStaleTamaraReply = conversation.supportBotKey === TAMARA_OPTIONS_BOT_KEY
+          if (!recoverStaleTamaraReply) {
+            results.push({
+              messageId: message.id,
+              from: message.from,
+              skipped: true,
+              reason: 'Botón vencido o ya utilizado'
+            })
+            continue
+          }
+          resolvedInteractiveReplyId = TAMARA_STALE_INTERACTIVE_REPLY_ID
+        } else {
+          resolvedInteractiveReplyId = recordedReply.admission.replyId
         }
-        resolvedInteractiveReplyId = recordedReply.admission.replyId
       } else {
         inboundMessage = await prisma.message.create({
           data: inboundMessageData
@@ -600,6 +611,7 @@ export class WhatsAppWebhookService {
         continue
       }
 
+      const isTamaraOptionsBot = conversation.supportBotKey === TAMARA_OPTIONS_BOT_KEY
       const automaticMessage: AutomaticInboundMessage = {
         inboundMessageId: inboundMessage.id,
         receivedAt: inboundMessage.createdAt,
@@ -611,7 +623,7 @@ export class WhatsAppWebhookService {
         ...(resolvedInteractiveReplyId
           ? { interactiveReplyId: resolvedInteractiveReplyId }
           : {}),
-        ...(message.interactiveReplyId && parseVersionedInteractiveReplyId(message.interactiveReplyId)
+        ...(!recoverStaleTamaraReply && message.interactiveReplyId && parseVersionedInteractiveReplyId(message.interactiveReplyId)
           ? { interactivePromptToken: parseVersionedInteractiveReplyId(message.interactiveReplyId)!.token }
           : {}),
         ...(message.media?.type === 'image' ? { hasImageAttachment: true } : {}),
@@ -624,7 +636,7 @@ export class WhatsAppWebhookService {
       const automaticTask = inboundMessageBatcher.enqueue({
         key: conversation.id,
         item: automaticMessage,
-        immediate: Boolean(message.interactiveReplyId || message.media),
+        immediate: Boolean(message.interactiveReplyId || message.media || isTamaraOptionsBot),
         process: (batch) => this.processAutomaticInboundBatch(batch, businessAiEnabled)
       }).then((automaticResult) => {
         results.push({
@@ -923,7 +935,11 @@ export class WhatsAppWebhookService {
       if (!deliveryResult.sent) break
     }
 
-    if (latencyDiagnostic) {
+    if (
+      latencyDiagnostic &&
+      (isGreetingLatencyDiagnosticMessage(firstMessage.text) ||
+        (conversationResult as { supportBot?: string }).supportBot === TAMARA_OPTIONS_BOT_KEY)
+    ) {
       console.info('[whatsapp-latency-diagnostic]', latencyDiagnostic.report())
     }
 

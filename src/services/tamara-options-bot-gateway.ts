@@ -115,15 +115,13 @@ export class PrismaTamaraOptionsBotGateway implements TamaraOptionsBotGateway {
     if (!input.exactTime && !input.onlyWithAvailability) {
       return candidates.map((date) => ({ date, label: formatDateLabel(date) }))
     }
-    const availability = await Promise.all(candidates.map(async (date) => ({
-      date,
-      result: await appointmentService.findAvailability({
+    const results = await appointmentService.findAvailabilityMany(candidates.map((date) => ({
         professionalId: professional.id,
         serviceId: input.serviceId,
         ...(input.serviceIds ? { serviceIds: input.serviceIds } : {}),
         date
-      })
     })))
+    const availability = candidates.map((date, index) => ({ date, result: results[index]! }))
     return availability.flatMap<TamaraBotAvailableDate>(({ date, result }) => {
       if (!result.ok || !result.slots.length) return []
       if (input.exactTime && !result.slots.includes(input.exactTime)) return []

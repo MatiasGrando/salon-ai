@@ -1,5 +1,6 @@
 export const TAMARA_OPTIONS_BOT_KEY = 'tamara-options-v1'
 export const TAMARA_OPTIONS_BOT_TIMEOUT_MS = 2 * 60 * 60 * 1000
+export const TAMARA_STALE_INTERACTIVE_REPLY_ID = 'system:tamara_stale_prompt'
 
 export const TAMARA_OPTIONS_BOT_DEFINITION = {
   botKey: TAMARA_OPTIONS_BOT_KEY,
@@ -32,7 +33,9 @@ export type TamaraOptionsBotNode =
   | 'HUMAN_REASON'
   | 'BOOK_CATEGORY'
   | 'BOOK_SERVICE'
+  | 'BOOK_DATE_METHOD'
   | 'BOOK_DATE'
+  | 'BOOK_SPECIFIC_DATE'
   | 'BOOK_TIME'
   | 'BOOK_SPECIFIC_TIME'
   | 'BOOK_CUSTOMER_NAME'
@@ -125,6 +128,7 @@ export type TamaraOptionsBotGateway = {
   getAvailableTimes(input: {
     businessId: string
     serviceId: string
+    serviceIds?: string[] | undefined
     date: string
     appointmentId?: string | undefined
   }): Promise<string[]>
@@ -195,6 +199,9 @@ export class TamaraOptionsBot {
     const options = await this.optionsFor(state, input)
     const action = this.resolveAction(input.message, input.interactiveReplyId, options)
 
+    if (action === TAMARA_STALE_INTERACTIVE_REPLY_ID) {
+      return this.result(state, 'La lista anterior ya venció. Elegí una opción de esta lista actualizada.', options)
+    }
     if (action === 'global:menu') return this.start(input)
     if (action === 'global:back') return this.goBack(state, input)
     if (action === 'global:human') return this.askHumanName(state)
@@ -216,7 +223,8 @@ export class TamaraOptionsBot {
         return this.invalid(state, options)
       case 'BOOK_CATEGORY': return this.selectCategory(action, state, input)
       case 'BOOK_SERVICE': return this.selectService(action, state, input)
-      case 'BOOK_DATE': return this.selectDate(action, state, input)
+      case 'BOOK_DATE_METHOD': return this.selectDateMethod(action, state, input)
+      case 'BOOK_DATE': return this.selectDate(action, state, input, options)
       case 'BOOK_TIME': return this.selectTime(action, state, input)
       case 'BOOK_CONFIRM': return this.confirmBooking(action, state, input)
       case 'APPOINTMENT_LIST': return this.selectAppointment(action, state, input)
@@ -312,17 +320,51 @@ export class TamaraOptionsBot {
       if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) {
         return this.invalid(state, this.freeTextNavigation(), 'Ingresá el horario con formato HH:mm, por ejemplo 14:00.')
       }
-      const next = this.withContext(state, { requestedTime: value, selectedTime: value, weekOffset: 0, listPage: 0 })
-      const dates = await this.gateway.getAvailableDates({
+      const next = this.withContext(state, { requestedTime: value, selectedTime: undefined, weekOffset: 0, listPage: 0 })
+      if (next.context.selectedDate) {
+        const times = await this.gateway.getAvailableTimes({
+          businessId: input.businessId,
+          serviceId: next.context.serviceId!,
+          ...(next.context.mode === 'reschedule' && next.context.appointmentServiceIds ? { serviceIds: next.context.appointmentServiceIds } : {}),
+          date: next.context.selectedDate,
+          appointmentId: next.context.mode === 'reschedule' ? next.context.appointmentId : undefined
+        })
+        if (times.includes(value)) return this.prepareConfirmation(this.withContext(next, { selectedTime: value }), input)
+        const nearby = this.closestTimes(times, value)
+        if (nearby.length) {
+          return this.show(
+            next,
+            'BOOK_TIME',
+            `No encontré las ${value} para ${next.context.selectedDateLabel || next.context.selectedDate}. Estos son los horarios disponibles más cercanos. Si querés mantener las ${value}, elegí «Buscar por horario»: busca ese horario en los próximos días sin tener que probar día por día.`,
+            this.timeOptions(nearby, 0, true)
+          )
+        }
+      }
+      return this.searchDatesForTime(next, input, value)
+    }
+    if (state.node === 'BOOK_SPECIFIC_DATE') {
+      const date = this.parseSpecificDate(value, input.now ?? new Date())
+      if (!date) {
+        return this.invalid(state, this.freeTextNavigation(), 'Ingresá una fecha válida con formato DD/MM/AAAA. Por ejemplo: 25/08/2026.')
+      }
+      const next = this.withContext(state, {
+        selectedDate: date.key,
+        selectedDateLabel: date.label,
+        selectedTime: undefined,
+        requestedTime: undefined,
+        listPage: 0
+      })
+      const times = await this.gateway.getAvailableTimes({
         businessId: input.businessId,
         serviceId: next.context.serviceId!,
         ...(next.context.mode === 'reschedule' && next.context.appointmentServiceIds ? { serviceIds: next.context.appointmentServiceIds } : {}),
-        weekOffset: 0,
-        exactTime: value,
+        date: date.key,
         appointmentId: next.context.mode === 'reschedule' ? next.context.appointmentId : undefined
       })
-      if (!dates.length) return this.show(next, 'BOOK_DATE', `No encontré disponibilidad a las ${value} durante los próximos 30 días. Podés consultar otros días o pedir ayuda.`, this.dateNavigation())
-      return this.show(next, 'BOOK_DATE', `Encontré estos próximos días disponibles a las ${value}:`, this.dateOptions(dates, true, 0))
+      if (!times.length) {
+        return this.showDates(next, input, 0, `No hay horarios disponibles para ${date.label}. Estos son los próximos días con lugar:`, true)
+      }
+      return this.show(next, 'BOOK_TIME', `Elegí un horario para ${date.label}:`, this.timeOptions(times, 0))
     }
     if (state.node === 'BOOK_CUSTOMER_NAME') {
       if (!this.validName(value)) return this.invalid(state, this.freeTextNavigation(), 'Ingresá un nombre válido de hasta 80 caracteres.')
@@ -346,26 +388,28 @@ export class TamaraOptionsBot {
     const service = services.find((item) => action === `service:${item.id}`)
     if (!service) return this.invalid(state, this.serviceOptions(services))
     const next = this.withContext(state, { serviceId: service.id, serviceName: service.name, weekOffset: 0 })
-    return this.showDates(next, input, 0)
+    return this.show(next, 'BOOK_DATE_METHOD', '¿Cómo querés elegir el día?', this.dateMethodOptions())
   }
 
-  private async selectDate(action: string, state: TamaraOptionsBotState, input: HandleInput) {
+  private async selectDateMethod(action: string, state: TamaraOptionsBotState, input: HandleInput) {
+    if (action === 'date_method:available') return this.showDates(state, input, 0, 'Elegí uno de los próximos días:')
+    if (action === 'date_method:exact') {
+      return this.show(state, 'BOOK_SPECIFIC_DATE', 'Escribí la fecha exacta con formato DD/MM/AAAA. Por ejemplo: 25/08/2026.', this.freeTextNavigation())
+    }
+    if (action === 'date_method:time') {
+      return this.show(state, 'BOOK_SPECIFIC_TIME', 'Escribí el horario que buscás con formato HH:mm. Por ejemplo: 14:00.', this.freeTextNavigation())
+    }
+    return this.invalid(state, this.dateMethodOptions())
+  }
+
+  private async selectDate(action: string, state: TamaraOptionsBotState, input: HandleInput, options: TamaraBotOption[]) {
     if (action === 'date:next_week') return this.showDates(state, input, (state.context.weekOffset ?? 0) + 1)
     if (action === 'date:specific_time') return this.show(state, 'BOOK_SPECIFIC_TIME', 'Escribí el horario exacto con formato HH:mm. Por ejemplo: 14:00.', this.freeTextNavigation())
     const match = /^date:(\d{4}-\d{2}-\d{2})$/.exec(action)
     if (!match) return this.invalid(state, await this.optionsFor(state, input))
     const date = match[1]!
-    const dates = await this.gateway.getAvailableDates({
-      businessId: input.businessId,
-      serviceId: state.context.serviceId!,
-      ...(state.context.mode === 'reschedule' && state.context.appointmentServiceIds ? { serviceIds: state.context.appointmentServiceIds } : {}),
-      weekOffset: state.context.weekOffset ?? 0,
-      ...(state.context.requestedTime ? { exactTime: state.context.requestedTime } : {}),
-      ...(state.context.onlyAvailableDates ? { onlyWithAvailability: true } : {}),
-      appointmentId: state.context.mode === 'reschedule' ? state.context.appointmentId : undefined
-    })
-    const selected = dates.find((item) => item.date === date)
-    const next = this.withContext(state, { selectedDate: date, selectedDateLabel: selected?.label || date })
+    const selected = options.find((item) => item.id === action)
+    const next = this.withContext(state, { selectedDate: date, selectedDateLabel: selected?.title || date })
     if (state.context.requestedTime) return this.prepareConfirmation(next, input)
     const times = await this.gateway.getAvailableTimes({
       businessId: input.businessId,
@@ -381,6 +425,9 @@ export class TamaraOptionsBot {
 
   private async selectTime(action: string, state: TamaraOptionsBotState, input: HandleInput) {
     if (action === 'time:specific') return this.show(state, 'BOOK_SPECIFIC_TIME', 'Escribí el horario exacto con formato HH:mm. Por ejemplo: 14:00.', this.freeTextNavigation())
+    if (action === 'time:search_days' && state.context.requestedTime) {
+      return this.searchDatesForTime(state, input, state.context.requestedTime)
+    }
     const match = /^time:(\d{2}:\d{2})$/.exec(action)
     if (!match) return this.invalid(state, await this.optionsFor(state, input))
     return this.prepareConfirmation(this.withContext(state, { selectedTime: match[1]! }), input)
@@ -476,7 +523,7 @@ export class TamaraOptionsBot {
         kind: 'human_attention', appointmentId: state.context.appointmentId, reason: 'La reserva no tiene un servicio identificable para reprogramación automática.'
       })
       const next = this.withContext(state, { mode: 'reschedule', serviceId: state.context.appointmentServiceId, weekOffset: 0 })
-      return this.showDates(next, input, 0, 'Elegí la nueva fecha para la reserva:')
+      return this.show(next, 'BOOK_DATE_METHOD', '¿Cómo querés elegir la nueva fecha?', this.dateMethodOptions())
     }
     return this.invalid(state, this.appointmentActionOptions())
   }
@@ -495,6 +542,40 @@ export class TamaraOptionsBot {
     return this.show(next, 'BOOK_DATE', prompt, this.dateOptions(dates, false, 0))
   }
 
+  private async searchDatesForTime(state: TamaraOptionsBotState, input: HandleInput, requestedTime: string) {
+    const next = this.withContext(state, { requestedTime, selectedTime: requestedTime, weekOffset: 0, listPage: 0 })
+    const dates = await this.gateway.getAvailableDates({
+      businessId: input.businessId,
+      serviceId: next.context.serviceId!,
+      ...(next.context.mode === 'reschedule' && next.context.appointmentServiceIds ? { serviceIds: next.context.appointmentServiceIds } : {}),
+      weekOffset: 0,
+      exactTime: requestedTime,
+      appointmentId: next.context.mode === 'reschedule' ? next.context.appointmentId : undefined
+    })
+    if (!dates.length) {
+      if (next.context.selectedDate) {
+        const times = await this.gateway.getAvailableTimes({
+          businessId: input.businessId,
+          serviceId: next.context.serviceId!,
+          ...(next.context.mode === 'reschedule' && next.context.appointmentServiceIds ? { serviceIds: next.context.appointmentServiceIds } : {}),
+          date: next.context.selectedDate,
+          appointmentId: next.context.mode === 'reschedule' ? next.context.appointmentId : undefined
+        })
+        const nearby = this.closestTimes(times, requestedTime)
+        if (nearby.length) {
+          return this.show(
+            this.withContext(next, { selectedTime: undefined }),
+            'BOOK_TIME',
+            `No encontré disponibilidad a las ${requestedTime} durante los próximos 30 días. Podés elegir uno de estos horarios disponibles más cercanos para ${next.context.selectedDateLabel || next.context.selectedDate}:`,
+            this.timeOptions(nearby, 0, true)
+          )
+        }
+      }
+      return this.show(next, 'BOOK_DATE', `No encontré disponibilidad a las ${requestedTime} durante los próximos 30 días. Podés consultar otros días o pedir ayuda.`, this.dateNavigation())
+    }
+    return this.show(next, 'BOOK_DATE', `Encontré estos próximos días disponibles a las ${requestedTime}:`, this.dateOptions(dates, true, 0))
+  }
+
   private async optionsFor(state: TamaraOptionsBotState, input: Pick<HandleInput, 'businessId' | 'phone'>): Promise<TamaraBotOption[]> {
     switch (state.node) {
       case 'MAIN_MENU': return MAIN_OPTIONS
@@ -503,6 +584,7 @@ export class TamaraOptionsBot {
       case 'CONTACT': return this.navigation()
       case 'BOOK_CATEGORY': return this.categoryOptions(await this.gateway.getCategories({ businessId: input.businessId }), state.context.listPage ?? 0)
       case 'BOOK_SERVICE': return this.serviceOptions(await this.gateway.getServices({ businessId: input.businessId, categoryId: state.context.categoryId! }), state.context.listPage ?? 0)
+      case 'BOOK_DATE_METHOD': return this.dateMethodOptions()
       case 'BOOK_DATE': return this.dateOptions(await this.gateway.getAvailableDates({
         businessId: input.businessId,
         serviceId: state.context.serviceId!,
@@ -518,7 +600,7 @@ export class TamaraOptionsBot {
         ...(state.context.mode === 'reschedule' && state.context.appointmentServiceIds ? { serviceIds: state.context.appointmentServiceIds } : {}),
         date: state.context.selectedDate!,
         appointmentId: state.context.mode === 'reschedule' ? state.context.appointmentId : undefined
-      }), state.context.listPage ?? 0)
+      }), state.context.listPage ?? 0, Boolean(state.context.requestedTime))
       case 'BOOK_CONFIRM': return this.confirmOptions()
       case 'APPOINTMENT_LIST': return this.appointmentOptions(await this.gateway.getUpcomingAppointments({ businessId: input.businessId, phone: input.phone }), state.context.listPage ?? 0)
       case 'APPOINTMENT_ACTION': return this.appointmentActionOptions()
@@ -527,6 +609,7 @@ export class TamaraOptionsBot {
   }
 
   private resolveAction(message: string, interactiveReplyId: string | undefined, options: TamaraBotOption[]) {
+    if (interactiveReplyId === TAMARA_STALE_INTERACTIVE_REPLY_ID) return interactiveReplyId
     if (interactiveReplyId) return options.some((option) => option.id === interactiveReplyId) ? interactiveReplyId : null
     const raw = String(message ?? '').trim()
     return options.find((option) => option.title === raw)?.id ?? null
@@ -534,9 +617,10 @@ export class TamaraOptionsBot {
 
   private categoryOptions(items: TamaraBotCategory[], page = 0) { const paged = this.paginate(items, page, 5); return [...paged.items.map((item) => ({ id: `category:${item.id}`, title: item.name.slice(0, 24) })), ...paged.controls, ...this.navigation()] }
   private serviceOptions(items: TamaraBotService[], page = 0) { const paged = this.paginate(items, page, 5); return [...paged.items.map((item) => ({ id: `service:${item.id}`, title: item.name.slice(0, 24), description: `${item.durationMinutes} minutos` })), ...paged.controls, ...this.navigation()] }
-  private dateOptions(items: TamaraBotAvailableDate[], exactTime = false, page = 0) { const paged = this.paginate(items, page, exactTime ? 4 : 3); return [...paged.items.map((item) => ({ id: `date:${item.date}`, title: item.label.slice(0, 24) })), ...paged.controls, ...(!exactTime ? [{ id: 'date:specific_time', title: 'Buscar horario exacto' }] : []), { id: 'date:next_week', title: 'Consultar otra semana' }, ...this.navigation()] }
+  private dateMethodOptions(): TamaraBotOption[] { return [{ id: 'date_method:available', title: 'Ver próximos días' }, { id: 'date_method:exact', title: 'Elegir fecha exacta' }, { id: 'date_method:time', title: 'Buscar por horario' }, ...this.navigation()] }
+  private dateOptions(items: TamaraBotAvailableDate[], exactTime = false, page = 0) { const paged = this.paginate(items, page, 4); return [...paged.items.map((item) => ({ id: `date:${item.date}`, title: item.label.slice(0, 24) })), ...paged.controls, { id: 'date:next_week', title: 'Consultar otra semana' }, ...this.navigation()] }
   private dateNavigation() { return [{ id: 'date:next_week', title: 'Consultar otra semana' }, ...this.navigation()] }
-  private timeOptions(items: string[], page = 0) { const paged = this.paginate(items, page, 4); return [...paged.items.map((time) => ({ id: `time:${time}`, title: time })), ...paged.controls, { id: 'time:specific', title: 'Buscar horario exacto' }, ...this.navigation()] }
+  private timeOptions(items: string[], page = 0, offerSearchByTime = false) { const paged = this.paginate(items, page, 4); return [...paged.items.map((time) => ({ id: `time:${time}`, title: time })), ...paged.controls, offerSearchByTime ? { id: 'time:search_days', title: 'Buscar por horario' } : { id: 'time:specific', title: 'Buscar horario exacto' }, ...this.navigation()] }
   private appointmentOptions(items: TamaraBotAppointment[], page = 0) { const paged = this.paginate(items, page, 5); return [...paged.items.map((item) => ({ id: `appointment:${item.id}`, title: `${item.dateLabel} · ${item.time}`.slice(0, 24), description: item.serviceName.slice(0, 72) })), ...paged.controls, ...this.navigation()] }
   private appointmentActionOptions() { return [{ id: 'appointment:reschedule', title: 'Reprogramar turno' }, { id: 'appointment:cancel', title: 'Cancelar reserva' }, ...this.navigation()] }
   private confirmOptions() { return [{ id: 'booking:confirm', title: 'Confirmar' }, ...this.navigation()] }
@@ -550,6 +634,18 @@ export class TamaraOptionsBot {
       ...((safePage + 1) * size < items.length ? [{ id: 'list:next', title: 'Ver más opciones' }] : [])
     ]
     return { items: items.slice(safePage * size, (safePage + 1) * size), controls }
+  }
+
+  private closestTimes(items: string[], requestedTime: string) {
+    const minutes = (time: string) => {
+      const [hours = 0, minute = 0] = time.split(':').map(Number)
+      return hours * 60 + minute
+    }
+    const requestedMinutes = minutes(requestedTime)
+    return [...items].sort((left, right) => {
+      const distance = Math.abs(minutes(left) - requestedMinutes) - Math.abs(minutes(right) - requestedMinutes)
+      return distance || minutes(left) - minutes(right)
+    })
   }
 
   private async goBack(state: TamaraOptionsBotState, input: Pick<HandleInput, 'businessId' | 'phone'>) {
@@ -596,7 +692,32 @@ export class TamaraOptionsBot {
   }
 
   private isFreeTextNode(node: TamaraOptionsBotNode) {
-    return ['PROPOSAL_NAME', 'PROPOSAL_TEXT', 'FIRST_CONSULTATION_NAME', 'FIRST_CONSULTATION_REASON', 'HUMAN_NAME', 'HUMAN_REASON', 'BOOK_SPECIFIC_TIME', 'BOOK_CUSTOMER_NAME'].includes(node)
+    return ['PROPOSAL_NAME', 'PROPOSAL_TEXT', 'FIRST_CONSULTATION_NAME', 'FIRST_CONSULTATION_REASON', 'HUMAN_NAME', 'HUMAN_REASON', 'BOOK_SPECIFIC_DATE', 'BOOK_SPECIFIC_TIME', 'BOOK_CUSTOMER_NAME'].includes(node)
+  }
+
+  private parseSpecificDate(value: string, now: Date) {
+    const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value)
+    if (!match) return null
+    const day = Number(match[1])
+    const month = Number(match[2])
+    const year = Number(match[3])
+    const parsed = new Date(Date.UTC(year, month - 1, day, 12))
+    if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) return null
+    const key = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+    const today = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Argentina/Buenos_Aires',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(now)
+    if (key < today) return null
+    const label = new Intl.DateTimeFormat('es-AR', {
+      weekday: 'long',
+      day: '2-digit',
+      month: '2-digit',
+      timeZone: 'UTC'
+    }).format(parsed).replace(/^./, (letter) => letter.toUpperCase())
+    return { key, label }
   }
 
   private validName(value: string) { return value.length >= 2 && value.length <= 80 && /[\p{L}]/u.test(value) }
@@ -615,7 +736,9 @@ export class TamaraOptionsBot {
       HUMAN_REASON: 'Contame en qué necesitás ayuda.',
       BOOK_CATEGORY: 'Elegí una categoría:',
       BOOK_SERVICE: 'Elegí un servicio:',
+      BOOK_DATE_METHOD: '¿Cómo querés elegir el día?',
       BOOK_DATE: 'Elegí un día:',
+      BOOK_SPECIFIC_DATE: 'Escribí la fecha con formato DD/MM/AAAA.',
       BOOK_TIME: 'Elegí un horario:',
       BOOK_SPECIFIC_TIME: 'Escribí el horario con formato HH:mm.',
       BOOK_CUSTOMER_NAME: 'Decime tu nombre.',
@@ -634,7 +757,7 @@ export class TamaraOptionsBot {
     const validNodes = new Set<TamaraOptionsBotNode>([
       'MAIN_MENU', 'WORKING_HOURS', 'CONTACT', 'PROPOSAL_CHANNEL', 'PROPOSAL_NAME', 'PROPOSAL_TEXT',
       'FIRST_CONSULTATION_NAME', 'FIRST_CONSULTATION_REASON', 'HUMAN_NAME', 'HUMAN_REASON', 'BOOK_CATEGORY',
-      'BOOK_SERVICE', 'BOOK_DATE', 'BOOK_TIME', 'BOOK_SPECIFIC_TIME', 'BOOK_CUSTOMER_NAME', 'BOOK_CONFIRM',
+      'BOOK_SERVICE', 'BOOK_DATE_METHOD', 'BOOK_DATE', 'BOOK_SPECIFIC_DATE', 'BOOK_TIME', 'BOOK_SPECIFIC_TIME', 'BOOK_CUSTOMER_NAME', 'BOOK_CONFIRM',
       'APPOINTMENT_LIST', 'APPOINTMENT_ACTION'
     ])
     if (!input?.node || !validNodes.has(input.node)) return this.initialState()
