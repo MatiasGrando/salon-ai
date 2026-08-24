@@ -26,6 +26,7 @@
     "test:reminders": "tsx scripts/reminder-mode-contract-test.ts",
     "test:professional-avatar": "tsx scripts/professional-avatar-update-contract-test.ts",
     "test:professional-bot-bookings": "tsx scripts/professional-bot-booking-contract-test.ts",
+    "test:tamara-options-bot": "tsx scripts/tamara-options-bot-contract-test.ts",
     "test:professional-schedule": "tsx scripts/professional-weekly-schedule-contract-test.ts",
     "test:service-duration": "tsx scripts/service-duration-contract-test.ts",
     "test:service-booking-order": "tsx scripts/service-booking-order-contract-test.ts",

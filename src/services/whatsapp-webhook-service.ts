@@ -702,10 +702,12 @@ export class WhatsAppWebhookService {
         }
       }
       const exclusiveSupportBotResult = firstMessage.businessId
-        ? await handleExclusiveBusinessSupportBotMessage({
+          ? await handleExclusiveBusinessSupportBotMessage({
             businessId: firstMessage.businessId,
             conversationId: firstMessage.conversationId,
-            message: combinedMessage
+            message: combinedMessage,
+            ...(effectiveInteractiveReplyId ? { interactiveReplyId: effectiveInteractiveReplyId } : {}),
+            previousActivityAt: firstMessage.previousActivityAt
           })
         : null
       if (exclusiveSupportBotResult) return exclusiveSupportBotResult

@@ -60,6 +60,11 @@ import {
   publishConversationUpdated,
   subscribeToCrmRealtimeEvents
 } from '../services/crm-realtime-events.js'
+import {
+  assignTamaraOptionsBotToBusiness,
+  getTamaraOptionsBotProfile
+} from '../services/business-bot-configuration-service.js'
+import { setTamaraOptionsBotEnabled } from '../services/business-bot-activation-service.js'
 
 const bookingV2Engine = new BookingV2Engine()
 const WHATSAPP_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000
@@ -613,6 +618,9 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
       featureSettings?.assistantPersonality
     )
     const contextSettings = normalizeConversationContextSettings(featureSettings)
+    const tamaraOptionsBot = business
+      ? await getTamaraOptionsBotProfile(business.id)
+      : { available: false, professional: null, assigned: false, enabled: false }
 
     return {
       businessId: business?.id ?? null,
@@ -625,6 +633,7 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
       bookingFlowOrder: normalizeBookingFlowOrder(featureSettings?.bookingFlowOrder),
       conversationPauseAfterMinutes: contextSettings.pauseAfterMinutes,
       conversationExpireAfterMinutes: contextSettings.expireAfterMinutes,
+      tamaraOptionsBot,
       assistantPersonality,
       assistantPersonalityPreview: assistantPersonalityPreview(assistantPersonality)
     }
@@ -641,6 +650,7 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
       conversationPauseAfterMinutes?: number
       conversationExpireAfterMinutes?: number
       assistantPersonality?: unknown
+      tamaraOptionsBotEnabled?: boolean
     }
 
     if (
@@ -652,6 +662,7 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
       body.conversationPauseAfterMinutes === undefined &&
       body.conversationExpireAfterMinutes === undefined &&
       body.assistantPersonality === undefined
+      && typeof body.tamaraOptionsBotEnabled !== 'boolean'
     ) {
       return reply.status(400).send({
         message: 'Envia una configuracion valida para actualizar'
@@ -664,6 +675,23 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
       return reply.status(404).send({
         message: 'No encontre un negocio cargado'
       })
+    }
+
+    if (typeof body.tamaraOptionsBotEnabled === 'boolean') {
+      const profile = await getTamaraOptionsBotProfile(business.id)
+      if (!profile.available || !profile.professional) {
+        return reply.status(409).send({ message: 'Este bot sólo está disponible para el perfil profesional de Tamara.' })
+      }
+      try {
+        if (body.tamaraOptionsBotEnabled && !profile.assigned) {
+          await assignTamaraOptionsBotToBusiness(business.id, profile.professional.id)
+        }
+        if (body.tamaraOptionsBotEnabled || profile.assigned) {
+          await setTamaraOptionsBotEnabled(business.id, body.tamaraOptionsBotEnabled)
+        }
+      } catch (error) {
+        return reply.status(409).send({ message: error instanceof Error ? error.message : 'No pude actualizar el bot de Tamara' })
+      }
     }
 
     if (
@@ -784,6 +812,7 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
       featureSettings?.assistantPersonality
     )
     const contextSettings = normalizeConversationContextSettings(featureSettings)
+    const tamaraOptionsBot = await getTamaraOptionsBotProfile(business.id)
 
     return {
       ...updatedBusiness,
@@ -794,6 +823,7 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
       bookingFlowOrder: normalizeBookingFlowOrder(featureSettings?.bookingFlowOrder),
       conversationPauseAfterMinutes: contextSettings.pauseAfterMinutes,
       conversationExpireAfterMinutes: contextSettings.expireAfterMinutes,
+      tamaraOptionsBot,
       assistantPersonality,
       assistantPersonalityPreview: assistantPersonalityPreview(assistantPersonality)
     }

@@ -16374,6 +16374,15 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               <input id="booking-v2-toggle" type="checkbox">
               <span class="automation-switch" aria-hidden="true"></span>
             </label>
+            <label class="automation-control" id="tamara-options-bot-control" hidden>
+              <div class="automation-copy">
+                <strong>Bot de opciones de Tamara</strong>
+                <span>Activa el men&uacute; exclusivo para reservas, consultas, propuestas y derivaciones del perfil de Tamara.</span>
+                <small id="tamara-options-bot-status">Disponible</small>
+              </div>
+              <input id="tamara-options-bot-toggle" type="checkbox">
+              <span class="automation-switch" aria-hidden="true"></span>
+            </label>
             </div>
             <div class="assistant-personality-grid">
               <div class="settings-field full">
@@ -17417,6 +17426,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         botEnabled: true,
         aiEnabled: true,
         bookingV2Enabled: false,
+        tamaraOptionsBot: { available: false, assigned: false, enabled: false, professional: null },
         serviceCatalogDisplayMode: 'ALL_SERVICES',
         bookingFlowOrder: 'PROFESSIONAL_FIRST',
         conversationPauseAfterMinutes: 120,
@@ -17597,6 +17607,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       globalBotToggle: document.getElementById('global-bot-toggle'),
       globalAiToggle: document.getElementById('global-ai-toggle'),
       bookingV2Toggle: document.getElementById('booking-v2-toggle'),
+      tamaraOptionsBotControl: document.getElementById('tamara-options-bot-control'),
+      tamaraOptionsBotToggle: document.getElementById('tamara-options-bot-toggle'),
+      tamaraOptionsBotStatus: document.getElementById('tamara-options-bot-status'),
       globalBotStatus: document.getElementById('global-bot-status'),
       globalAiStatus: document.getElementById('global-ai-status'),
       bookingV2Status: document.getElementById('booking-v2-status'),
@@ -22790,6 +22803,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.globalAiStatus.className = state.aiSettings.aiEnabled === false ? 'basic' : ''
       els.bookingV2Status.textContent = state.aiSettings.bookingV2Enabled === true ? 'Booking V2' : 'Bot actual'
       els.bookingV2Status.className = state.aiSettings.bookingV2Enabled === true ? '' : 'basic'
+      const tamaraBot = state.aiSettings.tamaraOptionsBot || { available: false, enabled: false }
+      els.tamaraOptionsBotControl.hidden = tamaraBot.available !== true
+      els.tamaraOptionsBotToggle.checked = tamaraBot.enabled === true
+      els.tamaraOptionsBotStatus.textContent = tamaraBot.enabled === true ? 'Activo en WhatsApp' : 'Disponible para habilitar'
+      els.tamaraOptionsBotStatus.className = tamaraBot.enabled === true ? '' : 'basic'
       els.serviceCatalogDisplayMode.value = state.aiSettings.serviceCatalogDisplayMode || 'ALL_SERVICES'
       els.bookingFlowOrder.value = state.aiSettings.bookingFlowOrder || 'PROFESSIONAL_FIRST'
       updateServiceCatalogDisplayHelp()
@@ -23620,6 +23638,29 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         showAutomationSettingsFeedback(error.message, 'error')
       } finally {
         els.bookingV2Toggle.disabled = false
+      }
+    }
+
+    async function toggleTamaraOptionsBot() {
+      const nextValue = els.tamaraOptionsBotToggle.checked
+      clearAutomationSettingsFeedback()
+      els.tamaraOptionsBotToggle.disabled = true
+      try {
+        state.aiSettings = await getJson('/crm/ai-settings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            businessId: state.businessId,
+            tamaraOptionsBotEnabled: nextValue
+          })
+        })
+        renderAiControls()
+        showAutomationSettingsFeedback(nextValue ? 'Bot de opciones de Tamara activo.' : 'Bot de opciones de Tamara desactivado.', 'success')
+      } catch (error) {
+        renderAiControls()
+        showAutomationSettingsFeedback(error.message, 'error')
+      } finally {
+        els.tamaraOptionsBotToggle.disabled = false
       }
     }
 
@@ -31436,6 +31477,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     els.globalBotToggle.addEventListener('change', toggleGlobalBot)
     els.globalAiToggle.addEventListener('change', toggleGlobalAi)
     els.bookingV2Toggle.addEventListener('change', toggleBookingV2)
+    els.tamaraOptionsBotToggle.addEventListener('change', toggleTamaraOptionsBot)
     els.automationSettingsForm.addEventListener('submit', saveAutomationSettings)
     els.serviceCatalogDisplayMode.addEventListener('change', updateServiceCatalogDisplayHelp)
     els.assistantPersonalityForm.addEventListener('submit', saveAssistantPersonality)
