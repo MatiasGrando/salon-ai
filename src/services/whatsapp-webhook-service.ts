@@ -253,6 +253,7 @@ export class WhatsAppWebhookService {
       latencyDiagnostic?.checkpoint('duplicate_check')
 
       const conversation = existingConversation ?? await prisma.conversation.upsert(conversationUpsert)
+      const isTamaraOptionsBot = conversation.supportBotKey === TAMARA_OPTIONS_BOT_KEY
       let resolvedInteractiveReplyId = message.interactiveReplyId
       let recoverStaleTamaraReply = false
 
@@ -303,13 +304,20 @@ export class WhatsAppWebhookService {
             const value = await transaction.message.create({
               data: {
                 ...inboundMessageData,
-                status: admission.accepted ? 'received' : 'ignored_stale_button'
+                status: admission.accepted
+                  ? isTamaraOptionsBot && conversation.aiEnabled
+                    ? 'queued_bot'
+                    : 'received'
+                  : 'ignored_stale_button'
               }
             })
             if (admission.accepted) {
               await transaction.conversation.update({
                 where: { id: conversation.id },
-                data: conversationActivityData
+                data: {
+                  ...conversationActivityData,
+                  ...(isTamaraOptionsBot ? { activeInteractivePromptToken: null } : {})
+                }
               })
             }
             return value
@@ -633,7 +641,6 @@ export class WhatsAppWebhookService {
         continue
       }
 
-      const isTamaraOptionsBot = conversation.supportBotKey === TAMARA_OPTIONS_BOT_KEY
       const automaticMessage: AutomaticInboundMessage = {
         inboundMessageId: inboundMessage.id,
         receivedAt: inboundMessage.createdAt,
@@ -646,13 +653,16 @@ export class WhatsAppWebhookService {
         ...(resolvedInteractiveReplyId
           ? { interactiveReplyId: resolvedInteractiveReplyId }
           : {}),
-        ...(!recoverStaleTamaraReply && message.interactiveReplyId && parseVersionedInteractiveReplyId(message.interactiveReplyId)
+        ...(!isTamaraOptionsBot &&
+          !recoverStaleTamaraReply &&
+          message.interactiveReplyId &&
+          parseVersionedInteractiveReplyId(message.interactiveReplyId)
           ? { interactivePromptToken: parseVersionedInteractiveReplyId(message.interactiveReplyId)!.token }
           : {}),
         ...(message.media?.type === 'image' ? { hasImageAttachment: true } : {}),
         ...(latencyDiagnostic ? { latencyDiagnostic } : {})
       }
-      if (!automaticMessage.interactivePromptToken) {
+      if (!automaticMessage.interactivePromptToken && inboundMessage.status === 'received') {
         await prisma.message.updateMany({
           where: { id: inboundMessage.id, status: 'received' },
           data: { status: 'queued_bot' }
