@@ -6027,8 +6027,8 @@ export function bookingCoordinationReplyButtons(input: {
       (input.state.draft.service || input.state.combinedServices.length || pending.remainingGroups?.length)
     )
     return [
-      ...input.serviceOptions.map((service, index) => ({
-        id: `${prefix}disambiguation_option:${index + 1}`,
+      ...input.serviceOptions.map((service) => ({
+        id: `${prefix}service_selection:${encodeURIComponent(service.id)}`,
         title: service.name
       })),
       ...(canSkipCurrentGroup
@@ -6396,8 +6396,17 @@ export function bookingCoordinationMessageFromInteractiveReply(
   if (action === 'disambiguation_confirm') return 'sí'
   if (action === 'disambiguation_reject') return 'no'
   if (action === 'disambiguation_skip') return 'skip pending service'
+  if (action.startsWith('service_selection:')) {
+    const encodedServiceId = action.slice('service_selection:'.length)
+    if (!encodedServiceId) return null
+    try {
+      return `service-selection:${decodeURIComponent(encodedServiceId)}`
+    } catch {
+      return null
+    }
+  }
   const disambiguationOption = /^disambiguation_option:([1-9])$/.exec(action)?.[1]
-  if (disambiguationOption) return disambiguationOption
+  if (disambiguationOption) return `service-selection-index:${disambiguationOption}`
   if (action === 'service_edit_confirm') return 'sí, confirmo'
   if (action === 'service_edit_cancel') return 'no, conservar'
   if (action === 'estimate_continue') return 'sí, quiero continuar con la reserva'

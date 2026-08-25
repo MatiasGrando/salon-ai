@@ -4965,9 +4965,26 @@ function resolveCatalogServiceSelection(
   catalog: BookingV2DomainCatalog,
   options?: CatalogServiceSelectionOptions
 ) {
+  const selectionCatalog = catalogForServiceSelection(catalog, options)
+  const interactiveServiceId = message.startsWith('service-selection:')
+    ? message.slice('service-selection:'.length)
+    : null
+  if (interactiveServiceId) {
+    const selectedService = selectionCatalog.services.find((service) => service.id === interactiveServiceId)
+    return selectedService
+      ? { kind: 'selected' as const, serviceId: selectedService.id }
+      : null
+  }
+  const legacyInteractiveIndex = /^service-selection-index:([1-9])$/.exec(message)?.[1]
+  if (legacyInteractiveIndex && options?.serviceIds) {
+    const selectedService = selectionCatalog.services[Number(legacyInteractiveIndex) - 1]
+    return selectedService
+      ? { kind: 'selected' as const, serviceId: selectedService.id }
+      : null
+  }
+
   const signature = selectionSignature(message)
   if (!signature) return null
-  const selectionCatalog = catalogForServiceSelection(catalog, options)
 
   const genericFamilyMatches = genericServiceFamilyMatches(signature, selectionCatalog)
   if (genericFamilyMatches.length > 1) {
@@ -5899,7 +5916,8 @@ function hasMultipleServiceSignal(message: string, catalog: BookingV2DomainCatal
 
 function serviceOptionIndex(message: string, optionCount: number) {
   const normalizedMessage = normalize(message)
-  const numeric = /^(?:(?:opcion|numero|la)\s+)?([1-9])(?:\s+opcion)?$/.exec(normalizedMessage)?.[1]
+  const numeric = /^service-selection-index:([1-9])$/.exec(message)?.[1] ??
+    /^(?:(?:opcion|numero|la)\s+)?([1-9])(?:\s+opcion)?$/.exec(normalizedMessage)?.[1]
   const numericIndex = numeric ? Number(numeric) - 1 : -1
   if (numericIndex >= 0 && numericIndex < optionCount) return numericIndex
   const ordinals = [

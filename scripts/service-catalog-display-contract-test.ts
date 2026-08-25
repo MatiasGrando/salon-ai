@@ -15,6 +15,8 @@ import {
   createEmptyBookingV2State
 } from '../src/services/booking-v2-state.js'
 import {
+  bookingCoordinationMessageFromInteractiveReply,
+  bookingCoordinationReplyButtons,
   catalogRecoveryActionFromInteractiveReply,
   catalogRecoveryDecisionButtons
 } from '../src/services/conversation-service.js'
@@ -265,6 +267,52 @@ assert.equal(selectedCategoryService.state.draft.service, 'raices')
 assert.match(selectedCategoryService.reply, /Tamara/)
 assert.doesNotMatch(selectedCategoryService.reply, /Lucas/)
 assert.match(selectedCategoryService.reply, /¿Querés atenderte con Tamara\?/)
+
+const interactiveCategoryEngine = engineFor(reservableCategoriesCatalog)
+const interactiveCategory = await interactiveCategoryEngine.process({
+  businessId: 'business-1',
+  conversation: conversationPatchFromState(namedState),
+  message: 'Coloración'
+})
+const interactiveServiceOptions = await interactiveCategoryEngine.serviceOptionsForState({
+  businessId: 'business-1',
+  state: interactiveCategory.state
+})
+const interactiveServiceButtons = bookingCoordinationReplyButtons({
+  conversationId: 'conversation-category-button',
+  plan: interactiveCategory.plan,
+  state: interactiveCategory.state,
+  serviceOptions: interactiveServiceOptions
+})
+const rootsButton = interactiveServiceButtons?.find((button) => button.title === 'Raíces')
+assert.ok(rootsButton)
+const rootsButtonMessage = bookingCoordinationMessageFromInteractiveReply(
+  rootsButton.id,
+  'conversation-category-button'
+)
+assert.equal(rootsButtonMessage, 'service-selection:raices')
+const selectedCategoryServiceFromButton = await interactiveCategoryEngine.process({
+  businessId: 'business-1',
+  conversation: interactiveCategory.conversationPatch,
+  message: rootsButtonMessage ?? ''
+})
+assert.equal(selectedCategoryServiceFromButton.state.draft.service, 'raices')
+assert.match(selectedCategoryServiceFromButton.reply, /Tamara/)
+assert.doesNotMatch(selectedCategoryServiceFromButton.reply, /¿Qué tipo de servicio buscás\?/)
+
+const legacyRootsButtonMessage = bookingCoordinationMessageFromInteractiveReply(
+  'coord:conversation-category-button:disambiguation_option:2',
+  'conversation-category-button'
+)
+assert.equal(legacyRootsButtonMessage, 'service-selection-index:2')
+const selectedCategoryServiceFromLegacyButton = await interactiveCategoryEngine.process({
+  businessId: 'business-1',
+  conversation: interactiveCategory.conversationPatch,
+  message: legacyRootsButtonMessage ?? ''
+})
+assert.equal(selectedCategoryServiceFromLegacyButton.state.draft.service, 'raices')
+assert.match(selectedCategoryServiceFromLegacyButton.reply, /Tamara/)
+assert.doesNotMatch(selectedCategoryServiceFromLegacyButton.reply, /¿Qué tipo de servicio buscás\?/)
 
 const resumedCategory = await engineFor(categoriesCatalog).resume({
   businessId: 'business-1',
