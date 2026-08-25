@@ -7,6 +7,7 @@ type SendTextMessageInput = {
   businessId?: string | null
   to: string
   text: string
+  credentials?: WhatsAppCloudCredentials
 }
 
 type SendReplyButtonsMessageInput = SendTextMessageInput & {
@@ -352,7 +353,7 @@ export class WhatsAppCloudApi {
   }
 
   async sendTextMessage(input: SendTextMessageInput) {
-    const config = await resolveBusinessWhatsAppCredentials(input.businessId)
+    const config = input.credentials ?? await resolveBusinessWhatsAppCredentials(input.businessId)
     const recipientPhone = formatRecipientPhone(input.to, config)
 
     if (!config.accessToken || !config.phoneNumberId) {
@@ -407,7 +408,7 @@ export class WhatsAppCloudApi {
   }
 
   async sendReplyButtonsMessage(input: SendReplyButtonsMessageInput) {
-    const config = await resolveBusinessWhatsAppCredentials(input.businessId)
+    const config = input.credentials ?? await resolveBusinessWhatsAppCredentials(input.businessId)
     const recipientPhone = formatRecipientPhone(input.to, config)
 
     if (!config.accessToken || !config.phoneNumberId) {
@@ -446,7 +447,7 @@ export class WhatsAppCloudApi {
   }
 
   async sendInteractiveListMessage(input: SendInteractiveListMessageInput) {
-    const config = await resolveBusinessWhatsAppCredentials(input.businessId)
+    const config = input.credentials ?? await resolveBusinessWhatsAppCredentials(input.businessId)
     const recipientPhone = formatRecipientPhone(input.to, config)
 
     if (!config.accessToken || !config.phoneNumberId) {

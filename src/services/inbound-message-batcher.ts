@@ -1,6 +1,13 @@
+import { performance } from 'node:perf_hooks'
+
 export type InboundMessageBatchProcessor<TItem, TResult> = (
   items: TItem[]
 ) => Promise<TResult>
+
+export type InboundMessageBatcherTiming = {
+  onDebounceComplete?: (durationMs: number) => unknown
+  onProcessingTailReady?: (durationMs: number) => unknown
+}
 
 type PendingBatch<TItem, TResult> = {
   items: TItem[]
@@ -10,6 +17,8 @@ type PendingBatch<TItem, TResult> = {
   promise: Promise<TResult>
   resolve: (result: TResult) => void
   reject: (error: unknown) => void
+  debounceStartedAt: number
+  timing?: InboundMessageBatcherTiming
 }
 
 export class InboundMessageBatcher {
@@ -33,6 +42,7 @@ export class InboundMessageBatcher {
     item: TItem
     process: InboundMessageBatchProcessor<TItem, TResult>
     immediate?: boolean
+    timing?: InboundMessageBatcherTiming
   }): Promise<TResult> {
     let existing = this.pending.get(input.key) as PendingBatch<TItem, TResult> | undefined
     if (existing && input.immediate) {
@@ -58,7 +68,9 @@ export class InboundMessageBatcher {
       processor: input.process,
       promise,
       resolve,
-      reject
+      reject,
+      debounceStartedAt: performance.now(),
+      ...(input.timing ? { timing: input.timing } : {})
     }
     this.pending.set(input.key, batch as PendingBatch<unknown, unknown>)
     this.schedule(input.key, batch, input.immediate === true)
@@ -83,11 +95,15 @@ export class InboundMessageBatcher {
     if (this.pending.get(key) !== batch) return
     this.pending.delete(key)
     if (batch.timer) clearTimeout(batch.timer)
+    notifyTiming(batch.timing?.onDebounceComplete, performance.now() - batch.debounceStartedAt)
 
     const previous = this.processingTails.get(key) ?? Promise.resolve()
-    const execution = previous
-      .catch(() => undefined)
-      .then(() => batch.processor([...batch.items]))
+    const tailWaitStartedAt = performance.now()
+    const execution = (async () => {
+      await previous.catch(() => undefined)
+      notifyTiming(batch.timing?.onProcessingTailReady, performance.now() - tailWaitStartedAt)
+      return batch.processor([...batch.items])
+    })()
     const tail = execution.then(() => undefined, () => undefined)
     this.processingTails.set(key, tail)
 
@@ -100,5 +116,14 @@ export class InboundMessageBatcher {
         this.processingTails.delete(key)
       }
     }
+  }
+}
+
+function notifyTiming(callback: ((durationMs: number) => unknown) | undefined, durationMs: number) {
+  try {
+    const result = callback?.(durationMs)
+    void Promise.resolve(result).catch(() => undefined)
+  } catch {
+    // La observabilidad nunca debe interrumpir el procesamiento del batch.
   }
 }

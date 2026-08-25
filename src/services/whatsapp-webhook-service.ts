@@ -1,8 +1,11 @@
 import { whatsappConfig } from '../config/whatsapp.js'
 import { prisma } from '../config/prisma.js'
-import type { Prisma } from '../generated/prisma/client.js'
+import type { Conversation, Prisma } from '../generated/prisma/client.js'
 import { WhatsAppCloudApi } from '../integrations/whatsapp-cloud-api.js'
-import { assertBusinessCanSendWhatsApp } from './business-whatsapp-settings.js'
+import {
+  assertBusinessCanSendWhatsApp,
+  resolveBusinessWhatsAppCredentialsFromState
+} from './business-whatsapp-settings.js'
 import { ConversationService } from './conversation-service.js'
 import { handleExclusiveBusinessSupportBotMessage } from './business-support-bot-runtime.js'
 import { reopenClosedConversationOpportunity } from './conversation-opportunity-service.js'
@@ -379,17 +382,26 @@ export class WhatsAppWebhookService {
         })
       }
       latencyDiagnostic?.checkpoint('persist_inbound')
-      await reopenClosedConversationOpportunity(conversation.id)
-      await linkInstagramReferral(message.text, conversation.id, conversation.businessId)
-      latencyDiagnostic?.checkpoint('conversation_housekeeping')
-
-      const marketingOptOutApplied = await this.applyMarketingOptOut({
+      const runHousekeeping = async () => {
+        await Promise.all([
+          reopenClosedConversationOpportunity(conversation.id),
+          linkInstagramReferral(message.text, conversation.id, conversation.businessId)
+        ])
+      }
+      const housekeepingPromise = latencyDiagnostic
+        ? latencyDiagnostic.measureDuration('conversation_housekeeping', runHousekeeping)
+        : runHousekeeping()
+      void housekeepingPromise.catch(() => undefined)
+      const applyMarketingOptOut = () => this.applyMarketingOptOut({
         businessId: conversation.businessId,
         phone: message.from,
         text: message.text
       })
-      latencyDiagnostic?.checkpoint('marketing_check')
+      const marketingOptOutApplied = latencyDiagnostic
+        ? await latencyDiagnostic.measureDuration('marketing_check', applyMarketingOptOut)
+        : await applyMarketingOptOut()
       if (marketingOptOutApplied && !shouldDeferMarketingOptOutReply(conversation.currentStep)) {
+        await housekeepingPromise
         const replyText = 'Listo. No vas a recibir más promociones. Los mensajes relacionados con tus turnos seguirán funcionando.'
         const gate = conversation.businessId ? await assertBusinessCanSendWhatsApp(conversation.businessId, 'BOT') : null
         const deliveryResult = gate?.allowed
@@ -418,6 +430,7 @@ export class WhatsAppWebhookService {
       }
 
       if (depositProof) {
+        await housekeepingPromise
         const replyText = DEPOSIT_PROOF_RECEIVED_ACKNOWLEDGEMENT
         const gate = conversation.businessId
           ? await assertBusinessCanSendWhatsApp(conversation.businessId, 'BOT')
@@ -468,6 +481,7 @@ export class WhatsAppWebhookService {
       }
 
       if (lateDepositProof) {
+        await housekeepingPromise
         const replyText = LATE_DEPOSIT_PROOF_ACKNOWLEDGEMENT
         const gate = conversation.businessId
           ? await assertBusinessCanSendWhatsApp(conversation.businessId, 'BOT')
@@ -517,13 +531,17 @@ export class WhatsAppWebhookService {
         continue
       }
 
-      const postSaleResponse = await capturePostSaleResponse({
+      const capturePostSale = () => capturePostSaleResponse({
         conversationId: conversation.id,
         phone: message.from,
         message: message.text,
         businessId: conversation.businessId ?? null
       })
-      latencyDiagnostic?.checkpoint('post_sale_check')
+      const postSalePromise = latencyDiagnostic
+        ? latencyDiagnostic.measureDuration('post_sale_check', capturePostSale)
+        : capturePostSale()
+      const [postSaleResponse] = await Promise.all([postSalePromise, housekeepingPromise])
+      latencyDiagnostic?.resetCheckpoint()
       if (postSaleResponse.captured) {
         let deliveryResult: Awaited<ReturnType<WhatsAppCloudApi['sendTextMessage']>> | null = null
         if (postSaleResponse.reply && conversation.businessId) {
@@ -668,11 +686,20 @@ export class WhatsAppWebhookService {
           data: { status: 'queued_bot' }
         })
       }
+      latencyDiagnostic?.checkpoint('pre_enqueue')
       const automaticTask = inboundMessageBatcher.enqueue({
         key: conversation.id,
         item: automaticMessage,
         immediate: Boolean(message.interactiveReplyId || message.media || isTamaraOptionsBot),
-        process: (batch) => this.processAutomaticInboundBatch(batch, businessAiEnabled)
+        process: (batch) => this.processAutomaticInboundBatch(batch, businessAiEnabled),
+        ...(latencyDiagnostic ? {
+          timing: {
+            onDebounceComplete: (durationMs: number) =>
+              latencyDiagnostic.recordDuration('batch_debounce', durationMs),
+            onProcessingTailReady: (durationMs: number) =>
+              latencyDiagnostic.recordDuration('local_processing_tail_wait', durationMs)
+          }
+        } : {})
       }).then((automaticResult) => {
         results.push({
           messageId: message.id,
@@ -698,19 +725,24 @@ export class WhatsAppWebhookService {
   ) {
     const firstMessage = batch[0]
     if (!firstMessage) throw new Error('No hay mensajes para procesar')
-    return withConversationProcessingLease(firstMessage.conversationId, () =>
-      this.processAutomaticInboundBatchLocked(batch, useAi)
+    return withConversationProcessingLease(
+      firstMessage.conversationId,
+      (leasedConversation) => this.processAutomaticInboundBatchLocked(batch, useAi, leasedConversation),
+      {
+        onAcquired: (durationMs) =>
+          firstMessage.latencyDiagnostic?.recordDuration('conversation_lease_wait', durationMs)
+      }
     )
   }
 
   private async processAutomaticInboundBatchLocked(
     batch: AutomaticInboundMessage[],
-    useAi: boolean
+    useAi: boolean,
+    leasedConversation: Conversation
   ) {
     const firstMessage = batch[0]
     if (!firstMessage) throw new Error('No hay mensajes para procesar')
     const latencyDiagnostic = firstMessage.latencyDiagnostic
-    latencyDiagnostic?.checkpoint('batch_wait')
     const combinedMessage = batch.map((message) => message.text.trim()).filter(Boolean).join('\n')
     const promptResolution = firstMessage.interactivePromptToken
       ? await resolveConversationInteractivePrompt(
@@ -756,9 +788,9 @@ export class WhatsAppWebhookService {
             ...(effectiveInteractiveReplyId ? { interactiveReplyId: effectiveInteractiveReplyId } : {}),
             previousActivityAt: firstMessage.previousActivityAt,
             conversationSnapshot: {
-              supportBotState: firstMessage.supportBotState,
-              updatedAt: firstMessage.previousActivityAt,
-              phone: firstMessage.phone
+              supportBotState: leasedConversation.supportBotState,
+              updatedAt: leasedConversation.updatedAt,
+              phone: leasedConversation.phone
             }
           })
         : null
@@ -775,7 +807,8 @@ export class WhatsAppWebhookService {
             ? { hasImageAttachment: true }
             : {}),
           previousActivityAt: firstMessage.previousActivityAt,
-          useAi
+          useAi,
+          conversationSnapshot: leasedConversation
         })
     }
     const conversationResult = latencyDiagnostic
@@ -846,6 +879,9 @@ export class WhatsAppWebhookService {
       : firstMessage.businessId
         ? await assertBusinessCanSendWhatsApp(firstMessage.businessId, 'BOT')
         : null
+    const deliveryCredentials = gate?.allowed
+      ? resolveBusinessWhatsAppCredentialsFromState(gate.state)
+      : null
     const hasReplyButtons = Boolean(conversationResult.replyButtons?.length)
     const interactivePromptToken = hasReplyButtons ? createInteractivePromptToken() : null
     const outboundReplyButtons = interactivePromptToken
@@ -881,6 +917,7 @@ export class WhatsAppWebhookService {
                   businessId: firstMessage.businessId!,
                   to: firstMessage.phone,
                   text: replyText,
+                  ...(deliveryCredentials ? { credentials: deliveryCredentials } : {}),
                   rows: outboundReplyButtons!,
                   buttonText: isDateSelectionList ? 'Ver días disponibles' : 'Ver opciones',
                   sectionTitle: isDateSelectionList ? 'Elegí una fecha' : 'Elegí una opción'
@@ -889,12 +926,14 @@ export class WhatsAppWebhookService {
                 businessId: firstMessage.businessId!,
                 to: firstMessage.phone,
                 text: replyText,
+                ...(deliveryCredentials ? { credentials: deliveryCredentials } : {}),
                 buttons: outboundReplyButtons!
               })
             : whatsappCloudApi.sendTextMessage({
                 businessId: firstMessage.businessId!,
                 to: firstMessage.phone,
-                text: replyText
+                text: replyText,
+                ...(deliveryCredentials ? { credentials: deliveryCredentials } : {})
               })
           : Promise.resolve({
               sent: false as const,

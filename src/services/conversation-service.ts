@@ -1,5 +1,5 @@
 import { prisma } from '../config/prisma.js'
-import { Prisma } from '../generated/prisma/client.js'
+import { Prisma, type Conversation } from '../generated/prisma/client.js'
 import { InternalBookingProvider } from '../providers/internal-booking-provider.js'
 import { AppointmentService } from './appointment-service.js'
 import { AiMessageUnderstandingService, type AiConversationIntent } from './ai-message-understanding-service.js'
@@ -120,6 +120,7 @@ type HandleMessageInput = {
   interactiveReplyId?: string
   previousActivityAt?: Date
   hasImageAttachment?: boolean
+  conversationSnapshot?: Conversation
 }
 
 type HandleMessageRuntimeInput = HandleMessageInput & {
@@ -184,21 +185,29 @@ export class ConversationService {
   private async handleMessageCore(input: HandleMessageRuntimeInput): Promise<HandleMessageResult> {
     let message = input.message.trim()
     const businessId = await this.resolveBusinessId(input.businessId)
-    const existingConversation = businessId
-      ? await prisma.conversation.findUnique({
-          where: {
-            businessId_phone: {
-              businessId,
+    if (
+      input.conversationSnapshot &&
+      (input.conversationSnapshot.businessId !== businessId || input.conversationSnapshot.phone !== input.phone)
+    ) {
+      throw new Error('El snapshot no corresponde a la conversación solicitada')
+    }
+    const existingConversation = input.conversationSnapshot ?? (
+      businessId
+        ? await prisma.conversation.findUnique({
+            where: {
+              businessId_phone: {
+                businessId,
+                phone: input.phone
+              }
+            }
+          })
+        : await prisma.conversation.findFirst({
+            where: {
+              businessId: null,
               phone: input.phone
             }
-          }
-        })
-      : await prisma.conversation.findFirst({
-          where: {
-            businessId: null,
-            phone: input.phone
-          }
-        })
+          })
+    )
     setAiUsageAttribution({
       businessId: businessId ?? null,
       conversationId: existingConversation?.id ?? null,

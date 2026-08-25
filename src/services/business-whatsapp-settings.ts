@@ -14,11 +14,19 @@ export type WhatsAppCloudCredentials = {
 type SendPurpose = 'CAMPAIGN' | 'REMINDER' | 'TEST' | 'BOT' | 'TEMPLATE'
 
 export async function getBusinessWhatsAppState(businessId: string) {
-  const [config, settings, business] = await Promise.all([
-    prisma.businessWhatsAppConfig.findUnique({ where: { businessId } }),
-    prisma.businessFeatureSettings.findUnique({ where: { businessId } }),
-    prisma.business.findUnique({ where: { id: businessId }, select: { id: true, botEnabled: true, aiEnabled: true, accountStatus: true } })
-  ])
+  const business = await prisma.business.findUnique({
+    where: { id: businessId },
+    select: {
+      id: true,
+      botEnabled: true,
+      aiEnabled: true,
+      accountStatus: true,
+      whatsappConfig: true,
+      featureSettings: true
+    }
+  })
+  const config = business?.whatsappConfig ?? null
+  const settings = business?.featureSettings ?? null
 
   const hasBusinessCredentials = Boolean(config?.accessToken && config.phoneNumberId && config.wabaId)
   const hasEnvCredentials = Boolean(whatsappConfig.accessToken && whatsappConfig.phoneNumberId && whatsappConfig.businessAccountId)
@@ -108,6 +116,25 @@ export async function resolveBusinessWhatsAppCredentials(businessId?: string | n
       apiVersion: whatsappConfig.apiVersion,
       phoneNumberMode: whatsappConfig.phoneNumberMode,
       ...(config.wabaId ? { businessAccountId: config.wabaId } : {}),
+      ...(appId ? { appId } : {})
+    }
+  }
+  return whatsappConfig.allowInternalFallback ? envCredentials() : emptyCredentials()
+}
+
+export function resolveBusinessWhatsAppCredentialsFromState(
+  state: Awaited<ReturnType<typeof getBusinessWhatsAppState>>
+): WhatsAppCloudCredentials {
+  if (state.connection.usingInternalFallback) return envCredentials()
+  const config = state.config
+  if (config?.accessToken && config.phoneNumberId && config.wabaId) {
+    const appId = config.metaAppId ?? whatsappConfig.appId
+    return {
+      accessToken: config.accessToken,
+      phoneNumberId: config.phoneNumberId,
+      apiVersion: whatsappConfig.apiVersion,
+      phoneNumberMode: whatsappConfig.phoneNumberMode,
+      businessAccountId: config.wabaId,
       ...(appId ? { appId } : {})
     }
   }

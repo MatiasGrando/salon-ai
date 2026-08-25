@@ -3,12 +3,29 @@ import { InboundMessageBatcher } from '../src/services/inbound-message-batcher.j
 
 const batcher = new InboundMessageBatcher(20, 60)
 const processed: string[][] = []
+const timingEvents: string[] = []
+const timingDurations: number[] = []
 const process = async (items: string[]) => {
+  timingEvents.push('process')
   processed.push(items)
   return items.join('\n')
 }
 
-const first = batcher.enqueue({ key: 'conversation-1', item: 'Quisiera agendar un turno', process })
+const first = batcher.enqueue({
+  key: 'conversation-1',
+  item: 'Quisiera agendar un turno',
+  process,
+  timing: {
+    onDebounceComplete(durationMs) {
+      timingEvents.push('debounce')
+      timingDurations.push(durationMs)
+    },
+    onProcessingTailReady(durationMs) {
+      timingEvents.push('tail')
+      timingDurations.push(durationMs)
+    }
+  }
+})
 await wait(8)
 const second = batcher.enqueue({ key: 'conversation-1', item: 'De color', process })
 await wait(8)
@@ -24,6 +41,8 @@ assert.deepEqual(processed, [[
   'De color',
   'Y corte'
 ]])
+assert.deepEqual(timingEvents, ['debounce', 'tail', 'process'])
+assert.ok(timingDurations.every((durationMs) => durationMs >= 0))
 
 const isolated = new InboundMessageBatcher(10, 30)
 const isolatedCalls: string[][] = []
@@ -108,6 +127,25 @@ const timeMessage = dateAndTime.enqueue({
 })
 await Promise.all([dateMessage, timeMessage])
 assert.equal(combinedDateAndTime, 'El 22 de agosto\nA las 15hs')
+
+const resilient = new InboundMessageBatcher(0, 0)
+const resilientResult = await resilient.enqueue({
+  key: 'conversation-observer-error',
+  item: 'mensaje',
+  immediate: true,
+  timing: {
+    async onDebounceComplete() {
+      await Promise.resolve()
+      throw new Error('fallo de telemetría')
+    },
+    async onProcessingTailReady() {
+      await Promise.resolve()
+      throw new Error('fallo de telemetría')
+    }
+  },
+  process: async ([item]) => item ?? ''
+})
+assert.equal(resilientResult, 'mensaje')
 
 console.log('inbound-message-batcher-contract-test: OK')
 

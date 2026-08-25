@@ -40,6 +40,23 @@ export class LatencyDiagnostic {
     }
   }
 
+  recordDuration(stage: string, durationMs: number) {
+    this.add(stage, durationMs)
+  }
+
+  resetCheckpoint() {
+    this.checkpointAt = this.now()
+  }
+
+  async measureDuration<T>(stage: string, operation: () => Promise<T>): Promise<T> {
+    const startedAt = this.now()
+    try {
+      return await operation()
+    } finally {
+      this.add(stage, this.now() - startedAt)
+    }
+  }
+
   report(): LatencyDiagnosticReport {
     const totalMs = rounded(this.now() - this.startedAt)
     const stages = Object.fromEntries(
