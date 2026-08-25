@@ -1,0 +1,704 @@
+NAVEGACIÓN FUNCIONAL DEL NUEVO BOT POR OPCIONES
+
+DOCUMENTO HISTÓRICO DE RELEVAMIENTO
+===================================
+
+Este archivo conserva la discusión original y mezcla reglas de las etapas 1 y
+2. La implementación debe utilizar como fuente canónica los documentos de
+`docs/nuevo-bot/`, especialmente `alcance-etapa-1.md`,
+`reglas-funcionales.md` y `maquina-de-estados.md`.
+
+Objetivo
+========
+
+El nuevo bot debe utilizar opciones cerradas para navegar, elegir servicios,
+buscar disponibilidad y confirmar reservas. El texto libre debe limitarse a
+los datos que no pueden obtenerse mediante opciones, como el nombre de un
+cliente nuevo.
+
+Cada opción debe representar una acción concreta y transportar un identificador
+estable. La navegación no puede depender del texto visible del botón ni de su
+posición dentro de una lista.
+
+
+1. Inicio y menú principal
+==========================
+
+La conversación comienza con un saludo y el menú principal:
+
+- Sacar un turno.
+- Ver servicios y precios.
+- Consultar horarios.
+- Gestionar un turno.
+- Hablar con el equipo.
+
+El bot no debe preguntar el nombre al ingresar al menú, consultar precios,
+consultar horarios ni gestionar una conversación que todavía no inició una
+reserva.
+
+
+2. Captura del nombre
+=====================
+
+El nombre se solicita únicamente cuando el cliente elige “Sacar un turno” o
+cuando transforma una consulta en una reserva.
+
+Antes de preguntarlo, el sistema debe buscar al cliente por su teléfono dentro
+del negocio activo.
+
+- Si el cliente ya tiene un nombre guardado, no se vuelve a preguntar.
+- Si el cliente existe pero no tiene un nombre válido, se pregunta.
+- Si el cliente no existe, se pregunta.
+- El nombre se guarda dentro del negocio correspondiente y no se comparte entre
+  negocios.
+
+La pregunta del nombre constituye una excepción al modelo completamente basado
+en opciones, porque un nombre nuevo es un dato arbitrario. Después de guardarlo,
+la navegación vuelve a realizarse mediante botones y listas.
+
+Validación y confirmación:
+
+- El texto recibido se normaliza eliminando espacios exteriores y repeticiones
+  internas, sin quitar acentos, apóstrofes, guiones ni caracteres Unicode
+  válidos.
+- Se rechazan valores vacíos, caracteres de control y textos que excedan el
+  límite seguro definido para el nombre.
+- Un valor válido todavía no se guarda. El bot pregunta “¿Tu nombre es [nombre]?”
+  y ofrece Sí, es correcto, Corregir nombre y Hablar con el equipo.
+- Sólo Sí, es correcto persiste el nombre dentro del negocio activo y continúa
+  con la reserva.
+- Corregir nombre vuelve a esperar texto sin perder los demás datos válidos.
+- Una entrada inválida no reemplaza un nombre existente ni avanza el flujo y
+  utiliza la misma política gradual de recuperación y derivación.
+
+
+3. Selección de servicios
+=========================
+
+La selección sigue este recorrido:
+
+1. Elegir una categoría.
+2. Elegir un servicio real de esa categoría.
+3. Agregar el servicio a la reserva.
+4. Ofrecer complementos relacionados, si existen.
+5. Permitir agregar otro servicio o continuar.
+6. Mostrar el resumen de servicios seleccionados.
+
+Cada botón de servicio debe transportar el ID real del servicio. Por ejemplo:
+
+  seleccionar_servicio:corte_mujer_capas
+
+No debe transportar valores ambiguos como “1”, “segunda opción” o solamente el
+nombre mostrado.
+
+Capacidad de las listas:
+
+- Durante la primera etapa, si una categoría supera la capacidad de una lista de
+  WhatsApp, los servicios se muestran en páginas mediante acciones estables para
+  avanzar y retroceder.
+- La paginación es una protección técnica, no el modelo deseado para organizar
+  el catálogo. Se recomienda evitar categorías con más de diez opciones y crear
+  subcategorías cuando eso mejore la comprensión del cliente.
+- La cantidad efectiva de servicios por página debe reservar espacio para las
+  acciones de navegación que correspondan y nunca superar los límites vigentes
+  del proveedor.
+- La página actual forma parte del estado del mensaje interactivo; una acción de
+  otra página no se interpreta por posición ni contra la página vigente.
+
+
+4. Servicios recomendados
+=========================
+
+El catálogo puede relacionar un servicio principal con servicios recomendados.
+
+Ejemplo:
+
+  Servicio seleccionado: Corte de mujer en capas.
+  Recomendación: Baño de crema.
+
+El bot debe mostrar:
+
+  “Agregamos Corte de mujer en capas a tu reserva.
+   ¿Querés complementarlo con un baño de crema?”
+
+Opciones:
+
+- Agregar baño de crema.
+- Continuar sin agregar.
+- Ver otros complementos.
+
+Una recomendación nunca se agrega automáticamente. El cliente siempre debe
+aceptarla explícitamente.
+
+Para evitar loops:
+
+- Un servicio ya seleccionado no vuelve a ofrecerse.
+- Una recomendación ya rechazada no vuelve a mostrarse durante la misma reserva.
+- Los complementos no generan una cadena infinita de nuevas recomendaciones.
+- El estado conserva los IDs de las recomendaciones mostradas, aceptadas y
+  rechazadas.
+
+Compatibilidad durante la primera etapa:
+
+- Antes de agregar un complemento, se verifica que exista al menos un
+  profesional capaz de realizar todos los servicios del carrito en un bloque
+  continuo.
+- Los complementos compatibles se muestran y pueden agregarse normalmente.
+- Los complementos que requieran otro profesional no se agregan al carrito
+  automático ni se muestran mezclados con las recomendaciones compatibles.
+- Después de las recomendaciones compatibles se ofrece “Consultar otros
+  complementos con el equipo”. Esta opción conserva el carrito y deriva la
+  conversación con el detalle del complemento que interesa al cliente.
+- La falta de compatibilidad nunca modifica ni invalida silenciosamente el
+  carrito existente.
+
+Esta regla corresponde solamente a la primera etapa. Cuando se incorpore la
+coordinación multiprofesional, los complementos hoy derivados podrán agregarse
+al carrito mediante una secuencia coordinada, siempre que exista disponibilidad
+válida para todos los profesionales involucrados.
+
+
+5. Reservas con múltiples servicios
+====================================
+
+Las listas de WhatsApp permiten seleccionar una sola opción por interacción.
+Por lo tanto, la selección múltiple debe funcionar como un carrito de servicios.
+
+Después de cada selección se muestra:
+
+  “Servicios seleccionados:
+   - Corte de mujer en capas.
+   - Baño de crema.
+
+   ¿Cómo querés continuar?”
+
+Opciones:
+
+- Agregar otro servicio.
+- Continuar con la reserva.
+- Quitar o cambiar un servicio.
+- Menú principal.
+
+El carrito debe guardar IDs estables y recalcular duración, precio estimado,
+profesionales compatibles y disponibilidad cada vez que se agrega, cambia o
+elimina un servicio.
+
+Si el cliente modifica los servicios después de elegir una fecha u horario, la
+disponibilidad anterior deja de ser válida y debe buscarse nuevamente.
+
+Compatibilidad de servicios agregados manualmente durante la primera etapa:
+
+- Antes de agregar un servicio, se verifica que exista al menos un profesional
+  capaz de realizar todos los servicios del carrito en un bloque continuo.
+- Si no existe, el servicio no se incorpora silenciosamente al carrito
+  reservable. El bot informa que completar toda la visita requiere coordinar
+  varios profesionales.
+- El cliente puede elegir “Agregar y coordinar con el equipo”. En ese caso, el
+  servicio se guarda por separado como una solicitud pendiente de coordinación,
+  se conserva el carrito compatible y la conversación se deriva al equipo con
+  todo el contexto.
+- El cliente también puede elegir “Continuar sin este servicio”, en cuyo caso el
+  carrito compatible no cambia y el recorrido automático continúa.
+- Mientras exista una solicitud pendiente de coordinación, el bot no debe
+  presentar el conjunto completo como una reserva automática confirmable.
+- En la primera etapa siempre se seleccionan primero todos los servicios y
+  después el profesional, seguido por fecha y horario.
+- Si el cliente vuelve a modificar los servicios después de haber elegido un
+  profesional, esa elección y toda fecha, horario u opción de disponibilidad
+  posterior se invalidan. El sistema recalcula la compatibilidad y vuelve al
+  paso de selección de profesional; nunca intenta conservar automáticamente a
+  una persona que todavía no fue revalidada para el nuevo carrito.
+
+El orden posterior a la selección de servicios se revisará en la segunda etapa.
+Algunos comercios necesitan profesional, fecha y horario, mientras que otros
+necesitan fecha, horario y profesional. Esa etapa deberá evaluar una política
+configurable por negocio sin crear dos motores de navegación independientes.
+
+Esta separación entre carrito reservable y solicitud pendiente corresponde a la
+primera etapa. En la segunda etapa, el servicio podrá incorporarse al carrito
+principal cuando el sistema pueda construir y confirmar una secuencia válida con
+varios profesionales.
+
+
+6. Coordinación profesional
+===========================
+
+6.0. Elección durante la primera etapa
+---------------------------------------
+
+Después de completar el carrito, el bot muestra únicamente profesionales
+habilitados para realizar todos los servicios seleccionados. Las opciones deben
+incluir:
+
+- Cualquier profesional disponible.
+- Cada profesional compatible que el negocio permita mostrar.
+- Modificar servicios.
+- Solicitar atención.
+
+Elegir “Cualquier profesional disponible” elimina la preferencia por una persona
+concreta y permite buscar disponibilidad entre todos los profesionales
+compatibles. No implica realizar una asignación aleatoria ni omitir la
+validación de capacidades.
+
+Cuando un mismo horario está disponible con varios profesionales compatibles,
+el bot muestra ese horario una sola vez. Al seleccionarlo, el sistema asigna una
+persona mediante una política determinística configurada para el negocio. La
+respuesta final siempre informa quién fue asignado.
+
+La política de desempate debe quedar registrada junto con la reserva y producir
+el mismo resultado mientras no cambien la disponibilidad ni la configuración.
+No se permite elegir al azar ni depender del orden accidental devuelto por la
+base de datos.
+
+Durante la primera etapa se utiliza una política de carga equilibrada:
+
+1. Entre los profesionales compatibles y disponibles para el bloque elegido, se
+   prioriza a quien tenga menos minutos ocupados durante esa jornada.
+2. Se consideran ocupados los bloques confirmados y los estados pendientes que
+   todavía retengan disponibilidad.
+3. Si existe empate, se aplica el orden de prioridad configurado por el negocio.
+4. Si el empate continúa, se utiliza un identificador estable como último
+   desempate técnico; nunca azar ni orden de consulta.
+5. La asignación mostrada antes de confirmar es provisional. Al crear la
+   retención o confirmar la reserva, se revalida disponibilidad y se ejecuta
+   nuevamente la política dentro de la operación protegida contra concurrencia.
+
+La carga se mide en minutos y no en cantidad de turnos, porque reservas con
+duraciones diferentes no representan el mismo trabajo.
+
+Elegir un profesional específico restringe la búsqueda posterior a esa persona.
+Si el cliente vuelve y modifica los servicios, la elección se invalida y debe
+calcularse nuevamente la lista de profesionales compatibles.
+
+El nuevo bot debe aprovechar los dos modos de búsqueda que ya existen en el
+sistema:
+
+- SINGLE_PROFESSIONAL: una misma persona realiza todos los servicios.
+- MULTIPLE_PROFESSIONALS: distintos profesionales realizan los servicios en
+  horarios consecutivos durante una misma visita.
+
+La búsqueda debe analizar primero las capacidades reales de cada profesional y
+nunca asumir que una persona puede realizar un servicio para el cual no está
+habilitada.
+
+
+6.1. Una persona puede realizar todos los servicios
+---------------------------------------------------
+
+Si existe al menos un profesional compatible con todos los servicios, el bot
+puede ofrecer:
+
+- Hacer todo con un profesional.
+- Coordinar con varios profesionales.
+- Elegir un profesional.
+- Modificar servicios.
+
+Si el cliente selecciona “Hacer todo con un profesional”, se buscan bloques
+continuos cuya duración cubra la suma de todos los servicios.
+
+
+6.2. El cliente eligió un profesional
+-------------------------------------
+
+Si el cliente ya eligió a una persona, el bot intenta mantenerla.
+
+Cuando esa persona puede realizar todos los servicios:
+
+- Mantener a [nombre del profesional].
+- Buscar con varios profesionales.
+- Elegir otro profesional.
+- Modificar servicios.
+
+Cuando esa persona no puede realizar todos los servicios:
+
+- Mantener a [nombre] para los servicios compatibles y coordinar el resto con
+  otros profesionales.
+- Buscar todos los servicios con varios profesionales.
+- Cambiar de profesional.
+- Modificar servicios.
+- Solicitar atención.
+
+El resumen debe informar claramente qué servicio realizará cada persona antes de
+confirmar.
+
+
+6.3. Nadie puede realizar todos los servicios
+----------------------------------------------
+
+Si no existe una sola persona capaz de realizar el conjunto completo, el bot no
+debe bloquear la reserva. Debe ofrecer:
+
+- Coordinar horarios con distintos profesionales.
+- Modificar servicios.
+- Solicitar atención.
+
+La búsqueda con varios profesionales debe intentar formar una secuencia continua
+y sin superposiciones para que el cliente realice todo en una sola visita.
+
+
+6.4. No hay disponibilidad con el profesional solicitado
+---------------------------------------------------------
+
+Si el cliente eligió profesional, fecha u horario y no existe disponibilidad,
+se ofrecen alternativas según el contexto:
+
+- Ver otros horarios del mismo día con el mismo profesional.
+- Ver otros días con el mismo profesional.
+- Mantener la hora y buscar otra persona.
+- Coordinar con varios profesionales.
+- Cambiar profesional.
+- Solicitar atención.
+
+La opción “Mantener la hora y buscar otra persona” conserva fecha, hora y
+servicios, pero elimina la restricción del profesional solicitado.
+
+Durante la primera etapa, si un profesional específico no tiene ningún horario
+dentro del horizonte configurado, el bot conserva la preferencia y ofrece:
+
+- Buscar con cualquier profesional compatible.
+- Modificar servicios.
+- Solicitar atención.
+
+El sistema sólo elimina la preferencia por la persona elegida cuando el cliente
+acepta explícitamente buscar con cualquier profesional. Nunca amplía la búsqueda
+ni reasigna automáticamente para ocultar la falta de disponibilidad.
+
+
+7. Búsqueda coordinada de disponibilidad
+========================================
+
+7.0. Selección de fecha durante la primera etapa
+------------------------------------------------
+
+Después de elegir un profesional específico o “Cualquier profesional
+disponible”, el bot muestra las próximas fechas que tengan disponibilidad real
+para todo el carrito.
+
+- No se muestran días sin opciones reservables.
+- Cada página puede contener hasta ocho fechas disponibles y una acción estable
+  para buscar fechas posteriores.
+- Si corresponde, se ofrece una acción para regresar a fechas anteriores sin
+  reconstruir la selección mediante texto.
+- Cambiar de página no modifica profesional, servicios ni preferencias.
+- La fecha seleccionada se revalida antes de mostrar horarios y nuevamente antes
+  de crear una retención o confirmar.
+- Si ya no quedan fechas dentro del horizonte permitido, se ofrece modificar la
+  selección o solicitar atención.
+- Si existe al menos un profesional compatible pero ninguno tiene un bloque
+  reservable dentro de todo el horizonte, la conversación se deriva
+  obligatoriamente al equipo y conserva servicios, profesionales compatibles,
+  duración requerida y rango de fechas consultado.
+- Este resultado se registra como una señal operativa para revisar agenda,
+  bloqueos, ausencias y configuración. No se clasifica automáticamente como un
+  error, porque también puede representar una agenda realmente completa o una
+  combinación de larga duración.
+- El horizonte máximo de búsqueda se configura por negocio. El bot nunca busca
+  indefinidamente ni presenta fechas posteriores a ese límite.
+- Si un negocio todavía no tiene una configuración explícita, se aplica un valor
+  predeterminado del sistema de 30 días.
+- Cada negocio puede reducir o ampliar ese horizonte hasta un máximo de 90 días.
+  Ninguna búsqueda automática puede superar ese límite.
+- La anticipación mínima para reservar también se configura por negocio. Si no
+  existe una configuración explícita, el valor predeterminado es cero minutos.
+  Esto permite ofrecer un turno inmediato solamente cuando el bloque continúa
+  disponible y cumple las demás reglas de la agenda.
+
+La búsqueda invertida por hora queda postergada para la segunda etapa. Esa
+modalidad permitirá indicar una hora deseada y buscar en qué fechas existe un
+bloque compatible. Antes de implementarla se deberán definir tolerancia respecto
+de la hora solicitada, horizonte de búsqueda, paginación y comportamiento con
+“Cualquier profesional disponible”. Durante la primera etapa el único recorrido
+automático es fecha disponible y luego horario disponible.
+
+Presentación de horarios durante la primera etapa:
+
+- Las horas de inicio reservables se generan sobre una grilla de 30 minutos. No
+  se ofrecen inicios fuera de esa grilla, como 12:13 o 12:45.
+- La duración real de cada servicio no necesita ser múltiplo de 30 minutos y no
+  se redondea. Un servicio de 45 minutos puede comenzar a las 09:00 y finalizar
+  a las 09:45; el próximo inicio reservable será el primer punto posterior de la
+  grilla que tenga libre todo el bloque necesario, por ejemplo las 10:00.
+- Si todos los horarios y acciones de navegación entran en una única lista, se
+  muestran directamente en orden cronológico.
+- Si superan la capacidad disponible, el bot muestra franjas horarias como
+  Mañana, Tarde y Noche. Las franjas sin disponibilidad no se muestran.
+- La vista por franjas siempre incluye “Ver todos los horarios”.
+- “Ver todos los horarios” muestra la disponibilidad completa en orden
+  cronológico y utiliza páginas cuando sea necesario.
+- Entrar o salir de una franja y cambiar de página no modifica fecha, servicios
+  ni preferencia de profesional.
+- Cada horario conserva un identificador estable asociado a la fecha y al
+  contexto que originó la lista; nunca se interpreta por su posición.
+
+Franjas horarias:
+
+- La primera franja comienza en la hora real de apertura del negocio y la última
+  termina en su hora real de cierre para esa fecha.
+- Los cortes predeterminados son: Mañana hasta antes de 12:30, Tarde desde 12:30
+  hasta antes de 16:30 y Noche desde 16:30 hasta el cierre.
+- Con una apertura a las 09:00, las opciones de inicio se visualizarían como
+  Mañana 09:00–12:00, Tarde 12:30–16:00 y Noche 16:30–cierre.
+- Cada negocio puede modificar los cortes entre franjas, pero deben mantenerse
+  alineados con la grilla de 30 minutos y no pueden producir huecos ni
+  superposiciones.
+- Los cortes se interpretan en la zona horaria del negocio.
+
+Para varios servicios, el sistema debe:
+
+1. Obtener la duración real de cada servicio.
+2. Obtener los profesionales habilitados para cada uno.
+3. Respetar horarios laborales, bloqueos, descansos y turnos existentes.
+4. Buscar primero las preferencias elegidas por el cliente.
+5. Construir opciones consecutivas sin superposición.
+6. Mostrar solamente combinaciones que puedan reservarse realmente.
+
+Cada opción coordinada debe incluir:
+
+- Hora de inicio y finalización de la visita.
+- Servicio, profesional y horario de cada tramo.
+- Duración total.
+- Precio total o estimado.
+
+Ejemplo:
+
+  Opción 1 — 15:00 a 16:30
+  - 15:00 Corte de mujer en capas — Tamara.
+  - 16:00 Baño de crema — Lucía.
+
+
+8. Confirmación atómica
+=======================
+
+Una reserva múltiple debe confirmarse como una única operación lógica.
+
+- Primero se retienen todos los horarios necesarios.
+- Si uno de los horarios dejó de estar disponible, no se confirma ninguno.
+- Si todos siguen disponibles, se crean y vinculan las reservas.
+- Si ocurre un error parcial, se liberan las retenciones realizadas.
+
+El cliente recibe una sola confirmación con el detalle completo de la visita.
+
+Si el bloque elegido deja de estar disponible antes de crear la retención o
+confirmar:
+
+- No se selecciona automáticamente otro horario.
+- Se conservan servicios y preferencia de profesional.
+- Se informa que el horario acaba de ocuparse.
+- Se recalculan y muestran primero otros horarios del mismo día.
+- Si ese día ya no tiene disponibilidad, se muestran las próximas fechas
+  disponibles dentro del horizonte.
+- La opción vencida queda invalidada y no puede reutilizarse para confirmar.
+
+Opciones finales:
+
+- Confirmar todas las reservas.
+- Cambiar horario.
+- Modificar servicios.
+- Solicitar atención.
+
+
+9. Navegación y retorno
+=======================
+
+Durante el recorrido deben existir acciones consistentes:
+
+- Volver: regresa al paso anterior sin perder información independiente.
+- Modificar servicios: regresa al carrito y elimina disponibilidad posterior.
+- Menú principal: abandona el borrador actual después de solicitar confirmación.
+- Hablar con el equipo: pausa el bot y conserva todo el contexto.
+
+Presentación de acciones globales:
+
+- Cuando la capacidad de la pantalla lo permite, Volver, Menú principal y
+  Hablar con el equipo se muestran directamente.
+- Cuando las acciones contextuales no dejan espacio suficiente, se muestra
+  “Opciones de navegación”. Esta acción abre un menú con Volver, Menú principal
+  y Hablar con el equipo.
+- Las acciones globales siempre deben estar disponibles directamente o mediante
+  una única interacción adicional.
+- Abrir o cerrar las opciones de navegación no modifica el borrador, la pantalla
+  funcional vigente ni sus selecciones.
+- Al regresar desde ese menú, el bot reconstruye la pantalla funcional vigente
+  desde el estado persistido; no interpreta el texto del mensaje anterior.
+
+Semántica de Volver:
+
+- Volver utiliza transiciones explícitas definidas para cada estado funcional;
+  no recorre un historial genérico de mensajes o pantallas.
+- Abrir ayuda, opciones de navegación, páginas o franjas no cambia el destino
+  funcional de Volver.
+- Cada transición define qué datos conserva y cuáles invalida según sus
+  dependencias.
+- El bot nunca regresa a una pantalla que ya no pueda reconstruirse con el estado
+  vigente. Si el estado esperado dejó de ser válido, recupera el paso válido más
+  cercano e informa la corrección.
+
+Retorno al menú principal:
+
+- Si no existe un borrador con progreso, Menú principal regresa inmediatamente.
+- Si existen servicios u otras selecciones relevantes, el bot no descarta nada
+  automáticamente y muestra: Continuar reserva, Descartar e ir al menú y Hablar
+  con el equipo.
+- Sólo “Descartar e ir al menú” elimina el borrador y regresa al menú principal.
+- Abrir o abandonar esta confirmación conserva íntegramente la reserva en curso.
+- Una reserva con retención o seña pendiente no utiliza el descarte genérico;
+  sigue las reglas específicas de cancelación y liberación del flujo de señas.
+
+Vigencia del borrador sin retención:
+
+- Un borrador se conserva durante 24 horas desde la última interacción válida.
+- Si el cliente vuelve dentro de ese plazo, el bot ofrece Continuar reserva o
+  Empezar de nuevo.
+- Continuar no confía ciegamente en el estado guardado: revalida servicios,
+  profesionales, fecha, horario, precios y disponibilidad, y regresa al último
+  paso que todavía sea válido.
+- Empezar de nuevo descarta el borrador después de la aceptación explícita y
+  abre el menú principal.
+- Después de 24 horas, el borrador expira y no puede retomarse. El bot informa la
+  expiración y abre un recorrido nuevo.
+- Esta vigencia no se aplica a retenciones ni señas, que poseen vencimientos y
+  estados propios.
+
+Atención humana:
+
+- Al solicitar atención, el flujo funcional se pausa y conserva su contexto.
+- Mientras la solicitud está en cola y todavía no fue tomada, el bot no permite
+  seguir modificando la reserva. Sólo ofrece Seguir esperando y Cancelar atención
+  y volver.
+- Seguir esperando informa el estado sin crear otra solicitud ni cambiar el
+  turno en la cola.
+- Si el cliente envía otro contenido mientras espera, el bot responde solamente
+  con el estado de atención y las mismas opciones; no lo interpreta como una
+  acción del flujo pausado.
+- Cuando una persona toma la conversación, el bot deja de responder por completo
+  hasta que la atención se resuelva explícitamente.
+- Cancelar atención y volver sólo está disponible mientras la solicitud no fue
+  tomada. Cancela la solicitud, revalida el contexto pausado y reconstruye el
+  paso funcional exacto que corresponda. No descarta el carrito ni regresa al
+  menú principal.
+- Si durante la pausa algún dato dejó de ser válido, la recuperación vuelve al
+  último paso válido e informa qué selección debe repetirse.
+- El contexto conservado incluye el estado, carrito, preferencias, motivo de la
+  derivación y cualquier solicitud pendiente de coordinación.
+- Al resolver una atención tomada, el agente elige explícitamente entre Resolver
+  y volver al menú o Resolver y retomar el flujo.
+- Resolver y volver al menú cierra el contexto pausado para que el bot no repita
+  una operación ya realizada manualmente.
+- Resolver y retomar el flujo revalida el contexto y reconstruye el último paso
+  válido. Si el agente modificó reservas, servicios o disponibilidad, esos
+  cambios prevalecen sobre el borrador anterior.
+- La resolución es auditable e idempotente: repetir la misma acción del CRM no
+  reactiva dos veces el bot ni envía respuestas duplicadas.
+
+Si se modifica un dato, solo deben eliminarse los datos dependientes.
+
+Ejemplos:
+
+- Cambiar el nombre no elimina los servicios.
+- Cambiar servicios elimina profesional, fecha, horario y opciones coordinadas.
+- Cambiar profesional elimina fecha, horario y opciones coordinadas.
+- Cambiar fecha elimina horario y opciones coordinadas.
+
+
+10. Flujo completo de reserva
+=============================
+
+1. Cliente selecciona “Sacar un turno”.
+2. El sistema busca al cliente por teléfono y negocio.
+3. Si no existe un nombre guardado, pregunta el nombre.
+4. Cliente elige categoría.
+5. Cliente elige servicio.
+6. Bot ofrece complementos relacionados.
+7. Cliente agrega más servicios o continúa.
+8. Bot muestra el carrito.
+9. Bot analiza profesionales compatibles.
+10. Cliente elige mantener una persona, coordinar varias o cambiar la selección.
+11. Cliente elige fecha.
+12. Bot muestra bloques disponibles y coordinados.
+13. Cliente elige una opción.
+14. Bot muestra el resumen completo.
+15. Cliente confirma todas las reservas.
+16. Sistema retiene y crea la reserva de forma atómica.
+17. Bot envía la confirmación final.
+
+
+11. Reglas para evitar loops y selecciones incorrectas
+======================================================
+
+- Los botones transportan IDs estables, nunca índices como identidad principal.
+- Todo ID se valida contra el negocio, catálogo y estado activos.
+- Una opción antigua se interpreta solamente dentro del contexto que la originó.
+- Si el contexto ya no está activo, la acción se rechaza sin modificar ningún
+  dato. El bot informa que la opción venció y reconstruye la pantalla funcional
+  vigente con opciones nuevas.
+- Una opción vencida no se adapta al estado actual, no ejecuta parcialmente su
+  intención y no reinicia por sí sola la reserva.
+- Una respuesta inválida no reinicia silenciosamente el recorrido.
+- Fuera de los estados que esperan explícitamente un nombre o un comprobante, el
+  texto libre, audio, imagen, documento, ubicación, contacto o cualquier otro
+  contenido no admitido no se interpreta como una acción.
+- Ante una entrada no admitida, el bot no modifica el estado, explica que el
+  recorrido continúa mediante opciones y reconstruye la pantalla vigente.
+- La respuesta de recuperación mantiene disponible la solicitud de atención
+  humana. No se utiliza IA ni coincidencia aproximada para adivinar la intención.
+- El sistema cuenta entradas no admitidas consecutivas dentro del mismo estado
+  funcional.
+- En el primer intento vuelve a explicar el uso de las opciones.
+- En el segundo intento destaca Hablar con el equipo como acción principal.
+- En el tercer intento deriva automáticamente la conversación al equipo y
+  conserva todo el contexto del recorrido.
+- Una acción válida o un cambio válido de estado reinicia el contador. Errores
+  separados en pasos diferentes no se acumulan para provocar una derivación.
+- El bot explica cuando una opción caducó y vuelve a mostrar el paso correcto.
+- Ningún servicio, profesional, fecha u horario se elige sin confirmación del
+  cliente.
+- El bot no confirma una reserva múltiple si solamente pudo retener una parte.
+- Las recomendaciones no modifican el carrito sin aceptación explícita.
+- Una conversación derivada a atención humana pausa las respuestas automáticas.
+
+
+12. Criterio de éxito
+=====================
+
+El flujo es correcto cuando el cliente siempre puede responder estas preguntas:
+
+- ¿Dónde estoy dentro de la reserva?
+- ¿Qué servicios elegí?
+- ¿Quién realizará cada servicio?
+- ¿Qué fecha y horario estoy seleccionando?
+- ¿Cómo vuelvo o modifico una decisión?
+- ¿Cómo solicito atención humana?
+
+El sistema, por su parte, debe poder reconstruir esas respuestas utilizando su
+estado persistido y los IDs elegidos, sin intentar deducir la navegación leyendo
+el último texto visible de la conversación.
+
+
+13. Activación y migración
+==========================
+
+El nuevo bot se activa gradualmente por negocio y nunca se habilita para todos
+los comercios al mismo tiempo.
+
+- El CRM muestra un único motor activo por negocio: bot actual, nuevo bot por
+  opciones o bot personalizado asignado.
+- La interfaz puede ofrecer una acción para activar el nuevo bot, pero no utiliza
+  casillas independientes que permitan dejar dos motores habilitados.
+- La activación se ejecuta mediante una operación transaccional que habilita el
+  motor elegido y deshabilita o desasigna cualquier otro motor automático para
+  ese canal y negocio.
+- El backend valida la exclusividad aunque la solicitud no provenga de la
+  interfaz. Nunca confía solamente en el estado visual del CRM.
+- Las conversaciones tomadas por atención humana no cambian de motor en medio de
+  la atención.
+- Debe existir una acción de rollback que restaure el motor anterior sin permitir
+  respuestas simultáneas.
+
+El despliegue comienza con un negocio de prueba, continúa con el comercio que hoy
+utiliza el bot normal como piloto y recién después se amplía. Los dos comercios
+con bots personalizados permanecen sin cambios hasta que exista una decisión de
+migración explícita para cada uno.
+
+La activación y el rollback registran negocio, motor anterior, motor nuevo,
+usuario responsable y fecha. Las métricas y errores se segmentan por versión del
+motor para comparar el piloto con el flujo anterior.

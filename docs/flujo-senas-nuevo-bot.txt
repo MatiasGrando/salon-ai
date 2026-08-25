@@ -1,0 +1,248 @@
+FLUJO DE SEÑAS DEL NUEVO BOT
+
+DOCUMENTO HISTÓRICO DE RELEVAMIENTO
+===================================
+
+Este archivo conserva la discusión original, incluyendo coordinación
+multiprofesional postergada. La implementación de la etapa 1 debe utilizar como
+fuente canónica `docs/nuevo-bot/reglas-funcionales.md` y
+`docs/nuevo-bot/maquina-de-estados.md`.
+
+Objetivo
+========
+
+Este documento define exclusivamente cómo debe funcionar la seña dentro del
+nuevo bot. No define la navegación general, la selección de servicios ni la
+búsqueda de profesionales, salvo cuando esas decisiones afectan directamente el
+cálculo o la retención de la seña.
+
+
+1. Configuración por servicio
+=============================
+
+Cada servicio debe indicar si requiere seña y cómo se calcula:
+
+- NONE: no requiere seña.
+- FIXED: importe fijo.
+- PERCENTAGE: porcentaje sobre el precio o sobre el mínimo estimado aceptado.
+
+También debe indicar cuántos minutos se retiene el horario mientras se espera el
+comprobante.
+
+Si no existe una configuración explícita, el plazo predeterminado para enviar el
+comprobante es de 2 horas. El plazo puede configurarse sin modificar los estados
+ni las reglas de vencimiento del flujo.
+
+La configuración se obtiene del servicio real dentro del negocio activo. No se
+deduce por categoría, nombre visible ni respuesta del cliente.
+
+
+2. Momento en que se solicita
+=============================
+
+La seña se solicita después de que el cliente confirma:
+
+- Servicio o servicios.
+- Profesional o profesionales.
+- Fecha.
+- Horario o secuencia coordinada.
+- Importe total o estimado.
+
+Primero se retienen todos los horarios necesarios. Después se informa la seña.
+La reserva no se considera confirmada hasta que el comprobante sea aprobado.
+
+
+3. Reserva de un servicio
+=========================
+
+Si el servicio no requiere seña, la reserva se confirma normalmente.
+
+Si requiere seña:
+
+1. Se retiene el horario en estado pendiente.
+2. El bot informa importe, datos de pago y vencimiento.
+3. El cliente envía el comprobante.
+4. El horario permanece retenido mientras el equipo revisa el pago.
+5. Si se aprueba, la reserva queda confirmada.
+6. Si se rechaza, se informa el motivo y se define si puede reenviar el
+   comprobante o si debe liberarse el horario.
+
+
+4. Reserva con múltiples servicios
+==================================
+
+La seña se calcula considerando todos los servicios seleccionados:
+
+- NONE aporta cero.
+- FIXED aporta su importe fijo.
+- PERCENTAGE aporta el porcentaje configurado sobre el precio o estimación
+  correspondiente.
+
+La seña total es la suma de los importes requeridos por cada servicio.
+
+Ejemplo:
+
+  Corte de mujer — sin seña.
+  Baño de crema — seña fija de $10.000.
+  Coloración — 20 % sobre $80.000: $16.000.
+
+  Seña total: $26.000.
+
+El cliente envía un solo comprobante por el total. La seña queda vinculada a
+todas las reservas que forman la visita, aunque participen distintos
+profesionales.
+
+Se utiliza un único vencimiento para el conjunto. Como regla segura, se toma el
+menor tiempo de retención configurado entre los servicios que requieren seña,
+salvo que el negocio defina una política general diferente.
+
+
+5. Confirmación atómica
+=======================
+
+La seña de una reserva múltiple debe operar sobre todo el conjunto:
+
+- Se retienen todos los horarios o ninguno.
+- La aprobación confirma todas las reservas vinculadas.
+- El rechazo o vencimiento libera todas las reservas vinculadas.
+- Nunca queda confirmada solamente una parte de la visita.
+
+Si falla una retención, no se solicita el pago.
+
+Si falla el mensaje que contiene las instrucciones de pago, se cancela la seña
+pendiente y se liberan todos los horarios. El cliente no puede quedar con una
+reserva bloqueada sin haber recibido cómo pagar.
+
+
+6. Estados de la seña
+=====================
+
+El flujo distingue los siguientes estados:
+
+- Pendiente de comprobante.
+- Comprobante recibido.
+- Aprobada.
+- Rechazada con reenvío permitido.
+- Rechazada final.
+- Vencida.
+
+Mientras está pendiente de comprobante, corre el plazo de retención.
+
+Cuando el comprobante llega dentro del plazo, el vencimiento automático se
+detiene y los horarios permanecen retenidos sin un vencimiento automático hasta
+que el comercio aprueba o rechaza manualmente el comprobante.
+
+Al recibir el comprobante dentro del plazo, el bot informa al cliente que el
+horario quedó reservado provisoriamente y que sólo falta la aprobación del
+comprobante. El mensaje no presenta la reserva como confirmada definitivamente.
+
+
+7. Vencimiento y comprobantes tardíos
+=====================================
+
+Si vence el plazo sin comprobante:
+
+- La seña pasa a vencida.
+- Se liberan todos los horarios relacionados.
+- No queda confirmada ninguna parte de la visita.
+- El cliente puede volver a buscar disponibilidad.
+
+Si el comprobante llega después del vencimiento:
+
+- Se conserva para revisión manual.
+- No se recuperan automáticamente los horarios liberados.
+- La conversación se deriva al equipo.
+- El equipo debe coordinar una nueva disponibilidad o resolver la devolución.
+
+
+8. Cambios durante una seña pendiente
+======================================
+
+Mientras existe una seña pendiente:
+
+- No se cambia fecha, horario ni profesional sin cancelar primero la retención.
+- Agregar o quitar servicios obliga a recalcular la seña.
+- Antes de modificar el importe se verifica nuevamente toda la disponibilidad.
+- Si el cambio no puede realizarse de forma atómica, se conserva la reserva
+  actual y se deriva al equipo.
+- Volver al menú principal no abandona silenciosamente la retención.
+
+
+9. Mensaje de solicitud
+=======================
+
+El mensaje de seña debe informar claramente:
+
+- Servicios incluidos.
+- Importe total de la seña.
+- Datos de pago.
+- Tiempo disponible para enviar el comprobante.
+- Consecuencia del vencimiento.
+- Instrucción para adjuntar el comprobante.
+- Opción para solicitar atención.
+
+Formatos admitidos para el comprobante:
+
+- JPEG.
+- PNG.
+- WebP.
+- PDF.
+- Tamaño máximo de 3 MiB por comprobante.
+
+Las mismas reglas se aplican a WhatsApp y a la carga web. No se admiten GIF,
+HEIC, HEIF, TXT, CSV, Word, Excel, audio, video ni texto sin archivo como
+comprobante. El sistema valida el tipo real o MIME confiable y no acepta un
+archivo solamente por su extensión.
+
+Si el archivo no cumple tipo o tamaño, no cambia el estado de la seña ni consume
+el plazo de manera especial. El bot explica los formatos admitidos, conserva la
+retención hasta el vencimiento vigente y permite volver a enviarlo o solicitar
+atención.
+
+
+10. Confirmación del pago
+=========================
+
+Cuando el equipo aprueba el comprobante, el bot confirma:
+
+- Importe aprobado.
+- Servicios incluidos.
+- Profesional asignado a cada servicio.
+- Fecha y horarios.
+- Estado confirmado de toda la visita.
+
+La aprobación completa la reserva y genera una notificación al cliente. El
+rechazo también debe notificarse explícitamente; nunca puede cambiar el estado o
+liberar disponibilidad sin informar el resultado.
+
+Si el comprobante es rechazado, se informa el motivo mediante el flujo visual
+del CRM. Al rechazar, el comercio debe elegir explícitamente una de estas
+acciones:
+
+- Permitir reenvío y mantener horario: conserva la retención, informa el motivo
+  y habilita al cliente para enviar otro comprobante. El comercio define el
+  nuevo plazo desde el CRM; si no lo modifica, se otorgan 2 horas desde el
+  rechazo corregible.
+- Rechazo final y liberar horario: informa el motivo, finaliza la solicitud de
+  seña y libera la disponibilidad relacionada.
+
+El motivo es obligatorio. Repetir la misma decisión desde el CRM debe ser
+idempotente y no puede liberar dos veces, duplicar notificaciones ni reabrir una
+solicitud ya resuelta.
+
+Mientras corre el plazo de reenvío, el horario permanece retenido. Si llega un
+nuevo comprobante a tiempo, vuelve al estado de comprobante recibido y queda sin
+vencimiento automático durante la revisión. Si no llega, la solicitud vence, se
+libera el horario y se informa al cliente.
+
+
+11. Reglas obligatorias
+=======================
+
+- Nunca solicitar una seña antes de retener todos los horarios.
+- Nunca calcular una reserva múltiple usando solamente el primer servicio.
+- Nunca confirmar parcialmente una visita coordinada.
+- Nunca recuperar automáticamente horarios después del vencimiento.
+- Nunca ocultar un fallo de envío de las instrucciones de pago.
+- Nunca modificar una seña sin recalcular servicios y disponibilidad.
+- Toda operación se mantiene aislada por negocio.
