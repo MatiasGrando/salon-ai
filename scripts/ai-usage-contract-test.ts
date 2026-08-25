@@ -66,6 +66,13 @@ for (const [fileName, source] of trackedSources) {
   assert.equal(code.includes('client.responses.create('), false)
 }
 
+const openAiClient = await readFile(new URL('../src/integrations/openai-client.ts', import.meta.url), 'utf8')
+assert.match(openAiClient, /\[openai-latency\]/)
+assert.match(openAiClient, /schemaName/)
+assert.match(openAiClient, /providerMs/)
+assert.match(openAiClient, /telemetryMs/)
+assert.match(openAiClient, /conversationId: attribution\.conversationId/)
+
 const schema = await readFile(new URL('../prisma/schema.prisma', import.meta.url), 'utf8')
 assert.match(schema, /model AiUsageEvent/)
 assert.match(schema, /responseId\s+String\s+@unique/)

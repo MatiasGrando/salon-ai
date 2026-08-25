@@ -977,10 +977,15 @@ export class WhatsAppWebhookService {
 
     if (
       latencyDiagnostic &&
-      (isGreetingLatencyDiagnosticMessage(firstMessage.text) ||
+      (whatsappConfig.latencyDiagnosticsEnabled ||
+        isGreetingLatencyDiagnosticMessage(firstMessage.text) ||
         (conversationResult as { supportBot?: string }).supportBot === TAMARA_OPTIONS_BOT_KEY)
     ) {
-      console.info('[whatsapp-latency-diagnostic]', latencyDiagnostic.report())
+      console.info('[whatsapp-latency-diagnostic]', JSON.stringify({
+        traceId: firstMessage.inboundMessageId,
+        conversationId: firstMessage.conversationId,
+        ...latencyDiagnostic.report()
+      }))
     }
 
     if (
@@ -1161,22 +1166,44 @@ export class WhatsAppWebhookService {
 
   private async applyMarketingOptOut(input: { businessId: string | null; phone: string; text: string }) {
     if (!input.businessId) return false
-    const customers = await prisma.customer.findMany({
-      where: { businessId: input.businessId },
+    const directOptOut = shouldApplyMarketingOptOut(input.text)
+    if (!directOptOut && !hasMarketingOptOutCandidate(input.text)) return false
+
+    const normalizedPhone = normalizeMarketingPhone(input.phone)
+    const exactPhoneVariants = [...new Set([
+      input.phone.trim(),
+      normalizedPhone,
+      normalizedPhone ? `+${normalizedPhone}` : ''
+    ].filter(Boolean))]
+    let customer = await prisma.customer.findFirst({
+      where: {
+        businessId: input.businessId,
+        OR: [
+          { normalizedPhone },
+          { phone: { in: exactPhoneVariants } }
+        ]
+      },
       select: {
         id: true,
         businessId: true,
         phone: true
       }
     })
-    const customer = customers.find((item) => normalizeMarketingPhone(item.phone) === normalizeMarketingPhone(input.phone))
+    if (!customer) {
+      const legacyCustomers = await prisma.customer.findMany({
+        where: { businessId: input.businessId, normalizedPhone: null },
+        select: {
+          id: true,
+          businessId: true,
+          phone: true
+        }
+      })
+      customer = legacyCustomers.find((item) => normalizeMarketingPhone(item.phone) === normalizedPhone) ?? null
+    }
     if (!customer) return false
-    const directOptOut = shouldApplyMarketingOptOut(input.text)
     const understanding = directOptOut
       ? null
-      : hasMarketingOptOutCandidate(input.text)
-        ? await marketingUnderstandingService.understandMarketingPreference(input.text)
-        : null
+      : await marketingUnderstandingService.understandMarketingPreference(input.text)
     if (!shouldApplyMarketingOptOut(input.text, understanding)) return false
     const businessId = customer.businessId
     if (!businessId) return false

@@ -29,6 +29,7 @@ export const whatsappConfig = {
   apiVersion: process.env.WHATSAPP_API_VERSION ?? 'v25.0',
   phoneNumberMode: process.env.WHATSAPP_PHONE_NUMBER_MODE ?? 'production_argentina',
   allowInternalFallback: process.env.WHATSAPP_ALLOW_INTERNAL_FALLBACK === 'true',
+  latencyDiagnosticsEnabled: process.env.WHATSAPP_LATENCY_DIAGNOSTICS_ENABLED === 'true',
   messageBatchDelayMs,
   messageBatchMaxWaitMs: Math.max(messageBatchDelayMs, configuredMessageBatchMaxWaitMs)
 }

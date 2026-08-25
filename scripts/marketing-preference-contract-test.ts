@@ -6,6 +6,7 @@ import {
   shouldDeferMarketingOptOutReply,
   type MarketingOptOutUnderstanding
 } from '../src/services/marketing-preference-service.js'
+import { readFileSync } from 'node:fs'
 
 const now = new Date('2026-08-03T20:00:00.000Z')
 assert.deepEqual(defaultMarketingPreferenceData(now), {
@@ -59,5 +60,17 @@ assert.equal(shouldApplyMarketingOptOut('Un mensaje sin esa evidencia', semantic
 assert.equal(shouldDeferMarketingOptOutReply('CONFIRM'), true)
 assert.equal(shouldDeferMarketingOptOutReply('AWAITING_DEPOSIT'), true)
 assert.equal(shouldDeferMarketingOptOutReply('START'), false)
+
+const webhookSource = readFileSync('src/services/whatsapp-webhook-service.ts', 'utf8')
+const optOutMethod = webhookSource.slice(
+  webhookSource.indexOf('private async applyMarketingOptOut'),
+  webhookSource.indexOf('private async isDefaultBusinessAiEnabled')
+)
+assert.ok(
+  optOutMethod.indexOf('hasMarketingOptOutCandidate') < optOutMethod.indexOf('prisma.customer.findFirst'),
+  'Debe descartar mensajes comunes antes de consultar clientes'
+)
+assert.match(optOutMethod, /normalizedPhone/)
+assert.match(optOutMethod, /legacyCustomers/)
 
 console.log('Marketing preference contract tests passed')

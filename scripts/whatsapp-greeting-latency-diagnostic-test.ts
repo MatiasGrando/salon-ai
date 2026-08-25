@@ -62,6 +62,9 @@ for (const stage of [
   assert.match(webhookSource, new RegExp(`['"]${stage}['"]`))
 }
 assert.match(webhookSource, /\[whatsapp-latency-diagnostic\]/)
+assert.match(webhookSource, /WHATSAPP_LATENCY_DIAGNOSTICS_ENABLED|latencyDiagnosticsEnabled/)
+assert.match(webhookSource, /traceId: firstMessage\.inboundMessageId/)
+assert.match(webhookSource, /JSON\.stringify/)
 
 console.log('whatsapp-greeting-latency-diagnostic-test: OK')
 console.log(JSON.stringify(report, null, 2))
