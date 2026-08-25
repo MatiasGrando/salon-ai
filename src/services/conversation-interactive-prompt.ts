@@ -47,16 +47,49 @@ export async function admitConversationInteractivePromptReply<TResult>(input: {
   return prisma.$transaction(async (transaction) => {
     const activeToken = await lockConversationPrompt(transaction, input.conversationId)
     const versioned = parseVersionedInteractiveReplyId(input.incomingReplyId)
+    const supersededPromptContext = versioned && activeToken !== versioned.token
+      ? await findSupersededPromptContext(transaction, input.conversationId)
+      : null
     const admission: InteractivePromptAdmission = versioned
       ? activeToken === versioned.token
         ? { accepted: true, token: versioned.token, replyId: versioned.replyId }
-        : { accepted: false }
+        : canRecoverInteractiveReplyFromLatestPrompt({
+            incomingToken: versioned.token,
+            latestPersistedPromptToken: supersededPromptContext?.token ?? null,
+            promptCreatedAt: supersededPromptContext?.promptCreatedAt ?? null,
+            interveningTextCreatedAt: supersededPromptContext?.interveningTextCreatedAt ?? null,
+            receivedAt: new Date()
+          })
+          ? { accepted: true, token: null, replyId: versioned.replyId }
+          : { accepted: false }
       : activeToken
         ? { accepted: false }
         : { accepted: true, token: null, replyId: input.incomingReplyId }
     const value = await input.persist(transaction, admission)
     return { admission, value }
   })
+}
+
+export function canRecoverInteractiveReplyFromLatestPrompt(
+  input: {
+    incomingToken: string
+    latestPersistedPromptToken: string | null
+    promptCreatedAt: Date | null
+    interveningTextCreatedAt: Date | null
+    receivedAt: Date
+  }
+) {
+  if (
+    input.latestPersistedPromptToken === null ||
+    input.incomingToken !== input.latestPersistedPromptToken ||
+    !input.promptCreatedAt ||
+    !input.interveningTextCreatedAt
+  ) return false
+  const promptAgeMs = input.receivedAt.getTime() - input.promptCreatedAt.getTime()
+  const interveningTextAgeMs = input.receivedAt.getTime() - input.interveningTextCreatedAt.getTime()
+  return promptAgeMs >= 0 && promptAgeMs <= 120_000 &&
+    input.interveningTextCreatedAt > input.promptCreatedAt &&
+    interveningTextAgeMs >= 0 && interveningTextAgeMs <= 30_000
 }
 
 /** Cierra la pregunta y reúne todas las pulsaciones recibidas antes del cierre. */
@@ -139,6 +172,47 @@ async function lockConversationPrompt(
       FOR UPDATE`
   )
   return rows[0]?.activeInteractivePromptToken ?? null
+}
+
+async function findSupersededPromptContext(
+  transaction: Prisma.TransactionClient,
+  conversationId: string
+) {
+  const message = await transaction.message.findFirst({
+    where: {
+      conversationId,
+      direction: 'OUTBOUND',
+      metadata: { path: ['interactivePromptToken'], not: Prisma.DbNull }
+    },
+    select: { metadata: true, createdAt: true },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }]
+  })
+  if (!message?.metadata || Array.isArray(message.metadata) || typeof message.metadata !== 'object') {
+    return null
+  }
+  const token = message.metadata.interactivePromptToken
+  if (typeof token !== 'string') return null
+  const latestInbound = await transaction.message.findFirst({
+    where: {
+      conversationId,
+      direction: 'INBOUND',
+      createdAt: { gt: message.createdAt }
+    },
+    select: { createdAt: true, metadata: true },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }]
+  })
+  const interactiveReplyId = latestInbound?.metadata &&
+    !Array.isArray(latestInbound.metadata) &&
+    typeof latestInbound.metadata === 'object'
+    ? latestInbound.metadata.interactiveReplyId
+    : undefined
+  return {
+    token,
+    promptCreatedAt: message.createdAt,
+    interveningTextCreatedAt: latestInbound && typeof interactiveReplyId !== 'string'
+      ? latestInbound.createdAt
+      : null
+  }
 }
 
 function interactiveReplyIdFromMetadata(metadata: Prisma.JsonValue | null) {

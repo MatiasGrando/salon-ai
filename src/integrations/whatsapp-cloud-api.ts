@@ -21,7 +21,10 @@ type SendInteractiveListMessageInput = SendTextMessageInput & {
 }
 
 export function buildWhatsAppReplyButtonsPayload(input: SendReplyButtonsMessageInput) {
-  const requestedButtons = input.buttons.slice(0, 3)
+  const requestedButtons = input.buttons.slice(0, 3).map((button) => ({
+    ...button,
+    title: truncateWhatsAppLabel(button.title.trim(), 20)
+  }))
   const normalizedTitles = requestedButtons.map((button) => button.title.trim().toLocaleLowerCase('es'))
   const hasDuplicateTitles = new Set(normalizedTitles).size < normalizedTitles.length
   const buttons = hasDuplicateTitles
@@ -51,11 +54,20 @@ export function buildWhatsAppReplyButtonsPayload(input: SendReplyButtonsMessageI
   }
 }
 
+export function canSendWhatsAppInteractiveMessage(
+  text: string,
+  buttons: Array<{ id: string; title: string }>
+) {
+  return text.length <= 1024 && buttons.length > 0
+}
+
 export function buildWhatsAppInteractiveListPayload(input: SendInteractiveListMessageInput) {
   const rows = input.rows.slice(0, 10).map((row) => ({
     id: row.id.trim(),
-    title: row.title.trim(),
-    ...(row.description?.trim() ? { description: row.description.trim() } : {})
+    title: truncateWhatsAppLabel(row.title.trim(), 24),
+    ...(row.description?.trim()
+      ? { description: truncateWhatsAppLabel(row.description.trim(), 72) }
+      : {})
   }))
   if (!rows.length) throw new Error('Se necesita al menos una opción para la lista de WhatsApp')
   if (rows.some((row) => !row.id || !row.title || row.title.length > 24 || (row.description?.length ?? 0) > 72)) {
@@ -637,6 +649,10 @@ function parseWhatsAppError(errorBody: string) {
 
 function definedString<T extends string>(key: T, value?: string) {
   return value === undefined ? {} : { [key]: value } as Record<T, string>
+}
+
+function truncateWhatsAppLabel(value: string, maxLength: number) {
+  return Array.from(value).slice(0, maxLength).join('').trim()
 }
 
 function formatRecipientPhone(phone: string, config: WhatsAppCloudCredentials) {

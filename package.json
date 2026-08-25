@@ -89,6 +89,7 @@
     "test:conversation-batching": "tsx scripts/inbound-message-batcher-contract-test.ts",
     "test:conversation-processing-lease": "tsx scripts/conversation-processing-lease-contract-test.ts",
     "test:whatsapp-delivery-context": "tsx scripts/business-whatsapp-delivery-context-contract-test.ts",
+    "test:whatsapp-interactive-reliability": "tsx scripts/whatsapp-interactive-reliability-contract-test.ts",
     "test:whatsapp-greeting-latency": "tsx scripts/whatsapp-greeting-latency-diagnostic-test.ts",
     "test:instagram-hybrid": "tsx scripts/instagram-hybrid-contract-test.ts",
     "test:tiktok-social": "tsx scripts/tiktok-social-link-contract-test.ts",

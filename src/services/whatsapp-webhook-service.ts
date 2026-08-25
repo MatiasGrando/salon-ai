@@ -1,7 +1,10 @@
 import { whatsappConfig } from '../config/whatsapp.js'
 import { prisma } from '../config/prisma.js'
 import type { Conversation, Prisma } from '../generated/prisma/client.js'
-import { WhatsAppCloudApi } from '../integrations/whatsapp-cloud-api.js'
+import {
+  canSendWhatsAppInteractiveMessage,
+  WhatsAppCloudApi
+} from '../integrations/whatsapp-cloud-api.js'
 import {
   assertBusinessCanSendWhatsApp,
   resolveBusinessWhatsAppCredentialsFromState
@@ -32,7 +35,6 @@ import {
   admitConversationInteractivePromptReply,
   createInteractivePromptToken,
   interactivePromptConflictReply,
-  parseVersionedInteractiveReplyId,
   resolveConversationInteractivePrompt,
   versionInteractiveReplyId
 } from './conversation-interactive-prompt.js'
@@ -258,6 +260,7 @@ export class WhatsAppWebhookService {
       const conversation = existingConversation ?? await prisma.conversation.upsert(conversationUpsert)
       const isTamaraOptionsBot = conversation.supportBotKey === TAMARA_OPTIONS_BOT_KEY
       let resolvedInteractiveReplyId = message.interactiveReplyId
+      let resolvedInteractivePromptToken: string | undefined
       let recoverStaleTamaraReply = false
 
       const inboundMessageData: {
@@ -345,6 +348,7 @@ export class WhatsAppWebhookService {
           })
         } else {
           resolvedInteractiveReplyId = recordedReply.admission.replyId
+          resolvedInteractivePromptToken = recordedReply.admission.token ?? undefined
         }
       } else {
         ;[inboundMessage] = await Promise.all([
@@ -673,9 +677,8 @@ export class WhatsAppWebhookService {
           : {}),
         ...(!isTamaraOptionsBot &&
           !recoverStaleTamaraReply &&
-          message.interactiveReplyId &&
-          parseVersionedInteractiveReplyId(message.interactiveReplyId)
-          ? { interactivePromptToken: parseVersionedInteractiveReplyId(message.interactiveReplyId)!.token }
+          resolvedInteractivePromptToken
+          ? { interactivePromptToken: resolvedInteractivePromptToken }
           : {}),
         ...(message.media?.type === 'image' ? { hasImageAttachment: true } : {}),
         ...(latencyDiagnostic ? { latencyDiagnostic } : {})
@@ -882,7 +885,10 @@ export class WhatsAppWebhookService {
     const deliveryCredentials = gate?.allowed
       ? resolveBusinessWhatsAppCredentialsFromState(gate.state)
       : null
-    const hasReplyButtons = Boolean(conversationResult.replyButtons?.length)
+    const hasReplyButtons = Boolean(
+      conversationResult.replyButtons?.length &&
+      canSendWhatsAppInteractiveMessage(conversationResult.reply, conversationResult.replyButtons)
+    )
     const interactivePromptToken = hasReplyButtons ? createInteractivePromptToken() : null
     const outboundReplyButtons = interactivePromptToken
       ? conversationResult.replyButtons!.map((button) => ({
