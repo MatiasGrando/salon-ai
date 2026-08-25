@@ -1297,6 +1297,39 @@ export class BookingV2Engine {
       }
     }
 
+    const explicitlyNeedsServiceAdvice = isServiceSelectionUncertainRequest(input.message)
+    if (
+      nextMissingField(initialState.draft, catalog.bookingFlowOrder) === 'service' &&
+      explicitlyNeedsServiceAdvice
+    ) {
+      const adviceCategory = initialState.categoryAdvice?.stage === 'offered'
+        ? initialState.categoryAdvice.categoryName
+        : initialState.catalogNavigation?.view === 'CATEGORY'
+          ? initialState.catalogNavigation.categoryName
+          : null
+      if (adviceCategory && initialState.categoryAdvice?.stage === 'offered') {
+        const state: BookingV2State = {
+          ...initialState,
+          categoryAdvice: {
+            categoryName: adviceCategory,
+            stage: 'awaiting_confirmation'
+          },
+          misunderstandingCount: 0
+        }
+        return this.guidedEstimateResult(state, {
+          type: 'ask_category_advice_confirmation',
+          categoryName: adviceCategory,
+          reason: 'missing'
+        }, catalog, 'accepted')
+      }
+      if (adviceCategory) {
+        return this.guidedEstimateResult(initialState, {
+          type: 'handoff',
+          reason: 'service_selection_uncertain'
+        }, catalog, 'accepted')
+      }
+    }
+
     const serviceChoice =
       nextMissingField(initialState.draft, catalog.bookingFlowOrder) === 'service' &&
       initialState.categoryAdvice?.stage === 'offered'
@@ -4163,6 +4196,18 @@ function sharedAdviceCategory(services: BookingV2DomainCatalog['services']) {
   return categories.length === 1 ? categories[0] ?? null : null
 }
 
+function isServiceSelectionUncertainRequest(message: string) {
+  const normalizedMessage = normalize(message)
+  return [
+    'no se cual necesito',
+    'no se cual elegir',
+    'no se que necesito',
+    'necesito ayuda para elegir',
+    'quiero que me asesoren',
+    'quiero asesoramiento'
+  ].includes(normalizedMessage)
+}
+
 function servicesForCategory(catalog: BookingV2DomainCatalog, categoryName: string) {
   return catalog.services.filter((service) =>
     typeof service.category === 'string' &&
@@ -4644,6 +4689,10 @@ const REJECTED_CUSTOMER_NAME_TOKENS = new Set([
   'soy',
   'tarde',
   'tal',
+  'tenir',
+  'tenirme',
+  'tenirte',
+  'tenirse',
   'total',
   'turno',
   'ubicacion',

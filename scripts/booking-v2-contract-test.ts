@@ -779,6 +779,23 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         conversation: conversationPatchFromState(guidedState),
         message: '2'
       }), true)
+      assert.equal(await guidedEngine.canProcessWithoutGeneralRouter({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(guidedState),
+        message: 'presupuesto exacto'
+      }), true, 'el presupuesto exacto debe consumirse aun antes de elegir el largo')
+
+      const exactQuoteWithoutOption = await guidedEngine.process({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(guidedState),
+        message: 'presupuesto exacto'
+      })
+      assert.deepEqual(exactQuoteWithoutOption.plan, {
+        type: 'handoff',
+        reason: 'estimate_quote_requested'
+      })
+      assert.equal(exactQuoteWithoutOption.state.draft.service, 'highlights')
+      assert.equal(exactQuoteWithoutOption.state.guidedEstimate?.serviceId, 'highlights')
 
       const awaitingDecisionState = {
         ...guidedState,
@@ -2738,6 +2755,72 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       })
       assert.equal(handedOff.state.categoryAdvice?.stage, 'requested')
       assert.equal(handedOff.reply.includes('servicio de Nutrición'), true)
+    }
+  },
+  {
+    name: 'no se cual necesito deriva sin perder la categoria ofrecida',
+    run: async () => {
+      const catalog = createBookingV2DomainCatalog({
+        displayMode: 'CATEGORIES_FIRST',
+        services: [
+          {
+            id: 'full-color',
+            name: 'Tintura completo',
+            aliases: ['tintura'],
+            duration: 90,
+            price: 90000,
+            category: 'Tintura'
+          },
+          {
+            id: 'roots',
+            name: 'Tintura raíces',
+            aliases: ['raices'],
+            duration: 60,
+            price: 70000,
+            category: 'Tintura'
+          },
+          {
+            id: 'haircut',
+            name: 'Corte',
+            aliases: [],
+            duration: 30,
+            price: 27000,
+            category: 'Cortes'
+          }
+        ],
+        professionals: []
+      })
+      const engine = new BookingV2Engine(
+        fakeDomainPort({ catalog }),
+        fakeExtractor(null),
+        fakeServiceValidationClassifier(),
+        fakeEstimateDecisionExtractor(),
+        fakeEstimateOptionExtractor(),
+        fakeChoiceExtractor()
+      )
+      const namedState = acceptField(createEmptyBookingV2State(), 'name', 'Agustín')
+      const categoryMenu = await engine.process({
+        businessId: 'business-1',
+        conversation: conversationPatchFromState(namedState),
+        message: 'tintura'
+      })
+
+      assert.equal(categoryMenu.state.catalogNavigation?.categoryName, 'Tintura')
+      assert.equal(categoryMenu.reply.includes('• No sé cuál necesito'), true)
+
+      const advice = await engine.process({
+        businessId: 'business-1',
+        conversation: categoryMenu.conversationPatch,
+        message: 'no se cual necesito'
+      })
+
+      assert.deepEqual(advice.plan, {
+        type: 'handoff',
+        reason: 'service_selection_uncertain'
+      })
+      assert.equal(advice.state.catalogNavigation?.categoryName, 'Tintura')
+      assert.equal(advice.state.draft.name, 'Agustín')
+      assert.equal(advice.state.draft.service, null)
     }
   },
   {
@@ -5065,6 +5148,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         'corte hombre',
         'corte',
         'barba',
+        'teñirme',
         'reset total',
         'página web',
         'me llamo'
