@@ -60,6 +60,49 @@ if (noAppointments.outcome === 'RECOVERED') {
   )
 }
 
+// F5.2: Menú sin progreso vuelve directo; con progreso exige descarte y Volver restaura en una interacción.
+const directHome = transition(stateWith({ flow: 'BUSINESS_HOURS' }), act('navigation.home'), ctx())
+assert.equal(directHome.outcome, 'APPLIED')
+if (directHome.outcome === 'APPLIED') assert.equal(directHome.state.flow, 'MAIN_MENU')
+
+const progressedCatalog = stateWith({
+  flow: 'CATEGORY_SELECT',
+  cart: [{ serviceId: 'srv_progress' }],
+  catalogMode: 'BOOKING'
+})
+const askDiscard = transition(progressedCatalog, act('navigation.home'), ctx())
+assert.equal(askDiscard.outcome, 'APPLIED')
+if (askDiscard.outcome === 'APPLIED') {
+  assert.equal(askDiscard.state.flow, 'DISCARD_CONFIRM')
+  assert.equal(askDiscard.state.discardReturnFlow, 'CATEGORY_SELECT')
+  assert.deepEqual(askDiscard.view.choices.map((choice) => choice.actionType), ['draft.restart', 'navigation.back'])
+  const keepProgress = transition(askDiscard.state, act('navigation.back'), ctx())
+  assert.equal(keepProgress.outcome, 'APPLIED')
+  if (keepProgress.outcome === 'APPLIED') {
+    assert.equal(keepProgress.state.flow, 'CATEGORY_SELECT')
+    assert.equal(keepProgress.state.discardReturnFlow, null)
+    assert.deepEqual(keepProgress.state.cart, [{ serviceId: 'srv_progress' }])
+  }
+  const discard = transition(askDiscard.state, act('draft.restart'), ctx())
+  assert.equal(discard.outcome, 'APPLIED')
+  if (discard.outcome === 'APPLIED') {
+    assert.equal(discard.state.flow, 'MAIN_MENU')
+    assert.deepEqual(discard.state.cart, [])
+  }
+}
+
+const compactNavigation = transition(stateWith({ flow: 'SERVICE_SELECT' }), act('navigation.open'), ctx())
+assert.equal(compactNavigation.outcome, 'APPLIED')
+if (compactNavigation.outcome === 'APPLIED') {
+  assert.equal(compactNavigation.state.presentation.kind, 'navigation_menu')
+  assert.deepEqual(compactNavigation.view.choices.map((choice) => choice.actionType), [
+    'navigation.back', 'navigation.home', 'handoff.request', 'navigation.close'
+  ])
+  const close = transition(compactNavigation.state, act('navigation.close'), ctx())
+  assert.equal(close.outcome, 'APPLIED')
+  if (close.outcome === 'APPLIED') assert.equal(close.state.flow, 'SERVICE_SELECT')
+}
+
 // ─── Nombre ───────────────────────────────────────────────────────────────────
 
 const named = transition(stateWith({ flow: 'NAME_INPUT' }), act('name.submit', { payload: { name: 'Ana María' } }), ctx())

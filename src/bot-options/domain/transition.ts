@@ -327,6 +327,7 @@ const CLIENT_ALLOWED: Partial<Record<BotOptionsFlowStep, readonly BotOptionsActi
 
 const GLOBAL_CLIENT_ACTIONS: ReadonlySet<BotOptionsActionType> = new Set([
   'navigation.open',
+  'navigation.close',
   'handoff.request'
 ])
 
@@ -511,7 +512,7 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
     case 'DISCARD_CONFIRM':
       return menuView('¿Seguro que querés descartar la reserva en curso?', [
         { actionType: 'draft.restart', label: 'Descartar e ir al menú' },
-        NAVIGATION_MENU_CLOSE_CHOICE
+        BACK_CHOICE
       ])
     case 'DEPOSIT_INSTRUCTIONS':
       return menuView('Te esperamos con el comprobante antes del vencimiento.', [
@@ -549,7 +550,7 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
     case 'APPOINTMENT_CANCEL_CONFIRM':
       return menuView('¿Confirmás la cancelación? El horario quedará libre.', [
         { actionType: 'appointment.cancel_confirm', label: 'Sí, cancelar turno' },
-        NAVIGATION_MENU_CLOSE_CHOICE
+        BACK_CHOICE
       ])
     case 'APPOINTMENT_RESCHEDULE_DATE':
       return menuView('Elegí la nueva fecha', [])
@@ -869,6 +870,9 @@ function tryUniversal(
       return applied(next, menuView('Opciones de navegación', choices))
     }
     case 'navigation.close': {
+      if (state.presentation.kind !== 'navigation_menu') {
+        return recovered(state, 'navigation_not_available', 'No hay un menú de navegación abierto.', [])
+      }
       const restored = baseOf(state, { presentation: restoreFromNavigation(state.presentation) })
       return applied(restored, renderCurrentView(restored, context))
     }
