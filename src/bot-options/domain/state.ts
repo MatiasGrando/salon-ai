@@ -15,37 +15,42 @@ export const BOT_OPTIONS_STATE_SCHEMA_VERSION = 1
 export const BOT_OPTIONS_ENGINE_VERSION = 'v1'
 
 /** Estados funcionales del flujo conversacional (maquina-de-estados.md §2.1). */
-export type BotOptionsFlowStep =
-  | 'MAIN_MENU'
-  | 'DRAFT_RESUME'
-  | 'NAME_INPUT'
-  | 'NAME_CONFIRM'
-  | 'CATEGORY_SELECT'
-  | 'SERVICE_SELECT'
-  | 'SERVICE_DETAIL'
-  | 'BUSINESS_HOURS'
-  | 'PROFESSIONAL_HOURS_SELECT'
-  | 'PROFESSIONAL_HOURS_DETAIL'
-  | 'APPOINTMENT_LIST'
-  | 'APPOINTMENT_DETAIL'
-  | 'APPOINTMENT_CANCEL_CONFIRM'
-  | 'APPOINTMENT_RESCHEDULE_DATE'
-  | 'APPOINTMENT_RESCHEDULE_SLOT'
-  | 'APPOINTMENT_RESCHEDULE_SUMMARY'
-  | 'RECOMMENDATION_SELECT'
-  | 'CART_REVIEW'
-  | 'INCOMPATIBLE_SERVICE_DECISION'
-  | 'PROFESSIONAL_SELECT'
-  | 'DATE_SELECT'
-  | 'SLOT_SELECT'
-  | 'BOOKING_SUMMARY'
-  | 'DISCARD_CONFIRM'
-  | 'DEPOSIT_INSTRUCTIONS'
-  | 'DEPOSIT_CANCEL_CONFIRM'
-  | 'DEPOSIT_REVIEW'
-  | 'BOOKING_CONFIRMED'
-  | 'HANDOFF_QUEUED'
-  | 'HANDOFF_TAKEN'
+export const BOT_OPTIONS_FLOW_STEPS = [
+  'MAIN_MENU',
+  'DRAFT_RESUME',
+  'NAME_INPUT',
+  'NAME_CONFIRM',
+  'CATEGORY_SELECT',
+  'SERVICE_SELECT',
+  'SERVICE_DETAIL',
+  'BUSINESS_HOURS',
+  'PROFESSIONAL_HOURS_SELECT',
+  'PROFESSIONAL_HOURS_DETAIL',
+  'APPOINTMENT_LIST',
+  'APPOINTMENT_DETAIL',
+  'APPOINTMENT_CANCEL_CONFIRM',
+  'APPOINTMENT_RESCHEDULE_DATE',
+  'APPOINTMENT_RESCHEDULE_SLOT',
+  'APPOINTMENT_RESCHEDULE_SUMMARY',
+  'RECOMMENDATION_SELECT',
+  'CART_REVIEW',
+  'INCOMPATIBLE_SERVICE_DECISION',
+  'PROFESSIONAL_SELECT',
+  'DATE_SELECT',
+  'SLOT_SELECT',
+  'BOOKING_SUMMARY',
+  'DISCARD_CONFIRM',
+  'DEPOSIT_INSTRUCTIONS',
+  'DEPOSIT_CANCEL_CONFIRM',
+  'DEPOSIT_REVIEW',
+  'BOOKING_CONFIRMED',
+  'HANDOFF_QUEUED',
+  'HANDOFF_TAKEN'
+] as const
+
+export type BotOptionsFlowStep = (typeof BOT_OPTIONS_FLOW_STEPS)[number]
+
+const FLOW_STEP_SET: ReadonlySet<string> = new Set(BOT_OPTIONS_FLOW_STEPS)
 
 /** Región de reserva. `NONE` = sin visita asociada a esta sesión. */
 export type BookingRegionStatus =
@@ -115,6 +120,22 @@ export type BotOptionsState = {
   /** Entradas inválidas consecutivas dentro del MISMO estado funcional: 0..3. */
   invalidStreak: number
   presentation: BotOptionsPresentationMode
+  /**
+   * Pantalla funcional que abrió DISCARD_CONFIRM. Sólo tiene valor mientras el
+   * flujo está en ese paso; Volver desde la confirmación regresa acá sin tocar
+   * nada más.
+   */
+  discardReturnFlow: BotOptionsFlowStep | null
+  /** Flujo pausado al solicitar atención humana; lo consume resolve_resume. */
+  handoffReturnFlow: BotOptionsFlowStep | null
+  /** 'BOOKING' selecciona para reservar; 'BROWSING' sólo informa (servicios y precios). */
+  catalogMode: 'BOOKING' | 'BROWSING'
+  /** Candidato de nombre esperando confirmación; nunca es dato persistido del cliente. */
+  nameCandidate: string | null
+  /** Servicio propuesto incompatible o intención de reserva previa al nombre. */
+  pendingEntityRef: { type: 'SERVICE' } & { id: string } | null
+  /** Recomendaciones rechazadas en este borrador: no se vuelven a ofrecer. */
+  rejectedRecommendationIds: string[]
 }
 
 export function createInitialBotOptionsState(): BotOptionsState {
@@ -133,7 +154,13 @@ export function createInitialBotOptionsState(): BotOptionsState {
       slotStartAt: null
     },
     invalidStreak: 0,
-    presentation: { kind: 'plain' }
+    presentation: { kind: 'plain' },
+    discardReturnFlow: null,
+    handoffReturnFlow: null,
+    catalogMode: 'BOOKING',
+    nameCandidate: null,
+    pendingEntityRef: null,
+    rejectedRecommendationIds: []
   }
 }
 
@@ -208,7 +235,58 @@ export function validateBotOptionsState(
   }
 
   const flow = candidate['flow'] as BotOptionsFlowStep | undefined
-  if (typeof flow !== 'string') return { ok: false, invariant: 'schema_version_known' }
+  if (typeof flow !== 'string' || !FLOW_STEP_SET.has(flow)) {
+    return { ok: false, invariant: 'schema_version_known' }
+  }
+
+  const discardReturnFlow = candidate['discardReturnFlow']
+  if (
+    discardReturnFlow !== null &&
+    discardReturnFlow !== undefined &&
+    (typeof discardReturnFlow !== 'string' || !FLOW_STEP_SET.has(discardReturnFlow))
+  ) {
+    return { ok: false, invariant: 'schema_version_known' }
+  }
+
+  const handoffReturnFlow = candidate['handoffReturnFlow']
+  if (
+    handoffReturnFlow !== null &&
+    handoffReturnFlow !== undefined &&
+    (typeof handoffReturnFlow !== 'string' || !FLOW_STEP_SET.has(handoffReturnFlow))
+  ) {
+    return { ok: false, invariant: 'schema_version_known' }
+  }
+
+  const catalogMode = candidate['catalogMode']
+  if (catalogMode !== undefined && catalogMode !== null && catalogMode !== 'BOOKING' && catalogMode !== 'BROWSING') {
+    return { ok: false, invariant: 'schema_version_known' }
+  }
+
+  const nameCandidate = candidate['nameCandidate']
+  if (nameCandidate !== null && nameCandidate !== undefined && typeof nameCandidate !== 'string') {
+    return { ok: false, invariant: 'schema_version_known' }
+  }
+
+  const rejectedRecommendationIds = candidate['rejectedRecommendationIds']
+  if (
+    rejectedRecommendationIds !== undefined &&
+    rejectedRecommendationIds !== null &&
+    (!Array.isArray(rejectedRecommendationIds) ||
+      rejectedRecommendationIds.some((id) => typeof id !== 'string'))
+  ) {
+    return { ok: false, invariant: 'schema_version_known' }
+  }
+
+  const pendingEntityRef = candidate['pendingEntityRef']
+  if (
+    pendingEntityRef !== null &&
+    pendingEntityRef !== undefined &&
+    (!isPlainObject(pendingEntityRef) ||
+      pendingEntityRef['type'] !== 'SERVICE' ||
+      typeof pendingEntityRef['id'] !== 'string')
+  ) {
+    return { ok: false, invariant: 'schema_version_known' }
+  }
 
   const cart = candidate['cart']
   if (!Array.isArray(cart)) return { ok: false, invariant: 'cart_unique_services' }

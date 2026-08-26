@@ -143,8 +143,10 @@ export type BotOptionsActionRequirements = {
   readonly requiresSlotStart?: true
   /** Exige payload.band dentro de las franjas canónicas. */
   readonly requiresSlotBand?: true
-  /** Exige payload.choiceId cuando la desambiguación confirma una opción. */
+  /** Exige payload.conflictChoiceToken cuando la desambiguación confirma una opción. */
   readonly requiresConflictChoice?: true
+  /** Exige payload.name con texto ya normalizado (validación Unicode fina es F6.2). */
+  readonly requiresName?: true
 }
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
@@ -163,7 +165,7 @@ export const BOT_OPTIONS_ACTION_REQUIREMENTS: Readonly<
   'menu.manage_appointment': {},
   'draft.continue': {},
   'draft.restart': {},
-  'name.submit': {},
+  'name.submit': { requiresName: true },
   'name.confirm': {},
   'name.edit': {},
   'category.select': { entity: 'CATEGORY' },
@@ -237,6 +239,7 @@ export type BotOptionsActionPayload = {
   startAt?: string
   band?: SlotBand
   conflictChoiceToken?: string
+  name?: string
 }
 
 /**
@@ -283,6 +286,9 @@ export type EnvelopeValidationFailure =
   | { field: 'payload.band'; reason: 'unexpected_field' }
   | { field: 'payload.conflictChoiceToken'; reason: 'required' }
   | { field: 'payload.conflictChoiceToken'; reason: 'unexpected_field' }
+  | { field: 'payload.name'; reason: 'required' }
+  | { field: 'payload.name'; reason: 'invalid_format' }
+  | { field: 'payload.name'; reason: 'unexpected_field' }
   | { field: 'expectedStateRevision'; reason: 'invalid_revision' }
   | { field: 'receivedAtIso'; reason: 'invalid_timestamp' }
 
@@ -361,7 +367,11 @@ export function validateBotOptionsActionEnvelope(
   const rawPayload = candidate.payload
   let payload: BotOptionsActionPayload | null = null
   const expectsAnyPayload = Boolean(
-    requirements.requiresDate || requirements.requiresSlotStart || requirements.requiresSlotBand || requirements.requiresConflictChoice
+    requirements.requiresDate ||
+      requirements.requiresSlotStart ||
+      requirements.requiresSlotBand ||
+      requirements.requiresConflictChoice ||
+      requirements.requiresName
   )
   if (expectsAnyPayload) {
     if (!isPlainObject(rawPayload)) {
@@ -369,6 +379,7 @@ export function validateBotOptionsActionEnvelope(
       if (requirements.requiresSlotStart) failures.push({ field: 'payload.startAt', reason: 'required' })
       if (requirements.requiresSlotBand) failures.push({ field: 'payload.band', reason: 'required' })
       if (requirements.requiresConflictChoice) failures.push({ field: 'payload.conflictChoiceToken', reason: 'required' })
+      if (requirements.requiresName) failures.push({ field: 'payload.name', reason: 'required' })
     } else {
       const extraKeys = new Set(Object.keys(rawPayload))
       payload = {}
@@ -435,6 +446,24 @@ export function validateBotOptionsActionEnvelope(
       } else if ('conflictChoiceToken' in rawPayload) {
         failures.push({ field: 'payload.conflictChoiceToken', reason: 'unexpected_field' })
         extraKeys.delete('conflictChoiceToken')
+      }
+
+      if (requirements.requiresName) {
+        const nameValue = rawPayload['name']
+        if (typeof nameValue !== 'string') {
+          failures.push({ field: 'payload.name', reason: 'required' })
+        } else {
+          const trimmed = nameValue.trim().replace(/\s+/g, ' ')
+          if (trimmed.length < 2 || trimmed.length > 80 || /[\r\n]/.test(nameValue)) {
+            failures.push({ field: 'payload.name', reason: 'invalid_format' })
+          } else {
+            payload.name = trimmed
+          }
+        }
+        extraKeys.delete('name')
+      } else if ('name' in rawPayload) {
+        failures.push({ field: 'payload.name', reason: 'unexpected_field' })
+        extraKeys.delete('name')
       }
 
       if (extraKeys.size > 0) {
