@@ -74,6 +74,7 @@
     "test:bot-options-pure": "npm run test:bot-options-domain && npm run test:bot-options-transition && npm run test:bot-options-prompt-tokens && npm run test:bot-options-renderer && npm run test:bot-options-prompts && npm run test:bot-options-meta-adapter && npm run test:bot-options-meta-provider && npm run test:bot-options-config && npm run test:bot-options-shadow-admission",
     "test:bot-options-f4-pg": "tsx scripts/bot-options-f4-pg-contract-test.ts",
     "test:bot-options-crash-recovery-pg": "tsx scripts/bot-options-crash-recovery-pg-test.ts",
+    "test:bot-options-main-menu-e2e": "tsx scripts/bot-options-main-menu-e2e-test.ts",
     "bot-options:backfill-pointers": "tsx scripts/backfill-bot-channel-deployments.ts",
     "test:whatsapp-raw-body": "tsx scripts/whatsapp-raw-body-contract-test.ts",
     "test:whatsapp-shadow-wiring": "tsx scripts/whatsapp-shadow-wiring-contract-test.ts",
