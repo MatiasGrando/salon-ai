@@ -15,7 +15,8 @@ const botOptionsConfig: BotOptionsConfig = {
   bookingCapabilityEnabled: false,
   depositsCapabilityEnabled: false,
   appointmentManagementCapabilityEnabled: false,
-  handoffCapabilityEnabled: false
+  handoffCapabilityEnabled: false,
+  legacyDispatchCoverageComplete: false
 }
 
 const legacyResult = {

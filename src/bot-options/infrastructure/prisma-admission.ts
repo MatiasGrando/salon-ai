@@ -1,4 +1,9 @@
-import type { PrismaClient } from '../../generated/prisma/client.js'
+import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
+import { randomUUID } from 'node:crypto'
+import { admitPromptChoice, type BotPromptContract, type PromptExecutionContext } from '../domain/prompts.js'
+import { parseInteractiveActionId } from '../domain/prompt-tokens.js'
+import { botOptionsMetrics } from '../observability/metrics.js'
+import type { ParsedWebhookEvent } from './meta-webhook-adapter.js'
 
 export type ShadowAdmissionTenant = {
   businessId: string
@@ -22,6 +27,31 @@ export type ShadowEventInsert = {
 export interface ShadowAdmissionRepository {
   findConnectedTenantsByPhoneNumberId(phoneNumberId: string): Promise<ShadowAdmissionTenant[]>
   insertShadowEvents(events: ShadowEventInsert[]): Promise<number>
+}
+
+export type AuthoritativeRoute = {
+  kind: 'new'
+  businessId: string
+  deploymentId: string
+  generation: number
+  appSecret: string | null
+  appSecretPrevious: string | null
+  appSecretPreviousValidUntil: Date | null
+} | { kind: 'legacy' } | { kind: 'ambiguous' }
+
+export type AuthoritativeAdmissionResult = {
+  eventCount: number
+  insertedCount: number
+}
+
+export interface AuthoritativeAdmissionRepository {
+  resolveRoute(phoneNumberId: string): Promise<AuthoritativeRoute>
+  admitAuthoritative(input: {
+    route: Extract<AuthoritativeRoute, { kind: 'new' }>
+    phoneNumberId: string
+    events: readonly ParsedWebhookEvent[]
+    traceId?: string
+  }): Promise<AuthoritativeAdmissionResult>
 }
 
 type AdmissionPrismaClient = Pick<
@@ -75,4 +105,356 @@ export class PrismaAdmissionRepository implements ShadowAdmissionRepository {
 
     return result.count
   }
+}
+
+type AuthoritativePrismaClient = Pick<PrismaClient, 'businessWhatsAppConfig' | '$queryRaw' | '$transaction'>
+
+function eventPayload(event: ParsedWebhookEvent): Prisma.InputJsonValue {
+  if (event.kind === 'message') {
+    return {
+      kind: event.kind,
+      fromPhone: event.fromPhone,
+      messageType: event.messageType,
+      textBody: event.textBody,
+      interactiveReplyId: event.interactiveReplyId,
+      mediaType: event.mediaType,
+      mediaMimeType: event.mediaMimeType,
+      mediaId: event.mediaId,
+      filename: event.filename
+    }
+  }
+  if (event.kind === 'status') {
+    return { kind: event.kind, status: event.status, errorMessage: event.errorMessage }
+  }
+  return { kind: event.kind }
+}
+
+function millis(value: Date | null): number | null {
+  return value?.getTime() ?? null
+}
+
+export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmissionRepository {
+  readonly #client: AuthoritativePrismaClient
+
+  constructor(client: AuthoritativePrismaClient) {
+    this.#client = client
+  }
+
+  async resolveRoute(phoneNumberId: string): Promise<AuthoritativeRoute> {
+    const tenants = await this.#client.businessWhatsAppConfig.findMany({
+      where: { phoneNumberId, connectionStatus: 'CONNECTED' },
+      select: {
+        businessId: true,
+        appSecret: true,
+        appSecretPrevious: true,
+        appSecretPreviousValidUntil: true,
+      },
+      take: 2
+    })
+    if (tenants.length === 0) return { kind: 'legacy' }
+    if (tenants.length > 1) return { kind: 'ambiguous' }
+    const tenant = tenants[0]!
+    const pointers = await this.#client.$queryRaw<Array<{
+      id: string; engineKey: string; activeConfigurationId: string | null; generation: number; legacyDispatchCoverageVersion: number
+    }>>(Prisma.sql`
+      SELECT "id", "engineKey", "activeConfigurationId", "generation", "legacyDispatchCoverageVersion"
+      FROM "BotChannelDeployment"
+      WHERE "businessId" = ${tenant.businessId} AND "channel" = 'WHATSAPP'::"BotChannel"
+      LIMIT 2
+    `)
+    if (pointers.length !== 1) return pointers.length > 1 ? { kind: 'ambiguous' } : { kind: 'legacy' }
+    const pointer = pointers[0]!
+    if (pointer.engineKey !== 'deterministic-options' || !pointer.activeConfigurationId) return { kind: 'legacy' }
+    if (pointer.legacyDispatchCoverageVersion < 1) return { kind: 'ambiguous' }
+    return {
+      kind: 'new',
+      businessId: tenant.businessId,
+      deploymentId: pointer.id,
+      generation: pointer.generation,
+      appSecret: tenant.appSecret,
+      appSecretPrevious: tenant.appSecretPrevious,
+      appSecretPreviousValidUntil: tenant.appSecretPreviousValidUntil
+    }
+  }
+
+  async admitAuthoritative(input: {
+    route: Extract<AuthoritativeRoute, { kind: 'new' }>
+    phoneNumberId: string
+    events: readonly ParsedWebhookEvent[]
+    traceId?: string
+  }): Promise<AuthoritativeAdmissionResult> {
+    const startedAt = performance.now()
+    try {
+      const result = await this.#client.$transaction(async (tx) => {
+      await tx.$executeRaw`SET LOCAL lock_timeout = '50ms'`
+      await tx.$executeRaw`SET LOCAL statement_timeout = '120ms'`
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(hashtextextended(${`bot-cutover:${input.route.businessId}:WHATSAPP`}, 0))`
+
+      const current = await tx.$queryRaw<Array<{ id: string; generation: number }>>(Prisma.sql`
+        SELECT "id", "generation"
+        FROM "BotChannelDeployment"
+        WHERE "id" = ${input.route.deploymentId}
+          AND "businessId" = ${input.route.businessId}
+          AND "channel" = 'WHATSAPP'::"BotChannel"
+          AND "engineKey" = 'deterministic-options'
+          AND "activeConfigurationId" IS NOT NULL
+          AND "claimsPausedAt" IS NULL
+        FOR SHARE
+      `)
+      if (current.length !== 1 || current[0]!.generation !== input.route.generation) {
+        throw new Error('authoritative pointer changed during admission')
+      }
+
+      let insertedCount = 0
+      for (const event of input.events) {
+        const providerEventId = randomUUID()
+        const inserted = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+          INSERT INTO "BotProviderEvent" (
+            "id", "provider", "eventKey", "eventType", "businessId", "phoneNumberId",
+            "providerMessageId", "payload", "providerOccurredAt", "status", "traceId"
+          ) VALUES (
+            ${providerEventId}, 'WHATSAPP', ${event.eventKey},
+            ${event.kind === 'message' ? 'MESSAGE' : event.kind === 'status' ? 'STATUS' : 'UNSUPPORTED'}::"BotProviderEventType",
+            ${input.route.businessId}, ${input.phoneNumberId},
+            ${event.kind === 'unsupported_change' ? null : event.providerMessageId},
+            ${JSON.stringify(eventPayload(event))}::jsonb,
+            ${event.kind === 'unsupported_change' || event.providerOccurredAtIso === null ? null : new Date(event.providerOccurredAtIso)},
+            'ADMITTED'::"BotProviderEventStatus", ${input.traceId ?? null}
+          ) ON CONFLICT ("provider", "eventKey") DO NOTHING
+          RETURNING "id"
+        `)
+        if (inserted.length === 0) continue
+        insertedCount += 1
+
+        if (event.kind === 'status') {
+          const matched = await applyStatusCallbackTx(tx, input.route.businessId, event.providerMessageId, event.status, event.errorMessage)
+          await tx.$executeRaw(Prisma.sql`
+            UPDATE "BotProviderEvent" SET "status" = ${matched ? 'PROCESSED' : 'UNMATCHED'}::"BotProviderEventStatus"
+            WHERE "id" = ${providerEventId}
+          `)
+          continue
+        }
+
+        const inboxId = randomUUID()
+        if (event.kind === 'message' && event.interactiveReplyId) {
+          await this.#admitInteractive(tx, { ...input, event, providerEventId, inboxId })
+          continue
+        }
+
+        const actionType = event.kind === 'message' && event.messageType === 'unsupported'
+          ? 'input.unsupported'
+          : event.kind === 'unsupported_change' ? 'input.unsupported' : 'input.initial'
+        await tx.$executeRaw(Prisma.sql`
+          INSERT INTO "BotActionInbox" (
+            "id", "businessId", "providerEventId", "providerMessageId", "actionType", "deploymentId",
+            "deploymentGeneration", "payload", "status"
+          ) VALUES (
+            ${inboxId}, ${input.route.businessId}, ${providerEventId}, ${event.kind === 'message' ? event.providerMessageId : null},
+            ${actionType}, ${input.route.deploymentId}, ${input.route.generation},
+            ${JSON.stringify(eventPayload(event))}::jsonb, 'ADMITTED'::"BotInboxStatus"
+          )
+        `)
+        await upsertJob(tx, 'PROCESS_INBOX', inboxId, input.route.businessId, input.route.deploymentId, input.route.generation, null, new Date())
+      }
+      return { eventCount: input.events.length, insertedCount }
+      }, { timeout: 175 })
+      botOptionsMetrics.observe('webhook_ack', performance.now() - startedAt)
+      return result
+    } catch (error) {
+      botOptionsMetrics.observe('webhook_ack', performance.now() - startedAt, 'error')
+      throw error
+    }
+  }
+
+  async #admitInteractive(
+    tx: Prisma.TransactionClient,
+    input: {
+      route: Extract<AuthoritativeRoute, { kind: 'new' }>
+      event: Extract<ParsedWebhookEvent, { kind: 'message' }>
+      providerEventId: string
+      inboxId: string
+    }
+  ) {
+    const parsed = parseInteractiveActionId(input.event.interactiveReplyId)
+    if (!parsed.ok) {
+      await insertRejectedInbox(tx, input, 'REJECTED', 'invalid interactive token')
+      return
+    }
+    const rows = await tx.$queryRaw<Array<{
+      promptId: string; sessionId: string; businessId: string; deploymentId: string
+      deploymentGeneration: number; revision: bigint; stateRevision: bigint; mode: 'FUNCTIONAL' | 'NAVIGATION' | 'CONFLICT'
+      status: 'OPEN' | 'STABILIZING' | 'RESOLVED' | 'INVALIDATED' | 'EXPIRED'
+      firstActionAt: Date | null; lastActionAt: Date | null; settleAt: Date | null
+      absoluteAt: Date | null; resolvedAt: Date | null
+      choiceToken: string; actionType: string; entityType: string | null; entityId: string | null
+      payload: Prisma.JsonValue | null; labelSnapshot: string; sortOrder: number; dbNow: Date
+    }>>(Prisma.sql`
+      SELECT p."id" AS "promptId", p."sessionId", s."businessId", s."deploymentId",
+        s."deploymentGeneration", s."revision", p."stateRevision", p."mode", p."status",
+        p."firstActionAt", p."lastActionAt", p."settleAt", p."absoluteAt", p."resolvedAt",
+        c."choiceToken", c."actionType", c."entityType", c."entityId", c."payload",
+        c."labelSnapshot", c."sortOrder", clock_timestamp() AS "dbNow"
+      FROM "BotPrompt" p
+      JOIN "BotSession" s ON s."id" = p."sessionId"
+      JOIN "BotPromptChoice" c ON c."promptId" = p."id" AND c."choiceToken" = ${parsed.choiceToken}
+      WHERE p."promptToken" = ${parsed.promptToken} AND s."businessId" = ${input.route.businessId}
+      FOR UPDATE OF p
+    `)
+    if (rows.length !== 1) {
+      await insertRejectedInbox(tx, input, 'REJECTED', 'unknown prompt or choice')
+      return
+    }
+    const row = rows[0]!
+    const current: PromptExecutionContext = {
+      businessId: input.route.businessId,
+      deploymentId: input.route.deploymentId,
+      deploymentGeneration: input.route.generation,
+      sessionId: row.sessionId,
+      stateRevision: row.revision
+    }
+    const prompt: BotPromptContract = {
+      businessId: row.businessId,
+      deploymentId: row.deploymentId,
+      deploymentGeneration: row.deploymentGeneration,
+      sessionId: row.sessionId,
+      stateRevision: row.stateRevision,
+      promptId: row.promptId,
+      mode: row.mode,
+      status: row.status,
+      firstActionAt: millis(row.firstActionAt),
+      lastActionAt: millis(row.lastActionAt),
+      settleAt: millis(row.settleAt),
+      absoluteAt: millis(row.absoluteAt),
+      resolvedAt: millis(row.resolvedAt),
+      choices: [{
+        choiceToken: row.choiceToken,
+        actionType: row.actionType as never,
+        entityRef: row.entityType && row.entityId ? { type: row.entityType as never, id: row.entityId } : null,
+        payload: row.payload as never,
+        labelSnapshot: row.labelSnapshot,
+        sortOrder: row.sortOrder
+      }]
+    }
+    const decision = admitPromptChoice({
+      dbNow: row.dbNow.getTime(), current, prompt,
+      attempt: {
+        ...prompt,
+        choiceToken: parsed.choiceToken,
+        providerEventId: input.providerEventId,
+        providerMessageId: input.event.providerMessageId,
+        receivedAt: row.dbNow.getTime()
+      },
+      existingProviderEventIds: new Set(),
+      inboxId: input.inboxId
+    })
+    const status = decision.classification === 'ADMITTED' ? 'ADMITTED'
+      : decision.classification === 'STALE_CUTOVER' ? 'STALE_CUTOVER'
+      : decision.classification === 'STALE_REVISION' || decision.classification === 'STALE_CONTEXT' || decision.classification === 'EXPIRED' ? 'STALE'
+      : 'REJECTED'
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO "BotActionInbox" (
+        "id", "businessId", "providerEventId", "sessionId", "promptId", "providerMessageId", "choiceToken",
+        "actionType", "deploymentId", "deploymentGeneration", "entityRef", "payload",
+        "expectedRevision", "receivedAt", "status", "error"
+      ) VALUES (
+        ${input.inboxId}, ${input.route.businessId}, ${input.providerEventId}, ${row.sessionId}, ${row.promptId}, ${input.event.providerMessageId},
+        ${parsed.choiceToken}, ${row.actionType}, ${row.deploymentId}, ${row.deploymentGeneration},
+        ${row.entityType && row.entityId ? JSON.stringify({ type: row.entityType, id: row.entityId }) : null}::jsonb,
+        ${row.payload === null ? null : JSON.stringify(row.payload)}::jsonb, ${row.stateRevision}, ${row.dbNow},
+        ${status}::"BotInboxStatus", ${decision.classification}
+      )
+    `)
+    if (decision.classification === 'ADMITTED') {
+      await tx.$executeRaw(Prisma.sql`
+        UPDATE "BotPrompt" SET "status" = 'STABILIZING'::"BotPromptStatus",
+          "firstActionAt" = ${new Date(decision.prompt.firstActionAt!)},
+          "lastActionAt" = ${new Date(decision.prompt.lastActionAt!)},
+          "settleAt" = ${new Date(decision.prompt.settleAt!)},
+          "absoluteAt" = ${new Date(decision.prompt.absoluteAt!)}
+        WHERE "id" = ${row.promptId}
+      `)
+      await upsertJob(tx, 'RECONCILE_PROMPT', row.promptId, row.businessId, row.deploymentId, row.deploymentGeneration, row.stateRevision, new Date(decision.wakeAt))
+    } else if (decision.classification === 'STALE_CUTOVER') {
+      await upsertJob(tx, 'RECOVER_CUTOVER', input.providerEventId, input.route.businessId, input.route.deploymentId, input.route.generation, null, row.dbNow)
+    }
+  }
+}
+
+async function insertRejectedInbox(
+  tx: Prisma.TransactionClient,
+  input: { route: Extract<AuthoritativeRoute, { kind: 'new' }>; event: Extract<ParsedWebhookEvent, { kind: 'message' }>; providerEventId: string; inboxId: string },
+  status: 'REJECTED',
+  error: string
+) {
+  await tx.$executeRaw(Prisma.sql`
+    INSERT INTO "BotActionInbox" ("id", "businessId", "providerEventId", "providerMessageId", "deploymentId", "deploymentGeneration", "status", "error")
+    VALUES (${input.inboxId}, ${input.route.businessId}, ${input.providerEventId}, ${input.event.providerMessageId}, ${input.route.deploymentId},
+      ${input.route.generation}, ${status}::"BotInboxStatus", ${error})
+  `)
+}
+
+export async function upsertJob(
+  tx: Prisma.TransactionClient,
+  kind: string,
+  aggregateId: string,
+  businessId: string,
+  deploymentId: string,
+  generation: number,
+  expectedRevision: bigint | null,
+  availableAt: Date
+) {
+  await tx.$executeRaw(Prisma.sql`
+    INSERT INTO "BotJob" ("id", "kind", "aggregateId", "businessId", "deploymentId", "deploymentGeneration", "expectedRevision", "availableAt", "status", "updatedAt")
+    VALUES (${randomUUID()}, ${kind}, ${aggregateId}, ${businessId}, ${deploymentId}, ${generation}, ${expectedRevision}, ${availableAt}, 'READY'::"BotJobStatus", clock_timestamp())
+    ON CONFLICT ("kind", "aggregateId") DO UPDATE SET
+      "businessId" = EXCLUDED."businessId", "deploymentId" = EXCLUDED."deploymentId",
+      "deploymentGeneration" = EXCLUDED."deploymentGeneration", "expectedRevision" = EXCLUDED."expectedRevision",
+      "availableAt" = EXCLUDED."availableAt", "status" = 'READY'::"BotJobStatus",
+      "leaseToken" = NULL, "leasedUntil" = NULL, "updatedAt" = clock_timestamp()
+    WHERE "BotJob"."status" IN ('READY'::"BotJobStatus", 'RETRY'::"BotJobStatus")
+  `)
+}
+
+export async function applyStatusCallbackTx(
+  tx: Prisma.TransactionClient,
+  businessId: string,
+  providerMessageId: string,
+  status: 'sent' | 'delivered' | 'read' | 'failed' | 'unknown',
+  error: string | null
+): Promise<boolean> {
+  const rank = status === 'read' ? 3 : status === 'delivered' ? 2 : status === 'sent' ? 1 : 0
+  let matched = 0
+  if (rank > 0) {
+    matched = await tx.$executeRaw(Prisma.sql`
+      UPDATE "BotOutbox" SET
+        "status" = CASE
+          WHEN ${rank} = 3 THEN 'READ'::"BotOutboxStatus"
+          WHEN ${rank} = 2 AND "status" NOT IN ('READ'::"BotOutboxStatus") THEN 'DELIVERED'::"BotOutboxStatus"
+          WHEN ${rank} = 1 AND "status" IN ('SENDING'::"BotOutboxStatus", 'UNKNOWN'::"BotOutboxStatus", 'ACCEPTED'::"BotOutboxStatus") THEN 'ACCEPTED'::"BotOutboxStatus"
+          ELSE "status" END,
+        "sentAt" = CASE WHEN ${rank} >= 1 THEN COALESCE("sentAt", clock_timestamp()) ELSE "sentAt" END,
+        "deliveredAt" = CASE WHEN ${rank} >= 2 THEN COALESCE("deliveredAt", clock_timestamp()) ELSE "deliveredAt" END,
+        "readAt" = CASE WHEN ${rank} >= 3 THEN COALESCE("readAt", clock_timestamp()) ELSE "readAt" END,
+        "updatedAt" = clock_timestamp()
+      WHERE "businessId" = ${businessId} AND "providerMessageId" = ${providerMessageId}
+        AND "status" NOT IN ('POISON'::"BotOutboxStatus", 'SKIPPED'::"BotOutboxStatus")
+    `)
+  } else if (status === 'failed') {
+    matched = await tx.$executeRaw(Prisma.sql`
+      UPDATE "BotOutbox" SET "status" = 'FAILED'::"BotOutboxStatus",
+        "errorCode" = ${error ?? 'provider_failed'}, "updatedAt" = clock_timestamp()
+      WHERE "businessId" = ${businessId} AND "providerMessageId" = ${providerMessageId}
+        AND "status" NOT IN ('DELIVERED'::"BotOutboxStatus", 'READ'::"BotOutboxStatus", 'POISON'::"BotOutboxStatus", 'SKIPPED'::"BotOutboxStatus")
+    `)
+  }
+  if (matched > 0) {
+    await tx.$executeRaw(Prisma.sql`
+      UPDATE "BotDispatchClaim" c SET "status" = 'DONE'::"BotDispatchStatus", "updatedAt" = clock_timestamp()
+      FROM "BotOutbox" o
+      WHERE o."businessId" = ${businessId} AND o."providerMessageId" = ${providerMessageId}
+        AND c."kind" = 'SEND'::"BotDispatchKind" AND c."resourceId" = o."id"
+        AND c."status" <> 'DONE'::"BotDispatchStatus"
+    `)
+  }
+  return matched > 0
 }

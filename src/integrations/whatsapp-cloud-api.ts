@@ -8,6 +8,7 @@ type SendTextMessageInput = {
   to: string
   text: string
   credentials?: WhatsAppCloudCredentials
+  signal?: AbortSignal
 }
 
 type SendReplyButtonsMessageInput = SendTextMessageInput & {
@@ -380,6 +381,7 @@ export class WhatsAppCloudApi {
       `https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/messages`,
       {
         method: 'POST',
+        ...(input.signal ? { signal: input.signal } : {}),
         headers: {
           Authorization: `Bearer ${config.accessToken}`,
           'Content-Type': 'application/json'
@@ -431,6 +433,7 @@ export class WhatsAppCloudApi {
       `https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/messages`,
       {
         method: 'POST',
+        ...(input.signal ? { signal: input.signal } : {}),
         headers: {
           Authorization: `Bearer ${config.accessToken}`,
           'Content-Type': 'application/json'
@@ -470,6 +473,7 @@ export class WhatsAppCloudApi {
       `https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/messages`,
       {
         method: 'POST',
+        ...(input.signal ? { signal: input.signal } : {}),
         headers: {
           Authorization: `Bearer ${config.accessToken}`,
           'Content-Type': 'application/json'

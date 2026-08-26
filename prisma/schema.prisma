@@ -37,10 +37,12 @@ enum BotProviderEventStatus {
 
 enum BotInboxStatus {
   ADMITTED
+  CLAIMED
   SELECTED
   DUPLICATE
   CONFLICT
   STALE
+  STALE_CUTOVER
   REJECTED
   PROCESSED
   FAILED
@@ -69,7 +71,7 @@ enum BotSessionStatus {
 
 enum BotJobStatus {
   READY
-  LEASED
+  CLAIMED @map("LEASED")
   DONE
   RETRY
   POISON
@@ -77,96 +79,127 @@ enum BotJobStatus {
 
 enum BotOutboxStatus {
   PENDING
+  CLAIMED
   SENDING
   UNKNOWN
   ACCEPTED
   DELIVERED
   READ
+  RETRY
   FAILED
   POISON
+  SKIPPED
+}
+
+enum BotDispatchKind {
+  PROCESS
+  SEND
+}
+
+enum BotDispatchStatus {
+  CLAIMED
+  SENDING
+  UNKNOWN
+  DONE
 }
 
 model BotChannelDeployment {
-  id                      String                    @id @default(cuid())
-  businessId              String
-  channel                 BotChannel                @default(WHATSAPP)
-  engineKey               String                    @default("deterministic-options")
-  activeConfigurationId   String?
-  activeConfiguration     BusinessBotConfiguration? @relation("BotChannelDeploymentActiveConfiguration", fields: [businessId, activeConfigurationId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
-  previousConfigurationId String?
-  previousConfiguration   BusinessBotConfiguration? @relation("BotChannelDeploymentPreviousConfiguration", fields: [businessId, previousConfigurationId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
-  generation              Int                       @default(0)
-  activatedAt             DateTime?
-  activatedByUserId       String?
-  claimsPausedAt          DateTime?
-  createdAt               DateTime                  @default(now())
-  updatedAt               DateTime                  @updatedAt
+  id                            String                    @id @default(cuid())
+  businessId                    String
+  channel                       BotChannel                @default(WHATSAPP)
+  engineKey                     String                    @default("deterministic-options")
+  activeConfigurationId         String?
+  activeConfiguration           BusinessBotConfiguration? @relation("BotChannelDeploymentActiveConfiguration", fields: [businessId, activeConfigurationId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  previousConfigurationId       String?
+  previousConfiguration         BusinessBotConfiguration? @relation("BotChannelDeploymentPreviousConfiguration", fields: [businessId, previousConfigurationId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  generation                    Int                       @default(0)
+  activatedAt                   DateTime?
+  activatedByUserId             String?
+  claimsPausedAt                DateTime?
+  dispatchFenceEpoch            Int                       @default(0)
+  legacyDispatchCoverageVersion Int                       @default(0)
+  createdAt                     DateTime                  @default(now())
+  updatedAt                     DateTime                  @updatedAt
+
+  sessions BotSession[]     @relation("BotSessionDeployment")
+  inbox    BotActionInbox[] @relation("BotInboxDeployment")
+  jobs     BotJob[]         @relation("BotJobDeployment")
 
   @@unique([businessId, channel])
+  @@unique([businessId, id])
 }
 
 model BotDeploymentAudit {
-  id                 String   @id @default(cuid())
-  businessId         String
-  action             String
-  previousConfigId   String?
-  newConfigId        String?
-  generation         Int
-  actorUserId        String?
-  detail             Json?
-  createdAt          DateTime @default(now())
+  id               String   @id @default(cuid())
+  businessId       String
+  action           String
+  previousConfigId String?
+  newConfigId      String?
+  generation       Int
+  actorUserId      String?
+  detail           Json?
+  createdAt        DateTime @default(now())
 
   @@index([businessId, createdAt])
 }
 
 model BotSession {
-  id                String          @id @default(cuid())
-  businessId        String
-  conversationId    String?
-  deploymentId      String
-  engineVersion     String          @default("v1")
-  stateSchemaVersion Int            @default(1)
-  state             Json
-  revision          BigInt          @default(0)
-  status            BotSessionStatus @default(ACTIVE)
-  fenceToken        String?
-  draftTouchedAt    DateTime?
-  draftExpiresAt    DateTime?
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
+  id                   String               @id @default(cuid())
+  businessId           String
+  conversationId       String?
+  deploymentId         String
+  deployment           BotChannelDeployment @relation("BotSessionDeployment", fields: [businessId, deploymentId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  deploymentGeneration Int
+  channel              BotChannel           @default(WHATSAPP)
+  engineVersion        String               @default("v1")
+  businessTimezone     String
+  stateSchemaVersion   Int                  @default(1)
+  state                Json
+  revision             BigInt               @default(0)
+  status               BotSessionStatus     @default(ACTIVE)
+  fenceToken           String?
+  draftTouchedAt       DateTime?
+  draftExpiresAt       DateTime?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
 
-  prompts BotPrompt[]
-  inbox   BotActionInbox[]
-  outbox  BotOutbox[]
+  prompts        BotPrompt[]
+  inbox          BotActionInbox[]   @relation("BotInboxSession")
+  outbox         BotOutbox[]
+  dispatchClaims BotDispatchClaim[]
 
+  @@unique([businessId, id])
+  @@unique([businessId, deploymentId, id])
   @@index([businessId, status])
   @@index([conversationId])
 }
 
 model BotPrompt {
-  id             String          @id @default(cuid())
-  sessionId      String
-  session        BotSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  promptToken    String          @unique
-  stateRevision  BigInt
-  mode           BotPromptMode   @default(FUNCTIONAL)
-  status         BotPromptStatus @default(OPEN)
-  openedAt       DateTime        @default(now())
-  firstActionAt  DateTime?
-  lastActionAt   DateTime?
-  settleAt       DateTime?
-  absoluteAt     DateTime?
-  resolvedAt     DateTime?
+  id              String          @id @default(cuid())
+  sessionId       String
+  session         BotSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  promptToken     String          @unique
+  stateRevision   BigInt
+  mode            BotPromptMode   @default(FUNCTIONAL)
+  status          BotPromptStatus @default(OPEN)
+  openedAt        DateTime        @default(now())
+  firstActionAt   DateTime?
+  lastActionAt    DateTime?
+  settleAt        DateTime?
+  absoluteAt      DateTime?
+  resolvedAt      DateTime?
   outboxMessageId String?
 
   choices BotPromptChoice[]
+  inbox   BotActionInbox[]  @relation("BotInboxPrompt")
 
+  @@unique([sessionId, id])
   @@index([status, settleAt])
   @@index([sessionId, stateRevision])
 }
 
 model BotPromptChoice {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   promptId      String
   prompt        BotPrompt @relation(fields: [promptId], references: [id], onDelete: Cascade)
   choiceToken   String
@@ -175,7 +208,7 @@ model BotPromptChoice {
   entityId      String?
   payload       Json?
   labelSnapshot String
-  sortOrder     Int      @default(0)
+  sortOrder     Int       @default(0)
 
   @@unique([promptId, choiceToken])
 }
@@ -185,7 +218,7 @@ model BotProviderEvent {
   provider           String                 @default("WHATSAPP")
   eventKey           String
   eventType          BotProviderEventType
-  businessId         String?
+  businessId         String
   phoneNumberId      String?
   providerMessageId  String?
   payload            Json?
@@ -194,9 +227,10 @@ model BotProviderEvent {
   status             BotProviderEventStatus @default(ADMITTED)
   traceId            String?
 
-  inbox BotActionInbox?
+  inbox BotActionInbox[] @relation("BotInboxProviderEvent")
 
   @@unique([provider, eventKey])
+  @@unique([businessId, id])
   @@index([providerMessageId])
   @@index([businessId, admittedAt])
 }
@@ -218,72 +252,168 @@ model BotProviderEventShadow {
 }
 
 model BotActionInbox {
-  id               String          @id @default(cuid())
-  providerEventId  String          @unique
-  providerEvent    BotProviderEvent @relation(fields: [providerEventId], references: [id], onDelete: Cascade)
-  sessionId        String?
-  session          BotSession?     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  promptId         String?
-  choiceToken      String?
-  actionType       String?
-  entityRef        Json?
-  payload          Json?
-  expectedRevision BigInt?
-  receivedAt       DateTime        @default(now())
-  status           BotInboxStatus  @default(ADMITTED)
-  operationKey     String?
-  error            String?
+  id                   String               @id @default(cuid())
+  businessId           String
+  providerEventId      String
+  providerEvent        BotProviderEvent     @relation("BotInboxProviderEvent", fields: [businessId, providerEventId], references: [businessId, id], onDelete: Cascade, onUpdate: Cascade)
+  sessionId            String?
+  session              BotSession?          @relation("BotInboxSession", fields: [businessId, deploymentId, sessionId], references: [businessId, deploymentId, id], onDelete: Cascade, onUpdate: Cascade)
+  promptId             String?
+  prompt               BotPrompt?           @relation("BotInboxPrompt", fields: [sessionId, promptId], references: [sessionId, id], onDelete: Cascade, onUpdate: Cascade)
+  providerMessageId    String?
+  choiceToken          String?
+  actionType           String?
+  deploymentId         String
+  deployment           BotChannelDeployment @relation("BotInboxDeployment", fields: [businessId, deploymentId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  deploymentGeneration Int
+  entityRef            Json?
+  payload              Json?
+  expectedRevision     BigInt?
+  receivedAt           DateTime             @default(now())
+  status               BotInboxStatus       @default(ADMITTED)
+  claimToken           String?
+  claimedUntil         DateTime?
+  operationKey         String?
+  error                String?
 
   @@index([promptId, status, receivedAt])
+  @@index([businessId, providerEventId])
+  @@index([status, claimedUntil])
   @@index([sessionId, receivedAt])
 }
 
 model BotJob {
-  id          String       @id @default(cuid())
-  kind        String
-  aggregateId String
-  businessId  String?
-  availableAt DateTime     @default(now())
-  status      BotJobStatus @default(READY)
-  attempts    Int          @default(0)
-  maxAttempts Int          @default(5)
-  leaseToken  String?
-  leasedUntil DateTime?
-  lastError   String?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  id                   String               @id @default(cuid())
+  kind                 String
+  aggregateId          String
+  businessId           String
+  deploymentId         String
+  deployment           BotChannelDeployment @relation("BotJobDeployment", fields: [businessId, deploymentId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  deploymentGeneration Int
+  expectedRevision     BigInt?
+  availableAt          DateTime             @default(now())
+  status               BotJobStatus         @default(READY)
+  attempts             Int                  @default(0)
+  maxAttempts          Int                  @default(5)
+  claimToken           String?              @map("leaseToken")
+  claimedUntil         DateTime?            @map("leasedUntil")
+  lastError            String?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
 
   @@unique([kind, aggregateId])
   @@index([status, availableAt])
+  @@index([status, claimedUntil])
+  @@index([businessId, deploymentId, status])
 }
 
 model BotOutbox {
-  id               String          @id @default(cuid())
-  businessId       String
-  sessionId        String
-  session          BotSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  transitionId     String
-  sequence         Int
-  kind             String
-  payload          Json
-  idempotencyKey   String          @unique
-  status           BotOutboxStatus @default(PENDING)
+  id                String          @id @default(cuid())
+  businessId        String
+  sessionId         String
+  session           BotSession      @relation(fields: [businessId, sessionId], references: [businessId, id], onDelete: Cascade, onUpdate: Cascade)
+  transitionId      String
+  deliveryGroupId   String
+  sequence          Int
+  kind              String
+  payload           Json
+  idempotencyKey    String          @unique
+  status            BotOutboxStatus @default(PENDING)
   dependsOnSequence Int?
   providerMessageId String?
-  errorCode        String?
-  attempts         Int             @default(0)
-  maxAttempts      Int             @default(5)
-  availableAt      DateTime        @default(now())
-  leaseToken       String?
-  leasedUntil      DateTime?
-  sentAt           DateTime?
-  deliveredAt      DateTime?
-  readAt           DateTime?
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
+  errorCode         String?
+  attempts          Int             @default(0)
+  maxAttempts       Int             @default(5)
+  availableAt       DateTime        @default(now())
+  claimToken        String?         @map("leaseToken")
+  claimedUntil      DateTime?       @map("leasedUntil")
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  readAt            DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
 
+  resolutions BotOutboxResolution[]
+
+  @@unique([sessionId, deliveryGroupId, sequence])
   @@index([sessionId, sequence])
+  @@index([deliveryGroupId, sequence])
   @@index([status, availableAt])
+  @@index([status, claimedUntil])
+}
+
+model BotOutboxResolution {
+  id        String    @id @default(cuid())
+  outboxId  String
+  outbox    BotOutbox @relation(fields: [outboxId], references: [id], onDelete: Cascade)
+  type      String
+  actorId   String
+  reason    String
+  detail    Json?
+  createdAt DateTime  @default(now())
+
+  @@index([outboxId, createdAt])
+}
+
+model BotDispatchClaim {
+  id                String            @id @default(cuid())
+  businessId        String
+  channel           BotChannel        @default(WHATSAPP)
+  sessionId         String?
+  session           BotSession?       @relation(fields: [businessId, sessionId], references: [businessId, id], onDelete: Cascade, onUpdate: Cascade)
+  resourceId        String?
+  engineKey         String
+  generation        Int
+  fenceEpoch        Int
+  kind              BotDispatchKind
+  status            BotDispatchStatus @default(CLAIMED)
+  claimToken        String            @unique
+  claimedAt         DateTime          @default(now())
+  claimedUntil      DateTime
+  providerMessageId String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@index([businessId, channel, kind, status])
+  @@index([kind, resourceId, status])
+  @@index([status, claimedUntil])
+}
+
+model BotTransitionLog {
+  id                   String   @id @default(cuid())
+  businessId           String
+  sessionId            String
+  deploymentId         String
+  deploymentGeneration Int
+  revisionFrom         BigInt
+  revisionTo           BigInt
+  actionType           String
+  outcome              String
+  promptId             String?
+  providerEventId      String?
+  durationMs           Int?
+  detail               Json?
+  createdAt            DateTime @default(now())
+
+  @@unique([sessionId, revisionTo])
+  @@index([businessId, createdAt])
+}
+
+model BotOperation {
+  id           String   @id @default(cuid())
+  operationKey String   @unique
+  type         String
+  businessId   String
+  sessionId    String
+  status       String
+  requestHash  String
+  resultRef    String?
+  lastError    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([businessId, status])
+  @@index([sessionId, createdAt])
 }
 
 enum AppointmentStatus {
@@ -690,21 +820,23 @@ model BusinessWhatsAppConfig {
   businessId String   @unique
   business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
-  connectionStatus   WhatsAppConnectionStatus @default(NOT_CONNECTED)
-  mode               WhatsAppConnectionMode   @default(CLIENT_OWNED)
-  wabaId             String?
-  phoneNumberId      String?
-  displayPhoneNumber String?
-  metaAppId          String?
-  accessToken        String?
-  /** App secret de la Meta App propia del comercio: valida X-Hub-Signature-256 (decisión D). */
-  appSecret          String?
-  appSecretPrevious  String?
+  connectionStatus            WhatsAppConnectionStatus @default(NOT_CONNECTED)
+  mode                        WhatsAppConnectionMode   @default(CLIENT_OWNED)
+  wabaId                      String?
+  phoneNumberId               String?
+  displayPhoneNumber          String?
+  metaAppId                   String?
+  accessToken                 String?
+  /**
+   * App secret de la Meta App propia del comercio: valida X-Hub-Signature-256 (decisión D).
+   */
+  appSecret                   String?
+  appSecretPrevious           String?
   appSecretPreviousValidUntil DateTime?
-  tokenExpiresAt     DateTime?
-  connectedAt        DateTime?
-  disconnectedAt     DateTime?
-  lastError          String?
+  tokenExpiresAt              DateTime?
+  connectedAt                 DateTime?
+  disconnectedAt              DateTime?
+  lastError                   String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1226,13 +1358,13 @@ model Conversation {
   supportBotKey          String?
   supportBotState        Json?
 
-  lastMessage              String?
-  humanHandoffAt           DateTime?
-  humanHandoffResolvedAt   DateTime?
-  photoQuoteAcknowledgedAt DateTime?
-  archivedAt               DateTime?
-  botProcessingToken       String?
-  botProcessingUntil       DateTime?
+  lastMessage                  String?
+  humanHandoffAt               DateTime?
+  humanHandoffResolvedAt       DateTime?
+  photoQuoteAcknowledgedAt     DateTime?
+  archivedAt                   DateTime?
+  botProcessingToken           String?
+  botProcessingUntil           DateTime?
   activeInteractivePromptToken String?
 
   opportunityStatus        ConversationOpportunityStatus @default(OPEN)

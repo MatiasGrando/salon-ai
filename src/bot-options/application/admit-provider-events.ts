@@ -6,6 +6,8 @@ import {
   type ParsedWebhookEvent
 } from '../infrastructure/meta-webhook-adapter.js'
 import type {
+  AuthoritativeAdmissionRepository,
+  AuthoritativeRoute,
   ShadowAdmissionRepository,
   ShadowAdmissionTenant,
   ShadowEventInsert
@@ -29,6 +31,15 @@ export type AdmitProviderEventsInput = {
 
 export interface ProviderEventAdmission {
   admit(input: AdmitProviderEventsInput): Promise<AdmissionOutcome>
+}
+
+export type AuthoritativeWebhookDecision =
+  | { route: 'legacy' }
+  | { route: 'new'; outcome: AdmissionOutcome }
+  | { route: 'ambiguous' }
+
+export interface AuthoritativeWebhookAdmission {
+  routeAndAdmit(input: AdmitProviderEventsInput): Promise<AuthoritativeWebhookDecision>
 }
 
 type AdmissionDependencies = {
@@ -56,6 +67,10 @@ function usableSecrets(tenant: ShadowAdmissionTenant, now: Date) {
   }
 
   return secrets
+}
+
+function isNewRoute(route: AuthoritativeRoute): route is Extract<AuthoritativeRoute, { kind: 'new' }> {
+  return route.kind === 'new'
 }
 
 function redactEvent(event: ParsedWebhookEvent): Record<string, string | boolean | null> {
@@ -142,5 +157,46 @@ export function createProviderEventAdmission(
 ): ProviderEventAdmission {
   return {
     admit: (input) => admitProviderEvents(input, { repository, clock })
+  }
+}
+
+export function createAuthoritativeWebhookAdmission(
+  repository: AuthoritativeAdmissionRepository,
+  clock: () => Date = () => new Date()
+): AuthoritativeWebhookAdmission {
+  return {
+    async routeAndAdmit(input) {
+      const parsed = parseJson(input.rawBody)
+      if (!parsed.ok) return { route: 'new', outcome: { status: 'malformed_payload' } }
+      const phoneNumberId = extractUntrustedPhoneNumberIdCandidate(input.rawBody)
+      if (!phoneNumberId) return { route: 'legacy' }
+      const route = await repository.resolveRoute(phoneNumberId)
+      if (route.kind === 'legacy') return { route: 'legacy' }
+      if (route.kind === 'ambiguous') return { route: 'ambiguous' }
+      if (!isNewRoute(route)) return { route: 'legacy' }
+
+      const secrets = usableSecrets(route, clock())
+      if (secrets.length === 0) return { route: 'new', outcome: { status: 'missing_secret' } }
+      const valid = secrets.some((appSecret) => verifyMetaSignature({
+        rawBody: input.rawBody,
+        signatureHeader: input.signatureHeader,
+        appSecret
+      }).ok)
+      if (!valid) return { route: 'new', outcome: { status: 'invalid_signature' } }
+
+      const events = parseWhatsAppWebhookPayload(parsed.value).events
+      const result = await repository.admitAuthoritative({
+        route,
+        phoneNumberId,
+        events,
+        ...(input.traceId ? { traceId: input.traceId } : {})
+      })
+      const outcome: AdmissionOutcome = result.insertedCount === 0
+        ? { status: 'duplicate', eventCount: result.eventCount }
+        : result.insertedCount === result.eventCount
+          ? { status: 'admitted', eventCount: result.eventCount }
+          : { status: 'partial', eventCount: result.eventCount, insertedCount: result.insertedCount }
+      return { route: 'new', outcome }
+    }
   }
 }

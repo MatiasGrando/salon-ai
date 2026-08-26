@@ -7,6 +7,7 @@ export type BotOptionsConfig = {
   depositsCapabilityEnabled: boolean
   appointmentManagementCapabilityEnabled: boolean
   handoffCapabilityEnabled: boolean
+  legacyDispatchCoverageComplete: boolean
 }
 
 type Env = NodeJS.ProcessEnv | Record<string, string | undefined>
@@ -28,7 +29,8 @@ export function resolveBotOptionsConfig(env: Env): BotOptionsConfig {
     bookingCapabilityEnabled: strictBoolean(env, 'BOT_OPTIONS_CAPABILITY_BOOKING_ENABLED'),
     depositsCapabilityEnabled: strictBoolean(env, 'BOT_OPTIONS_CAPABILITY_DEPOSITS_ENABLED'),
     appointmentManagementCapabilityEnabled: strictBoolean(env, 'BOT_OPTIONS_CAPABILITY_APPOINTMENT_MANAGEMENT_ENABLED'),
-    handoffCapabilityEnabled: strictBoolean(env, 'BOT_OPTIONS_CAPABILITY_HANDOFF_ENABLED')
+    handoffCapabilityEnabled: strictBoolean(env, 'BOT_OPTIONS_CAPABILITY_HANDOFF_ENABLED'),
+    legacyDispatchCoverageComplete: strictBoolean(env, 'BOT_OPTIONS_LEGACY_DISPATCH_COVERAGE_COMPLETE')
   }
 
   if (!config.authoritativeProcessingEnabled) {
@@ -45,6 +47,10 @@ export function resolveBotOptionsConfig(env: Env): BotOptionsConfig {
     if (invalid.length > 0) {
       throw new Error(`${invalid.join(', ')} require BOT_OPTIONS_AUTHORITATIVE_PROCESSING_ENABLED=true`)
     }
+  }
+
+  if (config.senderEnabled && !config.legacyDispatchCoverageComplete) {
+    throw new Error('BOT_OPTIONS_SENDER_ENABLED requires BOT_OPTIONS_LEGACY_DISPATCH_COVERAGE_COMPLETE=true')
   }
 
   return config

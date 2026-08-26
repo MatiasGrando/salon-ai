@@ -9,7 +9,8 @@ assert.deepEqual(resolveBotOptionsConfig({}), {
   bookingCapabilityEnabled: false,
   depositsCapabilityEnabled: false,
   appointmentManagementCapabilityEnabled: false,
-  handoffCapabilityEnabled: false
+  handoffCapabilityEnabled: false,
+  legacyDispatchCoverageComplete: false
 })
 
 const shadowOnly = resolveBotOptionsConfig({ BOT_OPTIONS_SHADOW_ADMISSION_ENABLED: 'true' })
@@ -24,7 +25,8 @@ const authoritative = resolveBotOptionsConfig({
   BOT_OPTIONS_CAPABILITY_BOOKING_ENABLED: 'true',
   BOT_OPTIONS_CAPABILITY_DEPOSITS_ENABLED: 'true',
   BOT_OPTIONS_CAPABILITY_APPOINTMENT_MANAGEMENT_ENABLED: 'true',
-  BOT_OPTIONS_CAPABILITY_HANDOFF_ENABLED: 'true'
+  BOT_OPTIONS_CAPABILITY_HANDOFF_ENABLED: 'true',
+  BOT_OPTIONS_LEGACY_DISPATCH_COVERAGE_COMPLETE: 'true'
 })
 assert.equal(authoritative.workersEnabled, true)
 assert.equal(authoritative.senderEnabled, true)
@@ -32,6 +34,7 @@ assert.equal(authoritative.bookingCapabilityEnabled, true)
 assert.equal(authoritative.depositsCapabilityEnabled, true)
 assert.equal(authoritative.appointmentManagementCapabilityEnabled, true)
 assert.equal(authoritative.handoffCapabilityEnabled, true)
+assert.equal(authoritative.legacyDispatchCoverageComplete, true)
 assert.equal('routingEnabled' in authoritative, false, 'routing is controlled by deployment pointers, not capability config')
 
 for (const dependent of [
@@ -57,11 +60,20 @@ for (const field of [
   'BOT_OPTIONS_CAPABILITY_BOOKING_ENABLED',
   'BOT_OPTIONS_CAPABILITY_DEPOSITS_ENABLED',
   'BOT_OPTIONS_CAPABILITY_APPOINTMENT_MANAGEMENT_ENABLED',
-  'BOT_OPTIONS_CAPABILITY_HANDOFF_ENABLED'
+  'BOT_OPTIONS_CAPABILITY_HANDOFF_ENABLED',
+  'BOT_OPTIONS_LEGACY_DISPATCH_COVERAGE_COMPLETE'
 ]) {
   for (const invalid of ['', 'TRUE', '1', 'yes', ' false ']) {
     assert.throws(() => resolveBotOptionsConfig({ [field]: invalid }), new RegExp(`${field} must be exactly`))
   }
 }
+
+assert.throws(
+  () => resolveBotOptionsConfig({
+    BOT_OPTIONS_AUTHORITATIVE_PROCESSING_ENABLED: 'true',
+    BOT_OPTIONS_SENDER_ENABLED: 'true'
+  }),
+  /legacy dispatch coverage incomplete|LEGACY_DISPATCH_COVERAGE_COMPLETE/
+)
 
 console.log('OK bot-options config: defaults OFF and dependency validation are strict.')

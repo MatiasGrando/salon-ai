@@ -42,11 +42,21 @@ import { installEgressBaseline } from './observability/egress-baseline/install.j
 import { resolveBotOptionsConfig, type BotOptionsConfig } from './config/bot-options.js'
 import { createPrismaIngressClient } from './config/prisma-ingress.js'
 import { PrismaAdmissionRepository } from './bot-options/infrastructure/prisma-admission.js'
+import { PrismaAuthoritativeAdmissionRepository } from './bot-options/infrastructure/prisma-admission.js'
 import {
+  createAuthoritativeWebhookAdmission,
   createProviderEventAdmission,
+  type AuthoritativeWebhookAdmission,
   type ProviderEventAdmission
 } from './bot-options/application/admit-provider-events.js'
 import type { WhatsAppWebhookServiceContract } from './routes/whatsapp-webhook.js'
+import { prisma } from './config/prisma.js'
+import { startPostgresWorkerLoop, type WorkerLoop } from './bot-options/infrastructure/postgres-worker.js'
+import { reconcileActions } from './bot-options/application/reconcile-actions.js'
+import { processSessionJob } from './bot-options/application/process-session-job.js'
+import { startOutboxSenderLoop, type OutboxProvider } from './bot-options/infrastructure/whatsapp-outbox-sender.js'
+import { MetaOutboxProvider } from './bot-options/infrastructure/meta-outbox-provider.js'
+import { startBotOptionsMetricsLoop } from './bot-options/observability/metrics.js'
 
 process.env.TZ ??= 'America/Argentina/Buenos_Aires'
 
@@ -56,7 +66,9 @@ const host = process.env.HOST ?? '0.0.0.0'
 export type BuildAppOptions = AuthorizationBuildAppOptions & {
   botOptionsConfig?: BotOptionsConfig
   shadowAdmission?: ProviderEventAdmission
+  authoritativeAdmission?: AuthoritativeWebhookAdmission
   legacyWhatsappWebhookService?: WhatsAppWebhookServiceContract
+  outboxProvider?: OutboxProvider
 }
 
 export async function buildApp(options: BuildAppOptions = {}) {
@@ -67,13 +79,16 @@ export async function buildApp(options: BuildAppOptions = {}) {
   installAuthorizationProviders(app, options)
   const botOptionsConfig = options.botOptionsConfig ?? resolveBotOptionsConfig(process.env)
   let shadowAdmission = options.shadowAdmission
+  let authoritativeAdmission = options.authoritativeAdmission
 
-  if (botOptionsConfig.shadowAdmissionEnabled && !shadowAdmission) {
+  if ((botOptionsConfig.shadowAdmissionEnabled && !shadowAdmission) || (botOptionsConfig.authoritativeProcessingEnabled && !authoritativeAdmission)) {
     const ingressPrisma = createPrismaIngressClient()
-    shadowAdmission = createProviderEventAdmission(
-      new PrismaAdmissionRepository(ingressPrisma),
-      app.clock
-    )
+    if (botOptionsConfig.shadowAdmissionEnabled && !shadowAdmission) {
+      shadowAdmission = createProviderEventAdmission(new PrismaAdmissionRepository(ingressPrisma), app.clock)
+    }
+    if (botOptionsConfig.authoritativeProcessingEnabled && !authoritativeAdmission) {
+      authoritativeAdmission = createAuthoritativeWebhookAdmission(new PrismaAuthoritativeAdmissionRepository(ingressPrisma), app.clock)
+    }
     app.addHook('onClose', async () => {
       await ingressPrisma.$disconnect()
     })
@@ -91,6 +106,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(whatsappWebhookRoutes, {
     botOptionsConfig,
     ...(shadowAdmission ? { shadowAdmission } : {}),
+    ...(authoritativeAdmission ? { authoritativeAdmission } : {}),
     ...(options.legacyWhatsappWebhookService
       ? { legacyWebhookService: options.legacyWhatsappWebhookService }
       : {})
@@ -116,6 +132,40 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(staffUserRoutes)
   await app.register(demoProfileRoutes)
   await app.register(weexLeadAdminRoutes)
+
+  const loops: WorkerLoop[] = []
+  if (botOptionsConfig.workersEnabled) {
+    const handler = async (job: Parameters<typeof processSessionJob>[0]['job']) => {
+      if (job.kind === 'RECONCILE_PROMPT') {
+        await reconcileActions(prisma, job)
+        return
+      }
+      await processSessionJob({ client: prisma, job })
+    }
+    loops.push(startPostgresWorkerLoop({ client: prisma, handle: handler, onError: (error) => app.log.error(error) }))
+    loops.push(startPostgresWorkerLoop({ client: prisma, handle: handler, onError: (error) => app.log.error(error) }))
+  }
+  if (botOptionsConfig.senderEnabled) {
+    const provider = options.outboxProvider ?? new MetaOutboxProvider()
+    loops.push(startOutboxSenderLoop({
+      client: prisma,
+      provider,
+      onError: (error) => app.log.error(error)
+    }))
+  }
+  if (loops.length > 0) {
+    app.addHook('onClose', async () => { await Promise.all(loops.map((loop) => loop.stop())) })
+  }
+  if (botOptionsConfig.authoritativeProcessingEnabled) {
+    const metricsLoop = startBotOptionsMetricsLoop({
+      client: prisma,
+      publish: (snapshot) => {
+        const log = snapshot.alerts.length > 0 ? app.log.warn.bind(app.log) : app.log.info.bind(app.log)
+        log({ botOptionsMetrics: snapshot }, 'bot-options operational metrics')
+      }
+    })
+    app.addHook('onClose', async () => { metricsLoop.stop() })
+  }
 
   return app
 }

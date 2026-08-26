@@ -1,6 +1,9 @@
 import type { FastifyInstance } from 'fastify'
 import type { BotOptionsConfig } from '../config/bot-options.js'
-import type { ProviderEventAdmission } from '../bot-options/application/admit-provider-events.js'
+import type {
+  AuthoritativeWebhookAdmission,
+  ProviderEventAdmission
+} from '../bot-options/application/admit-provider-events.js'
 import { installWhatsAppRawBodyParser } from '../plugins/whatsapp-raw-body.js'
 
 export type WhatsAppWebhookServiceContract = {
@@ -15,6 +18,7 @@ export type WhatsAppWebhookServiceContract = {
 export type WhatsAppWebhookRouteOptions = {
   botOptionsConfig?: BotOptionsConfig
   shadowAdmission?: ProviderEventAdmission
+  authoritativeAdmission?: AuthoritativeWebhookAdmission
   legacyWebhookService?: WhatsAppWebhookServiceContract
 }
 
@@ -34,7 +38,8 @@ export async function whatsappWebhookRoutes(
   options: WhatsAppWebhookRouteOptions = {}
 ) {
   const shadowEnabled = options.botOptionsConfig?.shadowAdmissionEnabled === true
-  if (shadowEnabled) installWhatsAppRawBodyParser(app)
+  const authoritativeEnabled = options.botOptionsConfig?.authoritativeProcessingEnabled === true
+  if (shadowEnabled || authoritativeEnabled) installWhatsAppRawBodyParser(app)
   const service = options.legacyWebhookService ?? await productionLegacyService()
   let shadowAdmissionsInFlight = 0
 
@@ -83,8 +88,34 @@ export async function whatsappWebhookRoutes(
     return reply.status(200).send(result.challenge)
   })
 
-  app.post('/webhooks/whatsapp', async (request) => {
+  app.post('/webhooks/whatsapp', async (request, reply) => {
     if (shadowEnabled) startShadowAdmission(request)
+
+    if (authoritativeEnabled) {
+      if (!options.authoritativeAdmission || !request.whatsappRawBody) {
+        return reply.status(503).send({ message: 'Authoritative admission unavailable' })
+      }
+      const decision = await options.authoritativeAdmission.routeAndAdmit({
+        rawBody: request.whatsappRawBody,
+        signatureHeader: request.headers['x-hub-signature-256'],
+        traceId: request.id
+      })
+      if (decision.route === 'ambiguous') {
+        return reply.status(503).send({ message: 'Ambiguous WhatsApp tenant' })
+      }
+      if (decision.route === 'new') {
+        if (decision.outcome.status === 'invalid_signature') {
+          return reply.status(403).send({ message: 'Invalid Meta signature' })
+        }
+        if (decision.outcome.status === 'missing_secret') {
+          return reply.status(503).send({ message: 'Tenant signing secret unavailable' })
+        }
+        if (decision.outcome.status === 'malformed_payload') {
+          return reply.status(400).send({ message: 'Malformed webhook payload' })
+        }
+        return reply.status(200).send({ received: true })
+      }
+    }
 
     return service.handleWebhook(request.body)
   })

@@ -105,8 +105,12 @@ export async function getBusinessWhatsAppState(businessId: string) {
   }
 }
 
-export async function resolveBusinessWhatsAppCredentials(businessId?: string | null): Promise<WhatsAppCloudCredentials> {
-  if (!businessId) return whatsappConfig.allowInternalFallback ? envCredentials() : emptyCredentials()
+export async function resolveBusinessWhatsAppCredentials(
+  businessId?: string | null,
+  options: { allowInternalFallback?: boolean } = {}
+): Promise<WhatsAppCloudCredentials> {
+  const allowInternalFallback = options.allowInternalFallback ?? whatsappConfig.allowInternalFallback
+  if (!businessId) return allowInternalFallback ? envCredentials() : emptyCredentials()
   const config = await prisma.businessWhatsAppConfig.findUnique({ where: { businessId } })
   if (config?.accessToken && config.phoneNumberId) {
     const appId = config.metaAppId ?? whatsappConfig.appId
@@ -119,7 +123,7 @@ export async function resolveBusinessWhatsAppCredentials(businessId?: string | n
       ...(appId ? { appId } : {})
     }
   }
-  return whatsappConfig.allowInternalFallback ? envCredentials() : emptyCredentials()
+  return allowInternalFallback ? envCredentials() : emptyCredentials()
 }
 
 export function resolveBusinessWhatsAppCredentialsFromState(
