@@ -64,7 +64,7 @@ export type BotOptionsEffect =
       reason: string
       detail: string | null
       /** Contexto mínimo y estable para auditar qué entidad originó la cola. */
-      context: { serviceId: string } | null
+      context: { serviceId: string } | { professionalId: string } | null
     }
   | { kind: 'TAKE_HUMAN_HANDOFF' }
   | { kind: 'RESOLVE_HANDOFF'; mode: 'HOME' | 'RESUME' }

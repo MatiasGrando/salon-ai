@@ -15,7 +15,8 @@ import { prismaHandoffEffectExecutor } from '../infrastructure/prisma-handoff-ef
 import type { BotOptionsActionType } from '../domain/actions.js'
 import { botOptionsMetrics } from '../observability/metrics.js'
 import { PrismaHoursRepository } from '../infrastructure/prisma-hours.js'
-import { formatBusinessWeeklySchedule } from './hours-queries.js'
+import { PrismaProfessionalHoursRepository } from '../infrastructure/prisma-professional-hours.js'
+import { formatBusinessWeeklySchedule, formatProfessionalWeeklySchedule, formatProfessionalListLabel } from './hours-queries.js'
 
 type RuntimeClient = Pick<PrismaClient, '$queryRaw' | '$executeRaw' | '$transaction'>
 
@@ -62,8 +63,11 @@ const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
     serviceActive: false, serviceBookable: false, requiresConsultation: false,
     serviceCompatibleWithCart: input.state.cart.length === 0, serviceInCart: false,
     hasRecommendations: false, recommendedServiceAvailable: false, recommendedCompatibleWithCart: false,
-    professionalCommonExists: false, professionalSelectable: false, dateAvailable: false, slotAvailable: false,
-    bandHasAvailability: false, catalogCanNext: false, catalogCanPrevious: false, dateCanNext: false,
+      professionalCommonExists: false, professionalSelectable: false,
+      professionalActive: false, professionalBookable: false,
+      dateAvailable: false, slotAvailable: false,
+    bandHasAvailability: false, catalogCanNext: false, catalogCanPrevious: false,
+    professionalCatalogCanNext: false, professionalCatalogCanPrevious: false, dateCanNext: false,
     dateCanPrevious: false, slotCanNext: false, appointmentsExist: false, appointmentsCanNext: false,
     appointmentOwnedAndFuture: false, cancellationAllowed: false, rescheduleAllowed: false,
     rescheduleDateAvailable: false, rescheduleSlotAvailable: false, approvedDepositTransferable: false,
@@ -84,7 +88,7 @@ const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
 
   // F5.6: Vista runtime real de horarios del negocio
   // Carga BusinessHours + ScheduleBlock con businessId, session.businessTimezone y dbNow.
-  // NO consulta Professional, Appointment, slots ni disponibilidad.
+  // NO consulta Appointment, slots ni disponibilidad.
   if (input.actionType === 'menu.business_hours') {
     const hoursRepo = new PrismaHoursRepository(tx)
     const [weeklyHours, exceptions] = await Promise.all([
@@ -98,6 +102,61 @@ const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
     base.labels.businessWeeklyHoursText = formatBusinessWeeklySchedule(
       weeklyHours, exceptions, input.dbNow, input.businessTimezone
     )
+  }
+
+  // F5.7: Profesional hours — carga datos reales del profesional para listado y detalle.
+  if (input.actionType === 'hours.professional' || input.actionType === 'hours.choose_other_professional' ||
+      input.actionType === 'hours.next_page' || input.actionType === 'hours.previous_page') {
+    const profRepo = new PrismaProfessionalHoursRepository(tx)
+    const professionals = await profRepo.listActiveProfessionals({ businessId: input.businessId })
+    const PAGE_SIZE = 7
+    const catalog = professionals.map((p) => ({
+      professionalId: p.professionalId,
+      label: formatProfessionalListLabel(p)
+    }))
+    base.labels.professionalCatalog = catalog
+    base.professionalSelectable = catalog.length > 0
+    // Compute pagination flags from current presentation cursor
+    const cursor = input.state.presentation.kind === 'professional_list_page' ? input.state.presentation.cursor : 0
+    const totalProfessionals = catalog.length
+    base.professionalCatalogCanNext = (cursor + 1) * PAGE_SIZE < totalProfessionals
+    base.professionalCatalogCanPrevious = cursor > 0
+  }
+
+  // F5.7: Professional hours detail actions — revalidate professional from state.
+  // actions hours.professional_select, hours.professional_search_availability,
+  // hours.professional_consult_human from PROFESSIONAL_HOURS_DETAIL all need professional context.
+  const needsProfessionalDetail =
+    input.actionType === 'hours.professional_select' ||
+    input.actionType === 'hours.professional_search_availability' ||
+    input.actionType === 'hours.professional_consult_human'
+
+  if (needsProfessionalDetail) {
+    const profRepo = new PrismaProfessionalHoursRepository(tx)
+    // Prefer entityRef from action; fall back to state.pendingEntityRef for detail actions
+    const profIdFromRef = input.entityRef?.type === 'PROFESSIONAL' ? input.entityRef.id : null
+    const profIdFromState = input.state.pendingEntityRef?.type === 'PROFESSIONAL' ? input.state.pendingEntityRef.id : null
+    const profId = profIdFromRef ?? profIdFromState
+    if (profId) {
+      const professional = await profRepo.getProfessional({ businessId: input.businessId, professionalId: profId })
+      if (professional) {
+        base.professionalActive = true
+        base.professionalBookable = professional.acceptsBotBookings
+        base.labels.professionalName = professional.name
+        const [weeklyHours, exceptions] = await Promise.all([
+          profRepo.loadProfessionalWeeklyHours({ professionalId: profId, businessId: input.businessId }),
+          profRepo.loadProfessionalExceptions({
+            professionalId: profId,
+            businessId: input.businessId,
+            dbNow: input.dbNow,
+            timezone: input.businessTimezone
+          })
+        ])
+        base.labels.professionalWeeklyHoursText = formatProfessionalWeeklySchedule(
+          professional.name, weeklyHours, exceptions, input.dbNow, input.businessTimezone
+        )
+      }
+    }
   }
 
   return base

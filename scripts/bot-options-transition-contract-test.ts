@@ -699,7 +699,7 @@ console.log('OK F5.6: back desde BUSINESS_HOURS → MAIN_MENU')
 const toProHours = transition(
   stateWith({ flow: 'BUSINESS_HOURS' }),
   act('hours.professional'),
-  ctx()
+  ctx({ professionalSelectable: true })
 )
 assert.equal(toProHours.outcome, 'APPLIED')
 if (toProHours.outcome === 'APPLIED') {
@@ -734,4 +734,419 @@ for (const choice of hoursChoices.choices) {
 }
 console.log('OK F5.6: BUSINESS_HOURS no crea draft ni revela agenda')
 
-console.log('OK bot-options transition: navegación, reserva, señas, escalación y silencio cumplen el contrato.')
+// ─── F5.7 — Horario semanal de profesionales ─────────────────────────────────
+
+// 1) PROFESSIONAL_HOURS_SELECT stores pendingEntityRef as PROFESSIONAL type
+const profSelectState = stateWith({ flow: 'PROFESSIONAL_HOURS_SELECT' })
+const profSelectResult = transition(
+  profSelectState,
+  act('hours.professional_select', { entityRef: { type: 'PROFESSIONAL', id: 'prof_ana' } }),
+  ctx({ professionalActive: true, professionalBookable: true, labels: { professionalName: 'Ana' } })
+)
+assert.equal(profSelectResult.outcome, 'APPLIED')
+if (profSelectResult.outcome === 'APPLIED') {
+  assert.equal(profSelectResult.state.flow, 'PROFESSIONAL_HOURS_DETAIL')
+  assert.deepEqual(profSelectResult.state.pendingEntityRef, { type: 'PROFESSIONAL', id: 'prof_ana' },
+    'pendingEntityRef stores PROFESSIONAL type, not SERVICE')
+}
+console.log('OK F5.7: pendingEntityRef stores PROFESSIONAL type')
+
+// 2) PROFESSIONAL_HOURS_DETAIL choices carry entityRef
+const profDetailState = stateWith({
+  flow: 'PROFESSIONAL_HOURS_DETAIL',
+  pendingEntityRef: { type: 'PROFESSIONAL', id: 'prof_ana' }
+})
+const profDetailView = renderCurrentView(profDetailState, normalizeContext(ctx({
+  professionalActive: true, professionalBookable: true, labels: { professionalName: 'Ana' }
+})))
+const searchChoice = profDetailView.choices.find((c) => c.actionType === 'hours.professional_search_availability')
+assert.ok(searchChoice, 'reservable: has professional_search_availability choice')
+assert.deepEqual(searchChoice?.entityRef, { type: 'PROFESSIONAL', id: 'prof_ana' },
+  'professional_search_availability carries PROFESSIONAL entityRef')
+
+const nonBookableDetailView = renderCurrentView(
+  stateWith({ flow: 'PROFESSIONAL_HOURS_DETAIL', pendingEntityRef: { type: 'PROFESSIONAL', id: 'prof_carlos' } }),
+  normalizeContext(ctx({ professionalActive: true, professionalBookable: false, labels: { professionalName: 'Carlos' } }))
+)
+const consultChoice = nonBookableDetailView.choices.find((c) => c.actionType === 'hours.professional_consult_human')
+assert.ok(consultChoice, 'no reservable: has professional_consult_human choice')
+assert.deepEqual(consultChoice?.entityRef, { type: 'PROFESSIONAL', id: 'prof_carlos' },
+  'professional_consult_human carries PROFESSIONAL entityRef')
+console.log('OK F5.7: PROFESSIONAL_HOURS_DETAIL choices carry entityRef')
+
+// 3) hours.professional_consult_human from detail triggers handoff
+const consultHumanResult = transition(
+  stateWith({ flow: 'PROFESSIONAL_HOURS_DETAIL', pendingEntityRef: { type: 'PROFESSIONAL', id: 'prof_ana' } }),
+  act('hours.professional_consult_human', { entityRef: { type: 'PROFESSIONAL', id: 'prof_ana' } }),
+  ctx({ professionalActive: true, labels: { professionalName: 'Ana' } })
+)
+assert.equal(consultHumanResult.outcome, 'HANDOFF')
+if (consultHumanResult.outcome === 'HANDOFF') {
+  assert.equal(consultHumanResult.state.flow, 'HANDOFF_QUEUED')
+  assert.equal(consultHumanResult.state.handoff, 'QUEUED')
+  const handoffEffect = consultHumanResult.effects.find((e) => e.kind === 'REQUEST_HUMAN_HANDOFF')
+  assert.ok(handoffEffect, 'must emit REQUEST_HUMAN_HANDOFF')
+  if (handoffEffect?.kind === 'REQUEST_HUMAN_HANDOFF') {
+    assert.equal(handoffEffect.reason, 'profesional_no_reservable_por_bot')
+  }
+}
+console.log('OK F5.7: hours.professional_consult_human triggers handoff')
+
+// 4) hours.professional_consult_human fails if professional not active (stale)
+const staleConsultResult = transition(
+  stateWith({ flow: 'PROFESSIONAL_HOURS_DETAIL', pendingEntityRef: { type: 'PROFESSIONAL', id: 'prof_ghost' } }),
+  act('hours.professional_consult_human', { entityRef: { type: 'PROFESSIONAL', id: 'prof_ghost' } }),
+  ctx({ professionalActive: false })
+)
+assert.equal(staleConsultResult.outcome, 'RECOVERED')
+if (staleConsultResult.outcome === 'RECOVERED') {
+  assert.equal(staleConsultResult.reason, 'entity_inactive')
+}
+console.log('OK F5.7: hours.professional_consult_human fails on stale professional')
+
+// 5) hours.professional_search_availability from detail fails if not bookable
+const notBookableSearchResult = transition(
+  stateWith({ flow: 'PROFESSIONAL_HOURS_DETAIL', pendingEntityRef: { type: 'PROFESSIONAL', id: 'prof_carlos' } }),
+  act('hours.professional_search_availability', { entityRef: { type: 'PROFESSIONAL', id: 'prof_carlos' } }),
+  ctx({ professionalBookable: false, professionalActive: true })
+)
+assert.equal(notBookableSearchResult.outcome, 'RECOVERED')
+if (notBookableSearchResult.outcome === 'RECOVERED') {
+  assert.equal(notBookableSearchResult.reason, 'guard_failed')
+}
+console.log('OK F5.7: hours.professional_search_availability fails if not bookable')
+
+// 6) hours.professional_search_availability from detail does NOT mutate draft/booking selections
+const searchAvailResult = transition(
+  stateWith({ flow: 'PROFESSIONAL_HOURS_DETAIL', pendingEntityRef: { type: 'PROFESSIONAL', id: 'prof_ana' } }),
+  act('hours.professional_search_availability', { entityRef: { type: 'PROFESSIONAL', id: 'prof_ana' } }),
+  ctx({ professionalBookable: true, professionalActive: true, customerNameOnFile: 'Test' })
+)
+assert.ok(searchAvailResult.outcome === 'APPLIED' || searchAvailResult.outcome === 'HANDOFF')
+if (searchAvailResult.outcome === 'APPLIED') {
+  assert.equal(searchAvailResult.state.booking, 'NONE', 'booking NOT mutated')
+  assert.equal(searchAvailResult.state.deposit, 'NONE', 'deposit NOT mutated')
+}
+console.log('OK F5.7: hours.professional_search_availability does NOT mutate draft/booking')
+
+// 7) Round-trip: PROFESSIONAL entityRef survives renderWhatsAppScreen
+const rtProfState = stateWith({
+  flow: 'PROFESSIONAL_HOURS_DETAIL',
+  pendingEntityRef: { type: 'PROFESSIONAL', id: 'prof_rt' }
+})
+const rtProfView = renderCurrentView(rtProfState, normalizeContext(ctx({
+  professionalActive: true, professionalBookable: true, labels: { professionalName: 'RT Prof' }
+})))
+const rtProfRendered = renderWhatsAppScreen(rtProfView, { promptToken: generatePromptToken() })
+const rtSearchMapping = rtProfRendered.choiceMappings.find((m) => m.actionType === 'hours.professional_search_availability')
+assert.ok(rtSearchMapping, 'round-trip: hours.professional_search_availability mapping exists')
+assert.equal(rtSearchMapping?.entityType, 'PROFESSIONAL', 'round-trip: entityType is PROFESSIONAL')
+assert.equal(rtSearchMapping?.entityId, 'prof_rt', 'round-trip: entityId matches')
+console.log('OK F5.7: round-trip PROFESSIONAL entityRef survives renderWhatsAppScreen')
+
+// 8) hours.choose_other_professional clears pendingEntityRef
+const chooseOtherResult = transition(
+  stateWith({ flow: 'PROFESSIONAL_HOURS_DETAIL', pendingEntityRef: { type: 'PROFESSIONAL', id: 'prof_ana' } }),
+  act('hours.choose_other_professional'),
+  ctx()
+)
+assert.equal(chooseOtherResult.outcome, 'APPLIED')
+if (chooseOtherResult.outcome === 'APPLIED') {
+  assert.equal(chooseOtherResult.state.flow, 'PROFESSIONAL_HOURS_SELECT')
+  assert.equal(chooseOtherResult.state.pendingEntityRef, null, 'pendingEntityRef cleared')
+}
+console.log('OK F5.7: hours.choose_other_professional clears pendingEntityRef')
+
+// 9) PROFESSIONAL_HOURS_DETAIL inactive professional → recovery
+const inactiveProfResult = transition(
+  stateWith({ flow: 'PROFESSIONAL_HOURS_DETAIL', pendingEntityRef: { type: 'PROFESSIONAL', id: 'prof_inactive' } }),
+  act('hours.professional_consult_human', { entityRef: { type: 'PROFESSIONAL', id: 'prof_inactive' } }),
+  ctx({ professionalActive: false })
+)
+assert.equal(inactiveProfResult.outcome, 'RECOVERED')
+console.log('OK F5.7: inactive professional → recovery')
+
+// 10) P0 cart contamination: pendingEntityRef PROFESSIONAL in name.confirm must NOT enter cart
+const profNameConfirmState = stateWith({
+  flow: 'NAME_CONFIRM',
+  nameCandidate: 'Juan',
+  pendingEntityRef: { type: 'PROFESSIONAL', id: 'prof_ana' }
+})
+const profNameConfirmResult = transition(
+  profNameConfirmState,
+  act('name.confirm'),
+  ctx({ professionalActive: true, professionalBookable: true, labels: { professionalName: 'Ana' } })
+)
+assert.equal(profNameConfirmResult.outcome, 'APPLIED')
+if (profNameConfirmResult.outcome === 'APPLIED') {
+  assert.equal(profNameConfirmResult.state.cart.length, 0, 'PROFESSIONAL pending must NOT enter cart')
+  assert.equal(profNameConfirmResult.state.pendingEntityRef, null, 'pendingEntityRef cleared')
+  assert.equal(profNameConfirmResult.state.flow, 'CATEGORY_SELECT', 'goes to CATEGORY_SELECT, not RECOMMENDATION_SELECT')
+}
+console.log('OK F5.7: pendingEntityRef PROFESSIONAL in name.confirm does NOT enter cart')
+
+// 11) P0 cart: pendingEntityRef SERVICE in name.confirm still enters cart (regression)
+const svcNameConfirmState = stateWith({
+  flow: 'NAME_CONFIRM',
+  nameCandidate: 'Juan',
+  pendingEntityRef: { type: 'SERVICE', id: 'svc_1' }
+})
+const svcNameConfirmResult = transition(
+  svcNameConfirmState,
+  act('name.confirm'),
+  ctx({ serviceCompatibleWithCart: true })
+)
+assert.equal(svcNameConfirmResult.outcome, 'APPLIED')
+if (svcNameConfirmResult.outcome === 'APPLIED') {
+  assert.equal(svcNameConfirmResult.state.cart.length, 1, 'SERVICE pending enters cart')
+  assert.equal(svcNameConfirmResult.state.cart[0]!.serviceId, 'svc_1')
+  assert.equal(svcNameConfirmResult.state.pendingEntityRef, null, 'pendingEntityRef cleared')
+}
+console.log('OK F5.7: pendingEntityRef SERVICE in name.confirm enters cart (regression)')
+
+// 12) P0 mismatch: professional_consult_human with forged entityRef fails closed
+const forgedConsultResult = transition(
+  stateWith({ flow: 'PROFESSIONAL_HOURS_DETAIL', pendingEntityRef: { type: 'PROFESSIONAL', id: 'prof_real' } }),
+  act('hours.professional_consult_human', { entityRef: { type: 'PROFESSIONAL', id: 'prof_forged' } }),
+  ctx({ professionalActive: true })
+)
+assert.equal(forgedConsultResult.outcome, 'RECOVERED')
+if (forgedConsultResult.outcome === 'RECOVERED') {
+  assert.equal(forgedConsultResult.reason, 'stale_ref', 'forged ref produces stale_ref recovery')
+}
+console.log('OK F5.7: professional_consult_human with forged entityRef → stale_ref recovery')
+
+// 13) P0 mismatch: professional_search_availability with forged entityRef fails closed
+const forgedSearchResult = transition(
+  stateWith({ flow: 'PROFESSIONAL_HOURS_DETAIL', pendingEntityRef: { type: 'PROFESSIONAL', id: 'prof_real' } }),
+  act('hours.professional_search_availability', { entityRef: { type: 'PROFESSIONAL', id: 'prof_forged' } }),
+  ctx({ professionalActive: true, professionalBookable: true })
+)
+assert.equal(forgedSearchResult.outcome, 'RECOVERED')
+if (forgedSearchResult.outcome === 'RECOVERED') {
+  assert.equal(forgedSearchResult.reason, 'stale_ref', 'forged ref produces stale_ref recovery')
+}
+console.log('OK F5.7: professional_search_availability with forged entityRef → stale_ref recovery')
+
+// 14) P0 handoff audit: professional_consult_human produces REQUEST_HUMAN_HANDOFF with {professionalId}
+const handoffAuditResult = transition(
+  stateWith({ flow: 'PROFESSIONAL_HOURS_DETAIL', pendingEntityRef: { type: 'PROFESSIONAL', id: 'prof_ana' } }),
+  act('hours.professional_consult_human', { entityRef: { type: 'PROFESSIONAL', id: 'prof_ana' } }),
+  ctx({ professionalActive: true, professionalBookable: false, labels: { professionalName: 'Ana' } })
+)
+assert.ok(handoffAuditResult.outcome === 'HANDOFF' || handoffAuditResult.outcome === 'APPLIED', 'outcome is HANDOFF or APPLIED')
+const handoffEffect = handoffAuditResult.effects.find((e) => e.kind === 'REQUEST_HUMAN_HANDOFF')
+assert.ok(handoffEffect, 'has REQUEST_HUMAN_HANDOFF effect')
+if (handoffEffect?.kind === 'REQUEST_HUMAN_HANDOFF') {
+  assert.deepEqual(handoffEffect.context, { professionalId: 'prof_ana' }, 'context is {professionalId}')
+  assert.equal(handoffEffect.reason, 'profesional_no_reservable_por_bot', 'reason is correct')
+}
+console.log('OK F5.7: professional_consult_human handoff audit has {professionalId} context')
+
+// 15) P0 handoff audit: professional_search_availability does NOT produce handoff with {professionalId}
+const searchHandoffResult = transition(
+  stateWith({ flow: 'PROFESSIONAL_HOURS_DETAIL', pendingEntityRef: { type: 'PROFESSIONAL', id: 'prof_ana' } }),
+  act('hours.professional_search_availability', { entityRef: { type: 'PROFESSIONAL', id: 'prof_ana' } }),
+  ctx({ professionalActive: true, professionalBookable: true, customerNameOnFile: 'Test' })
+)
+if (searchHandoffResult.outcome === 'APPLIED') {
+  const handoffEffect = searchHandoffResult.effects.find((e) => e.kind === 'REQUEST_HUMAN_HANDOFF')
+  assert.ok(!handoffEffect, 'professional_search_availability must NOT produce REQUEST_HUMAN_HANDOFF')
+}
+console.log('OK F5.7: professional_search_availability does NOT produce handoff')
+
+// 16) P0 professional_consult_human requires !professionalBookable (forged opposite fails closed)
+const consultBookableResult = transition(
+  stateWith({ flow: 'PROFESSIONAL_HOURS_DETAIL', pendingEntityRef: { type: 'PROFESSIONAL', id: 'prof_ana' } }),
+  act('hours.professional_consult_human', { entityRef: { type: 'PROFESSIONAL', id: 'prof_ana' } }),
+  ctx({ professionalActive: true, professionalBookable: true, labels: { professionalName: 'Ana' } })
+)
+assert.equal(consultBookableResult.outcome, 'RECOVERED', 'professional_consult_human on bookable prof is rejected')
+console.log('OK F5.7: professional_consult_human on bookable professional → rejected')
+
+// 17) P0 name.confirm with PROFESSIONAL pending goes to CATEGORY_SELECT (not booking path)
+const nameConfirmProfResult = transition(
+  stateWith({ flow: 'NAME_CONFIRM', nameCandidate: 'María', pendingEntityRef: { type: 'PROFESSIONAL', id: 'prof_ana' } }),
+  act('name.confirm'),
+  ctx({ professionalActive: true, professionalBookable: true, labels: { professionalName: 'Ana' } })
+)
+assert.equal(nameConfirmProfResult.outcome, 'APPLIED')
+if (nameConfirmProfResult.outcome === 'APPLIED') {
+  assert.equal(nameConfirmProfResult.state.flow, 'CATEGORY_SELECT', 'PROFESSIONAL pending → CATEGORY_SELECT')
+  assert.equal(nameConfirmProfResult.state.selections.professionalId, null, 'professionalId NOT set in selections')
+  assert.equal(nameConfirmProfResult.state.pendingEntityRef, null, 'pendingEntityRef cleared')
+}
+console.log('OK F5.7: name.confirm with PROFESSIONAL pending → CATEGORY_SELECT (not booking path)')
+
+// ═══ 18) Domain contract: normalizeBotOptionsAction validates entity requirements ═══
+
+import { validateBotOptionsActionEnvelope, BOT_OPTIONS_ACTION_REQUIREMENTS } from '../src/bot-options/domain/actions.js'
+
+function makeEnvelope(actionType: string, entityRef: unknown = null) {
+  return {
+    schemaVersion: 1,
+    engineKey: 'deterministic-options',
+    engineVersion: 'v1',
+    deploymentId: 'dep_test',
+    businessId: 'biz_test',
+    sessionId: 'sess_test',
+    deploymentGeneration: 0,
+    actionType,
+    origin: 'WHATSAPP_CHOICE',
+    promptId: 'prompt_test',
+    choiceToken: 'token_test',
+    providerEventId: 'evt_test',
+    entityRef,
+    payload: null,
+    expectedStateRevision: 0n,
+    receivedAtIso: '2026-08-26T12:00:00Z'
+  }
+}
+
+// a) hours.search_availability (general, no entity) — entity null is valid
+const generalSearch = validateBotOptionsActionEnvelope(makeEnvelope('hours.search_availability', null))
+assert.ok(generalSearch.ok, 'hours.search_availability with null entity is valid')
+console.log('OK F5.7 domain: hours.search_availability with null entity passes normalization')
+
+// b) hours.professional_search_availability with PROFESSIONAL entity — valid
+const profSearch = validateBotOptionsActionEnvelope(makeEnvelope('hours.professional_search_availability', { type: 'PROFESSIONAL', id: 'p1' }))
+assert.ok(profSearch.ok, 'hours.professional_search_availability with PROFESSIONAL entity is valid')
+console.log('OK F5.7 domain: hours.professional_search_availability with PROFESSIONAL passes normalization')
+
+// c) hours.professional_consult_human with PROFESSIONAL entity — valid
+const profConsult = validateBotOptionsActionEnvelope(makeEnvelope('hours.professional_consult_human', { type: 'PROFESSIONAL', id: 'p1' }))
+assert.ok(profConsult.ok, 'hours.professional_consult_human with PROFESSIONAL entity is valid')
+console.log('OK F5.7 domain: hours.professional_consult_human with PROFESSIONAL passes normalization')
+
+// d) hours.professional_search_availability WITHOUT entity — rejected required
+const profSearchNoEntity = validateBotOptionsActionEnvelope(makeEnvelope('hours.professional_search_availability', null))
+assert.ok(!profSearchNoEntity.ok, 'hours.professional_search_availability without entity is rejected')
+if (!profSearchNoEntity.ok) {
+  const entityFailure = profSearchNoEntity.failures.find((f) => f.field === 'entityRef')
+  assert.ok(entityFailure, 'has entityRef failure')
+  assert.equal(entityFailure?.reason, 'required', 'reason is required')
+}
+console.log('OK F5.7 domain: hours.professional_search_availability without entity → rejected required')
+
+// e) hours.professional_consult_human WITHOUT entity — rejected required
+const profConsultNoEntity = validateBotOptionsActionEnvelope(makeEnvelope('hours.professional_consult_human', null))
+assert.ok(!profConsultNoEntity.ok, 'hours.professional_consult_human without entity is rejected')
+if (!profConsultNoEntity.ok) {
+  const entityFailure = profConsultNoEntity.failures.find((f) => f.field === 'entityRef')
+  assert.ok(entityFailure, 'has entityRef failure')
+  assert.equal(entityFailure?.reason, 'required', 'reason is required')
+}
+console.log('OK F5.7 domain: hours.professional_consult_human without entity → rejected required')
+
+// f) hours.professional_search_availability with SERVICE entity — rejected required (wrong type)
+const profSearchWrongType = validateBotOptionsActionEnvelope(makeEnvelope('hours.professional_search_availability', { type: 'SERVICE', id: 's1' }))
+assert.ok(!profSearchWrongType.ok, 'hours.professional_search_availability with SERVICE entity is rejected')
+if (!profSearchWrongType.ok) {
+  const entityFailure = profSearchWrongType.failures.find((f) => f.field === 'entityRef')
+  assert.ok(entityFailure, 'has entityRef failure')
+  assert.equal(entityFailure?.reason, 'required', 'reason is required (wrong type)')
+}
+console.log('OK F5.7 domain: hours.professional_search_availability with SERVICE entity → rejected')
+
+// g) hours.search_availability (general) WITH entity — rejected unexpected_entity
+const generalSearchWithEntity = validateBotOptionsActionEnvelope(makeEnvelope('hours.search_availability', { type: 'PROFESSIONAL', id: 'p1' }))
+assert.ok(!generalSearchWithEntity.ok, 'hours.search_availability with entity is rejected')
+if (!generalSearchWithEntity.ok) {
+  const entityFailure = generalSearchWithEntity.failures.find((f) => f.field === 'entityRef')
+  assert.ok(entityFailure, 'has entityRef failure')
+  assert.equal(entityFailure?.reason, 'unexpected_entity', 'reason is unexpected_entity')
+}
+console.log('OK F5.7 domain: hours.search_availability with entity → rejected unexpected_entity')
+
+// h) hours.consult_human (general) WITH entity — rejected unexpected_entity
+const generalConsultWithEntity = validateBotOptionsActionEnvelope(makeEnvelope('hours.consult_human', { type: 'PROFESSIONAL', id: 'p1' }))
+assert.ok(!generalConsultWithEntity.ok, 'hours.consult_human with entity is rejected')
+if (!generalConsultWithEntity.ok) {
+  const entityFailure = generalConsultWithEntity.failures.find((f) => f.field === 'entityRef')
+  assert.ok(entityFailure, 'has entityRef failure')
+  assert.equal(entityFailure?.reason, 'unexpected_entity', 'reason is unexpected_entity')
+}
+console.log('OK F5.7 domain: hours.consult_human with entity → rejected unexpected_entity')
+
+// i) hours.choose_other_professional without entity — valid
+const chooseOther = validateBotOptionsActionEnvelope(makeEnvelope('hours.choose_other_professional', null))
+assert.ok(chooseOther.ok, 'hours.choose_other_professional without entity is valid')
+console.log('OK F5.7 domain: hours.choose_other_professional without entity passes normalization')
+
+// j) hours.choose_other_professional WITH entity — rejected unexpected_entity
+const chooseOtherWithEntity = validateBotOptionsActionEnvelope(makeEnvelope('hours.choose_other_professional', { type: 'PROFESSIONAL', id: 'p1' }))
+assert.ok(!chooseOtherWithEntity.ok, 'hours.choose_other_professional with entity is rejected')
+if (!chooseOtherWithEntity.ok) {
+  const entityFailure = chooseOtherWithEntity.failures.find((f) => f.field === 'entityRef')
+  assert.ok(entityFailure, 'has entityRef failure')
+  assert.equal(entityFailure?.reason, 'unexpected_entity', 'reason is unexpected_entity')
+}
+console.log('OK F5.7 domain: hours.choose_other_professional with entity → rejected unexpected_entity')
+
+// 19) 15 profesionales: páginas contextuales 7/7/1, límites y entityRef estables
+const fifteenProfessionals = Array.from({ length: 15 }, (_, index) => ({
+  professionalId: `prof_${String(index + 1).padStart(2, '0')}`,
+  label: `Profesional ${String(index + 1).padStart(2, '0')}`
+}))
+const paginationContext = normalizeContext(ctx({ labels: { professionalCatalog: fifteenProfessionals } }))
+for (const [cursor, expectedCount] of [[0, 7], [1, 7], [2, 1]] as const) {
+  const pageState = stateWith({
+    flow: 'PROFESSIONAL_HOURS_SELECT',
+    presentation: cursor === 0 ? { kind: 'plain' } : { kind: 'professional_list_page', cursor }
+  })
+  const pageView = renderCurrentView(pageState, paginationContext)
+  const professionalChoices = pageView.choices.filter((choice) => choice.actionType === 'hours.professional_select')
+  assert.equal(professionalChoices.length, expectedCount, `page ${cursor + 1}: professional count`)
+  assert.ok(pageView.choices.length <= 10, `page ${cursor + 1}: WhatsApp list limit`)
+  for (const choice of professionalChoices) {
+    assert.equal(choice.entityRef?.type, 'PROFESSIONAL', `page ${cursor + 1}: exact entity type`)
+    assert.ok(choice.entityRef?.id.startsWith('prof_'), `page ${cursor + 1}: stable professional id`)
+  }
+}
+console.log('OK F5.7: 15 profesionales paginate 7/7/1 within limits with stable entityRef')
+
+// 20) La guarda de BUSINESS_HOURS exige al menos un profesional visible
+const noProfessionalsResult = transition(
+  stateWith({ flow: 'BUSINESS_HOURS' }),
+  act('hours.professional'),
+  ctx({ professionalSelectable: false })
+)
+assert.equal(noProfessionalsResult.outcome, 'RECOVERED')
+if (noProfessionalsResult.outcome === 'RECOVERED') assert.equal(noProfessionalsResult.reason, 'guard_failed')
+console.log('OK F5.7: hours.professional fails closed without visible professionals')
+
+// 21) Volver desde detalle invalida profesional consultado y conserva página
+const backFromProfessionalDetail = transition(
+  stateWith({
+    flow: 'PROFESSIONAL_HOURS_DETAIL',
+    pendingEntityRef: { type: 'PROFESSIONAL', id: 'prof_10' },
+    presentation: { kind: 'professional_list_page', cursor: 1 }
+  }),
+  act('navigation.back'),
+  ctx({ labels: { professionalCatalog: fifteenProfessionals } })
+)
+assert.equal(backFromProfessionalDetail.outcome, 'APPLIED')
+if (backFromProfessionalDetail.outcome === 'APPLIED') {
+  assert.equal(backFromProfessionalDetail.state.flow, 'PROFESSIONAL_HOURS_SELECT')
+  assert.equal(backFromProfessionalDetail.state.pendingEntityRef, null)
+  assert.deepEqual(backFromProfessionalDetail.state.presentation, { kind: 'professional_list_page', cursor: 1 })
+  assert.equal(
+    backFromProfessionalDetail.view.choices.filter((choice) => choice.actionType === 'hours.professional_select').length,
+    7
+  )
+}
+console.log('OK F5.7: navigation.back detail → same list page and clears consulted professional')
+
+// 22) Un detalle corrupto/stale nunca renderiza acciones que requieren entityRef
+const missingProfessionalRefView = renderCurrentView(
+  stateWith({ flow: 'PROFESSIONAL_HOURS_DETAIL', pendingEntityRef: null }),
+  normalizeContext(ctx({ professionalActive: true, professionalBookable: true }))
+)
+assert.ok(!missingProfessionalRefView.choices.some((choice) =>
+  choice.actionType === 'hours.professional_search_availability' ||
+  choice.actionType === 'hours.professional_consult_human'
+))
+assert.ok(missingProfessionalRefView.choices.length <= 10)
+console.log('OK F5.7: detail without PROFESSIONAL ref emits no entity-required action')
+
+console.log('OK bot-options transition: F5.7 professional hours contracts pass.')

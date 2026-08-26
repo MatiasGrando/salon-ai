@@ -102,6 +102,7 @@ export type BotOptionsPresentationMode =
   | { kind: 'slot_all_pages'; cursor: number }
   | { kind: 'navigation_menu' }
   | { kind: 'appointment_list_page'; cursor: number }
+  | { kind: 'professional_list_page'; cursor: number }
 
 export type SlotBandView = 'MORNING' | 'AFTERNOON' | 'EVENING'
 
@@ -146,8 +147,8 @@ export type BotOptionsState = {
   catalogMode: 'BOOKING' | 'BROWSING'
   /** Candidato de nombre esperando confirmación; nunca es dato persistido del cliente. */
   nameCandidate: string | null
-  /** Servicio propuesto incompatible o intención de reserva previa al nombre. */
-  pendingEntityRef: { type: 'SERVICE' } & { id: string } | null
+  /** Entidad pendiente: servicio propuesto (incompatible o previa al nombre) o profesional seleccionado en horas. */
+  pendingEntityRef: { type: 'SERVICE'; id: string } | { type: 'PROFESSIONAL'; id: string } | null
   /** Recomendaciones rechazadas en este borrador: no se vuelven a ofrecer. */
   rejectedRecommendationIds: string[]
 }
@@ -294,8 +295,9 @@ export function validateBotOptionsState(
   if (
     pendingEntityRef !== null &&
     (!isPlainObject(pendingEntityRef) ||
-      pendingEntityRef['type'] !== 'SERVICE' ||
-      typeof pendingEntityRef['id'] !== 'string')
+      (pendingEntityRef['type'] !== 'SERVICE' && pendingEntityRef['type'] !== 'PROFESSIONAL') ||
+      typeof pendingEntityRef['id'] !== 'string' ||
+      pendingEntityRef['id'].trim().length === 0)
   ) {
     return { ok: false, invariant: 'schema_version_known' }
   }
@@ -429,11 +431,11 @@ export function validateBotOptionsState(
     return { ok: false, invariant: 'presentation_kind_allowed' }
   }
   const kind = presentation['kind']
-  const allowedKinds = ['plain', 'catalog_page', 'slot_band', 'slot_all_pages', 'navigation_menu', 'appointment_list_page']
+  const allowedKinds = ['plain', 'catalog_page', 'slot_band', 'slot_all_pages', 'navigation_menu', 'appointment_list_page', 'professional_list_page']
   if (typeof kind !== 'string' || !(allowedKinds as readonly string[]).includes(kind)) {
     return { ok: false, invariant: 'presentation_kind_allowed' }
   }
-  if ((kind === 'catalog_page' || kind === 'slot_all_pages' || kind === 'appointment_list_page')) {
+  if ((kind === 'catalog_page' || kind === 'slot_all_pages' || kind === 'appointment_list_page' || kind === 'professional_list_page')) {
     const cursor = presentation['cursor']
     if (typeof cursor !== 'number' || !Number.isInteger(cursor) || cursor < 0) {
       return { ok: false, invariant: 'presentation_kind_allowed' }

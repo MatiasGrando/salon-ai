@@ -69,11 +69,19 @@ export type TransitionContext = {
   recommendedCompatibleWithCart: boolean
   professionalCommonExists: boolean
   professionalSelectable: boolean
+  /** F5.7: true si el profesional consultado está activo (revalidado contra DB). */
+  professionalActive: boolean
+  /** F5.7: true si el profesional acepta reservas por este medio. */
+  professionalBookable: boolean
   dateAvailable: boolean
   slotAvailable: boolean
   bandHasAvailability: boolean
   catalogCanNext: boolean
   catalogCanPrevious: boolean
+  /** F5.7: true si hay más profesionales después de la página actual. */
+  professionalCatalogCanNext: boolean
+  /** F5.7: true si hay profesionales antes de la página actual. */
+  professionalCatalogCanPrevious: boolean
   dateCanNext: boolean
   dateCanPrevious: boolean
   slotCanNext: boolean
@@ -95,6 +103,12 @@ export type TransitionContext = {
     appointmentSummary?: string | undefined
     /** F5.6: Texto informativo del horario semanal del negocio (lunes–domingo + excepciones). */
     businessWeeklyHoursText?: string | undefined
+    /** F5.7: Texto informativo del horario semanal del profesional (lunes–domingo + excepciones). */
+    professionalWeeklyHoursText?: string | undefined
+    /** F5.7: Lista de profesionales activos formateada como texto para el listado. */
+    professionalListText?: string | undefined
+    /** F5.7: Lista de profesionales activos para generar opciones interactivas. */
+    professionalCatalog?: ReadonlyArray<{ professionalId: string; label: string }> | undefined
   }
   confirmVisitSnapshot: {
     services: Array<{
@@ -127,11 +141,15 @@ const FALSE_DEFAULTS: readonly (
   'recommendedCompatibleWithCart',
   'professionalCommonExists',
   'professionalSelectable',
+  'professionalActive',
+  'professionalBookable',
   'dateAvailable',
   'slotAvailable',
   'bandHasAvailability',
   'catalogCanNext',
   'catalogCanPrevious',
+  'professionalCatalogCanNext',
+  'professionalCatalogCanPrevious',
   'dateCanNext',
   'dateCanPrevious',
   'slotCanNext',
@@ -170,6 +188,7 @@ export type RecoveryReason =
   | 'internal_invariant'
   | 'handoff_taken_silent'
   | 'nothing_to_discard'
+  | 'stale_ref'
 
 export type TransitionApplied = {
   outcome: 'APPLIED' | 'HANDOFF'
@@ -286,11 +305,11 @@ const CLIENT_ALLOWED: Partial<Record<BotOptionsFlowStep, readonly BotOptionsActi
   DEPOSIT_REVIEW: ['navigation.home', 'handoff.request'],
   BOOKING_CONFIRMED: ['menu.start_booking', 'navigation.home'],
   BUSINESS_HOURS: ['hours.professional', 'hours.search_availability', 'navigation.back', 'navigation.home', 'navigation.open', 'handoff.request'],
-  PROFESSIONAL_HOURS_SELECT: ['hours.professional_select', 'navigation.back', 'navigation.home', 'navigation.open', 'handoff.request'],
+  PROFESSIONAL_HOURS_SELECT: ['hours.professional_select', 'hours.next_page', 'hours.previous_page', 'navigation.back', 'navigation.home', 'navigation.open', 'handoff.request'],
   PROFESSIONAL_HOURS_DETAIL: [
     'hours.choose_other_professional',
-    'hours.search_availability',
-    'hours.consult_human',
+    'hours.professional_search_availability',
+    'hours.professional_consult_human',
     'navigation.back',
     'navigation.home',
     'navigation.open'
@@ -409,7 +428,10 @@ const BACK_TARGETS: Partial<Record<BotOptionsFlowStep, BackTarget>> = {
     })
   },
   PROFESSIONAL_HOURS_SELECT: { flow: 'BUSINESS_HOURS', apply: (state) => state },
-  PROFESSIONAL_HOURS_DETAIL: { flow: 'PROFESSIONAL_HOURS_SELECT', apply: (state) => state },
+  PROFESSIONAL_HOURS_DETAIL: {
+    flow: 'PROFESSIONAL_HOURS_SELECT',
+    apply: (state) => ({ ...state, pendingEntityRef: null })
+  },
   BUSINESS_HOURS: { flow: 'MAIN_MENU', apply: (state) => state }
 }
 
@@ -559,13 +581,53 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
       }
       return hoursView
     }
-    case 'PROFESSIONAL_HOURS_SELECT':
-      return menuView('¿De quién querés ver el horario?', [])
-    case 'PROFESSIONAL_HOURS_DETAIL':
-      return menuView(`Jornada de ${context.labels.professionalName ?? 'el profesional'}.`, [
-        { actionType: 'hours.choose_other_professional', label: 'Ver otro profesional' },
-        { actionType: 'hours.search_availability', label: 'Buscar un turno disponible' }
-      ])
+    case 'PROFESSIONAL_HOURS_SELECT': {
+      const PAGE_SIZE = 7
+      const catalog = context.labels.professionalCatalog ?? []
+      const cursor = state.presentation.kind === 'professional_list_page' ? state.presentation.cursor : 0
+      const pageStart = cursor * PAGE_SIZE
+      const pageEnd = pageStart + PAGE_SIZE
+      const page = catalog.slice(pageStart, pageEnd)
+      const profChoices: ViewChoice[] = page.map((prof) => ({
+        actionType: 'hours.professional_select' as const,
+        label: prof.label,
+        entityRef: { type: 'PROFESSIONAL' as const, id: prof.professionalId }
+      }))
+      // Derive navigation directly from cursor + catalog length (never stale)
+      const hasPrev = cursor > 0
+      const hasNext = pageEnd < catalog.length
+      if (hasPrev) {
+        profChoices.unshift({ actionType: 'hours.previous_page' as const, label: '← Profesionales anteriores' })
+      }
+      if (hasNext) {
+        profChoices.push({ actionType: 'hours.next_page' as const, label: 'Más profesionales →' })
+      }
+      const navigation = composeGlobalNavigation({ capacity: 10, contextualCount: profChoices.length, back: BACK_CHOICE })
+      const profListView = appendGlobals(menuView('¿De quién querés ver el horario?', profChoices), navigation)
+      if (context.labels.professionalListText) {
+        return { ...profListView, informativeTexts: [context.labels.professionalListText] }
+      }
+      return profListView
+    }
+    case 'PROFESSIONAL_HOURS_DETAIL': {
+      const profDetailChoices: ViewChoice[] = []
+      const profRef = state.pendingEntityRef?.type === 'PROFESSIONAL' ? { type: 'PROFESSIONAL' as const, id: state.pendingEntityRef.id } : undefined
+      if (profRef && context.professionalActive) {
+        if (context.professionalBookable) {
+          profDetailChoices.push({ actionType: 'hours.professional_search_availability', label: 'Buscar un turno disponible', entityRef: profRef })
+        } else {
+          profDetailChoices.push({ actionType: 'hours.professional_consult_human', label: 'Hablar con el equipo', entityRef: profRef })
+        }
+      }
+      profDetailChoices.push({ actionType: 'hours.choose_other_professional', label: 'Ver otro profesional' })
+      const profName = context.labels.professionalName ?? 'el profesional'
+      const navigation = composeGlobalNavigation({ capacity: 10, contextualCount: profDetailChoices.length, back: BACK_CHOICE })
+      const profDetailView = appendGlobals(menuView(`Jornada de ${profName}.`, profDetailChoices), navigation)
+      if (context.labels.professionalWeeklyHoursText) {
+        return { ...profDetailView, informativeTexts: [context.labels.professionalWeeklyHoursText] }
+      }
+      return profDetailView
+    }
     case 'APPOINTMENT_LIST':
       return menuView('Estos son tus próximos turnos:', [])
     case 'APPOINTMENT_DETAIL':
@@ -647,7 +709,7 @@ function enterHandoff(
   state: BotOptionsState,
   reason: string,
   detail: string | null,
-  context: { serviceId: string } | null = null
+  context: { serviceId: string } | { professionalId: string } | null = null
 ): TransitionResult {
   const nextState = baseOf(resetInvalidStreak(state), {
     flow: 'HANDOFF_QUEUED',
@@ -765,24 +827,88 @@ export function transition(
       return fromDepositCancelConfirm(state, actionType, context)
     case 'BUSINESS_HOURS':
       if (actionType === 'hours.professional') {
+        if (!context.professionalSelectable) {
+          return recovered(state, 'guard_failed', 'No hay profesionales disponibles para consultar ahora.', [])
+        }
         return applied(baseOf(state, { flow: 'PROFESSIONAL_HOURS_SELECT' }), renderCurrentView({ ...state, flow: 'PROFESSIONAL_HOURS_SELECT' }, context))
       }
       if (actionType === 'hours.search_availability') return startBookingPath(state, context)
       break
     case 'PROFESSIONAL_HOURS_SELECT':
-      if (actionType === 'hours.professional_select' && entityRef?.type === 'PROFESSIONAL' && context.professionalSelectable) {
-        return applied(baseOf(state, { flow: 'PROFESSIONAL_HOURS_DETAIL' }), renderCurrentView({ ...state, flow: 'PROFESSIONAL_HOURS_DETAIL' }, context))
+      if (actionType === 'hours.professional_select' && entityRef?.type === 'PROFESSIONAL') {
+        if (!context.professionalActive) {
+          return recovered(state, 'entity_inactive', 'Ese profesional ya no está disponible. Elegí otro, por favor.', [])
+        }
+        const next = baseOf(resetInvalidStreak(state), {
+          flow: 'PROFESSIONAL_HOURS_DETAIL',
+          pendingEntityRef: { type: 'PROFESSIONAL' as const, id: entityRef.id }
+        })
+        return applied(next, renderCurrentView({ ...next, flow: 'PROFESSIONAL_HOURS_DETAIL' }, context))
+      }
+      if (actionType === 'hours.next_page') {
+        if (!context.professionalCatalogCanNext) return recovered(state, 'guard_failed', 'No hay más profesionales hacia adelante.', [])
+        const cursor = state.presentation.kind === 'professional_list_page' ? state.presentation.cursor + 1 : 1
+        const nextState = baseOf(state, { presentation: { kind: 'professional_list_page', cursor } })
+        return applied(nextState, renderCurrentView(nextState, context))
+      }
+      if (actionType === 'hours.previous_page') {
+        if (!context.professionalCatalogCanPrevious) return recovered(state, 'guard_failed', 'Estás en la primera página de profesionales.', [])
+        const cursor = state.presentation.kind === 'professional_list_page' ? state.presentation.cursor - 1 : 0
+        const nextState = baseOf(state, { presentation: { kind: 'professional_list_page', cursor: Math.max(0, cursor) } })
+        return applied(nextState, renderCurrentView(nextState, context))
       }
       break
-    case 'PROFESSIONAL_HOURS_DETAIL':
+    case 'PROFESSIONAL_HOURS_DETAIL': {
+      // Validate that the pending entityRef matches the rendered professional
+      const pendingProfId = state.pendingEntityRef?.type === 'PROFESSIONAL' ? state.pendingEntityRef.id : null
       if (actionType === 'hours.choose_other_professional') {
-        return applied(baseOf(state, { flow: 'PROFESSIONAL_HOURS_SELECT' }), renderCurrentView({ ...state, flow: 'PROFESSIONAL_HOURS_SELECT' }, context))
+        return applied(
+          baseOf(state, { flow: 'PROFESSIONAL_HOURS_SELECT', pendingEntityRef: null }),
+          renderCurrentView({ ...state, flow: 'PROFESSIONAL_HOURS_SELECT', pendingEntityRef: null }, context)
+        )
       }
-      if (actionType === 'hours.consult_human') {
-        return enterHandoff(state, 'profesional_no_reservable_por_bot', context.labels.professionalName ?? null)
+      if (actionType === 'hours.professional_consult_human') {
+        // Required entity: entityRef must be present and match pendingProfId
+        if (!pendingProfId) {
+          return recovered(state, 'guard_failed', 'No pudimos identificar el profesional.', [])
+        }
+        if (!entityRef || entityRef.type !== 'PROFESSIONAL' || entityRef.id !== pendingProfId) {
+          return recovered(state, 'stale_ref', 'Los datos del profesional cambiaron. Recargá la vista.', [])
+        }
+        if (!context.professionalActive) {
+          return recovered(state, 'entity_inactive', 'Ese profesional ya no está disponible. Elegí otro, por favor.', [])
+        }
+        if (context.professionalBookable) {
+          return recovered(state, 'guard_failed', 'Ese profesional sí acepta reservas. Usá "Buscar turno" en su lugar.', [])
+        }
+        return enterHandoff(state, 'profesional_no_reservable_por_bot', context.labels.professionalName ?? null, { professionalId: pendingProfId })
       }
-      if (actionType === 'hours.search_availability') return startBookingPath(state, context)
+      if (actionType === 'hours.professional_search_availability') {
+        // Required entity: entityRef must be present and match pendingProfId
+        if (!pendingProfId) {
+          return recovered(state, 'guard_failed', 'No pudimos identificar el profesional.', [])
+        }
+        if (!entityRef || entityRef.type !== 'PROFESSIONAL' || entityRef.id !== pendingProfId) {
+          return recovered(state, 'stale_ref', 'Los datos del profesional cambiaron. Recargá la vista.', [])
+        }
+        if (!context.professionalActive) {
+          return recovered(state, 'entity_inactive', 'Ese profesional ya no está disponible. Elegí otro, por favor.', [])
+        }
+        if (!context.professionalBookable) {
+          return recovered(state, 'guard_failed', 'Ese profesional no acepta reservas por este medio.', [HUMAN_CHOICE])
+        }
+        // Fijar la selección profesional antes de iniciar booking path; limpiar date/slot previos.
+        const withSelection = baseOf(state, {
+          selections: { ...state.selections, professionalId: pendingProfId, anyProfessional: false, date: null, slotStartAt: null }
+        })
+        return startBookingPath(withSelection, context)
+      }
+      // Reject old generic actions in this flow (they'd fail normalization anyway)
+      if (actionType === 'hours.search_availability' || actionType === 'hours.consult_human') {
+        return recovered(state, 'stale_ref', 'Acción desactualizada. Recargá la pantalla.', [])
+      }
       break
+    }
     case 'APPOINTMENT_LIST':
       if (actionType === 'appointment.select' && entityRef?.type === 'APPOINTMENT' && context.appointmentOwnedAndFuture) {
         const next = baseOf(state, {
@@ -927,7 +1053,11 @@ function tryUniversal(
         return applied(baseOf(state, { flow: 'MAIN_MENU', presentation: plainPresentation(), catalogMode: 'BOOKING' }), renderCurrentView({ ...state, flow: 'MAIN_MENU' }, context))
       }
       let next = target.apply(state)
-      next = baseOf(next, { flow: target.flow, presentation: plainPresentation() })
+      const presentation =
+        state.flow === 'PROFESSIONAL_HOURS_DETAIL' && state.presentation.kind === 'professional_list_page'
+          ? state.presentation
+          : plainPresentation()
+      next = baseOf(next, { flow: target.flow, presentation })
       return applied(next, renderCurrentView(next, context))
     }
     case 'navigation.home': {
@@ -1218,7 +1348,8 @@ function fromNameConfirm(state: BotOptionsState, actionType: BotOptionsActionTyp
     const afterName: BotOptionsState = baseOf(resetInvalidStreak(state), { nameCandidate: null })
 
     // Intención previa: "Reservar este servicio" pedía nombre primero.
-    if (afterName.pendingEntityRef) {
+    // Solo pendingEntityRef de tipo SERVICE ingresa al carrito; PROFESSIONAL jamás.
+    if (afterName.pendingEntityRef?.type === 'SERVICE') {
       const serviceId = afterName.pendingEntityRef.id
       if (!context.serviceCompatibleWithCart) {
         return applied(
@@ -1233,6 +1364,11 @@ function fromNameConfirm(state: BotOptionsState, actionType: BotOptionsActionTyp
         renderCurrentView({ ...withItem, flow: 'RECOMMENDATION_SELECT' }, context),
         effects
       )
+    }
+    // Si había un pending de tipo PROFESSIONAL (horarios), limpiarlo y continuar al catálogo de servicios.
+    if (afterName.pendingEntityRef?.type === 'PROFESSIONAL') {
+      const cleared = baseOf(afterName, { pendingEntityRef: null, flow: 'CATEGORY_SELECT', presentation: plainPresentation() })
+      return applied(cleared, renderCurrentView(cleared, context), effects)
     }
     const next = baseOf(afterName, { flow: 'CATEGORY_SELECT', presentation: plainPresentation() })
     return applied(next, renderCurrentView(next, context), effects)

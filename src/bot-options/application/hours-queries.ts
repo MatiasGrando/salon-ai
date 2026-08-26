@@ -26,6 +26,29 @@ export type BusinessOperationalException = {
   note: string | null
 }
 
+// ─── F5.7: Professional hours read model ─────────────────────────────────────
+
+/** Fila del catálogo activo de profesionales para el listado informativo. */
+export type ProfessionalCatalogRow = {
+  professionalId: string
+  name: string
+  acceptsBotBookings: boolean
+}
+
+/** Fila cruda de horario semanal de un profesional (ProfessionalHours). */
+export type ProfessionalWeeklyHourRow = {
+  dayOfWeek: number
+  startTime: string
+  endTime: string
+}
+
+/** Excepción operativa de un profesional (ScheduleBlock con professionalId).
+ *  Sólo startAt/endAt — el copy es siempre genérico "No atiende". */
+export type ProfessionalOperationalException = {
+  startAt: Date
+  endAt: Date
+}
+
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
 /** Nombres de día en español (índice = dayOfWeek JS: 0=domingo). */
@@ -185,6 +208,25 @@ export function formatExceptionLabel(exception: BusinessOperationalException, ti
  */
 export function blockReasonLabel(reason: string): string {
   return BLOCK_REASON_LABELS[reason] ?? reason
+}
+
+/**
+ * Formatea el label de una excepción de un profesional para el PÚBLICO.
+ * Reglas 179–184: NO expone motivos internos (reason/title/note).
+ * Sólo muestra copy operativo genérico + fecha/hora.
+ *
+ * "No atiende: el martes 26 de Agosto de 10:00 a 16:00"
+ */
+export function formatProfessionalExceptionLabel(exception: ProfessionalOperationalException, timezone: string): string {
+  const startDate = formatDateInTimezone(exception.startAt, timezone)
+  const endDate = formatDateInTimezone(exception.endAt, timezone)
+  const startTime = formatTimeInTimezoneString(exception.startAt, timezone)
+  const endTime = formatTimeInTimezoneString(exception.endAt, timezone)
+
+  if (startDate === endDate) {
+    return `No atiende: el ${startDate} de ${startTime} a ${endTime}`
+  }
+  return `No atiende: del ${startDate} ${startTime} al ${endDate} ${endTime}`
 }
 
 // ─── Funciones de fecha/timezone ──────────────────────────────────────────────
@@ -445,6 +487,91 @@ export function formatBusinessWeeklySchedule(
     lines.push('*Excepciones próximas:*')
     for (const exc of sorted) {
       lines.push(`• ${formatExceptionLabel(exc, timezone)}`)
+    }
+  }
+
+  return lines.join('\n')
+}
+
+// ─── F5.7: Professional hours formatting ─────────────────────────────────────
+
+/**
+ * Label para el listado de profesionales.
+ * Usa separador " — " para que el renderer WhatsApp lo divida en title/description.
+ * "Ana García — No reservable por este medio" o "Ana García".
+ */
+export function formatProfessionalListLabel(professional: ProfessionalCatalogRow): string {
+  if (professional.acceptsBotBookings) return professional.name
+  return `${professional.name} — No reservable por este medio`
+}
+
+/**
+ * Orquesta el formato completo del horario semanal de un profesional.
+ *
+ * Reglas (reglas-funcionales.md §4.1):
+ * - Lunes a Domingo siempre en ese orden.
+ * - Días sin intervalos se muestran "Cerrado".
+ * - Intervalos múltiples se ordenan por startTime.
+ * - Excepciones del profesional en ventana 30 días.
+ * - NO sección vacía si no hay excepciones.
+ * - NO expone motivos internos, notas ni datos de reservas.
+ *
+ * @param professionalName Nombre del profesional para el encabezado.
+ * @param hours Horarios regulares del profesional (ProfessionalHours).
+ * @param exceptions Excepciones del profesional (ScheduleBlock con professionalId).
+ * @param dbNow Timestamp actual de la base de datos (UTC).
+ * @param timezone Timezone IANA del negocio.
+ * @returns Texto formateado listo para enviar como informativeText.
+ */
+export function formatProfessionalWeeklySchedule(
+  professionalName: string,
+  hours: readonly ProfessionalWeeklyHourRow[],
+  exceptions: readonly ProfessionalOperationalException[],
+  dbNow: Date,
+  timezone: string
+): string {
+  // Validar inputs
+  for (const h of hours) {
+    const row: BusinessWeeklyHourRow = { dayOfWeek: h.dayOfWeek, startTime: h.startTime, endTime: h.endTime }
+    const v = validateBusinessWeeklyRow(row)
+    if (!v.ok) throw new Error(`Invalid ProfessionalWeeklyRow: ${v.error}`)
+  }
+  for (const exc of exceptions) {
+    if (!(exc.startAt instanceof Date) || !Number.isFinite(exc.startAt.getTime())) {
+      throw new Error('Invalid ProfessionalException: startAt must be a valid Date')
+    }
+    if (!(exc.endAt instanceof Date) || !Number.isFinite(exc.endAt.getTime())) {
+      throw new Error('Invalid ProfessionalException: endAt must be a valid Date')
+    }
+    if (exc.endAt.getTime() <= exc.startAt.getTime()) {
+      throw new Error('Invalid ProfessionalException: endAt must be > startAt')
+    }
+  }
+
+  const grouped = groupHoursByDay(hours as readonly BusinessWeeklyHourRow[])
+  const lines: string[] = []
+
+  // Orden: Lunes(1)→Martes(2)→Miércoles(3)→Jueves(4)→Viernes(5)→Sábado(6)→Domingo(0)
+  const dayOrder = [1, 2, 3, 4, 5, 6, 0]
+
+  for (const dow of dayOrder) {
+    const dayName = DAY_NAMES[dow]!
+    const dayHours = grouped.get(dow) ?? []
+    const schedule = formatDayHours(dayHours)
+    lines.push(`*${dayName}*: ${schedule}`)
+  }
+
+  // Excepciones operativas — sólo si hay; no sección vacía
+  if (exceptions.length > 0) {
+    const sorted = [...exceptions].sort((a, b) => {
+      const startCmp = a.startAt.getTime() - b.startAt.getTime()
+      if (startCmp !== 0) return startCmp
+      return a.endAt.getTime() - b.endAt.getTime()
+    })
+    lines.push('')
+    lines.push('*Excepciones próximas:*')
+    for (const exc of sorted) {
+      lines.push(`• ${formatProfessionalExceptionLabel(exc, timezone)}`)
     }
   }
 
