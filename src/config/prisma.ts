@@ -1,6 +1,5 @@
 import 'dotenv/config'
-import { PrismaPg } from '@prisma/adapter-pg'
-import { PrismaClient } from '../generated/prisma/client.js'
+import { createPrismaClient } from './prisma-client.js'
 
 const connectionString = process.env.DATABASE_URL
 
@@ -13,11 +12,9 @@ const poolMax = Number.isInteger(configuredPoolMax) && configuredPoolMax > 0
   ? configuredPoolMax
   : 3
 
-const adapter = new PrismaPg({
+export const prisma = createPrismaClient({
   connectionString,
   max: poolMax,
   idleTimeoutMillis: 10_000,
   connectionTimeoutMillis: 10_000
 })
-
-export const prisma = new PrismaClient({ adapter })

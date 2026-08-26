@@ -35,15 +35,29 @@ import { startMarketingScheduler } from './services/marketing-scheduler.js'
 import {
   createProductionAuthorizationProviders,
   installAuthorizationProviders,
-  type BuildAppOptions
+  type BuildAppOptions as AuthorizationBuildAppOptions
 } from './providers/authorization-providers.js'
 import { resolveEgressBaselineConfig } from './config/egress-baseline.js'
 import { installEgressBaseline } from './observability/egress-baseline/install.js'
+import { resolveBotOptionsConfig, type BotOptionsConfig } from './config/bot-options.js'
+import { createPrismaIngressClient } from './config/prisma-ingress.js'
+import { PrismaAdmissionRepository } from './bot-options/infrastructure/prisma-admission.js'
+import {
+  createProviderEventAdmission,
+  type ProviderEventAdmission
+} from './bot-options/application/admit-provider-events.js'
+import type { WhatsAppWebhookServiceContract } from './routes/whatsapp-webhook.js'
 
 process.env.TZ ??= 'America/Argentina/Buenos_Aires'
 
 const port = Number(process.env.PORT ?? 3000)
 const host = process.env.HOST ?? '0.0.0.0'
+
+export type BuildAppOptions = AuthorizationBuildAppOptions & {
+  botOptionsConfig?: BotOptionsConfig
+  shadowAdmission?: ProviderEventAdmission
+  legacyWhatsappWebhookService?: WhatsAppWebhookServiceContract
+}
 
 export async function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({
@@ -51,6 +65,19 @@ export async function buildApp(options: BuildAppOptions = {}) {
   })
   const baseline = installEgressBaseline(app, resolveEgressBaselineConfig(process.env))
   installAuthorizationProviders(app, options)
+  const botOptionsConfig = options.botOptionsConfig ?? resolveBotOptionsConfig(process.env)
+  let shadowAdmission = options.shadowAdmission
+
+  if (botOptionsConfig.shadowAdmissionEnabled && !shadowAdmission) {
+    const ingressPrisma = createPrismaIngressClient()
+    shadowAdmission = createProviderEventAdmission(
+      new PrismaAdmissionRepository(ingressPrisma),
+      app.clock
+    )
+    app.addHook('onClose', async () => {
+      await ingressPrisma.$disconnect()
+    })
+  }
 
   await app.register(healthRoutes)
   await app.register(authRoutes)
@@ -61,7 +88,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(weexAccountRoutes)
   await app.register(weexLeadCampaignRoutes)
   await app.register(weexSupportBotV1Routes)
-  await app.register(whatsappWebhookRoutes)
+  await app.register(whatsappWebhookRoutes, {
+    botOptionsConfig,
+    ...(shadowAdmission ? { shadowAdmission } : {}),
+    ...(options.legacyWhatsappWebhookService
+      ? { legacyWebhookService: options.legacyWhatsappWebhookService }
+      : {})
+  })
   await app.register(instagramWebhookRoutes)
   await authGuard(app)
   await app.register(accountManagementRoutes)
