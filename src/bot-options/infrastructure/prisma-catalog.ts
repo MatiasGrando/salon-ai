@@ -60,7 +60,14 @@ export class PrismaCatalogRepository {
       where: {
         businessId: input.businessId,
         isActive: true,
-        services: { some: { businessId: input.businessId } }
+        services: { some: {
+          businessId: input.businessId,
+          parentServiceId: null,
+          OR: [
+            { isBookable: true },
+            { isBookable: false, variants: { some: { businessId: input.businessId, isBookable: true } } }
+          ]
+        } }
       },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
       skip: catalogPageOffset(input.page),
@@ -68,6 +75,25 @@ export class PrismaCatalogRepository {
       select: { id: true, name: true }
     })
     return toCatalogPage(rows, input.page)
+  }
+
+  async getCategory(input: { businessId: string; categoryId: string }): Promise<CatalogCategoryItem | null> {
+    return this.#client.serviceCategory.findFirst({
+      where: {
+        id: input.categoryId,
+        businessId: input.businessId,
+        isActive: true,
+        services: { some: {
+          businessId: input.businessId,
+          parentServiceId: null,
+          OR: [
+            { isBookable: true },
+            { isBookable: false, variants: { some: { businessId: input.businessId, isBookable: true } } }
+          ]
+        } }
+      },
+      select: { id: true, name: true }
+    })
   }
 
   async listServices(input: {
@@ -98,7 +124,15 @@ export class PrismaCatalogRepository {
       where: {
         businessId: input.businessId,
         catalogCategoryId: input.categoryId,
-        parentServiceId: input.parentServiceId ?? null
+        parentServiceId: input.parentServiceId ?? null,
+        ...(input.parentServiceId
+          ? { isBookable: true }
+          : {
+              OR: [
+                { isBookable: true },
+                { isBookable: false, variants: { some: { businessId: input.businessId, isBookable: true } } }
+              ]
+            })
       },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
       skip: catalogPageOffset(input.page),
@@ -106,6 +140,32 @@ export class PrismaCatalogRepository {
       select: serviceSelect
     })
     return toCatalogPage(rows.map(serviceItem), input.page)
+  }
+
+  async getSubcategory(input: {
+    businessId: string
+    categoryId: string
+    subcategoryId: string
+  }): Promise<{ id: string; categoryId: string; name: string } | null> {
+    const row = await this.#client.service.findFirst({
+      where: {
+        id: input.subcategoryId,
+        businessId: input.businessId,
+        catalogCategoryId: input.categoryId,
+        parentServiceId: null,
+        isBookable: false,
+        catalogCategory: { is: { businessId: input.businessId, isActive: true } },
+        variants: { some: {
+          businessId: input.businessId,
+          catalogCategoryId: input.categoryId,
+          isBookable: true
+        } }
+      },
+      select: { id: true, catalogCategoryId: true, name: true }
+    })
+    return row?.catalogCategoryId
+      ? { id: row.id, categoryId: row.catalogCategoryId, name: row.name }
+      : null
   }
 
   async getService(input: { businessId: string; serviceId: string }): Promise<CatalogServiceItem | null> {

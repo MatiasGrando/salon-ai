@@ -75,6 +75,7 @@
     "test:bot-options-f57-pure": "tsx scripts/bot-options-f57-professional-hours-pure-test.ts",
     "test:bot-options-f57-pg": "tsx scripts/bot-options-f57-professional-hours-pg-contract-test.ts",
     "test:bot-options-f57-e2e": "tsx scripts/bot-options-f57-professional-hours-e2e-test.ts",
+    "test:bot-options-f58-meta": "tsx scripts/bot-options-catalog-hours-meta-test.ts",
     "test:bot-options-hours-pg": "tsx scripts/bot-options-hours-pg-contract-test.ts",
     "test:bot-options-hours-e2e": "tsx scripts/bot-options-hours-e2e-test.ts",
     "test:bot-options-f4-pg": "tsx scripts/bot-options-f4-pg-contract-test.ts",

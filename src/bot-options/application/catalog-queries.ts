@@ -112,6 +112,13 @@ export function catalogServiceRowLabel(item: CatalogServiceItem): string {
   return item.name
 }
 
+/** Las subcategorías son navegación, no servicios reservables. */
+export function catalogEntryRowLabel(item: CatalogServiceItem): string {
+  return item.kind === 'SUBCATEGORY'
+    ? `${item.name} \u2014 Ver subcategoría`
+    : catalogServiceRowLabel(item)
+}
+
 export type CatalogServiceDetailView = {
   /** Textos informativos que viajan como mensajes separados ANTES del interactivo. */
   informativeTexts: string[]

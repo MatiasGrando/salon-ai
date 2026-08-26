@@ -74,12 +74,12 @@ try {
   const admitted = await webhook.routeAndAdmit({ rawBody: body, signatureHeader: signature, traceId: `f5-menu-${suffix}` })
   assert.deepEqual(admitted, { route: 'new', outcome: { status: 'admitted', eventCount: 1 } })
 
-  const job = await worker.claimBotJob(prisma)
+  const job = await worker.claimBotJob(prisma, 30_000, randomUUID(), { businessId })
   assert.ok(job)
   assert.equal(job.kind, 'PROCESS_INBOX')
   assert.equal(await processor.processSessionJob({ client: prisma, job }), 'PROCESSED')
 
-  const queued = await outbox.claimOutbox(prisma)
+  const queued = await outbox.claimOutbox(prisma, 30_000, randomUUID(), { businessId })
   assert.ok(queued)
   let providerCalls = 0
   const delivery = await outbox.sendClaimedOutbox({

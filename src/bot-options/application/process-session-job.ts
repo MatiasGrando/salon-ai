@@ -6,7 +6,7 @@ import type { BotOptionsActionPayload, BotOptionsEntityRef } from '../domain/act
 import type { BotOptionsEffect } from '../domain/effects.js'
 import { menuView, type BotOptionsViewModel } from '../domain/views.js'
 import { generatePromptToken } from '../domain/prompt-tokens.js'
-import { renderWhatsAppScreen } from '../infrastructure/whatsapp-renderer.js'
+import { renderWhatsAppScreen, WHATSAPP_INTERACTIVE_BODY_MAX_CODE_POINTS } from '../infrastructure/whatsapp-renderer.js'
 import { assertClaimedBotJobTx, completeClaimedBotJobTx, retargetClaimedBotJobTx, type ClaimedBotJob } from '../infrastructure/postgres-worker.js'
 import { acquireDispatchClaim, assertDispatchClaimTx, completeDispatchClaimTx, releaseDispatchClaim } from '../infrastructure/dispatch-claims.js'
 import { upsertJob } from '../infrastructure/prisma-admission.js'
@@ -17,6 +17,7 @@ import { botOptionsMetrics } from '../observability/metrics.js'
 import { PrismaHoursRepository } from '../infrastructure/prisma-hours.js'
 import { PrismaProfessionalHoursRepository } from '../infrastructure/prisma-professional-hours.js'
 import { formatBusinessWeeklySchedule, formatProfessionalWeeklySchedule, formatProfessionalListLabel } from './hours-queries.js'
+import { catalogEntryRowLabel, catalogServiceDetailView } from './catalog-queries.js'
 
 type RuntimeClient = Pick<PrismaClient, '$queryRaw' | '$executeRaw' | '$transaction'>
 
@@ -60,13 +61,14 @@ const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
   const base: TransitionContext = {
     dbNowIso: input.dbNow.toISOString(), customerNameOnFile: null,
     draftExists: false, draftHasProgress: false, categoryActive: false, categoryHasServices: false,
+    subcategoryActive: false, subcategoryHasServices: false,
     serviceActive: false, serviceBookable: false, requiresConsultation: false,
     serviceCompatibleWithCart: input.state.cart.length === 0, serviceInCart: false,
     hasRecommendations: false, recommendedServiceAvailable: false, recommendedCompatibleWithCart: false,
       professionalCommonExists: false, professionalSelectable: false,
       professionalActive: false, professionalBookable: false,
       dateAvailable: false, slotAvailable: false,
-    bandHasAvailability: false, catalogCanNext: false, catalogCanPrevious: false,
+    bandHasAvailability: false, catalogCanNext: false, catalogCanPrevious: false, catalogPageMoveAllowed: false,
     professionalCatalogCanNext: false, professionalCatalogCanPrevious: false, dateCanNext: false,
     dateCanPrevious: false, slotCanNext: false, appointmentsExist: false, appointmentsCanNext: false,
     appointmentOwnedAndFuture: false, cancellationAllowed: false, rescheduleAllowed: false,
@@ -83,7 +85,97 @@ const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
       base.requiresConsultation = service.requiresConsultation
       base.serviceInCart = input.state.cart.some((item) => item.serviceId === service.id)
       base.labels.serviceName = service.name
+      base.labels.catalogServiceDetail = catalogServiceDetailView(service, WHATSAPP_INTERACTIVE_BODY_MAX_CODE_POINTS)
     }
+  }
+
+  // F5.3/F5.4 — El catálogo se carga para la VISTA RESULTANTE y cada selección
+  // se revalida tenant-scoped. SUBCATEGORY es navegación explícita: nunca se
+  // presenta ni se acepta como SERVICE reservable.
+  const catalogRepo = new PrismaCatalogRepository(tx)
+  const currentCatalogPage = input.state.presentation.kind === 'catalog_page'
+    ? input.state.presentation.cursor
+    : 0
+  const currentParentServiceId = input.state.presentation.kind === 'catalog_page'
+    ? input.state.presentation.parentServiceId ?? null
+    : null
+  const targetPage = input.actionType === 'catalog.next_page'
+    ? currentCatalogPage + 1
+    : input.actionType === 'catalog.previous_page'
+      ? Math.max(0, currentCatalogPage - 1)
+      : currentCatalogPage
+
+  const applyCategoryPage = async (page: number) => {
+    const categoryPage = await catalogRepo.listCategories({ businessId: input.businessId, page })
+    base.labels.catalogCategories = categoryPage.items.map((category) => ({
+      categoryId: category.id,
+      label: category.name
+    }))
+    base.catalogCanNext = categoryPage.hasNext
+    base.catalogCanPrevious = categoryPage.hasPrevious
+    base.catalogPageMoveAllowed = categoryPage.items.length > 0
+  }
+
+  const applyServicePage = async (categoryId: string, parentServiceId: string | null, page: number) => {
+    const [category, servicePage, subcategory] = await Promise.all([
+      catalogRepo.getCategory({ businessId: input.businessId, categoryId }),
+      catalogRepo.listServices({ businessId: input.businessId, categoryId, parentServiceId, page }),
+      parentServiceId
+        ? catalogRepo.getSubcategory({ businessId: input.businessId, categoryId, subcategoryId: parentServiceId })
+        : Promise.resolve(null)
+    ])
+    base.categoryActive = category !== null
+    base.categoryHasServices = servicePage !== null && servicePage.items.length > 0
+    base.subcategoryActive = parentServiceId === null || subcategory !== null
+    base.subcategoryHasServices = parentServiceId !== null && servicePage !== null && servicePage.items.length > 0
+    if (category) base.labels.categoryName = category.name
+    if (subcategory) base.labels.subcategoryName = subcategory.name
+    if (servicePage) {
+      base.labels.catalogEntries = servicePage.items.map((entry) => ({
+        kind: entry.kind,
+        entityId: entry.id,
+        label: catalogEntryRowLabel(entry)
+      }))
+      base.catalogCanNext = servicePage.hasNext
+      base.catalogCanPrevious = servicePage.hasPrevious
+      base.catalogPageMoveAllowed = servicePage.items.length > 0
+    }
+  }
+
+  if (input.actionType === 'category.select' && input.entityRef?.type === 'CATEGORY') {
+    await applyServicePage(input.entityRef.id, null, 0)
+  } else if (input.actionType === 'subcategory.select' && input.entityRef?.type === 'SUBCATEGORY' && input.state.selections.categoryId) {
+    await applyServicePage(input.state.selections.categoryId, input.entityRef.id, 0)
+  } else if (input.actionType === 'service.view') {
+    // El detalle ya se cargó arriba mediante getService; no se confía en el label del prompt.
+  } else if (input.actionType === 'catalog.next_page' || input.actionType === 'catalog.previous_page') {
+    if (input.state.flow === 'CATEGORY_SELECT') {
+      await applyCategoryPage(targetPage)
+    } else if (input.state.flow === 'SERVICE_SELECT' && input.state.selections.categoryId) {
+      await applyServicePage(input.state.selections.categoryId, currentParentServiceId, targetPage)
+    }
+  } else if (input.actionType === 'navigation.back' && input.state.flow === 'SERVICE_SELECT') {
+    if (currentParentServiceId && input.state.selections.categoryId) {
+      await applyServicePage(input.state.selections.categoryId, null, 0)
+    } else {
+      await applyCategoryPage(0)
+    }
+  } else if (
+    input.state.flow === 'SERVICE_DETAIL' &&
+    (input.actionType === 'navigation.back' || input.actionType === 'service.more_same_category') &&
+    input.state.selections.categoryId
+  ) {
+    await applyServicePage(input.state.selections.categoryId, currentParentServiceId, currentCatalogPage)
+  } else if (
+    input.actionType === 'menu.browse_services' || input.actionType === 'menu.start_booking' ||
+    input.actionType === 'name.confirm' || input.actionType === 'service.change_category' ||
+    input.actionType === 'cart.add_service'
+  ) {
+    await applyCategoryPage(0)
+  } else if (input.state.flow === 'CATEGORY_SELECT') {
+    await applyCategoryPage(currentCatalogPage)
+  } else if (input.state.flow === 'SERVICE_SELECT' && input.state.selections.categoryId) {
+    await applyServicePage(input.state.selections.categoryId, currentParentServiceId, currentCatalogPage)
   }
 
   // F5.6: Vista runtime real de horarios del negocio
@@ -168,7 +260,7 @@ function parseSelectedEntityRef(value: Prisma.JsonValue | null): BotOptionsEntit
   const type = value['type']
   const id = value['id']
   if (
-    (type !== 'CATEGORY' && type !== 'SERVICE' && type !== 'PROFESSIONAL' && type !== 'APPOINTMENT') ||
+    (type !== 'CATEGORY' && type !== 'SUBCATEGORY' && type !== 'SERVICE' && type !== 'PROFESSIONAL' && type !== 'APPOINTMENT') ||
     typeof id !== 'string' || id.length === 0 || id.trim() !== id
   ) {
     throw new Error('invalid selected action entityRef')

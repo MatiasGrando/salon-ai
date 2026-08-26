@@ -97,7 +97,8 @@ const HANDOFF_STATUS_SET: ReadonlySet<string> = new Set(BOT_OPTIONS_HANDOFF_STAT
  */
 export type BotOptionsPresentationMode =
   | { kind: 'plain' }
-  | { kind: 'catalog_page'; cursor: number }
+  /** parentServiceId identifica una subcategoría explícita; null/ausente = raíz. */
+  | { kind: 'catalog_page'; cursor: number; parentServiceId?: string | null }
   | { kind: 'slot_band'; band: SlotBandView }
   | { kind: 'slot_all_pages'; cursor: number }
   | { kind: 'navigation_menu' }
@@ -438,6 +439,13 @@ export function validateBotOptionsState(
   if ((kind === 'catalog_page' || kind === 'slot_all_pages' || kind === 'appointment_list_page' || kind === 'professional_list_page')) {
     const cursor = presentation['cursor']
     if (typeof cursor !== 'number' || !Number.isInteger(cursor) || cursor < 0) {
+      return { ok: false, invariant: 'presentation_kind_allowed' }
+    }
+  }
+  if (kind === 'catalog_page') {
+    const parentServiceId = presentation['parentServiceId']
+    if (parentServiceId !== undefined && parentServiceId !== null &&
+        (typeof parentServiceId !== 'string' || parentServiceId.trim().length === 0 || parentServiceId.trim() !== parentServiceId)) {
       return { ok: false, invariant: 'presentation_kind_allowed' }
     }
   }

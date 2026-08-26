@@ -22,13 +22,17 @@ type WorkerClient = Pick<PrismaClient, '$queryRaw' | '$executeRaw' | '$transacti
 export async function claimBotJob(
   client: WorkerClient,
   leaseMs = 30_000,
-  token = randomUUID()
+  token = randomUUID(),
+  scope?: { businessId: string }
 ): Promise<ClaimedBotJob | null> {
+  const maintenanceScope = scope ? Prisma.sql`AND "businessId" = ${scope.businessId}` : Prisma.empty
+  const candidateScope = scope ? Prisma.sql`AND j."businessId" = ${scope.businessId}` : Prisma.empty
   const claimed = await client.$transaction(async (tx) => {
     await tx.$executeRaw(Prisma.sql`
       UPDATE "BotJob" SET "status" = 'POISON'::"BotJobStatus", "leaseToken" = NULL, "leasedUntil" = NULL,
         "lastError" = COALESCE("lastError", 'claim expired after max attempts'), "updatedAt" = clock_timestamp()
       WHERE "status" = 'LEASED'::"BotJobStatus" AND "leasedUntil" < clock_timestamp() AND "attempts" >= "maxAttempts"
+        ${maintenanceScope}
     `)
     const candidates = await tx.$queryRaw<Array<{ id: string; businessId: string }>>(Prisma.sql`
       SELECT j."id", j."businessId" FROM "BotJob" j
@@ -36,6 +40,7 @@ export async function claimBotJob(
       WHERE ((j."status" IN ('READY'::"BotJobStatus", 'RETRY'::"BotJobStatus") AND j."availableAt" <= clock_timestamp())
           OR (j."status" = 'LEASED'::"BotJobStatus" AND j."leasedUntil" < clock_timestamp()))
         AND j."attempts" < j."maxAttempts" AND d."generation" = j."deploymentGeneration"
+        ${candidateScope}
         AND d."activeConfigurationId" IS NOT NULL AND d."legacyDispatchCoverageVersion" >= 1 AND d."claimsPausedAt" IS NULL
       ORDER BY j."availableAt", j."createdAt", j."id" FOR UPDATE OF j SKIP LOCKED LIMIT 1
     `)

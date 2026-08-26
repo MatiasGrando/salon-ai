@@ -8,18 +8,20 @@ if (safety.hostname !== '127.0.0.1' || safety.port !== '54322' || safety.pathnam
 }
 process.env.DATABASE_URL = SAFE_DATABASE_URL
 
-const [{ createPrismaClient }, catalog, catalogQueries, { Prisma }, { claimOutbox, sendClaimedOutbox }] = await Promise.all([
+const [{ createPrismaClient }, catalog, catalogQueries, { Prisma }, { claimOutbox, sendClaimedOutbox }, { claimBotJob }] = await Promise.all([
   import('../src/config/prisma-client.js'),
   import('../src/bot-options/infrastructure/prisma-catalog.js'),
   import('../src/bot-options/application/catalog-queries.js'),
   import('../src/generated/prisma/client.js'),
-  import('../src/bot-options/infrastructure/whatsapp-outbox-sender.js')
+  import('../src/bot-options/infrastructure/whatsapp-outbox-sender.js'),
+  import('../src/bot-options/infrastructure/postgres-worker.js')
 ])
 const prisma = createPrismaClient({ connectionString: SAFE_DATABASE_URL, max: 4, idleTimeoutMillis: 1000, connectionTimeoutMillis: 3000 })
 const suffix = randomUUID().replaceAll('-', '')
 const businessId = `f5_catalog_b_${suffix}`
 const otherBusinessId = `f5_catalog_other_${suffix}`
-const categoryIds = Array.from({ length: 9 }, (_, index) => `f5_cat_${index}_${suffix}`)
+const categoryIds = Array.from({ length: 12 }, (_, index) => `f5_cat_${index}_${suffix}`)
+const pagedServiceIds = Array.from({ length: 11 }, (_, index) => `f5_paged_service_${index}_${suffix}`)
 const groupId = `f5_group_${suffix}`
 const serviceId = `f5_service_${suffix}`
 const variantId = `f5_variant_${suffix}`
@@ -33,6 +35,12 @@ const depTransitionId = `f5_dep_t_${suffix}`
 const depDeliveryGroupId = `f5_dep_group_${suffix}`
 const predecessorId = `f5_dep_pre_${suffix}`
 const dependentId = `f5_dep_dep_${suffix}`
+const otherDepConfigId = `f5_other_dep_cfg_${suffix}`
+const otherDepDeploymentId = `f5_other_dep_deploy_${suffix}`
+const otherDepConversationId = `f5_other_dep_v_${suffix}`
+const otherDepSessionId = `f5_other_dep_s_${suffix}`
+const otherStaleOutboxId = `f5_other_stale_outbox_${suffix}`
+const otherExpiredJobId = `f5_other_expired_job_${suffix}`
 
 try {
   await prisma.business.createMany({ data: [
@@ -50,9 +58,13 @@ try {
       id: `f5_seed_service_${index}_${suffix}`, businessId, catalogCategoryId: categoryId,
       name: `Servicio ${index}`, duration: 30, sortOrder: index, price: 1000 + index
     })),
-    { id: groupId, businessId, catalogCategoryId: categoryIds[0]!, name: 'Color', duration: 0, isBookable: false, sortOrder: 20 },
+    ...pagedServiceIds.map((id, index) => ({
+      id, businessId, catalogCategoryId: categoryIds[0]!, name: `Servicio paginado ${String(index).padStart(2, '0')}`,
+      duration: 30 + index, sortOrder: index, price: 5000 + index
+    })),
+    { id: groupId, businessId, catalogCategoryId: categoryIds[0]!, name: 'Color', duration: 0, isBookable: false, sortOrder: -2 },
     { id: serviceId, businessId, catalogCategoryId: categoryIds[0]!, name: 'Corte premium', description: 'Detalle real', duration: 45,
-      customerDurationMin: 40, customerDurationMax: 50, price: 25000, priceMode: 'STARTING_AT', sortOrder: 21 },
+      customerDurationMin: 40, customerDurationMax: 50, price: 25000, priceMode: 'STARTING_AT', sortOrder: -1 },
     { id: variantId, businessId, catalogCategoryId: categoryIds[0]!, parentServiceId: groupId, name: 'Color corto', duration: 90,
       price: null, attentionMode: 'GUIDED_ESTIMATE', estimateAllowsBooking: false, sortOrder: 0 },
     { id: `f5_other_service_${suffix}`, businessId: otherBusinessId, catalogCategoryId: `f5_cat_other_${suffix}`,
@@ -66,7 +78,7 @@ try {
   assert.equal(first.hasNext, true)
   assert.ok(first.items.every((item) => item.name !== 'Vacía' && item.name !== 'Inactiva'))
   const second = await repository.listCategories({ businessId, page: 1 })
-  assert.equal(second.items.length, 2)
+  assert.equal(second.items.length, 5)
   assert.equal(second.hasPrevious, true)
   assert.equal(second.hasNext, false)
 
@@ -75,9 +87,22 @@ try {
   assert.ok(topLevel.items.some((item) => item.id === groupId && item.kind === 'SUBCATEGORY'))
   assert.ok(topLevel.items.some((item) => item.id === serviceId && item.kind === 'SERVICE'))
   assert.ok(topLevel.items.every((item) => item.id !== variantId))
+  assert.equal(topLevel.hasNext, true)
+  const topLevelSecond = await repository.listServices({ businessId, categoryId: categoryIds[0]!, page: 1 })
+  assert.ok(topLevelSecond)
+  assert.equal(topLevelSecond.items.length, 7)
+  assert.equal(topLevelSecond.hasPrevious, true)
+  assert.equal(topLevelSecond.hasNext, false)
+  assert.notDeepEqual(topLevel.items.map((item) => item.id), topLevelSecond.items.map((item) => item.id))
   const variants = await repository.listServices({ businessId, categoryId: categoryIds[0]!, parentServiceId: groupId, page: 0 })
   assert.deepEqual(variants?.items.map((item) => item.id), [variantId])
   assert.equal(variants?.items[0]?.requiresConsultation, true)
+  assert.equal(await repository.getService({ businessId, serviceId: groupId }), null,
+    'subcategory rows must never resolve through the reservable service API')
+  await prisma.service.update({ where: { id: variantId }, data: { isBookable: false } })
+  assert.equal(await repository.getSubcategory({ businessId, categoryId: categoryIds[0]!, subcategoryId: groupId }), null,
+    'subcategory without remaining bookable children must fail closed as stale')
+  await prisma.service.update({ where: { id: variantId }, data: { isBookable: true } })
 
   const detail = await repository.getService({ businessId, serviceId })
   assert.equal(detail?.name, 'Corte premium')
@@ -85,6 +110,7 @@ try {
   assert.equal(detail?.durationMinMinutes, 40)
   assert.equal(await repository.getService({ businessId, serviceId: `f5_other_service_${suffix}` }), null, 'service reads are tenant-scoped')
   assert.equal(await repository.listServices({ businessId, categoryId: `f5_cat_other_${suffix}`, page: 0 }), null, 'category reads are tenant-scoped')
+  assert.equal(await repository.getSubcategory({ businessId, categoryId: categoryIds[0]!, subcategoryId: `f5_other_service_${suffix}` }), null)
   assert.throws(() => catalogQueries.catalogPageOffset(-1), /non-negative integer/)
 
   // ─── F5.4 PG: fragmento previo POISON bloquea dependiente interactivo ─────────
@@ -131,6 +157,53 @@ try {
       clock_timestamp())
   `)
 
+  // Tenant centinela: un claim acotado al fixture principal no debe ejecutar
+  // mantenimiento ni seleccionar filas de este segundo negocio.
+  await prisma.$executeRaw(Prisma.sql`
+    INSERT INTO "BusinessBotConfiguration" ("id", "businessId", "botKey", "name", "version", "status", "definition", "updatedAt")
+    VALUES (${otherDepConfigId}, ${otherBusinessId}, 'f5_other_dep', 'F5 other dep', 'v1', 'ACTIVE', '{}'::jsonb, clock_timestamp())
+  `)
+  await prisma.$executeRaw(Prisma.sql`
+    INSERT INTO "BotChannelDeployment" ("id", "businessId", "generation", "activatedAt",
+      "activeConfigurationId", "engineKey", "legacyDispatchCoverageVersion", "updatedAt")
+    VALUES (${otherDepDeploymentId}, ${otherBusinessId}, 1, clock_timestamp(),
+      ${otherDepConfigId}, 'deterministic-options', 1, clock_timestamp())
+  `)
+  await prisma.$executeRaw(Prisma.sql`
+    INSERT INTO "Conversation" ("id", "phone", "businessId", "updatedAt")
+    VALUES (${otherDepConversationId}, '5491155559999', ${otherBusinessId}, clock_timestamp())
+  `)
+  await prisma.$executeRaw(Prisma.sql`
+    INSERT INTO "BotSession" ("id", "businessId", "conversationId", "deploymentId", "deploymentGeneration",
+      "businessTimezone", "state", "updatedAt")
+    VALUES (${otherDepSessionId}, ${otherBusinessId}, ${otherDepConversationId}, ${otherDepDeploymentId}, 1,
+      'America/Argentina/Buenos_Aires',
+      ${JSON.stringify({ schemaVersion: 1, flow: 'MAIN_MENU', booking: 'NONE', deposit: 'NONE', handoff: 'NONE',
+        cart: [], selections: { categoryId: null, professionalId: null, anyProfessional: false, date: null,
+        slotStartAt: null, appointmentId: null }, invalidStreak: 0, presentation: { kind: 'plain' },
+        discardReturnFlow: null, handoffReturnFlow: null, catalogMode: 'BOOKING', nameCandidate: null,
+        pendingEntityRef: null, rejectedRecommendationIds: [] })}::jsonb,
+      clock_timestamp())
+  `)
+  await prisma.$executeRaw(Prisma.sql`
+    INSERT INTO "BotOutbox" ("id", "businessId", "sessionId", "transitionId", "deliveryGroupId",
+      "sequence", "kind", "payload", "idempotencyKey", "status", "leaseToken", "leasedUntil", "updatedAt")
+    VALUES (${otherStaleOutboxId}, ${otherBusinessId}, ${otherDepSessionId}, 'other-transition', 'other-group',
+      0, 'informative_text', ${JSON.stringify({ to: '5491155559999', item: { type: 'informative_text', body: 'sentinel' } })}::jsonb,
+      ${`other-outbox-${suffix}`}, 'SENDING'::"BotOutboxStatus", 'other-lease', clock_timestamp() - interval '1 minute', clock_timestamp())
+  `)
+  await prisma.$executeRaw(Prisma.sql`
+    INSERT INTO "BotJob" ("id", "kind", "aggregateId", "businessId", "deploymentId", "deploymentGeneration",
+      "status", "attempts", "maxAttempts", "leaseToken", "leasedUntil", "updatedAt")
+    VALUES (${otherExpiredJobId}, 'PROCESS_SESSION', 'other-aggregate', ${otherBusinessId}, ${otherDepDeploymentId}, 1,
+      'LEASED'::"BotJobStatus", 1, 1, 'other-job-lease', clock_timestamp() - interval '1 minute', clock_timestamp())
+  `)
+  assert.equal(await claimBotJob(prisma, 30_000, randomUUID(), { businessId }), null)
+  const otherJobStatus = await prisma.$queryRaw<Array<{ status: string }>>(Prisma.sql`
+    SELECT "status"::text AS "status" FROM "BotJob" WHERE "id" = ${otherExpiredJobId}
+  `)
+  assert.equal(otherJobStatus[0]!.status, 'LEASED', 'scoped job maintenance must not poison another tenant')
+
   // Crear grupo de delivery: sequence 0 = informativo (predecesor), sequence 1 = interactivo (dependiente).
   await prisma.$executeRaw(Prisma.sql`
     INSERT INTO "BotOutbox" ("id", "businessId", "sessionId", "transitionId", "deliveryGroupId",
@@ -151,9 +224,13 @@ try {
   `)
 
   // Paso 1: claim el predecesor por el camino real.
-  const predecessorClaim = await claimOutbox(prisma)
+  const predecessorClaim = await claimOutbox(prisma, 30_000, randomUUID(), { businessId })
   assert.equal(predecessorClaim?.id, predecessorId, 'predecessor must be claimable (PENDING)')
   assert.ok(predecessorClaim.claimToken, 'claim must return a claimToken')
+  const otherOutboxStatus = await prisma.$queryRaw<Array<{ status: string }>>(Prisma.sql`
+    SELECT "status"::text AS "status" FROM "BotOutbox" WHERE "id" = ${otherStaleOutboxId}
+  `)
+  assert.equal(otherOutboxStatus[0]!.status, 'SENDING', 'scoped outbox maintenance must not mark another tenant UNKNOWN')
 
   // Paso 2: sendClaimedOutbox con provider que devuelve clear_failure retryable:false.
   // El sender real calcula: poison = !result.retryable (true) → POISON.
@@ -175,7 +252,7 @@ try {
   // Paso 4: claimOutbox no debe poder reclamar el dependiente porque su predecesor es POISON.
   // La claim query exige ACCEPTED/DELIVERED/READ/SKIPPED; POISON no califica.
   // En este fixture aislado (sólo 2 outbox items), null = no hay items claimables.
-  const blockedClaim = await claimOutbox(prisma)
+  const blockedClaim = await claimOutbox(prisma, 30_000, randomUUID(), { businessId })
   assert.equal(blockedClaim, null,
     'no outbox item claimable when predecessor is POISON (dependent blocked by dependency check)')
 
@@ -219,13 +296,20 @@ try {
   console.log('OK F5.3 catalog: tenant isolation, subcategories, real services and seven-row pagination satisfy the contract.')
   console.log('OK F5.4 catalog PG: claimOutbox → sendClaimedOutbox(clear_failure retryable:false) → POISON → dependent blocked.')
   console.log('OK F5.5 catalog PG: revalidación tenant-scoped, requiresConsultation, cross-tenant y desactivación concurrente.')
+  console.log('OK scoped claims: job/outbox maintenance left another tenant sentinel unchanged.')
 } finally {
   // Cleanup in reverse dependency order by exact IDs — no wildcards, no global deletes.
   await prisma.$executeRaw(Prisma.sql`DELETE FROM "BotOutbox" WHERE "id" IN (${predecessorId}, ${dependentId})`).catch(() => undefined)
+  await prisma.$executeRaw(Prisma.sql`DELETE FROM "BotOutbox" WHERE "id" = ${otherStaleOutboxId}`).catch(() => undefined)
+  await prisma.$executeRaw(Prisma.sql`DELETE FROM "BotJob" WHERE "id" = ${otherExpiredJobId}`).catch(() => undefined)
   await prisma.$executeRaw(Prisma.sql`DELETE FROM "BotSession" WHERE "id" = ${depSessionId}`).catch(() => undefined)
+  await prisma.$executeRaw(Prisma.sql`DELETE FROM "BotSession" WHERE "id" = ${otherDepSessionId}`).catch(() => undefined)
   await prisma.$executeRaw(Prisma.sql`DELETE FROM "Conversation" WHERE "id" = ${depConversationId}`).catch(() => undefined)
+  await prisma.$executeRaw(Prisma.sql`DELETE FROM "Conversation" WHERE "id" = ${otherDepConversationId}`).catch(() => undefined)
   await prisma.$executeRaw(Prisma.sql`DELETE FROM "BotChannelDeployment" WHERE "id" = ${depDeploymentId}`).catch(() => undefined)
+  await prisma.$executeRaw(Prisma.sql`DELETE FROM "BotChannelDeployment" WHERE "id" = ${otherDepDeploymentId}`).catch(() => undefined)
   await prisma.$executeRaw(Prisma.sql`DELETE FROM "BusinessBotConfiguration" WHERE "id" = ${depConfigId}`).catch(() => undefined)
+  await prisma.$executeRaw(Prisma.sql`DELETE FROM "BusinessBotConfiguration" WHERE "id" = ${otherDepConfigId}`).catch(() => undefined)
   await prisma.service.deleteMany({ where: { businessId: { in: [businessId, otherBusinessId] } } }).catch(() => undefined)
   await prisma.serviceCategory.deleteMany({ where: { businessId: { in: [businessId, otherBusinessId] } } }).catch(() => undefined)
   await prisma.business.deleteMany({ where: { id: { in: [businessId, otherBusinessId] } } }).catch(() => undefined)

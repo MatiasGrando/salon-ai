@@ -15,13 +15,21 @@ export type ClaimedOutbox = {
 
 type OutboxClient = Pick<PrismaClient, '$queryRaw' | '$executeRaw' | '$transaction'>
 
-export async function claimOutbox(client: OutboxClient, leaseMs = 30_000, token = randomUUID()): Promise<ClaimedOutbox | null> {
+export async function claimOutbox(
+  client: OutboxClient,
+  leaseMs = 30_000,
+  token = randomUUID(),
+  scope?: { businessId: string }
+): Promise<ClaimedOutbox | null> {
+  const maintenanceScope = scope ? Prisma.sql`AND "businessId" = ${scope.businessId}` : Prisma.empty
+  const candidateScope = scope ? Prisma.sql`AND o."businessId" = ${scope.businessId}` : Prisma.empty
   const claimed = await client.$transaction(async (tx) => {
     await tx.$executeRaw(Prisma.sql`
       WITH stale AS (
       UPDATE "BotOutbox" SET "status" = 'UNKNOWN'::"BotOutboxStatus", "leaseToken" = NULL,
         "leasedUntil" = NULL, "errorCode" = COALESCE("errorCode", 'stale_sending'), "updatedAt" = clock_timestamp()
       WHERE "status" = 'SENDING'::"BotOutboxStatus" AND "leasedUntil" < clock_timestamp()
+        ${maintenanceScope}
       RETURNING "id"
     ), stale_dispatch AS (
       UPDATE "BotDispatchClaim" c SET "status" = 'UNKNOWN'::"BotDispatchStatus", "updatedAt" = clock_timestamp()
@@ -34,6 +42,7 @@ export async function claimOutbox(client: OutboxClient, leaseMs = 30_000, token 
       UPDATE "BotOutbox" SET "status" = 'POISON'::"BotOutboxStatus",
         "errorCode" = COALESCE("errorCode", 'attempts_exhausted'), "updatedAt" = clock_timestamp()
       WHERE "status" IN ('PENDING'::"BotOutboxStatus", 'RETRY'::"BotOutboxStatus") AND "attempts" >= "maxAttempts"
+        ${maintenanceScope}
     `)
     const candidates = await tx.$queryRaw<Array<{ id: string; businessId: string }>>(Prisma.sql`
       SELECT o."id", o."businessId" FROM "BotOutbox" o
@@ -42,6 +51,7 @@ export async function claimOutbox(client: OutboxClient, leaseMs = 30_000, token 
       WHERE (o."status" IN ('PENDING'::"BotOutboxStatus", 'RETRY'::"BotOutboxStatus")
           OR (o."status" = 'CLAIMED'::"BotOutboxStatus" AND o."leasedUntil" < clock_timestamp()))
         AND o."availableAt" <= clock_timestamp() AND o."attempts" < o."maxAttempts"
+        ${candidateScope}
         AND d."generation" = s."deploymentGeneration" AND d."activeConfigurationId" IS NOT NULL
         AND d."engineKey" = 'deterministic-options' AND d."legacyDispatchCoverageVersion" >= 1 AND d."claimsPausedAt" IS NULL
         AND s."status" <> 'HUMAN_TAKEN'::"BotSessionStatus"

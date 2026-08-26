@@ -21,6 +21,7 @@ export const CLIENT_CHOICE_ACTION_TYPES = [
   'name.confirm',
   'name.edit',
   'category.select',
+  'subcategory.select',
   'service.view',
   'service.select',
   'service.book',
@@ -128,6 +129,7 @@ export function isCrmAction(value: BotOptionsActionType): value is CrmActionType
 /** Entidades con ID estable que una acción puede transportar. */
 export type BotOptionsEntityType =
   | 'CATEGORY'
+  | 'SUBCATEGORY'
   | 'SERVICE'
   | 'PROFESSIONAL'
   | 'APPOINTMENT'
@@ -174,6 +176,7 @@ export const BOT_OPTIONS_ACTION_REQUIREMENTS: Readonly<
   'name.confirm': {},
   'name.edit': {},
   'category.select': { entity: 'CATEGORY' },
+  'subcategory.select': { entity: 'SUBCATEGORY' },
   'service.view': { entity: 'SERVICE' },
   'service.select': { entity: 'SERVICE' },
   'service.book': { entity: 'SERVICE' },

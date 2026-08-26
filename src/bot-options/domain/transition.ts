@@ -58,6 +58,8 @@ export type TransitionContext = {
   draftHasProgress: boolean
   categoryActive: boolean
   categoryHasServices: boolean
+  subcategoryActive: boolean
+  subcategoryHasServices: boolean
   serviceActive: boolean
   serviceBookable: boolean
   /** Revalidado contra DB en el contexto: true cuando la política del servicio exige consulta humana. */
@@ -78,6 +80,8 @@ export type TransitionContext = {
   bandHasAvailability: boolean
   catalogCanNext: boolean
   catalogCanPrevious: boolean
+  /** Para next/previous: la página destino fue revalidada y existe. */
+  catalogPageMoveAllowed: boolean
   /** F5.7: true si hay más profesionales después de la página actual. */
   professionalCatalogCanNext: boolean
   /** F5.7: true si hay profesionales antes de la página actual. */
@@ -98,7 +102,18 @@ export type TransitionContext = {
   paymentConfigComplete: boolean
   labels: {
     categoryName?: string | undefined
+    subcategoryName?: string | undefined
     serviceName?: string | undefined
+    catalogCategories?: ReadonlyArray<{ categoryId: string; label: string }> | undefined
+    catalogEntries?: ReadonlyArray<{
+      kind: 'SERVICE' | 'SUBCATEGORY'
+      entityId: string
+      label: string
+    }> | undefined
+    catalogServiceDetail?: {
+      informativeTexts: readonly string[]
+      interactiveBody: string
+    } | undefined
     professionalName?: string | undefined
     appointmentSummary?: string | undefined
     /** F5.6: Texto informativo del horario semanal del negocio (lunes–domingo + excepciones). */
@@ -131,6 +146,8 @@ const FALSE_DEFAULTS: readonly (
   'draftHasProgress',
   'categoryActive',
   'categoryHasServices',
+  'subcategoryActive',
+  'subcategoryHasServices',
   'serviceActive',
   'serviceBookable',
   'requiresConsultation',
@@ -148,6 +165,7 @@ const FALSE_DEFAULTS: readonly (
   'bandHasAvailability',
   'catalogCanNext',
   'catalogCanPrevious',
+  'catalogPageMoveAllowed',
   'professionalCatalogCanNext',
   'professionalCatalogCanPrevious',
   'dateCanNext',
@@ -232,6 +250,7 @@ const CLIENT_ALLOWED: Partial<Record<BotOptionsFlowStep, readonly BotOptionsActi
     'handoff.request'
   ],
   SERVICE_SELECT: [
+    'subcategory.select',
     'service.view',
     'service.select',
     'catalog.next_page',
@@ -385,7 +404,7 @@ const BACK_TARGETS: Partial<Record<BotOptionsFlowStep, BackTarget>> = {
     flow: 'CATEGORY_SELECT',
     apply: (state) => ({ ...state, selections: { ...state.selections, categoryId: null } })
   },
-  SERVICE_DETAIL: { flow: 'SERVICE_SELECT', apply: (state) => state },
+  SERVICE_DETAIL: { flow: 'SERVICE_SELECT', apply: (state) => ({ ...state, pendingEntityRef: null }) },
   RECOMMENDATION_SELECT: { flow: 'CART_REVIEW', apply: (state) => state },
   CART_REVIEW: { flow: 'SERVICE_SELECT', apply: (state) => state },
   INCOMPATIBLE_SERVICE_DECISION: { flow: 'CART_REVIEW', apply: (state) => ({ ...state, pendingEntityRef: null }) },
@@ -490,15 +509,36 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
         ]
       )
     case 'CATEGORY_SELECT': {
-      const nav = composeGlobalNavigation({ capacity: 10, contextualCount: 2, back: BACK_CHOICE })
+      const choices: ViewChoice[] = (context.labels.catalogCategories ?? []).map((category) => ({
+        actionType: 'category.select',
+        label: category.label,
+        entityRef: { type: 'CATEGORY', id: category.categoryId }
+      }))
+      if (context.catalogCanPrevious) choices.push({ actionType: 'catalog.previous_page', label: 'Página anterior' })
+      if (context.catalogCanNext) choices.push({ actionType: 'catalog.next_page', label: 'Página siguiente' })
+      const nav = composeGlobalNavigation({ capacity: 10, contextualCount: choices.length, back: BACK_CHOICE })
       return appendGlobals(
-        menuView(context.labels.categoryName ? `Servicios de ${context.labels.categoryName}` : 'Elegí un servicio', []),
+        menuView('Elegí una categoría', choices),
         nav
       )
     }
     case 'SERVICE_SELECT': {
-      const nav = composeGlobalNavigation({ capacity: 10, contextualCount: 2, back: BACK_CHOICE })
-      return appendGlobals(menuView('Elegí una opción', []), nav)
+      const choices: ViewChoice[] = (context.labels.catalogEntries ?? []).map((entry) => entry.kind === 'SUBCATEGORY'
+        ? {
+            actionType: 'subcategory.select',
+            label: entry.label,
+            entityRef: { type: 'SUBCATEGORY', id: entry.entityId }
+          }
+        : {
+            actionType: 'service.view',
+            label: entry.label,
+            entityRef: { type: 'SERVICE', id: entry.entityId }
+          })
+      if (context.catalogCanPrevious) choices.push({ actionType: 'catalog.previous_page', label: 'Página anterior' })
+      if (context.catalogCanNext) choices.push({ actionType: 'catalog.next_page', label: 'Página siguiente' })
+      const nav = composeGlobalNavigation({ capacity: 10, contextualCount: choices.length, back: BACK_CHOICE })
+      const scopeName = context.labels.subcategoryName ?? context.labels.categoryName
+      return appendGlobals(menuView(scopeName ? `Servicios de ${scopeName}` : 'Elegí un servicio', choices), nav)
     }
     case 'SERVICE_DETAIL': {
       const detailServiceId = state.pendingEntityRef?.id
@@ -512,10 +552,13 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
         detailChoices.push({ actionType: 'service.more_same_category', label: 'Ver otros servicios' })
       }
       const navDetail = composeGlobalNavigation({ capacity: 10, contextualCount: detailChoices.length, back: BACK_CHOICE })
-      return appendGlobals(
-        menuView(`Detalle de ${context.labels.serviceName ?? 'servicio'}`, detailChoices),
-        navDetail
-      )
+      const detail = context.labels.catalogServiceDetail
+      return appendGlobals({
+        bodyKind: 'detail',
+        informativeTexts: detail ? [...detail.informativeTexts] : [],
+        interactiveBody: detail?.interactiveBody ?? `Detalle de ${context.labels.serviceName ?? 'servicio'}`,
+        choices: detailChoices
+      }, navDetail)
     }
     case 'RECOMMENDATION_SELECT':
       return menuView('¿Querés complementarlo?', [
@@ -1052,10 +1095,16 @@ function tryUniversal(
         if (state.cart.length > 0) return applied(baseOf(state, { flow: 'CART_REVIEW', presentation: plainPresentation() }), renderCurrentView({ ...state, flow: 'CART_REVIEW' }, context))
         return applied(baseOf(state, { flow: 'MAIN_MENU', presentation: plainPresentation(), catalogMode: 'BOOKING' }), renderCurrentView({ ...state, flow: 'MAIN_MENU' }, context))
       }
+      if (state.flow === 'SERVICE_SELECT' && state.presentation.kind === 'catalog_page' && state.presentation.parentServiceId) {
+        const next = baseOf(state, { presentation: plainPresentation() })
+        return applied(next, renderCurrentView(next, context))
+      }
       let next = target.apply(state)
       const presentation =
         state.flow === 'PROFESSIONAL_HOURS_DETAIL' && state.presentation.kind === 'professional_list_page'
           ? state.presentation
+          : state.flow === 'SERVICE_DETAIL' && state.presentation.kind === 'catalog_page'
+            ? state.presentation
           : plainPresentation()
       next = baseOf(next, { flow: target.flow, presentation })
       return applied(next, renderCurrentView(next, context))
@@ -1400,7 +1449,7 @@ function fromCategorySelect(
     return applied(next, renderCurrentView(next, context))
   }
   if (actionType === 'catalog.next_page' || actionType === 'catalog.previous_page') {
-    return pageShift(state, actionType === 'catalog.next_page', context.catalogCanNext, context.catalogCanPrevious, 'catalog_page')
+    return pageShift(state, actionType === 'catalog.next_page', context.catalogPageMoveAllowed, 'catalog_page', context)
   }
   if (actionType === 'cart.add_service') {
     return applied(baseOf(state, { catalogMode: 'BOOKING' }), renderCurrentView(state, context))
@@ -1411,14 +1460,22 @@ function fromCategorySelect(
 function pageShift(
   state: BotOptionsState,
   forward: boolean,
-  canNext: boolean,
-  canPrevious: boolean,
-  kind: 'catalog_page'
+  moveAllowed: boolean,
+  kind: 'catalog_page',
+  context: TransitionContext
 ): TransitionResult {
-  if (forward && !canNext) return recovered(state, 'guard_failed', 'No hay más páginas hacia adelante.', [])
-  if (!forward && !canPrevious) return recovered(state, 'guard_failed', 'Estás en la primera página.', [])
+  if (!moveAllowed) {
+    return recovered(
+      state,
+      'guard_failed',
+      forward ? 'No hay más páginas hacia adelante.' : 'Estás en la primera página.',
+      []
+    )
+  }
   const cursor = state.presentation.kind === kind ? state.presentation.cursor + (forward ? 1 : -1) : forward ? 1 : 0
-  return applied(baseOf(state, { presentation: { kind, cursor: Math.max(0, cursor) } }), renderCurrentView(state, EMPTY_CONTEXT_FOR_VIEWS))
+  const parentServiceId = state.presentation.kind === kind ? state.presentation.parentServiceId ?? null : null
+  const next = baseOf(state, { presentation: { kind, cursor: Math.max(0, cursor), parentServiceId } })
+  return applied(next, renderCurrentView(next, context))
 }
 
 function addServiceOrIncompatible(
@@ -1455,6 +1512,18 @@ function fromServiceSelect(
   entityRef: BotOptionsEntityRef | null,
   context: TransitionContext
 ): TransitionResult {
+  if (actionType === 'subcategory.select') {
+    if (!entityRef || entityRef.type !== 'SUBCATEGORY' || !context.subcategoryActive) {
+      return recovered(state, 'entity_inactive', 'Esa subcategoría ya no está disponible.', [])
+    }
+    if (!context.subcategoryHasServices) {
+      return recovered(state, 'guard_failed', 'Esa subcategoría ya no tiene servicios disponibles.', [])
+    }
+    const next = baseOf(resetInvalidStreak(state), {
+      presentation: { kind: 'catalog_page', cursor: 0, parentServiceId: entityRef.id }
+    })
+    return applied(next, renderCurrentView(next, context))
+  }
   if (actionType === 'service.view') {
     if (!entityRef || !context.serviceActive) {
       return recovered(state, 'entity_inactive', 'Ese servicio ya no está disponible.', [])
@@ -1475,7 +1544,7 @@ function fromServiceSelect(
     return addServiceOrIncompatible(state, entityRef.id, context)
   }
   if (actionType === 'catalog.next_page' || actionType === 'catalog.previous_page') {
-    return pageShift(state, actionType === 'catalog.next_page', context.catalogCanNext, context.catalogCanPrevious, 'catalog_page')
+    return pageShift(state, actionType === 'catalog.next_page', context.catalogPageMoveAllowed, 'catalog_page', context)
   }
   return escalateInvalid(state, '')
 }
@@ -1527,7 +1596,10 @@ function fromServiceDetail(
         { serviceId }
       )
     case 'service.more_same_category':
-      return applied(baseOf(state, { flow: 'SERVICE_SELECT', presentation: plainPresentation() }), renderCurrentView({ ...state, flow: 'SERVICE_SELECT' }, context))
+      return applied(
+        baseOf(state, { flow: 'SERVICE_SELECT', pendingEntityRef: null }),
+        renderCurrentView({ ...state, flow: 'SERVICE_SELECT', pendingEntityRef: null }, context)
+      )
     case 'service.change_category':
       return applied(
         baseOf(state, { flow: 'CATEGORY_SELECT', selections: { ...state.selections, categoryId: null }, presentation: plainPresentation() }),

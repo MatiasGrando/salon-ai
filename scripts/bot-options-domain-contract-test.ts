@@ -43,6 +43,7 @@ assert.equal(isBotOptionsActionType('booking.confirm'), true)
 
 // Requisitos estáticos por acción.
 assert.equal(BOT_OPTIONS_ACTION_REQUIREMENTS['category.select']?.entity, 'CATEGORY')
+assert.equal(BOT_OPTIONS_ACTION_REQUIREMENTS['subcategory.select']?.entity, 'SUBCATEGORY')
 assert.equal(BOT_OPTIONS_ACTION_REQUIREMENTS['professional.select']?.entity, 'PROFESSIONAL')
 assert.equal(BOT_OPTIONS_ACTION_REQUIREMENTS['appointment.cancel_confirm']?.entity, 'APPOINTMENT')
 assert.equal(BOT_OPTIONS_ACTION_REQUIREMENTS['date.select']?.requiresDate, true)
@@ -174,6 +175,14 @@ assert.deepEqual(firstFailure(baseCandidate({ entityRef: { type: 'SERVICE', id: 
   field: 'entityRef',
   reason: 'unexpected_entity'
 })
+assert.equal(validateBotOptionsActionEnvelope(baseCandidate({
+  actionType: 'subcategory.select',
+  entityRef: { type: 'SUBCATEGORY', id: 'sub_1' }
+})).ok, true)
+assert.deepEqual(firstFailure(baseCandidate({
+  actionType: 'subcategory.select',
+  entityRef: { type: 'SERVICE', id: 'sub_1' }
+})), { field: 'entityRef', reason: 'required' })
 
 // Payloads: fecha, bloque y franja con formato canónico.
 assert.deepEqual(
@@ -409,6 +418,8 @@ assert.equal(
 assert.equal(invariantOf(stateWith({ presentation: { kind: 'holi' } })), 'presentation_kind_allowed')
 assert.equal(invariantOf(stateWith({ presentation: { kind: 'catalog_page', cursor: -1 } })), 'presentation_kind_allowed')
 assert.equal(validateBotOptionsState(stateWith({ presentation: { kind: 'catalog_page', cursor: 3 } })).ok, true)
+assert.equal(validateBotOptionsState(stateWith({ presentation: { kind: 'catalog_page', cursor: 0, parentServiceId: 'sub_1' } })).ok, true)
+assert.equal(invariantOf(stateWith({ presentation: { kind: 'catalog_page', cursor: 0, parentServiceId: ' sub_1 ' } })), 'presentation_kind_allowed')
 assert.equal(validateBotOptionsState(stateWith({ presentation: { kind: 'slot_band', band: 'AFTERNOON' } })).ok, true)
 
 // ─── Escalación gradual de inválidos ─────────────────────────────────────────
