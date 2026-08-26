@@ -282,6 +282,24 @@ const third = transition(se, act('slot.select', { payload: { startAt: 'x' } }), 
 assert.equal(third.outcome, 'HANDOFF')
 if (third.outcome === 'HANDOFF') assert.equal(third.state.flow, 'HANDOFF_QUEUED')
 
+// F4.8: una acción válida reinicia el contador dentro del nuevo estado.
+let sr = createInitialBotOptionsState()
+const firstInvalid = transition(sr, act('slot.select', { payload: { startAt: 'x' } }), ctx())
+sr = firstInvalid.state
+assert.equal(sr.invalidStreak, 1)
+const validNow = transition(sr, act('menu.browse_services'), ctx({ categoryActive: true, categoryHasServices: true }))
+if (validNow.outcome === 'APPLIED') sr = validNow.state
+assert.equal(sr.invalidStreak, 0, 'la acción válida reinicia el contador')
+// Y la cuenta vuelve a empezar por estado: dos errores nuevos recién destacan humano.
+const again1 = transition(sr, act('slot.select', { payload: { startAt: 'x' } }), ctx())
+assert.equal(again1.state.invalidStreak, 1)
+const again2 = transition(again1.state, act('slot.select', { payload: { startAt: 'x' } }), ctx())
+assert.equal(again2.outcome, 'RECOVERED')
+if (again2.outcome === 'RECOVERED') {
+  assert.equal(again2.state.invalidStreak, 2)
+  assert.ok(again2.view.choices.some((choice) => choice.actionType === 'handoff.request'), 'segundo intento destaca atención humana')
+}
+
 // ─── Silencio con atención tomada ─────────────────────────────────────────────
 
 const taken = stateWith({ flow: 'HANDOFF_TAKEN', handoff: 'TAKEN' })

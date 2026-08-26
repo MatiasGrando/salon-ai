@@ -556,7 +556,10 @@ function applied(
   view: BotOptionsViewModel,
   effects: BotOptionsEffect[] = []
 ): TransitionResult {
-  const validated = validateBotOptionsState(state)
+  // Toda acción válida o cambio válido de estado reinicia el contador de
+  // inválidos (reglas-funcionales.md §11): se aplica sobre el estado final.
+  const cleaned = resetInvalidStreak(state)
+  const validated = validateBotOptionsState(cleaned)
   if (!validated.ok) {
     return {
       outcome: 'RECOVERED',
@@ -569,7 +572,7 @@ function applied(
       ])
     }
   }
-  return { outcome: effectsRequireHandoff(effects) ? 'HANDOFF' : 'APPLIED', state, effects, view }
+  return { outcome: effectsRequireHandoff(effects) ? 'HANDOFF' : 'APPLIED', state: cleaned, effects, view }
 }
 
 function effectsRequireHandoff(effects: readonly BotOptionsEffect[]): boolean {
