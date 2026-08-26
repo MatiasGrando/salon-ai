@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
 import { createInitialBotOptionsState, parseBotOptionsState, type BotOptionsState } from '../domain/state.js'
 import { renderCurrentView, transition, type TransitionContext } from '../domain/transition.js'
+import type { BotOptionsActionPayload, BotOptionsEntityRef } from '../domain/actions.js'
 import type { BotOptionsEffect } from '../domain/effects.js'
 import { menuView, type BotOptionsViewModel } from '../domain/views.js'
 import { generatePromptToken } from '../domain/prompt-tokens.js'
@@ -9,13 +10,23 @@ import { renderWhatsAppScreen } from '../infrastructure/whatsapp-renderer.js'
 import { assertClaimedBotJobTx, completeClaimedBotJobTx, retargetClaimedBotJobTx, type ClaimedBotJob } from '../infrastructure/postgres-worker.js'
 import { acquireDispatchClaim, assertDispatchClaimTx, completeDispatchClaimTx, releaseDispatchClaim } from '../infrastructure/dispatch-claims.js'
 import { upsertJob } from '../infrastructure/prisma-admission.js'
+import { PrismaCatalogRepository } from '../infrastructure/prisma-catalog.js'
+import { prismaHandoffEffectExecutor } from '../infrastructure/prisma-handoff-effect-executor.js'
+import type { BotOptionsActionType } from '../domain/actions.js'
 import { botOptionsMetrics } from '../observability/metrics.js'
 
 type RuntimeClient = Pick<PrismaClient, '$queryRaw' | '$executeRaw' | '$transaction'>
 
 export type TransitionContextProvider = (
   tx: Prisma.TransactionClient,
-  input: { businessId: string; sessionId: string; state: BotOptionsState; actionType: string; dbNow: Date }
+  input: {
+    businessId: string
+    sessionId: string
+    state: BotOptionsState
+    actionType: string
+    entityRef: BotOptionsEntityRef | null
+    dbNow: Date
+  }
 ) => Promise<TransitionContext>
 
 export type TransitionEffectExecutor = (
@@ -29,19 +40,63 @@ export const unavailableEffectExecutor: TransitionEffectExecutor = async (_tx, i
   }
 }
 
-const defaultContextProvider: TransitionContextProvider = async (_tx, input) => ({
-  dbNowIso: input.dbNow.toISOString(), customerNameOnFile: null,
-  draftExists: false, draftHasProgress: false, categoryActive: false, categoryHasServices: false,
-  serviceActive: false, serviceBookable: false, serviceCompatibleWithCart: false, serviceInCart: false,
-  hasRecommendations: false, recommendedServiceAvailable: false, recommendedCompatibleWithCart: false,
-  professionalCommonExists: false, professionalSelectable: false, dateAvailable: false, slotAvailable: false,
-  bandHasAvailability: false, catalogCanNext: false, catalogCanPrevious: false, dateCanNext: false,
-  dateCanPrevious: false, slotCanNext: false, appointmentsExist: false, appointmentsCanNext: false,
-  appointmentOwnedAndFuture: false, cancellationAllowed: false, rescheduleAllowed: false,
-  rescheduleDateAvailable: false, rescheduleSlotAvailable: false, approvedDepositTransferable: false,
-  slotStillAvailableAtConfirm: false, depositRequired: false, paymentConfigComplete: false,
-  labels: {}, confirmVisitSnapshot: null, depositRequest: null
-})
+/**
+ * Provider de contexto real que revalida entidades contra DB tenant-scoped.
+ * Para acciones que involucran un SERVICE entityRef, busca el servicio vía
+ * PrismaCatalogRepository.getService (isBookable + category active) y deriva
+ * serviceActive / serviceBookable / requiresConsultation / labels desde la fila.
+ *
+ * serviceCompatibleWithCart se asume true para el primer servicio (F6.3
+ * intersección multiprofesional se implementa después).
+ */
+const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
+  const base: TransitionContext = {
+    dbNowIso: input.dbNow.toISOString(), customerNameOnFile: null,
+    draftExists: false, draftHasProgress: false, categoryActive: false, categoryHasServices: false,
+    serviceActive: false, serviceBookable: false, requiresConsultation: false,
+    serviceCompatibleWithCart: input.state.cart.length === 0, serviceInCart: false,
+    hasRecommendations: false, recommendedServiceAvailable: false, recommendedCompatibleWithCart: false,
+    professionalCommonExists: false, professionalSelectable: false, dateAvailable: false, slotAvailable: false,
+    bandHasAvailability: false, catalogCanNext: false, catalogCanPrevious: false, dateCanNext: false,
+    dateCanPrevious: false, slotCanNext: false, appointmentsExist: false, appointmentsCanNext: false,
+    appointmentOwnedAndFuture: false, cancellationAllowed: false, rescheduleAllowed: false,
+    rescheduleDateAvailable: false, rescheduleSlotAvailable: false, approvedDepositTransferable: false,
+    slotStillAvailableAtConfirm: false, depositRequired: false, paymentConfigComplete: false,
+    labels: {}, confirmVisitSnapshot: null, depositRequest: null
+  }
+  if (input.entityRef?.type === 'SERVICE') {
+    const repo = new PrismaCatalogRepository(tx)
+    const service = await repo.getService({ businessId: input.businessId, serviceId: input.entityRef.id })
+    if (service) {
+      base.serviceActive = true
+      base.serviceBookable = service.isBookable
+      base.requiresConsultation = service.requiresConsultation
+      base.serviceInCart = input.state.cart.some((item) => item.serviceId === service.id)
+      base.labels.serviceName = service.name
+    }
+  }
+  return base
+}
+
+function parseSelectedEntityRef(value: Prisma.JsonValue | null): BotOptionsEntityRef | null {
+  if (value === null) return null
+  if (typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid selected action entityRef')
+  const type = value['type']
+  const id = value['id']
+  if (
+    (type !== 'CATEGORY' && type !== 'SERVICE' && type !== 'PROFESSIONAL' && type !== 'APPOINTMENT') ||
+    typeof id !== 'string' || id.length === 0 || id.trim() !== id
+  ) {
+    throw new Error('invalid selected action entityRef')
+  }
+  return { type, id }
+}
+
+function parseSelectedPayload(value: Prisma.JsonValue | null): BotOptionsActionPayload | null {
+  if (value === null) return null
+  if (typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid selected action payload')
+  return value as BotOptionsActionPayload
+}
 
 export async function processSessionJob(input: {
   client: RuntimeClient
@@ -140,16 +195,24 @@ async function processSessionJobInternal(input: {
       if (selected.length === 1) {
         const action = selected[0]!
         if (action.status !== 'SELECTED' || !action.actionType) throw new Error('session action is not selected')
-        actionType = action.actionType
+        // La admisión/reconciliación es la frontera canónica del actionType. No se
+        // amplía ese contrato en F5.5; sí se valida la forma de datos JSON antes
+        // de entregarlos al provider y a la transición.
+        const selectedActionType = action.actionType as BotOptionsActionType
+        const selectedEntityRef = parseSelectedEntityRef(action.entityRef)
+        const selectedPayload = parseSelectedPayload(action.payload)
+        actionType = selectedActionType
         promptId = action.promptId
         providerEventId = action.providerEventId
         const context = await (input.contextProvider ?? defaultContextProvider)(tx, {
-          businessId: session.businessId, sessionId: session.id, state: parsedState.state, actionType, dbNow: session.dbNow
+          businessId: session.businessId, sessionId: session.id, state: parsedState.state, actionType: selectedActionType,
+          entityRef: selectedEntityRef,
+          dbNow: session.dbNow
         })
         const result = transition(parsedState.state, {
-          actionType: action.actionType as never,
-          entityRef: action.entityRef as never,
-          payload: action.payload as never
+          actionType: selectedActionType,
+          entityRef: selectedEntityRef,
+          payload: selectedPayload
         }, context)
         nextState = result.state
         view = result.view
@@ -174,26 +237,21 @@ async function processSessionJobInternal(input: {
       }
 
       const operationKey = `transition:${session.id}:${session.revision + 1n}`
-      await (input.effectExecutor ?? unavailableEffectExecutor)(tx, {
+      await (input.effectExecutor ?? prismaHandoffEffectExecutor)(tx, {
         businessId: session.businessId, sessionId: session.id, operationKey, effects
       })
-      for (const effect of effects) {
-        await tx.$executeRaw(Prisma.sql`
-          INSERT INTO "BotOperation" ("id", "operationKey", "type", "businessId", "sessionId", "status", "requestHash", "updatedAt")
-          VALUES (${randomUUID()}, ${`${operationKey}:${effect.kind}`}, ${effect.kind}, ${session.businessId}, ${session.id}, 'COMPLETED',
-            ${JSON.stringify(effect)}, clock_timestamp()) ON CONFLICT ("operationKey") DO NOTHING
-        `)
-      }
       const nextRevision = session.revision + 1n
       await tx.$executeRaw(Prisma.sql`
         UPDATE "BotSession" SET "state" = ${JSON.stringify(nextState)}::jsonb, "revision" = ${nextRevision}, "updatedAt" = clock_timestamp()
         WHERE "id" = ${session.id} AND "revision" = ${session.revision}
       `)
+      const handoffEffect = effects.find((effect) => effect.kind === 'REQUEST_HUMAN_HANDOFF')
+      const transitionDetail = handoffEffect ? JSON.stringify({ handoff: handoffEffect }) : null
       await tx.$executeRaw(Prisma.sql`
         INSERT INTO "BotTransitionLog" ("id", "businessId", "sessionId", "deploymentId", "deploymentGeneration",
-          "revisionFrom", "revisionTo", "actionType", "outcome", "promptId", "providerEventId")
+          "revisionFrom", "revisionTo", "actionType", "outcome", "promptId", "providerEventId", "detail")
         VALUES (${randomUUID()}, ${session.businessId}, ${session.id}, ${session.deploymentId}, ${session.deploymentGeneration},
-          ${session.revision}, ${nextRevision}, ${actionType}, ${outcome}, ${promptId}, ${providerEventId})
+          ${session.revision}, ${nextRevision}, ${actionType}, ${outcome}, ${promptId}, ${providerEventId}, ${transitionDetail}::jsonb)
       `)
       await persistView(tx, {
         businessId: session.businessId, sessionId: session.id, revision: nextRevision,
@@ -315,7 +373,8 @@ async function processInitialInboxUnderClaim(
       await persistView(tx, {
         businessId: row.businessId!, sessionId: session.id, revision: revisionTo, transitionId,
         toPhone: payload.fromPhone, view: renderCurrentView(state, await defaultContextProvider(tx, {
-          businessId: row.businessId!, sessionId: session.id, state, actionType: 'system.initial_view', dbNow: row.dbNow
+          businessId: row.businessId!, sessionId: session.id, state, actionType: 'system.initial_view',
+          entityRef: null, dbNow: row.dbNow
         })), dbNow: row.dbNow
       })
     }

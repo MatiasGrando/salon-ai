@@ -186,8 +186,39 @@ try {
   assert.equal(depStatus[0]!.status, 'PENDING',
     'dependent must remain PENDING when predecessor is POISON')
 
+  // ─── F5.5 PG: revalidación de servicio contra DB y desactivación concurrente ─
+  //
+  // Verifica que getService revalide businessId y serviceId contra la DB,
+  // y que un servicio desactivado entre render y click sea rechazado.
+  // reglas-funcionales.md §3.1: "no usa snapshot stale ni lo agrega".
+
+  // a) Servicio reservable con precio: getService retorna el item correcto.
+  const bookableDetail = await repository.getService({ businessId, serviceId })
+  assert.ok(bookableDetail, 'getService debe retornar servicio reservable')
+  assert.equal(bookableDetail!.id, serviceId)
+  assert.equal(bookableDetail!.isBookable, true)
+  assert.equal(bookableDetail!.requiresConsultation, false, 'servicio con attentionMode DIRECTBooking no requiere consulta')
+
+  // b) Servicio con atención guiada: requiresConsultation = true.
+  const consultDetail = await repository.getService({ businessId, serviceId: variantId })
+  assert.ok(consultDetail, 'getService debe retornar variante')
+  assert.equal(consultDetail!.requiresConsultation, true, 'servicio GUIDED_ESTIMATE requiere consulta')
+
+  // c) Cross-tenant: getService para otro businessId retorna null.
+  const crossTenant = await repository.getService({ businessId: otherBusinessId, serviceId })
+  assert.equal(crossTenant, null, 'getService es tenant-scoped: cross-tenant retorna null')
+
+  // d) Desactivación concurrente: desactivar el servicio y verificar que getService retorna null.
+  await prisma.service.update({ where: { id: serviceId }, data: { isBookable: false } })
+  const deactivated = await repository.getService({ businessId, serviceId })
+  assert.equal(deactivated, null, 'getService retorna null después de desactivación concurrente')
+
+  // e) Restaurar el servicio para cleanup.
+  await prisma.service.update({ where: { id: serviceId }, data: { isBookable: true } })
+
   console.log('OK F5.3 catalog: tenant isolation, subcategories, real services and seven-row pagination satisfy the contract.')
   console.log('OK F5.4 catalog PG: claimOutbox → sendClaimedOutbox(clear_failure retryable:false) → POISON → dependent blocked.')
+  console.log('OK F5.5 catalog PG: revalidación tenant-scoped, requiresConsultation, cross-tenant y desactivación concurrente.')
 } finally {
   // Cleanup in reverse dependency order by exact IDs — no wildcards, no global deletes.
   await prisma.$executeRaw(Prisma.sql`DELETE FROM "BotOutbox" WHERE "id" IN (${predecessorId}, ${dependentId})`).catch(() => undefined)

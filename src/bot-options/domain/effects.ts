@@ -59,7 +59,13 @@ export type BotOptionsEffect =
       newSlotStartAt: string
       keepApprovedDeposit: boolean
     }
-  | { kind: 'REQUEST_HUMAN_HANDOFF'; reason: string; detail: string | null }
+  | {
+      kind: 'REQUEST_HUMAN_HANDOFF'
+      reason: string
+      detail: string | null
+      /** Contexto mínimo y estable para auditar qué entidad originó la cola. */
+      context: { serviceId: string } | null
+    }
   | { kind: 'TAKE_HUMAN_HANDOFF' }
   | { kind: 'RESOLVE_HANDOFF'; mode: 'HOME' | 'RESUME' }
   | { kind: 'EMIT_OPERATIONAL_ALERT'; alertKind: string; detail: string | null }

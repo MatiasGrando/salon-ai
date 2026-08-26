@@ -5,6 +5,8 @@ import {
 } from '../src/bot-options/domain/state.js'
 import {
   transition,
+  renderCurrentView,
+  normalizeContext,
   type NormalizedAction,
   type TransitionContext
 } from '../src/bot-options/domain/transition.js'
@@ -127,6 +129,155 @@ if (confirmedName.outcome === 'APPLIED') {
   assert.deepEqual(confirmedName.effects, [{ kind: 'PERSIST_CUSTOMER_NAME', name: 'Ana María' }])
 }
 
+// ─── F5.5 — Conversión desde detalle de servicio ─────────────────────────────
+
+// 1) Servicio reservable (no requiere consulta): service.book agrega al carrito.
+const detailBookable = stateWith({ flow: 'SERVICE_DETAIL', pendingEntityRef: { type: 'SERVICE', id: 'srv_corte' } })
+const bookResult = transition(
+  detailBookable,
+  act('service.book', { entityRef: { type: 'SERVICE', id: 'srv_corte' } }),
+  ctx({
+    serviceActive: true,
+    serviceBookable: true,
+    requiresConsultation: false,
+    serviceCompatibleWithCart: true,
+    serviceInCart: false,
+    customerNameOnFile: 'Ana',
+    labels: { serviceName: 'Corte' }
+  })
+)
+assert.equal(bookResult.outcome, 'APPLIED')
+if (bookResult.outcome === 'APPLIED') {
+  assert.deepEqual(bookResult.state.cart, [{ serviceId: 'srv_corte' }])
+  assert.ok(bookResult.state.flow === 'CART_REVIEW' || bookResult.state.flow === 'RECOMMENDATION_SELECT',
+    'después de reservar va a CART_REVIEW o RECOMMENDATION_SELECT')
+}
+
+// 2) Servicio que requiere consulta: service.consult deriva a handoff con contexto.
+const detailConsult = stateWith({ flow: 'SERVICE_DETAIL', pendingEntityRef: { type: 'SERVICE', id: 'srv_color' } })
+const consultResult = transition(
+  detailConsult,
+  act('service.consult', { entityRef: { type: 'SERVICE', id: 'srv_color' } }),
+  ctx({ serviceActive: true, serviceBookable: true, requiresConsultation: true, labels: { serviceName: 'Coloración' } })
+)
+assert.equal(consultResult.outcome, 'HANDOFF')
+if (consultResult.outcome === 'HANDOFF') {
+  assert.equal(consultResult.state.flow, 'HANDOFF_QUEUED')
+  assert.equal(consultResult.state.handoff, 'QUEUED')
+  const handoffEffect = consultResult.effects.find((e) => e.kind === 'REQUEST_HUMAN_HANDOFF')
+  assert.ok(handoffEffect, 'debe emitir REQUEST_HUMAN_HANDOFF')
+  if (handoffEffect?.kind === 'REQUEST_HUMAN_HANDOFF') {
+    assert.equal(handoffEffect.reason, 'servicio_requiere_consulta_previa')
+    assert.equal(handoffEffect.detail, 'Coloración')
+    assert.deepEqual(handoffEffect.context, { serviceId: 'srv_color' })
+  }
+}
+
+// 3) Servicio ausente o desactivado concurrentemente: service.book NO usa snapshot stale.
+const detailStale = stateWith({ flow: 'SERVICE_DETAIL', pendingEntityRef: { type: 'SERVICE', id: 'srv_ghost' } })
+const staleResult = transition(
+  detailStale,
+  act('service.book', { entityRef: { type: 'SERVICE', id: 'srv_ghost' } }),
+  ctx({
+    serviceActive: false,
+    serviceBookable: false,
+    requiresConsultation: false,
+    labels: { serviceName: 'Fantasma' }
+  })
+)
+assert.equal(staleResult.outcome, 'RECOVERED')
+if (staleResult.outcome === 'RECOVERED') {
+  assert.equal(staleResult.reason, 'entity_inactive')
+  assert.ok(staleResult.view.interactiveBody!.includes('ya no está disponible'))
+}
+
+// 4) Vista SERVICE_DETAIL ofrece Reservar cuando el servicio es reservable.
+const viewBookable = stateWith({ flow: 'SERVICE_DETAIL', pendingEntityRef: { type: 'SERVICE', id: 'svc-bookable' } })
+const vbView = renderCurrentView(viewBookable, normalizeContext(ctx({ serviceActive: true, serviceBookable: true, requiresConsultation: false, labels: { serviceName: 'Corte' } })))
+{
+  const bookChoice = vbView.choices.find((c) => c.actionType === 'service.book')
+  assert.ok(bookChoice, 'vista reservable debe ofrecer service.book')
+  assert.equal(bookChoice?.label, 'Reservar este servicio')
+  assert.deepEqual(bookChoice?.entityRef, { type: 'SERVICE', id: 'svc-bookable' }, 'service.book choice carries entityRef')
+  const consultChoice = vbView.choices.find((c) => c.actionType === 'service.consult')
+  assert.ok(!consultChoice, 'vista reservable NO debe ofrecer service.consult')
+}
+
+// 5) Vista SERVICE_DETAIL ofrece Consultar cuando el servicio requiere consulta.
+const viewConsult = stateWith({ flow: 'SERVICE_DETAIL', pendingEntityRef: { type: 'SERVICE', id: 'svc-consult' } })
+const vcView = renderCurrentView(viewConsult, normalizeContext(ctx({ serviceActive: true, serviceBookable: true, requiresConsultation: true, labels: { serviceName: 'Coloración' } })))
+{
+  const consultChoice = vcView.choices.find((c) => c.actionType === 'service.consult')
+  assert.ok(consultChoice, 'vista con consulta debe ofrecer service.consult')
+  assert.equal(consultChoice?.label, 'Consultar con el equipo')
+  assert.deepEqual(consultChoice?.entityRef, { type: 'SERVICE', id: 'svc-consult' }, 'service.consult choice carries entityRef')
+  const bookChoice = vcView.choices.find((c) => c.actionType === 'service.book')
+  assert.ok(!bookChoice, 'vista con consulta NO debe ofrecer service.book')
+}
+
+// 6) Vista SERVICE_DETAIL inactiva no ofrece acciones de conversión.
+const viewInactive = stateWith({ flow: 'SERVICE_DETAIL' })
+const viView = renderCurrentView(viewInactive, normalizeContext(ctx({ serviceActive: false, serviceBookable: false, requiresConsultation: false, labels: { serviceName: 'Desactivado' } })))
+{
+  const bookChoice = viView.choices.find((c) => c.actionType === 'service.book')
+  const consultChoice = viView.choices.find((c) => c.actionType === 'service.consult')
+  assert.ok(!bookChoice, 'vista inactiva NO debe ofrecer service.book')
+  assert.ok(!consultChoice, 'vista inactiva NO debe ofrecer service.consult')
+}
+
+// 7) service.book en servicio que requiere consulta (sin nombre) still consulta handoff — safety net.
+const detailConsultBook = stateWith({ flow: 'SERVICE_DETAIL', pendingEntityRef: { type: 'SERVICE', id: 'srv_color' } })
+const consultBookResult = transition(
+  detailConsultBook,
+  act('service.book', { entityRef: { type: 'SERVICE', id: 'srv_color' } }),
+  ctx({ serviceActive: true, serviceBookable: true, requiresConsultation: true, labels: { serviceName: 'Coloración' } })
+)
+assert.equal(consultBookResult.outcome, 'HANDOFF')
+if (consultBookResult.outcome === 'HANDOFF') {
+  const handoffEffect = consultBookResult.effects.find((e) => e.kind === 'REQUEST_HUMAN_HANDOFF')
+  assert.equal(handoffEffect?.kind, 'REQUEST_HUMAN_HANDOFF')
+  if (handoffEffect?.kind === 'REQUEST_HUMAN_HANDOFF') {
+    assert.equal(handoffEffect.reason, 'servicio_requiere_consulta_previa')
+  }
+}
+
+// 8) service.book sin nombre en servicio reservable pide nombre primero.
+const detailNoName = stateWith({ flow: 'SERVICE_DETAIL', pendingEntityRef: { type: 'SERVICE', id: 'srv_corte' } })
+const noNameResult = transition(
+  detailNoName,
+  act('service.book', { entityRef: { type: 'SERVICE', id: 'srv_corte' } }),
+  ctx({ serviceActive: true, serviceBookable: true, requiresConsultation: false, customerNameOnFile: null })
+)
+assert.equal(noNameResult.outcome, 'APPLIED')
+if (noNameResult.outcome === 'APPLIED') {
+  assert.equal(noNameResult.state.flow, 'NAME_INPUT')
+  assert.deepEqual(noNameResult.state.pendingEntityRef, { type: 'SERVICE', id: 'srv_corte' })
+}
+
+// 9) Una choice stale/forged no puede cambiar el servicio que originó el detalle.
+const forgedDetailChoice = transition(
+  stateWith({ flow: 'SERVICE_DETAIL', pendingEntityRef: { type: 'SERVICE', id: 'srv_rendered' } }),
+  act('service.consult', { entityRef: { type: 'SERVICE', id: 'srv_forged' } }),
+  ctx({ serviceActive: true, serviceBookable: true, requiresConsultation: true })
+)
+assert.equal(forgedDetailChoice.outcome, 'RECOVERED')
+if (forgedDetailChoice.outcome === 'RECOVERED') {
+  assert.equal(forgedDetailChoice.reason, 'entity_inactive')
+  assert.equal(forgedDetailChoice.state.handoff, 'NONE')
+}
+
+// 10) service.consult sólo deriva si la revalidación vigente exige consulta.
+const forgedConsultOnDirectService = transition(
+  stateWith({ flow: 'SERVICE_DETAIL', pendingEntityRef: { type: 'SERVICE', id: 'srv_direct' } }),
+  act('service.consult', { entityRef: { type: 'SERVICE', id: 'srv_direct' } }),
+  ctx({ serviceActive: true, serviceBookable: true, requiresConsultation: false })
+)
+assert.equal(forgedConsultOnDirectService.outcome, 'RECOVERED')
+if (forgedConsultOnDirectService.outcome === 'RECOVERED') {
+  assert.equal(forgedConsultOnDirectService.reason, 'guard_failed')
+  assert.equal(forgedConsultOnDirectService.state.handoff, 'NONE')
+}
+
 // ─── Recorrido de reserva sin seña ────────────────────────────────────────────
 
 let s = createInitialBotOptionsState()
@@ -230,7 +381,7 @@ assert.equal(coordinate.outcome, 'HANDOFF')
 if (coordinate.outcome === 'HANDOFF') {
   assert.equal(coordinate.state.flow, 'HANDOFF_QUEUED')
   assert.equal(coordinate.state.handoff, 'QUEUED')
-  assert.deepEqual(coordinate.effects, [{ kind: 'REQUEST_HUMAN_HANDOFF', reason: 'coordinacion_multiprofesional', detail: 'Coloración' }])
+  assert.deepEqual(coordinate.effects, [{ kind: 'REQUEST_HUMAN_HANDOFF', reason: 'coordinacion_multiprofesional', detail: 'Coloración', context: null }])
   si = coordinate.state
 }
 
@@ -453,5 +604,43 @@ if (ar.outcome === 'APPLIED') {
   assert.equal(swap.newSlotStartAt, newSlot)
   assert.equal(swap.appointmentId, appointmentId)
 }
+
+// ─── F5.5 Round-trip: entityRef survives renderWhatsAppScreen → choiceMappings ──
+
+import { renderWhatsAppScreen } from '../src/bot-options/infrastructure/whatsapp-renderer.js'
+import { generatePromptToken } from '../src/bot-options/domain/prompt-tokens.js'
+
+// SERVICE_DETAIL view with entityRef on book choice
+const rtState = stateWith({ flow: 'SERVICE_DETAIL', pendingEntityRef: { type: 'SERVICE', id: 'svc_rt' } })
+const rtView = renderCurrentView(rtState, normalizeContext(ctx({
+  serviceActive: true, serviceBookable: true, requiresConsultation: false,
+  labels: { serviceName: 'Corte RT' }
+})))
+const rtRendered = renderWhatsAppScreen(rtView, { promptToken: generatePromptToken() })
+
+// Must have at least one choice mapping
+assert.ok(rtRendered.choiceMappings.length > 0, 'round-trip must produce choiceMappings')
+
+// Find the service.book mapping
+const bookMapping = rtRendered.choiceMappings.find((m) => m.actionType === 'service.book')
+assert.ok(bookMapping, 'round-trip must have service.book mapping')
+assert.equal(bookMapping.entityType, 'SERVICE', 'entityType must be SERVICE')
+assert.equal(bookMapping.entityId, 'svc_rt', 'entityId must match')
+assert.equal(bookMapping.actionType, 'service.book', 'actionType preserved')
+assert.equal(bookMapping.labelSnapshot, 'Reservar este servicio', 'labelSnapshot preserved')
+
+// SERVICE_DETAIL view with entityRef on consult choice
+const rtConsultState = stateWith({ flow: 'SERVICE_DETAIL', pendingEntityRef: { type: 'SERVICE', id: 'svc_rt_consult' } })
+const rtConsultView = renderCurrentView(rtConsultState, normalizeContext(ctx({
+  serviceActive: true, serviceBookable: true, requiresConsultation: true,
+  labels: { serviceName: 'Coloración RT' }
+})))
+const rtConsultRendered = renderWhatsAppScreen(rtConsultView, { promptToken: generatePromptToken() })
+const consultMapping = rtConsultRendered.choiceMappings.find((m) => m.actionType === 'service.consult')
+assert.ok(consultMapping, 'round-trip must have service.consult mapping')
+assert.equal(consultMapping.entityType, 'SERVICE', 'consult entityType must be SERVICE')
+assert.equal(consultMapping.entityId, 'svc_rt_consult', 'consult entityId must match')
+
+console.log('OK bot-options transition: round-trip entityRef survives renderWhatsAppScreen → choiceMappings.')
 
 console.log('OK bot-options transition: navegación, reserva, señas, escalación y silencio cumplen el contrato.')

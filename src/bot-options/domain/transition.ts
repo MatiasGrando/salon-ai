@@ -60,6 +60,8 @@ export type TransitionContext = {
   categoryHasServices: boolean
   serviceActive: boolean
   serviceBookable: boolean
+  /** Revalidado contra DB en el contexto: true cuando la política del servicio exige consulta humana. */
+  requiresConsultation: boolean
   serviceCompatibleWithCart: boolean
   serviceInCart: boolean
   hasRecommendations: boolean
@@ -115,6 +117,7 @@ const FALSE_DEFAULTS: readonly (
   'categoryHasServices',
   'serviceActive',
   'serviceBookable',
+  'requiresConsultation',
   'serviceCompatibleWithCart',
   'serviceInCart',
   'hasRecommendations',
@@ -473,8 +476,23 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
       const nav = composeGlobalNavigation({ capacity: 10, contextualCount: 2, back: BACK_CHOICE })
       return appendGlobals(menuView('Elegí una opción', []), nav)
     }
-    case 'SERVICE_DETAIL':
-      return menuView(`Detalle de ${context.labels.serviceName ?? 'servicio'}`, [])
+    case 'SERVICE_DETAIL': {
+      const detailServiceId = state.pendingEntityRef?.id
+      const detailChoices: ViewChoice[] = []
+      if (context.serviceActive && detailServiceId) {
+        if (context.requiresConsultation) {
+          detailChoices.push({ actionType: 'service.consult', label: 'Consultar con el equipo', entityRef: { type: 'SERVICE', id: detailServiceId } })
+        } else {
+          detailChoices.push({ actionType: 'service.book', label: 'Reservar este servicio', entityRef: { type: 'SERVICE', id: detailServiceId } })
+        }
+        detailChoices.push({ actionType: 'service.more_same_category', label: 'Ver otros servicios' })
+      }
+      const navDetail = composeGlobalNavigation({ capacity: 10, contextualCount: detailChoices.length, back: BACK_CHOICE })
+      return appendGlobals(
+        menuView(`Detalle de ${context.labels.serviceName ?? 'servicio'}`, detailChoices),
+        navDetail
+      )
+    }
     case 'RECOMMENDATION_SELECT':
       return menuView('¿Querés complementarlo?', [
         { actionType: 'recommendation.add', label: 'Agregar' },
@@ -617,7 +635,12 @@ function addToCart(state: BotOptionsState, serviceId: string): BotOptionsState {
   return { ...state, cart: [...state.cart.filter((item) => item.serviceId !== serviceId), { serviceId }] }
 }
 
-function enterHandoff(state: BotOptionsState, reason: string, detail: string | null): TransitionResult {
+function enterHandoff(
+  state: BotOptionsState,
+  reason: string,
+  detail: string | null,
+  context: { serviceId: string } | null = null
+): TransitionResult {
   const nextState = baseOf(resetInvalidStreak(state), {
     flow: 'HANDOFF_QUEUED',
     handoff: 'QUEUED',
@@ -625,7 +648,7 @@ function enterHandoff(state: BotOptionsState, reason: string, detail: string | n
     presentation: plainPresentation()
   })
   return applied(nextState, renderCurrentView(nextState, EMPTY_CONTEXT_FOR_VIEWS), [
-    { kind: 'REQUEST_HUMAN_HANDOFF', reason, detail }
+    { kind: 'REQUEST_HUMAN_HANDOFF', reason, detail, context }
   ])
 }
 
@@ -1292,7 +1315,11 @@ function fromServiceSelect(
     if (!entityRef || !context.serviceActive) {
       return recovered(state, 'entity_inactive', 'Ese servicio ya no está disponible.', [])
     }
-    return applied(baseOf(state, { flow: 'SERVICE_DETAIL' }), renderCurrentView({ ...state, flow: 'SERVICE_DETAIL' }, context))
+    const next = baseOf(state, {
+      flow: 'SERVICE_DETAIL',
+      pendingEntityRef: { type: 'SERVICE' as const, id: entityRef.id }
+    })
+    return applied(next, renderCurrentView({ ...state, flow: 'SERVICE_DETAIL', pendingEntityRef: { type: 'SERVICE' as const, id: entityRef.id } }, context))
   }
   if (actionType === 'service.select') {
     if (state.catalogMode === 'BROWSING') {
@@ -1315,14 +1342,24 @@ function fromServiceDetail(
   entityRef: BotOptionsEntityRef | null,
   context: TransitionContext
 ): TransitionResult {
-  const serviceId = entityRef?.id ?? state.pendingEntityRef?.id
+  const pendingServiceId = state.pendingEntityRef?.id
+  const actionMatchesRenderedService =
+    entityRef?.type === 'SERVICE' &&
+    typeof pendingServiceId === 'string' &&
+    entityRef.id === pendingServiceId
+  const serviceId = actionMatchesRenderedService ? entityRef.id : null
   switch (actionType) {
     case 'service.book': {
       if (!serviceId || !context.serviceActive) {
         return recovered(state, 'entity_inactive', 'Ese servicio ya no está disponible.', [])
       }
-      if (!context.serviceBookable) {
-        return enterHandoff(state, 'servicio_requiere_consulta_previa', context.labels.serviceName ?? null)
+      if (!context.serviceBookable || context.requiresConsultation) {
+        return enterHandoff(
+          state,
+          'servicio_requiere_consulta_previa',
+          context.labels.serviceName ?? null,
+          { serviceId }
+        )
       }
       if (!context.customerNameOnFile && !state.nameCandidate) {
         return applied(
@@ -1333,7 +1370,18 @@ function fromServiceDetail(
       return addServiceOrIncompatible(state, serviceId, context)
     }
     case 'service.consult':
-      return enterHandoff(state, 'servicio_requiere_consulta_previa', context.labels.serviceName ?? null)
+      if (!serviceId || !context.serviceActive) {
+        return recovered(state, 'entity_inactive', 'Ese servicio ya no está disponible.', [])
+      }
+      if (!context.serviceBookable || !context.requiresConsultation) {
+        return recovered(state, 'guard_failed', 'Ese servicio no requiere consulta previa.', [])
+      }
+      return enterHandoff(
+        state,
+        'servicio_requiere_consulta_previa',
+        context.labels.serviceName ?? null,
+        { serviceId }
+      )
     case 'service.more_same_category':
       return applied(baseOf(state, { flow: 'SERVICE_SELECT', presentation: plainPresentation() }), renderCurrentView({ ...state, flow: 'SERVICE_SELECT' }, context))
     case 'service.change_category':

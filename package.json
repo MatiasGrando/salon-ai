@@ -77,6 +77,7 @@
     "test:bot-options-main-menu-e2e": "tsx scripts/bot-options-main-menu-e2e-test.ts",
     "test:bot-options-catalog-pg": "tsx scripts/bot-options-catalog-pg-test.ts",
     "test:bot-options-catalog-display-pure": "tsx scripts/bot-options-catalog-display-pure-test.ts",
+    "test:bot-options-service-detail-e2e": "tsx scripts/bot-options-service-detail-e2e-test.ts",
     "bot-options:backfill-pointers": "tsx scripts/backfill-bot-channel-deployments.ts",
     "test:whatsapp-raw-body": "tsx scripts/whatsapp-raw-body-contract-test.ts",
     "test:whatsapp-shadow-wiring": "tsx scripts/whatsapp-shadow-wiring-contract-test.ts",
