@@ -44,8 +44,13 @@ export function generatePromptToken(randomBytes: RandomBytesFn = defaultRandomBy
 
 /** Genera el token de una opción: 64 bits → 11 caracteres base64url sin padding. */
 export function generateChoiceToken(randomBytes: RandomBytesFn = defaultRandomBytes): string {
-  const token = toBase64url(randomBytes(8))
-  if (!isValidChoiceToken(token)) throw new Error('El generador produjo un token de opción inválido')
+  return encodeChoiceTokenFromBytes(randomBytes(8))
+}
+
+/** Codifica bytes ya generados como choiceToken válido (para renderers inyectables). */
+export function encodeChoiceTokenFromBytes(bytes: Uint8Array): string {
+  const token = toBase64url(bytes)
+  if (!isValidChoiceToken(token)) throw new Error('Los bytes producidos no forman un token de opción válido')
   return token
 }
 
