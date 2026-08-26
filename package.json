@@ -66,6 +66,7 @@
     "test:bot-options-transition": "tsx scripts/bot-options-transition-contract-test.ts",
     "test:bot-options-prompt-tokens": "tsx scripts/bot-options-prompt-tokens-contract-test.ts",
     "test:bot-options-renderer": "tsx scripts/bot-options-renderer-contract-test.ts",
+    "test:bot-options-meta-adapter": "tsx scripts/bot-options-meta-adapter-contract-test.ts",
     "test:appointment-payload": "tsx scripts/appointment-payload-contract-test.ts",
     "test:appointment-notes-display": "tsx scripts/appointment-notes-display-contract-test.ts",
     "test:agenda-professional-drag": "tsx scripts/agenda-professional-drag-contract-test.ts",

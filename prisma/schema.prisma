@@ -12,6 +12,260 @@ datasource db {
   provider = "postgresql"
 }
 
+// ─── Motor determinístico por opciones (bot-options) ─────────────────────────
+// Tablas aditivas de etapa 1. Los vínculos con negocio/conversación usan
+// columnas + índices (sin relación Prisma) para mantener esta extensión local
+// al bloque y compatible con el runtime legado.
+
+enum BotChannel {
+  WHATSAPP
+}
+
+enum BotProviderEventType {
+  MESSAGE
+  STATUS
+  UNSUPPORTED
+}
+
+enum BotProviderEventStatus {
+  ADMITTED
+  DUPLICATE
+  UNMATCHED
+  PROCESSED
+  REJECTED
+}
+
+enum BotInboxStatus {
+  ADMITTED
+  SELECTED
+  DUPLICATE
+  CONFLICT
+  STALE
+  REJECTED
+  PROCESSED
+  FAILED
+}
+
+enum BotPromptMode {
+  FUNCTIONAL
+  NAVIGATION
+  CONFLICT
+}
+
+enum BotPromptStatus {
+  OPEN
+  STABILIZING
+  RESOLVED
+  INVALIDATED
+  EXPIRED
+}
+
+enum BotSessionStatus {
+  ACTIVE
+  HUMAN_QUEUED
+  HUMAN_TAKEN
+  CLOSED
+}
+
+enum BotJobStatus {
+  READY
+  LEASED
+  DONE
+  RETRY
+  POISON
+}
+
+enum BotOutboxStatus {
+  PENDING
+  SENDING
+  UNKNOWN
+  ACCEPTED
+  DELIVERED
+  READ
+  FAILED
+  POISON
+}
+
+model BotChannelDeployment {
+  id                   String    @id @default(cuid())
+  businessId           String
+  channel              String    @default("WHATSAPP")
+  engineKey            String    @default("deterministic-options")
+  activeConfigurationId String?
+  generation           Int       @default(0)
+  activatedAt          DateTime?
+  activatedByUserId    String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@unique([businessId, channel])
+}
+
+model BotDeploymentAudit {
+  id                 String   @id @default(cuid())
+  businessId         String
+  action             String
+  previousConfigId   String?
+  newConfigId        String?
+  generation         Int
+  actorUserId        String?
+  detail             Json?
+  createdAt          DateTime @default(now())
+
+  @@index([businessId, createdAt])
+}
+
+model BotSession {
+  id                String          @id @default(cuid())
+  businessId        String
+  conversationId    String?
+  deploymentId      String
+  engineVersion     String          @default("v1")
+  stateSchemaVersion Int            @default(1)
+  state             Json
+  revision          BigInt          @default(0)
+  status            BotSessionStatus @default(ACTIVE)
+  fenceToken        String?
+  draftTouchedAt    DateTime?
+  draftExpiresAt    DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  prompts BotPrompt[]
+  inbox   BotActionInbox[]
+  outbox  BotOutbox[]
+
+  @@index([businessId, status])
+  @@index([conversationId])
+}
+
+model BotPrompt {
+  id             String          @id @default(cuid())
+  sessionId      String
+  session        BotSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  promptToken    String          @unique
+  stateRevision  BigInt
+  mode           BotPromptMode   @default(FUNCTIONAL)
+  status         BotPromptStatus @default(OPEN)
+  openedAt       DateTime        @default(now())
+  firstActionAt  DateTime?
+  lastActionAt   DateTime?
+  settleAt       DateTime?
+  absoluteAt     DateTime?
+  resolvedAt     DateTime?
+  outboxMessageId String?
+
+  choices BotPromptChoice[]
+
+  @@index([status, settleAt])
+  @@index([sessionId, stateRevision])
+}
+
+model BotPromptChoice {
+  id            String   @id @default(cuid())
+  promptId      String
+  prompt        BotPrompt @relation(fields: [promptId], references: [id], onDelete: Cascade)
+  choiceToken   String
+  actionType    String
+  entityType    String?
+  entityId      String?
+  payload       Json?
+  labelSnapshot String
+  sortOrder     Int      @default(0)
+
+  @@unique([promptId, choiceToken])
+}
+
+model BotProviderEvent {
+  id                 String                 @id @default(cuid())
+  provider           String                 @default("WHATSAPP")
+  eventKey           String
+  eventType          BotProviderEventType
+  businessId         String?
+  phoneNumberId      String?
+  providerMessageId  String?
+  payload            Json?
+  providerOccurredAt DateTime?
+  admittedAt         DateTime               @default(now())
+  status             BotProviderEventStatus @default(ADMITTED)
+  traceId            String?
+
+  inbox BotActionInbox?
+
+  @@unique([provider, eventKey])
+  @@index([providerMessageId])
+  @@index([businessId, admittedAt])
+}
+
+model BotActionInbox {
+  id               String          @id @default(cuid())
+  providerEventId  String          @unique
+  providerEvent    BotProviderEvent @relation(fields: [providerEventId], references: [id], onDelete: Cascade)
+  sessionId        String?
+  session          BotSession?     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  promptId         String?
+  choiceToken      String?
+  actionType       String?
+  entityRef        Json?
+  payload          Json?
+  expectedRevision BigInt?
+  receivedAt       DateTime        @default(now())
+  status           BotInboxStatus  @default(ADMITTED)
+  operationKey     String?
+  error            String?
+
+  @@index([promptId, status, receivedAt])
+  @@index([sessionId, receivedAt])
+}
+
+model BotJob {
+  id          String       @id @default(cuid())
+  kind        String
+  aggregateId String
+  businessId  String?
+  availableAt DateTime     @default(now())
+  status      BotJobStatus @default(READY)
+  attempts    Int          @default(0)
+  maxAttempts Int          @default(5)
+  leaseToken  String?
+  leasedUntil DateTime?
+  lastError   String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@unique([kind, aggregateId])
+  @@index([status, availableAt])
+}
+
+model BotOutbox {
+  id               String          @id @default(cuid())
+  businessId       String
+  sessionId        String
+  session          BotSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  transitionId     String
+  sequence         Int
+  kind             String
+  payload          Json
+  idempotencyKey   String          @unique
+  status           BotOutboxStatus @default(PENDING)
+  dependsOnSequence Int?
+  providerMessageId String?
+  errorCode        String?
+  attempts         Int             @default(0)
+  maxAttempts      Int             @default(5)
+  availableAt      DateTime        @default(now())
+  leaseToken       String?
+  leasedUntil      DateTime?
+  sentAt           DateTime?
+  deliveredAt      DateTime?
+  readAt           DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@index([sessionId, sequence])
+  @@index([status, availableAt])
+}
+
 enum AppointmentStatus {
   PENDING
   CONFIRMED
@@ -423,6 +677,8 @@ model BusinessWhatsAppConfig {
   displayPhoneNumber String?
   metaAppId          String?
   accessToken        String?
+  /** App secret de la Meta App propia del comercio: valida X-Hub-Signature-256 (decisión D). */
+  appSecret          String?
   tokenExpiresAt     DateTime?
   connectedAt        DateTime?
   disconnectedAt     DateTime?
