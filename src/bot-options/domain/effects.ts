@@ -1,5 +1,5 @@
 /**
- * F4.3 — Efectos declarativos del motor determinístico por opciones.
+ * F3.4 — Efectos declarativos del motor determinístico por opciones.
  *
  * La transición NUNCA toca la base ni Meta: devuelve efectos tipados que el
  * executor valida bajo lock (diseno-tecnico.md §7). Si un efecto falla su
@@ -49,6 +49,9 @@ export type BotOptionsEffect =
       holdExpiresAtIso: string
     }
   | { kind: 'RELEASE_HOLD' }
+  | { kind: 'APPROVE_DEPOSIT' }
+  | { kind: 'REJECT_DEPOSIT_FOR_RESUBMISSION'; reason: string; resubmissionExpiresAtIso: string }
+  | { kind: 'REJECT_DEPOSIT_FINAL'; reason: string }
   | { kind: 'CANCEL_BOOKING'; reason: string }
   | {
       kind: 'SWAP_APPOINTMENT_SLOT'
@@ -57,6 +60,7 @@ export type BotOptionsEffect =
       keepApprovedDeposit: boolean
     }
   | { kind: 'REQUEST_HUMAN_HANDOFF'; reason: string; detail: string | null }
+  | { kind: 'TAKE_HUMAN_HANDOFF' }
   | { kind: 'RESOLVE_HANDOFF'; mode: 'HOME' | 'RESUME' }
   | { kind: 'EMIT_OPERATIONAL_ALERT'; alertKind: string; detail: string | null }
 
@@ -78,7 +82,12 @@ export function describeEffectTarget(effect: BotOptionsEffect): string {
       return 'reserva'
     case 'RELEASE_HOLD':
       return 'retencion'
+    case 'APPROVE_DEPOSIT':
+    case 'REJECT_DEPOSIT_FOR_RESUBMISSION':
+    case 'REJECT_DEPOSIT_FINAL':
+      return 'seña'
     case 'REQUEST_HUMAN_HANDOFF':
+    case 'TAKE_HUMAN_HANDOFF':
     case 'RESOLVE_HANDOFF':
       return 'handoff'
     case 'EMIT_OPERATIONAL_ALERT':

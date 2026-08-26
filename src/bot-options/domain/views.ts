@@ -1,5 +1,5 @@
 /**
- * F4.3 — ViewModel del motor determinístico por opciones.
+ * F3.4 — ViewModel del motor determinístico por opciones.
  *
  * La vista describe QUÉ se muestra y qué acciones ofrece, sin detalles de
  * WhatsApp: el renderer decide botón vs lista, truncamientos permitidos,

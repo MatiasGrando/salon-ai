@@ -1,5 +1,5 @@
 /**
- * F4.2 — Regiones de estado e invariantes del motor determinístico por opciones.
+ * F3.2 — Regiones de estado e invariantes del motor determinístico por opciones.
  *
  * Fuente canónica: docs/nuevo-bot/maquina-de-estados.md (secciones 2, 7 y 9).
  * El estado persistido es JSONB en BotSession.state con stateSchemaVersion.
@@ -78,6 +78,18 @@ export type DepositRegionStatus =
 /** Región de atención humana. */
 export type HandoffRegionStatus = 'NONE' | 'QUEUED' | 'TAKEN'
 
+export const BOT_OPTIONS_BOOKING_STATUSES: readonly BookingRegionStatus[] = [
+  'NONE', 'DRAFT', 'HELD', 'PENDING_PAYMENT_REVIEW', 'CONFIRMED', 'CANCELLED', 'EXPIRED'
+]
+export const BOT_OPTIONS_DEPOSIT_STATUSES: readonly DepositRegionStatus[] = [
+  'NONE', 'PENDING_PROOF', 'PROOF_RECEIVED', 'REJECTED_RESUBMISSION_ALLOWED', 'APPROVED', 'REJECTED_FINAL', 'EXPIRED'
+]
+export const BOT_OPTIONS_HANDOFF_STATUSES: readonly HandoffRegionStatus[] = ['NONE', 'QUEUED', 'TAKEN']
+
+const BOOKING_STATUS_SET: ReadonlySet<string> = new Set(BOT_OPTIONS_BOOKING_STATUSES)
+const DEPOSIT_STATUS_SET: ReadonlySet<string> = new Set(BOT_OPTIONS_DEPOSIT_STATUSES)
+const HANDOFF_STATUS_SET: ReadonlySet<string> = new Set(BOT_OPTIONS_HANDOFF_STATUSES)
+
 /**
  * Modos de presentación. Paginación, franjas horarias y menú de navegación son
  * VISTA del estado funcional vigente: nunca cambian el paso funcional ni el
@@ -107,6 +119,8 @@ export type BotOptionsSelections = {
   date: string | null
   /** Inicio de bloque ISO 8601 con offset, sobre la grilla de 30 minutos. */
   slotStartAt: string | null
+  /** Turno estable seleccionado durante cancelación o reprogramación. */
+  appointmentId: string | null
 }
 
 export type BotOptionsState = {
@@ -151,7 +165,8 @@ export function createInitialBotOptionsState(): BotOptionsState {
       professionalId: null,
       anyProfessional: false,
       date: null,
-      slotStartAt: null
+      slotStartAt: null,
+      appointmentId: null
     },
     invalidStreak: 0,
     presentation: { kind: 'plain' },
@@ -166,6 +181,7 @@ export function createInitialBotOptionsState(): BotOptionsState {
 
 export type StateInvariantId =
   | 'schema_version_known'
+  | 'region_status_known'
   | 'invalid_streak_range'
   | 'cart_unique_services'
   | 'booking_requires_complete_selection'
@@ -178,6 +194,7 @@ export type StateInvariantId =
   | 'deposit_review_flow_matches_deposit_region'
   | 'confirmed_flow_matches_booking_region'
   | 'handoff_taken_blocks_functional_flows'
+  | 'handoff_flow_consistency'
   | 'professional_exclusive_selection'
   | 'presentation_kind_allowed'
 
@@ -242,7 +259,6 @@ export function validateBotOptionsState(
   const discardReturnFlow = candidate['discardReturnFlow']
   if (
     discardReturnFlow !== null &&
-    discardReturnFlow !== undefined &&
     (typeof discardReturnFlow !== 'string' || !FLOW_STEP_SET.has(discardReturnFlow))
   ) {
     return { ok: false, invariant: 'schema_version_known' }
@@ -251,26 +267,23 @@ export function validateBotOptionsState(
   const handoffReturnFlow = candidate['handoffReturnFlow']
   if (
     handoffReturnFlow !== null &&
-    handoffReturnFlow !== undefined &&
     (typeof handoffReturnFlow !== 'string' || !FLOW_STEP_SET.has(handoffReturnFlow))
   ) {
     return { ok: false, invariant: 'schema_version_known' }
   }
 
   const catalogMode = candidate['catalogMode']
-  if (catalogMode !== undefined && catalogMode !== null && catalogMode !== 'BOOKING' && catalogMode !== 'BROWSING') {
+  if (catalogMode !== 'BOOKING' && catalogMode !== 'BROWSING') {
     return { ok: false, invariant: 'schema_version_known' }
   }
 
   const nameCandidate = candidate['nameCandidate']
-  if (nameCandidate !== null && nameCandidate !== undefined && typeof nameCandidate !== 'string') {
+  if (nameCandidate !== null && typeof nameCandidate !== 'string') {
     return { ok: false, invariant: 'schema_version_known' }
   }
 
   const rejectedRecommendationIds = candidate['rejectedRecommendationIds']
   if (
-    rejectedRecommendationIds !== undefined &&
-    rejectedRecommendationIds !== null &&
     (!Array.isArray(rejectedRecommendationIds) ||
       rejectedRecommendationIds.some((id) => typeof id !== 'string'))
   ) {
@@ -280,7 +293,6 @@ export function validateBotOptionsState(
   const pendingEntityRef = candidate['pendingEntityRef']
   if (
     pendingEntityRef !== null &&
-    pendingEntityRef !== undefined &&
     (!isPlainObject(pendingEntityRef) ||
       pendingEntityRef['type'] !== 'SERVICE' ||
       typeof pendingEntityRef['id'] !== 'string')
@@ -305,9 +317,19 @@ export function validateBotOptionsState(
     serviceIds.add(item['serviceId'] as string)
   }
 
-  const booking = candidate['booking'] as BookingRegionStatus | undefined
-  const deposit = candidate['deposit'] as DepositRegionStatus | undefined
-  const handoff = candidate['handoff'] as HandoffRegionStatus | undefined
+  const rawBooking = candidate['booking']
+  const rawDeposit = candidate['deposit']
+  const rawHandoff = candidate['handoff']
+  if (
+    typeof rawBooking !== 'string' || !BOOKING_STATUS_SET.has(rawBooking) ||
+    typeof rawDeposit !== 'string' || !DEPOSIT_STATUS_SET.has(rawDeposit) ||
+    typeof rawHandoff !== 'string' || !HANDOFF_STATUS_SET.has(rawHandoff)
+  ) {
+    return { ok: false, invariant: 'region_status_known' }
+  }
+  const booking = rawBooking as BookingRegionStatus
+  const deposit = rawDeposit as DepositRegionStatus
+  const handoff = rawHandoff as HandoffRegionStatus
 
   const selections = candidate['selections']
   if (!isPlainObject(selections)) {
@@ -315,9 +337,26 @@ export function validateBotOptionsState(
   }
   const professionalId = selections['professionalId']
   const anyProfessional = selections['anyProfessional']
+  const categoryId = selections['categoryId']
   const date = selections['date']
   const slotStartAt = selections['slotStartAt']
-  if (professionalId !== null && professionalId !== undefined && typeof professionalId !== 'string') {
+  const appointmentId = selections['appointmentId']
+  if (categoryId !== null && typeof categoryId !== 'string') {
+    return { ok: false, invariant: 'booking_requires_complete_selection' }
+  }
+  if (professionalId !== null && typeof professionalId !== 'string') {
+    return { ok: false, invariant: 'booking_requires_complete_selection' }
+  }
+  if (typeof anyProfessional !== 'boolean') {
+    return { ok: false, invariant: 'booking_requires_complete_selection' }
+  }
+  if (date !== null && typeof date !== 'string') {
+    return { ok: false, invariant: 'booking_requires_complete_selection' }
+  }
+  if (slotStartAt !== null && typeof slotStartAt !== 'string') {
+    return { ok: false, invariant: 'booking_requires_complete_selection' }
+  }
+  if (appointmentId !== null && typeof appointmentId !== 'string') {
     return { ok: false, invariant: 'booking_requires_complete_selection' }
   }
   const completeSelection =
@@ -330,11 +369,9 @@ export function validateBotOptionsState(
     return { ok: false, invariant: 'booking_requires_complete_selection' }
   }
 
-  const depositActive = deposit !== undefined && deposit !== 'NONE'
   if (
-    typeof deposit === 'string' &&
     DEPOSIT_REQUIRES_ACTIVE_BOOKING.has(deposit) &&
-    (booking === undefined || !BOOKING_ACTIVE_FOR_DEPOSIT.has(booking))
+    !BOOKING_ACTIVE_FOR_DEPOSIT.has(booking)
   ) {
     return { ok: false, invariant: 'deposit_requires_active_booking' }
   }
@@ -348,7 +385,7 @@ export function validateBotOptionsState(
     return { ok: false, invariant: 'rejected_final_or_expired_not_confirmed' }
   }
 
-  if (flow === 'DEPOSIT_INSTRUCTIONS' && !(typeof deposit === 'string' && DEPOSIT_REQUIRES_ACTIVE_BOOKING.has(deposit) && deposit !== 'PROOF_RECEIVED')) {
+  if (flow === 'DEPOSIT_INSTRUCTIONS' && !(DEPOSIT_REQUIRES_ACTIVE_BOOKING.has(deposit) && deposit !== 'PROOF_RECEIVED')) {
     return { ok: false, invariant: 'deposit_instructions_flow_matches_deposit_region' }
   }
   if (flow === 'DEPOSIT_REVIEW' && deposit !== 'PROOF_RECEIVED') {
@@ -372,6 +409,15 @@ export function validateBotOptionsState(
     if ((functionalBlocked as readonly string[]).includes(flow)) {
       return { ok: false, invariant: 'handoff_taken_blocks_functional_flows' }
     }
+  }
+
+  if (
+    (flow === 'HANDOFF_QUEUED' && handoff !== 'QUEUED') ||
+    (flow === 'HANDOFF_TAKEN' && handoff !== 'TAKEN') ||
+    (handoff === 'QUEUED' && flow !== 'HANDOFF_QUEUED') ||
+    (handoff === 'TAKEN' && flow !== 'HANDOFF_TAKEN')
+  ) {
+    return { ok: false, invariant: 'handoff_flow_consistency' }
   }
 
   if (typeof professionalId === 'string' && anyProfessional === true) {

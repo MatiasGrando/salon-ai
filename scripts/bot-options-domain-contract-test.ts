@@ -59,8 +59,10 @@ function baseCandidate(overrides: Record<string, unknown> = {}) {
     engineKey: 'deterministic-options',
     engineVersion: 'v1',
     deploymentId: 'dep_1',
+    deploymentGeneration: 3,
     businessId: 'biz_1',
     sessionId: 'ses_1',
+    origin: 'WHATSAPP_CHOICE',
     promptId: 'pr_1',
     choiceToken: 'tok_default',
     actionType: 'menu.start_booking',
@@ -118,9 +120,39 @@ assert.deepEqual(
   firstFailure(baseCandidate({ actionType: 'slot.select', payload: { startAt: '2026-09-02T15:00:00-03:00' }, choiceToken: null })),
   { field: 'choiceToken', reason: 'required_for_client_choice' }
 )
-assert.deepEqual(firstFailure(baseCandidate({ actionType: 'deposit.expired' })), {
-  field: 'choiceToken',
-  reason: 'forbidden_for_non_choice'
+assert.deepEqual(
+  firstFailure(baseCandidate({ actionType: 'deposit.expired', origin: 'SYSTEM', promptId: null })),
+  { field: 'choiceToken', reason: 'forbidden_for_non_choice' }
+)
+
+// Los IDs de prompt/proveedor dependen del origen, no se fuerzan a CRM/sistema.
+const systemWithoutProvider = validateBotOptionsActionEnvelope(
+  baseCandidate({
+    actionType: 'deposit.expired',
+    origin: 'SYSTEM',
+    promptId: null,
+    choiceToken: null,
+    providerEventId: null
+  })
+)
+assert.equal(systemWithoutProvider.ok, true)
+const crmWithoutProvider = validateBotOptionsActionEnvelope(
+  baseCandidate({
+    actionType: 'handoff.take',
+    origin: 'CRM',
+    promptId: null,
+    choiceToken: null,
+    providerEventId: null
+  })
+)
+assert.equal(crmWithoutProvider.ok, true)
+assert.deepEqual(firstFailure(baseCandidate({ origin: 'CRM' })), {
+  field: 'origin',
+  reason: 'action_origin_mismatch'
+})
+assert.deepEqual(firstFailure(baseCandidate({ deploymentGeneration: -1 })), {
+  field: 'deploymentGeneration',
+  reason: 'invalid_generation'
 })
 
 // Entidad requerida y entidad inesperada.
@@ -202,6 +234,42 @@ if (full.ok) {
   assert.equal(full.envelope.expectedStateRevision, 41n)
 }
 
+// Rechazos de seña desde CRM siempre llevan motivo; reenvío además lleva plazo.
+assert.deepEqual(
+  firstFailure(baseCandidate({
+    actionType: 'deposit.reject_resubmission',
+    origin: 'CRM',
+    promptId: null,
+    choiceToken: null,
+    providerEventId: null,
+    payload: null
+  })),
+  { field: 'payload.reason', reason: 'required' }
+)
+const rejectionWithDeadline = validateBotOptionsActionEnvelope(baseCandidate({
+  actionType: 'deposit.reject_resubmission',
+  origin: 'CRM',
+  promptId: null,
+  choiceToken: null,
+  providerEventId: null,
+  payload: { reason: 'Comprobante ilegible', resubmissionDeadlineIso: '2026-08-25T15:00:00Z' }
+}))
+assert.equal(rejectionWithDeadline.ok, true)
+assert.equal(validateBotOptionsActionEnvelope(baseCandidate({
+  payload: { conflictChoiceToken: 'choice_a' }
+})).ok, true, 'una confirmación de conflicto conserva provenance en una acción cliente normal')
+assert.deepEqual(
+  firstFailure(baseCandidate({
+    actionType: 'deposit.reject_final',
+    origin: 'CRM',
+    promptId: null,
+    choiceToken: null,
+    providerEventId: null,
+    payload: null
+  })),
+  { field: 'payload.reason', reason: 'required' }
+)
+
 // ─── Estado inicial e invariantes ────────────────────────────────────────────
 
 const initial = createInitialBotOptionsState()
@@ -226,7 +294,8 @@ const completeSelection = {
     professionalId: 'pro_1',
     anyProfessional: false,
     date: '2026-09-02',
-    slotStartAt: '2026-09-02T15:00:00-03:00'
+    slotStartAt: '2026-09-02T15:00:00-03:00',
+    appointmentId: null
   }
 }
 const anyProfessionalSelection = {
@@ -235,7 +304,8 @@ const anyProfessionalSelection = {
     professionalId: null,
     anyProfessional: true,
     date: '2026-09-02',
-    slotStartAt: '2026-09-02T15:00:00-03:00'
+    slotStartAt: '2026-09-02T15:00:00-03:00',
+    appointmentId: null
   }
 }
 const cartWithOne = { cart: [{ serviceId: 'srv_corte' }] }
@@ -266,7 +336,8 @@ const incompleteSelection = {
     professionalId: 'pro_1',
     anyProfessional: false,
     date: null,
-    slotStartAt: null
+    slotStartAt: null,
+    appointmentId: null
   }
 }
 
@@ -294,6 +365,33 @@ assert.equal(invariantOf(stateWith({ flow: 'DEPOSIT_INSTRUCTIONS', deposit: 'PRO
 assert.equal(invariantOf(stateWith({ flow: 'DEPOSIT_REVIEW', deposit: 'PENDING_PROOF', booking: 'HELD', ...cartWithOne }, completeSelection)), 'deposit_review_flow_matches_deposit_region')
 assert.equal(invariantOf(stateWith({ flow: 'BOOKING_CONFIRMED', booking: 'PENDING_PAYMENT_REVIEW', deposit: 'PROOF_RECEIVED', ...cartWithOne }, completeSelection)), 'confirmed_flow_matches_booking_region')
 
+// El parser no castea regiones desconocidas como si fueran válidas.
+assert.equal(invariantOf(stateWith({ booking: 'MAGIC' })), 'region_status_known')
+assert.equal(invariantOf(stateWith({ deposit: 'REJECTED' })), 'region_status_known')
+assert.equal(invariantOf(stateWith({ handoff: 'HUMAN_QUEUED' })), 'region_status_known')
+assert.equal(invariantOf(stateWith({ flow: 'HANDOFF_QUEUED', handoff: 'NONE' })), 'handoff_flow_consistency')
+assert.equal(invariantOf(stateWith({ flow: 'MAIN_MENU', handoff: 'QUEUED' })), 'handoff_flow_consistency')
+
+for (const requiredField of [
+  'discardReturnFlow',
+  'handoffReturnFlow',
+  'catalogMode',
+  'nameCandidate',
+  'pendingEntityRef',
+  'rejectedRecommendationIds'
+] as const) {
+  const persisted = JSON.parse(JSON.stringify(initial)) as Record<string, unknown>
+  delete persisted[requiredField]
+  assert.equal(
+    parseBotOptionsState(persisted).ok,
+    false,
+    `el parser no puede castear un estado sin ${requiredField}`
+  )
+}
+const missingProfessional = JSON.parse(JSON.stringify(initial)) as Record<string, unknown>
+delete (missingProfessional['selections'] as Record<string, unknown>)['professionalId']
+assert.equal(parseBotOptionsState(missingProfessional).ok, false)
+
 assert.equal(
   invariantOf(stateWith({ flow: 'CART_REVIEW', handoff: 'TAKEN', ...cartWithOne }, completeSelection)),
   'handoff_taken_blocks_functional_flows'
@@ -302,7 +400,7 @@ assert.equal(
 assert.equal(
   invariantOf(
     stateWith(
-      { selections: { categoryId: null, professionalId: 'pro_1', anyProfessional: true, date: null, slotStartAt: null } }
+      { selections: { categoryId: null, professionalId: 'pro_1', anyProfessional: true, date: null, slotStartAt: null, appointmentId: null } }
     )
   ),
   'professional_exclusive_selection'

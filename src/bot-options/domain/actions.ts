@@ -1,5 +1,5 @@
 /**
- * F4.1 — Catálogo tipado de acciones y envelope del motor determinístico por opciones.
+ * F3.1 — Catálogo tipado de acciones y envelope del motor determinístico por opciones.
  *
  * Fuente canónica: docs/nuevo-bot/maquina-de-estados.md (secciones 3 y 4) y
  * diseno-tecnico.md sección 5. Este módulo es puro: no importa Prisma, Fastify,
@@ -77,8 +77,7 @@ export const SYSTEM_EVENT_ACTION_TYPES = [
   'deposit.expired',
   'booking.slot_conflict',
   'appointment.slot_conflict',
-  'input.unsupported',
-  'input.stale_cutover'
+  'input.unsupported'
 ] as const
 
 /** Acciones autorizadas ejecutadas desde el CRM por un agente humano. */
@@ -143,10 +142,12 @@ export type BotOptionsActionRequirements = {
   readonly requiresSlotStart?: true
   /** Exige payload.band dentro de las franjas canónicas. */
   readonly requiresSlotBand?: true
-  /** Exige payload.conflictChoiceToken cuando la desambiguación confirma una opción. */
-  readonly requiresConflictChoice?: true
   /** Exige payload.name con texto ya normalizado (validación Unicode fina es F6.2). */
   readonly requiresName?: true
+  /** Exige payload.reason para decisiones auditables del CRM. */
+  readonly requiresReason?: true
+  /** Exige el nuevo vencimiento al habilitar reenvío de comprobante. */
+  readonly requiresResubmissionDeadline?: true
 }
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
@@ -205,8 +206,8 @@ export const BOT_OPTIONS_ACTION_REQUIREMENTS: Readonly<
   'deposit.continue_payment': {},
   'deposit.cancel_confirm': {},
   'deposit.approve': {},
-  'deposit.reject_resubmission': {},
-  'deposit.reject_final': {},
+  'deposit.reject_resubmission': { requiresReason: true, requiresResubmissionDeadline: true },
+  'deposit.reject_final': { requiresReason: true },
   'navigation.open': {},
   'navigation.close': {},
   'navigation.back': {},
@@ -226,8 +227,7 @@ export const BOT_OPTIONS_ACTION_REQUIREMENTS: Readonly<
   'appointment.slot_select': { entity: 'APPOINTMENT', requiresSlotStart: true },
   'appointment.reschedule_confirm': { entity: 'APPOINTMENT' },
   'appointment.slot_conflict': { entity: 'APPOINTMENT', requiresSlotStart: true },
-  'input.unsupported': {},
-  'input.stale_cutover': {}
+  'input.unsupported': {}
 }
 
 export type SlotBand = 'MORNING' | 'AFTERNOON' | 'EVENING'
@@ -240,37 +240,65 @@ export type BotOptionsActionPayload = {
   band?: SlotBand
   conflictChoiceToken?: string
   name?: string
+  reason?: string
+  resubmissionDeadlineIso?: string
 }
+
+export const BOT_OPTIONS_ACTION_ORIGINS = ['WHATSAPP_CHOICE', 'SYSTEM', 'CRM'] as const
+
+export type BotOptionsActionOrigin = (typeof BOT_OPTIONS_ACTION_ORIGINS)[number]
 
 /**
  * Envelope persistido por la admisión (BotActionInbox). El transporte hacia Meta
  * usa tokens opacos (`b1.<promptToken>.<choiceToken>`); este envelope ya fue
  * resuelto contra BotPrompt/BotPromptChoice y porta la identidad semántica.
  */
-export type BotOptionsActionEnvelope = {
+type BotOptionsActionEnvelopeBase = {
   schemaVersion: typeof BOT_OPTIONS_ACTIONS_SCHEMA_VERSION
   engineKey: typeof BOT_OPTIONS_ENGINE_KEY
   engineVersion: string
   deploymentId: string
+  deploymentGeneration: number
   businessId: string
   sessionId: string
-  promptId: string
-  choiceToken: string | null
-  actionType: BotOptionsActionType
   entityRef: BotOptionsEntityRef | null
   payload: BotOptionsActionPayload | null
   expectedStateRevision: bigint
-  providerEventId: string
   providerMessageId: string | null
   receivedAtIso: string
 }
 
+export type BotOptionsActionEnvelope =
+  | (BotOptionsActionEnvelopeBase & {
+      origin: 'WHATSAPP_CHOICE'
+      promptId: string
+      choiceToken: string
+      actionType: ClientChoiceActionType
+      providerEventId: string
+    })
+  | (BotOptionsActionEnvelopeBase & {
+      origin: 'SYSTEM'
+      promptId: null
+      choiceToken: null
+      actionType: SystemEventActionType
+      providerEventId: string | null
+    })
+  | (BotOptionsActionEnvelopeBase & {
+      origin: 'CRM'
+      promptId: null
+      choiceToken: null
+      actionType: CrmActionType
+      providerEventId: string | null
+    })
+
 export type EnvelopeValidationFailure =
   | { field: 'schemaVersion'; reason: 'unsupported_version' }
   | { field: 'engineKey'; reason: 'unknown_engine' }
+  | { field: 'origin'; reason: 'unknown_origin' | 'action_origin_mismatch' }
   | { field: 'actionType'; reason: 'unknown_action_type' }
-  | { field: 'actionType'; reason: 'client_choice_required_for_interactive_prompt'; }
   | { field: 'engineVersion' | 'deploymentId' | 'businessId' | 'sessionId' | 'promptId' | 'providerEventId'; reason: 'required' }
+  | { field: 'deploymentGeneration'; reason: 'invalid_generation' }
+  | { field: 'promptId'; reason: 'forbidden_for_non_choice' }
   | { field: 'choiceToken'; reason: 'required_for_client_choice' }
   | { field: 'choiceToken'; reason: 'forbidden_for_non_choice' }
   | { field: 'entityRef'; reason: 'required' }
@@ -289,7 +317,10 @@ export type EnvelopeValidationFailure =
   | { field: 'payload.name'; reason: 'required' }
   | { field: 'payload.name'; reason: 'invalid_format' }
   | { field: 'payload.name'; reason: 'unexpected_field' }
+  | { field: 'payload.reason'; reason: 'required' | 'invalid_format' | 'unexpected_field' }
+  | { field: 'payload.resubmissionDeadlineIso'; reason: 'required' | 'invalid_format' | 'unexpected_field' }
   | { field: 'expectedStateRevision'; reason: 'invalid_revision' }
+  | { field: 'providerEventId' | 'providerMessageId'; reason: 'invalid_format' }
   | { field: 'receivedAtIso'; reason: 'invalid_timestamp' }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -322,10 +353,15 @@ export function validateBotOptionsActionEnvelope(
   if (!isNonEmptyTrimmedString(candidate.engineVersion)) {
     failures.push({ field: 'engineVersion', reason: 'required' })
   }
-  for (const field of ['deploymentId', 'businessId', 'sessionId', 'promptId', 'providerEventId'] as const) {
+  for (const field of ['deploymentId', 'businessId', 'sessionId'] as const) {
     if (!isNonEmptyTrimmedString(candidate[field])) {
       failures.push({ field, reason: 'required' })
     }
+  }
+
+  const rawGeneration = candidate.deploymentGeneration
+  if (typeof rawGeneration !== 'number' || !Number.isSafeInteger(rawGeneration) || rawGeneration < 0) {
+    failures.push({ field: 'deploymentGeneration', reason: 'invalid_generation' })
   }
 
   const rawActionType = candidate.actionType
@@ -337,13 +373,44 @@ export function validateBotOptionsActionEnvelope(
   const requirements = BOT_OPTIONS_ACTION_REQUIREMENTS[actionType]
 
   const isChoice = isClientChoiceAction(actionType)
+  const expectedOrigin: BotOptionsActionOrigin = isChoice
+    ? 'WHATSAPP_CHOICE'
+    : isSystemEventAction(actionType)
+      ? 'SYSTEM'
+      : 'CRM'
+  const rawOrigin = candidate.origin
+  if (typeof rawOrigin !== 'string' || !(BOT_OPTIONS_ACTION_ORIGINS as readonly string[]).includes(rawOrigin)) {
+    failures.push({ field: 'origin', reason: 'unknown_origin' })
+  } else if (rawOrigin !== expectedOrigin) {
+    failures.push({ field: 'origin', reason: 'action_origin_mismatch' })
+  }
+
+  const rawPromptId = candidate.promptId
   const rawChoiceToken = candidate.choiceToken
   if (isChoice) {
+    if (!isNonEmptyTrimmedString(rawPromptId)) {
+      failures.push({ field: 'promptId', reason: 'required' })
+    }
     if (!isNonEmptyTrimmedString(rawChoiceToken)) {
       failures.push({ field: 'choiceToken', reason: 'required_for_client_choice' })
     }
-  } else if (rawChoiceToken !== null && rawChoiceToken !== undefined) {
-    failures.push({ field: 'choiceToken', reason: 'forbidden_for_non_choice' })
+    if (!isNonEmptyTrimmedString(candidate.providerEventId)) {
+      failures.push({ field: 'providerEventId', reason: 'required' })
+    }
+  } else {
+    if (rawPromptId !== null && rawPromptId !== undefined) {
+      failures.push({ field: 'promptId', reason: 'forbidden_for_non_choice' })
+    }
+    if (rawChoiceToken !== null && rawChoiceToken !== undefined) {
+      failures.push({ field: 'choiceToken', reason: 'forbidden_for_non_choice' })
+    }
+    if (
+      candidate.providerEventId !== null &&
+      candidate.providerEventId !== undefined &&
+      !isNonEmptyTrimmedString(candidate.providerEventId)
+    ) {
+      failures.push({ field: 'providerEventId', reason: 'invalid_format' })
+    }
   }
 
   const rawEntityRef = candidate.entityRef
@@ -370,16 +437,19 @@ export function validateBotOptionsActionEnvelope(
     requirements.requiresDate ||
       requirements.requiresSlotStart ||
       requirements.requiresSlotBand ||
-      requirements.requiresConflictChoice ||
-      requirements.requiresName
+      requirements.requiresName ||
+      requirements.requiresReason ||
+      requirements.requiresResubmissionDeadline ||
+      (isChoice && isPlainObject(rawPayload) && 'conflictChoiceToken' in rawPayload)
   )
   if (expectsAnyPayload) {
     if (!isPlainObject(rawPayload)) {
       if (requirements.requiresDate) failures.push({ field: 'payload.date', reason: 'required' })
       if (requirements.requiresSlotStart) failures.push({ field: 'payload.startAt', reason: 'required' })
       if (requirements.requiresSlotBand) failures.push({ field: 'payload.band', reason: 'required' })
-      if (requirements.requiresConflictChoice) failures.push({ field: 'payload.conflictChoiceToken', reason: 'required' })
       if (requirements.requiresName) failures.push({ field: 'payload.name', reason: 'required' })
+      if (requirements.requiresReason) failures.push({ field: 'payload.reason', reason: 'required' })
+      if (requirements.requiresResubmissionDeadline) failures.push({ field: 'payload.resubmissionDeadlineIso', reason: 'required' })
     } else {
       const extraKeys = new Set(Object.keys(rawPayload))
       payload = {}
@@ -435,7 +505,7 @@ export function validateBotOptionsActionEnvelope(
         extraKeys.delete('band')
       }
 
-      if (requirements.requiresConflictChoice) {
+      if (isChoice && 'conflictChoiceToken' in rawPayload) {
         const tokenValue = rawPayload['conflictChoiceToken']
         if (!isNonEmptyTrimmedString(tokenValue)) {
           failures.push({ field: 'payload.conflictChoiceToken', reason: 'required' })
@@ -466,6 +536,36 @@ export function validateBotOptionsActionEnvelope(
         extraKeys.delete('name')
       }
 
+      if (requirements.requiresReason) {
+        const reasonValue = rawPayload['reason']
+        if (!isNonEmptyTrimmedString(reasonValue)) {
+          failures.push({ field: 'payload.reason', reason: typeof reasonValue === 'string' ? 'invalid_format' : 'required' })
+        } else if (reasonValue.length > 500 || /[\r\n]/.test(reasonValue)) {
+          failures.push({ field: 'payload.reason', reason: 'invalid_format' })
+        } else {
+          payload.reason = reasonValue
+        }
+        extraKeys.delete('reason')
+      } else if ('reason' in rawPayload) {
+        failures.push({ field: 'payload.reason', reason: 'unexpected_field' })
+        extraKeys.delete('reason')
+      }
+
+      if (requirements.requiresResubmissionDeadline) {
+        const deadlineValue = rawPayload['resubmissionDeadlineIso']
+        if (typeof deadlineValue !== 'string') {
+          failures.push({ field: 'payload.resubmissionDeadlineIso', reason: 'required' })
+        } else if (Number.isNaN(Date.parse(deadlineValue)) || !deadlineValue.includes('T')) {
+          failures.push({ field: 'payload.resubmissionDeadlineIso', reason: 'invalid_format' })
+        } else {
+          payload.resubmissionDeadlineIso = deadlineValue
+        }
+        extraKeys.delete('resubmissionDeadlineIso')
+      } else if ('resubmissionDeadlineIso' in rawPayload) {
+        failures.push({ field: 'payload.resubmissionDeadlineIso', reason: 'unexpected_field' })
+        extraKeys.delete('resubmissionDeadlineIso')
+      }
+
       if (extraKeys.size > 0) {
         // Payloads sorpresa se rechazan; el primer campo extra alcanza para el diagnóstico.
         failures.push({ field: 'payload.date', reason: 'unexpected_field' })
@@ -494,6 +594,14 @@ export function validateBotOptionsActionEnvelope(
     failures.push({ field: 'receivedAtIso', reason: 'invalid_timestamp' })
   }
 
+  if (
+    candidate.providerMessageId !== null &&
+    candidate.providerMessageId !== undefined &&
+    !isNonEmptyTrimmedString(candidate.providerMessageId)
+  ) {
+    failures.push({ field: 'providerMessageId', reason: 'invalid_format' })
+  }
+
   if (failures.length > 0) {
     return { ok: false, failures }
   }
@@ -505,20 +613,25 @@ export function validateBotOptionsActionEnvelope(
       engineKey: BOT_OPTIONS_ENGINE_KEY,
       engineVersion: candidate.engineVersion as string,
       deploymentId: candidate.deploymentId as string,
+      deploymentGeneration: rawGeneration as number,
       businessId: candidate.businessId as string,
       sessionId: candidate.sessionId as string,
-      promptId: candidate.promptId as string,
+      origin: expectedOrigin,
+      promptId: isChoice ? (candidate.promptId as string) : null,
       choiceToken: isChoice ? (candidate.choiceToken as string) : null,
       actionType,
       entityRef,
       payload,
       expectedStateRevision: revision,
-      providerEventId: candidate.providerEventId as string,
+      providerEventId:
+        candidate.providerEventId === undefined || candidate.providerEventId === null
+          ? null
+          : (candidate.providerEventId as string),
       providerMessageId:
         candidate.providerMessageId === undefined || candidate.providerMessageId === null
           ? null
           : (candidate.providerMessageId as string),
       receivedAtIso: rawReceivedAt as string
-    }
+    } as BotOptionsActionEnvelope
   }
 }

@@ -1,5 +1,5 @@
 /**
- * F4.3/F4.4 — Función de transición pura del motor determinístico por opciones.
+ * F3.4/F3.6 — Función de transición pura del motor determinístico por opciones.
  *
  * Contrato (diseno-tecnico.md §7): estado + acción normalizada + contexto
  * pre-cargado tenant-scoped → nuevo estado + efectos declarativos + vista.
@@ -325,6 +325,11 @@ const CLIENT_ALLOWED: Partial<Record<BotOptionsFlowStep, readonly BotOptionsActi
   HANDOFF_TAKEN: []
 }
 
+const GLOBAL_CLIENT_ACTIONS: ReadonlySet<BotOptionsActionType> = new Set([
+  'navigation.open',
+  'handoff.request'
+])
+
 /** Destinos explícitos de Volver (maquina-de-estados.md §6) e invalidaciones §7. */
 type BackTarget = {
   flow: BotOptionsFlowStep
@@ -364,11 +369,39 @@ const BACK_TARGETS: Partial<Record<BotOptionsFlowStep, BackTarget>> = {
   SLOT_SELECT: { flow: 'DATE_SELECT', apply: (state) => withoutSelections(state, 'date') },
   BOOKING_SUMMARY: { flow: 'SLOT_SELECT', apply: (state) => withoutSelections(state, 'slot') },
   APPOINTMENT_LIST: { flow: 'MAIN_MENU', apply: (state) => ({ ...state, presentation: { kind: 'plain' } }) },
-  APPOINTMENT_DETAIL: { flow: 'APPOINTMENT_LIST', apply: (state) => ({ ...state, presentation: { kind: 'plain' } }) },
+  APPOINTMENT_DETAIL: {
+    flow: 'APPOINTMENT_LIST',
+    apply: (state) => ({
+      ...state,
+      selections: { ...state.selections, appointmentId: null, date: null, slotStartAt: null },
+      presentation: { kind: 'plain' }
+    })
+  },
   APPOINTMENT_CANCEL_CONFIRM: { flow: 'APPOINTMENT_DETAIL', apply: (state) => ({ ...state, presentation: { kind: 'plain' } }) },
-  APPOINTMENT_RESCHEDULE_DATE: { flow: 'APPOINTMENT_DETAIL', apply: (state) => ({ ...state, presentation: { kind: 'plain' } }) },
-  APPOINTMENT_RESCHEDULE_SLOT: { flow: 'APPOINTMENT_RESCHEDULE_DATE', apply: (state) => ({ ...state, presentation: { kind: 'plain' } }) },
-  APPOINTMENT_RESCHEDULE_SUMMARY: { flow: 'APPOINTMENT_RESCHEDULE_SLOT', apply: (state) => ({ ...state, presentation: { kind: 'plain' } }) },
+  APPOINTMENT_RESCHEDULE_DATE: {
+    flow: 'APPOINTMENT_DETAIL',
+    apply: (state) => ({
+      ...state,
+      selections: { ...state.selections, date: null, slotStartAt: null },
+      presentation: { kind: 'plain' }
+    })
+  },
+  APPOINTMENT_RESCHEDULE_SLOT: {
+    flow: 'APPOINTMENT_RESCHEDULE_DATE',
+    apply: (state) => ({
+      ...state,
+      selections: { ...state.selections, date: null, slotStartAt: null },
+      presentation: { kind: 'plain' }
+    })
+  },
+  APPOINTMENT_RESCHEDULE_SUMMARY: {
+    flow: 'APPOINTMENT_RESCHEDULE_SLOT',
+    apply: (state) => ({
+      ...state,
+      selections: { ...state.selections, slotStartAt: null },
+      presentation: { kind: 'plain' }
+    })
+  },
   PROFESSIONAL_HOURS_SELECT: { flow: 'BUSINESS_HOURS', apply: (state) => state },
   PROFESSIONAL_HOURS_DETAIL: { flow: 'PROFESSIONAL_HOURS_SELECT', apply: (state) => state },
   BUSINESS_HOURS: { flow: 'MAIN_MENU', apply: (state) => state }
@@ -586,6 +619,7 @@ function addToCart(state: BotOptionsState, serviceId: string): BotOptionsState {
 function enterHandoff(state: BotOptionsState, reason: string, detail: string | null): TransitionResult {
   const nextState = baseOf(resetInvalidStreak(state), {
     flow: 'HANDOFF_QUEUED',
+    handoff: 'QUEUED',
     handoffReturnFlow: state.flow === 'HANDOFF_QUEUED' ? state.handoffReturnFlow : state.flow,
     presentation: plainPresentation()
   })
@@ -629,8 +663,10 @@ export function transition(
   const context = normalizeContext(contextInput)
   const { actionType, entityRef, payload } = action
 
-  // Atención tomada: silencio absoluto; los mensajes quedan para el CRM.
-  if (state.handoff === 'TAKEN') {
+  // Atención tomada: silencio para cliente/sistema, pero el CRM conserva las
+  // acciones explícitas de resolución. Si se bloquearan acá, el handoff sería
+  // un estado terminal imposible de cerrar.
+  if (state.handoff === 'TAKEN' && !isCrmAction(actionType)) {
     return { outcome: 'RECOVERED', reason: 'handoff_taken_silent', respond: false, state, view: textView('') }
   }
 
@@ -641,12 +677,12 @@ export function transition(
 
   // ── Acciones CRM ────────────────────────────────────────────────────────
   if (isCrmAction(actionType)) {
-    return handleCrmAction(state, actionType, context)
+    return handleCrmAction(state, actionType, payload, context)
   }
 
   // ── Elecciones del cliente ──────────────────────────────────────────────
   const allowed = CLIENT_ALLOWED[state.flow] ?? []
-  if (!allowed.includes(actionType)) {
+  if (!allowed.includes(actionType) && !GLOBAL_CLIENT_ACTIONS.has(actionType)) {
     return escalateInvalid(state, 'Ese paso continúa con las opciones de la pantalla. Elegí una de las disponibles.')
   }
 
@@ -717,7 +753,12 @@ export function transition(
       break
     case 'APPOINTMENT_LIST':
       if (actionType === 'appointment.select' && entityRef?.type === 'APPOINTMENT' && context.appointmentOwnedAndFuture) {
-        return applied(baseOf(state, { flow: 'APPOINTMENT_DETAIL', presentation: plainPresentation() }), renderCurrentView({ ...state, flow: 'APPOINTMENT_DETAIL' }, context))
+        const next = baseOf(state, {
+          flow: 'APPOINTMENT_DETAIL',
+          selections: { ...state.selections, appointmentId: entityRef.id, date: null, slotStartAt: null },
+          presentation: plainPresentation()
+        })
+        return applied(next, renderCurrentView(next, context))
       }
       if (actionType === 'appointment.next_page' && context.appointmentsCanNext) {
         const cursor = state.presentation.kind === 'appointment_list_page' ? state.presentation.cursor + 1 : 1
@@ -727,7 +768,12 @@ export function transition(
     case 'APPOINTMENT_DETAIL':
       return fromAppointmentDetail(state, actionType, entityRef, context)
     case 'APPOINTMENT_CANCEL_CONFIRM':
-      if (actionType === 'appointment.cancel_confirm' && entityRef?.type === 'APPOINTMENT' && context.cancellationAllowed) {
+      if (
+        actionType === 'appointment.cancel_confirm' &&
+        entityRef?.type === 'APPOINTMENT' &&
+        entityRef.id === state.selections.appointmentId &&
+        context.cancellationAllowed
+      ) {
         const next = baseOf(state, {
           flow: 'APPOINTMENT_LIST',
           booking: 'CANCELLED',
@@ -739,27 +785,53 @@ export function transition(
       }
       break
     case 'APPOINTMENT_RESCHEDULE_DATE':
-      if (actionType === 'appointment.date_select' && entityRef?.type === 'APPOINTMENT' && payload?.date && context.rescheduleDateAvailable) {
-        return applied(baseOf(state, { flow: 'APPOINTMENT_RESCHEDULE_SLOT' }), renderCurrentView({ ...state, flow: 'APPOINTMENT_RESCHEDULE_SLOT' }, context))
+      if (
+        actionType === 'appointment.date_select' &&
+        entityRef?.type === 'APPOINTMENT' &&
+        entityRef.id === state.selections.appointmentId &&
+        payload?.date &&
+        context.rescheduleDateAvailable
+      ) {
+        const next = baseOf(state, {
+          flow: 'APPOINTMENT_RESCHEDULE_SLOT',
+          selections: { ...state.selections, date: payload.date, slotStartAt: null }
+        })
+        return applied(next, renderCurrentView(next, context))
       }
       break
     case 'APPOINTMENT_RESCHEDULE_SLOT':
-      if (actionType === 'appointment.slot_select' && entityRef?.type === 'APPOINTMENT' && payload?.startAt && context.rescheduleSlotAvailable) {
-        return applied(baseOf(state, { flow: 'APPOINTMENT_RESCHEDULE_SUMMARY' }), renderCurrentView({ ...state, flow: 'APPOINTMENT_RESCHEDULE_SUMMARY' }, context))
+      if (
+        actionType === 'appointment.slot_select' &&
+        entityRef?.type === 'APPOINTMENT' &&
+        entityRef.id === state.selections.appointmentId &&
+        payload?.startAt &&
+        context.rescheduleSlotAvailable
+      ) {
+        const next = baseOf(state, {
+          flow: 'APPOINTMENT_RESCHEDULE_SUMMARY',
+          selections: { ...state.selections, slotStartAt: payload.startAt }
+        })
+        return applied(next, renderCurrentView(next, context))
       }
       break
     case 'APPOINTMENT_RESCHEDULE_SUMMARY':
-      if (actionType === 'appointment.reschedule_confirm' && entityRef?.type === 'APPOINTMENT' && payload === null) {
+      if (
+        actionType === 'appointment.reschedule_confirm' &&
+        entityRef?.type === 'APPOINTMENT' &&
+        entityRef.id === state.selections.appointmentId &&
+        state.selections.slotStartAt !== null &&
+        payload === null
+      ) {
         if (!context.rescheduleSlotAvailable) {
           const back = baseOf(withoutSelections(state, 'slot'), { flow: 'APPOINTMENT_RESCHEDULE_SLOT' })
           return applied(back, recoveryView('Ese horario acaba de ocuparse. Elegí otro, por favor.', []))
         }
-        const next = baseOf(state, { flow: 'APPOINTMENT_DETAIL', booking: 'CONFIRMED', presentation: plainPresentation() })
+        const next = baseOf(state, { flow: 'APPOINTMENT_DETAIL', presentation: plainPresentation() })
         return applied(next, textView('Listo, reprogramamos tu turno.'), [
           {
             kind: 'SWAP_APPOINTMENT_SLOT',
             appointmentId: entityRef.id,
-            newSlotStartAt: state.selections.slotStartAt ?? '',
+            newSlotStartAt: state.selections.slotStartAt,
             keepApprovedDeposit: context.approvedDepositTransferable
           }
         ])
@@ -860,7 +932,12 @@ function tryUniversal(
         return escalateInvalid(state, 'No hay una atención en espera para cancelar.')
       }
       const target = state.handoffReturnFlow ?? 'MAIN_MENU'
-      const restored = validateResumeTarget(baseOf(state, { flow: target, handoffReturnFlow: null, presentation: plainPresentation() }))
+      const restored = validateResumeTarget(baseOf(state, {
+        flow: target,
+        handoff: 'NONE',
+        handoffReturnFlow: null,
+        presentation: plainPresentation()
+      }))
       return applied(restored, renderCurrentView(restored, context))
     }
     default:
@@ -950,10 +1027,6 @@ function handleSystemEvent(
       }
       return escalateInvalid(state, 'Este paso funciona con las opciones de la pantalla. Elegí una para continuar.')
     }
-    case 'input.stale_cutover': {
-      const fresh = baseOf(clearDraft(state), { flow: 'MAIN_MENU', presentation: plainPresentation() })
-      return applied(fresh, textView('Actualizamos el asistente. Empecemos de cero: elegí una opción del menú.'))
-    }
   }
 }
 
@@ -964,6 +1037,7 @@ type SystemEventAction = SystemEventActionType
 function handleCrmAction(
   state: BotOptionsState,
   actionType: BotOptionsActionType,
+  payload: BotOptionsActionPayload | null,
   context: TransitionContext
 ): TransitionResult {
   const type = actionType as 'deposit.approve' | 'deposit.reject_resubmission' | 'deposit.reject_final' | 'handoff.take' | 'handoff.resolve_home' | 'handoff.resolve_resume'
@@ -974,27 +1048,48 @@ function handleCrmAction(
         return escalateInvalid(state, '')
       }
       const next = baseOf(state, { flow: 'BOOKING_CONFIRMED', deposit: 'APPROVED', booking: 'CONFIRMED', presentation: plainPresentation() })
-      return applied(next, textView('Pago aprobado: tu turno quedó confirmado. ¡Te esperamos!'))
+      return applied(next, textView('Pago aprobado: tu turno quedó confirmado. ¡Te esperamos!'), [
+        { kind: 'APPROVE_DEPOSIT' }
+      ])
     }
     case 'deposit.reject_resubmission': {
       if (state.deposit !== 'PROOF_RECEIVED' || state.booking !== 'PENDING_PAYMENT_REVIEW') {
         return escalateInvalid(state, '')
       }
+      const reason = payload?.reason?.trim() ?? ''
+      const resubmissionExpiresAtIso = payload?.resubmissionDeadlineIso ?? ''
+      const deadline = resubmissionExpiresAtIso ? Date.parse(resubmissionExpiresAtIso) : Number.NaN
+      const dbNow = Date.parse(context.dbNowIso)
+      if (!reason || !Number.isFinite(deadline) || !Number.isFinite(dbNow) || deadline <= dbNow) {
+        return recovered(state, 'guard_failed', 'El rechazo necesita motivo y un nuevo plazo futuro.', [])
+      }
       const next = baseOf(state, { flow: 'DEPOSIT_INSTRUCTIONS', deposit: 'REJECTED_RESUBMISSION_ALLOWED', booking: 'HELD' })
-      return applied(next, textView('El comprobante no pudimos aceptarlo. Te enviamos el motivo y tenés un plazo nuevo para reenviarlo.'))
+      return applied(next, textView('El comprobante no pudimos aceptarlo. Te enviamos el motivo y tenés un plazo nuevo para reenviarlo.'), [
+        {
+          kind: 'REJECT_DEPOSIT_FOR_RESUBMISSION',
+          reason,
+          resubmissionExpiresAtIso
+        }
+      ])
     }
     case 'deposit.reject_final': {
       if (state.deposit !== 'PROOF_RECEIVED' && state.deposit !== 'REJECTED_RESUBMISSION_ALLOWED') {
         return escalateInvalid(state, '')
       }
+      if (!payload?.reason?.trim()) {
+        return recovered(state, 'guard_failed', 'El rechazo final necesita un motivo.', [])
+      }
       const next = baseOf(state, { flow: 'MAIN_MENU', deposit: 'REJECTED_FINAL', booking: 'CANCELLED', presentation: plainPresentation() })
       return applied(next, textView('El comprobante fue rechazado definitivamente y liberamos el horario.'), [
+        { kind: 'REJECT_DEPOSIT_FINAL', reason: payload.reason.trim() },
         { kind: 'RELEASE_HOLD' }
       ])
     }
     case 'handoff.take': {
       if (state.handoff !== 'QUEUED') return escalateInvalid(state, '')
-      return applied(baseOf(state, { flow: 'HANDOFF_TAKEN', handoff: 'TAKEN' }), textView(''))
+      return applied(baseOf(state, { flow: 'HANDOFF_TAKEN', handoff: 'TAKEN' }), textView(''), [
+        { kind: 'TAKE_HUMAN_HANDOFF' }
+      ])
     }
     case 'handoff.resolve_home': {
       if (state.handoff !== 'TAKEN') return escalateInvalid(state, '')
@@ -1004,13 +1099,17 @@ function handleCrmAction(
         handoffReturnFlow: null,
         presentation: plainPresentation()
       })
-      return applied(cleared, renderCurrentView(cleared, context))
+      return applied(cleared, renderCurrentView(cleared, context), [
+        { kind: 'RESOLVE_HANDOFF', mode: 'HOME' }
+      ])
     }
     case 'handoff.resolve_resume': {
       if (state.handoff !== 'TAKEN') return escalateInvalid(state, '')
       const target = state.handoffReturnFlow ?? 'MAIN_MENU'
       const next = baseOf(state, { flow: target, handoff: 'NONE', handoffReturnFlow: null, presentation: plainPresentation() })
-      return applied(next, renderCurrentView(next, context))
+      return applied(next, renderCurrentView(next, context), [
+        { kind: 'RESOLVE_HANDOFF', mode: 'RESUME' }
+      ])
     }
   }
   return escalateInvalid(state, '')
@@ -1492,7 +1591,11 @@ function fromAppointmentDetail(
     if (!context.cancellationAllowed) {
       return enterHandoff(state, 'cancelacion_fuera_de_politica_o_con_pago', context.labels.appointmentSummary ?? null)
     }
-    return applied(baseOf(state, { flow: 'APPOINTMENT_CANCEL_CONFIRM' }), renderCurrentView({ ...state, flow: 'APPOINTMENT_CANCEL_CONFIRM' }, context))
+    const next = baseOf(state, {
+      flow: 'APPOINTMENT_CANCEL_CONFIRM',
+      selections: { ...state.selections, appointmentId: entityRef.id }
+    })
+    return applied(next, renderCurrentView(next, context))
   }
   if (actionType === 'appointment.reschedule') {
     if (!entityRef || !context.appointmentOwnedAndFuture) {
@@ -1501,7 +1604,12 @@ function fromAppointmentDetail(
     if (!context.rescheduleAllowed) {
       return enterHandoff(state, 'reprogramacion_fuera_de_politica_o_con_pago', context.labels.appointmentSummary ?? null)
     }
-    return applied(baseOf(state, { flow: 'APPOINTMENT_RESCHEDULE_DATE', presentation: plainPresentation() }), renderCurrentView({ ...state, flow: 'APPOINTMENT_RESCHEDULE_DATE' }, context))
+    const next = baseOf(state, {
+      flow: 'APPOINTMENT_RESCHEDULE_DATE',
+      selections: { ...state.selections, appointmentId: entityRef.id, date: null, slotStartAt: null },
+      presentation: plainPresentation()
+    })
+    return applied(next, renderCurrentView(next, context))
   }
   return escalateInvalid(state, '')
 }
@@ -1519,7 +1627,14 @@ function createInitialLike(state: BotOptionsState): BotOptionsState {
     deposit: 'NONE',
     handoff: 'NONE',
     cart: [],
-    selections: { categoryId: null, professionalId: null, anyProfessional: false, date: null, slotStartAt: null },
+    selections: {
+      categoryId: null,
+      professionalId: null,
+      anyProfessional: false,
+      date: null,
+      slotStartAt: null,
+      appointmentId: null
+    },
     invalidStreak: 0,
     presentation: { kind: 'plain' },
     discardReturnFlow: null,

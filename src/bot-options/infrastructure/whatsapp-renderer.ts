@@ -1,5 +1,5 @@
 /**
- * F4.6/F4.7 — Renderer de vistas hacia payloads de WhatsApp.
+ * F3.7/F3.8 — Renderer de vistas hacia payloads de WhatsApp.
  *
  * Traduce el ViewModel del dominio a la forma que el adaptador de Meta envía,
  * validando ANTES de llamar al proveedor:
@@ -25,6 +25,11 @@ import {
   type RandomBytesFn
 } from '../domain/prompt-tokens.js'
 import type { BotOptionsViewModel, ViewChoice } from '../domain/views.js'
+import type {
+  BotOptionsActionPayload,
+  BotOptionsActionType,
+  BotOptionsEntityType
+} from '../domain/actions.js'
 
 export const WHATSAPP_INTERACTIVE_BODY_MAX_CODE_POINTS = 1024
 export const WHATSAPP_BUTTON_TITLE_MAX = 20
@@ -32,9 +37,10 @@ export const WHATSAPP_ROW_TITLE_MAX = 24
 export const WHATSAPP_ROW_DESCRIPTION_MAX = 72
 export const WHATSAPP_BUTTONS_MAX = 3
 export const WHATSAPP_LIST_ROWS_MAX = 10
+export const MAX_CHOICE_TOKEN_ATTEMPTS = 8
 
 export class RendererError extends Error {
-  constructor(readonly reason: 'too_many_choices' | 'empty_view' | 'token_budget') {
+  constructor(readonly reason: 'too_many_choices' | 'empty_view' | 'token_budget' | 'token_collision') {
     super(`renderer: ${reason}`)
   }
 }
@@ -124,8 +130,21 @@ export type WhatsAppScreenItem =
 
 export type RenderedWhatsAppScreen = {
   items: WhatsAppScreenItem[]
+  /** Mapping semántico listo para persistir, sin zip posicional externo. */
+  choiceMappings: RenderedPromptChoiceMapping[]
   /** El interactivo final depende de que los textos previos estén ACCEPTED. */
   interactiveDependsOnPrevious: boolean
+}
+
+export type RenderedPromptChoiceMapping = {
+  choiceToken: string
+  actionType: BotOptionsActionType
+  entityType: BotOptionsEntityType | null
+  entityId: string | null
+  payload: BotOptionsActionPayload | null
+  labelSnapshot: string
+  sortOrder: number
+  actionId: string
 }
 
 function choiceLabelParts(choice: ViewChoice): { title: string; description: string | null } {
@@ -163,7 +182,7 @@ export function renderWhatsAppScreen(
   const generateChoiceBytes = input.generateChoiceBytes ?? defaultRandomBytes
 
   if ((view.interactiveBody === null || view.interactiveBody.length === 0) && view.choices.length === 0 && view.informativeTexts.length === 0) {
-    return { items: [{ type: 'none' }], interactiveDependsOnPrevious: false }
+    return { items: [{ type: 'none' }], choiceMappings: [], interactiveDependsOnPrevious: false }
   }
   if (view.choices.length > WHATSAPP_LIST_ROWS_MAX) {
     throw new RendererError('too_many_choices')
@@ -181,6 +200,7 @@ export function renderWhatsAppScreen(
     // Sólo informativos.
     return {
       items,
+      choiceMappings: [],
       interactiveDependsOnPrevious: false
     }
   }
@@ -195,15 +215,35 @@ export function renderWhatsAppScreen(
 
   if (view.choices.length === 0) {
     items.push({ type: 'informative_text', body: finalBody })
-    return { items, interactiveDependsOnPrevious: dependsOnPrevious }
+    return { items, choiceMappings: [], interactiveDependsOnPrevious: dependsOnPrevious }
   }
 
   const actionIds: string[] = []
-  for (const _choice of view.choices) {
-    const choiceToken = encodeChoiceTokenFromBytes(generateChoiceBytes(8))
+  const choiceMappings: RenderedPromptChoiceMapping[] = []
+  const usedChoiceTokens = new Set<string>()
+  for (const [sortOrder, choice] of view.choices.entries()) {
+    let choiceToken: string | null = null
+    for (let attempt = 0; attempt < MAX_CHOICE_TOKEN_ATTEMPTS; attempt += 1) {
+      const candidate = encodeChoiceTokenFromBytes(generateChoiceBytes(8))
+      if (usedChoiceTokens.has(candidate)) continue
+      choiceToken = candidate
+      usedChoiceTokens.add(candidate)
+      break
+    }
+    if (choiceToken === null) throw new RendererError('token_collision')
     const id = buildInteractiveActionId(input.promptToken, choiceToken)
     if (Buffer.byteLength(id, 'ascii') > MAX_ACTION_ID_BYTES) throw new RendererError('token_budget')
     actionIds.push(id)
+    choiceMappings.push({
+      choiceToken,
+      actionType: choice.actionType,
+      entityType: choice.entityRef?.type ?? null,
+      entityId: choice.entityRef?.id ?? null,
+      payload: choice.payload ?? null,
+      labelSnapshot: choice.label,
+      sortOrder,
+      actionId: id
+    })
   }
 
   if (view.choices.length <= WHATSAPP_BUTTONS_MAX) {
@@ -218,7 +258,7 @@ export function renderWhatsAppScreen(
       actionIds,
       buttons: view.choices.map((choice, index) => ({ id: actionIds[index]!, title: titles[index]! }))
     })
-    return { items, interactiveDependsOnPrevious: dependsOnPrevious }
+    return { items, choiceMappings, interactiveDependsOnPrevious: dependsOnPrevious }
   }
 
   const rows = view.choices.map((choice, index) => {
@@ -246,5 +286,5 @@ export function renderWhatsAppScreen(
     buttonText: truncateLabelWordSafe('Elegí una opción', WHATSAPP_BUTTON_TITLE_MAX).label,
     sectionTitle: truncateLabelWordSafe('Opciones', WHATSAPP_BUTTON_TITLE_MAX).label
   })
-  return { items, interactiveDependsOnPrevious: dependsOnPrevious }
+  return { items, choiceMappings, interactiveDependsOnPrevious: dependsOnPrevious }
 }

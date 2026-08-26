@@ -1,5 +1,5 @@
 /**
- * F4.5 — Identidad opaca de prompts y opciones para WhatsApp.
+ * F3.7 — Identidad opaca de prompts y opciones para WhatsApp.
  *
  * Formato de transporte (diseno-tecnico.md §5):
  *

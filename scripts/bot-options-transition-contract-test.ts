@@ -186,6 +186,7 @@ const coordinate = transition(si, act('recommendation.add'), ctx({ labels: { ser
 assert.equal(coordinate.outcome, 'HANDOFF')
 if (coordinate.outcome === 'HANDOFF') {
   assert.equal(coordinate.state.flow, 'HANDOFF_QUEUED')
+  assert.equal(coordinate.state.handoff, 'QUEUED')
   assert.deepEqual(coordinate.effects, [{ kind: 'REQUEST_HUMAN_HANDOFF', reason: 'coordinacion_multiprofesional', detail: 'Coloración' }])
   si = coordinate.state
 }
@@ -195,6 +196,7 @@ assert.equal(cancelWait.outcome, 'APPLIED')
 if (cancelWait.outcome === 'APPLIED') {
   // Vuelve al paso pausado conservando el carrito y la propuesta pendiente.
   assert.equal(cancelWait.state.handoffReturnFlow, null)
+  assert.equal(cancelWait.state.handoff, 'NONE')
 }
 
 // ─── Seña ─────────────────────────────────────────────────────────────────────
@@ -207,7 +209,8 @@ let sd = stateWith({
     professionalId: 'pro_1',
     anyProfessional: false,
     date: '2026-09-02',
-    slotStartAt: slotPayload.startAt
+    slotStartAt: slotPayload.startAt,
+    appointmentId: null
   }
 })
 
@@ -240,6 +243,31 @@ assert.equal(sd.flow, 'DEPOSIT_REVIEW')
 assert.equal(sd.deposit, 'PROOF_RECEIVED')
 assert.equal(sd.booking, 'PENDING_PAYMENT_REVIEW')
 
+const rejectionMissingReason = transition(sd, act('deposit.reject_resubmission'), ctx())
+assert.equal(rejectionMissingReason.outcome, 'RECOVERED')
+const resubmission = transition(
+  sd,
+  act('deposit.reject_resubmission', {
+    payload: {
+      reason: 'Comprobante ilegible',
+      resubmissionDeadlineIso: '2026-08-25T14:00:00Z'
+    }
+  }),
+  ctx()
+)
+assert.equal(resubmission.outcome, 'APPLIED')
+if (resubmission.outcome === 'APPLIED') {
+  assert.equal(resubmission.state.deposit, 'REJECTED_RESUBMISSION_ALLOWED')
+  assert.equal(resubmission.state.booking, 'HELD')
+  assert.deepEqual(resubmission.effects[0], {
+    kind: 'REJECT_DEPOSIT_FOR_RESUBMISSION',
+    reason: 'Comprobante ilegible',
+    resubmissionExpiresAtIso: '2026-08-25T14:00:00Z'
+  })
+}
+const finalMissingReason = transition(sd, act('deposit.reject_final'), ctx())
+assert.equal(finalMissingReason.outcome, 'RECOVERED')
+
 const homeDuringReview = transition(sd, act('navigation.home'), ctx())
 if (homeDuringReview.outcome === 'RECOVERED') throw new Error('home en revisión debía aplicar')
 assert.equal(homeDuringReview.state.flow, 'MAIN_MENU')
@@ -250,6 +278,18 @@ if (approved.outcome === 'RECOVERED') throw new Error('approve debía aplicar')
 assert.equal(approved.state.deposit, 'APPROVED')
 assert.equal(approved.state.booking, 'CONFIRMED')
 assert.equal(approved.state.flow, 'BOOKING_CONFIRMED')
+assert.equal(approved.effects[0]?.kind, 'APPROVE_DEPOSIT')
+
+const requestedHandoff = transition(createInitialBotOptionsState(), act('handoff.request'), ctx())
+if (requestedHandoff.outcome === 'RECOVERED') throw new Error('handoff.request debía aplicar')
+assert.equal(requestedHandoff.state.flow, 'HANDOFF_QUEUED')
+assert.equal(requestedHandoff.state.handoff, 'QUEUED')
+const takenHandoff = transition(requestedHandoff.state, act('handoff.take'), ctx())
+if (takenHandoff.outcome === 'RECOVERED') throw new Error('handoff.take debía aplicar')
+assert.equal(takenHandoff.effects[0]?.kind, 'TAKE_HUMAN_HANDOFF')
+const resolvedHandoff = transition(takenHandoff.state, act('handoff.resolve_home'), ctx())
+if (resolvedHandoff.outcome === 'RECOVERED') throw new Error('handoff.resolve_home debía aplicar')
+assert.deepEqual(resolvedHandoff.effects[0], { kind: 'RESOLVE_HANDOFF', mode: 'HOME' })
 
 // Menú principal durante espera de comprobante abre cancelación protegida.
 let sw = stateWith({ flow: 'DEPOSIT_INSTRUCTIONS', deposit: 'PENDING_PROOF', booking: 'HELD' })
@@ -282,7 +322,7 @@ const third = transition(se, act('slot.select', { payload: { startAt: 'x' } }), 
 assert.equal(third.outcome, 'HANDOFF')
 if (third.outcome === 'HANDOFF') assert.equal(third.state.flow, 'HANDOFF_QUEUED')
 
-// F4.8: una acción válida reinicia el contador dentro del nuevo estado.
+// F3.6: una acción válida reinicia el contador dentro del nuevo estado.
 let sr = createInitialBotOptionsState()
 const firstInvalid = transition(sr, act('slot.select', { payload: { startAt: 'x' } }), ctx())
 sr = firstInvalid.state
@@ -307,24 +347,68 @@ const silent = transition(taken, act('menu.start_booking'), ctx())
 assert.equal(silent.outcome, 'RECOVERED')
 if (silent.outcome === 'RECOVERED') assert.equal(silent.respond, false)
 
-// ─── Cutover: estado viejo arranca limpio ─────────────────────────────────────
-
-const stale = transition(
-  stateWith({ flow: 'CART_REVIEW', cart: [{ serviceId: 'srv_viejo' }] }),
-  act('input.stale_cutover'),
-  ctx()
-)
-if (stale.outcome === 'APPLIED') {
-  assert.equal(stale.state.flow, 'MAIN_MENU')
-  assert.deepEqual(stale.state.cart, [])
-}
-
 // ─── Conflicto de slot en resumen ─────────────────────────────────────────────
 
 const conflict = transition(sd, act('booking.slot_conflict', { payload: { startAt: slotPayload.startAt } }), ctx())
 if (conflict.outcome === 'APPLIED') {
   assert.equal(conflict.state.flow, 'SLOT_SELECT')
   assert.equal(conflict.state.selections.slotStartAt, null)
+}
+
+// ─── Reprogramación conserva turno, fecha y slot seleccionados ────────────────
+
+const appointmentId = 'apt_1'
+let sa = stateWith({ flow: 'APPOINTMENT_LIST' })
+let ar = transition(
+  sa,
+  act('appointment.select', { entityRef: { type: 'APPOINTMENT', id: appointmentId } }),
+  ctx({ appointmentOwnedAndFuture: true })
+)
+if (ar.outcome === 'APPLIED') sa = ar.state
+assert.equal(sa.selections.appointmentId, appointmentId)
+
+ar = transition(
+  sa,
+  act('appointment.reschedule', { entityRef: { type: 'APPOINTMENT', id: appointmentId } }),
+  ctx({ appointmentOwnedAndFuture: true, rescheduleAllowed: true })
+)
+if (ar.outcome === 'APPLIED') sa = ar.state
+assert.equal(sa.flow, 'APPOINTMENT_RESCHEDULE_DATE')
+
+ar = transition(
+  sa,
+  act('appointment.date_select', {
+    entityRef: { type: 'APPOINTMENT', id: appointmentId },
+    payload: { date: '2026-09-03' }
+  }),
+  ctx({ rescheduleDateAvailable: true })
+)
+if (ar.outcome === 'APPLIED') sa = ar.state
+assert.equal(sa.selections.date, '2026-09-03')
+
+const newSlot = '2026-09-03T16:00:00-03:00'
+ar = transition(
+  sa,
+  act('appointment.slot_select', {
+    entityRef: { type: 'APPOINTMENT', id: appointmentId },
+    payload: { startAt: newSlot }
+  }),
+  ctx({ rescheduleSlotAvailable: true })
+)
+if (ar.outcome === 'APPLIED') sa = ar.state
+assert.equal(sa.selections.slotStartAt, newSlot)
+
+ar = transition(
+  sa,
+  act('appointment.reschedule_confirm', { entityRef: { type: 'APPOINTMENT', id: appointmentId } }),
+  ctx({ rescheduleSlotAvailable: true, approvedDepositTransferable: true })
+)
+assert.equal(ar.outcome, 'APPLIED')
+if (ar.outcome === 'APPLIED') {
+  const swap = ar.effects.find((effect) => effect.kind === 'SWAP_APPOINTMENT_SLOT')
+  assert.ok(swap && swap.kind === 'SWAP_APPOINTMENT_SLOT')
+  assert.equal(swap.newSlotStartAt, newSlot)
+  assert.equal(swap.appointmentId, appointmentId)
 }
 
 console.log('OK bot-options transition: navegación, reserva, señas, escalación y silencio cumplen el contrato.')

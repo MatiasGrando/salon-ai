@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
 import {
   RendererError,
+  MAX_CHOICE_TOKEN_ATTEMPTS,
   WHATSAPP_BUTTONS_MAX,
   WHATSAPP_INTERACTIVE_BODY_MAX_CODE_POINTS,
   WHATSAPP_LIST_ROWS_MAX,
@@ -17,7 +18,7 @@ const rng = () => randomBytes(8)
 const screen = (view: BotOptionsViewModel) =>
   renderWhatsAppScreen(view, { promptToken: 'p'.repeat(16), generateChoiceBytes: rng })
 
-// ─── splitUnicodeSafe (F4.7) ─────────────────────────────────────────────────
+// ─── splitUnicodeSafe (F3.8) ─────────────────────────────────────────────────
 
 assert.deepEqual(splitUnicodeSafe('hola', 10), ['hola'])
 assert.deepEqual(splitUnicodeSafe('', 10), [])
@@ -48,7 +49,7 @@ const cut = truncateLabelWordSafe('Corte clásico con lavado premium incluido', 
 assert.equal(cut.label, 'Corte clásico con')
 assert.equal(cut.hardTruncated, false)
 
-// ─── F4.6: límites de WhatsApp antes del proveedor ────────────────────────────
+// ─── F3.8: límites de WhatsApp antes del proveedor ────────────────────────────
 
 // Menú con más de 3 opciones → lista.
 const listScreen = screen(
@@ -70,6 +71,20 @@ for (const row of interactiveList.rows ?? []) {
 for (const id of interactiveList.actionIds) {
   const parsed = parseInteractiveActionId(id)
   assert.equal(parsed.ok, true)
+}
+assert.equal(listScreen.choiceMappings.length, 5)
+assert.deepEqual(
+  listScreen.choiceMappings.map(({ actionType, labelSnapshot, sortOrder }) => ({ actionType, labelSnapshot, sortOrder })),
+  [
+    { actionType: 'menu.start_booking', labelSnapshot: 'Sacar un turno', sortOrder: 0 },
+    { actionType: 'menu.browse_services', labelSnapshot: 'Ver servicios y precios — desde $8.000', sortOrder: 1 },
+    { actionType: 'menu.business_hours', labelSnapshot: 'Consultar horarios', sortOrder: 2 },
+    { actionType: 'menu.manage_appointment', labelSnapshot: 'Gestionar un turno', sortOrder: 3 },
+    { actionType: 'handoff.request', labelSnapshot: 'Hablar con el equipo', sortOrder: 4 }
+  ]
+)
+for (const mapping of listScreen.choiceMappings) {
+  assert.equal(mapping.actionId.includes(mapping.choiceToken), true)
 }
 
 // Dos opciones → botones.
@@ -97,6 +112,65 @@ const dupInteractive = dupScreen.items.find((item) => item.type === 'interactive
 assert.ok(dupInteractive && dupInteractive.type === 'interactive')
 const titles = (dupInteractive.buttons ?? []).map((button) => button.title)
 assert.equal(new Set(titles).size, titles.length)
+
+// El mapping conserva semántica completa sin zip posicional externo.
+const semanticScreen = screen(menuView('Elegí horario', [{
+  actionType: 'appointment.slot_select',
+  label: '16:00',
+  entityRef: { type: 'APPOINTMENT', id: 'apt_1' },
+  payload: { startAt: '2026-09-03T16:00:00-03:00' }
+}]))
+assert.deepEqual(
+  semanticScreen.choiceMappings.map(({ actionType, entityType, entityId, payload, labelSnapshot, sortOrder }) => ({
+    actionType,
+    entityType,
+    entityId,
+    payload,
+    labelSnapshot,
+    sortOrder
+  })),
+  [{
+    actionType: 'appointment.slot_select',
+    entityType: 'APPOINTMENT',
+    entityId: 'apt_1',
+    payload: { startAt: '2026-09-03T16:00:00-03:00' },
+    labelSnapshot: '16:00',
+    sortOrder: 0
+  }]
+)
+
+// Colisiones dentro del mismo prompt se reintentan con cota y luego fallan explícitamente.
+let collisionCalls = 0
+const collisionRecovered = renderWhatsAppScreen(
+  menuView('Elegí', [
+    { actionType: 'navigation.home', label: 'Inicio' },
+    { actionType: 'navigation.back', label: 'Volver' }
+  ]),
+  {
+    promptToken: 'p'.repeat(16),
+    generateChoiceBytes: () => {
+      collisionCalls += 1
+      return new Uint8Array(8).fill(collisionCalls <= 2 ? 1 : 2)
+    }
+  }
+)
+assert.equal(collisionCalls, 3)
+assert.equal(new Set(collisionRecovered.choiceMappings.map((mapping) => mapping.choiceToken)).size, 2)
+
+assert.throws(
+  () => renderWhatsAppScreen(
+    menuView('Elegí', [
+      { actionType: 'navigation.home', label: 'Inicio' },
+      { actionType: 'navigation.back', label: 'Volver' }
+    ]),
+    {
+      promptToken: 'p'.repeat(16),
+      generateChoiceBytes: () => new Uint8Array(8).fill(1)
+    }
+  ),
+  (error: unknown) => error instanceof RendererError && error.reason === 'token_collision'
+)
+assert.equal(MAX_CHOICE_TOKEN_ATTEMPTS, 8)
 
 // Más de diez opciones es un bug upstream: el renderer lo rechaza.
 assert.throws(
@@ -131,15 +205,18 @@ const finalInteractive = longRendered.items.at(-1)
 assert.ok(finalInteractive && finalInteractive.type === 'interactive')
 assert.ok(codePointLength(finalInteractive.body) <= WHATSAPP_INTERACTIVE_BODY_MAX_CODE_POINTS)
 // Nada de contenido perdido: reensamblado cubre el texto original.
-const rebuiltInformative = longRendered.items
-  .filter((item): item is Extract<typeof item, { type: 'informative_text' }> => item.type === 'informative_text')
+const rebuilt = longRendered.items
+  .filter((item): item is Exclude<typeof item, { type: 'none' }> => item.type !== 'none')
   .map((item) => item.body)
   .join('\n')
+const normalizeWhitespace = (value: string) => value.replace(/\s+/g, ' ').trim()
+assert.equal(normalizeWhitespace(rebuilt), normalizeWhitespace(longText), 'el split no puede perder contenido Unicode')
 
 // ─── Vista silenciosa y sólo informativa ──────────────────────────────────────
 
 const silent = screen(textView(''))
 assert.deepEqual(silent.items, [{ type: 'none' }])
+assert.deepEqual(silent.choiceMappings, [])
 
 const onlyText = screen(recoveryView('Ahora no puedo responder eso.', []))
 assert.equal(onlyText.interactiveDependsOnPrevious, false)
