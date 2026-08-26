@@ -643,4 +643,95 @@ assert.equal(consultMapping.entityId, 'svc_rt_consult', 'consult entityId must m
 
 console.log('OK bot-options transition: round-trip entityRef survives renderWhatsAppScreen → choiceMappings.')
 
+// ─── F5.6 — Horario semanal informativo del negocio ──────────────────────────
+
+// 1) BUSINESS_HOURS con texto de horario: envía informativeTexts
+const hoursText = '*Lunes*: 09:00 a 18:00\n*Martes*: 09:00 a 18:00\n*Miércoles*: 09:00 a 18:00\n*Jueves*: 09:00 a 18:00\n*Viernes*: 09:00 a 18:00\n*Sábado*: 10:00 a 14:00\n*Domingo*: Cerrado'
+const hoursViewWithContext = renderCurrentView(
+  stateWith({ flow: 'BUSINESS_HOURS' }),
+  normalizeContext(ctx({ labels: { businessWeeklyHoursText: hoursText } }))
+)
+assert.equal(hoursViewWithContext.informativeTexts.length, 1, 'debe tener 1 informativeText')
+assert.equal(hoursViewWithContext.informativeTexts[0], hoursText, 'informativeText debe ser el horario')
+assert.equal(hoursViewWithContext.choices.length, 2, 'debe tener 2 choices')
+assert.deepEqual(
+  hoursViewWithContext.choices.map((c) => c.actionType),
+  ['hours.professional', 'hours.search_availability'],
+  'choices de BUSINESS_HOURS'
+)
+console.log('OK F5.6: BUSINESS_HOURS con texto informativo')
+
+// 2) BUSINESS_HOURS sin texto: no agrega informativeTexts vacíos
+const hoursViewEmpty = renderCurrentView(
+  stateWith({ flow: 'BUSINESS_HOURS' }),
+  normalizeContext(ctx())
+)
+assert.equal(hoursViewEmpty.informativeTexts.length, 0, 'sin texto no agrega informativeTexts')
+assert.equal(hoursViewEmpty.interactiveBody, '¿Qué querés ver?', 'interactiveBody unchanged')
+console.log('OK F5.6: BUSINESS_HOURS sin texto informativo')
+
+// 3) Transición menú → BUSINESS_HOURS genera nuevo estado
+const hoursTransition = transition(
+  createInitialBotOptionsState(),
+  act('menu.business_hours'),
+  ctx()
+)
+assert.equal(hoursTransition.outcome, 'APPLIED')
+if (hoursTransition.outcome === 'APPLIED') {
+  assert.equal(hoursTransition.state.flow, 'BUSINESS_HOURS')
+  assert.equal(hoursTransition.state.invalidStreak, 0, 'acción válida reinicia streak')
+}
+console.log('OK F5.6: transición menú → BUSINESS_HOURS')
+
+// 4) Volver desde BUSINESS_HOURS regresa a MAIN_MENU
+const backFromHours = transition(
+  stateWith({ flow: 'BUSINESS_HOURS' }),
+  act('navigation.back'),
+  ctx()
+)
+assert.equal(backFromHours.outcome, 'APPLIED')
+if (backFromHours.outcome === 'APPLIED') {
+  assert.equal(backFromHours.state.flow, 'MAIN_MENU')
+}
+console.log('OK F5.6: back desde BUSINESS_HOURS → MAIN_MENU')
+
+// 5) hours.professional desde BUSINESS_HOURS → PROFESSIONAL_HOURS_SELECT
+const toProHours = transition(
+  stateWith({ flow: 'BUSINESS_HOURS' }),
+  act('hours.professional'),
+  ctx()
+)
+assert.equal(toProHours.outcome, 'APPLIED')
+if (toProHours.outcome === 'APPLIED') {
+  assert.equal(toProHours.state.flow, 'PROFESSIONAL_HOURS_SELECT')
+}
+console.log('OK F5.6: hours.professional → PROFESSIONAL_HOURS_SELECT')
+
+// 6) hours.search_availability desde BUSINESS_HOURS inicia booking path
+const searchAvail = transition(
+  stateWith({ flow: 'BUSINESS_HOURS' }),
+  act('hours.search_availability'),
+  ctx({ customerNameOnFile: 'Ana' })
+)
+assert.equal(searchAvail.outcome, 'APPLIED')
+if (searchAvail.outcome === 'APPLIED') {
+  assert.ok(
+    searchAvail.state.flow === 'CATEGORY_SELECT' || searchAvail.state.flow === 'NAME_INPUT',
+    'search_availability inicia booking path'
+  )
+}
+console.log('OK F5.6: hours.search_availability inicia booking path')
+
+// 7) BUSINESS_HOURS no crea draft ni revela agenda
+// (validación estática: la vista no contiene entityRef ni payload de appointment)
+const hoursChoices = renderCurrentView(
+  stateWith({ flow: 'BUSINESS_HOURS' }),
+  normalizeContext(ctx())
+)
+for (const choice of hoursChoices.choices) {
+  assert.ok(!choice.entityRef, `choice ${choice.actionType} no debe tener entityRef`)
+  assert.ok(!choice.payload, `choice ${choice.actionType} no debe tener payload`)
+}
+console.log('OK F5.6: BUSINESS_HOURS no crea draft ni revela agenda')
+
 console.log('OK bot-options transition: navegación, reserva, señas, escalación y silencio cumplen el contrato.')

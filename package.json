@@ -72,6 +72,8 @@
     "test:bot-options-config": "tsx scripts/bot-options-config-contract-test.ts",
     "test:bot-options-shadow-admission": "tsx scripts/bot-options-shadow-admission-contract-test.ts",
     "test:bot-options-pure": "npm run test:bot-options-domain && npm run test:bot-options-transition && npm run test:bot-options-prompt-tokens && npm run test:bot-options-renderer && npm run test:bot-options-prompts && npm run test:bot-options-meta-adapter && npm run test:bot-options-meta-provider && npm run test:bot-options-config && npm run test:bot-options-shadow-admission",
+    "test:bot-options-hours-pg": "tsx scripts/bot-options-hours-pg-contract-test.ts",
+    "test:bot-options-hours-e2e": "tsx scripts/bot-options-hours-e2e-test.ts",
     "test:bot-options-f4-pg": "tsx scripts/bot-options-f4-pg-contract-test.ts",
     "test:bot-options-crash-recovery-pg": "tsx scripts/bot-options-crash-recovery-pg-test.ts",
     "test:bot-options-main-menu-e2e": "tsx scripts/bot-options-main-menu-e2e-test.ts",

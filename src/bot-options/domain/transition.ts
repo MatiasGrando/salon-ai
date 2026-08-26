@@ -93,6 +93,8 @@ export type TransitionContext = {
     serviceName?: string | undefined
     professionalName?: string | undefined
     appointmentSummary?: string | undefined
+    /** F5.6: Texto informativo del horario semanal del negocio (lunes–domingo + excepciones). */
+    businessWeeklyHoursText?: string | undefined
   }
   confirmVisitSnapshot: {
     services: Array<{
@@ -546,11 +548,17 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
       return textView('Tu horario sigue reservado provisoriamente mientras revisamos el comprobante.')
     case 'BOOKING_CONFIRMED':
       return textView('Listo, tu turno quedó confirmado. Te esperamos.')
-    case 'BUSINESS_HOURS':
-      return menuView('Horarios de atención de la semana:', [
+    case 'BUSINESS_HOURS': {
+      const hoursView = menuView('¿Qué querés ver?', [
         { actionType: 'hours.professional', label: 'Horario de un profesional' },
         { actionType: 'hours.search_availability', label: 'Buscar un turno disponible' }
       ])
+      // F5.6: El horario semanal informativo se envía como texto previo al interactivo.
+      if (context.labels.businessWeeklyHoursText) {
+        return { ...hoursView, informativeTexts: [context.labels.businessWeeklyHoursText] }
+      }
+      return hoursView
+    }
     case 'PROFESSIONAL_HOURS_SELECT':
       return menuView('¿De quién querés ver el horario?', [])
     case 'PROFESSIONAL_HOURS_DETAIL':

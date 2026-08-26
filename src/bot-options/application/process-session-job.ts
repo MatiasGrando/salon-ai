@@ -14,6 +14,8 @@ import { PrismaCatalogRepository } from '../infrastructure/prisma-catalog.js'
 import { prismaHandoffEffectExecutor } from '../infrastructure/prisma-handoff-effect-executor.js'
 import type { BotOptionsActionType } from '../domain/actions.js'
 import { botOptionsMetrics } from '../observability/metrics.js'
+import { PrismaHoursRepository } from '../infrastructure/prisma-hours.js'
+import { formatBusinessWeeklySchedule } from './hours-queries.js'
 
 type RuntimeClient = Pick<PrismaClient, '$queryRaw' | '$executeRaw' | '$transaction'>
 
@@ -26,6 +28,7 @@ export type TransitionContextProvider = (
     actionType: string
     entityRef: BotOptionsEntityRef | null
     dbNow: Date
+    businessTimezone: string
   }
 ) => Promise<TransitionContext>
 
@@ -45,6 +48,9 @@ export const unavailableEffectExecutor: TransitionEffectExecutor = async (_tx, i
  * Para acciones que involucran un SERVICE entityRef, busca el servicio vía
  * PrismaCatalogRepository.getService (isBookable + category active) y deriva
  * serviceActive / serviceBookable / requiresConsultation / labels desde la fila.
+ *
+ * Para menu.business_hours, carga BusinessHours + ScheduleBlock (excepciones
+ * nivel negocio, professionalId=null) y formatea el texto semanal informativo.
  *
  * serviceCompatibleWithCart se asume true para el primer servicio (F6.3
  * intersección multiprofesional se implementa después).
@@ -75,6 +81,25 @@ const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
       base.labels.serviceName = service.name
     }
   }
+
+  // F5.6: Vista runtime real de horarios del negocio
+  // Carga BusinessHours + ScheduleBlock con businessId, session.businessTimezone y dbNow.
+  // NO consulta Professional, Appointment, slots ni disponibilidad.
+  if (input.actionType === 'menu.business_hours') {
+    const hoursRepo = new PrismaHoursRepository(tx)
+    const [weeklyHours, exceptions] = await Promise.all([
+      hoursRepo.loadBusinessWeeklyHours({ businessId: input.businessId }),
+      hoursRepo.loadBusinessOperationalExceptions({
+        businessId: input.businessId,
+        dbNow: input.dbNow,
+        timezone: input.businessTimezone
+      })
+    ])
+    base.labels.businessWeeklyHoursText = formatBusinessWeeklySchedule(
+      weeklyHours, exceptions, input.dbNow, input.businessTimezone
+    )
+  }
+
   return base
 }
 
@@ -153,9 +178,11 @@ async function processSessionJobInternal(input: {
       const sessions = await tx.$queryRaw<Array<{
         id: string; businessId: string; deploymentId: string; deploymentGeneration: number
         revision: bigint; state: Prisma.JsonValue; status: string; dbNow: Date; toPhone: string | null
+        businessTimezone: string
       }>>(Prisma.sql`
         SELECT s."id", s."businessId", s."deploymentId", s."deploymentGeneration", s."revision", s."state",
-          s."status"::text AS "status", clock_timestamp() AS "dbNow", c."phone" AS "toPhone"
+          s."status"::text AS "status", clock_timestamp() AS "dbNow", c."phone" AS "toPhone",
+          s."businessTimezone"
         FROM "BotSession" s
         JOIN "BotChannelDeployment" d ON d."id" = s."deploymentId"
         LEFT JOIN "Conversation" c ON c."id" = s."conversationId"
@@ -207,7 +234,8 @@ async function processSessionJobInternal(input: {
         const context = await (input.contextProvider ?? defaultContextProvider)(tx, {
           businessId: session.businessId, sessionId: session.id, state: parsedState.state, actionType: selectedActionType,
           entityRef: selectedEntityRef,
-          dbNow: session.dbNow
+          dbNow: session.dbNow,
+          businessTimezone: session.businessTimezone
         })
         const result = transition(parsedState.state, {
           actionType: selectedActionType,
@@ -374,7 +402,8 @@ async function processInitialInboxUnderClaim(
         businessId: row.businessId!, sessionId: session.id, revision: revisionTo, transitionId,
         toPhone: payload.fromPhone, view: renderCurrentView(state, await defaultContextProvider(tx, {
           businessId: row.businessId!, sessionId: session.id, state, actionType: 'system.initial_view',
-          entityRef: null, dbNow: row.dbNow
+          entityRef: null, dbNow: row.dbNow,
+          businessTimezone: 'America/Argentina/Buenos_Aires' // Fallback razonable para initial view
         })), dbNow: row.dbNow
       })
     }
