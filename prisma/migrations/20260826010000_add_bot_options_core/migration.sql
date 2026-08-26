@@ -1,13 +1,16 @@
 -- Motor determinístico por opciones: núcleo aditivo de etapa 1 (F1/F2/F3).
 -- Sin cambios destructivos; el runtime legado ignora estas tablas.
 
-ALTER TABLE "BusinessWhatsAppConfig" ADD COLUMN "appSecret" TEXT;
+ALTER TABLE "BusinessWhatsAppConfig"
+  ADD COLUMN "appSecret" TEXT,
+  ADD COLUMN "appSecretPrevious" TEXT,
+  ADD COLUMN "appSecretPreviousValidUntil" TIMESTAMP(3);
 
--- Un único phoneNumberId conectado por tenant: resolución determinística del
--- webhook y rechazo temprano de configuraciones cruzadas.
-CREATE UNIQUE INDEX "BusinessWhatsAppConfig_phoneNumberId_connected_key"
-  ON "BusinessWhatsAppConfig"("phoneNumberId")
-  WHERE "phoneNumberId" IS NOT NULL AND "connectionStatus" = 'CONNECTED';
+-- El índice único parcial de phoneNumberId conectado NO se crea en el deploy
+-- automático. Según el plan F1.9/F1.10, primero se reportan y remedian
+-- duplicados y después se crea CONCURRENTLY como operación manual auditada.
+-- Hasta entonces, la admisión consulta como máximo dos filas y rechaza toda
+-- resolución ambigua: nunca reasigna un tenant silenciosamente.
 
 DO $$ BEGIN
   CREATE TYPE "BotChannel" AS ENUM ('WHATSAPP');
@@ -45,20 +48,33 @@ DO $$ BEGIN
   CREATE TYPE "BotOutboxStatus" AS ENUM ('PENDING', 'SENDING', 'UNKNOWN', 'ACCEPTED', 'DELIVERED', 'READ', 'FAILED', 'POISON');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
+-- Clave candidata requerida por las FKs compuestas tenant-safe del deployment.
+CREATE UNIQUE INDEX IF NOT EXISTS "BusinessBotConfiguration_businessId_id_key"
+  ON "BusinessBotConfiguration"("businessId", "id");
+
 -- Puntero exclusivo del motor activo por negocio/canal.
 CREATE TABLE IF NOT EXISTS "BotChannelDeployment" (
   "id" TEXT NOT NULL,
   "businessId" TEXT NOT NULL,
-  "channel" TEXT NOT NULL DEFAULT 'WHATSAPP',
+  "channel" "BotChannel" NOT NULL DEFAULT 'WHATSAPP',
   "engineKey" TEXT NOT NULL DEFAULT 'deterministic-options',
   "activeConfigurationId" TEXT,
+  "previousConfigurationId" TEXT,
   "generation" INTEGER NOT NULL DEFAULT 0,
   "activatedAt" TIMESTAMP(3),
   "activatedByUserId" TEXT,
+  "claimsPausedAt" TIMESTAMP(3),
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMP(3) NOT NULL,
 
-  CONSTRAINT "BotChannelDeployment_pkey" PRIMARY KEY ("id")
+  CONSTRAINT "BotChannelDeployment_pkey" PRIMARY KEY ("id"),
+
+  CONSTRAINT "BotChannelDeployment_businessId_activeConfigurationId_fkey"
+    FOREIGN KEY ("businessId", "activeConfigurationId")
+    REFERENCES "BusinessBotConfiguration"("businessId", "id") ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT "BotChannelDeployment_businessId_previousConfigurationId_fkey"
+    FOREIGN KEY ("businessId", "previousConfigurationId")
+    REFERENCES "BusinessBotConfiguration"("businessId", "id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS "BotChannelDeployment_businessId_channel_key"
   ON "BotChannelDeployment"("businessId", "channel");
@@ -121,7 +137,7 @@ CREATE TABLE IF NOT EXISTS "BotPrompt" (
 
   CONSTRAINT "BotPrompt_pkey" PRIMARY KEY ("id"),
 
-  CONSTRAINT "BotPrompt_session_fkey" FOREIGN KEY ("sessionId")
+  CONSTRAINT "BotPrompt_sessionId_fkey" FOREIGN KEY ("sessionId")
     REFERENCES "BotSession"("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS "BotPrompt_promptToken_key" ON "BotPrompt"("promptToken");
@@ -172,6 +188,26 @@ CREATE UNIQUE INDEX IF NOT EXISTS "BotProviderEvent_provider_eventKey_key"
 CREATE INDEX IF NOT EXISTS "BotProviderEvent_providerMessageId_idx" ON "BotProviderEvent"("providerMessageId");
 CREATE INDEX IF NOT EXISTS "BotProviderEvent_businessId_admittedAt_idx" ON "BotProviderEvent"("businessId", "admittedAt");
 
+-- Shadow observacional físicamente aislado: no referencia inbox, jobs ni outbox.
+CREATE TABLE IF NOT EXISTS "BotProviderEventShadow" (
+  "id" TEXT NOT NULL,
+  "provider" TEXT NOT NULL DEFAULT 'WHATSAPP',
+  "eventKey" TEXT NOT NULL,
+  "businessId" TEXT,
+  "phoneNumberId" TEXT,
+  "eventType" "BotProviderEventType",
+  "payloadRedacted" JSONB,
+  "observedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "result" TEXT NOT NULL,
+  "traceId" TEXT,
+
+  CONSTRAINT "BotProviderEventShadow_pkey" PRIMARY KEY ("id")
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "BotProviderEventShadow_provider_eventKey_key"
+  ON "BotProviderEventShadow"("provider", "eventKey");
+CREATE INDEX IF NOT EXISTS "BotProviderEventShadow_businessId_observedAt_idx"
+  ON "BotProviderEventShadow"("businessId", "observedAt");
+
 CREATE TABLE IF NOT EXISTS "BotActionInbox" (
   "id" TEXT NOT NULL,
   "providerEventId" TEXT NOT NULL,
@@ -194,6 +230,8 @@ CREATE TABLE IF NOT EXISTS "BotActionInbox" (
   CONSTRAINT "BotActionInbox_sessionId_fkey" FOREIGN KEY ("sessionId")
     REFERENCES "BotSession"("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
+CREATE UNIQUE INDEX IF NOT EXISTS "BotActionInbox_providerEventId_key"
+  ON "BotActionInbox"("providerEventId");
 CREATE INDEX IF NOT EXISTS "BotActionInbox_promptId_status_receivedAt_idx"
   ON "BotActionInbox"("promptId", "status", "receivedAt");
 CREATE INDEX IF NOT EXISTS "BotActionInbox_sessionId_receivedAt_idx"

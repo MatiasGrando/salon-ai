@@ -14,8 +14,8 @@ datasource db {
 
 // ─── Motor determinístico por opciones (bot-options) ─────────────────────────
 // Tablas aditivas de etapa 1. Los vínculos con negocio/conversación usan
-// columnas + índices (sin relación Prisma) para mantener esta extensión local
-// al bloque y compatible con el runtime legado.
+// columnas + índices para mantener esta extensión compatible con el runtime
+// legado; el pointer de configuración sí impone pertenencia tenant-safe.
 
 enum BotChannel {
   WHATSAPP
@@ -87,16 +87,20 @@ enum BotOutboxStatus {
 }
 
 model BotChannelDeployment {
-  id                   String    @id @default(cuid())
-  businessId           String
-  channel              String    @default("WHATSAPP")
-  engineKey            String    @default("deterministic-options")
-  activeConfigurationId String?
-  generation           Int       @default(0)
-  activatedAt          DateTime?
-  activatedByUserId    String?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  id                      String                    @id @default(cuid())
+  businessId              String
+  channel                 BotChannel                @default(WHATSAPP)
+  engineKey               String                    @default("deterministic-options")
+  activeConfigurationId   String?
+  activeConfiguration     BusinessBotConfiguration? @relation("BotChannelDeploymentActiveConfiguration", fields: [businessId, activeConfigurationId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  previousConfigurationId String?
+  previousConfiguration   BusinessBotConfiguration? @relation("BotChannelDeploymentPreviousConfiguration", fields: [businessId, previousConfigurationId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  generation              Int                       @default(0)
+  activatedAt             DateTime?
+  activatedByUserId       String?
+  claimsPausedAt          DateTime?
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
 
   @@unique([businessId, channel])
 }
@@ -195,6 +199,22 @@ model BotProviderEvent {
   @@unique([provider, eventKey])
   @@index([providerMessageId])
   @@index([businessId, admittedAt])
+}
+
+model BotProviderEventShadow {
+  id              String                @id @default(cuid())
+  provider        String                @default("WHATSAPP")
+  eventKey        String
+  businessId      String?
+  phoneNumberId   String?
+  eventType       BotProviderEventType?
+  payloadRedacted Json?
+  observedAt      DateTime              @default(now())
+  result          String
+  traceId         String?
+
+  @@unique([provider, eventKey])
+  @@index([businessId, observedAt])
 }
 
 model BotActionInbox {
@@ -679,6 +699,8 @@ model BusinessWhatsAppConfig {
   accessToken        String?
   /** App secret de la Meta App propia del comercio: valida X-Hub-Signature-256 (decisión D). */
   appSecret          String?
+  appSecretPrevious  String?
+  appSecretPreviousValidUntil DateTime?
   tokenExpiresAt     DateTime?
   connectedAt        DateTime?
   disconnectedAt     DateTime?
@@ -831,10 +853,14 @@ model BusinessBotConfiguration {
   displayPhoneNumber String?
   definition         Json
 
+  activeDeployments   BotChannelDeployment[] @relation("BotChannelDeploymentActiveConfiguration")
+  previousDeployments BotChannelDeployment[] @relation("BotChannelDeploymentPreviousConfiguration")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([businessId, botKey])
+  @@unique([businessId, id])
   @@index([businessId, status])
   @@index([phoneNumberId, status])
 }

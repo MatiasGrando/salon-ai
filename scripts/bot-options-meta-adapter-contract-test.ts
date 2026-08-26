@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHmac, randomBytes } from 'node:crypto'
 import {
+  extractUntrustedPhoneNumberIdCandidate,
   parseWhatsAppWebhookPayload,
   verifyMetaSignature
 } from '../src/bot-options/infrastructure/meta-webhook-adapter.js'
@@ -22,6 +23,18 @@ assert.equal(
 assert.equal(verifyMetaSignature({ rawBody: RAW_BODY, signatureHeader: undefined, appSecret: SECRET }).ok, false)
 assert.equal(verifyMetaSignature({ rawBody: RAW_BODY, signatureHeader: '', appSecret: SECRET }).ok, false)
 assert.equal(verifyMetaSignature({ rawBody: RAW_BODY, signatureHeader: 'sha256=zz', appSecret: SECRET }).ok, false)
+assert.deepEqual(
+  verifyMetaSignature({ rawBody: RAW_BODY, signatureHeader: [goodSignature, goodSignature], appSecret: SECRET }),
+  { ok: false, reason: 'duplicate_header' }
+)
+assert.deepEqual(
+  verifyMetaSignature({ rawBody: RAW_BODY, signatureHeader: goodSignature, appSecret: '' }),
+  { ok: false, reason: 'empty_secret' }
+)
+assert.deepEqual(
+  verifyMetaSignature({ rawBody: RAW_BODY, signatureHeader: goodSignature, appSecret: '   ' }),
+  { ok: false, reason: 'empty_secret' }
+)
 assert.equal(
   verifyMetaSignature({ rawBody: RAW_BODY, signatureHeader: 'md5=abc', appSecret: SECRET }).ok,
   false,
@@ -156,7 +169,40 @@ if (failedStatus.kind === 'status') assert.equal(failedStatus.errorMessage, 'alg
 
 // Payload vacío/desconocido no rompe y queda tipado.
 const empty = parseWhatsAppWebhookPayload({ object: 'whatsapp_business_account', entry: [] })
-assert.deepEqual(empty.events, [{ kind: 'unsupported_change', eventKey: 'unknown-change' }])
+assert.equal(empty.events[0]?.kind, 'unsupported_change')
+assert.match(empty.events[0]?.eventKey ?? '', /^unknown-change:[0-9a-f]{64}$/)
+assert.equal(
+  empty.events[0]?.eventKey,
+  parseWhatsAppWebhookPayload({ entry: [], object: 'whatsapp_business_account' }).events[0]?.eventKey,
+  'el hash canónico no depende del orden de claves'
+)
+assert.notEqual(empty.events[0]?.eventKey, parseWhatsAppWebhookPayload({ object: 'otro', entry: [] }).events[0]?.eventKey)
 assert.equal(parseWhatsAppWebhookPayload(null).events[0]?.kind, 'unsupported_change')
+
+const hugeTimestampPayload = structuredClone(payload)
+hugeTimestampPayload.entry[0]!.changes[0]!.value.messages[0]!.timestamp = '9'.repeat(10_000)
+hugeTimestampPayload.entry[0]!.changes[0]!.value.statuses[0]!.timestamp = '9'.repeat(10_000)
+let hugeTimestampParsed: ReturnType<typeof parseWhatsAppWebhookPayload> | undefined
+assert.doesNotThrow(() => { hugeTimestampParsed = parseWhatsAppWebhookPayload(hugeTimestampPayload) })
+assert.equal(hugeTimestampParsed?.events[0]?.kind === 'message' ? hugeTimestampParsed.events[0].providerOccurredAtIso : 'unexpected', null)
+const hugeStatus = hugeTimestampParsed?.events.find((event) => event.kind === 'status')
+assert.equal(hugeStatus?.kind === 'status' ? hugeStatus.providerOccurredAtIso : 'unexpected', null)
+
+// El candidato de tenant se extrae antes de confiar en el body y nunca resuelve ambigüedad.
+assert.equal(extractUntrustedPhoneNumberIdCandidate(JSON.stringify(payload)), 'PN_1')
+assert.equal(extractUntrustedPhoneNumberIdCandidate(Buffer.from(JSON.stringify(payload), 'utf8')), 'PN_1')
+assert.equal(extractUntrustedPhoneNumberIdCandidate('{'), null)
+assert.equal(extractUntrustedPhoneNumberIdCandidate(Buffer.from([0xff])), null)
+assert.equal(extractUntrustedPhoneNumberIdCandidate(JSON.stringify({ entry: [] })), null)
+
+const repeatedCandidate = structuredClone(payload)
+repeatedCandidate.entry.push(structuredClone(repeatedCandidate.entry[0]!))
+assert.equal(extractUntrustedPhoneNumberIdCandidate(JSON.stringify(repeatedCandidate)), 'PN_1')
+
+const ambiguousCandidate = structuredClone(payload)
+const secondEntry = structuredClone(ambiguousCandidate.entry[0]!)
+secondEntry.changes[0]!.value.metadata.phone_number_id = 'PN_2'
+ambiguousCandidate.entry.push(secondEntry)
+assert.equal(extractUntrustedPhoneNumberIdCandidate(JSON.stringify(ambiguousCandidate)), null)
 
 console.log('OK bot-options meta adapter: firma HMAC por negocio y parseo tipado cumplen el contrato.')

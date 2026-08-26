@@ -10,11 +10,12 @@
  * Este módulo es puro: no toca base, HTTP ni credenciales reales.
  */
 
-import { createHmac, timingSafeEqual } from 'node:crypto'
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
+import { TextDecoder } from 'node:util'
 
 export type SignatureCheck =
   | { ok: true }
-  | { ok: false; reason: 'missing_header' | 'malformed_header' | 'invalid_signature' }
+  | { ok: false; reason: 'missing_header' | 'duplicate_header' | 'malformed_header' | 'empty_secret' | 'invalid_signature' }
 
 /** Verifica X-Hub-Signature-256=sha256=<hex> contra rawBody y appSecret del negocio reclamado. */
 export function verifyMetaSignature(input: {
@@ -22,6 +23,10 @@ export function verifyMetaSignature(input: {
   signatureHeader: string | string[] | undefined
   appSecret: string
 }): SignatureCheck {
+  if (input.appSecret.trim().length === 0) return { ok: false, reason: 'empty_secret' }
+  if (Array.isArray(input.signatureHeader) && input.signatureHeader.length > 1) {
+    return { ok: false, reason: 'duplicate_header' }
+  }
   const header = Array.isArray(input.signatureHeader) ? input.signatureHeader[0] : input.signatureHeader
   if (!header || typeof header !== 'string') return { ok: false, reason: 'missing_header' }
 
@@ -96,6 +101,36 @@ function str(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
 }
 
+function timestampIso(value: unknown): string | null {
+  const raw = str(value)
+  if (!raw || !/^\d+$/.test(raw)) return null
+  const seconds = Number(raw)
+  const milliseconds = seconds * 1000
+  if (!Number.isFinite(milliseconds) || milliseconds > 8_640_000_000_000_000) return null
+  const date = new Date(milliseconds)
+  return Number.isNaN(date.getTime()) ? null : date.toISOString()
+}
+
+function canonicalize(value: unknown, ancestors = new Set<object>()): string {
+  if (value === null) return 'null'
+  if (typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value)
+  if (typeof value === 'number') return Number.isFinite(value) ? JSON.stringify(value) : JSON.stringify(String(value))
+  if (typeof value === 'bigint') return JSON.stringify(value.toString())
+  if (typeof value !== 'object') return JSON.stringify(`[${typeof value}]`)
+  if (ancestors.has(value)) return '"[circular]"'
+
+  ancestors.add(value)
+  const result = Array.isArray(value)
+    ? `[${value.map((item) => canonicalize(item, ancestors)).join(',')}]`
+    : `{${Object.keys(value as UnknownRecord).sort().map((key) => `${JSON.stringify(key)}:${canonicalize((value as UnknownRecord)[key], ancestors)}`).join(',')}}`
+  ancestors.delete(value)
+  return result
+}
+
+function unknownChangeEventKey(payload: unknown): string {
+  return `unknown-change:${createHash('sha256').update(canonicalize(payload)).digest('hex')}`
+}
+
 function entriesOf(payload: unknown): Array<{ phoneNumberId: string | null; displayPhoneNumber: string | null; message: UnknownRecord | statusRecord | null }> {
   const root = asRecord(payload)
   const entryList = Array.isArray(root?.['entry']) ? (root!['entry'] as unknown[]) : []
@@ -122,6 +157,29 @@ function entriesOf(payload: unknown): Array<{ phoneNumberId: string | null; disp
 type statusRecord = UnknownRecord & { statuses?: unknown[]; messages?: unknown[] }
 
 /**
+ * Extrae sólo el phone_number_id reclamado por el body todavía no confiable.
+ * JSON inválido, ausencia de candidato o más de un ID distinto se rechazan.
+ */
+export function extractUntrustedPhoneNumberIdCandidate(rawBody: Buffer | string): string | null {
+  let payload: unknown
+  try {
+    const text = typeof rawBody === 'string'
+      ? rawBody
+      : new TextDecoder('utf-8', { fatal: true }).decode(rawBody)
+    payload = JSON.parse(text) as unknown
+  } catch {
+    return null
+  }
+
+  const candidates = new Set<string>()
+  for (const group of entriesOf(payload)) {
+    if (group.phoneNumberId) candidates.add(group.phoneNumberId)
+    if (candidates.size > 1) return null
+  }
+  return candidates.size === 1 ? [...candidates][0]! : null
+}
+
+/**
  * Extrae mensajes y callbacks de estado como eventos estables. Los tipos no
  * soportados (audio, video, ubicación, sticker…) se tipan igualmente para que
  * la recuperación gradual pueda contarlos sin interpretar contenido.
@@ -141,10 +199,7 @@ export function parseWhatsAppWebhookPayload(payload: unknown): WebhookParseResul
       const fromPhone = str(rec['from'])
       if (!messageId || !fromPhone) continue
       const eventType = str(rec['type']) ?? 'unsupported'
-      const timestampRaw = str(rec['timestamp'])
-      const occurredAt = timestampRaw && /^\d+$/.test(timestampRaw)
-        ? new Date(Number(timestampRaw) * 1000).toISOString()
-        : null
+      const occurredAt = timestampIso(rec['timestamp'])
 
       const base = {
         eventKey: messageId,
@@ -208,14 +263,14 @@ export function parseWhatsAppWebhookPayload(payload: unknown): WebhookParseResul
         phoneNumberId: group.phoneNumberId,
         status,
         recipientPhone: str(rec['recipient_id']),
-        providerOccurredAtIso: timestampRaw && /^\d+$/.test(timestampRaw) ? new Date(Number(timestampRaw) * 1000).toISOString() : null,
+        providerOccurredAtIso: timestampIso(rec['timestamp']),
         errorMessage: str(firstError?.['message'])
       })
     }
   }
 
   if (events.length === 0) {
-    events.push({ kind: 'unsupported_change', eventKey: 'unknown-change' })
+    events.push({ kind: 'unsupported_change', eventKey: unknownChangeEventKey(payload) })
   }
   return { events }
 }
