@@ -62,6 +62,7 @@
     "test:manual-appointment-customer-search": "tsx scripts/manual-appointment-customer-search-contract-test.ts",
     "test:manual-appointment-without-phone": "tsx scripts/manual-appointment-without-phone-contract-test.ts",
     "test:text-encoding": "tsx scripts/text-encoding-contract-test.ts",
+    "test:bot-options-domain": "tsx scripts/bot-options-domain-contract-test.ts",
     "test:appointment-payload": "tsx scripts/appointment-payload-contract-test.ts",
     "test:appointment-notes-display": "tsx scripts/appointment-notes-display-contract-test.ts",
     "test:agenda-professional-drag": "tsx scripts/agenda-professional-drag-contract-test.ts",
