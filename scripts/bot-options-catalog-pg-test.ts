@@ -8,10 +8,12 @@ if (safety.hostname !== '127.0.0.1' || safety.port !== '54322' || safety.pathnam
 }
 process.env.DATABASE_URL = SAFE_DATABASE_URL
 
-const [{ createPrismaClient }, catalog, catalogQueries] = await Promise.all([
+const [{ createPrismaClient }, catalog, catalogQueries, { Prisma }, { claimOutbox, sendClaimedOutbox }] = await Promise.all([
   import('../src/config/prisma-client.js'),
   import('../src/bot-options/infrastructure/prisma-catalog.js'),
-  import('../src/bot-options/application/catalog-queries.js')
+  import('../src/bot-options/application/catalog-queries.js'),
+  import('../src/generated/prisma/client.js'),
+  import('../src/bot-options/infrastructure/whatsapp-outbox-sender.js')
 ])
 const prisma = createPrismaClient({ connectionString: SAFE_DATABASE_URL, max: 4, idleTimeoutMillis: 1000, connectionTimeoutMillis: 3000 })
 const suffix = randomUUID().replaceAll('-', '')
@@ -21,6 +23,16 @@ const categoryIds = Array.from({ length: 9 }, (_, index) => `f5_cat_${index}_${s
 const groupId = `f5_group_${suffix}`
 const serviceId = `f5_service_${suffix}`
 const variantId = `f5_variant_${suffix}`
+
+// IDs for the fragment-failure fixture — declared OUTSIDE try so cleanup always has them.
+const depDeploymentId = `f5_dep_deploy_${suffix}`
+const depConfigId = `f5_dep_cfg_${suffix}`
+const depSessionId = `f5_dep_s_${suffix}`
+const depConversationId = `f5_dep_v_${suffix}`
+const depTransitionId = `f5_dep_t_${suffix}`
+const depDeliveryGroupId = `f5_dep_group_${suffix}`
+const predecessorId = `f5_dep_pre_${suffix}`
+const dependentId = `f5_dep_dep_${suffix}`
 
 try {
   await prisma.business.createMany({ data: [
@@ -74,8 +86,115 @@ try {
   assert.equal(await repository.getService({ businessId, serviceId: `f5_other_service_${suffix}` }), null, 'service reads are tenant-scoped')
   assert.equal(await repository.listServices({ businessId, categoryId: `f5_cat_other_${suffix}`, page: 0 }), null, 'category reads are tenant-scoped')
   assert.throws(() => catalogQueries.catalogPageOffset(-1), /non-negative integer/)
+
+  // ─── F5.4 PG: fragmento previo POISON bloquea dependiente interactivo ─────────
+  //
+  // reglas-funcionales.md §3.1: "Si no se pudo entregar el contenido previo
+  // requerido, no se presenta una acción de reserva descontextualizada."
+  //
+  // Este contrato verifica que un grupo de delivery con predecesor informativo
+  // en estado POISON impide que el interactivo dependiente sea reclamado por
+  // el sender. El bloqueo ocurre en la claim query de whatsapp-outbox-sender.ts.
+  //
+  // Flujo real probado: claimOutbox → sendClaimedOutbox(provider returns
+  // clear_failure retryable:false) → POISON status → dependent claim blocked.
+
+  // Crear configuración mínima para soportar el deployment.
+  await prisma.$executeRaw(Prisma.sql`
+    INSERT INTO "BusinessBotConfiguration" ("id", "businessId", "botKey", "name", "version", "status", "definition", "updatedAt")
+    VALUES (${depConfigId}, ${businessId}, 'f5_cat_dep', 'F5 dep', 'v1', 'ACTIVE', '{}'::jsonb, clock_timestamp())
+  `)
+
+  // Crear deployment con todas las columnas que la claim query requiere.
+  await prisma.$executeRaw(Prisma.sql`
+    INSERT INTO "BotChannelDeployment" ("id", "businessId", "generation", "activatedAt",
+      "activeConfigurationId", "engineKey", "legacyDispatchCoverageVersion", "updatedAt")
+    VALUES (${depDeploymentId}, ${businessId}, 1, clock_timestamp(),
+      ${depConfigId}, 'deterministic-options', 1, clock_timestamp())
+  `)
+
+  // Crear conversación y sesión.
+  await prisma.$executeRaw(Prisma.sql`
+    INSERT INTO "Conversation" ("id", "phone", "businessId", "updatedAt")
+    VALUES (${depConversationId}, '5491155550000', ${businessId}, clock_timestamp())
+  `)
+  await prisma.$executeRaw(Prisma.sql`
+    INSERT INTO "BotSession" ("id", "businessId", "conversationId", "deploymentId", "deploymentGeneration",
+      "businessTimezone", "state", "updatedAt")
+    VALUES (${depSessionId}, ${businessId}, ${depConversationId}, ${depDeploymentId}, 1,
+      'America/Argentina/Buenos_Aires',
+      ${JSON.stringify({ schemaVersion: 1, flow: 'MAIN_MENU', booking: 'NONE', deposit: 'NONE', handoff: 'NONE',
+        cart: [], selections: { categoryId: null, professionalId: null, anyProfessional: false, date: null,
+        slotStartAt: null, appointmentId: null }, invalidStreak: 0, presentation: { kind: 'plain' },
+        discardReturnFlow: null, handoffReturnFlow: null, catalogMode: 'BOOKING', nameCandidate: null,
+        pendingEntityRef: null, rejectedRecommendationIds: [] })}::jsonb,
+      clock_timestamp())
+  `)
+
+  // Crear grupo de delivery: sequence 0 = informativo (predecesor), sequence 1 = interactivo (dependiente).
+  await prisma.$executeRaw(Prisma.sql`
+    INSERT INTO "BotOutbox" ("id", "businessId", "sessionId", "transitionId", "deliveryGroupId",
+      "sequence", "kind", "payload", "idempotencyKey", "status", "dependsOnSequence", "updatedAt")
+    VALUES (${predecessorId}, ${businessId}, ${depSessionId}, ${depTransitionId}, ${depDeliveryGroupId},
+      0, 'informative_text',
+      ${JSON.stringify({ to: '5491155550000', item: { type: 'informative_text', body: 'Descripción larga del servicio' } })}::jsonb,
+      ${`idem_pre_${suffix}`}, 'PENDING'::"BotOutboxStatus", NULL, clock_timestamp())
+  `)
+  await prisma.$executeRaw(Prisma.sql`
+    INSERT INTO "BotOutbox" ("id", "businessId", "sessionId", "transitionId", "deliveryGroupId",
+      "sequence", "kind", "payload", "idempotencyKey", "status", "dependsOnSequence", "updatedAt")
+    VALUES (${dependentId}, ${businessId}, ${depSessionId}, ${depTransitionId}, ${depDeliveryGroupId},
+      1, 'interactive',
+      ${JSON.stringify({ to: '5491155550000', item: { type: 'interactive', mode: 'buttons', body: 'Resumen',
+        actionIds: [], buttons: [{ id: 'b1.test.btn1', title: 'Reservar' }] } })}::jsonb,
+      ${`idem_dep_${suffix}`}, 'PENDING'::"BotOutboxStatus", 0, clock_timestamp())
+  `)
+
+  // Paso 1: claim el predecesor por el camino real.
+  const predecessorClaim = await claimOutbox(prisma)
+  assert.equal(predecessorClaim?.id, predecessorId, 'predecessor must be claimable (PENDING)')
+  assert.ok(predecessorClaim.claimToken, 'claim must return a claimToken')
+
+  // Paso 2: sendClaimedOutbox con provider que devuelve clear_failure retryable:false.
+  // El sender real calcula: poison = !result.retryable (true) → POISON.
+  const poisonResult = await sendClaimedOutbox({
+    client: prisma,
+    item: predecessorClaim,
+    provider: {
+      send: async () => ({ kind: 'clear_failure', code: 'provider_rejected', retryable: false })
+    }
+  })
+  assert.equal(poisonResult, 'POISON', 'clear_failure retryable:false must produce POISON via real sender path')
+
+  // Paso 3: verificar status POISON en la tabla (camino real, no UPDATE directo).
+  const preStatus = await prisma.$queryRaw<Array<{ status: string }>>(
+    Prisma.sql`SELECT "status"::text AS status FROM "BotOutbox" WHERE "id" = ${predecessorId}`
+  )
+  assert.equal(preStatus[0]!.status, 'POISON', 'predecessor must be POISON after sendClaimedOutbox')
+
+  // Paso 4: claimOutbox no debe poder reclamar el dependiente porque su predecesor es POISON.
+  // La claim query exige ACCEPTED/DELIVERED/READ/SKIPPED; POISON no califica.
+  // En este fixture aislado (sólo 2 outbox items), null = no hay items claimables.
+  const blockedClaim = await claimOutbox(prisma)
+  assert.equal(blockedClaim, null,
+    'no outbox item claimable when predecessor is POISON (dependent blocked by dependency check)')
+
+  // Paso 5: afirmar que el dependiente sigue PENDING sin haber sido mutado.
+  const depStatus = await prisma.$queryRaw<Array<{ status: string }>>(
+    Prisma.sql`SELECT "status"::text AS status FROM "BotOutbox" WHERE "id" = ${dependentId}`
+  )
+  assert.equal(depStatus[0]!.status, 'PENDING',
+    'dependent must remain PENDING when predecessor is POISON')
+
   console.log('OK F5.3 catalog: tenant isolation, subcategories, real services and seven-row pagination satisfy the contract.')
+  console.log('OK F5.4 catalog PG: claimOutbox → sendClaimedOutbox(clear_failure retryable:false) → POISON → dependent blocked.')
 } finally {
+  // Cleanup in reverse dependency order by exact IDs — no wildcards, no global deletes.
+  await prisma.$executeRaw(Prisma.sql`DELETE FROM "BotOutbox" WHERE "id" IN (${predecessorId}, ${dependentId})`).catch(() => undefined)
+  await prisma.$executeRaw(Prisma.sql`DELETE FROM "BotSession" WHERE "id" = ${depSessionId}`).catch(() => undefined)
+  await prisma.$executeRaw(Prisma.sql`DELETE FROM "Conversation" WHERE "id" = ${depConversationId}`).catch(() => undefined)
+  await prisma.$executeRaw(Prisma.sql`DELETE FROM "BotChannelDeployment" WHERE "id" = ${depDeploymentId}`).catch(() => undefined)
+  await prisma.$executeRaw(Prisma.sql`DELETE FROM "BusinessBotConfiguration" WHERE "id" = ${depConfigId}`).catch(() => undefined)
   await prisma.service.deleteMany({ where: { businessId: { in: [businessId, otherBusinessId] } } }).catch(() => undefined)
   await prisma.serviceCategory.deleteMany({ where: { businessId: { in: [businessId, otherBusinessId] } } }).catch(() => undefined)
   await prisma.business.deleteMany({ where: { id: { in: [businessId, otherBusinessId] } } }).catch(() => undefined)
