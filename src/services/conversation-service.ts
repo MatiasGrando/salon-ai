@@ -3953,10 +3953,7 @@ export class ConversationService {
         }
       })
     } catch (error) {
-      await prisma.appointment.update({
-        where: { id: appointment.appointment.id },
-        data: { status: 'CANCELLED' }
-      })
+      await appointmentService.cancel(appointment.appointment.id)
       throw error
     }
 

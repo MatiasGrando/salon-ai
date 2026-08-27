@@ -11,6 +11,7 @@ import {
   loadAuthorizedService
 } from '../services/tenant-resource-authorization.js'
 import { sendAuthorizationFailure } from '../services/authorization-response.js'
+import { acquireAgendaHierarchy } from '../services/agenda-locks.js'
 
 const SERVICE_WRITE_TRANSACTION_TIMEOUT_MS = 15_000
 
@@ -52,8 +53,10 @@ export async function serviceRoutes(app: FastifyInstance) {
     })
     if (aliasConflict) return reply.status(409).send({ message: aliasConflict })
 
-    return prisma.serviceCategory.create({
-      data: {
+    return prisma.$transaction(async (tx) => {
+      await acquireAgendaHierarchy(tx, { businessId })
+      return tx.serviceCategory.create({
+        data: {
         businessId,
         name,
         sortOrder: normalizeSortOrder(body.sortOrder),
@@ -69,7 +72,8 @@ export async function serviceRoutes(app: FastifyInstance) {
             }
           : {})
       },
-      include: { aliases: true, _count: { select: { services: true } } }
+        include: { aliases: true, _count: { select: { services: true } } }
+      })
     })
   })
 
@@ -134,6 +138,7 @@ export async function serviceRoutes(app: FastifyInstance) {
     if (aliasConflict) return reply.status(409).send({ message: aliasConflict })
 
     const updated = await prisma.$transaction(async (tx) => {
+      await acquireAgendaHierarchy(tx, { businessId: category.businessId })
       const result = await tx.serviceCategory.update({
         where: { id: category.id },
         data: {
@@ -182,18 +187,19 @@ export async function serviceRoutes(app: FastifyInstance) {
     const params = request.params as { id: string }
     const category = await prisma.serviceCategory.findFirst({
       where: authorizedServiceCategoryWhere(request.auth!.user, params.id),
-      select: { id: true }
+      select: { id: true, businessId: true }
     })
     if (!category) {
       return sendAuthorizationFailure(reply, 'notFound')
     }
-    await prisma.$transaction([
-      prisma.service.updateMany({
+    await prisma.$transaction(async (tx) => {
+      await acquireAgendaHierarchy(tx, { businessId: category.businessId })
+      await tx.service.updateMany({
         where: { catalogCategoryId: category.id },
         data: { category: null }
-      }),
-      prisma.serviceCategory.delete({ where: { id: category.id } })
-    ])
+      })
+      await tx.serviceCategory.delete({ where: { id: category.id } })
+    })
     return { deleted: true }
   })
 
@@ -473,6 +479,7 @@ export async function serviceRoutes(app: FastifyInstance) {
     }
 
     const createdService = await prisma.$transaction(async (tx) => {
+      await acquireAgendaHierarchy(tx, { businessId })
       const created = await tx.service.create({
         data: data as any,
         include: serviceCatalogInclude
@@ -834,6 +841,7 @@ export async function serviceRoutes(app: FastifyInstance) {
     }
 
     return prisma.$transaction(async (tx) => {
+      await acquireAgendaHierarchy(tx, { businessId: existing.businessId })
       const service = await tx.service.update({
         where: {
           id: params.id
@@ -952,14 +960,15 @@ export async function serviceRoutes(app: FastifyInstance) {
     }
 
     if (!service.isBookable) {
-      await prisma.$transaction([
-        prisma.service.updateMany({
+      await prisma.$transaction(async (tx) => {
+        await acquireAgendaHierarchy(tx, { businessId: service.businessId })
+        await tx.service.updateMany({
           where: { parentServiceId: service.id },
           data: { parentServiceId: null }
-        }),
-        prisma.serviceAlias.deleteMany({ where: { serviceId: service.id } }),
-        prisma.service.delete({ where: { id: service.id } })
-      ])
+        })
+        await tx.serviceAlias.deleteMany({ where: { serviceId: service.id } })
+        await tx.service.delete({ where: { id: service.id } })
+      })
       await refreshBusinessOnboarding(service.businessId)
       return { deleted: true }
     }
@@ -977,23 +986,24 @@ export async function serviceRoutes(app: FastifyInstance) {
       })
     }
 
-    await prisma.$transaction([
-      prisma.serviceAlias.deleteMany({
+    await prisma.$transaction(async (tx) => {
+      await acquireAgendaHierarchy(tx, { businessId: service.businessId })
+      await tx.serviceAlias.deleteMany({
         where: {
           serviceId: { in: serviceIds }
         }
-      }),
-      prisma.service.deleteMany({
+      })
+      await tx.service.deleteMany({
         where: {
           parentServiceId: service.id
         }
-      }),
-      prisma.service.delete({
+      })
+      await tx.service.delete({
         where: {
           id: service.id
         }
       })
-    ])
+    })
     await refreshBusinessOnboarding(service.businessId)
 
     return {

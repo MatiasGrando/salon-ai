@@ -9,6 +9,7 @@ import { refreshBusinessOnboarding } from '../services/business-onboarding-servi
 import { storeBusinessImage } from '../services/media-storage-service.js'
 import { authorizedProfessionalWhere } from '../services/tenant-resource-authorization.js'
 import { sendAuthorizationFailure } from '../services/authorization-response.js'
+import { acquireAgendaHierarchy } from '../services/agenda-locks.js'
 
 type WorkingHourInput = WeeklyHourInput
 
@@ -77,8 +78,10 @@ export async function professionalRoutes(app: FastifyInstance) {
       }
     }
 
-    const professional = await prisma.professional.create({
-      data: {
+    const professional = await prisma.$transaction(async (tx) => {
+      await acquireAgendaHierarchy(tx, { businessId, professionalIds: [] })
+      return tx.professional.create({
+        data: {
         name,
         description,
         avatarUrl,
@@ -103,7 +106,8 @@ export async function professionalRoutes(app: FastifyInstance) {
             }
           : {})
       },
-      include: professionalInclude
+        include: professionalInclude
+      })
     })
 
     await refreshBusinessOnboarding(businessId)
@@ -246,6 +250,10 @@ export async function professionalRoutes(app: FastifyInstance) {
     }
 
     const updatedProfessional = await prisma.$transaction(async (tx) => {
+      await acquireAgendaHierarchy(tx, {
+        businessId: existing.businessId,
+        professionalIds: [params.id]
+      })
       await tx.professional.update({
         where: {
           id: params.id
@@ -335,13 +343,24 @@ export async function professionalRoutes(app: FastifyInstance) {
     })
     if (!existing) return sendAuthorizationFailure(reply, 'notFound')
 
-    const professional = await prisma.professional.update({
+    const professionalBusiness = await prisma.professional.findUnique({
       where: { id: existing.id },
-      data: {
-        isActive: body.isActive,
-        deactivatedAt: body.isActive ? null : new Date()
-      },
-      include: professionalInclude
+      select: { businessId: true }
+    })
+    if (!professionalBusiness) return sendAuthorizationFailure(reply, 'conflict')
+    const professional = await prisma.$transaction(async (tx) => {
+      await acquireAgendaHierarchy(tx, {
+        businessId: professionalBusiness.businessId,
+        professionalIds: [existing.id]
+      })
+      return tx.professional.update({
+        where: { id: existing.id },
+        data: {
+          isActive: body.isActive,
+          deactivatedAt: body.isActive ? null : new Date()
+        },
+        include: professionalInclude
+      })
     })
 
     await refreshBusinessOnboarding(professional.businessId)
@@ -385,14 +404,15 @@ export async function professionalRoutes(app: FastifyInstance) {
     })
 
     if (appointmentCount > 0) {
-      await prisma.professional.update({
-        where: {
-          id: params.id
-        },
-        data: {
-          isActive: false,
-          deactivatedAt: new Date()
-        }
+      await prisma.$transaction(async (tx) => {
+        await acquireAgendaHierarchy(tx, {
+          businessId: existingProfessional.businessId,
+          professionalIds: [params.id]
+        })
+        await tx.professional.update({
+          where: { id: params.id },
+          data: { isActive: false, deactivatedAt: new Date() }
+        })
       })
       await refreshBusinessOnboarding(existingProfessional.businessId)
 
@@ -402,23 +422,27 @@ export async function professionalRoutes(app: FastifyInstance) {
       }
     }
 
-    await prisma.$transaction([
-      prisma.professionalHours.deleteMany({
+    await prisma.$transaction(async (tx) => {
+      await acquireAgendaHierarchy(tx, {
+        businessId: existingProfessional.businessId,
+        professionalIds: [params.id]
+      })
+      await tx.professionalHours.deleteMany({
         where: {
           professionalId: params.id
         }
-      }),
-      prisma.scheduleBlock.deleteMany({
+      })
+      await tx.scheduleBlock.deleteMany({
         where: {
           professionalId: params.id
         }
-      }),
-      prisma.professional.delete({
+      })
+      await tx.professional.delete({
         where: {
           id: params.id
         }
       })
-    ])
+    })
     await refreshBusinessOnboarding(existingProfessional.businessId)
 
     return {

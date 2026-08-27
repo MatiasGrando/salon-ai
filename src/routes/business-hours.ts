@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
 import { validateWeeklyHours } from '../services/weekly-hours.js'
 import { refreshBusinessOnboarding } from '../services/business-onboarding-service.js'
+import { acquireAgendaHierarchy } from '../services/agenda-locks.js'
 
 export async function businessHoursRoutes(app: FastifyInstance) {
 
@@ -32,16 +33,26 @@ export async function businessHoursRoutes(app: FastifyInstance) {
       })
     }
 
-    const created = await prisma.businessHours.create({
-      data: {
-        businessId: body.businessId,
-        dayOfWeek: body.dayOfWeek,
-        startTime: body.startTime,
-        endTime: body.endTime
-      }
+    const created = await prisma.$transaction(async (tx) => {
+      await acquireAgendaHierarchy(tx, { businessId: body.businessId })
+      const lockedExistingHours = await tx.businessHours.findMany({
+        where: { businessId: body.businessId, dayOfWeek: body.dayOfWeek },
+        select: { dayOfWeek: true, startTime: true, endTime: true }
+      })
+      const lockedValidation = validateWeeklyHours([...lockedExistingHours, body])
+      if (!lockedValidation.ok) return { conflict: lockedValidation.message } as const
+      return { created: await tx.businessHours.create({
+        data: {
+          businessId: body.businessId,
+          dayOfWeek: body.dayOfWeek,
+          startTime: body.startTime,
+          endTime: body.endTime
+        }
+      }) } as const
     })
+    if ('conflict' in created) return reply.status(409).send({ message: created.conflict })
     await refreshBusinessOnboarding(body.businessId)
-    return created
+    return created.created
   })
 
   app.post('/business-hours/setup', async (request, reply) => {
@@ -131,16 +142,38 @@ export async function businessHoursRoutes(app: FastifyInstance) {
       })
     }
 
-    await prisma.$transaction([
-      prisma.businessHours.deleteMany({
+    const updated = await prisma.$transaction(async (tx) => {
+      await acquireAgendaHierarchy(tx, { businessId: body.businessId })
+      const lockedProfessionals = await tx.professional.findMany({
+        where: { businessId: body.businessId, isActive: true },
+        include: { workingHours: true }
+      })
+      const lockedInvalidProfessional = lockedProfessionals.find((professional) =>
+        professional.workingHours.some((professionalHour) => !hours.some((businessHour) =>
+          businessHour.dayOfWeek === professionalHour.dayOfWeek &&
+          professionalHour.startTime >= businessHour.startTime &&
+          professionalHour.endTime <= businessHour.endTime
+        ))
+      )
+      if (lockedInvalidProfessional) throw new BusinessHoursConflictError(lockedInvalidProfessional.name)
+      await tx.businessHours.deleteMany({
         where: {
           businessId: body.businessId
         }
-      }),
-      prisma.businessHours.createMany({
+      })
+      await tx.businessHours.createMany({
         data: hours
       })
-    ])
+    }).catch((error: unknown) => {
+      if (error instanceof BusinessHoursConflictError) return false
+      throw error
+    })
+    if (updated === false) {
+      return reply.status(409).send({
+        code: 'PROFESSIONAL_OUTSIDE_BUSINESS_HOURS',
+        message: 'Un horario profesional queda fuera del nuevo horario del local. Actualiza la agenda profesional e intenta de nuevo.'
+      })
+    }
     await refreshBusinessOnboarding(body.businessId)
 
     return prisma.businessHours.findMany({
@@ -184,3 +217,5 @@ export async function businessHoursRoutes(app: FastifyInstance) {
   })
 
 }
+
+class BusinessHoursConflictError extends Error {}

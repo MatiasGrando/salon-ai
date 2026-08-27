@@ -1,4 +1,5 @@
 import { prisma as defaultPrisma } from '../config/prisma.js'
+import { acquireAppointmentWriteHierarchy } from './agenda-locks.js'
 
 type PrismaClientLike = typeof defaultPrisma
 
@@ -28,15 +29,25 @@ export class BookingDepositService {
       },
       select: {
         id: true,
+        businessId: true,
         appointmentId: true,
         conversation: { select: { bookingV2State: true } }
       }
     })
     if (!overdue.length) return { expired: 0 }
 
-    const expired = await this.db.$transaction(async (tx) => {
-      let count = 0
-      for (const deposit of overdue) {
+    let expired = 0
+    for (const deposit of overdue) {
+      const didExpire = await this.db.$transaction(async (tx) => {
+        const appointmentIds = await depositAppointmentIdsFromDb(
+          tx,
+          deposit.appointmentId,
+          deposit.conversation?.bookingV2State
+        )
+        await acquireAppointmentWriteHierarchy(tx, {
+          businessId: deposit.businessId,
+          appointmentIds
+        })
         const claimed = await tx.bookingDeposit.updateMany({
           where: {
             id: deposit.id,
@@ -48,12 +59,7 @@ export class BookingDepositService {
             reviewedAt: now
           }
         })
-        if (!claimed.count) continue
-        const appointmentIds = await depositAppointmentIdsFromDb(
-          tx,
-          deposit.appointmentId,
-          deposit.conversation?.bookingV2State
-        )
+        if (!claimed.count) return false
         await tx.appointment.updateMany({
           where: {
             id: { in: appointmentIds },
@@ -63,10 +69,10 @@ export class BookingDepositService {
             status: 'CANCELLED'
           }
         })
-        count += 1
-      }
-      return count
-    })
+        return true
+      })
+      if (didExpire) expired += 1
+    }
     return { expired }
   }
 
@@ -189,10 +195,20 @@ export class BookingDepositService {
         where: { id: input.depositId },
         select: {
           appointmentId: true,
+          businessId: true,
           conversation: { select: { bookingV2State: true } }
         }
       })
       if (!deposit) return false
+      const appointmentIds = await depositAppointmentIdsFromDb(
+        tx,
+        deposit.appointmentId,
+        deposit.conversation?.bookingV2State
+      )
+      await acquireAppointmentWriteHierarchy(tx, {
+        businessId: deposit.businessId,
+        appointmentIds
+      })
       const cancelled = await tx.bookingDeposit.updateMany({
         where: {
           id: input.depositId,
@@ -205,11 +221,6 @@ export class BookingDepositService {
         }
       })
       if (!cancelled.count) return false
-      const appointmentIds = await depositAppointmentIdsFromDb(
-        tx,
-        deposit.appointmentId,
-        deposit.conversation?.bookingV2State
-      )
       await tx.appointment.updateMany({
         where: {
           id: { in: appointmentIds },

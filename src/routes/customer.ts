@@ -18,6 +18,7 @@ import {
   loadAuthorizedCustomer
 } from '../services/tenant-resource-authorization.js'
 import { sendAuthorizationFailure } from '../services/authorization-response.js'
+import { acquireAppointmentWriteHierarchy } from '../services/agenda-locks.js'
 
 class CustomerAuthorizationStateConflictError extends Error {}
 
@@ -499,6 +500,16 @@ export async function customerRoutes(app: FastifyInstance) {
     const deleted = await prisma.$transaction(async (transaction) => {
       const scopedCustomer = await loadAuthorizedCustomer(transaction, authUser, params.id)
       if (!scopedCustomer) throw new CustomerAuthorizationStateConflictError()
+      const appointmentIds = await transaction.appointment.findMany({
+        where: { customerId: scopedCustomer.id },
+        select: { id: true }
+      }).then((rows) => rows.map((row) => row.id))
+      if (appointmentIds.length) {
+        await acquireAppointmentWriteHierarchy(transaction, {
+          businessId: scopedCustomer.businessId,
+          appointmentIds
+        })
+      }
       const appointments = await transaction.appointment.deleteMany({ where: { customerId: scopedCustomer.id } })
       const notes = await transaction.customerNote.deleteMany({ where: { customerId: scopedCustomer.id } })
       const customers = await transaction.customer.deleteMany({

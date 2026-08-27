@@ -1,4 +1,3 @@
-import { prisma } from '../config/prisma.js'
 import { AppointmentService } from '../services/appointment-service.js'
 import type {
   BookingAvailabilityInput,
@@ -30,14 +29,7 @@ export class InternalBookingProvider implements BookingProvider {
   }
 
   async cancelAppointment(appointmentId: string) {
-    await prisma.appointment.update({
-      where: {
-        id: appointmentId
-      },
-      data: {
-        status: 'CANCELLED'
-      }
-    })
+    await appointmentService.cancel(appointmentId)
   }
 
   private async flushAvailability() {

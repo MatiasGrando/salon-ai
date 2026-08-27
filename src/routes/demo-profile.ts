@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { Prisma } from '../generated/prisma/client.js'
+import { acquireAgendaHierarchy } from '../services/agenda-locks.js'
 import { prisma } from '../config/prisma.js'
 import { ConversationService } from '../services/conversation-service.js'
 import { BusinessService } from '../services/business-service.js'
@@ -158,6 +159,7 @@ export async function demoProfileRoutes(app: FastifyInstance) {
     }
     const professionalIds = business.professionals.map((professional) => professional.id)
     await prisma.$transaction(async (tx) => {
+      await acquireAgendaHierarchy(tx, { businessId: business.id, professionalIds })
       await tx.professionalHours.deleteMany({ where: { professionalId: { in: professionalIds } } })
       await tx.professionalService.deleteMany({ where: { professionalId: { in: professionalIds } } })
       await tx.businessHours.deleteMany({ where: { businessId: business.id } })
@@ -234,6 +236,7 @@ export async function createDemoProfileBusiness(name: string, type: DemoType, ow
 
   try {
     await prisma.$transaction(async (tx) => {
+      await acquireAgendaHierarchy(tx, { businessId: business.id, professionalIds: [] })
       await tx.business.update({
         where: { id: business.id },
         data: { isDemo: true, demoType: type, landingEnabled: false }

@@ -101,6 +101,12 @@ export async function cleanBusinessAuthorizationFixtures(prisma: PrismaClient) {
   await prisma.serviceAlias.deleteMany({
     where: { serviceId: { in: [...resources.service, ...resources.addonService] } }
   })
+  await prisma.professionalHours.deleteMany({
+    where: { professionalId: { in: [...resources.professional, resources.otherProfessional] } }
+  })
+  await prisma.businessHours.deleteMany({
+    where: { businessId: { in: [...businessAuthorizationFixture.businessIds] } }
+  })
   await prisma.service.deleteMany({ where: { id: { in: [...resources.service, ...resources.addonService] } } })
   await prisma.serviceCategory.deleteMany({ where: { id: { in: [...resources.serviceCategory] } } })
   await prisma.professional.deleteMany({
@@ -218,6 +224,24 @@ export async function createBusinessAuthorizationFixtures(prisma: PrismaClient) 
         businessId: businesses[0]
       }
     ]
+  })
+  await prisma.businessHours.createMany({
+    data: businesses.flatMap((businessId) => Array.from({ length: 7 }, (_, dayOfWeek) => ({
+      businessId,
+      dayOfWeek,
+      startTime: '00:00',
+      endTime: '23:59'
+    })))
+  })
+  await prisma.professionalHours.createMany({
+    data: [...resources.professional, resources.otherProfessional].flatMap((professionalId) =>
+      Array.from({ length: 7 }, (_, dayOfWeek) => ({
+        professionalId,
+        dayOfWeek,
+        startTime: '00:00',
+        endTime: '23:59'
+      }))
+    )
   })
   await prisma.user.update({
     where: { id: businessAuthorizationFixture.users.staffOwn.id },

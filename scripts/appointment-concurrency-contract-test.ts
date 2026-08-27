@@ -10,6 +10,8 @@ const originals = {
   appointmentFindMany: db.appointment.findMany,
   appointmentCreate: db.appointment.create,
   professionalFindUnique: db.professional.findUnique,
+  professionalFindFirst: db.professional.findFirst,
+  professionalFindMany: db.professional.findMany,
   professionalServiceCount: db.professionalService.count,
   serviceFindMany: db.service.findMany,
   customerFindUnique: db.customer.findUnique,
@@ -38,6 +40,9 @@ try {
     businessId: 'business-1',
     isActive: true
   })
+  db.professional.findFirst = db.professional.findUnique
+  db.professional.findMany = async (input: any) =>
+    input.where.id.in.map((id: string) => ({ id }))
   db.service.findMany = async () => [{
     id: 'service-1',
     businessId: 'business-1',
@@ -57,7 +62,9 @@ try {
   db.professionalHours.findMany = async () => [{ startTime: '09:00', endTime: '18:00' }]
   db.scheduleBlock.findFirst = async () => null
   db.customerMarketingPreference.upsert = async () => ({})
-  db.$queryRaw = async () => [{ locked: 1 }]
+  db.$queryRaw = async (query: any) => query.strings.join('').includes('FROM "Appointment"')
+    ? [{ id: 'appointment-target', professionalId: 'professional-1' }]
+    : [{ locked: 1 }]
 
   db.appointment.findMany = async () => appointments.slice()
   db.appointment.create = async (input: any) => {
@@ -104,12 +111,11 @@ try {
   assert.equal(results.filter((result) => !result.ok && result.statusCode === 409).length, 1)
   assert.equal(appointments.length, 1, 'solo una reserva debe ocupar el horario disputado')
 
-  const source = await readFile(new URL('../src/services/appointment-service.ts', import.meta.url), 'utf8')
-  assert.match(source, /pg_advisory_xact_lock\(hashtext/)
-  assert.ok(
-    (source.match(/lockProfessionalAgenda\(transaction,/g) || []).length >= 4,
-    'crear, mover, ampliar y reactivar turnos deben compartir el bloqueo de agenda'
-  )
+  const lockSource = await readFile(new URL('../src/services/agenda-locks.ts', import.meta.url), 'utf8')
+  const operationSource = await readFile(new URL('../src/services/booking-operations.ts', import.meta.url), 'utf8')
+  assert.match(lockSource, /pg_advisory_xact_lock\(hashtextextended/)
+  assert.match(operationSource, /acquireAgendaHierarchy/)
+  assert.match(operationSource, /hasAppointmentOverlap/)
   console.log('OK: dos reservas simultaneas dejan un solo turno y la segunda recibe conflicto 409.')
 } finally {
   db.$transaction = originals.transaction
@@ -117,6 +123,8 @@ try {
   db.appointment.findMany = originals.appointmentFindMany
   db.appointment.create = originals.appointmentCreate
   db.professional.findUnique = originals.professionalFindUnique
+  db.professional.findFirst = originals.professionalFindFirst
+  db.professional.findMany = originals.professionalFindMany
   db.professionalService.count = originals.professionalServiceCount
   db.service.findMany = originals.serviceFindMany
   db.customer.findUnique = originals.customerFindUnique

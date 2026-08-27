@@ -50,7 +50,7 @@ try {
     await tx.$executeRawUnsafe('CREATE TEMP TABLE "BusinessBotOptionsSettings" ("businessId" text PRIMARY KEY, "timezone" text NOT NULL, "bookingHorizonDays" integer NOT NULL, "bookingLeadTimeHours" integer NOT NULL, "morningCutTime" text NOT NULL, "eveningCutTime" text NOT NULL) ON COMMIT DROP')
     await tx.$executeRaw(Prisma.sql`INSERT INTO "BusinessBotOptionsSettings" VALUES (${businessId}, 'UTC', 2, 0, '12:30', '16:30')`)
     await tx.$executeRawUnsafe('CREATE TEMP TABLE "Professional" AS TABLE public."Professional"')
-    await tx.$executeRawUnsafe('ALTER TABLE "Professional" ADD COLUMN "botBookingPriority" integer NOT NULL DEFAULT 100')
+    await tx.$executeRawUnsafe('ALTER TABLE "Professional" ADD COLUMN IF NOT EXISTS "botBookingPriority" integer NOT NULL DEFAULT 100')
 
     const runtimeClient = {
       $queryRaw: tx.$queryRaw.bind(tx), $executeRaw: tx.$executeRaw.bind(tx),

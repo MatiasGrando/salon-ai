@@ -65,6 +65,8 @@ import {
   getTamaraOptionsBotProfile
 } from '../services/business-bot-configuration-service.js'
 import { setTamaraOptionsBotEnabled } from '../services/business-bot-activation-service.js'
+import { acquireAppointmentWriteHierarchy } from '../services/agenda-locks.js'
+import { revalidateAppointmentsForConfirmation } from '../services/booking-operations.js'
 
 const bookingV2Engine = new BookingV2Engine()
 const WHATSAPP_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000
@@ -334,6 +336,9 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
           })
         : []
       const appointmentIds = appointments.map(({ id }) => id)
+      if (appointmentIds.length) {
+        await acquireAppointmentWriteHierarchy(transaction, { businessId, appointmentIds })
+      }
 
       const foreignDeposits = appointmentIds.length || conversationIds.length
         ? await transaction.bookingDeposit.count({
@@ -1070,6 +1075,14 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
       if (heldAppointmentIds.length === 0) {
         return { approved: false as const, heldAppointmentIds: [] }
       }
+      await acquireAppointmentWriteHierarchy(tx, {
+        businessId: scopedDeposit.businessId,
+        appointmentIds: heldAppointmentIds
+      })
+      if (!await revalidateAppointmentsForConfirmation(tx, {
+        businessId: scopedDeposit.businessId,
+        appointmentIds: heldAppointmentIds
+      })) return { approved: false as const, heldAppointmentIds: [] }
       const heldAppointment = await tx.appointment.count({
         where: {
           id: { in: heldAppointmentIds },
@@ -1175,6 +1188,10 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
       if (heldAppointmentIds.length === 0) {
         return { rejected: false as const, heldAppointmentIds: [] }
       }
+      await acquireAppointmentWriteHierarchy(tx, {
+        businessId: scopedDeposit.businessId,
+        appointmentIds: heldAppointmentIds
+      })
       const heldAppointmentCount = await tx.appointment.count({
         where: {
           id: { in: heldAppointmentIds },
@@ -1619,6 +1636,14 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
       select: { bookingFlowOrder: true }
     }))?.bookingFlowOrder)
     const approved = await prisma.$transaction(async (tx) => {
+      await acquireAppointmentWriteHierarchy(tx, {
+        businessId: deposit.businessId,
+        appointmentIds: heldAppointmentIds
+      })
+      if (!await revalidateAppointmentsForConfirmation(tx, {
+        businessId: deposit.businessId,
+        appointmentIds: heldAppointmentIds
+      })) return false
       const heldAppointments = await tx.appointment.count({
         where: {
           id: { in: heldAppointmentIds },
@@ -1771,6 +1796,10 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
       ? pendingDepositAppointmentIds(depositBookingState.pendingDeposit)
       : [deposit.appointmentId]
     const rejected = await prisma.$transaction(async (tx) => {
+      await acquireAppointmentWriteHierarchy(tx, {
+        businessId: deposit.businessId,
+        appointmentIds: heldAppointmentIds
+      })
       const scopedAppointmentCount = await tx.appointment.count({
         where: {
           id: { in: heldAppointmentIds },

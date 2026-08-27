@@ -61,7 +61,7 @@ assert.ok((appointmentSource.match(/endAt: customerEndAt/g)?.length ?? 0) >= 2)
 assert.ok((appointmentSource.match(/endAt: professionalEndAt/g)?.length ?? 0) >= 6)
 assert.match(
   appointmentSource,
-  /totalDurationMinutes: professionalDuration/
+  /totalDurationMinutes: validation\.professionalDuration/
 )
 assert.match(appointmentSource, /total \+ reservationDurationLimits\(service\)\.professional/)
 

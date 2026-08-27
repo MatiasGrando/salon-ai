@@ -5,6 +5,7 @@ const qaEnvironment = resolveQaScriptEnvironment(process.env)
 const qaBusinessId = qaEnvironment.businessId
 process.env.DATABASE_URL = qaEnvironment.databaseUrl
 const { prisma } = await import('../src/config/prisma.js')
+const { acquireAgendaHierarchy, lockAppointmentRows } = await import('../src/services/agenda-locks.js')
 
 const sourceSlug = requiredSourceSlug()
 const emptyAgenda = process.argv.includes('--empty-agenda')
@@ -25,19 +26,24 @@ async function main() {
     }
     console.log(`Entorno QA existente: ${existing.name} (${sandboxSlug})`)
     if (emptyAgenda) {
-      const cleared = await prisma.scheduleBlock.deleteMany({ where: { businessId: existing.id } })
-      console.log(`Agenda QA vaciada: ${cleared.count} bloqueos eliminados.`)
       const appointments = await prisma.appointment.findMany({
         where: { professional: { businessId: existing.id } },
         select: { id: true }
       })
       const appointmentIds = appointments.map((appointment) => appointment.id)
-      if (appointmentIds.length) {
-        await prisma.bookingDeposit.deleteMany({ where: { appointmentId: { in: appointmentIds }, appointment: { professional: { businessId: existing.id } } } })
-        await prisma.aiUsageEvent.deleteMany({ where: { appointmentId: { in: appointmentIds }, appointment: { professional: { businessId: existing.id } } } })
-        await prisma.appointment.deleteMany({ where: { id: { in: appointmentIds }, professional: { businessId: existing.id } } })
-      }
-      await prisma.customer.deleteMany({ where: { businessId: existing.id } })
+      const cleared = await prisma.$transaction(async (tx) => {
+        await acquireAgendaHierarchy(tx, { businessId: existing.id })
+        if (appointmentIds.length) {
+          await lockAppointmentRows(tx, { businessId: existing.id, appointmentIds })
+          await tx.bookingDeposit.deleteMany({ where: { appointmentId: { in: appointmentIds }, appointment: { professional: { businessId: existing.id } } } })
+          await tx.aiUsageEvent.deleteMany({ where: { appointmentId: { in: appointmentIds }, appointment: { professional: { businessId: existing.id } } } })
+          await tx.appointment.deleteMany({ where: { id: { in: appointmentIds }, professional: { businessId: existing.id } } })
+        }
+        const blocks = await tx.scheduleBlock.deleteMany({ where: { businessId: existing.id } })
+        await tx.customer.deleteMany({ where: { businessId: existing.id } })
+        return blocks
+      })
+      console.log(`Agenda QA vaciada: ${cleared.count} bloqueos eliminados.`)
       console.log(`Datos operativos QA vaciados: ${appointmentIds.length} turnos eliminados.`)
     } else {
       console.log('No se modificó. Eliminá o renombrá el entorno QA si necesitás regenerarlo.')
@@ -131,6 +137,7 @@ async function main() {
         aiEnabled: true
       } as Prisma.BusinessUncheckedCreateInput
     })
+    await acquireAgendaHierarchy(tx, { businessId: created.id, professionalIds: [] })
 
     if (source.featureSettings) {
       const {

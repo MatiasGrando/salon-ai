@@ -284,10 +284,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
           }
         })
       } catch (error) {
-        await prisma.appointment.update({
-          where: { id: result.appointment.id },
-          data: { status: 'CANCELLED' }
-        })
+        await appointmentService.cancel(result.appointment.id)
         throw error
       }
     }

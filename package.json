@@ -100,6 +100,8 @@
     "test:prisma-ingress-config": "tsx scripts/prisma-ingress-config-contract-test.ts",
     "test:appointment-payload": "tsx scripts/appointment-payload-contract-test.ts",
     "test:appointment-notes-display": "tsx scripts/appointment-notes-display-contract-test.ts",
+    "test:agenda-locks-pure": "tsx scripts/agenda-locks-pure-contract-test.ts",
+    "test:agenda-locks-pg": "tsx scripts/agenda-locks-pg-contract-test.ts",
     "test:agenda-professional-drag": "tsx scripts/agenda-professional-drag-contract-test.ts",
     "test:staff-secretary": "tsx scripts/staff-secretary-contract-test.ts",
     "test:customer-phone-identity": "tsx scripts/customer-phone-identity-contract-test.ts",

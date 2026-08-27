@@ -26,6 +26,9 @@ import {
   staffCanUseProfessional,
   type StaffAuthorizationUser
 } from './staff-permission-service.js'
+import { acquireAgendaHierarchy, lockAppointmentRows } from './agenda-locks.js'
+import { revalidateBookingWrite } from './booking-operations.js'
+import { createAppointmentRecord, updateAppointmentRecord } from './prisma-booking.js'
 
 const availabilitySlotInterval = 30
 
@@ -263,7 +266,12 @@ export class AppointmentService {
     }
 
     const appointment = await prisma.$transaction(async (transaction) => {
-      await this.lockProfessionalAgenda(transaction, input.professionalId)
+      const validation = await revalidateBookingWrite(transaction, {
+        businessId: professional.businessId,
+        professionalId: input.professionalId,
+        serviceIds,
+        startAt
+      })
 
       if (authorizationUser) {
         const scopedResources = await loadAuthorizedAppointmentResources(
@@ -282,22 +290,23 @@ export class AppointmentService {
         customerId: input.customerId
       }, transaction)
 
-      if (!input.force && await this.hasAppointmentOverlap({
-        professionalId: input.professionalId,
-        startAt,
-        endAt: professionalEndAt
-      }, transaction)) {
-        return null
-      }
+      if (validation.conflicts.includes('PROFESSIONAL_INACTIVE')) return 'PROFESSIONAL_INACTIVE' as const
+      if (validation.conflicts.includes('PROFESSIONAL_SERVICE_MISMATCH')) return 'SERVICE_CONFLICT' as const
+      if (!input.force && validation.conflicts.some((conflict) => [
+        'OUTSIDE_BUSINESS_HOURS',
+        'OUTSIDE_PROFESSIONAL_HOURS',
+        'SCHEDULE_BLOCK',
+        'APPOINTMENT_OVERLAP'
+      ].includes(conflict))) return null
 
-      return transaction.appointment.create({
+      return createAppointmentRecord(transaction, {
         data: {
           customerId: input.customerId,
           professionalId: input.professionalId,
           serviceId: input.serviceId,
           startAt,
           origin: input.origin ?? 'UNKNOWN',
-          totalDurationMinutes: professionalDuration,
+          totalDurationMinutes: validation.professionalDuration,
           status: input.status ?? 'CONFIRMED',
           quotedPrice: normalizeQuotedPrice(input.quotedPrice),
           manualDepositPaid: manualDeposit.paid,
@@ -305,7 +314,7 @@ export class AppointmentService {
           notes: notes.value,
           coordinationGroupId: input.coordinationGroupId ?? null,
           serviceItems: {
-            create: orderedServices.map((service, sortOrder) => ({
+            create: validation.orderedServices.map((service, sortOrder) => ({
               serviceId: service.id,
               sortOrder,
               durationMinutes: service.duration,
@@ -318,6 +327,12 @@ export class AppointmentService {
     })
 
     if (appointment === 'AUTHORIZATION_CONFLICT') return appointmentConflict()
+    if (appointment === 'PROFESSIONAL_INACTIVE') {
+      return { ok: false, statusCode: 409, message: 'Ese profesional no esta activo' }
+    }
+    if (appointment === 'SERVICE_CONFLICT') {
+      return { ok: false, statusCode: 409, message: 'Ese profesional no realiza todos los servicios seleccionados' }
+    }
 
     if (!appointment) {
       return {
@@ -430,22 +445,21 @@ export class AppointmentService {
     }
 
     const updated = await prisma.$transaction(async (transaction) => {
-      await this.lockProfessionalAgenda(transaction, appointment.professionalId)
-      if (await this.hasAppointmentOverlap({
+      const validation = await revalidateBookingWrite(transaction, {
+        businessId: appointment.professional.businessId,
         professionalId: appointment.professionalId,
+        serviceIds,
         startAt: appointment.startAt,
-        endAt: professionalEndAt,
         excludeAppointmentId: appointment.id
-      }, transaction)) {
-        return null
-      }
-      return transaction.appointment.update({
+      })
+      if (validation.conflicts.length) return null
+      return updateAppointmentRecord(transaction, {
         where: { id: appointment.id },
         data: {
-          totalDurationMinutes: professionalDuration,
+          totalDurationMinutes: validation.professionalDuration,
           serviceItems: {
             deleteMany: {},
-            create: orderedServices.map((service, sortOrder) => ({
+            create: validation.orderedServices.map((service, sortOrder) => ({
               serviceId: service.id,
               sortOrder,
               durationMinutes: service.duration,
@@ -474,6 +488,7 @@ export class AppointmentService {
       ? await prisma.appointment.findFirst({
           where: authorizedAppointmentWhere(authorizationUser, input.id),
           include: {
+            professional: { select: { businessId: true } },
             serviceItems: {
               orderBy: { sortOrder: 'asc' }
             }
@@ -482,6 +497,7 @@ export class AppointmentService {
       : await prisma.appointment.findUnique({
           where: { id: input.id },
           include: {
+            professional: { select: { businessId: true } },
             serviceItems: {
               orderBy: { sortOrder: 'asc' }
             }
@@ -563,6 +579,11 @@ export class AppointmentService {
         statusCode: 404,
         message: 'No encontre ese profesional'
       }
+    }
+    if (existing.professional.businessId !== professional.businessId) {
+      return authorizationUser
+        ? appointmentConflict()
+        : { ok: false, statusCode: 400, message: 'No se puede mover un turno entre negocios' }
     }
 
     if (authorizationUser && !staffCanUseProfessional(authorizationUser, professional.id)) {
@@ -684,7 +705,14 @@ export class AppointmentService {
     }
 
     const appointment = await prisma.$transaction(async (transaction) => {
-      await this.lockProfessionalAgenda(transaction, input.professionalId)
+      const validation = await revalidateBookingWrite(transaction, {
+        businessId: professional.businessId,
+        professionalId: input.professionalId,
+        professionalIdsToLock: [existing.professionalId, input.professionalId],
+        serviceIds,
+        startAt,
+        excludeAppointmentId: input.id
+      })
       if (authorizationUser) {
         const scopedAppointment = await loadAuthorizedAppointment(transaction, authorizationUser, input.id)
         const scopedResources = await loadAuthorizedAppointmentResources(
@@ -712,22 +740,22 @@ export class AppointmentService {
           return 'DEPOSIT_CONFLICT' as const
         }
       }
-      if (!input.force && await this.hasAppointmentOverlap({
-        professionalId: input.professionalId,
-        startAt,
-        endAt: professionalEndAt,
-        excludeAppointmentId: input.id
-      }, transaction)) {
-        return null
-      }
-      return transaction.appointment.update({
+      if (validation.conflicts.includes('PROFESSIONAL_INACTIVE')) return 'PROFESSIONAL_INACTIVE' as const
+      if (validation.conflicts.includes('PROFESSIONAL_SERVICE_MISMATCH')) return 'SERVICE_CONFLICT' as const
+      if (!input.force && validation.conflicts.some((conflict) => [
+        'OUTSIDE_BUSINESS_HOURS',
+        'OUTSIDE_PROFESSIONAL_HOURS',
+        'SCHEDULE_BLOCK',
+        'APPOINTMENT_OVERLAP'
+      ].includes(conflict))) return null
+      return updateAppointmentRecord(transaction, {
         where: scopedAppointmentMutationWhere(authorizationUser, input.id),
         data: {
           customerId: input.customerId,
           professionalId: input.professionalId,
           serviceId: input.serviceId,
           startAt,
-          totalDurationMinutes: professionalDuration,
+          totalDurationMinutes: validation.professionalDuration,
           ...(manualDeposit?.ok
             ? {
                 manualDepositPaid: manualDeposit.paid,
@@ -737,7 +765,7 @@ export class AppointmentService {
           ...(notes?.ok ? { notes: notes.value } : {}),
           serviceItems: {
             deleteMany: {},
-            create: orderedServices.map((service, sortOrder) => ({
+            create: validation.orderedServices.map((service, sortOrder) => ({
               serviceId: service.id,
               sortOrder,
               durationMinutes: service.duration,
@@ -779,6 +807,18 @@ export class AppointmentService {
         message: 'Resolve la seña pendiente antes de modificar este turno'
       }
     }
+    if (appointment === 'PROFESSIONAL_INACTIVE') {
+      return { ok: false, statusCode: 409, message: 'Ese profesional no esta activo' }
+    }
+    if (appointment === 'SERVICE_CONFLICT') {
+      return {
+        ok: false,
+        statusCode: 409,
+        message: 'Ese profesional no realiza todos los servicios del turno',
+        code: 'PROFESSIONAL_SERVICE_MISMATCH',
+        forceable: false
+      }
+    }
 
     if (!appointment) {
       return {
@@ -803,9 +843,19 @@ export class AppointmentService {
   async cancel(appointmentId: string, authorizationUser?: AppointmentAuthorizationUser) {
     const appointment = authorizationUser
       ? await prisma.appointment.findFirst({
-          where: authorizedAppointmentWhere(authorizationUser, appointmentId)
+          where: authorizedAppointmentWhere(authorizationUser, appointmentId),
+          include: {
+            professional: { select: { businessId: true } },
+            serviceItems: { select: { serviceId: true }, orderBy: { sortOrder: 'asc' } }
+          }
         })
-      : await prisma.appointment.findUnique({ where: { id: appointmentId } })
+      : await prisma.appointment.findUnique({
+          where: { id: appointmentId },
+          include: {
+            professional: { select: { businessId: true } },
+            serviceItems: { select: { serviceId: true }, orderBy: { sortOrder: 'asc' } }
+          }
+        })
 
     if (!appointment) {
       if (authorizationUser) return appointmentNotFound()
@@ -819,6 +869,14 @@ export class AppointmentService {
       return appointmentForbidden()
     }
     const cancelledAppointment = await prisma.$transaction(async (transaction) => {
+      await acquireAgendaHierarchy(transaction, {
+        businessId: appointment.professional.businessId,
+        professionalIds: [appointment.professionalId]
+      })
+      await lockAppointmentRows(transaction, {
+        businessId: appointment.professional.businessId,
+        appointmentIds: [appointmentId]
+      })
       if (authorizationUser) {
         const scopedAppointment = await loadAuthorizedAppointment(transaction, authorizationUser, appointmentId)
         if (!scopedAppointment || !staffCanUseProfessional(authorizationUser, scopedAppointment.professionalId)) {
@@ -863,9 +921,19 @@ export class AppointmentService {
   ) {
     const appointment = authorizationUser
       ? await prisma.appointment.findFirst({
-          where: authorizedAppointmentWhere(authorizationUser, appointmentId)
+          where: authorizedAppointmentWhere(authorizationUser, appointmentId),
+          include: {
+            professional: { select: { businessId: true } },
+            serviceItems: { select: { serviceId: true }, orderBy: { sortOrder: 'asc' } }
+          }
         })
-      : await prisma.appointment.findUnique({ where: { id: appointmentId } })
+      : await prisma.appointment.findUnique({
+          where: { id: appointmentId },
+          include: {
+            professional: { select: { businessId: true } },
+            serviceItems: { select: { serviceId: true }, orderBy: { sortOrder: 'asc' } }
+          }
+        })
 
     if (!appointment) {
       if (authorizationUser) return appointmentNotFound()
@@ -880,7 +948,15 @@ export class AppointmentService {
     }
     const updatedAppointment = status === 'CONFIRMED'
       ? await prisma.$transaction(async (transaction) => {
-          await this.lockProfessionalAgenda(transaction, appointment.professionalId)
+          const validation = await revalidateBookingWrite(transaction, {
+            businessId: appointment.professional.businessId,
+            professionalId: appointment.professionalId,
+            serviceIds: appointment.serviceItems.length
+              ? appointment.serviceItems.map((item) => item.serviceId)
+              : [appointment.serviceId],
+            startAt: appointment.startAt,
+            excludeAppointmentId: appointment.id
+          })
           if (authorizationUser) {
             const scopedAppointment = await loadAuthorizedAppointment(transaction, authorizationUser, appointmentId)
             if (!scopedAppointment || !staffCanUseProfessional(authorizationUser, scopedAppointment.professionalId)) {
@@ -895,14 +971,7 @@ export class AppointmentService {
           })) {
             return 'DEPOSIT_CONFLICT' as const
           }
-          if (await this.hasAppointmentOverlap({
-            professionalId: appointment.professionalId,
-            startAt: appointment.startAt,
-            endAt: addMinutes(appointment.startAt, appointment.totalDurationMinutes),
-            excludeAppointmentId: appointment.id
-          }, transaction)) {
-            return null
-          }
+          if (validation.conflicts.length) return null
           const updated = await transaction.appointment.update({
             where: scopedAppointmentMutationWhere(authorizationUser, appointmentId),
             data: { status },
@@ -915,6 +984,14 @@ export class AppointmentService {
           return updated
         })
       : await prisma.$transaction(async (transaction) => {
+          await acquireAgendaHierarchy(transaction, {
+            businessId: appointment.professional.businessId,
+            professionalIds: [appointment.professionalId]
+          })
+          await lockAppointmentRows(transaction, {
+            businessId: appointment.professional.businessId,
+            appointmentIds: [appointmentId]
+          })
           if (authorizationUser) {
             const scopedAppointment = await loadAuthorizedAppointment(transaction, authorizationUser, appointmentId)
             if (!scopedAppointment || !staffCanUseProfessional(authorizationUser, scopedAppointment.professionalId)) {
@@ -976,13 +1053,46 @@ export class AppointmentService {
   async confirmPendingAppointments(appointmentIds: string[]) {
     const ids = Array.from(new Set(appointmentIds.filter(Boolean)))
     if (!ids.length) return false
+    const appointments = await prisma.appointment.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        professionalId: true,
+        serviceId: true,
+        startAt: true,
+        serviceItems: { select: { serviceId: true }, orderBy: { sortOrder: 'asc' } },
+        professional: { select: { businessId: true } }
+      }
+    })
+    if (appointments.length !== ids.length) return false
+    const businessIds = Array.from(new Set(appointments.map((item) => item.professional.businessId)))
+    if (businessIds.length !== 1) return false
+    const businessId = businessIds[0]!
     return prisma.$transaction(async (tx) => {
+      await acquireAgendaHierarchy(tx, {
+        businessId,
+        professionalIds: appointments.map((item) => item.professionalId)
+      })
+      await lockAppointmentRows(tx, { businessId, appointmentIds: ids })
+      for (const appointment of appointments) {
+        const validation = await revalidateBookingWrite(tx, {
+          businessId,
+          professionalId: appointment.professionalId,
+          professionalIdsToLock: appointments.map((item) => item.professionalId),
+          serviceIds: appointment.serviceItems.length
+            ? appointment.serviceItems.map((item) => item.serviceId)
+            : [appointment.serviceId],
+          startAt: appointment.startAt,
+          excludeAppointmentId: appointment.id
+        })
+        if (validation.conflicts.length) return false
+      }
       const pending = await tx.appointment.count({
-        where: { id: { in: ids }, status: 'PENDING' }
+        where: { id: { in: ids }, professional: { businessId }, status: 'PENDING' }
       })
       if (pending !== ids.length) return false
       const confirmed = await tx.appointment.updateMany({
-        where: { id: { in: ids }, status: 'PENDING' },
+        where: { id: { in: ids }, professional: { businessId }, status: 'PENDING' },
         data: { status: 'CONFIRMED' }
       })
       return confirmed.count === ids.length
@@ -1333,17 +1443,6 @@ export class AppointmentService {
 
       return existingStart < input.endAt && existingEnd > input.startAt
     })
-  }
-
-  private async lockProfessionalAgenda(
-    transaction: Prisma.TransactionClient,
-    professionalId: string
-  ) {
-    const lockKey = `appointment-agenda:${professionalId}`
-    await transaction.$queryRaw<Array<{ locked: number }>>`
-      SELECT 1 AS "locked"
-      FROM pg_advisory_xact_lock(hashtext(${lockKey}))
-    `
   }
 
   private async professionalOffersService(professionalId: string, serviceId: string) {

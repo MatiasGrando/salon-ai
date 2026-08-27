@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
 import { validateWeeklyHours } from '../services/weekly-hours.js'
+import { acquireAgendaHierarchy } from '../services/agenda-locks.js'
 
 export async function professionalHoursRoutes(app: FastifyInstance) {
 
@@ -31,13 +32,30 @@ export async function professionalHoursRoutes(app: FastifyInstance) {
       })
     }
 
-    return prisma.professionalHours.create({
-      data: {
-        professionalId: body.professionalId,
-        dayOfWeek: body.dayOfWeek,
-        startTime: body.startTime,
-        endTime: body.endTime
-      }
+    const professional = await prisma.professional.findUnique({
+      where: { id: body.professionalId },
+      select: { businessId: true }
+    })
+    if (!professional) return reply.status(404).send({ message: 'No encontre ese profesional' })
+    return prisma.$transaction(async (tx) => {
+      await acquireAgendaHierarchy(tx, {
+        businessId: professional.businessId,
+        professionalIds: [body.professionalId]
+      })
+      const lockedExistingHours = await tx.professionalHours.findMany({
+        where: { professionalId: body.professionalId, dayOfWeek: body.dayOfWeek },
+        select: { dayOfWeek: true, startTime: true, endTime: true }
+      })
+      const lockedValidation = validateWeeklyHours([...lockedExistingHours, body])
+      if (!lockedValidation.ok) return reply.status(409).send({ message: lockedValidation.message })
+      return tx.professionalHours.create({
+        data: {
+          professionalId: body.professionalId,
+          dayOfWeek: body.dayOfWeek,
+          startTime: body.startTime,
+          endTime: body.endTime
+        }
+      })
     })
   })
 
@@ -93,16 +111,25 @@ export async function professionalHoursRoutes(app: FastifyInstance) {
       ...hour
     }))
 
-    await prisma.$transaction([
-      prisma.professionalHours.deleteMany({
+    const professional = await prisma.professional.findUnique({
+      where: { id: body.professionalId },
+      select: { businessId: true }
+    })
+    if (!professional) return reply.status(404).send({ message: 'No encontre ese profesional' })
+    await prisma.$transaction(async (tx) => {
+      await acquireAgendaHierarchy(tx, {
+        businessId: professional.businessId,
+        professionalIds: [body.professionalId]
+      })
+      await tx.professionalHours.deleteMany({
         where: {
           professionalId: body.professionalId
         }
-      }),
-      prisma.professionalHours.createMany({
+      })
+      await tx.professionalHours.createMany({
         data: hours
       })
-    ])
+    })
 
     return prisma.professionalHours.findMany({
       where: {

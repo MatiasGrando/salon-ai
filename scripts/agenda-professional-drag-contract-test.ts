@@ -11,8 +11,16 @@ const originals = {
   appointmentUpdate: prismaClient.appointment.update,
   transaction: prismaClient.$transaction,
   professionalFindUnique: prismaClient.professional.findUnique,
+  professionalFindFirst: prismaClient.professional.findFirst,
+  professionalFindMany: prismaClient.professional.findMany,
+  professionalServiceCount: prismaClient.professionalService.count,
   serviceFindMany: prismaClient.service.findMany,
-  customerFindUnique: prismaClient.customer.findUnique
+  customerFindUnique: prismaClient.customer.findUnique,
+  businessHoursFindMany: prismaClient.businessHours.findMany,
+  professionalHoursFindMany: prismaClient.professionalHours.findMany,
+  scheduleBlockFindFirst: prismaClient.scheduleBlock.findFirst,
+  appointmentFindMany: prismaClient.appointment.findMany,
+  queryRaw: prismaClient.$queryRaw
 }
 
 const services = [
@@ -24,6 +32,7 @@ const existingAppointment = {
   status: 'CONFIRMED',
   customerId: 'customer-1',
   professionalId: 'professional-1',
+  professional: { businessId: 'business-1' },
   serviceId: 'cut',
   startAt: new Date('2026-08-14T13:00:00.000Z'),
   serviceItems: [
@@ -39,6 +48,13 @@ try {
     businessId: 'business-1',
     isActive: true
   })
+  prismaClient.professional.findFirst = async () => ({
+    id: 'professional-2',
+    businessId: 'business-1',
+    isActive: true
+  })
+  prismaClient.professional.findMany = async (input: any) =>
+    input.where.id.in.map((id: string) => ({ id }))
   prismaClient.service.findMany = async () => services
   prismaClient.customer.findUnique = async () => ({
     id: 'customer-1',
@@ -46,6 +62,25 @@ try {
   })
 
   let updateInput: any = null
+  let offersServices = false
+  let insideBusinessHours = true
+  let insideProfessionalHours = true
+  let hasBlock = false
+  let hasOverlap = false
+  prismaClient.professionalService.count = async () => offersServices ? 2 : 0
+  prismaClient.businessHours.findMany = async () => insideBusinessHours
+    ? [{ startTime: '00:00', endTime: '23:59' }]
+    : []
+  prismaClient.professionalHours.findMany = async () => insideProfessionalHours
+    ? [{ startTime: '00:00', endTime: '23:59' }]
+    : []
+  prismaClient.scheduleBlock.findFirst = async () => hasBlock ? { id: 'block' } : null
+  prismaClient.appointment.findMany = async () => hasOverlap
+    ? [{ startAt: new Date('2026-08-14T14:00:00.000Z'), totalDurationMinutes: 30 }]
+    : []
+  prismaClient.$queryRaw = async (query: any) => query.strings.join('').includes('FROM "Appointment"')
+    ? [{ id: 'appointment-1', professionalId: 'professional-1' }]
+    : [{ locked: 1 }]
   prismaClient.appointment.update = async (input: any) => {
     updateInput = input
     return { ...existingAppointment, ...input.data }
@@ -75,6 +110,11 @@ try {
   assert.equal(updateInput, null)
 
   service.professionalOffersServices = async () => true
+  offersServices = true
+  insideBusinessHours = false
+  insideProfessionalHours = false
+  hasBlock = true
+  hasOverlap = true
   service.isInsideBusinessHours = async () => false
   service.isInsideProfessionalHours = async () => false
   service.hasScheduleBlockOverlap = async () => true
@@ -162,7 +202,15 @@ try {
   prismaClient.appointment.update = originals.appointmentUpdate
   prismaClient.$transaction = originals.transaction
   prismaClient.professional.findUnique = originals.professionalFindUnique
+  prismaClient.professional.findFirst = originals.professionalFindFirst
+  prismaClient.professional.findMany = originals.professionalFindMany
+  prismaClient.professionalService.count = originals.professionalServiceCount
   prismaClient.service.findMany = originals.serviceFindMany
   prismaClient.customer.findUnique = originals.customerFindUnique
+  prismaClient.businessHours.findMany = originals.businessHoursFindMany
+  prismaClient.professionalHours.findMany = originals.professionalHoursFindMany
+  prismaClient.scheduleBlock.findFirst = originals.scheduleBlockFindFirst
+  prismaClient.appointment.findMany = originals.appointmentFindMany
+  prismaClient.$queryRaw = originals.queryRaw
   await prisma.$disconnect()
 }

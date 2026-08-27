@@ -6,6 +6,7 @@ import {
   loadAuthorizedScheduleBlock
 } from '../services/tenant-resource-authorization.js'
 import { sendAuthorizationFailure } from '../services/authorization-response.js'
+import { acquireAgendaHierarchy, lockScheduleBlockRows } from '../services/agenda-locks.js'
 
 const scheduleBlockReasons = [
   'ABSENCE',
@@ -100,8 +101,12 @@ export async function scheduleBlockRoutes(app: FastifyInstance) {
       }
     }
 
-    const [scheduleBlock, affectedAppointments] = await Promise.all([
-      prisma.scheduleBlock.create({
+    const scheduleBlock = await prisma.$transaction(async (tx) => {
+      await acquireAgendaHierarchy(tx, {
+        businessId: body.businessId!,
+        ...(body.professionalId ? { professionalIds: [body.professionalId] } : {})
+      })
+      return tx.scheduleBlock.create({
         data: {
           businessId: body.businessId,
           professionalId: body.professionalId ?? null,
@@ -114,14 +119,14 @@ export async function scheduleBlockRoutes(app: FastifyInstance) {
         include: {
           professional: true
         }
-      }),
-      findAffectedAppointments({
+      })
+    })
+    const affectedAppointments = await findAffectedAppointments({
         businessId: body.businessId,
         ...(body.professionalId ? { professionalId: body.professionalId } : {}),
         startAt,
         endAt
       })
-    ])
 
     return {
       ...scheduleBlock,
@@ -230,6 +235,14 @@ export async function scheduleBlockRoutes(app: FastifyInstance) {
     }
 
     const deleted = await prisma.$transaction(async (transaction) => {
+      await acquireAgendaHierarchy(transaction, {
+        businessId: existingBlock.businessId,
+        ...(existingBlock.professionalId ? { professionalIds: [existingBlock.professionalId] } : {})
+      })
+      await lockScheduleBlockRows(transaction, {
+        businessId: existingBlock.businessId,
+        scheduleBlockIds: [params.id]
+      })
       const scopedBlock = await loadAuthorizedScheduleBlock(transaction, authUser, params.id)
       if (!scopedBlock) return false
       if (authUser.role === 'STAFF' && !staffCanUseProfessional(authUser, scopedBlock.professionalId)) return false
