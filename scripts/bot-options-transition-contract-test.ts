@@ -549,6 +549,30 @@ if (conflict.outcome === 'APPLIED') {
   assert.equal(conflict.state.selections.slotStartAt, null)
 }
 
+const conflictBase = createInitialBotOptionsState()
+const conflictPreservingCart = stateWith({
+  flow: 'BOOKING_SUMMARY',
+  booking: 'DRAFT',
+  cart: [{ serviceId: 'slot-conflict-service' }],
+  selections: {
+    ...conflictBase.selections,
+    professionalId: 'slot-conflict-professional',
+    anyProfessional: false,
+    date: '2026-08-27',
+    slotStartAt: '2026-08-27T12:00:00.000Z'
+  }
+})
+const preservedConflict = transition(
+  conflictPreservingCart,
+  act('booking.slot_conflict'),
+  ctx({ labels: { availableSlots: [{ startAt: '2026-08-27T13:00:00.000Z', label: '13:00', band: 'AFTERNOON', professionalId: 'slot-conflict-professional' }] } })
+)
+if (preservedConflict.outcome !== 'APPLIED') throw new Error('booking slot conflict debe aplicar recuperación')
+assert.deepEqual(preservedConflict.state.cart, conflictPreservingCart.cart, 'un slot ocupado no puede descartar el carrito')
+assert.equal(preservedConflict.state.selections.professionalId, 'slot-conflict-professional', 'un slot ocupado conserva la preferencia profesional')
+assert.equal(preservedConflict.state.selections.date, '2026-08-27', 'un slot ocupado conserva la fecha cuando quedan opciones')
+assert.equal(preservedConflict.state.selections.slotStartAt, null, 'sólo el slot obsoleto se limpia')
+
 // ─── Reprogramación conserva turno, fecha y slot seleccionados ────────────────
 
 const appointmentId = 'apt_1'

@@ -167,6 +167,7 @@ model BotSession {
   inbox          BotActionInbox[]   @relation("BotInboxSession")
   outbox         BotOutbox[]
   dispatchClaims BotDispatchClaim[]
+  bookingVisits  BookingVisit[]
 
   @@unique([businessId, id])
   @@unique([businessId, deploymentId, id])
@@ -431,6 +432,15 @@ enum AppointmentOrigin {
   UNKNOWN
 }
 
+enum BookingVisitStatus {
+  DRAFT
+  HELD
+  PENDING_PAYMENT_REVIEW
+  CONFIRMED
+  CANCELLED
+  EXPIRED
+}
+
 enum ConversationStep {
   START
   ASK_SERVICE
@@ -649,6 +659,7 @@ model Business {
   users                   User[]
   weexCustomerLinks       WeexCustomerLink[]
   bookingDeposits         BookingDeposit[]
+  bookingVisits           BookingVisit[]
   botOptionsSettings      BusinessBotOptionsSettings?
 
   createdAt DateTime @default(now())
@@ -1027,12 +1038,15 @@ model Professional {
   business   Business @relation(fields: [businessId], references: [id])
 
   appointments   Appointment[]
+  bookingVisits  BookingVisit[]
   workingHours   ProfessionalHours[]
   scheduleBlocks ScheduleBlock[]
   serviceLinks   ProfessionalService[]
   users          User[]
 
   createdAt DateTime @default(now())
+
+  @@unique([businessId, id])
 }
 
 model Service {
@@ -1158,6 +1172,7 @@ model Customer {
   normalizedPhone String?
 
   appointments             Appointment[]
+  bookingVisits             BookingVisit[]
   notes                    CustomerNote[]
   marketingPreferences     CustomerMarketingPreference[]
   campaignDeliveries       CampaignDelivery[]
@@ -1170,6 +1185,7 @@ model Customer {
 
   createdAt DateTime @default(now())
 
+  @@unique([businessId, id])
   @@unique([businessId, normalizedPhone])
   @@index([businessId, phone])
   @@index([businessId, createdAt])
@@ -1248,6 +1264,41 @@ model CustomerNote {
   @@index([customerId, createdAt])
 }
 
+model BookingVisit {
+  id String @id @default(cuid())
+
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+
+  customerId String
+  customer   Customer @relation(fields: [businessId, customerId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+
+  professionalId String
+  professional   Professional @relation(fields: [businessId, professionalId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+
+  sessionId String
+  session   BotSession @relation(fields: [businessId, sessionId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+
+  status               BookingVisitStatus @default(CONFIRMED)
+  scheduledStartAt     DateTime
+  totalDurationMinutes Int
+  totalPrice           Int?
+  holdExpiresAt        DateTime?
+  version              Int                @default(0)
+  origin               AppointmentOrigin  @default(BOT)
+
+  appointment Appointment?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([businessId, id])
+  @@index([customerId, status, scheduledStartAt])
+  @@index([professionalId, status, scheduledStartAt])
+  @@index([status, holdExpiresAt])
+  @@index([sessionId, createdAt])
+}
+
 model Appointment {
   id String @id @default(cuid())
 
@@ -1268,6 +1319,10 @@ model Appointment {
   notes                String?
   totalDurationMinutes Int
   coordinationGroupId  String?
+  version              Int      @default(0)
+
+  visitId String?       @unique
+  visit   BookingVisit? @relation(fields: [visitId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   status                  AppointmentStatus        @default(CONFIRMED)
   reminderDeliveries      ReminderDelivery[]

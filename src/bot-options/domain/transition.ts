@@ -1273,8 +1273,18 @@ function handleSystemEvent(
     }
     case 'booking.slot_conflict': {
       if (state.flow !== 'BOOKING_SUMMARY' && state.flow !== 'SLOT_SELECT') return escalateInvalid(state, '')
-      const next = baseOf(withoutSelections(state, 'slot'), { flow: 'SLOT_SELECT', presentation: plainPresentation() })
-      return applied(next, recoveryView('Ese horario acaba de ocuparse. Estos son los disponibles ahora:', []))
+      const sameDaySlots = context.labels.availableSlots ?? []
+      const next = sameDaySlots.length > 0
+        ? baseOf(withoutSelections(state, 'slot'), { flow: 'SLOT_SELECT', presentation: plainPresentation() })
+        : baseOf(withoutSelections(state, 'date'), { flow: 'DATE_SELECT', presentation: plainPresentation() })
+      const refreshed = renderCurrentView(next, context)
+      return applied(next, {
+        ...refreshed,
+        bodyKind: 'recovery',
+        interactiveBody: sameDaySlots.length > 0
+          ? 'Ese horario acaba de ocuparse. Estos son los disponibles para el mismo día:'
+          : 'Ese horario acaba de ocuparse y ya no quedan opciones ese día. Elegí otra fecha:'
+      })
     }
     case 'appointment.slot_conflict': {
       if (state.flow !== 'APPOINTMENT_RESCHEDULE_SUMMARY' && state.flow !== 'APPOINTMENT_RESCHEDULE_SLOT') {

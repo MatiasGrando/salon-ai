@@ -4,14 +4,17 @@ import { createInitialBotOptionsState, parseBotOptionsState, type BotOptionsStat
 import { renderCurrentView, transition, type TransitionContext } from '../domain/transition.js'
 import type { BotOptionsActionPayload, BotOptionsEntityRef } from '../domain/actions.js'
 import type { BotOptionsEffect } from '../domain/effects.js'
-import { menuView, type BotOptionsViewModel } from '../domain/views.js'
+import { menuView, textView, type BotOptionsViewModel } from '../domain/views.js'
 import { generatePromptToken } from '../domain/prompt-tokens.js'
 import { renderWhatsAppScreen, WHATSAPP_INTERACTIVE_BODY_MAX_CODE_POINTS } from '../infrastructure/whatsapp-renderer.js'
 import { assertClaimedBotJobTx, completeClaimedBotJobTx, retargetClaimedBotJobTx, type ClaimedBotJob } from '../infrastructure/postgres-worker.js'
 import { acquireDispatchClaim, assertDispatchClaimTx, completeDispatchClaimTx, releaseDispatchClaim } from '../infrastructure/dispatch-claims.js'
 import { upsertJob } from '../infrastructure/prisma-admission.js'
 import { PrismaCatalogRepository } from '../infrastructure/prisma-catalog.js'
-import { prismaHandoffEffectExecutor } from '../infrastructure/prisma-handoff-effect-executor.js'
+import {
+  prismaBotOptionsEffectExecutor,
+  type BotOptionsEffectExecutionResult
+} from '../infrastructure/prisma-bot-options-effect-executor.js'
 import type { BotOptionsActionType } from '../domain/actions.js'
 import { botOptionsMetrics } from '../observability/metrics.js'
 import { PrismaHoursRepository } from '../infrastructure/prisma-hours.js'
@@ -45,7 +48,7 @@ export type TransitionContextProvider = (
 export type TransitionEffectExecutor = (
   tx: Prisma.TransactionClient,
   input: { businessId: string; sessionId: string; operationKey: string; effects: readonly BotOptionsEffect[] }
-) => Promise<void>
+) => Promise<void | BotOptionsEffectExecutionResult>
 
 export const unavailableEffectExecutor: TransitionEffectExecutor = async (_tx, input) => {
   if (input.effects.length > 0) {
@@ -431,6 +434,13 @@ const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
         }
         base.labels.bookingSummary = `${base.customerNameOnFile ?? 'Cliente'}\n${formatCartSummary(cart.snapshot)}\nProfesional: ${assigned.name}\nFecha: ${selectedSlot.date}\nHorario: ${selectedSlot.time}`
       }
+      if (input.actionType === 'booking.confirm') {
+        base.slotStillAvailableAtConfirm = selectedSlot !== null
+        const depositServices = await tx.service.count({
+          where: { id: { in: bookingCartIds }, businessId: input.businessId, depositMode: { not: 'NONE' } }
+        })
+        base.depositRequired = depositServices > 0
+      }
     }
   }
 
@@ -553,6 +563,7 @@ async function processSessionJobInternal(input: {
       let effects: readonly BotOptionsEffect[] = []
       let promptId: string | null = null
       let providerEventId: string | null = null
+      let transitionContext: TransitionContext | null = null
       if (selected.length === 1) {
         const action = selected[0]!
         if (action.status !== 'SELECTED' || !action.actionType) throw new Error('session action is not selected')
@@ -572,6 +583,7 @@ async function processSessionJobInternal(input: {
           dbNow: session.dbNow,
           businessTimezone: session.businessTimezone
         })
+        transitionContext = context
         const result = transition(parsedState.state, {
           actionType: selectedActionType,
           entityRef: selectedEntityRef,
@@ -600,9 +612,39 @@ async function processSessionJobInternal(input: {
       }
 
       const operationKey = `transition:${session.id}:${session.revision + 1n}`
-      await (input.effectExecutor ?? prismaHandoffEffectExecutor)(tx, {
+      const effectResult = await (input.effectExecutor ?? prismaBotOptionsEffectExecutor)(tx, {
         businessId: session.businessId, sessionId: session.id, operationKey, effects
       })
+      if (effectResult?.kind === 'SLOT_CONFLICT') {
+        if (!transitionContext) throw new Error('booking conflict has no transition context')
+        const freshContext = await (input.contextProvider ?? defaultContextProvider)(tx, {
+          businessId: session.businessId,
+          sessionId: session.id,
+          state: parsedState.state,
+          actionType: 'booking.slot_conflict',
+          entityRef: null,
+          payload: null,
+          dbNow: session.dbNow,
+          businessTimezone: session.businessTimezone
+        })
+        const recovery = transition(parsedState.state, {
+          actionType: 'booking.slot_conflict', entityRef: null, payload: null
+        }, freshContext)
+        nextState = recovery.state
+        view = recovery.view
+        outcome = recovery.outcome
+        effects = 'effects' in recovery ? recovery.effects : []
+        if (effects.length) throw new Error('booking slot recovery must not emit effects')
+      } else if (effectResult?.kind === 'CONFIRMED') {
+        nextState = {
+          ...nextState,
+          selections: {
+            ...nextState.selections,
+            provisionalProfessionalId: effectResult.professional.professionalId
+          }
+        }
+        view = textView(`Listo, tu turno quedó confirmado con ${effectResult.professional.name}. Te esperamos.`)
+      }
       const nextRevision = session.revision + 1n
       await tx.$executeRaw(Prisma.sql`
         UPDATE "BotSession" SET "state" = ${JSON.stringify(nextState)}::jsonb, "revision" = ${nextRevision}, "updatedAt" = clock_timestamp()

@@ -1,4 +1,4 @@
-import type { Prisma } from '../generated/prisma/client.js'
+import { Prisma } from '../generated/prisma/client.js'
 
 export type BookingRepositoryClient = Prisma.TransactionClient
 
@@ -31,24 +31,28 @@ export async function isInsideBusinessHours(tx: BookingRepositoryClient, input: 
   businessId: string
   startAt: Date
   endAt: Date
+  timezone?: string
 }) {
-  if (!sameLocalDate(input.startAt, input.endAt)) return false
+  const interval = localInterval(input.startAt, input.endAt, input.timezone)
+  if (!interval) return false
   const hours = await tx.businessHours.findMany({
-    where: { businessId: input.businessId, dayOfWeek: input.startAt.getDay() }
+    where: { businessId: input.businessId, dayOfWeek: interval.weekday }
   })
-  return containsInterval(hours, input.startAt, input.endAt)
+  return containsMinuteInterval(hours, interval.startMinute, interval.endMinute)
 }
 
 export async function isInsideProfessionalHours(tx: BookingRepositoryClient, input: {
   professionalId: string
   startAt: Date
   endAt: Date
+  timezone?: string
 }) {
-  if (!sameLocalDate(input.startAt, input.endAt)) return false
+  const interval = localInterval(input.startAt, input.endAt, input.timezone)
+  if (!interval) return false
   const hours = await tx.professionalHours.findMany({
-    where: { professionalId: input.professionalId, dayOfWeek: input.startAt.getDay() }
+    where: { professionalId: input.professionalId, dayOfWeek: interval.weekday }
   })
-  return containsInterval(hours, input.startAt, input.endAt)
+  return containsMinuteInterval(hours, interval.startMinute, interval.endMinute)
 }
 
 export async function hasScheduleBlockOverlap(tx: BookingRepositoryClient, input: {
@@ -73,45 +77,76 @@ export async function hasAppointmentOverlap(tx: BookingRepositoryClient, input: 
   startAt: Date
   endAt: Date
   excludeAppointmentId?: string
+  dbNow?: Date
 }) {
-  const appointments = await tx.appointment.findMany({
-    where: {
-      ...(input.excludeAppointmentId ? { id: { not: input.excludeAppointmentId } } : {}),
-      professionalId: input.professionalId,
-      startAt: { lt: input.endAt },
-      status: { notIn: ['CANCELLED', 'NO_SHOW'] }
-    },
-    select: { startAt: true, totalDurationMinutes: true }
-  })
-  return appointments.some((appointment) =>
-    appointment.startAt < input.endAt &&
-    addMinutes(appointment.startAt, appointment.totalDurationMinutes) > input.startAt
-  )
+  const excluded = input.excludeAppointmentId
+    ? Prisma.sql`AND a."id" <> ${input.excludeAppointmentId}`
+    : Prisma.empty
+  const now = input.dbNow ? Prisma.sql`${input.dbNow}` : Prisma.sql`clock_timestamp()`
+  const rows = await tx.$queryRaw<Array<{ overlaps: boolean }>>(Prisma.sql`
+    SELECT EXISTS (
+      SELECT 1
+      FROM "Appointment" a
+      LEFT JOIN "BookingDeposit" d ON d."appointmentId" = a."id"
+      WHERE a."professionalId" = ${input.professionalId}
+        ${excluded}
+        AND a."startAt" < ${input.endAt}
+        AND a."startAt" + make_interval(mins => a."totalDurationMinutes") > ${input.startAt}
+        AND (
+          a."status" = 'CONFIRMED'::"AppointmentStatus"
+          OR (
+            a."status" = 'PENDING'::"AppointmentStatus"
+            AND NOT (
+              d."status" = 'PENDING_PROOF'::"BookingDepositStatus"
+              AND d."expiresAt" <= ${now}
+            )
+          )
+        )
+    ) AS "overlaps"
+  `)
+  return rows[0]?.overlaps === true
 }
 
-function containsInterval(
+function containsMinuteInterval(
   hours: Array<{ startTime: string; endTime: string }>,
-  startAt: Date,
-  endAt: Date
+  start: number,
+  end: number
 ) {
-  const start = minutesSinceMidnight(startAt)
-  const end = minutesSinceMidnight(endAt)
   return hours.some((item) => start >= parseTime(item.startTime) && end <= parseTime(item.endTime))
 }
 
-function sameLocalDate(left: Date, right: Date) {
-  return left.toDateString() === right.toDateString()
-}
-
-function minutesSinceMidnight(date: Date) {
-  return date.getHours() * 60 + date.getMinutes()
+function localInterval(startAt: Date, endAt: Date, timezone?: string) {
+  if (!timezone) {
+    if (startAt.toDateString() !== endAt.toDateString()) return null
+    return {
+      weekday: startAt.getDay(),
+      startMinute: startAt.getHours() * 60 + startAt.getMinutes(),
+      endMinute: endAt.getHours() * 60 + endAt.getMinutes()
+    }
+  }
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    weekday: 'short', hour: '2-digit', minute: '2-digit',
+    hour12: false, hourCycle: 'h23'
+  })
+  const decompose = (value: Date) => {
+    const parts = formatter.formatToParts(value)
+    const part = (type: string) => parts.find((item) => item.type === type)?.value ?? ''
+    const weekday = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(part('weekday'))
+    return {
+      date: `${part('year')}-${part('month')}-${part('day')}`,
+      weekday,
+      minute: (Number(part('hour')) % 24) * 60 + Number(part('minute'))
+    }
+  }
+  const start = decompose(startAt)
+  const end = decompose(endAt)
+  if (start.weekday < 0 || start.date !== end.date) return null
+  return { weekday: start.weekday, startMinute: start.minute, endMinute: end.minute }
 }
 
 function parseTime(value: string) {
   const [hours = '0', minutes = '0'] = value.split(':')
   return Number(hours) * 60 + Number(minutes)
-}
-
-function addMinutes(date: Date, minutes: number) {
-  return new Date(date.getTime() + minutes * 60_000)
 }
