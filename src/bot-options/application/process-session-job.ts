@@ -18,6 +18,13 @@ import { PrismaHoursRepository } from '../infrastructure/prisma-hours.js'
 import { PrismaProfessionalHoursRepository } from '../infrastructure/prisma-professional-hours.js'
 import { formatBusinessWeeklySchedule, formatProfessionalWeeklySchedule, formatProfessionalListLabel } from './hours-queries.js'
 import { catalogEntryRowLabel, catalogServiceDetailView } from './catalog-queries.js'
+import { PrismaCustomerLookupRepository } from '../infrastructure/prisma-customer-lookup.js'
+import { normalizePhone, phoneSearchVariants } from '../../services/phone-normalization-service.js'
+import { validateCustomerName } from '../domain/customer-name-validation.js'
+import { PrismaCartRepository } from '../infrastructure/prisma-cart.js'
+import { formatCartSummary } from './cart-operations.js'
+import { PrismaAvailabilityRepository } from '../infrastructure/prisma-availability.js'
+import { BOOKING_DATE_PAGE_SIZE, BOOKING_SLOT_PAGE_SIZE, formatDateChoice, formatSlotOffset, paginate } from './availability-queries.js'
 
 type RuntimeClient = Pick<PrismaClient, '$queryRaw' | '$executeRaw' | '$transaction'>
 
@@ -29,6 +36,7 @@ export type TransitionContextProvider = (
     state: BotOptionsState
     actionType: string
     entityRef: BotOptionsEntityRef | null
+    payload: BotOptionsActionPayload | null
     dbNow: Date
     businessTimezone: string
   }
@@ -64,21 +72,26 @@ const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
     subcategoryActive: false, subcategoryHasServices: false,
     serviceActive: false, serviceBookable: false, requiresConsultation: false,
     serviceCompatibleWithCart: input.state.cart.length === 0, serviceInCart: false,
-    hasRecommendations: false, recommendedServiceAvailable: false, recommendedCompatibleWithCart: false,
+    hasRecommendations: false, recommendedServiceAvailable: false, recommendedCompatibleWithCart: false, recommendedServiceId: null,
       professionalCommonExists: false, professionalSelectable: false,
       professionalActive: false, professionalBookable: false,
       dateAvailable: false, slotAvailable: false,
     bandHasAvailability: false, catalogCanNext: false, catalogCanPrevious: false, catalogPageMoveAllowed: false,
     professionalCatalogCanNext: false, professionalCatalogCanPrevious: false, dateCanNext: false,
-    dateCanPrevious: false, slotCanNext: false, appointmentsExist: false, appointmentsCanNext: false,
+    dateCanPrevious: false, slotCanNext: false, noAvailabilityInHorizon: false, selectedProfessionalNoAvailability: false, appointmentsExist: false, appointmentsCanNext: false,
     appointmentOwnedAndFuture: false, cancellationAllowed: false, rescheduleAllowed: false,
     rescheduleDateAvailable: false, rescheduleSlotAvailable: false, approvedDepositTransferable: false,
     slotStillAvailableAtConfirm: false, depositRequired: false, paymentConfigComplete: false,
     labels: {}, confirmVisitSnapshot: null, depositRequest: null
   }
-  if (input.entityRef?.type === 'SERVICE') {
+  const contextServiceId = input.entityRef?.type === 'SERVICE'
+    ? input.entityRef.id
+    : input.actionType === 'name.confirm' && input.state.pendingEntityRef?.type === 'SERVICE'
+      ? input.state.pendingEntityRef.id
+      : null
+  if (contextServiceId) {
     const repo = new PrismaCatalogRepository(tx)
-    const service = await repo.getService({ businessId: input.businessId, serviceId: input.entityRef.id })
+    const service = await repo.getService({ businessId: input.businessId, serviceId: contextServiceId })
     if (service) {
       base.serviceActive = true
       base.serviceBookable = service.isBookable
@@ -251,6 +264,176 @@ const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
     }
   }
 
+  // F6.1 — La identidad se consulta únicamente al cruzar una compuerta que puede
+  // preguntar nombre. Un error se propaga: la transacción hace rollback y el
+  // worker aplica RETRY/POISON; jamás se degrada silenciosamente a "desconocido".
+  const needsCustomerIdentity =
+    input.actionType === 'menu.start_booking' ||
+    input.actionType === 'service.book' ||
+    input.actionType === 'hours.search_availability' ||
+    input.actionType === 'hours.professional_search_availability' || input.state.cart.length > 0
+  if (needsCustomerIdentity) {
+    const conversationRow = await tx.$queryRaw<Array<{ phone: string | null }>>(Prisma.sql`
+      SELECT c."phone"
+      FROM "BotSession" s
+      JOIN "Conversation" c
+        ON c."id" = s."conversationId"
+       AND c."businessId" = s."businessId"
+      WHERE s."id" = ${input.sessionId}
+        AND s."businessId" = ${input.businessId}
+      LIMIT 1
+    `)
+    const phone = conversationRow[0]?.phone
+    if (!phone) throw new Error('customer identity conversation unavailable in tenant')
+    const canonicalPhone = normalizePhone(phone)
+    if (!canonicalPhone) throw new Error('customer identity phone cannot be normalized')
+    const variants = [...new Set([phone.trim(), canonicalPhone, `+${canonicalPhone}`, ...phoneSearchVariants(phone)])]
+    const lookupRepo = new PrismaCustomerLookupRepository(tx)
+    const found = await lookupRepo.findByPhone({ businessId: input.businessId, phoneVariants: variants, canonicalPhone })
+    if (found) {
+      const storedName = validateCustomerName(found.name)
+      if (storedName.ok) base.customerNameOnFile = storedName.normalized
+    }
+  }
+
+  // F6.3/F6.4 — El carrito persistido sólo conserva IDs. Cada interacción que
+  // puede mostrarlo o mutarlo reconstruye sus derivados desde filas tenant-safe.
+  const cartRepo = new PrismaCartRepository(tx)
+  let cartIds = input.state.cart.map((item) => item.serviceId)
+  let recommendationIsOffered = false
+  if (input.actionType === 'recommendation.add' && contextServiceId && !input.state.rejectedRecommendationIds.includes(contextServiceId) && cartIds.length > 0) {
+    const offered = await tx.$queryRaw<Array<{ present: boolean }>>(Prisma.sql`
+      SELECT EXISTS(SELECT 1 FROM "ServiceAddon" WHERE "addonServiceId" = ${contextServiceId} AND "sourceServiceId" IN (${Prisma.join(cartIds)})) AS "present"
+    `)
+    recommendationIsOffered = offered[0]?.present === true
+    base.recommendedServiceAvailable = recommendationIsOffered && base.serviceActive && base.serviceBookable && !base.requiresConsultation
+  }
+  const proposedServiceId = contextServiceId && base.serviceActive && base.serviceBookable && !base.requiresConsultation && (
+    input.actionType === 'service.select' || input.actionType === 'service.book' || input.actionType === 'name.confirm' ||
+    (input.actionType === 'recommendation.add' && recommendationIsOffered)
+  ) ? contextServiceId : null
+  const removedServiceId = input.entityRef?.type === 'SERVICE' && input.actionType === 'cart.remove_service' ? input.entityRef.id : null
+  const targetCartIds = proposedServiceId
+    ? [...new Set([...cartIds, proposedServiceId])]
+    : removedServiceId ? cartIds.filter((id) => id !== removedServiceId) : cartIds
+  let targetCart = null as Awaited<ReturnType<PrismaCartRepository['load']>> | null
+  if (targetCartIds.length > 0) {
+    targetCart = await cartRepo.load({ businessId: input.businessId, serviceIds: targetCartIds })
+    const restrictive = [...targetCart.policies.values()].some((policy) => policy !== 'ALLOWED')
+    base.serviceCompatibleWithCart = targetCart.snapshot.commonProfessionalIds.length > 0 && !restrictive
+    base.recommendedCompatibleWithCart = base.serviceCompatibleWithCart
+    base.professionalCommonExists = targetCart.snapshot.commonProfessionalIds.length > 0
+    base.labels.cartSummary = formatCartSummary(targetCart.snapshot)
+  }
+  if (cartIds.length > 0 && !targetCart) {
+    targetCart = await cartRepo.load({ businessId: input.businessId, serviceIds: cartIds })
+  }
+
+  // Una recomendación es una propuesta explícita, nunca una mutación automática.
+  const recommendationSourceIds = input.actionType === 'recommendation.skip' ? cartIds : proposedServiceId ? [proposedServiceId] : []
+  if (targetCart && recommendationSourceIds.length > 0 && (input.actionType === 'service.select' || input.actionType === 'service.book' || input.actionType === 'name.confirm' || input.actionType === 'recommendation.skip')) {
+    const rejectedFilter = input.state.rejectedRecommendationIds.length > 0
+      ? Prisma.sql`AND s."id" NOT IN (${Prisma.join(input.state.rejectedRecommendationIds)})`
+      : Prisma.empty
+    const addons = await tx.$queryRaw<Array<{ id: string; name: string }>>(Prisma.sql`
+      SELECT s."id", s."name" FROM "ServiceAddon" a JOIN "Service" s ON s."id" = a."addonServiceId"
+      JOIN "ServiceCategory" c ON c."id" = s."catalogCategoryId" AND c."businessId" = s."businessId" AND c."isActive" = true
+      WHERE a."sourceServiceId" IN (${Prisma.join(recommendationSourceIds)}) AND s."businessId" = ${input.businessId}
+        AND s."isBookable" = true ${rejectedFilter}
+        AND s."id" NOT IN (${Prisma.join(targetCartIds)}) ORDER BY a."sortOrder", s."id" LIMIT 1
+    `)
+    const recommendations = [] as Array<{ serviceId: string; label: string; compatible: boolean }>
+    for (const addon of addons) {
+      const proposed = await cartRepo.load({ businessId: input.businessId, serviceIds: [...targetCartIds, addon.id] })
+      recommendations.push({
+        serviceId: addon.id, label: addon.name,
+        compatible: proposed.snapshot.commonProfessionalIds.length > 0 && ![...proposed.policies.values()].some((policy) => policy !== 'ALLOWED')
+      })
+    }
+    base.labels.recommendations = recommendations
+    base.hasRecommendations = recommendations.length > 0
+    base.recommendedServiceId = recommendations[0]?.serviceId ?? null
+    base.recommendedServiceAvailable = recommendations.length > 0
+  }
+
+  const bookingCartIds = targetCartIds.length > 0 ? targetCartIds : cartIds
+  const needsAvailability = bookingCartIds.length > 0 && (
+    input.actionType === 'cart.continue' || input.actionType === 'professional.any' || input.actionType === 'professional.select' ||
+    input.actionType === 'date.next_page' || input.actionType === 'date.previous_page' || input.actionType === 'date.select' ||
+    input.actionType === 'slot.band' || input.actionType === 'slot.show_all' || input.actionType === 'slot.next_page' ||
+    input.actionType === 'slot.select' || input.state.flow === 'DATE_SELECT' || input.state.flow === 'SLOT_SELECT' || input.state.flow === 'BOOKING_SUMMARY'
+  )
+  if (needsAvailability) {
+    const cart = targetCart ?? await cartRepo.load({ businessId: input.businessId, serviceIds: bookingCartIds })
+    if (cart.snapshot.commonProfessionalIds.length === 0) {
+      if (input.actionType === 'cart.continue') return base
+      throw new Error('persisted booking step has no common professional')
+    }
+    const availabilityRepo = new PrismaAvailabilityRepository(tx)
+    const settings = await availabilityRepo.loadSettings(input.businessId)
+    if (settings.timezone !== input.businessTimezone) throw new Error('session timezone does not match tenant availability settings')
+    const professionals = await availabilityRepo.compatibleProfessionals({ businessId: input.businessId, serviceIds: bookingCartIds })
+    base.professionalCommonExists = professionals.length > 0
+    base.labels.bookingProfessionals = professionals.map((item) => ({ professionalId: item.id, label: item.name }))
+    if (input.actionType === 'professional.select' && input.entityRef?.type === 'PROFESSIONAL') {
+      base.professionalSelectable = professionals.some((item) => item.id === input.entityRef!.id)
+    }
+    const requestedProfessionalId = input.actionType === 'professional.select' && input.entityRef?.type === 'PROFESSIONAL'
+      ? input.entityRef.id
+      : input.actionType === 'professional.any' ? null : input.state.selections.professionalId
+    if (input.actionType !== 'cart.continue') {
+      const search = await availabilityRepo.search({
+        businessId: input.businessId, serviceIds: bookingCartIds, durationMinutes: cart.snapshot.totalDurationMinutes,
+        dbNow: input.dbNow, settings, professionalId: requestedProfessionalId
+      })
+      base.selectedProfessionalNoAvailability = requestedProfessionalId !== null && search.slots.length === 0
+      if (base.selectedProfessionalNoAvailability) {
+        const allSearch = await availabilityRepo.search({
+          businessId: input.businessId, serviceIds: bookingCartIds, durationMinutes: cart.snapshot.totalDurationMinutes,
+          dbNow: input.dbNow, settings, professionalId: null
+        })
+        base.noAvailabilityInHorizon = allSearch.slots.length === 0
+      } else {
+        base.noAvailabilityInHorizon = search.slots.length === 0
+      }
+      const dates = [...new Set(search.slots.map((slot) => slot.date))]
+      const currentDateCursor = input.state.presentation.kind === 'date_page' ? input.state.presentation.cursor : 0
+      const dateCursor = input.actionType === 'date.next_page' ? currentDateCursor + 1 : input.actionType === 'date.previous_page' ? Math.max(0, currentDateCursor - 1) : currentDateCursor
+      const datePage = paginate(dates, dateCursor, BOOKING_DATE_PAGE_SIZE)
+      base.labels.availableDates = datePage.items.map((date) => ({ date, label: formatDateChoice(date, settings.timezone) }))
+      base.dateCanNext = datePage.hasNext
+      base.dateCanPrevious = datePage.hasPrevious
+      const effectiveDate = input.actionType === 'date.select' ? input.payload?.date ?? null : input.state.selections.date
+      base.dateAvailable = Boolean(effectiveDate && dates.includes(effectiveDate))
+      const slotsForDate = effectiveDate ? search.slots.filter((slot) => slot.date === effectiveDate) : search.slots
+      const repeatedWallTimes = new Set(slotsForDate.filter((slot, index, all) => all.some((other, otherIndex) => otherIndex !== index && other.time === slot.time)).map((slot) => slot.time))
+      base.labels.availableSlots = slotsForDate.map((slot) => ({
+        startAt: slot.startAt, label: `${slot.time}${repeatedWallTimes.has(slot.time) ? ` (${formatSlotOffset(slot.startAt, settings.timezone)})` : ''} · ${slot.professionalName}`, band: slot.band,
+        professionalId: slot.professionalId
+      }))
+      base.bandHasAvailability = slotsForDate.length > 0
+      const slotCursor = input.state.presentation.kind === 'slot_all_pages' ? input.state.presentation.cursor : 0
+      base.slotCanNext = paginate(slotsForDate, input.actionType === 'slot.next_page' ? slotCursor + 1 : slotCursor, BOOKING_SLOT_PAGE_SIZE).hasNext
+      const requestedStartAt = input.actionType === 'slot.select' ? input.payload?.startAt : input.state.selections.slotStartAt
+      const selectedSlot = requestedStartAt ? search.slots.find((slot) => slot.startAt === requestedStartAt && (!effectiveDate || slot.date === effectiveDate)) : null
+      base.slotAvailable = selectedSlot !== null
+      if (selectedSlot) {
+        const assigned = search.professionals.find((professional) => professional.id === selectedSlot.professionalId)
+        if (!assigned) throw new Error('provisional assignment missing from compatible professionals')
+        base.confirmVisitSnapshot = {
+          services: cart.snapshot.services.map((service) => ({
+            serviceId: service.id, name: service.name, durationMinutes: service.durationMinutes,
+            priceMinor: service.priceMinor, priceMode: service.priceMode
+          })),
+          professional: { professionalId: assigned.id, name: assigned.name, assignedByBalancer: requestedProfessionalId === null },
+          totalDurationMinutes: cart.snapshot.totalDurationMinutes,
+          totalPriceMinor: cart.snapshot.totalPriceMinor
+        }
+        base.labels.bookingSummary = `${base.customerNameOnFile ?? 'Cliente'}\n${formatCartSummary(cart.snapshot)}\nProfesional: ${assigned.name}\nFecha: ${selectedSlot.date}\nHorario: ${selectedSlot.time}`
+      }
+    }
+  }
+
   return base
 }
 
@@ -336,7 +519,7 @@ async function processSessionJobInternal(input: {
           s."businessTimezone"
         FROM "BotSession" s
         JOIN "BotChannelDeployment" d ON d."id" = s."deploymentId"
-        LEFT JOIN "Conversation" c ON c."id" = s."conversationId"
+        LEFT JOIN "Conversation" c ON c."id" = s."conversationId" AND c."businessId" = s."businessId"
         WHERE s."id" = ${target[0]!.sessionId} AND d."businessId" = s."businessId"
           AND d."generation" = s."deploymentGeneration" AND d."activeConfigurationId" IS NOT NULL
           AND d."claimsPausedAt" IS NULL AND s."status" <> 'HUMAN_TAKEN'::"BotSessionStatus"
@@ -385,6 +568,7 @@ async function processSessionJobInternal(input: {
         const context = await (input.contextProvider ?? defaultContextProvider)(tx, {
           businessId: session.businessId, sessionId: session.id, state: parsedState.state, actionType: selectedActionType,
           entityRef: selectedEntityRef,
+          payload: selectedPayload,
           dbNow: session.dbNow,
           businessTimezone: session.businessTimezone
         })
@@ -483,10 +667,12 @@ async function processInitialInboxUnderClaim(
   return input.client.$transaction(async (tx) => {
     await assertClaimedBotJobTx(tx, input.job)
     await assertDispatchClaimTx({ tx, businessId: input.job.businessId, claimToken: dispatchToken })
-    const rows = await tx.$queryRaw<Array<{ id: string; businessId: string; deploymentId: string; deploymentGeneration: number; payload: Prisma.JsonValue; status: string; dbNow: Date }>>(Prisma.sql`
-      SELECT i."id", e."businessId", i."deploymentId", i."deploymentGeneration", i."payload", i."status"::text AS "status", clock_timestamp() AS "dbNow"
+    const rows = await tx.$queryRaw<Array<{ id: string; businessId: string; deploymentId: string; deploymentGeneration: number; payload: Prisma.JsonValue; status: string; dbNow: Date; businessTimezone: string }>>(Prisma.sql`
+      SELECT i."id", e."businessId", i."deploymentId", i."deploymentGeneration", i."payload", i."status"::text AS "status",
+        clock_timestamp() AS "dbNow", settings."timezone" AS "businessTimezone"
       FROM "BotActionInbox" i JOIN "BotProviderEvent" e ON e."id" = i."providerEventId"
       JOIN "BotChannelDeployment" d ON d."id" = i."deploymentId" AND d."businessId" = e."businessId"
+      JOIN "BusinessBotOptionsSettings" settings ON settings."businessId" = e."businessId"
       WHERE i."id" = ${input.job.aggregateId} AND d."generation" = i."deploymentGeneration"
         AND d."activeConfigurationId" IS NOT NULL AND d."claimsPausedAt" IS NULL
        FOR UPDATE OF i FOR SHARE OF d
@@ -516,7 +702,7 @@ async function processInitialInboxUnderClaim(
       INSERT INTO "BotSession" ("id", "businessId", "conversationId", "deploymentId", "deploymentGeneration",
         "businessTimezone", "state", "revision", "updatedAt")
       VALUES (${sessionId}, ${row.businessId}, ${conversations[0]!.id}, ${row.deploymentId}, ${row.deploymentGeneration},
-        'America/Argentina/Buenos_Aires', ${JSON.stringify(state)}::jsonb, 1, clock_timestamp())
+        ${row.businessTimezone}, ${JSON.stringify(state)}::jsonb, 1, clock_timestamp())
       ON CONFLICT ("deploymentId", "conversationId")
         WHERE "status" = 'ACTIVE'::"BotSessionStatus" AND "conversationId" IS NOT NULL
       DO NOTHING
@@ -538,7 +724,7 @@ async function processInitialInboxUnderClaim(
       if (!inserted) {
         await tx.$executeRaw(Prisma.sql`
           UPDATE "BotSession" SET "state" = ${JSON.stringify(state)}::jsonb, "revision" = ${revisionTo},
-            "deploymentGeneration" = ${row.deploymentGeneration}, "updatedAt" = clock_timestamp()
+            "deploymentGeneration" = ${row.deploymentGeneration}, "businessTimezone" = ${row.businessTimezone}, "updatedAt" = clock_timestamp()
           WHERE "id" = ${session.id} AND "revision" = ${revisionFrom}
         `)
       }
@@ -553,8 +739,8 @@ async function processInitialInboxUnderClaim(
         businessId: row.businessId!, sessionId: session.id, revision: revisionTo, transitionId,
         toPhone: payload.fromPhone, view: renderCurrentView(state, await defaultContextProvider(tx, {
           businessId: row.businessId!, sessionId: session.id, state, actionType: 'system.initial_view',
-          entityRef: null, dbNow: row.dbNow,
-          businessTimezone: 'America/Argentina/Buenos_Aires' // Fallback razonable para initial view
+          entityRef: null, payload: null, dbNow: row.dbNow,
+          businessTimezone: row.businessTimezone
         })), dbNow: row.dbNow
       })
     }

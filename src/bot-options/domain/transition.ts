@@ -43,6 +43,7 @@ import {
   type GlobalNavigationPlan,
   type ViewChoice
 } from './views.js'
+import { validateCustomerName } from './customer-name-validation.js'
 
 export type NormalizedAction = {
   actionType: BotOptionsActionType
@@ -69,6 +70,7 @@ export type TransitionContext = {
   hasRecommendations: boolean
   recommendedServiceAvailable: boolean
   recommendedCompatibleWithCart: boolean
+  recommendedServiceId: string | null
   professionalCommonExists: boolean
   professionalSelectable: boolean
   /** F5.7: true si el profesional consultado está activo (revalidado contra DB). */
@@ -89,6 +91,8 @@ export type TransitionContext = {
   dateCanNext: boolean
   dateCanPrevious: boolean
   slotCanNext: boolean
+  noAvailabilityInHorizon: boolean
+  selectedProfessionalNoAvailability: boolean
   appointmentsExist: boolean
   appointmentsCanNext: boolean
   appointmentOwnedAndFuture: boolean
@@ -124,6 +128,12 @@ export type TransitionContext = {
     professionalListText?: string | undefined
     /** F5.7: Lista de profesionales activos para generar opciones interactivas. */
     professionalCatalog?: ReadonlyArray<{ professionalId: string; label: string }> | undefined
+    cartSummary?: string | undefined
+    recommendations?: ReadonlyArray<{ serviceId: string; label: string; compatible: boolean }> | undefined
+    bookingProfessionals?: ReadonlyArray<{ professionalId: string; label: string }> | undefined
+    availableDates?: ReadonlyArray<{ date: string; label: string }> | undefined
+    availableSlots?: ReadonlyArray<{ startAt: string; label: string; band: SlotBand; professionalId: string }> | undefined
+    bookingSummary?: string | undefined
   }
   confirmVisitSnapshot: {
     services: Array<{
@@ -171,6 +181,8 @@ const FALSE_DEFAULTS: readonly (
   'dateCanNext',
   'dateCanPrevious',
   'slotCanNext',
+  'noAvailabilityInHorizon',
+  'selectedProfessionalNoAvailability',
   'appointmentsExist',
   'appointmentsCanNext',
   'appointmentOwnedAndFuture',
@@ -190,6 +202,7 @@ export function normalizeContext(input: Partial<TransitionContext> & Pick<Transi
     if (typeof merged[key] !== 'boolean') merged[key] = false
   }
   if (typeof merged['customerNameOnFile'] !== 'string') merged['customerNameOnFile'] = null
+  if (typeof merged['recommendedServiceId'] !== 'string') merged['recommendedServiceId'] = null
   const labels = merged['labels']
   if (typeof labels !== 'object' || labels === null || Array.isArray(labels)) merged['labels'] = {}
   return merged as unknown as TransitionContext
@@ -302,6 +315,7 @@ const CLIENT_ALLOWED: Partial<Record<BotOptionsFlowStep, readonly BotOptionsActi
     'date.previous_page',
     'date.select',
     'professional.any',
+    'cart.add_service',
     'navigation.back',
     'navigation.home',
     'navigation.open',
@@ -385,6 +399,7 @@ function withoutSelections(state: BotOptionsState, level: 'professional' | 'date
   if (level === 'professional') {
     selections.professionalId = null
     selections.anyProfessional = false
+    selections.provisionalProfessionalId = null
   }
   if (level === 'professional' || level === 'date') selections.date = null
   selections.slotStartAt = null
@@ -560,40 +575,66 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
         choices: detailChoices
       }, navDetail)
     }
-    case 'RECOMMENDATION_SELECT':
+    case 'RECOMMENDATION_SELECT': {
+      const recommendations = context.labels.recommendations ?? []
       return menuView('¿Querés complementarlo?', [
-        { actionType: 'recommendation.add', label: 'Agregar' },
+        ...recommendations.map((item) => item.compatible
+          ? { actionType: 'recommendation.add' as const, label: item.label, entityRef: { type: 'SERVICE' as const, id: item.serviceId } }
+          : { actionType: 'recommendation.consult' as const, label: `Coordinar ${item.label}`, entityRef: { type: 'SERVICE' as const, id: item.serviceId } }),
         { actionType: 'recommendation.skip', label: 'Continuar sin agregar' }
       ])
+    }
     case 'CART_REVIEW':
-      return menuView('Tu reserva', [
+      return menuView(context.labels.cartSummary ?? 'Tu reserva', [
         { actionType: 'cart.add_service', label: 'Agregar otro servicio' },
         { actionType: 'cart.remove_service', label: 'Quitar un servicio' },
         { actionType: 'cart.continue', label: 'Continuar con la reserva' }
       ])
-    case 'INCOMPATIBLE_SERVICE_DECISION':
+    case 'INCOMPATIBLE_SERVICE_DECISION': {
+      const incompatibleId = state.pendingEntityRef?.type === 'SERVICE' ? state.pendingEntityRef.id : null
       return menuView(
         `${context.labels.serviceName ?? 'Este servicio'} requiere coordinar entre varios profesionales. ¿Qué hacemos?`,
         [
-          { actionType: 'recommendation.add', label: 'Agregar y coordinar con el equipo' },
+          ...(incompatibleId ? [{ actionType: 'recommendation.add' as const, label: 'Agregar y coordinar con el equipo', entityRef: { type: 'SERVICE' as const, id: incompatibleId } }] : []),
           { actionType: 'cart.continue', label: 'Continuar sin este servicio' }
         ]
       )
-    case 'PROFESSIONAL_SELECT':
+    }
+    case 'PROFESSIONAL_SELECT': {
+      const professionals = context.labels.bookingProfessionals ?? []
       return menuView('¿Con quién querés atenderte?', [
-        { actionType: 'professional.any', label: 'Cualquier profesional disponible' }
+        { actionType: 'professional.any', label: 'Cualquier profesional disponible' },
+        ...professionals.map((item) => ({ actionType: 'professional.select' as const, label: item.label, entityRef: { type: 'PROFESSIONAL' as const, id: item.professionalId } }))
       ])
-    case 'DATE_SELECT':
-      return menuView('Elegí la fecha', [{ actionType: 'date.next_page', label: 'Ver más fechas' }])
-    case 'SLOT_SELECT':
-      return menuView('Elegí el horario', [
-        { actionType: 'slot.band', label: 'Mañana', payload: { band: 'MORNING' } },
-        { actionType: 'slot.band', label: 'Tarde', payload: { band: 'AFTERNOON' } },
-        { actionType: 'slot.band', label: 'Noche', payload: { band: 'EVENING' } },
-        { actionType: 'slot.show_all', label: 'Ver todos los horarios' }
-      ])
+    }
+    case 'DATE_SELECT': {
+      const choices: ViewChoice[] = (context.labels.availableDates ?? []).map((item) => ({ actionType: 'date.select', label: item.label, payload: { date: item.date } }))
+      if (context.dateCanPrevious) choices.push({ actionType: 'date.previous_page', label: 'Fechas anteriores' })
+      if (context.dateCanNext) choices.push({ actionType: 'date.next_page', label: 'Ver más fechas' })
+      if (context.noAvailabilityInHorizon || context.selectedProfessionalNoAvailability) {
+        if (state.selections.professionalId) choices.push({ actionType: 'professional.any', label: 'Buscar con cualquier profesional' })
+        choices.push({ actionType: 'cart.add_service', label: 'Modificar servicios' }, HUMAN_CHOICE)
+      }
+      return menuView(context.noAvailabilityInHorizon || context.selectedProfessionalNoAvailability ? 'No encontramos disponibilidad con esa selección en el período buscado.' : 'Elegí la fecha', choices)
+    }
+    case 'SLOT_SELECT': {
+      const all = context.labels.availableSlots ?? []
+      const selectedBand = state.presentation.kind === 'slot_band' ? state.presentation.band : null
+      const filtered = selectedBand ? all.filter((slot) => slot.band === selectedBand) : all
+      const cursor = state.presentation.kind === 'slot_all_pages' ? state.presentation.cursor : 0
+      const page = state.presentation.kind === 'slot_all_pages' ? filtered.slice(cursor * 7, cursor * 7 + 7) : filtered
+      if (state.presentation.kind === 'plain' && all.length > 7) {
+        return menuView('Elegí una franja', [
+          ...(['MORNING', 'AFTERNOON', 'EVENING'] as const).filter((band) => all.some((slot) => slot.band === band)).map((band) => ({ actionType: 'slot.band' as const, label: band === 'MORNING' ? 'Mañana' : band === 'AFTERNOON' ? 'Tarde' : 'Noche', payload: { band } })),
+          { actionType: 'slot.show_all', label: 'Ver todos los horarios' }
+        ])
+      }
+      const choices: ViewChoice[] = page.map((slot) => ({ actionType: 'slot.select', label: slot.label, payload: { startAt: slot.startAt } }))
+      if (state.presentation.kind === 'slot_all_pages' && context.slotCanNext) choices.push({ actionType: 'slot.next_page', label: 'Más horarios' })
+      return menuView('Elegí el horario', choices)
+    }
     case 'BOOKING_SUMMARY':
-      return menuView('Confirmá tu reserva', [{ actionType: 'booking.confirm', label: 'Confirmar turno' }])
+      return menuView(context.labels.bookingSummary ?? 'Confirmá tu reserva', [{ actionType: 'booking.confirm', label: 'Confirmar turno' }])
     case 'DISCARD_CONFIRM':
       return menuView('¿Seguro que querés descartar la reserva en curso?', [
         { actionType: 'draft.restart', label: 'Descartar e ir al menú' },
@@ -752,7 +793,8 @@ function enterHandoff(
   state: BotOptionsState,
   reason: string,
   detail: string | null,
-  context: { serviceId: string } | { professionalId: string } | null = null
+  context: { serviceId: string } | { professionalId: string } | null = null,
+  extraEffects: BotOptionsEffect[] = []
 ): TransitionResult {
   const nextState = baseOf(resetInvalidStreak(state), {
     flow: 'HANDOFF_QUEUED',
@@ -761,7 +803,8 @@ function enterHandoff(
     presentation: plainPresentation()
   })
   return applied(nextState, renderCurrentView(nextState, EMPTY_CONTEXT_FOR_VIEWS), [
-    { kind: 'REQUEST_HUMAN_HANDOFF', reason, detail, context }
+    { kind: 'REQUEST_HUMAN_HANDOFF', reason, detail, context },
+    ...extraEffects
   ])
 }
 
@@ -1196,9 +1239,14 @@ function handleSystemEvent(
       if (!name) {
         return escalateInvalid(state, 'Necesito tu nombre para continuar. Escribilo, por favor.')
       }
+      const nameValidation = validateCustomerName(name)
+      if (!nameValidation.ok) {
+        return escalateInvalid(state, nameValidation.reason)
+      }
+      const normalizedName = nameValidation.normalized
       return applied(
-        baseOf(resetInvalidStreak(state), { flow: 'NAME_CONFIRM', nameCandidate: name }),
-        renderCurrentView({ ...state, flow: 'NAME_CONFIRM', nameCandidate: name }, context)
+        baseOf(resetInvalidStreak(state), { flow: 'NAME_CONFIRM', nameCandidate: normalizedName }),
+        renderCurrentView({ ...state, flow: 'NAME_CONFIRM', nameCandidate: normalizedName }, context)
       )
     }
     case 'deposit.proof_received': {
@@ -1408,9 +1456,10 @@ function fromNameConfirm(state: BotOptionsState, actionType: BotOptionsActionTyp
         )
       }
       const withItem = addToCart(afterName, serviceId)
+      const destination = context.hasRecommendations ? 'RECOMMENDATION_SELECT' : 'CART_REVIEW'
       return applied(
-        baseOf(withItem, { flow: 'RECOMMENDATION_SELECT', pendingEntityRef: null, presentation: plainPresentation() }),
-        renderCurrentView({ ...withItem, flow: 'RECOMMENDATION_SELECT' }, context),
+        baseOf(withItem, { flow: destination, pendingEntityRef: null, presentation: plainPresentation() }),
+        renderCurrentView({ ...withItem, flow: destination }, context),
         effects
       )
     }
@@ -1621,14 +1670,16 @@ function fromRecommendationSelect(
       return recovered(state, 'entity_inactive', 'Ese complemento ya no está disponible.', [])
     }
     if (!context.recommendedCompatibleWithCart) {
-      return enterHandoff(state, 'complemento_requiere_coordinacion', context.labels.serviceName ?? null)
+      const next = baseOf(state, { flow: 'INCOMPATIBLE_SERVICE_DECISION', pendingEntityRef: { type: 'SERVICE', id: entityRef.id }, presentation: plainPresentation() })
+      return applied(next, renderCurrentView(next, context))
     }
     const withItem = addToCart(state, entityRef.id)
     return applied(baseOf(withItem, { flow: 'CART_REVIEW', presentation: plainPresentation() }), renderCurrentView({ ...withItem, flow: 'CART_REVIEW' }, context))
   }
   if (actionType === 'recommendation.skip') {
-    const rejected = entityRef
-      ? [...new Set([...state.rejectedRecommendationIds, entityRef.id])]
+    const rejectedId = entityRef?.id ?? context.recommendedServiceId
+    const rejected = rejectedId
+      ? [...new Set([...state.rejectedRecommendationIds, rejectedId])]
       : state.rejectedRecommendationIds
     return applied(baseOf(state, { flow: 'CART_REVIEW', rejectedRecommendationIds: rejected, presentation: plainPresentation() }), renderCurrentView({ ...state, flow: 'CART_REVIEW' }, context))
   }
@@ -1689,6 +1740,9 @@ function fromProfessionalSelect(
   context: TransitionContext
 ): TransitionResult {
   if (actionType === 'professional.any') {
+    if (context.noAvailabilityInHorizon) return enterHandoff(state, 'sin_disponibilidad_en_horizonte', null, null, [
+      { kind: 'EMIT_OPERATIONAL_ALERT', alertKind: 'NO_AVAILABILITY_IN_HORIZON', detail: null }
+    ])
     const next = baseOf(resetInvalidStreak(state), {
       flow: 'DATE_SELECT',
       selections: { ...state.selections, professionalId: null, anyProfessional: true, date: null, slotStartAt: null },
@@ -1700,6 +1754,9 @@ function fromProfessionalSelect(
     if (!entityRef || !context.professionalSelectable) {
       return recovered(state, 'entity_inactive', 'Esa persona no puede realizar todos los servicios elegidos.', [])
     }
+    if (context.noAvailabilityInHorizon) return enterHandoff(state, 'sin_disponibilidad_en_horizonte', null, null, [
+      { kind: 'EMIT_OPERATIONAL_ALERT', alertKind: 'NO_AVAILABILITY_IN_HORIZON', detail: null }
+    ])
     const next = baseOf(resetInvalidStreak(state), {
       flow: 'DATE_SELECT',
       selections: { ...state.selections, professionalId: entityRef.id, anyProfessional: false, date: null, slotStartAt: null },
@@ -1717,11 +1774,13 @@ function fromDateSelect(
   context: TransitionContext
 ): TransitionResult {
   if (actionType === 'date.next_page' || actionType === 'date.previous_page') {
-    if ((actionType === 'date.next_page') !== context.dateCanNext && actionType === 'date.next_page') {
+    if (actionType === 'date.next_page' && !context.dateCanNext) {
       return recovered(state, 'guard_failed', 'Llegaste al final del rango de búsqueda.', [])
     }
-    const cursor = state.presentation.kind === 'catalog_page' ? state.presentation.cursor + (actionType === 'date.next_page' ? 1 : -1) : actionType === 'date.next_page' ? 1 : 0
-    return applied(baseOf(state, { presentation: { kind: 'catalog_page', cursor: Math.max(0, cursor) } }), renderCurrentView(state, context))
+    if (actionType === 'date.previous_page' && !context.dateCanPrevious) return recovered(state, 'guard_failed', 'Estás en la primera página de fechas.', [])
+    const cursor = state.presentation.kind === 'date_page' ? state.presentation.cursor + (actionType === 'date.next_page' ? 1 : -1) : actionType === 'date.next_page' ? 1 : 0
+    const next = baseOf(state, { presentation: { kind: 'date_page', cursor: Math.max(0, cursor) } })
+    return applied(next, renderCurrentView(next, context))
   }
   if (actionType === 'date.select') {
     if (!payload?.date || !context.dateAvailable) {
@@ -1737,6 +1796,9 @@ function fromDateSelect(
   if (actionType === 'professional.any') {
     return fromProfessionalSelect(state, 'professional.any', null, context)
   }
+  if (actionType === 'cart.add_service') {
+    return applied(baseOf(withoutSelections(state, 'professional'), { flow: 'CATEGORY_SELECT', catalogMode: 'BOOKING', presentation: plainPresentation() }), renderCurrentView({ ...state, flow: 'CATEGORY_SELECT' }, context))
+  }
   return escalateInvalid(state, '')
 }
 
@@ -1751,15 +1813,18 @@ function fromSlotSelect(
     if (!band || !context.bandHasAvailability) {
       return recovered(state, 'guard_failed', 'No hay horarios en esa franja para esta fecha.', [])
     }
-    return applied(baseOf(state, { presentation: { kind: 'slot_band', band } }), renderCurrentView(state, context))
+    const next = baseOf(state, { presentation: { kind: 'slot_band', band } })
+    return applied(next, renderCurrentView(next, context))
   }
   if (actionType === 'slot.show_all') {
-    return applied(baseOf(state, { presentation: { kind: 'slot_all_pages', cursor: 0 } }), renderCurrentView(state, context))
+    const next = baseOf(state, { presentation: { kind: 'slot_all_pages', cursor: 0 } })
+    return applied(next, renderCurrentView(next, context))
   }
   if (actionType === 'slot.next_page') {
     if (!context.slotCanNext) return recovered(state, 'guard_failed', 'No hay más horarios para este día.', [])
     const cursor = state.presentation.kind === 'slot_all_pages' ? state.presentation.cursor + 1 : 1
-    return applied(baseOf(state, { presentation: { kind: 'slot_all_pages', cursor } }), renderCurrentView(state, context))
+    const next = baseOf(state, { presentation: { kind: 'slot_all_pages', cursor } })
+    return applied(next, renderCurrentView(next, context))
   }
   if (actionType === 'slot.select') {
     if (!payload?.startAt || !context.slotAvailable) {
@@ -1767,7 +1832,7 @@ function fromSlotSelect(
     }
     const next = baseOf(resetInvalidStreak(state), {
       flow: 'BOOKING_SUMMARY',
-      selections: { ...state.selections, slotStartAt: payload.startAt },
+      selections: { ...state.selections, slotStartAt: payload.startAt, provisionalProfessionalId: context.confirmVisitSnapshot?.professional.professionalId ?? null },
       presentation: plainPresentation()
     })
     return applied(next, renderCurrentView(next, context))
@@ -1901,6 +1966,7 @@ function createInitialLike(state: BotOptionsState): BotOptionsState {
       anyProfessional: false,
       date: null,
       slotStartAt: null,
+      provisionalProfessionalId: null,
       appointmentId: null
     },
     invalidStreak: 0,

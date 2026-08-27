@@ -40,6 +40,10 @@ try {
     VALUES (${businessId}, ${`F5-${suffix}`}, 'F5 main menu contract')
   `)
   await prisma.$executeRaw(Prisma.sql`
+    INSERT INTO "BusinessBotOptionsSettings" ("businessId", "timezone", "bookingHorizonDays", "bookingLeadTimeHours", "morningCutTime", "eveningCutTime")
+    VALUES (${businessId}, 'UTC', 30, 0, '12:30', '16:30')
+  `)
+  await prisma.$executeRaw(Prisma.sql`
     INSERT INTO "BusinessBotConfiguration" ("id", "businessId", "botKey", "name", "version", "status", "definition", "updatedAt")
     VALUES (${configurationId}, ${businessId}, 'deterministic-options', 'Deterministic options', 'v1', 'ACTIVE', '{}'::jsonb, clock_timestamp())
   `)

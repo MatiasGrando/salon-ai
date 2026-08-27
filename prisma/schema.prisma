@@ -649,6 +649,7 @@ model Business {
   users                   User[]
   weexCustomerLinks       WeexCustomerLink[]
   bookingDeposits         BookingDeposit[]
+  botOptionsSettings      BusinessBotOptionsSettings?
 
   createdAt DateTime @default(now())
 
@@ -657,6 +658,21 @@ model Business {
   @@index([planId])
   @@index([accountStatus])
   @@index([isDemo, createdByUserId])
+}
+
+/// Configuración reservable del motor determinístico. No se crea una fila por
+/// defecto porque la zona IANA de un negocio existente no puede inferirse con
+/// seguridad; el runtime falla cerrado hasta que el negocio la configure.
+model BusinessBotOptionsSettings {
+  businessId              String   @id
+  business                Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  timezone                String
+  bookingHorizonDays      Int      @default(30)
+  bookingLeadTimeHours    Int      @default(0)
+  morningCutTime          String   @default("12:30")
+  eveningCutTime          String   @default("16:30")
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
 }
 
 model BusinessAccountStatusChange {
@@ -1004,6 +1020,7 @@ model Professional {
   avatarUrl          String?
   isActive           Boolean   @default(true)
   acceptsBotBookings Boolean   @default(true)
+  botBookingPriority Int       @default(100)
   deactivatedAt      DateTime?
 
   businessId String

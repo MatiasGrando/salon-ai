@@ -99,6 +99,7 @@ export type BotOptionsPresentationMode =
   | { kind: 'plain' }
   /** parentServiceId identifica una subcategoría explícita; null/ausente = raíz. */
   | { kind: 'catalog_page'; cursor: number; parentServiceId?: string | null }
+  | { kind: 'date_page'; cursor: number }
   | { kind: 'slot_band'; band: SlotBandView }
   | { kind: 'slot_all_pages'; cursor: number }
   | { kind: 'navigation_menu' }
@@ -121,6 +122,8 @@ export type BotOptionsSelections = {
   date: string | null
   /** Inicio de bloque ISO 8601 con offset, sobre la grilla de 30 minutos. */
   slotStartAt: string | null
+  /** Asignación provisional para "cualquiera"; F7 la recalcula bajo lock. */
+  provisionalProfessionalId?: string | null
   /** Turno estable seleccionado durante cancelación o reprogramación. */
   appointmentId: string | null
 }
@@ -168,6 +171,7 @@ export function createInitialBotOptionsState(): BotOptionsState {
       anyProfessional: false,
       date: null,
       slotStartAt: null,
+      provisionalProfessionalId: null,
       appointmentId: null
     },
     invalidStreak: 0,
@@ -343,6 +347,7 @@ export function validateBotOptionsState(
   const categoryId = selections['categoryId']
   const date = selections['date']
   const slotStartAt = selections['slotStartAt']
+  const provisionalProfessionalId = selections['provisionalProfessionalId']
   const appointmentId = selections['appointmentId']
   if (categoryId !== null && typeof categoryId !== 'string') {
     return { ok: false, invariant: 'booking_requires_complete_selection' }
@@ -357,6 +362,9 @@ export function validateBotOptionsState(
     return { ok: false, invariant: 'booking_requires_complete_selection' }
   }
   if (slotStartAt !== null && typeof slotStartAt !== 'string') {
+    return { ok: false, invariant: 'booking_requires_complete_selection' }
+  }
+  if (provisionalProfessionalId !== undefined && provisionalProfessionalId !== null && typeof provisionalProfessionalId !== 'string') {
     return { ok: false, invariant: 'booking_requires_complete_selection' }
   }
   if (appointmentId !== null && typeof appointmentId !== 'string') {
@@ -432,11 +440,11 @@ export function validateBotOptionsState(
     return { ok: false, invariant: 'presentation_kind_allowed' }
   }
   const kind = presentation['kind']
-  const allowedKinds = ['plain', 'catalog_page', 'slot_band', 'slot_all_pages', 'navigation_menu', 'appointment_list_page', 'professional_list_page']
+  const allowedKinds = ['plain', 'catalog_page', 'date_page', 'slot_band', 'slot_all_pages', 'navigation_menu', 'appointment_list_page', 'professional_list_page']
   if (typeof kind !== 'string' || !(allowedKinds as readonly string[]).includes(kind)) {
     return { ok: false, invariant: 'presentation_kind_allowed' }
   }
-  if ((kind === 'catalog_page' || kind === 'slot_all_pages' || kind === 'appointment_list_page' || kind === 'professional_list_page')) {
+  if ((kind === 'catalog_page' || kind === 'date_page' || kind === 'slot_all_pages' || kind === 'appointment_list_page' || kind === 'professional_list_page')) {
     const cursor = presentation['cursor']
     if (typeof cursor !== 'number' || !Number.isInteger(cursor) || cursor < 0) {
       return { ok: false, invariant: 'presentation_kind_allowed' }

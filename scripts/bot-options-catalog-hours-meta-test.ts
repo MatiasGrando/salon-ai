@@ -387,6 +387,10 @@ try {
     VALUES (${businessId}, ${`F58-${suffix}`}, 'F5.8 controlled Meta sandbox')
   `)
   await prisma.$executeRaw(Prisma.sql`
+    INSERT INTO "BusinessBotOptionsSettings" ("businessId", "timezone", "bookingHorizonDays", "bookingLeadTimeHours", "morningCutTime", "eveningCutTime")
+    VALUES (${businessId}, 'UTC', 30, 0, '12:30', '16:30')
+  `)
+  await prisma.$executeRaw(Prisma.sql`
     INSERT INTO "BusinessBotConfiguration" ("id", "businessId", "botKey", "name", "version", "status", "definition", "updatedAt")
     VALUES
       (${activeConfigurationId}, ${businessId}, 'deterministic-options', 'F5.8 active', 'v1', 'ACTIVE', '{}'::jsonb, clock_timestamp()),

@@ -40,6 +40,8 @@ const otherBusinessId = `f4_other_b_${suffix}`
 const otherConfigId = `f4_other_c_${suffix}`
 const otherDeploymentId = `f4_other_d_${suffix}`
 const otherSessionId = `f4_other_s_${suffix}`
+const claimTestJob = () => worker.claimBotJob(prisma, 30_000, randomUUID(), { businessId })
+const claimTestOutbox = () => outbox.claimOutbox(prisma, 30_000, randomUUID(), { businessId })
 
 try {
   await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "BotSession_active_deployment_conversation_key"
@@ -63,6 +65,10 @@ try {
   assert.deepEqual(rollingShape[0], { leasedEnum: true, claimedEnum: false, jobLeaseColumns: 2n, renamedJobColumns: 0n },
     'new code must preserve old physical lease names during rolling deploy')
   await prisma.$executeRaw(Prisma.sql`INSERT INTO "Business" ("id", "customerCode", "name") VALUES (${businessId}, ${`F4-${suffix}`}, 'F4 contract')`)
+  await prisma.$executeRaw(Prisma.sql`
+    INSERT INTO "BusinessBotOptionsSettings" ("businessId", "timezone", "bookingHorizonDays", "bookingLeadTimeHours", "morningCutTime", "eveningCutTime")
+    VALUES (${businessId}, 'UTC', 30, 0, '12:30', '16:30')
+  `)
   await prisma.$executeRaw(Prisma.sql`
     INSERT INTO "BusinessBotConfiguration" ("id", "businessId", "botKey", "name", "version", "status", "definition", "updatedAt")
     VALUES (${configId}, ${businessId}, 'f4', 'F4', 'v1', 'ACTIVE', '{}'::jsonb, clock_timestamp())
@@ -107,7 +113,7 @@ try {
   } }] }] }), 'utf8')
   const secondInitialSignature = `sha256=${createHmac('sha256', secret).update(secondInitialBody).digest('hex')}`
   assert.equal((await webhook.routeAndAdmit({ rawBody: secondInitialBody, signatureHeader: secondInitialSignature })).route, 'new')
-  const [initialJobA, initialJobB] = await Promise.all([worker.claimBotJob(prisma), worker.claimBotJob(prisma)])
+  const [initialJobA, initialJobB] = await Promise.all([claimTestJob(), claimTestJob()])
   assert.ok(initialJobA && initialJobB)
   assert.equal(initialJobA.kind, 'PROCESS_INBOX')
   assert.equal(initialJobB.kind, 'PROCESS_INBOX')
@@ -158,7 +164,7 @@ try {
   } }] }] }), 'utf8')
   const staleSignature = `sha256=${createHmac('sha256', secret).update(staleBody).digest('hex')}`
   assert.equal((await webhook.routeAndAdmit({ rawBody: staleBody, signatureHeader: staleSignature })).route, 'new')
-  const recoveryJob = await worker.claimBotJob(prisma)
+  const recoveryJob = await claimTestJob()
   assert.ok(recoveryJob)
   assert.equal(recoveryJob.kind, 'RECOVER_CUTOVER')
   assert.equal(await processor.processSessionJob({ client: prisma, job: recoveryJob }), 'PROCESSED')
@@ -194,13 +200,13 @@ try {
       VALUES (${id}, 'PG_TEST', ${id}, ${businessId}, ${deploymentId}, 4, clock_timestamp())
     `)
   }
-  const [claimA, claimB] = await Promise.all([worker.claimBotJob(prisma), worker.claimBotJob(prisma)])
+  const [claimA, claimB] = await Promise.all([claimTestJob(), claimTestJob()])
   assert.ok(claimA && claimB)
   assert.notEqual(claimA.id, claimB.id, 'SKIP LOCKED must give workers distinct jobs')
   assert.equal(await worker.completeBotJob(prisma, claimA.id, 'stale-token'), false)
   assert.equal(await worker.completeBotJob(prisma, claimA.id, claimA.claimToken), true)
   await prisma.$executeRaw`UPDATE "BotJob" SET "leasedUntil" = clock_timestamp() - interval '1 second' WHERE "id" = ${claimB.id}`
-  const recovered = await worker.claimBotJob(prisma)
+  const recovered = await claimTestJob()
   assert.equal(recovered?.id, claimB.id)
   assert.notEqual(recovered?.claimToken, claimB.claimToken)
   assert.ok(recovered)
@@ -277,7 +283,7 @@ try {
     INSERT INTO "BotJob" ("id", "kind", "aggregateId", "businessId", "deploymentId", "deploymentGeneration", "expectedRevision", "updatedAt")
     VALUES (${reconcileJobId}, 'RECONCILE_PROMPT', ${reconcilePromptId}, ${businessId}, ${deploymentId}, 4, 0, clock_timestamp())
   `)
-  const earlyReconcileJob = await worker.claimBotJob(prisma)
+  const earlyReconcileJob = await claimTestJob()
   assert.equal(earlyReconcileJob?.id, reconcileJobId)
   assert.ok(earlyReconcileJob)
   assert.equal(await reconciler.reconcileActions(prisma, earlyReconcileJob), 'NOT_READY')
@@ -290,7 +296,7 @@ try {
     WHERE "id" = ${reconcilePromptId}
   `)
   await prisma.$executeRaw(Prisma.sql`UPDATE "BotJob" SET "availableAt" = clock_timestamp() WHERE "id" = ${reconcileJobId}`)
-  const dueReconcileJob = await worker.claimBotJob(prisma)
+  const dueReconcileJob = await claimTestJob()
   assert.equal(dueReconcileJob?.id, reconcileJobId)
   assert.ok(dueReconcileJob)
   assert.equal(await reconciler.reconcileActions(prisma, dueReconcileJob), 'SELECT')
@@ -300,7 +306,7 @@ try {
     WHERE "promptId" = ${reconcilePromptId} GROUP BY "status" ORDER BY "status"
   `)
   assert.deepEqual(reconciledStatuses, [{ status: 'DUPLICATE', count: 1n }, { status: 'SELECTED', count: 1n }])
-  const processJob = await worker.claimBotJob(prisma)
+  const processJob = await claimTestJob()
   assert.equal(processJob?.kind, 'PROCESS_SESSION')
   assert.ok(processJob)
   assert.equal(await processor.processSessionJob({ client: prisma, job: processJob }), 'PROCESSED')
@@ -323,9 +329,9 @@ try {
         ${`idem_${id}`}, ${dependency}, clock_timestamp())
     `)
   }
-  const firstClaim = await outbox.claimOutbox(prisma)
+  const firstClaim = await claimTestOutbox()
   assert.equal(firstClaim?.id, firstOutbox)
-  const noneWhileBlocked = await outbox.claimOutbox(prisma)
+  const noneWhileBlocked = await claimTestOutbox()
   assert.equal(noneWhileBlocked, null)
   assert.ok(firstClaim)
   const accepted = await outbox.sendClaimedOutbox({
@@ -333,23 +339,23 @@ try {
     provider: { async send() { return { kind: 'accepted', providerMessageId: `provider_${suffix}` } } }
   })
   assert.equal(accepted, 'ACCEPTED')
-  const dependencyClaim = await outbox.claimOutbox(prisma)
+  const dependencyClaim = await claimTestOutbox()
   assert.equal(dependencyClaim?.id, secondOutbox)
   assert.ok(dependencyClaim)
   await prisma.$executeRaw`UPDATE "BotOutbox" SET "leasedUntil" = clock_timestamp() - interval '1 second' WHERE "id" = ${secondOutbox}`
-  const reclaimedDependency = await outbox.claimOutbox(prisma)
+  const reclaimedDependency = await claimTestOutbox()
   assert.equal(reclaimedDependency?.id, secondOutbox)
   assert.notEqual(reclaimedDependency?.claimToken, dependencyClaim.claimToken, 'expired CLAIMED outbox must be reclaimable')
 
   await prisma.$executeRaw`UPDATE "BotOutbox" SET "status" = 'PENDING'::"BotOutboxStatus", "leaseToken" = NULL, "leasedUntil" = NULL, "dependsOnSequence" = NULL WHERE "id" = ${secondOutbox}`
-  const timeoutClaim = await outbox.claimOutbox(prisma)
+  const timeoutClaim = await claimTestOutbox()
   assert.equal(timeoutClaim?.id, secondOutbox)
   assert.ok(timeoutClaim)
   assert.equal(await outbox.sendClaimedOutbox({
     client: prisma, item: timeoutClaim, timeoutMs: 5,
     provider: { async send() { return new Promise(() => {}) } }
   }), 'UNKNOWN')
-  assert.equal(await outbox.claimOutbox(prisma), null, 'UNKNOWN must never auto-retry')
+  assert.equal(await claimTestOutbox(), null, 'UNKNOWN must never auto-retry')
   await assert.rejects(dispatch.assertActivationGate({ client: prisma, businessId, legacyCoverageComplete: false }), /coverage incomplete/)
   await assert.rejects(dispatch.assertActivationGate({ client: prisma, businessId, legacyCoverageComplete: true }), /UNKNOWN/)
 
@@ -371,7 +377,7 @@ try {
     VALUES (${staleSendingId}, ${businessId}, ${sessionId}, ${`stale_transition_${suffix}`}, ${`stale_group_${suffix}`}, 0,
       'informative_text', '{}'::jsonb, ${`idem_${staleSendingId}`}, clock_timestamp())
   `)
-  const staleSendingClaim = await outbox.claimOutbox(prisma)
+  const staleSendingClaim = await claimTestOutbox()
   assert.equal(staleSendingClaim?.id, staleSendingId)
   assert.ok(staleSendingClaim)
   const staleDispatchToken = await dispatch.acquireDispatchClaim({
@@ -383,7 +389,7 @@ try {
     UPDATE "BotOutbox" SET "status" = 'SENDING'::"BotOutboxStatus", "leasedUntil" = clock_timestamp() - interval '1 second'
     WHERE "id" = ${staleSendingId}
   `)
-  assert.equal(await outbox.claimOutbox(prisma), null)
+  assert.equal(await claimTestOutbox(), null)
   const staleStates = await prisma.$queryRaw<Array<{ outbox: string; dispatch: string }>>(Prisma.sql`
     SELECT o."status"::text AS outbox, c."status"::text AS dispatch
     FROM "BotOutbox" o JOIN "BotDispatchClaim" c ON c."resourceId" = o."id" AND c."claimToken" = ${staleDispatchToken}
@@ -398,7 +404,7 @@ try {
     VALUES (${exhaustedId}, ${businessId}, ${sessionId}, ${`exhausted_transition_${suffix}`}, ${`exhausted_group_${suffix}`}, 0,
       'informative_text', '{}'::jsonb, ${`idem_${exhaustedId}`}, 5, 5, clock_timestamp())
   `)
-  assert.equal(await outbox.claimOutbox(prisma), null)
+  assert.equal(await claimTestOutbox(), null)
   const exhausted = await prisma.$queryRaw<Array<{ status: string }>>(Prisma.sql`SELECT "status"::text AS status FROM "BotOutbox" WHERE "id" = ${exhaustedId}`)
   assert.equal(exhausted[0]!.status, 'POISON')
 
@@ -408,7 +414,7 @@ try {
     VALUES (${inFlightId}, ${businessId}, ${sessionId}, ${`inflight_transition_${suffix}`}, ${`inflight_group_${suffix}`}, 0,
       'informative_text', '{}'::jsonb, ${`idem_${inFlightId}`}, clock_timestamp())
   `)
-  const inFlightClaim = await outbox.claimOutbox(prisma)
+  const inFlightClaim = await claimTestOutbox()
   assert.equal(inFlightClaim?.id, inFlightId)
   assert.ok(inFlightClaim)
   let signalProviderStarted!: () => void
@@ -434,11 +440,11 @@ try {
     VALUES (${pausedPendingId}, ${businessId}, ${sessionId}, ${`paused_transition_${suffix}`}, ${`paused_group_${suffix}`}, 0,
       'informative_text', '{}'::jsonb, ${`idem_${pausedPendingId}`}, clock_timestamp())
   `)
-  assert.equal(await outbox.claimOutbox(prisma), null, 'paused scope must suppress new sender claims')
+  assert.equal(await claimTestOutbox(), null, 'paused scope must suppress new sender claims')
   const drained = await activation.waitForDispatchQuiescence({ client: prisma, handle: pauseHandle, timeoutMs: 0 })
   assert.equal(drained.kind, 'QUIESCENT')
   await activation.resumeDispatchScope({ client: prisma, handle: pauseHandle, actorId: 'contract-test' })
-  assert.equal((await outbox.claimOutbox(prisma))?.id, pausedPendingId, 'resume under same generation/fence permits fresh claims')
+  assert.equal((await claimTestOutbox())?.id, pausedPendingId, 'resume under same generation/fence permits fresh claims')
 
   const metricsSnapshot = await metrics.collectBotOptionsOperationalMetrics(prisma)
   assert.ok(metricsSnapshot.durations.webhook_ack.count >= 1)

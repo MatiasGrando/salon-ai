@@ -7,6 +7,8 @@
  * de la posición en la lista ni del último texto enviado.
  */
 
+import { validateCustomerName } from './customer-name-validation.js'
+
 export const BOT_OPTIONS_ENGINE_KEY = 'deterministic-options'
 export const BOT_OPTIONS_ACTIONS_SCHEMA_VERSION = 1
 
@@ -534,11 +536,11 @@ export function validateBotOptionsActionEnvelope(
         if (typeof nameValue !== 'string') {
           failures.push({ field: 'payload.name', reason: 'required' })
         } else {
-          const trimmed = nameValue.trim().replace(/\s+/g, ' ')
-          if (trimmed.length < 2 || trimmed.length > 80 || /[\r\n]/.test(nameValue)) {
+          const validation = validateCustomerName(nameValue)
+          if (!validation.ok) {
             failures.push({ field: 'payload.name', reason: 'invalid_format' })
           } else {
-            payload.name = trimmed
+            payload.name = validation.normalized
           }
         }
         extraKeys.delete('name')

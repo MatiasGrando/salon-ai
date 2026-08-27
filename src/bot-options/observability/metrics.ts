@@ -11,7 +11,7 @@ export type BotOptionsStage =
 const BUCKETS_MS = [50, 100, 200, 500, 1000, 1500, 3000, 6000, 10_000, 30_000] as const
 
 type Histogram = { count: number; sumMs: number; buckets: number[]; errors: number }
-type OperationalGauges = { oldestReadyJobMs: number; unknownDispatches: number; staleSending: number; poisonOutbox: number }
+type OperationalGauges = { oldestReadyJobMs: number; unknownDispatches: number; staleSending: number; poisonOutbox: number; noAvailabilityHorizon: number }
 
 export type BotOptionsMetricsSnapshot = {
   durations: Record<BotOptionsStage, Histogram>
@@ -20,6 +20,7 @@ export type BotOptionsMetricsSnapshot = {
     unknownDispatches: number
     staleSending: number
     poisonOutbox: number
+    noAvailabilityHorizon: number
   }
   alerts: string[]
   capturedAt: string
@@ -38,7 +39,7 @@ export class BotOptionsMetrics {
     meta_request: emptyHistogram(),
     dispatch_quiescence: emptyHistogram()
   }
-  readonly #gauges = { oldestReadyJobMs: 0, unknownDispatches: 0, staleSending: 0, poisonOutbox: 0 }
+  readonly #gauges = { oldestReadyJobMs: 0, unknownDispatches: 0, staleSending: 0, poisonOutbox: 0, noAvailabilityHorizon: 0 }
 
   observe(stage: BotOptionsStage, durationMs: number, outcome: 'ok' | 'error' = 'ok'): void {
     const safe = Number.isFinite(durationMs) ? Math.max(0, durationMs) : 0
@@ -62,6 +63,7 @@ export class BotOptionsMetrics {
     if (this.#gauges.unknownDispatches > 0) alerts.push('bot_dispatch_unknown')
     if (this.#gauges.staleSending > 0) alerts.push('bot_sending_stale')
     if (this.#gauges.poisonOutbox > 0) alerts.push('bot_outbox_poison')
+    if (this.#gauges.noAvailabilityHorizon > 0) alerts.push('bot_no_availability_in_horizon')
     return {
       durations: Object.fromEntries(Object.entries(this.#durations).map(([key, value]) => [key, {
         count: value.count, sumMs: value.sumMs, errors: value.errors, buckets: [...value.buckets]
@@ -82,7 +84,7 @@ export async function collectBotOptionsOperationalMetrics(
   metrics: BotOptionsMetrics = botOptionsMetrics
 ): Promise<BotOptionsMetricsSnapshot> {
   const rows = await client.$queryRaw<Array<{
-    oldestReadyJobMs: number; unknownDispatches: bigint; staleSending: bigint; poisonOutbox: bigint
+    oldestReadyJobMs: number; unknownDispatches: bigint; staleSending: bigint; poisonOutbox: bigint; noAvailabilityHorizon: bigint
   }>>(Prisma.sql`
     SELECT
       COALESCE((SELECT EXTRACT(EPOCH FROM (clock_timestamp() - min("availableAt"))) * 1000
@@ -91,14 +93,17 @@ export async function collectBotOptionsOperationalMetrics(
         + (SELECT count(*) FROM "BotDispatchClaim" WHERE "status" = 'UNKNOWN'::"BotDispatchStatus"))::bigint AS "unknownDispatches",
       ((SELECT count(*) FROM "BotOutbox" WHERE "status" = 'SENDING'::"BotOutboxStatus" AND "leasedUntil" < clock_timestamp())
         + (SELECT count(*) FROM "BotDispatchClaim" WHERE "status" = 'SENDING'::"BotDispatchStatus" AND "claimedUntil" < clock_timestamp()))::bigint AS "staleSending",
-      (SELECT count(*) FROM "BotOutbox" WHERE "status" = 'POISON'::"BotOutboxStatus")::bigint AS "poisonOutbox"
+      (SELECT count(*) FROM "BotOutbox" WHERE "status" = 'POISON'::"BotOutboxStatus")::bigint AS "poisonOutbox",
+      (SELECT count(*) FROM "BotOperation" WHERE "type" = 'EMIT_OPERATIONAL_ALERT:NO_AVAILABILITY_IN_HORIZON'
+        AND "createdAt" >= clock_timestamp() - interval '24 hours')::bigint AS "noAvailabilityHorizon"
   `)
-  const row = rows[0] ?? { oldestReadyJobMs: 0, unknownDispatches: 0n, staleSending: 0n, poisonOutbox: 0n }
+  const row = rows[0] ?? { oldestReadyJobMs: 0, unknownDispatches: 0n, staleSending: 0n, poisonOutbox: 0n, noAvailabilityHorizon: 0n }
   metrics.setOperationalGauges({
     oldestReadyJobMs: row.oldestReadyJobMs,
     unknownDispatches: Number(row.unknownDispatches),
     staleSending: Number(row.staleSending),
-    poisonOutbox: Number(row.poisonOutbox)
+    poisonOutbox: Number(row.poisonOutbox),
+    noAvailabilityHorizon: Number(row.noAvailabilityHorizon)
   })
   return metrics.snapshot()
 }
