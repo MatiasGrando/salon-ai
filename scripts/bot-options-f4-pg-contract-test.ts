@@ -66,8 +66,8 @@ try {
     'new code must preserve old physical lease names during rolling deploy')
   await prisma.$executeRaw(Prisma.sql`INSERT INTO "Business" ("id", "customerCode", "name") VALUES (${businessId}, ${`F4-${suffix}`}, 'F4 contract')`)
   await prisma.$executeRaw(Prisma.sql`
-    INSERT INTO "BusinessBotOptionsSettings" ("businessId", "timezone", "bookingHorizonDays", "bookingLeadTimeHours", "morningCutTime", "eveningCutTime")
-    VALUES (${businessId}, 'UTC', 30, 0, '12:30', '16:30')
+    INSERT INTO "BusinessBotOptionsSettings" ("businessId", "timezone", "bookingHorizonDays", "bookingLeadTimeHours", "morningCutTime", "eveningCutTime", "updatedAt")
+    VALUES (${businessId}, 'UTC', 30, 0, '12:30', '16:30', clock_timestamp())
   `)
   await prisma.$executeRaw(Prisma.sql`
     INSERT INTO "BusinessBotConfiguration" ("id", "businessId", "botKey", "name", "version", "status", "definition", "updatedAt")
