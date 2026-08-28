@@ -14,10 +14,8 @@ import {
 
 type DepositRecord = {
   id: string
-  businessId?: string
   appointmentId: string
   conversationId: string | null
-  visitId?: string | null
   source?: 'WHATSAPP' | 'WEB'
   status: 'PENDING_PROOF' | 'PROOF_RECEIVED' | 'APPROVED' | 'REJECTED' | 'EXPIRED'
   expiresAt: Date
@@ -32,7 +30,6 @@ type DepositRecord = {
 
 type AppointmentRecord = {
   id: string
-  professionalId?: string
   status: 'PENDING' | 'CONFIRMED' | 'CANCELLED'
   coordinationGroupId?: string | null
 }
@@ -164,29 +161,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
-    name: 'el expirador legado no fragmenta una retencion F8',
-    run: async () => {
-      const fixture = fakeDepositDb({
-        deposits: [{
-          id: 'f8-held-deposit',
-          appointmentId: 'f8-held-appointment',
-          conversationId: 'conversation-f8',
-          visitId: 'f8-held-visit',
-          status: 'PENDING_PROOF',
-          expiresAt: new Date('2026-07-28T19:00:00.000Z'),
-          proofMessageId: null
-        }],
-        appointments: [{ id: 'f8-held-appointment', status: 'PENDING' }]
-      })
-      const service = new BookingDepositService(fixture.db as never)
-      const result = await service.expireOverdue(new Date('2026-07-28T20:00:00.000Z'))
-      assert.deepEqual(result, { expired: 0 })
-      assert.equal(fixture.deposits[0]?.status, 'PENDING_PROOF')
-      assert.equal(fixture.appointments[0]?.status, 'PENDING')
-    }
-  },
-  {
-    name: 'la web rechaza PDF aunque tenga una firma valida',
+    name: 'la web acepta un comprobante PDF valido y lo deja en revision',
     run: async () => {
       const fixture = fakeDepositDb({
         deposits: [{
@@ -208,9 +183,9 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         filename: 'pago.pdf',
         receivedAt: new Date('2026-08-13T20:00:00.000Z')
       })
-      assert.equal(result.ok, false)
-      assert.equal(fixture.deposits[0]?.status, 'PENDING_PROOF')
-      assert.equal(fixture.deposits[0]?.proofMimeType, undefined)
+      assert.equal(result.ok, true)
+      assert.equal(fixture.deposits[0]?.status, 'PROOF_RECEIVED')
+      assert.equal(fixture.deposits[0]?.proofMimeType, 'application/pdf')
       assert.equal(fixture.appointments[0]?.status, 'PENDING')
     }
   },
@@ -590,25 +565,17 @@ function fakeDepositDb(input: {
   deposits: DepositRecord[]
   appointments: AppointmentRecord[]
 }) {
-  const deposits = input.deposits.map((deposit) => ({
-    ...deposit,
-    businessId: deposit.businessId ?? 'deposit-flow-business',
-    visitId: deposit.visitId ?? null
-  }))
-  const appointments = input.appointments.map((appointment) => ({
-    ...appointment,
-    professionalId: appointment.professionalId ?? 'deposit-flow-professional'
-  }))
+  const deposits = input.deposits
+  const appointments = input.appointments
   const db = {
     bookingDeposit: {
       async findMany(args: any) {
         const now = args.where.expiresAt?.lte as Date | undefined
         return deposits
           .filter((deposit) =>
-             (typeof args.where.status === 'string'
-               ? deposit.status === args.where.status
-               : args.where.status.in.includes(deposit.status)) &&
-            (args.where.visitId === undefined || deposit.visitId === args.where.visitId) &&
+            (typeof args.where.status === 'string'
+              ? deposit.status === args.where.status
+              : args.where.status.in.includes(deposit.status)) &&
             (!args.where.conversationId || deposit.conversationId === args.where.conversationId) &&
             (!now || deposit.expiresAt <= now)
           )
@@ -616,7 +583,6 @@ function fakeDepositDb(input: {
             ? { id: deposit.id }
             : {
                 id: deposit.id,
-                businessId: deposit.businessId,
                 appointmentId: deposit.appointmentId,
                 conversation: { bookingV2State: deposit.bookingV2State ?? null }
               })
@@ -633,12 +599,10 @@ function fakeDepositDb(input: {
           const expiryMatches = !args.where.expiresAt ||
             (!args.where.expiresAt.lte || deposit.expiresAt <= args.where.expiresAt.lte) &&
             (!args.where.expiresAt.gt || deposit.expiresAt > args.where.expiresAt.gt)
-          const visitMatches = args.where.visitId === undefined || deposit.visitId === args.where.visitId
           if (
             idMatches &&
             statusMatches &&
-            expiryMatches &&
-            visitMatches
+            expiryMatches
           ) {
             Object.assign(deposit, args.data)
             count += 1
@@ -650,7 +614,6 @@ function fakeDepositDb(input: {
         return deposits
           .filter((deposit) =>
             deposit.conversationId === args.where.conversationId &&
-            (args.where.visitId === undefined || deposit.visitId === args.where.visitId) &&
             deposit.status === args.where.status &&
             deposit.expiresAt > args.where.expiresAt.gt
           )
@@ -666,9 +629,8 @@ function fakeDepositDb(input: {
         const deposit = deposits.find((item) => item.id === args.where.id)
         if (!deposit) return null
         return args.select?.conversation
-            ? {
-                businessId: deposit.businessId,
-                appointmentId: deposit.appointmentId,
+          ? {
+              appointmentId: deposit.appointmentId,
               conversation: { bookingV2State: deposit.bookingV2State ?? null }
             }
           : deposit
@@ -682,11 +644,6 @@ function fakeDepositDb(input: {
           : null
       },
       async findMany(args: any) {
-        if (args.where.id?.in) {
-          return appointments
-            .filter((appointment) => args.where.id.in.includes(appointment.id))
-            .map((appointment) => ({ id: appointment.id, professionalId: appointment.professionalId }))
-        }
         return appointments
           .filter((appointment) => appointment.coordinationGroupId === args.where.coordinationGroupId)
           .map((appointment) => ({ id: appointment.id }))
@@ -706,22 +663,6 @@ function fakeDepositDb(input: {
         }
         return { count }
       }
-    },
-    professional: {
-      async findMany(args: any) {
-        const ids = args.where.id?.in as string[] | undefined
-        return Array.from(new Set(appointments
-          .map((appointment) => appointment.professionalId)
-          .filter((id) => !ids || ids.includes(id))))
-          .map((id) => ({ id }))
-      }
-    },
-    async $queryRaw(query: { strings?: readonly string[] }) {
-      const sql = query.strings?.join('') ?? ''
-      if (sql.includes('FROM "Appointment" a')) {
-        return appointments.map((appointment) => ({ id: appointment.id, professionalId: appointment.professionalId }))
-      }
-      return [{ locked: 1 }]
     },
     async $transaction(operation: any) {
       return typeof operation === 'function'

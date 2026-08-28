@@ -1,4 +1,4 @@
-import { Prisma } from '../src/generated/prisma/client.js'
+import type { Prisma } from '../src/generated/prisma/client.js'
 import { resolveQaScriptEnvironment } from './qa-script-safety.js'
 
 const qaEnvironment = resolveQaScriptEnvironment(process.env)
@@ -28,35 +28,16 @@ async function main() {
     if (emptyAgenda) {
       const appointments = await prisma.appointment.findMany({
         where: { professional: { businessId: existing.id } },
-        select: { id: true, visitId: true }
+        select: { id: true }
       })
       const appointmentIds = appointments.map((appointment) => appointment.id)
-      const visitIds = Array.from(new Set(appointments.flatMap((appointment) => appointment.visitId ? [appointment.visitId] : [])))
       const cleared = await prisma.$transaction(async (tx) => {
         await acquireAgendaHierarchy(tx, { businessId: existing.id })
         if (appointmentIds.length) {
           await lockAppointmentRows(tx, { businessId: existing.id, appointmentIds })
-          await tx.$executeRaw(Prisma.sql`
-            DELETE FROM "BookingDepositExpiryAudit"
-            WHERE "businessId" = ${existing.id} AND "depositId" IN (
-              SELECT "id" FROM "BookingDeposit" WHERE "businessId" = ${existing.id} AND "appointmentId" IN (${Prisma.join(appointmentIds)})
-            )
-          `)
-          await tx.$executeRaw(Prisma.sql`
-            DELETE FROM "BookingDepositLine"
-            WHERE "businessId" = ${existing.id} AND "depositId" IN (
-              SELECT "id" FROM "BookingDeposit" WHERE "businessId" = ${existing.id} AND "appointmentId" IN (${Prisma.join(appointmentIds)})
-            )
-          `)
           await tx.bookingDeposit.deleteMany({ where: { appointmentId: { in: appointmentIds }, appointment: { professional: { businessId: existing.id } } } })
           await tx.aiUsageEvent.deleteMany({ where: { appointmentId: { in: appointmentIds }, appointment: { professional: { businessId: existing.id } } } })
           await tx.appointment.deleteMany({ where: { id: { in: appointmentIds }, professional: { businessId: existing.id } } })
-          if (visitIds.length) {
-            await tx.$executeRaw(Prisma.sql`
-              DELETE FROM "BookingVisit"
-              WHERE "businessId" = ${existing.id} AND "id" IN (${Prisma.join(visitIds)})
-            `)
-          }
         }
         const blocks = await tx.scheduleBlock.deleteMany({ where: { businessId: existing.id } })
         await tx.customer.deleteMany({ where: { businessId: existing.id } })

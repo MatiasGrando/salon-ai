@@ -103,23 +103,10 @@ export type BotOptionsPresentationMode =
   | { kind: 'slot_band'; band: SlotBandView }
   | { kind: 'slot_all_pages'; cursor: number }
   | { kind: 'navigation_menu' }
-  | {
-      kind: 'appointment_list_page'
-      cursor: number
-      /** Cursor SQL usado para obtener esta página; ausente en estados F9 previos. */
-      after?: AppointmentListKeysetCursor | null
-      /** Cursor SQL para la página siguiente; null cuando no hay más resultados. */
-      next?: AppointmentListKeysetCursor | null
-    }
+  | { kind: 'appointment_list_page'; cursor: number }
   | { kind: 'professional_list_page'; cursor: number }
 
 export type SlotBandView = 'MORNING' | 'AFTERNOON' | 'EVENING'
-
-/** Cursor keyset serializable para la lista F9. Nunca guarda una fecha local. */
-export type AppointmentListKeysetCursor = {
-  startAt: string
-  appointmentId: string
-}
 
 export type BotOptionsCartItem = {
   serviceId: string
@@ -231,13 +218,6 @@ const DEPOSIT_REQUIRES_ACTIVE_BOOKING: ReadonlySet<DepositRegionStatus> = new Se
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function isAppointmentListKeysetCursor(value: unknown): value is AppointmentListKeysetCursor {
-  if (!isPlainObject(value) || typeof value['startAt'] !== 'string' || typeof value['appointmentId'] !== 'string') return false
-  if (value['appointmentId'].length === 0 || value['appointmentId'].trim() !== value['appointmentId']) return false
-  const startAt = new Date(value['startAt'])
-  return Number.isFinite(startAt.getTime()) && startAt.toISOString() === value['startAt']
 }
 
 function hasShape<T extends object>(value: unknown, guard: (item: Record<string, unknown>) => boolean): value is T {
@@ -468,15 +448,6 @@ export function validateBotOptionsState(
     const cursor = presentation['cursor']
     if (typeof cursor !== 'number' || !Number.isInteger(cursor) || cursor < 0) {
       return { ok: false, invariant: 'presentation_kind_allowed' }
-    }
-  }
-  if (kind === 'appointment_list_page') {
-    for (const field of ['after', 'next'] as const) {
-      const value = presentation[field]
-      // Estados F9 existentes sólo tenían cursor numérico: siguen siendo válidos.
-      if (value !== undefined && value !== null && !isAppointmentListKeysetCursor(value)) {
-        return { ok: false, invariant: 'presentation_kind_allowed' }
-      }
     }
   }
   if (kind === 'catalog_page') {

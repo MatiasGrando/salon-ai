@@ -14229,7 +14229,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               <button class="danger" id="deposit-reject" type="button" hidden>Rechazar se&ntilde;a</button>
               <button class="primary" id="advisor-quote" type="button" hidden>Enviar presupuesto</button>
               <button class="secondary" id="define-service" type="button" hidden>Definir servicio</button>
-              <select id="resolve-handoff-policy" aria-label="Destino al resolver la derivacion" hidden><option value="HOME">Volver al inicio</option><option value="RESUME">Reanudar si es seguro</option></select>
               <button class="secondary" id="resolve-handoff" type="button" disabled hidden>Marcar como resuelto</button>
               <button class="secondary" id="conversation-ai-toggle" type="button" disabled>Atender manualmente</button>
               <button class="secondary" id="archive-conversation" type="button" disabled>Archivar chat</button>
@@ -14651,18 +14650,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           <button class="secondary" id="confirmation-cancel" type="button">Cancelar</button>
           <button class="danger" id="confirmation-accept" type="button">S&iacute;, eliminar</button>
         </div>
-      </section>
-    </div>
-
-    <div class="dialog-backdrop" id="deposit-rejection-dialog" hidden>
-      <section class="dialog customer-dialog" role="dialog" aria-modal="true" aria-labelledby="deposit-rejection-dialog-title">
-        <div class="dialog-head"><h3 id="deposit-rejection-dialog-title">Rechazar comprobante</h3><button class="icon-button" id="deposit-rejection-dialog-close" type="button" title="Cerrar">X</button></div>
-        <form class="customer-dialog-form" id="deposit-rejection-dialog-form">
-          <div class="customer-dialog-field"><label for="deposit-rejection-reason">Motivo</label><textarea id="deposit-rejection-reason" minlength="1" maxlength="300" required></textarea></div>
-          <div class="customer-dialog-field"><label for="deposit-rejection-mode">Acci&oacute;n</label><select id="deposit-rejection-mode" required><option value="RESUBMISSION_ALLOWED">Pedir nuevo comprobante y conservar el horario</option><option value="FINAL">Rechazo final y liberar el horario</option></select></div>
-          <p class="customer-dialog-feedback" id="deposit-rejection-dialog-feedback" role="status"></p>
-          <div class="dialog-actions"><button class="secondary" id="deposit-rejection-dialog-cancel" type="button">Cancelar</button><button class="danger" id="deposit-rejection-dialog-submit" type="submit">Confirmar rechazo</button></div>
-        </form>
       </section>
     </div>
 
@@ -17344,7 +17331,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       depositReviewCount: 0,
       depositsCachedAt: 0,
       selectedDeposit: null,
-      depositReviewOperationKeys: new Map(),
       conversationNextCursor: null,
       conversationSearchTimer: null,
       conversationSearchLoading: false,
@@ -17534,7 +17520,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       templateDraftExamples: {},
       templateImageUrl: null,
       pendingUiConfirmationResolve: null,
-      depositRejectionTarget: null,
       crmToastTimer: null,
       isRefreshing: false,
       realtimeEventSource: null,
@@ -17576,14 +17561,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       serviceResolutionService: document.getElementById('service-resolution-service'),
       serviceResolutionDialogFeedback: document.getElementById('service-resolution-dialog-feedback'),
       confirmationAccept: document.getElementById('confirmation-accept'),
-      depositRejectionDialog: document.getElementById('deposit-rejection-dialog'),
-      depositRejectionDialogForm: document.getElementById('deposit-rejection-dialog-form'),
-      depositRejectionDialogClose: document.getElementById('deposit-rejection-dialog-close'),
-      depositRejectionDialogCancel: document.getElementById('deposit-rejection-dialog-cancel'),
-      depositRejectionDialogSubmit: document.getElementById('deposit-rejection-dialog-submit'),
-      depositRejectionReason: document.getElementById('deposit-rejection-reason'),
-      depositRejectionMode: document.getElementById('deposit-rejection-mode'),
-      depositRejectionFeedback: document.getElementById('deposit-rejection-dialog-feedback'),
       confirmationCancel: document.getElementById('confirmation-cancel'),
       count: document.getElementById('conversation-count'),
       unreadCount: document.getElementById('conversation-unread-count'),
@@ -17737,7 +17714,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       stepChip: document.getElementById('step-chip'),
       defineService: document.getElementById('define-service'),
       resolveHandoff: document.getElementById('resolve-handoff'),
-      resolveHandoffPolicy: document.getElementById('resolve-handoff-policy'),
       advisorQuote: document.getElementById('advisor-quote'),
       depositApprove: document.getElementById('deposit-approve'),
       depositReject: document.getElementById('deposit-reject'),
@@ -20933,7 +20909,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         ? 'Aprobar seña de ' + formatCurrency(deposit.amount)
         : 'Esperando comprobante'
       els.depositReject.hidden = !canManage
-      els.depositReject.disabled = deposit.status !== 'PROOF_RECEIVED'
+      els.depositReject.disabled = !['PENDING_PROOF', 'PROOF_RECEIVED'].includes(deposit.status)
       els.advisorQuote.hidden = true
       els.defineService.hidden = true
       els.resolveHandoff.hidden = true
@@ -20941,7 +20917,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.archiveConversation.hidden = true
       els.replyForm.hidden = true
 
-      const proofUrl = !deposit.visitId && deposit.source === 'WHATSAPP' && deposit.proofMessageId
+      const proofUrl = deposit.source === 'WHATSAPP' && deposit.proofMessageId
         ? '/crm/messages/' + encodeURIComponent(deposit.proofMessageId) + '/media'
         : '/crm/deposits/' + encodeURIComponent(deposit.id) + '/proof'
       const proof = deposit.status === 'PROOF_RECEIVED'
@@ -20952,7 +20928,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const reviewActions = canManage
         ? '<div class="deposit-review-actions">' +
             '<button class="primary" type="button" data-deposit-review-approve' + (deposit.status === 'PROOF_RECEIVED' ? '' : ' disabled') + '>Aceptar se&ntilde;a y confirmar turno</button>' +
-            '<button class="danger" type="button" data-deposit-review-reject' + (deposit.status === 'PROOF_RECEIVED' ? '' : ' disabled') + '>Rechazar se&ntilde;a</button>' +
+            '<button class="danger" type="button" data-deposit-review-reject' + (['PENDING_PROOF', 'PROOF_RECEIVED'].includes(deposit.status) ? '' : ' disabled') + '>Rechazar se&ntilde;a</button>' +
           '</div>'
         : ''
       els.messages.innerHTML =
@@ -22020,12 +21996,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.defineService.hidden = !canReplyConversation || !canResolveHandoff || Boolean(activeDeposit) || Boolean(selected.selectedServiceId)
       els.defineService.disabled = !canResolveHandoff || Boolean(activeDeposit) || Boolean(selected.selectedServiceId)
       els.resolveHandoff.hidden = !canReplyConversation || !canResolveHandoff || Boolean(activeDeposit)
-      els.resolveHandoffPolicy.hidden = els.resolveHandoff.hidden
       els.resolveHandoff.disabled = !canResolveHandoff || Boolean(activeDeposit)
       els.resolveHandoff.textContent = 'Marcar como resuelto'
-      els.conversationAiToggle.hidden = !canReplyConversation || (canResolveHandoff && !selected.aiEnabled)
-      els.conversationAiToggle.disabled = false
-      els.conversationAiToggle.textContent = canResolveHandoff ? 'Tomar derivacion' : 'Atender manualmente'
+      els.conversationAiToggle.hidden = !canReplyConversation || canResolveHandoff
+      els.conversationAiToggle.disabled = canResolveHandoff
+      els.conversationAiToggle.textContent = 'Atender manualmente'
       els.conversationAiToggle.className = 'secondary'
       els.detailAvatar.textContent = avatar
       els.detailName.textContent = name
@@ -23693,18 +23668,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (!state.selected) return
       if (!setButtonLoading(els.conversationAiToggle, true, 'Cambiando...')) return
       try {
-        let updated
-        try {
-          updated = await getJson('/crm/conversations/' + state.selected.id + '/handoff/take', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ operationKey: 'crm-handoff-take:' + state.selected.id + ':' + Date.now() })
+        const updated = await getJson('/crm/conversations/' + state.selected.id + '/ai', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            aiEnabled: false
           })
-        } catch (error) {
-          if (error.body?.code !== 'NO_DETERMINISTIC_HANDOFF') throw error
-          updated = await getJson('/crm/conversations/' + state.selected.id + '/ai', {
-            method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ aiEnabled: false })
-          })
-        }
+        })
         state.selected = updated
         await loadConversations()
         renderSelected()
@@ -23784,23 +23754,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (!state.selected) return
       if (!setButtonLoading(els.resolveHandoff, true, 'Resolviendo...')) return
       try {
-        let updated
-        try {
-          updated = await getJson('/crm/conversations/' + state.selected.id + '/handoff/resolve', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ operationKey: 'crm-handoff-resolve:' + state.selected.id + ':' + Date.now(), resolution: els.resolveHandoffPolicy.value })
-          })
-        } catch (error) {
-          if (error.body?.code !== 'NO_DETERMINISTIC_HANDOFF') throw error
-          updated = await getJson('/crm/conversations/' + state.selected.id + '/ai', {
-            method: 'PATCH',
+        const updated = await getJson('/crm/conversations/' + state.selected.id + '/ai', {
+          method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             aiEnabled: true
           })
-          })
-        }
+        })
         state.selected = updated
         await loadConversations()
         renderSelected()
@@ -23880,7 +23840,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function selectedDepositReviewUrl(deposit, action) {
-      return !deposit.visitId && deposit.source === 'WHATSAPP' && deposit.conversationId
+      return deposit.source === 'WHATSAPP' && deposit.conversationId
         ? '/crm/conversations/' + encodeURIComponent(deposit.conversationId) + '/deposit/' + action
         : '/crm/deposits/' + encodeURIComponent(deposit.id) + '/' + action
     }
@@ -23895,18 +23855,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         )) return
         if (!setButtonLoading(els.depositApprove, true, 'Confirmando...')) return
         try {
-          const operationKey = deposit.visitId
-            ? (state.depositReviewOperationKeys.get('approve:' + deposit.id) || (() => {
-                const key = crypto.randomUUID()
-                state.depositReviewOperationKeys.set('approve:' + deposit.id, key)
-                return key
-              })())
-            : null
-          await getJson(selectedDepositReviewUrl(deposit, 'approve'), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...(operationKey ? { 'Idempotency-Key': operationKey } : {}) },
-            body: '{}'
-          })
+          await getJson(selectedDepositReviewUrl(deposit, 'approve'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
           state.selectedDeposit = null
           await loadDeposits()
           await loadAgenda()
@@ -23945,8 +23894,27 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     async function rejectSelectedDeposit() {
       if (state.selectedDeposit) {
         const deposit = state.selectedDeposit
-        if (deposit.status !== 'PROOF_RECEIVED') return
-        openDepositRejectionDialog(deposit)
+        if (!['PENDING_PROOF', 'PROOF_RECEIVED'].includes(deposit.status)) return
+        if (!await requestCrmConfirmation(
+          '¿Querés rechazar la seña? El horario temporal se liberará.',
+          { confirmLabel: 'Sí, rechazar seña' }
+        )) return
+        if (!setButtonLoading(els.depositReject, true, 'Rechazando...')) return
+        try {
+          await getJson(selectedDepositReviewUrl(deposit, 'reject'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason: 'El comprobante no pudo ser validado' })
+          })
+          state.selectedDeposit = null
+          await loadDeposits()
+          await loadAgenda()
+          showCrmToast('Seña rechazada y horario liberado.', 'success')
+        } catch (error) {
+          showCrmToast(error.message, 'error')
+        } finally {
+          setButtonLoading(els.depositReject, false)
+        }
         return
       }
       if (!state.selected) return
@@ -23973,46 +23941,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       } finally {
         setButtonLoading(els.depositReject, false)
       }
-    }
-
-    function openDepositRejectionDialog(deposit) {
-      state.depositRejectionTarget = deposit
-      els.depositRejectionReason.value = ''
-      els.depositRejectionMode.value = 'RESUBMISSION_ALLOWED'
-      els.depositRejectionFeedback.textContent = ''
-      els.depositRejectionDialog.hidden = false
-      window.setTimeout(() => els.depositRejectionReason.focus(), 0)
-    }
-
-    function closeDepositRejectionDialog() {
-      state.depositRejectionTarget = null
-      els.depositRejectionDialog.hidden = true
-      els.depositRejectionFeedback.textContent = ''
-    }
-
-    async function submitDepositRejection(event) {
-      event.preventDefault()
-      const deposit = state.depositRejectionTarget
-      const reason = els.depositRejectionReason.value.trim()
-      const mode = els.depositRejectionMode.value
-      if (!deposit || reason.length < 1 || reason.length > 300 || !['RESUBMISSION_ALLOWED', 'FINAL'].includes(mode)) {
-        els.depositRejectionFeedback.textContent = 'Indic&aacute; un motivo de 1 a 300 caracteres y una acci&oacute;n.'
-        return
-      }
-      if (!setButtonLoading(els.depositRejectionDialogSubmit, true, 'Guardando...')) return
-      try {
-        const operationKey = state.depositReviewOperationKeys.get('reject:' + deposit.id) || crypto.randomUUID()
-        state.depositReviewOperationKeys.set('reject:' + deposit.id, operationKey)
-        await getJson(selectedDepositReviewUrl(deposit, 'reject'), {
-          method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': operationKey },
-          body: JSON.stringify({ reason, mode })
-        })
-        closeDepositRejectionDialog(); state.selectedDeposit = null
-        await loadDeposits(); await loadAgenda()
-        showCrmToast(mode === 'FINAL' ? 'Seña rechazada y horario liberado.' : 'Se solicitó un nuevo comprobante; el horario sigue retenido.', 'success')
-      } catch (error) {
-        els.depositRejectionFeedback.textContent = error.message
-      } finally { setButtonLoading(els.depositRejectionDialogSubmit, false) }
     }
 
     async function toggleArchiveConversation() {
@@ -31584,12 +31512,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     els.serviceResolutionDialogCatalog.addEventListener('click', returnServiceResolutionToCatalog)
     els.depositApprove.addEventListener('click', approveSelectedDeposit)
     els.depositReject.addEventListener('click', rejectSelectedDeposit)
-    els.depositRejectionDialogForm.addEventListener('submit', submitDepositRejection)
-    els.depositRejectionDialogClose.addEventListener('click', closeDepositRejectionDialog)
-    els.depositRejectionDialogCancel.addEventListener('click', closeDepositRejectionDialog)
-    els.depositRejectionDialog.addEventListener('click', (event) => {
-      if (event.target === els.depositRejectionDialog) closeDepositRejectionDialog()
-    })
     els.refresh.addEventListener('click', () => {
       withButtonLoading(els.refresh, '', () => state.conversationFilter === 'deposits' ? loadDeposits({ keepSelection: true }) : loadConversations())
     })

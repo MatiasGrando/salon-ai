@@ -8,7 +8,8 @@ const WEB_PROOF_MAX_BYTES = 3 * 1024 * 1024
 const WEB_PROOF_MIME_TYPES = new Set([
   'image/jpeg',
   'image/png',
-  'image/webp'
+  'image/webp',
+  'application/pdf'
 ])
 
 export const DEPOSIT_PROOF_RECEIVED_ACKNOWLEDGEMENT =
@@ -23,9 +24,6 @@ export class BookingDepositService {
   async expireOverdue(now = new Date()) {
     const overdue = await this.db.bookingDeposit.findMany({
       where: {
-        // F8 owns the whole visit/deposit/appointment aggregate and expires it
-        // via its fenced worker. Legacy flows must never mutate it partially.
-        visitId: null,
         status: EXPIRABLE_DEPOSIT_STATUS,
         expiresAt: { lte: now }
       },
@@ -53,7 +51,6 @@ export class BookingDepositService {
         const claimed = await tx.bookingDeposit.updateMany({
           where: {
             id: deposit.id,
-            visitId: null,
             status: EXPIRABLE_DEPOSIT_STATUS,
             expiresAt: { lte: now }
           },
@@ -88,7 +85,6 @@ export class BookingDepositService {
     const deposit = await this.db.bookingDeposit.findFirst({
       where: {
         conversationId: input.conversationId,
-        visitId: null,
         status: 'PENDING_PROOF',
         expiresAt: { gt: input.receivedAt ?? new Date() }
       },
@@ -98,7 +94,6 @@ export class BookingDepositService {
     const updated = await this.db.bookingDeposit.updateMany({
       where: {
         id: deposit.id,
-        visitId: null,
         status: 'PENDING_PROOF',
         expiresAt: { gt: input.receivedAt ?? new Date() }
       },
@@ -129,7 +124,6 @@ export class BookingDepositService {
     const claimed = await this.db.bookingDeposit.updateMany({
       where: {
         id: input.depositId,
-        visitId: null,
         source: 'WEB',
         status: 'PENDING_PROOF',
         expiresAt: { gt: receivedAt }
@@ -167,7 +161,6 @@ export class BookingDepositService {
     })
     if (
       !deposit ||
-      deposit.visitId !== null ||
       deposit.conversationId !== input.conversationId ||
       deposit.status !== 'EXPIRED' ||
       deposit.expiresAt > receivedAt
@@ -178,7 +171,6 @@ export class BookingDepositService {
       await this.db.bookingDeposit.updateMany({
         where: {
           id: deposit.id,
-          visitId: null,
           conversationId: input.conversationId,
           status: 'EXPIRED',
           proofMessageId: null
@@ -220,7 +212,6 @@ export class BookingDepositService {
       const cancelled = await tx.bookingDeposit.updateMany({
         where: {
           id: input.depositId,
-          visitId: null,
           status: EXPIRABLE_DEPOSIT_STATUS
         },
         data: {
@@ -249,7 +240,6 @@ export class BookingDepositService {
     const pendingDeposits = await this.db.bookingDeposit.findMany({
       where: {
         conversationId: input.conversationId,
-        visitId: null,
         status: EXPIRABLE_DEPOSIT_STATUS
       },
       select: { id: true }
@@ -306,11 +296,11 @@ function parseWebProof(dataUrl?: string, filename?: string):
   | { ok: false; statusCode: number; message: string } {
   const match = dataUrl?.match(/^data:([^;,]+);base64,([A-Za-z0-9+/=]+)$/)
   if (!match) {
-    return { ok: false, statusCode: 400, message: 'Selecciona una imagen valida' }
+    return { ok: false, statusCode: 400, message: 'Selecciona una imagen o PDF valido' }
   }
   const mimeType = match[1]!.trim().toLowerCase()
   if (!WEB_PROOF_MIME_TYPES.has(mimeType)) {
-    return { ok: false, statusCode: 400, message: 'El comprobante debe ser JPG, PNG o WebP' }
+    return { ok: false, statusCode: 400, message: 'El comprobante debe ser JPG, PNG, WebP o PDF' }
   }
   const decoded = Buffer.from(match[2]!, 'base64')
   if (!decoded.length || decoded.length > WEB_PROOF_MAX_BYTES) {
@@ -329,12 +319,14 @@ function parseWebProof(dataUrl?: string, filename?: string):
 }
 
 function defaultProofFilename(mimeType: string) {
+  if (mimeType === 'application/pdf') return 'comprobante.pdf'
   if (mimeType === 'image/png') return 'comprobante.png'
   if (mimeType === 'image/webp') return 'comprobante.webp'
   return 'comprobante.jpg'
 }
 
 function matchesProofSignature(data: Buffer, mimeType: string) {
+  if (mimeType === 'application/pdf') return data.subarray(0, 5).toString('ascii') === '%PDF-'
   if (mimeType === 'image/jpeg') return data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff
   if (mimeType === 'image/png') return data.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
   if (mimeType === 'image/webp') {

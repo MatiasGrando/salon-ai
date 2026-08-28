@@ -34,14 +34,12 @@ export async function acquireDispatchClaim(input: {
     const rows = await tx.$queryRaw<Array<{ claimToken: string }>>(Prisma.sql`
       INSERT INTO "BotDispatchClaim" (
         "id", "businessId", "channel", "sessionId", "resourceId", "engineKey", "generation", "fenceEpoch",
-        "handoffFenceEpoch", "kind", "status", "claimToken", "claimedUntil", "updatedAt"
+        "kind", "status", "claimToken", "claimedUntil", "updatedAt"
       )
       SELECT ${randomUUID()}, d."businessId", d."channel", ${input.sessionId}, ${input.resourceId ?? null}, d."engineKey", d."generation",
-        d."dispatchFenceEpoch", CASE WHEN ${input.sessionId}::text IS NULL THEN NULL ELSE s."handoffFenceEpoch" END,
-        ${input.kind}::"BotDispatchKind", 'CLAIMED'::"BotDispatchStatus", ${token},
+        d."dispatchFenceEpoch", ${input.kind}::"BotDispatchKind", 'CLAIMED'::"BotDispatchStatus", ${token},
         clock_timestamp() + (${input.leaseMs ?? 30_000} * interval '1 millisecond'), clock_timestamp()
       FROM "BotChannelDeployment" d
-      LEFT JOIN "BotSession" s ON s."id" = ${input.sessionId} AND s."businessId" = d."businessId"
       WHERE d."businessId" = ${input.businessId} AND d."channel" = 'WHATSAPP'::"BotChannel"
         AND d."engineKey" = 'deterministic-options' AND d."activeConfigurationId" IS NOT NULL
         AND d."legacyDispatchCoverageVersion" >= 1
@@ -51,7 +49,6 @@ export async function acquireDispatchClaim(input: {
           SELECT 1 FROM "BotSession" s WHERE s."id" = ${input.sessionId}
             AND s."businessId" = d."businessId" AND s."deploymentId" = d."id"
             AND s."deploymentGeneration" = d."generation" AND s."status" <> 'HUMAN_TAKEN'::"BotSessionStatus"
-            AND s."handoffClaimsPausedAt" IS NULL
         ))
       ON CONFLICT DO NOTHING
       RETURNING "claimToken"
@@ -78,11 +75,6 @@ export async function assertDispatchClaimTx(input: {
       AND d."dispatchFenceEpoch" = c."fenceEpoch" AND d."claimsPausedAt" IS NULL
       AND d."activeConfigurationId" IS NOT NULL
       AND d."legacyDispatchCoverageVersion" >= 1
-      AND (c."sessionId" IS NULL OR EXISTS (
-        SELECT 1 FROM "BotSession" s WHERE s."id" = c."sessionId" AND s."businessId" = c."businessId"
-          AND s."status" <> 'HUMAN_TAKEN'::"BotSessionStatus"
-          AND s."handoffClaimsPausedAt" IS NULL AND s."handoffFenceEpoch" = c."handoffFenceEpoch"
-      ))
     FOR UPDATE OF c
   `)
   if (rows.length !== 1) throw new Error('stale or fenced dispatch claim')
@@ -114,12 +106,6 @@ export async function advanceDispatchClaim(
         SELECT 1 FROM "BotChannelDeployment" d
         WHERE d."businessId" = c."businessId" AND d."channel" = c."channel"
           AND d."generation" = c."generation" AND d."dispatchFenceEpoch" = c."fenceEpoch"
-          AND d."claimsPausedAt" IS NULL
-          AND (c."sessionId" IS NULL OR EXISTS (
-          SELECT 1 FROM "BotSession" s WHERE s."id" = c."sessionId" AND s."businessId" = c."businessId"
-              AND s."status" <> 'HUMAN_TAKEN'::"BotSessionStatus"
-              AND s."handoffClaimsPausedAt" IS NULL AND s."handoffFenceEpoch" = c."handoffFenceEpoch"
-          ))
       )
   `)
   return count === 1

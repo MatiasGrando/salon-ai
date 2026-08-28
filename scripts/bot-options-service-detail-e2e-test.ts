@@ -1,8 +1,13 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import { resolveF10PgContractDatabase } from './f10-pg-contract-database.js'
 
-const SAFE_DATABASE_URL = resolveF10PgContractDatabase('F5.5/F10 handoff E2E')
+const SAFE_DATABASE_URL = 'postgresql://postgres:postgres@127.0.0.1:54322/salon_ai_test'
+const safety = new URL(SAFE_DATABASE_URL)
+if (
+  safety.protocol !== 'postgresql:' || safety.hostname !== '127.0.0.1' || safety.port !== '54322' ||
+  safety.pathname !== '/salon_ai_test' || safety.username !== 'postgres' || safety.password !== 'postgres'
+) throw new Error('Refusing unsafe F5.5 E2E PostgreSQL URL')
+process.env.DATABASE_URL = SAFE_DATABASE_URL
 
 const [{ createPrismaClient }, { Prisma }, processor, promptTokens, activation, handoffExecutor] = await Promise.all([
   import('../src/config/prisma-client.js'),
@@ -236,27 +241,14 @@ try {
       context: { serviceId: consultServiceId }
     }
   })
-  const operationRows = await prisma.$queryRaw<Array<{ status: string; type: string; requestHash: string; resultRef: string | null }>>(Prisma.sql`
-    SELECT "status", "type", "requestHash", "resultRef" FROM "BotOperation"
+  const operationRows = await prisma.$queryRaw<Array<{ status: string; type: string; requestHash: string }>>(Prisma.sql`
+    SELECT "status", "type", "requestHash" FROM "BotOperation"
     WHERE "operationKey" = ${`${consult.operationKey}:REQUEST_HUMAN_HANDOFF`}
   `)
   assert.equal(operationRows.length, 1)
   assert.equal(operationRows[0]!.status, 'COMPLETED')
   assert.equal(operationRows[0]!.type, 'REQUEST_HUMAN_HANDOFF')
   assert.match(operationRows[0]!.requestHash, /^[a-f0-9]{64}$/)
-  assert.ok(operationRows[0]!.resultRef, 'handoff operation must reference its durable queue row')
-  const durableHandoff = await prisma.$queryRaw<Array<{ id: string; status: string; reason: string; detail: string | null; context: unknown }>>(Prisma.sql`
-    SELECT "id", "status"::text AS "status", "reason", "detail", "context"
-    FROM "BotHandoff"
-    WHERE "id" = ${operationRows[0]!.resultRef} AND "businessId" = ${businessId} AND "sessionId" = ${consult.sessionId}
-  `)
-  assert.deepEqual(durableHandoff, [{
-    id: operationRows[0]!.resultRef,
-    status: 'QUEUED',
-    reason: 'servicio_requiere_consulta_previa',
-    detail: `Coloración ${suffix}`,
-    context: { serviceId: consultServiceId }
-  }])
 
   const handoffEffect = {
     kind: 'REQUEST_HUMAN_HANDOFF' as const,
@@ -275,11 +267,6 @@ try {
     WHERE "sessionId" = ${consult.sessionId} AND "type" = 'REQUEST_HUMAN_HANDOFF'
   `)
   assert.equal(replayCount[0]!.count, 1n, 'idempotent replay must not duplicate handoff operations')
-  const replayHandoffCount = await prisma.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
-    SELECT count(*)::bigint AS "count" FROM "BotHandoff"
-    WHERE "businessId" = ${businessId} AND "sessionId" = ${consult.sessionId}
-  `)
-  assert.equal(replayHandoffCount[0]!.count, 1n, 'idempotent replay must not duplicate durable handoff rows')
   const conflictingOperationKey = `${consult.operationKey}:conflict`
   await assert.rejects(
     prisma.$transaction((tx) => handoffExecutor.prismaHandoffEffectExecutor(tx, {
@@ -305,7 +292,6 @@ try {
 } finally {
   await prisma.$executeRaw(Prisma.sql`DELETE FROM "BotJob" WHERE "businessId" = ${businessId}`)
   await prisma.$executeRaw(Prisma.sql`DELETE FROM "BotDispatchClaim" WHERE "businessId" = ${businessId}`)
-  await prisma.$executeRaw(Prisma.sql`DELETE FROM "BotHandoff" WHERE "businessId" = ${businessId}`)
   await prisma.$executeRaw(Prisma.sql`DELETE FROM "BotOperation" WHERE "businessId" = ${businessId}`)
   await prisma.$executeRaw(Prisma.sql`DELETE FROM "BotTransitionLog" WHERE "businessId" = ${businessId}`)
   await prisma.$executeRaw(Prisma.sql`DELETE FROM "BotActionInbox" WHERE "businessId" = ${businessId}`)

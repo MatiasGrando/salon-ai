@@ -28,12 +28,6 @@ import { PrismaCartRepository } from '../infrastructure/prisma-cart.js'
 import { formatCartSummary } from './cart-operations.js'
 import { PrismaAvailabilityRepository } from '../infrastructure/prisma-availability.js'
 import { BOOKING_DATE_PAGE_SIZE, BOOKING_SLOT_PAGE_SIZE, formatDateChoice, formatSlotOffset, paginate } from './availability-queries.js'
-import {
-  classifyAppointmentManagementPolicy,
-  isWithinAppointmentManagementLeadWindow,
-  listManageableAppointments,
-  type AppointmentManagementCursor
-} from './appointment-management.js'
 
 type RuntimeClient = Pick<PrismaClient, '$queryRaw' | '$executeRaw' | '$transaction'>
 
@@ -88,7 +82,6 @@ const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
     bandHasAvailability: false, catalogCanNext: false, catalogCanPrevious: false, catalogPageMoveAllowed: false,
     professionalCatalogCanNext: false, professionalCatalogCanPrevious: false, dateCanNext: false,
     dateCanPrevious: false, slotCanNext: false, noAvailabilityInHorizon: false, selectedProfessionalNoAvailability: false, appointmentsExist: false, appointmentsCanNext: false,
-    appointmentListPage: null,
     appointmentOwnedAndFuture: false, cancellationAllowed: false, rescheduleAllowed: false,
     rescheduleDateAvailable: false, rescheduleSlotAvailable: false, approvedDepositTransferable: false,
     slotStillAvailableAtConfirm: false, depositRequired: false, paymentConfigComplete: false,
@@ -451,97 +444,7 @@ const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
     }
   }
 
-  // F9.7 — La lista y los pasos de gestión se reconstruyen desde F9.1 con el
-  // teléfono canónico de la conversación actual. La sesión puede ser nueva: la
-  // pertenencia se prueba por negocio + teléfono, nunca por la sesión creadora.
-  const needsAppointmentContext = input.actionType === 'menu.manage_appointment' ||
-    input.state.flow.startsWith('APPOINTMENT') || input.actionType === 'appointment.slot_conflict' || input.actionType === 'appointment.stale'
-  if (needsAppointmentContext) {
-    const identity = await tx.$queryRaw<Array<{ phone: string }>>(Prisma.sql`
-      SELECT c."phone" FROM "BotSession" s
-      JOIN "Conversation" c ON c."id" = s."conversationId" AND c."businessId" = s."businessId"
-      WHERE s."id" = ${input.sessionId} AND s."businessId" = ${input.businessId}
-    `)
-    const canonicalPhone = identity[0]?.phone ? normalizePhone(identity[0].phone) : ''
-    if (!canonicalPhone) throw new Error('appointment management identity is unavailable in tenant')
-    const presentation = input.state.presentation.kind === 'appointment_list_page' ? input.state.presentation : null
-    const requestedAfter = input.actionType === 'appointment.next_page'
-      ? presentation?.next ?? null
-      : presentation?.after ?? null
-    if (input.actionType !== 'appointment.next_page' || requestedAfter) {
-      const cursor: AppointmentManagementCursor | undefined = requestedAfter
-        ? { startAt: new Date(requestedAfter.startAt), appointmentId: requestedAfter.appointmentId }
-        : undefined
-      const page = await listManageableAppointments(tx, {
-        businessId: input.businessId, normalizedPhone: canonicalPhone, cursor, pageSize: 7
-      })
-      const after = requestedAfter ? { ...requestedAfter } : null
-      const next = page.nextCursor ? { startAt: page.nextCursor.startAt.toISOString(), appointmentId: page.nextCursor.appointmentId } : null
-      base.appointmentListPage = { after, next }
-      base.appointmentsExist = page.items.length > 0
-      base.appointmentsCanNext = next !== null
-      base.labels.manageableAppointments = page.items.map((item) => ({
-        appointmentId: item.appointmentId,
-        label: formatManagedAppointment(item.startAt, item.category, page.timezone)
-      }))
-
-      const selectedAppointmentId = input.entityRef?.type === 'APPOINTMENT'
-        ? input.entityRef.id
-        : input.state.selections.appointmentId
-      const selected = selectedAppointmentId ? page.items.find((item) => item.appointmentId === selectedAppointmentId) : null
-      if (selected) {
-        const policy = classifyAppointmentManagementPolicy(selected.financialState)
-        base.appointmentOwnedAndFuture = true
-        base.cancellationAllowed = policy.cancel === 'AUTOMATIC' &&
-          isWithinAppointmentManagementLeadWindow(selected.startAt, page.dbNow, page.cancellationLeadMinutes)
-        base.rescheduleAllowed = policy.reschedule !== 'HANDOFF' &&
-          isWithinAppointmentManagementLeadWindow(selected.startAt, page.dbNow, page.rescheduleLeadMinutes)
-        base.approvedDepositTransferable = policy.reschedule === 'REQUIRES_DEPOSIT_MATCH'
-        base.labels.appointmentSummary = formatManagedAppointment(selected.startAt, selected.category, page.timezone)
-
-        const needsRescheduleAvailability = input.state.flow === 'APPOINTMENT_RESCHEDULE_DATE' ||
-          input.state.flow === 'APPOINTMENT_RESCHEDULE_SLOT' || input.state.flow === 'APPOINTMENT_RESCHEDULE_SUMMARY'
-        if (needsRescheduleAvailability) {
-          const aggregate = await tx.$queryRaw<Array<{ professionalId: string; durationMinutes: number; primaryServiceId: string }>>(Prisma.sql`
-            SELECT a."professionalId", a."totalDurationMinutes" AS "durationMinutes", a."serviceId" AS "primaryServiceId"
-            FROM "Appointment" a WHERE a."id" = ${selected.appointmentId}
-          `)
-          const row = aggregate[0]
-          if (!row || !Number.isInteger(row.durationMinutes) || row.durationMinutes <= 0) throw new Error('appointment reschedule aggregate is unavailable')
-          const items = await tx.$queryRaw<Array<{ serviceId: string }>>(Prisma.sql`
-            SELECT "serviceId" FROM "AppointmentServiceItem" WHERE "appointmentId" = ${selected.appointmentId} ORDER BY "sortOrder", "serviceId"
-          `)
-          const serviceIds = items.length ? items.map((item) => item.serviceId) : [row.primaryServiceId]
-          const availability = new PrismaAvailabilityRepository(tx)
-          const settings = await availability.loadSettings(input.businessId)
-          if (settings.timezone !== page.timezone) throw new Error('appointment management timezone does not match availability settings')
-          const search = await availability.search({
-            businessId: input.businessId, serviceIds, durationMinutes: row.durationMinutes,
-            dbNow: page.dbNow, settings, professionalId: row.professionalId, excludeAppointmentId: selected.appointmentId
-          })
-          const effectiveDate = input.actionType === 'appointment.date_select' ? input.payload?.date : input.state.selections.date
-          const slots = effectiveDate ? search.slots.filter((slot) => slot.date === effectiveDate) : search.slots
-          const dates = [...new Set(search.slots.map((slot) => slot.date))]
-          base.labels.availableDates = dates.map((date) => ({ date, label: formatDateChoice(date, settings.timezone) }))
-          base.labels.availableSlots = slots.map((slot) => ({
-            startAt: slot.startAt, label: `${slot.time} · ${slot.professionalName}`, band: slot.band, professionalId: slot.professionalId
-          }))
-          base.rescheduleDateAvailable = Boolean(effectiveDate && dates.includes(effectiveDate))
-          const requestedStartAt = input.actionType === 'appointment.slot_select' ? input.payload?.startAt : input.state.selections.slotStartAt
-          base.rescheduleSlotAvailable = Boolean(requestedStartAt && slots.some((slot) => slot.startAt === requestedStartAt))
-        }
-      }
-    }
-  }
-
   return base
-}
-
-function formatManagedAppointment(startAt: Date, category: string, timezone: string): string {
-  const date = new Intl.DateTimeFormat('es-AR', {
-    timeZone: timezone, weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false
-  }).format(startAt)
-  return `${date} · ${category}`
 }
 
 function parseSelectedEntityRef(value: Prisma.JsonValue | null): BotOptionsEntityRef | null {
@@ -741,44 +644,6 @@ async function processSessionJobInternal(input: {
           }
         }
         view = textView(`Listo, tu turno quedó confirmado con ${effectResult.professional.name}. Te esperamos.`)
-      } else if (effectResult?.kind === 'APPOINTMENT_SLOT_CONFLICT' || effectResult?.kind === 'APPOINTMENT_STALE') {
-        if (!transitionContext) throw new Error('appointment recovery has no transition context')
-        const recoveryAction = effectResult.kind === 'APPOINTMENT_SLOT_CONFLICT' ? 'appointment.slot_conflict' : 'appointment.stale'
-        const freshContext = await (input.contextProvider ?? defaultContextProvider)(tx, {
-          businessId: session.businessId,
-          sessionId: session.id,
-          state: parsedState.state,
-          actionType: recoveryAction,
-          entityRef: { type: 'APPOINTMENT', id: effectResult.appointmentId },
-          payload: null,
-          dbNow: session.dbNow,
-          businessTimezone: session.businessTimezone
-        })
-        const recovery = transition(parsedState.state, {
-          actionType: recoveryAction,
-          entityRef: { type: 'APPOINTMENT', id: effectResult.appointmentId },
-          payload: null
-        }, freshContext)
-        nextState = recovery.state
-        view = recovery.view
-        outcome = recovery.outcome
-        effects = 'effects' in recovery ? recovery.effects : []
-        if (effects.length) throw new Error('appointment recovery must not emit effects')
-      } else if (effectResult?.kind === 'APPOINTMENT_HANDOFF') {
-        if (!transitionContext) throw new Error('appointment handoff has no transition context')
-        const handoff = transition(parsedState.state, {
-          actionType: 'handoff.request', entityRef: null, payload: null
-        }, transitionContext)
-        nextState = handoff.state
-        view = handoff.view
-        outcome = handoff.outcome
-        effects = 'effects' in handoff ? handoff.effects : []
-        if (!effects.some((effect) => effect.kind === 'REQUEST_HUMAN_HANDOFF')) {
-          throw new Error('appointment handoff recovery must enqueue human attention')
-        }
-        await (input.effectExecutor ?? prismaBotOptionsEffectExecutor)(tx, {
-          businessId: session.businessId, sessionId: session.id, operationKey, effects
-        })
       }
       const nextRevision = session.revision + 1n
       await tx.$executeRaw(Prisma.sql`
@@ -844,8 +709,8 @@ async function processInitialInboxUnderClaim(
   return input.client.$transaction(async (tx) => {
     await assertClaimedBotJobTx(tx, input.job)
     await assertDispatchClaimTx({ tx, businessId: input.job.businessId, claimToken: dispatchToken })
-    const rows = await tx.$queryRaw<Array<{ id: string; businessId: string; deploymentId: string; deploymentGeneration: number; payload: Prisma.JsonValue; providerEventId: string; providerMessageId: string | null; status: string; dbNow: Date; businessTimezone: string }>>(Prisma.sql`
-      SELECT i."id", e."businessId", i."deploymentId", i."deploymentGeneration", i."payload", i."providerEventId", i."providerMessageId", i."status"::text AS "status",
+    const rows = await tx.$queryRaw<Array<{ id: string; businessId: string; deploymentId: string; deploymentGeneration: number; payload: Prisma.JsonValue; status: string; dbNow: Date; businessTimezone: string }>>(Prisma.sql`
+      SELECT i."id", e."businessId", i."deploymentId", i."deploymentGeneration", i."payload", i."status"::text AS "status",
         clock_timestamp() AS "dbNow", settings."timezone" AS "businessTimezone"
       FROM "BotActionInbox" i JOIN "BotProviderEvent" e ON e."id" = i."providerEventId"
       JOIN "BotChannelDeployment" d ON d."id" = i."deploymentId" AND d."businessId" = e."businessId"
@@ -864,46 +729,8 @@ async function processInitialInboxUnderClaim(
       await completeClaimedBotJobTx(tx, input.job)
       return 'PROCESSED'
     }
-    const payload = row.payload as { fromPhone?: unknown; textBody?: unknown; messageType?: unknown }
+    const payload = row.payload as { fromPhone?: unknown }
     if (typeof payload.fromPhone !== 'string' || !payload.fromPhone) throw new Error('initial inbound has no phone')
-    const existingSession = await lockExistingInitialSession(tx, row.businessId, payload.fromPhone)
-    if (existingSession) {
-      if (existingSession.status !== 'HUMAN_TAKEN') {
-        await tx.$executeRaw(Prisma.sql`
-          UPDATE "BotActionInbox" SET "sessionId"=${existingSession.sessionId},"expectedRevision"=${existingSession.revision},
-            "status"='PROCESSED'::"BotInboxStatus", "error"='EXISTING_SESSION_INITIAL_SUPPRESSED'
-          WHERE "id"=${row.id} AND "status"='ADMITTED'::"BotInboxStatus"
-        `)
-        await completeDispatchClaimTx(tx, dispatchToken)
-        await completeClaimedBotJobTx(tx, input.job)
-        return 'PROCESSED'
-      }
-      const body = typeof payload.textBody === 'string' && payload.textBody.trim()
-        ? payload.textBody.trim()
-        : `[${typeof payload.messageType === 'string' ? payload.messageType : 'message'}]`
-      await tx.$executeRaw(Prisma.sql`
-        INSERT INTO "Message" ("id", "conversationId", "phone", "direction", "body", "providerMessageId", "status", "metadata")
-        VALUES (${randomUUID()}, ${existingSession.conversationId}, ${payload.fromPhone}, 'INBOUND'::"MessageDirection", ${body},
-          ${row.providerMessageId}, 'received', ${JSON.stringify({ provider: 'whatsapp', source: 'bot-options-handoff-recovery' })}::jsonb)
-        ON CONFLICT ("providerMessageId") DO NOTHING
-      `)
-      await tx.$executeRaw(Prisma.sql`
-        UPDATE "Conversation" SET "lastMessage"=${body},"archivedAt"=NULL,"updatedAt"=clock_timestamp()
-        WHERE "id"=${existingSession.conversationId} AND "businessId"=${row.businessId}
-      `)
-      await tx.$executeRaw(Prisma.sql`
-        UPDATE "BotActionInbox" SET "sessionId"=${existingSession.sessionId},"status"='PROCESSED'::"BotInboxStatus",
-          "error"='HUMAN_TAKEN_SILENCED'
-        WHERE "id"=${row.id} AND "status"='ADMITTED'::"BotInboxStatus"
-      `)
-      await tx.$executeRaw(Prisma.sql`
-        UPDATE "BotProviderEvent" SET "status"='PROCESSED'::"BotProviderEventStatus"
-        WHERE "id"=${row.providerEventId} AND "status"='ADMITTED'::"BotProviderEventStatus"
-      `)
-      await completeDispatchClaimTx(tx, dispatchToken)
-      await completeClaimedBotJobTx(tx, input.job)
-      return 'PROCESSED'
-    }
     const conversationId = randomUUID()
     const conversations = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
       INSERT INTO "Conversation" ("id", "phone", "businessId", "updatedAt")
@@ -963,35 +790,6 @@ async function processInitialInboxUnderClaim(
     await completeClaimedBotJobTx(tx, input.job)
     return 'PROCESSED'
   })
-}
-
-/**
- * Serializes initial inbox handling with the pre-existing conversation session.
- * This avoids creating a second ACTIVE session while TAKE changes ownership.
- */
-async function lockExistingInitialSession(tx: Prisma.TransactionClient, businessId: string, phone: string) {
-  const sessions = await tx.$queryRaw<Array<{ sessionId: string; conversationId: string; revision: bigint; status: string }>>(Prisma.sql`
-    SELECT s."id" AS "sessionId", c."id" AS "conversationId", s."revision", s."status"::text AS "status"
-    FROM "Conversation" c
-    JOIN "BotSession" s ON s."conversationId"=c."id" AND s."businessId"=c."businessId"
-    WHERE c."businessId"=${businessId} AND c."phone"=${phone} AND s."status" <> 'CLOSED'::"BotSessionStatus"
-    ORDER BY CASE s."status" WHEN 'HUMAN_TAKEN'::"BotSessionStatus" THEN 0 WHEN 'HUMAN_QUEUED'::"BotSessionStatus" THEN 1 ELSE 2 END,
-      s."updatedAt" DESC, s."id" DESC
-    FOR UPDATE OF s
-  `)
-  const session = sessions[0]
-  if (!session) return null
-  if (session.status !== 'HUMAN_TAKEN') return session
-  const handoffs = await tx.$queryRaw<Array<{ handoffId: string }>>(Prisma.sql`
-    SELECT "id" AS "handoffId" FROM "BotHandoff" WHERE "businessId"=${businessId} AND "sessionId"=${session.sessionId}
-      AND "status"='TAKEN'::"BotHandoffStatus" FOR UPDATE
-  `)
-  if (handoffs.length !== 1) throw new Error('human-owned session lacks taken handoff')
-  const conversations = await tx.$queryRaw<Array<{ conversationId: string }>>(Prisma.sql`
-    SELECT "id" AS "conversationId" FROM "Conversation" WHERE "id"=${session.conversationId} AND "businessId"=${businessId} FOR UPDATE
-  `)
-  if (conversations.length !== 1) throw new Error('human-owned session lacks conversation')
-  return session
 }
 
 async function processCutoverRecovery(input: { client: RuntimeClient; job: ClaimedBotJob }): Promise<'PROCESSED' | 'STALE_CUTOVER'> {

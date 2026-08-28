@@ -109,8 +109,6 @@ export class PrismaAdmissionRepository implements ShadowAdmissionRepository {
 
 type AuthoritativePrismaClient = Pick<PrismaClient, 'businessWhatsAppConfig' | '$queryRaw' | '$transaction'>
 
-export const DEFAULT_AUTHORITATIVE_TRANSACTION_TIMEOUT_MS = 175
-
 function eventPayload(event: ParsedWebhookEvent): Prisma.InputJsonValue {
   if (event.kind === 'message') {
     return {
@@ -137,25 +135,9 @@ function millis(value: Date | null): number | null {
 
 export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmissionRepository {
   readonly #client: AuthoritativePrismaClient
-  readonly #depositProofIngressEnabled: boolean
-  readonly #authoritativeTransactionTimeoutMs: number
 
-  constructor(client: AuthoritativePrismaClient, options: {
-    depositProofIngressEnabled?: boolean
-    authoritativeTransactionTimeoutMs?: number
-  } = {}) {
-    const authoritativeTransactionTimeoutMs = options.authoritativeTransactionTimeoutMs
-      ?? DEFAULT_AUTHORITATIVE_TRANSACTION_TIMEOUT_MS
-    if (
-      !Number.isFinite(authoritativeTransactionTimeoutMs)
-      || !Number.isInteger(authoritativeTransactionTimeoutMs)
-      || authoritativeTransactionTimeoutMs <= 0
-    ) {
-      throw new Error('authoritativeTransactionTimeoutMs must be a finite positive integer')
-    }
+  constructor(client: AuthoritativePrismaClient) {
     this.#client = client
-    this.#depositProofIngressEnabled = options.depositProofIngressEnabled ?? false
-    this.#authoritativeTransactionTimeoutMs = authoritativeTransactionTimeoutMs
   }
 
   async resolveRoute(phoneNumberId: string): Promise<AuthoritativeRoute> {
@@ -253,32 +235,6 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
           continue
         }
 
-        if (event.kind === 'message' && await this.#persistHumanTakenInbound(tx, {
-          route: input.route,
-          event,
-          providerEventId,
-          inboxId: randomUUID()
-        })) {
-          continue
-        }
-
-        if (
-          this.#depositProofIngressEnabled && event.kind === 'message'
-          && (event.messageType === 'image' || event.messageType === 'document')
-        ) {
-          await upsertJob(
-            tx,
-            'RECEIVE_DEPOSIT_PROOF',
-            providerEventId,
-            input.route.businessId,
-            input.route.deploymentId,
-            input.route.generation,
-            null,
-            new Date()
-          )
-          continue
-        }
-
         const inboxId = randomUUID()
         if (event.kind === 'message' && event.interactiveReplyId) {
           await this.#admitInteractive(tx, { ...input, event, providerEventId, inboxId })
@@ -301,98 +257,13 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
         await upsertJob(tx, 'PROCESS_INBOX', inboxId, input.route.businessId, input.route.deploymentId, input.route.generation, null, new Date())
       }
       return { eventCount: input.events.length, insertedCount }
-      }, { timeout: this.#authoritativeTransactionTimeoutMs })
+      }, { timeout: 175 })
       botOptionsMetrics.observe('webhook_ack', performance.now() - startedAt)
       return result
     } catch (error) {
       botOptionsMetrics.observe('webhook_ack', performance.now() - startedAt, 'error')
       throw error
     }
-  }
-
-  /**
-   * F10.3: ownership preserves inbound in the CRM Message ledger, but creates
-   * no bot job. Joining the active TAKEN handoff excludes historical sessions.
-   */
-  async #persistHumanTakenInbound(
-    tx: Prisma.TransactionClient,
-    input: {
-      route: Extract<AuthoritativeRoute, { kind: 'new' }>
-      event: Extract<ParsedWebhookEvent, { kind: 'message' }>
-      providerEventId: string
-      inboxId: string
-    }
-  ): Promise<boolean> {
-    const candidates = await tx.$queryRaw<Array<{ conversationId: string; sessionId: string; handoffId: string }>>(Prisma.sql`
-      SELECT c."id" AS "conversationId", s."id" AS "sessionId", h."id" AS "handoffId"
-      FROM "Conversation" c
-      JOIN "BotSession" s ON s."conversationId" = c."id" AND s."businessId" = c."businessId"
-      JOIN "BotHandoff" h ON h."businessId" = s."businessId" AND h."sessionId" = s."id"
-      WHERE c."businessId" = ${input.route.businessId} AND c."phone" = ${input.event.fromPhone}
-        AND s."status" = 'HUMAN_TAKEN'::"BotSessionStatus"
-        AND h."status" = 'TAKEN'::"BotHandoffStatus"
-    `)
-    if (candidates.length === 0) return false
-    if (candidates.length !== 1) throw new Error('ambiguous human-owned conversation')
-    const candidate = candidates[0]!
-    const sessions = await tx.$queryRaw<Array<{ sessionId: string }>>(Prisma.sql`
-      SELECT "id" AS "sessionId" FROM "BotSession"
-      WHERE "id"=${candidate.sessionId} AND "businessId"=${input.route.businessId}
-        AND "status"='HUMAN_TAKEN'::"BotSessionStatus"
-      FOR UPDATE
-    `)
-    if (sessions.length !== 1) return false
-    const handoffs = await tx.$queryRaw<Array<{ handoffId: string }>>(Prisma.sql`
-      SELECT "id" AS "handoffId" FROM "BotHandoff"
-      WHERE "id"=${candidate.handoffId} AND "businessId"=${input.route.businessId} AND "sessionId"=${candidate.sessionId}
-        AND "status"='TAKEN'::"BotHandoffStatus"
-      FOR UPDATE
-    `)
-    if (handoffs.length !== 1) return false
-    const conversations = await tx.$queryRaw<Array<{ conversationId: string }>>(Prisma.sql`
-      SELECT "id" AS "conversationId" FROM "Conversation"
-      WHERE "id"=${candidate.conversationId} AND "businessId"=${input.route.businessId} AND "phone"=${input.event.fromPhone}
-      FOR UPDATE
-    `)
-    if (conversations.length !== 1) return false
-    const target = { conversationId: conversations[0]!.conversationId, sessionId: sessions[0]!.sessionId }
-    const body = input.event.textBody?.trim() || `[${input.event.messageType}]`
-    await tx.$executeRaw(Prisma.sql`
-      INSERT INTO "Message" ("id", "conversationId", "phone", "direction", "body", "providerMessageId", "status", "metadata")
-      VALUES (${randomUUID()}, ${target.conversationId}, ${input.event.fromPhone}, 'INBOUND'::"MessageDirection", ${body},
-        ${input.event.providerMessageId}, 'received',
-        ${JSON.stringify({
-          provider: 'whatsapp',
-          source: 'bot-options-handoff',
-          messageType: input.event.messageType,
-          phoneNumberId: input.event.phoneNumberId,
-          interactiveReplyId: input.event.interactiveReplyId,
-          mediaType: input.event.mediaType,
-          mediaMimeType: input.event.mediaMimeType,
-          mediaId: input.event.mediaId,
-          filename: input.event.filename
-        })}::jsonb)
-      ON CONFLICT ("providerMessageId") DO NOTHING
-    `)
-    await tx.$executeRaw(Prisma.sql`
-      UPDATE "Conversation" SET "lastMessage" = ${body}, "archivedAt" = NULL, "updatedAt" = clock_timestamp()
-      WHERE "id" = ${target.conversationId} AND "businessId" = ${input.route.businessId}
-    `)
-    await tx.$executeRaw(Prisma.sql`
-      INSERT INTO "BotActionInbox" (
-        "id", "businessId", "providerEventId", "sessionId", "providerMessageId", "actionType", "deploymentId",
-        "deploymentGeneration", "payload", "status", "error"
-      ) VALUES (
-        ${input.inboxId}, ${input.route.businessId}, ${input.providerEventId}, ${target.sessionId}, ${input.event.providerMessageId},
-        'handoff.taken_silent', ${input.route.deploymentId}, ${input.route.generation},
-        ${JSON.stringify(eventPayload(input.event))}::jsonb, 'PROCESSED'::"BotInboxStatus", 'HUMAN_TAKEN_SILENCED'
-      )
-    `)
-    await tx.$executeRaw(Prisma.sql`
-      UPDATE "BotProviderEvent" SET "status" = 'PROCESSED'::"BotProviderEventStatus"
-      WHERE "id" = ${input.providerEventId} AND "status" = 'ADMITTED'::"BotProviderEventStatus"
-    `)
-    return true
   }
 
   async #admitInteractive(

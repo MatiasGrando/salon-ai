@@ -1,11 +1,7 @@
 # Runbook de seguridad y privacidad de señas (F8.1)
 
-**Estado del documento:** **F8.1 aprobada: no hay cron de purga activado.** La implementación y
-los contratos F8 están completos y verificados en el snapshot local aislado; esto no constituye
-activación productiva. La ingesta productiva de proofs, la activación del sender y la programación
-de purge permanecen **OFF**. El ledger formal está documentado y verificado localmente en
-`prisma-f8-baseline-runbook.md`; toda activación operativa sigue fuera de este documento.
-Se basa en
+**Estado del documento:** documentación operativa. No modifica código, esquema, migraciones,
+scripts, tests ni configuración. Trabajo puramente descriptivo a partir de
 `docs/nuevo-bot/plan-implementacion.md` (F8.1), `diseno-tecnico.md` (§8, §14, §18),
 `reglas-funcionales.md` (§13) y el código actual en
 `src/services/booking-deposit-service.ts`, `src/routes/crm.ts`,
@@ -37,60 +33,44 @@ financiera; no se usa en métricas, logs ni mensajería.
 
 ## 2. Evidencia append-only: objetivo y brecha actual
 
-**Slice F8.4/F8.5 implementado, sin activación productiva:** las migraciones
-`20260827130000_add_f8_append_only_deposit_proofs` y
-`20260827140000_add_f8_proof_writer_guards` definen `BookingDepositProof` append-only por
-tenant+depósito. Cada intento `INITIAL` / `RESUBMISSION` / `LATE` lleva secuencia contigua,
-original y derivado WebP, SHA-256/tamaño/MIME, filename saneado, IDs provider opcionales,
-versión/fecha de validación y `retentionEligibleAt`. IDs provider y hash fuente deduplican sólo
-dentro del agregado tenant-scoped. `UPDATE` y `DELETE` se rechazan mientras exista el depósito;
-un constraint diferido deja posible un futuro purge autorizado del agregado completo.
-`writeValidatedDepositProof` recibe exclusivamente evidencia ya validada: en una única TX toma
-los locks F7, inserta la evidencia y operación `BotOperation`, y antes del deadline mueve el
-agregado F8 a revisión; después del deadline sólo agrega `LATE`. No hay `currentProofId`: el
-writer no muta blobs legacy ni expone la selección de evidencia a CRM. Los contratos PG se
-verifican exclusivamente contra el snapshot local autorizado; no se habilitó ingress, runtime ni
-sender en producción.
+**Objetivo (diseño §8, F1.6/F8.5):** tabla `BookingDepositProof` append-only donde cada
+intento (INITIAL / RESUBMISSION / LATE) es inmutable y conserva `sha256`, `mimeType`, `size`,
+`filename`, `validationStatus`, `receivedAt` y `createdBy`; `BookingDeposit.currentProofId`
+apunta a la evidencia vigente sin sobrescribir intentos anteriores.
 
-**Compatibilidad legacy (`prisma/schema.prisma`, modelo `BookingDeposit`):**
+**Estado actual (`prisma/schema.prisma`, modelo `BookingDeposit`):**
 
 - Los bytes se guardan **en línea** en `bookingDeposit.proofData Bytes?`, junto con
   `proofMimeType` y `proofFilename`.
 - Un nuevo envío (ruta WEB) **sobrescribe** esas columnas (`submitWebProof`,
   `booking-deposit-service.ts` líns. 124-137). No existe historial de intentos.
-- El flujo legacy no lee `BookingDepositProof`; conserva sus blobs y estados históricos sin
-  mezclarlos con el agregado F8 append-only.
+- No existen: `BookingDepositProof`, `currentProofId`, `version`, `sha256`,
+  `validationStatus`, ni los estados `REJECTED_RESUBMISSION_ALLOWED` / `REJECTED_FINAL`.
 
-**Brecha vigente hasta aplicar y cablear el slice:** la evidencia legacy no es append-only. Un
-reenvío o rechazo reemplaza los bytes previos, se pierde la traza forense de qué comprobante se
-revisó/aprobó y no hay hash de integridad ni registro por intento del resultado de validación.
+**Brecha:** la evidencia no es append-only. Un reenvío o rechazo reemplaza los bytes previos,
+se pierde la traza forense de qué comprobante se revisó/aprobó y no hay hash de integridad ni
+registro por intento del resultado de validación.
 
 ---
 
-## 3. Política final de acceso CRM (gate F8.1)
+## 3. Acceso CRM con mínimo privilegio y por tenant
 
 - **Aislamiento por negocio:** `tenant-resource-authorization.ts`
   `authorizedBookingDepositWhere(user, id)` filtra por la relación `business`.
   `loadAuthorizedBookingDeposit` devuelve `null` ante un depósito de otro tenant, y las rutas
   responden `404 notFound` (`sendAuthorizationFailure`) — no revelan la existencia del recurso.
-- **Revisor autorizado:** un `STAFF` requiere `canManageDeposits === true` para la bandeja,
-  descarga (`GET /crm/deposits*`) y las cuatro rutas legacy de aprobar/rechazar por depósito o
-  conversación. `BUSINESS_ADMIN` y `SUPER_ADMIN` conservan su autoridad administrativa
-  existente; `ACCOUNT_ADMIN` no accede al CRM operativo. La capacidad no se sustituye por
-  `canViewConversations`.
-- **Aislamiento por negocio:** cada recurso puntual continúa cargándose con
-  `authorizedBookingDepositWhere`/`loadAuthorizedBookingDeposit`; un ID de otro tenant sigue
-  devolviendo 404 sin revelar existencia.
-- **Descarga de bytes:** sólo `source === 'WEB'` con `proofData`; fija `Cache-Control: private,
-  no-store`. No se agregaron URLs firmadas ni acceso de object storage.
-- **Revisión legacy:** las mutaciones persisten `reviewedAt` y `reviewedByUserId`. Para STAFF,
-  las revisiones mutantes exitosas también pasan por `StaffAuditLog` del guard global.
+- **Descarga de bytes:** `GET /crm/deposits/:id/proof` (`crm.ts` líns. 1024-1052) es
+  tenant-scoped y sólo sirve cuando `source === 'WEB'` y existe `proofData`; fija
+  `Cache-Control: private, no-store`.
+- **Aprobación/rechazo:** `POST /crm/deposits/:id/approve` y `/reject` (`crm.ts` 1054-1234)
+  usan `loadAuthorizedBookingDeposit` + guarda `source === 'WEB'`, y registran
+  `reviewedByUserId`.
 - **Configuración de medios de pago:** `PATCH /businesses/:id/payment-settings`
   (`business.ts` líns. 97-104) prohíbe rol `STAFF` (403); la lectura está permitida.
-- **Límite conocido:** aún no existe evento append-only específico de revisión ni auditoría de
-  descargas. Antes de ingesta productiva, F8.5 debe registrar recepción, validación, descarga,
-  revisión y purge por `proofId`, actor, tenant y timestamp. Nunca registrar bytes, nombre de
-  archivo ni hash en logs de aplicación.
+- **Brecha / riesgo:** la revisión de depósitos (approve/reject) hoy la puede ejecutar
+  cualquier usuario autenticado del negocio (dueño y `STAFF`); no hay un rol específico de
+  "revisor de señas" separado de la exclusión de `STAFF` sobre payment-settings. El runbook
+  debe fijar una política de autoridad explícita antes de habilitar depósitos.
 
 ---
 
@@ -109,16 +89,17 @@ revisó/aprobó y no hay hash de integridad ni registro por intento del resultad
 
 ## 5. Descarga y validación segura de media
 
-- **Compatibilidad legacy:** `submitWebProof` (invocado desde `public-booking.ts`) decodifica un
-  data URL y valida. El flujo F8 incorpora el adaptador
-  `meta-deposit-proof-media.ts`: descarga fuera de la TX, restringe HTTPS allowlisted, tamaño y
-  MIME, y entrega bytes al validador/writer. Está cubierto por contratos, pero la ingesta de
-  proofs y el runtime productivo permanecen **OFF**.
+- **Sólo el origen WEB ingesta bytes hoy:** `submitWebProof` (invocado desde
+  `public-booking.ts`) decodifica un data URL y valida. El camino de WhatsApp
+  (`markProofReceived` / `registerLateProofIfExpired`) guarda **solo** `proofMessageId`;
+  **nunca descarga ni valida los bytes** del media de WhatsApp. El adaptador `meta-media.ts`
+  (F8.4) **no está implementado**.
 - **Límites (diseño §14):** la descarga debe ocurrir fuera de la transacción, sólo tras validar
   tenant y estado esperado, con tope de 3 MiB antes y después de descargar.
-- **Gate operativo:** no se deben habilitar rutas legacy para revisar proofs F8. La revisión F8,
-  sus notificaciones y recuperación están implementadas y contratadas, pero siguen sin
-  activación productiva de ingress ni sender.
+- **Brecha crítica:** por WhatsApp no hay descarga ni validación de contenido; la "evidencia"
+  es sólo una referencia de mensaje. Las rutas de aprobación/rechazo exigen `source === 'WEB'`,
+  por lo que un depósito por WhatsApp **no puede aprobarse ni rechazarse en CRM**. El flujo de
+  señas del nuevo bot (WhatsApp) no es funcional de punta a punta en el código actual.
 
 ---
 
@@ -126,36 +107,37 @@ revisó/aprobó y no hay hash de integridad ni registro por intento del resultad
 
 Implementado hoy en `parseWebProof` / `matchesProofSignature` (`booking-deposit-service.ts`):
 
-- **Allowlist legacy actual:** `image/jpeg`, `image/png`, `image/webp`.
+- **Allowlist MIME:** `image/jpeg`, `image/png`, `image/webp`, `application/pdf`.
 - **Tamaño:** tope duro de 3 MiB (`WEB_PROOF_MAX_BYTES`).
 - **Magic bytes** (no se confía en extensión ni MIME declarado):
   - JPEG: `FF D8 FF`
   - PNG: `89 50 4E 47 0D 0A 1A 0A`
   - WebP: `RIFF....WEBP`
-- **PDF:** rechazado explícitamente y diferido. No se acepta por MIME ni por magic bytes hasta
-  que F8.4 aporte parser mantenido, política de contenido activo/cifrado y entrega segura.
+  - PDF: `%PDF-`
 
-**Slice F8.4 implementado:** `deposit-proof-image-validation.ts` usa `sharp` (dependencia
-mantenida ya instalada) para exigir magic+MIME coherentes, decode completo limitado a 40 Mpx y
-re-encode WebP sin metadata. Limita tanto original como derivado a 3 MiB, calcula SHA-256 de ambos
-y sanea el filename sin emitir logs. PDF no es una excepción: permanece rechazado/diferido. El
-validador forma parte del flujo F8 contratado, sin habilitar ingress ni sender productivos.
+**Brecha:** no hay decode/re-encode de imágenes (el diseño §14 exige re-codificar y registrar
+hash del original y del derivado), ni parseo estructural de PDF, ni rechazo/cuarentena de PDF
+cifrado/con contenido activo. El chequeo magic es parcial.
 
 ---
 
 ## 7. Escaneo de malware / cuarentena (placeholder)
 
-- **Estado actual:** no hay antivirus externo, sandbox ni tabla de cuarentena. El agregado F8
-  conserva el resultado de validación; PDF continúa rechazado, no almacenado en cuarentena.
-- **Decisión operativa:** F8 rechaza PDF antes de persistirlo; no implementa cuarentena parcial,
-  render server-side ni AV externo. La política de PDF cifrado/activo queda diferida hasta que
-  exista una solución de cuarentena mantenida y aprobada.
+- **Estado actual:** ninguno. No hay antivirus externo, sandbox, tabla de cuarentena ni
+  `validationStatus` en el modelo.
+- **Diseño (decisión 18):** etapa 1 acepta el riesgo residual sin AV externo, pero exige
+  cuarentena de PDF cifrado/adjuntos/JavaScript/formularios y entrega sólo como adjunto sin
+  render server-side. Ese comportamiento **no está implementado**: un PDF cifrado pasa el
+  prefijo `%PDF-` y se almacena.
+- **Placeholder operativo:** hasta implementar `validationStatus VALID|INVALID|QUARANTINED`,
+  tratar como `INVALID` (rechazar) cualquier contenido que falle validación estructural; para
+  PDF, aceptar el riesgo o diferir la habilitación. Registrar como brecha.
 
 ---
 
-## 8. Retención y borrado: arquitectura segura, sin activación destructiva
+## 8. Retención y borrado (con salvedad de legal hold)
 
-- **Política aprobada (decisión 6 / decisión 18):** conservar los bytes del comprobante mientras la
+- **Objetivo (decisión 6 / decisión 18):** conservar los bytes del comprobante mientras la
   reserva esté activa y purgarlos **12 meses después de la fecha del turno** (o 12 meses desde
   la recepción para rechazados/tardíos). El purge elimina **sólo los bytes**; permanecen
   `sha256`, estado, timestamps y auditoría como trazabilidad financiera. Los backups previos
@@ -163,24 +145,9 @@ validador forma parte del flujo F8 contratado, sin habilitar ingress ni sender p
 - **Legal hold:** **explícitamente ausente en etapa 1** (decisión 18: "sin legal hold en etapa
   1"). Cualquier requisito de retención por litigio/regulatorio es una **brecha**: debe
   implementarse antes de tratar datos sujetos a hold, o no habilitar depósitos para esos casos.
-- **Purge byte-only F8 (pendiente de aplicar):**
-  `20260827170000_add_f8_proof_byte_retention_purge` vuelve nullable únicamente
-  `sourceData`/`derivedData` y agrega `purgedAt`, razón fija `RETENTION_12_MONTHS`, operación y
-  audit append-only sin PII. El trigger permite exclusivamente la transición una vez
-  `bytes presentes → ambos NULL`, con `retentionEligibleAt <= clock_timestamp()` de PostgreSQL;
-  preserva hashes, MIME, tamaños, filename, validación, secuencia y timestamps, fija `purgedAt`
-  en DB y rechaza toda otra actualización, incluido restaurar bytes. No hay legal hold en etapa 1.
-  `purgeDueDepositProofBytes` usa batches 1..1000, dry-run, scope global o tenant, operación
-  idempotente y `FOR UPDATE SKIP LOCKED`; la mutación, evento y operación completan/rollback en
-  una única TX. No usar `deleteMany` ni SQL directo fuera de la primitiva.
-- **CLI local, no scheduler:** `npm run maintenance:purge-proof-bytes --
-  --database-url=<URL-local> --allow-local-database=true` hace sólo dry-run. Para ejecutar exige
-  además `--execute=true --confirm=PURGE_PROOF_BYTES --operation-key=<clave-no-PII>`. Rechaza todo
-  host no local. Esta salvaguarda NO autoriza producción ni activa cron.
-- **Gate de activación:** primero migración append-only, dry-run con conteo por tenant, backup y
-  restore drill, prueba de recuperación/idempotencia y aprobación operativa. Recién entonces un
-  worker cercado con lease/fencing y métrica/alerta. **F8.1 aprobada: no hay cron de purga
-  activado.** El `proofData` legacy se conserva; no se ejecutó ninguna escritura destructiva.
+- **Estado actual:** no existe job de purga; `proofData Bytes` se retiene indefinidamente en DB.
+  La eliminación masiva de `bookingDeposit` en mantenimiento QA (`crm.ts` ~líns. 391-402)
+  borra evidencias y debe revisarse contra la política de retención.
 
 ---
 
@@ -235,13 +202,12 @@ Pasos operativos ante sospecha de exposición de un comprobante:
   (legacy) y cancela turnos `PENDING`.
 - **A nivel conversación:** también existen
   `/crm/conversations/:id/deposit/approve|reject` con la misma guarda `source === 'WEB'`.
-- **Autoridad:** un STAFF sólo puede revisar con `canManageDeposits`; los administradores
-  mantienen la autoridad inherente de su rol. Doble click mitigado por chequeo de estado bajo
-  transacción. La presente fase no agrega operaciones CRM ni notificaciones: las rutas legacy y
-  sus side effects preexistentes no son el contrato del nuevo flujo F8.
-- **F8 separado de legacy:** el agregado F8 modela revisión, reenvío y rechazo final con sus
-  operaciones idempotentes. Las rutas legacy continúan limitadas a `source === 'WEB'`; no se
-  usan para habilitar ni revisar proofs F8 en producción.
+- **Autoridad:** hoy cualquier usuario autenticado del negocio (incl. `STAFF`) puede
+  aprobar/rechazar; no hay rol de revisor separado. Doble click mitigado por chequeo de estado
+  bajo transacción.
+- **Brechas:** distinción `REJECTED_RESUBMISSION_ALLOWED` vs `REJECTED_FINAL` y el nuevo TTL de
+  reenvío (diseño F8.7/F8.8) **no implementados**; el rechazo usa el estado legacy `REJECTED`.
+  Los depósitos por WhatsApp no son aprobables/rechazables en CRM (ver §5).
 
 ---
 
@@ -249,15 +215,15 @@ Pasos operativos ante sospecha de exposición de un comprobante:
 
 - **Vencimiento:** `bookingDepositService.expireOverdue()` pasa `PENDING_PROOF` → `EXPIRED` y
   cancela turnos `PENDING`, bajo el lock de jerarquía de agenda.
-- **F8.6:** existe un worker cercado para `EXPIRE_DEPOSIT`, con recuperación y fencing; su
-  programación/runtime productivo permanece **OFF**. El expirador legacy continúa perezoso y no
-  gobierna agregados F8.
-- **Comprobante tardío F8:** inserta exclusivamente una evidencia `LATE` append-only y nunca
-  reabre el hold. La ruta legacy conserva su comportamiento histórico, incluido `409` para WEB.
-- **Política F8.1:** un comprobante tardío se deriva a atención humana y **nunca reabre** la
-  retención ni confirma/cancela nuevamente el turno. No se agregó mensaje, notificación ni
-  wiring de runtime en esta fase; el handoff legacy existente permanece como comportamiento de
-  contención hasta que el flujo F8 tenga su propio contrato.
+- **Brecha crítica de programación:** `expireOverdue` **sólo se invoca de forma perezosa**
+  (antes de submit/approve/reject/list/booking en `crm.ts`, `appointment-service.ts`,
+  `conversation-service.ts`, `public-booking.ts`). **No hay un worker/cron dedicado** que
+  expire depósitos; uno puede quedar `PENDING_PROOF` indefinidamente hasta un evento relacionado.
+  El diseño F8.6 exige expiración programada.
+- **Comprobante tardío:** `registerLateProofIfExpired` (camino WhatsApp) fija `proofMessageId` y
+  `rejectionReason` en un depósito ya `EXPIRED`, pero **no crea una fila de proof aparte**, no es
+  append-only y no recupera el hold. Para WEB, un envío tardío devuelve `409`. El tipo
+  `LATE` append-only del diseño **no está implementado**.
 
 ---
 
@@ -265,18 +231,17 @@ Pasos operativos ante sospecha de exposición de un comprobante:
 
 ### 14.1 Puerta de habilitación (debe cumplirse antes de producción)
 
-- [x] Agregado `BookingDepositProof` append-only con hashes, validación y secuencia; verificado
-      en el snapshot local aislado. No requiere `currentProofId` mutable.
-- [x] Purge byte-only diseñado en migración y primitiva: hash/estado/auditoría sobreviven; dry-run,
-       idempotencia, rollback y carrera están cubiertos por contratos PG aislados. Pendiente
-       aplicar y validar en un entorno operativo aprobado.
+- [ ] Tabla `BookingDepositProof` append-only con `sha256`, `validationStatus`, secuencia y
+      `currentProofId` (cierra §2).
+- [ ] Job de purga de bytes a 12 meses que conserve hash/estado/auditoría (§8).
 - [ ] Decisión y mecanismo de **legal hold** o exclusión explícita de casos sujetos a hold (§8).
-- [x] Descarga y validación F8 de media WhatsApp con MIME+magic+tamaño fuera de TX (§5/§6), sin
-      activación productiva.
-- [x] Decode/re-encode de imágenes y rechazo de PDF; la cuarentena/AV de PDF sigue diferida (§7).
-- [ ] Habilitación operativa del worker de expiración; no activar cron sin aprobación (§13).
+- [ ] Descarga y validación de media WhatsApp (`meta-media.ts`) con MIME+magic+tamaño fuera de
+      TX (§5/§6).
+- [ ] Decode/re-encode de imágenes y parseo estructural + cuarentena de PDF; `validationStatus`
+      QUARANTINED implementado (§7).
+- [ ] Worker/cron de expiración programada, no sólo perezosa (§13).
 - [ ] Auditoría de descargas y evento de revisión consultable (§10).
-- [x] Política de autoridad mínima: `canManageDeposits` para STAFF y alcance por tenant (§3/§12).
+- [ ] Rol de revisor de señas / política de autoridad mínima (§3/§12).
 - [ ] Drill de restore de backup que cubra la tabla de comprobantes y PII (§9).
 - [ ] Verificación de que logs/métricas/outbox no contienen contenido de proof (§4).
 
@@ -301,18 +266,19 @@ Pasos operativos ante sospecha de exposición de un comprobante:
 
 | # | Brecha | Dónde | Impacto |
 |---|---|---|---|
-| G1 | Ingesta F8 y sender siguen desactivados en producción | gates de runtime | No habilitar proofs sin aprobación operativa |
-| G2 | Las rutas CRM legacy exigen `source === 'WEB'` | `crm.ts` | No usarlas para proofs F8 |
-| G3 | El flujo WEB legacy sobrescribe `proofData` | `submitWebProof` | No mezclarlo con evidencia F8 append-only |
-| G4 | El baseline formal está verificado; falta rollout específico para cualquier ambiente con ledger histórico | migrations F8 | No ejecutar el squash en un ledger histórico sin transición probada |
-| G5 | Purge byte-only no tiene scheduler habilitado | primitiva y contratos PG | No activar cron ni producción |
+| G1 | Ingesta de proof sólo para origen `WEB`; WhatsApp no descarga ni valida bytes | `booking-deposit-service.ts`, `meta-media.ts` ausente | Depósitos del nuevo bot (WhatsApp) sin evidencia real |
+| G2 | Aprobar/rechazar en CRM exige `source === 'WEB'` | `crm.ts` 1059, 1176, 1607, 1784 | Depósito WhatsApp no es revisable en CRM |
+| G3 | Evidencia no append-only; se sobrescribe `proofData` | `schema.prisma` `BookingDeposit`, `submitWebProof` | Pérdida de traza forense e integridad |
+| G4 | Sin `BookingDepositProof`, `currentProofId`, `sha256`, `validationStatus` | esquema | Sin hash ni estado de validación por intento |
+| G5 | Sin job de purga de bytes (retención 12 meses) | — | Retención indefinida en DB |
 | G6 | Sin legal hold | decisión 18 | Riesgo legal si aplica retención forzada |
-| G7 | Sin cuarentena/AV para PDF cifrado o activo | política F8 | PDF se rechaza, no se almacena |
-| G8 | Worker de expiración no está activado | gate de runtime | No habilitar producción |
-| G9 | No usar los estados legacy como sustituto de la revisión F8 | CRM legacy | Evitar mezclar agregados |
+| G7 | Sin decode/re-encode ni cuarentena PDF/cifrado | `matchesProofSignature` parcial | PDFs cifrados/activos se almacenan |
+| G8 | Expiración sólo perezosa, sin cron/worker | llamados a `expireOverdue` | Depósitos pueden quedar `PENDING_PROOF` indefinidamente |
+| G9 | Sin distinción `REJECTED_RESUBMISSION_ALLOWED` / `REJECTED_FINAL` ni TTL de reenvío | enum `BookingDepositStatus` | Rechazo corregible/final no modelado |
 | G10 | Sin auditoría de descargas ni evento de revisión separado | `reviewedByUserId` sólo en fila | Alcance de incidente limitado |
-| G11 | Sin auditoría append-only de descargas/revisiones por proof | esquema/CRM | Alcance de incidente limitado |
+| G11 | Sin rol de revisor específico (STAFF puede aprobar/rechazar) | `crm.ts` auth | Privilegio más amplio del necesario |
 
-**Conclusión:** los contratos F8 cubren el flujo de depósito aislado, pero la ingesta, sender y
-schedulers productivos permanecen OFF. Para habilitarlos deben cerrarse G1, G4, G5, G6, G7, G8 y
-G10, con aprobación operativa explícita.
+**Conclusión:** el código actual soporta señas únicamente por el canal WEB con validación parcial.
+Para habilitar depósitos del nuevo bot por WhatsApp en producción, deben cerrarse al menos G1,
+G2, G3, G5, G8 y la decisión de legal hold (G6), además de los controles de malware (G7) y
+auditoría (G10) descritos en el diseño.

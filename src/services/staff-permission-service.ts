@@ -179,9 +179,7 @@ export function canStaffAccessRoute(user: StaffAuthorizationUser, method: string
   }
   if (path === '/crm/events') return verb === 'GET' && user.canViewConversations
   if (path.startsWith('/crm/deposits')) {
-    // A proof is financial PII. Listing its review queue, downloading its bytes, and
-    // changing its state are one reviewer capability, not general conversation access.
-    return user.canManageDeposits
+    return verb === 'GET' ? user.canViewConversations : user.canManageDeposits
   }
   if (path.startsWith('/reports/')) return verb === 'GET' && user.canViewOperationalReports
   if (path.startsWith('/schedule-blocks')) return verb === 'GET' || user.canManageScheduleBlocks

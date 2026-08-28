@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict'
-import { createHash, randomUUID } from 'node:crypto'
-import { resolveF8PgContractDatabase } from './f8-pg-contract-database.js'
+import { randomUUID } from 'node:crypto'
 
-const SAFE_DATABASE_URL = resolveF8PgContractDatabase('F7 booking contract')
-const transactionOptions = { maxWait: 10_000, timeout: 60_000 }
+const SAFE_DATABASE_URL = 'postgresql://postgres:postgres@127.0.0.1:54322/salon_ai_test'
+const parsed = new URL(SAFE_DATABASE_URL)
+if (parsed.protocol !== 'postgresql:' || parsed.hostname !== '127.0.0.1' || parsed.port !== '54322' || parsed.pathname !== '/salon_ai_test') {
+  throw new Error('Refusing unsafe F7 booking database')
+}
+process.env.DATABASE_URL = SAFE_DATABASE_URL
 
 const [{ createPrismaClient }, { Prisma }, booking, processor, stateModule] = await Promise.all([
   import('../src/config/prisma-client.js'),
@@ -17,8 +20,7 @@ const prisma = createPrismaClient({
   connectionString: SAFE_DATABASE_URL,
   max: 6,
   idleTimeoutMillis: 1_000,
-  connectionTimeoutMillis: 3_000,
-  transactionOptions
+  connectionTimeoutMillis: 3_000
 })
 const suffix = randomUUID().replaceAll('-', '')
 const businessId = `f7book_b_${suffix}`
@@ -71,19 +73,6 @@ try {
 
   const replay = await prisma.$transaction((tx) => booking.confirmBookingWithoutDeposit(tx, bookingInput(`f7-confirm-${suffix}`)))
   assert.deepEqual(replay, confirmed, 'same operation and payload must replay the committed result')
-
-  // A completed F7 operation created before F8 used this exact hash payload,
-  // with no deposit discriminator. A post-deploy retry must still replay it.
-  const legacyOperationKey = `f7-pre-f8-${suffix}`
-  await prisma.$executeRaw(Prisma.sql`
-    INSERT INTO "BotOperation" ("id", "operationKey", "type", "businessId", "sessionId", "status", "requestHash", "resultRef", "updatedAt")
-    VALUES (
-      ${randomUUID()}, ${`${legacyOperationKey}:CONFIRM_VISIT`}, 'CONFIRM_VISIT', ${businessId}, ${sessionId},
-      'COMPLETED', ${legacyF7BookingHash(bookingInput(legacyOperationKey))}, ${confirmed.visitId}, clock_timestamp()
-    )
-  `)
-  const preF8Replay = await prisma.$transaction((tx) => booking.confirmBookingWithoutDeposit(tx, bookingInput(legacyOperationKey)))
-  assert.deepEqual(preF8Replay, confirmed, 'post-F8 code must replay a pre-F8 BotOperation without creating another visit')
 
   await assert.rejects(
     prisma.$transaction((tx) => booking.confirmBookingWithoutDeposit(tx, {
@@ -257,15 +246,4 @@ function tomorrowAtNoonUtc() {
   value.setUTCDate(value.getUTCDate() + 1)
   value.setUTCHours(12, 0, 0, 0)
   return value
-}
-
-function legacyF7BookingHash(input: ReturnType<typeof bookingInput>) {
-  return createHash('sha256').update(JSON.stringify({
-    services: input.services,
-    professional: input.professional,
-    date: input.date,
-    slotStartAt: input.slotStartAt,
-    totalDurationMinutes: input.totalDurationMinutes,
-    totalPriceMinor: input.totalPriceMinor
-  }), 'utf8').digest('hex')
 }

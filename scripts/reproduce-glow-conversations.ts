@@ -5,9 +5,8 @@ import { resolveQaScriptEnvironment } from './qa-script-safety.js'
 
 const qaEnvironment = resolveQaScriptEnvironment(process.env)
 process.env.DATABASE_URL = qaEnvironment.databaseUrl
-const [{ prisma }, { Prisma }, { ConversationService }, { WhatsAppWebhookService }, { acquireAppointmentWriteHierarchy }] = await Promise.all([
+const [{ prisma }, { ConversationService }, { WhatsAppWebhookService }, { acquireAppointmentWriteHierarchy }] = await Promise.all([
   import('../src/config/prisma.js'),
-  import('../src/generated/prisma/client.js'),
   import('../src/services/conversation-service.js'),
   import('../src/services/whatsapp-webhook-service.js'),
   import('../src/services/agenda-locks.js')
@@ -617,7 +616,7 @@ function renderMarkdown(input: { businessName: string; records: ReplayRecord[] }
 async function cleanupQaConversation(qaPhone: string, businessId: string) {
   const conversations = await prisma.conversation.findMany({
     where: { phone: qaPhone, businessId },
-    select: { id: true, visitId: true }
+    select: { id: true }
   })
   const conversationIds = conversations.map((conversation) => conversation.id)
   if (conversationIds.length) {
@@ -649,34 +648,15 @@ async function cleanupQaConversation(qaPhone: string, businessId: string) {
 
   const appointments = await prisma.appointment.findMany({
     where: { customerId: { in: customerIds }, professional: { businessId } },
-    select: { id: true, visitId: true }
+    select: { id: true }
   })
   const appointmentIds = appointments.map((appointment) => appointment.id)
-  const visitIds = Array.from(new Set(appointments.flatMap((appointment) => appointment.visitId ? [appointment.visitId] : [])))
   if (appointmentIds.length) {
     await prisma.$transaction(async (tx) => {
       await acquireAppointmentWriteHierarchy(tx, { businessId, appointmentIds })
-      await tx.$executeRaw(Prisma.sql`
-        DELETE FROM "BookingDepositExpiryAudit"
-        WHERE "businessId" = ${businessId} AND "depositId" IN (
-          SELECT "id" FROM "BookingDeposit" WHERE "businessId" = ${businessId} AND "appointmentId" IN (${Prisma.join(appointmentIds)})
-        )
-      `)
-      await tx.$executeRaw(Prisma.sql`
-        DELETE FROM "BookingDepositLine"
-        WHERE "businessId" = ${businessId} AND "depositId" IN (
-          SELECT "id" FROM "BookingDeposit" WHERE "businessId" = ${businessId} AND "appointmentId" IN (${Prisma.join(appointmentIds)})
-        )
-      `)
       await tx.bookingDeposit.deleteMany({ where: { appointmentId: { in: appointmentIds }, businessId } })
       await tx.aiUsageEvent.deleteMany({ where: { appointmentId: { in: appointmentIds }, appointment: { professional: { businessId } } } })
       await tx.appointment.deleteMany({ where: { id: { in: appointmentIds }, professional: { businessId } } })
-      if (visitIds.length) {
-        await tx.$executeRaw(Prisma.sql`
-          DELETE FROM "BookingVisit"
-          WHERE "businessId" = ${businessId} AND "id" IN (${Prisma.join(visitIds)})
-        `)
-      }
     })
   }
   await prisma.customer.deleteMany({ where: { id: { in: customerIds }, businessId } })

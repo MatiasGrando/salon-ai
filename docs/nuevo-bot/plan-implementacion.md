@@ -13,7 +13,7 @@ No habrá una migración gigante: cada migración es aditiva y compatible hacia 
 
 Convención de rutas en las tablas: basenames de dominio (`actions.ts`, `state.ts`, `prompts.ts`, `transition.ts`, `effects.ts`, `views.ts`) pertenecen a `src/bot-options/domain/`; casos de uso a `src/bot-options/application/`; adaptadores `prisma-*`, worker, renderer, media y sender a `src/bot-options/infrastructure/`; servicios/rutas legacy citados por basename pertenecen a `src/services/` o `src/routes/` según corresponda.
 
-> La revisión que originó este plan fue únicamente documental. La ejecución y aceptación posteriores de F8–F10 se registran en sus checkpoints específicos.
+> Revisión documental únicamente: **no se ejecutaron código, build, pruebas, migraciones ni commits**.
 
 ---
 
@@ -233,15 +233,15 @@ Convención de rutas en las tablas: basenames de dominio (`actions.ts`, `state.t
 |---|---|---|---|---|---|
 | F10.1 **[PG]** | Crear/cancelar handoff idempotente. | `handoff-operations.ts` (nuevo); `prisma-handoff.ts` | F4.7 | Una solicitud activa; en cola sólo esperar/cancelar; cancel revalida. | Request/request y cancel/take. |
 | F10.2 **[CRM] [PG]** | Tomar/resolver con quiescence. | `crm.ts`; `crm-ui.ts`; `handoff-operations.ts` | F10.1 | Take cierra dispatch gate, espera in-flight=0 y bloquea si hay UNKNOWN no dispuesto; luego asigna owner/invalida prompts; UI integrada. | Sender cruzando Meta y UNKNOWN. |
-| F10.3 **[PG]** | Silenciar bot tras toma. | `process-session-job.ts`; `postgres-worker.ts`; `prisma-admission.ts`; sender | F10.2 | Inbound se guarda para CRM; ningún claim/envío automático atraviesa ownership epoch. | Take vs worker/sender. |
-| F10.4 | Revalidar HOME/RESUME. | `handoff-operations.ts`; migración snapshot | F10.2 | TAKE guarda baseline inmutable de Conversation/sesión/aggregates; RESUME compara y bloquea referencias tenant-scoped bajo la transacción. Cambios manuales prevalecen; entidad inválida o vencida no revive. | Mutación manual bloqueada contra resolve, replay, referencia cross-tenant e invalidación de visit/seña/turno. |
+| F10.3 **[PG]** | Silenciar bot tras toma. | `process-session-job.ts`; sender; `prisma-handoff.ts` | F10.2 | Inbound se guarda para CRM; ningún claim/envío automático atraviesa ownership epoch. | Take vs worker/sender. |
+| F10.4 | Revalidar HOME/RESUME. | `handoff-operations.ts`; `transition.ts` | F10.2 | Cambios manuales prevalecen; entidad inválida no revive. | Cambios durante handoff. |
 | F10.5 **[OBS]** | Medir cola/quiescence/ownership. | métricas; handoff | F10.1–F10.3 | Sin contexto sensible; alerta por UNKNOWN que bloquea toma y cola atascada. | Labels/transiciones. |
-| F10.6 **[META]** | Validar silencio/retorno. | `scripts/bot-options-f10-6-handoff-controlled-contract-test.ts` | F10.3–F10.4 | Mensajes durante TAKE aparecen en CRM sin autorespuesta. | Proveedor controlado concurrente; transporte Meta live opcional. |
+| F10.6 **[META]** | Validar silencio/retorno. | `scripts/bot-options-handoff-meta-test.ts` (nuevo) | F10.3–F10.4 | Mensajes durante TAKE aparecen en CRM sin autorespuesta. | Sandbox concurrente. |
 
 ### Definition of Done F10
 
-- [x] Handoff usa quiescence durable, no un precheck; UNKNOWN bloquea hasta resolución auditada.
-- [x] HUMAN_TAKEN silencia incluso jobs/outbox previamente reclamados.
+- [ ] Handoff usa quiescence durable, no un precheck; UNKNOWN bloquea hasta resolución auditada.
+- [ ] HUMAN_TAKEN silencia incluso jobs/outbox previamente reclamados.
 
 ---
 

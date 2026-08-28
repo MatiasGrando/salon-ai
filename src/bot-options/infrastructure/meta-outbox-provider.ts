@@ -5,7 +5,6 @@ import type { OutboxProvider } from './whatsapp-outbox-sender.js'
 
 type OutboxPayload = {
   to: string
-  expectedProviderPhoneNumberId?: string
   item:
     | { type: 'informative_text'; body: string }
     | { type: 'interactive'; mode: 'buttons' | 'list'; body: string; buttons?: Array<{ id: string; title: string }>; rows?: Array<{ id: string; title: string; description?: string }>; buttonText?: string; sectionTitle?: string }
@@ -40,14 +39,6 @@ export class MetaOutboxProvider implements OutboxProvider {
     const credentials = await this.#resolveCredentials(input.businessId)
     if (!credentials.accessToken || !credentials.phoneNumberId) {
       return { kind: 'clear_failure' as const, code: 'tenant_whatsapp_credentials_missing', retryable: false }
-    }
-    if (value.expectedProviderPhoneNumberId !== undefined) {
-      if (typeof value.expectedProviderPhoneNumberId !== 'string' || !value.expectedProviderPhoneNumberId.trim()) {
-        return { kind: 'clear_failure' as const, code: 'invalid_provider_identity_fence', retryable: false }
-      }
-      if (credentials.phoneNumberId !== value.expectedProviderPhoneNumberId) {
-        return { kind: 'clear_failure' as const, code: 'provider_identity_mismatch', retryable: true }
-      }
     }
     const item = value.item
     const result = item.type === 'informative_text'

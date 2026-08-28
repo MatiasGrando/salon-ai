@@ -24,7 +24,6 @@ import {
   registerInvalidInput,
   resetInvalidStreak,
   validateBotOptionsState,
-  type AppointmentListKeysetCursor,
   type BotOptionsFlowStep,
   type BotOptionsPresentationMode,
   type BotOptionsState
@@ -96,8 +95,6 @@ export type TransitionContext = {
   selectedProfessionalNoAvailability: boolean
   appointmentsExist: boolean
   appointmentsCanNext: boolean
-  /** Página F9 recién revalidada por el contexto; sus cursores son keyset SQL serializables. */
-  appointmentListPage: { after: AppointmentListKeysetCursor | null; next: AppointmentListKeysetCursor | null } | null
   appointmentOwnedAndFuture: boolean
   cancellationAllowed: boolean
   rescheduleAllowed: boolean
@@ -123,8 +120,6 @@ export type TransitionContext = {
     } | undefined
     professionalName?: string | undefined
     appointmentSummary?: string | undefined
-    /** F9.1/F9.6: Turnos gestionables para el listado. Cada ítem lleva su id estable y la etiqueta a mostrar; el motor los vuelca como opciones appointment.select. */
-    manageableAppointments?: ReadonlyArray<{ appointmentId: string; label: string }> | undefined
     /** F5.6: Texto informativo del horario semanal del negocio (lunes–domingo + excepciones). */
     businessWeeklyHoursText?: string | undefined
     /** F5.7: Texto informativo del horario semanal del profesional (lunes–domingo + excepciones). */
@@ -208,9 +203,6 @@ export function normalizeContext(input: Partial<TransitionContext> & Pick<Transi
   }
   if (typeof merged['customerNameOnFile'] !== 'string') merged['customerNameOnFile'] = null
   if (typeof merged['recommendedServiceId'] !== 'string') merged['recommendedServiceId'] = null
-  if (typeof merged['appointmentListPage'] !== 'object' || merged['appointmentListPage'] === null || Array.isArray(merged['appointmentListPage'])) {
-    merged['appointmentListPage'] = null
-  }
   const labels = merged['labels']
   if (typeof labels !== 'object' || labels === null || Array.isArray(labels)) merged['labels'] = {}
   return merged as unknown as TransitionContext
@@ -497,13 +489,6 @@ function baseOf(state: BotOptionsState, patch: Partial<BotOptionsState>): BotOpt
   return { ...state, ...patch } as BotOptionsState
 }
 
-function sameAppointmentCursor(
-  left: AppointmentListKeysetCursor | null,
-  right: AppointmentListKeysetCursor | null
-): boolean {
-  return left !== null && right !== null && left.startAt === right.startAt && left.appointmentId === right.appointmentId
-}
-
 function plainPresentation(): BotOptionsPresentationMode {
   return { kind: 'plain' }
 }
@@ -727,69 +712,26 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
       }
       return profDetailView
     }
-    case 'APPOINTMENT_LIST': {
-      // F9.1/F9.6: lista de turnos gestionables provistos por el contexto. Cada
-      // turno es una opción appointment.select con entityRef estable; la
-      // paginación y la navegación global jamás superan la capacidad 10 de la
-      // lista de WhatsApp. Sin efectos: es render puro.
-      const page = (context.labels.manageableAppointments ?? []).slice(0, 7)
-      const appointmentChoices: ViewChoice[] = page.map((appointment) => ({
-        actionType: 'appointment.select',
-        label: appointment.label,
-        entityRef: { type: 'APPOINTMENT', id: appointment.appointmentId }
-      }))
-      // La página proviene de F9.1 por keyset SQL; jamás cargamos ni paginamos
-      // todos los turnos en memoria para renderizar WhatsApp.
-      const hasNext = state.presentation.kind === 'appointment_list_page' && state.presentation.next !== null && state.presentation.next !== undefined
-      if (hasNext) {
-        appointmentChoices.push({ actionType: 'appointment.next_page', label: 'Ver más turnos' })
-      }
-      const navigation = composeGlobalNavigation({ capacity: 10, contextualCount: appointmentChoices.length, back: BACK_CHOICE })
-      return appendGlobals(menuView('Estos son tus próximos turnos:', appointmentChoices), navigation)
-    }
-    case 'APPOINTMENT_DETAIL': {
-      const appointmentId = state.selections.appointmentId
-      const appointmentRef = appointmentId ? { type: 'APPOINTMENT' as const, id: appointmentId } : null
-      return menuView(context.labels.appointmentSummary ?? 'Detalle del turno', appointmentRef
-        ? [
-            { actionType: 'appointment.cancel', label: 'Cancelar turno', entityRef: appointmentRef },
-            { actionType: 'appointment.reschedule', label: 'Reprogramar turno', entityRef: appointmentRef }
-          ]
-        : [])
-    }
-    case 'APPOINTMENT_CANCEL_CONFIRM': {
-      const appointmentId = state.selections.appointmentId
+    case 'APPOINTMENT_LIST':
+      return menuView('Estos son tus próximos turnos:', [])
+    case 'APPOINTMENT_DETAIL':
+      return menuView(context.labels.appointmentSummary ?? 'Detalle del turno', [
+        { actionType: 'appointment.cancel', label: 'Cancelar turno' },
+        { actionType: 'appointment.reschedule', label: 'Reprogramar turno' }
+      ])
+    case 'APPOINTMENT_CANCEL_CONFIRM':
       return menuView('¿Confirmás la cancelación? El horario quedará libre.', [
-        ...(appointmentId ? [{ actionType: 'appointment.cancel_confirm' as const, label: 'Sí, cancelar turno', entityRef: { type: 'APPOINTMENT' as const, id: appointmentId } }] : []),
+        { actionType: 'appointment.cancel_confirm', label: 'Sí, cancelar turno' },
         BACK_CHOICE
       ])
-    }
-    case 'APPOINTMENT_RESCHEDULE_DATE': {
-      const dateChoices: ViewChoice[] = (context.labels.availableDates ?? []).map((item) => ({
-        actionType: 'appointment.date_select',
-        label: item.label,
-        payload: { date: item.date },
-        entityRef: state.selections.appointmentId ? { type: 'APPOINTMENT', id: state.selections.appointmentId } : undefined
-      }))
-      const navDate = composeGlobalNavigation({ capacity: 10, contextualCount: dateChoices.length, back: BACK_CHOICE })
-      return appendGlobals(menuView('Elegí la nueva fecha', dateChoices), navDate)
-    }
-    case 'APPOINTMENT_RESCHEDULE_SLOT': {
-      const slotChoices: ViewChoice[] = (context.labels.availableSlots ?? []).map((slot) => ({
-        actionType: 'appointment.slot_select',
-        label: slot.label,
-        payload: { startAt: slot.startAt },
-        entityRef: state.selections.appointmentId ? { type: 'APPOINTMENT', id: state.selections.appointmentId } : undefined
-      }))
-      const navSlot = composeGlobalNavigation({ capacity: 10, contextualCount: slotChoices.length, back: BACK_CHOICE })
-      return appendGlobals(menuView('Elegí el nuevo horario', slotChoices), navSlot)
-    }
-    case 'APPOINTMENT_RESCHEDULE_SUMMARY': {
-      const appointmentId = state.selections.appointmentId
-      return menuView('Confirmás el cambio de horario?', appointmentId
-        ? [{ actionType: 'appointment.reschedule_confirm', label: 'Confirmar cambio', entityRef: { type: 'APPOINTMENT', id: appointmentId } }]
-        : [])
-    }
+    case 'APPOINTMENT_RESCHEDULE_DATE':
+      return menuView('Elegí la nueva fecha', [])
+    case 'APPOINTMENT_RESCHEDULE_SLOT':
+      return menuView('Elegí el nuevo horario', [])
+    case 'APPOINTMENT_RESCHEDULE_SUMMARY':
+      return menuView('Confirmás el cambio de horario?', [
+        { actionType: 'appointment.reschedule_confirm', label: 'Confirmar cambio' }
+      ])
     case 'HANDOFF_QUEUED':
       return menuView('Ya avisamos al equipo. Seguí tu lugar desde acá.', [
         { actionType: 'handoff.wait', label: 'Seguir esperando' },
@@ -910,7 +852,7 @@ export function transition(
 
   // ── Eventos de sistema ──────────────────────────────────────────────────
   if (isSystemEventAction(actionType)) {
-    return handleSystemEvent(state, actionType, entityRef, payload, context)
+    return handleSystemEvent(state, actionType, payload, context)
   }
 
   // ── Acciones CRM ────────────────────────────────────────────────────────
@@ -1057,20 +999,14 @@ export function transition(
       if (actionType === 'appointment.select' && entityRef?.type === 'APPOINTMENT' && context.appointmentOwnedAndFuture) {
         const next = baseOf(state, {
           flow: 'APPOINTMENT_DETAIL',
-          selections: { ...state.selections, appointmentId: entityRef.id, date: null, slotStartAt: null }
+          selections: { ...state.selections, appointmentId: entityRef.id, date: null, slotStartAt: null },
+          presentation: plainPresentation()
         })
         return applied(next, renderCurrentView(next, context))
       }
       if (actionType === 'appointment.next_page' && context.appointmentsCanNext) {
-        const current = state.presentation.kind === 'appointment_list_page' ? state.presentation : null
-        const page = context.appointmentListPage
-        if (!current?.next || !page || !sameAppointmentCursor(page.after, current.next)) {
-          return recovered(state, 'navigation_not_available', 'La lista cambió. Volvé a abrir Gestionar turno para actualizarla.', [])
-        }
-        const nextState = baseOf(state, {
-          presentation: { kind: 'appointment_list_page', cursor: current.cursor + 1, after: page.after, next: page.next }
-        })
-        return applied(nextState, renderCurrentView(nextState, context))
+        const cursor = state.presentation.kind === 'appointment_list_page' ? state.presentation.cursor + 1 : 1
+        return applied(baseOf(state, { presentation: { kind: 'appointment_list_page', cursor } }), renderCurrentView(state, context))
       }
       break
     case 'APPOINTMENT_DETAIL':
@@ -1088,7 +1024,7 @@ export function transition(
           presentation: plainPresentation()
         })
         return applied(next, textView('Listo, cancelamos tu turno.'), [
-          { kind: 'CANCEL_BOOKING', appointmentId: entityRef.id, reason: 'cliente_cancelo_por_bot' }
+          { kind: 'CANCEL_BOOKING', reason: 'cliente_cancelo_por_bot' }
         ])
       }
       break
@@ -1259,9 +1195,7 @@ function tryUniversal(
         handoffReturnFlow: null,
         presentation: plainPresentation()
       }))
-      return applied(restored, renderCurrentView(restored, context), [
-        { kind: 'CANCEL_HUMAN_HANDOFF_BY_CUSTOMER' }
-      ])
+      return applied(restored, renderCurrentView(restored, context))
     }
     default:
       return null
@@ -1293,7 +1227,6 @@ function handoffReasonForFlow(flow: BotOptionsFlowStep): string {
 function handleSystemEvent(
   state: BotOptionsState,
   actionType: SystemEventActionType,
-  entityRef: BotOptionsEntityRef | null,
   payload: BotOptionsActionPayload | null,
   context: TransitionContext
 ): TransitionResult {
@@ -1357,39 +1290,8 @@ function handleSystemEvent(
       if (state.flow !== 'APPOINTMENT_RESCHEDULE_SUMMARY' && state.flow !== 'APPOINTMENT_RESCHEDULE_SLOT') {
         return escalateInvalid(state, '')
       }
-      if (
-        entityRef?.type !== 'APPOINTMENT' ||
-        entityRef.id !== state.selections.appointmentId
-      ) {
-        return recovered(state, 'stale_ref', 'Ese turno ya no corresponde a la reprogramación en curso.', [])
-      }
-      // Espejo de booking.slot_conflict: usa los slots frescos del contexto.
-      // Mismo día → RESCHEDULE_SLOT y limpia SÓLO el slot; sin opciones →
-      // RESCHEDULE_DATE y limpia fecha+slot. Siempre preserva appointmentId y
-      // no emite efectos: el turno original queda intacto.
-      const sameDaySlots = context.labels.availableSlots ?? []
-      const next = sameDaySlots.length > 0
-        ? baseOf(withoutSelections(state, 'slot'), { flow: 'APPOINTMENT_RESCHEDULE_SLOT', presentation: plainPresentation() })
-        : baseOf(withoutSelections(state, 'date'), { flow: 'APPOINTMENT_RESCHEDULE_DATE', presentation: plainPresentation() })
-      const refreshed = renderCurrentView(next, context)
-      return applied(next, {
-        ...refreshed,
-        bodyKind: 'recovery',
-        interactiveBody: sameDaySlots.length > 0
-          ? 'El horario nuevo se ocupó. Tu turno original sigue intacto. Estos son los disponibles para el mismo día:'
-          : 'El horario nuevo se ocupó. Tu turno original sigue intacto. Ya no quedan opciones ese día; elegí otra fecha:'
-      })
-    }
-    case 'appointment.stale': {
-      // Recuperación pura ante una referencia de turno vencida, cancelada o ajena:
-      // limpia appointment/date/slot y reconstruye la lista si el contexto trae
-      // turnos, o vuelve al menú principal si no hay ninguno. Sin efectos.
-      const cleared = baseOf(state, {
-        flow: context.appointmentsExist ? 'APPOINTMENT_LIST' : 'MAIN_MENU',
-        selections: { ...state.selections, appointmentId: null, date: null, slotStartAt: null },
-        presentation: plainPresentation()
-      })
-      return applied(cleared, renderCurrentView(cleared, context))
+      const next = baseOf(state, { flow: 'APPOINTMENT_RESCHEDULE_SLOT', presentation: plainPresentation() })
+      return applied(next, recoveryView('El horario nuevo se ocupó. Tu turno original sigue intacto; elegí otro horario.', []))
     }
     case 'input.unsupported': {
       if (state.flow === 'NAME_INPUT') {
@@ -1517,12 +1419,7 @@ function fromMainMenu(state: BotOptionsState, actionType: BotOptionsActionType, 
           [{ actionType: 'menu.start_booking', label: 'Sacar un turno' }]
         )
       }
-      const page = context.appointmentListPage
-      const next = baseOf(state, {
-        flow: 'APPOINTMENT_LIST',
-        presentation: { kind: 'appointment_list_page', cursor: 0, after: page?.after ?? null, next: page?.next ?? null }
-      })
-      return applied(next, renderCurrentView(next, context))
+      return applied(baseOf(state, { flow: 'APPOINTMENT_LIST', presentation: plainPresentation() }), renderCurrentView({ ...state, flow: 'APPOINTMENT_LIST' }, context))
     }
   }
   return escalateInvalid(state, '')
@@ -1956,7 +1853,7 @@ function fromSlotSelect(
 function fromBookingSummary(state: BotOptionsState, actionType: BotOptionsActionType, context: TransitionContext): TransitionResult {
   if (actionType === 'booking.confirm') {
     if (!state.selections.slotStartAt || !state.selections.date || !context.slotStillAvailableAtConfirm) {
-      return handleSystemEvent(baseOf(state, { flow: 'BOOKING_SUMMARY' }), 'booking.slot_conflict', null, null, context)
+      return handleSystemEvent(baseOf(state, { flow: 'BOOKING_SUMMARY' }), 'booking.slot_conflict', null, context)
     }
     if (context.depositRequired && !context.paymentConfigComplete) {
       return enterHandoff(state, 'configuracion_de_pago_incompleta', null)
@@ -2030,12 +1927,8 @@ function fromAppointmentDetail(
   entityRef: BotOptionsEntityRef | null,
   context: TransitionContext
 ): TransitionResult {
-  const selectedAppointmentId = state.selections.appointmentId
-  const actionMatchesSelectedAppointment =
-    entityRef?.type === 'APPOINTMENT' &&
-    entityRef.id === selectedAppointmentId
   if (actionType === 'appointment.cancel') {
-    if (!actionMatchesSelectedAppointment || !context.appointmentOwnedAndFuture) {
+    if (!entityRef || !context.appointmentOwnedAndFuture) {
       return recovered(state, 'entity_inactive', 'No pudimos encontrar ese turno. Volvé a intentar desde Gestionar turno.', [])
     }
     if (!context.cancellationAllowed) {
@@ -2048,7 +1941,7 @@ function fromAppointmentDetail(
     return applied(next, renderCurrentView(next, context))
   }
   if (actionType === 'appointment.reschedule') {
-    if (!actionMatchesSelectedAppointment || !context.appointmentOwnedAndFuture) {
+    if (!entityRef || !context.appointmentOwnedAndFuture) {
       return recovered(state, 'entity_inactive', 'No pudimos encontrar ese turno. Volvé a intentar desde Gestionar turno.', [])
     }
     if (!context.rescheduleAllowed) {
@@ -2056,11 +1949,8 @@ function fromAppointmentDetail(
     }
     const next = baseOf(state, {
       flow: 'APPOINTMENT_RESCHEDULE_DATE',
-      // Conservamos el cursor keyset de la lista de origen. Una selección de la
-      // segunda página sigue siendo gestionable durante toda la reprogramación;
-      // borrarlo obligaría al runtime a recargar la primera página y trataría
-      // ese turno válido como stale.
-      selections: { ...state.selections, appointmentId: entityRef.id, date: null, slotStartAt: null }
+      selections: { ...state.selections, appointmentId: entityRef.id, date: null, slotStartAt: null },
+      presentation: plainPresentation()
     })
     return applied(next, renderCurrentView(next, context))
   }
