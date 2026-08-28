@@ -54,9 +54,12 @@ import { prisma } from './config/prisma.js'
 import { startPostgresWorkerLoop, type WorkerLoop } from './bot-options/infrastructure/postgres-worker.js'
 import { reconcileActions } from './bot-options/application/reconcile-actions.js'
 import { processSessionJob } from './bot-options/application/process-session-job.js'
+import { expireDepositHold } from './bot-options/application/expire-deposit-hold.js'
 import { startOutboxSenderLoop, type OutboxProvider } from './bot-options/infrastructure/whatsapp-outbox-sender.js'
 import { MetaOutboxProvider } from './bot-options/infrastructure/meta-outbox-provider.js'
 import { startBotOptionsMetricsLoop } from './bot-options/observability/metrics.js'
+import { processDepositProofJob } from './bot-options/application/process-deposit-proof-job.js'
+import { bridgeDepositNotificationJob } from './bot-options/application/bridge-deposit-notification-job.js'
 
 process.env.TZ ??= 'America/Argentina/Buenos_Aires'
 
@@ -87,7 +90,9 @@ export async function buildApp(options: BuildAppOptions = {}) {
       shadowAdmission = createProviderEventAdmission(new PrismaAdmissionRepository(ingressPrisma), app.clock)
     }
     if (botOptionsConfig.authoritativeProcessingEnabled && !authoritativeAdmission) {
-      authoritativeAdmission = createAuthoritativeWebhookAdmission(new PrismaAuthoritativeAdmissionRepository(ingressPrisma), app.clock)
+      authoritativeAdmission = createAuthoritativeWebhookAdmission(new PrismaAuthoritativeAdmissionRepository(ingressPrisma, {
+        depositProofIngressEnabled: botOptionsConfig.depositsCapabilityEnabled
+      }), app.clock)
     }
     app.addHook('onClose', async () => {
       await ingressPrisma.$disconnect()
@@ -138,6 +143,22 @@ export async function buildApp(options: BuildAppOptions = {}) {
     const handler = async (job: Parameters<typeof processSessionJob>[0]['job']) => {
       if (job.kind === 'RECONCILE_PROMPT') {
         await reconcileActions(prisma, job)
+        return
+      }
+      if (job.kind === 'EXPIRE_DEPOSIT') {
+        await expireDepositHold(prisma, job)
+        return
+      }
+      if (job.kind === 'RECEIVE_DEPOSIT_PROOF') {
+        await processDepositProofJob({
+          client: prisma,
+          job,
+          capabilityEnabled: botOptionsConfig.depositsCapabilityEnabled
+        })
+        return
+      }
+      if (job.kind === 'BRIDGE_DEPOSIT_NOTIFICATION') {
+        await bridgeDepositNotificationJob(prisma, job)
         return
       }
       await processSessionJob({ client: prisma, job })

@@ -52,7 +52,7 @@ export type BotOptionsEffect =
   | { kind: 'APPROVE_DEPOSIT' }
   | { kind: 'REJECT_DEPOSIT_FOR_RESUBMISSION'; reason: string; resubmissionExpiresAtIso: string }
   | { kind: 'REJECT_DEPOSIT_FINAL'; reason: string }
-  | { kind: 'CANCEL_BOOKING'; reason: string }
+  | { kind: 'CANCEL_BOOKING'; appointmentId: string; reason: string }
   | {
       kind: 'SWAP_APPOINTMENT_SLOT'
       appointmentId: string
@@ -66,6 +66,8 @@ export type BotOptionsEffect =
       /** Contexto mínimo y estable para auditar qué entidad originó la cola. */
       context: { serviceId: string } | { professionalId: string } | null
     }
+  /** Customer intent only: the executor resolves the active handoff under lock. */
+  | { kind: 'CANCEL_HUMAN_HANDOFF_BY_CUSTOMER' }
   | { kind: 'TAKE_HUMAN_HANDOFF' }
   | { kind: 'RESOLVE_HANDOFF'; mode: 'HOME' | 'RESUME' }
   | { kind: 'EMIT_OPERATIONAL_ALERT'; alertKind: string; detail: string | null }
@@ -93,6 +95,7 @@ export function describeEffectTarget(effect: BotOptionsEffect): string {
     case 'REJECT_DEPOSIT_FINAL':
       return 'seña'
     case 'REQUEST_HUMAN_HANDOFF':
+    case 'CANCEL_HUMAN_HANDOFF_BY_CUSTOMER':
     case 'TAKE_HUMAN_HANDOFF':
     case 'RESOLVE_HANDOFF':
       return 'handoff'

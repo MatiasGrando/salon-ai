@@ -84,6 +84,7 @@ export const SYSTEM_EVENT_ACTION_TYPES = [
   'deposit.expired',
   'booking.slot_conflict',
   'appointment.slot_conflict',
+  'appointment.stale',
   'input.unsupported'
 ] as const
 
@@ -240,6 +241,7 @@ export const BOT_OPTIONS_ACTION_REQUIREMENTS: Readonly<
   'appointment.slot_select': { entity: 'APPOINTMENT', requiresSlotStart: true },
   'appointment.reschedule_confirm': { entity: 'APPOINTMENT' },
   'appointment.slot_conflict': { entity: 'APPOINTMENT', requiresSlotStart: true },
+  'appointment.stale': {},
   'input.unsupported': {}
 }
 
