@@ -4,6 +4,9 @@ import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
 type DispatchClient = Pick<PrismaClient, '$queryRaw' | '$executeRaw' | '$transaction'>
 export type DispatchKind = 'PROCESS' | 'SEND'
 
+/** Explicit timeout prevents the default 5s Prisma budget from killing dispatch claims under contention. */
+export const DISPATCH_CLAIM_TRANSACTION_OPTIONS = { maxWait: 2_000, timeout: 8_000 } as const
+
 export async function acquireDispatchClaim(input: {
   client: DispatchClient
   businessId: string
@@ -57,7 +60,7 @@ export async function acquireDispatchClaim(input: {
       RETURNING "claimToken"
     `)
     return rows[0]?.claimToken ?? null
-  })
+  }, DISPATCH_CLAIM_TRANSACTION_OPTIONS)
 }
 
 export async function assertDispatchClaimTx(input: {

@@ -42,15 +42,23 @@ import {
 
 type RuntimeClient = Pick<PrismaClient, '$queryRaw' | '$executeRaw' | '$transaction'>
 
-// Per-PROCESS_SESSION only. 10s allows a bounded recovery budget while staying
+// Per-session processing only. 10s allows a bounded recovery budget while staying
 // well below the 30s job/dispatch leases; global Prisma defaults remain unchanged.
 export const PROCESS_SESSION_TRANSACTION_OPTIONS = { maxWait: 2_000, timeout: 10_000 } as const
+export const PROCESS_INBOX_TRANSACTION_OPTIONS = { maxWait: 2_000, timeout: 10_000 } as const
 
 export async function runProcessSessionTransaction<T>(
   client: RuntimeClient,
   operation: (tx: Prisma.TransactionClient) => Promise<T>
 ): Promise<T> {
   return client.$transaction(operation, PROCESS_SESSION_TRANSACTION_OPTIONS)
+}
+
+export async function runProcessInboxTransaction<T>(
+  client: RuntimeClient,
+  operation: (tx: Prisma.TransactionClient) => Promise<T>
+): Promise<T> {
+  return client.$transaction(operation, PROCESS_INBOX_TRANSACTION_OPTIONS)
 }
 
 /** Runs post-commit work only after the interactive transaction resolved. */
@@ -905,7 +913,7 @@ async function processInitialInboxUnderClaim(
   dispatchToken: string
 ): Promise<'PROCESSED' | 'STALE_CUTOVER'> {
   const pendingCrmEvents: InboundConversationMessageProjection[] = []
-  const result = await input.client.$transaction(async (tx) => {
+  const result = await runProcessInboxTransaction(input.client, async (tx) => {
     await assertClaimedBotJobTx(tx, input.job)
     await assertDispatchClaimTx({ tx, businessId: input.job.businessId, claimToken: dispatchToken })
     const rows = await tx.$queryRaw<Array<{ id: string; businessId: string; deploymentId: string; deploymentGeneration: number; payload: Prisma.JsonValue; providerEventId: string; providerMessageId: string | null; status: string; dbNow: Date; businessTimezone: string }>>(Prisma.sql`

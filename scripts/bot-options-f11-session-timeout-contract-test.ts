@@ -2,7 +2,11 @@ import assert from 'node:assert/strict'
 import { Prisma } from '../src/generated/prisma/client.js'
 import { menuView } from '../src/bot-options/domain/views.js'
 import {
-  persistView, PROCESS_SESSION_TRANSACTION_OPTIONS, runCommittedProcessSession
+  persistView,
+  PROCESS_INBOX_TRANSACTION_OPTIONS,
+  PROCESS_SESSION_TRANSACTION_OPTIONS,
+  runCommittedProcessSession,
+  runProcessInboxTransaction
 } from '../src/bot-options/application/process-session-job.js'
 import { BotOptionsMetrics } from '../src/bot-options/observability/metrics.js'
 
@@ -135,6 +139,17 @@ assert.deepEqual(rollback.transactionOptions, [{ maxWait: 2_000, timeout: 10_000
 assert.equal(rollback.committed.length, 0)
 assert.equal(rollbackPostCommitCalls, 0)
 assert.deepEqual(rollback.timeline.slice(-1), ['discarded'])
+
+// Initial inbox work creates or recovers a session and persists its first view.
+// It therefore needs the same bounded budget as subsequent session transitions.
+const inbox = createStagingClient()
+await runProcessInboxTransaction(inbox.client as any, async (tx) => {
+  await tx.$executeRaw(Prisma.sql`SELECT 1`)
+  return 'inbox-persisted'
+})
+assert.deepEqual(inbox.transactionOptions, [{ maxWait: 2_000, timeout: 10_000 }])
+assert.deepEqual(PROCESS_INBOX_TRANSACTION_OPTIONS, { maxWait: 2_000, timeout: 10_000 })
+assert.ok(PROCESS_INBOX_TRANSACTION_OPTIONS.maxWait + PROCESS_INBOX_TRANSACTION_OPTIONS.timeout < 30_000)
 
 const metrics = new BotOptionsMetrics()
 metrics.observe('session_context_load', 1); metrics.observe('session_effects', 1)

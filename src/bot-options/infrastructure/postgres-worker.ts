@@ -22,6 +22,9 @@ type WorkerClient = Pick<PrismaClient, '$queryRaw' | '$executeRaw' | '$transacti
 const SYSTEM_RECOVERY_JOB_KINDS = ['EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION'] as const
 const CUTOVER_RETARGETABLE_JOB_KIND = 'RECEIVE_DEPOSIT_PROOF'
 
+/** Explicit timeout prevents the default 5s Prisma budget from killing claim polling under contention. */
+const CLAIM_JOB_TRANSACTION_OPTIONS = { maxWait: 2_000, timeout: 8_000 } as const
+
 function systemRecoveryJobSql(column: string) {
   return Prisma.raw(`"${column}"."kind" IN (${SYSTEM_RECOVERY_JOB_KINDS.map((kind) => `'${kind}'`).join(', ')})`)
 }
@@ -127,7 +130,7 @@ export async function claimBotJob(
         (EXTRACT(EPOCH FROM (clock_timestamp() - j."createdAt")) * 1000)::double precision AS "queueWaitMs"
     `)
     return rows[0] ?? null
-  })
+  }, CLAIM_JOB_TRANSACTION_OPTIONS)
   if (claimed) botOptionsMetrics.observe('admitted_to_claim', claimed.queueWaitMs)
   return claimed
 }
