@@ -2,7 +2,7 @@
 
 ## Resultado ejecutivo
 
-F11 fue desplegado en producción en modo **dark**, con todas sus capacidades apagadas. El CRM permaneció disponible y el endpoint de routing rechazó acceso no autenticado. No se activó ningún comercio ni se cambió ningún pointer de routing.
+F11 fue desplegado inicialmente en modo **dark** y luego activado únicamente para el piloto **Barber Demo · WX-38N6UG**. El pointer del comercio quedó en `deterministic-options`, generación 1. Sólo están encendidas las capacidades core; reservas, señas, gestión de turnos y derivación humana permanecen apagadas. El CRM, la base, WhatsApp, OpenAI y el realtime continuaron saludables después del corte.
 
 ## Cambios funcionales implementados
 
@@ -63,9 +63,24 @@ F11 fue desplegado en producción en modo **dark**, con todas sus capacidades ap
 - Imagen: `sha256:96f79e042bdf44bad2d4e4f11f35fe38417359af313e26eb75bbba2a77a7085d`.
 - Smoke test: CRM HTTP 200; routing sin sesión HTTP 401; cero marcadores fatales en el arranque inspeccionado.
 
-## Pendiente antes del piloto
+## Activación del piloto Barber Demo
 
-- Autorizar exactamente un comercio y una configuración exclusiva.
-- Verificar WhatsApp conectado, rollback disponible y segunda persona revisora.
-- Activar capacidades de a una siguiendo `runbook-piloto.md`.
+- Comercio: `Barber Demo · WX-38N6UG`.
+- Configuración: `Bot de opciones F11 · v1`, estado `ACTIVE`, modo `EXCLUSIVE`, canal técnico `UNASSIGNED`.
+- Zona horaria: `America/Argentina/Buenos_Aires`.
+- El Meta App Secret se cargó mediante un campo write-only: el navegador sólo recibe indicadores de presencia y nunca el secreto.
+- Flags core encendidos: procesamiento autoritativo, workers, sender y cobertura completa del dispatch legacy.
+- Flags conservados apagados: reservas, señas, gestión de turnos y derivación humana.
+- Primer preflight: `BLOCKED` por un único `HUMAN_HANDOFF`; el sistema abortó y reanudó legacy automáticamente.
+- Luego de resolverlo en el CRM, el segundo preflight fue `CLEAN`: `drafts=0`, `legacyDrafts=37`, `legacyProtected=0`, y todas las colas, outbox, holds, depósitos, handoffs y unknown en cero.
+- Activación: `SWITCHED`, engine `deterministic-options`, generación 1. Los 37 drafts legacy descartables fueron invalidados por el commit protegido.
+- Verificación pública posterior: `/`, `/crm` y `/health` respondieron HTTP 200.
+- Salud posterior: base, WhatsApp, OpenAI y realtime en estado `ok`; WhatsApp continuó en modo `production`.
+- Rollback: permanece disponible mediante el mismo protocolo protegido del selector.
+
+## Próximos pasos del piloto
+
+- Probar un mensaje inocuo desde el número piloto y confirmar el menú vertical F11.
+- Observar métricas y errores antes de encender una capacidad adicional.
+- Activar reservas, señas, gestión de turnos y derivación humana de a una siguiendo `runbook-piloto.md`.
 - No ampliar a un segundo comercio hasta corregir o revalidar la latencia sostenida.
