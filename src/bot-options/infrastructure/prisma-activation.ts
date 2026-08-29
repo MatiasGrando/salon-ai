@@ -23,6 +23,33 @@ export type QuiescenceResult =
   | { kind: 'BLOCKED_UNKNOWN'; blockers: DispatchBlockers }
   | { kind: 'TIMEOUT'; blockers: DispatchBlockers }
 
+export type ActivationPreflightEntry = {
+  id: string
+  status: string
+}
+
+/**
+ * PII-free, bounded snapshot. IDs are for the authenticated CRM/operator only;
+ * callers must not put this structure into metrics or unredacted logs.
+ */
+export type ActivationPreflightSnapshot = {
+  counts: Record<'drafts' | 'legacyDrafts' | 'legacyProtected' | 'inbox' | 'jobs' | 'outbox' | 'holds' | 'deposits' | 'handoffs' | 'unknown', bigint>
+  drafts: ActivationPreflightEntry[]
+  legacyDrafts: ActivationPreflightEntry[]
+  legacyProtected: ActivationPreflightEntry[]
+  inbox: ActivationPreflightEntry[]
+  jobs: ActivationPreflightEntry[]
+  outbox: ActivationPreflightEntry[]
+  holds: ActivationPreflightEntry[]
+  deposits: ActivationPreflightEntry[]
+  handoffs: ActivationPreflightEntry[]
+  unknown: ActivationPreflightEntry[]
+}
+
+export type ActivationPreflightResult =
+  | { kind: 'CLEAN'; handle: DispatchPauseHandle; snapshot: ActivationPreflightSnapshot }
+  | { kind: 'BLOCKED'; handle: DispatchPauseHandle; snapshot: ActivationPreflightSnapshot; reason: 'UNKNOWN' | 'PROTECTED_STATE' | 'QUIESCENCE_TIMEOUT' }
+
 function lockKey(businessId: string): string {
   return `bot-cutover:${businessId}:WHATSAPP`
 }
@@ -38,6 +65,11 @@ export async function attestLegacyDispatchCoverage(input: {
   await input.client.$transaction(async (tx) => {
     await tx.$executeRaw(Prisma.sql`
       SELECT pg_advisory_xact_lock(hashtextextended(${lockKey(input.businessId)}, 0))
+    `)
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO "BotChannelDeployment" ("id","businessId","engineKey","generation","updatedAt")
+      VALUES (${randomUUID()},${input.businessId},'legacy-whatsapp',0,clock_timestamp())
+      ON CONFLICT ("businessId","channel") DO NOTHING
     `)
     const rows = await tx.$queryRaw<Array<{ generation: number }>>(Prisma.sql`
       UPDATE "BotChannelDeployment" SET "legacyDispatchCoverageVersion" = ${input.protocolVersion}, "updatedAt" = clock_timestamp()
@@ -67,6 +99,15 @@ export async function pauseDispatchScope(input: {
     await tx.$executeRaw(Prisma.sql`
       SELECT pg_advisory_xact_lock(hashtextextended(${lockKey(input.businessId)}, 0))
     `)
+    // Businesses still on the legacy webhook can have no deterministic pointer.
+    // Create only an inactive dispatch scope at generation zero; never create a
+    // configuration or set activeConfigurationId in this F11.1 operation.
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO "BotChannelDeployment" ("id", "businessId", "engineKey", "generation", "legacyDispatchCoverageVersion", "updatedAt")
+      SELECT ${randomUUID()}, ${input.businessId}, 'legacy-whatsapp', 0, 1, clock_timestamp()
+      WHERE ${input.expectedGeneration} = 0
+        AND NOT EXISTS (SELECT 1 FROM "BotChannelDeployment" WHERE "businessId"=${input.businessId} AND "channel"='WHATSAPP'::"BotChannel")
+    `)
     const rows = await tx.$queryRaw<Array<{
       id: string; generation: number; fenceEpoch: number; pausedAt: Date
     }>>(Prisma.sql`
@@ -90,6 +131,33 @@ export async function pauseDispatchScope(input: {
       fenceEpoch: row.fenceEpoch,
       pausedAt: row.pausedAt
     }
+  })
+}
+
+/**
+ * Crash-recovery seam for an interrupted preflight. The durable deployment row
+ * is the source of truth; callers never reconstruct a fence epoch or timestamp
+ * from audit JSON. It returns only a currently paused scope at the requested
+ * generation, so it cannot resume a newer cutover accidentally.
+ */
+export async function recoverPausedDispatchScope(input: {
+  client: ActivationClient
+  businessId: string
+  expectedGeneration: number
+}): Promise<DispatchPauseHandle | null> {
+  return input.client.$transaction(async (tx) => {
+    await tx.$executeRaw(Prisma.sql`
+      SELECT pg_advisory_xact_lock(hashtextextended(${lockKey(input.businessId)}, 0))
+    `)
+    const rows = await tx.$queryRaw<Array<{ id: string; generation: number; fenceEpoch: number; pausedAt: Date }>>(Prisma.sql`
+      SELECT "id", "generation", "dispatchFenceEpoch" AS "fenceEpoch", "claimsPausedAt" AS "pausedAt"
+      FROM "BotChannelDeployment" WHERE "businessId"=${input.businessId} AND "channel"='WHATSAPP'::"BotChannel"
+        AND "generation"=${input.expectedGeneration} AND "claimsPausedAt" IS NOT NULL FOR UPDATE
+    `)
+    if (rows.length === 0) return null
+    if (rows.length !== 1) throw new Error('expected exactly one paused dispatch scope')
+    const row = rows[0]!
+    return { businessId: input.businessId, deploymentId: row.id, generation: row.generation, fenceEpoch: row.fenceEpoch, pausedAt: row.pausedAt }
   })
 }
 
@@ -135,8 +203,28 @@ async function reconcilePausedScope(client: ActivationClient, handle: DispatchPa
     `)
     await tx.$executeRaw(Prisma.sql`
       UPDATE "BotDispatchClaim" SET "status" = 'UNKNOWN'::"BotDispatchStatus", "updatedAt" = clock_timestamp()
-      WHERE "businessId" = ${handle.businessId} AND "status" = 'SENDING'::"BotDispatchStatus"
+      WHERE "businessId" = ${handle.businessId} AND "kind" <> 'LEGACY_PROCESS'::"BotDispatchKind" AND "status" = 'SENDING'::"BotDispatchStatus"
         AND "claimedUntil" < clock_timestamp()
+    `)
+    await tx.$executeRaw(Prisma.sql`
+      WITH expired AS (
+        UPDATE "BotDispatchClaim" SET "status" = 'UNKNOWN'::"BotDispatchStatus", "updatedAt" = clock_timestamp()
+        WHERE "businessId" = ${handle.businessId} AND "kind"='LEGACY_PROCESS'::"BotDispatchKind"
+          AND "status"='SENDING'::"BotDispatchStatus" AND "claimedUntil" < clock_timestamp()
+        RETURNING "claimToken"
+      )
+      UPDATE "LegacyWhatsAppCutoverInbound" j SET "status"='NORMAL_UNKNOWN'::"LegacyWhatsAppCutoverInboundStatus", "updatedAt"=clock_timestamp()
+      FROM expired WHERE j."claimToken"=expired."claimToken" AND j."status"='NORMAL_SENDING'::"LegacyWhatsAppCutoverInboundStatus"
+    `)
+    await tx.$executeRaw(Prisma.sql`
+      WITH expired AS (
+        UPDATE "BotDispatchClaim" SET "status" = 'UNKNOWN'::"BotDispatchStatus", "updatedAt" = clock_timestamp()
+        WHERE "businessId" = ${handle.businessId} AND "kind" = 'LEGACY_PROCESS'::"BotDispatchKind"
+          AND "status" = 'CLAIMED'::"BotDispatchStatus" AND "claimedUntil" < clock_timestamp()
+        RETURNING "claimToken"
+      )
+      UPDATE "LegacyWhatsAppCutoverInbound" j SET "status"='NORMAL_UNKNOWN'::"LegacyWhatsAppCutoverInboundStatus", "updatedAt"=clock_timestamp()
+      FROM expired WHERE j."claimToken"=expired."claimToken" AND j."status"='NORMAL_CLAIMED'::"LegacyWhatsAppCutoverInboundStatus"
     `)
     await tx.$executeRaw(Prisma.sql`
       UPDATE "BotJob" SET "status" = 'RETRY'::"BotJobStatus", "leaseToken" = NULL, "leasedUntil" = NULL,
@@ -184,6 +272,144 @@ export async function waitForDispatchQuiescence(input: {
     }
     await new Promise<void>((resolve) => setTimeout(resolve, input.pollMs ?? 50))
   }
+}
+
+function hasProtectedPreflightState(snapshot: ActivationPreflightSnapshot): boolean {
+  return snapshot.counts.inbox > 0n || snapshot.counts.jobs > 0n || snapshot.counts.outbox > 0n
+    || snapshot.counts.holds > 0n || snapshot.counts.deposits > 0n || snapshot.counts.handoffs > 0n || snapshot.counts.legacyProtected > 0n
+}
+
+/**
+ * Reads the F11.1 state only after proving that the exact paused deployment
+ * fence is still current. CONFIRMED visits and APPROVED deposits are
+ * deliberately absent: without an active process they are not cutover state.
+ */
+export async function collectActivationPreflight(input: {
+  client: ActivationClient
+  handle: DispatchPauseHandle
+  limit?: number
+}): Promise<ActivationPreflightSnapshot> {
+  const limit = input.limit ?? 50
+  if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new Error('preflight limit must be an integer between 1 and 200')
+  return input.client.$transaction(async (tx) => {
+    const scope = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT "id" FROM "BotChannelDeployment"
+      WHERE "id" = ${input.handle.deploymentId} AND "businessId" = ${input.handle.businessId}
+        AND "generation" = ${input.handle.generation} AND "dispatchFenceEpoch" = ${input.handle.fenceEpoch}
+        AND "claimsPausedAt" = ${input.handle.pausedAt}
+      FOR UPDATE
+    `)
+    if (scope.length !== 1) throw new Error('stale dispatch pause handle')
+    const entries = async (query: Prisma.Sql): Promise<ActivationPreflightEntry[]> => tx.$queryRaw<ActivationPreflightEntry[]>(query)
+    const [drafts, legacyDrafts, legacyProtected, inbox, jobs, outbox, holds, deposits, handoffs, unknown, countRows] = await Promise.all([
+      entries(Prisma.sql`SELECT "id", COALESCE("state"->>'booking', 'UNKNOWN_STATE') AS "status" FROM "BotSession"
+        WHERE "businessId" = ${input.handle.businessId} AND "status" = 'ACTIVE'::"BotSessionStatus"
+          AND "state"->>'booking' = 'DRAFT' ORDER BY "updatedAt", "id" LIMIT ${limit}`),
+      entries(Prisma.sql`SELECT "id", "currentStep"::text AS "status" FROM "Conversation"
+        WHERE "businessId"=${input.handle.businessId} AND "archivedAt" IS NULL
+          AND "currentStep" NOT IN ('START'::"ConversationStep", 'COMPLETED'::"ConversationStep", 'AWAITING_DEPOSIT'::"ConversationStep", 'HUMAN_HANDOFF'::"ConversationStep")
+        ORDER BY "updatedAt", "id" LIMIT ${limit}`),
+      entries(Prisma.sql`SELECT "id", "currentStep"::text AS "status" FROM "Conversation"
+        WHERE "businessId"=${input.handle.businessId} AND "archivedAt" IS NULL
+          AND "currentStep" IN ('AWAITING_DEPOSIT'::"ConversationStep", 'HUMAN_HANDOFF'::"ConversationStep")
+        UNION ALL
+        SELECT "id", 'PAUSED_ADMITTED'::text AS "status" FROM "LegacyWhatsAppCutoverInbound"
+        WHERE "businessId"=${input.handle.businessId} AND "status"='PAUSED_ADMITTED'::"LegacyWhatsAppCutoverInboundStatus"
+        ORDER BY "id" LIMIT ${limit}`),
+      entries(Prisma.sql`SELECT "id", "status"::text AS "status" FROM "BotActionInbox"
+        WHERE "businessId" = ${input.handle.businessId} AND "status" IN ('ADMITTED'::"BotInboxStatus", 'CLAIMED'::"BotInboxStatus", 'SELECTED'::"BotInboxStatus")
+        ORDER BY "receivedAt", "id" LIMIT ${limit}`),
+      entries(Prisma.sql`SELECT "id", "status"::text AS "status" FROM "BotJob"
+        WHERE "businessId" = ${input.handle.businessId} AND "status" IN ('READY'::"BotJobStatus", 'LEASED'::"BotJobStatus", 'RETRY'::"BotJobStatus", 'POISON'::"BotJobStatus")
+        ORDER BY "createdAt", "id" LIMIT ${limit}`),
+      entries(Prisma.sql`SELECT "id", "status"::text AS "status" FROM "BotOutbox"
+        WHERE "businessId" = ${input.handle.businessId} AND "status" IN ('PENDING'::"BotOutboxStatus", 'CLAIMED'::"BotOutboxStatus", 'SENDING'::"BotOutboxStatus", 'RETRY'::"BotOutboxStatus", 'POISON'::"BotOutboxStatus")
+        ORDER BY "createdAt", "id" LIMIT ${limit}`),
+      entries(Prisma.sql`SELECT "id", "status"::text AS "status" FROM "BookingVisit"
+        WHERE "businessId" = ${input.handle.businessId} AND "status" IN ('HELD'::"BookingVisitStatus", 'PENDING_PAYMENT_REVIEW'::"BookingVisitStatus")
+        ORDER BY "updatedAt", "id" LIMIT ${limit}`),
+      entries(Prisma.sql`SELECT "id", "status"::text AS "status" FROM "BookingDeposit"
+        WHERE "businessId" = ${input.handle.businessId} AND "status" IN ('PENDING_PROOF'::"BookingDepositStatus", 'PENDING_RESUBMISSION'::"BookingDepositStatus", 'PROOF_RECEIVED'::"BookingDepositStatus")
+        ORDER BY "updatedAt", "id" LIMIT ${limit}`),
+      entries(Prisma.sql`SELECT "id", "status"::text AS "status" FROM "BotHandoff"
+        WHERE "businessId" = ${input.handle.businessId} AND "status" IN ('QUEUED'::"BotHandoffStatus", 'TAKEN'::"BotHandoffStatus")
+        ORDER BY "queuedAt", "id" LIMIT ${limit}`),
+      entries(Prisma.sql`SELECT "id", 'OUTBOX_UNKNOWN'::text AS "status" FROM "BotOutbox"
+        WHERE "businessId" = ${input.handle.businessId} AND "status" = 'UNKNOWN'::"BotOutboxStatus"
+        UNION ALL
+         SELECT "id", 'DISPATCH_UNKNOWN'::text AS "status" FROM "BotDispatchClaim"
+         WHERE "businessId" = ${input.handle.businessId} AND "kind" <> 'LEGACY_PROCESS'::"BotDispatchKind" AND "status" = 'UNKNOWN'::"BotDispatchStatus"
+         UNION ALL
+         SELECT "id", 'LEGACY_PROCESS_UNKNOWN'::text AS "status" FROM "BotDispatchClaim"
+         WHERE "businessId" = ${input.handle.businessId} AND "kind" = 'LEGACY_PROCESS'::"BotDispatchKind" AND "status" = 'UNKNOWN'::"BotDispatchStatus"
+         LIMIT ${limit}`),
+      tx.$queryRaw<Array<Record<keyof ActivationPreflightSnapshot['counts'], bigint>>>(Prisma.sql`
+        SELECT
+          (SELECT count(*) FROM "BotSession" WHERE "businessId"=${input.handle.businessId} AND "status"='ACTIVE'::"BotSessionStatus" AND "state"->>'booking'='DRAFT') AS "drafts",
+          (SELECT count(*) FROM "Conversation" WHERE "businessId"=${input.handle.businessId} AND "archivedAt" IS NULL AND "currentStep" NOT IN ('START'::"ConversationStep",'COMPLETED'::"ConversationStep",'AWAITING_DEPOSIT'::"ConversationStep",'HUMAN_HANDOFF'::"ConversationStep")) AS "legacyDrafts",
+           ((SELECT count(*) FROM "Conversation" WHERE "businessId"=${input.handle.businessId} AND "archivedAt" IS NULL AND "currentStep" IN ('AWAITING_DEPOSIT'::"ConversationStep",'HUMAN_HANDOFF'::"ConversationStep")) + (SELECT count(*) FROM "LegacyWhatsAppCutoverInbound" WHERE "businessId"=${input.handle.businessId} AND "status"='PAUSED_ADMITTED'::"LegacyWhatsAppCutoverInboundStatus")) AS "legacyProtected",
+          (SELECT count(*) FROM "BotActionInbox" WHERE "businessId"=${input.handle.businessId} AND "status" IN ('ADMITTED'::"BotInboxStatus",'CLAIMED'::"BotInboxStatus",'SELECTED'::"BotInboxStatus")) AS "inbox",
+          (SELECT count(*) FROM "BotJob" WHERE "businessId"=${input.handle.businessId} AND "status" IN ('READY'::"BotJobStatus",'LEASED'::"BotJobStatus",'RETRY'::"BotJobStatus",'POISON'::"BotJobStatus")) AS "jobs",
+          (SELECT count(*) FROM "BotOutbox" WHERE "businessId"=${input.handle.businessId} AND "status" IN ('PENDING'::"BotOutboxStatus",'CLAIMED'::"BotOutboxStatus",'SENDING'::"BotOutboxStatus",'RETRY'::"BotOutboxStatus",'POISON'::"BotOutboxStatus")) AS "outbox",
+          (SELECT count(*) FROM "BookingVisit" WHERE "businessId"=${input.handle.businessId} AND "status" IN ('HELD'::"BookingVisitStatus",'PENDING_PAYMENT_REVIEW'::"BookingVisitStatus")) AS "holds",
+          (SELECT count(*) FROM "BookingDeposit" WHERE "businessId"=${input.handle.businessId} AND "status" IN ('PENDING_PROOF'::"BookingDepositStatus",'PENDING_RESUBMISSION'::"BookingDepositStatus",'PROOF_RECEIVED'::"BookingDepositStatus")) AS "deposits",
+          (SELECT count(*) FROM "BotHandoff" WHERE "businessId"=${input.handle.businessId} AND "status" IN ('QUEUED'::"BotHandoffStatus",'TAKEN'::"BotHandoffStatus")) AS "handoffs",
+           ((SELECT count(*) FROM "BotOutbox" WHERE "businessId"=${input.handle.businessId} AND "status"='UNKNOWN'::"BotOutboxStatus") + (SELECT count(*) FROM "BotDispatchClaim" WHERE "businessId"=${input.handle.businessId} AND "status"='UNKNOWN'::"BotDispatchStatus")) AS "unknown"
+      `)
+    ])
+    const counts = countRows[0]
+    if (!counts) throw new Error('activation preflight count query returned no row')
+    return { counts, drafts, legacyDrafts, legacyProtected, inbox, jobs, outbox, holds, deposits, handoffs, unknown }
+  })
+}
+
+async function auditActivationPreflight(client: ActivationClient, handle: DispatchPauseHandle, actorId: string, snapshot: ActivationPreflightSnapshot, outcome: string): Promise<void> {
+  const counts = Object.fromEntries(Object.entries(snapshot.counts).map(([name, count]) => [name, count.toString()]))
+  await client.$transaction(async (tx) => {
+    const scope = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT "id" FROM "BotChannelDeployment" WHERE "id"=${handle.deploymentId} AND "businessId"=${handle.businessId}
+        AND "generation"=${handle.generation} AND "dispatchFenceEpoch"=${handle.fenceEpoch} AND "claimsPausedAt"=${handle.pausedAt} FOR UPDATE
+    `)
+    if (scope.length !== 1) throw new Error('stale dispatch pause handle')
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO "BotDeploymentAudit" ("id","businessId","action","generation","actorUserId","detail")
+      VALUES (${randomUUID()},${handle.businessId},'ACTIVATION_PREFLIGHT',${handle.generation},${actorId},${JSON.stringify({ outcome, counts, fenceEpoch: handle.fenceEpoch })}::jsonb)
+    `)
+  })
+}
+
+/**
+ * F11.1 owns only pause/drain/snapshot. It intentionally keeps a clean scope
+ * paused for F11.2's atomic pointer change; callers may resume only through
+ * resumeDispatchScope after an aborted operation or audited resolution.
+ */
+export async function startActivationPreflight(input: {
+  client: ActivationClient
+  businessId: string
+  expectedGeneration: number
+  actorId: string
+  legacyCoverageComplete: boolean
+  timeoutMs?: number
+  pollMs?: number
+  limit?: number
+}): Promise<ActivationPreflightResult> {
+  const handle = await pauseDispatchScope(input)
+  const quiescence = await waitForDispatchQuiescence({ client: input.client, handle, timeoutMs: input.timeoutMs, pollMs: input.pollMs })
+  const snapshot = await collectActivationPreflight({ client: input.client, handle, limit: input.limit })
+  if (quiescence.kind === 'BLOCKED_UNKNOWN' || snapshot.unknown.length > 0) {
+    await auditActivationPreflight(input.client, handle, input.actorId, snapshot, 'BLOCKED_UNKNOWN')
+    return { kind: 'BLOCKED', handle, snapshot, reason: 'UNKNOWN' }
+  }
+  if (quiescence.kind === 'TIMEOUT') {
+    await auditActivationPreflight(input.client, handle, input.actorId, snapshot, 'BLOCKED_QUIESCENCE_TIMEOUT')
+    return { kind: 'BLOCKED', handle, snapshot, reason: 'QUIESCENCE_TIMEOUT' }
+  }
+  if (hasProtectedPreflightState(snapshot)) {
+    await auditActivationPreflight(input.client, handle, input.actorId, snapshot, 'BLOCKED_PROTECTED_STATE')
+    return { kind: 'BLOCKED', handle, snapshot, reason: 'PROTECTED_STATE' }
+  }
+  await auditActivationPreflight(input.client, handle, input.actorId, snapshot, 'CLEAN')
+  return { kind: 'CLEAN', handle, snapshot }
 }
 
 export async function resumeDispatchScope(input: {

@@ -103,6 +103,8 @@ enum BotOutboxStatus {
 enum BotDispatchKind {
   PROCESS
   SEND
+  /// F11 legacy webhook work; deliberately independent of an active options configuration.
+  LEGACY_PROCESS
 }
 
 enum BotDispatchStatus {
@@ -110,6 +112,22 @@ enum BotDispatchStatus {
   SENDING
   UNKNOWN
   DONE
+}
+
+/// Journal durable de un inbound legacy. No es un Message ni una Conversation:
+/// preserva el payload mínimo y el resultado antes de reconocer un reintento.
+enum LegacyWhatsAppCutoverInboundStatus {
+  PAUSED_ADMITTED
+  LEGACY_DUPLICATE
+  NORMAL_CLAIMED
+  NORMAL_SENDING
+  NORMAL_DONE
+  NORMAL_UNKNOWN
+  REPLAY_LEGACY_READY
+  REPLAYING_LEGACY
+  STALE_CUTOVER
+  STALE_CUTOVER_DUPLICATE
+  REPLAYED_LEGACY
 }
 
 model BotChannelDeployment {
@@ -443,6 +461,35 @@ model BotDispatchClaim {
   @@index([status, claimedUntil])
 }
 
+model LegacyWhatsAppCutoverInbound {
+  id                   String                            @id @default(cuid())
+  receiptKey           String                            @unique
+  businessId           String
+  business             Business                          @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  deploymentId         String
+  deploymentGeneration Int
+  dispatchFenceEpoch   Int
+  pausedAt             DateTime?
+  providerMessageId    String
+  fromPhone            String
+  phoneNumberId        String?
+  displayPhoneNumber   String?
+  /// Proyección versionada mínima; nunca raw body, headers, firmas ni secretos.
+  payload              Json
+  status               LegacyWhatsAppCutoverInboundStatus @default(PAUSED_ADMITTED)
+  claimToken           String?
+  claimedUntil         DateTime?
+  replayedAt           DateTime?
+  staleAt              DateTime?
+  providerEventId      String?
+  createdAt            DateTime                          @default(now())
+  updatedAt            DateTime                          @updatedAt
+
+  @@unique([businessId, providerMessageId])
+  @@index([businessId, deploymentId, deploymentGeneration, dispatchFenceEpoch, pausedAt, status, createdAt])
+  @@index([status, claimedUntil])
+}
+
 model BotTransitionLog {
   id                   String   @id @default(cuid())
   businessId           String
@@ -746,6 +793,7 @@ model Business {
   bookingDepositProofs    BookingDepositProof[]
   bookingVisits           BookingVisit[]
   botOptionsSettings      BusinessBotOptionsSettings?
+  legacyCutoverInbounds   LegacyWhatsAppCutoverInbound[]
 
   createdAt DateTime @default(now())
 

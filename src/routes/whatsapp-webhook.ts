@@ -117,6 +117,22 @@ export async function whatsappWebhookRoutes(
       }
     }
 
-    return service.handleWebhook(request.body)
+    let legacyResult
+    try {
+      legacyResult = await service.handleWebhook(request.body)
+    } catch (error) {
+      // Legacy ingress never turns an unclassified processing failure into an
+      // ACK. The service attempts to journal UNKNOWN before this boundary.
+      request.log.error(error, 'legacy WhatsApp inbound failed before terminal outcome')
+      return reply.status(503).send({ message: 'Legacy inbound processing is ambiguous; retry required' })
+    }
+    if (
+      typeof legacyResult === 'object' && legacyResult !== null
+      && 'retryableCutoverIdentityFailure' in legacyResult
+      && legacyResult.retryableCutoverIdentityFailure === true
+    ) {
+      return reply.status(503).send({ message: 'Legacy inbound requires retry after non-terminal or ambiguous durable processing' })
+    }
+    return legacyResult
   })
 }

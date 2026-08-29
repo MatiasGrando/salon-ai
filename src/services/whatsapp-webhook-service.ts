@@ -52,6 +52,11 @@ import {
   TAMARA_OPTIONS_BOT_KEY,
   TAMARA_STALE_INTERACTIVE_REPLY_ID
 } from './tamara-options-bot.js'
+import {
+  advanceLegacyProcessClaim,
+  beginLegacyExternalEffect,
+  claimLegacyInboundProcessing
+} from '../bot-options/infrastructure/prisma-legacy-cutover-inbound.js'
 
 type VerifyWebhookInput = {
   mode: string | undefined
@@ -122,6 +127,7 @@ type AutomaticInboundMessage = {
   interactivePromptToken?: string
   hasImageAttachment?: boolean
   latencyDiagnostic?: LatencyDiagnostic
+  legacyClaimToken?: string
 }
 
 const conversationService = new ConversationService()
@@ -174,6 +180,7 @@ export class WhatsAppWebhookService {
     const messages = this.extractIncomingMessages(payload)
     const results = []
     const automaticTasks: Array<Promise<void>> = []
+    let retryableCutoverIdentityFailure = false
 
     console.info('[whatsapp-webhook] received payload', {
       entries: payload.entry?.length ?? 0,
@@ -206,6 +213,50 @@ export class WhatsAppWebhookService {
         continue
       }
 
+      // F11: while the exclusive cutover fence is paused, commit only a
+      // minimal receipt. No Conversation/Message mutation, AI work or Meta I/O
+      // may happen before this branch returns.
+      let legacyClaimToken: string | undefined
+      const finishLegacyClaim = async (status: 'DONE' | 'UNKNOWN' = 'DONE') => {
+        if (legacyClaimToken) await advanceLegacyProcessClaim(prisma, legacyClaimToken, status)
+      }
+      if (targetBusinessId) {
+        const pausedDecision = await claimLegacyInboundProcessing({
+          client: prisma,
+          businessId: targetBusinessId,
+          providerMessageId: message.id,
+          fromPhone: message.from,
+          phoneNumberId: message.phoneNumberId,
+          displayPhoneNumber: message.displayPhoneNumber,
+          payload: {
+            version: 1,
+            text: message.text,
+            ...(message.media ? { media: message.media } : {}),
+            ...(message.interactiveReplyId ? { interactiveReplyId: message.interactiveReplyId } : {})
+          }
+        })
+        if (pausedDecision.kind === 'RETRYABLE_IDENTITY_FAILURE' || pausedDecision.kind === 'RETRYABLE_ADMISSION_FAILURE') {
+          retryableCutoverIdentityFailure = true
+          results.push({ messageId: message.id, from: message.from, skipped: true, reason: pausedDecision.kind === 'RETRYABLE_IDENTITY_FAILURE' ? 'Cutover pausado sin identidad de proveedor' : 'No se pudo admitir el mensaje durante el cutover' })
+          continue
+        }
+        if (pausedDecision.kind === 'ACK_PAUSED') {
+          results.push({ messageId: message.id, from: message.from, skipped: true, reason: pausedDecision.legacyDuplicate ? 'Mensaje legacy duplicado durante cutover' : 'Mensaje admitido durante cutover pausado' })
+          continue
+        }
+        if (pausedDecision.kind === 'ACK_TERMINAL_DUPLICATE') {
+          results.push({ messageId: message.id, from: message.from, skipped: true, reason: 'Mensaje legacy duplicado con resultado durable terminal' })
+          continue
+        }
+        if (pausedDecision.kind === 'RETRYABLE_IN_FLIGHT') {
+          retryableCutoverIdentityFailure = true
+          results.push({ messageId: message.id, from: message.from, skipped: true, reason: `Mensaje legacy ${pausedDecision.status.toLowerCase()}: reintento requerido` })
+          continue
+        }
+        legacyClaimToken = pausedDecision.claimToken
+      }
+
+      try {
       const conversationUpsert = buildIncomingConversationUpsert(
         targetBusinessId,
         message.from
@@ -221,6 +272,7 @@ export class WhatsAppWebhookService {
           skipped: true,
           reason: 'Numero de WhatsApp no asociado'
         })
+        await finishLegacyClaim()
         continue
       }
 
@@ -253,10 +305,13 @@ export class WhatsAppWebhookService {
           reason: 'Mensaje duplicado'
         })
 
+        await finishLegacyClaim()
         continue
       }
       latencyDiagnostic?.checkpoint('duplicate_check')
 
+      // The claim remains CLAIMED through legacy DB work. A pause observes it
+      // as an in-flight blocker; no lock/transaction is held across AI or Meta.
       const conversation = existingConversation ?? await prisma.conversation.upsert(conversationUpsert)
       const isTamaraOptionsBot = conversation.supportBotKey === TAMARA_OPTIONS_BOT_KEY
       let resolvedInteractiveReplyId = message.interactiveReplyId
@@ -339,6 +394,7 @@ export class WhatsAppWebhookService {
               skipped: true,
               reason: 'Botón vencido o ya utilizado'
             })
+            await finishLegacyClaim()
             continue
           }
           resolvedInteractiveReplyId = TAMARA_STALE_INTERACTIVE_REPLY_ID
@@ -408,6 +464,7 @@ export class WhatsAppWebhookService {
         await housekeepingPromise
         const replyText = 'Listo. No vas a recibir más promociones. Los mensajes relacionados con tus turnos seguirán funcionando.'
         const gate = conversation.businessId ? await assertBusinessCanSendWhatsApp(conversation.businessId, 'BOT') : null
+        if (gate?.allowed && legacyClaimToken && conversation.businessId) await beginLegacyExternalEffect({ client: prisma, businessId: conversation.businessId, claimToken: legacyClaimToken })
         const deliveryResult = gate?.allowed
           ? await whatsappCloudApi.sendTextMessage({ businessId: conversation.businessId, to: message.from, text: replyText })
           : { sent: false as const, to: message.from, reason: gate?.message || 'La conversacion no tiene comercio asociado para resolver WhatsApp.' }
@@ -430,6 +487,7 @@ export class WhatsAppWebhookService {
           marketingOptOut: true,
           delivery: deliveryResult
         })
+        await finishLegacyClaim()
         continue
       }
 
@@ -439,6 +497,7 @@ export class WhatsAppWebhookService {
         const gate = conversation.businessId
           ? await assertBusinessCanSendWhatsApp(conversation.businessId, 'BOT')
           : null
+        if (gate?.allowed && legacyClaimToken && conversation.businessId) await beginLegacyExternalEffect({ client: prisma, businessId: conversation.businessId, claimToken: legacyClaimToken })
         const deliveryResult = gate?.allowed
           ? await whatsappCloudApi.sendTextMessage({
               businessId: conversation.businessId!,
@@ -481,6 +540,7 @@ export class WhatsAppWebhookService {
           depositProofReceived: true,
           delivery: deliveryResult
         })
+        await finishLegacyClaim()
         continue
       }
 
@@ -490,6 +550,7 @@ export class WhatsAppWebhookService {
         const gate = conversation.businessId
           ? await assertBusinessCanSendWhatsApp(conversation.businessId, 'BOT')
           : null
+        if (gate?.allowed && legacyClaimToken && conversation.businessId) await beginLegacyExternalEffect({ client: prisma, businessId: conversation.businessId, claimToken: legacyClaimToken })
         const deliveryResult = gate?.allowed
           ? await whatsappCloudApi.sendTextMessage({
               businessId: conversation.businessId!,
@@ -532,6 +593,7 @@ export class WhatsAppWebhookService {
           lateDepositProofReceived: true,
           delivery: deliveryResult
         })
+        await finishLegacyClaim()
         continue
       }
 
@@ -550,6 +612,7 @@ export class WhatsAppWebhookService {
         let deliveryResult: Awaited<ReturnType<WhatsAppCloudApi['sendTextMessage']>> | null = null
         if (postSaleResponse.reply && conversation.businessId) {
           const gate = await assertBusinessCanSendWhatsApp(conversation.businessId, 'BOT')
+          if (gate.allowed && legacyClaimToken) await beginLegacyExternalEffect({ client: prisma, businessId: conversation.businessId, claimToken: legacyClaimToken })
           deliveryResult = gate.allowed
             ? await whatsappCloudApi.sendTextMessage({
                 businessId: conversation.businessId,
@@ -582,6 +645,7 @@ export class WhatsAppWebhookService {
           rating: postSaleResponse.rating,
           delivery: deliveryResult
         })
+        await finishLegacyClaim()
         continue
       }
 
@@ -620,19 +684,27 @@ export class WhatsAppWebhookService {
           reason: 'Bot desactivado'
         })
 
+        await finishLegacyClaim()
         continue
       }
 
       const photoQuoteAcknowledgement = message.media?.type === 'image' &&
         !depositProof &&
         !hasPendingDepositState(conversation.bookingV2State)
-        ? await photoQuoteAcknowledgementService.acknowledge({
+        ? await (async () => {
+            // This service can send directly; fence the external effect before
+            // it mutates/sends, just like the inline legacy reply paths.
+            if (legacyClaimToken && conversation.businessId) {
+              await beginLegacyExternalEffect({ client: prisma, businessId: conversation.businessId, claimToken: legacyClaimToken })
+            }
+            return photoQuoteAcknowledgementService.acknowledge({
             conversationId: conversation.id,
             businessId: conversation.businessId,
             phone: message.from,
             selectedServiceId: conversation.selectedServiceId,
             pendingPhotoQuote: stateFromConversation(conversation).pendingPhotoQuote ?? null
-          })
+            })
+          })()
         : null
 
       const businessAiEnabled = conversation.business
@@ -660,6 +732,7 @@ export class WhatsAppWebhookService {
             : {})
         })
 
+        await finishLegacyClaim()
         continue
       }
 
@@ -681,7 +754,8 @@ export class WhatsAppWebhookService {
           ? { interactivePromptToken: resolvedInteractivePromptToken }
           : {}),
         ...(message.media?.type === 'image' ? { hasImageAttachment: true } : {}),
-        ...(latencyDiagnostic ? { latencyDiagnostic } : {})
+        ...(latencyDiagnostic ? { latencyDiagnostic } : {}),
+        ...(legacyClaimToken ? { legacyClaimToken } : {})
       }
       if (!automaticMessage.interactivePromptToken && inboundMessage.status === 'received') {
         await prisma.message.updateMany({
@@ -709,17 +783,50 @@ export class WhatsAppWebhookService {
           from: message.from,
           ...automaticResult
         })
+      }).then(async () => {
+        if (legacyClaimToken) await advanceLegacyProcessClaim(prisma, legacyClaimToken, 'DONE')
+      }).catch(async (error) => {
+        // The inbound Message may already exist, but its legacy outcome is not
+        // terminal. Persist UNKNOWN and make Meta retry; never ACK ambiguity.
+        if (legacyClaimToken) await advanceLegacyProcessClaim(prisma, legacyClaimToken, 'UNKNOWN')
+        retryableCutoverIdentityFailure = true
+        results.push({
+          messageId: message.id,
+          from: message.from,
+          skipped: true,
+          reason: 'Procesamiento legacy ambiguo: reintento requerido'
+        })
+        console.error('[whatsapp-webhook] legacy automatic processing failed', error)
       })
       automaticTasks.push(automaticTask)
+      } catch (error) {
+        // The claim was admitted, therefore an exception cannot become a 200.
+        // UNKNOWN is durable (or the failed transition itself is retried by 503).
+        try {
+          await finishLegacyClaim('UNKNOWN')
+        } catch (markError) {
+          console.error('[whatsapp-webhook] failed to mark legacy inbound unknown', markError)
+        }
+        retryableCutoverIdentityFailure = true
+        results.push({
+          messageId: message.id,
+          from: message.from,
+          skipped: true,
+          reason: 'Procesamiento legacy falló: reintento requerido'
+        })
+        console.error('[whatsapp-webhook] legacy inbound processing failed', error)
+      }
     }
 
     await Promise.all(automaticTasks)
 
-    return {
+    return retryableCutoverIdentityFailure
+      ? { status: 'retryable_cutover_identity_failure', processed: results.length, results, retryableCutoverIdentityFailure: true }
+      : {
       status: 'ok',
       processed: results.length,
       results
-    }
+      }
   }
 
   private async processAutomaticInboundBatch(
@@ -913,10 +1020,13 @@ export class WhatsAppWebhookService {
         : [conversationResult.reply]
     const deliveryResults: Array<Awaited<ReturnType<WhatsAppCloudApi['sendTextMessage']>>> = []
 
-    for (const replyText of outboundReplies) {
-      let deliveryResult: Awaited<ReturnType<WhatsAppCloudApi['sendTextMessage']>>
-      try {
-        const sendReply = async () => gate?.allowed
+      for (const replyText of outboundReplies) {
+        let deliveryResult: Awaited<ReturnType<WhatsAppCloudApi['sendTextMessage']>>
+        try {
+          if (firstMessage.legacyClaimToken && firstMessage.businessId && deliveryResults.length === 0) {
+            await beginLegacyExternalEffect({ client: prisma, businessId: firstMessage.businessId, claimToken: firstMessage.legacyClaimToken })
+          }
+          const sendReply = async () => gate?.allowed
           ? hasReplyButtons
             ? hasInteractiveList
               ? whatsappCloudApi.sendInteractiveListMessage({
