@@ -2,6 +2,11 @@ import { randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
 import { acquireDispatchClaim, assertDispatchClaimTx, releaseDispatchClaim } from './dispatch-claims.js'
 import { botOptionsMetrics } from '../observability/metrics.js'
+import {
+  collectOutboundConversationMessage,
+  flushOutboundConversationMessages,
+  type OutboundConversationMessageProjection
+} from '../../services/crm-realtime-events.js'
 
 export const META_SEND_TIMEOUT_MS = 10_000
 export const OUTBOX_RETRY_DELAYS_MS = [30_000, 60_000, 120_000, 240_000, 480_000] as const
@@ -94,6 +99,57 @@ export type OutboxProvider = {
   >
 }
 
+type OutboundPayload = {
+  to?: unknown
+  item?: {
+    type?: unknown
+    body?: unknown
+    mode?: unknown
+    buttons?: unknown
+    rows?: unknown
+    buttonText?: unknown
+    sectionTitle?: unknown
+  }
+}
+
+/**
+ * Whitelist only text that was visible in the accepted WhatsApp interactive
+ * message. In particular, this intentionally excludes action IDs, prompt
+ * tokens, and internal choice IDs from the durable CRM Message metadata.
+ */
+export function outboundMessageMetadata(payload: OutboundPayload): Record<string, unknown> {
+  const item = payload.item
+  const metadata: Record<string, unknown> = {
+    provider: 'whatsapp',
+    source: 'bot-options',
+    kind: typeof item?.type === 'string' ? item.type : null
+  }
+  if (item?.type !== 'interactive' || (item.mode !== 'buttons' && item.mode !== 'list')) return metadata
+
+  const interactive: Record<string, unknown> = { mode: item.mode }
+  if (item.mode === 'buttons' && Array.isArray(item.buttons)) {
+    interactive.buttons = item.buttons.flatMap((button) => {
+      if (typeof button !== 'object' || button === null || !('title' in button) || typeof button.title !== 'string') return []
+      return [{ title: button.title }]
+    })
+  }
+  if (item.mode === 'list') {
+    if (Array.isArray(item.rows)) {
+      interactive.rows = item.rows.flatMap((row) => {
+        if (typeof row !== 'object' || row === null || !('title' in row) || typeof row.title !== 'string') return []
+        return [{
+          title: row.title,
+          ...(typeof row.description === 'string' ? { description: row.description } : {})
+        }]
+      })
+    }
+    if (typeof item.buttonText === 'string') interactive.buttonText = item.buttonText
+    if (typeof item.sectionTitle === 'string') interactive.sectionTitle = item.sectionTitle
+  }
+  metadata.interactive = interactive
+  return metadata
+}
+
 export async function sendClaimedOutbox(input: {
   client: OutboxClient
   item: ClaimedOutbox
@@ -136,6 +192,7 @@ export async function sendClaimedOutbox(input: {
     const result = await Promise.race([input.provider.send({ businessId: input.item.businessId, payload: input.item.payload }, controller.signal), timeout])
     botOptionsMetrics.observe('meta_request', performance.now() - providerStartedAt)
     if (result.kind === 'accepted') {
+      const pendingCrmEvents: OutboundConversationMessageProjection[] = []
       await input.client.$transaction(async (tx) => {
         const count = await tx.$executeRaw(Prisma.sql`
           UPDATE "BotOutbox" SET "status" = 'ACCEPTED'::"BotOutboxStatus", "providerMessageId" = ${result.providerMessageId},
@@ -148,22 +205,33 @@ export async function sendClaimedOutbox(input: {
           WHERE "claimToken" = ${dispatchToken} AND "status" = 'SENDING'::"BotDispatchStatus"
         `)
         if (count !== 1 || claimCount !== 1) throw new Error('accepted result lost sender fence')
-        const payload = input.item.payload as { to?: unknown; item?: { type?: unknown; body?: unknown } }
+        const payload = input.item.payload as OutboundPayload
         const body = typeof payload.item?.body === 'string' && payload.item.body.trim()
           ? payload.item.body.trim()
           : `[${typeof payload.item?.type === 'string' ? payload.item.type : 'message'}]`
         if (typeof payload.to === 'string' && payload.to) {
-          await tx.$executeRaw(Prisma.sql`
+          const inserted = await tx.$queryRaw<Array<{ id: string; conversationId: string }>>(Prisma.sql`
             INSERT INTO "Message" ("id", "conversationId", "phone", "direction", "body", "providerMessageId", "status", "metadata")
             SELECT ${randomUUID()}, s."conversationId", ${payload.to}, 'OUTBOUND'::"MessageDirection", ${body},
-              ${result.providerMessageId}, 'sent', ${JSON.stringify({ provider: 'whatsapp', source: 'bot-options', kind: payload.item?.type ?? null })}::jsonb
+              ${result.providerMessageId}, 'sent', ${JSON.stringify(outboundMessageMetadata(payload))}::jsonb
             FROM "BotSession" s
             JOIN "Conversation" c ON c."id"=s."conversationId" AND c."businessId"=s."businessId"
             WHERE s."id"=${input.item.sessionId} AND s."businessId"=${input.item.businessId}
             ON CONFLICT ("providerMessageId") DO NOTHING
+            RETURNING "id", "conversationId"
           `)
+          if (inserted.length === 1) {
+            // The join above authoritatively binds the Message to this tenant;
+            // collection remains in-tx, while publication is strictly after commit.
+            collectOutboundConversationMessage(pendingCrmEvents, {
+              businessId: input.item.businessId,
+              conversationId: inserted[0]!.conversationId,
+              messageId: inserted[0]!.id
+            })
+          }
         }
       })
+      flushOutboundConversationMessages(pendingCrmEvents)
       return 'ACCEPTED'
     }
     const poison = !result.retryable || input.item.attempts >= input.item.maxAttempts

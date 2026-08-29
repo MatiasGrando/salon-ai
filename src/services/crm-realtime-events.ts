@@ -6,6 +6,14 @@ export type IncomingConversationMessageEvent = {
   receivedAt: string
 }
 
+export type OutgoingConversationMessageEvent = {
+  type: 'conversation_message_sent'
+  businessId: string
+  conversationId: string
+  messageId: string
+  sentAt: string
+}
+
 export type ConversationUpdatedEvent = {
   type: 'conversation_updated'
   businessId: string
@@ -20,7 +28,7 @@ export type DepositUpdatedEvent = {
   updatedAt: string
 }
 
-export type CrmRealtimeEvent = IncomingConversationMessageEvent | ConversationUpdatedEvent | DepositUpdatedEvent
+export type CrmRealtimeEvent = IncomingConversationMessageEvent | OutgoingConversationMessageEvent | ConversationUpdatedEvent | DepositUpdatedEvent
 
 type CrmRealtimeSubscriber = {
   businessId: string
@@ -48,7 +56,22 @@ export function publishIncomingConversationMessage(input: Omit<IncomingConversat
   publishCrmRealtimeEvent(event)
 }
 
+export function publishOutgoingConversationMessage(input: Omit<OutgoingConversationMessageEvent, 'type'>) {
+  const event: OutgoingConversationMessageEvent = {
+    type: 'conversation_message_sent',
+    ...input
+  }
+
+  publishCrmRealtimeEvent(event)
+}
+
 export type InboundConversationMessageProjection = {
+  businessId: string
+  conversationId: string
+  messageId: string
+}
+
+export type OutboundConversationMessageProjection = {
   businessId: string
   conversationId: string
   messageId: string
@@ -83,6 +106,32 @@ export function flushInboundConversationMessages(
       conversationId: event.conversationId,
       messageId: event.messageId,
       receivedAt: new Date().toISOString()
+    })
+  }
+}
+
+/**
+ * Records an outbound Message inserted in an open transaction. The caller must
+ * flush only after that transaction commits; an ON CONFLICT no-op must not be
+ * collected.
+ */
+export function collectOutboundConversationMessage(
+  pending: OutboundConversationMessageProjection[],
+  input: OutboundConversationMessageProjection
+): void {
+  pending.push(input)
+}
+
+/** Emits committed outbound-message SSE notifications, preserving tenant isolation. */
+export function flushOutboundConversationMessages(
+  pending: readonly OutboundConversationMessageProjection[]
+): void {
+  for (const event of pending) {
+    publishOutgoingConversationMessage({
+      businessId: event.businessId,
+      conversationId: event.conversationId,
+      messageId: event.messageId,
+      sentAt: new Date().toISOString()
     })
   }
 }

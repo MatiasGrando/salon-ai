@@ -2163,6 +2163,79 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       font-weight: 800;
     }
 
+    .message-interactive {
+      margin-top: 7px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .message-interactive-buttons {
+      list-style: none;
+      margin: 7px 0 0;
+      padding: 0;
+    }
+
+    .message-interactive-chip {
+      margin: 0 0 6px;
+      padding: 8px 11px;
+      border: 1px solid #c7d7ff;
+      border-radius: 8px;
+      color: #1d4ed8;
+      background: #eaf1ff;
+      font-size: 12px;
+      font-weight: 600;
+      text-align: center;
+      cursor: default;
+    }
+
+    .message-interactive-section-title {
+      margin-bottom: 3px;
+      color: #52617f;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .message-interactive-trigger {
+      padding: 8px 11px;
+      border: 1px solid #c7d7ff;
+      border-radius: 8px;
+      color: #1d4ed8;
+      background: #eaf1ff;
+      font-size: 12px;
+      font-weight: 700;
+      text-align: center;
+      cursor: default;
+    }
+
+    .message-interactive-list ul {
+      list-style: none;
+      margin: 4px 0 0;
+      padding: 0;
+    }
+
+    .message-interactive-row {
+      margin: 0 0 6px;
+      padding: 8px 11px;
+      border: 1px solid #dbe3ef;
+      border-radius: 8px;
+      background: #f8fafc;
+    }
+
+    .message-interactive-row-title {
+      display: block;
+      color: #17213c;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .message-interactive-row-description {
+      display: block;
+      margin-top: 2px;
+      color: #52617f;
+      font-size: 11px;
+    }
+
     .app[data-section="conversations"] .composer {
       margin: 0 14px 14px;
       padding: 10px 12px 9px;
@@ -21203,6 +21276,19 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           refreshCounts: true
         })
       })
+      source.addEventListener('conversation_message_sent', (event) => {
+        let payload
+        try {
+          payload = JSON.parse(event.data)
+        } catch {
+          return
+        }
+        if (payload.businessId !== state.businessId || !payload.messageId) return
+        queueConversationRealtimeRefresh(payload.conversationId, {
+          messagesOnly: true,
+          messageId: payload.messageId
+        })
+      })
       source.addEventListener('conversation_updated', (event) => {
         let payload
         try {
@@ -22214,9 +22300,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           ? message.metadata.media
           : null
         const mediaHtml = renderMessageMedia(message, media)
+        const interactiveHtml = renderMessageInteractive(message)
         return dayDivider + '<article class="message ' + direction + (failed ? ' failed' : '') + '">' +
           mediaHtml +
           escapeHtml(message.body) +
+          interactiveHtml +
           '<div class="message-time">' + escapeHtml(formatMessageTime(createdAt)) + deliveryStatus + '</div>' +
         '</article>'
       }).join('')
@@ -22256,6 +22344,46 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     function messageFailureText(message) {
       return message.providerErrorMessage || message.providerErrorCode || 'WhatsApp rechazo el envio.'
+    }
+
+    function renderMessageInteractive(message) {
+      const metadata = message.metadata
+      if (!metadata || typeof metadata !== 'object') return ''
+      const interactive = metadata.interactive
+      if (!interactive || typeof interactive !== 'object') return ''
+      if (message.direction !== 'OUTBOUND') return ''
+      const mode = interactive.mode
+      if (mode === 'buttons') {
+        const buttons = Array.isArray(interactive.buttons) ? interactive.buttons : []
+        if (!buttons.length) return ''
+        const chips = buttons.map((button) => {
+          const title = button && typeof button.title === 'string' ? button.title : ''
+          return '<li class="message-interactive-chip">' + escapeHtml(title) + '</li>'
+        }).join('')
+        return '<ul class="message-interactive message-interactive-buttons">' + chips + '</ul>'
+      }
+      if (mode === 'list') {
+        const rows = Array.isArray(interactive.rows) ? interactive.rows : []
+        if (!rows.length) return ''
+        const sectionTitle = typeof interactive.sectionTitle === 'string' ? interactive.sectionTitle : ''
+        const buttonText = typeof interactive.buttonText === 'string' ? interactive.buttonText : ''
+        const header = sectionTitle
+          ? '<div class="message-interactive-section-title">' + escapeHtml(sectionTitle) + '</div>'
+          : ''
+        const trigger = buttonText
+          ? '<div class="message-interactive-trigger">' + escapeHtml(buttonText) + '</div>'
+          : ''
+        const items = rows.map((row) => {
+          const title = row && typeof row.title === 'string' ? row.title : ''
+          const description = row && typeof row.description === 'string' ? row.description : ''
+          const descriptionHtml = description
+            ? '<small class="message-interactive-row-description">' + escapeHtml(description) + '</small>'
+            : ''
+          return '<li class="message-interactive-row"><span class="message-interactive-row-title">' + escapeHtml(title) + '</span>' + descriptionHtml + '</li>'
+        }).join('')
+        return '<div class="message-interactive message-interactive-list">' + header + trigger + '<ul>' + items + '</ul></div>'
+      }
+      return ''
     }
 
     function renderAppointments(options = {}) {

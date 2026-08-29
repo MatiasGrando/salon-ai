@@ -4,23 +4,28 @@ import {
   publishConversationUpdated,
   publishDepositUpdated,
   publishIncomingConversationMessage,
+  publishOutgoingConversationMessage,
   subscribeToCrmRealtimeEvents
 } from '../src/services/crm-realtime-events.js'
 
 const receivedByGlow: string[] = []
 const receivedByOtherBusiness: string[] = []
+const sentByGlow: string[] = []
+const sentByOtherBusiness: string[] = []
 const receivedTypesByGlow: string[] = []
 const unsubscribeGlow = subscribeToCrmRealtimeEvents({
   businessId: 'glow',
   send: (event) => {
     receivedTypesByGlow.push(event.type)
     if (event.type === 'conversation_message_received') receivedByGlow.push(event.messageId)
+    if (event.type === 'conversation_message_sent') sentByGlow.push(event.messageId)
   }
 })
 const unsubscribeOtherBusiness = subscribeToCrmRealtimeEvents({
   businessId: 'other-business',
   send: (event) => {
     if (event.type === 'conversation_message_received') receivedByOtherBusiness.push(event.messageId)
+    if (event.type === 'conversation_message_sent') sentByOtherBusiness.push(event.messageId)
   }
 })
 
@@ -33,6 +38,16 @@ publishIncomingConversationMessage({
 
 assert.deepEqual(receivedByGlow, ['message-1'])
 assert.deepEqual(receivedByOtherBusiness, [])
+
+publishOutgoingConversationMessage({
+  businessId: 'glow',
+  conversationId: 'conversation-1',
+  messageId: 'message-out-1',
+  sentAt: '2026-08-19T15:30:00.500Z'
+})
+
+assert.deepEqual(sentByGlow, ['message-out-1'])
+assert.deepEqual(sentByOtherBusiness, [])
 
 publishConversationUpdated({
   businessId: 'glow',
@@ -48,6 +63,7 @@ publishDepositUpdated({
 
 assert.deepEqual(receivedTypesByGlow, [
   'conversation_message_received',
+  'conversation_message_sent',
   'conversation_updated',
   'deposit_updated'
 ])
@@ -73,6 +89,11 @@ const publicBookingRouteSource = readFileSync(new URL('../src/routes/public-book
 const demoProfileRouteSource = readFileSync(new URL('../src/routes/demo-profile.ts', import.meta.url), 'utf8')
 const realtimeConfigSource = readFileSync(new URL('../src/config/crm-realtime.ts', import.meta.url), 'utf8')
 
+assert.match(
+  crmUiSource,
+  /source\.addEventListener\('conversation_message_sent',[\s\S]*?queueConversationRealtimeRefresh\(payload\.conversationId,\s*\{[\s\S]*?messagesOnly:\s*true,[\s\S]*?messageId:\s*payload\.messageId/,
+  'un mensaje saliente aceptado debe refrescarse por SSE sin esperar el sondeo de respaldo'
+)
 assert.match(
   crmUiSource,
   /source\.addEventListener\('conversation_updated',[\s\S]*?queueConversationRealtimeRefresh\(payload\.conversationId/,
