@@ -30,6 +30,18 @@ export async function businessBotRoutingRoutes(app: FastifyInstance, options: Ro
     }
   })
 
+  app.post('/crm/bot-routing/configurations/default', async (request, reply) => {
+    const body = request.body as { businessId?: string; timezone?: string }
+    const actor = await authorizedActor(request, body.businessId)
+    if (!actor.ok) return reply.status(actor.status).send({ message: actor.message })
+    if (!body.timezone?.trim()) return reply.status(400).send({ message: 'Seleccioná la zona horaria del comercio' })
+    try {
+      return await service.prepare({ businessId: actor.businessId, timezone: body.timezone.trim(), actorId: actor.actorId })
+    } catch (error) {
+      return reply.status(409).send({ message: error instanceof Error ? error.message : 'No se pudo preparar F11' })
+    }
+  })
+
   app.post('/crm/bot-routing/commit', async (request, reply) => {
     const body = request.body as { businessId?: string; target?: string; confirmation?: string; handle?: SerializedPauseHandle }
     const actor = await authorizedActor(request, body.businessId)

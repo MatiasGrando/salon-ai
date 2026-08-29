@@ -9,8 +9,9 @@ const calls: string[] = []
 const routingService = {
   async state() {
     calls.push('state')
-    return { businessId: 'business', engineKey: 'legacy-whatsapp', generation: 3, activeConfigurationId: null, paused: false, configurations: [{ id: 'configuration', name: 'Bot de opciones', version: 'v1' }], audits: [] }
+    return { businessId: 'business', engineKey: 'legacy-whatsapp', generation: 3, activeConfigurationId: null, paused: false, configurations: [{ id: 'configuration', name: 'Bot de opciones', version: 'v1' }], preparation: { hasAppSecret: true, hasTimezone: true, timezone: 'America/Argentina/Buenos_Aires', ready: true }, audits: [] }
   },
+  async prepare() { calls.push('prepare'); return { id: 'configuration', name: 'Bot de opciones F11', version: 'v1' } },
   async preflight() {
     calls.push('preflight')
     return { kind: 'CLEAN', targetConfigurationId: 'configuration', handle: { businessId: 'business', deploymentId: 'deployment', generation: 3, fenceEpoch: 4, pausedAt: new Date('2026-08-29T00:00:00.000Z') }, snapshot: { counts: { drafts: 1n, legacyDrafts: 0n, legacyProtected: 0n, inbox: 0n, jobs: 0n, outbox: 0n, holds: 0n, deposits: 0n, handoffs: 0n, unknown: 0n }, drafts: [], legacyDrafts: [], legacyProtected: [], inbox: [], jobs: [], outbox: [], holds: [], deposits: [], handoffs: [], unknown: [] } }
@@ -31,11 +32,13 @@ assert.equal(stateResponse.json().generation, 3)
 const preflightResponse = await app.inject({ method: 'POST', url: '/crm/bot-routing/preflight', payload: { businessId: 'business', expectedGeneration: 3, target: 'configuration' } })
 assert.equal(preflightResponse.statusCode, 200)
 assert.equal(preflightResponse.json().snapshot.counts.drafts, '1', 'BigInt counts must be JSON-safe')
+const prepareResponse = await app.inject({ method: 'POST', url: '/crm/bot-routing/configurations/default', payload: { businessId: 'business', timezone: 'America/Argentina/Buenos_Aires' } })
+assert.equal(prepareResponse.statusCode, 200)
 const commitWithoutConfirmation = await app.inject({ method: 'POST', url: '/crm/bot-routing/commit', payload: { businessId: 'business' } })
 assert.equal(commitWithoutConfirmation.statusCode, 400)
 const commitResponse = await app.inject({ method: 'POST', url: '/crm/bot-routing/commit', payload: { businessId: 'business', confirmation: 'CONFIRM_ROUTING_CHANGE', target: 'configuration', handle: { businessId: 'business', deploymentId: 'deployment', generation: 3, fenceEpoch: 4, pausedAt: '2026-08-29T00:00:00.000Z' } } })
 assert.equal(commitResponse.statusCode, 200)
-assert.deepEqual(calls, ['state', 'preflight', 'commit'])
+assert.deepEqual(calls, ['state', 'preflight', 'prepare', 'commit'])
 await app.close()
 
 const staff = { role: 'STAFF', staffProfile: 'SECRETARY', professionalId: null, agendaScope: 'ALL', canViewConversations: true, canReplyConversations: true, canViewCustomers: true, canCreateCustomers: false, canEditCustomers: false, canManageCustomerNotes: false, canManageCustomerMarketing: false, canManageDeposits: false }
@@ -46,6 +49,10 @@ await ui.register(crmUiRoutes, { pollingMarker: DISABLED_POLLING_MARKER })
 const html = (await ui.inject('/crm')).body
 assert.match(html, /id="bot-routing-selector"/)
 assert.match(html, /id="bot-routing-preflight"/)
+assert.match(html, /id="bot-routing-timezone"/)
+assert.match(html, /id="bot-routing-prepare"/)
+assert.match(html, /id="whatsapp-app-secret"/)
+assert.match(html, /id="whatsapp-app-secret-status"/)
 assert.match(html, /CONFIRM_ROUTING_CHANGE/)
 assert.doesNotMatch(html, /id="tamara-options-bot-toggle"/)
 for (const [index, script] of [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map((match) => match[1]!).entries()) {

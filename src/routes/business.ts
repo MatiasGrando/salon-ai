@@ -459,6 +459,7 @@ export async function businessRoutes(app: FastifyInstance) {
       phoneNumberId?: string
       displayPhoneNumber?: string
       accessToken?: string
+      appSecret?: string
       tokenExpiresAt?: string
       redirectUri?: string
     }
@@ -485,7 +486,11 @@ export async function businessRoutes(app: FastifyInstance) {
       phoneNumberId: normalizeOptionalText(body.phoneNumberId),
       displayPhoneNumber: normalizeOptionalText(body.displayPhoneNumber),
       accessToken: normalizeOptionalText(body.accessToken),
-      tokenExpiresAt: body.tokenExpiresAt ? new Date(body.tokenExpiresAt) : undefined
+      tokenExpiresAt: body.tokenExpiresAt ? new Date(body.tokenExpiresAt) : undefined,
+      appSecret: body.appSecret !== undefined ? body.appSecret.trim() : undefined
+    }
+    if (technicalWhatsAppData.appSecret !== undefined && !/^[a-fA-F0-9]{32}$/.test(technicalWhatsAppData.appSecret)) {
+      return reply.status(400).send({ message: 'El App Secret de Meta debe tener 32 caracteres hexadecimales' })
     }
     const hasTechnicalWhatsAppData = Object.values(technicalWhatsAppData).some((value) => value !== undefined)
     if (hasTechnicalWhatsAppData) {
@@ -502,6 +507,7 @@ export async function businessRoutes(app: FastifyInstance) {
           ...(technicalWhatsAppData.displayPhoneNumber !== undefined ? { displayPhoneNumber: technicalWhatsAppData.displayPhoneNumber } : {}),
           ...(technicalWhatsAppData.accessToken !== undefined ? { accessToken: technicalWhatsAppData.accessToken } : {}),
           ...(technicalWhatsAppData.tokenExpiresAt !== undefined ? { tokenExpiresAt: technicalWhatsAppData.tokenExpiresAt } : {}),
+          ...(technicalWhatsAppData.appSecret !== undefined ? { appSecret: technicalWhatsAppData.appSecret } : {}),
           metaAppId: whatsappConfig.appId ?? null,
           mode: 'CLIENT_OWNED',
           connectionStatus: connected ? 'CONNECTED' : 'CONNECTING',

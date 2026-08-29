@@ -16,9 +16,11 @@ const deploymentId = id('deployment')
 const firstConfigurationId = id('configuration-first')
 const secondConfigurationId = id('configuration-second')
 const actorId = 'f11-2-contract'
+const phoneNumberId = id('phone')
 
 try {
   await seed()
+  await assertIncompletePreparationBlocksActivation()
   await assertActivationIsAtomic()
   await assertRollbackIsSymmetric()
   await assertConcurrentActivationHasSingleWinner()
@@ -30,10 +32,21 @@ try {
 async function seed() {
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw(Prisma.sql`INSERT INTO "Business" ("id","customerCode","name") VALUES (${businessId},${id('customer')},'F11.2 contract')`)
-    await tx.$executeRaw(Prisma.sql`INSERT INTO "BusinessBotConfiguration" ("id","businessId","botKey","name","version","status","definition","updatedAt") VALUES (${firstConfigurationId},${businessId},'deterministic-options','F11.2 first','v1','ACTIVE','{}'::jsonb,clock_timestamp()),(${secondConfigurationId},${businessId},'deterministic-options-v2','F11.2 second','v2','ACTIVE','{}'::jsonb,clock_timestamp())`)
+    await tx.$executeRaw(Prisma.sql`INSERT INTO "BusinessBotConfiguration" ("id","businessId","botKey","name","version","status","routingMode","phoneNumberId","definition","updatedAt") VALUES (${firstConfigurationId},${businessId},'deterministic-options','F11.2 first','v1','ACTIVE','EXCLUSIVE',${phoneNumberId},'{}'::jsonb,clock_timestamp()),(${secondConfigurationId},${businessId},'deterministic-options-v2','F11.2 second','v2','ACTIVE','EXCLUSIVE',${phoneNumberId},'{}'::jsonb,clock_timestamp())`)
     await tx.$executeRaw(Prisma.sql`INSERT INTO "BotChannelDeployment" ("id","businessId","engineKey","generation","legacyDispatchCoverageVersion","updatedAt") VALUES (${deploymentId},${businessId},'legacy-whatsapp',0,1,clock_timestamp())`)
+    await tx.$executeRaw(Prisma.sql`INSERT INTO "BusinessWhatsAppConfig" ("id","businessId","connectionStatus","phoneNumberId","displayPhoneNumber","wabaId","accessToken","appSecret","updatedAt") VALUES (${id('whatsapp')},${businessId},'CONNECTED',${phoneNumberId},'test-display','test-waba','test-token','0123456789abcdef0123456789abcdef',clock_timestamp())`)
+    await tx.$executeRaw(Prisma.sql`INSERT INTO "BusinessBotOptionsSettings" ("businessId","timezone","updatedAt") VALUES (${businessId},'America/Argentina/Buenos_Aires',clock_timestamp())`)
   })
   await seedDisposableRuntime('first', 0)
+}
+
+async function assertIncompletePreparationBlocksActivation() {
+  await prisma.$executeRaw(Prisma.sql`UPDATE "BusinessWhatsAppConfig" SET "appSecret"=NULL WHERE "businessId"=${businessId}`)
+  await assert.rejects(
+    activation.activateExclusiveConfiguration({ client: prisma, businessId, expectedGeneration: 0, configurationId: firstConfigurationId, actorId, legacyCoverageComplete: true, timeoutMs: 1_000 }),
+    /fully prepared for authoritative routing/
+  )
+  await prisma.$executeRaw(Prisma.sql`UPDATE "BusinessWhatsAppConfig" SET "appSecret"='0123456789abcdef0123456789abcdef' WHERE "businessId"=${businessId}`)
 }
 
 async function seedDisposableRuntime(name: string, generation: number) {

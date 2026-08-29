@@ -16393,6 +16393,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                 <option value="legacy-whatsapp">Bot actual (legacy)</option>
               </select>
               <small id="bot-routing-status">Routing actual: bot legacy</small>
+              <div class="settings-field full">
+                <label for="bot-routing-timezone">Zona horaria del bot</label>
+                <input class="field" id="bot-routing-timezone" autocomplete="off" value="America/Argentina/Buenos_Aires">
+                <small id="bot-routing-readiness">Prepar&aacute; la configuraci&oacute;n antes de cambiar el routing.</small>
+              </div>
+              <button class="secondary" id="bot-routing-prepare" type="button">Preparar Bot de opciones F11</button>
               <button class="secondary" id="bot-routing-preflight" type="button">Revisar y cambiar routing</button>
               <p class="settings-feedback" id="bot-routing-evidence" role="status"></p>
             </div>
@@ -16584,6 +16590,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                 <div class="settings-field full">
                   <label for="whatsapp-access-token">Token del comercio</label>
                   <input class="field" id="whatsapp-access-token" type="password" autocomplete="off" placeholder="Pegar solo si se quiere actualizar">
+                </div>
+                <div class="settings-field full">
+                  <label for="whatsapp-app-secret">App Secret de Meta</label>
+                  <input class="field" id="whatsapp-app-secret" type="password" autocomplete="new-password" placeholder="Pegar solo para guardar o reemplazar">
+                  <small id="whatsapp-app-secret-status">No configurado</small>
                 </div>
               </div>
               <div class="settings-actions">
@@ -17634,6 +17645,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       botRoutingControl: document.getElementById('bot-routing-control'),
       botRoutingSelector: document.getElementById('bot-routing-selector'),
       botRoutingStatus: document.getElementById('bot-routing-status'),
+      botRoutingTimezone: document.getElementById('bot-routing-timezone'),
+      botRoutingReadiness: document.getElementById('bot-routing-readiness'),
+      botRoutingPrepare: document.getElementById('bot-routing-prepare'),
       botRoutingPreflight: document.getElementById('bot-routing-preflight'),
       botRoutingEvidence: document.getElementById('bot-routing-evidence'),
       globalBotStatus: document.getElementById('global-bot-status'),
@@ -17681,6 +17695,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       whatsappDisplayPhone: document.getElementById('whatsapp-display-phone'),
       whatsappTokenExpires: document.getElementById('whatsapp-token-expires'),
       whatsappAccessToken: document.getElementById('whatsapp-access-token'),
+      whatsappAppSecret: document.getElementById('whatsapp-app-secret'),
+      whatsappAppSecretStatus: document.getElementById('whatsapp-app-secret-status'),
       whatsappTechnicalSubmit: document.getElementById('whatsapp-technical-submit'),
       instagramSettingsTitle: document.getElementById('instagram-settings-title'),
       instagramSettingsCopy: document.getElementById('instagram-settings-copy'),
@@ -23693,7 +23709,43 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         ? 'Routing pausado: requiere resolución operativa'
         : 'Routing actual: ' + (selected === 'legacy-whatsapp' ? 'bot legacy' : 'motor de opciones') + ' · generación ' + routing.generation
       els.botRoutingStatus.className = routing.paused ? 'paused' : ''
-      els.botRoutingPreflight.disabled = routing.paused === true
+      const preparation = routing.preparation || {}
+      els.botRoutingTimezone.value = preparation.timezone || els.botRoutingTimezone.value || 'America/Argentina/Buenos_Aires'
+      els.botRoutingReadiness.textContent = preparation.ready
+        ? 'WhatsApp, App Secret y zona horaria configurados.'
+        : !preparation.hasAppSecret
+          ? 'Falta guardar el App Secret en Meta y WhatsApp.'
+          : !preparation.hasTimezone
+            ? 'Falta preparar la zona horaria del bot.'
+            : 'WhatsApp todavía no cumple todos los requisitos.'
+      els.botRoutingPrepare.disabled = routing.paused === true
+      els.botRoutingPreflight.disabled = routing.paused === true || (routing.configurations || []).length === 0
+    }
+
+    async function prepareDefaultBotRouting() {
+      if (!state.businessId || !state.botRouting) return
+      const timezone = els.botRoutingTimezone.value.trim()
+      if (!timezone) {
+        els.botRoutingEvidence.textContent = 'Ingresá la zona horaria del comercio.'
+        els.botRoutingEvidence.className = 'settings-feedback visible error'
+        return
+      }
+      if (!setButtonLoading(els.botRoutingPrepare, true, 'Preparando...')) return
+      try {
+        await getJson('/crm/bot-routing/configurations/default', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ businessId: state.businessId, timezone })
+        })
+        state.botRouting = await getJson('/crm/bot-routing?businessId=' + encodeURIComponent(state.businessId))
+        renderBotRoutingControl()
+        els.botRoutingEvidence.textContent = 'Bot de opciones F11 preparado. Seleccionalo y ejecutá el preflight para cambiar el routing.'
+        els.botRoutingEvidence.className = 'settings-feedback visible success'
+      } catch (error) {
+        els.botRoutingEvidence.textContent = error.message
+        els.botRoutingEvidence.className = 'settings-feedback visible error'
+      } finally {
+        setButtonLoading(els.botRoutingPrepare, false)
+      }
     }
 
     function routingCountsText(counts = {}) {
@@ -24986,6 +25038,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.whatsappDisplayPhone.value = connection.displayPhoneNumber || ''
       els.whatsappTokenExpires.value = connection.tokenExpiresAt ? toDatetimeLocalValue(connection.tokenExpiresAt) : ''
       els.whatsappAccessToken.value = ''
+      els.whatsappAppSecret.value = ''
+      els.whatsappAppSecretStatus.textContent = connection.hasAppSecret ? 'Configurado' : 'No configurado'
       els.whatsappConnectButton.textContent = hasConnectionIds ? 'Ver datos de conexion' : 'Ver datos a cargar'
     }
 
@@ -25043,6 +25097,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
       const token = els.whatsappAccessToken.value.trim()
       if (token) payload.accessToken = token
+      const appSecret = els.whatsappAppSecret.value.trim()
+      if (appSecret) payload.appSecret = appSecret
       if (!payload.wabaId || !payload.phoneNumberId) {
         showWhatsappSettingsFeedback('Completá WABA ID y Phone Number ID.', 'error')
         return
@@ -31624,6 +31680,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     els.globalAiToggle.addEventListener('change', toggleGlobalAi)
     els.bookingV2Toggle.addEventListener('change', toggleBookingV2)
     els.botRoutingPreflight.addEventListener('click', changeBotRouting)
+    els.botRoutingPrepare.addEventListener('click', prepareDefaultBotRouting)
     els.automationSettingsForm.addEventListener('submit', saveAutomationSettings)
     els.serviceCatalogDisplayMode.addEventListener('change', updateServiceCatalogDisplayHelp)
     els.assistantPersonalityForm.addEventListener('submit', saveAssistantPersonality)

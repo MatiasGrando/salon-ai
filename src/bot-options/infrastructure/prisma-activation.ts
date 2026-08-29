@@ -463,12 +463,18 @@ export async function assertActivatableConfiguration(input: {
 }): Promise<void> {
   await input.client.$transaction(async (tx) => {
     const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-      SELECT "id" FROM "BusinessBotConfiguration"
-      WHERE "id"=${input.configurationId} AND "businessId"=${input.businessId}
-        AND "status"='ACTIVE' AND "routingMode"='EXCLUSIVE'
+      SELECT c."id" FROM "BusinessBotConfiguration" c
+      JOIN "BusinessWhatsAppConfig" w ON w."businessId"=c."businessId"
+      JOIN "BusinessBotOptionsSettings" s ON s."businessId"=c."businessId"
+      WHERE c."id"=${input.configurationId} AND c."businessId"=${input.businessId}
+        AND c."status"='ACTIVE' AND c."routingMode"='EXCLUSIVE'
+        AND w."connectionStatus"='CONNECTED' AND w."phoneNumberId" IS NOT NULL
+        AND w."displayPhoneNumber" IS NOT NULL AND w."accessToken" IS NOT NULL
+        AND w."wabaId" IS NOT NULL AND w."appSecret" IS NOT NULL
+        AND c."phoneNumberId"=w."phoneNumberId" AND length(trim(s."timezone")) > 0
       FOR SHARE
     `)
-    if (rows.length !== 1) throw new Error('activation target must be one ACTIVE EXCLUSIVE configuration in the same business')
+    if (rows.length !== 1) throw new Error('activation target must be fully prepared for authoritative routing')
   })
 }
 

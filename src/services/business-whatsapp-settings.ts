@@ -13,6 +13,17 @@ export type WhatsAppCloudCredentials = {
 
 type SendPurpose = 'CAMPAIGN' | 'REMINDER' | 'TEST' | 'BOT' | 'TEMPLATE'
 
+export function sanitizeBusinessWhatsAppConfigForClient<T extends Record<string, unknown>>(config: T | null) {
+  if (!config) return { config: null, hasAppSecret: false, hasPreviousAppSecret: false }
+  const { appSecret, appSecretPrevious, appSecretPreviousValidUntil, ...safeConfig } = config
+  return {
+    config: safeConfig,
+    hasAppSecret: typeof appSecret === 'string' && appSecret.trim().length > 0,
+    hasPreviousAppSecret: typeof appSecretPrevious === 'string' && appSecretPrevious.trim().length > 0
+      && appSecretPreviousValidUntil instanceof Date && appSecretPreviousValidUntil.getTime() >= Date.now()
+  }
+}
+
 export async function getBusinessWhatsAppState(businessId: string) {
   const business = await prisma.business.findUnique({
     where: { id: businessId },
@@ -26,6 +37,7 @@ export async function getBusinessWhatsAppState(businessId: string) {
     }
   })
   const config = business?.whatsappConfig ?? null
+  const clientConfig = sanitizeBusinessWhatsAppConfigForClient(config)
   const settings = business?.featureSettings ?? null
 
   const hasBusinessCredentials = Boolean(config?.accessToken && config.phoneNumberId && config.wabaId)
@@ -57,7 +69,7 @@ export async function getBusinessWhatsAppState(businessId: string) {
   if (business && !isBusinessAccountOperational(business.accountStatus)) operationalReasons.push(businessAccountAccessMessage(business.accountStatus))
 
   return {
-    config,
+    config: clientConfig.config,
     settings: {
       botEnabled: business?.botEnabled ?? settings?.botEnabled ?? true,
       aiEnabled: business?.aiEnabled ?? settings?.aiEnabled ?? true,
@@ -78,6 +90,8 @@ export async function getBusinessWhatsAppState(businessId: string) {
       connectedAt: config?.connectedAt ?? null,
       tokenExpiresAt: config?.tokenExpiresAt ?? null,
       lastError: config?.lastError ?? null,
+      hasAppSecret: clientConfig.hasAppSecret,
+      hasPreviousAppSecret: clientConfig.hasPreviousAppSecret,
       usingInternalFallback
     },
     gates: {

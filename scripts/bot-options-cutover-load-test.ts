@@ -163,9 +163,9 @@ function message(sequence: number) {
 async function seed() {
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw(Prisma.sql`INSERT INTO "Business" ("id","customerCode","name") VALUES (${businessId},${id('customer')},'F11.6 load')`)
-    await tx.$executeRaw(Prisma.sql`INSERT INTO "BusinessBotConfiguration" ("id","businessId","botKey","name","version","status","definition","updatedAt") VALUES (${configurationA},${businessId},'f116-a','F11.6 A','v1','ACTIVE','{}'::jsonb,clock_timestamp()),(${configurationB},${businessId},'f116-b','F11.6 B','v2','ACTIVE','{}'::jsonb,clock_timestamp())`)
+    await tx.$executeRaw(Prisma.sql`INSERT INTO "BusinessBotConfiguration" ("id","businessId","botKey","name","version","status","routingMode","phoneNumberId","definition","updatedAt") VALUES (${configurationA},${businessId},'f116-a','F11.6 A','v1','ACTIVE','EXCLUSIVE',${phoneNumberId},'{}'::jsonb,clock_timestamp()),(${configurationB},${businessId},'f116-b','F11.6 B','v2','ACTIVE','EXCLUSIVE',${phoneNumberId},'{}'::jsonb,clock_timestamp())`)
     await tx.$executeRaw(Prisma.sql`INSERT INTO "BotChannelDeployment" ("id","businessId","engineKey","activeConfigurationId","generation","legacyDispatchCoverageVersion","updatedAt") VALUES (${deploymentId},${businessId},'deterministic-options',${configurationA},1,1,clock_timestamp())`)
-    await tx.$executeRaw(Prisma.sql`INSERT INTO "BusinessWhatsAppConfig" ("id","businessId","connectionStatus","phoneNumberId","appSecret","updatedAt") VALUES (${id('whatsapp')},${businessId},'CONNECTED'::"WhatsAppConnectionStatus",${phoneNumberId},'local-contract-secret',clock_timestamp())`)
+    await tx.$executeRaw(Prisma.sql`INSERT INTO "BusinessWhatsAppConfig" ("id","businessId","connectionStatus","phoneNumberId","displayPhoneNumber","wabaId","accessToken","appSecret","updatedAt") VALUES (${id('whatsapp')},${businessId},'CONNECTED'::"WhatsAppConnectionStatus",${phoneNumberId},'test-display','test-waba','test-token','0123456789abcdef0123456789abcdef',clock_timestamp())`)
     await tx.$executeRaw(Prisma.sql`INSERT INTO "BusinessBotOptionsSettings" ("businessId","timezone","updatedAt") VALUES (${businessId},'UTC',clock_timestamp())`)
   })
 }
