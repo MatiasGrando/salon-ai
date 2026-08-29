@@ -44,6 +44,7 @@
     "test:qa-script-safety": "tsx scripts/qa-script-safety-contract-test.ts",
     "test:crm-ui-syntax": "tsx scripts/crm-ui-inline-syntax-test.ts",
     "test:crm-realtime-events": "tsx scripts/crm-realtime-events-contract-test.ts",
+    "test:crm-realtime-inbound": "tsx scripts/bot-options-inbound-crm-realtime-contract-test.ts",
     "sync:weex-bot-v1": "tsx scripts/sync-weex-support-bot-v1.ts",
     "test:business-bot-configuration": "tsx scripts/business-bot-configuration-contract-test.ts",
     "assign:weex-bot-v1": "tsx scripts/assign-weex-support-bot-v1.ts",

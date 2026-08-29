@@ -9,6 +9,11 @@ import { generatePromptToken } from '../domain/prompt-tokens.js'
 import { renderWhatsAppScreen, WHATSAPP_INTERACTIVE_BODY_MAX_CODE_POINTS } from '../infrastructure/whatsapp-renderer.js'
 import { assertClaimedBotJobTx, completeClaimedBotJobTx, retargetClaimedBotJobTx, type ClaimedBotJob } from '../infrastructure/postgres-worker.js'
 import { acquireDispatchClaim, assertDispatchClaimTx, completeDispatchClaimTx, releaseDispatchClaim } from '../infrastructure/dispatch-claims.js'
+import {
+  collectInboundConversationMessage,
+  flushInboundConversationMessages,
+  type InboundConversationMessageProjection
+} from '../../services/crm-realtime-events.js'
 import { upsertJob } from '../infrastructure/prisma-admission.js'
 import { PrismaCatalogRepository } from '../infrastructure/prisma-catalog.js'
 import {
@@ -612,8 +617,9 @@ async function processSessionJobInternal(input: {
     kind: 'PROCESS'
   })
   if (!dispatchToken) throw new Error('process dispatch gate closed')
+  const pendingCrmEvents: InboundConversationMessageProjection[] = []
   try {
-    return await input.client.$transaction(async (tx) => {
+    const result = await input.client.$transaction(async (tx) => {
       await assertClaimedBotJobTx(tx, input.job)
       await assertDispatchClaimTx({ tx, businessId: input.job.businessId, claimToken: dispatchToken })
       const sessions = await tx.$queryRaw<Array<{
@@ -681,7 +687,7 @@ async function processSessionJobInternal(input: {
             providerMessageId: action.providerMessageId,
             body: inboundBody(inbound),
             messageType: inbound.messageType
-          })
+          }, pendingCrmEvents)
         }
         actionType = selectedActionType
         promptId = action.promptId
@@ -817,6 +823,10 @@ async function processSessionJobInternal(input: {
       await completeClaimedBotJobTx(tx, input.job)
       return 'PROCESSED'
     })
+    // After-commit delivery: the CRM is notified only once the inbound Message
+    // projection is durably committed, never mid-transaction.
+    flushInboundConversationMessages(pendingCrmEvents)
+    return result
   } finally {
     await releaseDispatchClaim(input.client, dispatchToken)
   }
@@ -854,7 +864,8 @@ async function processInitialInboxUnderClaim(
   forceFreshView = false,
   dispatchToken: string
 ): Promise<'PROCESSED' | 'STALE_CUTOVER'> {
-  return input.client.$transaction(async (tx) => {
+  const pendingCrmEvents: InboundConversationMessageProjection[] = []
+  const result = await input.client.$transaction(async (tx) => {
     await assertClaimedBotJobTx(tx, input.job)
     await assertDispatchClaimTx({ tx, businessId: input.job.businessId, claimToken: dispatchToken })
     const rows = await tx.$queryRaw<Array<{ id: string; businessId: string; deploymentId: string; deploymentGeneration: number; payload: Prisma.JsonValue; providerEventId: string; providerMessageId: string | null; status: string; dbNow: Date; businessTimezone: string }>>(Prisma.sql`
@@ -890,7 +901,7 @@ async function processInitialInboxUnderClaim(
           providerMessageId: row.providerMessageId,
           body,
           messageType: payload.messageType
-        })
+        }, pendingCrmEvents)
         await tx.$executeRaw(Prisma.sql`
           UPDATE "BotActionInbox" SET "sessionId"=${existingSession.sessionId},"expectedRevision"=${existingSession.revision},
             "status"='PROCESSED'::"BotInboxStatus", "error"='EXISTING_SESSION_REPROMPTED'
@@ -928,7 +939,7 @@ async function processInitialInboxUnderClaim(
         body: inboundBody(payload),
         messageType: payload.messageType,
         source: 'bot-options-handoff-recovery'
-      })
+      }, pendingCrmEvents)
       await tx.$executeRaw(Prisma.sql`
         UPDATE "BotActionInbox" SET "sessionId"=${existingSession.sessionId},"status"='PROCESSED'::"BotInboxStatus",
           "error"='HUMAN_TAKEN_SILENCED'
@@ -956,7 +967,7 @@ async function processInitialInboxUnderClaim(
       providerMessageId: row.providerMessageId,
       body: inboundBody(payload),
       messageType: payload.messageType
-    })
+    }, pendingCrmEvents)
     const sessionId = randomUUID()
     const state = createInitialBotOptionsState()
     const insertedSessions = await tx.$queryRaw<Array<{ id: string; revision: bigint; deploymentGeneration: number }>>(Prisma.sql`
@@ -1009,6 +1020,10 @@ async function processInitialInboxUnderClaim(
     await completeClaimedBotJobTx(tx, input.job)
     return 'PROCESSED'
   })
+  // After-commit delivery: notify the CRM only once the inbound Message
+  // projection is durably committed (covers PROCESS_INBOX and cutover recovery).
+  flushInboundConversationMessages(pendingCrmEvents)
+  return result
 }
 
 /**
@@ -1051,16 +1066,28 @@ async function projectInboundMessage(
   input: {
     businessId: string; conversationId: string; phone: string; providerMessageId: string | null
     body: string; messageType: unknown; source?: string
-  }
+  },
+  pendingCrmEvents: InboundConversationMessageProjection[]
 ) {
-  await tx.$executeRaw(Prisma.sql`
+  const inserted = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
     INSERT INTO "Message" ("id", "conversationId", "phone", "direction", "body", "providerMessageId", "status", "metadata")
     VALUES (${randomUUID()}, ${input.conversationId}, ${input.phone}, 'INBOUND'::"MessageDirection", ${input.body},
       ${input.providerMessageId}, 'received', ${JSON.stringify({
         provider: 'whatsapp', source: input.source ?? 'bot-options', messageType: input.messageType
       })}::jsonb)
     ON CONFLICT ("providerMessageId") DO NOTHING
+    RETURNING "id"
   `)
+  if (inserted.length === 1) {
+    // Recorded only after a row was actually committed-capable. The flush
+    // happens outside the transaction, so the CRM is notified strictly
+    // after-commit and never for a rolled-back or duplicate (ON CONFLICT) row.
+    collectInboundConversationMessage(pendingCrmEvents, {
+      businessId: input.businessId,
+      conversationId: input.conversationId,
+      messageId: inserted[0]!.id
+    })
+  }
   await tx.$executeRaw(Prisma.sql`
     UPDATE "Conversation" SET "lastMessage"=${input.body},"archivedAt"=NULL,"updatedAt"=clock_timestamp()
     WHERE "id"=${input.conversationId} AND "businessId"=${input.businessId}

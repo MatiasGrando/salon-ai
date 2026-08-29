@@ -48,6 +48,45 @@ export function publishIncomingConversationMessage(input: Omit<IncomingConversat
   publishCrmRealtimeEvent(event)
 }
 
+export type InboundConversationMessageProjection = {
+  businessId: string
+  conversationId: string
+  messageId: string
+}
+
+/**
+ * Records an inbound projection that has been written inside an open
+ * transaction but must NOT be published until that transaction commits.
+ * The caller owns the array and passes it to `flushInboundConversationMessages`
+ * only after the surrounding transaction resolves successfully. This keeps the
+ * CRM realtime delivery strictly after-commit and free of durable semantics.
+ */
+export function collectInboundConversationMessage(
+  pending: InboundConversationMessageProjection[],
+  input: InboundConversationMessageProjection
+): void {
+  pending.push(input)
+}
+
+/**
+ * Emits `conversation_message_received` SSE notifications for inbound messages
+ * that were projected and committed. Intentionally invoked AFTER the database
+ * transaction commits so the CRM never observes a message that could still be
+ * rolled back. Tenant isolation is preserved by the underlying subscriber map.
+ */
+export function flushInboundConversationMessages(
+  pending: readonly InboundConversationMessageProjection[]
+): void {
+  for (const event of pending) {
+    publishIncomingConversationMessage({
+      businessId: event.businessId,
+      conversationId: event.conversationId,
+      messageId: event.messageId,
+      receivedAt: new Date().toISOString()
+    })
+  }
+}
+
 export function publishConversationUpdated(input: Omit<ConversationUpdatedEvent, 'type'>) {
   const event: ConversationUpdatedEvent = {
     type: 'conversation_updated',
