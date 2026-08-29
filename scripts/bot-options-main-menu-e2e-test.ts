@@ -112,8 +112,29 @@ try {
   assert.equal(delivery, 'ACCEPTED')
   assert.equal(providerCalls, 1)
 
+  const freeTextBody = Buffer.from(JSON.stringify({ entry: [{ changes: [{ value: {
+    metadata: { phone_number_id: phoneNumberId },
+    messages: [{ id: `wamid.f5.menu.free-text.${suffix}`, from: customerPhone, timestamp: '1787701001', type: 'text', text: { body: 'no entiendo' } }]
+  } }] }] }), 'utf8')
+  const freeTextSignature = `sha256=${createHmac('sha256', secret).update(freeTextBody).digest('hex')}`
+  const freeTextAdmitted = await webhook.routeAndAdmit({ rawBody: freeTextBody, signatureHeader: freeTextSignature, traceId: `f5-menu-free-text-${suffix}` })
+  assert.deepEqual(freeTextAdmitted, { route: 'new', outcome: { status: 'admitted', eventCount: 1 } })
+  const freeTextJob = await worker.claimBotJob(prisma, 30_000, randomUUID(), { businessId })
+  assert.ok(freeTextJob)
+  assert.equal(freeTextJob.kind, 'PROCESS_INBOX')
+  assert.equal(await processor.processSessionJob({ client: prisma, job: freeTextJob }), 'PROCESSED')
+  const reprompt = await outbox.claimOutbox(prisma, 30_000, randomUUID(), { businessId })
+  assert.ok(reprompt, 'free text during an active session must enqueue the current menu again')
+  const repromptDelivery = await outbox.sendClaimedOutbox({
+    client: prisma,
+    item: reprompt,
+    provider: { async send() { return { kind: 'accepted', providerMessageId: `wamid.f5.out.reprompt.${suffix}` } } }
+  })
+  assert.equal(repromptDelivery, 'ACCEPTED')
+
   const result = await prisma.$queryRaw<Array<{
     sessions: bigint; prompts: bigint; choices: bigint; accepted: bigint; doneClaims: bigint
+    inboundMessages: bigint; outboundMessages: bigint
   }>>(Prisma.sql`
     SELECT
       (SELECT count(*) FROM "BotSession" WHERE "businessId" = ${businessId})::bigint AS "sessions",
@@ -122,9 +143,16 @@ try {
       (SELECT count(*) FROM "BotPromptChoice" c JOIN "BotPrompt" p ON p."id" = c."promptId"
         JOIN "BotSession" s ON s."id" = p."sessionId" WHERE s."businessId" = ${businessId})::bigint AS "choices",
       (SELECT count(*) FROM "BotOutbox" WHERE "businessId" = ${businessId} AND "status" = 'ACCEPTED'::"BotOutboxStatus")::bigint AS "accepted",
-      (SELECT count(*) FROM "BotDispatchClaim" WHERE "businessId" = ${businessId} AND "status" = 'DONE'::"BotDispatchStatus")::bigint AS "doneClaims"
+      (SELECT count(*) FROM "BotDispatchClaim" WHERE "businessId" = ${businessId} AND "status" = 'DONE'::"BotDispatchStatus")::bigint AS "doneClaims",
+      (SELECT count(*) FROM "Message" m JOIN "Conversation" c ON c."id"=m."conversationId"
+        WHERE c."businessId"=${businessId} AND m."direction"='INBOUND'::"MessageDirection" AND m."body"='hola')::bigint AS "inboundMessages",
+      (SELECT count(*) FROM "Message" m JOIN "Conversation" c ON c."id"=m."conversationId"
+        WHERE c."businessId"=${businessId} AND m."direction"='OUTBOUND'::"MessageDirection" AND m."body"='¿Qué querés hacer?')::bigint AS "outboundMessages"
   `)
-  assert.deepEqual(result[0], { sessions: 1n, prompts: 1n, choices: 5n, accepted: 1n, doneClaims: 2n })
+  assert.deepEqual(result[0], {
+    sessions: 1n, prompts: 1n, choices: 5n, accepted: 1n, doneClaims: 2n,
+    inboundMessages: 2n, outboundMessages: 2n
+  })
 
   const pointerAfter = await prisma.botChannelDeployment.findUniqueOrThrow({
     where: { businessId_channel: { businessId, channel: 'WHATSAPP' } },

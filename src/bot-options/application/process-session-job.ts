@@ -618,10 +618,10 @@ async function processSessionJobInternal(input: {
       await assertDispatchClaimTx({ tx, businessId: input.job.businessId, claimToken: dispatchToken })
       const sessions = await tx.$queryRaw<Array<{
         id: string; businessId: string; deploymentId: string; deploymentGeneration: number
-        revision: bigint; state: Prisma.JsonValue; status: string; dbNow: Date; toPhone: string | null
+        revision: bigint; state: Prisma.JsonValue; status: string; dbNow: Date; toPhone: string | null; conversationId: string | null
         businessTimezone: string
       }>>(Prisma.sql`
-        SELECT s."id", s."businessId", s."deploymentId", s."deploymentGeneration", s."revision", s."state",
+        SELECT s."id", s."businessId", s."deploymentId", s."deploymentGeneration", s."revision", s."state", s."conversationId",
           s."status"::text AS "status", clock_timestamp() AS "dbNow", c."phone" AS "toPhone",
           s."businessTimezone"
         FROM "BotSession" s
@@ -648,10 +648,12 @@ async function processSessionJobInternal(input: {
 
       const selected = await tx.$queryRaw<Array<{
         id: string; actionType: string; entityRef: Prisma.JsonValue | null; payload: Prisma.JsonValue | null
-        promptId: string | null; providerEventId: string; status: string
+        promptId: string | null; providerEventId: string; providerMessageId: string | null; providerPayload: Prisma.JsonValue; status: string
       }>>(Prisma.sql`
-        SELECT "id", "actionType", "entityRef", "payload", "promptId", "providerEventId", "status"::text AS "status"
-        FROM "BotActionInbox" WHERE "id" = ${input.job.aggregateId} FOR UPDATE
+        SELECT i."id", i."actionType", i."entityRef", i."payload", i."promptId", i."providerEventId", i."providerMessageId",
+          e."payload" AS "providerPayload", i."status"::text AS "status"
+        FROM "BotActionInbox" i JOIN "BotProviderEvent" e ON e."id"=i."providerEventId" AND e."businessId"=i."businessId"
+        WHERE i."id" = ${input.job.aggregateId} FOR UPDATE OF i
       `)
       let actionType: string
       let view: BotOptionsViewModel
@@ -670,6 +672,17 @@ async function processSessionJobInternal(input: {
         const selectedActionType = action.actionType as BotOptionsActionType
         const selectedEntityRef = parseSelectedEntityRef(action.entityRef)
         const selectedPayload = parseSelectedPayload(action.payload)
+        const inbound = action.providerPayload as { fromPhone?: unknown; textBody?: unknown; messageType?: unknown }
+        if (session.conversationId && typeof inbound.fromPhone === 'string' && inbound.fromPhone) {
+          await projectInboundMessage(tx, {
+            businessId: session.businessId,
+            conversationId: session.conversationId,
+            phone: inbound.fromPhone,
+            providerMessageId: action.providerMessageId,
+            body: inboundBody(inbound),
+            messageType: inbound.messageType
+          })
+        }
         actionType = selectedActionType
         promptId = action.promptId
         providerEventId = action.providerEventId
@@ -869,28 +882,53 @@ async function processInitialInboxUnderClaim(
     const existingSession = await lockExistingInitialSession(tx, row.businessId, payload.fromPhone)
     if (existingSession) {
       if (existingSession.status !== 'HUMAN_TAKEN') {
+        const body = inboundBody(payload)
+        await projectInboundMessage(tx, {
+          businessId: row.businessId,
+          conversationId: existingSession.conversationId,
+          phone: payload.fromPhone,
+          providerMessageId: row.providerMessageId,
+          body,
+          messageType: payload.messageType
+        })
         await tx.$executeRaw(Prisma.sql`
           UPDATE "BotActionInbox" SET "sessionId"=${existingSession.sessionId},"expectedRevision"=${existingSession.revision},
-            "status"='PROCESSED'::"BotInboxStatus", "error"='EXISTING_SESSION_INITIAL_SUPPRESSED'
+            "status"='PROCESSED'::"BotInboxStatus", "error"='EXISTING_SESSION_REPROMPTED'
           WHERE "id"=${row.id} AND "status"='ADMITTED'::"BotInboxStatus"
         `)
+        const state = parseBotOptionsState(existingSession.state)
+        if (!state.ok) throw new Error(`unknown/corrupt state: ${state.invariant}`)
+        await persistView(tx, {
+          businessId: row.businessId,
+          sessionId: existingSession.sessionId,
+          revision: existingSession.revision,
+          transitionId: `reprompt:${existingSession.sessionId}:${row.id}`,
+          toPhone: payload.fromPhone,
+          view: renderCurrentView(state.state, await defaultContextProvider(tx, {
+            businessId: row.businessId,
+            sessionId: existingSession.sessionId,
+            state: state.state,
+            actionType: 'system.reprompt',
+            entityRef: null,
+            payload: null,
+            dbNow: row.dbNow,
+            businessTimezone: existingSession.businessTimezone
+          })),
+          dbNow: row.dbNow
+        })
         await completeDispatchClaimTx(tx, dispatchToken)
         await completeClaimedBotJobTx(tx, input.job)
         return 'PROCESSED'
       }
-      const body = typeof payload.textBody === 'string' && payload.textBody.trim()
-        ? payload.textBody.trim()
-        : `[${typeof payload.messageType === 'string' ? payload.messageType : 'message'}]`
-      await tx.$executeRaw(Prisma.sql`
-        INSERT INTO "Message" ("id", "conversationId", "phone", "direction", "body", "providerMessageId", "status", "metadata")
-        VALUES (${randomUUID()}, ${existingSession.conversationId}, ${payload.fromPhone}, 'INBOUND'::"MessageDirection", ${body},
-          ${row.providerMessageId}, 'received', ${JSON.stringify({ provider: 'whatsapp', source: 'bot-options-handoff-recovery' })}::jsonb)
-        ON CONFLICT ("providerMessageId") DO NOTHING
-      `)
-      await tx.$executeRaw(Prisma.sql`
-        UPDATE "Conversation" SET "lastMessage"=${body},"archivedAt"=NULL,"updatedAt"=clock_timestamp()
-        WHERE "id"=${existingSession.conversationId} AND "businessId"=${row.businessId}
-      `)
+      await projectInboundMessage(tx, {
+        businessId: row.businessId,
+        conversationId: existingSession.conversationId,
+        phone: payload.fromPhone,
+        providerMessageId: row.providerMessageId,
+        body: inboundBody(payload),
+        messageType: payload.messageType,
+        source: 'bot-options-handoff-recovery'
+      })
       await tx.$executeRaw(Prisma.sql`
         UPDATE "BotActionInbox" SET "sessionId"=${existingSession.sessionId},"status"='PROCESSED'::"BotInboxStatus",
           "error"='HUMAN_TAKEN_SILENCED'
@@ -911,6 +949,14 @@ async function processInitialInboxUnderClaim(
       ON CONFLICT ("businessId", "phone") DO UPDATE SET "updatedAt" = "Conversation"."updatedAt"
       RETURNING "id"
     `)
+    await projectInboundMessage(tx, {
+      businessId: row.businessId,
+      conversationId: conversations[0]!.id,
+      phone: payload.fromPhone,
+      providerMessageId: row.providerMessageId,
+      body: inboundBody(payload),
+      messageType: payload.messageType
+    })
     const sessionId = randomUUID()
     const state = createInitialBotOptionsState()
     const insertedSessions = await tx.$queryRaw<Array<{ id: string; revision: bigint; deploymentGeneration: number }>>(Prisma.sql`
@@ -970,8 +1016,8 @@ async function processInitialInboxUnderClaim(
  * This avoids creating a second ACTIVE session while TAKE changes ownership.
  */
 async function lockExistingInitialSession(tx: Prisma.TransactionClient, businessId: string, phone: string) {
-  const sessions = await tx.$queryRaw<Array<{ sessionId: string; conversationId: string; revision: bigint; status: string }>>(Prisma.sql`
-    SELECT s."id" AS "sessionId", c."id" AS "conversationId", s."revision", s."status"::text AS "status"
+  const sessions = await tx.$queryRaw<Array<{ sessionId: string; conversationId: string; revision: bigint; status: string; state: Prisma.JsonValue; businessTimezone: string }>>(Prisma.sql`
+    SELECT s."id" AS "sessionId", c."id" AS "conversationId", s."revision", s."status"::text AS "status", s."state", s."businessTimezone"
     FROM "Conversation" c
     JOIN "BotSession" s ON s."conversationId"=c."id" AND s."businessId"=c."businessId"
     WHERE c."businessId"=${businessId} AND c."phone"=${phone} AND s."status" <> 'CLOSED'::"BotSessionStatus"
@@ -992,6 +1038,33 @@ async function lockExistingInitialSession(tx: Prisma.TransactionClient, business
   `)
   if (conversations.length !== 1) throw new Error('human-owned session lacks conversation')
   return session
+}
+
+function inboundBody(payload: { textBody?: unknown; messageType?: unknown }) {
+  return typeof payload.textBody === 'string' && payload.textBody.trim()
+    ? payload.textBody.trim()
+    : `[${typeof payload.messageType === 'string' ? payload.messageType : 'message'}]`
+}
+
+async function projectInboundMessage(
+  tx: Prisma.TransactionClient,
+  input: {
+    businessId: string; conversationId: string; phone: string; providerMessageId: string | null
+    body: string; messageType: unknown; source?: string
+  }
+) {
+  await tx.$executeRaw(Prisma.sql`
+    INSERT INTO "Message" ("id", "conversationId", "phone", "direction", "body", "providerMessageId", "status", "metadata")
+    VALUES (${randomUUID()}, ${input.conversationId}, ${input.phone}, 'INBOUND'::"MessageDirection", ${input.body},
+      ${input.providerMessageId}, 'received', ${JSON.stringify({
+        provider: 'whatsapp', source: input.source ?? 'bot-options', messageType: input.messageType
+      })}::jsonb)
+    ON CONFLICT ("providerMessageId") DO NOTHING
+  `)
+  await tx.$executeRaw(Prisma.sql`
+    UPDATE "Conversation" SET "lastMessage"=${input.body},"archivedAt"=NULL,"updatedAt"=clock_timestamp()
+    WHERE "id"=${input.conversationId} AND "businessId"=${input.businessId}
+  `)
 }
 
 async function processCutoverRecovery(input: { client: RuntimeClient; job: ClaimedBotJob }): Promise<'PROCESSED' | 'STALE_CUTOVER'> {

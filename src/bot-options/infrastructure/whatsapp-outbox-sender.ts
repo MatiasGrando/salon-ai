@@ -148,6 +148,21 @@ export async function sendClaimedOutbox(input: {
           WHERE "claimToken" = ${dispatchToken} AND "status" = 'SENDING'::"BotDispatchStatus"
         `)
         if (count !== 1 || claimCount !== 1) throw new Error('accepted result lost sender fence')
+        const payload = input.item.payload as { to?: unknown; item?: { type?: unknown; body?: unknown } }
+        const body = typeof payload.item?.body === 'string' && payload.item.body.trim()
+          ? payload.item.body.trim()
+          : `[${typeof payload.item?.type === 'string' ? payload.item.type : 'message'}]`
+        if (typeof payload.to === 'string' && payload.to) {
+          await tx.$executeRaw(Prisma.sql`
+            INSERT INTO "Message" ("id", "conversationId", "phone", "direction", "body", "providerMessageId", "status", "metadata")
+            SELECT ${randomUUID()}, s."conversationId", ${payload.to}, 'OUTBOUND'::"MessageDirection", ${body},
+              ${result.providerMessageId}, 'sent', ${JSON.stringify({ provider: 'whatsapp', source: 'bot-options', kind: payload.item?.type ?? null })}::jsonb
+            FROM "BotSession" s
+            JOIN "Conversation" c ON c."id"=s."conversationId" AND c."businessId"=s."businessId"
+            WHERE s."id"=${input.item.sessionId} AND s."businessId"=${input.item.businessId}
+            ON CONFLICT ("providerMessageId") DO NOTHING
+          `)
+        }
       })
       return 'ACCEPTED'
     }
