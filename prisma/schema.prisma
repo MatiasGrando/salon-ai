@@ -69,6 +69,15 @@ enum BotSessionStatus {
   CLOSED
 }
 
+/// Lifecycle durable de una consulta humana. F10.1 sólo materializa QUEUED y
+/// CANCELLED; ownership, toma y resolución quedan deliberadamente inactivos.
+enum BotHandoffStatus {
+  QUEUED
+  TAKEN
+  CANCELLED
+  RESOLVED
+}
+
 enum BotJobStatus {
   READY
   CLAIMED @map("LEASED")
@@ -157,6 +166,8 @@ model BotSession {
   state                Json
   revision             BigInt               @default(0)
   status               BotSessionStatus     @default(ACTIVE)
+  handoffClaimsPausedAt DateTime?
+  handoffFenceEpoch    Int                   @default(0)
   fenceToken           String?
   draftTouchedAt       DateTime?
   draftExpiresAt       DateTime?
@@ -168,11 +179,62 @@ model BotSession {
   outbox         BotOutbox[]
   dispatchClaims BotDispatchClaim[]
   bookingVisits  BookingVisit[]
+  handoffs       BotHandoff[]
+  handoffAudits  BotHandoffAudit[]
 
   @@unique([businessId, id])
   @@unique([businessId, deploymentId, id])
   @@index([businessId, status])
   @@index([conversationId])
+}
+
+model BotHandoff {
+  id           String           @id @default(cuid())
+  businessId   String
+  sessionId    String
+  session      BotSession       @relation(fields: [businessId, sessionId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  status       BotHandoffStatus @default(QUEUED)
+  reason       String
+  detail       String?
+  context      Json?
+  queuedAt     DateTime         @default(now())
+  cancelledAt  DateTime?
+  /// Reserved for F10.2+ ownership; F10.1 never writes these columns.
+  ownerUserId  String?
+  takenAt      DateTime?
+  resolvedAt   DateTime?
+  resumePolicy String?
+  /// F10.4 immutable TAKE baseline; absence deliberately fails RESUME closed.
+  resumeSnapshot Json?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  audits       BotHandoffAudit[]
+
+  @@unique([businessId, id])
+  @@index([businessId, sessionId, queuedAt])
+  @@index([status, queuedAt])
+  @@index([status, takenAt])
+}
+
+/// F10.2 ownership ledger. Application writes are append-only; the migration
+/// revokes UPDATE/DELETE from the runtime role when that role is separated.
+model BotHandoffAudit {
+  id           String     @id @default(cuid())
+  businessId   String
+  sessionId    String
+  handoffId    String
+  handoff      BotHandoff @relation(fields: [businessId, handoffId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  session      BotSession @relation(fields: [businessId, sessionId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  action       String
+  actorUserId  String?
+  operationKey String
+  detail       Json?
+  createdAt    DateTime   @default(now())
+
+  @@unique([handoffId, operationKey, action])
+  @@index([businessId, sessionId, createdAt])
+  @@index([createdAt, action])
 }
 
 model BotPrompt {
@@ -366,6 +428,7 @@ model BotDispatchClaim {
   engineKey         String
   generation        Int
   fenceEpoch        Int
+  handoffFenceEpoch Int?
   kind              BotDispatchKind
   status            BotDispatchStatus @default(CLAIMED)
   claimToken        String            @unique
@@ -415,6 +478,7 @@ model BotOperation {
 
   @@index([businessId, status])
   @@index([sessionId, createdAt])
+  @@index([status, type])
 }
 
 enum AppointmentStatus {
@@ -477,6 +541,7 @@ enum ServiceDepositMode {
 
 enum BookingDepositStatus {
   PENDING_PROOF
+  PENDING_RESUBMISSION
   PROOF_RECEIVED
   APPROVED
   REJECTED
@@ -486,6 +551,25 @@ enum BookingDepositStatus {
 enum BookingDepositSource {
   WHATSAPP
   WEB
+}
+
+/// Clasifica el intento recibido; no representa una transición de CRM.
+enum BookingDepositProofKind {
+  INITIAL
+  RESUBMISSION
+  LATE
+}
+
+/// Resultado del validador de bytes previo a cualquier writer de evidencia.
+enum BookingDepositProofValidationStatus {
+  VALID
+}
+
+/// Fuente inmutable del plazo usado al crear una retención del motor nuevo.
+/// Nunca se infiere del campo legado Service.depositHoldMinutes.
+enum BookingDepositTtlProvenance {
+  BUSINESS_POLICY
+  DEFAULT_120
 }
 
 enum ServicePriceMode {
@@ -659,6 +743,7 @@ model Business {
   users                   User[]
   weexCustomerLinks       WeexCustomerLink[]
   bookingDeposits         BookingDeposit[]
+  bookingDepositProofs    BookingDepositProof[]
   bookingVisits           BookingVisit[]
   botOptionsSettings      BusinessBotOptionsSettings?
 
@@ -682,6 +767,11 @@ model BusinessBotOptionsSettings {
   bookingLeadTimeHours    Int      @default(0)
   morningCutTime          String   @default("12:30")
   eveningCutTime          String   @default("16:30")
+  /// Política explícita F8 del negocio. NULL significa fallback documentado de
+  /// 120 minutos; las retenciones almacenan siempre el valor/provenance final.
+  depositHoldMinutes      Int?
+  cancellationLeadMinutes Int      @default(60)
+  rescheduleLeadMinutes   Int      @default(60)
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
 }
@@ -1097,10 +1187,12 @@ model Service {
   suggestedFor      ServiceAddon[]           @relation("ServiceAddonTarget")
   combinationRulesA ServiceCombinationRule[] @relation("ServiceCombinationA")
   combinationRulesB ServiceCombinationRule[] @relation("ServiceCombinationB")
+  bookingDepositLines BookingDepositLine[]
 
   createdAt DateTime @default(now())
 
   @@index([businessId, catalogCategoryId, sortOrder])
+  @@unique([businessId, id])
   @@index([parentServiceId])
 }
 
@@ -1288,6 +1380,7 @@ model BookingVisit {
   origin               AppointmentOrigin  @default(BOT)
 
   appointment Appointment?
+  bookingDeposits BookingDeposit[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1329,6 +1422,7 @@ model Appointment {
   convertedConversation   Conversation?            @relation("ConversationOpportunityAppointment")
   postSaleDeliveries      PostSaleDelivery[]
   bookingDeposit          BookingDeposit?
+  changeHistory          AppointmentChangeHistory[]
   serviceItems            AppointmentServiceItem[]
   googleCalendarEventId   String?
   googleCalendarAccountId String?
@@ -1499,6 +1593,12 @@ model BookingDeposit {
   conversationId String?
   conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
 
+  /// El agregado F7/F8 que fue retenido. Las escrituras F8 lo completan; NULL
+  /// se conserva sólo para depósitos legacy.
+  visitId String?
+  /// La FK compuesta impide vincular una seña de un tenant con una visita de otro.
+  visit   BookingVisit? @relation(fields: [businessId, visitId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade, map: "BookingDeposit_visitId_fkey")
+
   source           BookingDepositSource @default(WHATSAPP)
   mode             ServiceDepositMode
   configuredValue  Int
@@ -1506,6 +1606,13 @@ model BookingDeposit {
   amount           Int
   status           BookingDepositStatus @default(PENDING_PROOF)
   expiresAt        DateTime
+  /// Momento efectivo, provisto por DB, en que F8.6 liberó la retención.
+  expiredAt        DateTime?
+  expirationReason String?
+  holdTtlMinutes   Int?
+  holdTtlProvenance BookingDepositTtlProvenance?
+  /// F8 closes its immutable financial snapshot only after all lines exist.
+  snapshotSealedAt DateTime?
   proofMessageId   String?
   proofData        Bytes?
   proofMimeType    String?
@@ -1517,8 +1624,200 @@ model BookingDeposit {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  lines BookingDepositLine[]
+  expiryAudit BookingDepositExpiryAudit?
+  proofs BookingDepositProof[]
+  appointmentChanges AppointmentChangeHistory[] @relation("AppointmentChangeHistoryBookingDeposit")
+
+  @@unique([businessId, id])
+  @@unique([businessId, visitId])
+  @@unique([appointmentId, id])
   @@index([businessId, status, expiresAt])
   @@index([conversationId, createdAt])
+}
+
+/// Append-only audit trail for a future F9 in-place appointment mutation.
+/// `actor` is deliberately a required textual principal, not an actor hierarchy.
+model AppointmentChangeHistory {
+  id                String          @id @default(cuid())
+  appointmentId     String
+  appointment       Appointment     @relation(fields: [appointmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  operationKey      String          @unique
+  actor             String
+  fromStartAt       DateTime
+  toStartAt         DateTime
+  bookingDepositId  String?
+  bookingDeposit    BookingDeposit? @relation("AppointmentChangeHistoryBookingDeposit", fields: [appointmentId, bookingDepositId], references: [appointmentId, id], onDelete: Restrict, onUpdate: Cascade)
+  depositPreserved  Boolean         @default(false)
+  createdAt         DateTime        @default(now())
+
+  @@index([appointmentId, createdAt])
+}
+
+/// Append-only reviewer decision trail. It intentionally has no byte columns;
+/// retained proof bytes remain accessible only through BookingDepositProof.
+model BookingDepositReviewAudit {
+  id           String   @id
+  businessId   String
+  depositId    String
+  proofId      String
+  actorUserId  String
+  action       String
+  operationKey String   @unique
+  createdAt    DateTime @default(now())
+
+  @@index([businessId, depositId, createdAt])
+}
+
+/// Durable reviewer intent. F8.9 bridges approved static content into BotOutbox
+/// atomically and marks the row ENQUEUED; no provider call occurs here.
+model BookingDepositReviewOutbox {
+  id         String   @id
+  businessId String
+  depositId  String
+  auditId    String   @unique
+  kind       String
+  status     String
+  createdAt  DateTime @default(now())
+
+  @@index([businessId, status, createdAt])
+}
+
+/// Durable operational handoff for evidence received after an aggregate has
+/// reached a terminal state. It never reopens the visit or appointment.
+model BookingDepositLateProofHandoff {
+  id        String   @id
+  businessId String
+  depositId String
+  proofId   String   @unique
+  action    String
+  createdAt DateTime @default(now())
+
+  @@index([businessId, depositId, createdAt], map: "BookingDepositLateProofHandoff_businessId_depositId_createdAt_i")
+}
+
+/// Evidencia F8 independiente del blob legacy de BookingDeposit. Cada fila es
+/// append-only y conserva tanto el original como el derivado saneado; las
+/// transiciones que elegirán la evidencia vigente quedan fuera de este slice.
+model BookingDepositProof {
+  id               String                              @id @default(cuid())
+  businessId       String
+  business         Business                            @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  depositId        String
+  deposit          BookingDeposit                      @relation(fields: [businessId, depositId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  sequence         Int
+  kind             BookingDepositProofKind
+  validationStatus BookingDepositProofValidationStatus @default(VALID)
+  validatorVersion String
+  validatedAt      DateTime
+  receivedAt       DateTime
+  providerEventId  String?
+  providerMessageId String?
+  providerMediaId  String?
+  sourceData       Bytes?
+  sourceMimeType   String
+  sourceFilename   String
+  sourceByteSize   Int
+  sourceSha256     String
+  derivedData      Bytes?
+  derivedMimeType  String
+  derivedByteSize  Int
+  derivedSha256    String
+  retentionEligibleAt DateTime
+  /// DB-owned, irreversible retention transition. NULL means bytes remain.
+  purgedAt          DateTime?
+  purgeReason       String?
+  createdAt        DateTime                            @default(now())
+
+  @@unique([businessId, id])
+  @@unique([businessId, depositId, sequence])
+  @@unique([businessId, depositId, providerEventId])
+  @@unique([businessId, depositId, providerMessageId])
+  @@unique([businessId, depositId, providerMediaId])
+  @@unique([businessId, depositId, sourceSha256])
+  @@index([businessId, depositId, receivedAt])
+  @@index([retentionEligibleAt])
+  @@index([businessId, retentionEligibleAt])
+}
+
+/// Operation-level observability for an internal byte-only retention run. It
+/// intentionally contains no customer, provider, filename, hash or byte data.
+model BookingDepositProofPurgeOperation {
+  id            String   @id
+  operationKey  String   @unique
+  scope         String
+  businessId    String?
+  reason        String
+  requestHash   String
+  status        String
+  selectedCount Int      @default(0)
+  purgedCount   Int      @default(0)
+  createdAt     DateTime @default(now())
+  completedAt   DateTime?
+
+  events BookingDepositProofPurgeAudit[]
+
+  @@index([businessId, createdAt])
+}
+
+/// Append-only record of each byte-only proof purge. IDs are operational
+/// references, not PII; proof metadata remains in BookingDepositProof.
+model BookingDepositProofPurgeAudit {
+  id          String                            @id
+  operationId String
+  operation   BookingDepositProofPurgeOperation @relation(fields: [operationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  businessId  String
+  depositId   String
+  proofId     String
+  reason      String
+  purgedAt    DateTime
+  createdAt   DateTime                          @default(now())
+
+  @@unique([operationId, proofId])
+  @@index([businessId, proofId, createdAt])
+}
+
+/// Evento append-only de la liberación automática. Conserva el deadline y las
+/// identidades del agregado aunque las filas operativas cambien después.
+model BookingDepositExpiryAudit {
+  id                   String         @id @default(cuid())
+  businessId           String
+  depositId            String         @unique
+  deposit              BookingDeposit @relation(fields: [businessId, depositId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  visitId              String
+  appointmentId        String
+  jobId                String
+  reason               String
+  dueAt                DateTime
+  expiredAt            DateTime
+  createdAt            DateTime       @default(now())
+
+  @@index([businessId, expiredAt])
+  @@index([businessId, visitId])
+  @@unique([businessId, depositId])
+}
+
+/// Snapshot financiero inmutable por servicio. No se recalcula desde catálogo
+/// al auditar una seña: nombre, orden, regla y montos pertenecen a la creación.
+model BookingDepositLine {
+  id              String             @id @default(cuid())
+  businessId      String
+  depositId       String
+  deposit         BookingDeposit     @relation(fields: [businessId, depositId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  serviceId       String
+  service         Service            @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  sortOrder       Int
+  serviceName     String
+  mode            ServiceDepositMode
+  configuredValue Int
+  baseAmount      Int?
+  amount          Int
+  createdAt       DateTime           @default(now())
+
+  @@unique([depositId, sortOrder])
+  @@unique([depositId, serviceId])
+  @@index([businessId, depositId])
+  @@index([businessId, serviceId])
 }
 
 model ConversationOpportunityEvent {

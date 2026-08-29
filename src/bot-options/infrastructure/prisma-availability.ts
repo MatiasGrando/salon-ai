@@ -46,6 +46,8 @@ export class PrismaAvailabilityRepository {
   async search(input: {
     businessId: string; serviceIds: readonly string[]; durationMinutes: number; dbNow: Date
     settings: AvailabilitySettings; professionalId?: string | null
+    /** Reprogramación: el turno que se moverá no ocupa su propio nuevo slot. */
+    excludeAppointmentId?: string
   }): Promise<{ professionals: AvailabilityProfessional[]; slots: AvailabilitySlot[] }> {
     const allProfessionals = await this.compatibleProfessionals(input)
     const professionals = input.professionalId ? allProfessionals.filter((item) => item.id === input.professionalId) : allProfessionals
@@ -67,6 +69,7 @@ export class PrismaAvailabilityRepository {
         WHERE a."professionalId" IN (${Prisma.join(professionalIds)}) AND a."startAt" < ${to}
           AND a."startAt" + make_interval(mins => a."totalDurationMinutes") > ${from}
           AND a."status" IN ('CONFIRMED'::"AppointmentStatus", 'PENDING'::"AppointmentStatus")
+          AND (${input.excludeAppointmentId ?? null}::text IS NULL OR a."id" <> ${input.excludeAppointmentId ?? null})
           AND NOT (a."status" = 'PENDING'::"AppointmentStatus" AND d."status" = 'PENDING_PROOF'::"BookingDepositStatus" AND d."expiresAt" <= ${input.dbNow})
       `)
     ])
