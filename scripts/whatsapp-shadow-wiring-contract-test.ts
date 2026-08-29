@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import Fastify from 'fastify'
-import type { ProviderEventAdmission } from '../src/bot-options/application/admit-provider-events.js'
+import type {
+  AuthoritativeWebhookAdmission,
+  ProviderEventAdmission
+} from '../src/bot-options/application/admit-provider-events.js'
 import type { BotOptionsConfig } from '../src/config/bot-options.js'
 import {
   whatsappWebhookRoutes,
@@ -98,4 +101,44 @@ assert.equal(verification.body, 'challenge-1')
 assert.equal(shadowCalls, 3, 'GET verification must not invoke shadow admission')
 
 await app.close()
+
+const authoritativeConfig: BotOptionsConfig = {
+  ...botOptionsConfig,
+  shadowAdmissionEnabled: false,
+  authoritativeProcessingEnabled: true
+}
+const authoritativeLogs: unknown[][] = []
+const originalConsoleInfo = console.info
+console.info = (...args: unknown[]) => { authoritativeLogs.push(args) }
+try {
+  const authoritativeAdmission: AuthoritativeWebhookAdmission = {
+    async routeAndAdmit() {
+      return { route: 'new', outcome: { status: 'invalid_signature' } }
+    }
+  }
+  const authoritativeApp = Fastify({ logger: false })
+  await authoritativeApp.register(whatsappWebhookRoutes, {
+    botOptionsConfig: authoritativeConfig,
+    authoritativeAdmission,
+    legacyWebhookService
+  })
+  const invalid = await authoritativeApp.inject({
+    method: 'POST',
+    url: '/webhooks/whatsapp',
+    headers: { 'content-type': 'application/json', 'x-hub-signature-256': 'sha256=invalid' },
+    payload: '{"entry":[]}'
+  })
+  assert.equal(invalid.statusCode, 403)
+  assert.equal(authoritativeLogs.length, 1, 'authoritative outcome must emit one sanitized diagnostic')
+  assert.equal(authoritativeLogs[0]?.[0], '[bot-options-authoritative-admission]')
+  assert.deepEqual(authoritativeLogs[0]?.[1], {
+    route: 'new',
+    outcome: 'invalid_signature',
+    eventCount: null,
+    insertedCount: null
+  })
+  await authoritativeApp.close()
+} finally {
+  console.info = originalConsoleInfo
+}
 console.log('OK WhatsApp shadow wiring: shadow failures and invalid outcomes preserve the legacy HTTP contract.')

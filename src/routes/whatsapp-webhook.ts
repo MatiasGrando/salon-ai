@@ -100,6 +100,15 @@ export async function whatsappWebhookRoutes(
         signatureHeader: request.headers['x-hub-signature-256'],
         traceId: request.id
       })
+      if (decision.route !== 'legacy') {
+        const outcome = decision.route === 'new' ? decision.outcome : null
+        console.info('[bot-options-authoritative-admission]', {
+          route: decision.route,
+          outcome: outcome?.status ?? null,
+          eventCount: outcome && 'eventCount' in outcome ? outcome.eventCount : null,
+          insertedCount: outcome && 'insertedCount' in outcome ? outcome.insertedCount : null
+        })
+      }
       if (decision.route === 'ambiguous') {
         return reply.status(503).send({ message: 'Ambiguous WhatsApp tenant' })
       }
