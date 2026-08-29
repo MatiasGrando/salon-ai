@@ -21,7 +21,7 @@ import {
   type BotOptionsEffectExecutionResult
 } from '../infrastructure/prisma-bot-options-effect-executor.js'
 import type { BotOptionsActionType } from '../domain/actions.js'
-import { botOptionsMetrics } from '../observability/metrics.js'
+import { botOptionsMetrics, type BotOptionsStage } from '../observability/metrics.js'
 import { PrismaHoursRepository } from '../infrastructure/prisma-hours.js'
 import { PrismaProfessionalHoursRepository } from '../infrastructure/prisma-professional-hours.js'
 import { formatBusinessWeeklySchedule, formatProfessionalWeeklySchedule, formatProfessionalListLabel } from './hours-queries.js'
@@ -42,6 +42,28 @@ import {
 
 type RuntimeClient = Pick<PrismaClient, '$queryRaw' | '$executeRaw' | '$transaction'>
 
+// Per-PROCESS_SESSION only. 10s allows a bounded recovery budget while staying
+// well below the 30s job/dispatch leases; global Prisma defaults remain unchanged.
+export const PROCESS_SESSION_TRANSACTION_OPTIONS = { maxWait: 2_000, timeout: 10_000 } as const
+
+export async function runProcessSessionTransaction<T>(
+  client: RuntimeClient,
+  operation: (tx: Prisma.TransactionClient) => Promise<T>
+): Promise<T> {
+  return client.$transaction(operation, PROCESS_SESSION_TRANSACTION_OPTIONS)
+}
+
+/** Runs post-commit work only after the interactive transaction resolved. */
+export async function runCommittedProcessSession<T>(input: {
+  client: RuntimeClient
+  operation: (tx: Prisma.TransactionClient) => Promise<T>
+  postCommit: (result: T) => void | Promise<void>
+}): Promise<T> {
+  const result = await runProcessSessionTransaction(input.client, input.operation)
+  await input.postCommit(result)
+  return result
+}
+
 export type TransitionContextProvider = (
   tx: Prisma.TransactionClient,
   input: {
@@ -53,6 +75,8 @@ export type TransitionContextProvider = (
     payload: BotOptionsActionPayload | null
     dbNow: Date
     businessTimezone: string
+    /** Phone read alongside the locked session; undefined preserves legacy lookup. */
+    conversationPhone?: string | null
   }
 ) => Promise<TransitionContext>
 
@@ -64,6 +88,18 @@ export type TransitionEffectExecutor = (
 export const unavailableEffectExecutor: TransitionEffectExecutor = async (_tx, input) => {
   if (input.effects.length > 0) {
     throw new Error(`effect executor unavailable: ${input.effects.map((effect) => effect.kind).join(',')}`)
+  }
+}
+
+async function measureSessionStage<T>(stage: Extract<BotOptionsStage, 'session_context_load' | 'session_effects' | 'session_persist_view'>, operation: () => Promise<T>): Promise<T> {
+  const startedAt = performance.now()
+  try {
+    const result = await operation()
+    botOptionsMetrics.observe(stage, performance.now() - startedAt)
+    return result
+  } catch (error) {
+    botOptionsMetrics.observe(stage, performance.now() - startedAt, 'error')
+    throw error
   }
 }
 
@@ -288,16 +324,15 @@ const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
     input.actionType === 'hours.search_availability' ||
     input.actionType === 'hours.professional_search_availability' || input.state.cart.length > 0
   if (needsCustomerIdentity) {
-    const conversationRow = await tx.$queryRaw<Array<{ phone: string | null }>>(Prisma.sql`
-      SELECT c."phone"
-      FROM "BotSession" s
-      JOIN "Conversation" c
-        ON c."id" = s."conversationId"
-       AND c."businessId" = s."businessId"
-      WHERE s."id" = ${input.sessionId}
-        AND s."businessId" = ${input.businessId}
-      LIMIT 1
-    `)
+    // PROCESS_SESSION already read this tenant-scoped phone while locking its
+    // session. Reuse that fresh statement result instead of rejoining Session.
+    const conversationRow = input.conversationPhone === undefined
+      ? await tx.$queryRaw<Array<{ phone: string | null }>>(Prisma.sql`
+          SELECT c."phone" FROM "BotSession" s
+          JOIN "Conversation" c ON c."id" = s."conversationId" AND c."businessId" = s."businessId"
+          WHERE s."id" = ${input.sessionId} AND s."businessId" = ${input.businessId} LIMIT 1
+        `)
+      : [{ phone: input.conversationPhone }]
     const phone = conversationRow[0]?.phone
     if (!phone) throw new Error('customer identity conversation unavailable in tenant')
     const canonicalPhone = normalizePhone(phone)
@@ -463,11 +498,13 @@ const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
   const needsAppointmentContext = input.actionType === 'menu.manage_appointment' ||
     input.state.flow.startsWith('APPOINTMENT') || input.actionType === 'appointment.slot_conflict' || input.actionType === 'appointment.stale'
   if (needsAppointmentContext) {
-    const identity = await tx.$queryRaw<Array<{ phone: string }>>(Prisma.sql`
-      SELECT c."phone" FROM "BotSession" s
-      JOIN "Conversation" c ON c."id" = s."conversationId" AND c."businessId" = s."businessId"
-      WHERE s."id" = ${input.sessionId} AND s."businessId" = ${input.businessId}
-    `)
+    const identity = input.conversationPhone === undefined
+      ? await tx.$queryRaw<Array<{ phone: string | null }>>(Prisma.sql`
+          SELECT c."phone" FROM "BotSession" s
+          JOIN "Conversation" c ON c."id" = s."conversationId" AND c."businessId" = s."businessId"
+          WHERE s."id" = ${input.sessionId} AND s."businessId" = ${input.businessId}
+        `)
+      : [{ phone: input.conversationPhone }]
     const canonicalPhone = identity[0]?.phone ? normalizePhone(identity[0].phone) : ''
     if (!canonicalPhone) throw new Error('appointment management identity is unavailable in tenant')
     const presentation = input.state.presentation.kind === 'appointment_list_page' ? input.state.presentation : null
@@ -620,9 +657,11 @@ async function processSessionJobInternal(input: {
   if (!dispatchToken) throw new Error('process dispatch gate closed')
   const pendingCrmEvents: InboundConversationMessageProjection[] = []
   try {
-    const result = await input.client.$transaction(async (tx) => {
-      await assertClaimedBotJobTx(tx, input.job)
-      await assertDispatchClaimTx({ tx, businessId: input.job.businessId, claimToken: dispatchToken })
+    const criticalTransactionStartedAt = performance.now()
+    try {
+      const result = await runCommittedProcessSession({ client: input.client, operation: async (tx) => {
+        await assertClaimedBotJobTx(tx, input.job)
+        await assertDispatchClaimTx({ tx, businessId: input.job.businessId, claimToken: dispatchToken })
       const sessions = await tx.$queryRaw<Array<{
         id: string; businessId: string; deploymentId: string; deploymentGeneration: number
         revision: bigint; state: Prisma.JsonValue; status: string; dbNow: Date; toPhone: string | null; conversationId: string | null
@@ -693,13 +732,11 @@ async function processSessionJobInternal(input: {
         actionType = selectedActionType
         promptId = action.promptId
         providerEventId = action.providerEventId
-        const context = await (input.contextProvider ?? defaultContextProvider)(tx, {
+        const context = await measureSessionStage('session_context_load', () => (input.contextProvider ?? defaultContextProvider)(tx, {
           businessId: session.businessId, sessionId: session.id, state: parsedState.state, actionType: selectedActionType,
-          entityRef: selectedEntityRef,
-          payload: selectedPayload,
-          dbNow: session.dbNow,
-          businessTimezone: session.businessTimezone
-        })
+          entityRef: selectedEntityRef, payload: selectedPayload, dbNow: session.dbNow,
+          businessTimezone: session.businessTimezone, conversationPhone: session.toPhone
+        }))
         transitionContext = context
         const result = transition(parsedState.state, {
           actionType: selectedActionType,
@@ -729,12 +766,12 @@ async function processSessionJobInternal(input: {
       }
 
       const operationKey = `transition:${session.id}:${session.revision + 1n}`
-      const effectResult = await (input.effectExecutor ?? prismaBotOptionsEffectExecutor)(tx, {
+      const effectResult = await measureSessionStage('session_effects', () => (input.effectExecutor ?? prismaBotOptionsEffectExecutor)(tx, {
         businessId: session.businessId, sessionId: session.id, operationKey, effects
-      })
+      }))
       if (effectResult?.kind === 'SLOT_CONFLICT') {
         if (!transitionContext) throw new Error('booking conflict has no transition context')
-        const freshContext = await (input.contextProvider ?? defaultContextProvider)(tx, {
+        const freshContext = await measureSessionStage('session_context_load', () => (input.contextProvider ?? defaultContextProvider)(tx, {
           businessId: session.businessId,
           sessionId: session.id,
           state: parsedState.state,
@@ -742,8 +779,8 @@ async function processSessionJobInternal(input: {
           entityRef: null,
           payload: null,
           dbNow: session.dbNow,
-          businessTimezone: session.businessTimezone
-        })
+          businessTimezone: session.businessTimezone, conversationPhone: session.toPhone
+        }))
         const recovery = transition(parsedState.state, {
           actionType: 'booking.slot_conflict', entityRef: null, payload: null
         }, freshContext)
@@ -764,7 +801,7 @@ async function processSessionJobInternal(input: {
       } else if (effectResult?.kind === 'APPOINTMENT_SLOT_CONFLICT' || effectResult?.kind === 'APPOINTMENT_STALE') {
         if (!transitionContext) throw new Error('appointment recovery has no transition context')
         const recoveryAction = effectResult.kind === 'APPOINTMENT_SLOT_CONFLICT' ? 'appointment.slot_conflict' : 'appointment.stale'
-        const freshContext = await (input.contextProvider ?? defaultContextProvider)(tx, {
+        const freshContext = await measureSessionStage('session_context_load', () => (input.contextProvider ?? defaultContextProvider)(tx, {
           businessId: session.businessId,
           sessionId: session.id,
           state: parsedState.state,
@@ -772,8 +809,8 @@ async function processSessionJobInternal(input: {
           entityRef: { type: 'APPOINTMENT', id: effectResult.appointmentId },
           payload: null,
           dbNow: session.dbNow,
-          businessTimezone: session.businessTimezone
-        })
+          businessTimezone: session.businessTimezone, conversationPhone: session.toPhone
+        }))
         const recovery = transition(parsedState.state, {
           actionType: recoveryAction,
           entityRef: { type: 'APPOINTMENT', id: effectResult.appointmentId },
@@ -796,9 +833,9 @@ async function processSessionJobInternal(input: {
         if (!effects.some((effect) => effect.kind === 'REQUEST_HUMAN_HANDOFF')) {
           throw new Error('appointment handoff recovery must enqueue human attention')
         }
-        await (input.effectExecutor ?? prismaBotOptionsEffectExecutor)(tx, {
+        await measureSessionStage('session_effects', () => (input.effectExecutor ?? prismaBotOptionsEffectExecutor)(tx, {
           businessId: session.businessId, sessionId: session.id, operationKey, effects
-        })
+        }))
       }
       const nextRevision = session.revision + 1n
       await tx.$executeRaw(Prisma.sql`
@@ -813,21 +850,23 @@ async function processSessionJobInternal(input: {
         VALUES (${randomUUID()}, ${session.businessId}, ${session.id}, ${session.deploymentId}, ${session.deploymentGeneration},
           ${session.revision}, ${nextRevision}, ${actionType}, ${outcome}, ${promptId}, ${providerEventId}, ${transitionDetail}::jsonb)
       `)
-      await persistView(tx, {
+      await measureSessionStage('session_persist_view', () => persistView(tx, {
         businessId: session.businessId, sessionId: session.id, revision: nextRevision,
         transitionId: operationKey, toPhone: session.toPhone, view, dbNow: session.dbNow
-      })
+      }))
       if (selected[0]) {
         await tx.$executeRaw`UPDATE "BotActionInbox" SET "status" = 'PROCESSED'::"BotInboxStatus", "operationKey" = ${operationKey} WHERE "id" = ${selected[0].id} AND "status" = 'SELECTED'::"BotInboxStatus"`
       }
       await completeDispatchClaimTx(tx, dispatchToken)
       await completeClaimedBotJobTx(tx, input.job)
       return 'PROCESSED'
-    })
-    // After-commit delivery: the CRM is notified only once the inbound Message
-    // projection is durably committed, never mid-transaction.
-    flushInboundConversationMessages(pendingCrmEvents)
-    return result
+      }, postCommit: () => flushInboundConversationMessages(pendingCrmEvents) })
+      botOptionsMetrics.observe('session_critical_transaction', performance.now() - criticalTransactionStartedAt)
+      return result
+    } catch (error) {
+      botOptionsMetrics.observe('session_critical_transaction', performance.now() - criticalTransactionStartedAt, 'error')
+      throw error
+    }
   } finally {
     await releaseDispatchClaim(input.client, dispatchToken)
   }
@@ -1159,46 +1198,82 @@ async function scheduleCurrentRecovery(client: RuntimeClient, job: ClaimedBotJob
   })
 }
 
-async function persistView(
+export function planPersistedView(input: {
+  view: BotOptionsViewModel
+  transitionId: string
+  toPhone: string
+  promptToken: string
+  idFactory: () => string
+}) {
+  const id = input.idFactory ?? randomUUID
+  const rendered = renderWhatsAppScreen(input.view, { promptToken: input.promptToken })
+  const promptId = rendered.choiceMappings.length > 0 ? id() : null
+  const choiceRows = promptId ? rendered.choiceMappings.map((choice) => ({
+    id: id(), promptId, choiceToken: choice.choiceToken, actionType: choice.actionType,
+    entityType: choice.entityType, entityId: choice.entityId, payload: choice.payload,
+    labelSnapshot: choice.labelSnapshot, sortOrder: choice.sortOrder
+  })) : []
+  const deliveryGroupId = id()
+  let sequence = 0
+  const outboxRows = rendered.items.flatMap((item) => {
+    if (item.type === 'none') return []
+    const row = {
+      id: id(), deliveryGroupId, sequence, kind: item.type, item,
+      idempotencyKey: `${input.transitionId}:${sequence}`,
+      dependsOnSequence: sequence > 0 && rendered.interactiveDependsOnPrevious ? sequence - 1 : null
+    }
+    sequence += 1
+    return [row]
+  })
+  return {
+    promptId, choiceRows, outboxRows,
+    interactiveOutboxId: promptId ? outboxRows.find((row) => row.kind === 'interactive')?.id ?? null : null
+  }
+}
+
+export async function persistView(
   tx: Prisma.TransactionClient,
-  input: { businessId: string; sessionId: string; revision: bigint; transitionId: string; toPhone: string | null; view: BotOptionsViewModel; dbNow: Date }
+  input: {
+    businessId: string; sessionId: string; revision: bigint; transitionId: string; toPhone: string | null; view: BotOptionsViewModel; dbNow: Date
+    promptToken?: string; idFactory?: () => string
+  }
 ) {
   if (!input.toPhone) throw new Error('cannot render outbox without destination phone')
   await tx.$executeRaw(Prisma.sql`
     UPDATE "BotPrompt" SET "status" = 'INVALIDATED'::"BotPromptStatus", "resolvedAt" = clock_timestamp()
     WHERE "sessionId" = ${input.sessionId} AND "status" IN ('OPEN'::"BotPromptStatus", 'STABILIZING'::"BotPromptStatus")
   `)
-  const promptToken = generatePromptToken()
-  const rendered = renderWhatsAppScreen(input.view, { promptToken })
-  const promptId = rendered.choiceMappings.length > 0 ? randomUUID() : null
-  if (promptId) {
+  const promptToken = input.promptToken ?? generatePromptToken()
+  const plan = planPersistedView({
+    view: input.view, transitionId: input.transitionId, toPhone: input.toPhone, promptToken, idFactory: input.idFactory ?? randomUUID
+  })
+  if (plan.promptId) {
     await tx.$executeRaw(Prisma.sql`
       INSERT INTO "BotPrompt" ("id", "sessionId", "promptToken", "stateRevision", "mode", "status", "openedAt")
-      VALUES (${promptId}, ${input.sessionId}, ${promptToken}, ${input.revision}, 'FUNCTIONAL'::"BotPromptMode", 'OPEN'::"BotPromptStatus", ${input.dbNow})
+      VALUES (${plan.promptId}, ${input.sessionId}, ${promptToken}, ${input.revision}, 'FUNCTIONAL'::"BotPromptMode", 'OPEN'::"BotPromptStatus", ${input.dbNow})
     `)
-    for (const choice of rendered.choiceMappings) {
+    if (plan.choiceRows.length > 0) {
       await tx.$executeRaw(Prisma.sql`
         INSERT INTO "BotPromptChoice" ("id", "promptId", "choiceToken", "actionType", "entityType", "entityId", "payload", "labelSnapshot", "sortOrder")
-        VALUES (${randomUUID()}, ${promptId}, ${choice.choiceToken}, ${choice.actionType}, ${choice.entityType}, ${choice.entityId},
-          ${choice.payload === null ? null : JSON.stringify(choice.payload)}::jsonb, ${choice.labelSnapshot}, ${choice.sortOrder})
+        VALUES ${Prisma.join(plan.choiceRows.map((choice) => Prisma.sql`(
+          ${choice.id}, ${choice.promptId}, ${choice.choiceToken}, ${choice.actionType}, ${choice.entityType}, ${choice.entityId},
+          ${choice.payload === null ? null : JSON.stringify(choice.payload)}::jsonb, ${choice.labelSnapshot}, ${choice.sortOrder}
+        )`))}
       `)
     }
   }
-  const deliveryGroupId = randomUUID()
-  let sequence = 0
-  for (const item of rendered.items) {
-    if (item.type === 'none') continue
-    const id = randomUUID()
+  if (plan.outboxRows.length > 0) {
     await tx.$executeRaw(Prisma.sql`
       INSERT INTO "BotOutbox" ("id", "businessId", "sessionId", "transitionId", "deliveryGroupId", "sequence", "kind", "payload",
         "idempotencyKey", "status", "dependsOnSequence", "availableAt", "updatedAt")
-      VALUES (${id}, ${input.businessId}, ${input.sessionId}, ${input.transitionId}, ${deliveryGroupId}, ${sequence}, ${item.type},
-        ${JSON.stringify({ to: input.toPhone, item })}::jsonb, ${`${input.transitionId}:${sequence}`}, 'PENDING'::"BotOutboxStatus",
-        ${sequence > 0 && rendered.interactiveDependsOnPrevious ? sequence - 1 : null}, ${input.dbNow}, clock_timestamp())
+      VALUES ${Prisma.join(plan.outboxRows.map((row) => Prisma.sql`(
+        ${row.id}, ${input.businessId}, ${input.sessionId}, ${input.transitionId}, ${row.deliveryGroupId}, ${row.sequence}, ${row.kind},
+        ${JSON.stringify({ to: input.toPhone, item: row.item })}::jsonb, ${row.idempotencyKey}, 'PENDING'::"BotOutboxStatus",
+        ${row.dependsOnSequence}, ${input.dbNow}, clock_timestamp()
+      )`))}
     `)
-    if (item.type === 'interactive' && promptId) {
-      await tx.$executeRaw`UPDATE "BotPrompt" SET "outboxMessageId" = ${id} WHERE "id" = ${promptId}`
-    }
-    sequence += 1
+  }
+  if (plan.promptId && plan.interactiveOutboxId) {
+    await tx.$executeRaw`UPDATE "BotPrompt" SET "outboxMessageId" = ${plan.interactiveOutboxId} WHERE "id" = ${plan.promptId}`
   }
 }

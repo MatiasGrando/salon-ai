@@ -3,6 +3,10 @@ import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
 export type BotOptionsStage =
   | 'webhook_ack'
   | 'admitted_to_claim'
+  | 'session_context_load'
+  | 'session_effects'
+  | 'session_persist_view'
+  | 'session_critical_transaction'
   | 'transition_execution'
   | 'outbox_wait'
   | 'meta_request'
@@ -69,6 +73,10 @@ export class BotOptionsMetrics {
   readonly #durations: Record<BotOptionsStage, Histogram> = {
     webhook_ack: emptyHistogram(),
     admitted_to_claim: emptyHistogram(),
+    session_context_load: emptyHistogram(),
+    session_effects: emptyHistogram(),
+    session_persist_view: emptyHistogram(),
+    session_critical_transaction: emptyHistogram(),
     transition_execution: emptyHistogram(),
     outbox_wait: emptyHistogram(),
     meta_request: emptyHistogram(),
