@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { resolveF11PgContractDatabase } from './f11-pg-contract-database.js'
 import type { DispatchPauseHandle } from '../src/bot-options/infrastructure/prisma-activation.js'
 
@@ -104,7 +104,7 @@ async function assertProtectedCategoriesBlock() {
   await abort(handoffResult); await clearRuntimeRows()
 
   const legacyId = id('legacy-handoff')
-  await prisma.$executeRaw(Prisma.sql`INSERT INTO "Conversation" ("id","businessId","phone","currentStep") VALUES (${legacyId},${businessId},${id('legacy-phone')},'HUMAN_HANDOFF'::"ConversationStep")`)
+  await prisma.$executeRaw(Prisma.sql`INSERT INTO "Conversation" ("id","businessId","phone","currentStep","updatedAt") VALUES (${legacyId},${businessId},${id('legacy-phone')},'HUMAN_HANDOFF'::"ConversationStep",clock_timestamp())`)
   const legacyResult = await begin()
   assert.equal(legacyResult.kind, 'BLOCKED'); assert.equal(legacyResult.snapshot.legacyProtected[0]?.id, legacyId)
   await abort(legacyResult)
@@ -137,6 +137,7 @@ async function assertFinancialStatesAndConfirmedWithoutProcess() {
     await tx.$executeRaw(Prisma.sql`INSERT INTO "Service" ("id","businessId","name","duration") VALUES (${serviceId},${businessId},'F11.1 service',30)`)
     await tx.$executeRaw(Prisma.sql`INSERT INTO "BookingVisit" ("id","businessId","customerId","professionalId","sessionId","status","scheduledStartAt","totalDurationMinutes","holdExpiresAt","updatedAt") VALUES (${visitId},${businessId},${customerId},${professionalId},${sessionId},'HELD'::"BookingVisitStatus",clock_timestamp()+interval '1 day',30,clock_timestamp()+interval '1 hour',clock_timestamp())`)
     await tx.$executeRaw(Prisma.sql`INSERT INTO "Appointment" ("id","customerId","professionalId","serviceId","visitId","startAt","totalDurationMinutes","status") VALUES (${appointmentId},${customerId},${professionalId},${serviceId},${visitId},clock_timestamp()+interval '1 day',30,'PENDING'::"AppointmentStatus")`)
+    await tx.$executeRaw(Prisma.sql`INSERT INTO "AppointmentServiceItem" ("appointmentId","serviceId","sortOrder","durationMinutes","price") VALUES (${appointmentId},${serviceId},0,30,1)`)
   })
   const holdResult = await begin()
   assert.equal(holdResult.kind, 'BLOCKED'); assert.equal(holdResult.snapshot.holds[0]?.id, visitId)
@@ -145,11 +146,21 @@ async function assertFinancialStatesAndConfirmedWithoutProcess() {
   const confirmedResult = await begin()
   assert.equal(confirmedResult.kind, 'CLEAN', 'a confirmed visit without active process must not block cutover')
   await abort(confirmedResult)
-  await prisma.$executeRaw(Prisma.sql`INSERT INTO "BookingDeposit" ("id","businessId","appointmentId","visitId","mode","configuredValue","amount","status","expiresAt","updatedAt") VALUES (${depositId},${businessId},${appointmentId},${visitId},'FIXED'::"ServiceDepositMode",1,1,'PENDING_PROOF'::"BookingDepositStatus",clock_timestamp()+interval '1 hour',clock_timestamp())`)
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw(Prisma.sql`INSERT INTO "BookingDeposit" ("id","businessId","appointmentId","visitId","mode","configuredValue","amount","status","expiresAt","holdTtlMinutes","holdTtlProvenance","updatedAt") VALUES (${depositId},${businessId},${appointmentId},${visitId},'FIXED'::"ServiceDepositMode",1,1,'PENDING_PROOF'::"BookingDepositStatus",clock_timestamp()+interval '2 hours',120,'DEFAULT_120'::"BookingDepositTtlProvenance",clock_timestamp())`)
+    await tx.$executeRaw(Prisma.sql`INSERT INTO "BookingDepositLine" ("id","businessId","depositId","serviceId","sortOrder","serviceName","mode","configuredValue","baseAmount","amount") VALUES (${id('deposit-line-financial')},${businessId},${depositId},${serviceId},0,'F11.1 service','FIXED'::"ServiceDepositMode",1,NULL,1)`)
+    await tx.$executeRaw(Prisma.sql`UPDATE "BookingDeposit" SET "snapshotSealedAt"=clock_timestamp() WHERE "id"=${depositId}`)
+  })
   const depositResult = await begin()
   assert.equal(depositResult.kind, 'BLOCKED'); assert.equal(depositResult.snapshot.deposits[0]?.id, depositId)
   await abort(depositResult)
-  await prisma.$executeRaw(Prisma.sql`UPDATE "BookingDeposit" SET "status"='APPROVED'::"BookingDepositStatus" WHERE "id"=${depositId}`)
+  const proofBytes = Buffer.from('f11.1 approved deposit proof')
+  const proofHash = createHash('sha256').update(proofBytes).digest('hex')
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw(Prisma.sql`INSERT INTO "BookingDepositProof" ("id","businessId","depositId","sequence","kind","validatorVersion","validatedAt","receivedAt","sourceData","sourceMimeType","sourceFilename","sourceByteSize","sourceSha256","derivedData","derivedMimeType","derivedByteSize","derivedSha256","retentionEligibleAt") VALUES (${id('deposit-proof-financial')},${businessId},${depositId},1,'INITIAL'::"BookingDepositProofKind",'f11.1-contract',clock_timestamp(),clock_timestamp(),${proofBytes},'image/png','proof.png',${proofBytes.length},${proofHash},${proofBytes},'image/webp',${proofBytes.length},${proofHash},clock_timestamp()+interval '12 months')`)
+    await tx.$executeRaw(Prisma.sql`UPDATE "BookingDeposit" SET "status"='PROOF_RECEIVED'::"BookingDepositStatus","updatedAt"=clock_timestamp() WHERE "id"=${depositId}`)
+    await tx.$executeRaw(Prisma.sql`UPDATE "BookingDeposit" SET "status"='APPROVED'::"BookingDepositStatus","reviewedAt"=clock_timestamp(),"reviewedByUserId"=${actorId},"updatedAt"=clock_timestamp() WHERE "id"=${depositId}`)
+  })
   // A completed normal legacy journal is audit/idempotency evidence, not an
   // unresolved paused receipt. It must not turn every future F11 preflight
   // into protected state.

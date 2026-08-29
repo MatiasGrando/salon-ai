@@ -394,8 +394,17 @@ export async function startActivationPreflight(input: {
   limit?: number
 }): Promise<ActivationPreflightResult> {
   const handle = await pauseDispatchScope(input)
-  const quiescence = await waitForDispatchQuiescence({ client: input.client, handle, timeoutMs: input.timeoutMs, pollMs: input.pollMs })
-  const snapshot = await collectActivationPreflight({ client: input.client, handle, limit: input.limit })
+  const quiescence = await waitForDispatchQuiescence({
+    client: input.client,
+    handle,
+    ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }),
+    ...(input.pollMs === undefined ? {} : { pollMs: input.pollMs })
+  })
+  const snapshot = await collectActivationPreflight({
+    client: input.client,
+    handle,
+    ...(input.limit === undefined ? {} : { limit: input.limit })
+  })
   if (quiescence.kind === 'BLOCKED_UNKNOWN' || snapshot.unknown.length > 0) {
     await auditActivationPreflight(input.client, handle, input.actorId, snapshot, 'BLOCKED_UNKNOWN')
     return { kind: 'BLOCKED', handle, snapshot, reason: 'UNKNOWN' }
@@ -435,5 +444,134 @@ export async function resumeDispatchScope(input: {
       VALUES (${randomUUID()}, ${input.handle.businessId}, 'DISPATCH_RESUMED', ${input.handle.generation}, ${input.actorId},
         ${JSON.stringify({ fenceEpoch: input.handle.fenceEpoch })}::jsonb)
     `)
+  })
+}
+
+export type RoutingSwitchResult = {
+  kind: 'SWITCHED'
+  deploymentId: string
+  generation: number
+  engineKey: 'deterministic-options' | 'legacy-whatsapp'
+  activeConfigurationId: string | null
+  previousConfigurationId: string | null
+}
+
+export async function assertActivatableConfiguration(input: {
+  client: ActivationClient
+  businessId: string
+  configurationId: string
+}): Promise<void> {
+  await input.client.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT "id" FROM "BusinessBotConfiguration"
+      WHERE "id"=${input.configurationId} AND "businessId"=${input.businessId}
+        AND "status"='ACTIVE' AND "routingMode"='EXCLUSIVE'
+      FOR SHARE
+    `)
+    if (rows.length !== 1) throw new Error('activation target must be one ACTIVE EXCLUSIVE configuration in the same business')
+  })
+}
+
+/**
+ * F11.2/F11.3 final commit. The paused fence, protected-state recheck,
+ * disposable-runtime invalidation, pointer mutation and audit are one atomic
+ * unit. A failed recheck deliberately leaves the already committed pause in
+ * place for operator inspection; it never resumes an unsafe scope.
+ */
+export async function switchPausedRouting(input: {
+  client: ActivationClient
+  handle: DispatchPauseHandle
+  actorId: string
+  action: 'ACTIVATE' | 'ROLLBACK'
+  targetConfigurationId: string | null
+}): Promise<RoutingSwitchResult> {
+  if (!input.actorId.trim()) throw new Error('routing switch requires actor')
+  return input.client.$transaction(async (tx) => {
+    await tx.$executeRaw(Prisma.sql`
+      SELECT pg_advisory_xact_lock(hashtextextended(${lockKey(input.handle.businessId)}, 0))
+    `)
+    const scopes = await tx.$queryRaw<Array<{ id: string; engineKey: string; activeConfigurationId: string | null }>>(Prisma.sql`
+      SELECT "id", "engineKey", "activeConfigurationId"
+      FROM "BotChannelDeployment"
+      WHERE "id"=${input.handle.deploymentId} AND "businessId"=${input.handle.businessId}
+        AND "channel"='WHATSAPP'::"BotChannel" AND "generation"=${input.handle.generation}
+        AND "dispatchFenceEpoch"=${input.handle.fenceEpoch} AND "claimsPausedAt"=${input.handle.pausedAt}
+        AND "legacyDispatchCoverageVersion">=1
+      FOR UPDATE
+    `)
+    if (scopes.length !== 1) throw new Error('stale dispatch pause handle')
+
+    if (input.targetConfigurationId !== null) {
+      const targets = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT "id" FROM "BusinessBotConfiguration"
+        WHERE "id"=${input.targetConfigurationId} AND "businessId"=${input.handle.businessId}
+          AND "status"='ACTIVE' AND "routingMode"='EXCLUSIVE'
+        FOR SHARE
+      `)
+      if (targets.length !== 1) throw new Error('activation target must be one ACTIVE EXCLUSIVE configuration in the same business')
+    }
+
+    const protectedRows = await tx.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
+      SELECT (
+        (SELECT count(*) FROM "LegacyWhatsAppCutoverInbound" WHERE "businessId"=${input.handle.businessId} AND "status" IN ('PAUSED_ADMITTED'::"LegacyWhatsAppCutoverInboundStatus",'NORMAL_CLAIMED'::"LegacyWhatsAppCutoverInboundStatus",'NORMAL_SENDING'::"LegacyWhatsAppCutoverInboundStatus",'NORMAL_UNKNOWN'::"LegacyWhatsAppCutoverInboundStatus"))
+        + (SELECT count(*) FROM "BotActionInbox" WHERE "businessId"=${input.handle.businessId} AND "status" IN ('ADMITTED'::"BotInboxStatus",'CLAIMED'::"BotInboxStatus",'SELECTED'::"BotInboxStatus"))
+        + (SELECT count(*) FROM "BotJob" WHERE "businessId"=${input.handle.businessId} AND "status" IN ('READY'::"BotJobStatus",'LEASED'::"BotJobStatus",'RETRY'::"BotJobStatus",'POISON'::"BotJobStatus"))
+        + (SELECT count(*) FROM "BotOutbox" WHERE "businessId"=${input.handle.businessId} AND "status" IN ('PENDING'::"BotOutboxStatus",'CLAIMED'::"BotOutboxStatus",'SENDING'::"BotOutboxStatus",'UNKNOWN'::"BotOutboxStatus",'RETRY'::"BotOutboxStatus",'POISON'::"BotOutboxStatus"))
+        + (SELECT count(*) FROM "BotDispatchClaim" WHERE "businessId"=${input.handle.businessId} AND "status" IN ('CLAIMED'::"BotDispatchStatus",'SENDING'::"BotDispatchStatus",'UNKNOWN'::"BotDispatchStatus"))
+        + (SELECT count(*) FROM "BookingVisit" WHERE "businessId"=${input.handle.businessId} AND "status" IN ('HELD'::"BookingVisitStatus",'PENDING_PAYMENT_REVIEW'::"BookingVisitStatus"))
+        + (SELECT count(*) FROM "BookingDeposit" WHERE "businessId"=${input.handle.businessId} AND "status" IN ('PENDING_PROOF'::"BookingDepositStatus",'PENDING_RESUBMISSION'::"BookingDepositStatus",'PROOF_RECEIVED'::"BookingDepositStatus"))
+        + (SELECT count(*) FROM "BotHandoff" WHERE "businessId"=${input.handle.businessId} AND "status" IN ('QUEUED'::"BotHandoffStatus",'TAKEN'::"BotHandoffStatus"))
+        + (SELECT count(*) FROM "Conversation" WHERE "businessId"=${input.handle.businessId} AND "archivedAt" IS NULL AND "currentStep" IN ('AWAITING_DEPOSIT'::"ConversationStep",'HUMAN_HANDOFF'::"ConversationStep"))
+      ) AS "count"
+    `)
+    if ((protectedRows[0]?.count ?? 0n) > 0n) throw new Error('routing switch blocked: protected state changed after preflight')
+
+    await tx.$executeRaw(Prisma.sql`
+      UPDATE "BotPrompt" p SET "status"='INVALIDATED'::"BotPromptStatus", "resolvedAt"=clock_timestamp()
+      FROM "BotSession" s
+      WHERE p."sessionId"=s."id" AND s."businessId"=${input.handle.businessId}
+        AND p."status" IN ('OPEN'::"BotPromptStatus",'STABILIZING'::"BotPromptStatus")
+    `)
+    await tx.$executeRaw(Prisma.sql`
+      UPDATE "BotSession" SET "status"='CLOSED'::"BotSessionStatus", "updatedAt"=clock_timestamp()
+      WHERE "businessId"=${input.handle.businessId} AND "status"='ACTIVE'::"BotSessionStatus"
+    `)
+    await tx.$executeRaw(Prisma.sql`
+      UPDATE "Conversation" SET "currentStep"='START'::"ConversationStep",
+        "selectedServiceId"=NULL,"selectedProfessionalId"=NULL,"selectedDate"=NULL,"selectedTime"=NULL,
+        "selectedCustomerName"=NULL,"lastAvailability"=NULL,"bookingV2State"=NULL,
+        "botProcessingToken"=NULL,"botProcessingUntil"=NULL,"activeInteractivePromptToken"=NULL,
+        "updatedAt"=clock_timestamp()
+      WHERE "businessId"=${input.handle.businessId} AND "archivedAt" IS NULL
+        AND "currentStep" NOT IN ('START'::"ConversationStep",'COMPLETED'::"ConversationStep",'AWAITING_DEPOSIT'::"ConversationStep",'HUMAN_HANDOFF'::"ConversationStep")
+    `)
+
+    const previousConfigurationId = scopes[0]!.activeConfigurationId
+    const engineKey = input.targetConfigurationId === null ? 'legacy-whatsapp' : 'deterministic-options'
+    const switched = await tx.$queryRaw<Array<{ generation: number }>>(Prisma.sql`
+      UPDATE "BotChannelDeployment" SET
+        "engineKey"=${engineKey},
+        "previousConfigurationId"=${previousConfigurationId},
+        "activeConfigurationId"=${input.targetConfigurationId},
+        "generation"="generation"+1,
+        "activatedAt"=clock_timestamp(),
+        "activatedByUserId"=${input.actorId},
+        "claimsPausedAt"=NULL,
+        "updatedAt"=clock_timestamp()
+      WHERE "id"=${input.handle.deploymentId} AND "generation"=${input.handle.generation}
+        AND "dispatchFenceEpoch"=${input.handle.fenceEpoch} AND "claimsPausedAt"=${input.handle.pausedAt}
+      RETURNING "generation"
+    `)
+    if (switched.length !== 1) throw new Error('routing switch lost paused fence')
+    const generation = switched[0]!.generation
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO "BotDeploymentAudit" ("id","businessId","action","previousConfigId","newConfigId","generation","actorUserId","detail")
+      VALUES (${randomUUID()},${input.handle.businessId},${input.action},${previousConfigurationId},${input.targetConfigurationId},${generation},${input.actorId},
+        ${JSON.stringify({ previousEngineKey: scopes[0]!.engineKey, newEngineKey: engineKey, fenceEpoch: input.handle.fenceEpoch })}::jsonb)
+    `)
+    return {
+      kind: 'SWITCHED', deploymentId: input.handle.deploymentId, generation, engineKey,
+      activeConfigurationId: input.targetConfigurationId, previousConfigurationId
+    }
   })
 }

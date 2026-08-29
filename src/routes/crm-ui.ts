@@ -16387,15 +16387,15 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               <input id="booking-v2-toggle" type="checkbox">
               <span class="automation-switch" aria-hidden="true"></span>
             </label>
-            <label class="automation-control" id="tamara-options-bot-control" hidden>
-              <div class="automation-copy">
-                <strong>Bot de opciones de Tamara</strong>
-                <span>Activa el men&uacute; exclusivo para reservas, consultas, propuestas y derivaciones del perfil de Tamara.</span>
-                <small id="tamara-options-bot-status">Disponible</small>
-              </div>
-              <input id="tamara-options-bot-toggle" type="checkbox">
-              <span class="automation-switch" aria-hidden="true"></span>
-            </label>
+            <div class="settings-field full" id="bot-routing-control" hidden>
+              <label for="bot-routing-selector">Motor exclusivo de WhatsApp</label>
+              <select class="field" id="bot-routing-selector">
+                <option value="legacy-whatsapp">Bot actual (legacy)</option>
+              </select>
+              <small id="bot-routing-status">Routing actual: bot legacy</small>
+              <button class="secondary" id="bot-routing-preflight" type="button">Revisar y cambiar routing</button>
+              <p class="settings-feedback" id="bot-routing-evidence" role="status"></p>
+            </div>
             </div>
             <div class="assistant-personality-grid">
               <div class="settings-field full">
@@ -17457,6 +17457,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         },
         assistantPersonalityPreview: ''
       },
+      botRouting: null,
       pendingProfessionalSave: null,
       professionalStatusFilter: 'all',
       professionalViewMode: 'cards',
@@ -17630,9 +17631,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       globalBotToggle: document.getElementById('global-bot-toggle'),
       globalAiToggle: document.getElementById('global-ai-toggle'),
       bookingV2Toggle: document.getElementById('booking-v2-toggle'),
-      tamaraOptionsBotControl: document.getElementById('tamara-options-bot-control'),
-      tamaraOptionsBotToggle: document.getElementById('tamara-options-bot-toggle'),
-      tamaraOptionsBotStatus: document.getElementById('tamara-options-bot-status'),
+      botRoutingControl: document.getElementById('bot-routing-control'),
+      botRoutingSelector: document.getElementById('bot-routing-selector'),
+      botRoutingStatus: document.getElementById('bot-routing-status'),
+      botRoutingPreflight: document.getElementById('bot-routing-preflight'),
+      botRoutingEvidence: document.getElementById('bot-routing-evidence'),
       globalBotStatus: document.getElementById('global-bot-status'),
       globalAiStatus: document.getElementById('global-ai-status'),
       bookingV2Status: document.getElementById('booking-v2-status'),
@@ -20096,7 +20099,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.instagramSettings = state.businessId && !isStaff && !isSalesAdminDemo
         ? await getJson('/businesses/' + state.businessId + '/instagram-settings')
         : null
-      if (!isStaff) state.aiSettings = await getJson('/crm/ai-settings' + businessQuery)
+      if (!isStaff) {
+        state.aiSettings = await getJson('/crm/ai-settings' + businessQuery)
+        state.botRouting = state.businessId
+          ? await getJson('/crm/bot-routing?businessId=' + encodeURIComponent(state.businessId))
+          : null
+      }
       state.professionals = await getJson('/professionals' + lightweightCatalogQuery)
       await loadStaffUsers()
       state.serviceCategories = await getJson('/service-categories' + businessQuery)
@@ -22828,11 +22836,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.globalAiStatus.className = state.aiSettings.aiEnabled === false ? 'basic' : ''
       els.bookingV2Status.textContent = state.aiSettings.bookingV2Enabled === true ? 'Booking V2' : 'Bot actual'
       els.bookingV2Status.className = state.aiSettings.bookingV2Enabled === true ? '' : 'basic'
-      const tamaraBot = state.aiSettings.tamaraOptionsBot || { available: false, enabled: false }
-      els.tamaraOptionsBotControl.hidden = tamaraBot.available !== true
-      els.tamaraOptionsBotToggle.checked = tamaraBot.enabled === true
-      els.tamaraOptionsBotStatus.textContent = tamaraBot.enabled === true ? 'Activo en WhatsApp' : 'Disponible para habilitar'
-      els.tamaraOptionsBotStatus.className = tamaraBot.enabled === true ? '' : 'basic'
+      renderBotRoutingControl()
       els.serviceCatalogDisplayMode.value = state.aiSettings.serviceCatalogDisplayMode || 'ALL_SERVICES'
       els.bookingFlowOrder.value = state.aiSettings.bookingFlowOrder || 'PROFESSIONAL_FIRST'
       updateServiceCatalogDisplayHelp()
@@ -23666,26 +23670,96 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
     }
 
-    async function toggleTamaraOptionsBot() {
-      const nextValue = els.tamaraOptionsBotToggle.checked
-      clearAutomationSettingsFeedback()
-      els.tamaraOptionsBotToggle.disabled = true
+    function renderBotRoutingControl() {
+      const routing = state.botRouting
+      els.botRoutingControl.hidden = !routing
+      if (!routing) return
+      const selected = routing.engineKey === 'deterministic-options' && routing.activeConfigurationId
+        ? routing.activeConfigurationId
+        : 'legacy-whatsapp'
+      els.botRoutingSelector.replaceChildren()
+      const legacyOption = document.createElement('option')
+      legacyOption.value = 'legacy-whatsapp'
+      legacyOption.textContent = 'Bot actual (legacy)'
+      els.botRoutingSelector.appendChild(legacyOption)
+      for (const configuration of routing.configurations || []) {
+        const option = document.createElement('option')
+        option.value = configuration.id
+        option.textContent = configuration.name + ' · ' + configuration.version
+        els.botRoutingSelector.appendChild(option)
+      }
+      els.botRoutingSelector.value = selected
+      els.botRoutingStatus.textContent = routing.paused
+        ? 'Routing pausado: requiere resolución operativa'
+        : 'Routing actual: ' + (selected === 'legacy-whatsapp' ? 'bot legacy' : 'motor de opciones') + ' · generación ' + routing.generation
+      els.botRoutingStatus.className = routing.paused ? 'paused' : ''
+      els.botRoutingPreflight.disabled = routing.paused === true
+    }
+
+    function routingCountsText(counts = {}) {
+      const labels = { drafts: 'borradores nuevos', legacyDrafts: 'borradores legacy', legacyProtected: 'estados legacy protegidos', inbox: 'acciones', jobs: 'trabajos', outbox: 'envíos', holds: 'retenciones', deposits: 'señas', handoffs: 'derivaciones', unknown: 'estados UNKNOWN' }
+      return Object.entries(labels).map(([key, label]) => label + ': ' + (counts[key] || '0')).join(' · ')
+    }
+
+    async function abortBotRoutingPreflight(handle) {
+      return getJson('/crm/bot-routing/abort', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ businessId: state.businessId, handle })
+      })
+    }
+
+    async function changeBotRouting() {
+      const routing = state.botRouting
+      const target = els.botRoutingSelector.value
+      if (!routing || !target) return
+      const currentTarget = routing.engineKey === 'deterministic-options' && routing.activeConfigurationId ? routing.activeConfigurationId : 'legacy-whatsapp'
+      if (target === currentTarget) {
+        els.botRoutingEvidence.textContent = 'Ese motor ya tiene el routing exclusivo.'
+        els.botRoutingEvidence.className = 'settings-feedback visible'
+        return
+      }
+      els.botRoutingPreflight.disabled = true
+      els.botRoutingEvidence.textContent = 'Pausando admisión y verificando estados protegidos...'
+      els.botRoutingEvidence.className = 'settings-feedback visible'
+      let preflight = null
       try {
-        state.aiSettings = await getJson('/crm/ai-settings', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            businessId: state.businessId,
-            tamaraOptionsBotEnabled: nextValue
-          })
+        preflight = await getJson('/crm/bot-routing/preflight', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ businessId: state.businessId, expectedGeneration: routing.generation, target })
         })
-        renderAiControls()
-        showAutomationSettingsFeedback(nextValue ? 'Bot de opciones de Tamara activo.' : 'Bot de opciones de Tamara desactivado.', 'success')
+        const evidence = routingCountsText(preflight.snapshot && preflight.snapshot.counts)
+        if (preflight.kind !== 'CLEAN') {
+          els.botRoutingEvidence.textContent = 'Cambio bloqueado (' + preflight.reason + '). ' + evidence
+          els.botRoutingEvidence.className = 'settings-feedback visible error'
+          try { await abortBotRoutingPreflight(preflight.handle) } catch (_) {}
+          return
+        }
+        const accepted = await requestCrmConfirmation(
+          'El preflight quedó limpio. Se descartarán sólo estados no protegidos. ' + evidence,
+          { title: 'Confirmar cambio exclusivo de routing', confirmLabel: 'Sí, cambiar routing', danger: target === 'legacy-whatsapp' }
+        )
+        if (!accepted) {
+          await abortBotRoutingPreflight(preflight.handle)
+          els.botRoutingEvidence.textContent = 'Cambio cancelado; el routing fue reanudado sin modificaciones.'
+          els.botRoutingEvidence.className = 'settings-feedback visible'
+          return
+        }
+        await getJson('/crm/bot-routing/commit', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ businessId: state.businessId, target, handle: preflight.handle, confirmation: 'CONFIRM_ROUTING_CHANGE' })
+        })
+        state.botRouting = await getJson('/crm/bot-routing?businessId=' + encodeURIComponent(state.businessId))
+        renderBotRoutingControl()
+        els.botRoutingEvidence.textContent = 'Routing actualizado y auditado correctamente.'
+        els.botRoutingEvidence.className = 'settings-feedback visible success'
       } catch (error) {
-        renderAiControls()
-        showAutomationSettingsFeedback(error.message, 'error')
+        if (preflight?.kind === 'CLEAN') {
+          try { await abortBotRoutingPreflight(preflight.handle) } catch (_) {}
+        }
+        els.botRoutingEvidence.textContent = error.message
+        els.botRoutingEvidence.className = 'settings-feedback visible error'
       } finally {
-        els.tamaraOptionsBotToggle.disabled = false
+        els.botRoutingPreflight.disabled = state.botRouting?.paused === true
       }
     }
 
@@ -31549,7 +31623,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     els.globalBotToggle.addEventListener('change', toggleGlobalBot)
     els.globalAiToggle.addEventListener('change', toggleGlobalAi)
     els.bookingV2Toggle.addEventListener('change', toggleBookingV2)
-    els.tamaraOptionsBotToggle.addEventListener('change', toggleTamaraOptionsBot)
+    els.botRoutingPreflight.addEventListener('click', changeBotRouting)
     els.automationSettingsForm.addEventListener('submit', saveAutomationSettings)
     els.serviceCatalogDisplayMode.addEventListener('change', updateServiceCatalogDisplayHelp)
     els.assistantPersonalityForm.addEventListener('submit', saveAssistantPersonality)

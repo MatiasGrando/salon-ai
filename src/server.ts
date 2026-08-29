@@ -11,6 +11,7 @@ import { professionalHoursRoutes } from './routes/professional-hours.js'
 import { availabilityRoutes } from './routes/availability.js'
 import { chatRoutes } from './routes/chat.js'
 import { crmRoutes } from './routes/crm.js'
+import { businessBotRoutingRoutes } from './routes/business-bot-routing.js'
 import { crmUiRoutes } from './routes/crm-ui.js'
 import { landingUiRoutes } from './routes/landing-ui.js'
 import { tamaraSiteRoutes } from './routes/tamara-site.js'
@@ -131,6 +132,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(availabilityRoutes)
   await app.register(chatRoutes)
   await app.register(crmRoutes, { sseRecorder: baseline.sseRecorder })
+  await app.register(businessBotRoutingRoutes)
   await app.register(campaignRoutes)
   await app.register(postSaleRoutes)
   await app.register(reportRoutes)

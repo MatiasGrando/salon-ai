@@ -1,0 +1,9 @@
+.git/
+.env
+.env.*
+node_modules/
+.codex-remote-attachments/
+.atl/
+*.log
+Invoke-LocalF8F10Drill.ps1
+measurements/

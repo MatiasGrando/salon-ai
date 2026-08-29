@@ -160,7 +160,7 @@ export function canStaffAccessRoute(user: StaffAuthorizationUser, method: string
   const verb = method.toUpperCase()
 
   if (path.startsWith('/staff-users') || path.startsWith('/admin/') || path.startsWith('/businesses') && verb !== 'GET') return false
-  if (/^\/businesses\/[^/]+\/(?:whatsapp|instagram|payment)(?:-|\/)/.test(path) || path.startsWith('/crm/ai-settings') || path.startsWith('/crm/maintenance')) return false
+  if (/^\/businesses\/[^/]+\/(?:whatsapp|instagram|payment)(?:-|\/)/.test(path) || path.startsWith('/crm/ai-settings') || path.startsWith('/crm/bot-routing') || path.startsWith('/crm/maintenance')) return false
   if (path.startsWith('/campaign') || path.startsWith('/whatsapp-template') || path.startsWith('/reminder-') || path.startsWith('/post-sale')) return false
   if (path.startsWith('/professionals') || path.startsWith('/services') || path.startsWith('/service-categories') || path.startsWith('/professional-hours') || path.startsWith('/business-hours')) {
     return verb === 'GET'

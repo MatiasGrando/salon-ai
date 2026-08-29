@@ -204,8 +204,12 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
     const startedAt = performance.now()
     try {
       const result = await this.#client.$transaction(async (tx) => {
-      await tx.$executeRaw`SET LOCAL lock_timeout = '50ms'`
-      await tx.$executeRaw`SET LOCAL statement_timeout = '120ms'`
+      // Keep enough room inside the fixed 175 ms Prisma transaction budget for
+      // short same-tenant burst contention without turning a healthy durable
+      // enqueue into a retryable 55P03. The statement remains bounded below
+      // the HTTP ACK SLO and below Prisma's outer timeout.
+      await tx.$executeRaw`SET LOCAL lock_timeout = '100ms'`
+      await tx.$executeRaw`SET LOCAL statement_timeout = '150ms'`
       await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(hashtextextended(${`bot-cutover:${input.route.businessId}:WHATSAPP`}, 0))`
 
       const current = await tx.$queryRaw<Array<{ id: string; generation: number }>>(Prisma.sql`
