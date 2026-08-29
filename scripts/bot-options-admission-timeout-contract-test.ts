@@ -4,8 +4,8 @@ import {
   PrismaAuthoritativeAdmissionRepository
 } from '../src/bot-options/infrastructure/prisma-admission.js'
 
-assert.equal(DEFAULT_AUTHORITATIVE_TRANSACTION_TIMEOUT_MS, 175,
-  'production authoritative admission transaction timeout must remain 175ms')
+assert.equal(DEFAULT_AUTHORITATIVE_TRANSACTION_TIMEOUT_MS, 2_000,
+  'production authoritative admission transaction timeout must cover measured cross-region database latency')
 
 let observedDefaultTimeout: number | undefined
 const transactionClient = {

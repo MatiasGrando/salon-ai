@@ -109,7 +109,7 @@ export class PrismaAdmissionRepository implements ShadowAdmissionRepository {
 
 type AuthoritativePrismaClient = Pick<PrismaClient, 'businessWhatsAppConfig' | '$queryRaw' | '$transaction'>
 
-export const DEFAULT_AUTHORITATIVE_TRANSACTION_TIMEOUT_MS = 175
+export const DEFAULT_AUTHORITATIVE_TRANSACTION_TIMEOUT_MS = 2_000
 
 function eventPayload(event: ParsedWebhookEvent): Prisma.InputJsonValue {
   if (event.kind === 'message') {
@@ -204,10 +204,10 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
     const startedAt = performance.now()
     try {
       const result = await this.#client.$transaction(async (tx) => {
-      // Keep enough room inside the fixed 175 ms Prisma transaction budget for
-      // short same-tenant burst contention without turning a healthy durable
-      // enqueue into a retryable 55P03. The statement remains bounded below
-      // the HTTP ACK SLO and below Prisma's outer timeout.
+      // Cross-region production traffic needs a wider interactive transaction
+      // envelope than the local load fixture. Individual statements and lock
+      // acquisition remain tightly bounded, so this does not permit a query to
+      // consume the full HTTP ACK budget by itself.
       await tx.$executeRaw`SET LOCAL lock_timeout = '100ms'`
       await tx.$executeRaw`SET LOCAL statement_timeout = '150ms'`
       await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(hashtextextended(${`bot-cutover:${input.route.businessId}:WHATSAPP`}, 0))`
