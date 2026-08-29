@@ -135,6 +135,32 @@ function millis(value: Date | null): number | null {
   return value?.getTime() ?? null
 }
 
+/**
+ * Reset POISON jobs for a given deployment that have been stuck for more than
+ * `staleMs` (default 5 minutes). Called during admission so the next worker
+ * loop can retry them. Returns the count of reset jobs.
+ */
+async function resetStalePoisonJobs(
+  tx: Prisma.TransactionClient,
+  businessId: string,
+  deploymentId: string,
+  staleMs = 5 * 60_000
+): Promise<number> {
+  const result = await tx.$executeRaw(Prisma.sql`
+    UPDATE "BotJob" SET
+      "status" = 'READY'::"BotJobStatus",
+      "attempts" = 0,
+      "availableAt" = clock_timestamp(),
+      "leaseToken" = NULL, "leasedUntil" = NULL,
+      "lastError" = NULL, "updatedAt" = clock_timestamp()
+    WHERE "businessId" = ${businessId}
+      AND "deploymentId" = ${deploymentId}
+      AND "status" = 'POISON'::"BotJobStatus"
+      AND "updatedAt" < clock_timestamp() - interval '1 millisecond' * ${staleMs}
+  `)
+  return result
+}
+
 export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmissionRepository {
   readonly #client: AuthoritativePrismaClient
   readonly #depositProofIngressEnabled: boolean
@@ -304,6 +330,17 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
         `)
         await upsertJob(tx, 'PROCESS_INBOX', inboxId, input.route.businessId, input.route.deploymentId, input.route.generation, null, new Date())
       }
+
+      // Auto-recover stale POISON jobs for this deployment so the next worker
+      // loop can retry them. Jobs older than 5 minutes are considered stuck.
+      const recoveredCount = await resetStalePoisonJobs(tx, input.route.businessId, input.route.deploymentId)
+      if (recoveredCount > 0) {
+        console.info('[bot-options-admission]', JSON.stringify({
+          event: 'poison_auto_recovery', businessId: input.route.businessId,
+          deploymentId: input.route.deploymentId, recoveredCount
+        }))
+      }
+
       return { eventCount: input.events.length, insertedCount }
       }, { timeout: this.#authoritativeTransactionTimeoutMs })
       botOptionsMetrics.observe('webhook_ack', performance.now() - startedAt)
