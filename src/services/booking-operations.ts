@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { Prisma } from '../generated/prisma/client.js'
 import { reservationDurationLimits } from './service-duration.js'
 import { acquireAgendaHierarchy, lockAppointmentRows } from './agenda-locks.js'
+import { calculateBookingDepositTerms, hasCompleteDepositPaymentConfiguration } from './deposit-operations.js'
 import {
   hasAppointmentOverlap,
   hasScheduleBlockOverlap,
@@ -27,6 +28,18 @@ export type ConfirmBookingWithoutDepositResult =
     }
   | { kind: 'SLOT_CONFLICT' }
 
+export type HoldBookingWithDepositResult =
+  | {
+      kind: 'HELD'
+      visitId: string
+      appointmentId: string
+      depositId: string
+      expiresAt: Date
+      amount: number
+      professional: { professionalId: string; name: string; assignedByBalancer: boolean }
+    }
+  | { kind: 'SLOT_CONFLICT' }
+
 export type ConfirmBookingWithoutDepositInput = {
   businessId: string
   sessionId: string
@@ -45,6 +58,8 @@ export type ConfirmBookingWithoutDepositInput = {
   totalDurationMinutes: number
   totalPriceMinor: number | null
 }
+
+export type HoldBookingWithDepositInput = ConfirmBookingWithoutDepositInput
 
 export async function revalidateBookingWrite(tx: Prisma.TransactionClient, input: {
   businessId: string
@@ -179,6 +194,25 @@ export async function confirmBookingWithoutDeposit(
   tx: Prisma.TransactionClient,
   input: ConfirmBookingWithoutDepositInput
 ): Promise<ConfirmBookingWithoutDepositResult> {
+  return createBookingVisit(tx, { ...input, depositRequired: false }) as Promise<ConfirmBookingWithoutDepositResult>
+}
+
+/**
+ * F8.3 primitive: all financial and agenda rows are written in the caller's
+ * transaction. It is deliberately not wired to a transition until F8.4/F8.5
+ * safety gates permit instructions/proof handling.
+ */
+export async function holdBookingWithDeposit(
+  tx: Prisma.TransactionClient,
+  input: HoldBookingWithDepositInput
+): Promise<HoldBookingWithDepositResult> {
+  return createBookingVisit(tx, { ...input, depositRequired: true }) as Promise<HoldBookingWithDepositResult>
+}
+
+async function createBookingVisit(
+  tx: Prisma.TransactionClient,
+  input: ConfirmBookingWithoutDepositInput & { depositRequired: boolean }
+): Promise<ConfirmBookingWithoutDepositResult | HoldBookingWithDepositResult> {
   const startAt = new Date(input.slotStartAt)
   if (!Number.isFinite(startAt.getTime()) || startAt.toISOString() !== input.slotStartAt) {
     throw new Error('booking confirmation slotStartAt must be a canonical ISO instant')
@@ -205,8 +239,9 @@ export async function confirmBookingWithoutDeposit(
     localDate: string
     insideWindow: boolean
     onGrid: boolean
+    depositHoldMinutes: number | null
   }>>(Prisma.sql`
-    SELECT s."timezone", clock_timestamp() AS "dbNow",
+    SELECT s."timezone", s."depositHoldMinutes", clock_timestamp() AS "dbNow",
       to_char(${startAt} AT TIME ZONE s."timezone", 'YYYY-MM-DD') AS "localDate",
       (
         ${startAt} >= clock_timestamp() + make_interval(hours => s."bookingLeadTimeHours")
@@ -279,8 +314,30 @@ export async function confirmBookingWithoutDeposit(
   if (activeCatalogCount[0]?.count !== serviceIds.length) {
     throw new Error('booking catalog changed during confirmation')
   }
-  if (canonicalServices.some((service) => service.depositMode !== 'NONE')) {
+  if (!input.depositRequired && canonicalServices.some((service) => service.depositMode !== 'NONE')) {
     throw new Error('refusing deposit-required service in no-deposit confirmation')
+  }
+  if (input.depositRequired && canonicalServices.every((service) => service.depositMode === 'NONE')) {
+    throw new Error('refusing no-deposit service in deposit hold')
+  }
+  const depositTerms = input.depositRequired ? calculateBookingDepositTerms({
+    services: canonicalServices.map((service) => ({
+      id: service.id, name: service.name, price: service.price, priceMode: service.priceMode,
+      depositMode: service.depositMode, depositValue: service.depositValue
+    })),
+    businessDepositHoldMinutes: setting.depositHoldMinutes
+  }) : null
+  if (depositTerms) {
+    const paymentRows = await tx.$queryRaw<Array<{
+      transferEnabled: boolean; alias: string | null; cbu: string | null; cvu: string | null
+      paymentLinkEnabled: boolean; paymentLink: string | null
+    }>>(Prisma.sql`
+      SELECT "transferEnabled", "alias", "cbu", "cvu", "paymentLinkEnabled", "paymentLink"
+      FROM "BusinessPaymentSettings" WHERE "businessId" = ${input.businessId} FOR SHARE
+    `)
+    if (paymentRows.length !== 1 || !hasCompleteDepositPaymentConfiguration(paymentRows[0]!)) {
+      throw new Error('deposit payment configuration unavailable for tenant')
+    }
   }
   if (serviceIds.length > 1) {
     const restrictiveRules = await tx.$queryRaw<Array<{ count: number }>>(Prisma.sql`
@@ -337,12 +394,12 @@ export async function confirmBookingWithoutDeposit(
 
   const visitId = randomUUID()
   const appointmentId = randomUUID()
-  const effectOperationKey = bookingEffectOperationKey(input.operationKey)
+  const effectOperationKey = bookingEffectOperationKey(input.operationKey, input.depositRequired)
   const insertedOperation = await tx.$queryRaw<Array<{ operationKey: string }>>(Prisma.sql`
     INSERT INTO "BotOperation" (
       "id", "operationKey", "type", "businessId", "sessionId", "status", "requestHash", "updatedAt"
     ) VALUES (
-      ${randomUUID()}, ${effectOperationKey}, 'CONFIRM_VISIT', ${input.businessId}, ${input.sessionId}, 'STARTED', ${requestHash}, clock_timestamp()
+      ${randomUUID()}, ${effectOperationKey}, ${input.depositRequired ? 'HOLD_VISIT_WITH_DEPOSIT' : 'CONFIRM_VISIT'}, ${input.businessId}, ${input.sessionId}, 'STARTED', ${requestHash}, clock_timestamp()
     )
     ON CONFLICT ("operationKey") DO NOTHING
     RETURNING "operationKey"
@@ -353,14 +410,16 @@ export async function confirmBookingWithoutDeposit(
     throw new Error('booking operation idempotency race is not safely replayable')
   }
 
+  const depositId = depositTerms ? randomUUID() : null
+  const expiresAt = depositTerms ? new Date(setting.dbNow.getTime() + depositTerms.ttlMinutes * 60_000) : null
   await tx.$executeRaw(Prisma.sql`
     INSERT INTO "BookingVisit" (
       "id", "businessId", "customerId", "professionalId", "sessionId", "status",
-      "scheduledStartAt", "totalDurationMinutes", "totalPrice", "origin", "updatedAt"
+      "scheduledStartAt", "totalDurationMinutes", "totalPrice", "holdExpiresAt", "origin", "updatedAt"
     ) VALUES (
       ${visitId}, ${input.businessId}, ${customerId}, ${assigned.id}, ${input.sessionId},
-      'CONFIRMED'::"BookingVisitStatus", ${startAt}, ${input.totalDurationMinutes},
-      ${input.totalPriceMinor}, 'BOT'::"AppointmentOrigin", clock_timestamp()
+       ${input.depositRequired ? 'HELD' : 'CONFIRMED'}::"BookingVisitStatus", ${startAt}, ${input.totalDurationMinutes},
+       ${input.totalPriceMinor}, ${expiresAt}, 'BOT'::"AppointmentOrigin", clock_timestamp()
     )
   `)
   await tx.$executeRaw(Prisma.sql`
@@ -369,8 +428,8 @@ export async function confirmBookingWithoutDeposit(
       "quotedPrice", "totalDurationMinutes", "status", "visitId"
     ) VALUES (
       ${appointmentId}, ${customerId}, ${assigned.id}, ${serviceIds[0]!}, ${startAt},
-      'BOT'::"AppointmentOrigin", ${input.totalPriceMinor}, ${input.totalDurationMinutes},
-      'CONFIRMED'::"AppointmentStatus", ${visitId}
+       'BOT'::"AppointmentOrigin", ${input.totalPriceMinor}, ${input.totalDurationMinutes},
+       ${input.depositRequired ? 'PENDING' : 'CONFIRMED'}::"AppointmentStatus", ${visitId}
     )
   `)
   for (const [sortOrder, service] of canonicalServices.entries()) {
@@ -380,6 +439,42 @@ export async function confirmBookingWithoutDeposit(
       ) VALUES (
         ${appointmentId}, ${service.id}, ${sortOrder}, ${service.duration}, ${service.price}
       )
+    `)
+  }
+  if (depositTerms && depositId && expiresAt) {
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO "BookingDeposit" (
+        "id", "businessId", "appointmentId", "conversationId", "visitId", "source", "mode", "configuredValue",
+        "baseAmount", "amount", "status", "expiresAt", "holdTtlMinutes", "holdTtlProvenance", "updatedAt"
+      ) VALUES (
+        ${depositId}, ${input.businessId}, ${appointmentId},
+        (SELECT "conversationId" FROM "BotSession" WHERE "id" = ${input.sessionId} AND "businessId" = ${input.businessId}),
+        ${visitId}, 'WHATSAPP'::"BookingDepositSource", 'FIXED'::"ServiceDepositMode", ${depositTerms.amount},
+        NULL, ${depositTerms.amount}, 'PENDING_PROOF'::"BookingDepositStatus", ${expiresAt},
+        ${depositTerms.ttlMinutes}, ${depositTerms.ttlProvenance}::"BookingDepositTtlProvenance", clock_timestamp()
+      )
+    `)
+    for (const line of depositTerms.lines) {
+      await tx.$executeRaw(Prisma.sql`
+        INSERT INTO "BookingDepositLine" (
+          "id", "businessId", "depositId", "serviceId", "sortOrder", "serviceName", "mode", "configuredValue", "baseAmount", "amount"
+        ) VALUES (
+          ${randomUUID()}, ${input.businessId}, ${depositId}, ${line.serviceId}, ${line.sortOrder}, ${line.serviceName},
+          ${line.mode}::"ServiceDepositMode", ${line.configuredValue}, ${line.baseAmount}, ${line.amount}
+        )
+      `)
+    }
+    const sealed = await tx.$executeRaw(Prisma.sql`
+      UPDATE "BookingDeposit"
+      SET "snapshotSealedAt" = clock_timestamp(), "updatedAt" = clock_timestamp()
+      WHERE "id" = ${depositId} AND "businessId" = ${input.businessId} AND "snapshotSealedAt" IS NULL
+    `)
+    if (sealed !== 1) throw new Error('deposit financial snapshot could not be sealed')
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO "BotJob" (
+        "id", "kind", "aggregateId", "businessId", "deploymentId", "deploymentGeneration", "availableAt", "updatedAt"
+      ) SELECT ${randomUUID()}, 'EXPIRE_DEPOSIT', ${depositId}, s."businessId", s."deploymentId", s."deploymentGeneration", ${expiresAt}, clock_timestamp()
+      FROM "BotSession" s WHERE s."id" = ${input.sessionId} AND s."businessId" = ${input.businessId}
     `)
   }
   const completed = await tx.$executeRaw(Prisma.sql`
@@ -392,7 +487,9 @@ export async function confirmBookingWithoutDeposit(
   if (completed !== 1) throw new Error('booking operation completion race')
 
   return {
-    kind: 'CONFIRMED', visitId, appointmentId,
+    ...(depositTerms && depositId && expiresAt
+      ? { kind: 'HELD' as const, visitId, appointmentId, depositId, expiresAt, amount: depositTerms.amount }
+      : { kind: 'CONFIRMED' as const, visitId, appointmentId }),
     professional: {
       professionalId: assigned.id,
       name: assigned.name,
@@ -401,27 +498,35 @@ export async function confirmBookingWithoutDeposit(
   }
 }
 
-function bookingEffectOperationKey(transitionOperationKey: string) {
-  return `${transitionOperationKey}:CONFIRM_VISIT`
+function bookingEffectOperationKey(transitionOperationKey: string, depositRequired: boolean) {
+  // CONFIRM_VISIT is already persisted by F7. Keep its namespace stable so a
+  // post-deploy retry replays the original turn rather than creating another.
+  return `${transitionOperationKey}:${depositRequired ? 'HOLD_VISIT_WITH_DEPOSIT' : 'CONFIRM_VISIT'}`
 }
 
-function hashBookingConfirmation(input: ConfirmBookingWithoutDepositInput) {
-  return createHash('sha256').update(JSON.stringify({
+function hashBookingConfirmation(input: ConfirmBookingWithoutDepositInput & { depositRequired: boolean }) {
+  const legacyF7Payload = {
     services: input.services,
     professional: input.professional,
     date: input.date,
     slotStartAt: input.slotStartAt,
     totalDurationMinutes: input.totalDurationMinutes,
     totalPriceMinor: input.totalPriceMinor
-  }), 'utf8').digest('hex')
+  }
+  // Existing F7 BotOperation rows were hashed before F8 knew about deposits.
+  // Keep their byte-for-byte payload stable; only F8 holds add their variant.
+  const payload = input.depositRequired
+    ? { ...legacyF7Payload, depositRequired: true }
+    : legacyF7Payload
+  return createHash('sha256').update(JSON.stringify(payload), 'utf8').digest('hex')
 }
 
 async function loadCompletedBookingReplay(
   tx: Prisma.TransactionClient,
-  input: ConfirmBookingWithoutDepositInput,
+  input: ConfirmBookingWithoutDepositInput & { depositRequired: boolean },
   requestHash: string,
   forUpdate = false
-): Promise<Extract<ConfirmBookingWithoutDepositResult, { kind: 'CONFIRMED' }> | null> {
+): Promise<ConfirmBookingWithoutDepositResult | HoldBookingWithDepositResult | null> {
   const lock = forUpdate ? Prisma.sql`FOR UPDATE OF operation` : Prisma.empty
   const rows = await tx.$queryRaw<Array<{
     businessId: string
@@ -433,22 +538,27 @@ async function loadCompletedBookingReplay(
     appointmentId: string | null
     professionalId: string | null
     professionalName: string | null
+    depositId: string | null
+    expiresAt: Date | null
+    amount: number | null
   }>>(Prisma.sql`
     SELECT operation."businessId", operation."sessionId", operation."type", operation."status",
       operation."requestHash", visit."id" AS "visitId", appointment."id" AS "appointmentId",
-      professional."id" AS "professionalId", professional."name" AS "professionalName"
+      professional."id" AS "professionalId", professional."name" AS "professionalName",
+      deposit."id" AS "depositId", deposit."expiresAt", deposit."amount"
     FROM "BotOperation" operation
     LEFT JOIN "BookingVisit" visit ON visit."id" = operation."resultRef"
     LEFT JOIN "Appointment" appointment ON appointment."visitId" = visit."id"
     LEFT JOIN "Professional" professional ON professional."id" = visit."professionalId"
-    WHERE operation."operationKey" = ${bookingEffectOperationKey(input.operationKey)}
+    LEFT JOIN "BookingDeposit" deposit ON deposit."visitId" = visit."id" AND deposit."businessId" = operation."businessId"
+    WHERE operation."operationKey" = ${bookingEffectOperationKey(input.operationKey, input.depositRequired)}
     ${lock}
   `)
   const row = rows[0]
   if (!row) return null
   if (
     row.businessId !== input.businessId || row.sessionId !== input.sessionId ||
-    row.type !== 'CONFIRM_VISIT' || row.requestHash !== requestHash
+    row.type !== (input.depositRequired ? 'HOLD_VISIT_WITH_DEPOSIT' : 'CONFIRM_VISIT') || row.requestHash !== requestHash
   ) {
     throw new Error('booking operation idempotency conflict')
   }
@@ -458,12 +568,24 @@ async function loadCompletedBookingReplay(
   ) {
     throw new Error('booking operation is not safely replayable')
   }
+  const professional = {
+    professionalId: row.professionalId,
+    name: row.professionalName,
+    assignedByBalancer: input.professional.assignedByBalancer
+  }
+  if (input.depositRequired) {
+    if (!row.depositId || !row.expiresAt || row.amount === null) {
+      throw new Error('held booking operation is not safely replayable')
+    }
+    return {
+      kind: 'HELD', visitId: row.visitId, appointmentId: row.appointmentId,
+      depositId: row.depositId, expiresAt: row.expiresAt, amount: row.amount, professional
+    }
+  }
   return {
     kind: 'CONFIRMED', visitId: row.visitId, appointmentId: row.appointmentId,
     professional: {
-      professionalId: row.professionalId,
-      name: row.professionalName,
-      assignedByBalancer: input.professional.assignedByBalancer
+      ...professional
     }
   }
 }

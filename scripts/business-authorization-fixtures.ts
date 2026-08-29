@@ -1,4 +1,4 @@
-import type { PrismaClient } from '../src/generated/prisma/client.js'
+import { Prisma, type PrismaClient } from '../src/generated/prisma/client.js'
 import { createHash } from 'node:crypto'
 
 const fixturePrefix = 'sdd-auth-batch-1'
@@ -73,7 +73,12 @@ export async function cleanBusinessAuthorizationFixtures(prisma: PrismaClient) {
   await prisma.campaign.deleteMany({ where: { id: { in: [...resources.campaign] } } })
   await prisma.reminderAutomation.deleteMany({ where: { id: { in: [...resources.reminderAutomation] } } })
   await prisma.whatsAppTemplate.deleteMany({ where: { id: { in: [...resources.whatsAppTemplate] } } })
-  await prisma.bookingDeposit.deleteMany({ where: { id: { in: [...resources.deposit, ...resources.qaDeposit] } } })
+  const depositIds = [...resources.deposit, ...resources.qaDeposit]
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw(Prisma.sql`DELETE FROM "BookingDepositExpiryAudit" WHERE "depositId" IN (${Prisma.join(depositIds)})`)
+    await tx.$executeRaw(Prisma.sql`DELETE FROM "BookingDepositLine" WHERE "depositId" IN (${Prisma.join(depositIds)})`)
+    await tx.bookingDeposit.deleteMany({ where: { id: { in: depositIds } } })
+  })
   await prisma.message.deleteMany({
     where: {
       conversationId: {

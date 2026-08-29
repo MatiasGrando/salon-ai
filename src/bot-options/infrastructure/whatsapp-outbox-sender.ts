@@ -54,7 +54,7 @@ export async function claimOutbox(
         ${candidateScope}
         AND d."generation" = s."deploymentGeneration" AND d."activeConfigurationId" IS NOT NULL
         AND d."engineKey" = 'deterministic-options' AND d."legacyDispatchCoverageVersion" >= 1 AND d."claimsPausedAt" IS NULL
-        AND s."status" <> 'HUMAN_TAKEN'::"BotSessionStatus"
+        AND s."status" <> 'HUMAN_TAKEN'::"BotSessionStatus" AND s."handoffClaimsPausedAt" IS NULL
         AND (o."dependsOnSequence" IS NULL OR EXISTS (
           SELECT 1 FROM "BotOutbox" predecessor
           WHERE predecessor."sessionId" = o."sessionId" AND predecessor."deliveryGroupId" = o."deliveryGroupId"
@@ -76,6 +76,7 @@ export async function claimOutbox(
         AND d."id" = s."deploymentId" AND d."businessId" = o."businessId"
         AND d."generation" = s."deploymentGeneration" AND d."activeConfigurationId" IS NOT NULL
         AND d."engineKey" = 'deterministic-options' AND d."legacyDispatchCoverageVersion" >= 1 AND d."claimsPausedAt" IS NULL
+        AND s."status" <> 'HUMAN_TAKEN'::"BotSessionStatus" AND s."handoffClaimsPausedAt" IS NULL
       RETURNING o."id", o."businessId", o."sessionId", o."payload", o."attempts", o."maxAttempts",
         o."leaseToken" AS "claimToken", d."generation", d."dispatchFenceEpoch" AS "fenceEpoch",
         (EXTRACT(EPOCH FROM (clock_timestamp() - o."createdAt")) * 1000)::double precision AS "queueWaitMs"

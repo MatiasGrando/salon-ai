@@ -19,6 +19,45 @@ export type ClaimedBotJob = {
 
 type WorkerClient = Pick<PrismaClient, '$queryRaw' | '$executeRaw' | '$transaction'>
 
+const SYSTEM_RECOVERY_JOB_KINDS = ['EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION'] as const
+const CUTOVER_RETARGETABLE_JOB_KIND = 'RECEIVE_DEPOSIT_PROOF'
+
+function systemRecoveryJobSql(column: string) {
+  return Prisma.raw(`"${column}"."kind" IN (${SYSTEM_RECOVERY_JOB_KINDS.map((kind) => `'${kind}'`).join(', ')})`)
+}
+
+/**
+ * Session-bound automation must never acquire work after human ownership, nor
+ * while TAKE's per-session fence is closed.  The latter closes the
+ * drain-to-finalize race: a worker which selected a READY row before TAKE
+ * must recheck this predicate before leasing it.
+ */
+function humanTakenSessionJobSql(column: string) {
+  return Prisma.raw(`EXISTS (
+    SELECT 1 FROM "BotSession" s
+    JOIN "BotHandoff" h ON h."businessId" = s."businessId" AND h."sessionId" = s."id"
+    JOIN "Conversation" c ON c."id" = s."conversationId" AND c."businessId" = s."businessId"
+    WHERE s."businessId" = "${column}"."businessId"
+       AND (
+         (s."status" = 'HUMAN_TAKEN'::"BotSessionStatus" AND h."status" = 'TAKEN'::"BotHandoffStatus")
+         OR s."handoffClaimsPausedAt" IS NOT NULL
+       )
+      AND (
+        EXISTS (SELECT 1 FROM "BotActionInbox" i WHERE i."id" = "${column}"."aggregateId" AND i."sessionId" = s."id")
+        OR EXISTS (SELECT 1 FROM "BotPrompt" p WHERE p."id" = "${column}"."aggregateId" AND p."sessionId" = s."id")
+        OR EXISTS (
+          SELECT 1 FROM "BotProviderEvent" e
+          WHERE e."businessId" = s."businessId" AND e."eventType" = 'MESSAGE'::"BotProviderEventType"
+            AND e."payload" ->> 'fromPhone' = c."phone"
+            AND (
+              e."id" = "${column}"."aggregateId"
+              OR EXISTS (SELECT 1 FROM "BotActionInbox" i WHERE i."id" = "${column}"."aggregateId" AND i."providerEventId" = e."id")
+            )
+        )
+      )
+  )`)
+}
+
 export async function claimBotJob(
   client: WorkerClient,
   leaseMs = 30_000,
@@ -29,8 +68,15 @@ export async function claimBotJob(
   const candidateScope = scope ? Prisma.sql`AND j."businessId" = ${scope.businessId}` : Prisma.empty
   const claimed = await client.$transaction(async (tx) => {
     await tx.$executeRaw(Prisma.sql`
-      UPDATE "BotJob" SET "status" = 'POISON'::"BotJobStatus", "leaseToken" = NULL, "leasedUntil" = NULL,
-        "lastError" = COALESCE("lastError", 'claim expired after max attempts'), "updatedAt" = clock_timestamp()
+      UPDATE "BotJob" SET
+        "status" = CASE WHEN "kind" IN ('EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION') THEN 'RETRY'::"BotJobStatus" ELSE 'POISON'::"BotJobStatus" END,
+        "attempts" = CASE WHEN "kind" IN ('EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION') THEN 0 ELSE "attempts" END,
+        "availableAt" = CASE WHEN "kind" IN ('EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION') THEN clock_timestamp() + interval '5 minutes' ELSE "availableAt" END,
+        "leaseToken" = NULL, "leasedUntil" = NULL,
+        "lastError" = CASE WHEN "kind" IN ('EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION')
+          THEN "kind" || ' recovery after exhausted stale lease: ' || COALESCE("lastError", 'claim expired after max attempts')
+          ELSE COALESCE("lastError", 'claim expired after max attempts') END,
+        "updatedAt" = clock_timestamp()
       WHERE "status" = 'LEASED'::"BotJobStatus" AND "leasedUntil" < clock_timestamp() AND "attempts" >= "maxAttempts"
         ${maintenanceScope}
     `)
@@ -39,9 +85,18 @@ export async function claimBotJob(
       JOIN "BotChannelDeployment" d ON d."id" = j."deploymentId" AND d."businessId" = j."businessId"
       WHERE ((j."status" IN ('READY'::"BotJobStatus", 'RETRY'::"BotJobStatus") AND j."availableAt" <= clock_timestamp())
           OR (j."status" = 'LEASED'::"BotJobStatus" AND j."leasedUntil" < clock_timestamp()))
-        AND j."attempts" < j."maxAttempts" AND d."generation" = j."deploymentGeneration"
+        AND j."attempts" < j."maxAttempts"
         ${candidateScope}
-        AND d."activeConfigurationId" IS NOT NULL AND d."legacyDispatchCoverageVersion" >= 1 AND d."claimsPausedAt" IS NULL
+        AND (${systemRecoveryJobSql('j')} OR (j."kind" = ${CUTOVER_RETARGETABLE_JOB_KIND}
+          AND j."deploymentGeneration" <= d."generation"
+          AND d."channel" = 'WHATSAPP'::"BotChannel"
+          AND d."engineKey" = 'deterministic-options'
+          AND d."activeConfigurationId" IS NOT NULL
+          AND d."legacyDispatchCoverageVersion" >= 1 AND d."claimsPausedAt" IS NULL
+        ) OR (
+          d."generation" = j."deploymentGeneration" AND d."activeConfigurationId" IS NOT NULL
+          AND d."legacyDispatchCoverageVersion" >= 1 AND d."claimsPausedAt" IS NULL
+        )) AND NOT (${humanTakenSessionJobSql('j')})
       ORDER BY j."availableAt", j."createdAt", j."id" FOR UPDATE OF j SKIP LOCKED LIMIT 1
     `)
     const candidate = candidates[0]
@@ -55,8 +110,16 @@ export async function claimBotJob(
         "updatedAt" = clock_timestamp()
       WHERE j."id" = ${candidate.id} AND EXISTS (
         SELECT 1 FROM "BotChannelDeployment" d WHERE d."id" = j."deploymentId" AND d."businessId" = j."businessId"
-          AND d."generation" = j."deploymentGeneration" AND d."activeConfigurationId" IS NOT NULL
-          AND d."legacyDispatchCoverageVersion" >= 1 AND d."claimsPausedAt" IS NULL
+          AND (${systemRecoveryJobSql('j')} OR (j."kind" = ${CUTOVER_RETARGETABLE_JOB_KIND}
+            AND j."deploymentGeneration" <= d."generation"
+            AND d."channel" = 'WHATSAPP'::"BotChannel"
+            AND d."engineKey" = 'deterministic-options'
+            AND d."activeConfigurationId" IS NOT NULL
+            AND d."legacyDispatchCoverageVersion" >= 1 AND d."claimsPausedAt" IS NULL
+          ) OR (
+            d."generation" = j."deploymentGeneration" AND d."activeConfigurationId" IS NOT NULL
+            AND d."legacyDispatchCoverageVersion" >= 1 AND d."claimsPausedAt" IS NULL
+          )) AND NOT (${humanTakenSessionJobSql('j')})
       )
       RETURNING j."id", j."kind", j."aggregateId", j."businessId", j."deploymentId",
         j."deploymentGeneration", j."expectedRevision", j."attempts", j."maxAttempts",
@@ -96,10 +159,12 @@ export async function assertClaimedBotJobTx(
 export async function rescheduleClaimedBotJobTx(
   tx: Prisma.TransactionClient,
   job: ClaimedBotJob,
-  availableAt: Date
+  availableAt: Date,
+  options: { refundClaimAttempt?: boolean } = {}
 ): Promise<void> {
   const count = await tx.$executeRaw(Prisma.sql`
     UPDATE "BotJob" SET "status" = 'READY'::"BotJobStatus", "availableAt" = ${availableAt},
+      "attempts" = CASE WHEN ${options.refundClaimAttempt === true} THEN GREATEST("attempts" - 1, 0) ELSE "attempts" END,
       "leaseToken" = NULL, "leasedUntil" = NULL, "updatedAt" = clock_timestamp()
     WHERE "id" = ${job.id} AND "status" = 'LEASED'::"BotJobStatus" AND "leaseToken" = ${job.claimToken}
   `)
@@ -116,6 +181,19 @@ export async function completeClaimedBotJobTx(
     WHERE "id" = ${job.id} AND "status" = 'LEASED'::"BotJobStatus" AND "leaseToken" = ${job.claimToken}
   `)
   if (count !== 1) throw new Error('cannot complete stale bot job claim')
+}
+
+export async function poisonClaimedBotJobTx(
+  tx: Prisma.TransactionClient,
+  job: ClaimedBotJob,
+  error: string
+): Promise<void> {
+  const count = await tx.$executeRaw(Prisma.sql`
+    UPDATE "BotJob" SET "status" = 'POISON'::"BotJobStatus", "leaseToken" = NULL, "leasedUntil" = NULL,
+      "lastError" = ${error.slice(0, 2000)}, "updatedAt" = clock_timestamp()
+    WHERE "id" = ${job.id} AND "status" = 'LEASED'::"BotJobStatus" AND "leaseToken" = ${job.claimToken}
+  `)
+  if (count !== 1) throw new Error('cannot poison stale bot job claim')
 }
 
 export async function retargetClaimedBotJobTx(
@@ -151,8 +229,16 @@ export async function retryBotJob(
 ): Promise<'RETRY' | 'POISON' | 'STALE'> {
   const rows = await client.$queryRaw<Array<{ status: 'RETRY' | 'POISON' }>>(Prisma.sql`
     UPDATE "BotJob" SET
-      "status" = CASE WHEN "attempts" >= "maxAttempts" THEN 'POISON'::"BotJobStatus" ELSE 'RETRY'::"BotJobStatus" END,
-      "availableAt" = clock_timestamp() + (${delayMs} * interval '1 millisecond'),
+      "status" = CASE
+        WHEN "kind" IN ('EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION') THEN 'RETRY'::"BotJobStatus"
+        WHEN "attempts" >= "maxAttempts" THEN 'POISON'::"BotJobStatus"
+        ELSE 'RETRY'::"BotJobStatus"
+      END,
+      "attempts" = CASE WHEN "kind" IN ('EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION') AND "attempts" >= "maxAttempts" THEN 0 ELSE "attempts" END,
+      "availableAt" = clock_timestamp() + (
+        CASE WHEN "kind" IN ('EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION') AND "attempts" >= "maxAttempts" THEN 300000 ELSE ${delayMs} END
+        * interval '1 millisecond'
+      ),
       "leaseToken" = NULL, "leasedUntil" = NULL, "lastError" = ${error.slice(0, 2000)},
       "updatedAt" = clock_timestamp()
     WHERE "id" = ${id} AND "status" = 'LEASED'::"BotJobStatus" AND "leaseToken" = ${claimToken}

@@ -67,6 +67,9 @@ import {
 import { setTamaraOptionsBotEnabled } from '../services/business-bot-activation-service.js'
 import { acquireAppointmentWriteHierarchy } from '../services/agenda-locks.js'
 import { revalidateAppointmentsForConfirmation } from '../services/booking-operations.js'
+import { approveCurrentDepositProof, rejectCurrentDepositProof, DepositReviewError, DepositReviewStateError } from '../services/deposit-review-operation.js'
+import { randomUUID } from 'node:crypto'
+import { resolveBotHandoff, takeBotHandoff } from '../bot-options/application/handoff-operations.js'
 
 const bookingV2Engine = new BookingV2Engine()
 const WHATSAPP_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000
@@ -332,10 +335,11 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
               customer: { businessId },
               professional: { businessId }
             },
-            select: { id: true }
+            select: { id: true, visitId: true }
           })
         : []
       const appointmentIds = appointments.map(({ id }) => id)
+      const visitIds = Array.from(new Set(appointments.flatMap(({ visitId }) => visitId ? [visitId] : [])))
       if (appointmentIds.length) {
         await acquireAppointmentWriteHierarchy(transaction, { businessId, appointmentIds })
       }
@@ -398,6 +402,16 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
           }
         })
       }
+      if (depositIds.length) {
+        await transaction.$executeRaw(Prisma.sql`
+          DELETE FROM "BookingDepositExpiryAudit"
+          WHERE "businessId" = ${businessId} AND "depositId" IN (${Prisma.join(depositIds)})
+        `)
+        await transaction.$executeRaw(Prisma.sql`
+          DELETE FROM "BookingDepositLine"
+          WHERE "businessId" = ${businessId} AND "depositId" IN (${Prisma.join(depositIds)})
+        `)
+      }
       const deletedDeposits = depositIds.length
         ? await transaction.bookingDeposit.deleteMany({
             where: {
@@ -444,6 +458,12 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
           })
         : { count: 0 }
       if (deletedAppointments.count !== appointmentIds.length) throw new QaMaintenanceStateConflictError()
+      if (visitIds.length) {
+        await transaction.$executeRaw(Prisma.sql`
+          DELETE FROM "BookingVisit"
+          WHERE "businessId" = ${businessId} AND "id" IN (${Prisma.join(visitIds)})
+        `)
+      }
       const deletedNotes = noteIds.length
         ? await transaction.customerNote.deleteMany({
             where: {
@@ -947,7 +967,7 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
       return sendAuthorizationFailure(reply, 'notFound')
     }
     await bookingDepositService.expireOverdue()
-    const activeStatuses: Array<'PENDING_PROOF' | 'PROOF_RECEIVED'> = ['PENDING_PROOF', 'PROOF_RECEIVED']
+    const activeStatuses: Array<'PENDING_PROOF' | 'PENDING_RESUBMISSION' | 'PROOF_RECEIVED'> = ['PENDING_PROOF', 'PENDING_RESUBMISSION', 'PROOF_RECEIVED']
     const view = query.view || 'active'
     if (query.summary === 'true') {
       const [activeCount, reviewCount] = await Promise.all([
@@ -968,6 +988,7 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
           : { businessId },
       select: {
         id: true,
+        visitId: true,
         source: true,
         status: true,
         mode: true,
@@ -1029,15 +1050,37 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
       where: authorizedBookingDepositWhere(authUser, params.id),
       select: {
         businessId: true,
+        visitId: true,
         source: true,
         proofData: true,
         proofMimeType: true,
         proofFilename: true
       }
     })
-    if (!deposit?.proofData || deposit.source !== 'WEB') {
+    if (!deposit) {
       return sendAuthorizationFailure(reply, 'notFound')
     }
+    if (deposit.visitId) {
+      const proof = await prisma.$queryRaw<Array<{ data: Uint8Array; mimeType: string; filename: string }>>(Prisma.sql`
+        SELECT "derivedData" AS "data", "derivedMimeType" AS "mimeType", "sourceFilename" AS "filename"
+        FROM "BookingDepositProof" WHERE "businessId" = ${deposit.businessId} AND "depositId" = ${params.id}
+          AND "validationStatus" = 'VALID'::"BookingDepositProofValidationStatus"
+        ORDER BY "sequence" DESC LIMIT 1
+      `)
+      if (!proof[0] || !proof[0].mimeType.startsWith('image/')) return sendAuthorizationFailure(reply, 'notFound')
+      // Record access metadata only. Neither source nor derivative bytes enter audit/log payloads.
+      await prisma.staffAuditLog.create({ data: {
+        id: randomUUID(), businessId: deposit.businessId, userId: authUser.id,
+        action: 'DOWNLOAD_DEPOSIT_PROOF', entityType: 'BookingDepositProof', entityId: params.id,
+        method: request.method, path: request.url
+      } })
+      return reply
+        .header('Content-Type', proof[0].mimeType)
+        .header('Content-Disposition', `attachment; filename="${safeMediaFilename(proof[0].filename, proof[0].mimeType, 'image')}"`)
+        .header('Cache-Control', 'private, no-store')
+        .send(Buffer.from(proof[0].data))
+    }
+    if (!deposit.proofData || deposit.source !== 'WEB') return sendAuthorizationFailure(reply, 'notFound')
     const contentType = deposit.proofMimeType || 'application/octet-stream'
     const filename = safeMediaFilename(
       deposit.proofFilename,
@@ -1056,7 +1099,23 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
     const authUser = request.auth?.user
     if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
     const deposit = await loadAuthorizedBookingDeposit(prisma, authUser, params.id)
-    if (!deposit || deposit.source !== 'WEB') return sendAuthorizationFailure(reply, 'notFound')
+    if (!deposit) return sendAuthorizationFailure(reply, 'notFound')
+    if (deposit.visitId) {
+      const operationKey = typeof request.headers['idempotency-key'] === 'string' ? request.headers['idempotency-key'].trim() : ''
+      if (!operationKey || operationKey.length > 512) return sendAuthorizationFailure(reply, 'malformed')
+      try {
+        const result = await approveCurrentDepositProof(prisma, {
+          businessId: deposit.businessId, depositId: deposit.id, actorUserId: authUser.id, operationKey,
+          method: request.method, path: request.routeOptions.url || request.url
+        })
+        return { ok: true, outcome: result.outcome }
+      } catch (error) {
+        if (error instanceof DepositReviewStateError) return sendAuthorizationFailure(reply, 'conflict')
+        if (error instanceof DepositReviewError) return sendAuthorizationFailure(reply, 'malformed')
+        throw error
+      }
+    }
+    if (deposit.source !== 'WEB') return sendAuthorizationFailure(reply, 'notFound')
     await bookingDepositService.expireOverdue()
     if (deposit.status !== 'PROOF_RECEIVED') {
       return reply.status(409).send({ message: 'La seña no tiene un comprobante pendiente de revisión' })
@@ -1169,11 +1228,27 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
 
   app.post('/crm/deposits/:id/reject', async (request, reply) => {
     const params = request.params as { id: string }
-    const body = request.body as { reason?: string }
+    const body = request.body as { reason?: string; mode?: unknown }
     const authUser = request.auth?.user
     if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
     const deposit = await loadAuthorizedBookingDeposit(prisma, authUser, params.id)
-    if (!deposit || deposit.source !== 'WEB') return sendAuthorizationFailure(reply, 'notFound')
+    if (!deposit) return sendAuthorizationFailure(reply, 'notFound')
+    if (deposit.visitId) {
+      const operationKey = typeof request.headers['idempotency-key'] === 'string' ? request.headers['idempotency-key'].trim() : ''
+      if (!operationKey || operationKey.length > 512) return sendAuthorizationFailure(reply, 'malformed')
+      try {
+        const result = await rejectCurrentDepositProof(prisma, {
+          businessId: deposit.businessId, depositId: deposit.id, actorUserId: authUser.id, operationKey,
+          method: request.method, path: request.routeOptions.url || request.url, rejection: { reason: body.reason ?? '', mode: body.mode as never }
+        })
+        return { ok: true, outcome: result.outcome }
+      } catch (error) {
+        if (error instanceof DepositReviewStateError) return sendAuthorizationFailure(reply, 'conflict')
+        if (error instanceof DepositReviewError) return sendAuthorizationFailure(reply, 'malformed')
+        throw error
+      }
+    }
+    if (deposit.source !== 'WEB') return sendAuthorizationFailure(reply, 'notFound')
     const reason = body.reason?.trim().slice(0, 300) || 'No pudimos validar el comprobante'
     const rejected = await prisma.$transaction(async (tx) => {
       const scopedDeposit = await loadAuthorizedBookingDeposit(tx, authUser, params.id)
@@ -1306,6 +1381,12 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
       return sendAuthorizationFailure(reply, 'notFound')
     }
     if (!conversation.businessId) return sendAuthorizationFailure(reply, 'notFound')
+    const deterministic = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT h."id" FROM "BotHandoff" h JOIN "BotSession" s ON s."id" = h."sessionId" AND s."businessId" = h."businessId"
+      WHERE h."businessId" = ${conversation.businessId} AND s."conversationId" = ${conversation.id}
+        AND h."status" IN ('QUEUED'::"BotHandoffStatus", 'TAKEN'::"BotHandoffStatus") LIMIT 1
+    `)
+    if (deterministic.length) return reply.status(409).send({ message: 'La derivacion deterministica requiere la operacion explicita de tomar o resolver' })
 
     const isEnablingAi = body.aiEnabled
     const isResolvingHandoff = isEnablingAi && (
@@ -1358,6 +1439,44 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
           : takenConversationHandoffPatch({ queuedAt: conversation.humanHandoffAt })
     })
     if (!claimed.count) return sendAuthorizationFailure(reply, 'conflict')
+    const updated = await loadAuthorizedConversation(prisma, authUser, params.id)
+    if (!updated) return sendAuthorizationFailure(reply, 'notFound')
+    publishCrmConversationUpdated(updated)
+    return updated
+  })
+
+  app.post('/crm/conversations/:id/handoff/take', async (request, reply) => {
+    const params = request.params as { id: string }
+    const body = request.body as { operationKey?: string }
+    const authUser = request.auth?.user
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    if (typeof body.operationKey !== 'string' || !body.operationKey.trim()) return sendAuthorizationFailure(reply, 'malformed')
+    const conversation = await loadAuthorizedConversation(prisma, authUser, params.id)
+    if (!conversation?.businessId) return sendAuthorizationFailure(reply, 'notFound')
+    const deterministic = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT h."id" FROM "BotHandoff" h JOIN "BotSession" s ON s."id"=h."sessionId" AND s."businessId"=h."businessId" WHERE h."businessId"=${conversation.businessId} AND s."conversationId"=${conversation.id} AND h."status" IN ('QUEUED'::"BotHandoffStatus",'TAKEN'::"BotHandoffStatus") LIMIT 1`)
+    if (!deterministic.length) return reply.status(404).send({ code: 'NO_DETERMINISTIC_HANDOFF', message: 'No hay una derivacion deterministica en cola' })
+    try {
+      await takeBotHandoff({ client: prisma, businessId: conversation.businessId, conversationId: conversation.id, actorUserId: authUser.id, operationKey: body.operationKey })
+    } catch (error) { return reply.status(409).send({ message: error instanceof Error ? error.message : 'No pude tomar la derivacion' }) }
+    const updated = await loadAuthorizedConversation(prisma, authUser, params.id)
+    if (!updated) return sendAuthorizationFailure(reply, 'notFound')
+    publishCrmConversationUpdated(updated)
+    return updated
+  })
+
+  app.post('/crm/conversations/:id/handoff/resolve', async (request, reply) => {
+    const params = request.params as { id: string }
+    const body = request.body as { operationKey?: string; resolution?: 'HOME' | 'RESUME' }
+    const authUser = request.auth?.user
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    if (typeof body.operationKey !== 'string' || !body.operationKey.trim() || (body.resolution !== 'HOME' && body.resolution !== 'RESUME')) return sendAuthorizationFailure(reply, 'malformed')
+    const conversation = await loadAuthorizedConversation(prisma, authUser, params.id)
+    if (!conversation?.businessId) return sendAuthorizationFailure(reply, 'notFound')
+    const deterministic = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT h."id" FROM "BotHandoff" h JOIN "BotSession" s ON s."id"=h."sessionId" AND s."businessId"=h."businessId" WHERE h."businessId"=${conversation.businessId} AND s."conversationId"=${conversation.id} AND h."status" IN ('TAKEN'::"BotHandoffStatus",'RESOLVED'::"BotHandoffStatus") LIMIT 1`)
+    if (!deterministic.length) return reply.status(404).send({ code: 'NO_DETERMINISTIC_HANDOFF', message: 'No hay una derivacion deterministica tomada' })
+    try {
+      await resolveBotHandoff({ client: prisma, businessId: conversation.businessId, conversationId: conversation.id, actorUserId: authUser.id, operationKey: body.operationKey, resolution: body.resolution })
+    } catch (error) { return reply.status(409).send({ message: error instanceof Error ? error.message : 'No pude resolver la derivacion' }) }
     const updated = await loadAuthorizedConversation(prisma, authUser, params.id)
     if (!updated) return sendAuthorizationFailure(reply, 'notFound')
     publishCrmConversationUpdated(updated)
