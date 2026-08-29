@@ -26,6 +26,8 @@ try {
   await prisma.$executeRaw(Prisma.sql`INSERT INTO "ProfessionalService" ("id", "professionalId", "serviceId") VALUES
     (${`l1_${suffix}`}, ${p1}, ${cut}), (${`l2_${suffix}`}, ${p2}, ${cut}), (${`l3_${suffix}`}, ${p2}, ${color}), (${`l4_${suffix}`}, ${p3}, ${color})`)
   const repo = new cartModule.PrismaCartRepository(prisma)
+  const fixedSnapshot = await repo.load({ businessId: businessA, serviceIds: [cut] })
+  assert.equal(fixedSnapshot.snapshot.totalPriceMinor, 1500, 'el repositorio conserva pesos enteros como unidad canónica')
   const snapshot = await repo.load({ businessId: businessA, serviceIds: [cut, color] })
   assert.deepEqual(snapshot.snapshot.commonProfessionalIds, [p2])
   assert.equal(snapshot.snapshot.totalDurationMinutes, 75)

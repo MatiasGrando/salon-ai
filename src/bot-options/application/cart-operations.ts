@@ -59,6 +59,6 @@ export function formatCartSummary(snapshot: CartSnapshot): string {
   const services = snapshot.services.map((service) => `• ${service.name}`).join('\n')
   const price = snapshot.totalPriceMinor === null
     ? 'Precio: pendiente de confirmación'
-    : `Precio total: $${(snapshot.totalPriceMinor / 100).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
+    : `Precio total: $${snapshot.totalPriceMinor.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
   return `Tu reserva\n${services}\nDuración total: ${snapshot.totalDurationMinutes} min\n${price}`
 }

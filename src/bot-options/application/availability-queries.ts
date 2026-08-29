@@ -1,7 +1,9 @@
 import { calcularOffsetUtcMs, decomposeDateInTimezone, isValidTimezone, sumarDiasCalendario } from './hours-queries.js'
 import type { SlotBand } from '../domain/actions.js'
 
-export const BOOKING_DATE_PAGE_SIZE = 8
+// Siete fechas dejan al menos una fila para la navegación global aun cuando
+// conviven Página anterior y Página siguiente (7 + 2 + 1 = 10).
+export const BOOKING_DATE_PAGE_SIZE = 7
 export const BOOKING_SLOT_PAGE_SIZE = 7
 export const BOOKING_GRID_MINUTES = 30
 

@@ -317,7 +317,7 @@ const CLIENT_ALLOWED: Partial<Record<BotOptionsFlowStep, readonly BotOptionsActi
     'navigation.open',
     'handoff.request'
   ],
-  PROFESSIONAL_SELECT: ['professional.any', 'professional.select', 'navigation.back', 'navigation.home', 'navigation.open', 'handoff.request'],
+  PROFESSIONAL_SELECT: ['professional.any', 'professional.select', 'professional.next_page', 'professional.previous_page', 'navigation.back', 'navigation.home', 'navigation.open', 'handoff.request'],
   DATE_SELECT: [
     'date.next_page',
     'date.previous_page',
@@ -592,19 +592,22 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
     }
     case 'RECOMMENDATION_SELECT': {
       const recommendations = context.labels.recommendations ?? []
-      return menuView('¿Querés complementarlo?', [
+      const choices: ViewChoice[] = [
         ...recommendations.map((item) => item.compatible
           ? { actionType: 'recommendation.add' as const, label: item.label, entityRef: { type: 'SERVICE' as const, id: item.serviceId } }
           : { actionType: 'recommendation.consult' as const, label: `Coordinar ${item.label}`, entityRef: { type: 'SERVICE' as const, id: item.serviceId } }),
         { actionType: 'recommendation.skip', label: 'Continuar sin agregar' }
-      ])
+      ]
+      return appendGlobals(menuView('¿Querés complementarlo?', choices), composeGlobalNavigation({ capacity: 10, contextualCount: choices.length, back: BACK_CHOICE }))
     }
-    case 'CART_REVIEW':
-      return menuView(context.labels.cartSummary ?? 'Tu reserva', [
+    case 'CART_REVIEW': {
+      const choices: ViewChoice[] = [
         { actionType: 'cart.add_service', label: 'Agregar otro servicio' },
         { actionType: 'cart.remove_service', label: 'Quitar un servicio' },
         { actionType: 'cart.continue', label: 'Continuar con la reserva' }
-      ])
+      ]
+      return appendGlobals(menuView(context.labels.cartSummary ?? 'Tu reserva', choices), composeGlobalNavigation({ capacity: 10, contextualCount: choices.length, back: BACK_CHOICE }))
+    }
     case 'INCOMPATIBLE_SERVICE_DECISION': {
       const incompatibleId = state.pendingEntityRef?.type === 'SERVICE' ? state.pendingEntityRef.id : null
       return menuView(
@@ -617,10 +620,20 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
     }
     case 'PROFESSIONAL_SELECT': {
       const professionals = context.labels.bookingProfessionals ?? []
-      return menuView('¿Con quién querés atenderte?', [
+      const pageSize = 4
+      const cursor = state.presentation.kind === 'professional_list_page' ? state.presentation.cursor : 0
+      const pageStart = cursor * pageSize
+      const page = professionals.slice(pageStart, pageStart + pageSize)
+      const choices: ViewChoice[] = [
         { actionType: 'professional.any', label: 'Cualquier profesional disponible' },
-        ...professionals.map((item) => ({ actionType: 'professional.select' as const, label: item.label, entityRef: { type: 'PROFESSIONAL' as const, id: item.professionalId } }))
-      ])
+        ...page.map((item) => ({ actionType: 'professional.select' as const, label: item.label, entityRef: { type: 'PROFESSIONAL' as const, id: item.professionalId } }))
+      ]
+      if (cursor > 0) choices.push({ actionType: 'professional.previous_page', label: 'Profesionales anteriores' })
+      if (pageStart + pageSize < professionals.length) choices.push({ actionType: 'professional.next_page', label: 'Más profesionales' })
+      return appendGlobals(
+        menuView('¿Con quién querés atenderte?', choices),
+        composeGlobalNavigation({ capacity: 10, contextualCount: choices.length, back: BACK_CHOICE })
+      )
     }
     case 'DATE_SELECT': {
       const choices: ViewChoice[] = (context.labels.availableDates ?? []).map((item) => ({ actionType: 'date.select', label: item.label, payload: { date: item.date } }))
@@ -630,7 +643,10 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
         if (state.selections.professionalId) choices.push({ actionType: 'professional.any', label: 'Buscar con cualquier profesional' })
         choices.push({ actionType: 'cart.add_service', label: 'Modificar servicios' }, HUMAN_CHOICE)
       }
-      return menuView(context.noAvailabilityInHorizon || context.selectedProfessionalNoAvailability ? 'No encontramos disponibilidad con esa selección en el período buscado.' : 'Elegí la fecha', choices)
+      return appendGlobals(
+        menuView(context.noAvailabilityInHorizon || context.selectedProfessionalNoAvailability ? 'No encontramos disponibilidad con esa selección en el período buscado.' : 'Elegí la fecha', choices),
+        composeGlobalNavigation({ capacity: 10, contextualCount: choices.length, back: BACK_CHOICE })
+      )
     }
     case 'SLOT_SELECT': {
       const all = context.labels.availableSlots ?? []
@@ -639,17 +655,20 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
       const cursor = state.presentation.kind === 'slot_all_pages' ? state.presentation.cursor : 0
       const page = state.presentation.kind === 'slot_all_pages' ? filtered.slice(cursor * 7, cursor * 7 + 7) : filtered
       if (state.presentation.kind === 'plain' && all.length > 7) {
-        return menuView('Elegí una franja', [
+        const bandChoices: ViewChoice[] = [
           ...(['MORNING', 'AFTERNOON', 'EVENING'] as const).filter((band) => all.some((slot) => slot.band === band)).map((band) => ({ actionType: 'slot.band' as const, label: band === 'MORNING' ? 'Mañana' : band === 'AFTERNOON' ? 'Tarde' : 'Noche', payload: { band } })),
           { actionType: 'slot.show_all', label: 'Ver todos los horarios' }
-        ])
+        ]
+        return appendGlobals(menuView('Elegí una franja', bandChoices), composeGlobalNavigation({ capacity: 10, contextualCount: bandChoices.length, back: BACK_CHOICE }))
       }
       const choices: ViewChoice[] = page.map((slot) => ({ actionType: 'slot.select', label: slot.label, payload: { startAt: slot.startAt } }))
       if (state.presentation.kind === 'slot_all_pages' && context.slotCanNext) choices.push({ actionType: 'slot.next_page', label: 'Más horarios' })
-      return menuView('Elegí el horario', choices)
+      return appendGlobals(menuView('Elegí el horario', choices), composeGlobalNavigation({ capacity: 10, contextualCount: choices.length, back: BACK_CHOICE }))
     }
-    case 'BOOKING_SUMMARY':
-      return menuView(context.labels.bookingSummary ?? 'Confirmá tu reserva', [{ actionType: 'booking.confirm', label: 'Confirmar turno' }])
+    case 'BOOKING_SUMMARY': {
+      const choices: ViewChoice[] = [{ actionType: 'booking.confirm', label: 'Confirmar turno' }]
+      return appendGlobals(menuView(context.labels.bookingSummary ?? 'Confirmá tu reserva', choices), composeGlobalNavigation({ capacity: 10, contextualCount: choices.length, back: BACK_CHOICE }))
+    }
     case 'DISCARD_CONFIRM':
       return menuView('¿Seguro que querés descartar la reserva en curso?', [
         { actionType: 'draft.restart', label: 'Descartar e ir al menú' },
@@ -801,7 +820,8 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
 }
 
 function appendGlobals(view: BotOptionsViewModel, plan: GlobalNavigationPlan): BotOptionsViewModel {
-  return { ...view, choices: [...view.choices, ...plan.directChoices] }
+  const existing = new Set(view.choices.map((choice) => choice.actionType))
+  return { ...view, choices: [...view.choices, ...plan.directChoices.filter((choice) => !existing.has(choice.actionType))] }
 }
 
 // ─── Motor ────────────────────────────────────────────────────────────────────
@@ -1852,6 +1872,20 @@ function fromProfessionalSelect(
   entityRef: BotOptionsEntityRef | null,
   context: TransitionContext
 ): TransitionResult {
+  if (actionType === 'professional.next_page' || actionType === 'professional.previous_page') {
+    const pageSize = 4
+    const current = state.presentation.kind === 'professional_list_page' ? state.presentation.cursor : 0
+    const nextCursor = actionType === 'professional.next_page' ? current + 1 : Math.max(0, current - 1)
+    const professionals = context.labels.bookingProfessionals ?? []
+    if (actionType === 'professional.next_page' && nextCursor * pageSize >= professionals.length) {
+      return recovered(state, 'guard_failed', 'No hay más profesionales hacia adelante.', [])
+    }
+    if (actionType === 'professional.previous_page' && current === 0) {
+      return recovered(state, 'guard_failed', 'Estás en la primera página de profesionales.', [])
+    }
+    const next = baseOf(state, { presentation: { kind: 'professional_list_page', cursor: nextCursor } })
+    return applied(next, renderCurrentView(next, context))
+  }
   if (actionType === 'professional.any') {
     if (context.noAvailabilityInHorizon) return enterHandoff(state, 'sin_disponibilidad_en_horizonte', null, null, [
       { kind: 'EMIT_OPERATIONAL_ALERT', alertKind: 'NO_AVAILABILITY_IN_HORIZON', detail: null }

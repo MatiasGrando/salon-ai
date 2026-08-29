@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { buildCartSnapshot, canAddService, cartChangeInvalidatesAvailability } from '../src/bot-options/application/cart-operations.js'
+import { buildCartSnapshot, canAddService, cartChangeInvalidatesAvailability, formatCartSummary } from '../src/bot-options/application/cart-operations.js'
 import {
   bandForMinute, chooseBalancedProfessional, formatSlotOffset, localDateTimeToInstants, paginate,
   validateAvailabilitySettings
@@ -15,6 +15,11 @@ const one = buildCartSnapshot([cut])
 assert.deepEqual(one.commonProfessionalIds, ['p1', 'p2'])
 assert.equal(one.totalDurationMinutes, 30)
 assert.equal(one.totalPriceMinor, 1500)
+assert.match(
+  formatCartSummary(buildCartSnapshot([{ ...cut, priceMinor: 40_000 }])),
+  /Precio total: \$40\.000,00/,
+  'el resumen debe formatear la unidad canónica en pesos sin dividirla por cien'
+)
 const combined = canAddService({ current: one, proposed: color })
 assert.equal(combined.ok, true)
 if (combined.ok) {

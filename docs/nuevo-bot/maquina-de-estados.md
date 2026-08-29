@@ -219,6 +219,8 @@ servicio y transiciona a `INCOMPATIBLE_SERVICE_DECISION`.
 |---|---|---|---|---|
 | `PROFESSIONAL_SELECT` | `professional.any` | Existe al menos un profesional común | `DATE_SELECT` | Eliminar preferencia específica. |
 | `PROFESSIONAL_SELECT` | `professional.select` | Persona activa y compatible con todo | `DATE_SELECT` | Guardar preferencia específica. |
+| `PROFESSIONAL_SELECT` | `professional.next_page` | Existe página posterior | `PROFESSIONAL_SELECT` | Avanzar el cursor de vista sin alterar selección ni carrito. |
+| `PROFESSIONAL_SELECT` | `professional.previous_page` | Existe página anterior | `PROFESSIONAL_SELECT` | Retroceder el cursor de vista sin alterar selección ni carrito. |
 | `DATE_SELECT` | `date.next_page` | No supera el horizonte | `DATE_SELECT` | Cambiar cursor sin alterar selección. |
 | `DATE_SELECT` | `date.previous_page` | Existe página anterior | `DATE_SELECT` | Cambiar cursor sin alterar selección. |
 | `DATE_SELECT` | `date.select` | Fecha vigente con bloques reales | `SLOT_SELECT` | Guardar fecha y calcular horarios. |

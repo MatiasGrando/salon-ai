@@ -72,6 +72,65 @@ const progressedCatalog = stateWith({
   cart: [{ serviceId: 'srv_progress' }],
   catalogMode: 'BOOKING'
 })
+
+for (const count of [0, 8, 9, 10, 15]) {
+  const professionalSelectionState = stateWith({
+    flow: 'PROFESSIONAL_SELECT', booking: 'DRAFT', cart: [{ serviceId: 'srv_corte' }],
+    presentation: { kind: 'plain' }
+  })
+  const professionals = Array.from({ length: count }, (_, index) => ({ professionalId: `prof_${index}`, label: `Profesional ${index}` }))
+  const firstPage = renderCurrentView(
+    professionalSelectionState,
+    normalizeContext(ctx({ labels: { bookingProfessionals: professionals } }))
+  )
+  assert.ok(firstPage.choices.length <= 10, `${count} profesionales no deben superar el límite de WhatsApp`)
+  assert.ok(firstPage.choices.some((choice) => choice.actionType === 'professional.any'))
+  assert.ok(firstPage.choices.some((choice) => choice.actionType === 'navigation.back'))
+  assert.ok(firstPage.choices.some((choice) => choice.actionType === 'navigation.home'))
+  assert.ok(firstPage.choices.some((choice) => choice.actionType === 'handoff.request'))
+  if (count > 4) assert.ok(firstPage.choices.some((choice) => choice.actionType === 'professional.next_page'))
+}
+
+const pagedProfessionalState = stateWith({
+  flow: 'PROFESSIONAL_SELECT', booking: 'DRAFT', cart: [{ serviceId: 'srv_corte' }],
+  presentation: { kind: 'professional_list_page', cursor: 1 }
+})
+const bookingFifteenProfessionals = Array.from({ length: 15 }, (_, index) => ({ professionalId: `prof_${index}`, label: `Profesional ${index}` }))
+const middleProfessionalPage = renderCurrentView(
+  pagedProfessionalState,
+  normalizeContext(ctx({ labels: { bookingProfessionals: bookingFifteenProfessionals } }))
+)
+assert.ok(middleProfessionalPage.choices.length <= 10)
+assert.ok(middleProfessionalPage.choices.some((choice) => choice.actionType === 'professional.previous_page'))
+assert.ok(middleProfessionalPage.choices.some((choice) => choice.actionType === 'professional.next_page'))
+assert.ok(middleProfessionalPage.choices.some((choice) => choice.actionType === 'navigation.home'))
+
+const bookingProfessionalsContext = normalizeContext(ctx({ labels: { bookingProfessionals: bookingFifteenProfessionals } }))
+const advanceProfessionalPage = transition(
+  stateWith({ flow: 'PROFESSIONAL_SELECT', booking: 'DRAFT', cart: [{ serviceId: 'srv_corte' }] }),
+  act('professional.next_page'),
+  bookingProfessionalsContext
+)
+assert.equal(advanceProfessionalPage.outcome, 'APPLIED')
+if (advanceProfessionalPage.outcome === 'APPLIED') {
+  assert.deepEqual(advanceProfessionalPage.state.presentation, { kind: 'professional_list_page', cursor: 1 })
+  const returnProfessionalPage = transition(advanceProfessionalPage.state, act('professional.previous_page'), bookingProfessionalsContext)
+  assert.equal(returnProfessionalPage.outcome, 'APPLIED')
+  if (returnProfessionalPage.outcome === 'APPLIED') {
+    assert.deepEqual(returnProfessionalPage.state.presentation, { kind: 'professional_list_page', cursor: 0 })
+  }
+}
+
+for (const flow of ['RECOMMENDATION_SELECT', 'CART_REVIEW', 'DATE_SELECT', 'SLOT_SELECT', 'BOOKING_SUMMARY'] as const) {
+  const view = renderCurrentView(
+    stateWith({ flow, booking: 'DRAFT', cart: [{ serviceId: 'srv_corte' }] }),
+    normalizeContext(ctx())
+  )
+  assert.ok(
+    view.choices.some((choice) => choice.actionType === 'navigation.open' || choice.actionType === 'navigation.home'),
+    `${flow} debe exponer navegación global`
+  )
+}
 const askDiscard = transition(progressedCatalog, act('navigation.home'), ctx())
 assert.equal(askDiscard.outcome, 'APPLIED')
 if (askDiscard.outcome === 'APPLIED') {

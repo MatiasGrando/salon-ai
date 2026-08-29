@@ -374,6 +374,7 @@ const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
   const bookingCartIds = targetCartIds.length > 0 ? targetCartIds : cartIds
   const needsAvailability = bookingCartIds.length > 0 && (
     input.actionType === 'cart.continue' || input.actionType === 'professional.any' || input.actionType === 'professional.select' ||
+    input.actionType === 'professional.next_page' || input.actionType === 'professional.previous_page' ||
     input.actionType === 'date.next_page' || input.actionType === 'date.previous_page' || input.actionType === 'date.select' ||
     input.actionType === 'slot.band' || input.actionType === 'slot.show_all' || input.actionType === 'slot.next_page' ||
     input.actionType === 'slot.select' || input.state.flow === 'DATE_SELECT' || input.state.flow === 'SLOT_SELECT' || input.state.flow === 'BOOKING_SUMMARY'
