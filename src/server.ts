@@ -143,27 +143,50 @@ export async function buildApp(options: BuildAppOptions = {}) {
   const loops: WorkerLoop[] = []
   if (botOptionsConfig.workersEnabled) {
     const handler = async (job: Parameters<typeof processSessionJob>[0]['job']) => {
-      if (job.kind === 'RECONCILE_PROMPT') {
-        await reconcileActions(prisma, job)
-        return
+      const startedAt = performance.now()
+      let outcome: 'ok' | 'error' = 'ok'
+      try {
+        if (job.kind === 'RECONCILE_PROMPT') {
+          await reconcileActions(prisma, job)
+          return
+        }
+        if (job.kind === 'EXPIRE_DEPOSIT') {
+          await expireDepositHold(prisma, job)
+          return
+        }
+        if (job.kind === 'RECEIVE_DEPOSIT_PROOF') {
+          await processDepositProofJob({
+            client: prisma,
+            job,
+            capabilityEnabled: botOptionsConfig.depositsCapabilityEnabled
+          })
+          return
+        }
+        if (job.kind === 'BRIDGE_DEPOSIT_NOTIFICATION') {
+          await bridgeDepositNotificationJob(prisma, job)
+          return
+        }
+        await processSessionJob({ client: prisma, job })
+      } catch (error) {
+        outcome = 'error'
+        throw error
+      } finally {
+        const processingMs = Math.round(performance.now() - startedAt)
+        const totalMs = Math.round(processingMs + (job.queueWaitMs ?? 0))
+        const alerts: string[] = []
+        if (totalMs >= 10_000) alerts.push('total_critico')
+        else if (totalMs >= 5_000) alerts.push('total_alto')
+        if (processingMs >= 5_000) alerts.push('processing_lento')
+        if (outcome === 'error') alerts.push('job_error')
+        console.info('[bot-options-latency]', JSON.stringify({
+          jobId: job.id, kind: job.kind, businessId: job.businessId,
+          queueWaitMs: Math.round(job.queueWaitMs ?? 0),
+          processingMs,
+          totalMs,
+          outcome,
+          ...(alerts.length > 0 ? { alerts } : {})
+        }))
       }
-      if (job.kind === 'EXPIRE_DEPOSIT') {
-        await expireDepositHold(prisma, job)
-        return
-      }
-      if (job.kind === 'RECEIVE_DEPOSIT_PROOF') {
-        await processDepositProofJob({
-          client: prisma,
-          job,
-          capabilityEnabled: botOptionsConfig.depositsCapabilityEnabled
-        })
-        return
-      }
-      if (job.kind === 'BRIDGE_DEPOSIT_NOTIFICATION') {
-        await bridgeDepositNotificationJob(prisma, job)
-        return
-      }
-      await processSessionJob({ client: prisma, job })
     }
     loops.push(startPostgresWorkerLoop({ client: prisma, handle: handler, onError: (error) => app.log.error(error) }))
     loops.push(startPostgresWorkerLoop({ client: prisma, handle: handler, onError: (error) => app.log.error(error) }))
