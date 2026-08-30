@@ -1075,6 +1075,7 @@ model WeexLead {
   email           String
   phone           String
   phoneNormalized String
+  message         String?
   campaign        String   @default("promocion-weex-agosto-2026")
   source          String   @default("directo")
   medium          String?

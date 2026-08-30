@@ -1,4 +1,4 @@
-﻿import type { FastifyInstance, FastifyRequest } from 'fastify'
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { siFacebook, siInstagram, siTiktok, siWhatsapp, type SimpleIcon } from 'simple-icons'
@@ -13,6 +13,7 @@ const businessService = new BusinessService()
 const baseDomain = (process.env.PUBLIC_BASE_DOMAIN || 'weex.com.ar').toLowerCase()
 const landingAssetNames = new Set(['barber-hero-interior.png', 'barber-hero-service.png'])
 const landingAssetsDir = join(process.cwd(), 'src', 'assets', 'landing')
+const weexHomePath = join(process.cwd(), 'src', 'assets', 'weex-home', 'index.html')
 
 export async function landingUiRoutes(app: FastifyInstance) {
   app.get('/landing-assets/:asset', async (request, reply) => {
@@ -26,7 +27,7 @@ export async function landingUiRoutes(app: FastifyInstance) {
 
   app.get('/', async (request, reply) => {
     const business = await findPublicBusinessFromHost(request)
-    if (!business) return reply.type('text/html').send(renderWeexHome())
+    if (!business) return serveWeexHome(reply)
     if (isBusinessAccountUnavailable(business.accountStatus)) return reply.status(503).type('text/html').send(renderBusinessUnavailable())
     if (!business || !business.landingEnabled) return reply.status(404).type('text/html').send(renderNotFound())
 
@@ -100,6 +101,24 @@ export async function landingUiRoutes(app: FastifyInstance) {
   })
 }
 
+async function serveWeexHome(reply: FastifyReply) {
+  const html = await readFile(weexHomePath)
+  reply.header('Cache-Control', 'no-cache')
+  reply.header('X-Content-Type-Options', 'nosniff')
+  reply.header('Referrer-Policy', 'strict-origin-when-cross-origin')
+  reply.header('Content-Security-Policy', [
+    "default-src 'self'",
+    "img-src 'self' https: data:",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "script-src 'self' 'unsafe-inline'",
+    "connect-src 'self'",
+    "form-action 'self'",
+    "base-uri 'self'",
+    "frame-ancestors 'none'"
+  ].join('; '))
+  return reply.type('text/html; charset=utf-8').send(html)
+}
 async function findPublicBusinessFromHost(request: FastifyRequest) {
   const rawHost = request.headers['x-forwarded-host'] || request.headers.host
   const customSiteBinding = findCustomSiteProfileBinding(rawHost)
@@ -3553,33 +3572,6 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
           void boot()
         })()
       </script>
-    `
-  })
-}
-
-function renderWeexHome() {
-  return htmlPage({
-    title: 'Weex | Gestión y reservas para salones',
-    body: `
-      ${renderWeexLegalHeader()}
-      <main class="weex-home">
-        <section class="weex-hero">
-          <span class="eyebrow">Weex</span>
-          <h1>Gestión, reservas y comunicación para salones.</h1>
-          <p>Weex es una plataforma para salones de belleza y barberías que centraliza clientes, agenda, reservas online y comunicaciones por WhatsApp.</p>
-          <p>El acceso con Google permite identificar al usuario, consultar sus próximas reservas y, si lo autoriza, agregar sus turnos al Calendario de Google.</p>
-          <div class="weex-actions">
-            <a class="button primary" href="/crm">Ingresar a Weex</a>
-            <a class="button secondary" href="/politicas">Política de privacidad</a>
-          </div>
-        </section>
-        <section class="weex-features" aria-label="Funciones principales">
-          <article><h2>Agenda y reservas</h2><p>Organizá horarios, profesionales, servicios y turnos desde un único lugar.</p></article>
-          <article><h2>Relación con clientes</h2><p>Conservá el historial de visitas y gestioná comunicaciones relevantes para cada cliente.</p></article>
-          <article><h2>Integración con Google</h2><p>Los clientes pueden iniciar sesión con Google y agregar las reservas confirmadas a su calendario.</p></article>
-        </section>
-      </main>
-      ${renderWeexLegalFooter()}
     `
   })
 }

@@ -26,7 +26,7 @@ export async function weexLeadCampaignRoutes(app: FastifyInstance) {
     const phone = cleanText(body?.phone, 40)
     const phoneNormalized = phone.replace(/\D/g, '')
 
-    if (name.length < 2 || !isValidEmail(email) || phoneNormalized.length < 7 || phoneNormalized.length > 15) {
+    if (name.length < 2 || (email && !isValidEmail(email)) || phoneNormalized.length < 7 || phoneNormalized.length > 15) {
       return reply.status(400).send({ message: 'Revisá los datos ingresados.' })
     }
     if (!canCreateLead(clientKey(request))) {
@@ -39,6 +39,7 @@ export async function weexLeadCampaignRoutes(app: FastifyInstance) {
         email,
         phone,
         phoneNormalized,
+        message: optionalText(body?.message, 1000),
         campaign: cleanText(body?.campaign, 100) || campaignSlug,
         source: cleanText(body?.source, 100) || 'directo',
         medium: optionalText(body?.medium, 100),
@@ -76,6 +77,7 @@ type LeadBody = {
   email?: unknown
   phone?: unknown
   company?: unknown
+  message?: unknown
   campaign?: unknown
   source?: unknown
   medium?: unknown
@@ -92,6 +94,7 @@ type AdminLead = {
   email: string
   phone: string
   phoneNormalized: string
+  message: string | null
   source: string
   campaign: string
   campaignName: string | null
@@ -141,19 +144,20 @@ function renderAdminPage(leads: AdminLead[]) {
   const rows = leads.map(lead => `<tr>
     <td>${escapeHtml(new Intl.DateTimeFormat('es-AR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Argentina/Buenos_Aires' }).format(lead.createdAt))}</td>
     <td><strong>${escapeHtml(lead.name)}</strong></td>
-    <td><a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a></td>
+    <td>${lead.email ? `<a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a>` : '—'}</td>
     <td><a href="https://wa.me/${escapeHtml(lead.phoneNormalized)}" target="_blank" rel="noopener noreferrer">${escapeHtml(lead.phone)}</a></td>
+    <td>${escapeHtml(lead.message || '—')}</td>
     <td>${escapeHtml(lead.source)}</td>
     <td>${escapeHtml(lead.campaignName || lead.campaign)}</td>
     <td><span class="badge">${escapeHtml(lead.status)}</span></td>
   </tr>`).join('')
   const content = rows
-    ? `<div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Nombre</th><th>Email</th><th>Teléfono</th><th>Origen</th><th>Campaña</th><th>Estado</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    ? `<div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Nombre</th><th>Email</th><th>Teléfono</th><th>Consulta</th><th>Origen</th><th>Campaña</th><th>Estado</th></tr></thead><tbody>${rows}</tbody></table></div>`
     : '<div class="empty"><h2>Todavía no hay leads</h2><p>Los formularios nuevos aparecerán aquí automáticamente.</p></div>'
 
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Leads de Weex</title><style>
   :root{color-scheme:dark;--bg:#0c0f14;--surface:#141922;--line:#28303d;--text:#f4f6f8;--muted:#9aa5b5;--amber:#ffcb3d;--violet:#8c7cff}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 20% 0,rgba(255,203,61,.09),transparent 35%),var(--bg);color:var(--text);font:15px Inter,system-ui,sans-serif}main{width:min(1180px,calc(100% - 32px));margin:42px auto}.top{display:flex;justify-content:space-between;gap:18px;align-items:end;margin-bottom:24px}.brand{font-weight:800;letter-spacing:.08em;color:var(--amber)}h1{margin:5px 0;font-size:clamp(1.8rem,4vw,2.5rem)}p{color:var(--muted)}.card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:22px;box-shadow:0 24px 70px rgba(0,0,0,.28)}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:900px}th,td{text-align:left;padding:13px 12px;border-bottom:1px solid var(--line);vertical-align:top}th{font-size:.75rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}td a{color:var(--amber)}.badge{display:inline-block;padding:5px 9px;border-radius:999px;background:rgba(140,124,255,.15);color:#c9c2ff;font-size:.75rem}.empty{text-align:center;padding:50px 20px}.count{font-size:2rem;font-weight:800;color:var(--amber)}@media(max-width:700px){main{margin-top:24px}.top{align-items:start;flex-direction:column}}
-  </style></head><body><main><div class="top"><div><div class="brand">WEEX</div><h1>Leads de la campaña</h1><p>Formularios recibidos desde la promoción de agosto de 2026.</p></div><div><div class="count">${leads.length}</div><p>leads mostrados</p></div></div><div class="card">${content}</div></main></body></html>`
+  </style></head><body><main><div class="top"><div><div class="brand">WEEX</div><h1>Leads de la campaña</h1><p>Formularios recibidos desde las landings de Weex.</p></div><div><div class="count">${leads.length}</div><p>leads mostrados</p></div></div><div class="card">${content}</div></main></body></html>`
 }
 
 function applyCampaignHeaders(reply: FastifyReply) {
