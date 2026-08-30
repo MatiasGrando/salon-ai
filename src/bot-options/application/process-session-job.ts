@@ -61,6 +61,24 @@ export async function runProcessInboxTransaction<T>(
   return client.$transaction(operation, PROCESS_INBOX_TRANSACTION_OPTIONS)
 }
 
+/**
+ * Exact WhatsApp text commands that deliberately discard the in-progress
+ * conversational draft and start again from the main menu.
+ */
+export function isConversationRestartCommand(value: unknown): boolean {
+  if (typeof value !== 'string') return false
+  const command = value
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .trim()
+    .toLocaleLowerCase('es-AR')
+    .replace(/\s+/g, ' ')
+  return command === 'reiniciar'
+    || command === '/reiniciar'
+    || command === 'reiniciar conversacion'
+    || command === '/reiniciar conversacion'
+}
+
 /** Runs post-commit work only after the interactive transaction resolved. */
 export async function runCommittedProcessSession<T>(input: {
   client: RuntimeClient
@@ -950,13 +968,53 @@ async function processInitialInboxUnderClaim(
           body,
           messageType: payload.messageType
         }, pendingCrmEvents)
+        const state = parseBotOptionsState(existingSession.state)
+        if (!state.ok) throw new Error(`unknown/corrupt state: ${state.invariant}`)
+        if (isConversationRestartCommand(payload.textBody)) {
+          const nextState = createInitialBotOptionsState()
+          const nextRevision = existingSession.revision + 1n
+          await tx.$executeRaw(Prisma.sql`
+            UPDATE "BotSession" SET "state"=${JSON.stringify(nextState)}::jsonb, "revision"=${nextRevision}, "updatedAt"=clock_timestamp()
+            WHERE "id"=${existingSession.sessionId} AND "businessId"=${row.businessId} AND "revision"=${existingSession.revision}
+          `)
+          await tx.$executeRaw(Prisma.sql`
+            INSERT INTO "BotTransitionLog" ("id", "businessId", "sessionId", "deploymentId", "deploymentGeneration", "revisionFrom", "revisionTo", "actionType", "outcome")
+            VALUES (${randomUUID()}, ${row.businessId}, ${existingSession.sessionId}, ${row.deploymentId}, ${row.deploymentGeneration},
+              ${existingSession.revision}, ${nextRevision}, 'system.conversation_restart', 'APPLIED')
+            ON CONFLICT ("sessionId", "revisionTo") DO NOTHING
+          `)
+          await tx.$executeRaw(Prisma.sql`
+            UPDATE "BotActionInbox" SET "sessionId"=${existingSession.sessionId}, "expectedRevision"=${existingSession.revision},
+              "status"='PROCESSED'::"BotInboxStatus", "error"='EXISTING_SESSION_RESTARTED'
+            WHERE "id"=${row.id} AND "status"='ADMITTED'::"BotInboxStatus"
+          `)
+          await persistView(tx, {
+            businessId: row.businessId,
+            sessionId: existingSession.sessionId,
+            revision: nextRevision,
+            transitionId: `restart:${existingSession.sessionId}:${row.id}`,
+            toPhone: payload.fromPhone,
+            view: renderCurrentView(nextState, await defaultContextProvider(tx, {
+              businessId: row.businessId,
+              sessionId: existingSession.sessionId,
+              state: nextState,
+              actionType: 'system.reprompt',
+              entityRef: null,
+              payload: null,
+              dbNow: row.dbNow,
+              businessTimezone: existingSession.businessTimezone
+            })),
+            dbNow: row.dbNow
+          })
+          await completeDispatchClaimTx(tx, dispatchToken)
+          await completeClaimedBotJobTx(tx, input.job)
+          return 'PROCESSED'
+        }
         await tx.$executeRaw(Prisma.sql`
           UPDATE "BotActionInbox" SET "sessionId"=${existingSession.sessionId},"expectedRevision"=${existingSession.revision},
             "status"='PROCESSED'::"BotInboxStatus", "error"='EXISTING_SESSION_REPROMPTED'
           WHERE "id"=${row.id} AND "status"='ADMITTED'::"BotInboxStatus"
         `)
-        const state = parseBotOptionsState(existingSession.state)
-        if (!state.ok) throw new Error(`unknown/corrupt state: ${state.invariant}`)
         await persistView(tx, {
           businessId: row.businessId,
           sessionId: existingSession.sessionId,
