@@ -40,6 +40,7 @@ try {
       "availableAt" = clock_timestamp() - interval '1 second'
     WHERE "id" = ${held.jobId}
   `)
+  await worker.maintainBotJobs(prisma, { businessId })
   assert.equal(await worker.claimBotJob(prisma, 30_000, randomUUID(), { businessId }), null, 'exhausted stale expiry is rescheduled with a recovery delay')
   const recoveryState = await prisma.$queryRaw<Array<{ status: string; attempts: number; availableAt: Date }>>(Prisma.sql`
     SELECT "status"::text AS "status", "attempts", "availableAt" FROM "BotJob" WHERE "id" = ${held.jobId}

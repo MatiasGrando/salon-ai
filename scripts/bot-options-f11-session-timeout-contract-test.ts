@@ -85,7 +85,7 @@ await runCommittedProcessSession({
   },
   postCommit: async (result) => {
     assert.equal(result, 'persisted')
-    assert.equal(success.committed.length, 5, 'post-commit cannot run until all staged writes commit')
+    assert.equal(success.committed.length, 4, 'post-commit cannot run until all staged writes commit')
     assert.equal(success.timeline.at(-1), 'committed')
     success.timeline.push('postCommit')
     successPostCommitCalls += 1
@@ -96,7 +96,7 @@ assert.deepEqual(PROCESS_SESSION_TRANSACTION_OPTIONS, { maxWait: 2_000, timeout:
 assert.ok(PROCESS_SESSION_TRANSACTION_OPTIONS.maxWait + PROCESS_SESSION_TRANSACTION_OPTIONS.timeout < 30_000)
 assert.equal(successPostCommitCalls, 1)
 assert.equal(success.timeline.at(-1), 'postCommit')
-assert.equal(success.committed.length, 5, 'invalidation, prompt, choices, outbox, and prompt outbox-message update')
+assert.equal(success.committed.length, 4, 'invalidation, prompt-with-outbox-link, choices, and outbox')
 
 const sqlWrites = success.committed.filter((write): write is CapturedSql => write.kind === 'sql')
 const choices = sqlWrites.filter((query) => query.sql.includes('INSERT INTO "BotPromptChoice"'))
@@ -119,10 +119,11 @@ assert.deepEqual(outbox[0].values.slice(0, 11).map((value, index) => index === 7
 assert.deepEqual(outbox[0].values.slice(11, 22).map((value, index) => index === 7 ? JSON.parse(String(value)).item.type : value), [
   'id-7', 'business-1', 'session-1', 'transition-1', 'id-5', 1, 'interactive', 'interactive', 'transition-1:1', 0, new Date('2026-08-29T12:00:00.000Z')
 ])
-const promptOutboxUpdate = success.committed.filter((write): write is CapturedTaggedTemplate => write.kind === 'tagged')
-assert.equal(promptOutboxUpdate.length, 1)
-assert.equal(promptOutboxUpdate[0].strings.join(''), 'UPDATE "BotPrompt" SET "outboxMessageId" =  WHERE "id" = ')
-assert.deepEqual(promptOutboxUpdate[0].values, ['id-7', 'id-2'])
+const prompt = sqlWrites.find((query) => query.sql.includes('INSERT INTO "BotPrompt"'))
+assert.ok(prompt)
+assert.ok(prompt.sql.includes('"outboxMessageId"'))
+assert.equal(prompt.values.at(-1), 'id-7', 'interactive outbox link is persisted in the prompt insert')
+assert.equal(success.committed.some((write) => write.kind === 'tagged'), false, 'no follow-up prompt update round trip')
 
 // A rejection after real persistence must discard all staged writes and skip post-commit.
 const rollback = createStagingClient()
@@ -154,6 +155,8 @@ assert.ok(PROCESS_INBOX_TRANSACTION_OPTIONS.maxWait + PROCESS_INBOX_TRANSACTION_
 const metrics = new BotOptionsMetrics()
 metrics.observe('session_context_load', 1); metrics.observe('session_effects', 1)
 metrics.observe('session_persist_view', 1); metrics.observe('session_critical_transaction', 1)
+metrics.observe('worker_claim', 1); metrics.observe('worker_processing', 1); metrics.observe('worker_finalize', 1)
+metrics.observe('outbox_claim', 1); metrics.observe('outbox_preflight', 1); metrics.observe('outbox_finalize', 1)
 assert.equal(metrics.snapshot().durations.session_critical_transaction.count, 1)
 
 console.log('OK F11 timeout contract: committed-session options, real persistence SQL bulk alignment, and rollback boundary.')

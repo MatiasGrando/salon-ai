@@ -134,6 +134,7 @@
     "test:bot-options-f11-4-crm": "tsx scripts/bot-options-f11-4-crm-contract-test.ts",
     "test:bot-options-f11-6-cutover-load-pg": "tsx scripts/bot-options-cutover-load-test.ts",
     "test:bot-options-f11-session-timeout": "tsx scripts/bot-options-f11-session-timeout-contract-test.ts",
+    "test:bot-options-maintenance-cadence": "tsx scripts/bot-options-maintenance-cadence-contract-test.ts",
     "test:bot-options-f11-restart-command": "tsx scripts/bot-options-f11-restart-command-contract-test.ts",
     "test:bot-options-f11-legacy-inbound-pg": "tsx scripts/bot-options-f11-legacy-inbound-pg-contract-test.ts",
     "test:f10-6-live-sandbox-safety": "tsx scripts/f10-6-live-sandbox-safety-contract-test.ts",

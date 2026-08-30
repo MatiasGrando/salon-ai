@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
 import { botOptionsMetrics } from '../observability/metrics.js'
+import { createMaintenanceCadence } from './maintenance-cadence.js'
 
 export type ClaimedBotJob = {
   id: string
@@ -17,6 +18,15 @@ export type ClaimedBotJob = {
   queueWaitMs: number
 }
 
+export type BotJobLatencyDiagnostic = {
+  resource: 'job'
+  resourceId: string
+  kind: string
+  phase: 'claim' | 'queue' | 'processing' | 'finalize'
+  durationMs: number
+  outcome: 'ok' | 'error' | 'retry' | 'poison' | 'stale' | 'handler_settled'
+}
+
 type WorkerClient = Pick<PrismaClient, '$queryRaw' | '$executeRaw' | '$transaction'>
 
 const SYSTEM_RECOVERY_JOB_KINDS = ['EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION'] as const
@@ -24,6 +34,7 @@ const CUTOVER_RETARGETABLE_JOB_KIND = 'RECEIVE_DEPOSIT_PROOF'
 
 /** Explicit timeout prevents the default 5s Prisma budget from killing claim polling under contention. */
 const CLAIM_JOB_TRANSACTION_OPTIONS = { maxWait: 2_000, timeout: 8_000 } as const
+export const WORKER_MAINTENANCE_INTERVAL_MS = 30_000
 
 function systemRecoveryJobSql(column: string) {
   return Prisma.raw(`"${column}"."kind" IN (${SYSTEM_RECOVERY_JOB_KINDS.map((kind) => `'${kind}'`).join(', ')})`)
@@ -67,22 +78,8 @@ export async function claimBotJob(
   token = randomUUID(),
   scope?: { businessId: string }
 ): Promise<ClaimedBotJob | null> {
-  const maintenanceScope = scope ? Prisma.sql`AND "businessId" = ${scope.businessId}` : Prisma.empty
   const candidateScope = scope ? Prisma.sql`AND j."businessId" = ${scope.businessId}` : Prisma.empty
   const claimed = await client.$transaction(async (tx) => {
-    await tx.$executeRaw(Prisma.sql`
-      UPDATE "BotJob" SET
-        "status" = CASE WHEN "kind" IN ('EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION') THEN 'RETRY'::"BotJobStatus" ELSE 'POISON'::"BotJobStatus" END,
-        "attempts" = CASE WHEN "kind" IN ('EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION') THEN 0 ELSE "attempts" END,
-        "availableAt" = CASE WHEN "kind" IN ('EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION') THEN clock_timestamp() + interval '5 minutes' ELSE "availableAt" END,
-        "leaseToken" = NULL, "leasedUntil" = NULL,
-        "lastError" = CASE WHEN "kind" IN ('EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION')
-          THEN "kind" || ' recovery after exhausted stale lease: ' || COALESCE("lastError", 'claim expired after max attempts')
-          ELSE COALESCE("lastError", 'claim expired after max attempts') END,
-        "updatedAt" = clock_timestamp()
-      WHERE "status" = 'LEASED'::"BotJobStatus" AND "leasedUntil" < clock_timestamp() AND "attempts" >= "maxAttempts"
-        ${maintenanceScope}
-    `)
     const candidates = await tx.$queryRaw<Array<{ id: string; businessId: string }>>(Prisma.sql`
       SELECT j."id", j."businessId" FROM "BotJob" j
       JOIN "BotChannelDeployment" d ON d."id" = j."deploymentId" AND d."businessId" = j."businessId"
@@ -133,6 +130,23 @@ export async function claimBotJob(
   }, CLAIM_JOB_TRANSACTION_OPTIONS)
   if (claimed) botOptionsMetrics.observe('admitted_to_claim', claimed.queueWaitMs)
   return claimed
+}
+
+export async function maintainBotJobs(client: WorkerClient, scope?: { businessId: string }): Promise<number> {
+  const maintenanceScope = scope ? Prisma.sql`AND "businessId" = ${scope.businessId}` : Prisma.empty
+  return client.$executeRaw(Prisma.sql`
+    UPDATE "BotJob" SET
+      "status" = CASE WHEN "kind" IN ('EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION') THEN 'RETRY'::"BotJobStatus" ELSE 'POISON'::"BotJobStatus" END,
+      "attempts" = CASE WHEN "kind" IN ('EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION') THEN 0 ELSE "attempts" END,
+      "availableAt" = CASE WHEN "kind" IN ('EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION') THEN clock_timestamp() + interval '5 minutes' ELSE "availableAt" END,
+      "leaseToken" = NULL, "leasedUntil" = NULL,
+      "lastError" = CASE WHEN "kind" IN ('EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION')
+        THEN "kind" || ' recovery after exhausted stale lease: ' || COALESCE("lastError", 'claim expired after max attempts')
+        ELSE COALESCE("lastError", 'claim expired after max attempts') END,
+      "updatedAt" = clock_timestamp()
+    WHERE "status" = 'LEASED'::"BotJobStatus" AND "leasedUntil" < clock_timestamp() AND "attempts" >= "maxAttempts"
+      ${maintenanceScope}
+  `)
 }
 
 export async function assertClaimedBotJobTx(
@@ -252,33 +266,97 @@ export async function retryBotJob(
 
 export type WorkerLoop = { stop(): Promise<void> }
 
+export async function runClaimedBotJob(input: {
+  client: WorkerClient
+  job: ClaimedBotJob
+  handle(job: ClaimedBotJob): Promise<void>
+  handlerSettlesJob?: boolean
+  onError?: (error: unknown) => void
+  onDiagnostic?: (diagnostic: BotJobLatencyDiagnostic) => void
+}): Promise<void> {
+  const emit = (diagnostic: BotJobLatencyDiagnostic) => {
+    try { input.onDiagnostic?.(diagnostic) } catch { /* diagnostics never affect delivery */ }
+  }
+  const processingStartedAt = performance.now()
+  try {
+    await input.handle(input.job)
+  } catch (error) {
+    const processingMs = performance.now() - processingStartedAt
+    botOptionsMetrics.observe('worker_processing', processingMs, 'error')
+    emit({ resource: 'job', resourceId: input.job.id, kind: input.job.kind, phase: 'processing', durationMs: processingMs, outcome: 'error' })
+    const message = error instanceof Error ? error.message : String(error)
+    const finalizeStartedAt = performance.now()
+    const retry = await retryBotJob(input.client, input.job.id, input.job.claimToken, message, 1000)
+    const finalizeMs = performance.now() - finalizeStartedAt
+    botOptionsMetrics.observe('worker_finalize', finalizeMs, retry === 'STALE' ? 'error' : 'ok')
+    const outcome = retry === 'STALE' ? 'stale' : retry === 'POISON' ? 'poison' : 'retry'
+    emit({ resource: 'job', resourceId: input.job.id, kind: input.job.kind, phase: 'finalize', durationMs: finalizeMs, outcome })
+    input.onError?.(error)
+    return
+  }
+
+  const processingMs = performance.now() - processingStartedAt
+  botOptionsMetrics.observe('worker_processing', processingMs)
+  emit({ resource: 'job', resourceId: input.job.id, kind: input.job.kind, phase: 'processing', durationMs: processingMs, outcome: 'ok' })
+  if (input.handlerSettlesJob) {
+    // Successful return guarantees that this handler already completed,
+    // rescheduled, or poisoned the leased job transactionally.
+    botOptionsMetrics.observe('worker_finalize', 0)
+    emit({ resource: 'job', resourceId: input.job.id, kind: input.job.kind, phase: 'finalize', durationMs: 0, outcome: 'handler_settled' })
+    return
+  }
+
+  const finalizeStartedAt = performance.now()
+  const completed = await completeBotJob(input.client, input.job.id, input.job.claimToken)
+  const finalizeMs = performance.now() - finalizeStartedAt
+  botOptionsMetrics.observe('worker_finalize', finalizeMs, completed ? 'ok' : 'error')
+  emit({ resource: 'job', resourceId: input.job.id, kind: input.job.kind, phase: 'finalize', durationMs: finalizeMs, outcome: completed ? 'ok' : 'stale' })
+}
+
 export function startPostgresWorkerLoop(input: {
   client: WorkerClient
   handle(job: ClaimedBotJob): Promise<void>
   pollMs?: number
   leaseMs?: number
+  maintenanceIntervalMs?: number
+  maintenanceEnabled?: boolean
+  now?: () => number
+  handlerSettlesJob?: boolean
   onError?: (error: unknown) => void
+  onDiagnostic?: (diagnostic: BotJobLatencyDiagnostic) => void
 }): WorkerLoop {
   let stopped = false
   let running: Promise<void> | null = null
   const pollMs = input.pollMs ?? 250
+  const emit = (diagnostic: BotJobLatencyDiagnostic) => {
+    try { input.onDiagnostic?.(diagnostic) } catch { /* diagnostics never affect delivery */ }
+  }
+  const maintenance = input.maintenanceEnabled === false ? null : createMaintenanceCadence({
+    intervalMs: input.maintenanceIntervalMs ?? WORKER_MAINTENANCE_INTERVAL_MS,
+    now: input.now,
+    run: async () => { await maintainBotJobs(input.client) }
+  })
 
   const run = async () => {
     while (!stopped) {
       try {
+        await maintenance?.runIfDue()
+        const claimStartedAt = performance.now()
         const job = await claimBotJob(input.client, input.leaseMs)
         if (!job) {
           await new Promise<void>((resolve) => setTimeout(resolve, pollMs))
           continue
         }
-        try {
-          await input.handle(job)
-          await completeBotJob(input.client, job.id, job.claimToken)
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
-          await retryBotJob(input.client, job.id, job.claimToken, message, 1000)
-          input.onError?.(error)
-        }
+        const claimMs = performance.now() - claimStartedAt
+        botOptionsMetrics.observe('worker_claim', claimMs)
+        emit({ resource: 'job', resourceId: job.id, kind: job.kind, phase: 'claim', durationMs: claimMs, outcome: 'ok' })
+        emit({ resource: 'job', resourceId: job.id, kind: job.kind, phase: 'queue', durationMs: job.queueWaitMs, outcome: 'ok' })
+        await runClaimedBotJob({
+          client: input.client, job, handle: input.handle,
+          handlerSettlesJob: input.handlerSettlesJob,
+          onError: input.onError,
+          onDiagnostic: input.onDiagnostic
+        })
       } catch (error) {
         input.onError?.(error)
         await new Promise<void>((resolve) => setTimeout(resolve, pollMs))

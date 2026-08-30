@@ -389,6 +389,7 @@ try {
     UPDATE "BotOutbox" SET "status" = 'SENDING'::"BotOutboxStatus", "leasedUntil" = clock_timestamp() - interval '1 second'
     WHERE "id" = ${staleSendingId}
   `)
+  await outbox.maintainOutbox(prisma, { businessId })
   assert.equal(await claimTestOutbox(), null)
   const staleStates = await prisma.$queryRaw<Array<{ outbox: string; dispatch: string }>>(Prisma.sql`
     SELECT o."status"::text AS outbox, c."status"::text AS dispatch
@@ -404,6 +405,7 @@ try {
     VALUES (${exhaustedId}, ${businessId}, ${sessionId}, ${`exhausted_transition_${suffix}`}, ${`exhausted_group_${suffix}`}, 0,
       'informative_text', '{}'::jsonb, ${`idem_${exhaustedId}`}, 5, 5, clock_timestamp())
   `)
+  await outbox.maintainOutbox(prisma, { businessId })
   assert.equal(await claimTestOutbox(), null)
   const exhausted = await prisma.$queryRaw<Array<{ status: string }>>(Prisma.sql`SELECT "status"::text AS status FROM "BotOutbox" WHERE "id" = ${exhaustedId}`)
   assert.equal(exhausted[0]!.status, 'POISON')

@@ -52,7 +52,7 @@ import {
 } from './bot-options/application/admit-provider-events.js'
 import type { WhatsAppWebhookServiceContract } from './routes/whatsapp-webhook.js'
 import { prisma } from './config/prisma.js'
-import { startPostgresWorkerLoop, type WorkerLoop } from './bot-options/infrastructure/postgres-worker.js'
+import { startPostgresWorkerLoop, type BotJobLatencyDiagnostic, type WorkerLoop } from './bot-options/infrastructure/postgres-worker.js'
 import { reconcileActions } from './bot-options/application/reconcile-actions.js'
 import { processSessionJob } from './bot-options/application/process-session-job.js'
 import { expireDepositHold } from './bot-options/application/expire-deposit-hold.js'
@@ -188,15 +188,30 @@ export async function buildApp(options: BuildAppOptions = {}) {
         }))
       }
     }
-    loops.push(startPostgresWorkerLoop({ client: prisma, handle: handler, onError: (error) => app.log.error(error) }))
-    loops.push(startPostgresWorkerLoop({ client: prisma, handle: handler, onError: (error) => app.log.error(error) }))
+    const onWorkerDiagnostic = (diagnostic: BotJobLatencyDiagnostic) => {
+      console.info('[bot-options-phase-latency]', JSON.stringify({ ...diagnostic, durationMs: Math.round(diagnostic.durationMs) }))
+    }
+    // Every successful branch above settles its own lease in the same business
+    // transaction (DONE, READY after reschedule, or POISON). Exceptions are the
+    // only branches intentionally left leased for the loop's fenced retry.
+    loops.push(startPostgresWorkerLoop({
+      client: prisma, handle: handler, handlerSettlesJob: true,
+      onError: (error) => app.log.error(error), onDiagnostic: onWorkerDiagnostic
+    }))
+    loops.push(startPostgresWorkerLoop({
+      client: prisma, handle: handler, handlerSettlesJob: true, maintenanceEnabled: false,
+      onError: (error) => app.log.error(error), onDiagnostic: onWorkerDiagnostic
+    }))
   }
   if (botOptionsConfig.senderEnabled) {
     const provider = options.outboxProvider ?? new MetaOutboxProvider()
     loops.push(startOutboxSenderLoop({
       client: prisma,
       provider,
-      onError: (error) => app.log.error(error)
+      onError: (error) => app.log.error(error),
+      onDiagnostic: (diagnostic) => {
+        console.info('[bot-options-phase-latency]', JSON.stringify({ ...diagnostic, durationMs: Math.round(diagnostic.durationMs) }))
+      }
     }))
   }
   if (loops.length > 0) {

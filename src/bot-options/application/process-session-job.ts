@@ -1315,8 +1315,8 @@ export async function persistView(
   })
   if (plan.promptId) {
     await tx.$executeRaw(Prisma.sql`
-      INSERT INTO "BotPrompt" ("id", "sessionId", "promptToken", "stateRevision", "mode", "status", "openedAt")
-      VALUES (${plan.promptId}, ${input.sessionId}, ${promptToken}, ${input.revision}, 'FUNCTIONAL'::"BotPromptMode", 'OPEN'::"BotPromptStatus", ${input.dbNow})
+      INSERT INTO "BotPrompt" ("id", "sessionId", "promptToken", "stateRevision", "mode", "status", "openedAt", "outboxMessageId")
+      VALUES (${plan.promptId}, ${input.sessionId}, ${promptToken}, ${input.revision}, 'FUNCTIONAL'::"BotPromptMode", 'OPEN'::"BotPromptStatus", ${input.dbNow}, ${plan.interactiveOutboxId})
     `)
     if (plan.choiceRows.length > 0) {
       await tx.$executeRaw(Prisma.sql`
@@ -1338,8 +1338,5 @@ export async function persistView(
         ${row.dependsOnSequence}, ${input.dbNow}, clock_timestamp()
       )`))}
     `)
-  }
-  if (plan.promptId && plan.interactiveOutboxId) {
-    await tx.$executeRaw`UPDATE "BotPrompt" SET "outboxMessageId" = ${plan.interactiveOutboxId} WHERE "id" = ${plan.promptId}`
   }
 }

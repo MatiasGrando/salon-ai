@@ -3,13 +3,19 @@ import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
 export type BotOptionsStage =
   | 'webhook_ack'
   | 'admitted_to_claim'
+  | 'worker_claim'
+  | 'worker_processing'
+  | 'worker_finalize'
   | 'session_context_load'
   | 'session_effects'
   | 'session_persist_view'
   | 'session_critical_transaction'
   | 'transition_execution'
   | 'outbox_wait'
+  | 'outbox_claim'
+  | 'outbox_preflight'
   | 'meta_request'
+  | 'outbox_finalize'
   | 'dispatch_quiescence'
 
 const BUCKETS_MS = [50, 100, 200, 500, 1000, 1500, 3000, 6000, 10_000, 30_000] as const
@@ -73,13 +79,19 @@ export class BotOptionsMetrics {
   readonly #durations: Record<BotOptionsStage, Histogram> = {
     webhook_ack: emptyHistogram(),
     admitted_to_claim: emptyHistogram(),
+    worker_claim: emptyHistogram(),
+    worker_processing: emptyHistogram(),
+    worker_finalize: emptyHistogram(),
     session_context_load: emptyHistogram(),
     session_effects: emptyHistogram(),
     session_persist_view: emptyHistogram(),
     session_critical_transaction: emptyHistogram(),
     transition_execution: emptyHistogram(),
     outbox_wait: emptyHistogram(),
+    outbox_claim: emptyHistogram(),
+    outbox_preflight: emptyHistogram(),
     meta_request: emptyHistogram(),
+    outbox_finalize: emptyHistogram(),
     dispatch_quiescence: emptyHistogram()
   }
   readonly #gauges = { oldestReadyJobMs: 0, unknownDispatches: 0, staleSending: 0, poisonOutbox: 0, noAvailabilityHorizon: 0 }
