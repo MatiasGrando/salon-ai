@@ -81,7 +81,9 @@ esté habilitada para realizar todo el carrito dentro de un bloque continuo.
 
 - Volver, Menú principal y Hablar con el equipo.
 - Confirmación antes de descartar un borrador con progreso.
-- Borradores vigentes durante 24 horas desde la última acción válida.
+- Borradores vigentes durante 24 horas desde la última actividad nueva del cliente,
+  con [expiración lazy y protección de entidades durables](ventana-contexto-24h.md)
+  (decisión 2026-08-30, sustituye «última acción válida»).
 - Rechazo seguro de opciones vencidas.
 - Recuperación de entradas no admitidas sin IA.
 - Atención destacada en el segundo error consecutivo y derivación automática en

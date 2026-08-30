@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
+import { applyLazyContextWindowTx } from './lazy-context-window.js'
 import { createInitialBotOptionsState, parseBotOptionsState, type BotOptionsState } from '../domain/state.js'
 import { renderCurrentView, transition, type TransitionContext } from '../domain/transition.js'
 import type { BotOptionsActionPayload, BotOptionsEntityRef } from '../domain/actions.js'
@@ -7,7 +8,7 @@ import type { BotOptionsEffect } from '../domain/effects.js'
 import { menuView, textView, type BotOptionsViewModel } from '../domain/views.js'
 import { generatePromptToken } from '../domain/prompt-tokens.js'
 import { renderWhatsAppScreen, WHATSAPP_INTERACTIVE_BODY_MAX_CODE_POINTS } from '../infrastructure/whatsapp-renderer.js'
-import { assertClaimedBotJobTx, completeClaimedBotJobTx, retargetClaimedBotJobTx, type ClaimedBotJob } from '../infrastructure/postgres-worker.js'
+import { assertClaimedBotJobTx, completeClaimedBotJobTx, retargetClaimedBotJobTx, rescheduleClaimedBotJobTx, type ClaimedBotJob } from '../infrastructure/postgres-worker.js'
 import { acquireDispatchClaim, assertDispatchClaimTx, completeDispatchClaimTx, withDispatchClaimCleanup } from '../infrastructure/dispatch-claims.js'
 import {
   collectInboundConversationMessage,
@@ -972,9 +973,9 @@ async function processInitialInboxUnderClaim(
   const result = await runProcessInboxTransaction(input.client, async (tx) => {
     await assertClaimedBotJobTx(tx, input.job)
     await assertDispatchClaimTx({ tx, businessId: input.job.businessId, claimToken: dispatchToken })
-    const rows = await tx.$queryRaw<Array<{ id: string; businessId: string; deploymentId: string; deploymentGeneration: number; payload: Prisma.JsonValue; providerEventId: string; providerMessageId: string | null; status: string; dbNow: Date; businessTimezone: string }>>(Prisma.sql`
+    const rows = await tx.$queryRaw<Array<{ id: string; businessId: string; deploymentId: string; deploymentGeneration: number; payload: Prisma.JsonValue; providerEventId: string; providerMessageId: string | null; status: string; dbNow: Date; businessTimezone: string; admittedAt: Date; providerOccurredAt: Date | null }>>(Prisma.sql`
       SELECT i."id", e."businessId", i."deploymentId", i."deploymentGeneration", i."payload", i."providerEventId", i."providerMessageId", i."status"::text AS "status",
-        clock_timestamp() AS "dbNow", settings."timezone" AS "businessTimezone"
+        clock_timestamp() AS "dbNow", settings."timezone" AS "businessTimezone", e."admittedAt", e."providerOccurredAt"
       FROM "BotActionInbox" i JOIN "BotProviderEvent" e ON e."id" = i."providerEventId"
       JOIN "BotChannelDeployment" d ON d."id" = i."deploymentId" AND d."businessId" = e."businessId"
       JOIN "BusinessBotOptionsSettings" settings ON settings."businessId" = e."businessId"
@@ -992,8 +993,33 @@ async function processInitialInboxUnderClaim(
       await completeClaimedBotJobTx(tx, input.job)
       return 'PROCESSED'
     }
-    const payload = row.payload as { fromPhone?: unknown; textBody?: unknown; messageType?: unknown }
+    const payload = row.payload as { fromPhone?: unknown; textBody?: unknown; messageType?: unknown; contextWindowEvaluated?: unknown }
     if (typeof payload.fromPhone !== 'string' || !payload.fromPhone) throw new Error('initial inbound has no phone')
+    // A session may have been created by another inbox after journal classification.
+    // Old/pre-feature inboxes also pass here. Never let that race bypass expiry.
+    if (payload.contextWindowEvaluated !== true) {
+      const window = await applyLazyContextWindowTx(tx, {
+        businessId: row.businessId, deploymentId: row.deploymentId, generation: row.deploymentGeneration,
+        providerEventId: row.providerEventId, phone: payload.fromPhone,
+        admittedAt: row.admittedAt, providerOccurredAt: row.providerOccurredAt,
+        isMedia: payload.messageType === 'image' || payload.messageType === 'document',
+        processingInboxId: row.id, currentJobId: input.job.id
+      }, persistView)
+      if (window.kind === 'WAIT') {
+        await completeDispatchClaimTx(tx, dispatchToken)
+        await rescheduleClaimedBotJobTx(tx, input.job, window.retryAt, { refundClaimAttempt: true })
+        return 'PROCESSED'
+      }
+      if (window.kind === 'EXPIRED' || window.kind === 'REPLAY') {
+        await tx.$executeRaw(Prisma.sql`
+          UPDATE "BotActionInbox" SET "status" = 'PROCESSED'::"BotInboxStatus", "error" = 'CONTEXT_WINDOW_HANDLED'
+          WHERE "id" = ${row.id} AND "businessId" = ${row.businessId}
+        `)
+        await completeDispatchClaimTx(tx, dispatchToken)
+        await completeClaimedBotJobTx(tx, input.job)
+        return 'PROCESSED'
+      }
+    }
     const existingSession = await lockExistingInitialSession(tx, row.businessId, payload.fromPhone)
     if (existingSession) {
       if (existingSession.status !== 'HUMAN_TAKEN') {
@@ -1116,9 +1142,11 @@ async function processInitialInboxUnderClaim(
     const state = createInitialBotOptionsState()
     const insertedSessions = await tx.$queryRaw<Array<{ id: string; revision: bigint; deploymentGeneration: number }>>(Prisma.sql`
       INSERT INTO "BotSession" ("id", "businessId", "conversationId", "deploymentId", "deploymentGeneration",
-        "businessTimezone", "state", "revision", "updatedAt")
+        "businessTimezone", "state", "revision", "updatedAt", "draftTouchedAt", "draftExpiresAt")
       VALUES (${sessionId}, ${row.businessId}, ${conversations[0]!.id}, ${row.deploymentId}, ${row.deploymentGeneration},
-        ${row.businessTimezone}, ${JSON.stringify(state)}::jsonb, 1, clock_timestamp())
+        ${row.businessTimezone}, ${JSON.stringify(state)}::jsonb, 1, clock_timestamp(),
+        LEAST(COALESCE(${row.providerOccurredAt}::timestamptz, ${row.admittedAt}::timestamptz), ${row.admittedAt}::timestamptz),
+        LEAST(COALESCE(${row.providerOccurredAt}::timestamptz, ${row.admittedAt}::timestamptz), ${row.admittedAt}::timestamptz) + interval '24 hours')
       ON CONFLICT ("deploymentId", "conversationId")
         WHERE "status" = 'ACTIVE'::"BotSessionStatus" AND "conversationId" IS NOT NULL
       DO NOTHING

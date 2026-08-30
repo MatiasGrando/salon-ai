@@ -510,17 +510,21 @@ function plainPresentation(): BotOptionsPresentationMode {
 
 // ─── Vista estándar por estado (rebuild tras close/back/stale) ────────────────
 
+export function mainMenuView(): BotOptionsViewModel {
+  return menuView('¿Qué querés hacer?', [
+    { actionType: 'menu.start_booking', label: 'Sacar un turno' },
+    { actionType: 'menu.browse_services', label: 'Ver servicios y precios' },
+    { actionType: 'menu.business_hours', label: 'Consultar horarios' },
+    { actionType: 'menu.manage_appointment', label: 'Gestionar un turno' },
+    HUMAN_CHOICE
+  ])
+}
+
 export function renderCurrentView(state: BotOptionsState, context: TransitionContext): BotOptionsViewModel {
   const globalWithBack = (capacity: number, contextualCount: number) => ({ capacity, contextualCount, back: BACK_CHOICE })
   switch (state.flow) {
     case 'MAIN_MENU':
-      return menuView('¿Qué querés hacer?', [
-        { actionType: 'menu.start_booking', label: 'Sacar un turno' },
-        { actionType: 'menu.browse_services', label: 'Ver servicios y precios' },
-        { actionType: 'menu.business_hours', label: 'Consultar horarios' },
-        { actionType: 'menu.manage_appointment', label: 'Gestionar un turno' },
-        HUMAN_CHOICE
-      ])
+      return mainMenuView()
     case 'DRAFT_RESUME':
       return menuView('Tenemos una reserva sin terminar. ¿Continuamos?', [
         { actionType: 'draft.continue', label: 'Continuar reserva' },

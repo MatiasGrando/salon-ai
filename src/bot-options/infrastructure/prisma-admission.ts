@@ -117,7 +117,7 @@ export const DEFAULT_AUTHORITATIVE_TRANSACTION_TIMEOUT_MS = 10_000
 export const AUTHORITATIVE_LOCK_TIMEOUT_MS = 1_000
 export const AUTHORITATIVE_STATEMENT_TIMEOUT_MS = 3_000
 
-function eventPayload(event: ParsedWebhookEvent): Prisma.InputJsonValue {
+function eventPayload(event: ParsedWebhookEvent): Prisma.InputJsonObject {
   if (event.kind === 'message') {
     return {
       kind: event.kind,
@@ -313,6 +313,7 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
       route: Extract<AuthoritativeRoute, { kind: 'new' }>
       event: ParsedWebhookEvent
       providerEventId: string
+      contextWindowEvaluated?: boolean
     }
   ): Promise<ProviderEventClassificationResult> {
     const { event } = input
@@ -371,7 +372,7 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
       ) VALUES (
         ${inboxId}, ${input.route.businessId}, ${input.providerEventId}, ${event.kind === 'message' ? event.providerMessageId : null},
         ${actionType}, ${input.route.deploymentId}, ${input.route.generation},
-        ${JSON.stringify(eventPayload(event))}::jsonb, 'ADMITTED'::"BotInboxStatus"
+        ${JSON.stringify({ ...eventPayload(event), contextWindowEvaluated: input.contextWindowEvaluated === true })}::jsonb, 'ADMITTED'::"BotInboxStatus"
       )
     `)
     await upsertJob(

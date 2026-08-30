@@ -1,4 +1,6 @@
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
+import { applyLazyContextWindowTx } from './lazy-context-window.js'
+import { persistView } from './process-session-job.js'
 import {
   collectInboundConversationMessage,
   collectOutboundConversationMessage,
@@ -16,6 +18,7 @@ import {
   assertClaimedBotJobTx,
   completeClaimedBotJobTx,
   retargetClaimedBotJobTx,
+  rescheduleClaimedBotJobTx,
   type ClaimedBotJob
 } from '../infrastructure/postgres-worker.js'
 
@@ -29,6 +32,8 @@ type ProviderEventRow = {
   phoneNumberId: string | null
   providerMessageId: string | null
   payload: Prisma.JsonValue | null
+  admittedAt: Date
+  providerOccurredAt: Date | null
   status: 'ADMITTED' | 'DUPLICATE' | 'UNMATCHED' | 'PROCESSED' | 'REJECTED'
 }
 
@@ -139,7 +144,7 @@ async function loadProviderEventTx(
   const lockSql = lock ? Prisma.sql`FOR UPDATE OF e` : Prisma.empty
   const rows = await tx.$queryRaw<ProviderEventRow[]>(Prisma.sql`
     SELECT e."id", e."eventKey", e."eventType"::text AS "eventType", e."businessId", e."phoneNumberId",
-      e."providerMessageId", e."payload", e."status"::text AS "status"
+      e."providerMessageId", e."payload", e."status"::text AS "status", e."admittedAt", e."providerOccurredAt"
     FROM "BotProviderEvent" e
     WHERE e."id" = ${job.aggregateId} AND e."businessId" = ${job.businessId}
     ${lockSql}
@@ -234,7 +239,7 @@ export async function processProviderEventJob(input: {
   client: ProviderEventClient
   job: ClaimedBotJob
   depositProofIngressEnabled?: boolean
-}): Promise<'PROCESSED' | 'STALE'> {
+}): Promise<'PROCESSED' | 'STALE' | 'DEFERRED'> {
   if (input.job.kind !== 'PROCESS_PROVIDER_EVENT') {
     throw new Error(`unsupported provider event job ${input.job.kind}`)
   }
@@ -258,6 +263,22 @@ export async function processProviderEventJob(input: {
       return { outcome: 'PROCESSED' as const, outboundMessage: null }
     }
     const event = hydrateProviderEvent(row)
+    const window = event.kind === 'message'
+      ? await applyLazyContextWindowTx(tx, {
+          businessId: activeJob.businessId, deploymentId: activeJob.deploymentId,
+          generation: activeJob.deploymentGeneration, providerEventId: row.id,
+          phone: event.fromPhone, admittedAt: row.admittedAt, providerOccurredAt: row.providerOccurredAt,
+          isMedia: event.messageType === 'image' || event.messageType === 'document'
+        }, persistView)
+      : null
+    if (window?.kind === 'WAIT') {
+      await rescheduleClaimedBotJobTx(tx, activeJob, window.retryAt, { refundClaimAttempt: true })
+      return { outcome: 'DEFERRED' as const, outboundMessage: null }
+    }
+    if (window?.kind === 'EXPIRED' || window?.kind === 'REPLAY') {
+      await completeClaimedBotJobTx(tx, activeJob)
+      return { outcome: 'PROCESSED' as const, outboundMessage: null }
+    }
     const route: Extract<AuthoritativeRoute, { kind: 'new' }> = {
       kind: 'new',
       businessId: activeJob.businessId,
@@ -273,7 +294,8 @@ export async function processProviderEventJob(input: {
     const classification = await classifier.classifyProviderEventTx(tx, {
       route,
       event,
-      providerEventId: row.id
+      providerEventId: row.id,
+      contextWindowEvaluated: window?.kind === 'CONTINUE' && window.evaluated
     })
     await completeClaimedBotJobTx(tx, activeJob)
     return { outcome: 'PROCESSED' as const, outboundMessage: classification.outboundMessage }

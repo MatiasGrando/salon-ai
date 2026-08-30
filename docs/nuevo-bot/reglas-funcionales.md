@@ -392,10 +392,15 @@ las reglas transversales de atención están especificados para el primer corte.
 
 ### Borradores
 
-- Conservar 24 horas desde la última acción válida.
-- Al regresar dentro del plazo, ofrecer Continuar o Empezar de nuevo.
-- Continuar revalida todo y recupera el último paso válido.
-- Después de 24 horas, informar expiración e iniciar un recorrido nuevo.
+- Conservar 24 horas desde la última actividad nueva del cliente (decisión
+  2026-08-30: reemplaza «última acción válida»).
+- Expiración lazy: comprobar al procesar el siguiente mensaje, fuera del webhook;
+  no realizar barridos periódicos. Informar expiración y mostrar un menú nuevo.
+- Preservar turnos, historial, señas y atención humana. Los flujos protegidos
+  no se descartan por esta ventana; ver [alcance y excepciones](ventana-contexto-24h.md).
+- Al regresar dentro del plazo, ofrecer Continuar o Empezar de nuevo y revalidar
+  el último paso válido sigue siendo el objetivo del contrato. Esa pantalla
+  no se incorpora en la entrega lazy; se conserva el recorrido existente.
 
 ## 11. Entradas inválidas
 
