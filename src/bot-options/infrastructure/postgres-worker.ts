@@ -84,35 +84,35 @@ export async function claimBotJob(
 ): Promise<ClaimedBotJob | null> {
   const candidateScope = scope ? Prisma.sql`AND j."businessId" = ${scope.businessId}` : Prisma.empty
   const claimed = await client.$transaction(async (tx) => {
-    const candidates = await tx.$queryRaw<Array<{ id: string; businessId: string }>>(Prisma.sql`
-      SELECT j."id", j."businessId" FROM "BotJob" j
-      JOIN "BotChannelDeployment" d ON d."id" = j."deploymentId" AND d."businessId" = j."businessId"
-      WHERE ((j."status" IN ('READY'::"BotJobStatus", 'RETRY'::"BotJobStatus") AND j."availableAt" <= clock_timestamp())
-          OR (j."status" = 'LEASED'::"BotJobStatus" AND j."leasedUntil" < clock_timestamp()))
-        AND j."attempts" < j."maxAttempts"
-        ${candidateScope}
-        AND (${systemRecoveryJobSql('j')} OR (${cutoverRetargetableJobSql('j')}
-          AND j."deploymentGeneration" <= d."generation"
-          AND d."channel" = 'WHATSAPP'::"BotChannel"
-          AND d."engineKey" = 'deterministic-options'
-          AND d."activeConfigurationId" IS NOT NULL
-          AND d."legacyDispatchCoverageVersion" >= 1 AND d."claimsPausedAt" IS NULL
-        ) OR (
-          d."generation" = j."deploymentGeneration" AND d."activeConfigurationId" IS NOT NULL
-          AND d."legacyDispatchCoverageVersion" >= 1 AND d."claimsPausedAt" IS NULL
-        )) AND (j."kind" = 'PROCESS_PROVIDER_EVENT' OR NOT (${humanTakenSessionJobSql('j')}))
-      ORDER BY j."availableAt", j."createdAt", j."id" FOR UPDATE OF j SKIP LOCKED LIMIT 1
-    `)
-    const candidate = candidates[0]
-    if (!candidate) return null
-    await tx.$executeRaw(Prisma.sql`
-      SELECT pg_advisory_xact_lock_shared(hashtextextended(${`bot-cutover:${candidate.businessId}:WHATSAPP`}, 0))
-    `)
     const rows = await tx.$queryRaw<ClaimedBotJob[]>(Prisma.sql`
+      WITH candidate AS MATERIALIZED (
+        SELECT j."id", j."businessId" FROM "BotJob" j
+        JOIN "BotChannelDeployment" d ON d."id" = j."deploymentId" AND d."businessId" = j."businessId"
+        WHERE ((j."status" IN ('READY'::"BotJobStatus", 'RETRY'::"BotJobStatus") AND j."availableAt" <= clock_timestamp())
+            OR (j."status" = 'LEASED'::"BotJobStatus" AND j."leasedUntil" < clock_timestamp()))
+          AND j."attempts" < j."maxAttempts"
+          ${candidateScope}
+          AND (${systemRecoveryJobSql('j')} OR (${cutoverRetargetableJobSql('j')}
+            AND j."deploymentGeneration" <= d."generation"
+            AND d."channel" = 'WHATSAPP'::"BotChannel"
+            AND d."engineKey" = 'deterministic-options'
+            AND d."activeConfigurationId" IS NOT NULL
+            AND d."legacyDispatchCoverageVersion" >= 1 AND d."claimsPausedAt" IS NULL
+          ) OR (
+            d."generation" = j."deploymentGeneration" AND d."activeConfigurationId" IS NOT NULL
+            AND d."legacyDispatchCoverageVersion" >= 1 AND d."claimsPausedAt" IS NULL
+          )) AND (j."kind" = 'PROCESS_PROVIDER_EVENT' OR NOT (${humanTakenSessionJobSql('j')}))
+        ORDER BY j."availableAt", j."createdAt", j."id" FOR UPDATE OF j SKIP LOCKED LIMIT 1
+      ), cutover_lock AS MATERIALIZED (
+        SELECT c."id", c."businessId",
+          pg_advisory_xact_lock_shared(hashtextextended('bot-cutover:' || c."businessId" || ':WHATSAPP', 0)) AS locked
+        FROM candidate c
+      )
       UPDATE "BotJob" j SET "status" = 'LEASED'::"BotJobStatus", "attempts" = j."attempts" + 1,
         "leaseToken" = ${token}, "leasedUntil" = clock_timestamp() + (${leaseMs} * interval '1 millisecond'),
         "updatedAt" = clock_timestamp()
-      WHERE j."id" = ${candidate.id} AND EXISTS (
+      FROM cutover_lock c
+      WHERE j."id" = c."id" AND EXISTS (
         SELECT 1 FROM "BotChannelDeployment" d WHERE d."id" = j."deploymentId" AND d."businessId" = j."businessId"
           AND (${systemRecoveryJobSql('j')} OR (${cutoverRetargetableJobSql('j')}
             AND j."deploymentGeneration" <= d."generation"

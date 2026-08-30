@@ -148,6 +148,29 @@ async function loadProviderEventTx(
   return rows[0]!
 }
 
+async function loadClaimedProviderEventTx(
+  tx: Prisma.TransactionClient,
+  job: ClaimedBotJob
+): Promise<ProviderEventRow> {
+  await tx.$executeRaw(Prisma.sql`
+    SELECT pg_advisory_xact_lock_shared(hashtextextended(${`bot-cutover:${job.businessId}:WHATSAPP`}, 0))
+  `)
+  const rows = await tx.$queryRaw<ProviderEventRow[]>(Prisma.sql`
+    SELECT e."id", e."eventKey", e."eventType"::text AS "eventType", e."businessId", e."phoneNumberId",
+      e."providerMessageId", e."payload", e."status"::text AS "status"
+    FROM "BotJob" j
+    JOIN "BotChannelDeployment" d ON d."id" = j."deploymentId" AND d."businessId" = j."businessId"
+    JOIN "BotProviderEvent" e ON e."id" = j."aggregateId" AND e."businessId" = j."businessId"
+    WHERE j."id" = ${job.id} AND j."status" = 'LEASED'::"BotJobStatus" AND j."leaseToken" = ${job.claimToken}
+      AND j."leasedUntil" > clock_timestamp() AND j."businessId" = ${job.businessId}
+      AND j."deploymentId" = ${job.deploymentId} AND j."deploymentGeneration" = ${job.deploymentGeneration}
+      AND e."id" = ${job.aggregateId}
+    FOR UPDATE OF j
+  `)
+  if (rows.length !== 1) throw new Error('stale or fenced provider-event job claim')
+  return rows[0]!
+}
+
 async function currentDeploymentTx(
   tx: Prisma.TransactionClient,
   job: ClaimedBotJob
@@ -172,8 +195,7 @@ async function projectInboundBeforeClassification(
   job: ClaimedBotJob
 ): Promise<InboundConversationMessageProjection[]> {
   return client.$transaction(async (tx) => {
-    await assertClaimedBotJobTx(tx, job, { requireCurrentDeployment: false })
-    const row = await loadProviderEventTx(tx, job, false)
+    const row = await loadClaimedProviderEventTx(tx, job)
     if (row.eventType !== 'MESSAGE') return []
     const payload = record(row.payload)
     const phone = requiredString(payload['fromPhone'], 'fromPhone')
@@ -187,20 +209,24 @@ async function projectInboundBeforeClassification(
     if (conversations.length !== 1) throw new Error('provider event conversation projection failed')
     const body = inboundBody(payload)
     const metadata = providerEventInboundMessageMetadata(payload)
-    const inserted = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-      INSERT INTO "Message" ("id", "conversationId", "phone", "direction", "body", "providerMessageId", "status", "metadata")
-      VALUES (${row.id}, ${conversations[0]!.id}, ${phone}, 'INBOUND'::"MessageDirection", ${body},
-        ${row.providerMessageId}, 'received',
-        ${JSON.stringify(metadata)}::jsonb)
-      ON CONFLICT ("id") DO NOTHING
-      RETURNING "id"
+    const projected = await tx.$queryRaw<Array<{ conversationId: string; messageId: string }>>(Prisma.sql`
+      WITH inserted_message AS (
+        INSERT INTO "Message" ("id", "conversationId", "phone", "direction", "body", "providerMessageId", "status", "metadata")
+        VALUES (${row.id}, ${conversations[0]!.id}, ${phone}, 'INBOUND'::"MessageDirection", ${body},
+          ${row.providerMessageId}, 'received', ${JSON.stringify(metadata)}::jsonb)
+        ON CONFLICT ("id") DO NOTHING
+        RETURNING "id", "conversationId"
+      ), updated_conversation AS (
+        UPDATE "Conversation" c SET "lastMessage" = ${body}, "archivedAt" = NULL, "updatedAt" = clock_timestamp()
+        FROM inserted_message m
+        WHERE c."id" = m."conversationId" AND c."businessId" = ${row.businessId}
+        RETURNING c."id"
+      )
+      SELECT m."conversationId", m."id" AS "messageId"
+      FROM inserted_message m JOIN updated_conversation c ON c."id" = m."conversationId"
     `)
-    if (inserted.length === 0) return []
-    await tx.$executeRaw(Prisma.sql`
-      UPDATE "Conversation" SET "lastMessage" = ${body}, "archivedAt" = NULL, "updatedAt" = clock_timestamp()
-      WHERE "id" = ${conversations[0]!.id} AND "businessId" = ${row.businessId}
-    `)
-    return [{ businessId: row.businessId, conversationId: conversations[0]!.id, messageId: inserted[0]!.id }]
+    if (projected.length === 0) return []
+    return [{ businessId: row.businessId, conversationId: projected[0]!.conversationId, messageId: projected[0]!.messageId }]
   }, PROCESS_PROVIDER_EVENT_TRANSACTION_OPTIONS)
 }
 
@@ -226,7 +252,6 @@ export async function processProviderEventJob(input: {
           deploymentId: deployment.id,
           generation: deployment.generation
         })
-    await assertClaimedBotJobTx(tx, activeJob)
     const row = await loadProviderEventTx(tx, activeJob, true)
     if (row.status !== 'ADMITTED') {
       await completeClaimedBotJobTx(tx, activeJob)

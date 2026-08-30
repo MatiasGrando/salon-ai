@@ -6,7 +6,8 @@ import {
   PROCESS_INBOX_TRANSACTION_OPTIONS,
   PROCESS_SESSION_TRANSACTION_OPTIONS,
   runCommittedProcessSession,
-  runProcessInboxTransaction
+  runProcessInboxTransaction,
+  settleProcessedSessionTx
 } from '../src/bot-options/application/process-session-job.js'
 import { BotOptionsMetrics } from '../src/bot-options/observability/metrics.js'
 import { withDispatchClaimCleanup } from '../src/bot-options/infrastructure/dispatch-claims.js'
@@ -145,6 +146,26 @@ assert.equal(textWrites.length, 1, 'text-only view consolidates invalidation and
 assert.ok(textWrites[0]!.sql.includes('UPDATE "BotPrompt"') && textWrites[0]!.sql.includes('INSERT INTO "BotOutbox"'))
 assert.equal(textWrites[0]!.sql.includes('INSERT INTO "BotPrompt"'), false)
 assert.equal(textWrites[0]!.sql.includes('INSERT INTO "BotPromptChoice"'), false)
+
+const settlementWrites: CapturedSql[] = []
+await settleProcessedSessionTx({
+  $queryRaw: async (query: Prisma.Sql) => {
+    settlementWrites.push(inspectSql(query))
+    return [{ inboxCount: 1n, dispatchCount: 1n, jobCount: 1n }]
+  }
+} as any, {
+  inboxId: 'inbox-1', operationKey: 'operation-1', dispatchToken: 'dispatch-1',
+  job: {
+    id: 'job-1', kind: 'PROCESS_SESSION', aggregateId: 'aggregate-1', businessId: 'business-1',
+    deploymentId: 'deployment-1', deploymentGeneration: 1, expectedRevision: 1n, attempts: 1, maxAttempts: 5,
+    claimToken: 'job-claim-1', claimedUntil: new Date('2026-08-30T12:00:30.000Z'), queueWaitMs: 0
+  }
+})
+assert.equal(settlementWrites.length, 1,
+  'processed inbox, dispatch claim and worker job must settle in one database round trip')
+assert.ok(settlementWrites[0]!.sql.includes('UPDATE "BotActionInbox"'))
+assert.ok(settlementWrites[0]!.sql.includes('UPDATE "BotDispatchClaim"'))
+assert.ok(settlementWrites[0]!.sql.includes('UPDATE "BotJob"'))
 
 // Claim cleanup is skipped only after a transaction promise has resolved and marked settlement.
 function cleanupClient(input: { failCommit?: boolean } = {}) {

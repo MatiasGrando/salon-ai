@@ -61,6 +61,44 @@ export async function runProcessInboxTransaction<T>(
   return client.$transaction(operation, PROCESS_INBOX_TRANSACTION_OPTIONS)
 }
 
+export async function settleProcessedSessionTx(
+  tx: Pick<Prisma.TransactionClient, '$queryRaw'>,
+  input: {
+    inboxId: string | null
+    operationKey: string
+    dispatchToken: string
+    job: ClaimedBotJob
+  }
+): Promise<void> {
+  const rows = await tx.$queryRaw<Array<{ inboxCount: bigint; dispatchCount: bigint; jobCount: bigint }>>(Prisma.sql`
+    WITH inbox AS (
+      ${input.inboxId ? Prisma.sql`
+        UPDATE "BotActionInbox" SET "status" = 'PROCESSED'::"BotInboxStatus", "operationKey" = ${input.operationKey}
+        WHERE "id" = ${input.inboxId} AND "status" = 'SELECTED'::"BotInboxStatus"
+        RETURNING "id"
+      ` : Prisma.sql`SELECT NULL::text AS "id" WHERE FALSE`}
+    ), dispatch AS (
+      UPDATE "BotDispatchClaim" SET "status" = 'DONE'::"BotDispatchStatus", "updatedAt" = clock_timestamp()
+      WHERE "claimToken" = ${input.dispatchToken} AND "status" = 'CLAIMED'::"BotDispatchStatus"
+      RETURNING "id"
+    ), job AS (
+      UPDATE "BotJob" SET "status" = 'DONE'::"BotJobStatus", "leaseToken" = NULL, "leasedUntil" = NULL,
+        "lastError" = NULL, "updatedAt" = clock_timestamp()
+      WHERE "id" = ${input.job.id} AND "status" = 'LEASED'::"BotJobStatus" AND "leaseToken" = ${input.job.claimToken}
+      RETURNING "id"
+    )
+    SELECT (SELECT count(*) FROM inbox)::bigint AS "inboxCount",
+      (SELECT count(*) FROM dispatch)::bigint AS "dispatchCount",
+      (SELECT count(*) FROM job)::bigint AS "jobCount"
+  `)
+  const expectedInboxCount = input.inboxId ? 1n : 0n
+  if (
+    rows[0]?.inboxCount !== expectedInboxCount
+    || rows[0]?.dispatchCount !== 1n
+    || rows[0]?.jobCount !== 1n
+  ) throw new Error('cannot atomically settle processed session')
+}
+
 /**
  * Exact WhatsApp text commands that deliberately discard the in-progress
  * conversational draft and start again from the main menu.
@@ -882,11 +920,12 @@ async function processSessionJobInternal(input: {
         businessId: session.businessId, sessionId: session.id, revision: nextRevision,
         transitionId: operationKey, toPhone: session.toPhone, view, dbNow: session.dbNow
       }))
-      if (selected[0]) {
-        await tx.$executeRaw`UPDATE "BotActionInbox" SET "status" = 'PROCESSED'::"BotInboxStatus", "operationKey" = ${operationKey} WHERE "id" = ${selected[0].id} AND "status" = 'SELECTED'::"BotInboxStatus"`
-      }
-      await completeDispatchClaimTx(tx, dispatchToken)
-      await completeClaimedBotJobTx(tx, input.job)
+      await settleProcessedSessionTx(tx, {
+        inboxId: selected[0]?.id ?? null,
+        operationKey,
+        dispatchToken,
+        job: input.job
+      })
       return 'PROCESSED'
       }, onCommitted: markSettled, postCommit: () => flushInboundConversationMessages(pendingCrmEvents) })
       botOptionsMetrics.observe('session_critical_transaction', performance.now() - criticalTransactionStartedAt)

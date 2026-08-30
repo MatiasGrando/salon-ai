@@ -56,6 +56,37 @@ const workerClient = {
 assert.equal(await claimBotJob(workerClient as any, 30_000, 'worker-token'), null)
 assert.equal(workerStatements.some((statement) => statement.includes('recovery after exhausted stale lease')), false,
   'worker claim hot path contains no exhausted-lease maintenance')
+
+const successfulWorkerStatements: string[] = []
+const claimedWorkerJob: ClaimedBotJob = {
+  id: 'job-claim-1', kind: 'PROCESS_SESSION', aggregateId: 'aggregate-claim-1', businessId: 'business-1',
+  deploymentId: 'deployment-1', deploymentGeneration: 1, expectedRevision: 1n, attempts: 1, maxAttempts: 5,
+  claimToken: 'worker-success-token', claimedUntil: new Date('2026-08-30T12:00:30.000Z'), queueWaitMs: 25
+}
+const successfulWorkerTx = {
+  $queryRaw: async (query: Prisma.Sql) => {
+    const sql = sqlText(query)
+    successfulWorkerStatements.push(sql)
+    if (sql.includes('WITH candidate AS')) return [claimedWorkerJob]
+    if (sql.includes('SELECT j."id"')) return [{ id: claimedWorkerJob.id, businessId: claimedWorkerJob.businessId }]
+    if (sql.includes('UPDATE "BotJob"')) return [claimedWorkerJob]
+    return []
+  },
+  $executeRaw: async (query: Prisma.Sql) => { successfulWorkerStatements.push(sqlText(query)); return 1 },
+  $transaction: async () => { throw new Error('nested transaction unavailable') }
+}
+const successfulWorkerClient = {
+  ...successfulWorkerTx,
+  $transaction: async <T>(operation: (tx: typeof successfulWorkerTx) => Promise<T>) => operation(successfulWorkerTx)
+}
+assert.deepEqual(
+  await claimBotJob(successfulWorkerClient as any, 30_000, claimedWorkerJob.claimToken),
+  claimedWorkerJob
+)
+assert.equal(successfulWorkerStatements.length, 1,
+  'worker candidate selection, cutover lock, fenced recheck and lease update must use one database round trip')
+assert.ok(successfulWorkerStatements[0]!.includes('pg_advisory_xact_lock_shared'),
+  'the fused worker claim must retain the cutover advisory lock')
 await maintainBotJobs(workerClient as any)
 assert.equal(workerStatements.filter((statement) => statement.includes('recovery after exhausted stale lease')).length, 1)
 

@@ -24,6 +24,11 @@ assert.match(workerSource, /CUTOVER_RETARGETABLE_JOB_KINDS = \['RECEIVE_DEPOSIT_
   'a deployment generation change must not strand an acknowledged provider event')
 assert.match(processorSource, /currentDeploymentTx[\s\S]*?retargetClaimedBotJobTx/,
   'classification must retarget an older journal job to the current deployment before interpreting it')
+assert.doesNotMatch(
+  processorSource,
+  /const activeJob =[\s\S]*?await assertClaimedBotJobTx\(tx, activeJob\)[\s\S]*?loadProviderEventTx/,
+  'classification must not repeat the claimed-job lock after the same transaction already locked or retargeted it'
+)
 
 assert.deepEqual(providerEventInboundMessageMetadata({
   messageType: 'document', mediaType: 'document', mediaId: 'media-safe-id',
@@ -127,6 +132,7 @@ const job: ClaimedBotJob = {
 }
 
 let transactionNumber = 0
+let projectionDatabaseRoundTrips = 0
 const committedSql: string[] = []
 const client = {
   async $transaction<T>(operation: (tx: unknown) => Promise<T>): Promise<T> {
@@ -134,14 +140,16 @@ const client = {
     if (transactionNumber === 2) throw new Error('simulated classification failure')
     const tx = {
       async $executeRaw(query: { strings?: readonly string[] }) {
+        if (transactionNumber === 1) projectionDatabaseRoundTrips += 1
         committedSql.push(query.strings?.join('?') ?? String(query))
         return 1
       },
       async $queryRaw(query: { strings?: readonly string[] }) {
+        if (transactionNumber === 1) projectionDatabaseRoundTrips += 1
         const sql = query.strings?.join('?') ?? String(query)
         committedSql.push(sql)
         if (sql.includes('SELECT j."id" FROM "BotJob"')) return [{ id: job.id }]
-        if (sql.includes('FROM "BotProviderEvent" e')) {
+        if (sql.includes('"BotProviderEvent" e')) {
           return [{
             id: job.aggregateId,
             businessId: job.businessId,
@@ -157,7 +165,9 @@ const client = {
           }]
         }
         if (sql.includes('INSERT INTO "Conversation"')) return [{ id: 'conversation-a' }]
-        if (sql.includes('INSERT INTO "Message"')) return [{ id: 'provider-event-a' }]
+        if (sql.includes('INSERT INTO "Message"')) {
+          return [{ conversationId: 'conversation-a', messageId: 'provider-event-a' }]
+        }
         throw new Error(`unexpected projection query: ${sql}`)
       }
     }
@@ -182,6 +192,8 @@ try {
 }
 
 assert.equal(transactionNumber, 2, 'projection and classification must have independent commits')
+assert.equal(projectionDatabaseRoundTrips, 4,
+  'durable inbound projection must use at most four sequential database round trips')
 assert.ok(committedSql.some((sql) => sql.includes('INSERT INTO "Message"')),
   'the inbound client message must be durably projected before classification')
 assert.deepEqual(visibleMessages, ['provider-event-a'],
