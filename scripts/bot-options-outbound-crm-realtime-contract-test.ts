@@ -95,11 +95,13 @@ function senderClient(scenario: SenderScenario) {
         async $queryRaw() {
           queryNumber += 1
           if (currentTransaction === 1) return [{ claimToken: 'dispatch-token' }]
-          if (currentTransaction === 2) return [{ id: 'dispatch-claim' }]
-          if (currentTransaction === 3 && queryNumber === 1) {
+          if (currentTransaction === 2) return [{ outboxCount: 1n, dispatchCount: 1n }]
+          if (currentTransaction === 3 && queryNumber === 1) return [{ outboxCount: 1n, dispatchCount: 1n }]
+          if (currentTransaction === 3 && queryNumber === 2) {
             if (scenario === 'conflict') return []
             return [{ id: 'persisted-message', conversationId: 'conversation-sender' }]
           }
+          if (currentTransaction === 4) return [{ outboxCount: 1n, dispatchCount: 1n }]
           return []
         }
       }

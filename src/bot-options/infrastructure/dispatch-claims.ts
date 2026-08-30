@@ -136,6 +136,23 @@ export async function releaseDispatchClaim(client: DispatchClient, claimToken: s
   return count === 1
 }
 
+/**
+ * Releases a dispatch claim only when its transactional settlement did not
+ * commit. Call markSettled strictly after the transaction promise resolves.
+ */
+export async function withDispatchClaimCleanup<T>(
+  client: DispatchClient,
+  claimToken: string,
+  operation: (markSettled: () => void) => Promise<T>
+): Promise<T> {
+  let settled = false
+  try {
+    return await operation(() => { settled = true })
+  } finally {
+    if (!settled) await releaseDispatchClaim(client, claimToken)
+  }
+}
+
 export async function assertActivationGate(input: {
   client: DispatchClient
   businessId: string

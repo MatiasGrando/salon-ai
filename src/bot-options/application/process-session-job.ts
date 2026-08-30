@@ -8,7 +8,7 @@ import { menuView, textView, type BotOptionsViewModel } from '../domain/views.js
 import { generatePromptToken } from '../domain/prompt-tokens.js'
 import { renderWhatsAppScreen, WHATSAPP_INTERACTIVE_BODY_MAX_CODE_POINTS } from '../infrastructure/whatsapp-renderer.js'
 import { assertClaimedBotJobTx, completeClaimedBotJobTx, retargetClaimedBotJobTx, type ClaimedBotJob } from '../infrastructure/postgres-worker.js'
-import { acquireDispatchClaim, assertDispatchClaimTx, completeDispatchClaimTx, releaseDispatchClaim } from '../infrastructure/dispatch-claims.js'
+import { acquireDispatchClaim, assertDispatchClaimTx, completeDispatchClaimTx, withDispatchClaimCleanup } from '../infrastructure/dispatch-claims.js'
 import {
   collectInboundConversationMessage,
   flushInboundConversationMessages,
@@ -83,9 +83,11 @@ export function isConversationRestartCommand(value: unknown): boolean {
 export async function runCommittedProcessSession<T>(input: {
   client: RuntimeClient
   operation: (tx: Prisma.TransactionClient) => Promise<T>
+  onCommitted?: () => void
   postCommit: (result: T) => void | Promise<void>
 }): Promise<T> {
   const result = await runProcessSessionTransaction(input.client, input.operation)
+  input.onCommitted?.()
   await input.postCommit(result)
   return result
 }
@@ -682,7 +684,7 @@ async function processSessionJobInternal(input: {
   })
   if (!dispatchToken) throw new Error('process dispatch gate closed')
   const pendingCrmEvents: InboundConversationMessageProjection[] = []
-  try {
+  return withDispatchClaimCleanup(input.client, dispatchToken, async (markSettled) => {
     const criticalTransactionStartedAt = performance.now()
     try {
       const result = await runCommittedProcessSession({ client: input.client, operation: async (tx) => {
@@ -886,16 +888,14 @@ async function processSessionJobInternal(input: {
       await completeDispatchClaimTx(tx, dispatchToken)
       await completeClaimedBotJobTx(tx, input.job)
       return 'PROCESSED'
-      }, postCommit: () => flushInboundConversationMessages(pendingCrmEvents) })
+      }, onCommitted: markSettled, postCommit: () => flushInboundConversationMessages(pendingCrmEvents) })
       botOptionsMetrics.observe('session_critical_transaction', performance.now() - criticalTransactionStartedAt)
       return result
     } catch (error) {
       botOptionsMetrics.observe('session_critical_transaction', performance.now() - criticalTransactionStartedAt, 'error')
       throw error
     }
-  } finally {
-    await releaseDispatchClaim(input.client, dispatchToken)
-  }
+  })
 }
 
 async function processInitialInbox(input: { client: RuntimeClient; job: ClaimedBotJob }): Promise<'PROCESSED' | 'STALE_CUTOVER'> {
@@ -916,19 +916,18 @@ async function processInitialInbox(input: { client: RuntimeClient; job: ClaimedB
     generation: target[0]!.generation, fenceEpoch: target[0]!.fenceEpoch, kind: 'PROCESS'
   })
   if (!dispatchToken) throw new Error('initial dispatch gate closed')
-  try {
-    const result = await processInitialInboxUnderClaim(input, false, dispatchToken)
+  return withDispatchClaimCleanup(input.client, dispatchToken, async (markSettled) => {
+    const result = await processInitialInboxUnderClaim(input, false, dispatchToken, markSettled)
     if (result === 'STALE_CUTOVER') await scheduleCurrentRecovery(input.client, input.job)
     return result
-  } finally {
-    await releaseDispatchClaim(input.client, dispatchToken)
-  }
+  })
 }
 
 async function processInitialInboxUnderClaim(
   input: { client: RuntimeClient; job: ClaimedBotJob },
   forceFreshView = false,
-  dispatchToken: string
+  dispatchToken: string,
+  onCommitted?: () => void
 ): Promise<'PROCESSED' | 'STALE_CUTOVER'> {
   const pendingCrmEvents: InboundConversationMessageProjection[] = []
   const result = await runProcessInboxTransaction(input.client, async (tx) => {
@@ -1126,6 +1125,7 @@ async function processInitialInboxUnderClaim(
     await completeClaimedBotJobTx(tx, input.job)
     return 'PROCESSED'
   })
+  onCommitted?.()
   // After-commit delivery: notify the CRM only once the inbound Message
   // projection is durably committed (covers PROCESS_INBOX and cutover recovery).
   flushInboundConversationMessages(pendingCrmEvents)
@@ -1218,7 +1218,7 @@ async function processCutoverRecovery(input: { client: RuntimeClient; job: Claim
     generation: row.generation, fenceEpoch: row.fenceEpoch, kind: 'PROCESS'
   })
   if (!dispatchToken) throw new Error('cutover recovery dispatch gate closed')
-  try {
+  return withDispatchClaimCleanup(input.client, dispatchToken, async (markSettled) => {
     const recoveryInboxId = `cutover-recovery:${input.job.aggregateId}`
     const retargetedJob = await input.client.$transaction(async (tx) => {
       const retargeted = await retargetClaimedBotJobTx(tx, input.job, { deploymentId: row.deploymentId, generation: row.generation })
@@ -1231,12 +1231,10 @@ async function processCutoverRecovery(input: { client: RuntimeClient; job: Claim
       return retargeted
     })
     const synthetic = { ...retargetedJob, kind: 'PROCESS_INBOX', aggregateId: recoveryInboxId }
-    const result = await processInitialInboxUnderClaim({ client: input.client, job: synthetic }, true, dispatchToken)
+    const result = await processInitialInboxUnderClaim({ client: input.client, job: synthetic }, true, dispatchToken, markSettled)
     if (result === 'STALE_CUTOVER') throw new Error('deployment changed during cutover recovery')
     return result
-  } finally {
-    await releaseDispatchClaim(input.client, dispatchToken)
-  }
+  })
 }
 
 async function scheduleCurrentRecovery(client: RuntimeClient, job: ClaimedBotJob): Promise<void> {
@@ -1305,38 +1303,57 @@ export async function persistView(
   }
 ) {
   if (!input.toPhone) throw new Error('cannot render outbox without destination phone')
-  await tx.$executeRaw(Prisma.sql`
-    UPDATE "BotPrompt" SET "status" = 'INVALIDATED'::"BotPromptStatus", "resolvedAt" = clock_timestamp()
-    WHERE "sessionId" = ${input.sessionId} AND "status" IN ('OPEN'::"BotPromptStatus", 'STABILIZING'::"BotPromptStatus")
-  `)
   const promptToken = input.promptToken ?? generatePromptToken()
   const plan = planPersistedView({
     view: input.view, transitionId: input.transitionId, toPhone: input.toPhone, promptToken, idFactory: input.idFactory ?? randomUUID
   })
   if (plan.promptId) {
+    // Keep these as ordered statements: a sibling data-modifying CTE would not
+    // guarantee invalidation before the partial unique OPEN-prompt check.
     await tx.$executeRaw(Prisma.sql`
+      UPDATE "BotPrompt" SET "status" = 'INVALIDATED'::"BotPromptStatus", "resolvedAt" = clock_timestamp()
+      WHERE "sessionId" = ${input.sessionId} AND "status" IN ('OPEN'::"BotPromptStatus", 'STABILIZING'::"BotPromptStatus")
+    `)
+    const promptCount = await tx.$executeRaw(Prisma.sql`
       INSERT INTO "BotPrompt" ("id", "sessionId", "promptToken", "stateRevision", "mode", "status", "openedAt", "outboxMessageId")
       VALUES (${plan.promptId}, ${input.sessionId}, ${promptToken}, ${input.revision}, 'FUNCTIONAL'::"BotPromptMode", 'OPEN'::"BotPromptStatus", ${input.dbNow}, ${plan.interactiveOutboxId})
     `)
-    if (plan.choiceRows.length > 0) {
-      await tx.$executeRaw(Prisma.sql`
+    if (promptCount !== 1) throw new Error('persist view prompt row count mismatch')
+  }
+  const persisted = await tx.$queryRaw<Array<{ choiceCount: bigint; outboxCount: bigint }>>(Prisma.sql`
+    WITH invalidated AS (
+      ${plan.promptId ? Prisma.sql`
+        SELECT NULL::text AS "id" WHERE FALSE
+      ` : Prisma.sql`
+        UPDATE "BotPrompt" SET "status" = 'INVALIDATED'::"BotPromptStatus", "resolvedAt" = clock_timestamp()
+        WHERE "sessionId" = ${input.sessionId} AND "status" IN ('OPEN'::"BotPromptStatus", 'STABILIZING'::"BotPromptStatus")
+        RETURNING "id"
+      `}
+    ), inserted_choices AS (
+      ${plan.choiceRows.length > 0 ? Prisma.sql`
         INSERT INTO "BotPromptChoice" ("id", "promptId", "choiceToken", "actionType", "entityType", "entityId", "payload", "labelSnapshot", "sortOrder")
         VALUES ${Prisma.join(plan.choiceRows.map((choice) => Prisma.sql`(
           ${choice.id}, ${choice.promptId}, ${choice.choiceToken}, ${choice.actionType}, ${choice.entityType}, ${choice.entityId},
           ${choice.payload === null ? null : JSON.stringify(choice.payload)}::jsonb, ${choice.labelSnapshot}, ${choice.sortOrder}
         )`))}
-      `)
-    }
-  }
-  if (plan.outboxRows.length > 0) {
-    await tx.$executeRaw(Prisma.sql`
-      INSERT INTO "BotOutbox" ("id", "businessId", "sessionId", "transitionId", "deliveryGroupId", "sequence", "kind", "payload",
-        "idempotencyKey", "status", "dependsOnSequence", "availableAt", "updatedAt")
-      VALUES ${Prisma.join(plan.outboxRows.map((row) => Prisma.sql`(
-        ${row.id}, ${input.businessId}, ${input.sessionId}, ${input.transitionId}, ${row.deliveryGroupId}, ${row.sequence}, ${row.kind},
-        ${JSON.stringify({ to: input.toPhone, item: row.item })}::jsonb, ${row.idempotencyKey}, 'PENDING'::"BotOutboxStatus",
-        ${row.dependsOnSequence}, ${input.dbNow}, clock_timestamp()
-      )`))}
-    `)
+        RETURNING "id"
+      ` : Prisma.sql`SELECT NULL::text AS "id" WHERE FALSE`}
+    ), inserted_outbox AS (
+      ${plan.outboxRows.length > 0 ? Prisma.sql`
+        INSERT INTO "BotOutbox" ("id", "businessId", "sessionId", "transitionId", "deliveryGroupId", "sequence", "kind", "payload",
+          "idempotencyKey", "status", "dependsOnSequence", "availableAt", "updatedAt")
+        VALUES ${Prisma.join(plan.outboxRows.map((row) => Prisma.sql`(
+          ${row.id}, ${input.businessId}, ${input.sessionId}, ${input.transitionId}, ${row.deliveryGroupId}, ${row.sequence}, ${row.kind},
+          ${JSON.stringify({ to: input.toPhone, item: row.item })}::jsonb, ${row.idempotencyKey}, 'PENDING'::"BotOutboxStatus",
+          ${row.dependsOnSequence}, ${input.dbNow}, clock_timestamp()
+        )`))}
+        RETURNING "id"
+      ` : Prisma.sql`SELECT NULL::text AS "id" WHERE FALSE`}
+    )
+    SELECT (SELECT count(*) FROM inserted_choices)::bigint AS "choiceCount",
+      (SELECT count(*) FROM inserted_outbox)::bigint AS "outboxCount"
+  `)
+  if (persisted[0]?.choiceCount !== BigInt(plan.choiceRows.length) || persisted[0]?.outboxCount !== BigInt(plan.outboxRows.length)) {
+    throw new Error('persist view row count mismatch')
   }
 }

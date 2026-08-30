@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { Prisma } from '../src/generated/prisma/client.js'
-import { menuView } from '../src/bot-options/domain/views.js'
+import { menuView, textView } from '../src/bot-options/domain/views.js'
 import {
   persistView,
   PROCESS_INBOX_TRANSACTION_OPTIONS,
@@ -9,6 +9,7 @@ import {
   runProcessInboxTransaction
 } from '../src/bot-options/application/process-session-job.js'
 import { BotOptionsMetrics } from '../src/bot-options/observability/metrics.js'
+import { withDispatchClaimCleanup } from '../src/bot-options/infrastructure/dispatch-claims.js'
 
 type CapturedSql = { kind: 'sql'; sql: string; text: string; values: unknown[] }
 type CapturedTaggedTemplate = { kind: 'tagged'; strings: readonly string[]; values: unknown[] }
@@ -32,7 +33,13 @@ function createStagingClient() {
       timeline.push(`staged:${write.kind}`)
       return 1
     },
-    $queryRaw: async () => []
+    $queryRaw: async (query: Prisma.Sql) => {
+      const write = inspectSql(query)
+      staged.push(write)
+      timeline.push('staged:sql')
+      if (write.sql.includes('inserted_choices AS')) return [{ choiceCount: 2n, outboxCount: 2n }]
+      return []
+    }
   }
   let staged: CapturedWrite[] = []
   const client = {
@@ -85,7 +92,7 @@ await runCommittedProcessSession({
   },
   postCommit: async (result) => {
     assert.equal(result, 'persisted')
-    assert.equal(success.committed.length, 4, 'post-commit cannot run until all staged writes commit')
+    assert.equal(success.committed.length, 3, 'post-commit cannot run until all FK-ordered persistence statements commit')
     assert.equal(success.timeline.at(-1), 'committed')
     success.timeline.push('postCommit')
     successPostCommitCalls += 1
@@ -96,34 +103,93 @@ assert.deepEqual(PROCESS_SESSION_TRANSACTION_OPTIONS, { maxWait: 2_000, timeout:
 assert.ok(PROCESS_SESSION_TRANSACTION_OPTIONS.maxWait + PROCESS_SESSION_TRANSACTION_OPTIONS.timeout < 30_000)
 assert.equal(successPostCommitCalls, 1)
 assert.equal(success.timeline.at(-1), 'postCommit')
-assert.equal(success.committed.length, 4, 'invalidation, prompt-with-outbox-link, choices, and outbox')
+assert.equal(success.committed.length, 3, 'invalidation, prompt, then combined choices+outbox')
 
 const sqlWrites = success.committed.filter((write): write is CapturedSql => write.kind === 'sql')
 const choices = sqlWrites.filter((query) => query.sql.includes('INSERT INTO "BotPromptChoice"'))
 const outbox = sqlWrites.filter((query) => query.sql.includes('INSERT INTO "BotOutbox"'))
 assert.equal(choices.length, 1, 'one bulk PromptChoice insert')
-assert.equal(outbox.length, 1, 'one bulk Outbox insert')
+assert.equal(outbox.length, 1, 'outbox is bulk-inserted in the combined persistence CTE')
 const compact = (value: string) => value.replace(/\s+/g, '')
 assert.ok(compact(choices[0].sql).includes('VALUES(?,?,?,?,?,?,?::jsonb,?,?),(?,?,?,?,?,?,?::jsonb,?,?)'))
 assert.ok(compact(choices[0].text).includes('VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9),($10,$11,$12,$13,$14,$15,$16::jsonb,$17,$18)'))
-assert.deepEqual(choices[0].values.map((value, index) => index === 2 || index === 11 ? typeof value : value), [
+assert.deepEqual(choices[0].values.slice(0, 18).map((value, index) => index === 2 || index === 11 ? typeof value : value), [
   'id-3', 'id-2', 'string', 'menu.start_booking', null, null, null, 'Sacar un turno', 0,
   'id-4', 'id-2', 'string', 'menu.browse_services', null, null, null, 'Ver servicios', 1
 ])
 assert.notEqual(choices[0].values[2], choices[0].values[11], 'choice tokens remain distinct')
-assert.ok(compact(outbox[0].sql).includes(`VALUES(?,?,?,?,?,?,?,?::jsonb,?,'PENDING'::"BotOutboxStatus",?,?,clock_timestamp()),(?,?,?,?,?,?,?,?::jsonb,?,'PENDING'::"BotOutboxStatus",?,?,clock_timestamp())`))
-assert.ok(compact(outbox[0].text).includes(`VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,'PENDING'::"BotOutboxStatus",$10,$11,clock_timestamp()),($12,$13,$14,$15,$16,$17,$18,$19::jsonb,$20,'PENDING'::"BotOutboxStatus",$21,$22,clock_timestamp())`))
-assert.deepEqual(outbox[0].values.slice(0, 11).map((value, index) => index === 7 ? JSON.parse(String(value)).item.type : value), [
-  'id-6', 'business-1', 'session-1', 'transition-1', 'id-5', 0, 'informative_text', 'informative_text', 'transition-1:0', null, new Date('2026-08-29T12:00:00.000Z')
-])
-assert.deepEqual(outbox[0].values.slice(11, 22).map((value, index) => index === 7 ? JSON.parse(String(value)).item.type : value), [
-  'id-7', 'business-1', 'session-1', 'transition-1', 'id-5', 1, 'interactive', 'interactive', 'transition-1:1', 0, new Date('2026-08-29T12:00:00.000Z')
-])
+assert.ok(compact(outbox[0].sql).includes(`invalidatedAS(SELECTNULL::textAS"id"WHEREFALSE),inserted_choicesAS(`),
+  'interactive persistence keeps invalidation and prompt insertion in prior ordered statements')
+assert.ok(compact(outbox[0].sql).includes(`inserted_outboxAS(INSERTINTO"BotOutbox"`))
+assert.ok(compact(outbox[0].sql).includes(`SELECT(SELECTcount(*)FROMinserted_choices)::bigintAS"choiceCount",(SELECTcount(*)FROMinserted_outbox)::bigintAS"outboxCount"`))
+assert.ok(outbox[0].values.includes('transition-1:0') && outbox[0].values.includes('transition-1:1'), 'both idempotency keys remain in one bulk insert')
 const prompt = sqlWrites.find((query) => query.sql.includes('INSERT INTO "BotPrompt"'))
 assert.ok(prompt)
 assert.ok(prompt.sql.includes('"outboxMessageId"'))
-assert.equal(prompt.values.at(-1), 'id-7', 'interactive outbox link is persisted in the prompt insert')
+assert.equal(prompt.values.at(-1), 'id-7', 'interactive outbox link is persisted before choices reference the prompt')
 assert.equal(success.committed.some((write) => write.kind === 'tagged'), false, 'no follow-up prompt update round trip')
+
+const textWrites: CapturedSql[] = []
+await persistView({
+  $executeRaw: async () => { throw new Error('text-only view must persist in one statement') },
+  $queryRaw: async (query: Prisma.Sql) => {
+    textWrites.push(inspectSql(query))
+    return [{ choiceCount: 0n, outboxCount: 1n }]
+  }
+} as any, {
+  businessId: 'business-1', sessionId: 'session-1', revision: 20n, transitionId: 'text-transition',
+  toPhone: '+5491100000000', view: textView('Listo'), dbNow: new Date('2026-08-29T12:00:00.000Z'),
+  promptToken: 'BBBBBBBBBBBBBBBB', idFactory: (() => { let id = 0; return () => `text-id-${++id}` })()
+})
+assert.equal(textWrites.length, 1, 'text-only view consolidates invalidation and outbox from two round trips to one')
+assert.ok(textWrites[0]!.sql.includes('UPDATE "BotPrompt"') && textWrites[0]!.sql.includes('INSERT INTO "BotOutbox"'))
+assert.equal(textWrites[0]!.sql.includes('INSERT INTO "BotPrompt"'), false)
+assert.equal(textWrites[0]!.sql.includes('INSERT INTO "BotPromptChoice"'), false)
+
+// Claim cleanup is skipped only after a transaction promise has resolved and marked settlement.
+function cleanupClient(input: { failCommit?: boolean } = {}) {
+  let releases = 0
+  const client = {
+    $queryRaw: async () => [],
+    $executeRaw: async (query: Prisma.Sql) => {
+      if (inspectSql(query).sql.includes('UPDATE "BotDispatchClaim"')) releases += 1
+      return 1
+    },
+    $transaction: async <T>(operation: (tx: object) => Promise<T>) => {
+      const result = await operation({})
+      if (input.failCommit) throw new Error('forced commit failure')
+      return result
+    }
+  }
+  return { client, releases: () => releases }
+}
+
+const settledCleanup = cleanupClient()
+await withDispatchClaimCleanup(settledCleanup.client as any, 'settled-token', async (markSettled) => {
+  await settledCleanup.client.$transaction(async () => 'committed')
+  markSettled()
+})
+assert.equal(settledCleanup.releases(), 0, 'committed transactional settlement removes the redundant release round trip')
+
+const failedCleanup = cleanupClient({ failCommit: true })
+await assert.rejects(() => withDispatchClaimCleanup(failedCleanup.client as any, 'failed-token', async (markSettled) => {
+  await failedCleanup.client.$transaction(async () => 'callback-complete')
+  markSettled()
+}), /forced commit failure/)
+assert.equal(failedCleanup.releases(), 1, 'commit failure leaves settlement unmarked and releases the claim')
+
+const earlyFailureCleanup = cleanupClient()
+await assert.rejects(() => withDispatchClaimCleanup(earlyFailureCleanup.client as any, 'early-token', async () => {
+  throw new Error('forced pre-commit failure')
+}), /forced pre-commit failure/)
+assert.equal(earlyFailureCleanup.releases(), 1, 'pre-commit failure releases the claim')
+
+const postCommitFailureCleanup = cleanupClient()
+await assert.rejects(() => withDispatchClaimCleanup(postCommitFailureCleanup.client as any, 'post-token', async (markSettled) => {
+  markSettled()
+  throw new Error('forced post-commit failure')
+}), /forced post-commit failure/)
+assert.equal(postCommitFailureCleanup.releases(), 0, 'post-commit failure does not issue a redundant release')
 
 // A rejection after real persistence must discard all staged writes and skip post-commit.
 const rollback = createStagingClient()

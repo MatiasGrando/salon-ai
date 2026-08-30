@@ -158,6 +158,13 @@ assert.equal(await sendClaimedOutbox({
 const senderCtes = senderStatements.filter((statement) => statement.includes('WITH outbox AS'))
 assert.equal(senderCtes.length, 2, 'preflight and accepted finalize each update outbox+dispatch in one round trip')
 assert.ok(senderCtes[0]!.includes('"status" = \'CLAIMED\'::"BotOutboxStatus"') && senderCtes[0]!.includes('"leaseToken" ='))
+assert.ok(senderCtes[0]!.includes('c."claimedUntil" > clock_timestamp()'))
+assert.ok(senderCtes[0]!.includes('d."generation" = c."generation"') && senderCtes[0]!.includes('d."dispatchFenceEpoch" = c."fenceEpoch"'))
+assert.ok(senderCtes[0]!.includes('d."legacyDispatchCoverageVersion" >= 1') && senderCtes[0]!.includes('s."handoffFenceEpoch" = c."handoffFenceEpoch"'))
+assert.equal(senderStatements.filter((statement) => statement.includes('SELECT c."id" FROM "BotDispatchClaim"')).length, 0,
+  'sender preflight validates and advances the dispatch claim in one fenced statement')
+assert.equal(senderStatements.filter((statement) => statement.includes('pg_advisory_xact_lock_shared')).length, 2,
+  'acquire and sender preflight each retain their advisory-lock boundary')
 assert.ok(senderCtes[1]!.includes('"status" = \'SENDING\'::"BotOutboxStatus"') && senderCtes[1]!.includes('"leaseToken" ='))
 assert.deepEqual(diagnostics.map((item) => [item.phase, item.outcome]), [
   ['preflight', 'ok'], ['meta_request', 'ok'], ['finalize', 'ok']

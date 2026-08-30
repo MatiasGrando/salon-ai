@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
-import { acquireDispatchClaim, assertDispatchClaimTx, releaseDispatchClaim } from './dispatch-claims.js'
+import { acquireDispatchClaim, releaseDispatchClaim } from './dispatch-claims.js'
 import { botOptionsMetrics } from '../observability/metrics.js'
 import { createMaintenanceCadence } from './maintenance-cadence.js'
 import {
@@ -193,7 +193,9 @@ export async function sendClaimedOutbox(input: {
   }
   try {
     await input.client.$transaction(async (tx) => {
-      await assertDispatchClaimTx({ tx, businessId: input.item.businessId, claimToken: dispatchToken })
+      await tx.$executeRaw(Prisma.sql`
+        SELECT pg_advisory_xact_lock_shared(hashtextextended(${`bot-cutover:${input.item.businessId}:WHATSAPP`}, 0))
+      `)
       const counts = await tx.$queryRaw<Array<{ outboxCount: bigint; dispatchCount: bigint }>>(Prisma.sql`
         WITH outbox AS (
           UPDATE "BotOutbox" SET "status" = 'SENDING'::"BotOutboxStatus", "updatedAt" = clock_timestamp()
@@ -201,9 +203,22 @@ export async function sendClaimedOutbox(input: {
             AND "status" = 'CLAIMED'::"BotOutboxStatus" AND "leaseToken" = ${input.item.claimToken}
           RETURNING "id"
         ), dispatch AS (
-          UPDATE "BotDispatchClaim" SET "status" = 'SENDING'::"BotDispatchStatus", "updatedAt" = clock_timestamp()
-          WHERE "claimToken" = ${dispatchToken} AND "status" = 'CLAIMED'::"BotDispatchStatus"
-          RETURNING "id"
+          UPDATE "BotDispatchClaim" c SET "status" = 'SENDING'::"BotDispatchStatus", "updatedAt" = clock_timestamp()
+          WHERE c."claimToken" = ${dispatchToken} AND c."businessId" = ${input.item.businessId}
+            AND c."status" = 'CLAIMED'::"BotDispatchStatus" AND c."claimedUntil" > clock_timestamp()
+            AND EXISTS (
+              SELECT 1 FROM "BotChannelDeployment" d
+              WHERE d."businessId" = c."businessId" AND d."channel" = c."channel"
+                AND d."generation" = c."generation" AND d."dispatchFenceEpoch" = c."fenceEpoch"
+                AND d."claimsPausedAt" IS NULL AND d."activeConfigurationId" IS NOT NULL
+                AND d."legacyDispatchCoverageVersion" >= 1
+                AND (c."sessionId" IS NULL OR EXISTS (
+                  SELECT 1 FROM "BotSession" s WHERE s."id" = c."sessionId" AND s."businessId" = c."businessId"
+                    AND s."status" <> 'HUMAN_TAKEN'::"BotSessionStatus" AND s."handoffClaimsPausedAt" IS NULL
+                    AND s."handoffFenceEpoch" = c."handoffFenceEpoch"
+                ))
+            )
+          RETURNING c."id"
         ) SELECT (SELECT count(*) FROM outbox)::bigint AS "outboxCount",
           (SELECT count(*) FROM dispatch)::bigint AS "dispatchCount"
       `)
