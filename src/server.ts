@@ -55,6 +55,7 @@ import { prisma } from './config/prisma.js'
 import { startPostgresWorkerLoop, type BotJobLatencyDiagnostic, type WorkerLoop } from './bot-options/infrastructure/postgres-worker.js'
 import { reconcileActions } from './bot-options/application/reconcile-actions.js'
 import { processSessionJob } from './bot-options/application/process-session-job.js'
+import { processProviderEventJob } from './bot-options/application/process-provider-event-job.js'
 import { expireDepositHold } from './bot-options/application/expire-deposit-hold.js'
 import { startOutboxSenderLoop, type OutboxProvider } from './bot-options/infrastructure/whatsapp-outbox-sender.js'
 import { MetaOutboxProvider } from './bot-options/infrastructure/meta-outbox-provider.js'
@@ -146,6 +147,14 @@ export async function buildApp(options: BuildAppOptions = {}) {
       const startedAt = performance.now()
       let outcome: 'ok' | 'error' = 'ok'
       try {
+        if (job.kind === 'PROCESS_PROVIDER_EVENT') {
+          await processProviderEventJob({
+            client: prisma,
+            job,
+            depositProofIngressEnabled: botOptionsConfig.depositsCapabilityEnabled
+          })
+          return
+        }
         if (job.kind === 'RECONCILE_PROMPT') {
           await reconcileActions(prisma, job)
           return

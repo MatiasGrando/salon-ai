@@ -12,12 +12,13 @@ delete process.env.DATABASE_URL
 process.env.DATABASE_URL = SAFE_DATABASE_URL
 if (process.env.DATABASE_URL !== SAFE_DATABASE_URL) throw new Error('F4 PostgreSQL URL safety assignment failed')
 
-const [{ createPrismaClient }, { Prisma }, worker, admissionModule, admissionRepository, outbox, dispatch, processor, promptTokens, reconciler, activation, metrics] = await Promise.all([
+const [{ createPrismaClient }, { Prisma }, worker, admissionModule, admissionRepository, providerEventProcessor, outbox, dispatch, processor, promptTokens, reconciler, activation, metrics] = await Promise.all([
   import('../src/config/prisma-client.js'),
   import('../src/generated/prisma/client.js'),
   import('../src/bot-options/infrastructure/postgres-worker.js'),
   import('../src/bot-options/application/admit-provider-events.js'),
   import('../src/bot-options/infrastructure/prisma-admission.js'),
+  import('../src/bot-options/application/process-provider-event-job.js'),
   import('../src/bot-options/infrastructure/whatsapp-outbox-sender.js'),
   import('../src/bot-options/infrastructure/dispatch-claims.js'),
   import('../src/bot-options/application/process-session-job.js'),
@@ -103,9 +104,11 @@ try {
     SELECT
       (SELECT count(*) FROM "BotProviderEvent" WHERE "eventKey" = ${`wamid.${suffix}`})::bigint AS events,
       (SELECT count(*) FROM "BotActionInbox" i JOIN "BotProviderEvent" e ON e."id" = i."providerEventId" WHERE e."eventKey" = ${`wamid.${suffix}`})::bigint AS inbox,
-      (SELECT count(*) FROM "BotJob" j JOIN "BotActionInbox" i ON i."id" = j."aggregateId" JOIN "BotProviderEvent" e ON e."id" = i."providerEventId" WHERE e."eventKey" = ${`wamid.${suffix}`})::bigint AS jobs
+      (SELECT count(*) FROM "BotJob" j JOIN "BotProviderEvent" e ON e."id" = j."aggregateId"
+        WHERE j."kind" = 'PROCESS_PROVIDER_EVENT' AND e."eventKey" = ${`wamid.${suffix}`})::bigint AS jobs
   `)
-  assert.deepEqual(admittedCounts[0], { events: 1n, inbox: 1n, jobs: 1n })
+  assert.deepEqual(admittedCounts[0], { events: 1n, inbox: 0n, jobs: 1n },
+    'the webhook commits only the provider journal and its classification job')
 
   const secondInitialBody = Buffer.from(JSON.stringify({ entry: [{ changes: [{ value: {
     metadata: { phone_number_id: phoneNumberId },
@@ -113,6 +116,14 @@ try {
   } }] }] }), 'utf8')
   const secondInitialSignature = `sha256=${createHmac('sha256', secret).update(secondInitialBody).digest('hex')}`
   assert.equal((await webhook.routeAndAdmit({ rawBody: secondInitialBody, signatureHeader: secondInitialSignature })).route, 'new')
+  const [providerJobA, providerJobB] = await Promise.all([claimTestJob(), claimTestJob()])
+  assert.ok(providerJobA && providerJobB)
+  assert.equal(providerJobA.kind, 'PROCESS_PROVIDER_EVENT')
+  assert.equal(providerJobB.kind, 'PROCESS_PROVIDER_EVENT')
+  await Promise.all([
+    providerEventProcessor.processProviderEventJob({ client: prisma, job: providerJobA }),
+    providerEventProcessor.processProviderEventJob({ client: prisma, job: providerJobB })
+  ])
   const [initialJobA, initialJobB] = await Promise.all([claimTestJob(), claimTestJob()])
   assert.ok(initialJobA && initialJobB)
   assert.equal(initialJobA.kind, 'PROCESS_INBOX')
@@ -164,6 +175,10 @@ try {
   } }] }] }), 'utf8')
   const staleSignature = `sha256=${createHmac('sha256', secret).update(staleBody).digest('hex')}`
   assert.equal((await webhook.routeAndAdmit({ rawBody: staleBody, signatureHeader: staleSignature })).route, 'new')
+  const staleProviderJob = await claimTestJob()
+  assert.ok(staleProviderJob)
+  assert.equal(staleProviderJob.kind, 'PROCESS_PROVIDER_EVENT')
+  assert.equal(await providerEventProcessor.processProviderEventJob({ client: prisma, job: staleProviderJob }), 'PROCESSED')
   const recoveryJob = await claimTestJob()
   assert.ok(recoveryJob)
   assert.equal(recoveryJob.kind, 'RECOVER_CUTOVER')

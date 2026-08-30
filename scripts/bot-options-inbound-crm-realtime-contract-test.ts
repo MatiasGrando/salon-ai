@@ -13,6 +13,10 @@ const processSessionSource = readFileSync(
   new URL('../src/bot-options/application/process-session-job.ts', import.meta.url),
   'utf8'
 )
+const processProviderEventSource = readFileSync(
+  new URL('../src/bot-options/application/process-provider-event-job.ts', import.meta.url),
+  'utf8'
+)
 assert.match(
   processSessionSource,
   /collectInboundConversationMessage\(pendingCrmEvents,\s*\{/,
@@ -25,8 +29,13 @@ assert.match(
 )
 assert.match(
   processSessionSource,
-  /const result = await input\.client\.\$transaction[\s\S]*?flushInboundConversationMessages\(pendingCrmEvents\)/,
-  'the flush must be ordered strictly after the commit boundary'
+  /const result = await runProcessSessionTransaction\(input\.client, input\.operation\)[\s\S]*?await input\.postCommit\(result\)/,
+  'the legacy process-session flush must remain ordered strictly after the commit boundary'
+)
+assert.match(
+  processProviderEventSource,
+  /const pendingCrmEvents = await projectInboundBeforeClassification\(input\.client, input\.job\)\s*flushInboundConversationMessages\(pendingCrmEvents\)[\s\S]*?const result = await input\.client\.\$transaction/,
+  'the journal must commit and publish the inbound CRM message before classification starts'
 )
 
 // Authoritative Bot Options WhatsApp flow: an inbound Message is projected

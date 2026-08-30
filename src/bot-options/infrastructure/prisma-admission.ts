@@ -44,6 +44,10 @@ export type AuthoritativeAdmissionResult = {
   insertedCount: number
 }
 
+export type ProviderEventClassificationResult = {
+  outboundMessage: { businessId: string; conversationId: string; messageId: string } | null
+}
+
 export interface AuthoritativeAdmissionRepository {
   resolveRoute(phoneNumberId: string): Promise<AuthoritativeRoute>
   admitAuthoritative(input: {
@@ -268,62 +272,16 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
         `)
         if (inserted.length === 0) continue
         insertedCount += 1
-
-        if (event.kind === 'status') {
-          const matched = await applyStatusCallbackTx(tx, input.route.businessId, event.providerMessageId, event.status, event.errorMessage)
-          await tx.$executeRaw(Prisma.sql`
-            UPDATE "BotProviderEvent" SET "status" = ${matched ? 'PROCESSED' : 'UNMATCHED'}::"BotProviderEventStatus"
-            WHERE "id" = ${providerEventId}
-          `)
-          continue
-        }
-
-        if (event.kind === 'message' && await this.#persistHumanTakenInbound(tx, {
-          route: input.route,
-          event,
+        await upsertJob(
+          tx,
+          'PROCESS_PROVIDER_EVENT',
           providerEventId,
-          inboxId: randomUUID()
-        })) {
-          continue
-        }
-
-        if (
-          this.#depositProofIngressEnabled && event.kind === 'message'
-          && (event.messageType === 'image' || event.messageType === 'document')
-        ) {
-          await upsertJob(
-            tx,
-            'RECEIVE_DEPOSIT_PROOF',
-            providerEventId,
-            input.route.businessId,
-            input.route.deploymentId,
-            input.route.generation,
-            null,
-            new Date()
-          )
-          continue
-        }
-
-        const inboxId = randomUUID()
-        if (event.kind === 'message' && event.interactiveReplyId) {
-          await this.#admitInteractive(tx, { ...input, event, providerEventId, inboxId })
-          continue
-        }
-
-        const actionType = event.kind === 'message' && event.messageType === 'unsupported'
-          ? 'input.unsupported'
-          : event.kind === 'unsupported_change' ? 'input.unsupported' : 'input.initial'
-        await tx.$executeRaw(Prisma.sql`
-          INSERT INTO "BotActionInbox" (
-            "id", "businessId", "providerEventId", "providerMessageId", "actionType", "deploymentId",
-            "deploymentGeneration", "payload", "status"
-          ) VALUES (
-            ${inboxId}, ${input.route.businessId}, ${providerEventId}, ${event.kind === 'message' ? event.providerMessageId : null},
-            ${actionType}, ${input.route.deploymentId}, ${input.route.generation},
-            ${JSON.stringify(eventPayload(event))}::jsonb, 'ADMITTED'::"BotInboxStatus"
-          )
-        `)
-        await upsertJob(tx, 'PROCESS_INBOX', inboxId, input.route.businessId, input.route.deploymentId, input.route.generation, null, new Date())
+          input.route.businessId,
+          input.route.deploymentId,
+          input.route.generation,
+          null,
+          new Date()
+        )
       }
 
       return { eventCount: input.events.length, insertedCount }
@@ -343,6 +301,90 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
       })
       throw error
     }
+  }
+
+  /**
+   * Classifies one already-journaled provider event. This deliberately runs in
+   * the worker transaction, never in the HTTP webhook transaction.
+   */
+  async classifyProviderEventTx(
+    tx: Prisma.TransactionClient,
+    input: {
+      route: Extract<AuthoritativeRoute, { kind: 'new' }>
+      event: ParsedWebhookEvent
+      providerEventId: string
+    }
+  ): Promise<ProviderEventClassificationResult> {
+    const { event } = input
+    if (event.kind === 'status') {
+      const callback = await applyStatusCallbackTx(
+        tx,
+        input.route.businessId,
+        event.providerMessageId,
+        event.status,
+        event.errorMessage
+      )
+      await tx.$executeRaw(Prisma.sql`
+        UPDATE "BotProviderEvent" SET "status" = ${callback.matched ? 'PROCESSED' : 'UNMATCHED'}::"BotProviderEventStatus"
+        WHERE "id" = ${input.providerEventId}
+      `)
+      return { outboundMessage: callback.outboundMessage }
+    }
+
+    if (event.kind === 'message' && await this.#persistHumanTakenInbound(tx, {
+      route: input.route,
+      event,
+      providerEventId: input.providerEventId,
+      inboxId: randomUUID()
+    })) return { outboundMessage: null }
+
+    if (
+      this.#depositProofIngressEnabled && event.kind === 'message'
+      && (event.messageType === 'image' || event.messageType === 'document')
+    ) {
+      await upsertJob(
+        tx,
+        'RECEIVE_DEPOSIT_PROOF',
+        input.providerEventId,
+        input.route.businessId,
+        input.route.deploymentId,
+        input.route.generation,
+        null,
+        new Date()
+      )
+      return { outboundMessage: null }
+    }
+
+    const inboxId = randomUUID()
+    if (event.kind === 'message' && event.interactiveReplyId) {
+      await this.#admitInteractive(tx, { ...input, event, inboxId })
+      return { outboundMessage: null }
+    }
+
+    const actionType = event.kind === 'message' && event.messageType === 'unsupported'
+      ? 'input.unsupported'
+      : event.kind === 'unsupported_change' ? 'input.unsupported' : 'input.initial'
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO "BotActionInbox" (
+        "id", "businessId", "providerEventId", "providerMessageId", "actionType", "deploymentId",
+        "deploymentGeneration", "payload", "status"
+      ) VALUES (
+        ${inboxId}, ${input.route.businessId}, ${input.providerEventId}, ${event.kind === 'message' ? event.providerMessageId : null},
+        ${actionType}, ${input.route.deploymentId}, ${input.route.generation},
+        ${JSON.stringify(eventPayload(event))}::jsonb, 'ADMITTED'::"BotInboxStatus"
+      )
+    `)
+    await upsertJob(
+      tx,
+      'PROCESS_INBOX',
+      inboxId,
+      input.route.businessId,
+      input.route.deploymentId,
+      input.route.generation,
+      null,
+      new Date()
+    )
+    return { outboundMessage: null }
   }
 
   /**
@@ -585,7 +627,10 @@ export async function applyStatusCallbackTx(
   providerMessageId: string,
   status: 'sent' | 'delivered' | 'read' | 'failed' | 'unknown',
   error: string | null
-): Promise<boolean> {
+): Promise<{
+  matched: boolean
+  outboundMessage: { businessId: string; conversationId: string; messageId: string } | null
+}> {
   const rank = status === 'read' ? 3 : status === 'delivered' ? 2 : status === 'sent' ? 1 : 0
   let matched = 0
   if (rank > 0) {
@@ -617,8 +662,23 @@ export async function applyStatusCallbackTx(
       FROM "BotOutbox" o
       WHERE o."businessId" = ${businessId} AND o."providerMessageId" = ${providerMessageId}
         AND c."kind" = 'SEND'::"BotDispatchKind" AND c."resourceId" = o."id"
-        AND c."status" <> 'DONE'::"BotDispatchStatus"
+      AND c."status" <> 'DONE'::"BotDispatchStatus"
     `)
   }
-  return matched > 0
+  let outboundMessage: { businessId: string; conversationId: string; messageId: string } | null = null
+  if (matched > 0 && status !== 'unknown') {
+    const messages = await tx.$queryRaw<Array<{ conversationId: string; messageId: string }>>(Prisma.sql`
+      UPDATE "Message" m SET
+        "status" = ${status},
+        "providerErrorCode" = CASE WHEN ${status} = 'failed' THEN COALESCE(${error}, 'provider_failed') ELSE NULL END,
+        "providerErrorMessage" = CASE WHEN ${status} = 'failed' THEN ${error} ELSE NULL END
+      FROM "Conversation" c
+      WHERE m."conversationId" = c."id" AND c."businessId" = ${businessId}
+        AND m."providerMessageId" = ${providerMessageId} AND m."direction" = 'OUTBOUND'::"MessageDirection"
+      RETURNING m."conversationId", m."id" AS "messageId"
+    `)
+    if (messages.length > 1) throw new Error('ambiguous outbound CRM message for provider callback')
+    if (messages[0]) outboundMessage = { businessId, ...messages[0] }
+  }
+  return { matched: matched > 0, outboundMessage }
 }

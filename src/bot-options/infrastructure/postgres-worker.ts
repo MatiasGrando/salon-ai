@@ -30,7 +30,7 @@ export type BotJobLatencyDiagnostic = {
 type WorkerClient = Pick<PrismaClient, '$queryRaw' | '$executeRaw' | '$transaction'>
 
 const SYSTEM_RECOVERY_JOB_KINDS = ['EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION'] as const
-const CUTOVER_RETARGETABLE_JOB_KIND = 'RECEIVE_DEPOSIT_PROOF'
+const CUTOVER_RETARGETABLE_JOB_KINDS = ['RECEIVE_DEPOSIT_PROOF', 'PROCESS_PROVIDER_EVENT'] as const
 
 /** Explicit timeout prevents the default 5s Prisma budget from killing claim polling under contention. */
 const CLAIM_JOB_TRANSACTION_OPTIONS = { maxWait: 2_000, timeout: 8_000 } as const
@@ -38,6 +38,10 @@ export const WORKER_MAINTENANCE_INTERVAL_MS = 30_000
 
 function systemRecoveryJobSql(column: string) {
   return Prisma.raw(`"${column}"."kind" IN (${SYSTEM_RECOVERY_JOB_KINDS.map((kind) => `'${kind}'`).join(', ')})`)
+}
+
+function cutoverRetargetableJobSql(column: string) {
+  return Prisma.raw(`"${column}"."kind" IN (${CUTOVER_RETARGETABLE_JOB_KINDS.map((kind) => `'${kind}'`).join(', ')})`)
 }
 
 /**
@@ -87,7 +91,7 @@ export async function claimBotJob(
           OR (j."status" = 'LEASED'::"BotJobStatus" AND j."leasedUntil" < clock_timestamp()))
         AND j."attempts" < j."maxAttempts"
         ${candidateScope}
-        AND (${systemRecoveryJobSql('j')} OR (j."kind" = ${CUTOVER_RETARGETABLE_JOB_KIND}
+        AND (${systemRecoveryJobSql('j')} OR (${cutoverRetargetableJobSql('j')}
           AND j."deploymentGeneration" <= d."generation"
           AND d."channel" = 'WHATSAPP'::"BotChannel"
           AND d."engineKey" = 'deterministic-options'
@@ -96,7 +100,7 @@ export async function claimBotJob(
         ) OR (
           d."generation" = j."deploymentGeneration" AND d."activeConfigurationId" IS NOT NULL
           AND d."legacyDispatchCoverageVersion" >= 1 AND d."claimsPausedAt" IS NULL
-        )) AND NOT (${humanTakenSessionJobSql('j')})
+        )) AND (j."kind" = 'PROCESS_PROVIDER_EVENT' OR NOT (${humanTakenSessionJobSql('j')}))
       ORDER BY j."availableAt", j."createdAt", j."id" FOR UPDATE OF j SKIP LOCKED LIMIT 1
     `)
     const candidate = candidates[0]
@@ -110,7 +114,7 @@ export async function claimBotJob(
         "updatedAt" = clock_timestamp()
       WHERE j."id" = ${candidate.id} AND EXISTS (
         SELECT 1 FROM "BotChannelDeployment" d WHERE d."id" = j."deploymentId" AND d."businessId" = j."businessId"
-          AND (${systemRecoveryJobSql('j')} OR (j."kind" = ${CUTOVER_RETARGETABLE_JOB_KIND}
+          AND (${systemRecoveryJobSql('j')} OR (${cutoverRetargetableJobSql('j')}
             AND j."deploymentGeneration" <= d."generation"
             AND d."channel" = 'WHATSAPP'::"BotChannel"
             AND d."engineKey" = 'deterministic-options'
@@ -119,7 +123,7 @@ export async function claimBotJob(
           ) OR (
             d."generation" = j."deploymentGeneration" AND d."activeConfigurationId" IS NOT NULL
             AND d."legacyDispatchCoverageVersion" >= 1 AND d."claimsPausedAt" IS NULL
-          )) AND NOT (${humanTakenSessionJobSql('j')})
+          )) AND (j."kind" = 'PROCESS_PROVIDER_EVENT' OR NOT (${humanTakenSessionJobSql('j')}))
       )
       RETURNING j."id", j."kind", j."aggregateId", j."businessId", j."deploymentId",
         j."deploymentGeneration", j."expectedRevision", j."attempts", j."maxAttempts",

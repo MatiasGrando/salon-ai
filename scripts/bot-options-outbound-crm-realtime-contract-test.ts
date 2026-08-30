@@ -16,11 +16,11 @@ const senderSource = readFileSync(
   'utf8'
 )
 
-assert.match(senderSource, /ON CONFLICT \("providerMessageId"\) DO NOTHING\s+RETURNING "id", "conversationId"/,
-  'only an inserted Message may be eligible for outbound SSE')
+assert.match(senderSource, /SELECT \$\{input\.item\.id\}[^]*ON CONFLICT \("id"\) DO UPDATE/,
+  'outbound CRM projection must keep one stable Message per outbox across failure and retry')
 assert.match(senderSource, /const pendingCrmEvents[\s\S]*?await input\.client\.\$transaction[\s\S]*?flushOutboundConversationMessages\(pendingCrmEvents\)/,
   'outbound SSE must be flushed strictly after the accepted transaction commits')
-assert.match(senderSource, /collectOutboundConversationMessage\(pendingCrmEvents,\s*\{[\s\S]*?businessId: input\.item\.businessId/,
+assert.match(senderSource, /return \{\s*businessId: input\.item\.businessId,[\s\S]*?messageId: rows\[0\]!\.id/,
   'the committed projection must retain its authoritative tenant')
 
 const buttonMetadata = outboundMessageMetadata({
@@ -28,7 +28,7 @@ const buttonMetadata = outboundMessageMetadata({
     type: 'interactive', mode: 'buttons', actionIds: ['b1.prompt-secret.choice-secret'],
     buttons: [{ id: 'b1.prompt-secret.choice-secret', title: 'Reservar' }],
     promptToken: 'prompt-secret', choiceId: 'choice-secret'
-  }
+  } as never
 })
 assert.deepEqual(buttonMetadata, {
   provider: 'whatsapp', source: 'bot-options', kind: 'interactive',
@@ -40,7 +40,7 @@ const listMetadata = outboundMessageMetadata({
     type: 'interactive', mode: 'list', actionIds: ['b1.prompt-secret.choice-secret'],
     rows: [{ id: 'b1.prompt-secret.choice-secret', title: 'Corte', description: 'Desde $20.000' }],
     buttonText: 'Elegí una opción', sectionTitle: 'Servicios', promptToken: 'prompt-secret'
-  }
+  } as never
 })
 assert.deepEqual(listMetadata, {
   provider: 'whatsapp', source: 'bot-options', kind: 'interactive',
@@ -79,7 +79,7 @@ assert.deepEqual(glowEvents, ['message-1'], 'conflict and rollback must not emit
 unsubscribeGlow()
 unsubscribeOther()
 
-type SenderScenario = 'inserted' | 'conflict' | 'rollback-after-insert'
+type SenderScenario = 'inserted' | 'conflict' | 'rollback-after-insert' | 'clear-failure'
 
 function senderClient(scenario: SenderScenario) {
   let transactionNumber = 0
@@ -99,7 +99,10 @@ function senderClient(scenario: SenderScenario) {
           if (currentTransaction === 3 && queryNumber === 1) return [{ outboxCount: 1n, dispatchCount: 1n }]
           if (currentTransaction === 3 && queryNumber === 2) {
             if (scenario === 'conflict') return []
-            return [{ id: 'persisted-message', conversationId: 'conversation-sender' }]
+            return [{
+              id: scenario === 'clear-failure' ? claimedItem.id : 'persisted-message',
+              conversationId: 'conversation-sender'
+            }]
           }
           if (currentTransaction === 4) return [{ outboxCount: 1n, dispatchCount: 1n }]
           return []
@@ -155,6 +158,9 @@ async function exerciseSenderScenario(scenario: SenderScenario) {
       provider: {
         async send() {
           providerCalls += 1
+          if (scenario === 'clear-failure') {
+            return { kind: 'clear_failure' as const, code: 'meta_rejected', retryable: true }
+          }
           return { kind: 'accepted' as const, providerMessageId: 'wamid.sender-contract' }
         }
       }
@@ -182,5 +188,13 @@ assert.equal(rollbackScenario.outcome, 'UNKNOWN', 'post-provider transaction rol
 assert.deepEqual(rollbackScenario.messageIds, [], 'rolled-back accepted transaction must not emit phantom outbound SSE')
 assert.equal(rollbackScenario.providerCalls, 1, 'rollback recovery must never call Meta a second time')
 assert.equal(rollbackScenario.transactions.length, 4, 'rollback must preserve the fenced UNKNOWN recovery transaction')
+
+const clearFailureScenario = await exerciseSenderScenario('clear-failure')
+assert.equal(clearFailureScenario.outcome, 'RETRY')
+assert.deepEqual(clearFailureScenario.messageIds, [claimedItem.id],
+  'a clear Meta failure must remain visible in the CRM as the stable unsent bot response')
+assert.equal(clearFailureScenario.providerCalls, 1)
+assert.equal(clearFailureScenario.transactions.length, 3,
+  'clear failure must persist outbox state and failed CRM Message atomically')
 
 console.log('Bot Options authoritative outbound CRM realtime contract: OK')

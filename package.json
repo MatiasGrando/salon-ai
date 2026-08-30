@@ -113,6 +113,7 @@
     "test:bot-options-f8-proof-purge-pg": "tsx scripts/bot-options-f8-proof-byte-purge-pg-contract-test.ts",
     "test:bot-options-f8-9-meta": "tsx scripts/bot-options-f8-9-meta-media-contract-test.ts",
     "test:bot-options-admission-timeout": "tsx scripts/bot-options-admission-timeout-contract-test.ts",
+    "test:bot-options-provider-event-journal": "tsx scripts/bot-options-provider-event-journal-contract-test.ts",
     "test:bot-options-f8-9-pg": "tsx scripts/bot-options-f8-9-vertical-pg-contract-test.ts",
     "test:bot-options-f9-appointment-management-pure": "tsx scripts/bot-options-f9-appointment-management-pure-contract-test.ts",
     "test:f9-pg-contract-database-safety": "tsx scripts/f9-pg-contract-database-safety-contract-test.ts",

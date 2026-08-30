@@ -169,6 +169,55 @@ export function outboundMessageMetadata(payload: OutboundPayload): Record<string
   return metadata
 }
 
+async function projectOutboundMessageTx(
+  tx: Prisma.TransactionClient,
+  input: {
+    item: ClaimedOutbox
+    status: 'sent' | 'failed'
+    providerMessageId: string | null
+    errorCode: string | null
+  }
+): Promise<OutboundConversationMessageProjection | null> {
+  const payload = input.item.payload as OutboundPayload
+  const body = typeof payload.item?.body === 'string' && payload.item.body.trim()
+    ? payload.item.body.trim()
+    : `[${typeof payload.item?.type === 'string' ? payload.item.type : 'message'}]`
+  if (typeof payload.to !== 'string' || !payload.to) return null
+  const metadata = {
+    ...outboundMessageMetadata(payload),
+    delivery: {
+      sent: input.status === 'sent',
+      status: input.status,
+      ...(input.errorCode ? { errorCode: input.errorCode } : {})
+    }
+  }
+  const rows = await tx.$queryRaw<Array<{ id: string; conversationId: string }>>(Prisma.sql`
+    INSERT INTO "Message" ("id", "conversationId", "phone", "direction", "body", "providerMessageId", "status",
+      "providerErrorCode", "metadata")
+    SELECT ${input.item.id}, s."conversationId", ${payload.to}, 'OUTBOUND'::"MessageDirection", ${body},
+      ${input.providerMessageId}, ${input.status}, ${input.errorCode}, ${JSON.stringify(metadata)}::jsonb
+    FROM "BotSession" s
+    JOIN "Conversation" c ON c."id" = s."conversationId" AND c."businessId" = s."businessId"
+    WHERE s."id" = ${input.item.sessionId} AND s."businessId" = ${input.item.businessId}
+    ON CONFLICT ("id") DO UPDATE SET
+      "providerMessageId" = EXCLUDED."providerMessageId",
+      "status" = EXCLUDED."status",
+      "providerErrorCode" = EXCLUDED."providerErrorCode",
+      "metadata" = EXCLUDED."metadata"
+    RETURNING "id", "conversationId"
+  `)
+  if (rows.length !== 1) return null
+  await tx.$executeRaw(Prisma.sql`
+    UPDATE "Conversation" SET "lastMessage" = ${body}, "archivedAt" = NULL, "updatedAt" = clock_timestamp()
+    WHERE "id" = ${rows[0]!.conversationId} AND "businessId" = ${input.item.businessId}
+  `)
+  return {
+    businessId: input.item.businessId,
+    conversationId: rows[0]!.conversationId,
+    messageId: rows[0]!.id
+  }
+}
+
 export async function sendClaimedOutbox(input: {
   client: OutboxClient
   item: ClaimedOutbox
@@ -268,31 +317,13 @@ export async function sendClaimedOutbox(input: {
             (SELECT count(*) FROM dispatch)::bigint AS "dispatchCount"
         `)
         if (counts[0]?.outboxCount !== 1n || counts[0]?.dispatchCount !== 1n) throw new Error('accepted result lost sender fence')
-        const payload = input.item.payload as OutboundPayload
-        const body = typeof payload.item?.body === 'string' && payload.item.body.trim()
-          ? payload.item.body.trim()
-          : `[${typeof payload.item?.type === 'string' ? payload.item.type : 'message'}]`
-        if (typeof payload.to === 'string' && payload.to) {
-          const inserted = await tx.$queryRaw<Array<{ id: string; conversationId: string }>>(Prisma.sql`
-            INSERT INTO "Message" ("id", "conversationId", "phone", "direction", "body", "providerMessageId", "status", "metadata")
-            SELECT ${randomUUID()}, s."conversationId", ${payload.to}, 'OUTBOUND'::"MessageDirection", ${body},
-              ${result.providerMessageId}, 'sent', ${JSON.stringify(outboundMessageMetadata(payload))}::jsonb
-            FROM "BotSession" s
-            JOIN "Conversation" c ON c."id"=s."conversationId" AND c."businessId"=s."businessId"
-            WHERE s."id"=${input.item.sessionId} AND s."businessId"=${input.item.businessId}
-            ON CONFLICT ("providerMessageId") DO NOTHING
-            RETURNING "id", "conversationId"
-          `)
-          if (inserted.length === 1) {
-            // The join above authoritatively binds the Message to this tenant;
-            // collection remains in-tx, while publication is strictly after commit.
-            collectOutboundConversationMessage(pendingCrmEvents, {
-              businessId: input.item.businessId,
-              conversationId: inserted[0]!.conversationId,
-              messageId: inserted[0]!.id
-            })
-          }
-        }
+        const projection = await projectOutboundMessageTx(tx, {
+          item: input.item,
+          status: 'sent',
+          providerMessageId: result.providerMessageId,
+          errorCode: null
+        })
+        if (projection) collectOutboundConversationMessage(pendingCrmEvents, projection)
       })
       flushOutboundConversationMessages(pendingCrmEvents)
       const finalizeMs = performance.now() - finalizeStartedAt
@@ -305,6 +336,7 @@ export async function sendClaimedOutbox(input: {
     const delay = Math.max(0, input.jitter?.(base, input.item.attempts, input.item.id) ?? base)
     const status = poison ? 'POISON' : 'RETRY'
     const finalizeStartedAt = performance.now()
+    const pendingCrmEvents: OutboundConversationMessageProjection[] = []
     await input.client.$transaction(async (tx) => {
       const counts = await tx.$queryRaw<Array<{ outboxCount: bigint; dispatchCount: bigint }>>(Prisma.sql`
         WITH outbox AS (
@@ -321,7 +353,15 @@ export async function sendClaimedOutbox(input: {
           (SELECT count(*) FROM dispatch)::bigint AS "dispatchCount"
       `)
       if (counts[0]?.outboxCount !== 1n || counts[0]?.dispatchCount !== 1n) throw new Error('clear failure lost sender fence')
+      const projection = await projectOutboundMessageTx(tx, {
+        item: input.item,
+        status: 'failed',
+        providerMessageId: null,
+        errorCode: result.code
+      })
+      if (projection) collectOutboundConversationMessage(pendingCrmEvents, projection)
     })
+    flushOutboundConversationMessages(pendingCrmEvents)
     const finalizeMs = performance.now() - finalizeStartedAt
     botOptionsMetrics.observe('outbox_finalize', finalizeMs)
     emit({ resource: 'outbox', resourceId: input.item.id, phase: 'finalize', durationMs: finalizeMs, outcome: poison ? 'poison' : 'retry' })

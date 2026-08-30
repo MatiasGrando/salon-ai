@@ -59,12 +59,13 @@ assert.ok(
 const promptToken = 'A'.repeat(16)
 const choiceToken = 'B'.repeat(11)
 const interactiveStatements: string[] = []
+const interactiveStatementValues: unknown[][] = []
 const interactiveTx = {
-  $executeRaw: async (query: { strings?: readonly string[] } | readonly string[]) => {
-    const statement = Array.isArray(query)
-      ? query.join('?')
-      : query.strings?.join('?') ?? String(query)
+  $executeRaw: async (query: { strings?: readonly string[]; values?: readonly unknown[] } | readonly string[]) => {
+    const sql = query as { strings?: readonly string[]; values?: readonly unknown[] }
+    const statement = sql.strings?.join('?') ?? String(query)
     interactiveStatements.push(statement)
+    interactiveStatementValues.push(Array.isArray(sql.values) ? [...sql.values] : [])
     return 1
   },
   $queryRaw: async (query: { strings?: readonly string[] }) => {
@@ -75,20 +76,7 @@ const interactiveTx = {
     if (statement.includes('INSERT INTO "BotProviderEvent"')) {
       return [{ id: 'provider-event-a' }]
     }
-    if (statement.includes('FROM "Conversation"')) return []
-    if (statement.includes('FROM "BotPrompt"')) {
-      return [{
-        promptId: 'prompt-a', sessionId: 'session-a', businessId: 'business-a',
-        deploymentId: 'deployment-a', deploymentGeneration: 1,
-        revision: 0n, stateRevision: 0n, mode: 'FUNCTIONAL', status: 'OPEN',
-        firstActionAt: null, lastActionAt: null, settleAt: null,
-        absoluteAt: null, resolvedAt: null, choiceToken,
-        actionType: 'menu.browse_services', entityType: null, entityId: null,
-        payload: {}, labelSnapshot: 'Ver servicios y precios', sortOrder: 0,
-        dbNow: new Date('2026-08-30T00:00:00.000Z')
-      }]
-    }
-    throw new Error(`unexpected query in interactive admission contract: ${statement}`)
+    throw new Error(`webhook admission performed non-journal query: ${statement}`)
   }
 }
 const interactiveRepository = new PrismaAuthoritativeAdmissionRepository({
@@ -110,12 +98,14 @@ const interactiveResult = await interactiveRepository.admitAuthoritative({
   }]
 })
 assert.deepEqual(interactiveResult, { eventCount: 1, insertedCount: 1 })
-assert.ok(interactiveStatements.some((statement) => statement.includes('INSERT INTO "BotActionInbox"')),
-  'a real interactive action id must be admitted into the inbox')
-assert.ok(interactiveStatements.some((statement) => statement.includes('UPDATE "BotPrompt"')),
-  'a real interactive selection must stabilize its prompt')
 assert.ok(interactiveStatements.some((statement) => statement.includes('INSERT INTO "BotJob"')),
-  'a real interactive selection must enqueue reconciliation')
+  'a durable provider event must enqueue asynchronous classification')
+assert.ok(interactiveStatementValues.some((values) => values.includes('PROCESS_PROVIDER_EVENT')),
+  'webhook admission must enqueue PROCESS_PROVIDER_EVENT')
+assert.equal(interactiveStatements.some((statement) => statement.includes('BotActionInbox')), false,
+  'webhook admission must not classify an interactive selection')
+assert.equal(interactiveStatements.some((statement) => statement.includes('BotPrompt')), false,
+  'webhook admission must not resolve or stabilize prompts')
 
 const sensitiveMessage = 'postgresql://user:secret@production.example/db?password=secret'
 const admissionLogs: unknown[][] = []
