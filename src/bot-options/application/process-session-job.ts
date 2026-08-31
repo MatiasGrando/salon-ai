@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
-import { applyLazyContextWindowTx } from './lazy-context-window.js'
+import { applyLazyContextWindowTx, loadConversationGreetingView } from './lazy-context-window.js'
 import { createInitialBotOptionsState, parseBotOptionsState, type BotOptionsState } from '../domain/state.js'
 import { mainMenuView, renderCurrentView, transition, type TransitionContext } from '../domain/transition.js'
 import type { BotOptionsActionPayload, BotOptionsEntityRef } from '../domain/actions.js'
@@ -13,6 +13,8 @@ import { acquireDispatchClaim, assertDispatchClaimTx, completeDispatchClaimTx, w
 import {
   collectInboundConversationMessage,
   flushInboundConversationMessages,
+  publishConversationUpdated,
+  type ConversationUpdatedEvent,
   type InboundConversationMessageProjection
 } from '../../services/crm-realtime-events.js'
 import { upsertJob } from '../infrastructure/prisma-admission.js'
@@ -149,7 +151,7 @@ export type TransitionContextProvider = (
 
 export type TransitionEffectExecutor = (
   tx: Prisma.TransactionClient,
-  input: { businessId: string; sessionId: string; operationKey: string; effects: readonly BotOptionsEffect[] }
+  input: { businessId: string; sessionId: string; operationKey: string; effects: readonly BotOptionsEffect[]; pendingConversationUpdates?: Array<Omit<ConversationUpdatedEvent, 'type'>> }
 ) => Promise<void | BotOptionsEffectExecutionResult>
 
 export const unavailableEffectExecutor: TransitionEffectExecutor = async (_tx, input) => {
@@ -723,6 +725,7 @@ async function processSessionJobInternal(input: {
   })
   if (!dispatchToken) throw new Error('process dispatch gate closed')
   const pendingCrmEvents: InboundConversationMessageProjection[] = []
+  const pendingConversationUpdates: Array<Omit<ConversationUpdatedEvent, 'type'>> = []
   return withDispatchClaimCleanup(input.client, dispatchToken, async (markSettled) => {
     const criticalTransactionStartedAt = performance.now()
     try {
@@ -834,7 +837,7 @@ async function processSessionJobInternal(input: {
 
       const operationKey = `transition:${session.id}:${session.revision + 1n}`
       const effectResult = await measureSessionStage('session_effects', () => (input.effectExecutor ?? prismaBotOptionsEffectExecutor)(tx, {
-        businessId: session.businessId, sessionId: session.id, operationKey, effects
+        businessId: session.businessId, sessionId: session.id, operationKey, effects, pendingConversationUpdates
       }))
       if (effectResult?.kind === 'SLOT_CONFLICT') {
         if (!transitionContext) throw new Error('booking conflict has no transition context')
@@ -901,7 +904,7 @@ async function processSessionJobInternal(input: {
           throw new Error('appointment handoff recovery must enqueue human attention')
         }
         await measureSessionStage('session_effects', () => (input.effectExecutor ?? prismaBotOptionsEffectExecutor)(tx, {
-          businessId: session.businessId, sessionId: session.id, operationKey, effects
+          businessId: session.businessId, sessionId: session.id, operationKey, effects, pendingConversationUpdates
         }))
       }
       const nextRevision = session.revision + 1n
@@ -928,7 +931,10 @@ async function processSessionJobInternal(input: {
         job: input.job
       })
       return 'PROCESSED'
-      }, onCommitted: markSettled, postCommit: () => flushInboundConversationMessages(pendingCrmEvents) })
+      }, onCommitted: markSettled, postCommit: () => {
+        flushInboundConversationMessages(pendingCrmEvents)
+        for (const update of pendingConversationUpdates) publishConversationUpdated(update)
+      } })
       botOptionsMetrics.observe('session_critical_transaction', performance.now() - criticalTransactionStartedAt)
       return result
     } catch (error) {
@@ -1059,16 +1065,7 @@ async function processInitialInboxUnderClaim(
             revision: nextRevision,
             transitionId: `restart:${existingSession.sessionId}:${row.id}`,
             toPhone: payload.fromPhone,
-            view: renderCurrentView(nextState, await defaultContextProvider(tx, {
-              businessId: row.businessId,
-              sessionId: existingSession.sessionId,
-              state: nextState,
-              actionType: 'system.reprompt',
-              entityRef: null,
-              payload: null,
-              dbNow: row.dbNow,
-              businessTimezone: existingSession.businessTimezone
-            })),
+            view: await loadConversationGreetingView(tx, { businessId: row.businessId, phone: payload.fromPhone }),
             dbNow: row.dbNow
           })
           await completeDispatchClaimTx(tx, dispatchToken)

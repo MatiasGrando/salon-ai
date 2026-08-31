@@ -151,8 +151,22 @@ export async function applyLazyContextWindowTx(tx: Prisma.TransactionClient, inp
     VALUES (${transitionId}, ${input.businessId}, ${session.id}, ${input.deploymentId}, ${input.generation},
       ${session.revision}, ${nextRevision}, 'system.context_expired', 'APPLIED', ${input.providerEventId})
   `)
-  // Read presentation data only after expiry guards. Never use a draft/profile name
-  // or choose arbitrarily between legacy customer records for the same phone.
+  const menu = await loadConversationGreetingView(tx, input)
+  await writeView(tx, { businessId: input.businessId, sessionId: session.id, revision: nextRevision,
+    transitionId, toPhone: input.phone, view: menu, dbNow: session.dbNow })
+  await tx.$executeRaw(Prisma.sql`
+    UPDATE "BotProviderEvent" SET "status" = 'PROCESSED'::"BotProviderEventStatus"
+    WHERE "id" = ${input.providerEventId} AND "businessId" = ${input.businessId}
+  `)
+  return { kind: 'EXPIRED' }
+}
+
+/** Read-only greeting shared by explicit restart and permitted context expiry. */
+export async function loadConversationGreetingView(
+  tx: Pick<Prisma.TransactionClient, '$queryRaw'>,
+  input: { businessId: string; phone: string }
+) {
+  // Never use a draft/profile name or choose between ambiguous customer records.
   const canonicalPhone = normalizePhone(input.phone)
   const variants = [...new Set([input.phone.trim(), canonicalPhone, `+${canonicalPhone}`, ...phoneSearchVariants(input.phone)])].filter(Boolean)
   const digits = [...new Set(variants.map((value) => value.replace(/\D/g, '')).filter(Boolean))]
@@ -173,12 +187,5 @@ export async function applyLazyContextWindowTx(tx: Prisma.TransactionClient, inp
   `)
   const greeting = greetings[0]
   if (!greeting) throw new Error('context greeting business unavailable in tenant')
-  const menu = mainMenuView(greeting.businessName, greeting.customerName)
-  await writeView(tx, { businessId: input.businessId, sessionId: session.id, revision: nextRevision,
-    transitionId, toPhone: input.phone, view: menu, dbNow: session.dbNow })
-  await tx.$executeRaw(Prisma.sql`
-    UPDATE "BotProviderEvent" SET "status" = 'PROCESSED'::"BotProviderEventStatus"
-    WHERE "id" = ${input.providerEventId} AND "businessId" = ${input.businessId}
-  `)
-  return { kind: 'EXPIRED' }
+  return mainMenuView(greeting.businessName, greeting.customerName)
 }

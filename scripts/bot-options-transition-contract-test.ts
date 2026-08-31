@@ -826,13 +826,28 @@ const hoursViewWithContext = renderCurrentView(
   normalizeContext(ctx({ labels: { businessWeeklyHoursText: hoursText } }))
 )
 assert.equal(hoursViewWithContext.informativeTexts.length, 1, 'debe tener 1 informativeText')
-assert.equal(hoursViewWithContext.informativeTexts[0], hoursText, 'informativeText debe ser el horario')
-assert.equal(hoursViewWithContext.choices.length, 2, 'debe tener 2 choices')
+const hoursHeading = '🕒 Estos son nuestros horarios de atención:\n\n'
+const hoursMenuBody = 'También podés consultar el horario de un profesional o buscar un turno para reservar.\n\nElegí cómo querés seguir 👇'
+assert.equal(hoursViewWithContext.informativeTexts[0], hoursHeading + hoursText, 'heading introduces the unchanged real schedule')
+assert.equal(hoursViewWithContext.interactiveBody, hoursMenuBody)
+assert.equal(hoursViewWithContext.choices.length, 5, 'must expose two contextual and three global choices')
 assert.deepEqual(
   hoursViewWithContext.choices.map((c) => c.actionType),
-  ['hours.professional', 'hours.search_availability'],
+  ['hours.professional', 'hours.search_availability', 'navigation.back', 'navigation.home', 'handoff.request'],
   'choices de BUSINESS_HOURS'
 )
+const renderedHours = renderWhatsAppScreen(hoursViewWithContext, { promptToken: 'h'.repeat(16) })
+const renderedHoursMenu = renderedHours.items.at(-1)
+assert.ok(renderedHoursMenu?.type === 'interactive')
+assert.equal(renderedHoursMenu.mode, 'list')
+assert.deepEqual(renderedHoursMenu.rows?.map((row) => row.title), [
+  'Horarios del equipo', 'Buscar un turno', 'Volver', 'Menú principal', 'Hablar con el equipo'
+])
+assert.deepEqual(renderedHours.choiceMappings.map((choice) => choice.actionType), hoursViewWithContext.choices.map((choice) => choice.actionType))
+const exceptionSchedule = hoursText + '\n\n*Excepciones próximas:*\n• Cerrado: el lunes 31 de agosto de 09:00 a 12:00'
+const hoursWithException = renderCurrentView(stateWith({ flow: 'BUSINESS_HOURS' }), normalizeContext(ctx({ labels: { businessWeeklyHoursText: exceptionSchedule } })))
+assert.equal(hoursWithException.informativeTexts[0], hoursHeading + exceptionSchedule, 'exceptions stay intact without duplicating the heading')
+assert.equal(hoursWithException.informativeTexts[0]!.split(hoursHeading).length - 1, 1)
 console.log('OK F5.6: BUSINESS_HOURS con texto informativo')
 
 // 2) BUSINESS_HOURS sin texto: no agrega informativeTexts vacíos
@@ -841,7 +856,8 @@ const hoursViewEmpty = renderCurrentView(
   normalizeContext(ctx())
 )
 assert.equal(hoursViewEmpty.informativeTexts.length, 0, 'sin texto no agrega informativeTexts')
-assert.equal(hoursViewEmpty.interactiveBody, '¿Qué querés ver?', 'interactiveBody unchanged')
+assert.equal(hoursViewEmpty.interactiveBody, hoursMenuBody, 'missing schedule must not invent hours')
+assert.equal(hoursViewEmpty.choices.length, 5, 'navigation is available even without schedule data')
 console.log('OK F5.6: BUSINESS_HOURS sin texto informativo')
 
 // 3) Transición menú → BUSINESS_HOURS genera nuevo estado
@@ -868,6 +884,11 @@ if (backFromHours.outcome === 'APPLIED') {
   assert.equal(backFromHours.state.flow, 'MAIN_MENU')
 }
 console.log('OK F5.6: back desde BUSINESS_HOURS → MAIN_MENU')
+const humanFromHours = transition(stateWith({ flow: 'BUSINESS_HOURS' }), act('handoff.request'), ctx())
+assert.equal(humanFromHours.state.flow, 'HANDOFF_QUEUED', 'visible human option uses existing handler')
+assert.equal(humanFromHours.state.handoffReturnFlow, 'BUSINESS_HOURS')
+const protectedHomeFromHours = transition(stateWith({ flow: 'BUSINESS_HOURS', cart: [{ serviceId: 'in_progress' }] }), act('navigation.home'), ctx())
+assert.equal(protectedHomeFromHours.state.flow, 'DISCARD_CONFIRM', 'home keeps existing draft discard protection')
 
 // 5) hours.professional desde BUSINESS_HOURS → PROFESSIONAL_HOURS_SELECT
 const toProHours = transition(
@@ -909,6 +930,40 @@ for (const choice of hoursChoices.choices) {
 console.log('OK F5.6: BUSINESS_HOURS no crea draft ni revela agenda')
 
 // ─── F5.7 — Horario semanal de profesionales ─────────────────────────────────
+
+const professionalSelectCopy = renderCurrentView(stateWith({ flow: 'PROFESSIONAL_HOURS_SELECT' }), normalizeContext(ctx({ labels: {
+  professionalCatalog: [{ professionalId: 'prof_ana', label: 'Ana' }, { professionalId: 'prof_carlos', label: 'Carlos' }]
+} })))
+assert.equal(professionalSelectCopy.interactiveBody, '¿De quién te gustaría consultar los horarios? 🕒\n\nElegí un profesional para ver qué días y en qué horarios atiende 👇')
+assert.deepEqual(professionalSelectCopy.choices, [
+  { actionType: 'hours.professional_select', label: 'Ana', entityRef: { type: 'PROFESSIONAL', id: 'prof_ana' } },
+  { actionType: 'hours.professional_select', label: 'Carlos', entityRef: { type: 'PROFESSIONAL', id: 'prof_carlos' } },
+  { actionType: 'navigation.back', label: 'Volver' },
+  { actionType: 'navigation.home', label: 'Menú principal' },
+  { actionType: 'handoff.request', label: 'Hablar con el equipo' }
+], 'selection choices must remain exactly unchanged')
+const professionalScheduleCopy = '*Lunes*: 09:00 a 18:00\n*Martes*: No atiende\n\n*Excepciones próximas:*\n• No atiende: el miércoles de 09:00 a 12:00'
+assert.deepEqual(renderCurrentView(stateWith({ flow: 'PROFESSIONAL_HOURS_DETAIL' }), normalizeContext(ctx())).informativeTexts,
+  ['🕒 Horarios de atención del profesional'], 'missing name uses a grammatical generic heading')
+for (const bookable of [true, false]) {
+  const detailCopyState = stateWith({ flow: 'PROFESSIONAL_HOURS_DETAIL', pendingEntityRef: { type: 'PROFESSIONAL', id: 'prof_ana' } })
+  const detailCopy = renderCurrentView(detailCopyState, normalizeContext(ctx({ professionalActive: true, professionalBookable: bookable,
+    labels: { professionalName: 'Ana', professionalWeeklyHoursText: professionalScheduleCopy }
+  })))
+  assert.equal(detailCopy.interactiveBody, 'Estos son sus horarios habituales de atención, no los turnos disponibles.\n\nElegí cómo querés seguir 👇')
+  assert.deepEqual(detailCopy.informativeTexts, ['🕒 Horarios de atención de Ana\n\n' + professionalScheduleCopy])
+  assert.deepEqual(detailCopy.choices, [
+    { actionType: bookable ? 'hours.professional_search_availability' : 'hours.professional_consult_human',
+      label: bookable ? 'Buscar un turno disponible' : 'Hablar con el equipo', entityRef: { type: 'PROFESSIONAL', id: 'prof_ana' } },
+    { actionType: 'hours.choose_other_professional', label: 'Ver otro profesional' },
+    { actionType: 'navigation.back', label: 'Volver' },
+    { actionType: 'navigation.home', label: 'Menú principal' },
+    { actionType: 'handoff.request', label: 'Hablar con el equipo' }
+  ], 'detail choices, labels and ordering must remain unchanged for both booking modes')
+  const withoutSchedule = renderCurrentView(detailCopyState, normalizeContext(ctx({ professionalActive: true, professionalBookable: bookable, labels: { professionalName: 'Ana' } })))
+  assert.deepEqual(withoutSchedule.informativeTexts, ['🕒 Horarios de atención de Ana'], 'missing context keeps name without inventing intervals')
+  assert.deepEqual(withoutSchedule.choices, detailCopy.choices)
+}
 
 // 1) PROFESSIONAL_HOURS_SELECT stores pendingEntityRef as PROFESSIONAL type
 const profSelectState = stateWith({ flow: 'PROFESSIONAL_HOURS_SELECT' })

@@ -129,7 +129,7 @@ try {
   for (const day of ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']) {
     assert.ok(schedule.includes(`*${day}*`), `día ${day} presente`)
   }
-  assert.ok(schedule.includes('*Domingo*: Cerrado'), 'domingo cerrado')
+  assert.ok(schedule.includes('*Domingo*: No atiende'), 'domingo cerrado')
   console.log('OK PG: ProfessionalHours lunes-domingo')
 
   // ─── Test 6: ScheduleBlock — excepciones del profesional ───────────────────
@@ -200,7 +200,7 @@ try {
   assert.equal(hoursEmpty.length, 0, 'Bob sin horas configuradas')
   const emptySchedule = hoursQueries.formatProfessionalWeeklySchedule('Bob', hoursEmpty, [], dbNow, timezone)
   for (const day of ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']) {
-    assert.ok(emptySchedule.includes(`*${day}*: Cerrado`), `${day} cerrado`)
+    assert.ok(emptySchedule.includes(`*${day}*: No atiende`), `${day} cerrado`)
   }
   console.log('OK PG: professional without hours → all closed')
 

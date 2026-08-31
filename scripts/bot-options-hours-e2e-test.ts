@@ -203,7 +203,7 @@ try {
   assert.ok(interactiveItem, 'outbox tiene item interactivo')
   const interactivePayload = interactiveItem!.payload as { item: Record<string, unknown> }
   const body = interactivePayload.item.body as string
-  assert.ok(body.includes('¿Qué querés ver?'), 'body interactivo correcto')
+  assert.equal(body, 'También podés consultar el horario de un profesional o buscar un turno para reservar.\n\nElegí cómo querés seguir 👇', 'body interactivo correcto')
   const bodyCodePoints = [...body].length
   assert.ok(bodyCodePoints <= 1024, `interactive body codePoints ${bodyCodePoints} ≤ 1024`)
 
@@ -214,10 +214,8 @@ try {
     ...(rows?.map((r) => r.title) ?? []),
     ...(buttons?.map((b) => b.title) ?? [])
   ]
-  const hasProfessional = allLabels.some((t) => t.includes('rofesional') || t.includes('orario de un'))
-  const hasSearch = allLabels.some((t) => t.includes('uscar') || t.includes('urno disponible'))
-  assert.ok(hasProfessional, `opción professional: ${JSON.stringify(allLabels)}`)
-  assert.ok(hasSearch, `opción search: ${JSON.stringify(allLabels)}`)
+  assert.equal(interactivePayload.item.mode, 'list')
+  assert.deepEqual(allLabels, ['Horarios del equipo', 'Buscar un turno', 'Volver', 'Menú principal', 'Hablar con el equipo'])
 
   console.log(`OK F5.6 E2E: outbox ${outboxRows.length} items, ` +
     `${informativeTexts.length} informativos concatenados (${concatenated.length} chars), ` +

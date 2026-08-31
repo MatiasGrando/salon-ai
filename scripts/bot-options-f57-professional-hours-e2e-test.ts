@@ -258,7 +258,7 @@ try {
       .map((r) => (r.payload as { item: { body: string } }).item.body)
     const concatenated = informativeTexts.join('\n')
     assert.ok(concatenated.includes('*Lunes*: 09:00 a 18:00'), `lunes de Ana: ${concatenated}`)
-    assert.ok(concatenated.includes('*Domingo*: Cerrado'), 'domingo cerrado')
+    assert.ok(concatenated.includes('*Domingo*: No atiende'), 'domingo cerrado')
     // Excepción relativa — privacidad: NO expone reason/title
     assert.ok(concatenated.includes('Excepciones próximas:'), 'sección excepciones')
     assert.ok(concatenated.includes('No atiende'), 'generic copy for exception')
@@ -311,8 +311,8 @@ try {
       .map((r) => (r.payload as { item: { body: string } }).item.body)
     const concatenated = informativeTexts.join('\n')
     assert.ok(concatenated.includes('*Lunes*: 14:00 a 20:00'), `lunes de Carlos: ${concatenated}`)
-    assert.ok(concatenated.includes('*Martes*: Cerrado'), 'martes de Carlos cerrado')
-    assert.ok(concatenated.includes('*Miércoles*: Cerrado'), 'miércoles cerrado')
+    assert.ok(concatenated.includes('*Martes*: No atiende'), 'martes de Carlos cerrado')
+    assert.ok(concatenated.includes('*Miércoles*: No atiende'), 'miércoles cerrado')
 
     // Verificar prompt: "Hablar con el equipo" (no reservable)
     const promptChoices = await prisma.$queryRaw<Array<{ actionType: string; labelSnapshot: string }>>(Prisma.sql`

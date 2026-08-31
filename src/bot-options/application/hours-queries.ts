@@ -510,7 +510,7 @@ export function formatProfessionalListLabel(professional: ProfessionalCatalogRow
  *
  * Reglas (reglas-funcionales.md §4.1):
  * - Lunes a Domingo siempre en ese orden.
- * - Días sin intervalos se muestran "Cerrado".
+ * - Días sin intervalos se muestran "No atiende".
  * - Intervalos múltiples se ordenan por startTime.
  * - Excepciones del profesional en ventana 30 días.
  * - NO sección vacía si no hay excepciones.
@@ -557,7 +557,7 @@ export function formatProfessionalWeeklySchedule(
   for (const dow of dayOrder) {
     const dayName = DAY_NAMES[dow]!
     const dayHours = grouped.get(dow) ?? []
-    const schedule = formatDayHours(dayHours)
+    const schedule = dayHours.length === 0 ? 'No atiende' : formatDayHours(dayHours)
     lines.push(`*${dayName}*: ${schedule}`)
   }
 

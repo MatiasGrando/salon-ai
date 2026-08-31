@@ -11,6 +11,7 @@ import {
   rescheduleManageableAppointmentInTransaction
 } from '../application/appointment-management.js'
 import { normalizePhone } from '../../services/phone-normalization-service.js'
+import type { ConversationUpdatedEvent } from '../../services/crm-realtime-events.js'
 
 export type AppointmentManagementEffectExecutionResult =
   | { kind: 'APPOINTMENT_CANCELLED'; appointmentId: string }
@@ -35,6 +36,7 @@ export async function prismaBotOptionsEffectExecutor(
     sessionId: string
     operationKey: string
     effects: readonly BotOptionsEffect[]
+    pendingConversationUpdates?: Array<Omit<ConversationUpdatedEvent, 'type'>>
   }
 ): Promise<BotOptionsEffectExecutionResult> {
   const bookingEffects = input.effects.filter((effect) => effect.kind === 'CONFIRM_VISIT')

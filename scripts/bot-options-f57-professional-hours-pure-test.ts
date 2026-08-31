@@ -17,6 +17,7 @@ import assert from 'node:assert/strict'
 import {
   formatProfessionalListLabel,
   formatProfessionalWeeklySchedule,
+  formatBusinessWeeklySchedule,
   formatProfessionalExceptionLabel,
   formatTimeRange,
   formatDayHours,
@@ -42,6 +43,8 @@ import {
 
 const dbNow = new Date('2026-08-25T12:00:00Z')
 const timezone = 'America/Buenos_Aires'
+assert.equal(formatDayHours([]), 'Cerrado', 'shared business formatter must keep its current wording')
+assert.equal(formatBusinessWeeklySchedule([], [], dbNow, timezone).split('\n').filter((line) => line.endsWith('Cerrado')).length, 7, 'business days without intervals remain Cerrado')
 
 // ─── formatProfessionalListLabel ─────────────────────────────────────────────
 
@@ -70,7 +73,7 @@ assert.ok(fullSchedule.includes('*Miércoles*: 09:00 a 18:00'), 'miércoles')
 assert.ok(fullSchedule.includes('*Jueves*: 09:00 a 18:00'), 'jueves')
 assert.ok(fullSchedule.includes('*Viernes*: 09:00 a 18:00'), 'viernes')
 assert.ok(fullSchedule.includes('*Sábado*: 10:00 a 14:00'), 'sábado')
-assert.ok(fullSchedule.includes('*Domingo*: Cerrado'), 'domingo cerrado')
+assert.ok(fullSchedule.includes('*Domingo*: No atiende'), 'domingo cerrado')
 assert.ok(!fullSchedule.includes('Excepciones'), 'sin excepciones no hay sección')
 console.log('OK formatProfessionalWeeklySchedule: semana completa')
 
@@ -82,19 +85,19 @@ const partialHours: ProfessionalWeeklyHourRow[] = [
 ]
 const partialSchedule = formatProfessionalWeeklySchedule('Bob', partialHours, [], dbNow, timezone)
 assert.ok(partialSchedule.includes('*Lunes*: 09:00 a 18:00'))
-assert.ok(partialSchedule.includes('*Martes*: Cerrado'), 'martes cerrado')
+assert.ok(partialSchedule.includes('*Martes*: No atiende'), 'martes cerrado')
 assert.ok(partialSchedule.includes('*Miércoles*: 10:00 a 16:00'))
-assert.ok(partialSchedule.includes('*Jueves*: Cerrado'))
-assert.ok(partialSchedule.includes('*Viernes*: Cerrado'))
-assert.ok(partialSchedule.includes('*Sábado*: Cerrado'))
-assert.ok(partialSchedule.includes('*Domingo*: Cerrado'))
+assert.ok(partialSchedule.includes('*Jueves*: No atiende'))
+assert.ok(partialSchedule.includes('*Viernes*: No atiende'))
+assert.ok(partialSchedule.includes('*Sábado*: No atiende'))
+assert.ok(partialSchedule.includes('*Domingo*: No atiende'))
 console.log('OK formatProfessionalWeeklySchedule: semana parcial')
 
 // ─── formatProfessionalWeeklySchedule — todo cerrado ──────────────────────────
 
 const emptySchedule = formatProfessionalWeeklySchedule('Sin Horarios', [], [], dbNow, timezone)
 for (const day of ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']) {
-  assert.ok(emptySchedule.includes(`*${day}*: Cerrado`), `${day} cerrado`)
+  assert.ok(emptySchedule.includes(`*${day}*: No atiende`), `${day} cerrado`)
 }
 console.log('OK formatProfessionalWeeklySchedule: todo cerrado')
 

@@ -722,13 +722,16 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
     case 'BOOKING_CONFIRMED':
       return textView('Listo, tu turno quedó confirmado. Te esperamos.')
     case 'BUSINESS_HOURS': {
-      const hoursView = menuView('¿Qué querés ver?', [
-        { actionType: 'hours.professional', label: 'Horario de un profesional' },
-        { actionType: 'hours.search_availability', label: 'Buscar un turno disponible' }
-      ])
+      const hoursView = appendGlobals(menuView(
+        'También podés consultar el horario de un profesional o buscar un turno para reservar.\n\nElegí cómo querés seguir 👇',
+        [
+          { actionType: 'hours.professional', label: 'Horarios del equipo' },
+          { actionType: 'hours.search_availability', label: 'Buscar un turno' }
+        ]
+      ), composeGlobalNavigation({ capacity: 10, contextualCount: 2, back: BACK_CHOICE }))
       // F5.6: El horario semanal informativo se envía como texto previo al interactivo.
       if (context.labels.businessWeeklyHoursText) {
-        return { ...hoursView, informativeTexts: [context.labels.businessWeeklyHoursText] }
+        return { ...hoursView, informativeTexts: [`🕒 Estos son nuestros horarios de atención:\n\n${context.labels.businessWeeklyHoursText}`] }
       }
       return hoursView
     }
@@ -754,7 +757,7 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
         profChoices.push({ actionType: 'hours.next_page' as const, label: 'Más profesionales →' })
       }
       const navigation = composeGlobalNavigation({ capacity: 10, contextualCount: profChoices.length, back: BACK_CHOICE })
-      const profListView = appendGlobals(menuView('¿De quién querés ver el horario?', profChoices), navigation)
+      const profListView = appendGlobals(menuView('¿De quién te gustaría consultar los horarios? 🕒\n\nElegí un profesional para ver qué días y en qué horarios atiende 👇', profChoices), navigation)
       if (context.labels.professionalListText) {
         return { ...profListView, informativeTexts: [context.labels.professionalListText] }
       }
@@ -771,13 +774,14 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
         }
       }
       profDetailChoices.push({ actionType: 'hours.choose_other_professional', label: 'Ver otro profesional' })
-      const profName = context.labels.professionalName ?? 'el profesional'
+      const profName = context.labels.professionalName
       const navigation = composeGlobalNavigation({ capacity: 10, contextualCount: profDetailChoices.length, back: BACK_CHOICE })
-      const profDetailView = appendGlobals(menuView(`Jornada de ${profName}.`, profDetailChoices), navigation)
+      const profDetailView = appendGlobals(menuView('Estos son sus horarios habituales de atención, no los turnos disponibles.\n\nElegí cómo querés seguir 👇', profDetailChoices), navigation)
+      const heading = profName ? `🕒 Horarios de atención de ${profName}` : '🕒 Horarios de atención del profesional'
       if (context.labels.professionalWeeklyHoursText) {
-        return { ...profDetailView, informativeTexts: [context.labels.professionalWeeklyHoursText] }
+        return { ...profDetailView, informativeTexts: [`${heading}\n\n${context.labels.professionalWeeklyHoursText}`] }
       }
-      return profDetailView
+      return { ...profDetailView, informativeTexts: [heading] }
     }
     case 'APPOINTMENT_LIST': {
       // F9.1/F9.6: lista de turnos gestionables provistos por el contexto. Cada
