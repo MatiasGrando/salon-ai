@@ -985,7 +985,9 @@ export function transition(
   const context = normalizeContext(contextInput)
   const { actionType, entityRef, payload } = action
 
-  if (context.cartPolicyChanged && !actionType.startsWith('navigation.') && !actionType.startsWith('handoff.') && actionType !== 'draft.restart') {
+  // Omitir una recomendación no cambia la reserva; la política se vuelve a
+  // validar estrictamente cuando el cliente intenta continuarla.
+  if (context.cartPolicyChanged && !actionType.startsWith('navigation.') && !actionType.startsWith('handoff.') && actionType !== 'draft.restart' && actionType !== 'recommendation.skip') {
     return recovered(state, 'guard_failed', 'Cambió la configuración de un servicio de tu reserva. El equipo debe revisarlo antes de continuar. Conservamos la información que ya brindaste.', [BACK_CHOICE, HUMAN_CHOICE])
   }
 

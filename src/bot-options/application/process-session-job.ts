@@ -460,7 +460,11 @@ export const defaultContextProvider: TransitionContextProvider = async (tx, inpu
   let targetCart = null as Awaited<ReturnType<PrismaCartRepository['load']>> | null
   if (targetCartIds.length > 0) {
     try {
-      targetCart = await cartRepo.load({ businessId: input.businessId, serviceIds: targetCartIds, serviceDecisions, preview: proposedServiceId !== null })
+      // Omitir un complemento no cambia el carrito ni confirma una reserva: la
+      // revalidación estricta queda para "Continuar con la reserva". Así una
+      // decisión estimativa ya persistida no se interpreta erróneamente como un
+      // cambio de configuración al cerrar las recomendaciones.
+      targetCart = await cartRepo.load({ businessId: input.businessId, serviceIds: targetCartIds, serviceDecisions, preview: proposedServiceId !== null || input.actionType === 'recommendation.skip' })
     } catch (error) {
       if (!(error instanceof CartServicePolicyChangedError)) throw error
       base.cartPolicyChanged = true

@@ -69,6 +69,24 @@ assert.equal(stale.outcome, 'RECOVERED')
 const validation = click(state(), 'service.book', ctx({ serviceBooking: { ...service, validationEnabled: true, validationMessage: 'Aviso configurado', validationQuestion: '¿Estás de acuerdo?' } }))
 assert.equal(validation.state.flow, 'SERVICE_VALIDATION')
 assert.match(text(validation), /Aviso configurado/)
+// Omitir un complemento no cambia el carrito ni debe convertirse en una falsa
+// alerta de configuración. La validación estricta ocurre al continuar la reserva.
+const recommendation = { ...result.state, flow: 'RECOMMENDATION_SELECT' as const }
+const skipped = transition(recommendation, { actionType: 'recommendation.skip', entityRef: null, payload: null } as any,
+  ctx({ cartPolicyChanged: true, recommendedServiceId: 'addon' }))
+assert.equal(skipped.state.flow, 'CART_REVIEW')
+const strictAfterSkip = transition(skipped.state, { actionType: 'cart.continue', entityRef: null, payload: null } as any,
+  ctx({ cartPolicyChanged: true }))
+assert.equal(strictAfterSkip.outcome, 'RECOVERED')
+// Si pide atención desde recomendaciones y la cancela, vuelve a la misma salida
+// completa; no puede perder Hablar con el equipo ni quedar sólo el botón de omitir.
+const queuedFromRecommendation = transition(recommendation, { actionType: 'handoff.request', entityRef: null, payload: null } as any,
+  ctx({ recommendedServiceId: 'addon' }))
+const resumedRecommendation = transition(queuedFromRecommendation.state, { actionType: 'handoff.cancel', entityRef: null, payload: null } as any,
+  ctx({ recommendedServiceId: 'addon' }))
+assert.equal(resumedRecommendation.state.flow, 'RECOMMENDATION_SELECT')
+assert.ok(resumedRecommendation.view.choices.some(choice => choice.actionType === 'recommendation.skip'))
+assert.ok(resumedRecommendation.view.choices.some(choice => choice.actionType === 'handoff.request'))
 const photoPolicy = { ...service, attentionMode: 'QUOTE', estimateAllowsBooking: false, requiresPhoto: true }
 const photos = click(state(), 'service.book', ctx({ serviceBooking: photoPolicy, requiresConsultation: true }))
 assert.equal(photos.state.flow, 'SERVICE_PHOTOS')
