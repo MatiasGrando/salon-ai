@@ -1,6 +1,6 @@
 import { Prisma } from '../../generated/prisma/client.js'
 import { buildCartSnapshot, type CartCombinationPolicy, type CartService, type CartSnapshot } from '../application/cart-operations.js'
-import { parseEstimateOptions, resolveServiceEstimate, serviceConfigurationKey, type ServiceBookingDecision, type ServiceBookingPolicy } from '../domain/service-booking.js'
+import { parseEstimateOptions, resolveServiceEstimate, serviceConfigurationKey, serviceEstimatesEqual, type ServiceBookingDecision, type ServiceBookingPolicy } from '../domain/service-booking.js'
 
 export class CartServicePolicyChangedError extends Error {
   constructor(readonly serviceId: string) { super('cart service policy must be resolved again') }
@@ -45,7 +45,7 @@ export class PrismaCartRepository {
       const requiresDecision = row.attentionMode === 'GUIDED_ESTIMATE' || row.validationEnabled
       if (!input.preview && requiresDecision && (decision?.configurationKey !== serviceConfigurationKey(policy) || (row.validationEnabled && !decision.validationAccepted))) throw new CartServicePolicyChangedError(row.id)
       const estimate = row.attentionMode === 'GUIDED_ESTIMATE' ? resolveServiceEstimate(policy, decision?.estimate?.optionId ?? null) : null
-      if (!input.preview && row.attentionMode === 'GUIDED_ESTIMATE' && (!estimate || JSON.stringify(estimate) !== JSON.stringify(decision?.estimate))) throw new CartServicePolicyChangedError(row.id)
+      if (!input.preview && row.attentionMode === 'GUIDED_ESTIMATE' && (!estimate || !serviceEstimatesEqual(estimate, decision?.estimate))) throw new CartServicePolicyChangedError(row.id)
       return { id: row.id, name: row.name, durationMinutes: row.duration,
         priceMinor: estimate?.priceMin ?? row.price, priceMode: row.attentionMode === 'GUIDED_ESTIMATE' ? 'STARTING_AT' : row.priceMode,
         professionalIds: row.professionalIds, ...(estimate ? { estimate } : {}) }

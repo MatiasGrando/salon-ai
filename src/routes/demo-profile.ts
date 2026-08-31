@@ -11,6 +11,7 @@ import {
 } from '../services/crm-realtime-events.js'
 import { renderLanding } from './landing-ui.js'
 import type {} from '../plugins/auth-guard.js'
+import { runDeterministicDemoSimulation } from '../bot-options/application/run-demo-simulation.js'
 
 const conversationService = new ConversationService()
 const businessService = new BusinessService()
@@ -184,6 +185,22 @@ export async function demoProfileRoutes(app: FastifyInstance) {
     const business = await findAccessibleDemo(user, params.id)
     if (!business) return reply.status(404).send({ message: 'No encontre ese perfil demo' })
     const phone = `demo:${user.id}:${sessionId}`
+    const deterministicDemo = await prisma.businessBotConfiguration.findFirst({
+      where: {
+        businessId: business.id,
+        botKey: 'deterministic-options',
+        status: 'ACTIVE',
+        definition: { path: ['qaSimulator'], equals: true }
+      },
+      select: { id: true }
+    })
+    if (deterministicDemo) return runDeterministicDemoSimulation({
+      client: prisma,
+      businessId: business.id,
+      phone,
+      message,
+      ...(interactiveReplyId ? { interactiveReplyId } : {})
+    })
     const conversation = await prisma.conversation.upsert({
       where: { businessId_phone: { businessId: business.id, phone } },
       update: {},

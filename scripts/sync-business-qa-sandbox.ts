@@ -9,7 +9,9 @@ const { acquireAgendaHierarchy, lockAppointmentRows } = await import('../src/ser
 
 const sourceSlug = requiredSourceSlug()
 const emptyAgenda = process.argv.includes('--empty-agenda')
-const sandboxSlug = `${emptyAgenda ? 'qa-empty-sandbox' : 'qa-sandbox'}-${sourceSlug}`
+const optionsBot = process.argv.includes('--options-bot')
+if (emptyAgenda && optionsBot) throw new Error('Elegí agenda vacía o bot nuevo, no ambas variantes.')
+const sandboxSlug = `${optionsBot ? 'qa-options-bot-sandbox' : emptyAgenda ? 'qa-empty-sandbox' : 'qa-sandbox'}-${sourceSlug}`
 const now = new Date()
 const occupancyUntil = new Date(now)
 occupancyUntil.setDate(occupancyUntil.getDate() + 120)
@@ -147,7 +149,7 @@ async function main() {
         id: qaBusinessId,
         ...businessScalars,
         customerCode: `QA-${Date.now().toString(36).toUpperCase()}`,
-        name: `${source.name} · QA aislado${emptyAgenda ? ' · agenda vacía' : ''}`,
+        name: `${source.name} · QA aislado${optionsBot ? ' · bot nuevo' : emptyAgenda ? ' · agenda vacía' : ''}`,
         slug: sandboxSlug,
         isDemo: true,
         demoType: 'QA_SANDBOX',
@@ -357,6 +359,22 @@ async function main() {
       ]
     })
 
+    if (optionsBot) {
+      const phoneNumberId = `qa-demo-${created.id}`
+      const configuration = await tx.businessBotConfiguration.create({
+        data: { businessId: created.id, botKey: 'deterministic-options', name: 'Bot nuevo · simulador QA', version: 'v1', status: 'ACTIVE', channel: 'WHATSAPP', phoneNumberId, definition: { qaSimulator: true } }
+      })
+      await tx.botChannelDeployment.create({
+        data: { businessId: created.id, engineKey: 'deterministic-options', activeConfigurationId: configuration.id, generation: 1, legacyDispatchCoverageVersion: 1, activatedAt: now }
+      })
+      await tx.businessWhatsAppConfig.create({
+        data: { businessId: created.id, connectionStatus: 'CONNECTED', phoneNumberId, appSecret: `qa-demo-secret-${created.id}`, lastError: 'Canal sintético exclusivo del simulador; no enviar a Meta.' }
+      })
+      await tx.businessBotOptionsSettings.create({
+        data: { businessId: created.id, timezone: process.env.QA_BUSINESS_TIMEZONE?.trim() || 'America/Argentina/Buenos_Aires' }
+      })
+    }
+
     return created
   }, { timeout: 30_000 })
 
@@ -406,9 +424,9 @@ async function verifySandbox(businessId: string) {
   const safe = business.isDemo &&
     business.demoType === 'QA_SANDBOX' &&
     business.aiEnabled === true &&
-    whatsappConfigs === 0 &&
+    whatsappConfigs === (optionsBot ? 1 : 0) &&
     instagramConfigs === 0 &&
-    botConfigurations === 0 &&
+    botConfigurations === (optionsBot ? 1 : 0) &&
     conversations === 0 &&
     appointments === 0 &&
     customers === 0 &&

@@ -42,6 +42,12 @@ export function resolveServiceEstimate(service: Pick<ServiceBookingPolicy, 'esti
     ? { optionId: null, optionLabel: null, priceMin: service.price, priceMax: null } : null
 }
 
+export function serviceEstimatesEqual(left: ServiceEstimate | null | undefined, right: ServiceEstimate | null | undefined): boolean {
+  if (left == null || right == null) return left == null && right == null
+  return left.optionId === right.optionId && left.optionLabel === right.optionLabel &&
+    left.priceMin === right.priceMin && left.priceMax === right.priceMax
+}
+
 export function serviceAllowsAutomaticBooking(service: Pick<ServiceBookingPolicy, 'attentionMode' | 'estimateAllowsBooking'>): boolean {
   return service.attentionMode === 'DIRECT_BOOKING' || (service.attentionMode === 'GUIDED_ESTIMATE' && service.estimateAllowsBooking)
 }
