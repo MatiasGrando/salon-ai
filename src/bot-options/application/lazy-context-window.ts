@@ -3,6 +3,7 @@ import { createInitialBotOptionsState, parseBotOptionsState } from '../domain/st
 import { customerActivityAt, decideContextWindow, CONTEXT_WINDOW_MS } from '../domain/context-window.js'
 import { mainMenuView } from '../domain/transition.js'
 import type { persistView } from './process-session-job.js'
+import { normalizePhone, phoneSearchVariants } from '../../services/phone-normalization-service.js'
 
 type WindowInput = {
   businessId: string; deploymentId: string; generation: number; providerEventId: string
@@ -150,8 +151,29 @@ export async function applyLazyContextWindowTx(tx: Prisma.TransactionClient, inp
     VALUES (${transitionId}, ${input.businessId}, ${session.id}, ${input.deploymentId}, ${input.generation},
       ${session.revision}, ${nextRevision}, 'system.context_expired', 'APPLIED', ${input.providerEventId})
   `)
-  const menu = mainMenuView()
-  menu.interactiveBody = `Pasaron 24 horas sin actividad. Empezamos una nueva conversación; tus turnos y datos siguen guardados.\n\n${menu.interactiveBody}`
+  // Read presentation data only after expiry guards. Never use a draft/profile name
+  // or choose arbitrarily between legacy customer records for the same phone.
+  const canonicalPhone = normalizePhone(input.phone)
+  const variants = [...new Set([input.phone.trim(), canonicalPhone, `+${canonicalPhone}`, ...phoneSearchVariants(input.phone)])].filter(Boolean)
+  const digits = [...new Set(variants.map((value) => value.replace(/\D/g, '')).filter(Boolean))]
+  const greetings = await tx.$queryRaw<Array<{ businessName: string; customerName: string | null }>>(Prisma.sql`
+    /* lazy-context:greeting */
+    SELECT b."name" AS "businessName", (
+      SELECT CASE WHEN count(*) = 1 THEN min(candidate."name") ELSE NULL END
+      FROM (
+        SELECT c."name" FROM "Customer" c
+        WHERE c."businessId" = b."id" AND ${canonicalPhone !== ''}
+          AND (c."normalizedPhone" = ${canonicalPhone}
+            OR c."phone" IN (${Prisma.join(variants.length ? variants : [''])})
+            OR regexp_replace(c."phone", '[^0-9]', '', 'g') IN (${Prisma.join(digits.length ? digits : [''])}))
+        LIMIT 2
+      ) candidate
+    ) AS "customerName"
+    FROM "Business" b WHERE b."id" = ${input.businessId}
+  `)
+  const greeting = greetings[0]
+  if (!greeting) throw new Error('context greeting business unavailable in tenant')
+  const menu = mainMenuView(greeting.businessName, greeting.customerName)
   await writeView(tx, { businessId: input.businessId, sessionId: session.id, revision: nextRevision,
     transitionId, toPhone: input.phone, view: menu, dbNow: session.dbNow })
   await tx.$executeRaw(Prisma.sql`

@@ -510,10 +510,14 @@ function plainPresentation(): BotOptionsPresentationMode {
 
 // ─── Vista estándar por estado (rebuild tras close/back/stale) ────────────────
 
-/** El nombre se pasa sólo al presentar una sesión nueva, nunca al volver al menú. */
-export function mainMenuView(businessName?: string): BotOptionsViewModel {
-  const body = businessName === undefined ? '¿Qué querés hacer?' : [
-    `¡Hola! 👋 Soy el asistente virtual de ${businessName}.`,
+/** Los nombres se pasan sólo al presentar una sesión nueva o renovar su contexto. */
+export function mainMenuView(businessName?: string, confirmedCustomerName?: string | null): BotOptionsViewModel {
+  const customerName = validateCustomerName(confirmedCustomerName ?? '')
+  const greeting = businessName === undefined
+    ? '¡Hola de nuevo! 👋'
+    : `¡Hola${customerName.ok ? ` ${customerName.normalized}` : ''}! 👋 Soy el asistente virtual de ${businessName}.`
+  const body = [
+    greeting,
     '',
     'Desde este menú podés:',
     '✨ Sacar un turno.',
@@ -560,9 +564,13 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
       const body = [
         state.catalogMode === 'BROWSING' ? 'Conocé nuestros servicios ✨' : '¡Vamos a sacar tu turno! ✨',
         '',
+        ...(state.catalogMode === 'BOOKING' ? [
+          'Primero elegí una categoría. Después te muestro los servicios disponibles para que elijas el que querés reservar.',
+          ''
+        ] : []),
         ...categories.map((category) => `• ${category.label}`),
         '',
-        'Abrí el menú y elegí la categoría que te interesa 👇'
+        'Tocá «Elegí una opción» para continuar 👇'
       ].join('\n')
       const choices: ViewChoice[] = categories.map((category) => ({
         actionType: 'category.select',

@@ -20,6 +20,8 @@ try {
     CREATE TYPE "BotPromptStatus" AS ENUM ('OPEN','STABILIZING','RESOLVED','INVALIDATED','EXPIRED');
     CREATE TYPE "BotPromptMode" AS ENUM ('FUNCTIONAL','NAVIGATION','CONFLICT');
     CREATE TYPE "BotProviderEventStatus" AS ENUM ('ADMITTED','PROCESSED','REJECTED');
+    CREATE TABLE "Business" ("id" text PRIMARY KEY, "name" text);
+    CREATE TABLE "Customer" ("id" text PRIMARY KEY, "businessId" text, "name" text, "phone" text, "normalizedPhone" text);
     CREATE TABLE "Conversation" ("id" text PRIMARY KEY, "businessId" text, "phone" text);
     CREATE TABLE "BotSession" ("id" text PRIMARY KEY, "businessId" text, "conversationId" text,
       "deploymentId" text, "deploymentGeneration" int, "status" "BotSessionStatus", "state" jsonb, "revision" bigint,
@@ -47,14 +49,15 @@ try {
       "deploymentGeneration" int, "revisionFrom" bigint, "revisionTo" bigint, "actionType" text,
       "outcome" text, "providerEventId" text, UNIQUE("sessionId","revisionTo"));
   `)
-  const input = { businessId: 'a', deploymentId: 'd', generation: 1, providerEventId: 'new', phone: 'test',
+  const input = { businessId: 'a', deploymentId: 'd', generation: 1, providerEventId: 'new', phone: '5491112345678',
     admittedAt: new Date('2026-08-31T18:00:00Z'), providerOccurredAt: new Date('2026-08-31T18:00:00Z'), isMedia: false }
   const draft = { ...createInitialBotOptionsState(), flow: 'BOOKING_SUMMARY', booking: 'DRAFT' }
   async function seed() {
-    await db.exec(`TRUNCATE "BotSession", "Conversation", "BookingVisit", "BotHandoff", "BotProviderEvent",
+    await db.exec(`TRUNCATE "Business", "Customer", "BotSession", "Conversation", "BookingVisit", "BotHandoff", "BotProviderEvent",
       "BotActionInbox", "BotJob", "BotOutbox", "BotPrompt", "BotPromptChoice", "BotTransitionLog";
-      INSERT INTO "Conversation" VALUES ('c','a','test'),('other-c','b','test');
-      INSERT INTO "BotProviderEvent" ("id","businessId","payload") VALUES ('old','a','{"fromPhone":"test"}'),('new','a','{"fromPhone":"test"}');
+      INSERT INTO "Business" VALUES ('a','Glow'),('b','Otro salón');
+      INSERT INTO "Conversation" VALUES ('c','a','5491112345678'),('other-c','b','5491112345678');
+      INSERT INTO "BotProviderEvent" ("id","businessId","payload") VALUES ('old','a','{"fromPhone":"5491112345678"}'),('new','a','{"fromPhone":"5491112345678"}');
       INSERT INTO "BotActionInbox" VALUES ('old-inbox','a',NULL,'old','ADMITTED',NULL);
       INSERT INTO "BotJob" ("id","businessId","kind","aggregateId","status") VALUES
         ('old-job','a','PROCESS_INBOX','old-inbox','POISON'),('prompt-job','a','RECONCILE_PROMPT','p','READY'),
@@ -148,6 +151,30 @@ try {
   assert.equal((await one(`SELECT "draftExpiresAt" FROM "BotSession" WHERE "id"='s'`)).draftExpiresAt instanceof Date, true)
   await seed()
   assert.equal((await run(false, { providerOccurredAt: new Date('2026-08-30T18:00:01Z') })).kind, 'CONTINUE', 'queue delay is not inactivity')
+  // Real SQL verifies unique stored identity, legacy variants, tenant scope and
+  // ambiguity fallback without touching booking/customer persistence.
+  const expectedBody = [
+    '¡Hola! 👋 Soy el asistente virtual de Glow.', '', 'Desde este menú podés:',
+    '✨ Sacar un turno.', '💅 Ver servicios y precios.', '🕒 Consultar horarios.',
+    '📅 Ver, cambiar o cancelar un turno.', '💬 Hablar con alguien del equipo.', '',
+    'Para empezar, elegí la opción que necesitás 👇'
+  ].join('\n')
+  for (const scenario of [
+    { rows: [], name: null },
+    { rows: [['known','a','Martina','5491112345678','5491112345678']], name: 'Martina' },
+    { rows: [['legacy','a','Lucía','+54 9 11 1234-5678',null]], name: 'Lucía' },
+    { rows: [['other','b','Nombre Ajeno','5491112345678','5491112345678']], name: null },
+    { rows: [['invalid','a','123','5491112345678','5491112345678']], name: null },
+    { rows: [['one','a','Martina','5491112345678','5491112345678'], ['two','a','Lucía','+54 9 11 1234-5678',null]], name: null }
+  ]) {
+    await seed()
+    await db.exec(`UPDATE "BotSession" SET "state" = jsonb_set("state",'{nameCandidate}','"Borrador"') WHERE "id"='s'`)
+    for (const row of scenario.rows) await db.query(`INSERT INTO "Customer" VALUES ($1,$2,$3,$4,$5)`, row)
+    assert.equal((await run()).kind, 'EXPIRED')
+    const sent = await one(`SELECT "payload"->'item'->>'body' AS body FROM "BotOutbox" WHERE "sessionId"='s' AND "status"='PENDING'`)
+    assert.equal(sent.body, scenario.name ? expectedBody.replace('¡Hola!', `¡Hola ${scenario.name}!`) : expectedBody)
+    assert.equal(Number((await one(`SELECT count(*) AS n FROM "Customer"`)).n), scenario.rows.length, 'greeting lookup never modifies identities')
+  }
   console.log('OK context-window SQL: real PostgreSQL/WASM reset, unique prompt, tenant isolation, rollback, replay, busy/protected and legacy bootstrap.')
 } finally {
   await db.close()

@@ -65,8 +65,18 @@ if (welcomeItem.type === 'interactive') {
 }
 assert.deepEqual(welcomeScreen.choiceMappings.map((choice) => choice.actionType), welcome.choices.map((choice) => choice.actionType))
 assert.equal(mainMenuView('Estética Lucía').interactiveBody, approvedWelcome.replace('Glow', 'Estética Lucía'))
-assert.equal(mainMenuView().interactiveBody, '¿Qué querés hacer?')
-assert.equal(renderCurrentView(menu, normalizeContext(ctx())).interactiveBody, '¿Qué querés hacer?', 'reset state alone must not repeat the introduction')
+const expectedReturnMenu = [
+  '¡Hola de nuevo! 👋', '', 'Desde este menú podés:',
+  '✨ Sacar un turno.', '💅 Ver servicios y precios.', '🕒 Consultar horarios.',
+  '📅 Ver, cambiar o cancelar un turno.', '💬 Hablar con alguien del equipo.', '',
+  'Para empezar, elegí la opción que necesitás 👇'
+].join('\n')
+assert.equal(mainMenuView().interactiveBody, expectedReturnMenu)
+assert.equal(renderCurrentView(menu, normalizeContext(ctx({ customerNameOnFile: 'Martina' }))).interactiveBody, expectedReturnMenu, 'return menu must not include a customer name or initial introduction')
+assert.equal(mainMenuView('Glow', 'Martina').interactiveBody, approvedWelcome.replace('¡Hola!', '¡Hola Martina!'))
+for (const invalidName of ['', '123', 'Martina\nOtra línea']) {
+  assert.equal(mainMenuView('Glow', invalidName).interactiveBody, approvedWelcome, 'invalid names must fall back to the nameless greeting')
+}
 assert.deepEqual(welcome.choices.map(({ actionType, label }) => ({ actionType, label })), [
   { actionType: 'menu.start_booking', label: 'Sacar un turno' },
   { actionType: 'menu.browse_services', label: 'Ver servicios y precios' },
@@ -94,8 +104,9 @@ const categoryContext = normalizeContext(ctx({ labels: { catalogCategories: [
 ] } }))
 const bookingCategories = renderCurrentView(stateWith({ flow: 'CATEGORY_SELECT' }), categoryContext)
 assert.equal(bookingCategories.interactiveBody, [
-  '¡Vamos a sacar tu turno! ✨', '', '• Peluquería', '• Uñas', '',
-  'Abrí el menú y elegí la categoría que te interesa 👇'
+  '¡Vamos a sacar tu turno! ✨', '',
+  'Primero elegí una categoría. Después te muestro los servicios disponibles para que elijas el que querés reservar.',
+  '', '• Peluquería', '• Uñas', '', 'Tocá «Elegí una opción» para continuar 👇'
 ].join('\n'))
 assert.deepEqual(bookingCategories.choices.filter((choice) => choice.actionType === 'category.select').map((choice) => choice.entityRef), [
   { type: 'CATEGORY', id: 'cat_hair' }, { type: 'CATEGORY', id: 'cat_nails' }
@@ -103,7 +114,7 @@ assert.deepEqual(bookingCategories.choices.filter((choice) => choice.actionType 
 const browsingCategories = renderCurrentView(stateWith({ flow: 'CATEGORY_SELECT', catalogMode: 'BROWSING' }), categoryContext)
 assert.equal(browsingCategories.interactiveBody, [
   'Conocé nuestros servicios ✨', '', '• Peluquería', '• Uñas', '',
-  'Abrí el menú y elegí la categoría que te interesa 👇'
+  'Tocá «Elegí una opción» para continuar 👇'
 ].join('\n'))
 assert.deepEqual(browsingCategories.choices, bookingCategories.choices)
 const nextCategoryPage = renderCurrentView(stateWith({ flow: 'CATEGORY_SELECT', presentation: { kind: 'catalog_page', cursor: 1 } }), normalizeContext(ctx({
@@ -144,7 +155,7 @@ if (noAppointments.outcome === 'RECOVERED') {
 const directHome = transition(stateWith({ flow: 'BUSINESS_HOURS' }), act('navigation.home'), ctx())
 assert.equal(directHome.outcome, 'APPLIED')
 if (directHome.outcome === 'APPLIED') assert.equal(directHome.state.flow, 'MAIN_MENU')
-assert.equal(directHome.view.interactiveBody, '¿Qué querés hacer?', 'returning home must not repeat the introduction')
+assert.equal(directHome.view.interactiveBody, expectedReturnMenu, 'returning home must not repeat the introduction')
 
 const progressedCatalog = stateWith({
   flow: 'CATEGORY_SELECT',

@@ -18,7 +18,7 @@ const original = {
   dbNow: admittedAt, hasInbox: false, durableProtection: false
 }
 type Statement = { sql: string; values: readonly unknown[] }
-function fixture(overrides: Record<string, unknown> = {}, guard = { busy: false, protectedDelivery: false }) {
+function fixture(overrides: Record<string, unknown> = {}, guard = { busy: false, protectedDelivery: false }, customerName: string | null = 'Martina') {
   const statements: Statement[] = []
   let failOnReset = false
   const tx = {
@@ -27,6 +27,7 @@ function fixture(overrides: Record<string, unknown> = {}, guard = { busy: false,
       statements.push({ sql, values: q.values })
       if (sql.includes('lazy-context:session')) return [{ ...original, ...overrides }]
       if (sql.includes('lazy-context:guard')) return [guard]
+      if (sql.includes('lazy-context:greeting')) return [{ businessName: 'Glow', customerName }]
       if (sql.includes('inserted_choices')) return [{ choiceCount: 5n, outboxCount: 1n }]
       throw new Error(`unhandled query ${sql}`)
     },
@@ -48,7 +49,14 @@ assert.ok(statements.some(s => s.sql.includes('UPDATE "BotOutbox"') && s.sql.inc
 assert.ok(statements.some(s => s.sql.includes('UPDATE "BotJob"') && s.sql.includes('CONTEXT_EXPIRED')))
 assert.ok(statements.some(s => s.sql.includes('UPDATE "BotActionInbox"') && s.sql.includes('STALE')))
 assert.ok(statements.some(s => s.sql.includes('INSERT INTO "BotTransitionLog"') && s.sql.includes('system.context_expired')))
-assert.ok(statements.some(s => s.sql.includes('INSERT INTO "BotOutbox"') && s.values.some(v => typeof v === 'string' && v.includes('Pasaron 24 horas'))), 'new menu explains expiry')
+assert.ok(statements.some(s => s.sql.includes('INSERT INTO "BotOutbox"') && s.values.some(v => typeof v === 'string' && v.includes('¡Hola Martina! 👋 Soy el asistente virtual de Glow.'))), 'expired context greets by stored customer name')
+assert.ok(!statements.some(s => s.values.some(v => typeof v === 'string' && v.includes('Pasaron 24 horas'))), 'expiry technical notice is replaced by approved greeting')
+for (const customerName of [null, '', '123', 'Martina\nOtra línea']) {
+  const withoutName = fixture({ state: { ...original.state, nameCandidate: 'Borrador' } }, undefined, customerName)
+  await applyLazyContextWindowTx(withoutName.tx as never, input, persistView)
+  assert.ok(withoutName.statements.some(s => s.sql.includes('INSERT INTO "BotOutbox"') && s.values.some(v => typeof v === 'string' && v.includes('¡Hola! 👋 Soy el asistente virtual de Glow.'))))
+  assert.ok(!withoutName.statements.some(s => s.sql.includes('INSERT INTO "BotOutbox"') && s.values.some(v => typeof v === 'string' && v.includes('Borrador'))), 'unconfirmed state name is never used')
+}
 assert.ok(statements.some(s => s.sql.includes('UPDATE "BotProviderEvent"') && s.sql.includes('PROCESSED')), 'triggering action is consumed, not confirmed')
 assert.doesNotMatch(statements.map(s => s.sql).join('\n'), /(?:DELETE FROM|UPDATE|INSERT INTO) "(?:Appointment|BookingVisit|BookingDeposit|Customer|Conversation|Message|BotHandoff)"/, 'durable entities and CRM history are not mutated')
 
@@ -61,6 +69,7 @@ for (const patch of [
   const f = fixture(patch)
   assert.equal((await applyLazyContextWindowTx(f.tx as never, input, persistView)).kind, 'CONTINUE')
   assert.ok(!f.statements.some(s => s.sql.includes('lazy-context:reset')))
+  assert.ok(!f.statements.some(s => s.sql.includes('lazy-context:greeting')), 'protected sessions must not load greeting identity')
 }
 const media = fixture()
 assert.equal((await applyLazyContextWindowTx(media.tx as never, { ...input, isMedia: true }, persistView)).kind, 'CONTINUE')
@@ -77,6 +86,7 @@ const legacy = fixture({ draftTouchedAt: null, draftExpiresAt: null })
 assert.equal((await applyLazyContextWindowTx(legacy.tx as never, input, persistView)).kind, 'CONTINUE')
 assert.ok(legacy.statements.some(s => s.sql.includes('lazy-context:touch')))
 assert.ok(!legacy.statements.some(s => s.sql.includes('lazy-context:guard')), 'normal message does not scan queues')
+assert.ok(!legacy.statements.some(s => s.sql.includes('lazy-context:greeting')), 'normal message does not load greeting identity')
 const failing = fixture()
 failing.failReset()
 await assert.rejects(() => applyLazyContextWindowTx(failing.tx as never, input, persistView), /simulated rollback/)

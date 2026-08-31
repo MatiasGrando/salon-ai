@@ -45,6 +45,12 @@ const expectedWelcome = [
   '',
   'Para empezar, elegí la opción que necesitás 👇'
 ].join('\n')
+const expectedReturnMenu = [
+  '¡Hola de nuevo! 👋', '', 'Desde este menú podés:',
+  '✨ Sacar un turno.', '💅 Ver servicios y precios.', '🕒 Consultar horarios.',
+  '📅 Ver, cambiar o cancelar un turno.', '💬 Hablar con alguien del equipo.', '',
+  'Para empezar, elegí la opción que necesitás 👇'
+].join('\n')
 
 try {
   await prisma.$executeRaw(Prisma.sql`
@@ -142,7 +148,7 @@ try {
     item: reprompt,
     provider: { async send(input) {
       const payload = input.payload as { item?: { body?: unknown } }
-      assert.equal(payload.item?.body, '¿Qué querés hacer?', 'active session reprompt must not repeat the welcome')
+      assert.equal(payload.item?.body, expectedReturnMenu, 'active session reprompt must not repeat the welcome')
       return { kind: 'accepted', providerMessageId: `wamid.f5.out.reprompt.${suffix}` }
     } }
   })
@@ -163,7 +169,7 @@ try {
       (SELECT count(*) FROM "Message" m JOIN "Conversation" c ON c."id"=m."conversationId"
         WHERE c."businessId"=${businessId} AND m."direction"='INBOUND'::"MessageDirection" AND m."body"='hola')::bigint AS "inboundMessages",
       (SELECT count(*) FROM "Message" m JOIN "Conversation" c ON c."id"=m."conversationId"
-        WHERE c."businessId"=${businessId} AND m."direction"='OUTBOUND'::"MessageDirection" AND m."body"='¿Qué querés hacer?')::bigint AS "outboundMessages",
+        WHERE c."businessId"=${businessId} AND m."direction"='OUTBOUND'::"MessageDirection" AND m."body"=${expectedReturnMenu})::bigint AS "outboundMessages",
       (SELECT count(*) FROM "Message" m JOIN "Conversation" c ON c."id"=m."conversationId"
         WHERE c."businessId"=${businessId} AND m."direction"='OUTBOUND'::"MessageDirection" AND m."body"=${expectedWelcome})::bigint AS "welcomeMessages"
   `)
