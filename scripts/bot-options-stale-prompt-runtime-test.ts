@@ -29,6 +29,8 @@ async function scenario(flow: 'MAIN_MENU' | 'BUSINESS_HOURS' | 'PROFESSIONAL_HOU
     if (sql.includes('FROM "BotHandoff"')) return [{ handoffId: 'h' }]
     if (sql.includes('FROM "Conversation"') && sql.includes('FOR UPDATE')) return [{ conversationId: 'c' }]
     if (sql.includes('INSERT INTO "Message"')) return [] // journal already projected the inbound
+    if (sql.includes('SELECT c."phone" FROM "BotSession"')) return [{ phone: '5491100000000' }]
+    if (sql.includes('SELECT "id", "name"') && sql.includes('"Customer"')) return [{ id: 'cust', name: 'Cliente Test' }]
     if (sql.includes('inserted_choices AS')) {
       if (fail) throw new Error('forced outbox rollback')
       staged.push(q)

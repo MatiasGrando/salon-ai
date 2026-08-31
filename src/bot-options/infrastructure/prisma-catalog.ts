@@ -1,4 +1,5 @@
 import type { Prisma, PrismaClient } from '../../generated/prisma/client.js'
+import { parseEstimateOptions, serviceAllowsAutomaticBooking } from '../domain/service-booking.js'
 import {
   CATALOG_CONTEXTUAL_PAGE_SIZE,
   catalogPageOffset,
@@ -24,7 +25,9 @@ const serviceSelect = {
   priceMode: true,
   isBookable: true,
   attentionMode: true,
-  estimateAllowsBooking: true
+  estimateAllowsBooking: true,
+  estimateQuestion: true, estimateOptions: true, estimateExplanation: true, estimateDisclaimer: true,
+  requiresPhoto: true, validationEnabled: true, validationMessage: true, validationQuestion: true
 } as const
 
 type ServiceRow = Prisma.ServiceGetPayload<{ select: typeof serviceSelect }>
@@ -44,7 +47,13 @@ function serviceItem(row: ServiceRow): CatalogServiceItem {
     price: subcategory ? null : row.price,
     priceMode: row.priceMode,
     isBookable: row.isBookable,
-    requiresConsultation: !subcategory && (row.attentionMode !== 'DIRECT_BOOKING' || row.estimateAllowsBooking === false)
+    requiresConsultation: !subcategory && !serviceAllowsAutomaticBooking(row),
+    bookingPolicy: { id: row.id, name: row.name, attentionMode: row.attentionMode,
+      price: row.price, priceMode: row.priceMode, estimateAllowsBooking: row.estimateAllowsBooking,
+      estimateOptions: parseEstimateOptions(row.estimateOptions), estimateQuestion: row.estimateQuestion,
+      estimateExplanation: row.estimateExplanation, estimateDisclaimer: row.estimateDisclaimer,
+      requiresPhoto: row.requiresPhoto, validationEnabled: row.validationEnabled,
+      validationMessage: row.validationMessage, validationQuestion: row.validationQuestion }
   }
 }
 

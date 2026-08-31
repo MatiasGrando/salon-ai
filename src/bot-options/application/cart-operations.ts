@@ -5,6 +5,7 @@ export type CartService = {
   priceMinor: number | null
   priceMode: 'FIXED' | 'STARTING_AT'
   professionalIds: readonly string[]
+  estimate?: import('../domain/service-booking.js').ServiceEstimate
 }
 
 export type CartCombinationPolicy = 'ALLOWED' | 'REVIEW_REQUIRED' | 'BLOCKED'
@@ -56,7 +57,10 @@ export function canAddService(input: {
 }
 
 export function formatCartSummary(snapshot: CartSnapshot): string {
-  const services = snapshot.services.map((service) => `• ${service.name}`).join('\n')
+  const money = (n: number) => `$ ${n.toLocaleString('es-AR')}`
+  const services = snapshot.services.map((service) => `• ${service.name}${service.estimate
+    ? ` — ${service.estimate.optionLabel ? service.estimate.optionLabel + ': ' : ''}${service.estimate.priceMax === null ? 'Desde ' + money(service.estimate.priceMin) : money(service.estimate.priceMin) + ' a ' + money(service.estimate.priceMax)} (estimado)`
+    : ''}`).join('\n')
   const price = snapshot.totalPriceMinor === null
     ? 'Precio: pendiente de confirmación'
     : `Precio total: $${snapshot.totalPriceMinor.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`

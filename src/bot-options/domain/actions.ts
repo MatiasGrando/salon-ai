@@ -27,6 +27,11 @@ export const CLIENT_CHOICE_ACTION_TYPES = [
   'service.view',
   'service.select',
   'service.book',
+  'service.estimate_option',
+  'service.estimate_next',
+  'service.estimate_previous',
+  'service.validation_accept',
+  'service.photos_done',
   'service.consult',
   'service.more_same_category',
   'service.change_category',
@@ -136,6 +141,7 @@ export type BotOptionsEntityType =
   | 'CATEGORY'
   | 'SUBCATEGORY'
   | 'SERVICE'
+  | 'ESTIMATE_OPTION'
   | 'PROFESSIONAL'
   | 'APPOINTMENT'
 
@@ -185,6 +191,11 @@ export const BOT_OPTIONS_ACTION_REQUIREMENTS: Readonly<
   'service.view': { entity: 'SERVICE' },
   'service.select': { entity: 'SERVICE' },
   'service.book': { entity: 'SERVICE' },
+  'service.estimate_option': { entity: 'ESTIMATE_OPTION' },
+  'service.estimate_next': {},
+  'service.estimate_previous': {},
+  'service.validation_accept': { entity: 'SERVICE' },
+  'service.photos_done': { entity: 'SERVICE' },
   'service.consult': { entity: 'SERVICE' },
   'service.more_same_category': {},
   'service.change_category': {},

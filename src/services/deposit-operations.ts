@@ -42,8 +42,10 @@ export function calculateBookingDepositTerms(input: {
     if (service.depositMode === 'FIXED') {
       return [{ serviceId: service.id, sortOrder, serviceName: service.name, mode: 'FIXED' as const, configuredValue, baseAmount: null, amount: configuredValue }]
     }
-    if (configuredValue > 100 || service.priceMode !== 'FIXED' || !Number.isInteger(service.price) || service.price <= 0) {
-      throw new Error(`percentage deposit requires a fixed positive price for service ${service.id}`)
+    // PERCENTAGE uses the fixed price or the configured estimated minimum, never the range maximum.
+    if (configuredValue > 100 || (service.priceMode !== 'FIXED' && service.priceMode !== 'STARTING_AT') ||
+        !Number.isSafeInteger(service.price) || service.price <= 0) {
+      throw new Error(`percentage deposit requires a positive price or estimated minimum for service ${service.id}`)
     }
     return [{ serviceId: service.id, sortOrder, serviceName: service.name, mode: 'PERCENTAGE' as const, configuredValue, baseAmount: service.price, amount: Math.round(service.price * configuredValue / 100) }]
   })

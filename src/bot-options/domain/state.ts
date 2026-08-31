@@ -11,6 +11,8 @@
  * BotSession, no acá: este JSON sólo describe, no cronometra.
  */
 
+import type { ServiceBookingDecision } from './service-booking.js'
+
 export const BOT_OPTIONS_STATE_SCHEMA_VERSION = 1
 export const BOT_OPTIONS_ENGINE_VERSION = 'v1'
 
@@ -23,6 +25,9 @@ export const BOT_OPTIONS_FLOW_STEPS = [
   'CATEGORY_SELECT',
   'SERVICE_SELECT',
   'SERVICE_DETAIL',
+  'SERVICE_ESTIMATE',
+  'SERVICE_VALIDATION',
+  'SERVICE_PHOTOS',
   'BUSINESS_HOURS',
   'PROFESSIONAL_HOURS_SELECT',
   'PROFESSIONAL_HOURS_DETAIL',
@@ -168,6 +173,10 @@ export type BotOptionsState = {
   pendingEntityRef: { type: 'SERVICE'; id: string } | { type: 'PROFESSIONAL'; id: string } | null
   /** Recomendaciones rechazadas en este borrador: no se vuelven a ofrecer. */
   rejectedRecommendationIds: string[]
+  /** Optional for sessions created before service policies were supported. */
+  serviceDecisions?: Record<string, ServiceBookingDecision>
+  servicePhotoIds?: Record<string, string[]>
+  estimatePage?: number
 }
 
 export function createInitialBotOptionsState(): BotOptionsState {
@@ -328,6 +337,21 @@ export function validateBotOptionsState(
   }
 
   const cart = candidate['cart']
+  const decisions = candidate['serviceDecisions']
+  if (decisions !== undefined) {
+    if (!isPlainObject(decisions)) return { ok: false, invariant: 'schema_version_known' }
+    for (const decision of Object.values(decisions)) {
+      if (!isPlainObject(decision) || typeof decision.configurationKey !== 'string' ||
+          (decision.validationAccepted !== undefined && typeof decision.validationAccepted !== 'boolean')) return { ok: false, invariant: 'schema_version_known' }
+      const e = decision.estimate
+      if (e !== undefined && (!isPlainObject(e) || (e.optionId !== null && typeof e.optionId !== 'string') ||
+          (e.optionLabel !== null && typeof e.optionLabel !== 'string') || typeof e.priceMin !== 'number' || !Number.isSafeInteger(e.priceMin) || e.priceMin < 0 ||
+          (e.priceMax !== null && (typeof e.priceMax !== 'number' || !Number.isSafeInteger(e.priceMax) || e.priceMax < e.priceMin)))) return { ok: false, invariant: 'schema_version_known' }
+    }
+  }
+  if (candidate.servicePhotoIds !== undefined && (!isPlainObject(candidate.servicePhotoIds) ||
+      Object.values(candidate.servicePhotoIds).some(ids => !Array.isArray(ids) || ids.some(id => typeof id !== 'string' || !id)))) return { ok: false, invariant: 'schema_version_known' }
+  if (candidate.estimatePage !== undefined && (!Number.isInteger(candidate.estimatePage) || (candidate.estimatePage as number) < 0)) return { ok: false, invariant: 'schema_version_known' }
   if (!Array.isArray(cart)) return { ok: false, invariant: 'cart_unique_services' }
   const serviceIds = new Set<string>()
   for (const item of cart) {

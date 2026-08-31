@@ -26,6 +26,7 @@ export type CatalogServiceItem = {
   priceMode: 'FIXED' | 'STARTING_AT'
   isBookable: boolean
   requiresConsultation: boolean
+  bookingPolicy?: import('../domain/service-booking.js').ServiceBookingPolicy
 }
 
 export function normalizeCatalogPage(page: number): number {

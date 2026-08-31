@@ -33,7 +33,8 @@ import { catalogEntryRowLabel, catalogServiceDetailView } from './catalog-querie
 import { PrismaCustomerLookupRepository } from '../infrastructure/prisma-customer-lookup.js'
 import { normalizePhone, phoneSearchVariants } from '../../services/phone-normalization-service.js'
 import { validateCustomerName } from '../domain/customer-name-validation.js'
-import { PrismaCartRepository } from '../infrastructure/prisma-cart.js'
+import { PrismaCartRepository, CartServicePolicyChangedError } from '../infrastructure/prisma-cart.js'
+import { serviceConfigurationKey, resolveServiceEstimate } from '../domain/service-booking.js'
 import { formatCartSummary } from './cart-operations.js'
 import { PrismaAvailabilityRepository } from '../infrastructure/prisma-availability.js'
 import { BOOKING_DATE_PAGE_SIZE, BOOKING_SLOT_PAGE_SIZE, formatDateChoice, formatSlotOffset, paginate } from './availability-queries.js'
@@ -185,7 +186,7 @@ async function measureSessionStage<T>(stage: Extract<BotOptionsStage, 'session_c
  * serviceCompatibleWithCart se asume true para el primer servicio (F6.3
  * intersección multiprofesional se implementa después).
  */
-const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
+export const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
   const refreshingCurrentView = input.actionType === 'system.stale_prompt' ||
     input.actionType === 'system.reprompt' || input.actionType === 'system.initial_view'
   const base: TransitionContext = {
@@ -209,7 +210,7 @@ const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
   }
   const contextServiceId = input.entityRef?.type === 'SERVICE'
     ? input.entityRef.id
-    : (input.actionType === 'name.confirm' || (refreshingCurrentView && input.state.flow === 'SERVICE_DETAIL')) && input.state.pendingEntityRef?.type === 'SERVICE'
+    : (input.actionType === 'name.confirm' || input.state.flow === 'SERVICE_ESTIMATE' || input.state.flow === 'SERVICE_VALIDATION' || input.state.flow === 'SERVICE_PHOTOS' || (refreshingCurrentView && input.state.flow === 'SERVICE_DETAIL') || (input.actionType === 'navigation.back' && ['SERVICE_ESTIMATE', 'SERVICE_VALIDATION', 'SERVICE_PHOTOS'].includes(input.state.flow))) && input.state.pendingEntityRef?.type === 'SERVICE'
       ? input.state.pendingEntityRef.id
       : null
   if (contextServiceId) {
@@ -219,6 +220,7 @@ const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
       base.serviceActive = true
       base.serviceBookable = service.isBookable
       base.requiresConsultation = service.requiresConsultation
+      if (service.bookingPolicy) base.serviceBooking = service.bookingPolicy
       base.serviceInCart = input.state.cart.some((item) => item.serviceId === service.id)
       base.labels.serviceName = service.name
       base.labels.catalogServiceDetail = catalogServiceDetailView(service, WHATSAPP_INTERACTIVE_BODY_MAX_CODE_POINTS)
@@ -394,7 +396,7 @@ const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
   // worker aplica RETRY/POISON; jamás se degrada silenciosamente a "desconocido".
   const needsCustomerIdentity =
     input.actionType === 'menu.start_booking' ||
-    input.actionType === 'service.book' ||
+    input.actionType === 'service.book' || input.actionType === 'service.select' || input.state.pendingEntityRef?.type === 'SERVICE' ||
     input.actionType === 'hours.search_availability' ||
     input.actionType === 'hours.professional_search_availability' || input.state.cart.length > 0
   if (needsCustomerIdentity) {
@@ -434,15 +436,36 @@ const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
   }
   const proposedServiceId = contextServiceId && base.serviceActive && base.serviceBookable && !base.requiresConsultation && (
     input.actionType === 'service.select' || input.actionType === 'service.book' || input.actionType === 'name.confirm' ||
+    input.actionType === 'service.estimate_option' || input.actionType === 'service.validation_accept' ||
     (input.actionType === 'recommendation.add' && recommendationIsOffered)
   ) ? contextServiceId : null
+  const serviceDecisions = { ...input.state.serviceDecisions }
+  if (base.serviceBooking && proposedServiceId) {
+    const service = base.serviceBooking
+    const configurationKey = serviceConfigurationKey(service)
+    const saved = serviceDecisions[service.id]
+    const decision = saved?.configurationKey === configurationKey ? { ...saved } : { configurationKey }
+    const optionId = input.actionType === 'service.estimate_option' && input.entityRef?.type === 'ESTIMATE_OPTION' && saved?.configurationKey === configurationKey
+      ? input.entityRef.id : decision.estimate?.optionId ?? null
+    if (service.attentionMode === 'GUIDED_ESTIMATE') {
+      const estimate = resolveServiceEstimate(service, optionId)
+      if (estimate) decision.estimate = estimate
+    }
+    serviceDecisions[service.id] = decision
+  }
   const removedServiceId = input.entityRef?.type === 'SERVICE' && input.actionType === 'cart.remove_service' ? input.entityRef.id : null
   const targetCartIds = proposedServiceId
     ? [...new Set([...cartIds, proposedServiceId])]
     : removedServiceId ? cartIds.filter((id) => id !== removedServiceId) : cartIds
   let targetCart = null as Awaited<ReturnType<PrismaCartRepository['load']>> | null
   if (targetCartIds.length > 0) {
-    targetCart = await cartRepo.load({ businessId: input.businessId, serviceIds: targetCartIds })
+    try {
+      targetCart = await cartRepo.load({ businessId: input.businessId, serviceIds: targetCartIds, serviceDecisions, preview: proposedServiceId !== null })
+    } catch (error) {
+      if (!(error instanceof CartServicePolicyChangedError)) throw error
+      base.cartPolicyChanged = true
+      return base
+    }
     const restrictive = [...targetCart.policies.values()].some((policy) => policy !== 'ALLOWED')
     base.serviceCompatibleWithCart = targetCart.snapshot.commonProfessionalIds.length > 0 && !restrictive
     base.recommendedCompatibleWithCart = base.serviceCompatibleWithCart
@@ -450,13 +473,13 @@ const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
     base.labels.cartSummary = formatCartSummary(targetCart.snapshot)
   }
   if (cartIds.length > 0 && !targetCart) {
-    targetCart = await cartRepo.load({ businessId: input.businessId, serviceIds: cartIds })
+    targetCart = await cartRepo.load({ businessId: input.businessId, serviceIds: cartIds, serviceDecisions })
   }
 
   // Una recomendación es una propuesta explícita, nunca una mutación automática.
   const refreshingRecommendations = refreshingCurrentView && input.state.flow === 'RECOMMENDATION_SELECT'
   const recommendationSourceIds = input.actionType === 'recommendation.skip' || refreshingRecommendations ? cartIds : proposedServiceId ? [proposedServiceId] : []
-  if (targetCart && recommendationSourceIds.length > 0 && (input.actionType === 'service.select' || input.actionType === 'service.book' || input.actionType === 'name.confirm' || input.actionType === 'recommendation.skip' || refreshingRecommendations)) {
+  if (targetCart && recommendationSourceIds.length > 0 && (input.actionType === 'service.select' || input.actionType === 'service.book' || input.actionType === 'name.confirm' || input.actionType === 'service.estimate_option' || input.actionType === 'service.validation_accept' || input.actionType === 'recommendation.skip' || refreshingRecommendations)) {
     const rejectedFilter = input.state.rejectedRecommendationIds.length > 0
       ? Prisma.sql`AND s."id" NOT IN (${Prisma.join(input.state.rejectedRecommendationIds)})`
       : Prisma.empty
@@ -469,7 +492,9 @@ const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
     `)
     const recommendations = [] as Array<{ serviceId: string; label: string; compatible: boolean }>
     for (const addon of addons) {
-      const proposed = await cartRepo.load({ businessId: input.businessId, serviceIds: [...targetCartIds, addon.id] })
+      const addonService = await catalogRepo.getService({ businessId: input.businessId, serviceId: addon.id })
+      if (!addonService || addonService.requiresConsultation) continue
+      const proposed = await cartRepo.load({ businessId: input.businessId, serviceIds: [...targetCartIds, addon.id], serviceDecisions, preview: true })
       recommendations.push({
         serviceId: addon.id, label: addon.name,
         compatible: proposed.snapshot.commonProfessionalIds.length > 0 && ![...proposed.policies.values()].some((policy) => policy !== 'ALLOWED')
@@ -491,7 +516,7 @@ const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
     (refreshingCurrentView && input.state.flow === 'PROFESSIONAL_SELECT')
   )
   if (needsAvailability) {
-    const cart = targetCart ?? await cartRepo.load({ businessId: input.businessId, serviceIds: bookingCartIds })
+    const cart = targetCart ?? await cartRepo.load({ businessId: input.businessId, serviceIds: bookingCartIds, serviceDecisions })
     if (cart.snapshot.commonProfessionalIds.length === 0) {
       if (input.actionType === 'cart.continue') return base
       throw new Error('persisted booking step has no common professional')
@@ -550,7 +575,7 @@ const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
         base.confirmVisitSnapshot = {
           services: cart.snapshot.services.map((service) => ({
             serviceId: service.id, name: service.name, durationMinutes: service.durationMinutes,
-            priceMinor: service.priceMinor, priceMode: service.priceMode
+            priceMinor: service.priceMinor, priceMode: service.priceMode, ...(service.estimate ? { estimate: service.estimate } : {})
           })),
           professional: { professionalId: assigned.id, name: assigned.name, assignedByBalancer: requestedProfessionalId === null },
           totalDurationMinutes: cart.snapshot.totalDurationMinutes,
@@ -669,7 +694,7 @@ function parseSelectedEntityRef(value: Prisma.JsonValue | null): BotOptionsEntit
   const type = value['type']
   const id = value['id']
   if (
-    (type !== 'CATEGORY' && type !== 'SUBCATEGORY' && type !== 'SERVICE' && type !== 'PROFESSIONAL' && type !== 'APPOINTMENT') ||
+    (type !== 'CATEGORY' && type !== 'SUBCATEGORY' && type !== 'SERVICE' && type !== 'ESTIMATE_OPTION' && type !== 'PROFESSIONAL' && type !== 'APPOINTMENT') ||
     typeof id !== 'string' || id.length === 0 || id.trim() !== id
   ) {
     throw new Error('invalid selected action entityRef')
@@ -1020,7 +1045,7 @@ async function processInitialInboxUnderClaim(
       await completeClaimedBotJobTx(tx, input.job)
       return 'PROCESSED'
     }
-    const payload = row.payload as { fromPhone?: unknown; textBody?: unknown; messageType?: unknown; contextWindowEvaluated?: unknown; stalePromptClassification?: unknown }
+    const payload = row.payload as { fromPhone?: unknown; textBody?: unknown; messageType?: unknown; mediaId?: unknown; contextWindowEvaluated?: unknown; stalePromptClassification?: unknown }
     if (typeof payload.fromPhone !== 'string' || !payload.fromPhone) throw new Error('initial inbound has no phone')
     // A session may have been created by another inbox after journal classification.
     // Old/pre-feature inboxes also pass here. Never let that race bypass expiry.
@@ -1061,6 +1086,23 @@ async function processInitialInboxUnderClaim(
         }, pendingCrmEvents)
         const state = parseBotOptionsState(existingSession.state)
         if (!state.ok) throw new Error(`unknown/corrupt state: ${state.invariant}`)
+        if (state.state.flow === 'SERVICE_PHOTOS' && state.state.pendingEntityRef?.type === 'SERVICE' &&
+            payload.messageType === 'image' && typeof payload.mediaId === 'string' && payload.mediaId.trim()) {
+          const serviceId = state.state.pendingEntityRef.id
+          const photoIds = [...new Set([...(state.state.servicePhotoIds?.[serviceId] ?? []), payload.mediaId])].slice(-12)
+          state.state = { ...state.state, servicePhotoIds: { ...state.state.servicePhotoIds, [serviceId]: photoIds } }
+          const photoRevision = existingSession.revision + 1n
+          await tx.$executeRaw(Prisma.sql`
+            UPDATE "BotSession" SET "state"=${JSON.stringify(state.state)}::jsonb,"revision"=${photoRevision},"updatedAt"=clock_timestamp()
+            WHERE "id"=${existingSession.sessionId} AND "businessId"=${row.businessId} AND "revision"=${existingSession.revision}
+          `)
+          await tx.$executeRaw(Prisma.sql`
+            INSERT INTO "BotTransitionLog" ("id", "businessId", "sessionId", "deploymentId", "deploymentGeneration", "revisionFrom", "revisionTo", "actionType", "outcome", "providerEventId")
+            VALUES (${randomUUID()}, ${row.businessId}, ${existingSession.sessionId}, ${row.deploymentId}, ${row.deploymentGeneration},
+              ${existingSession.revision}, ${photoRevision}, 'service.photo_received', 'APPLIED', ${row.providerEventId})
+          `)
+          existingSession.revision = photoRevision
+        }
         if (payload.messageType !== 'interactive' && isConversationRestartCommand(payload.textBody)) {
           if (existingSession.status === 'HUMAN_QUEUED') {
             await prismaBotOptionsEffectExecutor(tx, {

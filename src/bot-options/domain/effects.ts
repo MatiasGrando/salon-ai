@@ -9,6 +9,7 @@
 
 import type { BotOptionsEntityRef, SlotBand } from './actions.js'
 import type { BotOptionsState } from './state.js'
+import type { ServiceEstimate } from './service-booking.js'
 
 /** Snapshot inmutable del carrito al confirmar: precios/duraciones reales viajan en el contexto. */
 export type VisitServiceSnapshot = {
@@ -18,6 +19,7 @@ export type VisitServiceSnapshot = {
   priceMinor: number | null
   /** 'FIXED' precio cerrado; 'STARTING_AT' estimado "desde"; null sin precio público. */
   priceMode: 'FIXED' | 'STARTING_AT' | null
+  estimate?: ServiceEstimate
 }
 
 export type AssignedProfessional = {

@@ -45,6 +45,8 @@ import {
   type ViewChoice
 } from './views.js'
 import { validateCustomerName } from './customer-name-validation.js'
+import { formatServiceEstimate, resolveServiceEstimate, serviceConfigurationKey, serviceAllowsAutomaticBooking,
+  type ServiceBookingPolicy, type ServiceBookingDecision, type ServiceEstimate } from './service-booking.js'
 
 export type NormalizedAction = {
   actionType: BotOptionsActionType
@@ -66,6 +68,8 @@ export type TransitionContext = {
   serviceBookable: boolean
   /** Revalidado contra DB en el contexto: true cuando la política del servicio exige consulta humana. */
   requiresConsultation: boolean
+  serviceBooking?: ServiceBookingPolicy
+  cartPolicyChanged?: boolean
   serviceCompatibleWithCart: boolean
   serviceInCart: boolean
   hasRecommendations: boolean
@@ -147,6 +151,7 @@ export type TransitionContext = {
       durationMinutes: number
       priceMinor: number | null
       priceMode: 'FIXED' | 'STARTING_AT' | null
+      estimate?: ServiceEstimate
     }>
     professional: { professionalId: string; name: string; assignedByBalancer: boolean }
     totalDurationMinutes: number
@@ -292,6 +297,9 @@ const CLIENT_ALLOWED: Partial<Record<BotOptionsFlowStep, readonly BotOptionsActi
     'navigation.open',
     'handoff.request'
   ],
+  SERVICE_ESTIMATE: ['service.estimate_option', 'service.estimate_next', 'service.estimate_previous', 'navigation.back', 'navigation.home', 'navigation.open', 'handoff.request'],
+  SERVICE_VALIDATION: ['service.validation_accept', 'navigation.back', 'navigation.home', 'navigation.open', 'handoff.request'],
+  SERVICE_PHOTOS: ['service.photos_done', 'navigation.back', 'navigation.home', 'navigation.open', 'handoff.request'],
   RECOMMENDATION_SELECT: [
     'recommendation.add',
     'recommendation.skip',
@@ -429,6 +437,9 @@ const BACK_TARGETS: Partial<Record<BotOptionsFlowStep, BackTarget>> = {
     apply: (state) => ({ ...state, selections: { ...state.selections, categoryId: null } })
   },
   SERVICE_DETAIL: { flow: 'SERVICE_SELECT', apply: (state) => ({ ...state, pendingEntityRef: null }) },
+  SERVICE_ESTIMATE: { flow: 'SERVICE_DETAIL', apply: (state) => state },
+  SERVICE_VALIDATION: { flow: 'SERVICE_DETAIL', apply: (state) => state },
+  SERVICE_PHOTOS: { flow: 'SERVICE_DETAIL', apply: (state) => state },
   RECOMMENDATION_SELECT: { flow: 'CART_REVIEW', apply: (state) => state },
   CART_REVIEW: { flow: 'SERVICE_SELECT', apply: (state) => state },
   INCOMPATIBLE_SERVICE_DECISION: { flow: 'CART_REVIEW', apply: (state) => ({ ...state, pendingEntityRef: null }) },
@@ -608,11 +619,7 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
       const detailServiceId = state.pendingEntityRef?.id
       const detailChoices: ViewChoice[] = []
       if (context.serviceActive && detailServiceId) {
-        if (context.requiresConsultation) {
-          detailChoices.push({ actionType: 'service.consult', label: 'Consultar con el equipo', entityRef: { type: 'SERVICE', id: detailServiceId } })
-        } else {
-          detailChoices.push({ actionType: 'service.book', label: 'Reservar este servicio', entityRef: { type: 'SERVICE', id: detailServiceId } })
-        }
+        detailChoices.push({ actionType: 'service.book', label: 'Reservar este servicio', entityRef: { type: 'SERVICE', id: detailServiceId } })
         detailChoices.push({ actionType: 'service.more_same_category', label: 'Ver otros servicios' })
       }
       const navDetail = composeGlobalNavigation({ capacity: 10, contextualCount: detailChoices.length, back: BACK_CHOICE })
@@ -623,6 +630,24 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
         interactiveBody: detail?.interactiveBody ?? `Detalle de ${context.labels.serviceName ?? 'servicio'}`,
         choices: detailChoices
       }, navDetail)
+    }
+    case 'SERVICE_ESTIMATE': {
+      const service = context.serviceBooking
+      const choices: ViewChoice[] = (service?.estimateOptions ?? []).slice((state.estimatePage ?? 0) * 5, ((state.estimatePage ?? 0) + 1) * 5)
+        .map(option => ({ actionType: 'service.estimate_option', label: option.label, entityRef: { type: 'ESTIMATE_OPTION', id: option.id } }))
+      if ((state.estimatePage ?? 0) > 0) choices.push({ actionType: 'service.estimate_previous', label: 'Página anterior' })
+      if ((service?.estimateOptions?.length ?? 0) > ((state.estimatePage ?? 0) + 1) * 5) choices.push({ actionType: 'service.estimate_next', label: 'Página siguiente' })
+      return appendGlobals(menuView(service?.estimateQuestion || 'La estimación necesita revisión del equipo.', choices), composeGlobalNavigation({ capacity: 10, contextualCount: choices.length, back: BACK_CHOICE }))
+    }
+    case 'SERVICE_VALIDATION': {
+      const service = context.serviceBooking
+      const choices: ViewChoice[] = service ? [{ actionType: 'service.validation_accept', label: 'Sí, estoy de acuerdo', entityRef: { type: 'SERVICE', id: service.id } }] : []
+      return appendGlobals(menuView([service?.validationMessage, service?.validationQuestion].filter(Boolean).join('\n\n') || 'Necesitamos revisar la confirmación del servicio.', choices), composeGlobalNavigation({ capacity: 10, contextualCount: choices.length, back: BACK_CHOICE }))
+    }
+    case 'SERVICE_PHOTOS': {
+      const service = context.serviceBooking
+      const choices: ViewChoice[] = service ? [{ actionType: 'service.photos_done', label: 'Ya envié las fotos', entityRef: { type: 'SERVICE', id: service.id } }] : []
+      return appendGlobals(menuView(`Para evaluar ${service?.name ?? 'el servicio'}, enviá una foto del estado actual y, si tenés, otra del resultado que buscás. El equipo las revisará y completará tu turno manualmente.`, choices), composeGlobalNavigation({ capacity: 10, contextualCount: choices.length, back: BACK_CHOICE }))
     }
     case 'RECOMMENDATION_SELECT': {
       const recommendations = context.labels.recommendations ?? []
@@ -960,6 +985,10 @@ export function transition(
   const context = normalizeContext(contextInput)
   const { actionType, entityRef, payload } = action
 
+  if (context.cartPolicyChanged && !actionType.startsWith('navigation.') && !actionType.startsWith('handoff.') && actionType !== 'draft.restart') {
+    return recovered(state, 'guard_failed', 'Cambió la configuración de un servicio de tu reserva. El equipo debe revisarlo antes de continuar. Conservamos la información que ya brindaste.', [BACK_CHOICE, HUMAN_CHOICE])
+  }
+
   // Atención tomada: silencio para cliente/sistema, pero el CRM conserva las
   // acciones explícitas de resolución. Si se bloquearan acá, el handoff sería
   // un estado terminal imposible de cerrar.
@@ -1000,6 +1029,10 @@ export function transition(
       return fromServiceSelect(state, actionType, entityRef, context)
     case 'SERVICE_DETAIL':
       return fromServiceDetail(state, actionType, entityRef, context)
+    case 'SERVICE_ESTIMATE':
+    case 'SERVICE_VALIDATION':
+    case 'SERVICE_PHOTOS':
+      return fromServiceDecision(state, actionType, entityRef, context)
     case 'RECOMMENDATION_SELECT':
       return fromRecommendationSelect(state, actionType, entityRef, context)
     case 'CART_REVIEW':
@@ -1628,20 +1661,8 @@ function fromNameConfirm(state: BotOptionsState, actionType: BotOptionsActionTyp
     // Solo pendingEntityRef de tipo SERVICE ingresa al carrito; PROFESSIONAL jamás.
     if (afterName.pendingEntityRef?.type === 'SERVICE') {
       const serviceId = afterName.pendingEntityRef.id
-      if (!context.serviceCompatibleWithCart) {
-        return applied(
-          baseOf(afterName, { flow: 'INCOMPATIBLE_SERVICE_DECISION', presentation: plainPresentation() }),
-          renderCurrentView({ ...afterName, flow: 'INCOMPATIBLE_SERVICE_DECISION' }, context),
-          effects
-        )
-      }
-      const withItem = addToCart(afterName, serviceId)
-      const destination = context.hasRecommendations ? 'RECOMMENDATION_SELECT' : 'CART_REVIEW'
-      return applied(
-        baseOf(withItem, { flow: destination, pendingEntityRef: null, presentation: plainPresentation() }),
-        renderCurrentView({ ...withItem, flow: destination }, context),
-        effects
-      )
+      const result = resolveSelectedService(afterName, serviceId, { ...context, customerNameOnFile: candidate })
+      return result.outcome === 'RECOVERED' ? result : { ...result, effects: [...effects, ...result.effects] }
     }
     // Si había un pending de tipo PROFESSIONAL (horarios), limpiarlo y continuar al catálogo de servicios.
     if (afterName.pendingEntityRef?.type === 'PROFESSIONAL') {
@@ -1729,10 +1750,10 @@ function addServiceOrIncompatible(
   const invalidated = withoutSelections(withItem, 'professional')
   if (!context.hasRecommendations) {
     const next = baseOf(invalidated, { flow: 'CART_REVIEW', presentation: plainPresentation() })
-    return applied(next, renderCurrentView(next, EMPTY_CONTEXT_FOR_VIEWS))
+    return applied(next, renderCurrentView(next, context))
   }
   const next = baseOf(invalidated, { flow: 'RECOMMENDATION_SELECT', presentation: plainPresentation() })
-  return applied(next, renderCurrentView(next, EMPTY_CONTEXT_FOR_VIEWS))
+  return applied(next, renderCurrentView(next, context))
 }
 
 function fromServiceSelect(
@@ -1770,12 +1791,115 @@ function fromServiceSelect(
     if (!entityRef || !context.serviceActive || !context.serviceBookable) {
       return recovered(state, 'entity_inactive', 'Ese servicio no está disponible para reservar ahora.', [])
     }
-    return addServiceOrIncompatible(state, entityRef.id, context)
+    return resolveSelectedService(state, entityRef.id, context)
   }
   if (actionType === 'catalog.next_page' || actionType === 'catalog.previous_page') {
     return pageShift(state, actionType === 'catalog.next_page', context.catalogPageMoveAllowed, 'catalog_page', context)
   }
   return escalateInvalid(state, '')
+}
+
+function withServiceInformation(result: TransitionResult, information: string[]): TransitionResult {
+  return { ...result, view: { ...result.view, informativeTexts: [...information.filter(Boolean), ...result.view.informativeTexts] } }
+}
+
+/** All explicit service-selection entry points converge here; browsing alone never calls it. */
+function resolveSelectedService(state: BotOptionsState, serviceId: string, context: TransitionContext): TransitionResult {
+  if (!context.serviceActive || !context.serviceBookable) return recovered(state, 'entity_inactive', 'Ese servicio ya no está disponible.', [BACK_CHOICE, HUMAN_CHOICE])
+  const service = context.serviceBooking
+  if (service && service.id !== serviceId) return recovered(state, 'stale_ref', 'El servicio cambió. Volvé a abrir su detalle.', [BACK_CHOICE])
+  const pending = baseOf(state, { pendingEntityRef: { type: 'SERVICE', id: serviceId }, catalogMode: 'BOOKING' })
+  if (!context.customerNameOnFile && (service || state.flow === 'SERVICE_DETAIL')) {
+    const next = baseOf(pending, { flow: 'NAME_INPUT' })
+    return applied(next, renderCurrentView(next, context))
+  }
+  // Compatibility for pre-policy contexts; production always provides the live policy.
+  if (!service) {
+    if (context.requiresConsultation) return enterHandoff(pending, 'servicio_requiere_consulta_previa', context.labels.serviceName ?? null, { serviceId })
+    const result = addServiceOrIncompatible(pending, serviceId, context)
+    if (result.outcome !== 'RECOVERED' && result.state.flow !== 'INCOMPATIBLE_SERVICE_DECISION') result.state.pendingEntityRef = null
+    return result
+  }
+  const configurationKey = serviceConfigurationKey(service)
+  const saved = pending.serviceDecisions?.[serviceId]
+  const decision: ServiceBookingDecision = saved?.configurationKey === configurationKey ? { ...saved } : { configurationKey }
+  let next: BotOptionsState = { ...pending, serviceDecisions: { ...pending.serviceDecisions, [serviceId]: decision } }
+  const information: string[] = []
+  if (service.validationEnabled && !decision.validationAccepted) {
+    if (!service.validationMessage?.trim()) return withServiceInformation(enterHandoff(next, 'configuracion_servicio_incompleta', service.name, { serviceId }), ['La confirmación de este servicio necesita revisión del equipo.'])
+    next = baseOf(next, { flow: 'SERVICE_VALIDATION' })
+    return applied(next, renderCurrentView(next, context))
+  }
+  if (service.attentionMode === 'GUIDED_ESTIMATE') {
+    if (service.estimateOptions === null || (service.estimateOptions.length > 0 && !service.estimateQuestion?.trim())) {
+      return withServiceInformation(enterHandoff(next, 'estimacion_incompleta', service.name, { serviceId }), [`El equipo necesita revisar la estimación de ${service.name} antes de completar el turno.`])
+    }
+    if (!decision.estimate) {
+      if (service.estimateOptions.length) {
+        next = baseOf(next, { flow: 'SERVICE_ESTIMATE', estimatePage: 0 })
+        return applied(next, renderCurrentView(next, context))
+      }
+      const estimate = resolveServiceEstimate(service, null)
+      if (!estimate) return withServiceInformation(enterHandoff(next, 'estimacion_incompleta', service.name, { serviceId }), [`El equipo necesita revisar el precio de ${service.name}.`])
+      decision.estimate = estimate
+    }
+    information.push(`${service.name}: ${formatServiceEstimate(decision.estimate)}. Es una estimación, no es un precio definitivo.`,
+      service.estimateExplanation ?? '', service.estimateDisclaimer ?? '')
+    const note = service.estimateOptions.find(option => option.id === decision.estimate?.optionId)?.note
+    if (note) information.push(note)
+  }
+  if (!serviceAllowsAutomaticBooking(service)) {
+    const explanation = service.attentionMode === 'QUOTE'
+      ? `${service.name} necesita una cotización antes de reservar. El equipo definirá el precio y completará tu turno manualmente.`
+      : service.attentionMode === 'ADVISOR'
+        ? `${service.name} requiere asesoramiento previo. El equipo evaluará tu caso y completará tu turno manualmente.`
+        : `La estimación de ${service.name} requiere revisión del equipo antes de reservar. El equipo confirmará el precio y completará tu turno manualmente.`
+    information.push(explanation)
+    if (service.attentionMode !== 'GUIDED_ESTIMATE') information.push(service.estimateExplanation ?? '', service.estimateDisclaimer ?? '')
+    if (service.requiresPhoto && !(next.servicePhotoIds?.[serviceId]?.length)) {
+      next = baseOf(next, { flow: 'SERVICE_PHOTOS' })
+      return withServiceInformation(applied(next, renderCurrentView(next, context)), information)
+    }
+    return withServiceInformation(enterHandoff(next, service.attentionMode === 'QUOTE' ? 'cotizacion_servicio' : service.attentionMode === 'ADVISOR' ? 'asesoramiento_servicio' : 'revision_estimacion',
+      information.filter(Boolean).join('\n'), { serviceId }), information)
+  }
+  if (service.attentionMode !== 'GUIDED_ESTIMATE' && service.estimateDisclaimer) information.push(service.estimateDisclaimer)
+  // Duplicate intent resumes the existing cart without changing its order or valid slot.
+  if (context.serviceInCart || next.cart.some(item => item.serviceId === serviceId)) {
+    const resumed = baseOf(next, { flow: 'CART_REVIEW', pendingEntityRef: null, presentation: plainPresentation() })
+    return withServiceInformation(applied(resumed, renderCurrentView(resumed, context)), information)
+  }
+  const result = addServiceOrIncompatible(next, serviceId, context)
+  if (result.outcome !== 'RECOVERED' && result.state.flow !== 'INCOMPATIBLE_SERVICE_DECISION') result.state.pendingEntityRef = null
+  return withServiceInformation(result, information)
+}
+
+function fromServiceDecision(state: BotOptionsState, actionType: BotOptionsActionType, entityRef: BotOptionsEntityRef | null, context: TransitionContext): TransitionResult {
+  const service = context.serviceBooking
+  const serviceId = state.pendingEntityRef?.type === 'SERVICE' ? state.pendingEntityRef.id : null
+  if (!service || service.id !== serviceId || !context.serviceActive || !context.serviceBookable) return recovered(state, 'entity_inactive', 'Ese servicio ya no está disponible.', [BACK_CHOICE, HUMAN_CHOICE])
+  if (state.serviceDecisions?.[service.id]?.configurationKey !== serviceConfigurationKey(service)) {
+    return withServiceInformation(resolveSelectedService(state, service.id, context), ['La configuración del servicio cambió. Revisemos la información vigente.'])
+  }
+  if (actionType === 'service.estimate_next' || actionType === 'service.estimate_previous') {
+    const page = (state.estimatePage ?? 0) + (actionType === 'service.estimate_next' ? 1 : -1)
+    if (page < 0 || page * 5 >= (service.estimateOptions?.length ?? 0)) return recovered(state, 'guard_failed', 'Esa página ya no está disponible.', [BACK_CHOICE])
+    const next = { ...state, estimatePage: page }
+    return applied(next, renderCurrentView(next, context))
+  }
+  const decision = { ...state.serviceDecisions![service.id]! }
+  if (actionType === 'service.estimate_option') {
+    const estimate = entityRef?.type === 'ESTIMATE_OPTION' ? resolveServiceEstimate(service, entityRef.id) : null
+    if (!estimate || !service.estimateOptions?.slice((state.estimatePage ?? 0) * 5, ((state.estimatePage ?? 0) + 1) * 5).some(o => o.id === estimate.optionId)) return recovered(state, 'stale_ref', 'Esa respuesta ya no está disponible. Elegí una opción vigente.', [BACK_CHOICE])
+    decision.estimate = estimate
+  } else if (entityRef?.type !== 'SERVICE' || entityRef.id !== service.id) {
+    return recovered(state, 'stale_ref', 'Esa opción corresponde a otro servicio.', [BACK_CHOICE])
+  } else if (actionType === 'service.validation_accept') {
+    decision.validationAccepted = true
+  } else if (actionType === 'service.photos_done' && !state.servicePhotoIds?.[service.id]?.length) {
+    return recovered(state, 'guard_failed', 'Todavía no recibimos una foto. Enviá una imagen antes de continuar.', [BACK_CHOICE, HUMAN_CHOICE])
+  }
+  return resolveSelectedService({ ...state, serviceDecisions: { ...state.serviceDecisions, [service.id]: decision } }, service.id, context)
 }
 
 function fromServiceDetail(
@@ -1795,21 +1919,7 @@ function fromServiceDetail(
       if (!serviceId || !context.serviceActive) {
         return recovered(state, 'entity_inactive', 'Ese servicio ya no está disponible.', [])
       }
-      if (!context.serviceBookable || context.requiresConsultation) {
-        return enterHandoff(
-          state,
-          'servicio_requiere_consulta_previa',
-          context.labels.serviceName ?? null,
-          { serviceId }
-        )
-      }
-      if (!context.customerNameOnFile && !state.nameCandidate) {
-        return applied(
-          baseOf(state, { flow: 'NAME_INPUT', pendingEntityRef: { type: 'SERVICE', id: serviceId }, catalogMode: 'BOOKING' }),
-          renderCurrentView({ ...state, flow: 'NAME_INPUT' }, context)
-        )
-      }
-      return addServiceOrIncompatible(state, serviceId, context)
+      return resolveSelectedService(state, serviceId, context)
     }
     case 'service.consult':
       if (!serviceId || !context.serviceActive) {
@@ -1853,8 +1963,7 @@ function fromRecommendationSelect(
       const next = baseOf(state, { flow: 'INCOMPATIBLE_SERVICE_DECISION', pendingEntityRef: { type: 'SERVICE', id: entityRef.id }, presentation: plainPresentation() })
       return applied(next, renderCurrentView(next, context))
     }
-    const withItem = addToCart(state, entityRef.id)
-    return applied(baseOf(withItem, { flow: 'CART_REVIEW', presentation: plainPresentation() }), renderCurrentView({ ...withItem, flow: 'CART_REVIEW' }, context))
+    return resolveSelectedService(state, entityRef.id, context)
   }
   if (actionType === 'recommendation.skip') {
     const rejectedId = entityRef?.id ?? context.recommendedServiceId

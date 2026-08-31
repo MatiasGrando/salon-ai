@@ -367,16 +367,16 @@ const vbView = renderCurrentView(viewBookable, normalizeContext(ctx({ serviceAct
   assert.ok(!consultChoice, 'vista reservable NO debe ofrecer service.consult')
 }
 
-// 5) Vista SERVICE_DETAIL ofrece Consultar cuando el servicio requiere consulta.
+// 5) Vista SERVICE_DETAIL SIEMPRE ofrece Reservar; el routing a handoff se resuelve en resolveSelectedService.
 const viewConsult = stateWith({ flow: 'SERVICE_DETAIL', pendingEntityRef: { type: 'SERVICE', id: 'svc-consult' } })
 const vcView = renderCurrentView(viewConsult, normalizeContext(ctx({ serviceActive: true, serviceBookable: true, requiresConsultation: true, labels: { serviceName: 'Coloración' } })))
 {
-  const consultChoice = vcView.choices.find((c) => c.actionType === 'service.consult')
-  assert.ok(consultChoice, 'vista con consulta debe ofrecer service.consult')
-  assert.equal(consultChoice?.label, 'Consultar con el equipo')
-  assert.deepEqual(consultChoice?.entityRef, { type: 'SERVICE', id: 'svc-consult' }, 'service.consult choice carries entityRef')
   const bookChoice = vcView.choices.find((c) => c.actionType === 'service.book')
-  assert.ok(!bookChoice, 'vista con consulta NO debe ofrecer service.book')
+  assert.ok(bookChoice, 'vista con consulta debe ofrecer service.book (routing a handoff en resolveSelectedService)')
+  assert.equal(bookChoice?.label, 'Reservar este servicio')
+  assert.deepEqual(bookChoice?.entityRef, { type: 'SERVICE', id: 'svc-consult' }, 'service.book choice carries entityRef')
+  const consultChoice = vcView.choices.find((c) => c.actionType === 'service.consult')
+  assert.ok(!consultChoice, 'vista con consulta NO debe ofrecer service.consult')
 }
 
 // 6) Vista SERVICE_DETAIL inactiva no ofrece acciones de conversión.
@@ -389,16 +389,24 @@ const viView = renderCurrentView(viewInactive, normalizeContext(ctx({ serviceAct
   assert.ok(!consultChoice, 'vista inactiva NO debe ofrecer service.consult')
 }
 
-// 7) service.book en servicio que requiere consulta (sin nombre) still consulta handoff — safety net.
+// 7) service.book en servicio que requiere consulta: pide nombre primero, luego deriva.
 const detailConsultBook = stateWith({ flow: 'SERVICE_DETAIL', pendingEntityRef: { type: 'SERVICE', id: 'srv_color' } })
-const consultBookResult = transition(
+const consultBookNoName = transition(
   detailConsultBook,
   act('service.book', { entityRef: { type: 'SERVICE', id: 'srv_color' } }),
   ctx({ serviceActive: true, serviceBookable: true, requiresConsultation: true, labels: { serviceName: 'Coloración' } })
 )
-assert.equal(consultBookResult.outcome, 'HANDOFF')
-if (consultBookResult.outcome === 'HANDOFF') {
-  const handoffEffect = consultBookResult.effects.find((e) => e.kind === 'REQUEST_HUMAN_HANDOFF')
+assert.equal(consultBookNoName.outcome, 'APPLIED', 'sin nombre pide NAME_INPUT antes de handoff')
+assert.equal(consultBookNoName.state.flow, 'NAME_INPUT')
+// Now provide the name and verify handoff happens.
+const consultBookWithName = transition(
+  { ...consultBookNoName.state, flow: 'NAME_CONFIRM', nameCandidate: 'María' } as BotOptionsState,
+  act('name.confirm'),
+  ctx({ serviceActive: true, serviceBookable: true, requiresConsultation: true, labels: { serviceName: 'Coloración' } })
+)
+assert.equal(consultBookWithName.outcome, 'HANDOFF')
+if (consultBookWithName.outcome === 'HANDOFF') {
+  const handoffEffect = consultBookWithName.effects.find((e) => e.kind === 'REQUEST_HUMAN_HANDOFF')
   assert.equal(handoffEffect?.kind, 'REQUEST_HUMAN_HANDOFF')
   if (handoffEffect?.kind === 'REQUEST_HUMAN_HANDOFF') {
     assert.equal(handoffEffect.reason, 'servicio_requiere_consulta_previa')
@@ -863,17 +871,17 @@ assert.equal(bookMapping.entityId, 'svc_rt', 'entityId must match')
 assert.equal(bookMapping.actionType, 'service.book', 'actionType preserved')
 assert.equal(bookMapping.labelSnapshot, 'Reservar este servicio', 'labelSnapshot preserved')
 
-// SERVICE_DETAIL view with entityRef on consult choice
+// SERVICE_DETAIL view with entityRef on book choice (even when requiresConsultation)
 const rtConsultState = stateWith({ flow: 'SERVICE_DETAIL', pendingEntityRef: { type: 'SERVICE', id: 'svc_rt_consult' } })
 const rtConsultView = renderCurrentView(rtConsultState, normalizeContext(ctx({
   serviceActive: true, serviceBookable: true, requiresConsultation: true,
   labels: { serviceName: 'Coloración RT' }
 })))
 const rtConsultRendered = renderWhatsAppScreen(rtConsultView, { promptToken: generatePromptToken() })
-const consultMapping = rtConsultRendered.choiceMappings.find((m) => m.actionType === 'service.consult')
-assert.ok(consultMapping, 'round-trip must have service.consult mapping')
-assert.equal(consultMapping.entityType, 'SERVICE', 'consult entityType must be SERVICE')
-assert.equal(consultMapping.entityId, 'svc_rt_consult', 'consult entityId must match')
+const consultBookMapping = rtConsultRendered.choiceMappings.find((m) => m.actionType === 'service.book')
+assert.ok(consultBookMapping, 'round-trip must have service.book mapping even when requiresConsultation')
+assert.equal(consultBookMapping.entityType, 'SERVICE', 'entityType must be SERVICE')
+assert.equal(consultBookMapping.entityId, 'svc_rt_consult', 'entityId must match')
 
 console.log('OK bot-options transition: round-trip entityRef survives renderWhatsAppScreen → choiceMappings.')
 
@@ -1174,7 +1182,7 @@ if (profNameConfirmResult.outcome === 'APPLIED') {
 }
 console.log('OK F5.7: pendingEntityRef PROFESSIONAL in name.confirm does NOT enter cart')
 
-// 11) P0 cart: pendingEntityRef SERVICE in name.confirm still enters cart (regression)
+// 11) P0 cart: pendingEntityRef SERVICE in name.confirm enters cart and clears pendingEntityRef.
 const svcNameConfirmState = stateWith({
   flow: 'NAME_CONFIRM',
   nameCandidate: 'Juan',
@@ -1183,7 +1191,7 @@ const svcNameConfirmState = stateWith({
 const svcNameConfirmResult = transition(
   svcNameConfirmState,
   act('name.confirm'),
-  ctx({ serviceCompatibleWithCart: true })
+  ctx({ serviceActive: true, serviceBookable: true, serviceCompatibleWithCart: true })
 )
 assert.equal(svcNameConfirmResult.outcome, 'APPLIED')
 if (svcNameConfirmResult.outcome === 'APPLIED') {

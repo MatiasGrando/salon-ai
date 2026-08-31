@@ -3,6 +3,7 @@ import { Prisma } from '../generated/prisma/client.js'
 import { reservationDurationLimits } from './service-duration.js'
 import { acquireAgendaHierarchy, lockAppointmentRows } from './agenda-locks.js'
 import { calculateBookingDepositTerms, hasCompleteDepositPaymentConfiguration } from './deposit-operations.js'
+import { formatServiceEstimate, parseEstimateOptions, resolveServiceEstimate, type ServiceEstimate } from '../bot-options/domain/service-booking.js'
 import {
   hasAppointmentOverlap,
   hasScheduleBlockOverlap,
@@ -51,6 +52,7 @@ export type ConfirmBookingWithoutDepositInput = {
     durationMinutes: number
     priceMinor: number | null
     priceMode: 'FIXED' | 'STARTING_AT' | null
+    estimate?: ServiceEstimate
   }>
   professional: { professionalId: string; name: string; assignedByBalancer: boolean }
   date: string
@@ -297,7 +299,7 @@ async function createBookingVisit(
   }
   if (!validCandidates.length || !canonicalServices) return { kind: 'SLOT_CONFLICT' }
 
-  assertCanonicalBookingSnapshot(input, canonicalServices)
+  const bookingServices = assertCanonicalBookingSnapshot(input, canonicalServices)
   const activeCatalogCount = await tx.$queryRaw<Array<{ count: number }>>(Prisma.sql`
     SELECT count(*)::int AS "count"
     FROM "Service" s
@@ -308,8 +310,8 @@ async function createBookingVisit(
     WHERE s."businessId" = ${input.businessId}
       AND s."id" IN (${Prisma.join(serviceIds)})
       AND s."isBookable" = true
-      AND s."attentionMode" = 'DIRECT_BOOKING'::"ServiceAttentionMode"
-      AND s."estimateAllowsBooking" = true
+      AND (s."attentionMode" = 'DIRECT_BOOKING'::"ServiceAttentionMode"
+        OR (s."attentionMode" = 'GUIDED_ESTIMATE'::"ServiceAttentionMode" AND s."estimateAllowsBooking" = true))
   `)
   if (activeCatalogCount[0]?.count !== serviceIds.length) {
     throw new Error('booking catalog changed during confirmation')
@@ -321,7 +323,7 @@ async function createBookingVisit(
     throw new Error('refusing no-deposit service in deposit hold')
   }
   const depositTerms = input.depositRequired ? calculateBookingDepositTerms({
-    services: canonicalServices.map((service) => ({
+    services: bookingServices.map((service) => ({
       id: service.id, name: service.name, price: service.price, priceMode: service.priceMode,
       depositMode: service.depositMode, depositValue: service.depositValue
     })),
@@ -412,6 +414,9 @@ async function createBookingVisit(
 
   const depositId = depositTerms ? randomUUID() : null
   const expiresAt = depositTerms ? new Date(setting.dbNow.getTime() + depositTerms.ttlMinutes * 60_000) : null
+  const estimateNotes = bookingServices.flatMap((service) => service.estimate
+    ? [`${service.name}${service.estimate.optionLabel ? ` — ${service.estimate.optionLabel}` : ''}: estimación ${formatServiceEstimate(service.estimate)}. Precio final pendiente de confirmación.`]
+    : []).join('\n') || null
   await tx.$executeRaw(Prisma.sql`
     INSERT INTO "BookingVisit" (
       "id", "businessId", "customerId", "professionalId", "sessionId", "status",
@@ -425,14 +430,14 @@ async function createBookingVisit(
   await tx.$executeRaw(Prisma.sql`
     INSERT INTO "Appointment" (
       "id", "customerId", "professionalId", "serviceId", "startAt", "origin",
-      "quotedPrice", "totalDurationMinutes", "status", "visitId"
+      "quotedPrice", "totalDurationMinutes", "status", "visitId", "notes"
     ) VALUES (
       ${appointmentId}, ${customerId}, ${assigned.id}, ${serviceIds[0]!}, ${startAt},
        'BOT'::"AppointmentOrigin", ${input.totalPriceMinor}, ${input.totalDurationMinutes},
-       ${input.depositRequired ? 'PENDING' : 'CONFIRMED'}::"AppointmentStatus", ${visitId}
+       ${input.depositRequired ? 'PENDING' : 'CONFIRMED'}::"AppointmentStatus", ${visitId}, ${estimateNotes}
     )
   `)
-  for (const [sortOrder, service] of canonicalServices.entries()) {
+  for (const [sortOrder, service] of bookingServices.entries()) {
     await tx.$executeRaw(Prisma.sql`
       INSERT INTO "AppointmentServiceItem" (
         "appointmentId", "serviceId", "sortOrder", "durationMinutes", "price"
@@ -598,13 +603,29 @@ function assertCanonicalBookingSnapshot(
   const canonical = input.services.map((snapshot) => {
     const service = byId.get(snapshot.serviceId)
     if (!service) throw new Error('booking service disappeared during confirmation')
+    const estimate = service.attentionMode === 'GUIDED_ESTIMATE'
+      ? resolveServiceEstimate({ ...service, estimateOptions: parseEstimateOptions(service.estimateOptions) }, snapshot.estimate?.optionId ?? null)
+      : null
+    if (service.attentionMode === 'GUIDED_ESTIMATE') {
+      if (!service.estimateAllowsBooking || !estimate || !snapshot.estimate ||
+          estimate.optionId !== snapshot.estimate.optionId || estimate.optionLabel !== snapshot.estimate.optionLabel ||
+          estimate.priceMin !== snapshot.estimate.priceMin || estimate.priceMax !== snapshot.estimate.priceMax ||
+          !Number.isSafeInteger(estimate.priceMin) || estimate.priceMin < 0 ||
+          (estimate.priceMax !== null && (!Number.isSafeInteger(estimate.priceMax) || estimate.priceMax < estimate.priceMin))) {
+        throw new Error('booking estimate snapshot changed during confirmation')
+      }
+    } else if (snapshot.estimate) {
+      throw new Error('booking estimate no longer matches service modality')
+    }
+    const price = estimate ? estimate.priceMin : service.price
+    const priceMode = estimate ? 'STARTING_AT' as const : service.priceMode
     if (
       snapshot.name !== service.name || snapshot.durationMinutes !== service.duration ||
-      snapshot.priceMinor !== service.price || snapshot.priceMode !== service.priceMode
+      snapshot.priceMinor !== price || snapshot.priceMode !== priceMode
     ) {
       throw new Error('booking service snapshot changed during confirmation')
     }
-    return service
+    return { ...service, price, priceMode, ...(estimate ? { estimate } : {}) }
   })
   const totalDuration = canonical.reduce((total, service) => total + service.duration, 0)
   const fixedPrice = canonical.every((service) => service.priceMode === 'FIXED' && service.price !== null)
@@ -613,6 +634,7 @@ function assertCanonicalBookingSnapshot(
   if (totalDuration !== input.totalDurationMinutes || fixedPrice !== input.totalPriceMinor) {
     throw new Error('booking aggregate snapshot changed during confirmation')
   }
+  return canonical
 }
 
 function addMinutes(date: Date, minutes: number) {

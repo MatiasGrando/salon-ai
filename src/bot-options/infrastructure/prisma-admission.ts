@@ -339,9 +339,21 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
       inboxId: randomUUID()
     })) return { outboundMessage: null }
 
+    const servicePhotoSession = event.kind === 'message' && (event.messageType === 'image' || event.messageType === 'document')
+      ? await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+          SELECT s."id" FROM "BotSession" s
+          JOIN "Conversation" c ON c."id" = s."conversationId" AND c."businessId" = s."businessId"
+          WHERE s."businessId" = ${input.route.businessId} AND c."phone" = ${event.fromPhone}
+            AND s."status" IN ('ACTIVE'::"BotSessionStatus", 'HUMAN_QUEUED'::"BotSessionStatus")
+            AND s."deploymentId" = ${input.route.deploymentId} AND s."deploymentGeneration" = ${input.route.generation}
+            AND (s."state"->>'flow' = 'SERVICE_PHOTOS' OR
+              (s."state"->>'flow' = 'HANDOFF_QUEUED' AND s."state"->'pendingEntityRef'->>'type' = 'SERVICE'))
+          LIMIT 1
+        `) : []
     if (
       this.#depositProofIngressEnabled && event.kind === 'message'
       && (event.messageType === 'image' || event.messageType === 'document')
+      && servicePhotoSession.length === 0
     ) {
       await upsertJob(
         tx,
