@@ -48,6 +48,14 @@ export type ProviderEventClassificationResult = {
   outboundMessage: { businessId: string; conversationId: string; messageId: string } | null
 }
 
+export function classifyFreeTextInput(flow: unknown, messageType: unknown, textBody: unknown) {
+  if (flow !== 'NAME_INPUT' || messageType !== 'text' || typeof textBody !== 'string') return null
+  return {
+    actionType: 'name.submit' as const,
+    payload: { name: textBody.trim() }
+  }
+}
+
 export interface AuthoritativeAdmissionRepository {
   resolveRoute(phoneNumberId: string): Promise<AuthoritativeRoute>
   admitAuthoritative(input: {
@@ -373,6 +381,11 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
       await this.#admitInteractive(tx, { ...input, event, inboxId })
       return { outboundMessage: null }
     }
+    if (event.kind === 'message' && await this.#admitFreeTextInput(tx, {
+      ...input,
+      event,
+      inboxId
+    })) return { outboundMessage: null }
 
     const actionType = event.kind === 'message' && event.messageType === 'unsupported'
       ? 'input.unsupported'
@@ -398,6 +411,60 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
       new Date()
     )
     return { outboundMessage: null }
+  }
+
+  async #admitFreeTextInput(
+    tx: Prisma.TransactionClient,
+    input: {
+      route: Extract<AuthoritativeRoute, { kind: 'new' }>
+      event: Extract<ParsedWebhookEvent, { kind: 'message' }>
+      providerEventId: string
+      inboxId: string
+    }
+  ): Promise<boolean> {
+    const sessions = await tx.$queryRaw<Array<{
+      sessionId: string
+      revision: bigint
+      flow: string | null
+      dbNow: Date
+    }>>(Prisma.sql`
+      SELECT s."id" AS "sessionId", s."revision", s."state"->>'flow' AS "flow",
+        clock_timestamp() AS "dbNow"
+      FROM "BotSession" s
+      JOIN "Conversation" c ON c."id" = s."conversationId" AND c."businessId" = s."businessId"
+      WHERE s."businessId" = ${input.route.businessId} AND c."phone" = ${input.event.fromPhone}
+        AND s."status" = 'ACTIVE'::"BotSessionStatus"
+        AND s."deploymentId" = ${input.route.deploymentId}
+        AND s."deploymentGeneration" = ${input.route.generation}
+      FOR UPDATE OF s
+    `)
+    if (sessions.length !== 1) return false
+    const session = sessions[0]!
+    const classified = classifyFreeTextInput(session.flow, input.event.messageType, input.event.textBody)
+    if (!classified) return false
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO "BotActionInbox" (
+        "id", "businessId", "providerEventId", "sessionId", "providerMessageId",
+        "actionType", "deploymentId", "deploymentGeneration", "payload",
+        "expectedRevision", "receivedAt", "status"
+      ) VALUES (
+        ${input.inboxId}, ${input.route.businessId}, ${input.providerEventId}, ${session.sessionId},
+        ${input.event.providerMessageId}, ${classified.actionType}, ${input.route.deploymentId},
+        ${input.route.generation}, ${JSON.stringify(classified.payload)}::jsonb,
+        ${session.revision}, ${session.dbNow}, 'SELECTED'::"BotInboxStatus"
+      )
+    `)
+    await upsertJob(
+      tx,
+      'PROCESS_SESSION',
+      input.inboxId,
+      input.route.businessId,
+      input.route.deploymentId,
+      input.route.generation,
+      session.revision,
+      session.dbNow
+    )
+    return true
   }
 
   /**
