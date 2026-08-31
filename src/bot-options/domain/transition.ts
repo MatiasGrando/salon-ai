@@ -916,7 +916,8 @@ function enterHandoff(
     flow: 'HANDOFF_QUEUED',
     handoff: 'QUEUED',
     handoffReturnFlow: state.flow === 'HANDOFF_QUEUED' ? state.handoffReturnFlow : state.flow,
-    presentation: plainPresentation()
+    // La subcategoría/página forma parte del paso pausado; sólo cerramos el overlay.
+    presentation: restoreFromNavigation(state.presentation)
   })
   return applied(nextState, renderCurrentView(nextState, EMPTY_CONTEXT_FOR_VIEWS), [
     { kind: 'REQUEST_HUMAN_HANDOFF', reason, detail, context },
@@ -1315,9 +1316,13 @@ function tryUniversal(
         flow: target,
         handoff: 'NONE',
         handoffReturnFlow: null,
-        presentation: plainPresentation()
+        presentation: restoreFromNavigation(state.presentation)
       }))
-      return applied(restored, renderCurrentView(restored, context), [
+      const resumedView = renderCurrentView(restored, context)
+      return applied(restored, {
+        ...resumedView,
+        informativeTexts: ['Cancelaste la solicitud de atención del equipo.', ...resumedView.informativeTexts]
+      }, [
         { kind: 'CANCEL_HUMAN_HANDOFF_BY_CUSTOMER' }
       ])
     }

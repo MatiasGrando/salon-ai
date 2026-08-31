@@ -563,12 +563,45 @@ if (coordinate.outcome === 'HANDOFF') {
 
 const cancelWait = transition(si, act('handoff.cancel'), ctx())
 assert.equal(cancelWait.outcome, 'APPLIED')
+assert.deepEqual(cancelWait.view.informativeTexts, ['Cancelaste la solicitud de atención del equipo.'])
   if (cancelWait.outcome === 'APPLIED') {
   // Vuelve al paso pausado conservando el carrito y la propuesta pendiente.
   assert.equal(cancelWait.state.handoffReturnFlow, null)
     assert.equal(cancelWait.state.handoff, 'NONE')
     assert.deepEqual(cancelWait.effects, [{ kind: 'CANCEL_HUMAN_HANDOFF_BY_CUSTOMER' }], 'customer cancellation carries no client-controlled handoff target')
   }
+
+// Cancelar atención vuelve al mismo paso sin vaciar identidad, carrito ni navegación contextual.
+for (const cart of [[], [{ serviceId: 'srv_corte' }], [{ serviceId: 'srv_corte' }, { serviceId: 'srv_color' }]]) {
+  for (const flow of ['CATEGORY_SELECT', 'SERVICE_SELECT', 'SERVICE_DETAIL', 'NAME_CONFIRM', 'DEPOSIT_INSTRUCTIONS'] as const) {
+    if (flow === 'DEPOSIT_INSTRUCTIONS' && cart.length === 0) continue
+    const before = stateWith({
+      flow, cart, nameCandidate: 'Martina',
+      booking: flow === 'DEPOSIT_INSTRUCTIONS' ? 'HELD' : 'DRAFT',
+      deposit: flow === 'DEPOSIT_INSTRUCTIONS' ? 'PENDING_PROOF' : 'NONE',
+      catalogMode: 'BROWSING', rejectedRecommendationIds: ['srv_rechazado'],
+      presentation: { kind: 'catalog_page', cursor: 2, parentServiceId: 'sub_color' },
+      pendingEntityRef: { type: 'SERVICE', id: 'srv_pendiente' },
+      selections: { categoryId: 'cat_cabello', professionalId: 'pro_1', anyProfessional: false,
+        date: '2026-09-02', slotStartAt: slotPayload.startAt, appointmentId: 'turno_existente' }
+    })
+    const queued = transition(before, act('handoff.request'), ctx())
+    assert.equal(queued.outcome, 'HANDOFF')
+    assert.deepEqual(queued.state.presentation, before.presentation, 'queue preserves subcategory and page')
+    const resumed = transition(queued.state, act('handoff.cancel'), ctx())
+    assert.ok(resumed.outcome === 'APPLIED')
+    assert.deepEqual(resumed.state, before, 'cancellation only removes the handoff, not prior answers or booking/deposit')
+    assert.deepEqual(resumed.effects, [{ kind: 'CANCEL_HUMAN_HANDOFF_BY_CUSTOMER' }])
+    const taken = transition({ ...queued.state, flow: 'HANDOFF_TAKEN', handoff: 'TAKEN' }, act('handoff.cancel'), ctx())
+    assert.equal(taken.outcome, 'RECOVERED')
+    if (taken.outcome === 'RECOVERED') assert.equal(taken.respond, false)
+  }
+}
+const fromNavigation = stateWith({ flow: 'SERVICE_SELECT', presentation: { kind: 'navigation_menu' },
+  cart: [{ serviceId: 'srv_corte' }], nameCandidate: 'Martina' })
+const queuedNavigation = transition(fromNavigation, act('handoff.request'), ctx())
+const resumedNavigation = transition(queuedNavigation.state, act('handoff.cancel'), ctx())
+assert.deepEqual(resumedNavigation.state, { ...fromNavigation, presentation: { kind: 'plain' } }, 'resume the underlying flow, not the navigation overlay')
 
 // ─── Seña ─────────────────────────────────────────────────────────────────────
 

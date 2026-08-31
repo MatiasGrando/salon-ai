@@ -824,6 +824,18 @@ async function processSessionJobInternal(input: {
         view = result.view
         outcome = result.outcome
         effects = 'effects' in result ? result.effects : []
+        if (effects.some((effect) => effect.kind === 'CANCEL_HUMAN_HANDOFF_BY_CUSTOMER')) {
+          // El contexto de HANDOFF_QUEUED no contiene las opciones del paso pausado.
+          // Recargamos la vista validada sin volver a transicionar ni borrar datos.
+          const resumedContext = await measureSessionStage('session_context_load', () => (input.contextProvider ?? defaultContextProvider)(tx, {
+            businessId: session.businessId, sessionId: session.id, state: nextState, actionType: 'system.reprompt',
+            entityRef: null, payload: null, dbNow: session.dbNow,
+            businessTimezone: session.businessTimezone, conversationPhone: session.toPhone
+          }))
+          const resumedView = renderCurrentView(nextState, resumedContext)
+          // Conservamos sólo el aviso de cancelación, no los detalles del contexto anterior.
+          view = { ...resumedView, informativeTexts: [...view.informativeTexts.slice(0, 1), ...resumedView.informativeTexts] }
+        }
       } else {
         actionType = 'prompt.conflict'
         promptId = input.job.aggregateId
