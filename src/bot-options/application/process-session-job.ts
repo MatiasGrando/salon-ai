@@ -122,6 +122,23 @@ export function isConversationRestartCommand(value: unknown): boolean {
     || command === '/reiniciar conversacion'
 }
 
+export function shouldRestartConversation(flow: BotOptionsState['flow'], value: unknown): boolean {
+  if (isConversationRestartCommand(value)) return true
+  if (flow !== 'BOOKING_CONFIRMED' || typeof value !== 'string') return false
+  const greeting = value
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .trim()
+    .toLocaleLowerCase('es-AR')
+    .replace(/[!¡.,]+$/g, '')
+    .replace(/\s+/g, ' ')
+  return greeting === 'hola'
+    || greeting === 'buenas'
+    || greeting === 'buen dia'
+    || greeting === 'buenas tardes'
+    || greeting === 'buenas noches'
+}
+
 /** Runs post-commit work only after the interactive transaction resolved. */
 export async function runCommittedProcessSession<T>(input: {
   client: RuntimeClient
@@ -1107,7 +1124,7 @@ async function processInitialInboxUnderClaim(
           `)
           existingSession.revision = photoRevision
         }
-        if (payload.messageType !== 'interactive' && isConversationRestartCommand(payload.textBody)) {
+        if (payload.messageType !== 'interactive' && shouldRestartConversation(state.state.flow, payload.textBody)) {
           if (existingSession.status === 'HUMAN_QUEUED') {
             await prismaBotOptionsEffectExecutor(tx, {
               businessId: row.businessId,

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { isConversationRestartCommand } from '../src/bot-options/application/process-session-job.js'
+import { isConversationRestartCommand, shouldRestartConversation } from '../src/bot-options/application/process-session-job.js'
 import { loadConversationGreetingView } from '../src/bot-options/application/lazy-context-window.js'
 import type { Prisma } from '../src/generated/prisma/client.js'
 
@@ -15,8 +15,14 @@ assert.equal(isConversationRestartCommand('reiniciar reserva'), false)
 assert.equal(isConversationRestartCommand(null), false)
 assert.equal(isConversationRestartCommand(undefined), false)
 
+assert.equal(shouldRestartConversation('BOOKING_CONFIRMED', 'hola'), true)
+assert.equal(shouldRestartConversation('BOOKING_CONFIRMED', 'Buenas tardes'), true)
+assert.equal(shouldRestartConversation('BOOKING_SUMMARY', 'hola'), false)
+assert.equal(shouldRestartConversation('NAME_INPUT', 'Matías Grando'), false)
+assert.equal(shouldRestartConversation('BOOKING_SUMMARY', 'reiniciar'), true)
+
 const worker = readFileSync(new URL('../src/bot-options/application/process-session-job.ts', import.meta.url), 'utf8')
-assert.match(worker, /isConversationRestartCommand\(payload\.textBody\)[\s\S]*?existingSession\.status === 'HUMAN_QUEUED'[\s\S]*?CANCEL_HUMAN_HANDOFF_BY_CUSTOMER/,
+assert.match(worker, /shouldRestartConversation\(state\.state\.flow, payload\.textBody\)[\s\S]*?existingSession\.status === 'HUMAN_QUEUED'[\s\S]*?CANCEL_HUMAN_HANDOFF_BY_CUSTOMER/,
   'reiniciar must durably cancel an existing queued handoff before resetting the menu')
 assert.match(worker, /CANCEL_HUMAN_HANDOFF_BY_CUSTOMER[\s\S]*?pendingConversationUpdates/,
   'restart cancellation must collect its post-commit CRM update')
