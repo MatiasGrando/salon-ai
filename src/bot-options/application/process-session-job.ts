@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
 import { applyLazyContextWindowTx } from './lazy-context-window.js'
 import { createInitialBotOptionsState, parseBotOptionsState, type BotOptionsState } from '../domain/state.js'
-import { renderCurrentView, transition, type TransitionContext } from '../domain/transition.js'
+import { mainMenuView, renderCurrentView, transition, type TransitionContext } from '../domain/transition.js'
 import type { BotOptionsActionPayload, BotOptionsEntityRef } from '../domain/actions.js'
 import type { BotOptionsEffect } from '../domain/effects.js'
 import { menuView, textView, type BotOptionsViewModel } from '../domain/views.js'
@@ -973,12 +973,13 @@ async function processInitialInboxUnderClaim(
   const result = await runProcessInboxTransaction(input.client, async (tx) => {
     await assertClaimedBotJobTx(tx, input.job)
     await assertDispatchClaimTx({ tx, businessId: input.job.businessId, claimToken: dispatchToken })
-    const rows = await tx.$queryRaw<Array<{ id: string; businessId: string; deploymentId: string; deploymentGeneration: number; payload: Prisma.JsonValue; providerEventId: string; providerMessageId: string | null; status: string; dbNow: Date; businessTimezone: string; admittedAt: Date; providerOccurredAt: Date | null }>>(Prisma.sql`
+    const rows = await tx.$queryRaw<Array<{ id: string; businessId: string; deploymentId: string; deploymentGeneration: number; payload: Prisma.JsonValue; providerEventId: string; providerMessageId: string | null; status: string; dbNow: Date; businessTimezone: string; businessName: string; admittedAt: Date; providerOccurredAt: Date | null }>>(Prisma.sql`
       SELECT i."id", e."businessId", i."deploymentId", i."deploymentGeneration", i."payload", i."providerEventId", i."providerMessageId", i."status"::text AS "status",
-        clock_timestamp() AS "dbNow", settings."timezone" AS "businessTimezone", e."admittedAt", e."providerOccurredAt"
+        clock_timestamp() AS "dbNow", settings."timezone" AS "businessTimezone", b."name" AS "businessName", e."admittedAt", e."providerOccurredAt"
       FROM "BotActionInbox" i JOIN "BotProviderEvent" e ON e."id" = i."providerEventId"
       JOIN "BotChannelDeployment" d ON d."id" = i."deploymentId" AND d."businessId" = e."businessId"
       JOIN "BusinessBotOptionsSettings" settings ON settings."businessId" = e."businessId"
+      JOIN "Business" b ON b."id" = e."businessId"
       WHERE i."id" = ${input.job.aggregateId} AND d."generation" = i."deploymentGeneration"
         AND d."activeConfigurationId" IS NOT NULL AND d."claimsPausedAt" IS NULL
        FOR UPDATE OF i FOR SHARE OF d
@@ -1181,7 +1182,7 @@ async function processInitialInboxUnderClaim(
       `)
       await persistView(tx, {
         businessId: row.businessId!, sessionId: session.id, revision: revisionTo, transitionId,
-        toPhone: payload.fromPhone, view: renderCurrentView(state, await defaultContextProvider(tx, {
+        toPhone: payload.fromPhone, view: inserted ? mainMenuView(row.businessName) : renderCurrentView(state, await defaultContextProvider(tx, {
           businessId: row.businessId!, sessionId: session.id, state, actionType: 'system.initial_view',
           entityRef: null, payload: null, dbNow: row.dbNow,
           businessTimezone: row.businessTimezone

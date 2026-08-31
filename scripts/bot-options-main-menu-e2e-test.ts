@@ -33,6 +33,18 @@ const deploymentId = `f5_menu_d_${suffix}`
 const phoneNumberId = `f5_menu_phone_${suffix}`
 const customerPhone = `54911${suffix.slice(0, 8)}`
 const secret = `f5_menu_secret_${suffix}`
+const expectedWelcome = [
+  '¡Hola! 👋 Soy el asistente virtual de F5 main menu contract.',
+  '',
+  'Desde este menú podés:',
+  '✨ Sacar un turno.',
+  '💅 Ver servicios y precios.',
+  '🕒 Consultar horarios.',
+  '📅 Ver, cambiar o cancelar un turno.',
+  '💬 Hablar con alguien del equipo.',
+  '',
+  'Para empezar, elegí la opción que necesitás 👇'
+].join('\n')
 
 try {
   await prisma.$executeRaw(Prisma.sql`
@@ -97,12 +109,12 @@ try {
         const payload = input.payload as { to?: unknown; item?: { type?: unknown; body?: unknown; rows?: Array<{ title?: string }> } }
         assert.equal(payload.to, customerPhone)
         assert.equal(payload.item?.type, 'interactive')
-        assert.equal(payload.item?.body, '¿Qué querés hacer?')
+        assert.equal(payload.item?.body, expectedWelcome)
         assert.deepEqual(payload.item?.rows?.map((row) => row.title), [
           'Sacar un turno',
           'Ver servicios y precios',
           'Consultar horarios',
-          'Gestionar un turno',
+          'Ver o cambiar un turno',
           'Hablar con el equipo'
         ])
         return { kind: 'accepted', providerMessageId: `wamid.f5.out.${suffix}` }
@@ -128,13 +140,17 @@ try {
   const repromptDelivery = await outbox.sendClaimedOutbox({
     client: prisma,
     item: reprompt,
-    provider: { async send() { return { kind: 'accepted', providerMessageId: `wamid.f5.out.reprompt.${suffix}` } } }
+    provider: { async send(input) {
+      const payload = input.payload as { item?: { body?: unknown } }
+      assert.equal(payload.item?.body, '¿Qué querés hacer?', 'active session reprompt must not repeat the welcome')
+      return { kind: 'accepted', providerMessageId: `wamid.f5.out.reprompt.${suffix}` }
+    } }
   })
   assert.equal(repromptDelivery, 'ACCEPTED')
 
   const result = await prisma.$queryRaw<Array<{
     sessions: bigint; prompts: bigint; choices: bigint; accepted: bigint; doneClaims: bigint
-    inboundMessages: bigint; outboundMessages: bigint
+    inboundMessages: bigint; outboundMessages: bigint; welcomeMessages: bigint
   }>>(Prisma.sql`
     SELECT
       (SELECT count(*) FROM "BotSession" WHERE "businessId" = ${businessId})::bigint AS "sessions",
@@ -147,11 +163,13 @@ try {
       (SELECT count(*) FROM "Message" m JOIN "Conversation" c ON c."id"=m."conversationId"
         WHERE c."businessId"=${businessId} AND m."direction"='INBOUND'::"MessageDirection" AND m."body"='hola')::bigint AS "inboundMessages",
       (SELECT count(*) FROM "Message" m JOIN "Conversation" c ON c."id"=m."conversationId"
-        WHERE c."businessId"=${businessId} AND m."direction"='OUTBOUND'::"MessageDirection" AND m."body"='¿Qué querés hacer?')::bigint AS "outboundMessages"
+        WHERE c."businessId"=${businessId} AND m."direction"='OUTBOUND'::"MessageDirection" AND m."body"='¿Qué querés hacer?')::bigint AS "outboundMessages",
+      (SELECT count(*) FROM "Message" m JOIN "Conversation" c ON c."id"=m."conversationId"
+        WHERE c."businessId"=${businessId} AND m."direction"='OUTBOUND'::"MessageDirection" AND m."body"=${expectedWelcome})::bigint AS "welcomeMessages"
   `)
   assert.deepEqual(result[0], {
     sessions: 1n, prompts: 1n, choices: 5n, accepted: 1n, doneClaims: 2n,
-    inboundMessages: 2n, outboundMessages: 2n
+    inboundMessages: 2n, outboundMessages: 1n, welcomeMessages: 1n
   })
 
   const pointerAfter = await prisma.botChannelDeployment.findUniqueOrThrow({

@@ -5,6 +5,7 @@ import {
 } from '../src/bot-options/domain/state.js'
 import {
   transition,
+  mainMenuView,
   renderCurrentView,
   normalizeContext,
   type NormalizedAction,
@@ -36,6 +37,44 @@ function stateWith(patch: Partial<BotOptionsState>): BotOptionsState {
 
 const menu = createInitialBotOptionsState()
 
+const welcome = mainMenuView('Glow')
+const approvedWelcome = [
+  '¡Hola! 👋 Soy el asistente virtual de Glow.',
+  '',
+  'Desde este menú podés:',
+  '✨ Sacar un turno.',
+  '💅 Ver servicios y precios.',
+  '🕒 Consultar horarios.',
+  '📅 Ver, cambiar o cancelar un turno.',
+  '💬 Hablar con alguien del equipo.',
+  '',
+  'Para empezar, elegí la opción que necesitás 👇'
+].join('\n')
+assert.equal(welcome.interactiveBody, approvedWelcome)
+assert.deepEqual(welcome.informativeTexts, [], 'welcome must not be duplicated before the menu')
+const welcomeScreen = renderWhatsAppScreen(welcome, { promptToken: 'w'.repeat(16) })
+assert.equal(welcomeScreen.items.length, 1, 'welcome and menu travel together without a duplicate text message')
+const welcomeItem = welcomeScreen.items[0]!
+assert.equal(welcomeItem.type, 'interactive')
+if (welcomeItem.type === 'interactive') {
+  assert.equal(welcomeItem.body, approvedWelcome)
+  assert.equal(welcomeItem.mode, 'list')
+  assert.equal(welcomeItem.rows?.length, 5)
+  assert.equal(welcomeItem.rows?.[3]?.title, 'Ver o cambiar un turno')
+  assert.ok(welcomeItem.rows?.every((row) => [...row.title].length <= 24))
+}
+assert.deepEqual(welcomeScreen.choiceMappings.map((choice) => choice.actionType), welcome.choices.map((choice) => choice.actionType))
+assert.equal(mainMenuView('Estética Lucía').interactiveBody, approvedWelcome.replace('Glow', 'Estética Lucía'))
+assert.equal(mainMenuView().interactiveBody, '¿Qué querés hacer?')
+assert.equal(renderCurrentView(menu, normalizeContext(ctx())).interactiveBody, '¿Qué querés hacer?', 'reset state alone must not repeat the introduction')
+assert.deepEqual(welcome.choices.map(({ actionType, label }) => ({ actionType, label })), [
+  { actionType: 'menu.start_booking', label: 'Sacar un turno' },
+  { actionType: 'menu.browse_services', label: 'Ver servicios y precios' },
+  { actionType: 'menu.business_hours', label: 'Consultar horarios' },
+  { actionType: 'menu.manage_appointment', label: 'Ver o cambiar un turno' },
+  { actionType: 'handoff.request', label: 'Hablar con el equipo' }
+])
+
 const askName = transition(menu, act('menu.start_booking'), ctx())
 if (askName.outcome === 'RECOVERED') throw new Error('start_booking debía aplicar')
 assert.equal(askName.state.flow, 'NAME_INPUT')
@@ -47,6 +86,45 @@ assert.equal((knownName as Extract<typeof knownName, { outcome: 'APPLIED' | 'HAN
 const browsing = transition(menu, act('menu.browse_services'), ctx())
 if (browsing.outcome === 'APPLIED') assert.equal(browsing.state.catalogMode, 'BROWSING')
 else throw new Error('browse debía aplicar')
+
+// Category copy lists only the current tenant-scoped page; selection remains interactive.
+const categoryContext = normalizeContext(ctx({ labels: { catalogCategories: [
+  { categoryId: 'cat_hair', label: 'Peluquería' },
+  { categoryId: 'cat_nails', label: 'Uñas' }
+] } }))
+const bookingCategories = renderCurrentView(stateWith({ flow: 'CATEGORY_SELECT' }), categoryContext)
+assert.equal(bookingCategories.interactiveBody, [
+  '¡Vamos a sacar tu turno! ✨', '', '• Peluquería', '• Uñas', '',
+  'Abrí el menú y elegí la categoría que te interesa 👇'
+].join('\n'))
+assert.deepEqual(bookingCategories.choices.filter((choice) => choice.actionType === 'category.select').map((choice) => choice.entityRef), [
+  { type: 'CATEGORY', id: 'cat_hair' }, { type: 'CATEGORY', id: 'cat_nails' }
+])
+const browsingCategories = renderCurrentView(stateWith({ flow: 'CATEGORY_SELECT', catalogMode: 'BROWSING' }), categoryContext)
+assert.equal(browsingCategories.interactiveBody, [
+  'Conocé nuestros servicios ✨', '', '• Peluquería', '• Uñas', '',
+  'Abrí el menú y elegí la categoría que te interesa 👇'
+].join('\n'))
+assert.deepEqual(browsingCategories.choices, bookingCategories.choices)
+const nextCategoryPage = renderCurrentView(stateWith({ flow: 'CATEGORY_SELECT', presentation: { kind: 'catalog_page', cursor: 1 } }), normalizeContext(ctx({
+  catalogCanPrevious: true, catalogCanNext: true,
+  labels: { catalogCategories: [{ categoryId: 'other_tenant_category', label: 'Masajes' }] }
+})))
+assert.ok(nextCategoryPage.interactiveBody?.includes('• Masajes'))
+assert.ok(!nextCategoryPage.interactiveBody?.includes('Peluquería'))
+assert.ok(nextCategoryPage.choices.some((choice) => choice.actionType === 'catalog.previous_page'))
+assert.ok(nextCategoryPage.choices.some((choice) => choice.actionType === 'catalog.next_page'))
+const longCategoryLabel = 'Tratamientos especiales '.repeat(60).trim()
+const longCategories = renderCurrentView(stateWith({ flow: 'CATEGORY_SELECT' }), normalizeContext(ctx({
+  labels: { catalogCategories: [{ categoryId: 'long_category', label: longCategoryLabel }] }
+})))
+assert.ok(longCategories.interactiveBody?.includes(longCategoryLabel), 'full category names must not be silently truncated in the copy')
+const longCategoryScreen = renderWhatsAppScreen(longCategories, { promptToken: 'c'.repeat(16) })
+const renderedCategoryBody = longCategoryScreen.items.flatMap((item) => item.type === 'none' ? [] : [item.body])
+assert.ok(renderedCategoryBody.every((body) => [...body].length <= 1024))
+assert.equal(renderedCategoryBody.join(' ').replace(/\s+/g, ' ').trim(), longCategories.interactiveBody?.replace(/\s+/g, ' ').trim())
+assert.equal(longCategoryScreen.items.at(-1)?.type, 'interactive')
+assert.ok(longCategoryScreen.choiceMappings.some((choice) => choice.entityId === 'long_category'))
 
 const hours = transition(menu, act('menu.business_hours'), ctx())
 if (hours.outcome === 'APPLIED') assert.equal(hours.state.flow, 'BUSINESS_HOURS')
@@ -66,6 +144,7 @@ if (noAppointments.outcome === 'RECOVERED') {
 const directHome = transition(stateWith({ flow: 'BUSINESS_HOURS' }), act('navigation.home'), ctx())
 assert.equal(directHome.outcome, 'APPLIED')
 if (directHome.outcome === 'APPLIED') assert.equal(directHome.state.flow, 'MAIN_MENU')
+assert.equal(directHome.view.interactiveBody, '¿Qué querés hacer?', 'returning home must not repeat the introduction')
 
 const progressedCatalog = stateWith({
   flow: 'CATEGORY_SELECT',

@@ -510,12 +510,25 @@ function plainPresentation(): BotOptionsPresentationMode {
 
 // ─── Vista estándar por estado (rebuild tras close/back/stale) ────────────────
 
-export function mainMenuView(): BotOptionsViewModel {
-  return menuView('¿Qué querés hacer?', [
+/** El nombre se pasa sólo al presentar una sesión nueva, nunca al volver al menú. */
+export function mainMenuView(businessName?: string): BotOptionsViewModel {
+  const body = businessName === undefined ? '¿Qué querés hacer?' : [
+    `¡Hola! 👋 Soy el asistente virtual de ${businessName}.`,
+    '',
+    'Desde este menú podés:',
+    '✨ Sacar un turno.',
+    '💅 Ver servicios y precios.',
+    '🕒 Consultar horarios.',
+    '📅 Ver, cambiar o cancelar un turno.',
+    '💬 Hablar con alguien del equipo.',
+    '',
+    'Para empezar, elegí la opción que necesitás 👇'
+  ].join('\n')
+  return menuView(body, [
     { actionType: 'menu.start_booking', label: 'Sacar un turno' },
     { actionType: 'menu.browse_services', label: 'Ver servicios y precios' },
     { actionType: 'menu.business_hours', label: 'Consultar horarios' },
-    { actionType: 'menu.manage_appointment', label: 'Gestionar un turno' },
+    { actionType: 'menu.manage_appointment', label: 'Ver o cambiar un turno' },
     HUMAN_CHOICE
   ])
 }
@@ -543,7 +556,15 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
         ]
       )
     case 'CATEGORY_SELECT': {
-      const choices: ViewChoice[] = (context.labels.catalogCategories ?? []).map((category) => ({
+      const categories = context.labels.catalogCategories ?? []
+      const body = [
+        state.catalogMode === 'BROWSING' ? 'Conocé nuestros servicios ✨' : '¡Vamos a sacar tu turno! ✨',
+        '',
+        ...categories.map((category) => `• ${category.label}`),
+        '',
+        'Abrí el menú y elegí la categoría que te interesa 👇'
+      ].join('\n')
+      const choices: ViewChoice[] = categories.map((category) => ({
         actionType: 'category.select',
         label: category.label,
         entityRef: { type: 'CATEGORY', id: category.categoryId }
@@ -552,7 +573,7 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
       if (context.catalogCanNext) choices.push({ actionType: 'catalog.next_page', label: 'Página siguiente' })
       const nav = composeGlobalNavigation({ capacity: 10, contextualCount: choices.length, back: BACK_CHOICE })
       return appendGlobals(
-        menuView('Elegí una categoría', choices),
+        menuView(body, choices),
         nav
       )
     }
