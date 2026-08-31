@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
 import { botOptionsMetrics } from '../observability/metrics.js'
 import { createMaintenanceCadence } from './maintenance-cadence.js'
+import { recoverStaleTakeOperations } from '../application/handoff-operations.js'
 
 export type ClaimedBotJob = {
   id: string
@@ -338,7 +339,10 @@ export function startPostgresWorkerLoop(input: {
   const maintenance = input.maintenanceEnabled === false ? null : createMaintenanceCadence({
     intervalMs: input.maintenanceIntervalMs ?? WORKER_MAINTENANCE_INTERVAL_MS,
     now: input.now,
-    run: async () => { await maintainBotJobs(input.client) }
+    run: async () => {
+      await maintainBotJobs(input.client)
+      await recoverStaleTakeOperations({ client: input.client })
+    }
   })
 
   const run = async () => {

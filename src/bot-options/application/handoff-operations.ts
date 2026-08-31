@@ -8,13 +8,40 @@ type Client = Pick<PrismaClient, '$transaction' | '$queryRaw' | '$executeRaw'>
 type Tx = Prisma.TransactionClient
 export type HandoffResolution = 'HOME' | 'RESUME'
 export type HandoffOperationResult = { handoffId: string; status: 'TAKEN' | 'RESOLVED'; resolution?: HandoffResolution }
-type TakePhase = { kind: 'DRAIN'; sessionId: string; handoffId: string; epoch: number } | { kind: 'REPLAY'; handoffId: string } | { kind: 'FAILURE'; message: string }
+type TakePhase = { kind: 'DRAIN'; sessionId: string; handoffId: string; epoch: number; operationKey: string } | { kind: 'REPLAY'; handoffId: string } | { kind: 'FAILURE'; message: string }
 type FinalTake = HandoffOperationResult | { failure: string }
 type ResumeSnapshot = { v: 1; sessionRevision: string; stateDigest: string; conversationUpdatedAt: string; conversationStep: string; conversationAiEnabled: boolean; conversationStateDigest: string; aggregates: AggregateSnapshot[] }
 type AggregateSnapshot = { visitId: string; visitVersion: number; visitStatus: string; holdExpiresAt: string | null; professionalId: string; appointmentId: string | null; appointmentVersion: number | null; appointmentStatus: string | null; appointmentStartAt: string | null; serviceId: string | null; depositId: string | null; depositStatus: string | null; depositExpiresAt: string | null; depositVisitId: string | null }
 
 const hash = (value: object) => createHash('sha256').update(JSON.stringify(value), 'utf8').digest('hex')
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+export const STALE_HANDOFF_TAKE_MS = 60_000
+
+export function canonicalTakeOperation(input: {
+  requestedOperationKey: string
+  actorUserId: string
+  requestHash: string
+  pending?: { canonicalOperationKey: string; actorUserId: string | null; requestHash: string } | null
+}): string {
+  if (!input.pending) return input.requestedOperationKey
+  if (input.pending.actorUserId !== input.actorUserId || input.pending.requestHash !== input.requestHash) {
+    throw new Error('TAKE_IN_PROGRESS: handoff take belongs to another actor')
+  }
+  return input.pending.canonicalOperationKey
+}
+
+export function canonicalResolveOperation(input: {
+  requestedOperationKey: string
+  actorUserId: string
+  requestHash: string
+  pending?: { canonicalOperationKey: string; actorUserId: string | null; requestHash: string } | null
+}): string {
+  if (!input.pending) return input.requestedOperationKey
+  if (input.pending.actorUserId !== input.actorUserId || input.pending.requestHash !== input.requestHash) {
+    throw new Error('RESOLVE_IN_PROGRESS: handoff resolve belongs to another actor or request')
+  }
+  return input.pending.canonicalOperationKey
+}
 
 /** Closes a per-session fence in a short transaction, then drains outside it. */
 export async function takeBotHandoff(input: {
@@ -36,17 +63,46 @@ export async function takeBotHandoff(input: {
         }
         expectOne(await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "status"='STARTED',"updatedAt"=clock_timestamp() WHERE "operationKey"=${input.operationKey} AND "status"='BLOCKED_UNKNOWN'`), 'handoff UNKNOWN recovery')
       } else if (row.operationStatus !== 'STARTED') throw new Error('handoff take is durably aborted')
-      return { kind: 'DRAIN', sessionId: row.sessionId, handoffId: row.handoffId, epoch: row.epoch }
+      else expectOne(await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "updatedAt"=clock_timestamp()
+        WHERE "operationKey"=${input.operationKey} AND "status"='STARTED'`), 'handoff take lease refresh')
+      return { kind: 'DRAIN', sessionId: row.sessionId, handoffId: row.handoffId, epoch: row.epoch, operationKey: input.operationKey }
     }
     const rows = await tx.$queryRaw<Array<OperationRow>>(Prisma.sql`
-      SELECT s."id" AS "sessionId",s."handoffFenceEpoch" AS "epoch",h."id" AS "handoffId",h."status"::text AS "handoffStatus",
-        EXISTS (SELECT 1 FROM "BotOperation" pending WHERE pending."businessId"=s."businessId" AND pending."sessionId"=s."id" AND pending."type"='HANDOFF_TAKE' AND pending."status" IN ('STARTED','BLOCKED_UNKNOWN')) AS "otherTakeStarted"
+      SELECT s."id" AS "sessionId",s."handoffFenceEpoch" AS "epoch",h."id" AS "handoffId",h."status"::text AS "handoffStatus"
       FROM "BotSession" s JOIN "BotHandoff" h ON h."businessId"=s."businessId" AND h."sessionId"=s."id"
       WHERE s."businessId"=${input.businessId} AND s."conversationId"=${input.conversationId} AND h."status" IN ('QUEUED'::"BotHandoffStatus",'TAKEN'::"BotHandoffStatus")
       FOR UPDATE OF s,h`)
     const row = rows[0]
     if (!row) throw new Error('active deterministic handoff not found in authorized conversation')
-    if (row.handoffStatus !== 'QUEUED' || row.otherTakeStarted) throw new Error('handoff is already being taken')
+    if (row.handoffStatus !== 'QUEUED') throw new Error('handoff is already being taken')
+    const pending = await tx.$queryRaw<Array<{ canonicalOperationKey: string; status: string; requestHash: string; actorUserId: string | null }>>(Prisma.sql`
+      SELECT op."operationKey" AS "canonicalOperationKey",op."status",op."requestHash",a."actorUserId"
+      FROM "BotOperation" op
+      JOIN "BotHandoffAudit" a ON a."businessId"=op."businessId" AND a."sessionId"=op."sessionId"
+        AND a."handoffId"=op."resultRef" AND a."operationKey"=op."operationKey" AND a."action"='TAKE_STARTED'
+      WHERE op."businessId"=${input.businessId} AND op."sessionId"=${row.sessionId}
+        AND op."resultRef"=${row.handoffId} AND op."type"='HANDOFF_TAKE'
+        AND op."status" IN ('STARTED','BLOCKED_UNKNOWN')
+      ORDER BY op."createdAt",op."operationKey" FOR UPDATE OF op
+    `)
+    if (pending.length > 1) throw new Error('handoff take has ambiguous active operations')
+    const canonical = pending[0]
+    if (canonical) {
+      const canonicalOperationKey = canonicalTakeOperation({
+        requestedOperationKey: input.operationKey, actorUserId: input.actorUserId, requestHash, pending: canonical
+      })
+      if (canonical.status === 'BLOCKED_UNKNOWN') {
+        const drain = await handoffDrain(tx, input.businessId, row.sessionId)
+        if (drain.unknown) {
+          await audit(tx, input.businessId, row.sessionId, row.handoffId, 'TAKE_BLOCKED_UNKNOWN', input.actorUserId, canonicalOperationKey, { epoch: row.epoch })
+          return { kind: 'FAILURE', message: 'handoff take blocked by UNKNOWN dispatch' }
+        }
+        expectOne(await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "status"='STARTED',"updatedAt"=clock_timestamp()
+          WHERE "operationKey"=${canonicalOperationKey} AND "status"='BLOCKED_UNKNOWN'`), 'adopted handoff UNKNOWN recovery')
+      } else expectOne(await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "updatedAt"=clock_timestamp()
+        WHERE "operationKey"=${canonicalOperationKey} AND "status"='STARTED'`), 'adopted handoff take lease refresh')
+      return { kind: 'DRAIN', sessionId: row.sessionId, handoffId: row.handoffId, epoch: row.epoch, operationKey: canonicalOperationKey }
+    }
     if (row.epoch < 0) throw new Error('invalid handoff fence epoch')
     const epoch = row.epoch + 1
     expectOne(await tx.$executeRaw(Prisma.sql`UPDATE "BotSession" SET "handoffClaimsPausedAt"=clock_timestamp(), "handoffFenceEpoch"=${epoch}, "updatedAt"=clock_timestamp()
@@ -54,7 +110,7 @@ export async function takeBotHandoff(input: {
     await tx.$executeRaw(Prisma.sql`INSERT INTO "BotOperation" ("id","operationKey","type","businessId","sessionId","status","requestHash","resultRef","updatedAt")
       VALUES (${randomUUID()},${input.operationKey},'HANDOFF_TAKE',${input.businessId},${row.sessionId},'STARTED',${requestHash},${row.handoffId},clock_timestamp())`)
     await audit(tx, input.businessId, row.sessionId, row.handoffId, 'TAKE_STARTED', input.actorUserId, input.operationKey, { epoch })
-    return { kind: 'DRAIN', sessionId: row.sessionId, handoffId: row.handoffId, epoch }
+    return { kind: 'DRAIN', sessionId: row.sessionId, handoffId: row.handoffId, epoch, operationKey: input.operationKey }
   })
   if (phase.kind === 'REPLAY') return { handoffId: phase.handoffId, status: 'TAKEN' }
   if (phase.kind === 'FAILURE') throw new Error(phase.message)
@@ -76,16 +132,16 @@ export async function takeBotHandoff(input: {
     const nowDrain = await handoffDrain(tx, input.businessId, phase.sessionId)
     if (nowDrain.unknown) {
       expectOne(await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "status"='BLOCKED_UNKNOWN',"updatedAt"=clock_timestamp()
-        WHERE "operationKey"=${input.operationKey} AND "status"='STARTED'`), 'handoff UNKNOWN operation')
-      await audit(tx, input.businessId, phase.sessionId, phase.handoffId, 'TAKE_BLOCKED_UNKNOWN', input.actorUserId, input.operationKey, { epoch: phase.epoch })
+        WHERE "operationKey"=${phase.operationKey} AND "status"='STARTED'`), 'handoff UNKNOWN operation')
+      await audit(tx, input.businessId, phase.sessionId, phase.handoffId, 'TAKE_BLOCKED_UNKNOWN', input.actorUserId, phase.operationKey, { epoch: phase.epoch })
       return { failure: 'handoff take blocked by UNKNOWN dispatch' }
     }
     if (nowDrain.active > 0) {
       expectOne(await tx.$executeRaw(Prisma.sql`UPDATE "BotSession" SET "handoffClaimsPausedAt"=NULL,"updatedAt"=clock_timestamp()
         WHERE "id"=${phase.sessionId} AND "businessId"=${input.businessId} AND "handoffFenceEpoch"=${phase.epoch} AND "handoffClaimsPausedAt" IS NOT NULL`), 'exact handoff gate reopen')
       expectOne(await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "status"='ABORTED',"updatedAt"=clock_timestamp()
-        WHERE "operationKey"=${input.operationKey} AND "status"='STARTED'`), 'handoff timeout operation')
-      await audit(tx, input.businessId, phase.sessionId, phase.handoffId, 'TAKE_TIMEOUT_REOPENED', input.actorUserId, input.operationKey, { epoch: phase.epoch })
+        WHERE "operationKey"=${phase.operationKey} AND "status"='STARTED'`), 'handoff timeout operation')
+      await audit(tx, input.businessId, phase.sessionId, phase.handoffId, 'TAKE_TIMEOUT_REOPENED', input.actorUserId, phase.operationKey, { epoch: phase.epoch })
       return { failure: 'handoff take drain timed out; exact gate reopened' }
     }
     if (row.handoffStatus === 'TAKEN') return { handoffId: phase.handoffId, status: 'TAKEN' }
@@ -104,8 +160,8 @@ export async function takeBotHandoff(input: {
     // snapshot, so no observable TAKEN handoff can lack its resume baseline.
     expectOne(await tx.$executeRaw(Prisma.sql`UPDATE "BotHandoff" SET "status"='TAKEN'::"BotHandoffStatus","ownerUserId"=${input.actorUserId},"takenAt"=clock_timestamp(),"resumeSnapshot"=${JSON.stringify(snapshot)}::jsonb,"updatedAt"=clock_timestamp()
       WHERE "id"=${phase.handoffId} AND "businessId"=${input.businessId} AND "status"='QUEUED'::"BotHandoffStatus" AND "resumeSnapshot" IS NULL`), 'handoff ownership and resume snapshot')
-    expectOne(await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "status"='COMPLETED',"updatedAt"=clock_timestamp() WHERE "operationKey"=${input.operationKey} AND "status"='STARTED'`), 'handoff completion')
-    await audit(tx, input.businessId, phase.sessionId, phase.handoffId, 'TAKE_COMPLETED', input.actorUserId, input.operationKey, { epoch: phase.epoch, suppressedJobs })
+    expectOne(await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "status"='COMPLETED',"updatedAt"=clock_timestamp() WHERE "operationKey"=${phase.operationKey} AND "status"='STARTED'`), 'handoff completion')
+    await audit(tx, input.businessId, phase.sessionId, phase.handoffId, 'TAKE_COMPLETED', input.actorUserId, phase.operationKey, { epoch: phase.epoch, suppressedJobs })
     return { handoffId: phase.handoffId, status: 'TAKEN' }
   })
   if ('failure' in final) throw new Error(final.failure)
@@ -116,6 +172,8 @@ export async function resolveBotHandoff(input: { client: Client; businessId: str
   if (!input.actorUserId.trim() || !input.operationKey.trim()) throw new Error('handoff resolve requires authenticated actor and operation key')
   const requestHash = hash({ action: 'RESOLVE', actorUserId: input.actorUserId, conversationId: input.conversationId, resolution: input.resolution })
   const result = await input.client.$transaction(async (tx): Promise<HandoffOperationResult | { failure: string }> => {
+    let effectiveOperationKey = input.operationKey
+    let operationExists = false
     const replay = await lockOperationTarget(tx, input.operationKey, input.businessId, input.conversationId)
     let row: (OperationRow & LockedSession) | undefined
     if (replay) {
@@ -131,6 +189,7 @@ export async function resolveBotHandoff(input: { client: Client; businessId: str
       expectOne(await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "status"='STARTED',"updatedAt"=clock_timestamp()
         WHERE "operationKey"=${input.operationKey} AND "status"='BLOCKED_UNKNOWN'`), 'handoff resolve UNKNOWN recovery')
       row = replay
+      operationExists = true
     } else {
       const rows = await tx.$queryRaw<Array<OperationRow & LockedSession>>(Prisma.sql`
       SELECT s."id" AS "sessionId",s."state",s."revision",s."deploymentId",s."deploymentGeneration",s."handoffFenceEpoch" AS "epoch",s."handoffClaimsPausedAt" AS "paused",
@@ -143,14 +202,45 @@ export async function resolveBotHandoff(input: { client: Client; businessId: str
     if (!row) throw new Error('taken deterministic handoff not found')
     if (row.owner !== input.actorUserId) throw new Error('only handoff owner may resolve')
     if (row.handoffStatus !== 'TAKEN' || !row.paused) throw new Error('handoff resolve lost paused ownership fence')
+    if (!replay) {
+      const pendingResolve = await tx.$queryRaw<Array<{ canonicalOperationKey: string; status: string; requestHash: string; actorUserId: string | null }>>(Prisma.sql`
+        SELECT op."operationKey" AS "canonicalOperationKey",op."status",op."requestHash",a."actorUserId"
+        FROM "BotOperation" op
+        JOIN "BotHandoffAudit" a ON a."businessId"=op."businessId" AND a."sessionId"=op."sessionId"
+          AND a."handoffId"=op."resultRef" AND a."operationKey"=op."operationKey" AND a."action"='RESOLVE_BLOCKED_UNKNOWN'
+        WHERE op."businessId"=${input.businessId} AND op."sessionId"=${row.sessionId}
+          AND op."resultRef"=${row.handoffId} AND op."type"='HANDOFF_RESOLVE'
+          AND op."status" IN ('STARTED','BLOCKED_UNKNOWN')
+        ORDER BY op."createdAt",op."operationKey" FOR UPDATE OF op
+      `)
+      if (pendingResolve.length > 1) throw new Error('handoff resolve has ambiguous active operations')
+      const canonical = pendingResolve[0]
+      if (canonical) {
+        effectiveOperationKey = canonicalResolveOperation({
+          requestedOperationKey: input.operationKey, actorUserId: input.actorUserId, requestHash, pending: canonical
+        })
+        operationExists = true
+        if (canonical.status === 'BLOCKED_UNKNOWN') {
+          const pendingDrain = await handoffDrain(tx, input.businessId, row.sessionId)
+          if (pendingDrain.unknown) {
+            await audit(tx, input.businessId, row.sessionId, row.handoffId, 'RESOLVE_BLOCKED_UNKNOWN', input.actorUserId, effectiveOperationKey, { epoch: row.epoch })
+            return { failure: 'handoff resolve blocked by UNKNOWN dispatch' }
+          }
+          expectOne(await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "status"='STARTED',"updatedAt"=clock_timestamp()
+            WHERE "operationKey"=${effectiveOperationKey} AND "status"='BLOCKED_UNKNOWN'`), 'adopted handoff resolve UNKNOWN recovery')
+        }
+      }
+    }
     const drain = await handoffDrain(tx, input.businessId, row.sessionId)
     if (drain.unknown) {
-      await tx.$executeRaw(Prisma.sql`INSERT INTO "BotOperation" ("id","operationKey","type","businessId","sessionId","status","requestHash","resultRef","updatedAt") VALUES (${randomUUID()},${input.operationKey},'HANDOFF_RESOLVE',${input.businessId},${row.sessionId},'BLOCKED_UNKNOWN',${requestHash},${row.handoffId},clock_timestamp())`)
-      await audit(tx, input.businessId, row.sessionId, row.handoffId, 'RESOLVE_BLOCKED_UNKNOWN', input.actorUserId, input.operationKey, { epoch: row.epoch })
+      if (operationExists) expectOne(await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "status"='BLOCKED_UNKNOWN',"updatedAt"=clock_timestamp()
+        WHERE "operationKey"=${effectiveOperationKey} AND "status"='STARTED'`), 'handoff resolve returns to UNKNOWN')
+      else await tx.$executeRaw(Prisma.sql`INSERT INTO "BotOperation" ("id","operationKey","type","businessId","sessionId","status","requestHash","resultRef","updatedAt") VALUES (${randomUUID()},${effectiveOperationKey},'HANDOFF_RESOLVE',${input.businessId},${row.sessionId},'BLOCKED_UNKNOWN',${requestHash},${row.handoffId},clock_timestamp())`)
+      await audit(tx, input.businessId, row.sessionId, row.handoffId, 'RESOLVE_BLOCKED_UNKNOWN', input.actorUserId, effectiveOperationKey, { epoch: row.epoch })
       return { failure: 'handoff resolve blocked by UNKNOWN dispatch' }
     }
-    if (!replay) {
-      await tx.$executeRaw(Prisma.sql`INSERT INTO "BotOperation" ("id","operationKey","type","businessId","sessionId","status","requestHash","resultRef","updatedAt") VALUES (${randomUUID()},${input.operationKey},'HANDOFF_RESOLVE',${input.businessId},${row.sessionId},'STARTED',${requestHash},${row.handoffId},clock_timestamp())`)
+    if (!operationExists) {
+      await tx.$executeRaw(Prisma.sql`INSERT INTO "BotOperation" ("id","operationKey","type","businessId","sessionId","status","requestHash","resultRef","updatedAt") VALUES (${randomUUID()},${effectiveOperationKey},'HANDOFF_RESOLVE',${input.businessId},${row.sessionId},'STARTED',${requestHash},${row.handoffId},clock_timestamp())`)
     }
     const conversation = await lockConversation(tx, input.businessId, input.conversationId)
     const applied: HandoffResolution = input.resolution === 'RESUME' && await isSafeResume(tx, row, conversation, input.businessId) ? 'RESUME' : 'HOME'
@@ -160,15 +250,119 @@ export async function resolveBotHandoff(input: { client: Client; businessId: str
       ? Prisma.sql`UPDATE "Conversation" SET "currentStep"='START',"aiEnabled"=true,"humanHandoffResolvedAt"=clock_timestamp(),"misunderstandingCount"=0,"updatedAt"=clock_timestamp() WHERE "id"=${input.conversationId} AND "businessId"=${input.businessId}`
       : Prisma.sql`UPDATE "Conversation" SET "currentStep"='START',"aiEnabled"=true,"humanHandoffResolvedAt"=clock_timestamp(),"lastAvailability"=NULL,"misunderstandingCount"=0,"updatedAt"=clock_timestamp() WHERE "id"=${input.conversationId} AND "businessId"=${input.businessId}`), 'resolved conversation')
     const suppressedJobs = await suppressPreTake(tx, input.businessId, row.sessionId)
-    expectOne(await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "status"='COMPLETED',"updatedAt"=clock_timestamp() WHERE "operationKey"=${input.operationKey} AND "status"='STARTED'`), 'resolve completion')
-    await audit(tx, input.businessId, row.sessionId, row.handoffId, 'RESOLVE_COMPLETED', input.actorUserId, input.operationKey, { requested: input.resolution, applied, epoch: row.epoch, suppressedJobs })
+    expectOne(await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "status"='COMPLETED',"updatedAt"=clock_timestamp() WHERE "operationKey"=${effectiveOperationKey} AND "status"='STARTED'`), 'resolve completion')
+    await audit(tx, input.businessId, row.sessionId, row.handoffId, 'RESOLVE_COMPLETED', input.actorUserId, effectiveOperationKey, { requested: input.resolution, applied, epoch: row.epoch, suppressedJobs })
     return { handoffId: row.handoffId, status: 'RESOLVED', resolution: applied }
   })
   if ('failure' in result) throw new Error(result.failure)
   return result
 }
 
-type OperationRow = { sessionId: string; handoffId: string; handoffStatus: string; epoch: number; operationType: string | null; operationBusinessId: string | null; operationSessionId: string | null; operationHash: string | null; resultRef: string | null; operationStatus: string | null; otherTakeStarted?: boolean; owner?: string | null; resumePolicy?: string | null; resumeSnapshot?: Prisma.JsonValue | null }
+export type StaleTakeCandidate = {
+  operationKey: string
+  businessId: string
+  sessionId: string
+  handoffId: string
+  conversationId: string
+  actorUserId: string
+  epoch: number
+}
+
+/**
+ * One bounded maintenance pass. Fresh operations remain owned by their request;
+ * UNKNOWN delivery is never guessed. A stale, quiescent STARTED operation is
+ * resumed with its canonical identity and original authenticated actor.
+ */
+export async function recoverStaleTakeOperations(input: {
+  client: Client
+  staleMs?: number
+  limit?: number
+  /** Deterministic seam for focused recovery contracts; production omits it. */
+  recovery?: {
+    drain(candidate: StaleTakeCandidate): Promise<{ active: number; unknown: boolean }>
+    resume(candidate: StaleTakeCandidate): Promise<'COMPLETED' | 'BLOCKED_UNKNOWN' | 'FAILED'>
+    abort(candidate: StaleTakeCandidate): Promise<boolean>
+  }
+}): Promise<{ completed: number; waiting: number; blockedUnknown: number; aborted: number }> {
+  const staleMs = input.staleMs ?? STALE_HANDOFF_TAKE_MS
+  if (!Number.isFinite(staleMs) || staleMs < STALE_HANDOFF_TAKE_MS) throw new Error('stale take threshold is below the safe window')
+  const candidates = await input.client.$queryRaw<StaleTakeCandidate[]>(Prisma.sql`
+    SELECT op."operationKey",op."businessId",op."sessionId",op."resultRef" AS "handoffId",
+      s."conversationId",a."actorUserId",s."handoffFenceEpoch" AS "epoch"
+    FROM "BotOperation" op
+    JOIN "BotSession" s ON s."id"=op."sessionId" AND s."businessId"=op."businessId"
+    JOIN "BotHandoff" h ON h."id"=op."resultRef" AND h."sessionId"=s."id" AND h."businessId"=s."businessId"
+    JOIN "BotHandoffAudit" a ON a."handoffId"=h."id" AND a."businessId"=h."businessId"
+      AND a."sessionId"=s."id" AND a."operationKey"=op."operationKey" AND a."action"='TAKE_STARTED'
+    WHERE op."type"='HANDOFF_TAKE' AND op."status"='STARTED'
+      AND op."updatedAt" < clock_timestamp() - (${staleMs} * interval '1 millisecond')
+      AND s."handoffClaimsPausedAt" IS NOT NULL AND s."status"='HUMAN_QUEUED'::"BotSessionStatus"
+      AND s."conversationId" IS NOT NULL
+      AND h."status"='QUEUED'::"BotHandoffStatus" AND a."actorUserId" IS NOT NULL
+    ORDER BY op."updatedAt",op."operationKey" LIMIT ${Math.max(1, Math.min(input.limit ?? 10, 100))}
+  `)
+  const result = { completed: 0, waiting: 0, blockedUnknown: 0, aborted: 0 }
+  const recovery = input.recovery ?? {
+    drain: (candidate: StaleTakeCandidate) => handoffDrain(input.client, candidate.businessId, candidate.sessionId),
+    resume: async (candidate: StaleTakeCandidate) => {
+      try {
+        await takeBotHandoff({
+          client: input.client, businessId: candidate.businessId, conversationId: candidate.conversationId,
+          actorUserId: candidate.actorUserId, operationKey: candidate.operationKey, drainMs: 0
+        })
+        return 'COMPLETED' as const
+      } catch {
+        return await takeOperationStatus(input.client, candidate.operationKey) === 'BLOCKED_UNKNOWN'
+          ? 'BLOCKED_UNKNOWN' as const
+          : 'FAILED' as const
+      }
+    },
+    abort: (candidate: StaleTakeCandidate) => abortFailedStaleTake(input.client, candidate)
+  }
+  for (const candidate of candidates) {
+    const drain = await recovery.drain(candidate)
+    if (drain.active > 0) { result.waiting += 1; continue }
+    const outcome = await recovery.resume(candidate)
+    if (outcome === 'COMPLETED') result.completed += 1
+    else if (outcome === 'BLOCKED_UNKNOWN') result.blockedUnknown += 1
+    else if (await recovery.abort(candidate)) result.aborted += 1
+  }
+  return result
+}
+
+async function takeOperationStatus(client: Pick<PrismaClient, '$queryRaw'>, operationKey: string) {
+  const rows = await client.$queryRaw<Array<{ status: string }>>(Prisma.sql`
+    SELECT "status" FROM "BotOperation" WHERE "operationKey"=${operationKey} AND "type"='HANDOFF_TAKE'
+  `)
+  return rows[0]?.status ?? null
+}
+
+async function abortFailedStaleTake(client: Client, candidate: StaleTakeCandidate): Promise<boolean> {
+  return client.$transaction(async tx => {
+    const rows = await tx.$queryRaw<Array<{ epoch: number }>>(Prisma.sql`
+      SELECT s."handoffFenceEpoch" AS "epoch" FROM "BotSession" s
+      JOIN "BotHandoff" h ON h."id"=${candidate.handoffId} AND h."businessId"=s."businessId" AND h."sessionId"=s."id"
+      JOIN "BotOperation" op ON op."operationKey"=${candidate.operationKey} AND op."businessId"=s."businessId" AND op."sessionId"=s."id"
+      WHERE s."id"=${candidate.sessionId} AND s."businessId"=${candidate.businessId}
+        AND s."handoffClaimsPausedAt" IS NOT NULL AND s."handoffFenceEpoch"=${candidate.epoch}
+        AND s."status"='HUMAN_QUEUED'::"BotSessionStatus" AND h."status"='QUEUED'::"BotHandoffStatus"
+        AND op."type"='HANDOFF_TAKE' AND op."status"='STARTED' AND op."resultRef"=h."id"
+      FOR UPDATE OF s,h,op
+    `)
+    if (rows.length !== 1) return false
+    const drain = await handoffDrain(tx, candidate.businessId, candidate.sessionId)
+    if (drain.active > 0 || drain.unknown) return false
+    expectOne(await tx.$executeRaw(Prisma.sql`UPDATE "BotSession" SET "handoffClaimsPausedAt"=NULL,"updatedAt"=clock_timestamp()
+      WHERE "id"=${candidate.sessionId} AND "businessId"=${candidate.businessId}
+        AND "handoffFenceEpoch"=${candidate.epoch} AND "handoffClaimsPausedAt" IS NOT NULL`), 'stale take recovery fence reopen')
+    expectOne(await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "status"='ABORTED',"lastError"='STALE_TAKE_FINALIZATION_FAILED',"updatedAt"=clock_timestamp()
+      WHERE "operationKey"=${candidate.operationKey} AND "status"='STARTED'`), 'stale take recovery abort')
+    await audit(tx, candidate.businessId, candidate.sessionId, candidate.handoffId, 'TAKE_RECOVERY_ABORTED', candidate.actorUserId, candidate.operationKey, { epoch: candidate.epoch })
+    return true
+  })
+}
+
+type OperationRow = { sessionId: string; handoffId: string; handoffStatus: string; epoch: number; operationType: string | null; operationBusinessId: string | null; operationSessionId: string | null; operationHash: string | null; resultRef: string | null; operationStatus: string | null; owner?: string | null; resumePolicy?: string | null; resumeSnapshot?: Prisma.JsonValue | null }
 type LockedSession = { state: Prisma.JsonValue; revision: bigint; deploymentId: string; deploymentGeneration: number; epoch: number; paused: Date | null; handoffStatus: string; resumeSnapshot?: Prisma.JsonValue | null }
 function assertOperationReplay(row: OperationRow, type: string, businessId: string, sessionId: string, requestHash: string, handoffId: string) {
   if (row.operationType !== type || row.operationBusinessId !== businessId || row.operationSessionId !== sessionId || row.operationHash !== requestHash || row.resultRef !== handoffId) throw new Error('handoff idempotency conflict')

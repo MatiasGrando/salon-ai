@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { resolveF10PgContractDatabase } from './f10-pg-contract-database.js'
 
 const connectionString = resolveF10PgContractDatabase('F10.4 handoff resume contract')
@@ -19,6 +19,8 @@ try {
   await preTakeProofIsTerminalAfterResolution()
   await queuedTakeWithoutSnapshotFails()
   await validResumeAndReplay()
+  await staleTakeRecoveryCompletesOwnership()
+  await blockedResolveReloadAdoptsCanonicalOperation()
   await legacyTakenSnapshotInjectionHomes()
   await manualConversationWins()
   await invalidStateReferenceHomes()
@@ -80,6 +82,41 @@ async function validResumeAndReplay() {
   const x = await scenario('valid'); const result = await resolve(x, 'valid')
   assert.equal(result.resolution, 'RESUME')
   assert.equal((await resolve(x, 'valid')).resolution, 'RESUME', 'completed replay returns the durable applied result')
+}
+async function staleTakeRecoveryCompletesOwnership() {
+  const tag = 'stale-take-recovery'
+  const conversationId = key(`v-${tag}`), sessionId = key(`s-${tag}`), handoffId = key(`h-${tag}`)
+  const operationKey = key(`take-${tag}`)
+  const queued = { ...state.createInitialBotOptionsState(), flow: 'HANDOFF_QUEUED', handoff: 'QUEUED', handoffReturnFlow: 'MAIN_MENU' }
+  const requestHash = createHash('sha256').update(JSON.stringify({ action: 'TAKE', actorUserId: owner, conversationId }), 'utf8').digest('hex')
+  await prisma.$transaction(async tx => {
+    await tx.$executeRaw(Prisma.sql`INSERT INTO "Conversation" ("id","businessId","phone","currentStep","aiEnabled","humanHandoffAt","updatedAt") VALUES (${conversationId},${ids.business},${key(`phone-${tag}`)},'HUMAN_HANDOFF'::"ConversationStep",true,clock_timestamp(),clock_timestamp())`)
+    await tx.$executeRaw(Prisma.sql`INSERT INTO "BotSession" ("id","businessId","conversationId","deploymentId","deploymentGeneration","businessTimezone","state","revision","status","handoffClaimsPausedAt","handoffFenceEpoch","updatedAt") VALUES (${sessionId},${ids.business},${conversationId},${ids.deployment},0,'UTC',${JSON.stringify(queued)}::jsonb,0,'HUMAN_QUEUED'::"BotSessionStatus",clock_timestamp(),1,clock_timestamp())`)
+    await tx.$executeRaw(Prisma.sql`INSERT INTO "BotHandoff" ("id","businessId","sessionId","reason","updatedAt") VALUES (${handoffId},${ids.business},${sessionId},'stale take recovery contract',clock_timestamp())`)
+    await tx.$executeRaw(Prisma.sql`INSERT INTO "BotOperation" ("id","operationKey","type","businessId","sessionId","status","requestHash","resultRef","updatedAt") VALUES (${key(`op-${tag}`)},${operationKey},'HANDOFF_TAKE',${ids.business},${sessionId},'STARTED',${requestHash},${handoffId},clock_timestamp()-interval '2 minutes')`)
+    await tx.$executeRaw(Prisma.sql`INSERT INTO "BotHandoffAudit" ("id","businessId","sessionId","handoffId","action","actorUserId","operationKey","detail") VALUES (${key(`audit-${tag}`)},${ids.business},${sessionId},${handoffId},'TAKE_STARTED',${owner},${operationKey},'{"epoch":1}'::jsonb)`)
+  })
+  assert.deepEqual(await handoff.recoverStaleTakeOperations({ client: prisma }), { completed: 1, waiting: 0, blockedUnknown: 0, aborted: 0 })
+  const rows = await prisma.$queryRaw<Array<{ handoff: string; session: string; aiEnabled: boolean; operation: string }>>(Prisma.sql`
+    SELECT h."status"::text AS handoff,s."status"::text AS session,c."aiEnabled",op."status" AS operation
+    FROM "BotHandoff" h JOIN "BotSession" s ON s."id"=h."sessionId" JOIN "Conversation" c ON c."id"=s."conversationId"
+    JOIN "BotOperation" op ON op."operationKey"=${operationKey} WHERE h."id"=${handoffId}`)
+  assert.deepEqual(rows[0], { handoff: 'TAKEN', session: 'HUMAN_TAKEN', aiEnabled: false, operation: 'COMPLETED' })
+}
+async function blockedResolveReloadAdoptsCanonicalOperation() {
+  const tag = 'resolve-reload'
+  const x = await scenario(tag)
+  const canonicalKey = key(`resolve-canonical-${tag}`), retryKey = key(`resolve-retry-${tag}`)
+  const requestHash = createHash('sha256').update(JSON.stringify({ action: 'RESOLVE', actorUserId: owner, conversationId: x.conversationId, resolution: 'RESUME' }), 'utf8').digest('hex')
+  await prisma.$transaction(async tx => {
+    await tx.$executeRaw(Prisma.sql`INSERT INTO "BotOperation" ("id","operationKey","type","businessId","sessionId","status","requestHash","resultRef","updatedAt") VALUES (${key(`op-${tag}`)},${canonicalKey},'HANDOFF_RESOLVE',${ids.business},${x.sessionId},'BLOCKED_UNKNOWN',${requestHash},${x.handoffId},clock_timestamp())`)
+    await tx.$executeRaw(Prisma.sql`INSERT INTO "BotHandoffAudit" ("id","businessId","sessionId","handoffId","action","actorUserId","operationKey","detail") VALUES (${key(`audit-${tag}`)},${ids.business},${x.sessionId},${x.handoffId},'RESOLVE_BLOCKED_UNKNOWN',${owner},${canonicalKey},'{"epoch":1}'::jsonb)`)
+  })
+  const result = await handoff.resolveBotHandoff({ client: prisma, businessId: ids.business, conversationId: x.conversationId, actorUserId: owner, operationKey: retryKey, resolution: 'RESUME' })
+  assert.equal(result.status, 'RESOLVED')
+  const operations = await prisma.$queryRaw<Array<{ operationKey: string; status: string }>>(Prisma.sql`
+    SELECT "operationKey","status" FROM "BotOperation" WHERE "operationKey" IN (${canonicalKey},${retryKey}) ORDER BY "operationKey"`)
+  assert.deepEqual(operations, [{ operationKey: canonicalKey, status: 'COMPLETED' }], 'reload retry completes the canonical resolve without creating an alias')
 }
 async function queuedTakeWithoutSnapshotFails() {
   const conversationId = key('v-queued-null'), sessionId = key('s-queued-null'), handoffId = key('h-queued-null')

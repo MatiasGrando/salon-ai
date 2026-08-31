@@ -17429,6 +17429,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       depositsCachedAt: 0,
       selectedDeposit: null,
       depositReviewOperationKeys: new Map(),
+      handoffOperationKeys: new Map(),
       conversationNextCursor: null,
       conversationSearchTimer: null,
       conversationSearchLoading: false,
@@ -22106,7 +22107,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const activeDeposit = deposit && ['PENDING_PROOF', 'PROOF_RECEIVED'].includes(deposit.status)
       const canReplyConversation = state.currentUser?.role !== 'STAFF' || state.currentUser?.canReplyConversations
       const canManageDeposits = state.currentUser?.role !== 'STAFF' || state.currentUser?.canManageDeposits
-      const canResolveHandoff = selected.currentStep === 'HUMAN_HANDOFF' || selected.aiEnabled === false
+      const handoffStage = conversationHandoffUiStage(selected)
+      const canResolveHandoff = handoffStage === 'TAKEN'
+      const canTakeHandoff = handoffStage === 'QUEUED'
       const selectedService = state.services.find((service) => service.id === selected.selectedServiceId) || null
       const canSendAdvisorQuote = Boolean(
         canResolveHandoff &&
@@ -22133,9 +22136,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.resolveHandoffPolicy.hidden = els.resolveHandoff.hidden
       els.resolveHandoff.disabled = !canResolveHandoff || Boolean(activeDeposit)
       els.resolveHandoff.textContent = 'Marcar como resuelto'
-      els.conversationAiToggle.hidden = !canReplyConversation || (canResolveHandoff && !selected.aiEnabled)
+      els.conversationAiToggle.hidden = !canReplyConversation || canResolveHandoff
       els.conversationAiToggle.disabled = false
-      els.conversationAiToggle.textContent = canResolveHandoff ? 'Tomar derivacion' : 'Atender manualmente'
+      els.conversationAiToggle.textContent = canTakeHandoff ? 'Tomar derivacion' : 'Atender manualmente'
       els.conversationAiToggle.className = 'secondary'
       els.detailAvatar.textContent = avatar
       els.detailName.textContent = name
@@ -23948,10 +23951,16 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (!setButtonLoading(els.conversationAiToggle, true, 'Cambiando...')) return
       try {
         let updated
+        const operationKeyId = 'take:' + state.selected.id
+        let operationKey = state.handoffOperationKeys.get(operationKeyId)
+        if (!operationKey) {
+          operationKey = 'crm-handoff-take:' + state.selected.id + ':' + Date.now()
+          state.handoffOperationKeys.set(operationKeyId, operationKey)
+        }
         try {
           updated = await getJson('/crm/conversations/' + state.selected.id + '/handoff/take', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ operationKey: 'crm-handoff-take:' + state.selected.id + ':' + Date.now() })
+            body: JSON.stringify({ operationKey })
           })
         } catch (error) {
           if (error.body?.code !== 'NO_DETERMINISTIC_HANDOFF') throw error
@@ -23960,6 +23969,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           })
         }
         state.selected = updated
+        state.handoffOperationKeys.delete(operationKeyId)
         await loadConversations()
         renderSelected()
       } catch (error) {
@@ -24039,11 +24049,17 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (!setButtonLoading(els.resolveHandoff, true, 'Resolviendo...')) return
       try {
         let updated
+        const operationKeyId = 'resolve:' + state.selected.id
+        let operationKey = state.handoffOperationKeys.get(operationKeyId)
+        if (!operationKey) {
+          operationKey = 'crm-handoff-resolve:' + state.selected.id + ':' + Date.now()
+          state.handoffOperationKeys.set(operationKeyId, operationKey)
+        }
         try {
           updated = await getJson('/crm/conversations/' + state.selected.id + '/handoff/resolve', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ operationKey: 'crm-handoff-resolve:' + state.selected.id + ':' + Date.now(), resolution: els.resolveHandoffPolicy.value })
+            body: JSON.stringify({ operationKey, resolution: els.resolveHandoffPolicy.value })
           })
         } catch (error) {
           if (error.body?.code !== 'NO_DETERMINISTIC_HANDOFF') throw error
@@ -24056,6 +24072,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           })
         }
         state.selected = updated
+        state.handoffOperationKeys.delete(operationKeyId)
         await loadConversations()
         renderSelected()
       } catch (error) {
@@ -31047,6 +31064,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       return conversation.aiEnabled === false || (
         conversation.currentStep === 'HUMAN_HANDOFF' && !conversation.humanHandoffResolvedAt
       )
+    }
+
+    function conversationHandoffUiStage(conversation) {
+      if (conversation.aiEnabled === false) return 'TAKEN'
+      if (conversation.currentStep === 'HUMAN_HANDOFF' && !conversation.humanHandoffResolvedAt) return 'QUEUED'
+      return 'NONE'
     }
 
     function isConversationUnread(conversation) {

@@ -11,6 +11,45 @@ import {
   resolvedConversationHandoffPatch,
   takenConversationHandoffPatch
 } from '../src/services/conversation-handoff.js'
+import { canonicalResolveOperation, canonicalTakeOperation, recoverStaleTakeOperations, STALE_HANDOFF_TAKE_MS, type StaleTakeCandidate } from '../src/bot-options/application/handoff-operations.js'
+
+assert.equal(STALE_HANDOFF_TAKE_MS, 60_000)
+assert.equal(canonicalTakeOperation({ requestedOperationKey: 'new', actorUserId: 'actor-a', requestHash: 'hash-a' }), 'new')
+assert.equal(canonicalTakeOperation({
+  requestedOperationKey: 'new', actorUserId: 'actor-a', requestHash: 'hash-a',
+  pending: { canonicalOperationKey: 'canonical', actorUserId: 'actor-a', requestHash: 'hash-a' }
+}), 'canonical')
+assert.throws(() => canonicalTakeOperation({
+  requestedOperationKey: 'new', actorUserId: 'actor-b', requestHash: 'hash-b',
+  pending: { canonicalOperationKey: 'canonical', actorUserId: 'actor-a', requestHash: 'hash-a' }
+}), /TAKE_IN_PROGRESS/)
+assert.equal(canonicalResolveOperation({
+  requestedOperationKey: 'new-resolve', actorUserId: 'actor-a', requestHash: 'hash-a',
+  pending: { canonicalOperationKey: 'canonical-resolve', actorUserId: 'actor-a', requestHash: 'hash-a' }
+}), 'canonical-resolve')
+assert.throws(() => canonicalResolveOperation({
+  requestedOperationKey: 'new-resolve', actorUserId: 'actor-b', requestHash: 'hash-a',
+  pending: { canonicalOperationKey: 'canonical-resolve', actorUserId: 'actor-a', requestHash: 'hash-a' }
+}), /RESOLVE_IN_PROGRESS/)
+const staleCandidate = (operationKey: string): StaleTakeCandidate => ({
+  operationKey, businessId: 'business-a', sessionId: `session-${operationKey}`, handoffId: `handoff-${operationKey}`,
+  conversationId: `conversation-${operationKey}`, actorUserId: 'actor-a', epoch: 1
+})
+const staleCandidates = ['complete', 'active', 'unknown', 'failed'].map(staleCandidate)
+const recoveryResult = await recoverStaleTakeOperations({
+  client: { async $queryRaw() { return staleCandidates } } as never,
+  recovery: {
+    async drain(candidate) { return { active: candidate.operationKey === 'active' ? 1 : 0, unknown: candidate.operationKey === 'unknown' } },
+    async resume(candidate) {
+      if (candidate.operationKey === 'complete') return 'COMPLETED'
+      if (candidate.operationKey === 'unknown') return 'BLOCKED_UNKNOWN'
+      return 'FAILED'
+    },
+    async abort(candidate) { return candidate.operationKey === 'failed' }
+  }
+})
+assert.deepEqual(recoveryResult, { completed: 1, waiting: 1, blockedUnknown: 1, aborted: 1 })
+await assert.rejects(() => recoverStaleTakeOperations({ client: {} as never, staleMs: STALE_HANDOFF_TAKE_MS - 1 }), /safe window/)
 
 const now = new Date('2026-08-10T12:00:00.000Z')
 const queued = queuedConversationHandoffPatch(now)
@@ -106,5 +145,26 @@ assert.match(
   crmUiSource,
   /function isPendingHandoff\(conversation\)[\s\S]*?conversation\.aiEnabled === false[\s\S]*?conversation\.currentStep === 'HUMAN_HANDOFF'/
 )
+assert.match(crmUiSource, /function conversationHandoffUiStage\(conversation\)/)
+assert.match(crmUiSource, /handoffStage === 'QUEUED'[\s\S]*?conversationAiToggle/)
+assert.match(crmUiSource, /handoffStage === 'TAKEN'[\s\S]*?resolveHandoff/)
+assert.match(crmUiSource, /handoffOperationKeys: new Map\(\)/)
+assert.match(crmUiSource, /handoffOperationKeys\.get\(operationKeyId\)[\s\S]*?body: JSON\.stringify\(\{ operationKey \}\)/,
+  'take retries keep one operation key until success')
+assert.match(crmUiSource, /handoffOperationKeys\.get\(operationKeyId\)[\s\S]*?body: JSON\.stringify\(\{ operationKey, resolution:/,
+  'resolve retries keep one operation key until success')
+
+const operationsSource = readFileSync('src/bot-options/application/handoff-operations.ts', 'utf8')
+assert.match(operationsSource, /export const STALE_HANDOFF_TAKE_MS = 60_000/)
+assert.match(operationsSource, /TAKE_STARTED[\s\S]*?actorUserId[\s\S]*?canonicalOperationKey/,
+  'a same-actor retry must adopt the canonical started take')
+assert.match(operationsSource, /export async function recoverStaleTakeOperations/)
+assert.match(operationsSource, /TAKE_RECOVERY_ABORTED/)
+assert.match(operationsSource, /RESOLVE_BLOCKED_UNKNOWN[\s\S]*?canonicalOperationKey/,
+  'a same-actor resolve retry after a reload must adopt its canonical blocked operation')
+
+const workerSource = readFileSync('src/bot-options/infrastructure/postgres-worker.ts', 'utf8')
+assert.match(workerSource, /maintainBotJobs\(input\.client\)[\s\S]*?recoverStaleTakeOperations\(\{ client: input\.client \}\)/,
+  'the single worker maintenance cadence must recover stale takes')
 
 console.log('conversation-handoff-contract-test: OK')
