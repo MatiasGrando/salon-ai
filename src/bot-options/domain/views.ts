@@ -32,6 +32,12 @@ export type BotOptionsViewModel = {
   choices: ViewChoice[]
 }
 
+export const STALE_PROMPT_NOTICE = 'Esta opción pertenece a un menú anterior y ya no está disponible.\n\nTe muestro las opciones actuales para que puedas continuar 👇'
+
+export function withStalePromptNotice(view: BotOptionsViewModel): BotOptionsViewModel {
+  return { ...view, informativeTexts: [STALE_PROMPT_NOTICE, ...view.informativeTexts] }
+}
+
 export function textView(text: string): BotOptionsViewModel {
   return { bodyKind: 'notice', informativeTexts: [], interactiveBody: text, choices: [] }
 }

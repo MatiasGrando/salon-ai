@@ -121,6 +121,15 @@ export type PromptAdmissionDecision =
   | { classification: 'REJECTED_CONTEXT'; prompt: BotPromptContract }
   | { classification: 'REJECTED_CORRUPTION'; prompt: BotPromptContract }
 
+export function isRecoverableStalePromptClassification(
+  classification: PromptAdmissionDecision['classification']
+): classification is 'STALE_REVISION' | 'STALE_CONTEXT' | 'STALE_CUTOVER' | 'EXPIRED' {
+  return classification === 'STALE_REVISION'
+    || classification === 'STALE_CONTEXT'
+    || classification === 'STALE_CUTOVER'
+    || classification === 'EXPIRED'
+}
+
 function sameOwnership(left: PromptExecutionContext, right: PromptExecutionContext): boolean {
   return left.businessId === right.businessId && left.sessionId === right.sessionId
 }

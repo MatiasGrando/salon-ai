@@ -1,6 +1,6 @@
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
 import { randomUUID } from 'node:crypto'
-import { admitPromptChoice, type BotPromptContract, type PromptExecutionContext } from '../domain/prompts.js'
+import { admitPromptChoice, isRecoverableStalePromptClassification, type BotPromptContract, type PromptExecutionContext } from '../domain/prompts.js'
 import { parseInteractiveActionId } from '../domain/prompt-tokens.js'
 import { botOptionsMetrics } from '../observability/metrics.js'
 import type { ParsedWebhookEvent } from './meta-webhook-adapter.js'
@@ -480,6 +480,7 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
       event: Extract<ParsedWebhookEvent, { kind: 'message' }>
       providerEventId: string
       inboxId: string
+      contextWindowEvaluated?: boolean
     }
   ) {
     const parsed = parseInteractiveActionId(input.event.interactiveReplyId)
@@ -503,8 +504,10 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
         c."labelSnapshot", c."sortOrder", clock_timestamp() AS "dbNow"
       FROM "BotPrompt" p
       JOIN "BotSession" s ON s."id" = p."sessionId"
+      JOIN "Conversation" owner ON owner."id" = s."conversationId" AND owner."businessId" = s."businessId"
       JOIN "BotPromptChoice" c ON c."promptId" = p."id" AND c."choiceToken" = ${parsed.choiceToken}
       WHERE p."promptToken" = ${parsed.promptToken} AND s."businessId" = ${input.route.businessId}
+        AND owner."phone" = ${input.event.fromPhone}
       FOR UPDATE OF p
     `)
     if (rows.length !== 1) {
@@ -554,10 +557,19 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
       existingProviderEventIds: new Set(),
       inboxId: input.inboxId
     })
-    const status = decision.classification === 'ADMITTED' ? 'ADMITTED'
+    const recoverCurrentView = decision.classification !== 'STALE_CUTOVER'
+      && isRecoverableStalePromptClassification(decision.classification)
+    const status = decision.classification === 'ADMITTED' || recoverCurrentView ? 'ADMITTED'
       : decision.classification === 'STALE_CUTOVER' ? 'STALE_CUTOVER'
       : decision.classification === 'STALE_REVISION' || decision.classification === 'STALE_CONTEXT' || decision.classification === 'EXPIRED' ? 'STALE'
       : 'REJECTED'
+    const admittedActionType = recoverCurrentView ? 'system.stale_prompt' : row.actionType
+    const admittedPayload = recoverCurrentView
+      ? { ...eventPayload(input.event), contextWindowEvaluated: input.contextWindowEvaluated === true, stalePromptClassification: decision.classification }
+      : row.payload
+    const admittedDeploymentId = recoverCurrentView ? input.route.deploymentId : row.deploymentId
+    const admittedGeneration = recoverCurrentView ? input.route.generation : row.deploymentGeneration
+    const admittedRevision = recoverCurrentView ? row.revision : row.stateRevision
     await tx.$executeRaw(Prisma.sql`
       INSERT INTO "BotActionInbox" (
         "id", "businessId", "providerEventId", "sessionId", "promptId", "providerMessageId", "choiceToken",
@@ -565,13 +577,15 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
         "expectedRevision", "receivedAt", "status", "error"
       ) VALUES (
         ${input.inboxId}, ${input.route.businessId}, ${input.providerEventId}, ${row.sessionId}, ${row.promptId}, ${input.event.providerMessageId},
-        ${parsed.choiceToken}, ${row.actionType}, ${row.deploymentId}, ${row.deploymentGeneration},
+        ${parsed.choiceToken}, ${admittedActionType}, ${admittedDeploymentId}, ${admittedGeneration},
         ${row.entityType && row.entityId ? JSON.stringify({ type: row.entityType, id: row.entityId }) : null}::jsonb,
-        ${row.payload === null ? null : JSON.stringify(row.payload)}::jsonb, ${row.stateRevision}, ${row.dbNow},
+        ${admittedPayload === null ? null : JSON.stringify(admittedPayload)}::jsonb, ${admittedRevision}, ${row.dbNow},
         ${status}::"BotInboxStatus", ${decision.classification}
       )
     `)
-    if (decision.classification === 'ADMITTED') {
+    if (recoverCurrentView) {
+      await upsertJob(tx, 'PROCESS_INBOX', input.inboxId, input.route.businessId, input.route.deploymentId, input.route.generation, row.revision, row.dbNow)
+    } else if (decision.classification === 'ADMITTED') {
       await tx.$executeRaw(Prisma.sql`
         UPDATE "BotPrompt" SET "status" = 'STABILIZING'::"BotPromptStatus",
           "firstActionAt" = ${new Date(decision.prompt.firstActionAt!)},

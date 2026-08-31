@@ -5,7 +5,8 @@ import { createInitialBotOptionsState, parseBotOptionsState, type BotOptionsStat
 import { mainMenuView, renderCurrentView, transition, type TransitionContext } from '../domain/transition.js'
 import type { BotOptionsActionPayload, BotOptionsEntityRef } from '../domain/actions.js'
 import type { BotOptionsEffect } from '../domain/effects.js'
-import { menuView, textView, type BotOptionsViewModel } from '../domain/views.js'
+import { menuView, textView, withStalePromptNotice, type BotOptionsViewModel } from '../domain/views.js'
+import { isRecoverableStalePromptClassification, type PromptAdmissionDecision } from '../domain/prompts.js'
 import { generatePromptToken } from '../domain/prompt-tokens.js'
 import { renderWhatsAppScreen, WHATSAPP_INTERACTIVE_BODY_MAX_CODE_POINTS } from '../infrastructure/whatsapp-renderer.js'
 import { assertClaimedBotJobTx, completeClaimedBotJobTx, retargetClaimedBotJobTx, rescheduleClaimedBotJobTx, type ClaimedBotJob } from '../infrastructure/postgres-worker.js'
@@ -185,6 +186,8 @@ async function measureSessionStage<T>(stage: Extract<BotOptionsStage, 'session_c
  * intersección multiprofesional se implementa después).
  */
 const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
+  const refreshingCurrentView = input.actionType === 'system.stale_prompt' ||
+    input.actionType === 'system.reprompt' || input.actionType === 'system.initial_view'
   const base: TransitionContext = {
     dbNowIso: input.dbNow.toISOString(), customerNameOnFile: null,
     draftExists: false, draftHasProgress: false, categoryActive: false, categoryHasServices: false,
@@ -206,7 +209,7 @@ const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
   }
   const contextServiceId = input.entityRef?.type === 'SERVICE'
     ? input.entityRef.id
-    : input.actionType === 'name.confirm' && input.state.pendingEntityRef?.type === 'SERVICE'
+    : (input.actionType === 'name.confirm' || (refreshingCurrentView && input.state.flow === 'SERVICE_DETAIL')) && input.state.pendingEntityRef?.type === 'SERVICE'
       ? input.state.pendingEntityRef.id
       : null
   if (contextServiceId) {
@@ -314,7 +317,7 @@ const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
   // F5.6: Vista runtime real de horarios del negocio
   // Carga BusinessHours + ScheduleBlock con businessId, session.businessTimezone y dbNow.
   // NO consulta Appointment, slots ni disponibilidad.
-  if (input.actionType === 'menu.business_hours') {
+  if (input.actionType === 'menu.business_hours' || (refreshingCurrentView && input.state.flow === 'BUSINESS_HOURS')) {
     const hoursRepo = new PrismaHoursRepository(tx)
     const [weeklyHours, exceptions] = await Promise.all([
       hoursRepo.loadBusinessWeeklyHours({ businessId: input.businessId }),
@@ -331,7 +334,8 @@ const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
 
   // F5.7: Profesional hours — carga datos reales del profesional para listado y detalle.
   if (input.actionType === 'hours.professional' || input.actionType === 'hours.choose_other_professional' ||
-      input.actionType === 'hours.next_page' || input.actionType === 'hours.previous_page') {
+      input.actionType === 'hours.next_page' || input.actionType === 'hours.previous_page' ||
+      (refreshingCurrentView && input.state.flow === 'PROFESSIONAL_HOURS_SELECT')) {
     const profRepo = new PrismaProfessionalHoursRepository(tx)
     const professionals = await profRepo.listActiveProfessionals({ businessId: input.businessId })
     const PAGE_SIZE = 7
@@ -354,7 +358,8 @@ const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
   const needsProfessionalDetail =
     input.actionType === 'hours.professional_select' ||
     input.actionType === 'hours.professional_search_availability' ||
-    input.actionType === 'hours.professional_consult_human'
+    input.actionType === 'hours.professional_consult_human' ||
+    (refreshingCurrentView && input.state.flow === 'PROFESSIONAL_HOURS_DETAIL')
 
   if (needsProfessionalDetail) {
     const profRepo = new PrismaProfessionalHoursRepository(tx)
@@ -449,8 +454,9 @@ const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
   }
 
   // Una recomendación es una propuesta explícita, nunca una mutación automática.
-  const recommendationSourceIds = input.actionType === 'recommendation.skip' ? cartIds : proposedServiceId ? [proposedServiceId] : []
-  if (targetCart && recommendationSourceIds.length > 0 && (input.actionType === 'service.select' || input.actionType === 'service.book' || input.actionType === 'name.confirm' || input.actionType === 'recommendation.skip')) {
+  const refreshingRecommendations = refreshingCurrentView && input.state.flow === 'RECOMMENDATION_SELECT'
+  const recommendationSourceIds = input.actionType === 'recommendation.skip' || refreshingRecommendations ? cartIds : proposedServiceId ? [proposedServiceId] : []
+  if (targetCart && recommendationSourceIds.length > 0 && (input.actionType === 'service.select' || input.actionType === 'service.book' || input.actionType === 'name.confirm' || input.actionType === 'recommendation.skip' || refreshingRecommendations)) {
     const rejectedFilter = input.state.rejectedRecommendationIds.length > 0
       ? Prisma.sql`AND s."id" NOT IN (${Prisma.join(input.state.rejectedRecommendationIds)})`
       : Prisma.empty
@@ -481,7 +487,8 @@ const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
     input.actionType === 'professional.next_page' || input.actionType === 'professional.previous_page' ||
     input.actionType === 'date.next_page' || input.actionType === 'date.previous_page' || input.actionType === 'date.select' ||
     input.actionType === 'slot.band' || input.actionType === 'slot.show_all' || input.actionType === 'slot.next_page' ||
-    input.actionType === 'slot.select' || input.state.flow === 'DATE_SELECT' || input.state.flow === 'SLOT_SELECT' || input.state.flow === 'BOOKING_SUMMARY'
+    input.actionType === 'slot.select' || input.state.flow === 'DATE_SELECT' || input.state.flow === 'SLOT_SELECT' || input.state.flow === 'BOOKING_SUMMARY' ||
+    (refreshingCurrentView && input.state.flow === 'PROFESSIONAL_SELECT')
   )
   if (needsAvailability) {
     const cart = targetCart ?? await cartRepo.load({ businessId: input.businessId, serviceIds: bookingCartIds })
@@ -501,7 +508,7 @@ const defaultContextProvider: TransitionContextProvider = async (tx, input) => {
     const requestedProfessionalId = input.actionType === 'professional.select' && input.entityRef?.type === 'PROFESSIONAL'
       ? input.entityRef.id
       : input.actionType === 'professional.any' ? null : input.state.selections.professionalId
-    if (input.actionType !== 'cart.continue') {
+    if (input.actionType !== 'cart.continue' && !(refreshingCurrentView && input.state.flow === 'PROFESSIONAL_SELECT')) {
       const search = await availabilityRepo.search({
         businessId: input.businessId, serviceIds: bookingCartIds, durationMinutes: cart.snapshot.totalDurationMinutes,
         dbNow: input.dbNow, settings, professionalId: requestedProfessionalId
@@ -1001,7 +1008,7 @@ async function processInitialInboxUnderClaim(
       await completeClaimedBotJobTx(tx, input.job)
       return 'PROCESSED'
     }
-    const payload = row.payload as { fromPhone?: unknown; textBody?: unknown; messageType?: unknown; contextWindowEvaluated?: unknown }
+    const payload = row.payload as { fromPhone?: unknown; textBody?: unknown; messageType?: unknown; contextWindowEvaluated?: unknown; stalePromptClassification?: unknown }
     if (typeof payload.fromPhone !== 'string' || !payload.fromPhone) throw new Error('initial inbound has no phone')
     // A session may have been created by another inbox after journal classification.
     // Old/pre-feature inboxes also pass here. Never let that race bypass expiry.
@@ -1042,7 +1049,7 @@ async function processInitialInboxUnderClaim(
         }, pendingCrmEvents)
         const state = parseBotOptionsState(existingSession.state)
         if (!state.ok) throw new Error(`unknown/corrupt state: ${state.invariant}`)
-        if (isConversationRestartCommand(payload.textBody)) {
+        if (payload.messageType !== 'interactive' && isConversationRestartCommand(payload.textBody)) {
           if (existingSession.status === 'HUMAN_QUEUED') {
             await prismaBotOptionsEffectExecutor(tx, {
               businessId: row.businessId,
@@ -1082,27 +1089,31 @@ async function processInitialInboxUnderClaim(
           await completeClaimedBotJobTx(tx, input.job)
           return 'PROCESSED'
         }
+        const stalePromptClassification = payload.stalePromptClassification as PromptAdmissionDecision['classification'] | undefined
+        const recoverStalePrompt = stalePromptClassification !== undefined
+          && isRecoverableStalePromptClassification(stalePromptClassification)
         await tx.$executeRaw(Prisma.sql`
           UPDATE "BotActionInbox" SET "sessionId"=${existingSession.sessionId},"expectedRevision"=${existingSession.revision},
-            "status"='PROCESSED'::"BotInboxStatus", "error"='EXISTING_SESSION_REPROMPTED'
+            "status"='PROCESSED'::"BotInboxStatus", "error"=${recoverStalePrompt ? 'STALE_PROMPT_RECOVERED' : 'EXISTING_SESSION_REPROMPTED'}
           WHERE "id"=${row.id} AND "status"='ADMITTED'::"BotInboxStatus"
         `)
+        const currentView = renderCurrentView(state.state, await defaultContextProvider(tx, {
+          businessId: row.businessId,
+          sessionId: existingSession.sessionId,
+          state: state.state,
+          actionType: recoverStalePrompt ? 'system.stale_prompt' : 'system.reprompt',
+          entityRef: null,
+          payload: null,
+          dbNow: row.dbNow,
+          businessTimezone: existingSession.businessTimezone
+        }))
         await persistView(tx, {
           businessId: row.businessId,
           sessionId: existingSession.sessionId,
           revision: existingSession.revision,
-          transitionId: `reprompt:${existingSession.sessionId}:${row.id}`,
+          transitionId: `${recoverStalePrompt ? 'stale-prompt' : 'reprompt'}:${existingSession.sessionId}:${row.id}`,
           toPhone: payload.fromPhone,
-          view: renderCurrentView(state.state, await defaultContextProvider(tx, {
-            businessId: row.businessId,
-            sessionId: existingSession.sessionId,
-            state: state.state,
-            actionType: 'system.reprompt',
-            entityRef: null,
-            payload: null,
-            dbNow: row.dbNow,
-            businessTimezone: existingSession.businessTimezone
-          })),
+          view: recoverStalePrompt ? withStalePromptNotice(currentView) : currentView,
           dbNow: row.dbNow
         })
         await completeDispatchClaimTx(tx, dispatchToken)
@@ -1298,10 +1309,16 @@ async function processCutoverRecovery(input: { client: RuntimeClient; job: Claim
     const recoveryInboxId = `cutover-recovery:${input.job.aggregateId}`
     const retargetedJob = await input.client.$transaction(async (tx) => {
       const retargeted = await retargetClaimedBotJobTx(tx, input.job, { deploymentId: row.deploymentId, generation: row.generation })
+      const eventPayload = typeof row.payload === 'object' && row.payload !== null && !Array.isArray(row.payload)
+        ? row.payload as Prisma.JsonObject
+        : {}
+      const recoveryPayload = typeof eventPayload.interactiveReplyId === 'string' && eventPayload.interactiveReplyId
+        ? { ...eventPayload, stalePromptClassification: 'STALE_CUTOVER' }
+        : eventPayload
       await tx.$executeRaw(Prisma.sql`
         INSERT INTO "BotActionInbox" ("id", "businessId", "providerEventId", "providerMessageId", "actionType", "deploymentId", "deploymentGeneration", "payload", "status")
         VALUES (${recoveryInboxId}, ${row.businessId}, ${input.job.aggregateId}, ${row.providerMessageId}, 'system.cutover_recovery', ${row.deploymentId},
-          ${row.generation}, ${JSON.stringify(row.payload)}::jsonb, 'ADMITTED'::"BotInboxStatus")
+          ${row.generation}, ${JSON.stringify(recoveryPayload)}::jsonb, 'ADMITTED'::"BotInboxStatus")
         ON CONFLICT ("id") DO NOTHING
       `)
       return retargeted

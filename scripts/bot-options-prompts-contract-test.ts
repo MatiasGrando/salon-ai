@@ -4,12 +4,20 @@ import {
   PROMPT_IDLE_WINDOW_MS,
   admitPromptChoice,
   invalidatePromptForScreen,
+  isRecoverableStalePromptClassification,
   reconcilePrompt,
   type BotPromptContract,
   type PromptAdmittedAction,
   type PromptChoiceAttempt,
   type PromptExecutionContext
 } from '../src/bot-options/domain/prompts.js'
+
+for (const classification of ['STALE_REVISION', 'STALE_CONTEXT', 'EXPIRED', 'STALE_CUTOVER'] as const) {
+  assert.equal(isRecoverableStalePromptClassification(classification), true, `${classification} must refresh the current view`)
+}
+for (const classification of ['DUPLICATE_PROVIDER_EVENT', 'REJECTED_CHOICE', 'REJECTED_CONTEXT', 'REJECTED_CORRUPTION'] as const) {
+  assert.equal(isRecoverableStalePromptClassification(classification), false, `${classification} must remain silent`)
+}
 
 const current: PromptExecutionContext = {
   businessId: 'biz_1',

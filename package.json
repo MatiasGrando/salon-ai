@@ -114,6 +114,7 @@
     "test:bot-options-f8-9-meta": "tsx scripts/bot-options-f8-9-meta-media-contract-test.ts",
     "test:bot-options-admission-timeout": "tsx scripts/bot-options-admission-timeout-contract-test.ts",
     "test:bot-options-provider-event-journal": "tsx scripts/bot-options-provider-event-journal-contract-test.ts",
+    "test:bot-options-stale-prompt": "tsx scripts/bot-options-stale-prompt-runtime-test.ts",
     "test:bot-options-context-window": "tsx scripts/bot-options-context-window-contract-test.ts && tsx scripts/bot-options-context-window-worker-contract-test.ts",
     "test:bot-options-context-window-sql": "tsx scripts/bot-options-context-window-sql-test.ts",
     "test:bot-options-f8-9-pg": "tsx scripts/bot-options-f8-9-vertical-pg-contract-test.ts",

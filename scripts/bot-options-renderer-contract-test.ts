@@ -11,12 +11,17 @@ import {
   splitUnicodeSafe,
   truncateLabelWordSafe
 } from '../src/bot-options/infrastructure/whatsapp-renderer.js'
-import { menuView, recoveryView, textView, type BotOptionsViewModel } from '../src/bot-options/domain/views.js'
+import { menuView, recoveryView, STALE_PROMPT_NOTICE, textView, withStalePromptNotice, type BotOptionsViewModel } from '../src/bot-options/domain/views.js'
 import { parseInteractiveActionId } from '../src/bot-options/domain/prompt-tokens.js'
 
 const rng = () => randomBytes(8)
 const screen = (view: BotOptionsViewModel) =>
   renderWhatsAppScreen(view, { promptToken: 'p'.repeat(16), generateChoiceBytes: rng })
+
+const refreshed = withStalePromptNotice(menuView('Elegí una opción', [{ actionType: 'navigation.home', label: 'Menú principal' }]))
+assert.deepEqual(refreshed.informativeTexts, [STALE_PROMPT_NOTICE])
+assert.equal(refreshed.interactiveBody, 'Elegí una opción')
+assert.equal(refreshed.choices[0]?.actionType, 'navigation.home')
 
 // ─── splitUnicodeSafe (F3.8) ─────────────────────────────────────────────────
 

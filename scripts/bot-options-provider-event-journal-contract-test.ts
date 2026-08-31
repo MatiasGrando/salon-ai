@@ -13,6 +13,7 @@ import { PrismaAuthoritativeAdmissionRepository } from '../src/bot-options/infra
 const serverSource = readFileSync(new URL('../src/server.ts', import.meta.url), 'utf8')
 const workerSource = readFileSync(new URL('../src/bot-options/infrastructure/postgres-worker.ts', import.meta.url), 'utf8')
 const processorSource = readFileSync(new URL('../src/bot-options/application/process-provider-event-job.ts', import.meta.url), 'utf8')
+const sessionProcessorSource = readFileSync(new URL('../src/bot-options/application/process-session-job.ts', import.meta.url), 'utf8')
 assert.match(serverSource, /job\.kind === 'PROCESS_PROVIDER_EVENT'[\s\S]*?processProviderEventJob/,
   'the production worker handler must dispatch provider-event jobs')
 assert.equal(
@@ -82,6 +83,56 @@ assert.ok(classificationStatements.some(({ sql }) => sql.includes('UPDATE "BotPr
   'worker classification must stabilize the selected prompt')
 assert.ok(classificationStatements.some(({ sql, values }) => sql.includes('INSERT INTO "BotJob"') && values.includes('RECONCILE_PROMPT')),
   'worker classification must enqueue prompt reconciliation')
+
+const staleStatements: Array<{ sql: string; values: readonly unknown[] }> = []
+await classifier.classifyProviderEventTx({
+  async $queryRaw(query: { strings?: readonly string[] }) {
+    const sql = query.strings?.join('?') ?? String(query)
+    if (sql.includes('FROM "Conversation"')) return []
+    if (!sql.includes('FROM "BotPrompt"')) throw new Error(`unexpected stale query: ${sql}`)
+    assert.ok(sql.includes('owner."phone"'), 'prompt lookup must bind the historical button to its sender')
+    return [{
+      promptId: 'prompt-old', sessionId: 'session-a', businessId: 'business-a',
+      deploymentId: 'deployment-a', deploymentGeneration: 1, revision: 9n, stateRevision: 8n,
+      mode: 'FUNCTIONAL', status: 'INVALIDATED', firstActionAt: null, lastActionAt: null,
+      settleAt: null, absoluteAt: null, resolvedAt: new Date('2026-08-30T00:00:00.000Z'), choiceToken: 'B'.repeat(11),
+      actionType: 'menu.browse_services', entityType: null, entityId: null, payload: {},
+      labelSnapshot: 'Ver servicios y precios', sortOrder: 0, dbNow: new Date('2026-08-30T00:01:00.000Z')
+    }]
+  },
+  async $executeRaw(query: { strings?: readonly string[]; values?: readonly unknown[] }) {
+    staleStatements.push({ sql: query.strings?.join('?') ?? String(query), values: Array.isArray(query.values) ? query.values : [] })
+    return 1
+  }
+} as never, {
+  route: {
+    kind: 'new', businessId: 'business-a', deploymentId: 'deployment-a', generation: 1,
+    appSecret: null, appSecretPrevious: null, appSecretPreviousValidUntil: null
+  },
+  providerEventId: 'provider-event-stale-interactive',
+  event: {
+    kind: 'message', eventKey: 'wamid.stale', providerMessageId: 'wamid.stale',
+    phoneNumberId: 'phone-a', displayPhoneNumber: null, fromPhone: '5491100000000',
+    textBody: 'Ver servicios y precios', messageType: 'interactive',
+    interactiveReplyId: `b1.${'A'.repeat(16)}.${'B'.repeat(11)}`,
+    mediaType: null, mediaMimeType: null, mediaId: null, filename: null, providerOccurredAtIso: null
+  }
+})
+const staleInbox = staleStatements.find(({ sql }) => sql.includes('INSERT INTO "BotActionInbox"'))
+assert.ok(staleInbox?.values.some(value => typeof value === 'string' && value.includes('"contextWindowEvaluated":false')),
+  'recovery cannot skip the 24-hour check unless admission really evaluated it')
+assert.ok(staleInbox?.values.includes('system.stale_prompt'), 'a known old button must become a safe recovery action')
+assert.ok(staleInbox?.values.includes('ADMITTED'), 'a known old button must be processed instead of discarded silently')
+assert.ok(staleStatements.some(({ sql, values }) => sql.includes('INSERT INTO "BotJob"') && values.includes('PROCESS_INBOX')),
+  'a known old button must enqueue one durable current-view refresh')
+assert.ok(!staleStatements.some(({ sql }) => sql.includes('UPDATE "BotPrompt"') && sql.includes("'STABILIZING'")),
+  'an old button must never stabilize or execute its historical choice')
+assert.match(sessionProcessorSource, /stalePromptClassification[\s\S]*?withStalePromptNotice\(currentView\)/,
+  'the recovery job must prepend the explanation and render the latest state, not the historical choice')
+assert.match(sessionProcessorSource, /typeof eventPayload\.interactiveReplyId === 'string'[\s\S]*?stalePromptClassification: 'STALE_CUTOVER'/,
+  'only interactive cutover recovery receives the old-button explanation')
+assert.match(processorSource, /applyLazyContextWindowTx[\s\S]*?window\?\.kind === 'EXPIRED'[\s\S]*?classifyProviderEventTx/,
+  'the 24-hour reset must finish before stale-button classification to avoid a duplicate explanation')
 
 const callbackStatements: string[] = []
 const callbackResult = await classifier.classifyProviderEventTx({
