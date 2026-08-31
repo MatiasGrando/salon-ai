@@ -121,6 +121,63 @@ try {
   assert.equal(events.length, 0, 'rollback must not publish an orphan update')
 
   await seed()
+  await db.exec(`UPDATE "BotSession" SET "status"='HUMAN_QUEUED' WHERE "id"='s-a'`)
+  await assert.rejects(() => execute('recover-without-queue'), /exactly one tenant-scoped queue/)
+  assert.equal(await pending(), 0)
+
+  await seed()
+  await db.exec(`UPDATE "BotSession" SET "status"='CLOSED' WHERE "id"='s-a'`)
+  await assert.rejects(() => execute('request-from-closed'), /cannot queue handoff from session status CLOSED/)
+
+  await seed()
+  await db.exec(`DROP INDEX one_live_handoff;
+    UPDATE "BotSession" SET "status"='HUMAN_QUEUED' WHERE "id"='s-a';
+    INSERT INTO "BotHandoff" ("id","businessId","sessionId","status","reason","queuedAt","updatedAt") VALUES
+      ('legacy-one','a','s-a','QUEUED','CUSTOMER_REQUEST',now(),now()),
+      ('legacy-two','a','s-a','QUEUED','CUSTOMER_REQUEST',now(),now())`)
+  await assert.rejects(() => execute('recover-multiple-queues'), /exactly one tenant-scoped queue/)
+  await db.exec(`TRUNCATE "Conversation", "BotSession", "BotHandoff", "BotOperation";
+    CREATE UNIQUE INDEX one_live_handoff ON "BotHandoff" ("sessionId") WHERE "status" IN ('QUEUED','TAKEN')`)
+
+  await seed()
+  await db.exec(`UPDATE "Conversation" SET "humanHandoffAt"='2026-08-30T10:00:00Z',
+      "humanHandoffResolvedAt"='2026-08-30T10:30:00Z' WHERE "id"='c-a';
+    UPDATE "BotSession" SET "status"='HUMAN_QUEUED' WHERE "id"='s-a';
+    INSERT INTO "BotHandoff" ("id","businessId","sessionId","status","reason","detail","context","queuedAt","updatedAt")
+      VALUES ('legacy-handoff','a','s-a','QUEUED','CUSTOMER_REQUEST','legacy',
+        '{"serviceId":"preserved"}'::jsonb,'2026-08-31 03:50:00.625',now())`)
+  const legacyQueuedAt = String((await one(`SELECT "queuedAt"::text AS value FROM "BotHandoff" WHERE "id"='legacy-handoff'`)).value)
+  const legacyResolvedAt = String((await one(`SELECT "humanHandoffResolvedAt"::text AS value FROM "Conversation" WHERE "id"='c-a'`)).value)
+  await execute('request-after-legacy-queue')
+  assert.equal(await pending(), 1, 'a new request must recover the one inherited QUEUED handoff instead of poisoning')
+  assert.equal(Number((await one(`SELECT count(*) AS n FROM "BotHandoff" WHERE "sessionId"='s-a'`)).n), 1, 'legacy recovery must not duplicate the queue')
+  const recoveredHandoff = await one(`SELECT "id","queuedAt","context" FROM "BotHandoff" WHERE "sessionId"='s-a'`)
+  assert.equal(recoveredHandoff.id, 'legacy-handoff')
+  assert.equal(String((await one(`SELECT "queuedAt"::text AS value FROM "BotHandoff" WHERE "id"='legacy-handoff'`)).value), legacyQueuedAt,
+    'legacy recovery keeps the original queue timestamp')
+  assert.equal((recoveredHandoff.context as Record<string, unknown>).serviceId, 'preserved', 'legacy recovery preserves existing context')
+  assert.equal(Number((await one(`SELECT (c."humanHandoffAt"=h."queuedAt")::int AS value FROM "Conversation" c
+    JOIN "BotSession" s ON s."conversationId"=c."id" JOIN "BotHandoff" h ON h."sessionId"=s."id" WHERE c."id"='c-a'`)).value), 1)
+  assert.equal(events.length, 1)
+  await execute('request-after-legacy-queue')
+  assert.equal(events.length, 1, 'legacy request replay must be idempotent')
+  await execute('cancel-after-legacy-recovery', 'cancel')
+  assert.equal(await pending(), 0, 'a recovered legacy queue remains safely cancellable')
+  assert.equal((await conversation()).currentStep, 'START')
+  assert.equal(String((await one(`SELECT "humanHandoffResolvedAt"::text AS value FROM "Conversation" WHERE "id"='c-a'`)).value), legacyResolvedAt)
+
+  await seed('HUMAN_HANDOFF')
+  await db.exec(`UPDATE "BotSession" SET "status"='HUMAN_QUEUED' WHERE "id"='s-a';
+    INSERT INTO "BotHandoff" ("id","businessId","sessionId","status","reason","context","queuedAt","updatedAt")
+      VALUES ('legacy-with-manual-pending','a','s-a','QUEUED','CUSTOMER_REQUEST','{}'::jsonb,now(),now())`)
+  const pendingBeforeRecovery = await conversation()
+  await execute('recover-with-manual-pending')
+  assert.deepEqual(await conversation(), pendingBeforeRecovery, 'legacy recovery never overwrites an already pending CRM handoff')
+  assert.equal(events.length, 0)
+  await execute('cancel-recovered-manual-pending', 'cancel')
+  assert.deepEqual(await conversation(), pendingBeforeRecovery, 'cancel without an owned projection never hides manual pending state')
+
+  await seed()
   await execute('request-take')
   const queuedState = (await one(`SELECT "state" FROM "BotSession" WHERE "id"='s-a'`)).state as typeof initial
   const taken = transition(queuedState, action('handoff.take'), { dbNowIso: '2026-08-31T12:00:00Z' })
@@ -132,6 +189,7 @@ try {
   await execute('request-take')
   assert.equal((await conversation()).aiEnabled, false)
   assert.equal((await one(`SELECT "status" FROM "BotHandoff" WHERE "sessionId"='s-a'`)).status, 'TAKEN')
+  await assert.rejects(() => execute('new-request-after-take'), /cannot queue handoff from session status HUMAN_TAKEN/)
   await assert.rejects(() => execute('cancel-after-take', 'cancel'), /cannot cancel handoff/)
 
   const worker = readFileSync(new URL('../src/bot-options/application/process-session-job.ts', import.meta.url), 'utf8')

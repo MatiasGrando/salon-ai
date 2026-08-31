@@ -976,6 +976,7 @@ async function processInitialInboxUnderClaim(
   onCommitted?: () => void
 ): Promise<'PROCESSED' | 'STALE_CUTOVER'> {
   const pendingCrmEvents: InboundConversationMessageProjection[] = []
+  const pendingConversationUpdates: Array<Omit<ConversationUpdatedEvent, 'type'>> = []
   const result = await runProcessInboxTransaction(input.client, async (tx) => {
     await assertClaimedBotJobTx(tx, input.job)
     await assertDispatchClaimTx({ tx, businessId: input.job.businessId, claimToken: dispatchToken })
@@ -1042,6 +1043,15 @@ async function processInitialInboxUnderClaim(
         const state = parseBotOptionsState(existingSession.state)
         if (!state.ok) throw new Error(`unknown/corrupt state: ${state.invariant}`)
         if (isConversationRestartCommand(payload.textBody)) {
+          if (existingSession.status === 'HUMAN_QUEUED') {
+            await prismaBotOptionsEffectExecutor(tx, {
+              businessId: row.businessId,
+              sessionId: existingSession.sessionId,
+              operationKey: `restart:${existingSession.sessionId}:${row.id}`,
+              effects: [{ kind: 'CANCEL_HUMAN_HANDOFF_BY_CUSTOMER' }],
+              pendingConversationUpdates
+            })
+          }
           const nextState = createInitialBotOptionsState()
           const nextRevision = existingSession.revision + 1n
           await tx.$executeRaw(Prisma.sql`
@@ -1194,6 +1204,7 @@ async function processInitialInboxUnderClaim(
   // After-commit delivery: notify the CRM only once the inbound Message
   // projection is durably committed (covers PROCESS_INBOX and cutover recovery).
   flushInboundConversationMessages(pendingCrmEvents)
+  for (const update of pendingConversationUpdates) publishConversationUpdated(update)
   return result
 }
 

@@ -14,7 +14,7 @@ type HandoffEffectInput = {
 }
 
 type QueuedCrmProjection = {
-  v: 1
+  v: 2
   conversationId: string
   queuedAt: string
   previousStep: string
@@ -123,6 +123,10 @@ async function persistHandoff(
     return
   }
 
+  if (sessions[0]!.status === 'HUMAN_QUEUED') {
+    await recoverQueuedHandoff(tx, input, effectOperationKey, requestHash)
+    return
+  }
   if (sessions[0]!.status !== 'ACTIVE') {
     throw new Error(`cannot queue handoff from session status ${sessions[0]!.status}`)
   }
@@ -148,6 +152,48 @@ async function persistHandoff(
     WHERE "operationKey" = ${effectOperationKey} AND "status" = 'STARTED'
   `)
   if (completed !== 1) throw new Error('handoff operation completion race')
+}
+
+/**
+ * Repairs the projection for a queue created before CRM projection existed.
+ * The queue itself remains the durable identity; this request only attaches an
+ * idempotent operation and the cancellation snapshot, never a second handoff.
+ */
+async function recoverQueuedHandoff(
+  tx: Prisma.TransactionClient,
+  input: HandoffEffectInput,
+  effectOperationKey: string,
+  requestHash: string
+): Promise<void> {
+  const active = await tx.$queryRaw<Array<{ id: string; context: Prisma.JsonValue | null; queuedAt: Date; status: string }>>(Prisma.sql`
+    SELECT "id", "context", "queuedAt", "status"::text AS "status"
+    FROM "BotHandoff"
+    WHERE "businessId" = ${input.businessId} AND "sessionId" = ${input.sessionId}
+      AND "status" IN ('QUEUED'::"BotHandoffStatus", 'TAKEN'::"BotHandoffStatus")
+    FOR UPDATE
+  `)
+  if (active.length !== 1 || active[0]!.status !== 'QUEUED') {
+    throw new Error('queued handoff recovery requires exactly one tenant-scoped queue')
+  }
+  const handoff = active[0]!
+  const projection = await projectQueuedHandoff(tx, input, { handoffId: handoff.id, queuedAt: handoff.queuedAt })
+  if (projection) {
+    const contextUpdated = await tx.$executeRaw(Prisma.sql`
+      UPDATE "BotHandoff"
+      SET "context" = COALESCE("context", '{}'::jsonb)
+          || jsonb_build_object('_crmQueuedProjection', ${JSON.stringify(projection)}::jsonb),
+        "updatedAt" = clock_timestamp()
+      WHERE "id" = ${handoff.id} AND "businessId" = ${input.businessId} AND "sessionId" = ${input.sessionId}
+        AND "status" = 'QUEUED'::"BotHandoffStatus"
+        AND ("context" IS NULL OR jsonb_typeof("context") = 'object')
+    `)
+    if (contextUpdated !== 1) throw new Error('queued handoff recovery cannot safely preserve context')
+  }
+  const completed = await tx.$executeRaw(Prisma.sql`
+    UPDATE "BotOperation" SET "status" = 'COMPLETED', "resultRef" = ${handoff.id}, "updatedAt" = clock_timestamp()
+    WHERE "operationKey" = ${effectOperationKey} AND "status" = 'STARTED' AND "requestHash" = ${requestHash}
+  `)
+  if (completed !== 1) throw new Error('queued handoff recovery operation completion race')
 }
 
 async function cancelHandoffByCustomer(
@@ -206,7 +252,7 @@ async function cancelHandoffByCustomer(
       AND "status" = 'HUMAN_QUEUED'::"BotSessionStatus"
   `)
   if (restored !== 1) throw new Error('handoff cancellation session race')
-  await restoreQueuedHandoffProjection(tx, input, active[0]!.context)
+  await restoreQueuedHandoffProjection(tx, input, active[0]!.id, active[0]!.context)
   const completed = await tx.$executeRaw(Prisma.sql`
     UPDATE "BotOperation" SET "status" = 'COMPLETED', "resultRef" = ${active[0]!.id}, "updatedAt" = clock_timestamp()
     WHERE "operationKey" = ${effectOperationKey} AND "status" = 'STARTED' AND "requestHash" = ${requestHash}
@@ -215,12 +261,17 @@ async function cancelHandoffByCustomer(
 }
 
 /** Session is already locked; preserve F10's session -> conversation lock order. */
-async function projectQueuedHandoff(tx: Prisma.TransactionClient, input: HandoffEffectInput): Promise<QueuedCrmProjection | null> {
+async function projectQueuedHandoff(
+  tx: Prisma.TransactionClient,
+  input: HandoffEffectInput,
+  existingQueue?: { handoffId: string; queuedAt: Date }
+): Promise<QueuedCrmProjection | null> {
   const rows = await tx.$queryRaw<Array<{
-    id: string; currentStep: string; aiEnabled: boolean; humanHandoffAt: Date | null
-    humanHandoffResolvedAt: Date | null; dbNow: Date
+    id: string; currentStep: string; aiEnabled: boolean; humanHandoffAtText: string | null
+    humanHandoffResolvedAtText: string | null; dbNow: Date
   }>>(Prisma.sql`
-    SELECT c."id", c."currentStep"::text AS "currentStep", c."aiEnabled", c."humanHandoffAt", c."humanHandoffResolvedAt",
+    SELECT c."id", c."currentStep"::text AS "currentStep", c."aiEnabled",
+      c."humanHandoffAt"::text AS "humanHandoffAtText", c."humanHandoffResolvedAt"::text AS "humanHandoffResolvedAtText",
       date_trunc('milliseconds', clock_timestamp()) AS "dbNow"
     FROM "BotSession" s JOIN "Conversation" c ON c."id" = s."conversationId" AND c."businessId" = s."businessId"
     WHERE s."id" = ${input.sessionId} AND s."businessId" = ${input.businessId}
@@ -229,39 +280,58 @@ async function projectQueuedHandoff(tx: Prisma.TransactionClient, input: Handoff
   const row = rows[0]
   // No conversation means no CRM projection (historical/background sessions).
   // Never overwrite a manual owner or an already pending legacy handoff.
-  if (!row || !row.aiEnabled || (row.currentStep === 'HUMAN_HANDOFF' && row.humanHandoffResolvedAt === null)) return null
+  if (!row || !row.aiEnabled || (row.currentStep === 'HUMAN_HANDOFF' && row.humanHandoffResolvedAtText === null)) return null
+  const queuedAt = existingQueue?.queuedAt ?? row.dbNow
   const projection: QueuedCrmProjection = {
-    v: 1, conversationId: row.id, queuedAt: row.dbNow.toISOString(), previousStep: row.currentStep,
-    previousHandoffAt: row.humanHandoffAt?.toISOString() ?? null,
-    previousResolvedAt: row.humanHandoffResolvedAt?.toISOString() ?? null
+    v: 2, conversationId: row.id, queuedAt: queuedAt.toISOString(), previousStep: row.currentStep,
+    previousHandoffAt: row.humanHandoffAtText,
+    previousResolvedAt: row.humanHandoffResolvedAtText
   }
+  const marker = existingQueue
+    ? Prisma.sql`(SELECT h."queuedAt" FROM "BotHandoff" h WHERE h."id" = ${existingQueue.handoffId}
+        AND h."businessId" = ${input.businessId} AND h."sessionId" = ${input.sessionId}
+        AND h."status" = 'QUEUED'::"BotHandoffStatus")`
+    : Prisma.sql`${queuedAt}`
   const updated = await tx.$executeRaw(Prisma.sql`
-    UPDATE "Conversation" SET "currentStep" = 'HUMAN_HANDOFF'::"ConversationStep", "humanHandoffAt" = ${row.dbNow},
+    UPDATE "Conversation" SET "currentStep" = 'HUMAN_HANDOFF'::"ConversationStep", "humanHandoffAt" = ${marker},
       "humanHandoffResolvedAt" = NULL, "updatedAt" = ${row.dbNow}
     WHERE "id" = ${row.id} AND "businessId" = ${input.businessId}
   `)
   if (updated !== 1) throw new Error('handoff CRM projection lost conversation')
-  input.pendingConversationUpdates?.push({ businessId: input.businessId, conversationId: row.id, updatedAt: projection.queuedAt })
+  input.pendingConversationUpdates?.push({ businessId: input.businessId, conversationId: row.id, updatedAt: row.dbNow.toISOString() })
   return projection
 }
 
-async function restoreQueuedHandoffProjection(tx: Prisma.TransactionClient, input: HandoffEffectInput, context: Prisma.JsonValue | null) {
+async function restoreQueuedHandoffProjection(
+  tx: Prisma.TransactionClient,
+  input: HandoffEffectInput,
+  handoffId: string,
+  context: Prisma.JsonValue | null
+) {
   if (!context || typeof context !== 'object' || Array.isArray(context)) return
   const value = context._crmQueuedProjection
   if (!value || typeof value !== 'object' || Array.isArray(value)) return
-  if (value.v !== 1 || typeof value.conversationId !== 'string' || typeof value.queuedAt !== 'string' || typeof value.previousStep !== 'string'
+  if ((value.v !== 1 && value.v !== 2) || typeof value.conversationId !== 'string' || typeof value.queuedAt !== 'string' || typeof value.previousStep !== 'string'
     || !(value.previousHandoffAt === null || typeof value.previousHandoffAt === 'string')
     || !(value.previousResolvedAt === null || typeof value.previousResolvedAt === 'string')) return
   // CAS only the fields owned by this queued projection. updatedAt is deliberately
   // excluded: ordinary customer messages update it while waiting. Never write aiEnabled.
+  const previousHandoffAt = value.previousHandoffAt
+    ? value.v === 2 ? Prisma.sql`CAST(${value.previousHandoffAt} AS timestamp(3))` : Prisma.sql`${new Date(value.previousHandoffAt)}`
+    : Prisma.sql`NULL`
+  const previousResolvedAt = value.previousResolvedAt
+    ? value.v === 2 ? Prisma.sql`CAST(${value.previousResolvedAt} AS timestamp(3))` : Prisma.sql`${new Date(value.previousResolvedAt)}`
+    : Prisma.sql`NULL`
   const rows = await tx.$queryRaw<Array<{ id: string; updatedAt: Date }>>(Prisma.sql`
     UPDATE "Conversation" c SET "currentStep" = ${value.previousStep}::"ConversationStep",
-      "humanHandoffAt" = ${value.previousHandoffAt ? new Date(value.previousHandoffAt) : null},
-      "humanHandoffResolvedAt" = ${value.previousResolvedAt ? new Date(value.previousResolvedAt) : null},
+      "humanHandoffAt" = ${previousHandoffAt},
+      "humanHandoffResolvedAt" = ${previousResolvedAt},
       "updatedAt" = clock_timestamp()
     WHERE c."id" = ${value.conversationId} AND c."businessId" = ${input.businessId}
       AND c."currentStep" = 'HUMAN_HANDOFF'::"ConversationStep" AND c."aiEnabled" = true
-      AND c."humanHandoffAt" = ${new Date(value.queuedAt)} AND c."humanHandoffResolvedAt" IS NULL
+      AND c."humanHandoffAt" = (SELECT h."queuedAt" FROM "BotHandoff" h WHERE h."id" = ${handoffId}
+        AND h."businessId" = ${input.businessId} AND h."sessionId" = ${input.sessionId})
+      AND c."humanHandoffResolvedAt" IS NULL
       AND EXISTS (SELECT 1 FROM "BotSession" s WHERE s."id" = ${input.sessionId}
         AND s."businessId" = c."businessId" AND s."conversationId" = c."id")
     RETURNING c."id", c."updatedAt"
