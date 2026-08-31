@@ -255,6 +255,7 @@ const CLIENT_ALLOWED: Partial<Record<BotOptionsFlowStep, readonly BotOptionsActi
     'menu.browse_services',
     'menu.business_hours',
     'menu.manage_appointment',
+    'navigation.home',
     'navigation.open'
   ],
   DRAFT_RESUME: ['draft.continue', 'draft.restart', 'navigation.home'],
@@ -847,9 +848,9 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
         : [])
     }
     case 'HANDOFF_QUEUED':
-      return menuView('Ya avisamos al equipo. Seguí tu lugar desde acá.', [
+      return menuView('Ya avisamos al equipo. Podés seguir esperando o cancelar la atención para volver al paso anterior.', [
         { actionType: 'handoff.wait', label: 'Seguir esperando' },
-        { actionType: 'handoff.cancel', label: 'Cancelar atención y volver' }
+        { actionType: 'handoff.cancel', label: 'Cancelar atención' }
       ])
     case 'HANDOFF_TAKEN':
       return textView('')
@@ -1570,8 +1571,12 @@ function fromMainMenu(state: BotOptionsState, actionType: BotOptionsActionType, 
         return recovered(
           resetInvalidStreak(state),
           'guard_failed',
-          'No encontramos turnos futuros para este número. ¿Querés sacar uno nuevo?',
-          [{ actionType: 'menu.start_booking', label: 'Sacar un turno' }]
+          'No encontramos turnos futuros para este número. ¿Cómo querés continuar?',
+          [
+            { actionType: 'menu.start_booking', label: 'Sacar un turno' },
+            { actionType: 'navigation.home', label: 'Menú principal' },
+            { actionType: 'handoff.request', label: 'Hablar con el equipo' }
+          ]
         )
       }
       const page = context.appointmentListPage

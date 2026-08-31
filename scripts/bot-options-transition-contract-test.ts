@@ -145,10 +145,25 @@ const noAppointments = transition(menu, act('menu.manage_appointment'), ctx({ ap
 assert.equal(noAppointments.outcome, 'RECOVERED')
 if (noAppointments.outcome === 'RECOVERED') {
   assert.equal(noAppointments.reason, 'guard_failed')
+  assert.equal(noAppointments.view.interactiveBody, 'No encontramos turnos futuros para este número. ¿Cómo querés continuar?')
   assert.deepEqual(
-    noAppointments.view.choices.map((choice) => choice.actionType),
-    ['menu.start_booking']
+    noAppointments.view.choices.map(({ actionType, label }) => ({ actionType, label })),
+    [
+      { actionType: 'menu.start_booking', label: 'Sacar un turno' },
+      { actionType: 'navigation.home', label: 'Menú principal' },
+      { actionType: 'handoff.request', label: 'Hablar con el equipo' }
+    ]
   )
+  const bookFromEmpty = transition(noAppointments.state, act('menu.start_booking'), ctx())
+  assert.equal(bookFromEmpty.outcome, 'APPLIED')
+  assert.equal(bookFromEmpty.state.flow, 'NAME_INPUT')
+  const homeFromEmpty = transition(noAppointments.state, act('navigation.home'), ctx())
+  assert.equal(homeFromEmpty.outcome, 'APPLIED')
+  assert.equal(homeFromEmpty.state.flow, 'MAIN_MENU')
+  assert.equal(homeFromEmpty.view.interactiveBody, expectedReturnMenu)
+  const handoffFromEmpty = transition(noAppointments.state, act('handoff.request'), ctx())
+  assert.equal(handoffFromEmpty.outcome, 'HANDOFF')
+  assert.equal(handoffFromEmpty.state.flow, 'HANDOFF_QUEUED')
 }
 
 // F5.2: Menú sin progreso vuelve directo; con progreso exige descarte y Volver restaura en una interacción.
@@ -527,6 +542,18 @@ assert.deepEqual(si.pendingEntityRef, { type: 'SERVICE', id: 'srv_color' })
 
 const coordinate = transition(si, act('recommendation.add'), ctx({ labels: { serviceName: 'Coloración' } }))
 assert.equal(coordinate.outcome, 'HANDOFF')
+assert.equal(coordinate.view.interactiveBody, 'Ya avisamos al equipo. Podés seguir esperando o cancelar la atención para volver al paso anterior.')
+assert.deepEqual(coordinate.view.choices.map(({ actionType, label }) => ({ actionType, label })), [
+  { actionType: 'handoff.wait', label: 'Seguir esperando' },
+  { actionType: 'handoff.cancel', label: 'Cancelar atención' }
+])
+const queuedScreen = renderWhatsAppScreen(coordinate.view, { promptToken: 'q'.repeat(16) })
+const queuedItem = queuedScreen.items.at(-1)!
+assert.equal(queuedItem.type, 'interactive')
+if (queuedItem.type === 'interactive') {
+  assert.equal(queuedItem.mode, 'buttons')
+  assert.deepEqual(queuedItem.buttons?.map((button) => button.title), ['Seguir esperando', 'Cancelar atención'])
+}
 if (coordinate.outcome === 'HANDOFF') {
   assert.equal(coordinate.state.flow, 'HANDOFF_QUEUED')
   assert.equal(coordinate.state.handoff, 'QUEUED')
