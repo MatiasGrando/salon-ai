@@ -249,7 +249,7 @@ async function assertProcessJobConfirmation() {
       (SELECT count(*) FROM "BotOutbox" WHERE "sessionId" = ${e2eSessionId})::bigint AS "outbox",
       (SELECT count(*) FROM "BotActionInbox" WHERE "id" = ${inboxId} AND "status" = 'PROCESSED'::"BotInboxStatus")::bigint AS "processed"
   `)
-  assert.deepEqual(rows[0], { flow: 'BOOKING_CONFIRMED', booking: 'CONFIRMED', visits: 1n, outbox: 1n, processed: 1n })
+  assert.deepEqual(rows[0], { flow: 'MAIN_MENU', booking: 'NONE', visits: 1n, outbox: 1n, processed: 1n })
 }
 
 function tomorrowAtNoonUtc() {

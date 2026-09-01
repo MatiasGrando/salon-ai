@@ -920,13 +920,6 @@ async function processSessionJobInternal(input: {
         effects = 'effects' in recovery ? recovery.effects : []
         if (effects.length) throw new Error('booking slot recovery must not emit effects')
       } else if (effectResult?.kind === 'CONFIRMED') {
-        nextState = {
-          ...nextState,
-          selections: {
-            ...nextState.selections,
-            provisionalProfessionalId: effectResult.professional.professionalId
-          }
-        }
         view = textView(`Listo, tu turno quedó confirmado con ${effectResult.professional.name}. Te esperamos.`)
       } else if (effectResult?.kind === 'APPOINTMENT_SLOT_CONFLICT' || effectResult?.kind === 'APPOINTMENT_STALE') {
         if (!transitionContext) throw new Error('appointment recovery has no transition context')

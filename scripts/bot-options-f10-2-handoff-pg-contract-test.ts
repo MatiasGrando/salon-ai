@@ -205,16 +205,12 @@ async function assertResolveOwnershipReplayAndHome() {
   await assert.rejects(() => operations.resolveBotHandoff({ client: prisma, businessId: ids.business, conversationId: x.conversationId, actorUserId: 'other', operationKey: key('resolve-other'), resolution: 'HOME' }), /only handoff owner/)
   const resolveKey = key('resolve-owner')
   const resolved = await operations.resolveBotHandoff({ client: prisma, businessId: ids.business, conversationId: x.conversationId, actorUserId: actor, operationKey: resolveKey, resolution: 'RESUME' })
-  // Supersedes F10.2's historic forced-HOME safety assertion: under F10.4,
-  // an unchanged immutable TAKE snapshot must RESUME durably and replayably.
-  // F10.4's own contract retains the negative safety cases: manual or invalid
-  // state changes must resolve HOME.
-  assert.equal(resolved.resolution, 'RESUME', 'F10.4 supersedes F10.2 forced HOME: a stable snapshot-backed RESUME is durable and replayable; invalid/manual state resolves HOME in the F10.4 contract')
+  assert.equal(resolved.resolution, 'HOME', 'manual attention always resolves to a clean initial session')
   const current = await session(x.sessionId)
   assert.equal(current.status, 'ACTIVE'); assert.equal((current.state as { handoff: string }).handoff, 'NONE')
-  assert.equal(await transitionCount(x.sessionId, 'handoff.resolve_resume'), 1)
-  assert.equal(await resumePolicy(x.handoffId), 'RESUME')
-  assert.equal((await operations.resolveBotHandoff({ client: prisma, businessId: ids.business, conversationId: x.conversationId, actorUserId: actor, operationKey: resolveKey, resolution: 'RESUME' })).resolution, 'RESUME', 'completed stable RESUME replay returns the durable applied result')
+  assert.equal(await transitionCount(x.sessionId, 'handoff.resolve_home'), 1)
+  assert.equal(await resumePolicy(x.handoffId), 'HOME')
+  assert.equal((await operations.resolveBotHandoff({ client: prisma, businessId: ids.business, conversationId: x.conversationId, actorUserId: actor, operationKey: resolveKey, resolution: 'RESUME' })).resolution, 'HOME', 'completed replay returns the durable HOME result')
   const blocked = await scenario('resolve_unknown')
   await operations.takeBotHandoff({ client: prisma, businessId: ids.business, conversationId: blocked.conversationId, actorUserId: actor, operationKey: key('take-resolve-unknown') })
   await prisma.$executeRaw(Prisma.sql`INSERT INTO "BotDispatchClaim" ("id","businessId","channel","sessionId","engineKey","generation","fenceEpoch","handoffFenceEpoch","kind","status","claimToken","claimedUntil","updatedAt") VALUES (${key('resolve-unknown-claim')},${ids.business},'WHATSAPP'::"BotChannel",${blocked.sessionId},'deterministic-options',0,0,1,'SEND'::"BotDispatchKind",'UNKNOWN'::"BotDispatchStatus",${key('resolve-unknown-token')},clock_timestamp(),clock_timestamp())`)

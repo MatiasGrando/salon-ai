@@ -14302,7 +14302,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               <button class="danger" id="deposit-reject" type="button" hidden>Rechazar se&ntilde;a</button>
               <button class="primary" id="advisor-quote" type="button" hidden>Enviar presupuesto</button>
               <button class="secondary" id="define-service" type="button" hidden>Definir servicio</button>
-              <select id="resolve-handoff-policy" aria-label="Destino al resolver la derivacion" hidden><option value="HOME">Volver al inicio</option><option value="RESUME">Reanudar si es seguro</option></select>
               <button class="secondary" id="resolve-handoff" type="button" disabled hidden>Marcar como resuelto</button>
               <button class="secondary" id="conversation-ai-toggle" type="button" disabled>Atender manualmente</button>
               <button class="secondary" id="archive-conversation" type="button" disabled>Archivar chat</button>
@@ -17830,7 +17829,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       stepChip: document.getElementById('step-chip'),
       defineService: document.getElementById('define-service'),
       resolveHandoff: document.getElementById('resolve-handoff'),
-      resolveHandoffPolicy: document.getElementById('resolve-handoff-policy'),
       advisorQuote: document.getElementById('advisor-quote'),
       depositApprove: document.getElementById('deposit-approve'),
       depositReject: document.getElementById('deposit-reject'),
@@ -22133,7 +22131,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.defineService.hidden = !canReplyConversation || !canResolveHandoff || Boolean(activeDeposit) || Boolean(selected.selectedServiceId)
       els.defineService.disabled = !canResolveHandoff || Boolean(activeDeposit) || Boolean(selected.selectedServiceId)
       els.resolveHandoff.hidden = !canReplyConversation || !canResolveHandoff || Boolean(activeDeposit)
-      els.resolveHandoffPolicy.hidden = els.resolveHandoff.hidden
       els.resolveHandoff.disabled = !canResolveHandoff || Boolean(activeDeposit)
       els.resolveHandoff.textContent = 'Marcar como resuelto'
       els.conversationAiToggle.hidden = !canReplyConversation || canResolveHandoff
@@ -24059,7 +24056,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           updated = await getJson('/crm/conversations/' + state.selected.id + '/handoff/resolve', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ operationKey, resolution: els.resolveHandoffPolicy.value })
+            body: JSON.stringify({ operationKey, resolution: 'HOME' })
           })
         } catch (error) {
           if (error.body?.code !== 'NO_DETERMINISTIC_HANDOFF') throw error

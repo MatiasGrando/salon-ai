@@ -236,9 +236,9 @@ async function assertValidResumeDurableReplayableAndNoRevival() {
   assert.deepEqual(await suppressedJob(messageId), { status: 'DONE', error: 'HUMAN_TAKEN_SUPPRESSED' }, 'pre-TAKE work is suppressed, not merely unleased')
 
   const resolved = await handoff.resolveBotHandoff({ client: prisma, businessId: ids.business, conversationId: fixture.conversationId, actorUserId: owner, operationKey: key('resolve-resume'), resolution: 'RESUME' })
-  assert.equal(resolved.resolution, 'RESUME', 'a stable immutable snapshot-backed RESUME is applied')
-  assert.equal(await sessionStatus(fixture.sessionId), 'ACTIVE', 'RESUME returns the session to ACTIVE')
-  assert.equal((await handoff.resolveBotHandoff({ client: prisma, businessId: ids.business, conversationId: fixture.conversationId, actorUserId: owner, operationKey: key('resolve-resume'), resolution: 'RESUME' })).resolution, 'RESUME', 'completed RESUME replay returns the durable applied result')
+  assert.equal(resolved.resolution, 'HOME', 'manual attention always returns to a clean initial session')
+  assert.equal(await sessionStatus(fixture.sessionId), 'ACTIVE', 'HOME returns the session to ACTIVE')
+  assert.equal((await handoff.resolveBotHandoff({ client: prisma, businessId: ids.business, conversationId: fixture.conversationId, actorUserId: owner, operationKey: key('resolve-resume'), resolution: 'RESUME' })).resolution, 'HOME', 'completed replay returns the durable HOME result')
   // No revival: the suppressed pre-TAKE job must stay DONE/HUMAN_TAKEN_SUPPRESSED.
   assert.equal(await worker.claimBotJob(prisma, 30_000, randomUUID(), { businessId: ids.business }), null, 'RESUME does not revive the pre-TAKE suppressed job')
   assert.deepEqual(await suppressedJob(messageId), { status: 'DONE', error: 'HUMAN_TAKEN_SUPPRESSED' }, 'pre-TAKE suppressed work is not revived after RESUME')

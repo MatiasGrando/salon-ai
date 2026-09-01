@@ -153,6 +153,8 @@ assert.match(crmUiSource, /handoffOperationKeys\.get\(operationKeyId\)[\s\S]*?bo
   'take retries keep one operation key until success')
 assert.match(crmUiSource, /handoffOperationKeys\.get\(operationKeyId\)[\s\S]*?body: JSON\.stringify\(\{ operationKey, resolution:/,
   'resolve retries keep one operation key until success')
+assert.doesNotMatch(crmUiSource, /Reanudar si es seguro|value="RESUME"/,
+  'el CRM no debe ofrecer reanudar contexto después de una atención manual')
 
 const operationsSource = readFileSync('src/bot-options/application/handoff-operations.ts', 'utf8')
 assert.match(operationsSource, /export const STALE_HANDOFF_TAKE_MS = 60_000/)
@@ -162,6 +164,8 @@ assert.match(operationsSource, /export async function recoverStaleTakeOperations
 assert.match(operationsSource, /TAKE_RECOVERY_ABORTED/)
 assert.match(operationsSource, /RESOLVE_BLOCKED_UNKNOWN[\s\S]*?canonicalOperationKey/,
   'a same-actor resolve retry after a reload must adopt its canonical blocked operation')
+assert.match(operationsSource, /const applied: HandoffResolution = 'HOME'/,
+  'el servidor fuerza inicio limpio aunque un cliente antiguo solicite RESUME')
 
 const workerSource = readFileSync('src/bot-options/infrastructure/postgres-worker.ts', 'utf8')
 assert.match(workerSource, /maintainBotJobs\(input\.client\)[\s\S]*?recoverStaleTakeOperations\(\{ client: input\.client \}\)/,

@@ -80,8 +80,8 @@ async function preTakeProofIsTerminalAfterResolution() {
 }
 async function validResumeAndReplay() {
   const x = await scenario('valid'); const result = await resolve(x, 'valid')
-  assert.equal(result.resolution, 'RESUME')
-  assert.equal((await resolve(x, 'valid')).resolution, 'RESUME', 'completed replay returns the durable applied result')
+  assert.equal(result.resolution, 'HOME')
+  assert.equal((await resolve(x, 'valid')).resolution, 'HOME', 'completed replay returns the durable applied result')
 }
 async function staleTakeRecoveryCompletesOwnership() {
   const tag = 'stale-take-recovery'
@@ -231,7 +231,7 @@ async function samePhoneAppointmentCanResume() {
   const x = await scenario('same-phone', initial, async ({ conversationId }) => {
     await prisma.$executeRaw(Prisma.sql`UPDATE "Conversation" SET "phone"=${phone},"updatedAt"=clock_timestamp() WHERE "id"=${conversationId} AND "businessId"=${ids.business}`)
   })
-  assert.equal((await resolve(x, 'same-phone')).resolution, 'RESUME', 'formatted Conversation.phone authorizes its Customer.normalizedPhone using the F9 matcher')
+  assert.equal((await resolve(x, 'same-phone')).resolution, 'HOME', 'manual attention always returns to the initial session')
 }
 async function reassignedAppointmentHomes() {
   const phone = '+54 9 11 3456-7890', normalizedPhone = '5491134567890'

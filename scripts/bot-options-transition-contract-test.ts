@@ -573,8 +573,7 @@ const confirmed = transition(
 )
 assert.equal(confirmed.outcome, 'APPLIED')
 if (confirmed.outcome === 'APPLIED') {
-  assert.equal(confirmed.state.flow, 'BOOKING_CONFIRMED')
-  assert.equal(confirmed.state.booking, 'CONFIRMED')
+  assert.deepEqual(confirmed.state, createInitialBotOptionsState(), 'una reserva directa terminada deja la sesión en estado inicial')
   assert.equal(confirmed.effects[0]?.kind, 'CONFIRM_VISIT')
 }
 
@@ -729,9 +728,7 @@ assert.equal(homeDuringReview.state.deposit, 'PROOF_RECEIVED', 'la revisión sig
 
 const approved = transition(homeDuringReview.state, act('deposit.approve'), ctx())
 if (approved.outcome === 'RECOVERED') throw new Error('approve debía aplicar')
-assert.equal(approved.state.deposit, 'APPROVED')
-assert.equal(approved.state.booking, 'CONFIRMED')
-assert.equal(approved.state.flow, 'BOOKING_CONFIRMED')
+assert.deepEqual(approved.state, createInitialBotOptionsState(), 'una reserva terminada deja la sesión en estado inicial')
 assert.equal(approved.effects[0]?.kind, 'APPROVE_DEPOSIT')
 
 const requestedHandoff = transition(createInitialBotOptionsState(), act('handoff.request'), ctx())
@@ -743,7 +740,12 @@ if (takenHandoff.outcome === 'RECOVERED') throw new Error('handoff.take debía a
 assert.equal(takenHandoff.effects[0]?.kind, 'TAKE_HUMAN_HANDOFF')
 const resolvedHandoff = transition(takenHandoff.state, act('handoff.resolve_home'), ctx())
 if (resolvedHandoff.outcome === 'RECOVERED') throw new Error('handoff.resolve_home debía aplicar')
+assert.deepEqual(resolvedHandoff.state, createInitialBotOptionsState(), 'devolver la atención manual siempre inicia una sesión limpia')
 assert.deepEqual(resolvedHandoff.effects[0], { kind: 'RESOLVE_HANDOFF', mode: 'HOME' })
+const legacyResumeHandoff = transition(takenHandoff.state, act('handoff.resolve_resume'), ctx())
+if (legacyResumeHandoff.outcome === 'RECOVERED') throw new Error('handoff.resolve_resume legado debía aplicar')
+assert.deepEqual(legacyResumeHandoff.state, createInitialBotOptionsState(), 'incluso una solicitud RESUME antigua vuelve al inicio')
+assert.deepEqual(legacyResumeHandoff.effects[0], { kind: 'RESOLVE_HANDOFF', mode: 'HOME' })
 
 // Menú principal durante espera de comprobante abre cancelación protegida.
 let sw = stateWith({ flow: 'DEPOSIT_INSTRUCTIONS', deposit: 'PENDING_PROOF', booking: 'HELD' })
@@ -901,6 +903,7 @@ ar = transition(
 )
 assert.equal(ar.outcome, 'APPLIED')
 if (ar.outcome === 'APPLIED') {
+  assert.deepEqual(ar.state, createInitialBotOptionsState(), 'una reprogramación terminada deja la sesión en estado inicial')
   const swap = ar.effects.find((effect) => effect.kind === 'SWAP_APPOINTMENT_SLOT')
   assert.ok(swap && swap.kind === 'SWAP_APPOINTMENT_SLOT')
   assert.equal(swap.newSlotStartAt, newSlot)
@@ -1594,7 +1597,7 @@ console.log('OK F9.6: APPOINTMENT_DETAIL conserva entityRef y no expone acciones
   assert.ok(normalizedReschedule.ok, 'reschedule_confirm renderizado pasa normalización')
   const reschedule = transition(rescheduleState, act(rescheduleChoice!.actionType, { entityRef: rescheduleChoice!.entityRef! }), ctx({ rescheduleSlotAvailable: true }))
   assert.equal(reschedule.outcome, 'APPLIED', 'reschedule_confirm renderizado aplica')
-  if (reschedule.outcome === 'APPLIED') assert.equal(reschedule.state.flow, 'APPOINTMENT_DETAIL')
+  if (reschedule.outcome === 'APPLIED') assert.deepEqual(reschedule.state, createInitialBotOptionsState(), 'reprogramar limpia el flujo anterior')
 
   const missingCancel = renderCurrentView(appointmentState('APPOINTMENT_CANCEL_CONFIRM'), normalizeContext(ctx()))
   assert.ok(!missingCancel.choices.some((choice) => choice.actionType === 'appointment.cancel_confirm'), 'cancel confirm sin turno no expone acción con entityRef obligatorio')

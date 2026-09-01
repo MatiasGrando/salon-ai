@@ -150,7 +150,7 @@ async function assertClaimedInitialInboxSilencesAfterTake() {
   await handoff.takeBotHandoff({ client: prisma, businessId: ids.business, conversationId: guarded.conversationId, actorUserId: key('owner'), operationKey: key('take-ready-initial') })
   assert.equal(await worker.claimBotJob(prisma, 30_000, key('ready-initial-token'), { businessId: ids.business }), null, 'a READY initial inbox is fenced before lease once TAKE completes')
   const resumed = await handoff.resolveBotHandoff({ client: prisma, businessId: ids.business, conversationId: guarded.conversationId, actorUserId: key('owner'), operationKey: key('resume-ready-initial'), resolution: 'RESUME' })
-  assert.equal(resumed.resolution, 'RESUME')
+  assert.equal(resumed.resolution, 'HOME')
   const ready = await prisma.$queryRaw<Array<{ status: string; leaseToken: string | null; reason: string | null }>>(Prisma.sql`SELECT j."status"::text AS status,j."leaseToken" AS "leaseToken",j."lastError" AS reason FROM "BotJob" j JOIN "BotActionInbox" i ON i."id"=j."aggregateId" WHERE i."providerMessageId"=${guardedMessageId}`)
   assert.deepEqual(ready[0], { status: 'DONE', leaseToken: null, reason: 'HUMAN_TAKEN_SUPPRESSED' }, 'TAKE terminally suppresses pre-TAKE READY work, and RESUME cannot revive it')
 }

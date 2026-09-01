@@ -1251,7 +1251,7 @@ export function transition(
           const back = baseOf(withoutSelections(state, 'slot'), { flow: 'APPOINTMENT_RESCHEDULE_SLOT' })
           return applied(back, recoveryView('Ese horario acaba de ocuparse. Elegí otro, por favor.', []))
         }
-        const next = baseOf(state, { flow: 'APPOINTMENT_DETAIL', presentation: plainPresentation() })
+        const next = clearDraft(state)
         return applied(next, textView('Listo, reprogramamos tu turno.'), [
           {
             kind: 'SWAP_APPOINTMENT_SLOT',
@@ -1538,7 +1538,7 @@ function handleCrmAction(
       if (state.deposit !== 'PROOF_RECEIVED' || state.booking !== 'PENDING_PAYMENT_REVIEW') {
         return escalateInvalid(state, '')
       }
-      const next = baseOf(state, { flow: 'BOOKING_CONFIRMED', deposit: 'APPROVED', booking: 'CONFIRMED', presentation: plainPresentation() })
+      const next = clearDraft(state)
       return applied(next, textView('Pago aprobado: tu turno quedó confirmado. ¡Te esperamos!'), [
         { kind: 'APPROVE_DEPOSIT' }
       ])
@@ -1596,10 +1596,9 @@ function handleCrmAction(
     }
     case 'handoff.resolve_resume': {
       if (state.handoff !== 'TAKEN') return escalateInvalid(state, '')
-      const target = state.handoffReturnFlow ?? 'MAIN_MENU'
-      const next = baseOf(state, { flow: target, handoff: 'NONE', handoffReturnFlow: null, presentation: plainPresentation() })
-      return applied(next, renderCurrentView(next, context), [
-        { kind: 'RESOLVE_HANDOFF', mode: 'RESUME' }
+      const cleared = clearDraft(state)
+      return applied(cleared, renderCurrentView(cleared, context), [
+        { kind: 'RESOLVE_HANDOFF', mode: 'HOME' }
       ])
     }
   }
@@ -2211,12 +2210,8 @@ function fromBookingSummary(state: BotOptionsState, actionType: BotOptionsAction
         }
       ])
     }
-    const next = baseOf(resetInvalidStreak(state), {
-      flow: 'BOOKING_CONFIRMED',
-      booking: 'CONFIRMED',
-      presentation: plainPresentation()
-    })
-    return applied(next, renderCurrentView(next, context), [
+    const next = clearDraft(resetInvalidStreak(state))
+    return applied(next, textView('Listo, tu turno quedó confirmado. Te esperamos.'), [
       {
         kind: 'CONFIRM_VISIT',
         services: context.confirmVisitSnapshot.services,
