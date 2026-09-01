@@ -561,7 +561,7 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
         HUMAN_CHOICE
       ])
     case 'NAME_INPUT':
-      return recoveryView('¿Cómo es tu nombre y apellido?', [])
+      return recoveryView('Para guardar la reserva, escribí únicamente tu nombre y apellido.\n\nEjemplo: Matías Grando', [])
     case 'NAME_CONFIRM':
       return menuView(
         `¿Tu nombre es ${state.nameCandidate ?? context.customerNameOnFile ?? ''}?`,
