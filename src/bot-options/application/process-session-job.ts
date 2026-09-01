@@ -499,8 +499,12 @@ export const defaultContextProvider: TransitionContextProvider = async (tx, inpu
 
   // Una recomendación es una propuesta explícita, nunca una mutación automática.
   const refreshingRecommendations = refreshingCurrentView && input.state.flow === 'RECOMMENDATION_SELECT'
-  const recommendationSourceIds = input.actionType === 'recommendation.skip' || refreshingRecommendations ? cartIds : proposedServiceId ? [proposedServiceId] : []
-  if (targetCart && recommendationSourceIds.length > 0 && (input.actionType === 'service.select' || input.actionType === 'service.book' || input.actionType === 'name.confirm' || input.actionType === 'service.estimate_option' || input.actionType === 'service.validation_accept' || input.actionType === 'recommendation.skip' || refreshingRecommendations)) {
+  const continuingRecommendation = input.actionType === 'recommendation.add' || input.actionType === 'recommendation.skip' ||
+    input.actionType === 'name.confirm' || input.actionType === 'service.estimate_option' || input.actionType === 'service.validation_accept' || refreshingRecommendations
+  const recommendationSourceIds = continuingRecommendation
+    ? input.state.recommendationSourceServiceIds ?? []
+    : proposedServiceId ? [proposedServiceId] : []
+  if (targetCart && recommendationSourceIds.length > 0 && (input.actionType === 'service.select' || input.actionType === 'service.book' || input.actionType === 'name.confirm' || input.actionType === 'service.estimate_option' || input.actionType === 'service.validation_accept' || input.actionType === 'recommendation.add' || input.actionType === 'recommendation.skip' || refreshingRecommendations)) {
     const rejectedFilter = input.state.rejectedRecommendationIds.length > 0
       ? Prisma.sql`AND s."id" NOT IN (${Prisma.join(input.state.rejectedRecommendationIds)})`
       : Prisma.empty

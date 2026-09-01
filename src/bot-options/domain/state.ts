@@ -173,6 +173,8 @@ export type BotOptionsState = {
   pendingEntityRef: { type: 'SERVICE'; id: string } | { type: 'PROFESSIONAL'; id: string } | null
   /** Recomendaciones rechazadas en este borrador: no se vuelven a ofrecer. */
   rejectedRecommendationIds: string[]
+  /** Servicios elegidos manualmente que originan la tanda actual de complementos. */
+  recommendationSourceServiceIds?: string[]
   /** Optional for sessions created before service policies were supported. */
   serviceDecisions?: Record<string, ServiceBookingDecision>
   servicePhotoIds?: Record<string, string[]>
@@ -203,7 +205,8 @@ export function createInitialBotOptionsState(): BotOptionsState {
     catalogMode: 'BOOKING',
     nameCandidate: null,
     pendingEntityRef: null,
-    rejectedRecommendationIds: []
+    rejectedRecommendationIds: [],
+    recommendationSourceServiceIds: []
   }
 }
 
@@ -321,6 +324,14 @@ export function validateBotOptionsState(
   if (
     (!Array.isArray(rejectedRecommendationIds) ||
       rejectedRecommendationIds.some((id) => typeof id !== 'string'))
+  ) {
+    return { ok: false, invariant: 'schema_version_known' }
+  }
+
+  const recommendationSourceServiceIds = candidate['recommendationSourceServiceIds']
+  if (
+    recommendationSourceServiceIds !== undefined &&
+    (!Array.isArray(recommendationSourceServiceIds) || recommendationSourceServiceIds.some((id) => typeof id !== 'string'))
   ) {
     return { ok: false, invariant: 'schema_version_known' }
   }

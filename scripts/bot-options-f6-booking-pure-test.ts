@@ -54,7 +54,23 @@ const chosen = chooseBalancedProfessional([
 assert.equal(chosen?.professional.id, 'p1', 'carga → prioridad → ID estable')
 assert.deepEqual(paginate(Array.from({ length: 17 }, (_, index) => index), 1, 8), { items: [8, 9, 10, 11, 12, 13, 14, 15], hasPrevious: true, hasNext: true })
 
-const recommendationState = { ...createInitialBotOptionsState(), flow: 'RECOMMENDATION_SELECT' as const, booking: 'DRAFT' as const, cart: [{ serviceId: 'cut' }] }
+const recommendationState = { ...createInitialBotOptionsState(), flow: 'RECOMMENDATION_SELECT' as const, booking: 'DRAFT' as const, cart: [{ serviceId: 'cut' }], recommendationSourceServiceIds: ['cut'] }
+const chained = transition(recommendationState, { actionType: 'recommendation.add', entityRef: { type: 'SERVICE', id: 'color' }, payload: null }, {
+  dbNowIso: '2026-08-26T12:00:00Z', recommendedServiceAvailable: true, recommendedCompatibleWithCart: true,
+  serviceActive: true, serviceBookable: true, serviceCompatibleWithCart: true, hasRecommendations: true
+})
+assert.equal(chained.outcome, 'APPLIED')
+assert.equal(chained.state.flow, 'RECOMMENDATION_SELECT', 'agregar un complemento vuelve a ofrecer los hermanos pendientes')
+assert.deepEqual(chained.state.cart, [{ serviceId: 'cut' }, { serviceId: 'color' }])
+assert.deepEqual(chained.state.recommendationSourceServiceIds, ['cut'], 'un complemento agregado no se convierte en origen de nuevas sugerencias')
+const lastComplement = transition(recommendationState, { actionType: 'recommendation.add', entityRef: { type: 'SERVICE', id: 'color' }, payload: null }, {
+  dbNowIso: '2026-08-26T12:00:00Z', recommendedServiceAvailable: true, recommendedCompatibleWithCart: true,
+  serviceActive: true, serviceBookable: true, serviceCompatibleWithCart: true, hasRecommendations: false
+})
+assert.equal(lastComplement.state.flow, 'CART_REVIEW')
+assert.deepEqual(lastComplement.state.recommendationSourceServiceIds, [], 'sin hermanos pendientes termina la tanda de complementos')
+const leaveRecommendations = transition(recommendationState, { actionType: 'navigation.back', entityRef: null, payload: null }, { dbNowIso: '2026-08-26T12:00:00Z' })
+assert.deepEqual(leaveRecommendations.state.recommendationSourceServiceIds, [], 'salir de complementos permite que el próximo servicio manual origine su propia tanda')
 const incompatible = transition(recommendationState, { actionType: 'recommendation.add', entityRef: { type: 'SERVICE', id: 'nails' }, payload: null }, {
   dbNowIso: '2026-08-26T12:00:00Z', recommendedServiceAvailable: true, recommendedCompatibleWithCart: false
 })

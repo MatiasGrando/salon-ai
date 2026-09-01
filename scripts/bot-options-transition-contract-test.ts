@@ -88,6 +88,7 @@ assert.deepEqual(welcome.choices.map(({ actionType, label }) => ({ actionType, l
 const askName = transition(menu, act('menu.start_booking'), ctx())
 if (askName.outcome === 'RECOVERED') throw new Error('start_booking debía aplicar')
 assert.equal(askName.state.flow, 'NAME_INPUT')
+assert.equal(askName.view.interactiveBody, '¿Cómo es tu nombre y apellido?')
 
 const knownName = transition(menu, act('menu.start_booking'), ctx({ customerNameOnFile: 'Martina' }))
 if (!(knownName.outcome === 'APPLIED' || knownName.outcome === 'HANDOFF')) throw new Error('unreachable')

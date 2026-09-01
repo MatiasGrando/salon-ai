@@ -440,8 +440,8 @@ const BACK_TARGETS: Partial<Record<BotOptionsFlowStep, BackTarget>> = {
   SERVICE_ESTIMATE: { flow: 'SERVICE_DETAIL', apply: (state) => state },
   SERVICE_VALIDATION: { flow: 'SERVICE_DETAIL', apply: (state) => state },
   SERVICE_PHOTOS: { flow: 'SERVICE_DETAIL', apply: (state) => state },
-  RECOMMENDATION_SELECT: { flow: 'CART_REVIEW', apply: (state) => state },
-  CART_REVIEW: { flow: 'SERVICE_SELECT', apply: (state) => state },
+  RECOMMENDATION_SELECT: { flow: 'CART_REVIEW', apply: (state) => ({ ...state, recommendationSourceServiceIds: [] }) },
+  CART_REVIEW: { flow: 'SERVICE_SELECT', apply: (state) => ({ ...state, recommendationSourceServiceIds: [] }) },
   INCOMPATIBLE_SERVICE_DECISION: { flow: 'CART_REVIEW', apply: (state) => ({ ...state, pendingEntityRef: null }) },
   PROFESSIONAL_SELECT: { flow: 'CART_REVIEW', apply: (state) => withoutSelections(state, 'professional') },
   DATE_SELECT: { flow: 'PROFESSIONAL_SELECT', apply: (state) => withoutSelections(state, 'professional') },
@@ -561,7 +561,7 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
         HUMAN_CHOICE
       ])
     case 'NAME_INPUT':
-      return recoveryView('¿Cómo es tu nombre?', [])
+      return recoveryView('¿Cómo es tu nombre y apellido?', [])
     case 'NAME_CONFIRM':
       return menuView(
         `¿Tu nombre es ${state.nameCandidate ?? context.customerNameOnFile ?? ''}?`,
@@ -1751,10 +1751,11 @@ function addServiceOrIncompatible(
   const withItem = addToCart(state, serviceId)
   const invalidated = withoutSelections(withItem, 'professional')
   if (!context.hasRecommendations) {
-    const next = baseOf(invalidated, { flow: 'CART_REVIEW', presentation: plainPresentation() })
+    const next = baseOf(invalidated, { flow: 'CART_REVIEW', recommendationSourceServiceIds: [], presentation: plainPresentation() })
     return applied(next, renderCurrentView(next, context))
   }
-  const next = baseOf(invalidated, { flow: 'RECOMMENDATION_SELECT', presentation: plainPresentation() })
+  const sources = state.recommendationSourceServiceIds?.length ? state.recommendationSourceServiceIds : [serviceId]
+  const next = baseOf(invalidated, { flow: 'RECOMMENDATION_SELECT', recommendationSourceServiceIds: sources, presentation: plainPresentation() })
   return applied(next, renderCurrentView(next, context))
 }
 
@@ -1818,7 +1819,8 @@ function resolveSelectedService(state: BotOptionsState, serviceId: string, conte
   if (!context.serviceActive || !context.serviceBookable) return recovered(state, 'entity_inactive', 'Ese servicio ya no está disponible.', [BACK_CHOICE, HUMAN_CHOICE])
   const service = context.serviceBooking
   if (service && service.id !== serviceId) return recovered(state, 'stale_ref', 'El servicio cambió. Volvé a abrir su detalle.', [BACK_CHOICE])
-  const pending = baseOf(state, { pendingEntityRef: { type: 'SERVICE', id: serviceId }, catalogMode: 'BOOKING' })
+  const recommendationSources = state.recommendationSourceServiceIds?.length ? state.recommendationSourceServiceIds : [serviceId]
+  const pending = baseOf(state, { pendingEntityRef: { type: 'SERVICE', id: serviceId }, catalogMode: 'BOOKING', recommendationSourceServiceIds: recommendationSources })
   if (!context.customerNameOnFile && (service || state.flow === 'SERVICE_DETAIL')) {
     const next = baseOf(pending, { flow: 'NAME_INPUT' })
     return applied(next, renderCurrentView(next, context))
@@ -1946,12 +1948,12 @@ function fromServiceDetail(
       )
     case 'service.more_same_category':
       return applied(
-        baseOf(state, { flow: 'SERVICE_SELECT', pendingEntityRef: null }),
+        baseOf(state, { flow: 'SERVICE_SELECT', pendingEntityRef: null, recommendationSourceServiceIds: [] }),
         renderCurrentView({ ...state, flow: 'SERVICE_SELECT', pendingEntityRef: null }, context)
       )
     case 'service.change_category':
       return applied(
-        baseOf(state, { flow: 'CATEGORY_SELECT', selections: { ...state.selections, categoryId: null }, presentation: plainPresentation() }),
+        baseOf(state, { flow: 'CATEGORY_SELECT', selections: { ...state.selections, categoryId: null }, recommendationSourceServiceIds: [], presentation: plainPresentation() }),
         renderCurrentView({ ...state, flow: 'CATEGORY_SELECT' }, context)
       )
   }
@@ -1980,7 +1982,7 @@ function fromRecommendationSelect(
     const rejected = rejectedId
       ? [...new Set([...state.rejectedRecommendationIds, rejectedId])]
       : state.rejectedRecommendationIds
-    return applied(baseOf(state, { flow: 'CART_REVIEW', rejectedRecommendationIds: rejected, presentation: plainPresentation() }), renderCurrentView({ ...state, flow: 'CART_REVIEW' }, context))
+    return applied(baseOf(state, { flow: 'CART_REVIEW', rejectedRecommendationIds: rejected, recommendationSourceServiceIds: [], presentation: plainPresentation() }), renderCurrentView({ ...state, flow: 'CART_REVIEW' }, context))
   }
   if (actionType === 'recommendation.consult') {
     return enterHandoff(state, 'complemento_requiere_coordinacion', context.labels.serviceName ?? null)
@@ -2003,7 +2005,7 @@ function fromCartReview(
     return applied(next, renderCurrentView(next, context))
   }
   if (actionType === 'cart.add_service') {
-    return applied(baseOf(state, { flow: 'CATEGORY_SELECT', catalogMode: 'BOOKING', presentation: plainPresentation() }), renderCurrentView({ ...state, flow: 'CATEGORY_SELECT' }, context))
+    return applied(baseOf(state, { flow: 'CATEGORY_SELECT', catalogMode: 'BOOKING', recommendationSourceServiceIds: [], presentation: plainPresentation() }), renderCurrentView({ ...state, flow: 'CATEGORY_SELECT' }, context))
   }
   if (actionType === 'cart.continue') {
     if (state.cart.length === 0 || !context.professionalCommonExists) {
@@ -2296,6 +2298,7 @@ function createInitialLike(state: BotOptionsState): BotOptionsState {
     catalogMode: 'BOOKING',
     nameCandidate: null,
     pendingEntityRef: null,
-    rejectedRecommendationIds: []
+    rejectedRecommendationIds: [],
+    recommendationSourceServiceIds: []
   }
 }
