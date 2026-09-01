@@ -6,6 +6,28 @@ const service = new AppointmentService()
 
 export async function appointmentRoutes(app: FastifyInstance) {
 
+  app.post('/appointments/check-availability', async (request, reply) => {
+    const body = request.body as {
+      professionalId: string
+      serviceId: string
+      serviceIds?: string[]
+      startAt: string
+      appointmentId?: string
+    }
+    const permission = body.appointmentId ? 'canEditAppointments' : 'canCreateAppointments'
+    if (!hasAgendaPermission(request.auth, permission)) {
+      return reply.status(403).send({
+        message: body.appointmentId ? 'No tenes permiso para editar turnos' : 'No tenes permiso para cargar turnos'
+      })
+    }
+    const authUser = request.auth?.user
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+
+    const result = await service.checkManualAvailability(body, authUser)
+    if (!result.ok) return reply.status(result.statusCode).send({ message: result.message })
+    return { conflicts: result.conflicts }
+  })
+
   app.post('/appointments', async (request, reply) => {
     if (!hasAgendaPermission(request.auth, 'canCreateAppointments')) {
       return reply.status(403).send({ message: 'No tenes permiso para cargar turnos' })

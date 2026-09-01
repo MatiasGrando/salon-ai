@@ -8593,30 +8593,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       box-shadow: 0 0 0 3px #dbeafe;
     }
 
-    .exceptional-option {
-      padding: 12px;
-      border: 1px solid #fed7aa;
-      border-radius: 8px;
-      display: grid;
-      gap: 5px;
-      background: #fff7ed;
-    }
-
-    .exceptional-option label {
-      display: flex;
-      align-items: center;
-      gap: 9px;
-      color: #9a3412;
-      font-size: 13px;
-      font-weight: 700;
-    }
-
-    .exceptional-option small {
-      color: #9a3412;
-      font-size: 12px;
-      line-height: 1.4;
-    }
-
     .appointment-deposit-option {
       padding: 12px;
       border: 1px solid #bbf7d0;
@@ -14694,13 +14670,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             </div>
             <small>La se&ntilde;a quedar&aacute; registrada directamente en este turno manual.</small>
           </div>
-          <div class="exceptional-option">
-            <label>
-              <input id="appointment-force" type="checkbox">
-              Turno excepcional
-            </label>
-            <small>Permite guardar fuera del horario habitual o superpuesto. Solo afecta este turno y nunca se ofrece desde el bot.</small>
-          </div>
           <p class="hint" id="appointment-feedback"></p>
           <div class="dialog-actions">
             <button class="danger" id="appointment-no-show" type="button" hidden>Marcar ausente</button>
@@ -18301,7 +18270,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       appointmentDepositPaid: document.getElementById('appointment-deposit-paid'),
       appointmentDepositAmountRow: document.getElementById('appointment-deposit-amount-row'),
       appointmentDepositAmount: document.getElementById('appointment-deposit-amount'),
-      appointmentForce: document.getElementById('appointment-force'),
       appointmentFeedback: document.getElementById('appointment-feedback'),
       businessSettingsForm: document.getElementById('business-settings-form'),
       businessLogo: document.getElementById('business-logo'),
@@ -28037,7 +28005,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.appointmentFeedback.textContent = ''
       const appointment = input.appointment
       state.editingAppointmentId = appointment?.id || null
-      els.appointmentForce.checked = false
       els.appointmentTitle.textContent = appointment ? 'Editar turno' : 'Nuevo turno rápido'
       els.appointmentSubmit.textContent = appointment ? 'Guardar cambios' : 'Cargar turno'
       els.appointmentDelete.hidden = !appointment
@@ -28220,6 +28187,30 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
     }
 
+    async function confirmManualAppointmentOverride(conflicts, input) {
+      const conflictList = conflicts.map((conflict) => '• ' + conflict.message).join('\\n')
+      if (!canForceAppointmentOverrides()) {
+        els.appointmentFeedback.textContent = conflictList + '\\nNo tenés permiso para crear excepciones o sobreturnos.'
+        return false
+      }
+      const start = new Date(input.startAt)
+      const professional = state.professionals.find((item) => item.id === input.professionalId)?.name || 'Profesional'
+      const service = state.services.find((item) => item.id === input.serviceId)
+      const duration = service?.duration || 30
+      return requestCrmConfirmation(
+        'Este turno necesita una excepción:\\n\\n' + conflictList + '\\n\\n' +
+        'Profesional: ' + professional + '\\n' +
+        'Servicio: ' + (service?.name || 'Servicio') + '\\n' +
+        'Horario: ' + formatDateTime(start) + ' a ' + formatTimeOnly(addMinutes(start, duration)) + '\\n\\n' +
+        '¿Querés crearlo igualmente?',
+        {
+          title: 'Confirmar turno excepcional',
+          confirmLabel: 'Crear como excepción',
+          danger: false
+        }
+      )
+    }
+
     async function saveManualAppointment(event) {
       event.preventDefault()
       els.appointmentFeedback.textContent = ''
@@ -28234,7 +28225,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const startAt = els.appointmentStart.value
       const professionalId = els.appointmentProfessional.value
       const serviceId = els.appointmentService.value
-      const force = els.appointmentForce.checked
+      let force = false
       const manualDepositPaid = els.appointmentDepositPaid.checked
       const manualDepositAmountText = els.appointmentDepositAmount.value.trim()
       const manualDepositAmount = manualDepositAmountText ? Number(manualDepositAmountText) : null
@@ -28261,11 +28252,28 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         return
       }
 
-      if (force && !await requestCrmConfirmation(
-        'Este turno puede quedar fuera de horario o superpuesto con otro turno. ¿Querés guardarlo como excepción?',
-        { confirmLabel: 'Sí, guardar', danger: false }
-      )) {
+      let availability
+      try {
+        availability = await getJson('/appointments/check-availability', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            professionalId,
+            serviceId,
+            startAt: new Date(startAt).toISOString(),
+            ...(state.editingAppointmentId ? { appointmentId: state.editingAppointmentId } : {})
+          })
+        })
+      } catch (error) {
+        els.appointmentFeedback.textContent = error.message
         return
+      }
+
+      const conflicts = Array.isArray(availability.conflicts) ? availability.conflicts : []
+      if (conflicts.length) {
+        const confirmedOverride = await confirmManualAppointmentOverride(conflicts, { startAt, professionalId, serviceId })
+        if (!confirmedOverride) return
+        force = true
       }
 
       if (!setButtonLoading(
@@ -28314,20 +28322,37 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         }
 
         const appointmentId = state.editingAppointmentId
-        await getJson(appointmentId ? '/appointments/' + appointmentId : '/appointments', {
-          method: appointmentId ? 'PATCH' : 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        const appointmentPath = appointmentId ? '/appointments/' + appointmentId : '/appointments'
+        const appointmentPayload = {
             customerId,
             professionalId,
             serviceId,
             startAt: new Date(startAt).toISOString(),
             manualDepositPaid,
             manualDepositAmount,
-            notes: notes || null,
-            force
-          })
+            notes: notes || null
+        }
+        const submitAppointment = (forceOverride) => getJson(appointmentPath, {
+          method: appointmentId ? 'PATCH' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...appointmentPayload, force: forceOverride })
         })
+        try {
+          await submitAppointment(force)
+        } catch (error) {
+          const writeConflicts = Array.isArray(error.body?.conflicts) ? error.body.conflicts : []
+          const canRetryAsOverride = !force &&
+            error.body?.code === 'APPOINTMENT_AVAILABILITY_CONFLICT' &&
+            error.body?.forceable === true &&
+            writeConflicts.length > 0
+          if (!canRetryAsOverride) throw error
+          const confirmedOverride = await confirmManualAppointmentOverride(
+            writeConflicts,
+            { startAt, professionalId, serviceId }
+          )
+          if (!confirmedOverride) return
+          await submitAppointment(true)
+        }
 
         closeAppointmentDialog()
         await loadAgenda()

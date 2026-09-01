@@ -73,6 +73,17 @@ type UpdateAppointmentInput = CreateAppointmentInput & {
   id: string
 }
 
+type CheckManualAppointmentAvailabilityInput = Pick<
+  CreateAppointmentInput,
+  'professionalId' | 'serviceId' | 'serviceIds' | 'startAt'
+> & {
+  appointmentId?: string
+}
+
+type CheckManualAppointmentAvailabilityResult =
+  | { ok: true; conflicts: AppointmentAvailabilityConflict[] }
+  | { ok: false; statusCode: number; message: string }
+
 type AppointmentStatusInput = 'PENDING' | 'CONFIRMED' | 'CANCELLED' | 'COMPLETED' | 'NO_SHOW'
 
 type FindAvailabilityInput = {
@@ -104,6 +115,85 @@ type FindAvailabilityResult =
     }
 
 export class AppointmentService {
+  async checkManualAvailability(
+    input: CheckManualAppointmentAvailabilityInput,
+    authorizationUser: AppointmentAuthorizationUser
+  ): Promise<CheckManualAppointmentAvailabilityResult> {
+    const startAt = new Date(input.startAt)
+    if (Number.isNaN(startAt.getTime())) {
+      return { ok: false, statusCode: 400, message: 'La fecha de inicio no parece valida' }
+    }
+
+    const serviceIds = normalizedServiceIds(input.serviceId, input.serviceIds)
+    const professional = await loadAuthorizedProfessional(prisma, authorizationUser, input.professionalId)
+    if (!professional) return { ok: false, statusCode: 404, message: 'No encontre ese turno' }
+    if (!staffCanUseProfessional(authorizationUser, professional.id)) {
+      return { ok: false, statusCode: 403, message: 'No tenes permiso para gestionar ese profesional' }
+    }
+    if (!professional.isActive) {
+      return { ok: false, statusCode: 409, message: 'Ese profesional no esta activo' }
+    }
+
+    const services = []
+    for (const serviceId of serviceIds) {
+      const service = await loadAuthorizedService(prisma, authorizationUser, serviceId)
+      if (service) services.push(service)
+    }
+    if (services.length !== serviceIds.length) {
+      return { ok: false, statusCode: 404, message: 'No encontre todos los servicios del turno' }
+    }
+    if (services.some((service) => service.businessId !== professional.businessId)) {
+      return { ok: false, statusCode: 404, message: 'No encontre ese turno' }
+    }
+    if (!(await this.professionalOffersServices(input.professionalId, serviceIds))) {
+      return { ok: false, statusCode: 409, message: 'Ese profesional no realiza todos los servicios seleccionados' }
+    }
+
+    let excludeAppointmentId: string | undefined
+    if (input.appointmentId) {
+      const existing = await loadAuthorizedAppointment(prisma, authorizationUser, input.appointmentId)
+      if (!existing) return { ok: false, statusCode: 404, message: 'No encontre ese turno' }
+      excludeAppointmentId = existing.id
+    }
+
+    const professionalDuration = services.reduce(
+      (total, service) => total + reservationDurationLimits(service).professional,
+      0
+    )
+    const customerDuration = services.reduce(
+      (total, service) => total + reservationDurationLimits(service).business,
+      0
+    )
+    const professionalEndAt = addMinutes(startAt, professionalDuration)
+    const customerEndAt = addMinutes(startAt, customerDuration)
+    const [insideBusinessHours, insideProfessionalHours, hasBlock, hasOverlap] = await Promise.all([
+      this.isInsideBusinessHours({ businessId: professional.businessId, startAt, endAt: customerEndAt }),
+      this.isInsideProfessionalHours({ professionalId: input.professionalId, startAt, endAt: professionalEndAt }),
+      this.hasScheduleBlockOverlap({
+        businessId: professional.businessId,
+        professionalId: input.professionalId,
+        startAt,
+        endAt: professionalEndAt
+      }),
+      this.hasAppointmentOverlap({
+        professionalId: input.professionalId,
+        startAt,
+        endAt: professionalEndAt,
+        ...(excludeAppointmentId ? { excludeAppointmentId } : {})
+      })
+    ])
+
+    return {
+      ok: true,
+      conflicts: appointmentAvailabilityConflicts({
+        insideBusinessHours,
+        insideProfessionalHours,
+        hasBlock,
+        hasOverlap
+      })
+    }
+  }
+
   async create(
     input: CreateAppointmentInput,
     authorizationUser?: AppointmentAuthorizationUser
@@ -222,49 +312,36 @@ export class AppointmentService {
     )
     const professionalEndAt = addMinutes(startAt, professionalDuration)
     const customerEndAt = addMinutes(startAt, customerDuration)
-    const isInsideBusinessHours = await this.isInsideBusinessHours({
-      businessId: professional.businessId,
-      startAt,
-      endAt: customerEndAt
+    const [insideBusinessHours, insideProfessionalHours, hasBlock, hasOverlap] = await Promise.all([
+      this.isInsideBusinessHours({ businessId: professional.businessId, startAt, endAt: customerEndAt }),
+      this.isInsideProfessionalHours({ professionalId: input.professionalId, startAt, endAt: professionalEndAt }),
+      this.hasScheduleBlockOverlap({
+        businessId: professional.businessId,
+        professionalId: input.professionalId,
+        startAt,
+        endAt: professionalEndAt
+      }),
+      this.hasAppointmentOverlap({ professionalId: input.professionalId, startAt, endAt: professionalEndAt })
+    ])
+    const conflicts = appointmentAvailabilityConflicts({
+      insideBusinessHours,
+      insideProfessionalHours,
+      hasBlock,
+      hasOverlap
     })
 
-    if (!isInsideBusinessHours && !input.force) {
+    if (conflicts.length && !input.force) {
       return {
         ok: false,
         statusCode: 409,
-        message: 'Ese horario esta fuera del horario de atencion'
+        message: conflicts[0]!.message,
+        code: 'APPOINTMENT_AVAILABILITY_CONFLICT',
+        forceable: true,
+        conflicts
       }
     }
 
-    const isInsideProfessionalHours = await this.isInsideProfessionalHours({
-      professionalId: input.professionalId,
-      startAt,
-      endAt: professionalEndAt
-    })
-
-    if (!isInsideProfessionalHours && !input.force) {
-      return {
-        ok: false,
-        statusCode: 409,
-        message: 'Ese profesional no trabaja en ese horario'
-      }
-    }
-
-    const hasScheduleBlock = await this.hasScheduleBlockOverlap({
-      businessId: professional.businessId,
-      professionalId: input.professionalId,
-      startAt,
-      endAt: professionalEndAt
-    })
-
-    if (hasScheduleBlock && !input.force) {
-      return {
-        ok: false,
-        statusCode: 409,
-        message: 'Ese horario esta bloqueado en la agenda'
-      }
-    }
-
+    let transactionAvailabilityConflicts: AppointmentAvailabilityConflict[] = []
     const appointment = await prisma.$transaction(async (transaction) => {
       const validation = await revalidateBookingWrite(transaction, {
         businessId: professional.businessId,
@@ -285,19 +362,23 @@ export class AppointmentService {
         }
       }
 
+      if (validation.conflicts.includes('PROFESSIONAL_INACTIVE')) return 'PROFESSIONAL_INACTIVE' as const
+      if (validation.conflicts.includes('PROFESSIONAL_SERVICE_MISMATCH')) return 'SERVICE_CONFLICT' as const
+      const transactionConflicts = appointmentAvailabilityConflicts({
+        insideBusinessHours: !validation.conflicts.includes('OUTSIDE_BUSINESS_HOURS'),
+        insideProfessionalHours: !validation.conflicts.includes('OUTSIDE_PROFESSIONAL_HOURS'),
+        hasBlock: validation.conflicts.includes('SCHEDULE_BLOCK'),
+        hasOverlap: validation.conflicts.includes('APPOINTMENT_OVERLAP')
+      })
+      if (!input.force && transactionConflicts.length) {
+        transactionAvailabilityConflicts = transactionConflicts
+        return 'AVAILABILITY_CONFLICT' as const
+      }
+
       await ensureDefaultMarketingPreference({
         businessId: professional.businessId,
         customerId: input.customerId
       }, transaction)
-
-      if (validation.conflicts.includes('PROFESSIONAL_INACTIVE')) return 'PROFESSIONAL_INACTIVE' as const
-      if (validation.conflicts.includes('PROFESSIONAL_SERVICE_MISMATCH')) return 'SERVICE_CONFLICT' as const
-      if (!input.force && validation.conflicts.some((conflict) => [
-        'OUTSIDE_BUSINESS_HOURS',
-        'OUTSIDE_PROFESSIONAL_HOURS',
-        'SCHEDULE_BLOCK',
-        'APPOINTMENT_OVERLAP'
-      ].includes(conflict))) return null
 
       return createAppointmentRecord(transaction, {
         data: {
@@ -332,6 +413,17 @@ export class AppointmentService {
     }
     if (appointment === 'SERVICE_CONFLICT') {
       return { ok: false, statusCode: 409, message: 'Ese profesional no realiza todos los servicios seleccionados' }
+    }
+
+    if (appointment === 'AVAILABILITY_CONFLICT') {
+      return {
+        ok: false,
+        statusCode: 409,
+        message: transactionAvailabilityConflicts[0]!.message,
+        code: 'APPOINTMENT_AVAILABILITY_CONFLICT',
+        forceable: true,
+        conflicts: transactionAvailabilityConflicts
+      }
     }
 
     if (!appointment) {
@@ -1543,6 +1635,28 @@ function appointmentResourcesRemainAuthorized(
   if (!staffCanUseProfessional(user, resources.professional.id)) return false
   return resources.customer.businessId === resources.professional.businessId &&
     resources.services.every((service) => service.businessId === resources.professional!.businessId)
+}
+
+function appointmentAvailabilityConflicts(input: {
+  insideBusinessHours: boolean
+  insideProfessionalHours: boolean
+  hasBlock: boolean
+  hasOverlap: boolean
+}): AppointmentAvailabilityConflict[] {
+  return [
+    ...(!input.insideBusinessHours
+      ? [{ code: 'OUTSIDE_BUSINESS_HOURS' as const, message: 'El turno queda fuera del horario de atencion del local' }]
+      : []),
+    ...(!input.insideProfessionalHours
+      ? [{ code: 'OUTSIDE_PROFESSIONAL_HOURS' as const, message: 'El profesional no trabaja durante todo ese horario' }]
+      : []),
+    ...(input.hasBlock
+      ? [{ code: 'SCHEDULE_BLOCK' as const, message: 'El horario esta bloqueado en la agenda' }]
+      : []),
+    ...(input.hasOverlap
+      ? [{ code: 'APPOINTMENT_OVERLAP' as const, message: 'El profesional ya tiene otro turno en ese horario' }]
+      : [])
+  ]
 }
 
 function scopedAppointmentMutationWhere(

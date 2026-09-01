@@ -157,6 +157,7 @@
     "test:agenda-professional-drag": "tsx scripts/agenda-professional-drag-contract-test.ts",
     "test:agenda-default-view": "tsx scripts/agenda-default-view-contract-test.ts",
     "test:agenda-dynamic-range": "tsx scripts/agenda-dynamic-range-contract-test.ts",
+    "test:manual-appointment-override": "tsx scripts/manual-appointment-override-contract-test.ts",
     "test:staff-secretary": "tsx scripts/staff-secretary-contract-test.ts",
     "test:customer-phone-identity": "tsx scripts/customer-phone-identity-contract-test.ts",
     "test:customer-phone-identity:live": "tsx scripts/customer-phone-lock-live-test.ts",
