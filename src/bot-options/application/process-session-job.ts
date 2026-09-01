@@ -40,6 +40,7 @@ import { PrismaAvailabilityRepository } from '../infrastructure/prisma-availabil
 import { BOOKING_DATE_PAGE_SIZE, BOOKING_SLOT_PAGE_SIZE, formatDateChoice, formatSlotOffset, paginate } from './availability-queries.js'
 import {
   classifyAppointmentManagementPolicy,
+  formatManagedAppointment,
   isWithinAppointmentManagementLeadWindow,
   listManageableAppointments,
   type AppointmentManagementCursor
@@ -655,7 +656,7 @@ export const defaultContextProvider: TransitionContextProvider = async (tx, inpu
       base.appointmentsCanNext = next !== null
       base.labels.manageableAppointments = page.items.map((item) => ({
         appointmentId: item.appointmentId,
-        label: formatManagedAppointment(item.startAt, item.category, page.timezone)
+        label: formatManagedAppointment(item.startAt, item.serviceNames, page.timezone)
       }))
 
       const selectedAppointmentId = input.entityRef?.type === 'APPOINTMENT'
@@ -670,9 +671,9 @@ export const defaultContextProvider: TransitionContextProvider = async (tx, inpu
         base.rescheduleAllowed = policy.reschedule !== 'HANDOFF' &&
           isWithinAppointmentManagementLeadWindow(selected.startAt, page.dbNow, page.rescheduleLeadMinutes)
         base.approvedDepositTransferable = policy.reschedule === 'REQUIRES_DEPOSIT_MATCH'
-        base.labels.appointmentSummary = formatManagedAppointment(selected.startAt, selected.category, page.timezone)
+        base.labels.appointmentSummary = formatManagedAppointment(selected.startAt, selected.serviceNames, page.timezone)
 
-        const needsRescheduleAvailability = input.state.flow === 'APPOINTMENT_RESCHEDULE_DATE' ||
+        const needsRescheduleAvailability = input.actionType === 'appointment.reschedule' || input.state.flow === 'APPOINTMENT_RESCHEDULE_DATE' ||
           input.state.flow === 'APPOINTMENT_RESCHEDULE_SLOT' || input.state.flow === 'APPOINTMENT_RESCHEDULE_SUMMARY'
         if (needsRescheduleAvailability) {
           const aggregate = await tx.$queryRaw<Array<{ professionalId: string; durationMinutes: number; primaryServiceId: string }>>(Prisma.sql`
@@ -708,13 +709,6 @@ export const defaultContextProvider: TransitionContextProvider = async (tx, inpu
   }
 
   return base
-}
-
-function formatManagedAppointment(startAt: Date, category: string, timezone: string): string {
-  const date = new Intl.DateTimeFormat('es-AR', {
-    timeZone: timezone, weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false
-  }).format(startAt)
-  return `${date} · ${category}`
 }
 
 function parseSelectedEntityRef(value: Prisma.JsonValue | null): BotOptionsEntityRef | null {

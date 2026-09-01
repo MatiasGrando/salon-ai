@@ -35,6 +35,7 @@ export type ManagedAppointment = {
   startAt: Date
   category: AppointmentManagementCategory
   financialState: AppointmentManagementFinancialState
+  serviceNames: string[]
 }
 
 export type AppointmentManagementPage = {
@@ -81,6 +82,17 @@ type AppointmentRow = {
   startAt: Date
   category: AppointmentManagementCategory
   financialState: AppointmentManagementFinancialState
+  serviceNames: string[]
+}
+
+export function formatManagedAppointment(startAt: Date, serviceNames: readonly string[], timezone: string): string {
+  const weekday = new Intl.DateTimeFormat('es-AR', { timeZone: timezone, weekday: 'long' }).format(startAt)
+  const date = new Intl.DateTimeFormat('es-AR', {
+    timeZone: timezone, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false
+  }).formatToParts(startAt)
+  const part = (type: Intl.DateTimeFormatPartTypes) => date.find((item) => item.type === type)?.value ?? ''
+  const title = `${weekday.charAt(0).toLocaleUpperCase('es-AR')}${weekday.slice(1)} ${part('day').padStart(2, '0')}-${part('month').padStart(2, '0')}, ${part('hour').padStart(2, '0')}:${part('minute').padStart(2, '0')}`
+  return `${title} — ${serviceNames.join(' · ')}`
 }
 
 /** Independent instant-based lead window. Equality at the boundary is allowed. */
@@ -333,6 +345,11 @@ export async function listManageableAppointments(
     : Prisma.empty
   const rows = await prisma.$queryRaw<AppointmentRow[]>(Prisma.sql`
     SELECT a."id" AS "appointmentId", a."startAt",
+      COALESCE(NULLIF(ARRAY(
+        SELECT item_service."name" FROM "AppointmentServiceItem" item
+        JOIN "Service" item_service ON item_service."id" = item."serviceId" AND item_service."businessId" = ${input.businessId}
+        WHERE item."appointmentId" = a."id" ORDER BY item."sortOrder", item."serviceId"
+      ), ARRAY[]::text[]), ARRAY[s."name"]) AS "serviceNames",
       CASE
         WHEN a."status" = 'CONFIRMED'::"AppointmentStatus" THEN 'CONFIRMED'
         WHEN d."status" = 'PENDING_RESUBMISSION'::"BookingDepositStatus" THEN 'RESUBMISSION_PENDING'

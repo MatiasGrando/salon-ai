@@ -1,13 +1,25 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import {
   classifyAppointmentManagementPolicy,
   classifyCancellationAggregate,
   classifyRescheduleAggregate,
   depositSnapshotMatchesCurrentPolicy,
   isWithinAppointmentManagementLeadWindow,
+  formatManagedAppointment,
   validateCancellationInput,
   validateRescheduleInput
 } from '../src/bot-options/application/appointment-management.js'
+
+const workerSource = readFileSync(new URL('../src/bot-options/application/process-session-job.ts', import.meta.url), 'utf8')
+const managementSource = readFileSync(new URL('../src/bot-options/application/appointment-management.ts', import.meta.url), 'utf8')
+assert.match(workerSource, /needsRescheduleAvailability = input\.actionType === 'appointment\.reschedule'/, 'entering reschedule must load dates before rendering')
+assert.match(managementSource, /AppointmentServiceItem[\s\S]*?serviceNames/, 'managed appointments must expose every reserved service')
+
+assert.equal(
+  formatManagedAppointment(new Date('2026-09-01T21:30:00.000Z'), ['Iluminacion', 'Corte Hombre'], 'America/Argentina/Buenos_Aires'),
+  'Martes 01-09, 18:30 — Iluminacion · Corte Hombre'
+)
 
 const now = new Date('2026-08-27T12:00:00.000Z')
 assert.equal(isWithinAppointmentManagementLeadWindow(new Date('2026-08-27T13:00:00.000Z'), now, 60), true, 'the exact 60-minute boundary is allowed')
