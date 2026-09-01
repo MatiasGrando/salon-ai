@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify'
+import { prisma } from '../config/prisma.js'
 import { AppointmentService } from '../services/appointment-service.js'
 import { sendAuthorizationFailure } from '../services/authorization-response.js'
+import { requireAuthorizedBusiness } from '../services/business-authorization.js'
 
 const service = new AppointmentService()
 
@@ -75,7 +77,7 @@ export async function appointmentRoutes(app: FastifyInstance) {
     return result.appointment
   })
 
-  app.get('/appointments', async (request) => {
+  app.get('/appointments', async (request, reply) => {
     const query = request.query as {
       businessId?: string
       customerPhone?: string
@@ -83,14 +85,22 @@ export async function appointmentRoutes(app: FastifyInstance) {
       to?: string
       professionalId?: string
     }
+    const authUser = request.auth?.user
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    if (!query.businessId) {
+      return reply.status(400).send({ message: 'businessId es requerido para consultar turnos' })
+    }
+    const business = await requireAuthorizedBusiness(prisma, authUser, query.businessId)
+    if (!business) return sendAuthorizationFailure(reply, 'notFound')
+
     const appointments = await service.findAll({
-      ...(query.businessId ? { businessId: query.businessId } : {}),
+      businessId: query.businessId,
       ...(query.customerPhone ? { customerPhone: query.customerPhone } : {}),
       ...(query.from ? { from: query.from } : {}),
       ...(query.to ? { to: query.to } : {}),
       ...(query.professionalId ? { professionalId: query.professionalId } : {})
     })
-    return appointments.map((appointment) => appointmentForAuthenticatedUser(appointment, request.auth?.user))
+    return appointments.map((appointment) => appointmentForAuthenticatedUser(appointment, authUser))
   })
 
   app.patch('/appointments/:id/status', async (request, reply) => {

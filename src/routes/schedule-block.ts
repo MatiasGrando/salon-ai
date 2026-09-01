@@ -9,6 +9,7 @@ import {
 import { sendAuthorizationFailure } from '../services/authorization-response.js'
 import { acquireAgendaHierarchy, lockScheduleBlockRows } from '../services/agenda-locks.js'
 import { validateScheduleBlockSeriesOccurrences } from '../services/schedule-block-series.js'
+import { requireAuthorizedBusiness } from '../services/business-authorization.js'
 
 const scheduleBlockReasons = [
   'ABSENCE',
@@ -269,20 +270,27 @@ export async function scheduleBlockRoutes(app: FastifyInstance) {
     }
   })
 
-  app.get('/schedule-blocks', async (request) => {
+  app.get('/schedule-blocks', async (request, reply) => {
     const query = request.query as {
       businessId?: string
       professionalId?: string
       from?: string
       to?: string
     }
+    const authUser = request.auth?.user
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    if (!query.businessId) {
+      return reply.status(400).send({ message: 'businessId es requerido para consultar bloqueos' })
+    }
+    const business = await requireAuthorizedBusiness(prisma, authUser, query.businessId)
+    if (!business) return sendAuthorizationFailure(reply, 'notFound')
 
     const from = query.from ? new Date(query.from) : null
     const to = query.to ? new Date(query.to) : null
 
     return prisma.scheduleBlock.findMany({
       where: {
-        ...(query.businessId ? { businessId: query.businessId } : {}),
+        businessId: query.businessId,
         ...(query.professionalId
           ? {
               OR: [

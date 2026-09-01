@@ -17819,6 +17819,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       agendaSelectedDate: new Date(),
       agendaMonthDate: new Date(),
       agendaViewDays: 1,
+      agendaLoadRequest: 0,
+      agendaLoadController: null,
       agendaBlockOpen: false,
       agendaMobileMonthOpen: false,
       agendaMobileFiltersOpen: false,
@@ -18968,6 +18970,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function staffVisibleSections() {
+      if (!state.currentUser) return []
+      if (!state.businessId) {
+        return ['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(state.currentUser.role) ? ['accounts'] : []
+      }
       if (state.currentUser?.role === 'ACCOUNT_ADMIN') {
         return state.business ? ['accounts', 'conversations', 'agenda', 'customers', 'professionals', 'services', 'campaigns', 'reports', 'settings'] : ['accounts']
       }
@@ -20620,9 +20626,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.businessMediaBusinessId = null
       state.conversationLoadController?.abort()
       state.conversationTabController?.abort()
+      state.agendaLoadController?.abort()
       state.conversationLoadRequest += 1
       state.conversationTabRequest += 1
+      state.agendaLoadRequest += 1
       state.conversationLoadController = null
+      state.agendaLoadController = null
       state.conversationLoadingId = null
       state.conversationTabController = null
       state.conversationTabLoading = false
@@ -26928,6 +26937,17 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     async function loadAgenda(options = {}) {
+      if (!state.businessId) {
+        state.agendaAppointments = []
+        state.agendaBlocks = []
+        els.agendaGridWrap.innerHTML = '<div class="agenda-empty">Eleg&iacute; un negocio para cargar la agenda.</div>'
+        return
+      }
+      const businessId = state.businessId
+      state.agendaLoadController?.abort()
+      const controller = new AbortController()
+      const requestId = ++state.agendaLoadRequest
+      state.agendaLoadController = controller
       const monthRange = options.monthView
       const monthStart = new Date(state.agendaMonthDate.getFullYear(), state.agendaMonthDate.getMonth(), 1)
       const rangeStart = monthRange
@@ -26935,24 +26955,33 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         : addDays(startOfDay(state.agendaSelectedDate), -14)
       const rangeEnd = addDays(rangeStart, 42)
       const params = new URLSearchParams({
+        businessId,
         from: rangeStart.toISOString(),
         to: rangeEnd.toISOString()
       })
-
-      if (state.businessId) {
-        params.set('businessId', state.businessId)
-      }
 
       if (els.agendaProfessional.value) {
         params.set('professionalId', els.agendaProfessional.value)
       }
 
-      state.agendaAppointments = await getJson('/appointments?' + params.toString())
-      state.agendaBlocks = await getJson('/schedule-blocks?' + params.toString())
-      state.agendaLoadedRangeStart = new Date(rangeStart)
-      state.agendaLoadedRangeEnd = new Date(rangeEnd)
-      renderProfessionals()
-      renderAgenda()
+      try {
+        const [appointments, blocks] = await Promise.all([
+          getJson('/appointments?' + params.toString(), { signal: controller.signal }),
+          getJson('/schedule-blocks?' + params.toString(), { signal: controller.signal })
+        ])
+        if (requestId !== state.agendaLoadRequest || state.businessId !== businessId) return
+        state.agendaAppointments = appointments
+        state.agendaBlocks = blocks
+        state.agendaLoadedRangeStart = new Date(rangeStart)
+        state.agendaLoadedRangeEnd = new Date(rangeEnd)
+        renderProfessionals()
+        renderAgenda()
+      } catch (error) {
+        if (error.name === 'AbortError') return
+        throw error
+      } finally {
+        if (requestId === state.agendaLoadRequest) state.agendaLoadController = null
+      }
     }
 
     function renderAgenda() {
@@ -31201,6 +31230,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function setSection(section) {
+      if (section === 'agenda' && !state.businessId) {
+        showCrmToast('Esperá a que termine de cargar el negocio antes de abrir la agenda.', 'error')
+        return
+      }
       els.appShell.dataset.section = section
       document.body.dataset.currentSection = section
       const mobileTitle = document.getElementById('mobile-current-section-title')
