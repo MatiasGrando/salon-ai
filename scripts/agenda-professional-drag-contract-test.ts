@@ -164,7 +164,7 @@ try {
   assert.match(crmUiSource, /title: 'El cambio tiene conflictos'/)
   assert.match(crmUiSource, /title: 'Confirmar sobreturno o excepción'/)
   assert.match(crmUiSource, /body: JSON\.stringify\(\{ \.\.\.payload, force: true \}\)/)
-  assert.match(crmUiSource, /renderAgendaMobileBlock\(block, day, hourHeight\)/)
+  assert.match(crmUiSource, /renderAgendaMobileBlock\(block, day, hourHeight, displayRange\)/)
   assert.match(crmUiSource, /const segmentStart = new Date\(Math\.max\(blockStart\.getTime\(\), dayStart\.getTime\(\)\)\)/)
   assert.match(crmUiSource, /const segmentEnd = new Date\(Math\.min\(blockEnd\.getTime\(\), dayEnd\.getTime\(\)\)\)/)
   assert.match(crmUiSource, /\? 'Todo el d&iacute;a'/)

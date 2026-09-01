@@ -13221,7 +13221,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
 
       .agenda-gcal-columns-track {
-        min-height: calc(24 * var(--agenda-hour-height, 88px));
+        min-height: var(--agenda-grid-height, 2112px);
       }
 
       .agenda-gcal-frame.is-snapping .agenda-gcal-days-track,
@@ -13276,13 +13276,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       .agenda-gcal-grid {
         display: grid;
         grid-template-columns: var(--agenda-time-width) minmax(0, 1fr);
-        min-height: calc(24 * var(--agenda-hour-height, 88px));
+        min-height: var(--agenda-grid-height, 2112px);
         position: relative;
       }
 
       .agenda-gcal-time-axis {
         position: relative;
-        min-height: calc(24 * var(--agenda-hour-height, 88px));
+        min-height: var(--agenda-grid-height, 2112px);
       }
 
       .agenda-gcal-hour-label {
@@ -13299,7 +13299,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         width: var(--agenda-day-width);
         min-width: var(--agenda-day-width);
         position: relative;
-        min-height: calc(24 * var(--agenda-hour-height, 88px));
+        min-height: var(--agenda-grid-height, 2112px);
         border-left: 1px solid #dbe4f0;
       }
 
@@ -13762,7 +13762,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     .agenda-gcal-grid,
     .agenda-gcal-time-axis,
     .agenda-gcal-day-column {
-      min-height: calc(24 * var(--agenda-hour-height, 88px));
+      min-height: var(--agenda-grid-height, 2112px);
     }
 
     .agenda-gcal-frame.is-snapping .agenda-gcal-days-track,
@@ -17510,7 +17510,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       agendaMobileBaseIndex: 0,
       agendaMobilePageTimer: null,
       agendaMobilePaging: false,
-      agendaMobileScrollTop: null,
+      agendaMobileScrollMinute: null,
       agendaProfessionalResizeObserver: null,
       agendaLoadedRangeStart: null,
       agendaLoadedRangeEnd: null,
@@ -26718,23 +26718,28 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const filtersActive = state.agendaMobileFiltersOpen || Boolean(els.agendaProfessional.value || els.agendaService.value)
       const today = new Date()
       const currentDays = Array.from({ length: viewDays }, (_, index) => addDays(startDate, index))
+      const displayRange = getAgendaDisplayRange(currentDays)
+      const visibleHours = (displayRange.end - displayRange.start) / 60
       const visibleToday = currentDays.some((day) => dateKey(day) === dateKey(today))
       const bufferBefore = 7
       const bufferAfter = 21
       const renderedDays = professionalDayView
         ? currentDays
         : Array.from({ length: bufferBefore + viewDays + bufferAfter }, (_, index) => addDays(startDate, index - bufferBefore))
-      const hourLabels = Array.from({ length: 24 }, (_, hour) => {
-        return '<span class="agenda-gcal-hour-label" style="top:' + (hour * hourHeight) + 'px">' + String(hour).padStart(2, '0') + ':00</span>'
+      const hourLabels = Array.from({ length: visibleHours }, (_, index) => {
+        const hour = (displayRange.start / 60) + index
+        return '<span class="agenda-gcal-hour-label" style="top:' + (index * hourHeight) + 'px">' + String(hour).padStart(2, '0') + ':00</span>'
       }).join('')
       const dayHeaders = professionalDayView
         ? columnProfessionals.map((professional, index) => renderAgendaProfessionalDayHeader(professional, index)).join('')
         : renderedDays.map((day) => renderAgendaMobileDayHeader(day)).join('')
       const dayColumns = professionalDayView
-        ? columnProfessionals.map((professional) => renderAgendaProfessionalDayColumn(startDate, professional, hourHeight)).join('')
-        : renderedDays.map((day) => renderAgendaMobileDayColumn(day, hourHeight)).join('')
+        ? columnProfessionals.map((professional) => renderAgendaProfessionalDayColumn(startDate, professional, hourHeight, displayRange)).join('')
+        : renderedDays.map((day) => renderAgendaMobileDayColumn(day, hourHeight, displayRange)).join('')
       const todayIndex = professionalDayView ? -1 : renderedDays.findIndex((day) => dateKey(day) === dateKey(today))
-      const nowTop = ((today.getHours() * 60 + today.getMinutes()) / 60) * hourHeight
+      const nowMinute = today.getHours() * 60 + today.getMinutes()
+      const nowTop = ((nowMinute - displayRange.start) / 60) * hourHeight
+      const showNowLine = todayIndex >= 0 && nowMinute >= displayRange.start && nowMinute < displayRange.end
 
       els.agendaRange.textContent = formatAgendaRange(currentDays[0], currentDays[currentDays.length - 1])
       els.agendaToday.textContent = visibleToday ? 'Hoy' : 'Ir a hoy'
@@ -26759,7 +26764,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           '</header>' +
           monthPanel +
           filtersPanel +
-          '<div class="agenda-gcal-frame' + (professionalDayView ? ' agenda-gcal-professional-frame' : '') + '" data-agenda-mobile-frame data-agenda-base-index="' + (professionalDayView ? 0 : bufferBefore) + '" data-agenda-day-count="' + (professionalDayView ? columnProfessionals.length : renderedDays.length) + '" data-agenda-view-days="' + viewDays + '"' + (professionalDayView ? ' data-agenda-professional-columns="true"' : '') + ' style="--agenda-hour-height:' + hourHeight + 'px;--agenda-slot-height:' + (hourHeight / 2) + 'px;--agenda-professional-count:' + Math.max(1, columnProfessionals.length) + '">' +
+          '<div class="agenda-gcal-frame' + (professionalDayView ? ' agenda-gcal-professional-frame' : '') + '" data-agenda-mobile-frame data-agenda-base-index="' + (professionalDayView ? 0 : bufferBefore) + '" data-agenda-day-count="' + (professionalDayView ? columnProfessionals.length : renderedDays.length) + '" data-agenda-view-days="' + viewDays + '"' + (professionalDayView ? ' data-agenda-professional-columns="true"' : '') + ' style="--agenda-hour-height:' + hourHeight + 'px;--agenda-slot-height:' + (hourHeight / 2) + 'px;--agenda-visible-hours:' + visibleHours + ';--agenda-grid-height:' + (visibleHours * hourHeight) + 'px;--agenda-professional-count:' + Math.max(1, columnProfessionals.length) + '">' +
             '<div class="agenda-gcal-days-head">' +
               (professionalDayView ? renderAgendaProfessionalDateCorner(startDate) : '<div></div>') +
               '<div class="agenda-gcal-days-viewport" data-agenda-mobile-gesture>' +
@@ -26775,7 +26780,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                 '<div class="agenda-gcal-columns-viewport" data-agenda-mobile-gesture>' +
                   '<div class="agenda-gcal-columns-track" data-agenda-mobile-track>' +
                     dayColumns +
-                    (todayIndex >= 0 ? '<div class="agenda-gcal-now-line" style="top:' + nowTop + 'px;--agenda-now-index:' + todayIndex + '"></div>' : '') +
+                    (showNowLine ? '<div class="agenda-gcal-now-line" style="top:' + nowTop + 'px;--agenda-now-index:' + todayIndex + '"></div>' : '') +
                   '</div>' +
                 '</div>' +
               '</div>' +
@@ -26784,8 +26789,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           '<button class="agenda-gcal-fab" type="button" data-agenda-mobile-new aria-label="Nuevo turno">+</button>' +
         '</div>'
 
-      bindAgendaMobileControls()
-      scrollAgendaMobileToWorkingTime(hourHeight)
+      bindAgendaMobileControls(hourHeight, displayRange)
+      scrollAgendaMobileToWorkingTime(hourHeight, displayRange)
     }
 
     function renderAgendaProfessionalDateCorner(day) {
@@ -26801,10 +26806,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       '</button>'
     }
 
-    function renderAgendaProfessionalDayColumn(day, professional, hourHeight) {
+    function renderAgendaProfessionalDayColumn(day, professional, hourHeight, displayRange) {
       const key = dateKey(day)
-      const cells = Array.from({ length: 48 }, (_, slot) => {
-        const minute = slot * 30
+      const slotCount = (displayRange.end - displayRange.start) / 30
+      const cells = Array.from({ length: slotCount }, (_, slot) => {
+        const minute = displayRange.start + slot * 30
         const closed = isClosedAgendaSlotForProfessional(day, minute, professional.id)
         return '<div class="agenda-gcal-hour-cell' + (closed ? ' closed' : '') + '" data-cell-date="' + key + '" data-cell-minute="' + minute + '" data-cell-professional-id="' + professional.id + '"></div>'
       }).join('')
@@ -26812,15 +26818,16 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         .filter((appointment) => appointment.professionalId === professional.id)
       const eventLayout = buildAgendaEventLayout(appointments)
       const events = appointments
-        .map((appointment) => renderAgendaMobileEvent(appointment, hourHeight, eventLayout.get(appointment.id)))
+        .map((appointment) => renderAgendaMobileEvent(appointment, hourHeight, displayRange, eventLayout.get(appointment.id)))
         .join('')
       const blocks = filteredAgendaBlocksForRange(day, addDays(day, 1))
         .filter((block) => !block.professionalId || block.professionalId === professional.id)
-        .map((block) => renderAgendaMobileBlock(block, day, hourHeight))
+        .map((block) => renderAgendaMobileBlock(block, day, hourHeight, displayRange))
         .join('')
       const now = new Date()
-      const nowLine = dateKey(day) === dateKey(now)
-        ? '<div class="agenda-gcal-now-line agenda-gcal-professional-now-line" style="top:' + (((now.getHours() * 60 + now.getMinutes()) / 60) * hourHeight) + 'px"></div>'
+      const nowMinute = now.getHours() * 60 + now.getMinutes()
+      const nowLine = dateKey(day) === dateKey(now) && nowMinute >= displayRange.start && nowMinute < displayRange.end
+        ? '<div class="agenda-gcal-now-line agenda-gcal-professional-now-line" style="top:' + (((nowMinute - displayRange.start) / 60) * hourHeight) + 'px"></div>'
         : ''
       return '<div class="agenda-gcal-day-column agenda-gcal-professional-column" data-gcal-day="' + key + '" data-gcal-professional="' + professional.id + '">' + cells + events + blocks + nowLine + '</div>'
     }
@@ -26836,30 +26843,34 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       '</button>'
     }
 
-    function renderAgendaMobileDayColumn(day, hourHeight) {
+    function renderAgendaMobileDayColumn(day, hourHeight, displayRange) {
       const key = dateKey(day)
-      const cells = Array.from({ length: 48 }, (_, slot) => {
-        const minute = slot * 30
+      const slotCount = (displayRange.end - displayRange.start) / 30
+      const cells = Array.from({ length: slotCount }, (_, slot) => {
+        const minute = displayRange.start + slot * 30
         const closed = isClosedAgendaSlot(day, minute)
         return '<div class="agenda-gcal-hour-cell' + (closed ? ' closed' : '') + '" data-cell-date="' + key + '" data-cell-minute="' + minute + '"></div>'
       }).join('')
       const dayAppointments = filteredAgendaAppointmentsForRange(day, addDays(day, 1))
       const eventLayout = buildAgendaEventLayout(dayAppointments)
       const events = dayAppointments
-        .map((appointment) => renderAgendaMobileEvent(appointment, hourHeight, eventLayout.get(appointment.id)))
+        .map((appointment) => renderAgendaMobileEvent(appointment, hourHeight, displayRange, eventLayout.get(appointment.id)))
         .join('')
       const dayBlocks = filteredAgendaBlocksForRange(day, addDays(day, 1))
-        .map((block) => renderAgendaMobileBlock(block, day, hourHeight))
+        .map((block) => renderAgendaMobileBlock(block, day, hourHeight, displayRange))
         .join('')
       return '<div class="agenda-gcal-day-column" data-gcal-day="' + key + '">' + cells + events + dayBlocks + '</div>'
     }
 
-    function renderAgendaMobileEvent(appointment, hourHeight, placement = { column: 0, columns: 1 }) {
+    function renderAgendaMobileEvent(appointment, hourHeight, displayRange, placement = { column: 0, columns: 1 }) {
       const start = new Date(appointment.startAt)
       const duration = appointment.totalDurationMinutes || appointment.service?.duration || 30
       const startMinute = start.getHours() * 60 + start.getMinutes()
-      const top = (startMinute / 60) * hourHeight + 2
-      const height = Math.max(34, (duration / 60) * hourHeight - 4)
+      const visibleStartMinute = Math.max(startMinute, displayRange.start)
+      const visibleEndMinute = Math.min(startMinute + duration, displayRange.end)
+      if (visibleEndMinute <= visibleStartMinute) return ''
+      const top = ((visibleStartMinute - displayRange.start) / 60) * hourHeight + 2
+      const height = Math.max(34, ((visibleEndMinute - visibleStartMinute) / 60) * hourHeight - 4)
       const professionalIndex = activeProfessionals().findIndex((item) => item.id === appointment.professionalId)
       const color = agendaProfessionalColor(appointment.professionalId, professionalIndex)
       const noShow = appointment.status === 'NO_SHOW'
@@ -26920,7 +26931,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       return '<span class="appointment-origin-badge ' + origin.className + '" title="' + escapeHtml(origin.label) + '" aria-label="' + escapeHtml(origin.label) + '">' + origin.code + '</span>'
     }
 
-    function renderAgendaMobileBlock(block, day, hourHeight) {
+    function renderAgendaMobileBlock(block, day, hourHeight, displayRange) {
       const blockStart = new Date(block.startAt)
       const blockEnd = new Date(block.endAt)
       const dayStart = startOfDay(day)
@@ -26929,9 +26940,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const segmentEnd = new Date(Math.min(blockEnd.getTime(), dayEnd.getTime()))
       if (segmentEnd <= segmentStart) return ''
 
-      const startMinute = segmentStart.getHours() * 60 + segmentStart.getMinutes()
-      const duration = Math.max(15, Math.round((segmentEnd.getTime() - segmentStart.getTime()) / 60000))
-      const top = (startMinute / 60) * hourHeight + 2
+      const segmentStartMinute = blockStart <= dayStart ? 0 : segmentStart.getHours() * 60 + segmentStart.getMinutes()
+      const segmentEndMinute = blockEnd >= dayEnd ? 24 * 60 : segmentEnd.getHours() * 60 + segmentEnd.getMinutes()
+      const visibleStartMinute = Math.max(segmentStartMinute, displayRange.start)
+      const visibleEndMinute = Math.min(segmentEndMinute, displayRange.end)
+      if (visibleEndMinute <= visibleStartMinute) return ''
+      const duration = Math.max(15, visibleEndMinute - visibleStartMinute)
+      const top = ((visibleStartMinute - displayRange.start) / 60) * hourHeight + 2
       const height = Math.max(34, (duration / 60) * hourHeight - 4)
       const coversDayStart = blockStart <= dayStart
       const coversDayEnd = blockEnd >= dayEnd
@@ -26996,7 +27011,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       '</section>'
     }
 
-    function bindAgendaMobileControls() {
+    function bindAgendaMobileControls(hourHeight, displayRange) {
       els.agendaGridWrap.querySelector('[data-agenda-mobile-menu]')?.addEventListener('click', openMobileDrawer)
       els.agendaGridWrap.querySelector('[data-agenda-prev]')?.addEventListener('click', async () => {
         state.agendaSelectedDate = addDays(state.agendaSelectedDate, -state.agendaViewDays)
@@ -27119,7 +27134,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const currentScroll = els.agendaGridWrap.querySelector('[data-agenda-mobile-scroll]')
       if (currentScroll) {
         currentScroll.addEventListener('scroll', () => {
-          state.agendaMobileScrollTop = currentScroll.scrollTop
+          state.agendaMobileScrollMinute = displayRange.start + (currentScroll.scrollTop / hourHeight) * 60
         }, { passive: true })
       }
 
@@ -27199,7 +27214,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               return
             }
             state.agendaMobilePaging = true
-            state.agendaMobileScrollTop = currentScroll?.scrollTop ?? state.agendaMobileScrollTop
+            if (currentScroll) {
+              state.agendaMobileScrollMinute = displayRange.start + (currentScroll.scrollTop / hourHeight) * 60
+            }
             const nextSelectedDate = addDays(state.agendaSelectedDate, safeOffset)
             const nextRenderStart = addDays(startOfDay(nextSelectedDate), -7)
             const nextRenderEnd = addDays(startOfDay(nextSelectedDate), 24)
@@ -27280,18 +27297,20 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
     }
 
-    function scrollAgendaMobileToWorkingTime(hourHeight) {
+    function scrollAgendaMobileToWorkingTime(hourHeight, displayRange) {
       const scroll = els.agendaGridWrap.querySelector('[data-agenda-mobile-scroll]')
       if (!scroll) return
-      if (state.agendaMobileScrollTop !== null) {
-        scroll.scrollTop = state.agendaMobileScrollTop
+      if (state.agendaMobileScrollMinute !== null) {
+        const preservedMinute = Math.max(displayRange.start, Math.min(displayRange.end, state.agendaMobileScrollMinute))
+        scroll.scrollTop = ((preservedMinute - displayRange.start) / 60) * hourHeight
         return
       }
       const now = new Date()
       const visibleToday = Array.from({ length: state.agendaViewDays }, (_, index) => index)
         .some((index) => dateKey(addDays(startOfDay(state.agendaSelectedDate), index)) === dateKey(now))
-      const targetHour = visibleToday ? Math.max(0, now.getHours() - 2) : Math.max(0, Math.floor(getAgendaDisplayRange().start / 60) - 1)
-      scroll.scrollTop = targetHour * hourHeight
+      const preferredMinute = visibleToday ? now.getHours() * 60 + now.getMinutes() - 120 : displayRange.start
+      const targetMinute = Math.max(displayRange.start, Math.min(displayRange.end, preferredMinute))
+      scroll.scrollTop = ((targetMinute - displayRange.start) / 60) * hourHeight
     }
 
     function renderAgendaMobileList() {
@@ -27427,16 +27446,59 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
     }
 
-    function getAgendaDisplayRange() {
-      const starts = state.businessHours.map((hour) => timeToMinutes(hour.startTime))
-      const ends = state.businessHours.map((hour) => timeToMinutes(hour.endTime))
-      const start = starts.length ? Math.min(...starts) : 9 * 60
-      const end = ends.length ? Math.max(...ends) : 19 * 60
+    function calculateAgendaDisplayRange(input) {
+      const visibleDays = Array.isArray(input.visibleDays) ? input.visibleDays : []
+      const businessHours = Array.isArray(input.businessHours) ? input.businessHours : []
+      const appointments = Array.isArray(input.appointments) ? input.appointments : []
+      const dayKeys = new Set(visibleDays.map((day) => {
+        const value = new Date(day)
+        return value.getFullYear() + '-' + String(value.getMonth() + 1).padStart(2, '0') + '-' + String(value.getDate()).padStart(2, '0')
+      }))
+      const dayOfWeeks = new Set(visibleDays.map((day) => new Date(day).getDay()))
+      const visibleBusinessHours = businessHours.filter((hour) => dayOfWeeks.has(Number(hour.dayOfWeek)))
+      const relevantBusinessHours = visibleBusinessHours.length ? visibleBusinessHours : businessHours
+      const parseTime = (value) => {
+        const parts = String(value || '').split(':').map(Number)
+        return Number.isFinite(parts[0]) && Number.isFinite(parts[1]) ? parts[0] * 60 + parts[1] : null
+      }
+      const starts = relevantBusinessHours.map((hour) => parseTime(hour.startTime)).filter((minute) => minute !== null)
+      const ends = relevantBusinessHours.map((hour) => parseTime(hour.endTime)).filter((minute) => minute !== null)
+      const configuredStart = starts.length ? Math.min(...starts) : 9 * 60
+      const configuredEnd = ends.length ? Math.max(...ends) : 19 * 60
+      let start = Math.max(0, Math.floor((configuredStart - 60) / 60) * 60)
+      let end = Math.min(24 * 60, Math.ceil((configuredEnd + 60) / 60) * 60)
+
+      for (const appointment of appointments) {
+        if (appointment.status === 'CANCELLED') continue
+        const appointmentStart = new Date(appointment.startAt)
+        if (Number.isNaN(appointmentStart.getTime())) continue
+        const appointmentKey = appointmentStart.getFullYear() + '-' + String(appointmentStart.getMonth() + 1).padStart(2, '0') + '-' + String(appointmentStart.getDate()).padStart(2, '0')
+        if (!dayKeys.has(appointmentKey)) continue
+        const rawDuration = Number(appointment.totalDurationMinutes || appointment.service?.duration || 30)
+        const duration = Number.isFinite(rawDuration) && rawDuration > 0 ? rawDuration : 30
+        const appointmentStartMinute = appointmentStart.getHours() * 60 + appointmentStart.getMinutes()
+        const appointmentEndMinute = Math.min(24 * 60, appointmentStartMinute + Math.max(1, duration))
+        start = Math.min(start, Math.floor(appointmentStartMinute / 60) * 60)
+        end = Math.max(end, Math.ceil(appointmentEndMinute / 60) * 60)
+      }
 
       return {
-        start: Math.floor(start / 60) * 60,
-        end: Math.ceil(end / 60) * 60
+        start: Math.max(0, Math.min(24 * 60, start)),
+        end: Math.max(0, Math.min(24 * 60, end))
       }
+    }
+
+    function getAgendaDisplayRange(visibleDays) {
+      const days = Array.isArray(visibleDays) && visibleDays.length
+        ? visibleDays
+        : [startOfDay(state.agendaSelectedDate)]
+      const rangeStart = startOfDay(days[0])
+      const rangeEnd = addDays(startOfDay(days[days.length - 1]), 1)
+      return calculateAgendaDisplayRange({
+        visibleDays: days,
+        businessHours: state.businessHours,
+        appointments: filteredAgendaAppointmentsForRange(rangeStart, rangeEnd)
+      })
     }
 
     function renderAgendaEvents(input) {
