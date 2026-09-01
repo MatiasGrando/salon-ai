@@ -117,6 +117,14 @@ assert.equal(browsingCategories.interactiveBody, [
   'Tocá «Elegí una opción» para continuar 👇'
 ].join('\n'))
 assert.deepEqual(browsingCategories.choices, bookingCategories.choices)
+
+const serviceCatalogContext = normalizeContext(ctx({ labels: { catalogEntries: [
+  { kind: 'SERVICE', entityId: 'srv_iluminacion', label: 'Iluminación' }
+] } }))
+const bookingServices = renderCurrentView(stateWith({ flow: 'SERVICE_SELECT', catalogMode: 'BOOKING' }), serviceCatalogContext)
+const browsingServices = renderCurrentView(stateWith({ flow: 'SERVICE_SELECT', catalogMode: 'BROWSING' }), serviceCatalogContext)
+assert.equal(bookingServices.choices[0]?.actionType, 'service.select', 'booking selects the service without asking for a second confirmation')
+assert.equal(browsingServices.choices[0]?.actionType, 'service.view', 'browsing keeps the standalone service detail')
 const nextCategoryPage = renderCurrentView(stateWith({ flow: 'CATEGORY_SELECT', presentation: { kind: 'catalog_page', cursor: 1 } }), normalizeContext(ctx({
   catalogCanPrevious: true, catalogCanNext: true,
   labels: { catalogCategories: [{ categoryId: 'other_tenant_category', label: 'Masajes' }] }
@@ -242,6 +250,7 @@ if (askDiscard.outcome === 'APPLIED') {
   assert.equal(askDiscard.state.flow, 'DISCARD_CONFIRM')
   assert.equal(askDiscard.state.discardReturnFlow, 'CATEGORY_SELECT')
   assert.deepEqual(askDiscard.view.choices.map((choice) => choice.actionType), ['draft.restart', 'navigation.back'])
+  assert.equal(askDiscard.view.choices[0]?.label, 'Descartar reserva')
   const keepProgress = transition(askDiscard.state, act('navigation.back'), ctx())
   assert.equal(keepProgress.outcome, 'APPLIED')
   if (keepProgress.outcome === 'APPLIED') {
@@ -294,6 +303,38 @@ if (confirmedName.outcome === 'APPLIED') {
 }
 
 // ─── F5.5 — Conversión desde detalle de servicio ─────────────────────────────
+
+const guidedBookingSelection = transition(
+  stateWith({ flow: 'SERVICE_SELECT', catalogMode: 'BOOKING' }),
+  act('service.select', { entityRef: { type: 'SERVICE', id: 'srv_iluminacion' } }),
+  ctx({
+    customerNameOnFile: 'Matías',
+    serviceActive: true,
+    serviceBookable: true,
+    serviceCompatibleWithCart: true,
+    serviceBooking: {
+      id: 'srv_iluminacion', name: 'Iluminación', attentionMode: 'GUIDED_ESTIMATE',
+      price: 50000, priceMode: 'STARTING_AT', estimateAllowsBooking: true,
+      estimateQuestion: '¿Qué tan largo es tu pelo?',
+      estimateOptions: [{ id: '10', label: '10 cm', priceMin: 50000, priceMax: null, note: null }],
+      estimateExplanation: null, estimateDisclaimer: null, requiresPhoto: false,
+      validationEnabled: false, validationMessage: null, validationQuestion: null
+    },
+    labels: {
+      serviceName: 'Iluminación',
+      catalogServiceDetail: { informativeTexts: [], interactiveBody: 'Iluminación\nDescripción del servicio\nDesde $ 50.000\nDuración: 45 min' }
+    }
+  })
+)
+assert.equal(guidedBookingSelection.outcome, 'APPLIED')
+if (guidedBookingSelection.outcome === 'APPLIED') {
+  assert.equal(guidedBookingSelection.state.flow, 'SERVICE_ESTIMATE')
+  assert.deepEqual(guidedBookingSelection.view.informativeTexts, [
+    'Iluminación\nDescripción del servicio\nDesde $ 50.000\nDuración: 45 min'
+  ])
+  assert.equal(guidedBookingSelection.view.interactiveBody, '¿Qué tan largo es tu pelo?')
+  assert.ok(!guidedBookingSelection.view.choices.some((choice) => choice.actionType === 'service.book'))
+}
 
 // 1) Servicio reservable (no requiere consulta): service.book agrega al carrito.
 const detailBookable = stateWith({ flow: 'SERVICE_DETAIL', pendingEntityRef: { type: 'SERVICE', id: 'srv_corte' } })

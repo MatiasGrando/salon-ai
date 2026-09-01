@@ -509,7 +509,10 @@ export const defaultContextProvider: TransitionContextProvider = async (tx, inpu
       JOIN "ServiceCategory" c ON c."id" = s."catalogCategoryId" AND c."businessId" = s."businessId" AND c."isActive" = true
       WHERE a."sourceServiceId" IN (${Prisma.join(recommendationSourceIds)}) AND s."businessId" = ${input.businessId}
         AND s."isBookable" = true ${rejectedFilter}
-        AND s."id" NOT IN (${Prisma.join(targetCartIds)}) ORDER BY a."sortOrder", s."id" LIMIT 1
+        AND s."id" NOT IN (${Prisma.join(targetCartIds)})
+      GROUP BY s."id", s."name"
+      ORDER BY MIN(a."sortOrder"), s."id"
+      LIMIT 6
     `)
     const recommendations = [] as Array<{ serviceId: string; label: string; compatible: boolean }>
     for (const addon of addons) {

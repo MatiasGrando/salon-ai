@@ -605,7 +605,7 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
             entityRef: { type: 'SUBCATEGORY', id: entry.entityId }
           }
         : {
-            actionType: 'service.view',
+            actionType: state.catalogMode === 'BOOKING' ? 'service.select' : 'service.view',
             label: entry.label,
             entityRef: { type: 'SERVICE', id: entry.entityId }
           })
@@ -730,7 +730,7 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
     }
     case 'DISCARD_CONFIRM':
       return menuView('¿Seguro que querés descartar la reserva en curso?', [
-        { actionType: 'draft.restart', label: 'Descartar e ir al menú' },
+        { actionType: 'draft.restart', label: 'Descartar reserva' },
         BACK_CHOICE
       ])
     case 'DEPOSIT_INSTRUCTIONS':
@@ -1793,7 +1793,10 @@ function fromServiceSelect(
     if (!entityRef || !context.serviceActive || !context.serviceBookable) {
       return recovered(state, 'entity_inactive', 'Ese servicio no está disponible para reservar ahora.', [])
     }
-    return resolveSelectedService(state, entityRef.id, context)
+    return withServiceInformation(
+      resolveSelectedService(state, entityRef.id, context),
+      selectedServiceInformation(context)
+    )
   }
   if (actionType === 'catalog.next_page' || actionType === 'catalog.previous_page') {
     return pageShift(state, actionType === 'catalog.next_page', context.catalogPageMoveAllowed, 'catalog_page', context)
@@ -1803,6 +1806,11 @@ function fromServiceSelect(
 
 function withServiceInformation(result: TransitionResult, information: string[]): TransitionResult {
   return { ...result, view: { ...result.view, informativeTexts: [...information.filter(Boolean), ...result.view.informativeTexts] } }
+}
+
+function selectedServiceInformation(context: TransitionContext): string[] {
+  const detail = context.labels.catalogServiceDetail
+  return detail ? [...detail.informativeTexts, detail.interactiveBody] : []
 }
 
 /** All explicit service-selection entry points converge here; browsing alone never calls it. */
