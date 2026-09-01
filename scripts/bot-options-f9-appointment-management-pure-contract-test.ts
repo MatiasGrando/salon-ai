@@ -14,6 +14,7 @@ import {
 const workerSource = readFileSync(new URL('../src/bot-options/application/process-session-job.ts', import.meta.url), 'utf8')
 const managementSource = readFileSync(new URL('../src/bot-options/application/appointment-management.ts', import.meta.url), 'utf8')
 assert.match(workerSource, /needsRescheduleAvailability = input\.actionType === 'appointment\.reschedule'/, 'entering reschedule must load dates before rendering')
+assert.match(workerSource, /const rescheduleDatePage = paginate\(dates, rescheduleDateCursor, BOOKING_DATE_PAGE_SIZE\)/, 'reschedule dates must be paginated within WhatsApp choice limits')
 assert.match(managementSource, /AppointmentServiceItem[\s\S]*?serviceNames/, 'managed appointments must expose every reserved service')
 
 assert.equal(

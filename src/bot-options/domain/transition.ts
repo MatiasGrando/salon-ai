@@ -376,6 +376,8 @@ const CLIENT_ALLOWED: Partial<Record<BotOptionsFlowStep, readonly BotOptionsActi
   APPOINTMENT_CANCEL_CONFIRM: ['appointment.cancel_confirm', 'navigation.back', 'navigation.close', 'handoff.request'],
   APPOINTMENT_RESCHEDULE_DATE: [
     'appointment.date_select',
+    'date.next_page',
+    'date.previous_page',
     'navigation.back',
     'navigation.home',
     'navigation.open',
@@ -853,6 +855,8 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
         payload: { date: item.date },
         entityRef: state.selections.appointmentId ? { type: 'APPOINTMENT', id: state.selections.appointmentId } : undefined
       }))
+      if (context.dateCanPrevious) dateChoices.push({ actionType: 'date.previous_page', label: 'Fechas anteriores' })
+      if (context.dateCanNext) dateChoices.push({ actionType: 'date.next_page', label: 'Ver más fechas' })
       const navDate = composeGlobalNavigation({ capacity: 10, contextualCount: dateChoices.length, back: BACK_CHOICE })
       return appendGlobals(menuView('Elegí la nueva fecha', dateChoices), navDate)
     }
@@ -1187,6 +1191,13 @@ export function transition(
       }
       break
     case 'APPOINTMENT_RESCHEDULE_DATE':
+      if (actionType === 'date.next_page' || actionType === 'date.previous_page') {
+        if (actionType === 'date.next_page' && !context.dateCanNext) return recovered(state, 'guard_failed', 'Llegaste al final del rango de búsqueda.', [])
+        if (actionType === 'date.previous_page' && !context.dateCanPrevious) return recovered(state, 'guard_failed', 'Estás en la primera página de fechas.', [])
+        const cursor = state.presentation.kind === 'date_page' ? state.presentation.cursor + (actionType === 'date.next_page' ? 1 : -1) : actionType === 'date.next_page' ? 1 : 0
+        const next = baseOf(state, { presentation: { kind: 'date_page', cursor: Math.max(0, cursor) } })
+        return applied(next, renderCurrentView(next, context))
+      }
       if (
         actionType === 'appointment.date_select' &&
         entityRef?.type === 'APPOINTMENT' &&

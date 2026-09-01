@@ -853,6 +853,13 @@ ar = transition(
 if (ar.outcome === 'APPLIED') sa = ar.state
 assert.equal(sa.flow, 'APPOINTMENT_RESCHEDULE_DATE')
 
+const nextRescheduleDates = transition(sa, act('date.next_page'), ctx({ dateCanNext: true }))
+assert.equal(nextRescheduleDates.outcome, 'APPLIED')
+if (nextRescheduleDates.outcome === 'APPLIED') {
+  assert.equal(nextRescheduleDates.state.flow, 'APPOINTMENT_RESCHEDULE_DATE')
+  assert.deepEqual(nextRescheduleDates.state.presentation, { kind: 'date_page', cursor: 1 })
+}
+
 ar = transition(
   sa,
   act('appointment.date_select', {

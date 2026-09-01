@@ -696,7 +696,13 @@ export const defaultContextProvider: TransitionContextProvider = async (tx, inpu
           const effectiveDate = input.actionType === 'appointment.date_select' ? input.payload?.date : input.state.selections.date
           const slots = effectiveDate ? search.slots.filter((slot) => slot.date === effectiveDate) : search.slots
           const dates = [...new Set(search.slots.map((slot) => slot.date))]
-          base.labels.availableDates = dates.map((date) => ({ date, label: formatDateChoice(date, settings.timezone) }))
+          const currentRescheduleDateCursor = input.state.presentation.kind === 'date_page' ? input.state.presentation.cursor : 0
+          const rescheduleDateCursor = input.actionType === 'date.next_page' ? currentRescheduleDateCursor + 1
+            : input.actionType === 'date.previous_page' ? Math.max(0, currentRescheduleDateCursor - 1) : currentRescheduleDateCursor
+          const rescheduleDatePage = paginate(dates, rescheduleDateCursor, BOOKING_DATE_PAGE_SIZE)
+          base.labels.availableDates = rescheduleDatePage.items.map((date) => ({ date, label: formatDateChoice(date, settings.timezone) }))
+          base.dateCanNext = rescheduleDatePage.hasNext
+          base.dateCanPrevious = rescheduleDatePage.hasPrevious
           base.labels.availableSlots = slots.map((slot) => ({
             startAt: slot.startAt, label: `${slot.time} · ${slot.professionalName}`, band: slot.band, professionalId: slot.professionalId
           }))
