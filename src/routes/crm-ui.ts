@@ -9286,8 +9286,61 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     .professional-form {
       display: grid;
-      gap: 28px;
+      gap: 14px;
       padding-bottom: 0;
+    }
+
+    .professional-form-section {
+      border: 1px solid #d7dfeb;
+      border-radius: 9px;
+      background: #fff;
+      overflow: hidden;
+    }
+
+    .professional-form-section > summary {
+      min-height: 48px;
+      padding: 0 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      color: #17213b;
+      font-size: 14px;
+      font-weight: 850;
+      cursor: pointer;
+      list-style: none;
+      user-select: none;
+    }
+
+    .professional-form-section > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .professional-form-section > summary::after {
+      content: '+';
+      color: #64748b;
+      font-size: 18px;
+      font-weight: 600;
+      line-height: 1;
+    }
+
+    .professional-form-section[open] > summary {
+      border-bottom: 1px solid #e5eaf2;
+      background: #f8faff;
+    }
+
+    .professional-form-section[open] > summary::after {
+      content: '\\2212';
+    }
+
+    .professional-form-section-content {
+      display: grid;
+      gap: 22px;
+      padding: 18px 14px;
+    }
+
+    .professional-form-section .professional-form-photo {
+      margin: 2px auto 8px;
     }
 
     .professional-form-group {
@@ -15342,55 +15395,75 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             <button class="professional-panel-close" id="professional-panel-close" type="button" aria-label="Cerrar">x</button>
             <h3 id="professional-form-title">Nuevo profesional</h3>
             <p>Completa los datos del profesional.</p>
-            <label class="professional-form-photo" id="professional-photo-picker">
-              <img id="professional-photo-preview" alt="">
-              <span data-icon="camera"></span>
-              <input id="professional-avatar" type="file" accept="image/*">
-            </label>
             <form class="professional-form" id="professional-form">
               <input id="professional-id" type="hidden">
-              <div class="professional-form-group">
-                <label for="professional-name">Nombre del profesional</label>
-                <input class="field" id="professional-name" placeholder="Ej: Carolina">
-              </div>
-              <div class="professional-form-group">
-                <label for="professional-description">Descripci&oacute;n para la landing</label>
-                <textarea class="field" id="professional-description" maxlength="220" placeholder="Ej: Especialista en color, cortes modernos y asesoramiento personalizado."></textarea>
-                <div class="professional-form-help">Opcional. Si queda vac&iacute;o, en la landing se muestra solo el nombre.</div>
-              </div>
-              <div class="professional-form-group">
-                <label for="professional-services">Servicios que realiza</label>
-                <div class="professional-services-list" id="professional-services"></div>
-                <div class="professional-form-help">Podes seleccionar multiples servicios</div>
-              </div>
-              <div class="professional-form-group">
-                <div class="weekly-schedule-heading">
-                  <div class="professional-schedule-title">Horarios de disponibilidad</div>
-                  <button class="weekly-schedule-copy" type="button" data-weekly-schedule-copy="professional">Copiar lunes a mar-vie</button>
+              <details class="professional-form-section" id="professional-basic-section" open>
+                <summary>Datos principales</summary>
+                <div class="professional-form-section-content">
+                  <label class="professional-form-photo" id="professional-photo-picker">
+                    <img id="professional-photo-preview" alt="">
+                    <span data-icon="camera"></span>
+                    <input id="professional-avatar" type="file" accept="image/*">
+                  </label>
+                  <div class="professional-form-group">
+                    <label for="professional-name">Nombre del profesional</label>
+                    <input class="field" id="professional-name" placeholder="Ej: Carolina">
+                  </div>
+                  <div class="professional-form-group">
+                    <label for="professional-description">Descripci&oacute;n para la landing</label>
+                    <textarea class="field" id="professional-description" maxlength="220" placeholder="Ej: Especialista en color, cortes modernos y asesoramiento personalizado."></textarea>
+                    <div class="professional-form-help">Opcional. Si queda vac&iacute;o, en la landing se muestra solo el nombre.</div>
+                  </div>
                 </div>
-                ${weeklyScheduleRows({
-                  prefix: 'professional',
-                  rowClass: 'schedule-row',
-                  weekdayEnd: '18:00',
-                  weekendEnd: '14:00'
-                })}
-                <div class="professional-form-help">Cada d&iacute;a se configura por separado y debe quedar dentro del horario de atenci&oacute;n del comercio.</div>
-              </div>
-              <div class="professional-form-group">
-                <label for="professional-status">Estado</label>
-                <select id="professional-status">
-                  <option value="active">Activo</option>
-                  <option value="inactive">Inactivo</option>
-                </select>
-              </div>
-              <div class="professional-form-group">
-                <label for="professional-bot-bookings">Reservas autom&aacute;ticas</label>
-                <select id="professional-bot-bookings" required>
-                  <option value="accept">Aceptar reservas desde el bot</option>
-                  <option value="manual_only">No aceptar reservas desde el bot (solo agenda manual)</option>
-                </select>
-                <div class="professional-form-help">La agenda manual siempre podr&aacute; usar este profesional mientras est&eacute; activo.</div>
-              </div>
+              </details>
+              <details class="professional-form-section" id="professional-services-section">
+                <summary>Servicios</summary>
+                <div class="professional-form-section-content">
+                  <div class="professional-form-group">
+                    <label for="professional-services">Servicios que realiza</label>
+                    <div class="professional-services-list" id="professional-services"></div>
+                    <div class="professional-form-help">Pod&eacute;s seleccionar m&uacute;ltiples servicios.</div>
+                  </div>
+                </div>
+              </details>
+              <details class="professional-form-section" id="professional-schedule-section">
+                <summary>Horarios de disponibilidad</summary>
+                <div class="professional-form-section-content">
+                  <div class="professional-form-group">
+                    <div class="weekly-schedule-heading">
+                      <div class="professional-schedule-title">Disponibilidad semanal</div>
+                      <button class="weekly-schedule-copy" type="button" data-weekly-schedule-copy="professional">Copiar lunes a mar-vie</button>
+                    </div>
+                    ${weeklyScheduleRows({
+                      prefix: 'professional',
+                      rowClass: 'schedule-row',
+                      weekdayEnd: '18:00',
+                      weekendEnd: '14:00'
+                    })}
+                    <div class="professional-form-help">Cada d&iacute;a se configura por separado y debe quedar dentro del horario de atenci&oacute;n del comercio.</div>
+                  </div>
+                </div>
+              </details>
+              <details class="professional-form-section" id="professional-settings-section">
+                <summary>Estado y reservas</summary>
+                <div class="professional-form-section-content">
+                  <div class="professional-form-group">
+                    <label for="professional-status">Estado</label>
+                    <select id="professional-status">
+                      <option value="active">Activo</option>
+                      <option value="inactive">Inactivo</option>
+                    </select>
+                  </div>
+                  <div class="professional-form-group">
+                    <label for="professional-bot-bookings">Reservas autom&aacute;ticas</label>
+                    <select id="professional-bot-bookings" required>
+                      <option value="accept">Aceptar reservas desde el bot</option>
+                      <option value="manual_only">No aceptar reservas desde el bot (solo agenda manual)</option>
+                    </select>
+                    <div class="professional-form-help">La agenda manual siempre podr&aacute; usar este profesional mientras est&eacute; activo.</div>
+                  </div>
+                </div>
+              </details>
               <div class="config-actions">
                 <button class="secondary" id="professional-cancel" type="button" hidden>Cancelar</button>
                 <button class="primary" id="professional-submit" type="submit">Guardar profesional</button>
@@ -18277,6 +18350,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       professionalListView: document.getElementById('professional-list-view'),
       professionalStatusFilter: document.getElementById('professional-status-filter'),
       professionalServices: document.getElementById('professional-services'),
+      professionalBasicSection: document.getElementById('professional-basic-section'),
+      professionalServicesSection: document.getElementById('professional-services-section'),
+      professionalScheduleSection: document.getElementById('professional-schedule-section'),
+      professionalSettingsSection: document.getElementById('professional-settings-section'),
       professionalStatus: document.getElementById('professional-status'),
       professionalBotBookings: document.getElementById('professional-bot-bookings'),
       professionalAvatar: document.getElementById('professional-avatar'),
@@ -24828,22 +24905,27 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const workingHours = buildProfessionalWorkingHours()
       if (!name) {
         els.professionalFeedback.textContent = 'Escribi un nombre.'
+        els.professionalBasicSection.open = true
+        els.professionalName.focus()
         return
       }
 
       if (state.services.length > 0 && serviceIds.length === 0) {
         els.professionalFeedback.textContent = 'Selecciona al menos un servicio.'
+        els.professionalServicesSection.open = true
         return
       }
 
       if (invalidScheduleDay) {
         els.professionalFeedback.textContent = 'Revisa el horario de ' + invalidScheduleDay.label + '.'
+        els.professionalScheduleSection.open = true
         return
       }
 
       const businessHoursError = validateProfessionalHoursAgainstBusiness(workingHours)
       if (businessHoursError) {
         els.professionalFeedback.textContent = businessHoursError
+        els.professionalScheduleSection.open = true
         return
       }
 
@@ -24916,6 +24998,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.professionalSubmit.textContent = 'Guardar cambios'
       els.professionalFeedback.textContent = 'Editando profesional.'
       hideProfessionalImpact()
+      els.professionalBasicSection.open = !options.focusHours
+      els.professionalServicesSection.open = false
+      els.professionalScheduleSection.open = Boolean(options.focusHours)
+      els.professionalSettingsSection.open = false
       openProfessionalPanel()
       setSection('professionals')
       if (options.focusHours) {
@@ -24974,6 +25060,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.pendingProfessionalSave = null
       hideProfessionalImpact()
       renderProfessionalServiceOptions([])
+      els.professionalBasicSection.open = true
+      els.professionalServicesSection.open = false
+      els.professionalScheduleSection.open = false
+      els.professionalSettingsSection.open = false
       setProfessionalWorkingHours([
         { dayOfWeek: 1, startTime: '09:00', endTime: '18:00' },
         { dayOfWeek: 2, startTime: '09:00', endTime: '18:00' },
