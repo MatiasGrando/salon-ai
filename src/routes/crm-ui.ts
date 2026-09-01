@@ -13916,6 +13916,62 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     .agenda-gcal-hour-cell.closed.drag-target { background: #fff7ed; box-shadow: inset 0 0 0 2px #f97316; }
     .agenda-gcal-hour-cell.drag-invalid { background: #fff1f2; box-shadow: inset 0 0 0 2px #ef4444; }
 
+    .agenda-gcal-hour-cell.agenda-range-selected {
+      background: #ede9fe;
+      box-shadow: inset 2px 0 #7c3aed, inset -2px 0 #7c3aed;
+    }
+
+    .agenda-gcal-hour-cell.agenda-range-first {
+      box-shadow: inset 2px 2px #7c3aed, inset -2px 0 #7c3aed;
+    }
+
+    .agenda-gcal-hour-cell.agenda-range-last {
+      box-shadow: inset 2px 0 #7c3aed, inset -2px -2px #7c3aed;
+    }
+
+    .agenda-range-actions {
+      position: fixed;
+      z-index: 70;
+      width: 196px;
+      padding: 6px;
+      display: grid;
+      gap: 3px;
+      border: 1px solid #d8dee9;
+      border-radius: 10px;
+      background: #ffffff;
+      box-shadow: 0 14px 30px rgba(15, 23, 42, .18);
+    }
+
+    .agenda-range-actions strong {
+      padding: 5px 8px 6px;
+      color: #64748b;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .agenda-range-actions button {
+      width: 100%;
+      min-height: 38px;
+      padding: 0 10px;
+      border: 0;
+      border-radius: 7px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      color: #172033;
+      background: #ffffff;
+      font-size: 13px;
+      font-weight: 700;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .agenda-range-actions button:hover,
+    .agenda-range-actions button:focus-visible {
+      background: #f3f0ff;
+      outline: none;
+    }
+
     .agenda-gcal-event,
     .agenda-gcal-block {
       position: absolute;
@@ -17486,6 +17542,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       agendaDraggingAppointmentId: null,
       agendaDragPreviewKey: null,
       agendaPointerDrag: null,
+      agendaRangePointer: null,
+      agendaRangeSelection: null,
       agendaPendingAppointmentIds: new Set(),
       agendaDidDrag: false,
       editingAppointmentId: null,
@@ -26503,6 +26561,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     function renderAgenda() {
       clearAgendaPointerDrag()
+      clearAgendaRangeSelection()
       renderAgendaMonth()
       renderAgendaBlockList()
       renderAgendaGrid()
@@ -26580,11 +26639,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
     }
 
-    function openAgendaBlockPopover() {
+    function openAgendaBlockPopover(input = {}) {
       if (!canManageScheduleBlocks()) {
         showCrmToast('No tenes permiso para bloquear la agenda.', 'error')
         return
       }
+      if (input.startAt) els.blockStart.value = toDatetimeLocalValue(input.startAt)
+      if (input.endAt) els.blockEnd.value = toDatetimeLocalValue(input.endAt)
+      if (input.professionalId !== undefined) els.blockProfessional.value = input.professionalId || ''
       state.agendaBlockOpen = true
       els.agendaBlockPopover.hidden = false
       els.blockStart.focus()
@@ -26979,6 +27041,190 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       '</section>'
     }
 
+    function agendaRangeCellContext(cell) {
+      return {
+        dateKey: cell.dataset.cellDate,
+        columnProfessionalId: cell.dataset.cellProfessionalId || '',
+        professionalId: cell.dataset.cellProfessionalId || els.agendaProfessional.value || '',
+        minute: Number(cell.dataset.cellMinute || 0)
+      }
+    }
+
+    function startAgendaRangeSelection(pointerEvent, cell) {
+      if (pointerEvent.pointerType === 'touch') return
+      if (pointerEvent.button !== 0) return
+      if (pointerEvent.target.closest('[data-appointment-id], [data-block-id], .agenda-range-actions')) return
+      if (!canCreateAppointments() && !canManageScheduleBlocks()) {
+        showCrmToast('No tenes permiso para agendar ni bloquear horarios.', 'error')
+        return
+      }
+
+      clearAgendaRangeSelection()
+      const context = agendaRangeCellContext(cell)
+      state.agendaRangePointer = {
+        pointerId: pointerEvent.pointerId,
+        startX: pointerEvent.clientX,
+        startY: pointerEvent.clientY,
+        dateKey: context.dateKey,
+        columnProfessionalId: context.columnProfessionalId,
+        professionalId: context.professionalId,
+        startMinute: context.minute,
+        currentMinute: context.minute,
+        dragging: false
+      }
+
+      pointerEvent.stopPropagation()
+      window.addEventListener('pointermove', updateAgendaRangeSelection, true)
+      window.addEventListener('pointerup', finishAgendaRangeSelection, true)
+      window.addEventListener('pointercancel', cancelAgendaRangeSelection, true)
+      window.addEventListener('blur', cancelAgendaRangeSelection)
+    }
+
+    function updateAgendaRangeSelection(pointerEvent) {
+      const pointer = state.agendaRangePointer
+      if (!pointer || pointerEvent.pointerId !== pointer.pointerId) return
+
+      const moved = Math.hypot(pointerEvent.clientX - pointer.startX, pointerEvent.clientY - pointer.startY)
+      if (!pointer.dragging && moved < 5) return
+      pointerEvent.preventDefault()
+      pointer.dragging = true
+
+      const cell = document.elementsFromPoint(pointerEvent.clientX, pointerEvent.clientY)
+        .map((element) => element.closest?.('[data-cell-date][data-cell-minute]'))
+        .find((candidate) => candidate && els.agendaGridWrap.contains(candidate))
+      if (!cell) return
+
+      const context = agendaRangeCellContext(cell)
+      if (context.dateKey !== pointer.dateKey || context.columnProfessionalId !== pointer.columnProfessionalId) return
+
+      pointer.currentMinute = context.minute
+      state.agendaRangeSelection = {
+        dateKey: pointer.dateKey,
+        columnProfessionalId: pointer.columnProfessionalId,
+        professionalId: pointer.professionalId,
+        startMinute: Math.min(pointer.startMinute, pointer.currentMinute),
+        endMinute: Math.max(pointer.startMinute, pointer.currentMinute) + 30
+      }
+      renderAgendaRangeSelection(false)
+    }
+
+    function finishAgendaRangeSelection(pointerEvent) {
+      const pointer = state.agendaRangePointer
+      if (!pointer || pointerEvent.pointerId !== pointer.pointerId) return
+      const wasDragging = pointer.dragging
+      clearAgendaRangePointer()
+      if (!wasDragging) return
+
+      pointerEvent.preventDefault()
+      state.agendaDidDrag = true
+      renderAgendaRangeSelection(true)
+      setTimeout(() => {
+        state.agendaDidDrag = false
+      }, 200)
+    }
+
+    function cancelAgendaRangeSelection() {
+      clearAgendaRangeSelection()
+    }
+
+    function clearAgendaRangePointer() {
+      window.removeEventListener('pointermove', updateAgendaRangeSelection, true)
+      window.removeEventListener('pointerup', finishAgendaRangeSelection, true)
+      window.removeEventListener('pointercancel', cancelAgendaRangeSelection, true)
+      window.removeEventListener('blur', cancelAgendaRangeSelection)
+      state.agendaRangePointer = null
+    }
+
+    function selectAgendaCellRange(cell) {
+      const context = agendaRangeCellContext(cell)
+      state.agendaRangeSelection = {
+        dateKey: context.dateKey,
+        columnProfessionalId: context.columnProfessionalId,
+        professionalId: context.professionalId,
+        startMinute: context.minute,
+        endMinute: context.minute + 30
+      }
+      renderAgendaRangeSelection(true)
+    }
+
+    function renderAgendaRangeSelection(showActions) {
+      document.querySelector('.agenda-range-actions')?.remove()
+      for (const cell of els.agendaGridWrap.querySelectorAll('.agenda-range-selected, .agenda-range-first, .agenda-range-last')) {
+        cell.classList.remove('agenda-range-selected', 'agenda-range-first', 'agenda-range-last')
+      }
+
+      const selection = state.agendaRangeSelection
+      if (!selection) return
+      const cells = Array.from(els.agendaGridWrap.querySelectorAll('[data-cell-date][data-cell-minute]'))
+        .filter((cell) => {
+          const minute = Number(cell.dataset.cellMinute)
+          return cell.dataset.cellDate === selection.dateKey &&
+            (cell.dataset.cellProfessionalId || '') === selection.columnProfessionalId &&
+            minute >= selection.startMinute && minute < selection.endMinute
+        })
+        .sort((left, right) => Number(left.dataset.cellMinute) - Number(right.dataset.cellMinute))
+      if (!cells.length) return
+
+      cells.forEach((cell) => cell.classList.add('agenda-range-selected'))
+      cells[0].classList.add('agenda-range-first')
+      cells[cells.length - 1].classList.add('agenda-range-last')
+      if (!showActions) return
+
+      const actions = document.createElement('div')
+      actions.className = 'agenda-range-actions'
+      actions.setAttribute('role', 'menu')
+      actions.innerHTML = '<strong>' + formatMinuteLabel(selection.startMinute) + ' - ' + formatMinuteLabel(selection.endMinute) + '</strong>' +
+        (canCreateAppointments() ? '<button type="button" role="menuitem" data-agenda-range-action="appointment">Agendar</button>' : '') +
+        (canManageScheduleBlocks() ? '<button type="button" role="menuitem" data-agenda-range-action="block">Bloquear horario</button>' : '')
+      document.body.appendChild(actions)
+
+      const anchorRect = cells[cells.length - 1].getBoundingClientRect()
+      const actionsRect = actions.getBoundingClientRect()
+      const left = Math.max(8, Math.min(anchorRect.left + 10, window.innerWidth - actionsRect.width - 8))
+      const below = anchorRect.bottom + 6
+      const top = below + actionsRect.height <= window.innerHeight - 8
+        ? below
+        : Math.max(8, anchorRect.top - actionsRect.height - 6)
+      actions.style.left = left + 'px'
+      actions.style.top = top + 'px'
+
+      actions.querySelector('[data-agenda-range-action="appointment"]')?.addEventListener('click', () => {
+        const selected = { ...state.agendaRangeSelection }
+        clearAgendaRangeSelection()
+        openAppointmentDialog({
+          date: parseDateKey(selected.dateKey),
+          minute: selection.startMinute,
+          professionalId: selected.professionalId || undefined
+        })
+      })
+      actions.querySelector('[data-agenda-range-action="block"]')?.addEventListener('click', () => {
+        const selected = { ...state.agendaRangeSelection }
+        const dayStart = startOfDay(parseDateKey(selected.dateKey))
+        clearAgendaRangeSelection()
+        openAgendaBlockPopover({
+          startAt: addMinutes(dayStart, selected.startMinute),
+          endAt: addMinutes(dayStart, selected.endMinute),
+          professionalId: selected.professionalId
+        })
+      })
+      setTimeout(() => document.addEventListener('pointerdown', handleAgendaRangeOutsidePointer, true), 0)
+    }
+
+    function handleAgendaRangeOutsidePointer(event) {
+      if (event.target.closest('.agenda-range-actions, [data-cell-date][data-cell-minute]')) return
+      clearAgendaRangeSelection()
+    }
+
+    function clearAgendaRangeSelection() {
+      clearAgendaRangePointer()
+      document.removeEventListener('pointerdown', handleAgendaRangeOutsidePointer, true)
+      document.querySelector('.agenda-range-actions')?.remove()
+      for (const cell of els.agendaGridWrap.querySelectorAll('.agenda-range-selected, .agenda-range-first, .agenda-range-last')) {
+        cell.classList.remove('agenda-range-selected', 'agenda-range-first', 'agenda-range-last')
+      }
+      state.agendaRangeSelection = null
+    }
+
     function bindAgendaMobileControls(hourHeight, displayRange) {
       els.agendaGridWrap.querySelector('[data-agenda-mobile-menu]')?.addEventListener('click', openMobileDrawer)
       els.agendaGridWrap.querySelector('[data-agenda-prev]')?.addEventListener('click', async () => {
@@ -27047,17 +27293,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       })
 
       for (const cell of els.agendaGridWrap.querySelectorAll('[data-cell-date][data-cell-minute]')) {
+        cell.addEventListener('pointerdown', (event) => startAgendaRangeSelection(event, cell))
         cell.addEventListener('click', () => {
           if (state.agendaDidDrag) return
-          if (!canCreateAppointments()) {
-            showCrmToast('No tenes permiso para cargar turnos.', 'error')
+          if (!canCreateAppointments() && !canManageScheduleBlocks()) {
+            showCrmToast('No tenes permiso para agendar ni bloquear horarios.', 'error')
             return
           }
-          openAppointmentDialog({
-            date: parseDateKey(cell.dataset.cellDate),
-            minute: Number(cell.dataset.cellMinute || 9 * 60),
-            professionalId: cell.dataset.cellProfessionalId || undefined
-          })
+          selectAgendaCellRange(cell)
         })
       }
 
