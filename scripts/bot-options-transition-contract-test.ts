@@ -591,7 +591,7 @@ assert.deepEqual(si.pendingEntityRef, { type: 'SERVICE', id: 'srv_color' })
 
 const coordinate = transition(si, act('recommendation.add'), ctx({ labels: { serviceName: 'Coloración' } }))
 assert.equal(coordinate.outcome, 'HANDOFF')
-assert.equal(coordinate.view.interactiveBody, 'Ya avisamos al equipo. Podés seguir esperando o cancelar la atención para volver al paso anterior.')
+assert.equal(coordinate.view.interactiveBody, 'No encontramos un profesional que pueda realizar ambos servicios. Vamos a coordinar tu reserva con el equipo. Esperá un momento; alguien te va a atender por acá.')
 assert.deepEqual(coordinate.view.choices.map(({ actionType, label }) => ({ actionType, label })), [
   { actionType: 'handoff.wait', label: 'Seguir esperando' },
   { actionType: 'handoff.cancel', label: 'Cancelar atención' }

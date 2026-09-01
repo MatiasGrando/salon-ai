@@ -951,7 +951,8 @@ function enterHandoff(
   reason: string,
   detail: string | null,
   context: { serviceId: string } | { professionalId: string } | null = null,
-  extraEffects: BotOptionsEffect[] = []
+  extraEffects: BotOptionsEffect[] = [],
+  queuedMessage: string | null = null
 ): TransitionResult {
   const nextState = baseOf(resetInvalidStreak(state), {
     flow: 'HANDOFF_QUEUED',
@@ -960,7 +961,13 @@ function enterHandoff(
     // La subcategoría/página forma parte del paso pausado; sólo cerramos el overlay.
     presentation: restoreFromNavigation(state.presentation)
   })
-  return applied(nextState, renderCurrentView(nextState, EMPTY_CONTEXT_FOR_VIEWS), [
+  const view = queuedMessage
+    ? menuView(queuedMessage, [
+        { actionType: 'handoff.wait', label: 'Seguir esperando' },
+        { actionType: 'handoff.cancel', label: 'Cancelar atención' }
+      ])
+    : renderCurrentView(nextState, EMPTY_CONTEXT_FOR_VIEWS)
+  return applied(nextState, view, [
     { kind: 'REQUEST_HUMAN_HANDOFF', reason, detail, context },
     ...extraEffects
   ])
@@ -2048,7 +2055,14 @@ function fromIncompatibleDecision(
   if (actionType === 'recommendation.add') {
     const serviceId = entityRef?.id ?? state.pendingEntityRef?.id
     if (!serviceId) return recovered(state, 'entity_inactive', 'No pudimos identificar ese servicio.', [])
-    return enterHandoff(baseOf(state, { pendingEntityRef: { type: 'SERVICE', id: serviceId } }), 'coordinacion_multiprofesional', context.labels.serviceName ?? null)
+    return enterHandoff(
+      baseOf(state, { pendingEntityRef: { type: 'SERVICE', id: serviceId } }),
+      'coordinacion_multiprofesional',
+      context.labels.serviceName ?? null,
+      null,
+      [],
+      'No encontramos un profesional que pueda realizar ambos servicios. Vamos a coordinar tu reserva con el equipo. Esperá un momento; alguien te va a atender por acá.'
+    )
   }
   if (actionType === 'cart.continue') {
     return applied(baseOf(state, { flow: 'CART_REVIEW', pendingEntityRef: null, presentation: plainPresentation() }), renderCurrentView({ ...state, flow: 'CART_REVIEW' }, context))
