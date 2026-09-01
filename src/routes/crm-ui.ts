@@ -13972,6 +13972,61 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       outline: none;
     }
 
+    .agenda-gcal-action-rail {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 9;
+      width: 18px;
+      padding: 0;
+      border: 0;
+      border-left: 1px solid transparent;
+      background: transparent;
+      cursor: crosshair;
+      touch-action: none;
+    }
+
+    .agenda-gcal-action-rail:hover,
+    .agenda-gcal-action-rail:focus-visible,
+    .agenda-gcal-action-rail.active {
+      border-left-color: rgba(124, 58, 237, .35);
+      background: rgba(124, 58, 237, .05);
+      outline: none;
+    }
+
+    .agenda-action-rail-marker {
+      position: absolute;
+      left: -7px;
+      right: 1px;
+      height: var(--agenda-slot-height, 44px);
+      border: 1px solid #7c3aed;
+      border-radius: 6px;
+      display: none;
+      place-items: center;
+      color: #ffffff;
+      background: #7c3aed;
+      box-shadow: 0 4px 12px rgba(76, 29, 149, .24);
+      font-size: 16px;
+      font-weight: 900;
+      pointer-events: none;
+    }
+
+    .agenda-gcal-action-rail:hover .agenda-action-rail-marker,
+    .agenda-gcal-action-rail:focus-visible .agenda-action-rail-marker,
+    .agenda-gcal-action-rail.active .agenda-action-rail-marker {
+      display: grid;
+    }
+
+    .agenda-gcal-event.agenda-range-anchor {
+      outline: 2px solid #7c3aed;
+      outline-offset: 2px;
+    }
+
+    .agenda-gcal-day-column.has-action-rail .agenda-gcal-event-add {
+      right: 21px;
+    }
+
     .agenda-gcal-event,
     .agenda-gcal-block {
       position: absolute;
@@ -26889,7 +26944,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const dayBlocks = filteredAgendaBlocksForRange(day, addDays(day, 1))
         .map((block) => renderAgendaMobileBlock(block, day, hourHeight, displayRange))
         .join('')
-      return '<div class="agenda-gcal-day-column" data-gcal-day="' + key + '">' + cells + events + dayBlocks + '</div>'
+      const actionRail = Number(state.agendaViewDays) > 1 && (canCreateAppointments() || canManageScheduleBlocks())
+        ? '<button class="agenda-gcal-action-rail" type="button" data-agenda-action-rail data-cell-date="' + key + '" data-range-start="' + displayRange.start + '" data-range-end="' + displayRange.end + '" aria-label="Elegir un horario aunque haya turnos"><span class="agenda-action-rail-marker" aria-hidden="true">+</span></button>'
+        : ''
+      return '<div class="agenda-gcal-day-column' + (actionRail ? ' has-action-rail' : '') + '" data-gcal-day="' + key + '">' + cells + events + dayBlocks + actionRail + '</div>'
     }
 
     function renderAgendaMobileEvent(appointment, hourHeight, displayRange, placement = { column: 0, columns: 1 }) {
@@ -27070,6 +27128,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         professionalId: context.professionalId,
         startMinute: context.minute,
         currentMinute: context.minute,
+        anchorElement: null,
         dragging: false
       }
 
@@ -27103,7 +27162,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         columnProfessionalId: pointer.columnProfessionalId,
         professionalId: pointer.professionalId,
         startMinute: Math.min(pointer.startMinute, pointer.currentMinute),
-        endMinute: Math.max(pointer.startMinute, pointer.currentMinute) + 30
+        endMinute: Math.max(pointer.startMinute, pointer.currentMinute) + 30,
+        anchorElement: pointer.anchorElement
       }
       renderAgendaRangeSelection(false)
     }
@@ -27135,20 +27195,66 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.agendaRangePointer = null
     }
 
-    function selectAgendaCellRange(cell) {
+    function selectAgendaCellRange(cell, anchorElement = cell) {
       const context = agendaRangeCellContext(cell)
       state.agendaRangeSelection = {
         dateKey: context.dateKey,
         columnProfessionalId: context.columnProfessionalId,
         professionalId: context.professionalId,
         startMinute: context.minute,
-        endMinute: context.minute + 30
+        endMinute: context.minute + 30,
+        anchorElement
       }
       renderAgendaRangeSelection(true)
     }
 
+    function selectAgendaOccupiedRange(eventNode, appointment) {
+      clearAgendaRangeSelection()
+      const start = new Date(appointment.startAt)
+      const professionalColumn = eventNode.closest('[data-gcal-professional]')
+      state.agendaRangeSelection = {
+        dateKey: dateKey(start),
+        columnProfessionalId: professionalColumn?.dataset.gcalProfessional || '',
+        professionalId: professionalColumn?.dataset.gcalProfessional || els.agendaProfessional.value || '',
+        startMinute: start.getHours() * 60 + start.getMinutes(),
+        endMinute: start.getHours() * 60 + start.getMinutes() + 30,
+        anchorElement: eventNode.querySelector('[data-agenda-new-at]'),
+        anchorAppointmentId: appointment.id,
+        additionalAtOccupiedTime: true
+      }
+      renderAgendaRangeSelection(true)
+    }
+
+    function agendaActionRailCellAtPointer(rail, clientY) {
+      const column = rail.closest('[data-gcal-day]')
+      if (!column) return null
+      const rect = column.getBoundingClientRect()
+      const rangeStart = Number(rail.dataset.rangeStart || 0)
+      const rangeEnd = Number(rail.dataset.rangeEnd || 24 * 60)
+      const relativeY = Math.max(0, Math.min(rect.height - 1, clientY - rect.top))
+      const slotHeight = rect.height / Math.max(1, (rangeEnd - rangeStart) / 30)
+      const minute = Math.min(rangeEnd - 30, rangeStart + Math.floor(relativeY / slotHeight) * 30)
+      return column.querySelector('[data-cell-date="' + rail.dataset.cellDate + '"][data-cell-minute="' + minute + '"]')
+    }
+
+    function positionAgendaActionRailMarker(rail, cell) {
+      const marker = rail.querySelector('.agenda-action-rail-marker')
+      if (!marker || !cell) return null
+      const rangeStart = Number(rail.dataset.rangeStart || 0)
+      const rangeEnd = Number(rail.dataset.rangeEnd || 24 * 60)
+      const minute = Number(cell.dataset.cellMinute || rangeStart)
+      const railHeight = rail.getBoundingClientRect().height
+      const slotHeight = railHeight / Math.max(1, (rangeEnd - rangeStart) / 30)
+      marker.style.height = slotHeight + 'px'
+      marker.style.top = (((minute - rangeStart) / 30) * slotHeight) + 'px'
+      marker.title = formatMinuteLabel(minute)
+      return marker
+    }
+
     function renderAgendaRangeSelection(showActions) {
       document.querySelector('.agenda-range-actions')?.remove()
+      els.agendaGridWrap.querySelectorAll('.agenda-range-anchor').forEach((eventNode) => eventNode.classList.remove('agenda-range-anchor'))
+      els.agendaGridWrap.querySelectorAll('[data-agenda-action-rail].active').forEach((rail) => rail.classList.remove('active'))
       for (const cell of els.agendaGridWrap.querySelectorAll('.agenda-range-selected, .agenda-range-first, .agenda-range-last')) {
         cell.classList.remove('agenda-range-selected', 'agenda-range-first', 'agenda-range-last')
       }
@@ -27160,7 +27266,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           const minute = Number(cell.dataset.cellMinute)
           return cell.dataset.cellDate === selection.dateKey &&
             (cell.dataset.cellProfessionalId || '') === selection.columnProfessionalId &&
-            minute >= selection.startMinute && minute < selection.endMinute
+            minute < selection.endMinute && minute + 30 > selection.startMinute
         })
         .sort((left, right) => Number(left.dataset.cellMinute) - Number(right.dataset.cellMinute))
       if (!cells.length) return
@@ -27168,6 +27274,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       cells.forEach((cell) => cell.classList.add('agenda-range-selected'))
       cells[0].classList.add('agenda-range-first')
       cells[cells.length - 1].classList.add('agenda-range-last')
+      if (selection.anchorAppointmentId) {
+        els.agendaGridWrap.querySelector('[data-appointment-id="' + selection.anchorAppointmentId + '"]')?.classList.add('agenda-range-anchor')
+      }
+      selection.anchorElement?.closest?.('[data-agenda-action-rail]')?.classList.add('active')
       if (!showActions) return
 
       const actions = document.createElement('div')
@@ -27178,7 +27288,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         (canManageScheduleBlocks() ? '<button type="button" role="menuitem" data-agenda-range-action="block">Bloquear horario</button>' : '')
       document.body.appendChild(actions)
 
-      const anchorRect = cells[cells.length - 1].getBoundingClientRect()
+      const anchor = selection.anchorElement?.isConnected ? selection.anchorElement : cells[cells.length - 1]
+      const anchorRect = anchor.getBoundingClientRect()
       const actionsRect = actions.getBoundingClientRect()
       const left = Math.max(8, Math.min(anchorRect.left + 10, window.innerWidth - actionsRect.width - 8))
       const below = anchorRect.bottom + 6
@@ -27194,7 +27305,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         openAppointmentDialog({
           date: parseDateKey(selected.dateKey),
           minute: selection.startMinute,
-          professionalId: selected.professionalId || undefined
+          professionalId: selected.professionalId || undefined,
+          additionalAtOccupiedTime: selected.additionalAtOccupiedTime === true
         })
       })
       actions.querySelector('[data-agenda-range-action="block"]')?.addEventListener('click', () => {
@@ -27219,6 +27331,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       clearAgendaRangePointer()
       document.removeEventListener('pointerdown', handleAgendaRangeOutsidePointer, true)
       document.querySelector('.agenda-range-actions')?.remove()
+      els.agendaGridWrap.querySelectorAll('.agenda-range-anchor').forEach((eventNode) => eventNode.classList.remove('agenda-range-anchor'))
+      els.agendaGridWrap.querySelectorAll('[data-agenda-action-rail].active').forEach((rail) => rail.classList.remove('active'))
       for (const cell of els.agendaGridWrap.querySelectorAll('.agenda-range-selected, .agenda-range-first, .agenda-range-last')) {
         cell.classList.remove('agenda-range-selected', 'agenda-range-first', 'agenda-range-last')
       }
@@ -27304,6 +27418,32 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         })
       }
 
+      for (const rail of els.agendaGridWrap.querySelectorAll('[data-agenda-action-rail]')) {
+        rail.addEventListener('pointermove', (event) => {
+          const cell = agendaActionRailCellAtPointer(rail, event.clientY)
+          positionAgendaActionRailMarker(rail, cell)
+        })
+        rail.addEventListener('pointerleave', () => {
+          if (!state.agendaRangePointer && !rail.classList.contains('active')) {
+            rail.querySelector('.agenda-action-rail-marker')?.removeAttribute('style')
+          }
+        })
+        rail.addEventListener('pointerdown', (event) => {
+          const cell = agendaActionRailCellAtPointer(rail, event.clientY)
+          if (!cell) return
+          const marker = positionAgendaActionRailMarker(rail, cell)
+          startAgendaRangeSelection(event, cell)
+          if (state.agendaRangePointer) state.agendaRangePointer.anchorElement = marker
+        })
+        rail.addEventListener('click', (event) => {
+          if (state.agendaDidDrag) return
+          const cell = agendaActionRailCellAtPointer(rail, event.clientY)
+          if (!cell) return
+          const marker = positionAgendaActionRailMarker(rail, cell)
+          selectAgendaCellRange(cell, marker)
+        })
+      }
+
       for (const eventNode of els.agendaGridWrap.querySelectorAll('[data-appointment-id]')) {
         const appointment = state.agendaAppointments.find((item) => item.id === eventNode.dataset.appointmentId)
         eventNode.addEventListener('click', (event) => {
@@ -27319,14 +27459,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             showCrmToast('No tenes permiso para cargar turnos.', 'error')
             return
           }
-          const start = new Date(appointment.startAt)
-          openAppointmentDialog({
-            date: start,
-            minute: start.getHours() * 60 + start.getMinutes(),
-            professionalId: appointment.professionalId,
-            serviceId: appointment.serviceId,
-            additionalAtOccupiedTime: true
-          })
+          selectAgendaOccupiedRange(eventNode, appointment)
         })
         eventNode.addEventListener('pointerdown', (event) => {
           if (event.target.closest('[data-agenda-new-at]')) return

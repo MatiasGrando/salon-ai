@@ -16,5 +16,16 @@ assert.match(source, /cell\.dataset\.cellProfessionalId/)
 assert.match(source, /agenda-range-selected/)
 assert.match(source, /agenda-range-actions/)
 assert.match(source, /pointerType === 'touch'/)
+assert.match(source, /data-agenda-action-rail/)
+assert.match(source, /function agendaActionRailCellAtPointer\(/)
+assert.match(source, /function selectAgendaOccupiedRange\(/)
+assert.match(source, /eventNode\.closest\('\[data-gcal-professional\]'\)/)
+assert.match(source, /startAgendaRangeSelection\(event, cell\)/)
+assert.match(source, /agenda-action-rail-marker/)
+
+const occupiedActionHandler = source.match(/eventNode\.querySelector\('\[data-agenda-new-at\]'\)\?\.addEventListener\('click'[\s\S]*?eventNode\.addEventListener\('pointerdown'/)?.[0] || ''
+assert.match(occupiedActionHandler, /selectAgendaOccupiedRange/)
+assert.doesNotMatch(occupiedActionHandler, /openAppointmentDialog/)
+assert.doesNotMatch(occupiedActionHandler, /serviceId:\s*appointment\.serviceId/)
 
 console.log('OK: la agenda permite seleccionar un rango y elegir entre agendar o bloquear según permisos.')
