@@ -8594,25 +8594,24 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     .appointment-deposit-option {
-      padding: 12px;
-      border: 1px solid #bbf7d0;
-      border-radius: 8px;
+      padding: 0;
+      border: 0;
       display: grid;
       gap: 10px;
-      background: #f0fdf4;
+      background: transparent;
     }
 
     .appointment-deposit-option > label {
       display: flex;
       align-items: center;
       gap: 9px;
-      color: #166534;
+      color: #334155;
       font-size: 13px;
-      font-weight: 700;
+      font-weight: 800;
     }
 
     .appointment-deposit-option small {
-      color: #166534;
+      color: #64748b;
       font-size: 12px;
       line-height: 1.4;
     }
@@ -11194,14 +11193,35 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     .dialog-header h3 {
       margin: 0;
+      color: #0f172a;
       font-size: 16px;
       line-height: 1.2;
     }
 
+    .appointment-dialog-card {
+      width: min(680px, 100%);
+      max-height: min(760px, calc(100dvh - 36px));
+      border: 1px solid #cbd5e1;
+    }
+
+    .appointment-dialog-card .dialog-header {
+      min-height: 64px;
+      padding: 16px 20px;
+    }
+
+    .appointment-dialog-card .dialog-header h3 {
+      font-size: 18px;
+      font-weight: 850;
+    }
+
+    .appointment-dialog-card :is(.icon-button, .secondary) {
+      border-color: #b8c4d4;
+    }
+
     .appointment-form {
-      padding: 16px;
+      padding: 18px 20px 0;
       display: grid;
-      gap: 12px;
+      gap: 14px;
       overflow: auto;
     }
 
@@ -11211,15 +11231,86 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     .appointment-form label {
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 750;
+      color: #334155;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .appointment-form :is(.field, select, textarea) {
+      border-color: #b8c4d4;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+    }
+
+    .appointment-form :is(.field, select, textarea):hover {
+      border-color: #94a3b8;
+    }
+
+    .appointment-form :is(.field, select, textarea):focus {
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px #dbeafe;
     }
 
     .appointment-form .split-row {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 10px;
+    }
+
+    .appointment-additional {
+      border: 1px solid #b8c4d4;
+      border-radius: 10px;
+      background: #fff;
+      overflow: hidden;
+    }
+
+    .appointment-additional summary {
+      min-height: 52px;
+      padding: 0 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      color: #1e293b;
+      font-size: 13px;
+      font-weight: 850;
+      cursor: pointer;
+      list-style: none;
+    }
+
+    .appointment-additional summary::-webkit-details-marker { display: none; }
+
+    .appointment-additional summary::after {
+      content: "⌄";
+      color: #64748b;
+      font-size: 18px;
+      line-height: 1;
+      transition: transform 160ms ease;
+    }
+
+    .appointment-additional[open] summary {
+      border-bottom: 1px solid #cbd5e1;
+    }
+
+    .appointment-additional[open] summary::after {
+      transform: rotate(180deg);
+    }
+
+    .appointment-additional-content {
+      padding: 14px;
+      display: grid;
+      gap: 14px;
+      background: #fbfcfe;
+    }
+
+    .appointment-form .dialog-actions {
+      position: sticky;
+      z-index: 12;
+      bottom: 0;
+      margin: 0 -20px;
+      padding: 14px 20px;
+      border-top: 1px solid #e4e9f0;
+      background: rgba(255, 255, 255, .97);
+      backdrop-filter: blur(8px);
     }
 
     .appointment-customer-combobox { position: relative; }
@@ -14719,7 +14810,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     </section>
 
     <div class="dialog-backdrop" id="appointment-dialog" hidden>
-      <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="appointment-dialog-title">
+      <section class="dialog appointment-dialog-card" role="dialog" aria-modal="true" aria-labelledby="appointment-dialog-title">
         <header class="dialog-header">
           <h3 id="appointment-dialog-title">Nuevo turno</h3>
           <button class="icon-button" id="appointment-close" type="button" title="Cerrar">X</button>
@@ -14750,12 +14841,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           <div class="split-row">
             <div class="form-row">
               <label for="appointment-customer-name">Nombre</label>
-              <input class="field" id="appointment-customer-name" placeholder="Nombre del cliente">
+              <input class="field" id="appointment-customer-name">
             </div>
             <div class="form-row">
-              <label for="appointment-customer-phone">Tel&eacute;fono <span class="optional-label">(opcional)</span></label>
-              <input class="field" id="appointment-customer-phone" placeholder="Pod&eacute;s completarlo despu&eacute;s">
-              <small>Sin tel&eacute;fono, el turno se guarda como cliente presencial provisional.</small>
+              <label for="appointment-customer-phone">Tel&eacute;fono</label>
+              <input class="field" id="appointment-customer-phone">
             </div>
           </div>
           <div class="appointment-contact-actions" id="appointment-contact-actions" hidden>
@@ -14766,21 +14856,25 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             <span id="appointment-origin-badge" aria-hidden="true"></span>
             <span>Origen: <strong id="appointment-origin-label"></strong></span>
           </div>
-          <div class="form-row">
-            <label for="appointment-notes">Comentarios adicionales <span class="optional-label">(opcional)</span></label>
-            <textarea class="field" id="appointment-notes" maxlength="2000" rows="3" placeholder="Indicaciones, aclaraciones o informaci&oacute;n relevante para el profesional"></textarea>
-          </div>
-          <div class="appointment-deposit-option">
-            <label>
-              <input id="appointment-deposit-paid" type="checkbox">
-              Dej&oacute; se&ntilde;a
-            </label>
-            <div class="form-row appointment-deposit-amount" id="appointment-deposit-amount-row" hidden>
-              <label for="appointment-deposit-amount">Monto de la se&ntilde;a <span class="optional-label">(opcional)</span></label>
-              <input class="field" id="appointment-deposit-amount" type="number" min="1" step="1" inputmode="numeric" placeholder="Ej: 20000">
+          <details class="appointment-additional" id="appointment-additional">
+            <summary>Informaci&oacute;n adicional</summary>
+            <div class="appointment-additional-content">
+              <div class="form-row">
+                <label for="appointment-notes">Comentarios adicionales</label>
+                <textarea class="field" id="appointment-notes" maxlength="2000" rows="3"></textarea>
+              </div>
+              <div class="appointment-deposit-option">
+                <label>
+                  <input id="appointment-deposit-paid" type="checkbox">
+                  Dej&oacute; se&ntilde;a
+                </label>
+                <div class="form-row appointment-deposit-amount" id="appointment-deposit-amount-row" hidden>
+                  <label for="appointment-deposit-amount">Monto de la se&ntilde;a</label>
+                  <input class="field" id="appointment-deposit-amount" type="number" min="1" step="1" inputmode="numeric" placeholder="Ej: 20000">
+                </div>
+              </div>
             </div>
-            <small>La se&ntilde;a quedar&aacute; registrada directamente en este turno manual.</small>
-          </div>
+          </details>
           <p class="hint" id="appointment-feedback"></p>
           <div class="dialog-actions">
             <button class="danger" id="appointment-no-show" type="button" hidden>Marcar ausente</button>
@@ -18379,6 +18473,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       appointmentOriginRow: document.getElementById('appointment-origin-row'),
       appointmentOriginBadge: document.getElementById('appointment-origin-badge'),
       appointmentOriginLabel: document.getElementById('appointment-origin-label'),
+      appointmentAdditional: document.getElementById('appointment-additional'),
       appointmentNotes: document.getElementById('appointment-notes'),
       appointmentDepositPaid: document.getElementById('appointment-deposit-paid'),
       appointmentDepositAmountRow: document.getElementById('appointment-deposit-amount-row'),
@@ -27132,7 +27227,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         dragging: false
       }
 
-      pointerEvent.stopPropagation()
       window.addEventListener('pointermove', updateAgendaRangeSelection, true)
       window.addEventListener('pointerup', finishAgendaRangeSelection, true)
       window.addEventListener('pointercancel', cancelAgendaRangeSelection, true)
@@ -27143,10 +27237,18 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const pointer = state.agendaRangePointer
       if (!pointer || pointerEvent.pointerId !== pointer.pointerId) return
 
-      const moved = Math.hypot(pointerEvent.clientX - pointer.startX, pointerEvent.clientY - pointer.startY)
-      if (!pointer.dragging && moved < 5) return
+      const deltaX = pointerEvent.clientX - pointer.startX
+      const deltaY = pointerEvent.clientY - pointer.startY
+      const moved = Math.hypot(deltaX, deltaY)
+      if (!pointer.dragging) {
+        if (moved < 10) return
+        if (Math.abs(deltaX) > Math.abs(deltaY) * 1.15) {
+          clearAgendaRangePointer()
+          return
+        }
+        pointer.dragging = true
+      }
       pointerEvent.preventDefault()
-      pointer.dragging = true
 
       const cell = document.elementsFromPoint(pointerEvent.clientX, pointerEvent.clientY)
         .map((element) => element.closest?.('[data-cell-date][data-cell-minute]'))
@@ -28381,7 +28483,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.appointmentFeedback.textContent = ''
       const appointment = input.appointment
       state.editingAppointmentId = appointment?.id || null
-      els.appointmentTitle.textContent = appointment ? 'Editar turno' : 'Nuevo turno rápido'
+      els.appointmentTitle.textContent = appointment ? 'Editar turno' : 'Nuevo turno'
       els.appointmentSubmit.textContent = appointment ? 'Guardar cambios' : 'Cargar turno'
       els.appointmentDelete.hidden = !appointment
       els.appointmentNoShow.hidden = !appointment || appointment.status === 'CANCELLED'
@@ -28435,6 +28537,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         els.appointmentOriginRow.hidden = true
       }
 
+      els.appointmentAdditional.open = Boolean(
+        appointment && (els.appointmentNotes.value.trim() || els.appointmentDepositPaid.checked)
+      )
       syncAppointmentDepositFields()
       syncAppointmentCustomerFields()
       const protectsScheduledCustomer = Boolean(appointment && !canViewAppointmentCustomerData())

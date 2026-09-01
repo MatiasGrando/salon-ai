@@ -28,4 +28,11 @@ assert.match(occupiedActionHandler, /selectAgendaOccupiedRange/)
 assert.doesNotMatch(occupiedActionHandler, /openAppointmentDialog/)
 assert.doesNotMatch(occupiedActionHandler, /serviceId:\s*appointment\.serviceId/)
 
+const rangePointerStart = source.match(/function startAgendaRangeSelection\([\s\S]*?function updateAgendaRangeSelection\(/)?.[0] || ''
+assert.doesNotMatch(rangePointerStart, /stopPropagation\(/)
+assert.match(source, /const deltaX = pointerEvent\.clientX - pointer\.startX/)
+assert.match(source, /const deltaY = pointerEvent\.clientY - pointer\.startY/)
+assert.match(source, /Math\.abs\(deltaX\) > Math\.abs\(deltaY\) \* 1\.15/)
+assert.match(source, /if \(moved < 10\) return/)
+
 console.log('OK: la agenda permite seleccionar un rango y elegir entre agendar o bloquear según permisos.')
