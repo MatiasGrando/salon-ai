@@ -28,11 +28,12 @@ export class PrismaCartRepository {
         s."estimateExplanation", s."estimateDisclaimer", s."requiresPhoto", s."validationEnabled", s."validationMessage", s."validationQuestion",
         COALESCE(array_agg(DISTINCT p."id" ORDER BY p."id") FILTER (WHERE p."id" IS NOT NULL), ARRAY[]::text[]) AS "professionalIds"
       FROM "Service" s
-      JOIN "ServiceCategory" c ON c."id" = s."catalogCategoryId" AND c."businessId" = s."businessId" AND c."isActive" = true
+      LEFT JOIN "ServiceCategory" c ON c."id" = s."catalogCategoryId" AND c."businessId" = s."businessId" AND c."isActive" = true
       LEFT JOIN "ProfessionalService" ps ON ps."serviceId" = s."id"
       LEFT JOIN "Professional" p ON p."id" = ps."professionalId" AND p."businessId" = s."businessId"
         AND p."isActive" = true AND p."acceptsBotBookings" = true
       WHERE s."businessId" = ${input.businessId} AND s."id" IN (${Prisma.join(ids)})
+        AND (s."catalogCategoryId" IS NULL OR c."id" IS NOT NULL)
         AND s."isBookable" = true AND (s."attentionMode" = 'DIRECT_BOOKING'::"ServiceAttentionMode"
           OR (s."attentionMode" = 'GUIDED_ESTIMATE'::"ServiceAttentionMode" AND s."estimateAllowsBooking" = true))
       GROUP BY s."id", s."name", s."duration", s."price", s."priceMode"

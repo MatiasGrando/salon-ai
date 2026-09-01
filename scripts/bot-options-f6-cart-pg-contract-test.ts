@@ -12,7 +12,7 @@ const prisma = createPrismaClient({ connectionString: SAFE_DATABASE_URL, max: 3,
 const suffix = randomUUID().replaceAll('-', '')
 const businessA = `f6cart_a_${suffix}`; const businessB = `f6cart_b_${suffix}`
 const categoryA = `f6cart_cat_a_${suffix}`; const categoryB = `f6cart_cat_b_${suffix}`
-const cut = `f6cart_cut_${suffix}`; const color = `f6cart_color_${suffix}`; const foreign = `f6cart_foreign_${suffix}`
+const cut = `f6cart_cut_${suffix}`; const color = `f6cart_color_${suffix}`; const uncategorized = `f6cart_other_${suffix}`; const foreign = `f6cart_foreign_${suffix}`
 const p1 = `f6cart_p1_${suffix}`; const p2 = `f6cart_p2_${suffix}`; const p3 = `f6cart_p3_${suffix}`
 try {
   await prisma.$executeRaw(Prisma.sql`INSERT INTO "Business" ("id", "customerCode", "name") VALUES (${businessA}, ${`F6CA-${suffix}`}, 'A'), (${businessB}, ${`F6CB-${suffix}`}, 'B')`)
@@ -20,11 +20,12 @@ try {
   await prisma.$executeRaw(Prisma.sql`INSERT INTO "Service" ("id", "businessId", "catalogCategoryId", "name", "duration", "price", "priceMode", "isBookable") VALUES
     (${cut}, ${businessA}, ${categoryA}, 'Corte', 30, 1500, 'FIXED'::"ServicePriceMode", true),
     (${color}, ${businessA}, ${categoryA}, 'Color', 45, 3000, 'STARTING_AT'::"ServicePriceMode", true),
+    (${uncategorized}, ${businessA}, NULL, 'Peinado sin categoría', 40, 2500, 'FIXED'::"ServicePriceMode", true),
     (${foreign}, ${businessB}, ${categoryB}, 'Ajeno', 60, 9000, 'FIXED'::"ServicePriceMode", true)`)
   await prisma.$executeRaw(Prisma.sql`INSERT INTO "Professional" ("id", "businessId", "name", "isActive", "acceptsBotBookings") VALUES
     (${p1}, ${businessA}, 'Uno', true, true), (${p2}, ${businessA}, 'Dos', true, true), (${p3}, ${businessA}, 'Inactivo', false, true)`)
   await prisma.$executeRaw(Prisma.sql`INSERT INTO "ProfessionalService" ("id", "professionalId", "serviceId") VALUES
-    (${`l1_${suffix}`}, ${p1}, ${cut}), (${`l2_${suffix}`}, ${p2}, ${cut}), (${`l3_${suffix}`}, ${p2}, ${color}), (${`l4_${suffix}`}, ${p3}, ${color})`)
+    (${`l1_${suffix}`}, ${p1}, ${cut}), (${`l2_${suffix}`}, ${p2}, ${cut}), (${`l3_${suffix}`}, ${p2}, ${color}), (${`l4_${suffix}`}, ${p3}, ${color}), (${`l5_${suffix}`}, ${p2}, ${uncategorized})`)
   const repo = new cartModule.PrismaCartRepository(prisma)
   const fixedSnapshot = await repo.load({ businessId: businessA, serviceIds: [cut] })
   assert.equal(fixedSnapshot.snapshot.totalPriceMinor, 1500, 'el repositorio conserva pesos enteros como unidad canónica')
@@ -32,6 +33,8 @@ try {
   assert.deepEqual(snapshot.snapshot.commonProfessionalIds, [p2])
   assert.equal(snapshot.snapshot.totalDurationMinutes, 75)
   assert.equal(snapshot.snapshot.totalPriceMinor, null)
+  const withUncategorized = await repo.load({ businessId: businessA, serviceIds: [cut, uncategorized], preview: true })
+  assert.deepEqual(withUncategorized.snapshot.services.map(service => service.id), [cut, uncategorized], 'Otros virtual también es válido dentro del carrito')
   await assert.rejects(repo.load({ businessId: businessA, serviceIds: [cut, foreign] }), /inactive, cross-tenant, or non-bookable/)
   await prisma.$executeRaw(Prisma.sql`INSERT INTO "ServiceCombinationRule" ("id", "businessId", "serviceAId", "serviceBId", "policy") VALUES (${`rule_${suffix}`}, ${businessA}, ${cut}, ${color}, 'REVIEW_REQUIRED'::"ServiceCombinationPolicy")`)
   const withRule = await repo.load({ businessId: businessA, serviceIds: [cut, color] })
