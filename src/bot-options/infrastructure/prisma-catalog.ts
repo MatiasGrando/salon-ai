@@ -11,6 +11,21 @@ import {
 
 type CatalogClient = Pick<PrismaClient, 'serviceCategory' | 'service'> | Prisma.TransactionClient
 
+export const UNCATEGORIZED_CATEGORY_ID = 'uncategorized'
+const UNCATEGORIZED_CATEGORY: CatalogCategoryItem = { id: UNCATEGORIZED_CATEGORY_ID, name: 'Otros' }
+
+function uncategorizedRootServiceWhere(businessId: string): Prisma.ServiceWhereInput {
+  return {
+    businessId,
+    catalogCategoryId: null,
+    parentServiceId: null,
+    OR: [
+      { isBookable: true },
+      { isBookable: false, variants: { some: { businessId, catalogCategoryId: null, isBookable: true } } }
+    ]
+  }
+}
+
 const serviceSelect = {
   id: true,
   businessId: true,
@@ -36,7 +51,7 @@ function serviceItem(row: ServiceRow): CatalogServiceItem {
   const subcategory = !row.isBookable
   return {
     id: row.id,
-    categoryId: row.catalogCategoryId!,
+    categoryId: row.catalogCategoryId ?? UNCATEGORIZED_CATEGORY_ID,
     parentServiceId: row.parentServiceId,
     kind: subcategory ? 'SUBCATEGORY' : 'SERVICE',
     name: row.name,
@@ -65,28 +80,51 @@ export class PrismaCatalogRepository {
   }
 
   async listCategories(input: { businessId: string; page: number }): Promise<CatalogPage<CatalogCategoryItem>> {
-    const rows = await this.#client.serviceCategory.findMany({
-      where: {
+    const where: Prisma.ServiceCategoryWhereInput = {
+      businessId: input.businessId,
+      isActive: true,
+      services: { some: {
         businessId: input.businessId,
-        isActive: true,
-        services: { some: {
-          businessId: input.businessId,
-          parentServiceId: null,
-          OR: [
-            { isBookable: true },
-            { isBookable: false, variants: { some: { businessId: input.businessId, isBookable: true } } }
-          ]
-        } }
-      },
-      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
-      skip: catalogPageOffset(input.page),
-      take: CATALOG_CONTEXTUAL_PAGE_SIZE + 1,
-      select: { id: true, name: true }
-    })
+        parentServiceId: null,
+        OR: [
+          { isBookable: true },
+          { isBookable: false, variants: { some: { businessId: input.businessId, isBookable: true } } }
+        ]
+      } }
+    }
+    const offset = catalogPageOffset(input.page)
+    const [rows, realCategoryCount, uncategorizedService] = await Promise.all([
+      this.#client.serviceCategory.findMany({
+        where,
+        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
+        skip: offset,
+        take: CATALOG_CONTEXTUAL_PAGE_SIZE + 1,
+        select: { id: true, name: true }
+      }),
+      this.#client.serviceCategory.count({ where }),
+      this.#client.service.findFirst({
+        where: uncategorizedRootServiceWhere(input.businessId),
+        select: { id: true }
+      })
+    ])
+    if (
+      uncategorizedService &&
+      realCategoryCount >= offset &&
+      realCategoryCount < offset + CATALOG_CONTEXTUAL_PAGE_SIZE + 1
+    ) {
+      rows.push(UNCATEGORIZED_CATEGORY)
+    }
     return toCatalogPage(rows, input.page)
   }
 
   async getCategory(input: { businessId: string; categoryId: string }): Promise<CatalogCategoryItem | null> {
+    if (input.categoryId === UNCATEGORIZED_CATEGORY_ID) {
+      const service = await this.#client.service.findFirst({
+        where: uncategorizedRootServiceWhere(input.businessId),
+        select: { id: true }
+      })
+      return service ? UNCATEGORIZED_CATEGORY : null
+    }
     return this.#client.serviceCategory.findFirst({
       where: {
         id: input.categoryId,
@@ -111,17 +149,24 @@ export class PrismaCatalogRepository {
     parentServiceId?: string | null
     page: number
   }): Promise<CatalogPage<CatalogServiceItem> | null> {
-    const category = await this.#client.serviceCategory.findFirst({
-      where: { id: input.categoryId, businessId: input.businessId, isActive: true },
-      select: { id: true }
-    })
+    const uncategorized = input.categoryId === UNCATEGORIZED_CATEGORY_ID
+    const category = uncategorized
+      ? await this.#client.service.findFirst({
+          where: uncategorizedRootServiceWhere(input.businessId),
+          select: { id: true }
+        })
+      : await this.#client.serviceCategory.findFirst({
+          where: { id: input.categoryId, businessId: input.businessId, isActive: true },
+          select: { id: true }
+        })
     if (!category) return null
+    const catalogCategoryId = uncategorized ? null : input.categoryId
     if (input.parentServiceId) {
       const parent = await this.#client.service.findFirst({
         where: {
           id: input.parentServiceId,
           businessId: input.businessId,
-          catalogCategoryId: input.categoryId,
+          catalogCategoryId,
           parentServiceId: null,
           isBookable: false
         },
@@ -132,7 +177,7 @@ export class PrismaCatalogRepository {
     const rows = await this.#client.service.findMany({
       where: {
         businessId: input.businessId,
-        catalogCategoryId: input.categoryId,
+        catalogCategoryId,
         parentServiceId: input.parentServiceId ?? null,
         ...(input.parentServiceId
           ? { isBookable: true }
@@ -156,25 +201,25 @@ export class PrismaCatalogRepository {
     categoryId: string
     subcategoryId: string
   }): Promise<{ id: string; categoryId: string; name: string } | null> {
+    const uncategorized = input.categoryId === UNCATEGORIZED_CATEGORY_ID
+    const catalogCategoryId = uncategorized ? null : input.categoryId
     const row = await this.#client.service.findFirst({
       where: {
         id: input.subcategoryId,
         businessId: input.businessId,
-        catalogCategoryId: input.categoryId,
+        catalogCategoryId,
         parentServiceId: null,
         isBookable: false,
-        catalogCategory: { is: { businessId: input.businessId, isActive: true } },
+        ...(uncategorized ? {} : { catalogCategory: { is: { businessId: input.businessId, isActive: true } } }),
         variants: { some: {
           businessId: input.businessId,
-          catalogCategoryId: input.categoryId,
+          catalogCategoryId,
           isBookable: true
         } }
       },
       select: { id: true, catalogCategoryId: true, name: true }
     })
-    return row?.catalogCategoryId
-      ? { id: row.id, categoryId: row.catalogCategoryId, name: row.name }
-      : null
+    return row ? { id: row.id, categoryId: input.categoryId, name: row.name } : null
   }
 
   async getService(input: { businessId: string; serviceId: string }): Promise<CatalogServiceItem | null> {
@@ -183,7 +228,10 @@ export class PrismaCatalogRepository {
         id: input.serviceId,
         businessId: input.businessId,
         isBookable: true,
-        catalogCategory: { is: { businessId: input.businessId, isActive: true } }
+        OR: [
+          { catalogCategoryId: null },
+          { catalogCategory: { is: { businessId: input.businessId, isActive: true } } }
+        ]
       },
       select: serviceSelect
     })

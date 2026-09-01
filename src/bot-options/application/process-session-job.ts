@@ -506,9 +506,10 @@ export const defaultContextProvider: TransitionContextProvider = async (tx, inpu
       : Prisma.empty
     const addons = await tx.$queryRaw<Array<{ id: string; name: string }>>(Prisma.sql`
       SELECT s."id", s."name" FROM "ServiceAddon" a JOIN "Service" s ON s."id" = a."addonServiceId"
-      JOIN "ServiceCategory" c ON c."id" = s."catalogCategoryId" AND c."businessId" = s."businessId" AND c."isActive" = true
+      LEFT JOIN "ServiceCategory" c ON c."id" = s."catalogCategoryId" AND c."businessId" = s."businessId" AND c."isActive" = true
       WHERE a."sourceServiceId" IN (${Prisma.join(recommendationSourceIds)}) AND s."businessId" = ${input.businessId}
         AND s."isBookable" = true ${rejectedFilter}
+        AND (s."catalogCategoryId" IS NULL OR c."id" IS NOT NULL)
         AND s."id" NOT IN (${Prisma.join(targetCartIds)})
       GROUP BY s."id", s."name"
       ORDER BY MIN(a."sortOrder"), s."id"

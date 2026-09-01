@@ -25,6 +25,7 @@ const pagedServiceIds = Array.from({ length: 11 }, (_, index) => `f5_paged_servi
 const groupId = `f5_group_${suffix}`
 const serviceId = `f5_service_${suffix}`
 const variantId = `f5_variant_${suffix}`
+const uncategorizedServiceId = `f5_uncategorized_${suffix}`
 
 // IDs for the fragment-failure fixture — declared OUTSIDE try so cleanup always has them.
 const depDeploymentId = `f5_dep_deploy_${suffix}`
@@ -67,6 +68,8 @@ try {
       customerDurationMin: 40, customerDurationMax: 50, price: 25000, priceMode: 'STARTING_AT', sortOrder: -1 },
     { id: variantId, businessId, catalogCategoryId: categoryIds[0]!, parentServiceId: groupId, name: 'Color corto', duration: 90,
       price: null, attentionMode: 'GUIDED_ESTIMATE', estimateAllowsBooking: false, sortOrder: 0 },
+    { id: uncategorizedServiceId, businessId, catalogCategoryId: null, category: null, name: 'Peinado sin categoría',
+      duration: 30, price: 12000, sortOrder: 0 },
     { id: `f5_other_service_${suffix}`, businessId: otherBusinessId, catalogCategoryId: `f5_cat_other_${suffix}`,
       name: 'Secreto otro tenant', duration: 60, price: 99999 }
   ] })
@@ -78,9 +81,16 @@ try {
   assert.equal(first.hasNext, true)
   assert.ok(first.items.every((item) => item.name !== 'Vacía' && item.name !== 'Inactiva'))
   const second = await repository.listCategories({ businessId, page: 1 })
-  assert.equal(second.items.length, 5)
+  assert.equal(second.items.length, 6)
   assert.equal(second.hasPrevious, true)
   assert.equal(second.hasNext, false)
+  assert.deepEqual(second.items.at(-1), { id: 'uncategorized', name: 'Otros' })
+
+  assert.deepEqual(await repository.getCategory({ businessId, categoryId: 'uncategorized' }), { id: 'uncategorized', name: 'Otros' })
+  const uncategorized = await repository.listServices({ businessId, categoryId: 'uncategorized', page: 0 })
+  assert.deepEqual(uncategorized?.items.map((item) => item.id), [uncategorizedServiceId])
+  assert.equal(uncategorized?.items[0]?.categoryId, 'uncategorized')
+  assert.equal((await repository.getService({ businessId, serviceId: uncategorizedServiceId }))?.name, 'Peinado sin categoría')
 
   const topLevel = await repository.listServices({ businessId, categoryId: categoryIds[0]!, page: 0 })
   assert.ok(topLevel)
