@@ -870,6 +870,17 @@ ar = transition(
 )
 if (ar.outcome === 'APPLIED') sa = ar.state
 assert.equal(sa.selections.date, '2026-09-03')
+assert.deepEqual(sa.presentation, { kind: 'plain' }, 'elegir fecha inicia la primera página de horarios')
+
+const nextRescheduleSlots = transition(sa, act('slot.next_page'), ctx({ slotCanNext: true }))
+assert.equal(nextRescheduleSlots.outcome, 'APPLIED')
+if (nextRescheduleSlots.outcome === 'APPLIED') {
+  assert.equal(nextRescheduleSlots.state.flow, 'APPOINTMENT_RESCHEDULE_SLOT')
+  assert.deepEqual(nextRescheduleSlots.state.presentation, { kind: 'slot_all_pages', cursor: 1 })
+}
+const rescheduleBand = transition(sa, act('slot.band', { payload: { band: 'AFTERNOON' } }), ctx({ bandHasAvailability: true }))
+assert.equal(rescheduleBand.outcome, 'APPLIED')
+if (rescheduleBand.outcome === 'APPLIED') assert.deepEqual(rescheduleBand.state.presentation, { kind: 'slot_band', band: 'AFTERNOON' })
 
 const newSlot = '2026-09-03T16:00:00-03:00'
 ar = transition(

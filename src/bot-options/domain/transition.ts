@@ -385,6 +385,9 @@ const CLIENT_ALLOWED: Partial<Record<BotOptionsFlowStep, readonly BotOptionsActi
   ],
   APPOINTMENT_RESCHEDULE_SLOT: [
     'appointment.slot_select',
+    'slot.band',
+    'slot.show_all',
+    'slot.next_page',
     'navigation.back',
     'navigation.home',
     'navigation.open',
@@ -551,6 +554,47 @@ export function mainMenuView(businessName?: string, confirmedCustomerName?: stri
   ])
 }
 
+function availabilityDateView(
+  state: BotOptionsState,
+  context: TransitionContext,
+  selectAction: 'date.select' | 'appointment.date_select',
+  entityRef?: BotOptionsEntityRef
+): BotOptionsViewModel {
+  const choices: ViewChoice[] = (context.labels.availableDates ?? []).map((item) => ({
+    actionType: selectAction, label: item.label, payload: { date: item.date }, ...(entityRef ? { entityRef } : {})
+  }))
+  if (context.dateCanPrevious) choices.push({ actionType: 'date.previous_page', label: 'Fechas anteriores' })
+  if (context.dateCanNext) choices.push({ actionType: 'date.next_page', label: 'Ver más fechas' })
+  return appendGlobals(menuView(selectAction === 'date.select' ? 'Elegí la fecha' : 'Elegí la nueva fecha', choices),
+    composeGlobalNavigation({ capacity: 10, contextualCount: choices.length, back: BACK_CHOICE }))
+}
+
+function availabilitySlotView(
+  state: BotOptionsState,
+  context: TransitionContext,
+  selectAction: 'slot.select' | 'appointment.slot_select',
+  entityRef?: BotOptionsEntityRef
+): BotOptionsViewModel {
+  const all = context.labels.availableSlots ?? []
+  const selectedBand = state.presentation.kind === 'slot_band' ? state.presentation.band : null
+  const filtered = selectedBand ? all.filter((slot) => slot.band === selectedBand) : all
+  const cursor = state.presentation.kind === 'slot_all_pages' ? state.presentation.cursor : 0
+  const page = state.presentation.kind === 'slot_all_pages' ? filtered.slice(cursor * 7, cursor * 7 + 7) : filtered
+  if (state.presentation.kind === 'plain' && all.length > 7) {
+    const bandChoices: ViewChoice[] = [
+      ...(['MORNING', 'AFTERNOON', 'EVENING'] as const).filter((band) => all.some((slot) => slot.band === band)).map((band) => ({ actionType: 'slot.band' as const, label: band === 'MORNING' ? 'Mañana' : band === 'AFTERNOON' ? 'Tarde' : 'Noche', payload: { band } })),
+      { actionType: 'slot.show_all', label: 'Ver todos los horarios' }
+    ]
+    return appendGlobals(menuView('Elegí una franja', bandChoices), composeGlobalNavigation({ capacity: 10, contextualCount: bandChoices.length, back: BACK_CHOICE }))
+  }
+  const choices: ViewChoice[] = page.map((slot) => ({
+    actionType: selectAction, label: slot.label, payload: { startAt: slot.startAt }, ...(entityRef ? { entityRef } : {})
+  }))
+  if (state.presentation.kind === 'slot_all_pages' && context.slotCanNext) choices.push({ actionType: 'slot.next_page', label: 'Más horarios' })
+  return appendGlobals(menuView(selectAction === 'slot.select' ? 'Elegí el horario' : 'Elegí el nuevo horario', choices),
+    composeGlobalNavigation({ capacity: 10, contextualCount: choices.length, back: BACK_CHOICE }))
+}
+
 export function renderCurrentView(state: BotOptionsState, context: TransitionContext): BotOptionsViewModel {
   const globalWithBack = (capacity: number, contextualCount: number) => ({ capacity, contextualCount, back: BACK_CHOICE })
   switch (state.flow) {
@@ -697,35 +741,17 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
       )
     }
     case 'DATE_SELECT': {
-      const choices: ViewChoice[] = (context.labels.availableDates ?? []).map((item) => ({ actionType: 'date.select', label: item.label, payload: { date: item.date } }))
-      if (context.dateCanPrevious) choices.push({ actionType: 'date.previous_page', label: 'Fechas anteriores' })
-      if (context.dateCanNext) choices.push({ actionType: 'date.next_page', label: 'Ver más fechas' })
       if (context.noAvailabilityInHorizon || context.selectedProfessionalNoAvailability) {
+        const choices: ViewChoice[] = []
         if (state.selections.professionalId) choices.push({ actionType: 'professional.any', label: 'Buscar con cualquier profesional' })
         choices.push({ actionType: 'cart.add_service', label: 'Modificar servicios' }, HUMAN_CHOICE)
+        return appendGlobals(menuView('No encontramos disponibilidad con esa selección en el período buscado.', choices),
+          composeGlobalNavigation({ capacity: 10, contextualCount: choices.length, back: BACK_CHOICE }))
       }
-      return appendGlobals(
-        menuView(context.noAvailabilityInHorizon || context.selectedProfessionalNoAvailability ? 'No encontramos disponibilidad con esa selección en el período buscado.' : 'Elegí la fecha', choices),
-        composeGlobalNavigation({ capacity: 10, contextualCount: choices.length, back: BACK_CHOICE })
-      )
+      return availabilityDateView(state, context, 'date.select')
     }
-    case 'SLOT_SELECT': {
-      const all = context.labels.availableSlots ?? []
-      const selectedBand = state.presentation.kind === 'slot_band' ? state.presentation.band : null
-      const filtered = selectedBand ? all.filter((slot) => slot.band === selectedBand) : all
-      const cursor = state.presentation.kind === 'slot_all_pages' ? state.presentation.cursor : 0
-      const page = state.presentation.kind === 'slot_all_pages' ? filtered.slice(cursor * 7, cursor * 7 + 7) : filtered
-      if (state.presentation.kind === 'plain' && all.length > 7) {
-        const bandChoices: ViewChoice[] = [
-          ...(['MORNING', 'AFTERNOON', 'EVENING'] as const).filter((band) => all.some((slot) => slot.band === band)).map((band) => ({ actionType: 'slot.band' as const, label: band === 'MORNING' ? 'Mañana' : band === 'AFTERNOON' ? 'Tarde' : 'Noche', payload: { band } })),
-          { actionType: 'slot.show_all', label: 'Ver todos los horarios' }
-        ]
-        return appendGlobals(menuView('Elegí una franja', bandChoices), composeGlobalNavigation({ capacity: 10, contextualCount: bandChoices.length, back: BACK_CHOICE }))
-      }
-      const choices: ViewChoice[] = page.map((slot) => ({ actionType: 'slot.select', label: slot.label, payload: { startAt: slot.startAt } }))
-      if (state.presentation.kind === 'slot_all_pages' && context.slotCanNext) choices.push({ actionType: 'slot.next_page', label: 'Más horarios' })
-      return appendGlobals(menuView('Elegí el horario', choices), composeGlobalNavigation({ capacity: 10, contextualCount: choices.length, back: BACK_CHOICE }))
-    }
+    case 'SLOT_SELECT':
+      return availabilitySlotView(state, context, 'slot.select')
     case 'BOOKING_SUMMARY': {
       const choices: ViewChoice[] = [{ actionType: 'booking.confirm', label: 'Confirmar turno' }]
       return appendGlobals(menuView(context.labels.bookingSummary ?? 'Confirmá tu reserva', choices), composeGlobalNavigation({ capacity: 10, contextualCount: choices.length, back: BACK_CHOICE }))
@@ -849,26 +875,12 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
       ])
     }
     case 'APPOINTMENT_RESCHEDULE_DATE': {
-      const dateChoices: ViewChoice[] = (context.labels.availableDates ?? []).map((item) => ({
-        actionType: 'appointment.date_select',
-        label: item.label,
-        payload: { date: item.date },
-        entityRef: state.selections.appointmentId ? { type: 'APPOINTMENT', id: state.selections.appointmentId } : undefined
-      }))
-      if (context.dateCanPrevious) dateChoices.push({ actionType: 'date.previous_page', label: 'Fechas anteriores' })
-      if (context.dateCanNext) dateChoices.push({ actionType: 'date.next_page', label: 'Ver más fechas' })
-      const navDate = composeGlobalNavigation({ capacity: 10, contextualCount: dateChoices.length, back: BACK_CHOICE })
-      return appendGlobals(menuView('Elegí la nueva fecha', dateChoices), navDate)
+      const appointmentId = state.selections.appointmentId
+      return availabilityDateView(state, context, 'appointment.date_select', appointmentId ? { type: 'APPOINTMENT', id: appointmentId } : undefined)
     }
     case 'APPOINTMENT_RESCHEDULE_SLOT': {
-      const slotChoices: ViewChoice[] = (context.labels.availableSlots ?? []).map((slot) => ({
-        actionType: 'appointment.slot_select',
-        label: slot.label,
-        payload: { startAt: slot.startAt },
-        entityRef: state.selections.appointmentId ? { type: 'APPOINTMENT', id: state.selections.appointmentId } : undefined
-      }))
-      const navSlot = composeGlobalNavigation({ capacity: 10, contextualCount: slotChoices.length, back: BACK_CHOICE })
-      return appendGlobals(menuView('Elegí el nuevo horario', slotChoices), navSlot)
+      const appointmentId = state.selections.appointmentId
+      return availabilitySlotView(state, context, 'appointment.slot_select', appointmentId ? { type: 'APPOINTMENT', id: appointmentId } : undefined)
     }
     case 'APPOINTMENT_RESCHEDULE_SUMMARY': {
       const appointmentId = state.selections.appointmentId
@@ -1192,11 +1204,7 @@ export function transition(
       break
     case 'APPOINTMENT_RESCHEDULE_DATE':
       if (actionType === 'date.next_page' || actionType === 'date.previous_page') {
-        if (actionType === 'date.next_page' && !context.dateCanNext) return recovered(state, 'guard_failed', 'Llegaste al final del rango de búsqueda.', [])
-        if (actionType === 'date.previous_page' && !context.dateCanPrevious) return recovered(state, 'guard_failed', 'Estás en la primera página de fechas.', [])
-        const cursor = state.presentation.kind === 'date_page' ? state.presentation.cursor + (actionType === 'date.next_page' ? 1 : -1) : actionType === 'date.next_page' ? 1 : 0
-        const next = baseOf(state, { presentation: { kind: 'date_page', cursor: Math.max(0, cursor) } })
-        return applied(next, renderCurrentView(next, context))
+        return fromDateSelect(state, actionType, payload, context)
       }
       if (
         actionType === 'appointment.date_select' &&
@@ -1207,12 +1215,16 @@ export function transition(
       ) {
         const next = baseOf(state, {
           flow: 'APPOINTMENT_RESCHEDULE_SLOT',
-          selections: { ...state.selections, date: payload.date, slotStartAt: null }
+          selections: { ...state.selections, date: payload.date, slotStartAt: null },
+          presentation: plainPresentation()
         })
         return applied(next, renderCurrentView(next, context))
       }
       break
     case 'APPOINTMENT_RESCHEDULE_SLOT':
+      if (actionType === 'slot.band' || actionType === 'slot.show_all' || actionType === 'slot.next_page') {
+        return fromSlotSelect(state, actionType, payload, context)
+      }
       if (
         actionType === 'appointment.slot_select' &&
         entityRef?.type === 'APPOINTMENT' &&

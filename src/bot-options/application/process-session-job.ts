@@ -37,7 +37,7 @@ import { PrismaCartRepository, CartServicePolicyChangedError } from '../infrastr
 import { serviceConfigurationKey, resolveServiceEstimate } from '../domain/service-booking.js'
 import { formatCartSummary } from './cart-operations.js'
 import { PrismaAvailabilityRepository } from '../infrastructure/prisma-availability.js'
-import { BOOKING_DATE_PAGE_SIZE, BOOKING_SLOT_PAGE_SIZE, formatDateChoice, formatSlotOffset, paginate } from './availability-queries.js'
+import { projectAvailability } from './availability-queries.js'
 import {
   classifyAppointmentManagementPolicy,
   formatManagedAppointment,
@@ -578,24 +578,16 @@ export const defaultContextProvider: TransitionContextProvider = async (tx, inpu
       } else {
         base.noAvailabilityInHorizon = search.slots.length === 0
       }
-      const dates = [...new Set(search.slots.map((slot) => slot.date))]
-      const currentDateCursor = input.state.presentation.kind === 'date_page' ? input.state.presentation.cursor : 0
-      const dateCursor = input.actionType === 'date.next_page' ? currentDateCursor + 1 : input.actionType === 'date.previous_page' ? Math.max(0, currentDateCursor - 1) : currentDateCursor
-      const datePage = paginate(dates, dateCursor, BOOKING_DATE_PAGE_SIZE)
-      base.labels.availableDates = datePage.items.map((date) => ({ date, label: formatDateChoice(date, settings.timezone) }))
-      base.dateCanNext = datePage.hasNext
-      base.dateCanPrevious = datePage.hasPrevious
       const effectiveDate = input.actionType === 'date.select' ? input.payload?.date ?? null : input.state.selections.date
-      base.dateAvailable = Boolean(effectiveDate && dates.includes(effectiveDate))
-      const slotsForDate = effectiveDate ? search.slots.filter((slot) => slot.date === effectiveDate) : search.slots
-      const repeatedWallTimes = new Set(slotsForDate.filter((slot, index, all) => all.some((other, otherIndex) => otherIndex !== index && other.time === slot.time)).map((slot) => slot.time))
-      base.labels.availableSlots = slotsForDate.map((slot) => ({
-        startAt: slot.startAt, label: `${slot.time}${repeatedWallTimes.has(slot.time) ? ` (${formatSlotOffset(slot.startAt, settings.timezone)})` : ''} · ${slot.professionalName}`, band: slot.band,
-        professionalId: slot.professionalId
-      }))
-      base.bandHasAvailability = slotsForDate.length > 0
-      const slotCursor = input.state.presentation.kind === 'slot_all_pages' ? input.state.presentation.cursor : 0
-      base.slotCanNext = paginate(slotsForDate, input.actionType === 'slot.next_page' ? slotCursor + 1 : slotCursor, BOOKING_SLOT_PAGE_SIZE).hasNext
+      const projected = projectAvailability({ slots: search.slots, presentation: input.state.presentation, actionType: input.actionType, effectiveDate, timezone: settings.timezone })
+      base.labels.availableDates = projected.availableDates
+      base.dateCanNext = projected.dateCanNext
+      base.dateCanPrevious = projected.dateCanPrevious
+      base.dateAvailable = Boolean(effectiveDate && projected.dates.includes(effectiveDate))
+      base.labels.availableSlots = projected.availableSlots
+      base.bandHasAvailability = projected.slotsForDate.length > 0
+      base.slotCanNext = projected.slotCanNext
+      const slotsForDate = projected.slotsForDate
       const requestedStartAt = input.actionType === 'slot.select' ? input.payload?.startAt : input.state.selections.slotStartAt
       const selectedSlot = requestedStartAt ? search.slots.find((slot) => slot.startAt === requestedStartAt && (!effectiveDate || slot.date === effectiveDate)) : null
       base.slotAvailable = selectedSlot !== null
@@ -694,21 +686,16 @@ export const defaultContextProvider: TransitionContextProvider = async (tx, inpu
             dbNow: page.dbNow, settings, professionalId: row.professionalId, excludeAppointmentId: selected.appointmentId
           })
           const effectiveDate = input.actionType === 'appointment.date_select' ? input.payload?.date : input.state.selections.date
-          const slots = effectiveDate ? search.slots.filter((slot) => slot.date === effectiveDate) : search.slots
-          const dates = [...new Set(search.slots.map((slot) => slot.date))]
-          const currentRescheduleDateCursor = input.state.presentation.kind === 'date_page' ? input.state.presentation.cursor : 0
-          const rescheduleDateCursor = input.actionType === 'date.next_page' ? currentRescheduleDateCursor + 1
-            : input.actionType === 'date.previous_page' ? Math.max(0, currentRescheduleDateCursor - 1) : currentRescheduleDateCursor
-          const rescheduleDatePage = paginate(dates, rescheduleDateCursor, BOOKING_DATE_PAGE_SIZE)
-          base.labels.availableDates = rescheduleDatePage.items.map((date) => ({ date, label: formatDateChoice(date, settings.timezone) }))
-          base.dateCanNext = rescheduleDatePage.hasNext
-          base.dateCanPrevious = rescheduleDatePage.hasPrevious
-          base.labels.availableSlots = slots.map((slot) => ({
-            startAt: slot.startAt, label: `${slot.time} · ${slot.professionalName}`, band: slot.band, professionalId: slot.professionalId
-          }))
-          base.rescheduleDateAvailable = Boolean(effectiveDate && dates.includes(effectiveDate))
+          const projected = projectAvailability({ slots: search.slots, presentation: input.state.presentation, actionType: input.actionType, effectiveDate: effectiveDate ?? null, timezone: settings.timezone })
+          base.labels.availableDates = projected.availableDates
+          base.dateCanNext = projected.dateCanNext
+          base.dateCanPrevious = projected.dateCanPrevious
+          base.labels.availableSlots = projected.availableSlots
+          base.bandHasAvailability = projected.slotsForDate.length > 0
+          base.slotCanNext = projected.slotCanNext
+          base.rescheduleDateAvailable = Boolean(effectiveDate && projected.dates.includes(effectiveDate))
           const requestedStartAt = input.actionType === 'appointment.slot_select' ? input.payload?.startAt : input.state.selections.slotStartAt
-          base.rescheduleSlotAvailable = Boolean(requestedStartAt && slots.some((slot) => slot.startAt === requestedStartAt))
+          base.rescheduleSlotAvailable = Boolean(requestedStartAt && projected.slotsForDate.some((slot) => slot.startAt === requestedStartAt))
         }
       }
     }

@@ -106,3 +106,39 @@ export function formatSlotOffset(startAt: string, timezone: string): string {
     .formatToParts(new Date(startAt)).find((item) => item.type === 'timeZoneName')?.value
   return part?.replace('GMT', 'UTC') ?? 'UTC'
 }
+
+/** Única proyección de fechas/horarios para reserva y reprogramación. */
+export function projectAvailability(input: {
+  slots: readonly AvailabilitySlot[]
+  presentation: { kind: string; cursor?: number }
+  actionType: string
+  effectiveDate: string | null
+  timezone: string
+}) {
+  const dates = [...new Set(input.slots.map((slot) => slot.date))]
+  const currentDateCursor = input.presentation.kind === 'date_page' ? input.presentation.cursor ?? 0 : 0
+  const dateCursor = input.actionType === 'date.next_page' ? currentDateCursor + 1
+    : input.actionType === 'date.previous_page' ? Math.max(0, currentDateCursor - 1) : currentDateCursor
+  const datePage = paginate(dates, dateCursor, BOOKING_DATE_PAGE_SIZE)
+  const slotsForDate = input.effectiveDate ? input.slots.filter((slot) => slot.date === input.effectiveDate) : input.slots
+  const repeatedWallTimes = new Set(slotsForDate
+    .filter((slot, index, all) => all.some((other, otherIndex) => otherIndex !== index && other.time === slot.time))
+    .map((slot) => slot.time))
+  const currentSlotCursor = input.presentation.kind === 'slot_all_pages' ? input.presentation.cursor ?? 0 : 0
+  const slotCursor = input.actionType === 'slot.next_page' ? currentSlotCursor + 1 : currentSlotCursor
+  const slotPage = paginate(slotsForDate, slotCursor, BOOKING_SLOT_PAGE_SIZE)
+  return {
+    dates,
+    slotsForDate,
+    availableDates: datePage.items.map((date) => ({ date, label: formatDateChoice(date, input.timezone) })),
+    availableSlots: slotsForDate.map((slot) => ({
+      startAt: slot.startAt,
+      label: `${slot.time}${repeatedWallTimes.has(slot.time) ? ` (${formatSlotOffset(slot.startAt, input.timezone)})` : ''} · ${slot.professionalName}`,
+      band: slot.band,
+      professionalId: slot.professionalId
+    })),
+    dateCanNext: datePage.hasNext,
+    dateCanPrevious: datePage.hasPrevious,
+    slotCanNext: slotPage.hasNext
+  }
+}
