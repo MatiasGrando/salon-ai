@@ -17496,7 +17496,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       agendaBlocks: [],
       agendaSelectedDate: new Date(),
       agendaMonthDate: new Date(),
-      agendaViewDays: 3,
+      agendaViewDays: 1,
       agendaBlockOpen: false,
       agendaMobileMonthOpen: false,
       agendaMobileFiltersOpen: false,
@@ -26711,7 +26711,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.agendaProfessionalResizeObserver?.disconnect()
       state.agendaProfessionalResizeObserver = null
       const hourHeight = 88
-      const viewDays = [1, 3, 7].includes(Number(state.agendaViewDays)) ? Number(state.agendaViewDays) : 3
+      const viewDays = [1, 3, 7].includes(Number(state.agendaViewDays)) ? Number(state.agendaViewDays) : 1
       const professionalDayView = viewDays === 1 && !els.agendaProfessional.value
       const columnProfessionals = professionalDayView ? activeProfessionals() : []
       const startDate = startOfDay(state.agendaSelectedDate)
@@ -27012,7 +27012,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         await loadAgenda()
       })
       els.agendaGridWrap.querySelector('[data-agenda-view-days]')?.addEventListener('change', (event) => {
-        state.agendaViewDays = Number(event.target.value || 3)
+        state.agendaViewDays = Number(event.target.value || 1)
         renderAgenda()
       })
       els.agendaGridWrap.querySelector('[data-agenda-block-toggle]')?.addEventListener('click', openAgendaBlockPopover)
@@ -27129,7 +27129,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (frame) {
         const baseIndex = Number(frame.dataset.agendaBaseIndex || 0)
         const dayCount = Number(frame.dataset.agendaDayCount || 0)
-        const viewDays = Number(frame.dataset.agendaViewDays || 3)
+        const viewDays = Number(frame.dataset.agendaViewDays || 1)
         const columnsViewport = frame.querySelector('.agenda-gcal-columns-viewport')
         const daysViewport = frame.querySelector('.agenda-gcal-days-viewport')
         if (frame.dataset.agendaProfessionalColumns === 'true') {
