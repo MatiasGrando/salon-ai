@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { randomUUID } from 'node:crypto'
 import { prisma } from '../config/prisma.js'
 import { staffCanUseProfessional } from '../services/staff-permission-service.js'
 import {
@@ -7,6 +8,7 @@ import {
 } from '../services/tenant-resource-authorization.js'
 import { sendAuthorizationFailure } from '../services/authorization-response.js'
 import { acquireAgendaHierarchy, lockScheduleBlockRows } from '../services/agenda-locks.js'
+import { validateScheduleBlockSeriesOccurrences } from '../services/schedule-block-series.js'
 
 const scheduleBlockReasons = [
   'ABSENCE',
@@ -23,6 +25,93 @@ const scheduleBlockReasons = [
 type ScheduleBlockReason = typeof scheduleBlockReasons[number]
 
 export async function scheduleBlockRoutes(app: FastifyInstance) {
+  app.post('/schedule-blocks/series', async (request, reply) => {
+    if (!canManageScheduleBlocks(request.auth)) {
+      return reply.status(403).send({ message: 'No tenes permiso para bloquear agenda' })
+    }
+
+    const body = request.body as {
+      businessId?: string
+      professionalId?: string
+      reason?: string
+      title?: string
+      note?: string
+      occurrences?: Array<{ startAt: string; endAt: string }>
+    }
+
+    if (!body.businessId || !body.reason || !body.occurrences) {
+      return reply.status(400).send({
+        message: 'businessId, reason y occurrences son requeridos'
+      })
+    }
+    if (request.auth?.user.role === 'STAFF' && !staffCanUseProfessional(request.auth.user, body.professionalId)) {
+      return reply.status(403).send({ message: 'Tu perfil solo puede bloquear la agenda profesional asignada' })
+    }
+    if (!isScheduleBlockReason(body.reason)) {
+      return reply.status(400).send({
+        message: `reason debe ser uno de: ${scheduleBlockReasons.join(', ')}`
+      })
+    }
+    const reason = body.reason
+
+    let occurrences: ReturnType<typeof validateScheduleBlockSeriesOccurrences>
+    try {
+      occurrences = validateScheduleBlockSeriesOccurrences(body.occurrences)
+    } catch (error) {
+      return reply.status(400).send({
+        message: error instanceof Error ? error.message : 'La serie de bloqueos no es valida'
+      })
+    }
+
+    const business = await prisma.business.findUnique({ where: { id: body.businessId } })
+    if (!business) return reply.status(404).send({ message: 'No encontre ese negocio' })
+
+    if (body.professionalId) {
+      const professional = await prisma.professional.findUnique({ where: { id: body.professionalId } })
+      if (!professional) return reply.status(404).send({ message: 'No encontre ese profesional' })
+      if (professional.businessId !== body.businessId) {
+        return reply.status(400).send({ message: 'Ese profesional no corresponde a ese negocio' })
+      }
+    }
+
+    const seriesId = randomUUID()
+    const blocks = await prisma.$transaction(async (tx) => {
+      await acquireAgendaHierarchy(tx, {
+        businessId: body.businessId!,
+        ...(body.professionalId ? { professionalIds: [body.professionalId] } : {})
+      })
+      await tx.scheduleBlock.createMany({
+        data: occurrences.map((occurrence) => ({
+          businessId: body.businessId!,
+          professionalId: body.professionalId ?? null,
+          seriesId,
+          reason,
+          title: body.title ?? null,
+          note: body.note ?? null,
+          startAt: occurrence.startAt,
+          endAt: occurrence.endAt
+        }))
+      })
+      return tx.scheduleBlock.findMany({
+        where: { businessId: body.businessId!, seriesId },
+        include: { professional: true },
+        orderBy: { startAt: 'asc' }
+      })
+    })
+
+    const affectedAppointments = await findAffectedAppointmentsForRanges({
+      businessId: body.businessId,
+      ...(body.professionalId ? { professionalId: body.professionalId } : {}),
+      ranges: occurrences
+    })
+
+    return {
+      seriesId,
+      blocks,
+      impact: { affectedAppointments }
+    }
+  })
+
   app.post('/schedule-blocks', async (request, reply) => {
     if (!canManageScheduleBlocks(request.auth)) {
       return reply.status(403).send({ message: 'No tenes permiso para bloquear agenda' })
@@ -53,6 +142,7 @@ export async function scheduleBlockRoutes(app: FastifyInstance) {
         message: `reason debe ser uno de: ${scheduleBlockReasons.join(', ')}`
       })
     }
+    const reason = body.reason
 
     const startAt = new Date(body.startAt)
     const endAt = new Date(body.endAt)
@@ -110,7 +200,7 @@ export async function scheduleBlockRoutes(app: FastifyInstance) {
         data: {
           businessId: body.businessId,
           professionalId: body.professionalId ?? null,
-          reason: body.reason,
+          reason,
           title: body.title ?? null,
           note: body.note ?? null,
           startAt,
@@ -265,6 +355,18 @@ async function findAffectedAppointments(input: {
   startAt: Date
   endAt: Date
 }) {
+  return findAffectedAppointmentsForRanges({
+    businessId: input.businessId,
+    ...(input.professionalId ? { professionalId: input.professionalId } : {}),
+    ranges: [{ startAt: input.startAt, endAt: input.endAt }]
+  })
+}
+
+async function findAffectedAppointmentsForRanges(input: {
+  businessId: string
+  professionalId?: string
+  ranges: Array<{ startAt: Date; endAt: Date }>
+}) {
   const candidates = await prisma.appointment.findMany({
     where: {
       professional: {
@@ -291,7 +393,7 @@ async function findAffectedAppointments(input: {
   return candidates.filter((appointment) => {
     const endAt = new Date(appointment.startAt.getTime() + (appointment.service?.duration ?? 0) * 60_000)
 
-    return appointment.startAt < input.endAt && endAt > input.startAt
+    return input.ranges.some((range) => appointment.startAt < range.endAt && endAt > range.startAt)
   })
 }
 

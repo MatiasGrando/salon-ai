@@ -8601,6 +8601,90 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       background: transparent;
     }
 
+    .block-repeat-toggle {
+      min-height: 40px;
+      padding: 0 11px;
+      border: 1px solid #d6deea;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      color: #24324b;
+      background: #f8fafc;
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .block-repeat-toggle input {
+      width: 16px;
+      height: 16px;
+      margin: 0;
+      accent-color: #2563eb;
+    }
+
+    .block-repeat-controls {
+      padding: 11px;
+      border: 1px solid #d6deea;
+      border-radius: 9px;
+      display: grid;
+      gap: 10px;
+      background: #f8fafc;
+    }
+
+    .block-repeat-controls > label {
+      display: grid;
+      gap: 5px;
+      color: #334155;
+      font-size: 11px;
+      font-weight: 750;
+    }
+
+    .block-repeat-days {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 5px;
+    }
+
+    .block-repeat-day {
+      position: relative;
+      min-width: 0;
+    }
+
+    .block-repeat-day input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .block-repeat-day span {
+      min-height: 31px;
+      border: 1px solid #cbd5e1;
+      border-radius: 7px;
+      display: grid;
+      place-items: center;
+      color: #475569;
+      background: #fff;
+      font-size: 11px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .block-repeat-day input:checked + span {
+      border-color: #2563eb;
+      color: #1d4ed8;
+      background: #eff6ff;
+    }
+
+    .block-repeat-summary {
+      margin: 0 !important;
+      padding: 8px 9px;
+      border-radius: 7px;
+      color: #1e40af !important;
+      background: #eff6ff;
+      font-size: 11px !important;
+      font-weight: 700;
+    }
+
     .appointment-deposit-option > label {
       display: flex;
       align-items: center;
@@ -13859,12 +13943,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     .agenda-gcal-professional-frame {
       grid-template-rows: 62px 12px minmax(0, 1fr);
+      position: relative;
+      --agenda-professional-swipe-x: 0px;
     }
 
     .agenda-gcal-professional-frame .agenda-gcal-days-viewport,
     .agenda-gcal-professional-frame .agenda-gcal-columns-viewport {
       overscroll-behavior-x: contain;
-      touch-action: pan-x pan-y;
+      touch-action: pan-y;
     }
 
     .agenda-gcal-professional-frame .agenda-gcal-days-viewport {
@@ -13878,8 +13964,50 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     .agenda-gcal-professional-frame .agenda-gcal-days-track,
     .agenda-gcal-professional-frame .agenda-gcal-columns-track {
-      transform: none;
-      will-change: auto;
+      transform: translate3d(var(--agenda-professional-swipe-x), 0, 0);
+      transition: transform 150ms cubic-bezier(.2, 0, 0, 1), opacity 150ms ease;
+      will-change: transform;
+    }
+
+    .agenda-gcal-professional-frame.is-horizontal-dragging .agenda-gcal-days-track,
+    .agenda-gcal-professional-frame.is-horizontal-dragging .agenda-gcal-columns-track {
+      transition: none;
+    }
+
+    .agenda-gcal-professional-frame.is-horizontal-snapping .agenda-gcal-days-track,
+    .agenda-gcal-professional-frame.is-horizontal-snapping .agenda-gcal-columns-track {
+      opacity: .82;
+    }
+
+    .agenda-professional-swipe-hint {
+      position: absolute;
+      top: 50%;
+      z-index: 25;
+      min-width: 112px;
+      padding: 8px 11px;
+      border: 1px solid #cbd5e1;
+      border-radius: 999px;
+      color: #475569;
+      background: rgba(255, 255, 255, .94);
+      box-shadow: 0 8px 20px rgba(15, 23, 42, .14);
+      font-size: 12px;
+      font-weight: 800;
+      text-align: center;
+      pointer-events: none;
+      opacity: 0;
+      transform: translateY(-50%) scale(.94);
+      transition: opacity 120ms ease, transform 120ms ease, color 120ms ease, border-color 120ms ease;
+    }
+
+    .agenda-professional-swipe-hint.previous { left: 76px; }
+    .agenda-professional-swipe-hint.next { right: 14px; }
+    .agenda-professional-swipe-hint.visible {
+      opacity: 1;
+      transform: translateY(-50%) scale(1);
+    }
+    .agenda-professional-swipe-hint.armed {
+      border-color: #7c3aed;
+      color: #6d28d9;
     }
 
     .agenda-gcal-professional-frame .agenda-gcal-days-head,
@@ -14785,7 +14913,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               <option value="TRAINING">Capacitaci&oacute;n</option>
               <option value="MAINTENANCE">Mantenimiento</option>
               <option value="HOLIDAY">Feriado</option>
-              <option value="OTHER">Otro</option>
+              <option value="OTHER" selected>Otro</option>
             </select>
             <select id="block-professional">
               <option value="">Todo el salon</option>
@@ -14799,6 +14927,26 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                 <span>Hasta</span>
                 <input class="field" id="block-end" type="datetime-local">
               </label>
+            </div>
+            <label class="block-repeat-toggle" for="block-repeat">
+              <input id="block-repeat" type="checkbox">
+              <span>Repetir bloqueo</span>
+            </label>
+            <div class="block-repeat-controls" id="block-repeat-controls" hidden>
+              <label for="block-repeat-until">
+                <span>Repetir hasta (m&aacute;ximo 14 d&iacute;as)</span>
+                <input class="field" id="block-repeat-until" type="date">
+              </label>
+              <div class="block-repeat-days" aria-label="D&iacute;as incluidos">
+                <label class="block-repeat-day"><input type="checkbox" data-block-repeat-day="1" checked><span>L</span></label>
+                <label class="block-repeat-day"><input type="checkbox" data-block-repeat-day="2" checked><span>M</span></label>
+                <label class="block-repeat-day"><input type="checkbox" data-block-repeat-day="3" checked><span>X</span></label>
+                <label class="block-repeat-day"><input type="checkbox" data-block-repeat-day="4" checked><span>J</span></label>
+                <label class="block-repeat-day"><input type="checkbox" data-block-repeat-day="5" checked><span>V</span></label>
+                <label class="block-repeat-day"><input type="checkbox" data-block-repeat-day="6" checked><span>S</span></label>
+                <label class="block-repeat-day"><input type="checkbox" data-block-repeat-day="0" checked><span>D</span></label>
+              </div>
+              <p class="block-repeat-summary" id="block-repeat-summary"></p>
             </div>
             <input class="field" id="block-title" placeholder="Titulo opcional">
             <button class="secondary" type="submit">Crear bloqueo</button>
@@ -17499,6 +17647,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     const filterAssignedServices = ${filterAssignedServices.toString()}
     const appendPreferredEmojiValue = ${appendPreferredEmoji.toString()}
     const WHATSAPP_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000
+    const MAX_BLOCK_REPEAT_DAYS = 14
 
     function notifyOpenerFromMetaOAuthRedirect() {
       const params = new URLSearchParams(window.location.search)
@@ -18085,6 +18234,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       blockProfessional: document.getElementById('block-professional'),
       blockStart: document.getElementById('block-start'),
       blockEnd: document.getElementById('block-end'),
+      blockRepeat: document.getElementById('block-repeat'),
+      blockRepeatControls: document.getElementById('block-repeat-controls'),
+      blockRepeatUntil: document.getElementById('block-repeat-until'),
+      blockRepeatSummary: document.getElementById('block-repeat-summary'),
       blockTitle: document.getElementById('block-title'),
       blockFeedback: document.getElementById('block-feedback'),
       agendaBlockList: document.getElementById('agenda-block-list'),
@@ -24479,6 +24632,90 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
     }
 
+    function blockRepeatDayInputs() {
+      return Array.from(document.querySelectorAll('[data-block-repeat-day]'))
+    }
+
+    function blockRepeatDateBounds() {
+      const start = els.blockStart.value ? new Date(els.blockStart.value) : null
+      if (!start || Number.isNaN(start.getTime())) return null
+      return {
+        min: dateKey(start),
+        max: dateKey(addDays(start, MAX_BLOCK_REPEAT_DAYS - 1)),
+        suggested: dateKey(addDays(start, 6))
+      }
+    }
+
+    function buildBlockOccurrences() {
+      const startAt = els.blockStart.value ? new Date(els.blockStart.value) : null
+      const endAt = els.blockEnd.value ? new Date(els.blockEnd.value) : null
+      if (!startAt || !endAt || Number.isNaN(startAt.getTime()) || Number.isNaN(endAt.getTime())) {
+        throw new Error('Completa inicio y fin.')
+      }
+      if (endAt <= startAt) throw new Error('El fin debe ser posterior al inicio.')
+
+      const single = [{ startAt: startAt.toISOString(), endAt: endAt.toISOString() }]
+      if (!els.blockRepeat.checked) return single
+
+      const bounds = blockRepeatDateBounds()
+      const untilValue = els.blockRepeatUntil.value
+      if (!bounds || !untilValue) throw new Error('Elegí hasta qué fecha querés repetir el bloqueo.')
+      if (untilValue < bounds.min || untilValue > bounds.max) {
+        throw new Error('La repetición puede abarcar como máximo 14 días.')
+      }
+
+      const selectedDays = new Set(blockRepeatDayInputs()
+        .filter((input) => input.checked)
+        .map((input) => Number(input.dataset.blockRepeatDay)))
+      if (!selectedDays.size) throw new Error('Elegí al menos un día de la semana.')
+
+      const durationMs = endAt.getTime() - startAt.getTime()
+      const until = new Date(untilValue + 'T23:59:59')
+      const occurrences = []
+      for (let day = new Date(startAt.getFullYear(), startAt.getMonth(), startAt.getDate()); day <= until; day = addDays(day, 1)) {
+        if (!selectedDays.has(day.getDay())) continue
+        const occurrenceStart = new Date(
+          day.getFullYear(),
+          day.getMonth(),
+          day.getDate(),
+          startAt.getHours(),
+          startAt.getMinutes(),
+          0,
+          0
+        )
+        occurrences.push({
+          startAt: occurrenceStart.toISOString(),
+          endAt: new Date(occurrenceStart.getTime() + durationMs).toISOString()
+        })
+      }
+      if (!occurrences.length) throw new Error('No hay días seleccionados dentro del período.')
+      return occurrences
+    }
+
+    function syncBlockRepeatControls(options) {
+      const enabled = els.blockRepeat.checked
+      els.blockRepeatControls.hidden = !enabled
+      if (!enabled) return
+
+      const bounds = blockRepeatDateBounds()
+      if (!bounds) {
+        els.blockRepeatSummary.textContent = 'Elegí el inicio para calcular la repetición.'
+        return
+      }
+      els.blockRepeatUntil.min = bounds.min
+      els.blockRepeatUntil.max = bounds.max
+      if (options?.resetUntil || !els.blockRepeatUntil.value || els.blockRepeatUntil.value < bounds.min || els.blockRepeatUntil.value > bounds.max) {
+        els.blockRepeatUntil.value = bounds.suggested > bounds.max ? bounds.max : bounds.suggested
+      }
+
+      try {
+        const count = buildBlockOccurrences().length
+        els.blockRepeatSummary.textContent = 'Se crearán ' + count + (count === 1 ? ' bloqueo.' : ' bloqueos.')
+      } catch (error) {
+        els.blockRepeatSummary.textContent = error.message
+      }
+    }
+
     async function createBlock(event) {
       event.preventDefault()
       if (!canManageScheduleBlocks()) {
@@ -24490,17 +24727,22 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         return
       }
 
-      const startAt = els.blockStart.value
-      const endAt = els.blockEnd.value
-      if (!startAt || !endAt) {
-        els.blockFeedback.textContent = 'Completa inicio y fin.'
+      let occurrences
+      try {
+        occurrences = buildBlockOccurrences()
+      } catch (error) {
+        els.blockFeedback.textContent = error.message
         return
       }
+
+      const startAt = els.blockStart.value
+      const endAt = els.blockEnd.value
+      const repeats = els.blockRepeat.checked
 
       const submitButton = event.submitter || els.blockForm.querySelector('button[type="submit"]')
       if (!setButtonLoading(submitButton, true, 'Creando bloqueo...')) return
       try {
-        const createdBlock = await getJson('/schedule-blocks', {
+        const createdBlock = await getJson(repeats ? '/schedule-blocks/series' : '/schedule-blocks', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -24508,24 +24750,28 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             professionalId: els.blockProfessional.value || undefined,
             reason: els.blockReason.value,
             title: els.blockTitle.value.trim() || undefined,
-            startAt: new Date(startAt).toISOString(),
-            endAt: new Date(endAt).toISOString()
+            ...(repeats
+              ? { occurrences }
+              : {
+                  startAt: new Date(startAt).toISOString(),
+                  endAt: new Date(endAt).toISOString()
+                })
           })
         })
         const affectedAppointments = createdBlock.impact?.affectedAppointments || []
         els.blockFeedback.textContent = affectedAppointments.length
-          ? 'Bloqueo creado. Hay turnos afectados para reprogramar.'
-          : 'Bloqueo creado.'
+          ? (repeats ? 'Serie creada.' : 'Bloqueo creado.') + ' Hay turnos afectados para reprogramar.'
+          : (repeats ? 'Serie creada.' : 'Bloqueo creado.')
         els.blockTitle.value = ''
         await loadAgenda()
         closeAgendaBlockPopover()
-        showCrmToast('Bloqueo creado.', 'success')
+        showCrmToast(repeats ? occurrences.length + ' bloqueos creados.' : 'Bloqueo creado.', 'success')
         if (affectedAppointments.length > 0) {
           state.pendingImpactContext = 'schedule-block'
           setSection('professionals')
           showProfessionalImpact({
             title: 'Turnos afectados por el bloqueo',
-            copy: createdBlock.professional
+            copy: (createdBlock.blocks?.[0] || createdBlock).professional
               ? 'Estos turnos son del profesional bloqueado. Reprogramalos desde Agenda o contacta al cliente antes de moverlos.'
               : 'Estos turnos son de profesionales afectados por el cierre del local. Reprogramalos desde Agenda o contacta al cliente antes de moverlos.',
             appointments: affectedAppointments
@@ -26794,9 +27040,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         showCrmToast('No tenes permiso para bloquear la agenda.', 'error')
         return
       }
+      els.blockReason.value = input.reason || 'OTHER'
       if (input.startAt) els.blockStart.value = toDatetimeLocalValue(input.startAt)
       if (input.endAt) els.blockEnd.value = toDatetimeLocalValue(input.endAt)
       if (input.professionalId !== undefined) els.blockProfessional.value = input.professionalId || ''
+      els.blockRepeat.checked = false
+      els.blockRepeatUntil.value = ''
+      syncBlockRepeatControls({ resetUntil: true })
       state.agendaBlockOpen = true
       els.agendaBlockPopover.hidden = false
       els.blockStart.focus()
@@ -26965,6 +27215,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                 '</div>' +
               '</div>' +
             '</div>' +
+            (professionalDayView ? '<div class="agenda-professional-swipe-hint" data-agenda-professional-swipe-hint aria-hidden="true"></div>' : '') +
           '</div>' +
           '<button class="agenda-gcal-fab" type="button" data-agenda-mobile-new aria-label="Nuevo turno">+</button>' +
         '</div>'
@@ -27233,16 +27484,27 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       window.addEventListener('blur', cancelAgendaRangeSelection)
     }
 
+    function agendaRangeGestureIntent(deltaX, deltaY) {
+      const horizontal = Math.abs(deltaX)
+      const vertical = Math.abs(deltaY)
+      const moved = Math.hypot(horizontal, vertical)
+      if (moved < 8) return 'pending'
+      if (horizontal >= 14 && horizontal > vertical * 1.5) return 'horizontal'
+      if (vertical >= 8 && vertical >= horizontal * 0.75) return 'vertical'
+      if (moved < 18) return 'pending'
+      return horizontal > vertical ? 'horizontal' : 'vertical'
+    }
+
     function updateAgendaRangeSelection(pointerEvent) {
       const pointer = state.agendaRangePointer
       if (!pointer || pointerEvent.pointerId !== pointer.pointerId) return
 
       const deltaX = pointerEvent.clientX - pointer.startX
       const deltaY = pointerEvent.clientY - pointer.startY
-      const moved = Math.hypot(deltaX, deltaY)
       if (!pointer.dragging) {
-        if (moved < 10) return
-        if (Math.abs(deltaX) > Math.abs(deltaY) * 1.15) {
+        const intent = agendaRangeGestureIntent(deltaX, deltaY)
+        if (intent === 'pending') return
+        if (intent === 'horizontal') {
           clearAgendaRangePointer()
           return
         }
@@ -27441,6 +27703,98 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.agendaRangeSelection = null
     }
 
+    function bindAgendaProfessionalHorizontalDrag(frame, viewports, syncHorizontalScroll, navigateDay) {
+      const swipeHint = frame.querySelector('[data-agenda-professional-swipe-hint]')
+      for (const viewport of viewports.filter(Boolean)) {
+        let pointer = null
+
+        const finishPointer = (event) => {
+          if (!pointer || pointer.pointerId !== event.pointerId) return
+          const wasDragging = pointer.dragging
+          const canScroll = pointer.canScroll
+          const deltaX = pointer.currentX - pointer.startX
+          const dayOffset = !pointer.canScroll && Math.abs(deltaX) >= 48
+            ? (deltaX < 0 ? 1 : -1)
+            : 0
+          pointer = null
+          frame.classList.remove('is-horizontal-dragging')
+          if (wasDragging) {
+            if (!canScroll) frame.classList.add('is-horizontal-snapping')
+            swipeHint?.classList.remove('visible', 'armed')
+            if (dayOffset && event.type === 'pointerup') {
+              frame.style.setProperty('--agenda-professional-swipe-x', (dayOffset > 0 ? -96 : 96) + 'px')
+              window.setTimeout(() => navigateDay(dayOffset), 120)
+              window.setTimeout(() => {
+                state.agendaDidDrag = false
+              }, 280)
+            } else {
+              frame.style.setProperty('--agenda-professional-swipe-x', '0px')
+              window.setTimeout(() => {
+                frame.classList.remove('is-horizontal-snapping')
+                state.agendaDidDrag = false
+              }, 160)
+            }
+          }
+        }
+
+        viewport.addEventListener('pointerdown', (event) => {
+          if (event.button !== undefined && event.button !== 0) return
+          if (event.target.closest('[data-appointment-id], [data-block-id]')) return
+          const canScroll = viewport.scrollWidth > viewport.clientWidth + 1
+          frame.classList.remove('is-horizontal-snapping')
+          frame.style.setProperty('--agenda-professional-swipe-x', '0px')
+          swipeHint?.classList.remove('visible', 'armed', 'previous', 'next')
+          pointer = {
+            pointerId: event.pointerId,
+            startX: event.clientX,
+            startY: event.clientY,
+            currentX: event.clientX,
+            startScrollLeft: viewport.scrollLeft,
+            canScroll,
+            dragging: false
+          }
+        })
+
+        viewport.addEventListener('pointermove', (event) => {
+          if (!pointer || pointer.pointerId !== event.pointerId) return
+          const deltaX = event.clientX - pointer.startX
+          const deltaY = event.clientY - pointer.startY
+          pointer.currentX = event.clientX
+          if (!pointer.dragging) {
+            const intent = agendaRangeGestureIntent(deltaX, deltaY)
+            if (intent === 'pending') return
+            if (intent === 'vertical') {
+              pointer = null
+              return
+            }
+            pointer.dragging = true
+            state.agendaDidDrag = true
+            frame.classList.add('is-horizontal-dragging')
+            viewport.setPointerCapture?.(event.pointerId)
+          }
+          event.preventDefault()
+          if (pointer.canScroll) {
+            viewport.scrollLeft = pointer.startScrollLeft - deltaX
+            syncHorizontalScroll(viewport)
+          } else {
+            const visualDelta = Math.max(-72, Math.min(72, deltaX * .35))
+            frame.style.setProperty('--agenda-professional-swipe-x', visualDelta + 'px')
+            if (swipeHint) {
+              const nextDay = deltaX < 0
+              swipeHint.textContent = nextDay ? 'Día siguiente →' : '← Día anterior'
+              swipeHint.classList.toggle('next', nextDay)
+              swipeHint.classList.toggle('previous', !nextDay)
+              swipeHint.classList.add('visible')
+              swipeHint.classList.toggle('armed', Math.abs(deltaX) >= 48)
+            }
+          }
+        })
+
+        viewport.addEventListener('pointerup', finishPointer)
+        viewport.addEventListener('pointercancel', finishPointer)
+      }
+    }
+
     function bindAgendaMobileControls(hourHeight, displayRange) {
       els.agendaGridWrap.querySelector('[data-agenda-mobile-menu]')?.addEventListener('click', openMobileDrawer)
       els.agendaGridWrap.querySelector('[data-agenda-prev]')?.addEventListener('click', async () => {
@@ -27614,8 +27968,18 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           }
           columnsViewport?.addEventListener('scroll', () => syncHorizontalScroll(columnsViewport), { passive: true })
           professionalScrollbar?.addEventListener('scroll', () => syncHorizontalScroll(professionalScrollbar), { passive: true })
+          const navigateProfessionalDay = async (dayOffset) => {
+            if (currentScroll) {
+              state.agendaMobileScrollMinute = displayRange.start + (currentScroll.scrollTop / hourHeight) * 60
+            }
+            state.agendaSelectedDate = addDays(state.agendaSelectedDate, dayOffset)
+            state.agendaMonthDate = new Date(state.agendaSelectedDate)
+            await loadAgenda()
+          }
+          bindAgendaProfessionalHorizontalDrag(frame, [daysViewport, columnsViewport], syncHorizontalScroll, navigateProfessionalDay)
           for (const button of frame.querySelectorAll('[data-agenda-professional-column]')) {
             button.addEventListener('click', async () => {
+              if (state.agendaDidDrag) return
               els.agendaProfessional.value = button.dataset.agendaProfessionalColumn || ''
               renderAgendaProfessionalControls()
               await loadAgenda()
@@ -28582,6 +28946,57 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       updateAppointmentContactActions(editingAgendaAppointment())
     }
 
+    function appointmentCustomerChanges(customer, nameValue, phoneValue) {
+      const name = nameValue.trim()
+      const phone = phoneValue.trim()
+      return {
+        name,
+        phone,
+        changed: Boolean(customer) && (name !== (customer.name || '') || phone !== (customer.phone || ''))
+      }
+    }
+
+    function appointmentDetailsChanged(appointment, input) {
+      if (!appointment) return true
+      const currentAmount = appointment.manualDepositAmount === null || appointment.manualDepositAmount === undefined
+        ? null
+        : Number(appointment.manualDepositAmount)
+      return appointment.customerId !== input.customerId ||
+        appointment.professionalId !== input.professionalId ||
+        appointment.serviceId !== input.serviceId ||
+        new Date(appointment.startAt).getTime() !== new Date(input.startAt).getTime() ||
+        appointment.manualDepositPaid === true !== input.manualDepositPaid ||
+        currentAmount !== input.manualDepositAmount ||
+        (appointment.notes || '') !== input.notes
+    }
+
+    async function updateAppointmentCustomer(customerId, changes) {
+      return getJson('/customers/' + customerId, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: changes.name,
+          phone: changes.phone,
+          businessId: state.businessId
+        })
+      })
+    }
+
+    function applyUpdatedCustomerLocally(updatedCustomer) {
+      const replaceCustomer = (customer) => customer.id === updatedCustomer.id ? updatedCustomer : customer
+      const replaceAppointmentCustomer = (appointment) => appointment.customerId === updatedCustomer.id
+        ? { ...appointment, customer: { ...(appointment.customer || {}), ...updatedCustomer } }
+        : appointment
+      if (state.customers.some((customer) => customer.id === updatedCustomer.id)) {
+        state.customers = state.customers.map(replaceCustomer)
+      } else {
+        state.customers.push(updatedCustomer)
+      }
+      state.appointmentCustomerResultsData = state.appointmentCustomerResultsData.map(replaceCustomer)
+      state.agendaAppointments = state.agendaAppointments.map(replaceAppointmentCustomer)
+      state.appointments = state.appointments.map(replaceAppointmentCustomer)
+    }
+
     function updateAppointmentContactActions(appointment) {
       const phone = els.appointmentCustomerPhone.value || appointment?.customer?.phone || ''
       const digits = normalizePhone(phone)
@@ -28712,6 +29127,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const manualDepositAmount = manualDepositAmountText ? Number(manualDepositAmountText) : null
       const notes = els.appointmentNotes.value.trim()
       let customerId = els.appointmentCustomer.value
+      const appointment = editingAgendaAppointment()
+      const selectedCustomer = state.customers.find((customer) => customer.id === customerId)
+      const customerChanges = appointmentCustomerChanges(
+        selectedCustomer,
+        els.appointmentCustomerName.value,
+        els.appointmentCustomerPhone.value
+      )
 
       if (!startAt || !professionalId || !serviceId) {
         els.appointmentFeedback.textContent = 'Completa fecha, profesional y servicio.'
@@ -28730,6 +29152,39 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       ) {
         els.appointmentFeedback.textContent = 'El monto de la seña debe ser un número entero mayor a 0.'
         els.appointmentDepositAmount.focus()
+        return
+      }
+
+      if (selectedCustomer && !customerChanges.name) {
+        els.appointmentFeedback.textContent = 'El nombre del cliente es requerido.'
+        els.appointmentCustomerName.focus()
+        return
+      }
+
+      const appointmentChanged = appointmentDetailsChanged(appointment, {
+        customerId,
+        professionalId,
+        serviceId,
+        startAt,
+        manualDepositPaid,
+        manualDepositAmount,
+        notes
+      })
+
+      if (appointment && customerChanges.changed && !appointmentChanged) {
+        if (!setButtonLoading(els.appointmentSubmit, true, 'Guardando...')) return
+        try {
+          const updatedCustomer = await updateAppointmentCustomer(customerId, customerChanges)
+          applyUpdatedCustomerLocally(updatedCustomer)
+          closeAppointmentDialog()
+          renderAgenda()
+          if (state.selected) renderAppointments()
+          showCrmToast('Datos del cliente actualizados.', 'success')
+        } catch (error) {
+          els.appointmentFeedback.textContent = error.message
+        } finally {
+          setButtonLoading(els.appointmentSubmit, false)
+        }
         return
       }
 
@@ -28785,20 +29240,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           state.customers = await getJson(businessScopedPath('/customers'))
           renderAppointmentFormOptions()
         } else {
-          const selectedCustomer = state.customers.find((customer) => customer.id === customerId)
-          const name = els.appointmentCustomerName.value.trim()
-          const phone = els.appointmentCustomerPhone.value.trim()
-          if (selectedCustomer && phone && (phone !== selectedCustomer.phone || name !== selectedCustomer.name)) {
-            const updatedCustomer = await getJson('/customers/' + customerId, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                name: name || selectedCustomer.name,
-                phone,
-                businessId: state.businessId
-              })
-            })
-            state.customers = state.customers.map((customer) => customer.id === updatedCustomer.id ? updatedCustomer : customer)
+          if (customerChanges.changed) {
+            const updatedCustomer = await updateAppointmentCustomer(customerId, customerChanges)
+            applyUpdatedCustomerLocally(updatedCustomer)
           }
         }
 
@@ -31825,6 +32269,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.replyForm.requestSubmit()
     })
     els.blockForm.addEventListener('submit', createBlock)
+    els.blockRepeat.addEventListener('change', () => syncBlockRepeatControls({ resetUntil: true }))
+    els.blockStart.addEventListener('change', () => syncBlockRepeatControls({ resetUntil: true }))
+    els.blockEnd.addEventListener('change', () => syncBlockRepeatControls())
+    els.blockRepeatUntil.addEventListener('change', () => syncBlockRepeatControls())
+    for (const input of blockRepeatDayInputs()) {
+      input.addEventListener('change', () => syncBlockRepeatControls())
+    }
     els.agendaBlockBackdrop.addEventListener('click', closeAgendaBlockPopover)
     els.agendaBlockClose.addEventListener('click', closeAgendaBlockPopover)
     for (const day of [...businessDayInputs(), ...professionalDayInputs()]) {

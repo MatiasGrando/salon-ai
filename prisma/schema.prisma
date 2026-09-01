@@ -1909,6 +1909,8 @@ model Message {
 model ScheduleBlock {
   id String @id @default(cuid())
 
+  seriesId String?
+
   businessId String
   business   Business @relation(fields: [businessId], references: [id])
 
@@ -1925,6 +1927,7 @@ model ScheduleBlock {
   createdAt DateTime @default(now())
 
   @@index([businessId, professionalId, startAt])
+  @@index([businessId, seriesId])
 }
 
 model Campaign {

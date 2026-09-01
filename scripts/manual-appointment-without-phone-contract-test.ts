@@ -31,7 +31,7 @@ try {
   assert.ok(customerRoute.includes('createProvisionalCustomer'), 'el alta manual debe crear una ficha provisional')
   assert.ok(customerRoute.includes('const isNew = !isProvisional'), 'una ficha sin identidad no debe contarse como cliente nuevo')
   assert.ok(customerRoute.includes('averageFrequencyDays: isProvisional ? null'), 'una ficha provisional no debe calcular recurrencia')
-  assert.ok(crmUi.includes('Tel&eacute;fono <span class="optional-label">(opcional)</span>'), 'el teléfono debe mostrarse como opcional')
+  assert.ok(crmUi.includes('<label for="appointment-customer-phone">Tel&eacute;fono</label>'), 'el teléfono debe mostrarse sin texto redundante')
   assert.ok(crmUi.includes("if (!name)"), 'el turno rápido debe requerir solo el nombre al crear el cliente')
   assert.equal(crmUi.includes("if (!name || !phone)"), false, 'el turno manual no debe exigir teléfono')
   assert.ok(crmUi.includes('customer.isProvisional'), 'la interfaz debe identificar la ficha provisional')
