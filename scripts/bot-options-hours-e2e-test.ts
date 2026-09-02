@@ -192,11 +192,11 @@ try {
   assert.ok(concatenated.includes('10:00 a 14:00'), 'concatenado contiene horario Sáb')
   assert.ok(concatenated.includes('*Domingo*: Cerrado'), 'concatenado contiene domingo cerrado')
 
-  // Excepción (relativa, no hardcodeada)
-  assert.ok(concatenated.includes('Excepciones próximas:'), 'concatenado contiene sección excepciones')
-  assert.ok(concatenated.includes('Feriado'), 'concatenado contiene excepción HOLIDAY')
-  assert.ok(concatenated.includes('Feriado Relativo'), 'concatenado contiene título excepción relativa')
+  // Las excepciones operativas afectan disponibilidad, pero no se publican.
+  assert.ok(!concatenated.includes('Excepciones próximas:'), 'concatenado no contiene sección de excepciones')
+  assert.ok(!concatenated.includes('Feriado Relativo'), 'concatenado no contiene título interno')
   assert.ok(!concatenated.includes('Detalles internos'), 'concatenado NO contiene note')
+  assert.ok(concatenated.includes('Los horarios pueden variar en fechas especiales.'), 'concatenado contiene aclaración pública')
 
   // El interactive body también debe estar dentro de 1024
   const interactiveItem = outboxRows.find((r) => r.kind === 'interactive')

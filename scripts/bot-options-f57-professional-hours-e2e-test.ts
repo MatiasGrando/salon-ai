@@ -259,12 +259,12 @@ try {
     const concatenated = informativeTexts.join('\n')
     assert.ok(concatenated.includes('*Lunes*: 09:00 a 18:00'), `lunes de Ana: ${concatenated}`)
     assert.ok(concatenated.includes('*Domingo*: No atiende'), 'domingo cerrado')
-    // Excepción relativa — privacidad: NO expone reason/title
-    assert.ok(concatenated.includes('Excepciones próximas:'), 'sección excepciones')
-    assert.ok(concatenated.includes('No atiende'), 'generic copy for exception')
+    // Las excepciones del profesional son operativas y no se publican.
+    assert.ok(!concatenated.includes('Excepciones próximas:'), 'sección de excepciones oculta')
     assert.ok(!concatenated.includes('Feriado'), 'reason NOT exposed')
     assert.ok(!concatenated.includes('Vacaciones Ana'), 'title NOT exposed')
     assert.ok(!concatenated.includes('Detalles internos'), 'note NO expuesta')
+    assert.ok(concatenated.includes('Los horarios pueden variar en fechas especiales.'), 'aclaración pública presente')
 
     // Verificar prompt: "Buscar un turno disponible" (reservable)
     const promptChoices = await prisma.$queryRaw<Array<{ actionType: string; labelSnapshot: string }>>(Prisma.sql`

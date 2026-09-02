@@ -69,6 +69,8 @@ const BLOCK_REASON_LABELS: Record<string, string> = {
   OTHER: 'Otro'
 }
 
+const PUBLIC_HOURS_DISCLAIMER = 'Los horarios pueden variar en fechas especiales. Para conocer la disponibilidad exacta, podés buscar un turno.'
+
 // ─── Validación de inputs ─────────────────────────────────────────────────────
 
 /** Regex estricto para HH:mm (00-23:00-59). */
@@ -194,8 +196,8 @@ export function formatExceptionLabel(exception: BusinessOperationalException, ti
 
   const startDate = formatDateInTimezone(exception.startAt, timezone)
   const endDate = formatDateInTimezone(exception.endAt, timezone)
-  const startTime = formatTimeInTimezone(exception.startAt, timezone)
-  const endTime = formatTimeInTimezone(exception.endAt, timezone)
+  const startTime = formatTimeInTimezoneString(exception.startAt, timezone)
+  const endTime = formatTimeInTimezoneString(exception.endAt, timezone)
 
   if (startDate === endDate) {
     return `${reasonLabel}${titlePart}: el ${startDate} de ${startTime} a ${endTime}`
@@ -436,7 +438,7 @@ export function computeExceptionWindow(
  * - Lunes a Domingo siempre en ese orden.
  * - Días sin intervalos se muestran "Cerrado".
  * - Intervalos múltiples se ordenan por startTime.
- * - Excepciones operativas de los próximos 30 días se listan después del horario regular.
+ * - Las excepciones operativas son privadas y no se muestran al cliente.
  * - NO crea draft ni revela agenda profesional.
  *
  * @param hours Horarios regulares del negocio (BusinessHours).
@@ -474,21 +476,7 @@ export function formatBusinessWeeklySchedule(
     lines.push(`*${dayName}*: ${schedule}`)
   }
 
-  // Excepciones operativas — orden determinista: startAt asc, luego endAt asc, luego reason
-  if (exceptions.length > 0) {
-    const sorted = [...exceptions].sort((a, b) => {
-      const startCmp = a.startAt.getTime() - b.startAt.getTime()
-      if (startCmp !== 0) return startCmp
-      const endCmp = a.endAt.getTime() - b.endAt.getTime()
-      if (endCmp !== 0) return endCmp
-      return a.reason.localeCompare(b.reason)
-    })
-    lines.push('')
-    lines.push('*Excepciones próximas:*')
-    for (const exc of sorted) {
-      lines.push(`• ${formatExceptionLabel(exc, timezone)}`)
-    }
-  }
+  lines.push('', PUBLIC_HOURS_DISCLAIMER)
 
   return lines.join('\n')
 }
@@ -512,8 +500,7 @@ export function formatProfessionalListLabel(professional: ProfessionalCatalogRow
  * - Lunes a Domingo siempre en ese orden.
  * - Días sin intervalos se muestran "No atiende".
  * - Intervalos múltiples se ordenan por startTime.
- * - Excepciones del profesional en ventana 30 días.
- * - NO sección vacía si no hay excepciones.
+ * - Las excepciones del profesional son privadas y no se muestran al cliente.
  * - NO expone motivos internos, notas ni datos de reservas.
  *
  * @param professionalName Nombre del profesional para el encabezado.
@@ -561,19 +548,7 @@ export function formatProfessionalWeeklySchedule(
     lines.push(`*${dayName}*: ${schedule}`)
   }
 
-  // Excepciones operativas — sólo si hay; no sección vacía
-  if (exceptions.length > 0) {
-    const sorted = [...exceptions].sort((a, b) => {
-      const startCmp = a.startAt.getTime() - b.startAt.getTime()
-      if (startCmp !== 0) return startCmp
-      return a.endAt.getTime() - b.endAt.getTime()
-    })
-    lines.push('')
-    lines.push('*Excepciones próximas:*')
-    for (const exc of sorted) {
-      lines.push(`• ${formatProfessionalExceptionLabel(exc, timezone)}`)
-    }
-  }
+  lines.push('', PUBLIC_HOURS_DISCLAIMER)
 
   return lines.join('\n')
 }

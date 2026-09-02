@@ -391,8 +391,8 @@ assert.ok(fullSchedule.includes('*Jueves*: 09:00 a 18:00'), `jueves`)
 assert.ok(fullSchedule.includes('*Viernes*: 09:00 a 18:00'), `viernes`)
 assert.ok(fullSchedule.includes('*Sábado*: 10:00 a 14:00'), `sábado`)
 assert.ok(fullSchedule.includes('*Domingo*: Cerrado'), `domingo cerrado`)
-// Sin excepciones: no debe tener sección de excepciones
 assert.ok(!fullSchedule.includes('Excepciones'), 'sin excepciones')
+assert.ok(fullSchedule.includes('Los horarios pueden variar en fechas especiales.'), 'aclaración pública presente')
 console.log('OK formatBusinessWeeklySchedule: semana completa')
 
 // ─── formatBusinessWeeklySchedule — semana parcial (sólo lunes y miércoles) ───
@@ -443,11 +443,12 @@ const exceptions: BusinessOperationalException[] = [
   }
 ]
 const scheduleWithExceptions = formatBusinessWeeklySchedule(fullWeekHours, exceptions, dbNow, 'America/Buenos_Aires')
-assert.ok(scheduleWithExceptions.includes('Excepciones próximas:'), 'sección excepciones presente')
-assert.ok(scheduleWithExceptions.includes('Feriado'), 'excepción con reason HOLIDAY')
-assert.ok(scheduleWithExceptions.includes('Día del Logger'), 'excepción con título')
-assert.ok(scheduleWithExceptions.includes('Mantenimiento'), 'excepción MAINTENANCE')
-console.log('OK formatBusinessWeeklySchedule: con excepciones')
+assert.ok(!scheduleWithExceptions.includes('Excepciones próximas:'), 'las excepciones internas no se publican')
+assert.ok(!scheduleWithExceptions.includes('Feriado'), 'el motivo interno no se publica')
+assert.ok(!scheduleWithExceptions.includes('Día del Logger'), 'el título interno no se publica')
+assert.ok(!scheduleWithExceptions.includes('Mantenimiento'), 'el motivo interno no se publica')
+assert.ok(scheduleWithExceptions.includes('Para conocer la disponibilidad exacta, podés buscar un turno.'), 'orienta hacia la disponibilidad real')
+console.log('OK formatBusinessWeeklySchedule: excepciones privadas')
 
 // ─── formatBusinessWeeklySchedule — sin horarios (todo cerrado) ───────────────
 
@@ -474,7 +475,7 @@ assert.ok(labelWithNote.includes('Mantenimiento'), 'reason SÍ se muestra')
 assert.ok(labelWithNote.includes('Reparación'), 'title SÍ se muestra')
 console.log('OK formatExceptionLabel: note no se expone')
 
-// ─── formatBusinessWeeklySchedule — excepciones ordenadas determinísticamente ─
+// ─── formatBusinessWeeklySchedule — excepciones no alteran el texto público ───
 
 const unsortedExceptions: BusinessOperationalException[] = [
   { startAt: new Date('2026-09-15T03:00:00Z'), endAt: new Date('2026-09-16T03:00:00Z'), reason: 'MAINTENANCE', title: null, note: null },
@@ -482,13 +483,8 @@ const unsortedExceptions: BusinessOperationalException[] = [
   { startAt: new Date('2026-09-10T03:00:00Z'), endAt: new Date('2026-09-11T03:00:00Z'), reason: 'ABSENCE', title: null, note: null },
 ]
 const scheduleSorted = formatBusinessWeeklySchedule([], unsortedExceptions, dbNow, 'America/Buenos_Aires')
-const lines = scheduleSorted.split('\n')
-const excLines = lines.filter((l) => l.startsWith('•'))
-// ABSENCE (sort by startAt same → endAt same → reason: ABSENCE < HOLIDAY)
-assert.ok(excLines[0]!.includes('Ausencia'), `primera excepción Ausencia: ${excLines[0]}`)
-assert.ok(excLines[1]!.includes('Feriado'), `segunda excepción Feriado: ${excLines[1]}`)
-assert.ok(excLines[2]!.includes('Mantenimiento'), `tercera excepción Mantenimiento: ${excLines[2]}`)
-console.log('OK formatBusinessWeeklySchedule: excepciones ordenadas determinísticamente')
+assert.equal(scheduleSorted, formatBusinessWeeklySchedule([], [], dbNow, 'America/Buenos_Aires'))
+console.log('OK formatBusinessWeeklySchedule: excepciones no alteran el texto público')
 
 // El mismo input siempre produce la misma salida
 const schedule1 = formatBusinessWeeklySchedule(fullWeekHours, [], dbNow, 'America/Buenos_Aires')

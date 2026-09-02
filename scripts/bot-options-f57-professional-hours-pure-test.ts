@@ -75,6 +75,7 @@ assert.ok(fullSchedule.includes('*Viernes*: 09:00 a 18:00'), 'viernes')
 assert.ok(fullSchedule.includes('*Sábado*: 10:00 a 14:00'), 'sábado')
 assert.ok(fullSchedule.includes('*Domingo*: No atiende'), 'domingo cerrado')
 assert.ok(!fullSchedule.includes('Excepciones'), 'sin excepciones no hay sección')
+assert.ok(fullSchedule.includes('Los horarios pueden variar en fechas especiales.'), 'aclaración pública presente')
 console.log('OK formatProfessionalWeeklySchedule: semana completa')
 
 // ─── formatProfessionalWeeklySchedule — semana parcial (sólo lunes y miércoles)
@@ -108,12 +109,12 @@ const exceptions: ProfessionalOperationalException[] = [
   { startAt: new Date('2026-09-15T03:00:00Z'), endAt: new Date('2026-09-16T06:00:00Z') }
 ]
 const scheduleWithExc = formatProfessionalWeeklySchedule('Ana', fullWeekHours, exceptions, dbNow, timezone)
-assert.ok(scheduleWithExc.includes('Excepciones próximas:'), 'sección excepciones presente')
-assert.ok(scheduleWithExc.includes('No atiende'), 'generic copy exposed')
+assert.equal(scheduleWithExc, fullSchedule, 'las excepciones internas no alteran el horario público')
+assert.ok(!scheduleWithExc.includes('Excepciones próximas:'), 'sección de excepciones oculta')
 assert.ok(!scheduleWithExc.includes('Feriado'), 'reason HOLIDAY NOT exposed')
 assert.ok(!scheduleWithExc.includes('Día del Logger'), 'title NOT exposed')
 assert.ok(!scheduleWithExc.includes('Ausencia'), 'reason ABSENCE NOT exposed')
-console.log('OK formatProfessionalWeeklySchedule: con excepciones — privacidad')
+console.log('OK formatProfessionalWeeklySchedule: excepciones privadas')
 
 // ─── formatProfessionalWeeklySchedule — note/reason/title no se exponen ──────
 
@@ -138,14 +139,8 @@ const unsorted: ProfessionalOperationalException[] = [
   { startAt: new Date('2026-09-10T03:00:00Z'), endAt: new Date('2026-09-11T03:00:00Z') }
 ]
 const sortedSchedule = formatProfessionalWeeklySchedule('X', [], unsorted, dbNow, timezone)
-const excLines = sortedSchedule.split('\n').filter((l) => l.startsWith('•'))
-// All lines should use generic "No atiende" copy
-for (const line of excLines) {
-  assert.ok(line.includes('No atiende'), `sorted line uses generic copy: ${line}`)
-}
-// Order: same startAt → same endAt (stable sort)
-assert.equal(excLines.length, 3, '3 exception lines')
-console.log('OK formatProfessionalWeeklySchedule: orden determinista + privacidad')
+assert.equal(sortedSchedule, formatProfessionalWeeklySchedule('X', [], [], dbNow, timezone))
+console.log('OK formatProfessionalWeeklySchedule: excepciones no alteran el texto público')
 
 // ─── formatProfessionalWeeklySchedule — múltiples intervalos ─────────────────
 

@@ -138,12 +138,13 @@ try {
   assert.ok(crossFrom, 'excepción que cruza from SÍ incluida')
   console.log('OK PG: cross-from overlap included')
 
-  // ─── Test 5: Notas internas NO se exponen en formato ──────────────────────
+  // ─── Test 5: Las excepciones operativas NO se exponen en formato ─────────
   const formatted = hoursQueries.formatBusinessWeeklySchedule(hoursA, excA, dbNow, timezone)
   assert.ok(!formatted.includes('Detalles internos'), 'note NO en formato final')
-  assert.ok(formatted.includes('Feriado'), 'reason SÍ en formato final')
-  assert.ok(formatted.includes('Día Feriado'), 'title SÍ en formato final')
-  console.log('OK PG: note not exposed in formatted output')
+  assert.ok(!formatted.includes('Feriado'), 'reason NO en formato final')
+  assert.ok(!formatted.includes('Día Feriado'), 'title NO en formato final')
+  assert.ok(formatted.includes('Los horarios pueden variar en fechas especiales.'), 'aclaración pública presente')
+  console.log('OK PG: operational exceptions not exposed in formatted output')
 
   // ─── Test 6: Horarios del negocio — Lunes-Domingo siempre presentes ───────
   const schedule = hoursQueries.formatBusinessWeeklySchedule(hoursA, [], dbNow, timezone)
