@@ -108,6 +108,7 @@ export type BotOptionsPresentationMode =
   | { kind: 'slot_band'; band: SlotBandView }
   | { kind: 'slot_all_pages'; cursor: number }
   | { kind: 'navigation_menu' }
+  | { kind: 'cart_remove_select' }
   | {
       kind: 'appointment_list_page'
       cursor: number
@@ -495,7 +496,7 @@ export function validateBotOptionsState(
     return { ok: false, invariant: 'presentation_kind_allowed' }
   }
   const kind = presentation['kind']
-  const allowedKinds = ['plain', 'catalog_page', 'date_page', 'slot_band', 'slot_all_pages', 'navigation_menu', 'appointment_list_page', 'professional_list_page']
+  const allowedKinds = ['plain', 'catalog_page', 'date_page', 'slot_band', 'slot_all_pages', 'navigation_menu', 'cart_remove_select', 'appointment_list_page', 'professional_list_page']
   if (typeof kind !== 'string' || !(allowedKinds as readonly string[]).includes(kind)) {
     return { ok: false, invariant: 'presentation_kind_allowed' }
   }

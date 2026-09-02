@@ -138,6 +138,7 @@ export type TransitionContext = {
     /** F5.7: Lista de profesionales activos para generar opciones interactivas. */
     professionalCatalog?: ReadonlyArray<{ professionalId: string; label: string }> | undefined
     cartSummary?: string | undefined
+    cartServices?: ReadonlyArray<{ serviceId: string; label: string }> | undefined
     recommendations?: ReadonlyArray<{ serviceId: string; label: string; compatible: boolean }> | undefined
     bookingProfessionals?: ReadonlyArray<{ professionalId: string; label: string }> | undefined
     availableDates?: ReadonlyArray<{ date: string; label: string }> | undefined
@@ -311,6 +312,7 @@ const CLIENT_ALLOWED: Partial<Record<BotOptionsFlowStep, readonly BotOptionsActi
   ],
   CART_REVIEW: [
     'cart.add_service',
+    'cart.open_remove',
     'cart.remove_service',
     'cart.continue',
     'navigation.back',
@@ -666,9 +668,13 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
       const detailChoices: ViewChoice[] = []
       if (context.serviceActive && detailServiceId) {
         detailChoices.push({ actionType: 'service.book', label: 'Reservar este servicio', entityRef: { type: 'SERVICE', id: detailServiceId } })
-        detailChoices.push({ actionType: 'service.more_same_category', label: 'Ver otros servicios' })
+        detailChoices.push({ actionType: 'service.change_category', label: 'Elegir otra categoría' })
       }
-      const navDetail = composeGlobalNavigation({ capacity: 10, contextualCount: detailChoices.length, back: BACK_CHOICE })
+      const navDetail = composeGlobalNavigation({
+        capacity: 10,
+        contextualCount: detailChoices.length,
+        back: { actionType: 'navigation.back', label: 'Volver a servicios' }
+      })
       const detail = context.labels.catalogServiceDetail
       return appendGlobals({
         bodyKind: 'detail',
@@ -706,9 +712,20 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
       return appendGlobals(menuView('¿Querés complementarlo?', choices), composeGlobalNavigation({ capacity: 10, contextualCount: choices.length, back: BACK_CHOICE }))
     }
     case 'CART_REVIEW': {
+      if (state.presentation.kind === 'cart_remove_select') {
+        const removeChoices: ViewChoice[] = (context.labels.cartServices ?? []).map((service) => ({
+          actionType: 'cart.remove_service',
+          label: service.label,
+          entityRef: { type: 'SERVICE', id: service.serviceId }
+        }))
+        return appendGlobals(
+          menuView('¿Qué servicio querés quitar?', removeChoices),
+          composeGlobalNavigation({ capacity: 10, contextualCount: removeChoices.length, back: BACK_CHOICE })
+        )
+      }
       const choices: ViewChoice[] = [
         { actionType: 'cart.add_service', label: 'Agregar otro servicio' },
-        { actionType: 'cart.remove_service', label: 'Quitar un servicio' },
+        { actionType: 'cart.open_remove', label: 'Quitar un servicio' },
         { actionType: 'cart.continue', label: 'Continuar con la reserva' }
       ]
       return appendGlobals(menuView(context.labels.cartSummary ?? 'Tu reserva', choices), composeGlobalNavigation({ capacity: 10, contextualCount: choices.length, back: BACK_CHOICE }))
@@ -1308,6 +1325,10 @@ function tryUniversal(
       return applied(restored, renderCurrentView(restored, context))
     }
     case 'navigation.back': {
+      if (state.flow === 'CART_REVIEW' && state.presentation.kind === 'cart_remove_select') {
+        const restored = baseOf(state, { presentation: plainPresentation() })
+        return applied(restored, renderCurrentView(restored, context))
+      }
       if (state.flow === 'DISCARD_CONFIRM') {
         const target = state.discardReturnFlow ?? 'MAIN_MENU'
         return applied(baseOf(state, { flow: target, discardReturnFlow: null, presentation: plainPresentation() }), renderCurrentView({ ...state, flow: target }, context))
@@ -2025,12 +2046,38 @@ function fromCartReview(
   entityRef: BotOptionsEntityRef | null,
   context: TransitionContext
 ): TransitionResult {
+  if (actionType === 'cart.open_remove') {
+    if (state.cart.length === 0) {
+      return recovered(state, 'guard_failed', 'Tu reserva no tiene servicios para quitar.', [])
+    }
+    const next = baseOf(state, { presentation: { kind: 'cart_remove_select' } })
+    return applied(next, renderCurrentView(next, context))
+  }
   if (actionType === 'cart.remove_service') {
+    if (state.presentation.kind !== 'cart_remove_select') {
+      return recovered(state, 'guard_failed', 'Primero elegí la opción “Quitar un servicio”.', [])
+    }
     if (!entityRef || !state.cart.some((item) => item.serviceId === entityRef.id)) {
       return recovered(state, 'entity_inactive', 'Ese servicio no está en tu reserva.', [])
     }
     const remaining = state.cart.filter((item) => item.serviceId !== entityRef.id)
-    const next = baseOf(withoutSelections({ ...state, cart: remaining }, 'professional'), { presentation: plainPresentation() })
+    const invalidated = withoutSelections({ ...state, cart: remaining }, 'professional')
+    if (remaining.length === 0) {
+      const next = baseOf(invalidated, {
+        flow: 'CATEGORY_SELECT',
+        catalogMode: 'BOOKING',
+        pendingEntityRef: null,
+        recommendationSourceServiceIds: [],
+        selections: { ...invalidated.selections, categoryId: null },
+        presentation: plainPresentation()
+      })
+      const serviceName = context.labels.serviceName ?? 'el servicio'
+      return withServiceInformation(
+        applied(next, renderCurrentView(next, context)),
+        [`Quitamos ${serviceName}. Tu reserva quedó sin servicios. Elegí una categoría para agregar otro.`]
+      )
+    }
+    const next = baseOf(invalidated, { flow: 'CART_REVIEW', presentation: plainPresentation() })
     return applied(next, renderCurrentView(next, context))
   }
   if (actionType === 'cart.add_service') {

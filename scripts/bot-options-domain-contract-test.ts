@@ -51,6 +51,7 @@ assert.equal(BOT_OPTIONS_ACTION_REQUIREMENTS['slot.select']?.requiresSlotStart, 
 assert.equal(BOT_OPTIONS_ACTION_REQUIREMENTS['slot.band']?.requiresSlotBand, true)
 assert.equal(BOT_OPTIONS_ACTION_REQUIREMENTS['navigation.back']?.entity, undefined)
 assert.equal(BOT_OPTIONS_ACTION_REQUIREMENTS['service.more_same_category']?.entity, undefined)
+assert.equal(BOT_OPTIONS_ACTION_REQUIREMENTS['cart.open_remove']?.entity, undefined)
 
 // ─── Validación de envelope: caso feliz mínimo ────────────────────────────────
 

@@ -325,7 +325,8 @@ export const defaultContextProvider: TransitionContextProvider = async (tx, inpu
   } else if (
     input.actionType === 'menu.browse_services' || input.actionType === 'menu.start_booking' ||
     input.actionType === 'name.confirm' || input.actionType === 'service.change_category' ||
-    input.actionType === 'cart.add_service'
+    input.actionType === 'cart.add_service' ||
+    (input.actionType === 'cart.remove_service' && input.state.cart.length === 1)
   ) {
     await applyCategoryPage(0)
   } else if (input.state.flow === 'CATEGORY_SELECT') {
@@ -493,8 +494,12 @@ export const defaultContextProvider: TransitionContextProvider = async (tx, inpu
     base.recommendedCompatibleWithCart = base.serviceCompatibleWithCart
     base.professionalCommonExists = targetCart.snapshot.commonProfessionalIds.length > 0
     base.labels.cartSummary = formatCartSummary(targetCart.snapshot)
+    base.labels.cartServices = targetCart.snapshot.services.map((service) => ({
+      serviceId: service.id,
+      label: service.name
+    }))
   }
-  if (cartIds.length > 0 && !targetCart) {
+  if (cartIds.length > 0 && !targetCart && input.actionType !== 'cart.remove_service') {
     targetCart = await cartRepo.load({ businessId: input.businessId, serviceIds: cartIds, serviceDecisions })
   }
 

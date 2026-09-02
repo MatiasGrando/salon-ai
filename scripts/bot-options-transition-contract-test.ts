@@ -398,7 +398,7 @@ if (staleResult.outcome === 'RECOVERED') {
 }
 
 // 4) Vista SERVICE_DETAIL ofrece Reservar cuando el servicio es reservable.
-const viewBookable = stateWith({ flow: 'SERVICE_DETAIL', pendingEntityRef: { type: 'SERVICE', id: 'svc-bookable' } })
+const viewBookable = stateWith({ flow: 'SERVICE_DETAIL', catalogMode: 'BROWSING', pendingEntityRef: { type: 'SERVICE', id: 'svc-bookable' } })
 const vbView = renderCurrentView(viewBookable, normalizeContext(ctx({ serviceActive: true, serviceBookable: true, requiresConsultation: false, labels: { serviceName: 'Corte' } })))
 {
   const bookChoice = vbView.choices.find((c) => c.actionType === 'service.book')
@@ -407,7 +407,28 @@ const vbView = renderCurrentView(viewBookable, normalizeContext(ctx({ serviceAct
   assert.deepEqual(bookChoice?.entityRef, { type: 'SERVICE', id: 'svc-bookable' }, 'service.book choice carries entityRef')
   const consultChoice = vbView.choices.find((c) => c.actionType === 'service.consult')
   assert.ok(!consultChoice, 'vista reservable NO debe ofrecer service.consult')
+  assert.ok(!vbView.choices.some((c) => c.actionType === 'service.more_same_category'), 'no duplica Volver con Ver otros servicios')
+  assert.equal(vbView.choices.find((c) => c.actionType === 'service.change_category')?.label, 'Elegir otra categoría')
+  assert.equal(vbView.choices.find((c) => c.actionType === 'navigation.back')?.label, 'Volver a servicios')
 }
+const chooseOtherCategory = transition(
+  viewBookable,
+  act('service.change_category'),
+  ctx({ labels: { catalogCategories: [{ categoryId: 'cat_color', label: 'Coloración' }] } })
+)
+assert.equal(chooseOtherCategory.outcome, 'APPLIED')
+assert.equal(chooseOtherCategory.state.flow, 'CATEGORY_SELECT')
+assert.equal(chooseOtherCategory.state.selections.categoryId, null)
+assert.equal(chooseOtherCategory.view.choices.find((choice) => choice.actionType === 'category.select')?.label, 'Coloración')
+
+const backToCategoryServices = transition(
+  viewBookable,
+  act('navigation.back'),
+  ctx({ labels: { categoryName: 'Cortes', catalogEntries: [{ kind: 'SERVICE', entityId: 'srv_otro', label: 'Otro corte' }] } })
+)
+assert.equal(backToCategoryServices.outcome, 'APPLIED')
+assert.equal(backToCategoryServices.state.flow, 'SERVICE_SELECT')
+assert.equal(backToCategoryServices.view.choices.find((choice) => choice.actionType === 'service.view')?.label, 'Otro corte')
 
 // 5) Vista SERVICE_DETAIL SIEMPRE ofrece Reservar; el routing a handoff se resuelve en resolveSelectedService.
 const viewConsult = stateWith({ flow: 'SERVICE_DETAIL', pendingEntityRef: { type: 'SERVICE', id: 'svc-consult' } })
@@ -454,6 +475,77 @@ if (consultBookWithName.outcome === 'HANDOFF') {
     assert.equal(handoffEffect.reason, 'servicio_requiere_consulta_previa')
   }
 }
+
+// 8) Quitar un servicio abre un selector con referencias estables.
+const cartWithTwo = stateWith({
+  flow: 'CART_REVIEW',
+  cart: [{ serviceId: 'srv_corte' }, { serviceId: 'srv_banio' }]
+})
+const openRemove = transition(cartWithTwo, act('cart.open_remove'), ctx({
+  labels: {
+    cartSummary: 'Tu reserva',
+    cartServices: [
+      { serviceId: 'srv_corte', label: 'Corte Hombre' },
+      { serviceId: 'srv_banio', label: 'Baño de crema' }
+    ]
+  }
+}))
+assert.equal(openRemove.outcome, 'APPLIED')
+assert.equal(openRemove.state.flow, 'CART_REVIEW')
+assert.deepEqual(openRemove.state.presentation, { kind: 'cart_remove_select' })
+assert.equal(openRemove.view.interactiveBody, '¿Qué servicio querés quitar?')
+assert.deepEqual(
+  openRemove.view.choices.filter((choice) => choice.actionType === 'cart.remove_service').map((choice) => ({ label: choice.label, entityRef: choice.entityRef })),
+  [
+    { label: 'Corte Hombre', entityRef: { type: 'SERVICE', id: 'srv_corte' } },
+    { label: 'Baño de crema', entityRef: { type: 'SERVICE', id: 'srv_banio' } }
+  ]
+)
+const removeScreen = renderWhatsAppScreen(openRemove.view, { promptToken: 'r'.repeat(16) })
+assert.deepEqual(
+  removeScreen.choiceMappings.filter((choice) => choice.actionType === 'cart.remove_service').map((choice) => ({ type: choice.entityType, id: choice.entityId })),
+  [{ type: 'SERVICE', id: 'srv_corte' }, { type: 'SERVICE', id: 'srv_banio' }],
+  'cada opción de eliminación conserva el servicio elegido al pasar por WhatsApp'
+)
+const cancelRemove = transition(openRemove.state, act('navigation.back'), ctx({ labels: { cartSummary: 'Tu reserva' } }))
+assert.equal(cancelRemove.outcome, 'APPLIED')
+assert.equal(cancelRemove.state.flow, 'CART_REVIEW')
+assert.equal(cancelRemove.view.interactiveBody, 'Tu reserva')
+
+// 9) Si quedan servicios, vuelve al resumen con todas sus acciones habituales.
+const removeOne = transition(
+  openRemove.state,
+  act('cart.remove_service', { entityRef: { type: 'SERVICE', id: 'srv_corte' } }),
+  ctx({ labels: { serviceName: 'Corte Hombre', cartSummary: 'Tu reserva\n• Baño de crema', cartServices: [{ serviceId: 'srv_banio', label: 'Baño de crema' }] } })
+)
+assert.equal(removeOne.outcome, 'APPLIED')
+assert.equal(removeOne.state.flow, 'CART_REVIEW')
+assert.deepEqual(removeOne.state.cart, [{ serviceId: 'srv_banio' }])
+assert.deepEqual(removeOne.view.choices.map((choice) => choice.label), [
+  'Agregar otro servicio',
+  'Quitar un servicio',
+  'Continuar con la reserva',
+  'Volver',
+  'Menú principal',
+  'Hablar con el equipo'
+])
+
+// 10) Si no quedan servicios, reutiliza categorías y agrega sólo el aviso.
+const removeLast = transition(
+  stateWith({ flow: 'CART_REVIEW', presentation: { kind: 'cart_remove_select' }, cart: [{ serviceId: 'srv_corte' }] }),
+  act('cart.remove_service', { entityRef: { type: 'SERVICE', id: 'srv_corte' } }),
+  ctx({
+    labels: {
+      serviceName: 'Corte Hombre',
+      catalogCategories: [{ categoryId: 'cat_cortes', label: 'Cortes' }]
+    }
+  })
+)
+assert.equal(removeLast.outcome, 'APPLIED')
+assert.equal(removeLast.state.flow, 'CATEGORY_SELECT')
+assert.deepEqual(removeLast.state.cart, [])
+assert.deepEqual(removeLast.view.informativeTexts, ['Quitamos Corte Hombre. Tu reserva quedó sin servicios. Elegí una categoría para agregar otro.'])
+assert.equal(removeLast.view.choices.find((choice) => choice.actionType === 'category.select')?.label, 'Cortes')
 
 // 8) service.book sin nombre en servicio reservable pide nombre primero.
 const detailNoName = stateWith({ flow: 'SERVICE_DETAIL', pendingEntityRef: { type: 'SERVICE', id: 'srv_corte' } })
