@@ -23,8 +23,8 @@ assert.equal(
   'WX-RWCEDG'
 )
 assert.equal(findCustomSiteProfileBinding('otro.weex.com.ar'), null)
-assert.deepEqual(findCustomSiteProfileBinding('naturaflow.weex.com.ar'), {
-  hostname: 'naturaflow.weex.com.ar',
+assert.deepEqual(findCustomSiteProfileBinding('naturalflow.weex.com.ar'), {
+  hostname: 'naturalflow.weex.com.ar',
   businessCustomerCode: 'WX-TFN89J',
   serviceCatalogMode: 'ALL'
 })
@@ -52,7 +52,7 @@ assert.match(naturaFlowSite, /<title>Natura Flow \| Natalia Baez Riquelme<\/titl
 assert.match(naturaFlowSite, /storage\/v1\/object\/public\/custom-sites\/natura-flow\/hero\.mp4/)
 assert.match(naturaFlowSite, /href="\/reservar"/)
 assert.doesNotMatch(naturaFlowSite, /5491112345678|contacto@nataliabaez\.com|Pedro de Valdivia/)
-assert.match(naturaFlowRoute, /const naturaFlowHost = 'naturaflow\.weex\.com\.ar'/)
+assert.match(naturaFlowRoute, /const naturaFlowHost = 'naturalflow\.weex\.com\.ar'/)
 assert.match(naturaFlowRoute, /findPublicByCustomerCode\(naturaFlowBinding\.businessCustomerCode\)/)
 assert.match(authGuard, /isNaturaFlowSitePublicRoute\(request, path\)/)
 assert.match(server, /app\.register\(naturaFlowSiteRoutes\)/)

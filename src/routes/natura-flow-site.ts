@@ -5,7 +5,7 @@ import { BusinessService } from '../services/business-service.js'
 import { findCustomSiteProfileBinding } from '../services/custom-site-profile-binding.js'
 import { isBusinessAccountUnavailable } from '../services/business-account-access.js'
 
-const naturaFlowHost = 'naturaflow.weex.com.ar'
+const naturaFlowHost = 'naturalflow.weex.com.ar'
 const naturaFlowSiteDir = join(process.cwd(), 'src', 'assets', 'natura-flow-site')
 const businessService = new BusinessService()
 const naturaFlowBinding = findCustomSiteProfileBinding(naturaFlowHost)

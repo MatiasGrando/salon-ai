@@ -234,7 +234,7 @@ function isNaturaFlowSitePublicRoute(request: FastifyRequest, path: string) {
   const rawHost = request.headers['x-forwarded-host'] || request.headers.host
   const host = Array.isArray(rawHost) ? rawHost[0] : rawHost
   const hostname = host?.split(',')[0]?.trim().split(':')[0]?.toLowerCase()
-  if (hostname !== 'naturaflow.weex.com.ar') return false
+  if (hostname !== 'naturalflow.weex.com.ar') return false
 
   return path === '/styles/custom.css' || path === '/scripts/app.js'
 }

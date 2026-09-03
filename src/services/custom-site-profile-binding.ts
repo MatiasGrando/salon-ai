@@ -11,7 +11,7 @@ const customSiteProfileBindings: CustomSiteProfileBinding[] = [
     serviceCatalogMode: 'ALL'
   },
   {
-    hostname: 'naturaflow.weex.com.ar',
+    hostname: 'naturalflow.weex.com.ar',
     businessCustomerCode: 'WX-TFN89J',
     serviceCatalogMode: 'ALL'
   }
