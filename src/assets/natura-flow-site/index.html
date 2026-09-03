@@ -1,0 +1,1223 @@
+<!DOCTYPE html>
+<html lang="es" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Natura Flow | Natalia Baez Riquelme</title>
+  <meta name="description" content="Masajes que sueltan de verdad la tensión que cargás. Sesiones 1 a 1 de terapia corporal y shiatsu somático con aceites y CBD medicinal.">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'dark-bg': '#1B1E18',
+            'olive-card': '#272D21',
+            'olive-border': '#3D4534',
+            'cream-bg': '#F5EFE6',
+            'linen': '#FAF8F4',
+            'sand': '#D4C4AC',
+            'sand-light': '#E8DDCE',
+          },
+          fontFamily: {
+            serif: ['Cormorant Garamond', 'Georgia', 'serif'],
+            sans: ['Plus Jakarta Sans', 'sans-serif']
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Custom Styles -->
+  <link rel="stylesheet" href="styles/custom.css">
+</head>
+
+<body class="bg-dark-bg text-[#EFECE6] antialiased selection:bg-[#D4C4AC] selection:text-[#1B1E18] relative">
+
+  <!-- HEADER -->
+  <header class="sticky top-0 z-40 glass-header-dark py-4 px-4 sm:px-8">
+    <div class="max-w-7xl mx-auto flex items-center justify-between">
+      
+      <!-- Brand Logo -->
+      <a href="#" class="flex flex-col">
+        <span class="font-serif text-2xl sm:text-3xl tracking-wide font-normal text-[#FAF8F4] leading-tight">Natalia Baez Riquelme</span>
+        <span class="text-[9px] sm:text-[10px] tracking-[0.25em] uppercase text-[#D4C4AC] font-medium flex items-center gap-1.5 mt-0.5">
+          <svg class="w-3 h-3 text-[#D4C4AC]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
+          </svg>
+          TERAPIAS HOLÍSTICAS & BIENESTAR
+        </span>
+      </a>
+
+      <!-- Desktop Navigation Links (Updated Order) -->
+      <nav class="hidden md:flex items-center gap-7 text-xs tracking-wide font-medium text-stone-300">
+        <a href="#te-pasa-esto" class="hover:text-[#D4C4AC] transition-colors">¿Te Pasa Esto?</a>
+        <a href="#propuesta" class="hover:text-[#D4C4AC] transition-colors">Propuesta</a>
+        <a href="#servicios" class="hover:text-[#D4C4AC] transition-colors">Servicios</a>
+        <a href="#sobre-mi" class="hover:text-[#D4C4AC] transition-colors">Sobre Natalia</a>
+        <a href="#experiencia" class="hover:text-[#D4C4AC] transition-colors">Experiencia</a>
+        <a href="#testimonios" class="hover:text-[#D4C4AC] transition-colors">Testimonios</a>
+        <a href="#contacto" class="hover:text-[#D4C4AC] transition-colors">Contacto</a>
+      </nav>
+
+      <!-- Right Header Actions -->
+      <div class="flex items-center gap-3">
+        <a href="/reservar" class="btn-sand text-xs font-bold px-4 sm:px-5 py-2 sm:py-2.5 rounded-full flex items-center gap-2 shadow-sm">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/>
+          </svg>
+          <span class="hidden sm:inline">RESERVAR CITA</span>
+          <span class="sm:hidden">RESERVAR</span>
+        </a>
+
+        <!-- Mobile Hamburger Toggle Button -->
+        <button id="mobileMenuBtn" aria-label="Abrir menú de navegación" class="md:hidden w-9 h-9 rounded-full border border-white/20 bg-white/5 text-[#D4C4AC] hover:text-white hover:border-[#D4C4AC] flex items-center justify-center transition-all">
+          <svg id="hamburgerIcon" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/>
+          </svg>
+          <svg id="closeIcon" class="w-5 h-5 hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="6" y1="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+
+    </div>
+
+    <!-- Mobile Dropdown Navigation Menu -->
+    <div id="mobileMenu" class="hidden md:hidden fixed inset-x-0 top-[65px] bg-[#1B1E18]/98 backdrop-blur-2xl border-b border-[#3D4534] px-6 py-8 shadow-2xl z-30 transition-all">
+      <nav class="flex flex-col gap-4 text-xs font-semibold tracking-widest text-stone-200 uppercase">
+        <a href="#te-pasa-esto" class="mobile-nav-link py-2.5 border-b border-white/5 hover:text-[#D4C4AC] flex items-center justify-between">
+          <span>¿Te Pasa Esto?</span>
+          <span class="text-sm text-[#D4C4AC]">→</span>
+        </a>
+        <a href="#propuesta" class="mobile-nav-link py-2.5 border-b border-white/5 hover:text-[#D4C4AC] flex items-center justify-between">
+          <span>Nuestra Propuesta</span>
+          <span class="text-sm text-[#D4C4AC]">→</span>
+        </a>
+        <a href="#servicios" class="mobile-nav-link py-2.5 border-b border-white/5 hover:text-[#D4C4AC] flex items-center justify-between">
+          <span>Servicios & Terapias</span>
+          <span class="text-sm text-[#D4C4AC]">→</span>
+        </a>
+        <a href="#sobre-mi" class="mobile-nav-link py-2.5 border-b border-white/5 hover:text-[#D4C4AC] flex items-center justify-between">
+          <span>Sobre Natalia</span>
+          <span class="text-sm text-[#D4C4AC]">→</span>
+        </a>
+        <a href="#experiencia" class="mobile-nav-link py-2.5 border-b border-white/5 hover:text-[#D4C4AC] flex items-center justify-between">
+          <span>El Viaje Sensorial</span>
+          <span class="text-sm text-[#D4C4AC]">→</span>
+        </a>
+        <a href="#testimonios" class="mobile-nav-link py-2.5 border-b border-white/5 hover:text-[#D4C4AC] flex items-center justify-between">
+          <span>Testimonios de Pacientes</span>
+          <span class="text-sm text-[#D4C4AC]">→</span>
+        </a>
+        <a href="#contacto" class="mobile-nav-link py-2.5 hover:text-[#D4C4AC] flex items-center justify-between">
+          <span>Ubicación & Contacto</span>
+          <span class="text-sm text-[#D4C4AC]">→</span>
+        </a>
+      </nav>
+
+      <div class="mt-6 pt-6 border-t border-[#3D4534] space-y-3">
+        <a href="https://wa.me/5491128949201?text=Hola%20Natalia,%20quisiera%20agendar%20una%20sesión" target="_blank" class="btn-sand w-full text-xs font-bold py-3 rounded-full flex items-center justify-center gap-2 shadow-md">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>
+          <span>CHATEAR POR WHATSAPP</span>
+        </a>
+        <p class="text-[11px] text-center text-stone-400 font-light">Atención individual con reserva previa</p>
+      </div>
+    </div>
+  </header>
+
+  <!-- 1. HERO SECTION -->
+  <section class="hero min-h-[92vh] flex items-center justify-center overflow-hidden px-4 sm:px-6 lg:px-8 py-20">
+    
+    <!-- Background Video in Loop at 70% speed (Smooth zero-flash fade-in) -->
+    <video id="heroVideo" autoplay muted loop playsinline class="absolute inset-0 w-full h-full object-cover z-0 opacity-0 transition-opacity duration-700">
+      <source src="https://dvnllpvdpvdvdheafyau.supabase.co/storage/v1/object/public/custom-sites/natura-flow/hero.mp4" type="video/mp4">
+      <source src="https://assets.mixkit.co/videos/preview/mixkit-hands-of-a-masseuse-massaging-a-womans-back-41221-large.mp4" type="video/mp4">
+    </video>
+
+    <div class="hero-content max-w-4xl mx-auto text-center">
+      
+      <!-- Top Service Badge -->
+      <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-black/50 backdrop-blur-md border border-white/15 text-[#D4C4AC] text-[11px] font-medium tracking-[0.2em] uppercase mb-8">
+        <svg class="w-3 h-3 text-[#D4C4AC]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
+        </svg>
+        <span>MASAJES · SHIATSU · TERAPIA CORPORAL</span>
+      </div>
+
+      <!-- Main Headline -->
+      <h1 class="font-serif text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-normal tracking-tight leading-[1.12] mb-6 text-[#FAF8F4]">
+        Masajes que sueltan <span class="italic text-[#D4C4AC] font-light">de verdad</span>
+        <br>
+        <span class="italic text-[#D4C4AC] font-light">la tensión</span> que cargás
+      </h1>
+
+      <!-- Subtitle -->
+      <p class="max-w-2xl mx-auto text-xs sm:text-sm md:text-base text-stone-200 font-light leading-relaxed mb-10">
+        Sesiones 1 a 1 de terapia corporal y shiatsu somático, con aceites y CBD medicinal, para bajar el estrés y aliviar contracturas de raíz.
+      </p>
+
+      <!-- Action Buttons -->
+      <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16">
+        <a href="/reservar" class="btn-sand w-full sm:w-auto text-xs uppercase tracking-wider font-bold px-8 py-3.5 rounded-full flex items-center justify-center gap-2 shadow-xl">
+          <span>QUIERO AGENDAR MI SESIÓN</span>
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </a>
+        <a href="#te-pasa-esto" class="w-full sm:w-auto text-xs uppercase tracking-wider font-semibold px-7 py-3.5 rounded-full border border-white/25 bg-black/30 backdrop-blur-sm hover:bg-black/50 text-stone-100 transition-all flex items-center justify-center gap-2">
+          <svg class="w-4 h-4 text-[#D4C4AC]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>
+          </svg>
+          <span>CONOCER LAS TERAPIAS</span>
+        </a>
+      </div>
+
+      <!-- 3 Hero Pillars -->
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-6 sm:gap-4 max-w-3xl mx-auto text-left">
+        
+        <div class="flex items-center gap-3 bg-transparent p-0 border-none">
+          <div class="w-8 h-8 rounded-full border border-white/20 bg-black/40 backdrop-blur-sm flex items-center justify-center text-[#D4C4AC] flex-shrink-0">
+            <svg class="w-4 h-4 text-[#D4C4AC]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>
+            </svg>
+          </div>
+          <div>
+            <h3 class="text-xs font-bold text-[#FAF8F4] uppercase tracking-wider leading-tight">ATENCIÓN 1 A 1</h3>
+            <p class="text-[11px] text-stone-300 font-light mt-0.5">Espacio privado y personalizado</p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-3 bg-transparent p-0 border-none">
+          <div class="w-8 h-8 rounded-full border border-white/20 bg-black/40 backdrop-blur-sm flex items-center justify-center text-[#D4C4AC] flex-shrink-0">
+            <svg class="w-4 h-4 text-[#D4C4AC]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>
+            </svg>
+          </div>
+          <div>
+            <h3 class="text-xs font-bold text-[#FAF8F4] uppercase tracking-wider leading-tight">BOTÁNICA ORGÁNICA</h3>
+            <p class="text-[11px] text-stone-300 font-light mt-0.5">CBD medicinal y aceites puros</p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-3 bg-transparent p-0 border-none">
+          <div class="w-8 h-8 rounded-full border border-white/20 bg-black/40 backdrop-blur-sm flex items-center justify-center text-[#D4C4AC] flex-shrink-0">
+            <svg class="w-4 h-4 text-[#D4C4AC]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>
+            </svg>
+          </div>
+          <div>
+            <h3 class="text-xs font-bold text-[#FAF8F4] uppercase tracking-wider leading-tight">ENFOQUE SOMÁTICO</h3>
+            <p class="text-[11px] text-stone-300 font-light mt-0.5">Regulación del sistema nervioso</p>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </section>
+
+  <!-- 2. SECTION: ¿TE PASA ESTO? (EXACT MATCH TO REFERENCE IMAGE 1) -->
+  <section id="te-pasa-esto" class="bg-[#F5EFE6] text-[#1B1E18] py-16 sm:py-24 px-4 sm:px-6 lg:px-8 relative overflow-hidden transition-colors duration-700">
+    <div class="max-w-6xl mx-auto space-y-12">
+      
+      <!-- Main 2-Column Problem Grid -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
+        
+        <!-- Left Column: Title, Subtitle, 3 Cards & Bottom Pill -->
+        <div class="lg:col-span-7 space-y-6">
+          
+          <!-- Eyebrow Badge -->
+          <div class="reveal-item inline-flex items-center gap-1.5 text-[#8C7A62] text-[11px] font-bold tracking-[0.2em] uppercase" style="transition-delay: 80ms;">
+            <span>✦ ¿TE PASA ESTO?</span>
+          </div>
+
+          <!-- Headline -->
+          <h2 class="reveal-item font-serif text-4xl sm:text-5xl md:text-6xl text-[#1C2119] font-normal tracking-tight leading-[1.12]" style="transition-delay: 150ms;">
+            ¿Sentís que tu cuerpo <br>
+            <span class="italic font-light text-[#5C4A34]">nunca termina de aflojar?</span>
+          </h2>
+
+          <div class="reveal-item w-10 h-0.5 bg-[#C5B396]" style="transition-delay: 200ms;"></div>
+
+          <!-- Subtitle -->
+          <p class="reveal-item text-stone-700 leading-relaxed font-light" style="font-size: 1.15rem; transition-delay: 250ms;">
+            La tensión acumulada no solo se siente.<br>
+            <span class="italic font-medium text-black">Se vive</span> en el cuerpo, en la mente y en tu energía diaria.
+          </p>
+
+          <!-- 3 Symptoms Cards Horizontal Row -->
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-2">
+            
+            <!-- Card 1: Contracturas -->
+            <div class="reveal-item bg-[#EDE5D8] border border-[#DDD3C3] rounded-2xl p-4 text-center flex flex-col items-center justify-between shadow-sm" style="transition-delay: 350ms;">
+              <div class="w-12 h-12 rounded-full bg-[#5D6B54] text-[#EDE5D8] flex items-center justify-center mb-3 shadow-inner">
+                <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 2a4 4 0 0 0-4 4v1a4 4 0 0 0 8 0V6a4 4 0 0 0-4-4Z"/><path d="M6 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><path d="M3 10c.8.8 1.5 2 1.5 3"/><path d="M21 10c-.8.8-1.5 2-1.5 3"/>
+                </svg>
+              </div>
+              <h4 class="text-sm font-bold tracking-wider uppercase text-stone-900 mb-1.5">CONTRACTURAS</h4>
+              <div class="w-6 h-0.5 bg-[#C5B396] mb-2"></div>
+              <p class="text-stone-600 font-light leading-snug" style="font-size: 0.975rem;">Que vuelven una y otra vez.</p>
+            </div>
+
+            <!-- Card 2: Tensión -->
+            <div class="reveal-item bg-[#EDE5D8] border border-[#DDD3C3] rounded-2xl p-4 text-center flex flex-col items-center justify-between shadow-sm" style="transition-delay: 450ms;">
+              <div class="w-12 h-12 rounded-full bg-[#5D6B54] text-[#EDE5D8] flex items-center justify-center mb-3 shadow-inner">
+                <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="7" r="4"/><path d="M5.5 21v-2a6.5 6.5 0 0 1 13 0v2"/><line x1="8" x2="16" y1="14" y2="14"/>
+                </svg>
+              </div>
+              <h4 class="text-sm font-bold tracking-wider uppercase text-stone-900 mb-1.5">TENSIÓN</h4>
+              <div class="w-6 h-0.5 bg-[#C5B396] mb-2"></div>
+              <p class="text-stone-600 font-light leading-snug" style="font-size: 0.975rem;">Acumulada en cuello, espalda y hombros.</p>
+            </div>
+
+            <!-- Card 3: Estrés -->
+            <div class="reveal-item bg-[#EDE5D8] border border-[#DDD3C3] rounded-2xl p-4 text-center flex flex-col items-center justify-between shadow-sm" style="transition-delay: 550ms;">
+              <div class="w-12 h-12 rounded-full bg-[#5D6B54] text-[#EDE5D8] flex items-center justify-center mb-3 shadow-inner">
+                <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 3a9 9 0 0 0-9 9c0 3.2 1.7 6 4.3 7.6"/><path d="M12 3c4.9 0 9 4 9 9 0 3-1.5 5.7-3.8 7.3"/><circle cx="12" cy="12" r="3"/><path d="m9 15 6-6"/>
+                </svg>
+              </div>
+              <h4 class="text-sm font-bold tracking-wider uppercase text-stone-900 mb-1.5">ESTRÉS</h4>
+              <div class="w-6 h-0.5 bg-[#C5B396] mb-2"></div>
+              <p class="text-stone-600 font-light leading-snug" style="font-size: 0.975rem;">Que se siente físicamente.</p>
+            </div>
+
+          </div>
+
+          <!-- Bottom Long Pill Card -->
+          <div class="reveal-item bg-[#EDE5D8] border border-[#DDD3C3] rounded-2xl p-3.5 sm:p-4 flex items-center gap-3.5 shadow-sm" style="transition-delay: 650ms;">
+            <div class="w-9 h-9 rounded-full bg-[#D8CCBA] text-[#5A4B37] flex items-center justify-center flex-shrink-0">
+              <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/>
+              </svg>
+            </div>
+            <p class="text-stone-800 font-light leading-snug" style="font-size: 1.15rem;">
+              ¿Te cuesta realmente <span class="font-serif italic font-normal text-xl text-[#4A3D2B]">relajarte</span> incluso cuando descansás?
+            </p>
+          </div>
+
+        </div>
+
+        <!-- Right Column: Woman Touching Neck/Shoulder Spa Photo -->
+        <div class="lg:col-span-5">
+          <div class="reveal-image-box rounded-3xl overflow-hidden shadow-xl border border-[#E3DACB] bg-[#22291E]">
+            <img src="https://images.unsplash.com/photo-1544161515-4ab6ce6db874?auto=format&fit=crop&w=900&q=85" alt="Mujer con dolor cervical y contracturas en spa somático" class="w-full h-[380px] sm:h-[430px] object-cover">
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Bottom Bridge Quote Card (Exact match to footer of Image 1) -->
+      <div class="reveal-item pt-4 text-center space-y-3" style="transition-delay: 750ms;">
+        <div class="w-10 h-10 rounded-full bg-[#EAE0D2] text-[#6E5F4A] flex items-center justify-center mx-auto shadow-sm">
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>
+          </svg>
+        </div>
+        <p class="text-stone-800 font-semibold" style="font-size: 1.15rem;">No se trata solamente de relajarte.</p>
+        <p class="font-serif italic text-2xl sm:text-3xl text-[#5A4B37] font-normal leading-snug">
+          Se trata de ayudar a tu cuerpo a soltar lo que viene cargando.
+        </p>
+        <div class="w-12 h-0.5 bg-[#C5B396] mx-auto mt-2"></div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- 3. SECTION: NUESTRA PROPUESTA (EXACT MATCH TO REFERENCE IMAGE 2) -->
+  <section id="propuesta" class="bg-[#FAF8F4] text-[#1B1E18] py-16 sm:py-24 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
+    <div class="max-w-6xl mx-auto space-y-16">
+      
+      <!-- Top Split Section: Massage Photo + Proposal & 3 Pillars -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
+        
+        <!-- Left: Atmospheric Massage Hands Photo -->
+        <div class="lg:col-span-6">
+          <div class="reveal-image-box rounded-3xl overflow-hidden shadow-lg border border-[#EAE5D9] bg-[#22291E]">
+            <img src="https://images.unsplash.com/photo-1600334089648-b0d9d3028eb2?auto=format&fit=crop&w=1000&q=85" alt="Terapia manual y masaje de espalda" class="w-full h-72 sm:h-80 object-cover">
+          </div>
+        </div>
+
+        <!-- Right: Proposal Copy & 3 Inline Feature Pillars -->
+        <div class="lg:col-span-6 space-y-5">
+          
+          <div class="reveal-item inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[#EAE2D5] text-[#6E5F4A] text-[11px] font-bold tracking-[0.18em] uppercase" style="transition-delay: 100ms;">
+            <span>✦ NUESTRA PROPUESTA</span>
+          </div>
+
+          <h2 class="reveal-item font-serif text-3xl sm:text-4xl md:text-5xl text-[#1C2119] font-normal tracking-tight leading-[1.18]" style="transition-delay: 180ms;">
+            Una terapia pensada para <br>
+            que tu cuerpo <span class="italic font-light text-[#5C4A34]">realmente afloje</span>
+          </h2>
+
+          <div class="reveal-item w-10 h-0.5 bg-[#C5B396]" style="transition-delay: 240ms;"></div>
+
+          <p class="reveal-item text-stone-700 leading-relaxed font-light" style="font-size: 1.15rem; transition-delay: 300ms;">
+            Sesiones individuales donde se combinan diferentes técnicas de terapia corporal para trabajar la tensión desde una mirada integral.
+          </p>
+
+          <!-- 3 Inline Pillars -->
+          <div class="reveal-item grid grid-cols-1 sm:grid-cols-3 gap-4 pt-3" style="transition-delay: 400ms;">
+            
+            <div class="flex items-center gap-2.5">
+              <div class="w-9 h-9 rounded-full bg-[#EAE2D5] text-[#5D6B54] flex items-center justify-center flex-shrink-0">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                </svg>
+              </div>
+              <div class="leading-tight" style="font-size: 0.975rem;">
+                <strong class="text-stone-900 block font-semibold">Enfoque personalizado</strong>
+                <span class="text-stone-500 font-light">1 a 1</span>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2.5">
+              <div class="w-9 h-9 rounded-full bg-[#EAE2D5] text-[#5D6B54] flex items-center justify-center flex-shrink-0">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>
+                </svg>
+              </div>
+              <div class="leading-tight" style="font-size: 0.975rem;">
+                <strong class="text-stone-900 block font-semibold">Escucha y presencia</strong>
+                <span class="text-stone-500 font-light">en cada sesión</span>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2.5">
+              <div class="w-9 h-9 rounded-full bg-[#EAE2D5] text-[#5D6B54] flex items-center justify-center flex-shrink-0">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>
+                </svg>
+              </div>
+              <div class="leading-tight" style="font-size: 0.975rem;">
+                <strong class="text-stone-900 block font-semibold">Bienestar que se</strong>
+                <span class="text-stone-500 font-light">siente y se mantiene</span>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+
+      <!-- Bottom 3 Proposal Cards Grid (Exact replica of Image 2) -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        
+        <!-- Card 1: Terapia Corporal -->
+        <div class="reveal-item bg-[#EDE5D8] rounded-3xl overflow-hidden shadow-md flex flex-col justify-between" style="transition-delay: 200ms;">
+          <div>
+            <div class="h-44 w-full overflow-hidden">
+              <img src="https://images.unsplash.com/photo-1544161515-4ab6ce6db874?auto=format&fit=crop&w=600&q=80" alt="Terapia corporal manual" class="w-full h-full object-cover">
+            </div>
+            
+            <div class="flex justify-center -mt-7 relative z-10">
+              <div class="w-14 h-14 rounded-full bg-[#5D6B54] text-[#EDE5D8] flex items-center justify-center shadow-lg border-4 border-[#EDE5D8]">
+                <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                  <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>
+                </svg>
+              </div>
+            </div>
+
+            <div class="p-6 text-center">
+              <h3 class="font-serif text-2xl font-normal text-stone-900 mb-2">Terapia corporal</h3>
+              <div class="w-8 h-0.5 bg-[#C5B396] mx-auto mb-3"></div>
+              <p class="text-stone-600 font-light leading-relaxed mb-5" style="font-size: 0.975rem;">
+                Trabajo manual enfocado en liberar tensiones, descontracturar y restaurar la movilidad natural del cuerpo.
+              </p>
+            </div>
+          </div>
+
+          <div class="pb-6 px-6 text-center">
+            <span class="bg-[#DFD5C4] text-[#4A3D2B] text-[10px] font-bold tracking-wider px-4 py-1.5 rounded-full uppercase inline-block">
+              ALIVIA · LIBERA · EQUILIBRA
+            </span>
+          </div>
+        </div>
+
+        <!-- Card 2: Shiatsu Somático -->
+        <div class="reveal-item bg-[#EDE5D8] rounded-3xl overflow-hidden shadow-md flex flex-col justify-between" style="transition-delay: 350ms;">
+          <div>
+            <div class="h-44 w-full overflow-hidden">
+              <img src="https://images.unsplash.com/photo-1519823551278-64ac92734fb1?auto=format&fit=crop&w=600&q=80" alt="Shiatsu somático y medicina oriental" class="w-full h-full object-cover">
+            </div>
+            
+            <div class="flex justify-center -mt-7 relative z-10">
+              <div class="w-14 h-14 rounded-full bg-[#5D6B54] text-[#EDE5D8] flex items-center justify-center shadow-lg border-4 border-[#EDE5D8]">
+                <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                  <circle cx="12" cy="7" r="4"/><path d="M5.5 21v-2a6.5 6.5 0 0 1 13 0v2"/><line x1="8" x2="16" y1="14" y2="14"/>
+                </svg>
+              </div>
+            </div>
+
+            <div class="p-6 text-center">
+              <h3 class="font-serif text-2xl font-normal text-stone-900 mb-2">Shiatsu somático</h3>
+              <div class="w-8 h-0.5 bg-[#C5B396] mx-auto mb-3"></div>
+              <p class="text-stone-600 font-light leading-relaxed mb-5" style="font-size: 0.975rem;">
+                Presión y contacto consciente que trabajan con el sistema nervioso para liberar bloqueos físicos y emocionales.
+              </p>
+            </div>
+          </div>
+
+          <div class="pb-6 px-6 text-center">
+            <span class="bg-[#DFD5C4] text-[#4A3D2B] text-[10px] font-bold tracking-wider px-4 py-1.5 rounded-full uppercase inline-block">
+              REGULA · ARMONIZA · RESTABLECE
+            </span>
+          </div>
+        </div>
+
+        <!-- Card 3: Aceites + CBD Medicinal -->
+        <div class="reveal-item bg-[#EDE5D8] rounded-3xl overflow-hidden shadow-md flex flex-col justify-between" style="transition-delay: 500ms;">
+          <div>
+            <div class="h-44 w-full overflow-hidden">
+              <img src="https://images.unsplash.com/photo-1608571423902-eed4a5ad8108?auto=format&fit=crop&w=600&q=80" alt="Aceites botánicos y CBD medicinal" class="w-full h-full object-cover">
+            </div>
+            
+            <div class="flex justify-center -mt-7 relative z-10">
+              <div class="w-14 h-14 rounded-full bg-[#5D6B54] text-[#EDE5D8] flex items-center justify-center shadow-lg border-4 border-[#EDE5D8]">
+                <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                  <path d="M12 2a4.5 4.5 0 0 0-4.5 4.5c0 1.2.5 2.3 1.3 3.1A6 6 0 0 0 6 15v1a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-1a6 6 0 0 0-2.8-5.4c.8-.8 1.3-1.9 1.3-3.1A4.5 4.5 0 0 0 12 2Z"/>
+                </svg>
+              </div>
+            </div>
+
+            <div class="p-6 text-center">
+              <h3 class="font-serif text-2xl font-normal text-stone-900 mb-2">Aceites + CBD medicinal</h3>
+              <div class="w-8 h-0.5 bg-[#C5B396] mx-auto mb-3"></div>
+              <p class="text-stone-600 font-light leading-relaxed mb-5" style="font-size: 0.975rem;">
+                Una experiencia sensorial que acompaña el proceso de relajación profunda, potenciando el bienestar físico y mental.
+              </p>
+            </div>
+          </div>
+
+          <div class="pb-6 px-6 text-center">
+            <span class="bg-[#DFD5C4] text-[#4A3D2B] text-[10px] font-bold tracking-wider px-4 py-1.5 rounded-full uppercase inline-block">
+              NUTRE · CALMA · POTENCIA
+            </span>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </section>
+
+  <!-- 4. SERVICES / TREATMENTS SECTION (PRECIOS EN ARS) -->
+  <section id="servicios" class="py-24 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto border-t border-[#2D3525]/60">
+    
+    <div class="text-center max-w-3xl mx-auto mb-12">
+      <span class="text-xs font-semibold uppercase tracking-[0.25em] text-[#D4C4AC] flex items-center justify-center gap-1.5 mb-2">
+        <svg class="w-3.5 h-3.5 text-[#D4C4AC]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
+        </svg>
+        CARTA DE TERAPIAS & RITUALES
+      </span>
+      <h2 class="font-serif text-3xl sm:text-5xl text-[#FAF8F4] font-normal mb-4">
+        Sanación Integral & Cuidado Somático
+      </h2>
+      <p class="text-stone-300 text-xs sm:text-sm leading-relaxed max-w-2xl mx-auto font-light">
+        Cada tratamiento es una inmersión sensorial personalizada que fusiona aceites botánicos puros, maniobras de precisión y frecuencias armónicas.
+      </p>
+    </div>
+
+    <!-- Category Filter Tabs -->
+    <div class="flex items-center justify-center gap-2 sm:gap-3 flex-wrap mb-12">
+      <button class="filter-pill active px-5 py-2 rounded-full text-xs font-medium transition-all bg-[#272D21] text-stone-300 border border-[#3E4735] hover:border-[#D4C4AC]" data-filter="todos">
+        Todas las Terapias
+      </button>
+      <button class="filter-pill px-5 py-2 rounded-full text-xs font-medium transition-all bg-[#272D21] text-stone-300 border border-[#3E4735] hover:border-[#D4C4AC]" data-filter="corporal">
+        Masajes & Corporal
+      </button>
+      <button class="filter-pill px-5 py-2 rounded-full text-xs font-medium transition-all bg-[#272D21] text-stone-300 border border-[#3E4735] hover:border-[#D4C4AC]" data-filter="shiatsu">
+        Shiatsu & Somático
+      </button>
+    </div>
+
+    <!-- Dynamic Therapies Grid (2 Columns) -->
+    <div id="therapies-grid" class="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-5xl mx-auto">
+      <!-- Injected by app.js with ARS -->
+    </div>
+
+  </section>
+
+  <!-- 5. SECCIÓN SOBRE NATALIA (UBICADA DEBAJO DE SERVICIOS) -->
+  <section id="sobre-mi" class="py-24 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto border-t border-[#2D3525]/60">
+    
+    <!-- Section Header -->
+    <div class="text-center max-w-3xl mx-auto mb-16">
+      <span class="text-xs font-semibold uppercase tracking-[0.25em] text-[#D4C4AC] flex items-center justify-center gap-1.5 mb-2">
+        <svg class="w-3.5 h-3.5 text-[#D4C4AC]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
+        </svg>
+        VOCACIÓN & FILOSOFÍA
+      </span>
+      <h2 class="font-serif text-4xl sm:text-6xl text-[#FAF8F4] font-normal mb-3">
+        Sobre Natalia
+      </h2>
+      <div class="w-12 h-0.5 bg-[#D4C4AC] mx-auto mt-4"></div>
+    </div>
+
+    <!-- 2-Column Content Layout -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center max-w-6xl mx-auto">
+      
+      <!-- Left Column: Portrait Photo with Floating Experience Badge -->
+      <div class="lg:col-span-5 relative">
+        <div class="relative rounded-3xl overflow-hidden shadow-2xl border border-[#3D4534] group bg-[#272D21]">
+          <img src="https://dvnllpvdpvdvdheafyau.supabase.co/storage/v1/object/public/custom-sites/natura-flow/natalia.jpg" alt="Natalia Baez Riquelme - Terapeuta Somática" class="w-full h-[520px] object-cover object-top group-hover:scale-105 transition-transform duration-700">
+          <div class="absolute inset-0 bg-gradient-to-t from-[#1B1E18] via-transparent to-transparent opacity-80"></div>
+          
+          <!-- Floating Experience Badge -->
+          <div class="absolute bottom-4 left-4 right-4 bg-[#20251C]/90 backdrop-blur-md p-4 rounded-2xl border border-[#3E4735] flex items-center gap-3.5 shadow-xl">
+            <div class="w-10 h-10 rounded-xl bg-[#2D3525] text-[#D4C4AC] flex items-center justify-center flex-shrink-0 border border-[#445037]">
+              <svg class="w-5 h-5 text-[#D4C4AC]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/>
+              </svg>
+            </div>
+            <div>
+              <h4 class="text-xs font-bold text-[#FAF8F4] tracking-wide">+10 Años de Práctica Clínica</h4>
+              <p class="text-[11px] text-stone-400 font-light">Terapeuta Somática & Masoterapeuta Certificada</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Column: Quote, Bio & Highlights -->
+      <div class="lg:col-span-7 space-y-6">
+        
+        <!-- Category Pill Badge -->
+        <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#272D21] border border-[#3E4735] text-[#D4C4AC] text-[10px] font-bold tracking-wider uppercase">
+          <svg class="w-3 h-3 text-[#D4C4AC]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="m4.93 4.93 14.14 14.14"/></svg>
+          <span>ENFOQUE HOLÍSTICO & INTEGRATIVO</span>
+        </div>
+
+        <!-- Quote Block with Vertical Left Line -->
+        <div class="border-l-2 border-[#D4C4AC] pl-5 py-1">
+          <p class="font-serif italic text-lg sm:text-xl text-[#FAF8F4] leading-relaxed font-light">
+            "El cuerpo humano no es una máquina que se deba forzar a encajar, sino un santuario vivo con su propia sabiduría. Cuando escuchamos el tejido con respeto, el dolor se disuelve y la vitalidad renace."
+          </p>
+        </div>
+
+        <!-- Bio Paragraphs -->
+        <div class="space-y-4 text-xs sm:text-sm text-stone-300 font-light leading-relaxed">
+          <p>
+            Soy <strong class="text-white font-medium">Natalia Baez Riquelme</strong>, terapeuta especializada en la integración cuerpo-mente, salud miofascial y regulación del sistema nervioso. Mi trabajo nace de una profunda vocación por acompañar a las personas a reconectar con su bienestar esencial en un mundo que a menudo nos desconecta de nuestras señales corporales.
+          </p>
+          <p>
+            Combino la precisión anatómica de la <strong class="text-stone-200 font-normal">masoterapia descontracturante avanzada</strong> con la sabiduría ancestral del <strong class="text-stone-200 font-normal">Shiatsu japonés</strong>, la medicina herbal botánica y las frecuencias sutiles del <strong class="text-stone-200 font-normal">Reiki Usui</strong>. Cada sesión es única, sin protocolos rígidos, adaptada a tus necesidades físicas, emocionales y energéticas del momento.
+          </p>
+        </div>
+
+        <!-- 4 Highlights (2x2 Grid) -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+          
+          <div class="bg-[#272D21]/70 border border-[#3E4735] rounded-xl px-3.5 py-3 text-xs text-stone-300 flex items-center gap-2.5">
+            <svg class="w-4 h-4 text-[#D4C4AC] flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            <span class="font-light">Presencia consciente y escucha somática</span>
+          </div>
+
+          <div class="bg-[#272D21]/70 border border-[#3E4735] rounded-xl px-3.5 py-3 text-xs text-stone-300 flex items-center gap-2.5">
+            <svg class="w-4 h-4 text-[#D4C4AC] flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            <span class="font-light">Insumos 100% orgánicos libres de tóxicos</span>
+          </div>
+
+          <div class="bg-[#272D21]/70 border border-[#3E4735] rounded-xl px-3.5 py-3 text-xs text-stone-300 flex items-center gap-2.5">
+            <svg class="w-4 h-4 text-[#D4C4AC] flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            <span class="font-light">Ambiente acústico y sonoro en 432 Hz</span>
+          </div>
+
+          <div class="bg-[#272D21]/70 border border-[#3E4735] rounded-xl px-3.5 py-3 text-xs text-stone-300 flex items-center gap-2.5">
+            <svg class="w-4 h-4 text-[#D4C4AC] flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            <span class="font-light">Espacio privado, silencioso y seguro</span>
+          </div>
+
+        </div>
+
+        <!-- Bottom Note Pill -->
+        <div class="flex items-center gap-3.5 bg-[#20251C]/60 border border-[#3E4735] rounded-2xl p-3.5 mt-4">
+          <div class="w-8 h-8 rounded-full bg-[#2D3525] text-[#D4C4AC] flex items-center justify-center flex-shrink-0 border border-[#445037]">
+            <svg class="w-4 h-4 text-[#D4C4AC]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>
+            </svg>
+          </div>
+          <div>
+            <h5 class="text-xs font-bold text-[#FAF8F4]">Atención confidencial & personalizada</h5>
+            <p class="text-[11px] text-stone-400 font-light">Sesiones individuales con reserva previa de cupos limitados por día</p>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+  </section>
+
+  <!-- 6. THE SENSORY JOURNEY (EXACT MATCH TO REFERENCE IMAGE) -->
+  <section id="experiencia" class="py-24 px-4 sm:px-6 lg:px-8 bg-[#F5EFE6] text-[#1B1E18] relative overflow-hidden">
+    <div class="max-w-7xl mx-auto space-y-16">
+      
+      <!-- Section Header -->
+      <div class="text-center max-w-3xl mx-auto space-y-4">
+        <span class="text-xs font-semibold uppercase tracking-[0.25em] text-[#8C765C] flex items-center justify-center gap-1.5">
+          <svg class="w-3.5 h-3.5 text-[#8C765C]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
+          </svg>
+          EL VIAJE SENSORIAL
+        </span>
+
+        <h2 class="font-serif text-4xl sm:text-5xl md:text-6xl text-[#1C2119] font-normal tracking-tight leading-[1.12]">
+          Un ritual para volver a <br>
+          <span class="italic font-light text-[#5C4A34]">conectar</span> con vos
+        </h2>
+
+        <p class="text-stone-700 leading-relaxed font-light max-w-2xl mx-auto" style="font-size: 1.15rem;">
+          Cada sesión combina distintas experiencias para <br class="hidden sm:inline">
+          ayudarte a bajar el ritmo, liberar tensión y <br class="hidden sm:inline">
+          reconectar con tu cuerpo.
+        </p>
+
+        <!-- Decorative Star Divider -->
+        <div class="flex items-center justify-center gap-4 max-w-xs mx-auto pt-2">
+          <div class="h-px bg-[#C5B396]/60 flex-1"></div>
+          <svg class="w-3.5 h-3.5 text-[#C5B396]" viewBox="0 0 24 24" fill="currentColor">
+            <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
+          </svg>
+          <div class="h-px bg-[#C5B396]/60 flex-1"></div>
+        </div>
+      </div>
+
+      <!-- Senses Horizontal Timeline (Above Cards) -->
+      <div class="hidden lg:grid grid-cols-4 max-w-5xl mx-auto relative pt-4">
+        <div class="absolute top-[35px] left-[12.5%] right-[12.5%] h-px bg-[#D6CABE] z-0"></div>
+        
+        <div class="text-center relative z-10 flex flex-col items-center">
+          <span class="text-[11px] font-bold uppercase tracking-[0.25em] text-[#7A6A55] mb-2">OLFATO</span>
+          <div class="w-2.5 h-2.5 rounded-full bg-[#8C7B65] border-2 border-[#F5EFE6]"></div>
+        </div>
+
+        <div class="text-center relative z-10 flex flex-col items-center">
+          <span class="text-[11px] font-bold uppercase tracking-[0.25em] text-[#7A6A55] mb-2">TACTO</span>
+          <div class="w-2.5 h-2.5 rounded-full bg-[#8C7B65] border-2 border-[#F5EFE6]"></div>
+        </div>
+
+        <div class="text-center relative z-10 flex flex-col items-center">
+          <span class="text-[11px] font-bold uppercase tracking-[0.25em] text-[#7A6A55] mb-2">OÍDO</span>
+          <div class="w-2.5 h-2.5 rounded-full bg-[#8C7B65] border-2 border-[#F5EFE6]"></div>
+        </div>
+
+        <div class="text-center relative z-10 flex flex-col items-center">
+          <span class="text-[11px] font-bold uppercase tracking-[0.25em] text-[#7A6A55] mb-2">GUSTO</span>
+          <div class="w-2.5 h-2.5 rounded-full bg-[#8C7B65] border-2 border-[#F5EFE6]"></div>
+        </div>
+      </div>
+
+      <!-- 4 Cards Grid (Exact Design from Reference Image) -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        
+        <!-- Card 1: Olfato -->
+        <div class="reveal-item bg-[#EDE5D8] rounded-3xl overflow-hidden shadow-sm border border-[#DDD3C3] flex flex-col justify-between p-4 sm:p-5 hover:-translate-y-1 transition-transform duration-500" style="transition-delay: 150ms;">
+          <div>
+            <!-- Number & Sense Tag -->
+            <div class="mb-3 text-left pl-1">
+              <span class="font-serif text-3xl font-light text-stone-400 leading-none block">01</span>
+              <span class="text-[9px] uppercase tracking-[0.25em] text-[#7A6A55] font-bold">OLFATO</span>
+            </div>
+
+            <!-- Image with rounded corners -->
+            <div class="relative h-44 w-full rounded-2xl overflow-hidden mb-5">
+              <img src="https://images.unsplash.com/photo-1608571423902-eed4a5ad8108?auto=format&fit=crop&w=600&q=80" alt="Aromaterapia & bienvenida con aceites esenciales" class="w-full h-full object-cover">
+            </div>
+
+            <!-- Overlapping Centered Icon Badge -->
+            <div class="flex justify-center -mt-9 relative z-10 mb-4">
+              <div class="w-12 h-12 rounded-full bg-[#2B3527] text-[#EDE5D8] flex items-center justify-center shadow-lg border-2 border-[#EDE5D8]">
+                <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                  <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/>
+                </svg>
+              </div>
+            </div>
+
+            <!-- Content -->
+            <div class="text-center px-1">
+              <h3 class="font-serif text-xl font-normal text-stone-900 mb-1 leading-snug">
+                Aromaterapia & bienvenida
+              </h3>
+              <p class="font-serif italic text-sm text-[#5C4A34] mb-3">
+                Respirá. El cuerpo empieza a aflojar.
+              </p>
+              <p class="text-stone-600 font-light leading-relaxed" style="font-size: 0.975rem;">
+                Inhalación consciente de aceites puros de bergamota, lavanda y cedro para calmar la mente y abrir el espacio de la sesión.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 2: Tacto -->
+        <div class="reveal-item bg-[#EDE5D8] rounded-3xl overflow-hidden shadow-sm border border-[#DDD3C3] flex flex-col justify-between p-4 sm:p-5 hover:-translate-y-1 transition-transform duration-500" style="transition-delay: 250ms;">
+          <div>
+            <!-- Number & Sense Tag -->
+            <div class="mb-3 text-left pl-1">
+              <span class="font-serif text-3xl font-light text-stone-400 leading-none block">02</span>
+              <span class="text-[9px] uppercase tracking-[0.25em] text-[#7A6A55] font-bold">TACTO</span>
+            </div>
+
+            <!-- Image with rounded corners -->
+            <div class="relative h-44 w-full rounded-2xl overflow-hidden mb-5">
+              <img src="https://images.unsplash.com/photo-1544161515-4ab6ce6db874?auto=format&fit=crop&w=600&q=80" alt="Terapia manual y masaje descontracturante" class="w-full h-full object-cover">
+            </div>
+
+            <!-- Overlapping Centered Icon Badge -->
+            <div class="flex justify-center -mt-9 relative z-10 mb-4">
+              <div class="w-12 h-12 rounded-full bg-[#2B3527] text-[#EDE5D8] flex items-center justify-center shadow-lg border-2 border-[#EDE5D8]">
+                <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                  <path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"/><path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"/><path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>
+                </svg>
+              </div>
+            </div>
+
+            <!-- Content -->
+            <div class="text-center px-1">
+              <h3 class="font-serif text-xl font-normal text-stone-900 mb-1 leading-snug">
+                Terapia manual & termoterapia
+              </h3>
+              <p class="font-serif italic text-sm text-[#5C4A34] mb-3">
+                Soltá. Dejá que el cuerpo se entregue.
+              </p>
+              <p class="text-stone-600 font-light leading-relaxed" style="font-size: 0.975rem;">
+                Manipulación miofascial profunda con oleatos tibios de CBD y piedras volcánicas que disuelven tensiones y restauran el equilibrio.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 3: Oído -->
+        <div class="reveal-item bg-[#EDE5D8] rounded-3xl overflow-hidden shadow-sm border border-[#DDD3C3] flex flex-col justify-between p-4 sm:p-5 hover:-translate-y-1 transition-transform duration-500" style="transition-delay: 350ms;">
+          <div>
+            <!-- Number & Sense Tag -->
+            <div class="mb-3 text-left pl-1">
+              <span class="font-serif text-3xl font-light text-stone-400 leading-none block">03</span>
+              <span class="text-[9px] uppercase tracking-[0.25em] text-[#7A6A55] font-bold">OÍDO</span>
+            </div>
+
+            <!-- Image with rounded corners -->
+            <div class="relative h-44 w-full rounded-2xl overflow-hidden mb-5">
+              <img src="https://images.unsplash.com/photo-1514733670139-4d87a1941d55?auto=format&fit=crop&w=600&q=80" alt="Frecuencias armónicas con cuencos tibetanos" class="w-full h-full object-cover">
+            </div>
+
+            <!-- Overlapping Centered Icon Badge -->
+            <div class="flex justify-center -mt-9 relative z-10 mb-4">
+              <div class="w-12 h-12 rounded-full bg-[#2B3527] text-[#EDE5D8] flex items-center justify-center shadow-lg border-2 border-[#EDE5D8]">
+                <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                  <path d="M2 12h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2H2v-6Z"/><path d="M22 12h-2a2 2 0 0 0-2 2v2a2 2 0 0 0 2 2h2v-6Z"/><path d="M6 14a6 6 0 0 1 12 0"/><path d="M12 2v4"/>
+                </svg>
+              </div>
+            </div>
+
+            <!-- Content -->
+            <div class="text-center px-1">
+              <h3 class="font-serif text-xl font-normal text-stone-900 mb-1 leading-snug">
+                Frecuencias & armonización
+              </h3>
+              <p class="font-serif italic text-sm text-[#5C4A34] mb-3">
+                Escuchá. Volvé a tu centro.
+              </p>
+              <p class="text-stone-600 font-light leading-relaxed" style="font-size: 0.975rem;">
+                Sonoridad terapéutica con cuencos de 7 metales en 432 Hz para sincronizar los hemisferios cerebrales y armonizar tu energía.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 4: Gusto -->
+        <div class="reveal-item bg-[#EDE5D8] rounded-3xl overflow-hidden shadow-sm border border-[#DDD3C3] flex flex-col justify-between p-4 sm:p-5 hover:-translate-y-1 transition-transform duration-500" style="transition-delay: 450ms;">
+          <div>
+            <!-- Number & Sense Tag -->
+            <div class="mb-3 text-left pl-1">
+              <span class="font-serif text-3xl font-light text-stone-400 leading-none block">04</span>
+              <span class="text-[9px] uppercase tracking-[0.25em] text-[#7A6A55] font-bold">GUSTO</span>
+            </div>
+
+            <!-- Image with rounded corners -->
+            <div class="relative h-44 w-full rounded-2xl overflow-hidden mb-5">
+              <img src="https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&w=600&q=80" alt="Infusión herbal reconfortante caliente" class="w-full h-full object-cover">
+            </div>
+
+            <!-- Overlapping Centered Icon Badge -->
+            <div class="flex justify-center -mt-9 relative z-10 mb-4">
+              <div class="w-12 h-12 rounded-full bg-[#2B3527] text-[#EDE5D8] flex items-center justify-center shadow-lg border-2 border-[#EDE5D8]">
+                <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                  <path d="M17 8h1a4 4 0 1 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"/><line x1="6" x2="6" y1="2" y2="4"/><line x1="10" x2="10" y1="2" y2="4"/><line x1="14" x2="14" y1="2" y2="4"/>
+                </svg>
+              </div>
+            </div>
+
+            <!-- Content -->
+            <div class="text-center px-1">
+              <h3 class="font-serif text-xl font-normal text-stone-900 mb-1 leading-snug">
+                Infusión herbal
+              </h3>
+              <p class="font-serif italic text-sm text-[#5C4A34] mb-3">
+                Integrá. Cerrá el ritual con calma.
+              </p>
+              <p class="text-stone-600 font-light leading-relaxed" style="font-size: 0.975rem;">
+                Una infusión de hierbas seleccionadas para cerrar el ritual desde el calor interno y la presencia.
+              </p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Bottom Dark Green Card: "LO QUE USAMOS TAMBIÉN IMPORTA" (Exact replica of Image) -->
+      <div class="reveal-item bg-[#192218] text-[#FAF8F4] rounded-3xl p-8 sm:p-12 lg:p-14 border border-[#2F3E2C] shadow-2xl overflow-hidden" style="transition-delay: 500ms;">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
+          
+          <!-- Left Column -->
+          <div class="lg:col-span-7 space-y-6">
+            <div class="inline-flex items-center gap-2 text-[#D4C4AC] text-[11px] font-bold tracking-[0.2em] uppercase">
+              <svg class="w-3.5 h-3.5 text-[#D4C4AC]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/><path d="m4.93 4.93 14.14 14.14"/>
+              </svg>
+              <span>LO QUE USAMOS TAMBIÉN IMPORTA</span>
+            </div>
+
+            <h3 class="font-serif text-3xl sm:text-4xl lg:text-5xl text-white font-normal leading-tight">
+              Todo lo que entra en contacto con tu cuerpo fue elegido con intención.
+            </h3>
+
+            <div class="w-12 h-0.5 bg-[#C5B396]"></div>
+
+            <p class="text-stone-300 font-light leading-relaxed" style="font-size: 1.15rem;">
+              Insumos puros, orgánicos y biodegradables. Sin químicos agresivos, sin fragancias sintéticas, sin atajos.
+            </p>
+
+            <p class="font-serif italic text-xl text-[#D4C4AC]">
+              Cuidado consciente. Bienestar real.
+            </p>
+
+            <!-- 3 Bottom Senses/Eco Icons (Larger with crisp typography) -->
+            <div class="grid grid-cols-3 gap-6 pt-6 border-t border-[#2D3B2A]">
+              
+              <div class="flex flex-col items-center sm:items-start text-center sm:text-left gap-3">
+                <div class="w-14 h-14 sm:w-16 sm:h-16 rounded-full border-2 border-[#D4C4AC]/40 bg-[#222C1F] text-[#D4C4AC] flex items-center justify-center shadow-md flex-shrink-0">
+                  <svg class="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/>
+                  </svg>
+                </div>
+                <span class="text-xs sm:text-sm font-bold tracking-wider uppercase text-stone-200 leading-snug">
+                  ORGÁNICO <br>Y NATURAL
+                </span>
+              </div>
+
+              <div class="flex flex-col items-center sm:items-start text-center sm:text-left gap-3">
+                <div class="w-14 h-14 sm:w-16 sm:h-16 rounded-full border-2 border-[#D4C4AC]/40 bg-[#222C1F] text-[#D4C4AC] flex items-center justify-center shadow-md flex-shrink-0">
+                  <svg class="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path d="M10 2v7.31"/><path d="M14 9.3V1.99"/><path d="M8.5 2h7"/><path d="M14 9.3a6.5 6.5 0 1 1-4 0"/><line x1="3" x2="21" y1="3" y2="21"/>
+                  </svg>
+                </div>
+                <span class="text-xs sm:text-sm font-bold tracking-wider uppercase text-stone-200 leading-snug">
+                  LIBRE DE <br>QUÍMICOS
+                </span>
+              </div>
+
+              <div class="flex flex-col items-center sm:items-start text-center sm:text-left gap-3">
+                <div class="w-14 h-14 sm:w-16 sm:h-16 rounded-full border-2 border-[#D4C4AC]/40 bg-[#222C1F] text-[#D4C4AC] flex items-center justify-center shadow-md flex-shrink-0">
+                  <svg class="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                  </svg>
+                </div>
+                <span class="text-xs sm:text-sm font-bold tracking-wider uppercase text-stone-200 leading-snug">
+                  CONCIENCIA <br>AMBIENTAL
+                </span>
+              </div>
+
+            </div>
+
+          </div>
+
+          <!-- Right Column: Hand Dripping Oil into Herbal Bowl Photo (Exact match to reference mockup) -->
+          <div class="lg:col-span-5 h-full flex items-center">
+            <div class="relative w-full h-full min-h-[340px] sm:min-h-[440px] rounded-3xl overflow-hidden shadow-2xl border border-[#3A4A35] group">
+              <img src="https://dvnllpvdpvdvdheafyau.supabase.co/storage/v1/object/public/custom-sites/natura-flow/insumos-puros.jpg" alt="Insumos botánicos puros y aceites esenciales medicinales en cuenco" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700">
+              <div class="absolute inset-0 bg-gradient-to-t from-[#151D14]/50 via-transparent to-transparent"></div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- 7. TESTIMONIALS SECTION (EXACT REPLICA OF MEDIA_1788374615666.PNG) -->
+  <section id="testimonios" class="py-24 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto border-t border-[#2D3525]/60">
+    
+    <!-- Section Header -->
+    <div class="text-center max-w-3xl mx-auto mb-16 space-y-3">
+      <span class="text-xs font-semibold uppercase tracking-[0.25em] text-[#D4C4AC] flex items-center justify-center gap-1.5">
+        <svg class="w-3.5 h-3.5 text-[#D4C4AC]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
+        </svg>
+        VOCES DE QUIENES YA LO VIVIERON
+      </span>
+
+      <h2 class="font-serif text-3xl sm:text-5xl lg:text-6xl text-[#FAF8F4] font-normal tracking-tight leading-[1.15]">
+        Lo que cambia cuando el cuerpo <br>
+        <span class="relative inline-block pb-1">
+          encuentra
+          <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-[#C5B396]"></span>
+        </span> su pausa
+      </h2>
+
+      <p class="text-stone-300 leading-relaxed font-light max-w-2xl mx-auto" style="font-size: 1.15rem;">
+        Experiencias reales de personas que llegaron buscando alivio, descanso y un momento para volver a ellas mismas.
+      </p>
+    </div>
+
+    <!-- Testimonials 2-Column Asymmetric Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 max-w-6xl mx-auto items-stretch">
+      
+      <!-- Left Featured Card (With Integrated Olive Branch Photo) -->
+      <div class="reveal-item lg:col-span-7 bg-[#242C21] border border-[#394635] rounded-3xl p-7 sm:p-9 shadow-2xl flex flex-col justify-between overflow-hidden" style="transition-delay: 150ms;">
+        <div class="grid grid-cols-1 sm:grid-cols-12 gap-6 sm:gap-8 items-center h-full">
+          
+          <!-- Text Content -->
+          <div class="sm:col-span-7 flex flex-col justify-between h-full space-y-4">
+            <div>
+              <span class="text-[11px] font-bold tracking-[0.25em] uppercase text-[#D4C4AC] block mb-1.5">
+                LLEGÓ BUSCANDO
+              </span>
+              <p class="font-serif italic text-base sm:text-lg text-stone-200 font-light">
+                Aliviar la tensión en cuello y hombros
+              </p>
+            </div>
+
+            <!-- Big Quote Mark -->
+            <div class="font-serif text-5xl text-[#D4C4AC] leading-none select-none my-1">
+              “
+            </div>
+
+            <!-- Quote Text (Enlarged and elegant) -->
+            <blockquote class="font-serif italic text-xl sm:text-2xl lg:text-[25px] text-[#FAF8F4] font-light leading-relaxed mb-6">
+              “Sentí que Natalia realmente se tomó el tiempo de escucharme. <br><br>
+              Salí más liviana y esa noche <span class="text-white underline decoration-[#C5B396]/70 underline-offset-4">descansé como hacía mucho no lo hacía.</span>”
+            </blockquote>
+
+            <!-- Author Info -->
+            <div class="pt-2">
+              <h4 class="text-xs sm:text-sm font-bold uppercase tracking-wider text-white">MARÍA LAURA G.</h4>
+              <p class="text-xs text-[#D4C4AC]/80 font-light mt-0.5">Masaje personalizado</p>
+            </div>
+          </div>
+
+          <!-- Integrated Olive Twig Photo on Linen (Exact Reference Image) -->
+          <div class="sm:col-span-5 h-72 sm:h-full min-h-[300px] rounded-2xl overflow-hidden shadow-inner border border-[#394635]/60">
+            <img src="https://dvnllpvdpvdvdheafyau.supabase.co/storage/v1/object/public/custom-sites/natura-flow/testimonio-olivo.jpg" alt="Ramita botánica y lino natural en luz cálida" class="w-full h-full object-cover">
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Right Column: 2 Stacked Testimonial Cards (Without 02 and 03 markers) -->
+      <div class="lg:col-span-5 flex flex-col gap-6 justify-between">
+        
+        <!-- Card: Ignacio R. -->
+        <div class="reveal-item bg-[#242C21] border border-[#394635] rounded-3xl p-7 sm:p-8 shadow-xl flex flex-col justify-between h-full" style="transition-delay: 250ms;">
+          <div>
+            <div class="flex items-center justify-end mb-2">
+              <div class="flex gap-1 text-[#D4C4AC] text-sm">
+                <span>★</span><span>★</span><span>★</span><span>★</span><span>★</span>
+              </div>
+            </div>
+
+            <div class="font-serif text-4xl text-[#D4C4AC] leading-none select-none mb-1">
+              “
+            </div>
+
+            <blockquote class="font-serif italic text-xl sm:text-2xl text-[#FAF8F4] font-light leading-snug mb-5">
+              Un espacio donde pude bajar de verdad.”
+            </blockquote>
+          </div>
+
+          <div class="pt-3 border-t border-[#394635]">
+            <h4 class="text-xs sm:text-sm font-bold uppercase tracking-wider text-white">IGNACIO R.</h4>
+            <p class="text-xs text-[#D4C4AC]/80 font-light mt-0.5">Shiatsu Somático</p>
+          </div>
+        </div>
+
+        <!-- Card: Sofía M. -->
+        <div class="reveal-item bg-[#242C21] border border-[#394635] rounded-3xl p-7 sm:p-8 shadow-xl flex flex-col justify-between h-full" style="transition-delay: 350ms;">
+          <div>
+            <div class="flex items-center justify-end mb-2">
+              <div class="flex gap-1 text-[#D4C4AC] text-sm">
+                <span>★</span><span>★</span><span>★</span><span>★</span><span>★</span>
+              </div>
+            </div>
+
+            <div class="font-serif text-4xl text-[#D4C4AC] leading-none select-none mb-1">
+              “
+            </div>
+
+            <blockquote class="font-serif italic text-xl sm:text-2xl text-[#FAF8F4] font-light leading-snug mb-5">
+              Todo está pensado para que desaceleres.”
+            </blockquote>
+          </div>
+
+          <div class="pt-3 border-t border-[#394635]">
+            <h4 class="text-xs sm:text-sm font-bold uppercase tracking-wider text-white">SOFÍA M.</h4>
+            <p class="text-xs text-[#D4C4AC]/80 font-light mt-0.5">Ritual Integral Somático</p>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- Final CTA Banner (Exact Replica of Reference Mockup) -->
+    <div class="max-w-6xl mx-auto mt-20">
+      <div class="bg-[#242D21] border border-[#3D4C38] rounded-3xl p-10 sm:p-14 text-center text-[#FAF8F4] shadow-2xl relative overflow-hidden">
+        
+        <!-- Subtle Botanical Corner Watermark (Left) -->
+        <div class="absolute -left-8 -bottom-8 w-40 h-40 opacity-15 pointer-events-none text-[#D4C4AC]">
+          <svg viewBox="0 0 100 100" fill="currentColor" class="w-full h-full">
+            <path d="M50 0 C60 30 70 40 100 50 C70 60 60 70 50 100 C40 70 30 60 0 50 C30 40 40 30 50 0 Z"/>
+          </svg>
+        </div>
+
+        <!-- Subtle Botanical Corner Watermark (Right) -->
+        <div class="absolute -right-8 -top-8 w-40 h-40 opacity-15 pointer-events-none text-[#D4C4AC]">
+          <svg viewBox="0 0 100 100" fill="currentColor" class="w-full h-full">
+            <path d="M50 0 C60 30 70 40 100 50 C70 60 60 70 50 100 C40 70 30 60 0 50 C30 40 40 30 50 0 Z"/>
+          </svg>
+        </div>
+
+        <span class="text-[11px] font-bold uppercase tracking-[0.25em] text-[#D4C4AC] block mb-3">
+          TU MOMENTO DE PAZ TE ESPERA
+        </span>
+
+        <h2 class="font-serif text-3xl sm:text-4xl md:text-5xl font-normal leading-tight mb-5 text-white max-w-3xl mx-auto">
+          Regálale a tu cuerpo el respiro que merece hoy mismo.
+        </h2>
+
+        <div class="w-12 h-0.5 bg-[#C5B396] mx-auto mb-8"></div>
+
+        <a href="/reservar" class="btn-sand font-bold text-xs sm:text-sm tracking-wider uppercase px-8 py-3.5 rounded-full inline-flex items-center gap-2.5 shadow-xl transition-transform hover:scale-105">
+          <svg class="w-4 h-4 text-[#1B1E18]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/>
+          </svg>
+          <span>RESERVAR MI CITA</span>
+        </a>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- 8. RICH FOOTER -->
+  <div id="contacto" class="relative pt-0 pb-0">
+
+    <!-- Rich 4-Column Footer -->
+    <footer class="bg-[#121410] text-stone-300 pt-32 pb-12 px-4 sm:px-6 lg:px-8 border-t border-[#252A20]">
+      <div class="max-w-7xl mx-auto">
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10 pb-12 border-b border-stone-800">
+          
+          <!-- Column 1: Brand -->
+          <div class="space-y-4">
+            <div class="flex flex-col">
+              <span class="font-serif text-2xl text-[#FAF8F4] leading-tight">Natalia Baez Riquelme</span>
+              <span class="text-[9px] tracking-[0.25em] uppercase text-[#D4C4AC] font-medium flex items-center gap-1.5 mt-0.5">
+                <svg class="w-3 h-3 text-[#D4C4AC]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
+                </svg>
+                TERAPIAS HOLÍSTICAS & BIENESTAR
+              </span>
+            </div>
+            <p class="text-xs text-stone-400 font-light leading-relaxed">
+              Santuario de terapias somáticas, masajes terapéuticos y bienestar integral. Diseñado para devolverle la armonía y vitalidad a tu vida diaria.
+            </p>
+          </div>
+
+          <!-- Column 2: Horarios de Atención -->
+          <div class="space-y-3">
+            <h4 class="text-xs font-bold uppercase tracking-wider text-[#FAF8F4]">HORARIOS DE ATENCIÓN</h4>
+            <div class="space-y-2 text-xs text-stone-400 font-light">
+              <div class="flex justify-between">
+                <span>Lunes a Viernes:</span>
+                <span class="text-stone-200">Con reserva previa</span>
+              </div>
+              <div class="flex justify-between">
+                <span>Sábados:</span>
+                <span class="text-stone-200">Según disponibilidad</span>
+              </div>
+              <div class="flex justify-between">
+                <span>Domingos y feriados:</span>
+                <span class="text-stone-200">Con reserva previa</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Column 3: Ubicación & Contacto -->
+          <div class="space-y-3">
+            <h4 class="text-xs font-bold uppercase tracking-wider text-[#FAF8F4]">UBICACIÓN & CONTACTO</h4>
+            <div class="space-y-2.5 text-xs text-stone-400 font-light">
+              <div class="flex items-start gap-2">
+                <svg class="w-4 h-4 text-[#D4C4AC] flex-shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+                <span>Ubicación coordinada al confirmar la reserva</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <svg class="w-4 h-4 text-[#D4C4AC] flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                <a href="https://wa.me/5491128949201" class="text-stone-200 hover:text-[#D4C4AC] transition-colors">+54 9 11 2894-9201</a>
+              </div>
+              <div class="flex items-center gap-2">
+                <svg class="w-4 h-4 text-[#D4C4AC] flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+                <a href="mailto:nataliariquelme@weex.com" class="text-stone-200 hover:text-[#D4C4AC] transition-colors">nataliariquelme@weex.com</a>
+              </div>
+            </div>
+          </div>
+
+          <!-- Column 4: WhatsApp Directo -->
+          <div class="space-y-3">
+            <h4 class="text-xs font-bold uppercase tracking-wider text-[#FAF8F4]">CONSULTA DIRECTA</h4>
+            <p class="text-xs text-stone-400 font-light leading-relaxed">
+              ¿Dudas sobre cuál terapia es adecuada para tu condición actual? Escríbeme y coordinamos una sesión personalizada.
+            </p>
+            <a href="https://wa.me/5491128949201?text=Hola%20Natalia,%20quisiera%20hacerte%20una%20consulta%20terapéutica" target="_blank" class="inline-flex items-center gap-2 text-xs font-bold text-[#1B1E18] bg-[#D4C4AC] hover:bg-[#E8DDCE] px-4 py-2 rounded-full transition-all mt-1">
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0 0 12.04 2zm.01 17.89c-1.48 0-2.93-.4-4.2-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a7.93 7.93 0 0 1-1.22-4.12c0-4.41 3.59-8 8-8 2.14 0 4.15.83 5.66 2.34a7.93 7.93 0 0 1 2.34 5.66c0 4.41-3.59 8-8 8zm4.39-5.99c-.24-.12-1.42-.7-1.64-.78-.22-.08-.38-.12-.54.12-.16.24-.62.78-.76.94-.14.16-.28.18-.52.06-.24-.12-1.02-.38-1.95-1.21-.72-.64-1.2-1.44-1.34-1.68-.14-.24-.01-.37.11-.49.11-.11.24-.28.36-.42.12-.14.16-.24.24-.4.08-.16.04-.3-.02-.42-.06-.12-.54-1.3-.74-1.78-.2-.47-.4-.41-.54-.42l-.46-.01c-.16 0-.42.06-.64.3-.22.24-.84.82-.84 2s.86 2.32.98 2.48c.12.16 1.7 2.59 4.12 3.63.58.25 1.02.4 1.38.51.58.18 1.11.16 1.53.1.47-.07 1.42-.58 1.62-1.14.2-.56.2-1.04.14-1.14-.06-.1-.22-.16-.46-.28z"/></svg>
+              <span>Escribir por WhatsApp</span>
+            </a>
+          </div>
+
+        </div>
+
+        <!-- Bottom Copyright & Legal Links -->
+        <div class="pt-8 flex flex-col sm:flex-row items-center justify-between text-[11px] text-stone-500 gap-4">
+          <p>© 2026 Natalia Baez Riquelme. Todos los derechos reservados.</p>
+          <div class="flex items-center gap-6">
+            <a href="/privacidad" class="hover:text-stone-300 transition-colors">Privacidad</a>
+            <a href="/terminos" class="hover:text-stone-300 transition-colors">Términos de Servicio</a>
+            <a href="/politicas" class="hover:text-stone-300 transition-colors">Políticas de Cancelación</a>
+          </div>
+        </div>
+
+      </div>
+    </footer>
+
+  </div>
+
+  <!-- FLOATING WHATSAPP WIDGET -->
+  <div class="fixed bottom-6 right-6 z-50 flex items-center gap-2">
+    <div class="whatsapp-widget-bubble text-stone-200 text-xs font-medium px-4 py-2.5 rounded-full flex items-center gap-3">
+      <span>¿Dudas sobre tu sesión? <strong>Escríbeme</strong></span>
+      <button onclick="this.parentElement.style.display='none'" class="text-stone-400 hover:text-white text-xs">✕</button>
+    </div>
+    <a href="https://wa.me/5491128949201?text=Hola%20Natalia,%20tengo%20una%20duda%20sobre%20las%20sesiones" target="_blank" class="w-12 h-12 rounded-full bg-[#46533B] hover:bg-[#38432F] text-white flex items-center justify-center shadow-2xl transition-transform hover:scale-105 border border-[#5E6E50]">
+      <svg class="w-6 h-6 fill-white" viewBox="0 0 24 24"><path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0 0 12.04 2zm.01 17.89c-1.48 0-2.93-.4-4.2-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a7.93 7.93 0 0 1-1.22-4.12c0-4.41 3.59-8 8-8 2.14 0 4.15.83 5.66 2.34a7.93 7.93 0 0 1 2.34 5.66c0 4.41-3.59 8-8 8zm4.39-5.99c-.24-.12-1.42-.7-1.64-.78-.22-.08-.38-.12-.54.12-.16.24-.62.78-.76.94-.14.16-.28.18-.52.06-.24-.12-1.02-.38-1.95-1.21-.72-.64-1.2-1.44-1.34-1.68-.14-.24-.01-.37.11-.49.11-.11.24-.28.36-.42.12-.14.16-.24.24-.4.08-.16.04-.3-.02-.42-.06-.12-.54-1.3-.74-1.78-.2-.47-.4-.41-.54-.42l-.46-.01c-.16 0-.42.06-.64.3-.22.24-.84.82-.84 2s.86 2.32.98 2.48c.12.16 1.7 2.59 4.12 3.63.58.25 1.02.4 1.38.51.58.18 1.11.16 1.53.1.47-.07 1.42-.58 1.62-1.14.2-.56.2-1.04.14-1.14-.06-.1-.22-.16-.46-.28z"/></svg>
+    </a>
+  </div>
+
+  <!-- Script -->
+  <script src="scripts/app.js"></script>
+</body>
+</html>

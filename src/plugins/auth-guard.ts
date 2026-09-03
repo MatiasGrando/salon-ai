@@ -220,6 +220,7 @@ function isPublicRoute(request: FastifyRequest) {
     || path === '/crm'
     || path.startsWith('/landing-assets/')
     || isTamaraSitePublicRoute(request, path)
+    || isNaturaFlowSitePublicRoute(request, path)
     || path.startsWith('/public/booking/')
     || path.startsWith('/public/weex/')
     || isWeexLeadCampaignPublicRoute(request.method, path)
@@ -227,6 +228,15 @@ function isPublicRoute(request: FastifyRequest) {
     || path.startsWith('/auth/')
     || path.startsWith('/webhooks/whatsapp')
     || path.startsWith('/webhooks/instagram')
+}
+
+function isNaturaFlowSitePublicRoute(request: FastifyRequest, path: string) {
+  const rawHost = request.headers['x-forwarded-host'] || request.headers.host
+  const host = Array.isArray(rawHost) ? rawHost[0] : rawHost
+  const hostname = host?.split(',')[0]?.trim().split(':')[0]?.toLowerCase()
+  if (hostname !== 'naturaflow.weex.com.ar') return false
+
+  return path === '/styles/custom.css' || path === '/scripts/app.js'
 }
 
 function isWeexLeadCampaignPublicRoute(method: string, path: string) {

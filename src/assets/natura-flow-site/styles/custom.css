@@ -1,0 +1,178 @@
+/* Natalia Baez Riquelme - Luxury Organic Theme */
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400;1,500;1,600&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+
+:root {
+  --color-dark-bg: #1B1E18;
+  --color-olive-card: #272C21;
+  --color-olive-border: #3D4534;
+  --color-cream-bg: #F5EFE6;
+  --color-linen: #FAF8F4;
+  --color-sand: #D4C4AC;
+  --color-sand-light: #E8DDCE;
+}
+
+html {
+  scroll-behavior: smooth;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  background-color: var(--color-dark-bg);
+  color: #EFECE6;
+  overflow-y: scroll;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+}
+
+.font-serif {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+}
+
+.font-sans {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+}
+
+/* Draggable & Visible Scrollbar */
+::-webkit-scrollbar {
+  width: 12px;
+}
+::-webkit-scrollbar-track {
+  background: #141712;
+}
+::-webkit-scrollbar-thumb {
+  background: #3D4534;
+  border-radius: 8px;
+  border: 3px solid #141712;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #D4C4AC;
+}
+
+/* Glass Header */
+.glass-header-dark {
+  background: rgba(27, 30, 24, 0.96);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid rgba(61, 69, 52, 0.4);
+}
+
+/* HERO VIDEO & OVERLAY */
+.hero {
+  position: relative;
+  background-color: #10150F;
+}
+
+.hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(16, 21, 15, 0.68),
+    rgba(16, 21, 15, 0.52),
+    rgba(16, 21, 15, 0.68)
+  );
+  z-index: 1;
+  pointer-events: none;
+}
+
+.hero-content {
+  position: relative;
+  z-index: 2;
+}
+
+/* Treatment Card */
+.card-dark-theme {
+  background: #272D21;
+  border: 1px solid #3E4735;
+  transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.card-dark-theme:hover {
+  transform: translateY(-4px);
+  border-color: #D4C4AC;
+  box-shadow: 0 20px 35px -10px rgba(0, 0, 0, 0.5);
+}
+
+.filter-pill.active {
+  background-color: #D4C4AC !important;
+  color: #1B1E18 !important;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(212, 196, 172, 0.25);
+}
+
+/* Step Card */
+.step-card {
+  background: #FFFFFF;
+  border: 1px solid #EAE5D9;
+  box-shadow: 0 10px 25px -5px rgba(42, 48, 35, 0.05);
+  transition: all 0.35s ease;
+}
+
+.step-card:hover {
+  transform: translateY(-5px);
+  border-color: #D4C4AC;
+  box-shadow: 0 20px 35px -10px rgba(42, 48, 35, 0.12);
+}
+
+/* Testimonial Card */
+.testimonial-card {
+  background: #272D21;
+  border: 1px solid #3E4735;
+  transition: all 0.35s ease;
+}
+
+.testimonial-card:hover {
+  transform: translateY(-4px);
+  border-color: #D4C4AC;
+}
+
+/* Sand Button */
+.btn-sand {
+  background: #D4C4AC;
+  color: #1B1E18;
+  transition: all 0.25s ease;
+}
+
+.btn-sand:hover {
+  background: #E8DDCE;
+  transform: translateY(-1px);
+}
+
+/* WhatsApp Floating Widget */
+.whatsapp-widget-bubble {
+  background: rgba(27, 30, 24, 0.94);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(61, 69, 52, 0.6);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+
+/* Reveal Animation on Scroll — Slow, Organic, Noticeable */
+.reveal-item {
+  opacity: 0;
+  transform: translateY(40px);
+  transition: opacity 1.5s cubic-bezier(0.16, 1, 0.3, 1), transform 1.5s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+}
+
+.reveal-item.revealed {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.reveal-image-box {
+  overflow: hidden;
+}
+
+.reveal-image-box img {
+  opacity: 0;
+  transform: scale(1.09);
+  transition: opacity 2s cubic-bezier(0.16, 1, 0.3, 1), transform 2.5s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+}
+
+.reveal-image-box.revealed img {
+  opacity: 1;
+  transform: scale(1);
+}

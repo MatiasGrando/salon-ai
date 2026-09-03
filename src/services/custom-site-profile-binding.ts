@@ -9,6 +9,11 @@ const customSiteProfileBindings: CustomSiteProfileBinding[] = [
     hostname: 'tamaragrando.weex.com.ar',
     businessCustomerCode: 'WX-RWCEDG',
     serviceCatalogMode: 'ALL'
+  },
+  {
+    hostname: 'naturaflow.weex.com.ar',
+    businessCustomerCode: 'WX-TFN89J',
+    serviceCatalogMode: 'ALL'
   }
 ]
 
