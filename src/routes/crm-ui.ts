@@ -17894,6 +17894,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       agendaViewDays: 1,
       agendaLoadRequest: 0,
       agendaLoadController: null,
+      agendaNowLineTimer: null,
       agendaBlockOpen: false,
       agendaMobileMonthOpen: false,
       agendaMobileFiltersOpen: false,
@@ -27253,6 +27254,100 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       enableAgendaDragAndDrop()
     }
 
+    function updateAgendaNowLine() {
+      if (document.body.dataset.currentSection !== 'agenda') return
+      const frame = els.agendaGridWrap.querySelector('[data-agenda-mobile-frame]')
+      const track = frame?.querySelector('.agenda-gcal-columns-track')
+      if (!frame || !track) return
+
+      const now = new Date()
+      const todayKey = dateKey(now)
+      const viewDays = [1, 3, 7].includes(Number(state.agendaViewDays)) ? Number(state.agendaViewDays) : 1
+      const startDate = startOfDay(state.agendaSelectedDate)
+      const currentDays = Array.from({ length: viewDays }, (_, index) => addDays(startDate, index))
+      const displayRange = getAgendaDisplayRange(currentDays)
+      const nowMinute = now.getHours() * 60 + now.getMinutes() + (now.getSeconds() / 60)
+      const nowTop = ((nowMinute - displayRange.start) / 60) * 88
+      const insideVisibleHours = nowMinute >= displayRange.start && nowMinute < displayRange.end
+      const visibleToday = currentDays.some((day) => dateKey(day) === todayKey)
+      const professionalDayView = frame.dataset.agendaProfessionalColumns === 'true'
+
+      els.agendaToday.textContent = visibleToday ? 'Hoy' : 'Ir a hoy'
+      for (const button of els.agendaGridWrap.querySelectorAll('[data-agenda-mobile-today]')) {
+        button.textContent = button.classList.contains('agenda-gcal-today')
+          ? String(now.getDate())
+          : (visibleToday ? 'Hoy' : 'Ir a hoy')
+      }
+      for (const header of els.agendaGridWrap.querySelectorAll('.agenda-gcal-day-head[data-agenda-date]')) {
+        header.classList.toggle('today', header.dataset.agendaDate === todayKey)
+      }
+
+      if (professionalDayView) {
+        for (const line of track.querySelectorAll(':scope > .agenda-gcal-now-line:not(.agenda-gcal-professional-now-line)')) line.remove()
+        const showLine = dateKey(startDate) === todayKey && insideVisibleHours
+        for (const column of track.querySelectorAll('.agenda-gcal-professional-column')) {
+          let line = column.querySelector(':scope > .agenda-gcal-professional-now-line')
+          if (!showLine) {
+            line?.remove()
+            continue
+          }
+          if (!line) {
+            line = document.createElement('div')
+            line.className = 'agenda-gcal-now-line agenda-gcal-professional-now-line'
+            column.appendChild(line)
+          }
+          line.style.top = nowTop + 'px'
+        }
+        return
+      }
+
+      for (const line of track.querySelectorAll('.agenda-gcal-professional-now-line')) line.remove()
+      const columns = Array.from(track.querySelectorAll(':scope > .agenda-gcal-day-column'))
+      const todayIndex = columns.findIndex((column) => column.dataset.gcalDay === todayKey)
+      let line = track.querySelector(':scope > .agenda-gcal-now-line:not(.agenda-gcal-professional-now-line)')
+      if (todayIndex < 0 || !insideVisibleHours) {
+        line?.remove()
+        return
+      }
+      if (!line) {
+        line = document.createElement('div')
+        line.className = 'agenda-gcal-now-line'
+        track.appendChild(line)
+      }
+      line.style.top = nowTop + 'px'
+      line.style.setProperty('--agenda-now-index', String(todayIndex))
+    }
+
+    function startAgendaNowLineTimer() {
+      stopAgendaNowLineTimer()
+      if (document.hidden || document.body.dataset.currentSection !== 'agenda') return
+      updateAgendaNowLine()
+      const scheduleNextUpdate = () => {
+        const delay = 60000 - (Date.now() % 60000) + 50
+        state.agendaNowLineTimer = window.setTimeout(() => {
+          state.agendaNowLineTimer = null
+          if (document.hidden || document.body.dataset.currentSection !== 'agenda') return
+          updateAgendaNowLine()
+          scheduleNextUpdate()
+        }, delay)
+      }
+      scheduleNextUpdate()
+    }
+
+    function stopAgendaNowLineTimer() {
+      if (state.agendaNowLineTimer === null) return
+      window.clearTimeout(state.agendaNowLineTimer)
+      state.agendaNowLineTimer = null
+    }
+
+    function handleAgendaNowLineVisibilityChange() {
+      if (document.hidden) {
+        stopAgendaNowLineTimer()
+      } else if (document.body.dataset.currentSection === 'agenda') {
+        startAgendaNowLineTimer()
+      }
+    }
+
     function renderAgendaMobileThreeDay() {
       state.agendaProfessionalResizeObserver?.disconnect()
       state.agendaProfessionalResizeObserver = null
@@ -31353,9 +31448,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
       if (section === 'agenda') {
         renderAgenda()
+        startAgendaNowLineTimer()
         loadAgenda().catch((error) => {
           els.agendaGridWrap.innerHTML = '<div class="error">' + escapeHtml(error.message) + '</div>'
         })
+      } else {
+        stopAgendaNowLineTimer()
       }
 
       if (section === 'customers') {
@@ -33319,6 +33417,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     })
 
     hydrateIcons()
+
+    document.addEventListener('visibilitychange', handleAgendaNowLineVisibilityChange)
+    window.addEventListener('pagehide', stopAgendaNowLineTimer)
 
     document.addEventListener('pointerdown', () => { void enableIncomingMessageSound() }, { once: true, capture: true })
     document.addEventListener('keydown', () => { void enableIncomingMessageSound() }, { once: true, capture: true })

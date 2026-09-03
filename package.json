@@ -161,6 +161,7 @@
     "test:manual-appointment-override": "tsx scripts/manual-appointment-override-contract-test.ts",
     "test:agenda-range-selection": "tsx scripts/agenda-range-selection-contract-test.ts",
     "test:agenda-business-scope": "tsx scripts/agenda-business-scope-contract-test.ts",
+    "test:agenda-now-line-refresh": "tsx scripts/agenda-now-line-refresh-contract-test.ts",
     "test:schedule-block-series": "tsx scripts/schedule-block-series-contract-test.ts",
     "test:appointment-dialog-layout": "tsx scripts/appointment-dialog-layout-contract-test.ts",
     "test:professional-form-collapsible": "tsx scripts/professional-form-collapsible-contract-test.ts",
