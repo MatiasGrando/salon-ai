@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import {
+  publishAppointmentChanged,
   publishConversationUpdated,
   publishDepositUpdated,
   publishIncomingConversationMessage,
@@ -13,12 +14,15 @@ const receivedByOtherBusiness: string[] = []
 const sentByGlow: string[] = []
 const sentByOtherBusiness: string[] = []
 const receivedTypesByGlow: string[] = []
+const changedAppointmentsByGlow: string[] = []
+const changedAppointmentsByOtherBusiness: string[] = []
 const unsubscribeGlow = subscribeToCrmRealtimeEvents({
   businessId: 'glow',
   send: (event) => {
     receivedTypesByGlow.push(event.type)
     if (event.type === 'conversation_message_received') receivedByGlow.push(event.messageId)
     if (event.type === 'conversation_message_sent') sentByGlow.push(event.messageId)
+    if (event.type === 'appointment_changed') changedAppointmentsByGlow.push(event.appointmentId)
   }
 })
 const unsubscribeOtherBusiness = subscribeToCrmRealtimeEvents({
@@ -26,6 +30,7 @@ const unsubscribeOtherBusiness = subscribeToCrmRealtimeEvents({
   send: (event) => {
     if (event.type === 'conversation_message_received') receivedByOtherBusiness.push(event.messageId)
     if (event.type === 'conversation_message_sent') sentByOtherBusiness.push(event.messageId)
+    if (event.type === 'appointment_changed') changedAppointmentsByOtherBusiness.push(event.appointmentId)
   }
 })
 
@@ -61,11 +66,21 @@ publishDepositUpdated({
   updatedAt: '2026-08-19T15:30:02.000Z'
 })
 
+publishAppointmentChanged({
+  businessId: 'glow',
+  appointmentId: 'appointment-1',
+  updatedAt: '2026-08-19T15:30:03.000Z'
+})
+
+assert.deepEqual(changedAppointmentsByGlow, ['appointment-1'])
+assert.deepEqual(changedAppointmentsByOtherBusiness, [])
+
 assert.deepEqual(receivedTypesByGlow, [
   'conversation_message_received',
   'conversation_message_sent',
   'conversation_updated',
-  'deposit_updated'
+  'deposit_updated',
+  'appointment_changed'
 ])
 
 unsubscribeGlow()
@@ -86,6 +101,7 @@ const whatsappWebhookSource = readFileSync(
 )
 const crmRouteSource = readFileSync(new URL('../src/routes/crm.ts', import.meta.url), 'utf8')
 const publicBookingRouteSource = readFileSync(new URL('../src/routes/public-booking.ts', import.meta.url), 'utf8')
+const appointmentServiceSource = readFileSync(new URL('../src/services/appointment-service.ts', import.meta.url), 'utf8')
 const demoProfileRouteSource = readFileSync(new URL('../src/routes/demo-profile.ts', import.meta.url), 'utf8')
 const realtimeConfigSource = readFileSync(new URL('../src/config/crm-realtime.ts', import.meta.url), 'utf8')
 
@@ -139,6 +155,27 @@ assert.match(
   /source\.addEventListener\('deposit_updated',[\s\S]*?queueCrmRealtimeMetadataRefresh\(\{ refreshDeposits: true \}\)/,
   'las señas deben actualizar su contador o bandeja mediante un evento específico'
 )
+assert.match(
+  crmUiSource,
+  /source\.addEventListener\('appointment_changed',[\s\S]*?queueAgendaRealtimeRefresh\(\)/,
+  'los cambios de turnos deben solicitar una actualización de la Agenda por SSE'
+)
+assert.match(
+  crmUiSource,
+  /function queueAgendaRealtimeRefresh\(\)[\s\S]*?currentSection !== 'agenda'[\s\S]*?setTimeout[\s\S]*?loadAgenda\(\)/,
+  'la Agenda debe recargarse con debounce únicamente cuando su sección está visible'
+)
+for (const mutation of ['create', 'update', 'cancel', 'updateStatus', 'confirmPendingAppointments']) {
+  const start = appointmentServiceSource.indexOf(`async ${mutation}(`)
+  assert.notEqual(start, -1, `debe existir la mutación central ${mutation}`)
+  const nextMethod = appointmentServiceSource.indexOf('\n  async ', start + 1)
+  const source = appointmentServiceSource.slice(start, nextMethod === -1 ? undefined : nextMethod)
+  assert.match(source, /publishAppointmentChanged\(/, `${mutation} debe publicar el cambio confirmado`)
+  assert.ok(
+    source.indexOf('await prisma.$transaction') < source.indexOf('publishAppointmentChanged('),
+    `${mutation} debe publicar solamente después de resolver su transacción`
+  )
+}
 assert.equal(
   crmUiSource.includes('CRM_LOCAL_EVENT_SYNC_MS'),
   false,

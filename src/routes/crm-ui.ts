@@ -18026,6 +18026,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       realtimeEventSource: null,
       realtimeFallbackTimer: null,
       realtimeStateRefreshTimer: null,
+      agendaRealtimeRefreshTimer: null,
       realtimeRefreshInFlight: false,
       realtimePendingConversationIds: new Set(),
       realtimePendingFullConversationIds: new Set(),
@@ -21727,6 +21728,16 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         if (payload.businessId !== state.businessId || !payload.depositId) return
         queueCrmRealtimeMetadataRefresh({ refreshDeposits: true })
       })
+      source.addEventListener('appointment_changed', (event) => {
+        let payload
+        try {
+          payload = JSON.parse(event.data)
+        } catch {
+          return
+        }
+        if (payload.businessId !== state.businessId || !payload.appointmentId) return
+        queueAgendaRealtimeRefresh()
+      })
       source.addEventListener('open', () => {
         if (state.realtimeEventSource !== source) return
         stopCrmRealtimeFallback()
@@ -21743,6 +21754,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.realtimeEventSource = null
       if (state.realtimeStateRefreshTimer) clearTimeout(state.realtimeStateRefreshTimer)
       state.realtimeStateRefreshTimer = null
+      if (state.agendaRealtimeRefreshTimer) clearTimeout(state.agendaRealtimeRefreshTimer)
+      state.agendaRealtimeRefreshTimer = null
       state.realtimePendingConversationIds.clear()
       state.realtimePendingFullConversationIds.clear()
       state.realtimePendingMessageIds.clear()
@@ -21765,6 +21778,16 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (options.refreshCounts) state.realtimeNeedsCountsRefresh = true
       if (options.refreshDeposits) state.realtimeNeedsDepositRefresh = true
       scheduleConversationStateRefresh()
+    }
+
+    function queueAgendaRealtimeRefresh() {
+      if (document.body.dataset.currentSection !== 'agenda') return
+      if (state.agendaRealtimeRefreshTimer) clearTimeout(state.agendaRealtimeRefreshTimer)
+      state.agendaRealtimeRefreshTimer = setTimeout(() => {
+        state.agendaRealtimeRefreshTimer = null
+        if (document.body.dataset.currentSection !== 'agenda') return
+        loadAgenda().catch((error) => console.error(error))
+      }, CRM_REALTIME_DEBOUNCE_MS)
     }
 
     function scheduleConversationStateRefresh() {

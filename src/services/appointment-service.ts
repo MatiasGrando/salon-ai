@@ -29,6 +29,7 @@ import {
 import { acquireAgendaHierarchy, lockAppointmentRows } from './agenda-locks.js'
 import { revalidateBookingWrite } from './booking-operations.js'
 import { createAppointmentRecord, updateAppointmentRecord } from './prisma-booking.js'
+import { publishAppointmentChanged } from './crm-realtime-events.js'
 
 const availabilitySlotInterval = 30
 
@@ -434,6 +435,12 @@ export class AppointmentService {
       }
     }
 
+    publishAppointmentChanged({
+      businessId: professional.businessId,
+      appointmentId: appointment.id,
+      updatedAt: new Date().toISOString()
+    })
+
     if (appointment.status === 'CONFIRMED') {
       try {
         await markConversationOpportunityConverted({
@@ -569,6 +576,11 @@ export class AppointmentService {
         message: 'El horario retenido ya no tiene tiempo suficiente para sumar esos servicios'
       }
     }
+    publishAppointmentChanged({
+      businessId: appointment.professional.businessId,
+      appointmentId: updated.id,
+      updatedAt: new Date().toISOString()
+    })
     return { ok: true, appointment: updated }
   }
 
@@ -926,6 +938,12 @@ export class AppointmentService {
       }
     }
 
+    publishAppointmentChanged({
+      businessId: professional.businessId,
+      appointmentId: appointment.id,
+      updatedAt: new Date().toISOString()
+    })
+
     return {
       ok: true,
       appointment
@@ -995,6 +1013,11 @@ export class AppointmentService {
       return cancelled
     })
     if (!cancelledAppointment) return appointmentConflict()
+    publishAppointmentChanged({
+      businessId: appointment.professional.businessId,
+      appointmentId: cancelledAppointment.id,
+      updatedAt: new Date().toISOString()
+    })
     try {
       await reopenConversationOpportunityForInvalidatedAppointment(appointmentId)
     } catch (error) {
@@ -1129,6 +1152,11 @@ export class AppointmentService {
         message: 'Ese horario ya no esta disponible'
       }
     }
+    publishAppointmentChanged({
+      businessId: appointment.professional.businessId,
+      appointmentId: updatedAppointment.id,
+      updatedAt: new Date().toISOString()
+    })
     if (status === 'CANCELLED' || status === 'NO_SHOW') {
       try {
         await reopenConversationOpportunityForInvalidatedAppointment(appointmentId)
@@ -1160,7 +1188,7 @@ export class AppointmentService {
     const businessIds = Array.from(new Set(appointments.map((item) => item.professional.businessId)))
     if (businessIds.length !== 1) return false
     const businessId = businessIds[0]!
-    return prisma.$transaction(async (tx) => {
+    const confirmed = await prisma.$transaction(async (tx) => {
       await acquireAgendaHierarchy(tx, {
         businessId,
         professionalIds: appointments.map((item) => item.professionalId)
@@ -1189,6 +1217,12 @@ export class AppointmentService {
       })
       return confirmed.count === ids.length
     })
+    if (!confirmed) return false
+    const updatedAt = new Date().toISOString()
+    for (const appointmentId of ids) {
+      publishAppointmentChanged({ businessId, appointmentId, updatedAt })
+    }
+    return true
   }
 
   async findAll(input: FindAppointmentsInput = {}) {
