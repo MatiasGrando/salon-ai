@@ -159,6 +159,21 @@ assert.match(crmSource, /isResolvingHandoff[\s\S]*?cleanBookingStateAfterResolve
 assert.match(crmSource, /isResolvingHandoff[\s\S]*?resolvedConversationHandoffPatch\(\)/)
 assert.match(crmSource, /isResolvingHandoff[\s\S]*?lastAvailability:\s*Prisma\.JsonNull/)
 
+const deterministicResolveRoute = crmSource.slice(
+  crmSource.indexOf("app.post('/crm/conversations/:id/handoff/resolve'"),
+  crmSource.indexOf("app.post('/crm/conversations/:id/service-resolution'")
+)
+assert.match(
+  deterministicResolveRoute,
+  /h\."status"='TAKEN'::"BotHandoffStatus"/,
+  'resolver solo debe entrar al flujo deterministico cuando existe un handoff tomado actualmente'
+)
+assert.doesNotMatch(
+  deterministicResolveRoute,
+  /h\."status"\s+IN\s*\([^)]*'TAKEN'[^)]*'RESOLVED'/,
+  'un handoff historico resuelto no debe bloquear el fallback legacy'
+)
+
 const crmUiSource = readFileSync('src/routes/crm-ui.ts', 'utf8')
 assert.match(
   crmUiSource,
