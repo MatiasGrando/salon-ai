@@ -21,6 +21,7 @@ assert.match(service, /normalizeAppointmentAttentionColor/)
 assert.match(service, /attentionColor: attentionColor\.value/)
 
 assert.match(ui, /id="appointment-attention-toggle"/)
+assert.match(ui, /const canSetAttention = state\.editingAppointmentId\s*\? canEditAppointments\(\)\s*:\s*canCreateAppointments\(\)/)
 assert.match(ui, /data-appointment-attention="NONE"/)
 assert.match(ui, /data-appointment-attention="YELLOW"/)
 assert.match(ui, /data-appointment-attention="ORANGE"/)

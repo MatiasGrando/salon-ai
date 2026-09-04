@@ -29393,7 +29393,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const hasContact = Boolean(state.editingAppointmentId && digits && canViewAppointmentCustomerData())
       const canOpenChat = hasContact && canOpenAppointmentConversations()
       const canUseWhatsapp = hasContact && canMessageAppointmentCustomer()
-      const canSetAttention = Boolean(state.editingAppointmentId && canEditAppointments())
+      const canSetAttention = state.editingAppointmentId
+        ? canEditAppointments()
+        : canCreateAppointments()
       const reminderAppointment = appointment
         ? {
             ...appointment,
