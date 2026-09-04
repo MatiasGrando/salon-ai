@@ -1691,6 +1691,8 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             catalog: null,
             service: null,
             services: [],
+            serviceSearch: '',
+            serviceCategory: 'all',
             serviceDetails: {},
             estimateOption: null,
             validationAccepted: false,
@@ -1817,6 +1819,68 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             return state.services || []
           }
 
+          function serviceCategoryLabel(service) {
+            return String(service?.category || '').trim() || 'Otros servicios'
+          }
+
+          function normalizeServiceFilterValue(value) {
+            return String(value || '')
+              .normalize('NFD')
+              .replace(/[\u0300-\u036f]/g, '')
+              .toLocaleLowerCase('es-AR')
+          }
+
+          function serviceCategories(services) {
+            const categories = []
+            const seen = new Set()
+            for (const service of services) {
+              const category = serviceCategoryLabel(service)
+              if (seen.has(category)) continue
+              seen.add(category)
+              categories.push(category)
+            }
+            return categories
+          }
+
+          function visibleServiceGroups() {
+            const search = normalizeServiceFilterValue(state.serviceSearch)
+            const groups = new Map()
+            for (const service of state.catalog?.services || []) {
+              const category = serviceCategoryLabel(service)
+              const searchable = normalizeServiceFilterValue([service.name, category, service.displayDuration, service.duration].join(' '))
+              if (state.serviceCategory !== 'all' && category !== state.serviceCategory) continue
+              if (search && !searchable.includes(search)) continue
+              const items = groups.get(category) || []
+              items.push(service)
+              groups.set(category, items)
+            }
+            return Array.from(groups, ([category, services]) => ({ category, services }))
+          }
+
+          function renderServiceOption(service) {
+            const depositLabel = service.deposit?.amount
+              ? '<small class="option-deposit">Se&ntilde;a ' + escapeHtml(formatPrice(service.deposit.amount, 'FIXED')) + '</small>'
+              : ''
+            const selected = selectedServices().some((item) => item.id === service.id)
+            return '<button class="fresha-option booking-service-option ' + (selected ? 'selected' : '') + '" type="button" data-service-id="' + escapeHtml(service.id) + '" aria-pressed="' + (selected ? 'true' : 'false') + '">' +
+              '<span class="service-check" aria-hidden="true"></span>' +
+              '<span class="service-copy"><strong>' + escapeHtml(service.name) + '</strong><span class="service-meta"><small>' + escapeHtml(serviceCategoryLabel(service)) + '</small><small>' + escapeHtml(service.displayDuration || (service.duration + ' min')) + '</small></span></span>' +
+              '<span class="option-right"><strong class="service-price">' + escapeHtml(service.price ? formatPrice(service.price, service.priceMode) : 'Consultar') + '</strong>' + depositLabel + '</span>' +
+            '</button>'
+          }
+
+          function renderServiceGroups(groups) {
+            if (!groups.length) {
+              return '<div class="booking-service-empty"><strong>No encontramos servicios</strong><span>Prob&aacute; con otro nombre o eleg&iacute; otra categor&iacute;a.</span></div>'
+            }
+            return groups.map((group) =>
+              '<section class="booking-service-group">' +
+                '<div class="booking-service-group-heading"><h2>' + escapeHtml(group.category) + '</h2><span>' + group.services.length + ' ' + (group.services.length === 1 ? 'servicio' : 'servicios') + '</span></div>' +
+                '<div class="fresha-options booking-service-options">' + group.services.map(renderServiceOption).join('') + '</div>' +
+              '</section>'
+            ).join('')
+          }
+
           function isMultiService() {
             return selectedServices().length > 1
           }
@@ -1839,16 +1903,22 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               updateContinue(false)
               return
             }
-            els.content.innerHTML = '<p class="booking-service-help">Pod&eacute;s elegir uno o varios servicios para hacerlos en la misma visita.</p><div class="fresha-options">' + services.map((service) => {
-              const depositLabel = service.deposit?.amount
-                ? '<small class="option-deposit">Se&ntilde;a ' + escapeHtml(formatPrice(service.deposit.amount, 'FIXED')) + '</small>'
-                : ''
-              const selected = selectedServices().some((item) => item.id === service.id)
-              return '<button class="fresha-option ' + (selected ? 'selected' : '') + '" type="button" data-service-id="' + escapeHtml(service.id) + '">' +
-                '<span class="option-left"><span class="radio"></span><span><strong>' + escapeHtml(service.name) + '</strong><small>' + escapeHtml(service.category || service.displayDuration || (service.duration + ' min')) + '</small></span></span>' +
-                '<span class="option-right"><span>' + escapeHtml(service.displayDuration || (service.duration + ' min')) + '</span><strong>' + escapeHtml(service.price ? formatPrice(service.price, service.priceMode) : 'Consultar') + '</strong>' + depositLabel + '</span>' +
-              '</button>'
-            }).join('') + '</div>'
+            const categories = serviceCategories(services)
+            const groups = visibleServiceGroups()
+            const visibleServiceCount = groups.reduce((total, group) => total + group.services.length, 0)
+            const categoryFilters = ['<button class="booking-service-filter ' + (state.serviceCategory === 'all' ? 'active' : '') + '" type="button" data-service-category="all" aria-pressed="' + (state.serviceCategory === 'all' ? 'true' : 'false') + '">Todos</button>']
+            for (const category of categories) {
+              const selected = state.serviceCategory === category
+              categoryFilters.push('<button class="booking-service-filter ' + (selected ? 'active' : '') + '" type="button" data-service-category="' + escapeHtml(category) + '" aria-pressed="' + (selected ? 'true' : 'false') + '">' + escapeHtml(category) + '</button>')
+            }
+            els.content.innerHTML =
+              '<p class="booking-service-help">Eleg&iacute; uno o varios servicios para hacerlos en la misma visita.</p>' +
+              '<div class="booking-service-browser">' +
+                '<label class="booking-service-search"><span class="sr-only">Buscar servicio</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="m16 16 4 4"></path></svg><input type="search" data-service-search autocomplete="off" placeholder="Buscar servicio" value="' + escapeHtml(state.serviceSearch) + '"></label>' +
+                '<div class="booking-service-filters" aria-label="Filtrar por categor&iacute;a">' + categoryFilters.join('') + '</div>' +
+                '<div class="booking-service-result-count" aria-live="polite">' + visibleServiceCount + ' ' + (visibleServiceCount === 1 ? 'servicio disponible' : 'servicios disponibles') + '</div>' +
+              '</div>' +
+              '<div class="booking-service-groups">' + renderServiceGroups(groups) + '</div>'
             updateContinue(selectedServices().length > 0)
           }
 
@@ -2757,6 +2827,12 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           }
 
           els.content.addEventListener('click', (event) => {
+            const categoryButton = event.target.closest('[data-service-category]')
+            if (categoryButton) {
+              state.serviceCategory = categoryButton.dataset.serviceCategory || 'all'
+              renderServiceStep()
+              return
+            }
             const serviceButton = event.target.closest('[data-service-id]')
             if (serviceButton) {
               const selected = (state.catalog.services || []).find((service) => service.id === serviceButton.dataset.serviceId) || null
@@ -2823,6 +2899,19 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               state.itinerary = null
               render()
               return
+            }
+          })
+
+          els.content.addEventListener('input', (event) => {
+            const searchInput = event.target.closest('[data-service-search]')
+            if (!searchInput) return
+            const cursorPosition = searchInput.selectionStart
+            state.serviceSearch = searchInput.value
+            renderServiceStep()
+            const nextSearchInput = els.content.querySelector('[data-service-search]')
+            if (nextSearchInput) {
+              nextSearchInput.focus()
+              nextSearchInput.setSelectionRange(cursorPosition, cursorPosition)
             }
           })
 
@@ -4517,6 +4606,212 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
       background: #FFF3D8;
       border-color: var(--gold);
       box-shadow: inset 0 0 0 1px rgba(201,161,59,.38);
+    }
+    .booking-service-options { gap: 12px; }
+    .booking-service-browser {
+      display: grid;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .booking-service-search {
+      min-height: 46px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 14px;
+      color: var(--ink-soft);
+      background: rgba(255,255,255,.58);
+      border: 1px solid var(--cream-line);
+      border-radius: 10px;
+      transition: border-color .16s ease, box-shadow .16s ease;
+    }
+    .booking-service-search:focus-within {
+      border-color: rgba(201,161,59,.8);
+      box-shadow: 0 0 0 3px rgba(201,161,59,.12);
+    }
+    .booking-service-search svg { width: 18px; height: 18px; flex: 0 0 18px; }
+    .booking-service-search input {
+      width: 100%;
+      min-width: 0;
+      padding: 0;
+      color: var(--dark-1);
+      background: transparent;
+      border: 0;
+      outline: 0;
+      font: inherit;
+    }
+    .booking-service-search input::placeholder { color: #9F927F; }
+    .booking-service-filters {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 1px 1px 5px;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(201,161,59,.55) transparent;
+    }
+    .booking-service-filter {
+      min-height: 34px;
+      flex: 0 0 auto;
+      padding: 0 14px;
+      color: var(--ink-soft);
+      background: rgba(255,255,255,.52);
+      border: 1px solid rgba(201,161,59,.52);
+      border-radius: 999px;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 1;
+      white-space: nowrap;
+      cursor: pointer;
+      transition: color .16s ease, background .16s ease, border-color .16s ease;
+    }
+    .booking-service-filter:hover { color: var(--dark-1); border-color: var(--gold); }
+    .booking-service-filter.active {
+      color: #FFF9EA;
+      background: var(--burgundy);
+      border-color: var(--burgundy);
+    }
+    .booking-service-result-count {
+      color: var(--ink-soft);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .booking-service-groups { display: grid; gap: 26px; }
+    .booking-service-group { display: grid; gap: 11px; }
+    .booking-service-group-heading {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+      padding-bottom: 9px;
+      border-bottom: 1px solid rgba(201,161,59,.3);
+    }
+    .booking-service-group-heading h2 {
+      margin: 0;
+      color: var(--dark-1);
+      font-family: var(--font-display);
+      font-size: 21px;
+      font-weight: 900;
+      line-height: 1.15;
+    }
+    .booking-service-group-heading span {
+      color: var(--ink-soft);
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .booking-service-empty {
+      display: grid;
+      gap: 4px;
+      padding: 22px;
+      color: var(--ink-soft);
+      background: rgba(255,250,240,.7);
+      border: 1px dashed rgba(201,161,59,.6);
+      border-radius: 10px;
+    }
+    .booking-service-empty strong { color: var(--dark-1); }
+    .booking-service-empty span { font-size: 13px; line-height: 1.45; }
+    .sr-only {
+      width: 1px;
+      height: 1px;
+      position: absolute;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+    }
+    .booking-service-option {
+      min-height: 92px;
+      display: grid;
+      grid-template-columns: 24px minmax(0, 1fr) auto;
+      padding: 18px 20px;
+      gap: 15px;
+      background: rgba(255,250,240,.78);
+      border-color: rgba(201,161,59,.28);
+      border-radius: 12px;
+      box-shadow: 0 5px 18px rgba(45,31,15,.035);
+      transition: transform .16s ease, border-color .16s ease, background .16s ease, box-shadow .16s ease;
+    }
+    .booking-service-option:hover {
+      transform: translateY(-1px);
+      background: #FFFDF8;
+      border-color: rgba(201,161,59,.72);
+      box-shadow: 0 9px 24px rgba(45,31,15,.075);
+    }
+    .booking-service-option.selected {
+      background: linear-gradient(135deg, #FFF7E5, #FFF1CF);
+      box-shadow: inset 3px 0 0 var(--gold), 0 8px 22px rgba(86,57,19,.09);
+    }
+    .service-check {
+      width: 22px;
+      height: 22px;
+      position: relative;
+      border: 1.5px solid #CFC0A2;
+      border-radius: 7px;
+      background: rgba(255,255,255,.7);
+      transition: background .16s ease, border-color .16s ease;
+    }
+    .booking-service-option.selected .service-check {
+      background: var(--burgundy);
+      border-color: var(--burgundy);
+    }
+    .booking-service-option.selected .service-check::after {
+      content: "";
+      width: 8px;
+      height: 4px;
+      position: absolute;
+      top: 6px;
+      left: 5px;
+      border-left: 2px solid #FFF9EA;
+      border-bottom: 2px solid #FFF9EA;
+      transform: rotate(-45deg);
+    }
+    .service-copy {
+      min-width: 0;
+      display: grid;
+      align-content: center;
+      gap: 8px;
+    }
+    .service-copy > strong {
+      color: var(--dark-1);
+      font-size: 16px;
+      font-weight: 900;
+      line-height: 1.25;
+    }
+    .service-meta {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      flex-wrap: wrap;
+    }
+    .service-meta small {
+      display: inline-flex;
+      align-items: center;
+      min-height: 23px;
+      padding: 3px 8px;
+      color: var(--ink-soft);
+      background: rgba(120,91,48,.07);
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 750;
+      line-height: 1;
+    }
+    .booking-service-option .option-right {
+      align-self: center;
+      gap: 7px;
+    }
+    .booking-service-option .service-price {
+      color: var(--dark-1);
+      font-family: var(--font-display);
+      font-size: 18px;
+      white-space: nowrap;
+    }
+    .booking-service-option .option-deposit {
+      padding: 4px 8px;
+      color: #714625;
+      background: rgba(201,161,59,.14);
+      border-radius: 999px;
+      font-size: 10.5px;
+      white-space: nowrap;
     }
     .option-left {
       min-width: 0;
@@ -6455,6 +6750,18 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
       .fresha-option {
         align-items: flex-start;
         flex-direction: column;
+      }
+      .booking-service-option {
+        grid-template-columns: 22px minmax(0, 1fr);
+        align-items: center;
+        padding: 16px;
+      }
+      .booking-service-option .option-right {
+        width: auto;
+        grid-column: 2;
+        grid-template-columns: auto auto;
+        align-items: center;
+        justify-items: start;
       }
       .option-right {
         width: 100%;
