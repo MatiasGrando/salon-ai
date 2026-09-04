@@ -5,7 +5,7 @@ import { createInitialBotOptionsState } from '../src/bot-options/domain/state.js
 import { STALE_PROMPT_NOTICE } from '../src/bot-options/domain/views.js'
 
 // Exercise the actual PROCESS_INBOX handler and persistView, not a copied implementation.
-async function scenario(flow: 'MAIN_MENU' | 'BUSINESS_HOURS' | 'PROFESSIONAL_HOURS_DETAIL' | 'SERVICE_DETAIL' | 'HANDOFF_QUEUED' | 'HANDOFF_TAKEN', textBody = 'Opción vieja', fail = false) {
+async function scenario(flow: 'MAIN_MENU' | 'BUSINESS_HOURS' | 'PROFESSIONAL_HOURS_DETAIL' | 'SERVICE_DETAIL' | 'HANDOFF_QUEUED' | 'HANDOFF_TAKEN', textBody = 'Opción vieja', fail = false, messageType = 'interactive') {
   let processed = false
   let committed: Prisma.Sql[] = []
   let staged: Prisma.Sql[] = []
@@ -23,7 +23,7 @@ async function scenario(flow: 'MAIN_MENU' | 'BUSINESS_HOURS' | 'PROFESSIONAL_HOU
     if (sql.includes('settings."timezone"')) return [{ id: 'inbox', businessId: 'b', deploymentId: 'd', deploymentGeneration: 1,
       providerEventId: 'event', providerMessageId: 'wamid', status: processed ? 'PROCESSED' : 'ADMITTED',
       dbNow: now, businessTimezone: 'UTC', businessName: 'Glow', admittedAt: now, providerOccurredAt: now,
-      payload: { fromPhone: '5491100000000', textBody, messageType: 'interactive', contextWindowEvaluated: true, stalePromptClassification: 'STALE_REVISION' } }]
+      payload: { fromPhone: '5491100000000', textBody, messageType, contextWindowEvaluated: true, stalePromptClassification: 'STALE_REVISION' } }]
     if (sql.includes('ORDER BY CASE s."status"')) return [{ sessionId: 's', conversationId: 'c', revision: 10n,
       status: flow === 'HANDOFF_TAKEN' ? 'HUMAN_TAKEN' : flow === 'HANDOFF_QUEUED' ? 'HUMAN_QUEUED' : 'ACTIVE', state, businessTimezone: 'UTC' }]
     if (sql.includes('FROM "BotHandoff"')) return [{ handoffId: 'h' }]
@@ -93,6 +93,7 @@ assert.ok(service.some(body => body.includes('Corte de prueba') && body.includes
 const queued = await scenario('HANDOFF_QUEUED')
 assert.equal(queued[0], STALE_PROMPT_NOTICE)
 assert.match(queued.at(-1)!, /equipo/)
+assert.deepEqual(await scenario('HANDOFF_QUEUED', 'Gracias, agrego un detalle', false, 'text'), [], 'free text in queue is persisted without repeating the waiting menu')
 assert.deepEqual(await scenario('HANDOFF_TAKEN'), [], 'human ownership remains silent even if taken after admission')
 assert.equal((await scenario('MAIN_MENU', 'reiniciar'))[0], STALE_PROMPT_NOTICE, 'interactive label never acts as a restart command')
 await scenario('MAIN_MENU', 'old', true)

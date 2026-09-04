@@ -69,7 +69,7 @@ import { acquireAppointmentWriteHierarchy } from '../services/agenda-locks.js'
 import { revalidateAppointmentsForConfirmation } from '../services/booking-operations.js'
 import { approveCurrentDepositProof, rejectCurrentDepositProof, DepositReviewError, DepositReviewStateError } from '../services/deposit-review-operation.js'
 import { randomUUID } from 'node:crypto'
-import { resolveBotHandoff, takeBotHandoff } from '../bot-options/application/handoff-operations.js'
+import { resolveBotHandoff, takeConversationForManualAttention } from '../bot-options/application/handoff-operations.js'
 
 const bookingV2Engine = new BookingV2Engine()
 const WHATSAPP_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000
@@ -1453,10 +1453,9 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
     if (typeof body.operationKey !== 'string' || !body.operationKey.trim()) return sendAuthorizationFailure(reply, 'malformed')
     const conversation = await loadAuthorizedConversation(prisma, authUser, params.id)
     if (!conversation?.businessId) return sendAuthorizationFailure(reply, 'notFound')
-    const deterministic = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT h."id" FROM "BotHandoff" h JOIN "BotSession" s ON s."id"=h."sessionId" AND s."businessId"=h."businessId" WHERE h."businessId"=${conversation.businessId} AND s."conversationId"=${conversation.id} AND h."status" IN ('QUEUED'::"BotHandoffStatus",'TAKEN'::"BotHandoffStatus") LIMIT 1`)
-    if (!deterministic.length) return reply.status(404).send({ code: 'NO_DETERMINISTIC_HANDOFF', message: 'No hay una derivacion deterministica en cola' })
     try {
-      await takeBotHandoff({ client: prisma, businessId: conversation.businessId, conversationId: conversation.id, actorUserId: authUser.id, operationKey: body.operationKey })
+      const result = await takeConversationForManualAttention({ client: prisma, businessId: conversation.businessId, conversationId: conversation.id, actorUserId: authUser.id, operationKey: body.operationKey })
+      if (result.kind === 'NO_DETERMINISTIC_SESSION') return reply.status(404).send({ code: 'NO_DETERMINISTIC_HANDOFF', message: 'No hay una sesion deterministica activa' })
     } catch (error) { return reply.status(409).send({ message: error instanceof Error ? error.message : 'No pude tomar la derivacion' }) }
     const updated = await loadAuthorizedConversation(prisma, authUser, params.id)
     if (!updated) return sendAuthorizationFailure(reply, 'notFound')
@@ -2001,12 +2000,34 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
 
     const authUser = request.auth?.user
     if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
-    const conversation = await loadAuthorizedConversation(prisma, authUser, params.id)
+    let conversation = await loadAuthorizedConversation(prisma, authUser, params.id)
 
     if (!conversation) {
       return sendAuthorizationFailure(reply, 'notFound')
     }
     if (!conversation.businessId) return sendAuthorizationFailure(reply, 'notFound')
+
+    try {
+      const manualAttention = await takeConversationForManualAttention({
+        client: prisma,
+        businessId: conversation.businessId,
+        conversationId: conversation.id,
+        actorUserId: authUser.id,
+        operationKey: `crm-manual-reply:${conversation.id}:${randomUUID()}`
+      })
+      if (manualAttention.kind === 'NO_DETERMINISTIC_SESSION' && conversation.aiEnabled) {
+        const paused = await prisma.conversation.updateMany({
+          where: { ...authorizedConversationWhere(authUser, conversation.id), updatedAt: conversation.updatedAt },
+          data: takenConversationHandoffPatch({ queuedAt: conversation.humanHandoffAt })
+        })
+        if (!paused.count) return sendAuthorizationFailure(reply, 'conflict')
+      }
+      const refreshed = await loadAuthorizedConversation(prisma, authUser, conversation.id)
+      if (!refreshed) return sendAuthorizationFailure(reply, 'notFound')
+      conversation = refreshed
+    } catch (error) {
+      return reply.status(409).send({ message: error instanceof Error ? error.message : 'No pude activar la atención manual' })
+    }
 
     const shouldSendWhatsApp = body.sendWhatsApp !== false
     if (shouldSendWhatsApp) {

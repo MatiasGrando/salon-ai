@@ -6648,7 +6648,7 @@ export function preliminaryAvailabilityDecisionFromMessage(message: string) {
 export function handoffCancellationButtons(conversationId: string) {
   return [{
     id: `handoff_cancel:${conversationId}`,
-    title: 'Cancelar atención'
+    title: 'Cancelar solicitud'
   }]
 }
 

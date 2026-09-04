@@ -3,6 +3,7 @@ import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
 import { normalizePhone } from '../../services/phone-normalization-service.js'
 import { parseBotOptionsState, type BotOptionsState } from '../domain/state.js'
 import { transition } from '../domain/transition.js'
+import { prismaHandoffEffectExecutor } from '../infrastructure/prisma-handoff-effect-executor.js'
 
 type Client = Pick<PrismaClient, '$transaction' | '$queryRaw' | '$executeRaw'>
 type Tx = Prisma.TransactionClient
@@ -16,6 +17,114 @@ type AggregateSnapshot = { visitId: string; visitVersion: number; visitStatus: s
 const hash = (value: object) => createHash('sha256').update(JSON.stringify(value), 'utf8').digest('hex')
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 export const STALE_HANDOFF_TAKE_MS = 60_000
+
+export type ManualAttentionResult =
+  | { kind: 'NO_DETERMINISTIC_SESSION' }
+  | { kind: 'TAKEN'; handoffId: string }
+
+type ManualAttentionPhase =
+  | { kind: 'NONE' }
+  | { kind: 'QUEUED' }
+  | { kind: 'TAKEN'; handoffId: string }
+
+/**
+ * Takes manual ownership regardless of whether the deterministic session was
+ * already queued or was still active. Active sessions are first moved through
+ * the canonical handoff queue so the existing dispatch fence can drain every
+ * in-flight bot response before the human starts writing.
+ */
+export async function takeConversationForManualAttention(input: {
+  client: Client
+  businessId: string
+  conversationId: string
+  actorUserId: string
+  operationKey: string
+  drainMs?: number
+}): Promise<ManualAttentionResult> {
+  if (!input.actorUserId.trim() || !input.operationKey.trim()) {
+    throw new Error('manual attention requires authenticated actor and operation key')
+  }
+  const phase = await input.client.$transaction(async (tx): Promise<ManualAttentionPhase> => {
+    const rows = await tx.$queryRaw<Array<{
+      sessionId: string
+      status: 'ACTIVE' | 'HUMAN_QUEUED' | 'HUMAN_TAKEN'
+      state: Prisma.JsonValue
+      revision: bigint
+      deploymentId: string
+      deploymentGeneration: number
+      handoffId: string | null
+      handoffStatus: 'QUEUED' | 'TAKEN' | null
+      dbNow: Date
+    }>>(Prisma.sql`
+      SELECT s."id" AS "sessionId",s."status"::text AS "status",s."state",s."revision",s."deploymentId",
+        s."deploymentGeneration",h."id" AS "handoffId",h."status"::text AS "handoffStatus",clock_timestamp() AS "dbNow"
+      FROM "BotSession" s
+      LEFT JOIN "BotHandoff" h ON h."businessId"=s."businessId" AND h."sessionId"=s."id"
+        AND h."status" IN ('QUEUED'::"BotHandoffStatus",'TAKEN'::"BotHandoffStatus")
+      WHERE s."businessId"=${input.businessId} AND s."conversationId"=${input.conversationId}
+        AND s."status" IN ('ACTIVE'::"BotSessionStatus",'HUMAN_QUEUED'::"BotSessionStatus",'HUMAN_TAKEN'::"BotSessionStatus")
+      ORDER BY CASE s."status" WHEN 'HUMAN_TAKEN'::"BotSessionStatus" THEN 0 WHEN 'HUMAN_QUEUED'::"BotSessionStatus" THEN 1 ELSE 2 END,
+        s."updatedAt" DESC
+      FOR UPDATE OF s
+    `)
+    if (rows.length === 0) return { kind: 'NONE' as const }
+    if (rows.length !== 1) throw new Error('manual attention found ambiguous deterministic sessions')
+    const row = rows[0]!
+    if (row.status === 'HUMAN_TAKEN') {
+      if (!row.handoffId || row.handoffStatus !== 'TAKEN') throw new Error('human-owned session lacks taken handoff')
+      return { kind: 'TAKEN' as const, handoffId: row.handoffId }
+    }
+    if (row.status === 'HUMAN_QUEUED') {
+      if (!row.handoffId || row.handoffStatus !== 'QUEUED') throw new Error('queued session lacks queued handoff')
+      return { kind: 'QUEUED' as const }
+    }
+    if (row.handoffId || row.handoffStatus) throw new Error('active session has unexpected handoff')
+    const parsed = parseBotOptionsState(row.state)
+    if (!parsed.ok) throw new Error(`cannot take corrupt deterministic session: ${parsed.invariant}`)
+    const requested = transition(parsed.state, {
+      actionType: 'handoff.request', entityRef: null, payload: null
+    }, { dbNowIso: row.dbNow.toISOString() })
+    const effects = ('effects' in requested ? requested.effects : []).map((effect) =>
+      effect.kind === 'REQUEST_HUMAN_HANDOFF'
+        ? { ...effect, reason: 'crm_manual_attention', detail: null, context: null }
+        : effect
+    )
+    if (requested.outcome !== 'HANDOFF' || !effects.some((effect) => effect.kind === 'REQUEST_HUMAN_HANDOFF')) {
+      throw new Error('manual attention could not queue deterministic handoff')
+    }
+    const queueOperationKey = `${input.operationKey}:queue`
+    await prismaHandoffEffectExecutor(tx, {
+      businessId: input.businessId,
+      sessionId: row.sessionId,
+      operationKey: queueOperationKey,
+      effects
+    })
+    const nextRevision = row.revision + 1n
+    expectOne(await tx.$executeRaw(Prisma.sql`
+      UPDATE "BotSession" SET "state"=${JSON.stringify(requested.state)}::jsonb,"revision"=${nextRevision},"updatedAt"=clock_timestamp()
+      WHERE "id"=${row.sessionId} AND "businessId"=${input.businessId} AND "revision"=${row.revision}
+        AND "status"='HUMAN_QUEUED'::"BotSessionStatus"
+    `), 'manual attention queue state')
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO "BotTransitionLog" ("id","businessId","sessionId","deploymentId","deploymentGeneration",
+        "revisionFrom","revisionTo","actionType","outcome","detail")
+      VALUES (${randomUUID()},${input.businessId},${row.sessionId},${row.deploymentId},${row.deploymentGeneration},
+        ${row.revision},${nextRevision},'handoff.request','HANDOFF',${JSON.stringify({ source: 'crm_manual_attention' })}::jsonb)
+    `)
+    return { kind: 'QUEUED' as const }
+  })
+  if (phase.kind === 'NONE') return { kind: 'NO_DETERMINISTIC_SESSION' }
+  if (phase.kind === 'TAKEN') return { kind: 'TAKEN', handoffId: phase.handoffId }
+  const taken = await takeBotHandoff({
+    client: input.client,
+    businessId: input.businessId,
+    conversationId: input.conversationId,
+    actorUserId: input.actorUserId,
+    operationKey: `${input.operationKey}:take`,
+    drainMs: input.drainMs
+  })
+  return { kind: 'TAKEN', handoffId: taken.handoffId }
+}
 
 export function canonicalTakeOperation(input: {
   requestedOperationKey: string

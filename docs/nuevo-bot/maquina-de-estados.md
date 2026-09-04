@@ -130,7 +130,7 @@ El formato de transporte puede cambiar, pero debe conservar estas propiedades:
 | `navigation.back` | Ejecuta la transición inversa explícita del estado. |
 | `navigation.home` | Va directo al menú sin progreso o abre `DISCARD_CONFIRM`. |
 | `handoff.request` | Pausa el estado y crea una única solicitud de atención. |
-| `handoff.wait` | Reitera el estado de espera sin duplicar la solicitud. |
+| `handoff.wait` | Compatibilidad con menús anteriores; reitera el estado sin duplicar la solicitud. No se ofrece en menús nuevos. |
 | `handoff.cancel` | Cancela sólo una solicitud todavía no tomada y revalida. |
 
 Las acciones universales no se admiten ciegamente. Una retención o seña activa
@@ -262,7 +262,7 @@ parte de la transacción SQL.
 | Estado | Acción o evento | Guarda | Próximo estado | Efectos |
 |---|---|---|---|---|
 | Cualquier estado habilitado | `handoff.request` | No existe solicitud activa | `HANDOFF_QUEUED` | Guardar estado pausado y motivo. |
-| `HANDOFF_QUEUED` | `handoff.wait` | Solicitud no tomada | `HANDOFF_QUEUED` | Informar sin duplicar. |
+| `HANDOFF_QUEUED` | `handoff.wait` | Opción perteneciente a un menú anterior | `HANDOFF_QUEUED` | Informar sin duplicar; no se ofrece en menús nuevos. |
 | `HANDOFF_QUEUED` | `handoff.cancel` | Solicitud no tomada | Estado pausado revalidado | Cancelar cola y reconstruir. |
 | `HANDOFF_QUEUED` | `handoff.take` | Agente autorizado | `HANDOFF_TAKEN` | Desactivar respuestas automáticas. |
 | `HANDOFF_TAKEN` | Cualquier entrada del cliente | — | `HANDOFF_TAKEN` | Persistir para CRM; no responder. |

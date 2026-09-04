@@ -416,11 +416,12 @@ las reglas transversales de atención están especificados para el primer corte.
 ## 12. Atención humana
 
 - Solicitar atención pausa el estado funcional.
-- En cola, sólo permitir Seguir esperando o Cancelar atención y volver.
-- No duplicar solicitudes ni cambiar la posición al consultar estado.
+- En cola, informar que no hace falta responder y ofrecer sólo Cancelar solicitud.
+- Los mensajes libres enviados mientras espera se conservan para el CRM sin generar respuestas repetitivas del bot.
 - Cancelar sólo antes de que un agente tome la conversación.
 - Al cancelar, revalidar y reconstruir el paso pausado.
 - Una vez tomada, el bot permanece en silencio.
+- La primera respuesta manual toma la conversación antes de enviarse y silencia cualquier motor de bot activo.
 - Al resolver, el agente elige volver al menú o retomar.
 - Los cambios manuales prevalecen sobre el borrador.
 - La toma y resolución son auditables e idempotentes.

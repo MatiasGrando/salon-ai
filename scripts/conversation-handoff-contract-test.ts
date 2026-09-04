@@ -11,7 +11,7 @@ import {
   resolvedConversationHandoffPatch,
   takenConversationHandoffPatch
 } from '../src/services/conversation-handoff.js'
-import { canonicalResolveOperation, canonicalTakeOperation, recoverStaleTakeOperations, STALE_HANDOFF_TAKE_MS, type StaleTakeCandidate } from '../src/bot-options/application/handoff-operations.js'
+import { canonicalResolveOperation, canonicalTakeOperation, recoverStaleTakeOperations, STALE_HANDOFF_TAKE_MS, takeConversationForManualAttention, type StaleTakeCandidate } from '../src/bot-options/application/handoff-operations.js'
 
 assert.equal(STALE_HANDOFF_TAKE_MS, 60_000)
 assert.equal(canonicalTakeOperation({ requestedOperationKey: 'new', actorUserId: 'actor-a', requestHash: 'hash-a' }), 'new')
@@ -50,6 +50,19 @@ const recoveryResult = await recoverStaleTakeOperations({
 })
 assert.deepEqual(recoveryResult, { completed: 1, waiting: 1, blockedUnknown: 1, aborted: 1 })
 await assert.rejects(() => recoverStaleTakeOperations({ client: {} as never, staleMs: STALE_HANDOFF_TAKE_MS - 1 }), /safe window/)
+
+assert.deepEqual(await takeConversationForManualAttention({
+  client: {
+    $transaction: async (run: (tx: unknown) => Promise<unknown>) => run({
+      $queryRaw: async () => [],
+      $executeRaw: async () => 0
+    })
+  } as never,
+  businessId: 'business-without-deterministic-bot',
+  conversationId: 'conversation-without-deterministic-bot',
+  actorUserId: 'actor-a',
+  operationKey: 'manual-take-none'
+}), { kind: 'NO_DETERMINISTIC_SESSION' })
 
 const now = new Date('2026-08-10T12:00:00.000Z')
 const queued = queuedConversationHandoffPatch(now)
@@ -111,7 +124,7 @@ assert.match(conversationSource, /El equipo sigue teniendo tus imágenes/)
 assert.match(conversationSource, /handoff_cancel:\$\{conversationId\}/)
 assert.match(conversationSource, /isQueuedConversationHandoff\(conversation\)[\s\S]*?isHandoffCancellationRequest/)
 assert.match(conversationSource, /humanHandoffResolvedAt:\s*new Date\(\)/)
-assert.match(conversationSource, /title:\s*'Cancelar atención'/)
+assert.match(conversationSource, /title:\s*'Cancelar solicitud'/)
 assert.match(
   conversationSource,
   /conversation\.updateMany\([\s\S]*?currentStep:\s*'HUMAN_HANDOFF'[\s\S]*?aiEnabled:\s*true[\s\S]*?humanHandoffResolvedAt:\s*null/
@@ -128,6 +141,12 @@ assert.match(
 )
 
 const crmSource = readFileSync('src/routes/crm.ts', 'utf8')
+assert.match(crmSource, /takeConversationForManualAttention/)
+assert.match(
+  crmSource,
+  /manual-replies[\s\S]*?takeConversationForManualAttention[\s\S]*?sendTextMessage/,
+  'una respuesta manual debe tomar el control determinístico antes de enviar por WhatsApp'
+)
 assert.match(
   crmSource,
   /conversation\.currentStep === 'HUMAN_HANDOFF'[\s\S]*?takenConversationHandoffPatch\(\{ queuedAt: conversation\.humanHandoffAt \}\)/
@@ -153,6 +172,17 @@ assert.match(crmUiSource, /handoffOperationKeys\.get\(operationKeyId\)[\s\S]*?bo
   'take retries keep one operation key until success')
 assert.match(crmUiSource, /handoffOperationKeys\.get\(operationKeyId\)[\s\S]*?body: JSON\.stringify\(\{ operationKey, resolution:/,
   'resolve retries keep one operation key until success')
+
+const processSessionSource = readFileSync('src/bot-options/application/process-session-job.ts', 'utf8')
+assert.match(
+  processSessionSource,
+  /existingSession\.status === 'HUMAN_QUEUED'[\s\S]*?HUMAN_QUEUED_SILENCED[\s\S]*?return 'PROCESSED'/,
+  'los mensajes libres en cola se conservan sin repetir el menú'
+)
+
+const handoffOperationsSource = readFileSync('src/bot-options/application/handoff-operations.ts', 'utf8')
+assert.match(handoffOperationsSource, /export async function takeConversationForManualAttention/)
+assert.match(handoffOperationsSource, /prismaHandoffEffectExecutor[\s\S]*?takeBotHandoff/)
 assert.doesNotMatch(crmUiSource, /Reanudar si es seguro|value="RESUME"/,
   'el CRM no debe ofrecer reanudar contexto después de una atención manual')
 

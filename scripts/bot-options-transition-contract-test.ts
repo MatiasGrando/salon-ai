@@ -33,6 +33,78 @@ function stateWith(patch: Partial<BotOptionsState>): BotOptionsState {
   return { ...createInitialBotOptionsState(), ...patch }
 }
 
+function bookingSlotState(professionalId: string | null, anyProfessional = false): BotOptionsState {
+  return stateWith({
+    flow: 'SLOT_SELECT',
+    booking: 'DRAFT',
+    cart: [{ serviceId: 'srv_corte' }],
+    selections: {
+      ...createInitialBotOptionsState().selections,
+      professionalId,
+      anyProfessional,
+      date: '2026-09-04'
+    }
+  })
+}
+
+function availableSlots(count: number): NonNullable<TransitionContext['labels']['availableSlots']> {
+  return Array.from({ length: count }, (_, index) => ({
+    startAt: `2026-09-04T${String(10 + index).padStart(2, '0')}:00:00-03:00`,
+    label: `${String(10 + index).padStart(2, '0')}:00 · Ramiro`,
+    band: index < 2 ? 'MORNING' as const : 'AFTERNOON' as const,
+    professionalId: 'prof_ramiro'
+  }))
+}
+
+// La pantalla contextualiza fecha/cantidad y ofrece cambiar de profesional con hasta cinco horarios.
+for (const count of [1, 5]) {
+  const slotContext = normalizeContext(ctx({
+    businessTodayDate: '2026-09-04',
+    labels: {
+      bookingProfessionals: [{ professionalId: 'prof_ramiro', label: 'Ramiro' }],
+      availableSlots: availableSlots(count)
+    }
+  }))
+  const view = renderCurrentView(bookingSlotState('prof_ramiro'), slotContext)
+  assert.equal(
+    view.interactiveBody,
+    count === 1
+      ? 'Encontré un solo horario disponible para hoy con Ramiro. Podés elegirlo o buscar disponibilidad con otro profesional.'
+      : 'Estos son los horarios disponibles para hoy con Ramiro. Si necesitás más opciones, podés buscar con otro profesional.'
+  )
+  assert.ok(view.choices.some((choice) => choice.actionType === 'professional.change' && choice.label === 'Buscar otro profesional'))
+}
+
+const manySlotView = renderCurrentView(bookingSlotState('prof_ramiro'), normalizeContext(ctx({
+  businessTodayDate: '2026-09-04',
+  labels: {
+    bookingProfessionals: [{ professionalId: 'prof_ramiro', label: 'Ramiro' }],
+    availableSlots: availableSlots(6)
+  }
+})))
+assert.equal(manySlotView.interactiveBody, 'Estos son los horarios disponibles para hoy con Ramiro:')
+assert.ok(!manySlotView.choices.some((choice) => choice.actionType === 'professional.change'))
+
+const futureAnyProfessionalView = renderCurrentView(bookingSlotState(null, true), normalizeContext(ctx({
+  businessTodayDate: '2026-09-03',
+  labels: { availableSlots: availableSlots(1) }
+})))
+assert.equal(futureAnyProfessionalView.interactiveBody, 'Encontré un solo horario disponible para el viernes 4 de septiembre.')
+assert.ok(!futureAnyProfessionalView.choices.some((choice) => choice.actionType === 'professional.change'))
+
+const changeProfessional = transition(
+  bookingSlotState('prof_ramiro'),
+  act('professional.change'),
+  ctx({ labels: { bookingProfessionals: [{ professionalId: 'prof_ana', label: 'Ana' }] } })
+)
+assert.equal(changeProfessional.outcome, 'APPLIED')
+if (changeProfessional.outcome === 'APPLIED') {
+  assert.equal(changeProfessional.state.flow, 'PROFESSIONAL_SELECT')
+  assert.equal(changeProfessional.state.selections.professionalId, null)
+  assert.equal(changeProfessional.state.selections.date, null)
+  assert.ok(changeProfessional.view.choices.some((choice) => choice.actionType === 'professional.select' && choice.label === 'Ana'))
+}
+
 // ─── Menú principal ───────────────────────────────────────────────────────────
 
 const menu = createInitialBotOptionsState()
@@ -685,15 +757,14 @@ const coordinate = transition(si, act('recommendation.add'), ctx({ labels: { ser
 assert.equal(coordinate.outcome, 'HANDOFF')
 assert.equal(coordinate.view.interactiveBody, 'No encontramos un profesional que pueda realizar ambos servicios. Vamos a coordinar tu reserva con el equipo. Esperá un momento; alguien te va a atender por acá.')
 assert.deepEqual(coordinate.view.choices.map(({ actionType, label }) => ({ actionType, label })), [
-  { actionType: 'handoff.wait', label: 'Seguir esperando' },
-  { actionType: 'handoff.cancel', label: 'Cancelar atención' }
+  { actionType: 'handoff.cancel', label: 'Cancelar solicitud' }
 ])
 const queuedScreen = renderWhatsAppScreen(coordinate.view, { promptToken: 'q'.repeat(16) })
 const queuedItem = queuedScreen.items.at(-1)!
 assert.equal(queuedItem.type, 'interactive')
 if (queuedItem.type === 'interactive') {
   assert.equal(queuedItem.mode, 'buttons')
-  assert.deepEqual(queuedItem.buttons?.map((button) => button.title), ['Seguir esperando', 'Cancelar atención'])
+  assert.deepEqual(queuedItem.buttons?.map((button) => button.title), ['Cancelar solicitud'])
 }
 if (coordinate.outcome === 'HANDOFF') {
   assert.equal(coordinate.state.flow, 'HANDOFF_QUEUED')
@@ -701,6 +772,15 @@ if (coordinate.outcome === 'HANDOFF') {
   assert.deepEqual(coordinate.effects, [{ kind: 'REQUEST_HUMAN_HANDOFF', reason: 'coordinacion_multiprofesional', detail: 'Coloración', context: null }])
   si = coordinate.state
 }
+
+const queuedView = renderCurrentView(si, normalizeContext(ctx()))
+assert.equal(
+  queuedView.interactiveBody,
+  'Listo, ya avisamos al equipo. No hace falta que respondas: te van a escribir por acá. Si ya no necesitás ayuda, podés cancelar la solicitud.'
+)
+assert.deepEqual(queuedView.choices.map(({ actionType, label }) => ({ actionType, label })), [
+  { actionType: 'handoff.cancel', label: 'Cancelar solicitud' }
+])
 
 const cancelWait = transition(si, act('handoff.cancel'), ctx())
 assert.equal(cancelWait.outcome, 'APPLIED')

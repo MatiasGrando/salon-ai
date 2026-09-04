@@ -563,16 +563,16 @@ Atención humana:
 
 - Al solicitar atención, el flujo funcional se pausa y conserva su contexto.
 - Mientras la solicitud está en cola y todavía no fue tomada, el bot no permite
-  seguir modificando la reserva. Sólo ofrece Seguir esperando y Cancelar atención
-  y volver.
-- Seguir esperando informa el estado sin crear otra solicitud ni cambiar el
-  turno en la cola.
-- Si el cliente envía otro contenido mientras espera, el bot responde solamente
-  con el estado de atención y las mismas opciones; no lo interpreta como una
-  acción del flujo pausado.
+  seguir modificando la reserva. Informa que no hace falta responder y sólo
+  ofrece Cancelar solicitud para volver.
+- Si el cliente envía otro contenido mientras espera, el mensaje se conserva
+  para el CRM sin repetir el menú ni interpretarlo como una acción del flujo
+  pausado.
 - Cuando una persona toma la conversación, el bot deja de responder por completo
   hasta que la atención se resuelva explícitamente.
-- Cancelar atención y volver sólo está disponible mientras la solicitud no fue
+- Enviar la primera respuesta manual toma antes la conversación mediante la
+  barrera del motor activo; no se permite que un humano y un bot respondan a la vez.
+- Cancelar solicitud sólo está disponible mientras la solicitud no fue
   tomada. Cancela la solicitud, revalida el contexto pausado y reconstruye el
   paso funcional exacto que corresponda. No descarta el carrito ni regresa al
   menú principal.

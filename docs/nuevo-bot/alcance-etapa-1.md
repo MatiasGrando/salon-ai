@@ -111,8 +111,10 @@ esté habilitada para realizar todo el carrito dentro de un bloque continuo.
 ### Atención humana
 
 - Pausa del flujo al solicitar atención.
-- Mientras está en cola: Seguir esperando o Cancelar atención y volver.
+- Mientras está en cola: informar que no hace falta responder y ofrecer Cancelar solicitud.
+- Los mensajes libres en cola llegan al CRM sin repetir el menú de espera.
 - Silencio completo del bot cuando un agente toma la conversación.
+- Toma automática y segura antes de enviar la primera respuesta manual.
 - El agente decide si la resolución vuelve al menú o retoma el flujo.
 - Revalidación del contexto antes de retomar.
 

@@ -56,6 +56,8 @@ export type NormalizedAction = {
 
 export type TransitionContext = {
   dbNowIso: string
+  /** Fecha calendario actual YYYY-MM-DD en la zona horaria del negocio. */
+  businessTodayDate: string | null
   /** Nombre válido ya persistido para este teléfono/negocio. */
   customerNameOnFile: string | null
   draftExists: boolean
@@ -213,6 +215,7 @@ export function normalizeContext(input: Partial<TransitionContext> & Pick<Transi
     if (typeof merged[key] !== 'boolean') merged[key] = false
   }
   if (typeof merged['customerNameOnFile'] !== 'string') merged['customerNameOnFile'] = null
+  if (typeof merged['businessTodayDate'] !== 'string') merged['businessTodayDate'] = null
   if (typeof merged['recommendedServiceId'] !== 'string') merged['recommendedServiceId'] = null
   if (typeof merged['appointmentListPage'] !== 'object' || merged['appointmentListPage'] === null || Array.isArray(merged['appointmentListPage'])) {
     merged['appointmentListPage'] = null
@@ -345,6 +348,7 @@ const CLIENT_ALLOWED: Partial<Record<BotOptionsFlowStep, readonly BotOptionsActi
     'slot.show_all',
     'slot.next_page',
     'slot.select',
+    'professional.change',
     'navigation.back',
     'navigation.home',
     'navigation.open',
@@ -587,14 +591,59 @@ function availabilitySlotView(
       ...(['MORNING', 'AFTERNOON', 'EVENING'] as const).filter((band) => all.some((slot) => slot.band === band)).map((band) => ({ actionType: 'slot.band' as const, label: band === 'MORNING' ? 'Mañana' : band === 'AFTERNOON' ? 'Tarde' : 'Noche', payload: { band } })),
       { actionType: 'slot.show_all', label: 'Ver todos los horarios' }
     ]
-    return appendGlobals(menuView('Elegí una franja', bandChoices), composeGlobalNavigation({ capacity: 10, contextualCount: bandChoices.length, back: BACK_CHOICE }))
+    const dateLabel = formatAvailabilityDate(state.selections.date, context.businessTodayDate)
+    const professionalLabel = selectedProfessionalLabel(state, context)
+    const professionalSuffix = professionalLabel ? ` con ${professionalLabel}` : ''
+    return appendGlobals(menuView(`Hay varios horarios disponibles para ${dateLabel}${professionalSuffix}. Elegí una franja:`, bandChoices), composeGlobalNavigation({ capacity: 10, contextualCount: bandChoices.length, back: BACK_CHOICE }))
   }
   const choices: ViewChoice[] = page.map((slot) => ({
     actionType: selectAction, label: slot.label, payload: { startAt: slot.startAt }, ...(entityRef ? { entityRef } : {})
   }))
   if (state.presentation.kind === 'slot_all_pages' && context.slotCanNext) choices.push({ actionType: 'slot.next_page', label: 'Más horarios' })
-  return appendGlobals(menuView(selectAction === 'slot.select' ? 'Elegí el horario' : 'Elegí el nuevo horario', choices),
+  const canChangeProfessional = selectAction === 'slot.select' && Boolean(state.selections.professionalId) && all.length > 0 && all.length <= 5
+  if (canChangeProfessional) choices.push({ actionType: 'professional.change', label: 'Buscar otro profesional' })
+  const body = selectAction === 'slot.select'
+    ? availabilitySlotBody(state, context, all.length, canChangeProfessional)
+    : 'Elegí el nuevo horario'
+  return appendGlobals(menuView(body, choices),
     composeGlobalNavigation({ capacity: 10, contextualCount: choices.length, back: BACK_CHOICE }))
+}
+
+function selectedProfessionalLabel(state: BotOptionsState, context: TransitionContext): string | null {
+  const professionalId = state.selections.professionalId
+  if (!professionalId) return null
+  return context.labels.bookingProfessionals?.find((item) => item.professionalId === professionalId)?.label ?? null
+}
+
+function formatAvailabilityDate(selectedDate: string | null, businessTodayDate: string | null): string {
+  if (!selectedDate) return 'la fecha elegida'
+  if (selectedDate === businessTodayDate) return 'hoy'
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(selectedDate)
+  if (!match) return 'la fecha elegida'
+  const [, year, month, day] = match
+  const instant = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)))
+  const weekday = new Intl.DateTimeFormat('es-AR', { weekday: 'long', timeZone: 'UTC' }).format(instant)
+  const monthName = new Intl.DateTimeFormat('es-AR', { month: 'long', timeZone: 'UTC' }).format(instant)
+  return `el ${weekday} ${Number(day)} de ${monthName}`
+}
+
+function availabilitySlotBody(
+  state: BotOptionsState,
+  context: TransitionContext,
+  slotCount: number,
+  canChangeProfessional: boolean
+): string {
+  const dateLabel = formatAvailabilityDate(state.selections.date, context.businessTodayDate)
+  const professionalLabel = selectedProfessionalLabel(state, context)
+  const professionalSuffix = professionalLabel ? ` con ${professionalLabel}` : ''
+  if (slotCount === 1) {
+    const alternative = canChangeProfessional ? ' Podés elegirlo o buscar disponibilidad con otro profesional.' : ''
+    return `Encontré un solo horario disponible para ${dateLabel}${professionalSuffix}.${alternative}`
+  }
+  const lead = `Estos son los horarios disponibles para ${dateLabel}${professionalSuffix}`
+  return canChangeProfessional
+    ? `${lead}. Si necesitás más opciones, podés buscar con otro profesional.`
+    : `${lead}:`
 }
 
 export function renderCurrentView(state: BotOptionsState, context: TransitionContext): BotOptionsViewModel {
@@ -906,9 +955,8 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
         : [])
     }
     case 'HANDOFF_QUEUED':
-      return menuView('Ya avisamos al equipo. Podés seguir esperando o cancelar la atención para volver al paso anterior.', [
-        { actionType: 'handoff.wait', label: 'Seguir esperando' },
-        { actionType: 'handoff.cancel', label: 'Cancelar atención' }
+      return menuView('Listo, ya avisamos al equipo. No hace falta que respondas: te van a escribir por acá. Si ya no necesitás ayuda, podés cancelar la solicitud.', [
+        { actionType: 'handoff.cancel', label: 'Cancelar solicitud' }
       ])
     case 'HANDOFF_TAKEN':
       return textView('')
@@ -980,8 +1028,7 @@ function enterHandoff(
   })
   const view = queuedMessage
     ? menuView(queuedMessage, [
-        { actionType: 'handoff.wait', label: 'Seguir esperando' },
-        { actionType: 'handoff.cancel', label: 'Cancelar atención' }
+        { actionType: 'handoff.cancel', label: 'Cancelar solicitud' }
       ])
     : renderCurrentView(nextState, EMPTY_CONTEXT_FOR_VIEWS)
   return applied(nextState, view, [
@@ -2206,6 +2253,13 @@ function fromSlotSelect(
   payload: BotOptionsActionPayload | null,
   context: TransitionContext
 ): TransitionResult {
+  if (actionType === 'professional.change') {
+    const next = baseOf(resetInvalidStreak(withoutSelections(state, 'professional')), {
+      flow: 'PROFESSIONAL_SELECT',
+      presentation: plainPresentation()
+    })
+    return applied(next, renderCurrentView(next, context))
+  }
   if (actionType === 'slot.band') {
     const band = payload?.band as SlotBand | undefined
     if (!band || !context.bandHasAvailability) {

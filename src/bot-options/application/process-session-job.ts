@@ -37,7 +37,7 @@ import { PrismaCartRepository, CartServicePolicyChangedError } from '../infrastr
 import { serviceConfigurationKey, resolveServiceEstimate } from '../domain/service-booking.js'
 import { formatCartSummary } from './cart-operations.js'
 import { PrismaAvailabilityRepository } from '../infrastructure/prisma-availability.js'
-import { projectAvailability } from './availability-queries.js'
+import { localDateKey, projectAvailability } from './availability-queries.js'
 import {
   classifyAppointmentManagementPolicy,
   formatManagedAppointment,
@@ -208,7 +208,7 @@ export const defaultContextProvider: TransitionContextProvider = async (tx, inpu
   const refreshingCurrentView = input.actionType === 'system.stale_prompt' ||
     input.actionType === 'system.reprompt' || input.actionType === 'system.initial_view'
   const base: TransitionContext = {
-    dbNowIso: input.dbNow.toISOString(), customerNameOnFile: null,
+    dbNowIso: input.dbNow.toISOString(), businessTodayDate: localDateKey(input.dbNow, input.businessTimezone), customerNameOnFile: null,
     draftExists: false, draftHasProgress: false, categoryActive: false, categoryHasServices: false,
     subcategoryActive: false, subcategoryHasServices: false,
     serviceActive: false, serviceBookable: false, requiresConsultation: false,
@@ -1153,6 +1153,20 @@ async function processInitialInboxUnderClaim(
             view: await loadConversationGreetingView(tx, { businessId: row.businessId, phone: payload.fromPhone }),
             dbNow: row.dbNow
           })
+          await completeDispatchClaimTx(tx, dispatchToken)
+          await completeClaimedBotJobTx(tx, input.job)
+          return 'PROCESSED'
+        }
+        if (existingSession.status === 'HUMAN_QUEUED' && payload.messageType !== 'interactive') {
+          await tx.$executeRaw(Prisma.sql`
+            UPDATE "BotActionInbox" SET "sessionId"=${existingSession.sessionId},"status"='PROCESSED'::"BotInboxStatus",
+              "error"='HUMAN_QUEUED_SILENCED'
+            WHERE "id"=${row.id} AND "status"='ADMITTED'::"BotInboxStatus"
+          `)
+          await tx.$executeRaw(Prisma.sql`
+            UPDATE "BotProviderEvent" SET "status"='PROCESSED'::"BotProviderEventStatus"
+            WHERE "id"=${row.providerEventId} AND "status"='ADMITTED'::"BotProviderEventStatus"
+          `)
           await completeDispatchClaimTx(tx, dispatchToken)
           await completeClaimedBotJobTx(tx, input.job)
           return 'PROCESSED'
