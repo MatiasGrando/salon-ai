@@ -26816,6 +26816,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       )
     }
 
+    function professionalAssignableServices() {
+      return state.services.filter((service) => service.isBookable !== false)
+    }
+
     function serviceCanContinueToBooking(service) {
       const attentionMode = service.attentionMode || 'DIRECT_BOOKING'
       return attentionMode === 'DIRECT_BOOKING' ||
@@ -26834,7 +26838,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (!els.professionalServices) return
 
       const selected = new Set(selectedIds)
-      const services = bookableServices()
+      const services = professionalAssignableServices()
       els.professionalServices.innerHTML = services.length
         ? services.map((service) => {
             return '<label class="professional-service-option">' +

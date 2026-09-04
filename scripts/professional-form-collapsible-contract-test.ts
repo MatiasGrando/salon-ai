@@ -21,4 +21,15 @@ assert.match(source, /els\.professionalScheduleSection\.open = true/)
 assert.match(source, /\.professional-form-section\s*\{[\s\S]*border:\s*1px solid #d7dfeb/)
 assert.match(source, /\.professional-form-section > summary\s*\{[\s\S]*cursor:\s*pointer/)
 
+assert.match(
+  source,
+  /function professionalAssignableServices\(\)\s*\{\s*return state\.services\.filter\(\(service\) => service\.isBookable !== false\)\s*\}/,
+  'Las asociaciones profesionales deben incluir servicios reales sin aplicar elegibilidad de turnos.'
+)
+assert.match(
+  source,
+  /function renderProfessionalServiceOptions\([\s\S]*?const services = professionalAssignableServices\(\)/,
+  'El selector de servicios del profesional debe usar el cat\u00e1logo asignable.'
+)
+
 console.log('OK: el editor de profesionales organiza sus campos en secciones desplegables.')
