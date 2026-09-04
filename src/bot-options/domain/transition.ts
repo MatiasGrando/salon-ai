@@ -581,6 +581,9 @@ function availabilitySlotView(
   selectAction: 'slot.select' | 'appointment.slot_select',
   entityRef?: BotOptionsEntityRef
 ): BotOptionsViewModel {
+  const backChoice: ViewChoice = selectAction === 'slot.select'
+    ? { actionType: 'navigation.back', label: 'Cambiar fecha' }
+    : BACK_CHOICE
   const all = context.labels.availableSlots ?? []
   const selectedBand = state.presentation.kind === 'slot_band' ? state.presentation.band : null
   const filtered = selectedBand ? all.filter((slot) => slot.band === selectedBand) : all
@@ -594,7 +597,7 @@ function availabilitySlotView(
     const dateLabel = formatAvailabilityDate(state.selections.date, context.businessTodayDate)
     const professionalLabel = selectedProfessionalLabel(state, context)
     const professionalSuffix = professionalLabel ? ` con ${professionalLabel}` : ''
-    return appendGlobals(menuView(`Hay varios horarios disponibles para ${dateLabel}${professionalSuffix}. Elegí una franja:`, bandChoices), composeGlobalNavigation({ capacity: 10, contextualCount: bandChoices.length, back: BACK_CHOICE }))
+    return appendGlobals(menuView(`Hay varios horarios disponibles para ${dateLabel}${professionalSuffix}. Elegí una franja:`, bandChoices), composeGlobalNavigation({ capacity: 10, contextualCount: bandChoices.length, back: backChoice }))
   }
   const choices: ViewChoice[] = page.map((slot) => ({
     actionType: selectAction, label: slot.label, payload: { startAt: slot.startAt }, ...(entityRef ? { entityRef } : {})
@@ -606,7 +609,7 @@ function availabilitySlotView(
     ? availabilitySlotBody(state, context, all.length, canChangeProfessional)
     : 'Elegí el nuevo horario'
   return appendGlobals(menuView(body, choices),
-    composeGlobalNavigation({ capacity: 10, contextualCount: choices.length, back: BACK_CHOICE }))
+    composeGlobalNavigation({ capacity: 10, contextualCount: choices.length, back: backChoice }))
 }
 
 function selectedProfessionalLabel(state: BotOptionsState, context: TransitionContext): string | null {
@@ -2254,8 +2257,15 @@ function fromSlotSelect(
   context: TransitionContext
 ): TransitionResult {
   if (actionType === 'professional.change') {
-    const next = baseOf(resetInvalidStreak(withoutSelections(state, 'professional')), {
-      flow: 'PROFESSIONAL_SELECT',
+    const next = baseOf(resetInvalidStreak(state), {
+      flow: 'SLOT_SELECT',
+      selections: {
+        ...state.selections,
+        professionalId: null,
+        anyProfessional: true,
+        provisionalProfessionalId: null,
+        slotStartAt: null
+      },
       presentation: plainPresentation()
     })
     return applied(next, renderCurrentView(next, context))

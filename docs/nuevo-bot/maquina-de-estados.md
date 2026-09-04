@@ -227,6 +227,7 @@ servicio y transiciona a `INCOMPATIBLE_SERVICE_DECISION`.
 | `SLOT_SELECT` | `slot.band` | Franja con disponibilidad | `SLOT_SELECT` | Cambiar filtro de vista. |
 | `SLOT_SELECT` | `slot.show_all` | — | `SLOT_SELECT` | Eliminar filtro y paginar cronológicamente. |
 | `SLOT_SELECT` | `slot.next_page` | Existe página posterior | `SLOT_SELECT` | Cambiar cursor de vista. |
+| `SLOT_SELECT` | `professional.change` | Profesional específico con uno a cinco horarios | `SLOT_SELECT` | Conservar fecha, ampliar a cualquier profesional compatible y mostrar cada horario una sola vez. |
 | `SLOT_SELECT` | `slot.select` | Bloque todavía representable por el contexto | `BOOKING_SUMMARY` | Guardar opción provisional y asignación provisional. |
 
 Si una persona específica no tiene disponibilidad, `DATE_SELECT` conserva la

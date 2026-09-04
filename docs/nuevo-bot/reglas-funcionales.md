@@ -314,6 +314,10 @@ las reglas transversales de atención están especificados para el primer corte.
 - Resolver empates por prioridad del negocio y luego por ID estable.
 - Revalidar y reasignar dentro de la operación protegida al retener.
 - Informar siempre la persona finalmente asignada.
+- Si una persona específica ofrece entre uno y cinco horarios, permitir ampliar
+  la búsqueda a cualquier profesional sin perder la fecha elegida.
+- La búsqueda ampliada pasa directamente a los horarios combinados; no vuelve a
+  solicitar profesional ni fecha.
 - Si una persona específica no tiene disponibilidad, conservar la preferencia y
   ofrecer buscar con cualquiera, modificar servicios o solicitar atención.
 
@@ -340,6 +344,9 @@ las reglas transversales de atención están especificados para el primer corte.
 - Si los horarios caben, mostrarlos en orden cronológico.
 - Si no caben, mostrar Mañana, Tarde, Noche y Ver todos los horarios.
 - Ver todos pagina cronológicamente.
+- En la selección de horarios, la acción para regresar al día se etiqueta
+  “Cambiar fecha”; conserva servicios y profesional, invalida el día anterior y
+  vuelve a mostrar fechas disponibles.
 - Apertura y cierre provienen de la agenda real del día.
 - Cortes predeterminados: 12:30 y 16:30, configurables y sin huecos ni
   superposiciones.

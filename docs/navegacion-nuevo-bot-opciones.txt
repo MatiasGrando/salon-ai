@@ -427,6 +427,13 @@ Presentación de horarios durante la primera etapa:
   cronológico y utiliza páginas cuando sea necesario.
 - Entrar o salir de una franja y cambiar de página no modifica fecha, servicios
   ni preferencia de profesional.
+- Cuando un profesional específico ofrece entre uno y cinco horarios, “Buscar
+  otro profesional” conserva la fecha y amplía directamente la búsqueda a todos
+  los profesionales compatibles, sin volver a pedir el día.
+- La búsqueda ampliada muestra cada hora una sola vez. Si varias personas pueden
+  atender en el mismo bloque, se presenta la asignación elegida por el balanceador.
+- En la pantalla de horarios, la acción que regresa a la selección de día se
+  presenta como “Cambiar fecha” en lugar del genérico “Volver”.
 - Cada horario conserva un identificador estable asociado a la fecha y al
   contexto que originó la lista; nunca se interpreta por su posición.
 

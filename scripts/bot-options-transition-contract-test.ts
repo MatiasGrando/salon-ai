@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import {
   createInitialBotOptionsState,
   type BotOptionsState
@@ -73,6 +74,7 @@ for (const count of [1, 5]) {
       : 'Estos son los horarios disponibles para hoy con Ramiro. Si necesitás más opciones, podés buscar con otro profesional.'
   )
   assert.ok(view.choices.some((choice) => choice.actionType === 'professional.change' && choice.label === 'Buscar otro profesional'))
+  assert.ok(view.choices.some((choice) => choice.actionType === 'navigation.back' && choice.label === 'Cambiar fecha'))
 }
 
 const manySlotView = renderCurrentView(bookingSlotState('prof_ramiro'), normalizeContext(ctx({
@@ -84,6 +86,7 @@ const manySlotView = renderCurrentView(bookingSlotState('prof_ramiro'), normaliz
 })))
 assert.equal(manySlotView.interactiveBody, 'Estos son los horarios disponibles para hoy con Ramiro:')
 assert.ok(!manySlotView.choices.some((choice) => choice.actionType === 'professional.change'))
+assert.ok(manySlotView.choices.some((choice) => choice.actionType === 'navigation.back' && choice.label === 'Cambiar fecha'))
 
 const futureAnyProfessionalView = renderCurrentView(bookingSlotState(null, true), normalizeContext(ctx({
   businessTodayDate: '2026-09-03',
@@ -95,15 +98,35 @@ assert.ok(!futureAnyProfessionalView.choices.some((choice) => choice.actionType 
 const changeProfessional = transition(
   bookingSlotState('prof_ramiro'),
   act('professional.change'),
-  ctx({ labels: { bookingProfessionals: [{ professionalId: 'prof_ana', label: 'Ana' }] } })
+  ctx({
+    businessTodayDate: '2026-09-04',
+    labels: {
+      availableSlots: [
+        { startAt: '2026-09-04T13:00:00-03:00', label: '13:00 · Lucas', band: 'AFTERNOON', professionalId: 'prof_lucas' },
+        { startAt: '2026-09-04T13:30:00-03:00', label: '13:30 · Gaspar', band: 'AFTERNOON', professionalId: 'prof_gaspar' }
+      ]
+    }
+  })
 )
 assert.equal(changeProfessional.outcome, 'APPLIED')
 if (changeProfessional.outcome === 'APPLIED') {
-  assert.equal(changeProfessional.state.flow, 'PROFESSIONAL_SELECT')
+  assert.equal(changeProfessional.state.flow, 'SLOT_SELECT')
   assert.equal(changeProfessional.state.selections.professionalId, null)
-  assert.equal(changeProfessional.state.selections.date, null)
-  assert.ok(changeProfessional.view.choices.some((choice) => choice.actionType === 'professional.select' && choice.label === 'Ana'))
+  assert.equal(changeProfessional.state.selections.anyProfessional, true)
+  assert.equal(changeProfessional.state.selections.date, '2026-09-04')
+  assert.deepEqual(
+    changeProfessional.view.choices.filter((choice) => choice.actionType === 'slot.select').map((choice) => choice.label),
+    ['13:00 · Lucas', '13:30 · Gaspar']
+  )
+  assert.ok(changeProfessional.view.choices.some((choice) => choice.actionType === 'navigation.back' && choice.label === 'Cambiar fecha'))
 }
+
+const processSessionSource = readFileSync('src/bot-options/application/process-session-job.ts', 'utf8')
+assert.match(
+  processSessionSource,
+  /input\.actionType === 'professional\.change'\s*\? null/,
+  'buscar otro profesional debe consultar la disponibilidad combinada de todos los profesionales'
+)
 
 // ─── Menú principal ───────────────────────────────────────────────────────────
 

@@ -567,6 +567,7 @@ export const defaultContextProvider: TransitionContextProvider = async (tx, inpu
     }
     const requestedProfessionalId = input.actionType === 'professional.select' && input.entityRef?.type === 'PROFESSIONAL'
       ? input.entityRef.id
+      : input.actionType === 'professional.change' ? null
       : input.actionType === 'professional.any' ? null : input.state.selections.professionalId
     if (input.actionType !== 'cart.continue' && !(refreshingCurrentView && input.state.flow === 'PROFESSIONAL_SELECT')) {
       const search = await availabilityRepo.search({
