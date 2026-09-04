@@ -165,6 +165,7 @@
     "test:agenda-now-line-refresh": "tsx scripts/agenda-now-line-refresh-contract-test.ts",
     "test:schedule-block-series": "tsx scripts/schedule-block-series-contract-test.ts",
     "test:appointment-dialog-layout": "tsx scripts/appointment-dialog-layout-contract-test.ts",
+    "test:appointment-attention": "tsx scripts/appointment-attention-contract-test.ts",
     "test:professional-form-collapsible": "tsx scripts/professional-form-collapsible-contract-test.ts",
     "test:staff-secretary": "tsx scripts/staff-secretary-contract-test.ts",
     "test:customer-phone-identity": "tsx scripts/customer-phone-identity-contract-test.ts",

@@ -543,6 +543,12 @@ enum AppointmentOrigin {
   UNKNOWN
 }
 
+enum AppointmentAttentionColor {
+  NONE
+  YELLOW
+  ORANGE
+}
+
 enum BookingVisitStatus {
   DRAFT
   HELD
@@ -1459,6 +1465,7 @@ model Appointment {
   manualDepositPaid    Boolean           @default(false)
   manualDepositAmount  Int?
   notes                String?
+  attentionColor       AppointmentAttentionColor @default(NONE)
   totalDurationMinutes Int
   coordinationGroupId  String?
   version              Int      @default(0)

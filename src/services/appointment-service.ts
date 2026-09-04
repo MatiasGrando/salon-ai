@@ -45,6 +45,7 @@ type CreateAppointmentInput = {
   manualDepositPaid?: boolean
   manualDepositAmount?: number | string | null
   notes?: string | null
+  attentionColor?: 'NONE' | 'YELLOW' | 'ORANGE'
   coordinationGroupId?: string | null
 }
 
@@ -204,6 +205,7 @@ export class AppointmentService {
       input.manualDepositAmount
     )
     const notes = normalizeAppointmentNotes(input.notes)
+    const attentionColor = normalizeAppointmentAttentionColor(input.attentionColor)
 
     if (Number.isNaN(startAt.getTime())) {
       return {
@@ -226,6 +228,14 @@ export class AppointmentService {
         ok: false,
         statusCode: 400,
         message: notes.message
+      }
+    }
+
+    if (!attentionColor.ok) {
+      return {
+        ok: false,
+        statusCode: 400,
+        message: attentionColor.message
       }
     }
 
@@ -393,6 +403,7 @@ export class AppointmentService {
           manualDepositPaid: manualDeposit.paid,
           manualDepositAmount: manualDeposit.amount,
           notes: notes.value,
+          attentionColor: attentionColor.value,
           coordinationGroupId: input.coordinationGroupId ?? null,
           serviceItems: {
             create: validation.orderedServices.map((service, sortOrder) => ({
@@ -618,6 +629,9 @@ export class AppointmentService {
         )
       : null
     const notes = input.notes === undefined ? null : normalizeAppointmentNotes(input.notes)
+    const attentionColor = input.attentionColor === undefined
+      ? null
+      : normalizeAppointmentAttentionColor(input.attentionColor)
     if (manualDeposit && !manualDeposit.ok) {
       return {
         ok: false,
@@ -630,6 +644,13 @@ export class AppointmentService {
         ok: false,
         statusCode: 400,
         message: notes.message
+      }
+    }
+    if (attentionColor && !attentionColor.ok) {
+      return {
+        ok: false,
+        statusCode: 400,
+        message: attentionColor.message
       }
     }
     if (!authorizationUser &&
@@ -855,6 +876,7 @@ export class AppointmentService {
               }
             : {}),
           ...(notes?.ok ? { notes: notes.value } : {}),
+          ...(attentionColor?.ok ? { attentionColor: attentionColor.value } : {}),
           serviceItems: {
             deleteMany: {},
             create: validation.orderedServices.map((service, sortOrder) => ({
@@ -1841,6 +1863,16 @@ export function normalizeAppointmentNotes(value: string | null | undefined) {
     return { ok: false as const, message: 'Los comentarios adicionales no pueden superar los 2000 caracteres' }
   }
   return { ok: true as const, value: normalized || null }
+}
+
+export function normalizeAppointmentAttentionColor(value: string | null | undefined) {
+  if (value === null || value === undefined || value === '') {
+    return { ok: true as const, value: 'NONE' as const }
+  }
+  if (value === 'NONE' || value === 'YELLOW' || value === 'ORANGE') {
+    return { ok: true as const, value }
+  }
+  return { ok: false as const, message: 'El color de atencion del turno no es valido' }
 }
 
 function normalizeQuotedPrice(value: number | null | undefined) {

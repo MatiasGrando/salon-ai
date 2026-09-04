@@ -45,6 +45,7 @@ export async function appointmentRoutes(app: FastifyInstance) {
       manualDepositPaid?: boolean
       manualDepositAmount?: number | string | null
       notes?: string | null
+      attentionColor?: 'NONE' | 'YELLOW' | 'ORANGE'
     }
     if (body.force && request.auth?.user.role === 'STAFF' && !request.auth.user.canForceAppointments) {
       return reply.status(403).send({ message: 'No tenes permiso para forzar turnos fuera de disponibilidad' })
@@ -62,6 +63,7 @@ export async function appointmentRoutes(app: FastifyInstance) {
       ...(body.manualDepositPaid === undefined ? {} : { manualDepositPaid: body.manualDepositPaid }),
       ...(body.manualDepositAmount === undefined ? {} : { manualDepositAmount: body.manualDepositAmount }),
       ...(body.notes === undefined ? {} : { notes: body.notes }),
+      ...(body.attentionColor === undefined ? {} : { attentionColor: body.attentionColor }),
       ...(body.force === undefined ? {} : { force: body.force })
     }, authUser)
 
@@ -156,6 +158,7 @@ export async function appointmentRoutes(app: FastifyInstance) {
       manualDepositPaid?: boolean
       manualDepositAmount?: number | string | null
       notes?: string | null
+      attentionColor?: 'NONE' | 'YELLOW' | 'ORANGE'
     }
 
     if (body.force && request.auth?.user.role === 'STAFF' && !request.auth.user.canForceAppointments) {

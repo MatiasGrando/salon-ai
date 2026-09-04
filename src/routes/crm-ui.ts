@@ -10795,6 +10795,47 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       animation: agenda-event-enter .16s ease-out;
     }
 
+    .agenda-event.attention-yellow,
+    .agenda-gcal-event.attention-yellow,
+    .agenda-mobile-item.attention-yellow {
+      color: #422006;
+      background: #fde047;
+      box-shadow: inset 0 0 0 1px #ca8a04, 0 5px 12px rgba(202, 138, 4, .2);
+    }
+
+    .agenda-event.attention-orange,
+    .agenda-gcal-event.attention-orange,
+    .agenda-mobile-item.attention-orange {
+      color: #431407;
+      background: #fb923c;
+      box-shadow: inset 0 0 0 1px #c2410c, 0 5px 12px rgba(194, 65, 12, .2);
+    }
+
+    .agenda-attention-badge {
+      position: absolute;
+      z-index: 8;
+      top: 5px;
+      right: 5px;
+      min-height: 20px;
+      padding: 2px 7px;
+      border: 1px solid currentColor;
+      border-radius: 999px;
+      display: inline-flex !important;
+      align-items: center;
+      gap: 4px;
+      margin: 0 !important;
+      color: #713f12;
+      background: rgba(255, 255, 255, .48);
+      font-size: 10px !important;
+      line-height: 1 !important;
+      font-weight: 850;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+
+    .agenda-attention-badge::before { content: "!"; font-weight: 950; }
+    .agenda-event.has-attention { padding-right: 74px; }
+
     .agenda-event.has-deposit::before {
       content: "$";
       position: absolute;
@@ -11535,6 +11576,52 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       height: 22px;
       stroke-width: 2.2;
     }
+
+    .appointment-attention-picker { position: relative; }
+    .appointment-attention-picker[hidden], .appointment-attention-menu[hidden] { display: none; }
+
+    .appointment-attention-toggle .appointment-attention-dot,
+    .appointment-attention-option-dot {
+      width: 18px;
+      height: 18px;
+      flex: 0 0 18px;
+      border: 2px solid #94a3b8;
+      border-radius: 50%;
+      background: transparent;
+    }
+
+    .appointment-attention-toggle.attention-yellow .appointment-attention-dot,
+    .appointment-attention-option-dot.attention-yellow { border-color: #ca8a04; background: #fde047; }
+    .appointment-attention-toggle.attention-orange .appointment-attention-dot,
+    .appointment-attention-option-dot.attention-orange { border-color: #c2410c; background: #fb923c; }
+
+    .appointment-attention-menu {
+      position: absolute;
+      z-index: 40;
+      top: calc(100% + 7px);
+      left: 0;
+      width: 170px;
+      padding: 5px;
+      border: 1px solid #dbe4f0;
+      border-radius: 10px;
+      background: #fff;
+      box-shadow: 0 14px 32px rgba(15, 23, 42, .18);
+    }
+
+    .appointment-contact-actions .appointment-attention-menu button {
+      width: 100%;
+      height: 38px;
+      padding: 0 10px;
+      border: 0;
+      justify-content: flex-start;
+      gap: 9px;
+      color: #1e293b;
+      font-size: 13px;
+      line-height: 1;
+    }
+
+    .appointment-contact-actions .appointment-attention-menu button:hover,
+    .appointment-contact-actions .appointment-attention-menu button[aria-checked="true"] { background: #f1f5f9; }
 
     .dialog-actions {
       display: flex;
@@ -14360,6 +14447,15 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       cursor: inherit;
     }
 
+    .agenda-gcal-event.has-attention .agenda-gcal-event-main { padding-right: 138px; }
+    .agenda-gcal-event.has-attention .agenda-attention-badge { right: 58px; }
+    .agenda-gcal-event.attention-yellow .agenda-gcal-event-professional,
+    .agenda-gcal-event.attention-orange .agenda-gcal-event-professional { color: #422006; }
+    .agenda-gcal-event.attention-yellow .agenda-gcal-event-main:hover,
+    .agenda-gcal-event.attention-yellow .agenda-gcal-event-main:focus-visible,
+    .agenda-gcal-event.attention-orange .agenda-gcal-event-main:hover,
+    .agenda-gcal-event.attention-orange .agenda-gcal-event-main:focus-visible { background: rgba(255, 255, 255, .18); }
+
     .agenda-gcal-event.has-deposit .agenda-gcal-event-main {
       padding-left: 24px;
     }
@@ -15052,6 +15148,15 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           <div class="appointment-contact-actions" id="appointment-contact-actions" hidden>
             <a class="whatsapp" id="appointment-whatsapp" href="#" title="Abrir WhatsApp Desktop" aria-label="Abrir WhatsApp Desktop" data-icon="whatsapp"></a>
             <button id="appointment-open-chat" type="button" title="Abrir chat del cliente" aria-label="Abrir chat del cliente" data-icon="mail"></button>
+            <div class="appointment-attention-picker" id="appointment-attention-picker" hidden>
+              <input id="appointment-attention-color" type="hidden" value="NONE">
+              <button class="appointment-attention-toggle" id="appointment-attention-toggle" type="button" title="Marcar turno para atenci&oacute;n" aria-label="Marcar turno para atenci&oacute;n" aria-haspopup="menu" aria-expanded="false"><span class="appointment-attention-dot" aria-hidden="true"></span></button>
+              <div class="appointment-attention-menu" id="appointment-attention-menu" role="menu" hidden>
+                <button type="button" role="menuitemradio" data-appointment-attention="NONE"><span class="appointment-attention-option-dot"></span>Sin color</button>
+                <button type="button" role="menuitemradio" data-appointment-attention="YELLOW"><span class="appointment-attention-option-dot attention-yellow"></span>Amarillo</button>
+                <button type="button" role="menuitemradio" data-appointment-attention="ORANGE"><span class="appointment-attention-option-dot attention-orange"></span>Naranja</button>
+              </div>
+            </div>
           </div>
           <div class="appointment-origin-summary" id="appointment-origin-row" hidden>
             <span id="appointment-origin-badge" aria-hidden="true"></span>
@@ -18704,6 +18809,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       appointmentContactActions: document.getElementById('appointment-contact-actions'),
       appointmentWhatsapp: document.getElementById('appointment-whatsapp'),
       appointmentOpenChat: document.getElementById('appointment-open-chat'),
+      appointmentAttentionPicker: document.getElementById('appointment-attention-picker'),
+      appointmentAttentionToggle: document.getElementById('appointment-attention-toggle'),
+      appointmentAttentionMenu: document.getElementById('appointment-attention-menu'),
+      appointmentAttentionColor: document.getElementById('appointment-attention-color'),
       appointmentOriginRow: document.getElementById('appointment-origin-row'),
       appointmentOriginBadge: document.getElementById('appointment-origin-badge'),
       appointmentOriginLabel: document.getElementById('appointment-origin-label'),
@@ -26696,14 +26805,26 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function activeProfessionals() {
-      return state.professionals.filter((professional) => professional.isActive !== false)
+      return state.professionals
+        .filter((professional) => professional.isActive !== false)
+        .sort((left, right) => left.name.localeCompare(right.name, 'es', { sensitivity: 'base' }))
     }
 
     function agendaProfessionalColor(professionalId, index = 0) {
-      const palette = ['#2563eb', '#8b5cf6', '#10b981', '#f97316', '#ef4444', '#14b8a6']
+      const palette = ['#2563eb', '#7c3aed', '#0891b2', '#0f766e', '#4f46e5', '#0284c7']
       const professionals = activeProfessionals()
       const resolvedIndex = index >= 0 ? index : professionals.findIndex((professional) => professional.id === professionalId)
       return palette[Math.max(0, resolvedIndex) % palette.length]
+    }
+
+    function agendaAttentionMeta(attentionColor) {
+      if (attentionColor === 'YELLOW') return { className: ' attention-yellow', label: 'Atención' }
+      if (attentionColor === 'ORANGE') return { className: ' attention-orange', label: 'Atención' }
+      return null
+    }
+
+    function agendaAttentionBadgeHtml(attention) {
+      return attention ? '<span class="agenda-attention-badge">Atenci&oacute;n</span>' : ''
     }
 
     function formatCompactNumber(value) {
@@ -27551,6 +27672,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const professionalIndex = activeProfessionals().findIndex((item) => item.id === appointment.professionalId)
       const color = agendaProfessionalColor(appointment.professionalId, professionalIndex)
       const noShow = appointment.status === 'NO_SHOW'
+      const attention = noShow ? null : agendaAttentionMeta(appointment.attentionColor)
       const pending = state.agendaPendingAppointmentIds.has(appointment.id)
       const columns = Math.max(1, placement?.columns || 1)
       const column = Math.max(0, placement?.column || 0)
@@ -27565,12 +27687,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const depositStyle = depositIndicator ? ';--agenda-deposit-color:' + depositIndicator.color : ''
       const depositTitle = depositIndicator ? ' - ' + depositIndicator.label : ''
       const origin = appointmentOriginMeta(appointment.origin)
-      return '<article class="agenda-gcal-event' + depositClass + (noShow ? ' no-show' : '') + (pending ? ' is-pending' : '') + '" data-appointment-id="' + appointment.id + '" data-overlap-count="' + columns + '" style="top:' + top + 'px;height:' + height + 'px;left:' + left + ';right:auto;width:' + width + ';--agenda-event-color:' + color + depositStyle + '" title="' + escapeHtml(time + ' - ' + customer + ' - ' + service + ' con ' + professional + ' - ' + origin.label + depositTitle) + '">' +
+      return '<article class="agenda-gcal-event' + depositClass + (attention ? ' has-attention' + attention.className : '') + (noShow ? ' no-show' : '') + (pending ? ' is-pending' : '') + '" data-appointment-id="' + appointment.id + '" data-overlap-count="' + columns + '" style="top:' + top + 'px;height:' + height + 'px;left:' + left + ';right:auto;width:' + width + ';--agenda-event-color:' + color + depositStyle + '" title="' + escapeHtml(time + ' - ' + customer + ' - ' + service + ' con ' + professional + ' - ' + origin.label + depositTitle + (attention ? ' - ' + attention.label : '')) + '">' +
         '<button class="agenda-gcal-event-main" type="button" data-agenda-edit-appointment>' +
           '<strong>' + escapeHtml(service) + '</strong>' +
           '<span>' + appointmentOriginBadgeHtml(origin) + ' ' + escapeHtml(customer + (noShow ? ' - Ausente' : '')) + '</span>' +
           '<span class="agenda-gcal-event-professional">' + escapeHtml(professional) + '</span>' +
         '</button>' +
+        agendaAttentionBadgeHtml(attention) +
         (canCreateAppointments() ? '<button class="agenda-gcal-event-add" type="button" data-agenda-new-at aria-label="Crear otro turno a las ' + escapeHtml(time) + '" title="Crear otro turno en este horario"><span aria-hidden="true">+</span><span class="agenda-gcal-event-add-label">Otro</span></button>' : '') +
       '</article>'
     }
@@ -28386,11 +28509,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           const professionalIndex = activeProfessionals().findIndex((item) => item.id === appointment.professionalId)
           const color = agendaProfessionalColor(appointment.professionalId, professionalIndex)
           const noShow = appointment.status === 'NO_SHOW'
+          const attention = noShow ? null : agendaAttentionMeta(appointment.attentionColor)
           const origin = appointmentOriginMeta(appointment.origin)
-          return '<button class="agenda-mobile-item' + (noShow ? ' no-show' : '') + '" type="button" data-appointment-id="' + appointment.id + '" style="--agenda-event-color:' + color + '">' +
+          return '<button class="agenda-mobile-item' + (attention ? ' has-attention' + attention.className : '') + (noShow ? ' no-show' : '') + '" type="button" data-appointment-id="' + appointment.id + '" style="--agenda-event-color:' + color + '">' +
             '<span class="agenda-mobile-time">' + escapeHtml(formatTimeOnly(start)) + '<small>' + escapeHtml(formatTimeOnly(addMinutes(start, duration))) + '</small></span>' +
             '<span class="agenda-mobile-copy"><strong>' + escapeHtml(appointmentServiceLabel(appointment)) + '</strong><span>' + escapeHtml((appointment.customer?.name || 'Cliente') + ' · ' + (appointment.professional?.name || 'Profesional')) + '</span></span>' +
-            '<span class="agenda-mobile-status">' + appointmentOriginBadgeHtml(origin) + (noShow ? ' Ausente' : '') + '</span>' +
+            '<span class="agenda-mobile-status">' + appointmentOriginBadgeHtml(origin) + (noShow ? ' Ausente' : '') + '</span>' + agendaAttentionBadgeHtml(attention) +
           '</button>'
         })
 
@@ -28582,12 +28706,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         const leftOffset = 5 + (gap / 2)
         const widthOffset = gap + (10 / placement.columns)
         const noShow = appointment.status === 'NO_SHOW'
+        const attention = noShow ? null : agendaAttentionMeta(appointment.attentionColor)
         const pending = state.agendaPendingAppointmentIds.has(appointment.id)
         const depositIndicator = agendaDepositIndicator(appointment)
         const origin = appointmentOriginMeta(appointment.origin)
 
         const event = document.createElement('article')
-        event.className = 'agenda-event' + (depositIndicator ? ' has-deposit' : '') + (placement.columns > 1 ? ' is-overlap' : '') + (noShow ? ' no-show' : '') + (pending ? ' is-pending' : '')
+        event.className = 'agenda-event' + (depositIndicator ? ' has-deposit' : '') + (attention ? ' has-attention' + attention.className : '') + (placement.columns > 1 ? ' is-overlap' : '') + (noShow ? ' no-show' : '') + (pending ? ' is-pending' : '')
         event.style.height = height + 'px'
         event.style.top = top + 'px'
         event.style.left = 'calc(' + ((placement.column * 100) / placement.columns) + '% + ' + leftOffset + 'px)'
@@ -28595,8 +28720,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         event.style.width = 'calc(' + (100 / placement.columns) + '% - ' + widthOffset + 'px)'
         event.style.setProperty('--agenda-event-color', eventColor)
         if (depositIndicator) event.style.setProperty('--agenda-deposit-color', depositIndicator.color)
-        event.title = customer + ' - ' + service + ' con ' + professional + ' - ' + origin.label + (depositIndicator ? ' - ' + depositIndicator.label : '') + (noShow ? ' - Ausente' : '') + (pending ? ' - Guardando cambio' : '')
-        event.innerHTML = '<strong>' + escapeHtml(service) + '</strong>' +
+        event.title = customer + ' - ' + service + ' con ' + professional + ' - ' + origin.label + (depositIndicator ? ' - ' + depositIndicator.label : '') + (attention ? ' - ' + attention.label : '') + (noShow ? ' - Ausente' : '') + (pending ? ' - Guardando cambio' : '')
+        event.innerHTML = agendaAttentionBadgeHtml(attention) + '<strong>' + escapeHtml(service) + '</strong>' +
           '<span>' + appointmentOriginBadgeHtml(origin) + ' ' + escapeHtml(customer + (noShow ? ' - Ausente' : '')) + '</span>' +
           '<span>' + escapeHtml(professional) + '</span>'
         event.dataset.appointmentId = appointment.id
@@ -29085,11 +29210,31 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (!paid) els.appointmentDepositAmount.value = ''
     }
 
+    function closeAppointmentAttentionMenu() {
+      els.appointmentAttentionMenu.hidden = true
+      els.appointmentAttentionToggle.setAttribute('aria-expanded', 'false')
+    }
+
+    function setAppointmentAttentionColor(value) {
+      const color = ['YELLOW', 'ORANGE'].includes(value) ? value : 'NONE'
+      els.appointmentAttentionColor.value = color
+      els.appointmentAttentionToggle.classList.toggle('attention-yellow', color === 'YELLOW')
+      els.appointmentAttentionToggle.classList.toggle('attention-orange', color === 'ORANGE')
+      const label = color === 'YELLOW' ? 'Atención: amarillo' : color === 'ORANGE' ? 'Atención: naranja' : 'Sin color de atención'
+      els.appointmentAttentionToggle.title = label
+      els.appointmentAttentionToggle.setAttribute('aria-label', label)
+      for (const option of els.appointmentAttentionMenu.querySelectorAll('[data-appointment-attention]')) {
+        option.setAttribute('aria-checked', String(option.dataset.appointmentAttention === color))
+      }
+    }
+
     function openAppointmentDialog(input = {}) {
       renderAppointmentFormOptions()
       els.appointmentFeedback.textContent = ''
       const appointment = input.appointment
       state.editingAppointmentId = appointment?.id || null
+      setAppointmentAttentionColor(appointment?.attentionColor || 'NONE')
+      closeAppointmentAttentionMenu()
       els.appointmentTitle.textContent = appointment ? 'Editar turno' : 'Nuevo turno'
       els.appointmentSubmit.textContent = appointment ? 'Guardar cambios' : 'Cargar turno'
       els.appointmentDelete.hidden = !appointment
@@ -29170,6 +29315,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.appointmentNoShow.hidden = true
       closeAppointmentCustomerResults()
       updateAppointmentContactActions(null)
+      closeAppointmentAttentionMenu()
     }
 
     function editingAgendaAppointment() {
@@ -29210,7 +29356,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         new Date(appointment.startAt).getTime() !== new Date(input.startAt).getTime() ||
         appointment.manualDepositPaid === true !== input.manualDepositPaid ||
         currentAmount !== input.manualDepositAmount ||
-        (appointment.notes || '') !== input.notes
+        (appointment.notes || '') !== input.notes ||
+        (appointment.attentionColor || 'NONE') !== input.attentionColor
     }
 
     async function updateAppointmentCustomer(customerId, changes) {
@@ -29246,6 +29393,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const hasContact = Boolean(state.editingAppointmentId && digits && canViewAppointmentCustomerData())
       const canOpenChat = hasContact && canOpenAppointmentConversations()
       const canUseWhatsapp = hasContact && canMessageAppointmentCustomer()
+      const canSetAttention = Boolean(state.editingAppointmentId && canEditAppointments())
       const reminderAppointment = appointment
         ? {
             ...appointment,
@@ -29262,7 +29410,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         ? buildAppointmentReminderMessage(reminderAppointment, els.appointmentCustomerName.value || 'cliente')
         : ''
 
-      els.appointmentContactActions.hidden = !canOpenChat && !canUseWhatsapp
+      els.appointmentContactActions.hidden = !canOpenChat && !canUseWhatsapp && !canSetAttention
       els.appointmentWhatsapp.hidden = !canUseWhatsapp
       els.appointmentWhatsapp.href = canUseWhatsapp
         ? whatsappAppUrl(digits, reminderMessage)
@@ -29271,6 +29419,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.appointmentOpenChat.disabled = !canOpenChat
       els.appointmentOpenChat.dataset.phone = canOpenChat ? phone : ''
       els.appointmentOpenChat.dataset.reminderMessage = canOpenChat ? reminderMessage : ''
+      els.appointmentAttentionPicker.hidden = !canSetAttention
     }
 
     function openAppointmentWhatsapp(event) {
@@ -29369,6 +29518,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const manualDepositAmountText = els.appointmentDepositAmount.value.trim()
       const manualDepositAmount = manualDepositAmountText ? Number(manualDepositAmountText) : null
       const notes = els.appointmentNotes.value.trim()
+      const attentionColor = els.appointmentAttentionColor.value
       let customerId = els.appointmentCustomer.value
       const appointment = editingAgendaAppointment()
       const selectedCustomer = state.customers.find((customer) => customer.id === customerId)
@@ -29411,7 +29561,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         startAt,
         manualDepositPaid,
         manualDepositAmount,
-        notes
+        notes,
+        attentionColor
       })
 
       if (appointment && customerChanges.changed && !appointmentChanged) {
@@ -29498,7 +29649,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             startAt: new Date(startAt).toISOString(),
             manualDepositPaid,
             manualDepositAmount,
-            notes: notes || null
+            notes: notes || null,
+            attentionColor,
         }
         const submitAppointment = (forceOverride) => getJson(appointmentPath, {
           method: appointmentId ? 'PATCH' : 'POST',
@@ -33428,6 +33580,17 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     els.composerWindowWhatsapp.addEventListener('click', openWhatsappAppLink)
     els.detailWhatsapp.addEventListener('click', openWhatsappAppLink)
     els.appointmentOpenChat.addEventListener('click', openAppointmentCustomerChat)
+    els.appointmentAttentionToggle.addEventListener('click', () => {
+      const willOpen = els.appointmentAttentionMenu.hidden
+      els.appointmentAttentionMenu.hidden = !willOpen
+      els.appointmentAttentionToggle.setAttribute('aria-expanded', String(willOpen))
+    })
+    els.appointmentAttentionMenu.addEventListener('click', (event) => {
+      const option = event.target.closest('[data-appointment-attention]')
+      if (!option) return
+      setAppointmentAttentionColor(option.dataset.appointmentAttention)
+      closeAppointmentAttentionMenu()
+    })
     els.appointmentStart.addEventListener('change', () => updateAppointmentContactActions(editingAgendaAppointment()))
     els.appointmentProfessional.addEventListener('change', () => {
       const services = renderAppointmentServiceOptions(els.appointmentService.value)
