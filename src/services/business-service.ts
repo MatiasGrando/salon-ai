@@ -133,6 +133,7 @@ export class BusinessService {
     landingOpeningYear?: number | null
     landingDescription?: string | null
     landingTemplateContent?: Prisma.InputJsonValue
+    bookingTheme?: string | null
     coverImageUrl?: string | null
     landingGalleryImages?: string | null
     publicWhatsapp?: string | null

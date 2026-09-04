@@ -34,6 +34,7 @@
     "test:service-catalog-display": "tsx scripts/service-catalog-display-contract-test.ts",
     "test:landing-service-catalog": "tsx scripts/landing-service-catalog-contract-test.ts",
     "test:public-booking-services-ui": "tsx scripts/public-booking-services-ui-contract-test.ts",
+    "test:booking-theme-ui": "tsx scripts/booking-theme-ui-contract-test.ts",
     "test:custom-site-profile-binding": "tsx scripts/custom-site-profile-binding-contract-test.ts",
     "test:weex-lead-campaign": "tsx scripts/weex-lead-campaign-contract-test.ts",
     "test:weex-bot-v1": "tsx scripts/weex-support-bot-v1-contract-test.ts",

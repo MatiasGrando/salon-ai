@@ -193,6 +193,7 @@ export async function businessRoutes(app: FastifyInstance) {
       landingOpeningYear?: number | string | null
       landingDescription?: string | null
       landingTemplateContent?: unknown
+      bookingTheme?: string | null
       coverImageUrl?: string | null
       landingGalleryImages?: string[] | null
       publicWhatsapp?: string | null
@@ -214,6 +215,7 @@ export async function businessRoutes(app: FastifyInstance) {
     const landingOpeningYear = normalizeOpeningYear(body.landingOpeningYear)
     const landingDescription = normalizeOptionalText(body.landingDescription)
     const landingTemplateContent = normalizeLandingTemplateContent(body.landingTemplateContent)
+    const bookingTheme = normalizeBookingTheme(body.bookingTheme)
     let landingGalleryImages = normalizeGalleryImages(body.landingGalleryImages)
     const publicWhatsapp = normalizeOptionalText(body.publicWhatsapp)
     const contactEmail = normalizeOptionalEmail(body.contactEmail)
@@ -266,6 +268,12 @@ export async function businessRoutes(app: FastifyInstance) {
       })
     }
 
+    if (body.bookingTheme !== undefined && bookingTheme === undefined) {
+      return reply.status(400).send({
+        message: 'El tema de reserva seleccionado no es v\u00e1lido'
+      })
+    }
+
     if (body.landingOpeningYear !== undefined && landingOpeningYear === undefined) {
       return reply.status(400).send({
         message: 'El año de apertura debe ser válido'
@@ -313,6 +321,7 @@ export async function businessRoutes(app: FastifyInstance) {
       landingOpeningYear === undefined &&
       landingDescription === undefined &&
       landingTemplateContent === undefined &&
+      bookingTheme === undefined &&
       coverImageUrl === undefined &&
       landingGalleryImages === undefined &&
       publicWhatsapp === undefined &&
@@ -376,6 +385,7 @@ export async function businessRoutes(app: FastifyInstance) {
         ...(landingOpeningYear !== undefined ? { landingOpeningYear } : {}),
         ...(landingDescription !== undefined ? { landingDescription } : {}),
         ...(landingTemplateContent !== undefined ? { landingTemplateContent } : {}),
+        ...(bookingTheme !== undefined ? { bookingTheme: bookingTheme } : {}),
         ...(coverImageUrl !== undefined ? { coverImageUrl } : {}),
         ...(landingGalleryImages !== undefined ? { landingGalleryImages } : {}),
         ...(publicWhatsapp !== undefined ? { publicWhatsapp } : {}),
@@ -908,6 +918,15 @@ function normalizeLandingTemplate(value?: string) {
   if (value === undefined) return undefined
   const normalized = value.trim().toLowerCase()
   return LANDING_TEMPLATES.has(normalized) ? normalized : undefined
+}
+
+const BOOKING_THEMES = new Set(['light', 'dark', 'rose', 'sage', 'blue', 'violet'])
+
+export function normalizeBookingTheme(value?: string | null) {
+  if (value === undefined) return undefined
+  if (value === null || !value.trim()) return null
+  const normalized = value.trim().toLowerCase()
+  return BOOKING_THEMES.has(normalized) ? normalized : undefined
 }
 
 function businessSlugErrorMessage(error: unknown) {

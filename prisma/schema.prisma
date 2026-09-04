@@ -741,6 +741,7 @@ model Business {
   landingOpeningYear     Int?
   landingDescription     String?
   landingTemplateContent Json?
+  bookingTheme          String?
   coverImageUrl          String?
   landingGalleryImages   String?
   publicWhatsapp         String?

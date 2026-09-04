@@ -8601,6 +8601,46 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       background: transparent;
     }
 
+    .booking-theme-fieldset {
+      min-width: 0;
+      margin: 0;
+      padding: 18px;
+      border: 1px solid #dfe6f1;
+      border-radius: 13px;
+    }
+    .booking-theme-fieldset legend { padding: 0 7px; color: #17213c; font-size: 14px; font-weight: 800; }
+    .booking-theme-help { margin: 0 0 14px; color: #64748b; font-size: 12px; line-height: 1.5; }
+    .booking-theme-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(250px, .75fr); gap: 16px; }
+    .booking-theme-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; align-content: start; }
+    .booking-theme-card { position: relative; cursor: pointer; }
+    .booking-theme-card input { width: 1px; height: 1px; position: absolute; opacity: 0; }
+    .booking-theme-choice { min-height: 76px; padding: 10px; display: grid; gap: 9px; color: #344054; background: #fff; border: 1px solid #dfe6f1; border-radius: 10px; transition: border-color .15s ease, box-shadow .15s ease; }
+    .booking-theme-card input:checked + .booking-theme-choice { border-color: #315f9c; box-shadow: 0 0 0 2px rgba(49,95,156,.14); }
+    .booking-theme-card input:focus-visible + .booking-theme-choice { outline: 3px solid rgba(37,99,235,.2); outline-offset: 2px; }
+    .booking-theme-choice strong { font-size: 11px; }
+    .booking-theme-swatches { display: grid; grid-template-columns: 1.5fr 1fr .7fr; gap: 4px; }
+    .booking-theme-swatches i { height: 22px; background: var(--theme-surface); border: 1px solid var(--theme-border); border-radius: 5px; }
+    .booking-theme-swatches i:nth-child(2) { background: var(--theme-soft); }
+    .booking-theme-swatches i:nth-child(3) { background: var(--theme-accent); border-color: var(--theme-accent); }
+    .booking-theme-light { --theme-bg:#f7f8fa; --theme-surface:#fff; --theme-border:#e2e5ea; --theme-accent:#2563a9; --theme-soft:#eaf3fd; --theme-ink:#111827; --theme-summary:#fff; --theme-summary-ink:#111827; --theme-cta:#111111; --theme-on-cta:#fff; }
+    .booking-theme-dark { --theme-bg:#151413; --theme-surface:#211f1d; --theme-border:#403b35; --theme-accent:#d1a84b; --theme-soft:#332c20; --theme-ink:#f8f4ec; --theme-summary:#0f0e0d; --theme-summary-ink:#f8f4ec; --theme-cta:#d1a84b; --theme-on-cta:#17130c; }
+    .booking-theme-rose { --theme-bg:#f8f3ef; --theme-surface:#fffdfc; --theme-border:#e8dcd5; --theme-accent:#934054; --theme-soft:#f8e9ec; --theme-ink:#302421; --theme-summary:#fff; --theme-summary-ink:#302421; --theme-cta:#8c3048; --theme-on-cta:#fff; }
+    .booking-theme-sage { --theme-bg:#f3f5ef; --theme-surface:#fefffc; --theme-border:#dce4d9; --theme-accent:#49745a; --theme-soft:#e5efe6; --theme-ink:#27322b; --theme-summary:#fdfefb; --theme-summary-ink:#27322b; --theme-cta:#365b45; --theme-on-cta:#fff; }
+    .booking-theme-blue { --theme-bg:#f1f5f9; --theme-surface:#fff; --theme-border:#d9e2ec; --theme-accent:#285f9e; --theme-soft:#e5effa; --theme-ink:#172033; --theme-summary:#f8fafc; --theme-summary-ink:#172033; --theme-cta:#173e6c; --theme-on-cta:#fff; }
+    .booking-theme-violet { --theme-bg:#f6f2f8; --theme-surface:#fff; --theme-border:#e5dae9; --theme-accent:#735184; --theme-soft:#eee5f2; --theme-ink:#302538; --theme-summary:#fff; --theme-summary-ink:#302538; --theme-cta:#624073; --theme-on-cta:#fff; }
+    .booking-theme-preview { padding: 13px; display: grid; grid-template-columns: minmax(0,1fr) 82px; gap: 8px; align-content: center; background: var(--theme-bg); border: 1px solid var(--theme-border); border-radius: 11px; }
+    .booking-theme-preview-services { display: grid; gap: 6px; }
+    .booking-theme-preview-services span { height: 28px; display: block; background: var(--theme-surface); border: 1px solid var(--theme-border); border-radius: 6px; }
+    .booking-theme-preview-services span.selected { background: var(--theme-soft); border-color: var(--theme-accent); box-shadow: inset 2px 0 var(--theme-accent); }
+    .booking-theme-preview-summary { padding: 8px; display: grid; align-content: space-between; color: var(--theme-summary-ink); background: var(--theme-summary); border: 1px solid var(--theme-border); border-radius: 7px; }
+    .booking-theme-preview-summary::before { content: ""; height: 32px; border-bottom: 1px solid var(--theme-border); }
+    .booking-theme-preview-summary::after { content: "Continuar"; padding: 7px 3px; color: var(--theme-on-cta); background: var(--theme-cta); border-radius: 5px; font-size: 8px; font-weight: 800; text-align: center; }
+    @media (max-width: 720px) {
+      .booking-theme-layout { grid-template-columns: 1fr; }
+      .booking-theme-grid { grid-template-columns: 1fr 1fr; }
+      .booking-theme-preview { min-height: 132px; }
+    }
+
     .block-repeat-toggle {
       min-height: 40px;
       padding: 0 11px;
@@ -16566,6 +16606,25 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               </div>
             </fieldset>
 
+            <fieldset class="booking-theme-fieldset">
+              <legend>Estilo de la reserva</legend>
+              <p class="booking-theme-help">Eleg&iacute; una paleta completa. El sistema mantiene contraste, jerarqu&iacute;a y estados accesibles en todo el proceso.</p>
+              <div class="booking-theme-layout">
+                <div class="booking-theme-grid" aria-label="Temas de reserva">
+                  <label class="booking-theme-card"><input name="booking-theme" value="light" type="radio"><span class="booking-theme-choice booking-theme-light"><span class="booking-theme-swatches"><i></i><i></i><i></i></span><strong>Claro</strong></span></label>
+                  <label class="booking-theme-card"><input name="booking-theme" value="dark" type="radio"><span class="booking-theme-choice booking-theme-dark"><span class="booking-theme-swatches"><i></i><i></i><i></i></span><strong>Oscuro</strong></span></label>
+                  <label class="booking-theme-card"><input name="booking-theme" value="rose" type="radio"><span class="booking-theme-choice booking-theme-rose"><span class="booking-theme-swatches"><i></i><i></i><i></i></span><strong>Rosa</strong></span></label>
+                  <label class="booking-theme-card"><input name="booking-theme" value="sage" type="radio"><span class="booking-theme-choice booking-theme-sage"><span class="booking-theme-swatches"><i></i><i></i><i></i></span><strong>Verde</strong></span></label>
+                  <label class="booking-theme-card"><input name="booking-theme" value="blue" type="radio"><span class="booking-theme-choice booking-theme-blue"><span class="booking-theme-swatches"><i></i><i></i><i></i></span><strong>Azul</strong></span></label>
+                  <label class="booking-theme-card"><input name="booking-theme" value="violet" type="radio"><span class="booking-theme-choice booking-theme-violet"><span class="booking-theme-swatches"><i></i><i></i><i></i></span><strong>Violeta</strong></span></label>
+                </div>
+                <div class="booking-theme-preview booking-theme-light" id="booking-theme-preview" aria-label="Vista previa del tema de reserva">
+                  <div class="booking-theme-preview-services"><span></span><span class="selected"></span><span></span></div>
+                  <div class="booking-theme-preview-summary"></div>
+                </div>
+              </div>
+            </fieldset>
+
             <div class="landing-settings-group">
               <div class="landing-settings-group-title">
                 <strong>Datos generales</strong>
@@ -18097,6 +18156,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       campaignImageUrl: null,
       landingCoverUrl: null,
       landingGalleryImages: [],
+      bookingThemeDirty: false,
       campaignEmojiCategory: 'recent',
       campaignDetailTab: 'summary',
       campaignManualSelected: new Map(),
@@ -18853,6 +18913,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       landingTemplateRequirements: document.getElementById('landing-template-requirements'),
       landingTemplateSelectedPreview: document.getElementById('landing-template-selected-preview'),
       landingTemplateContentHelp: document.getElementById('landing-template-content-help'),
+      bookingThemePreview: document.getElementById('booking-theme-preview'),
       landingSlug: document.getElementById('landing-slug'),
       landingLocalLink: document.getElementById('landing-local-link'),
       landingDomainLink: document.getElementById('landing-domain-link'),
@@ -25609,11 +25670,16 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function renderLandingSettings() {
+      state.bookingThemeDirty = false
       const slug = state.business?.slug || ''
       els.landingEnabled.checked = state.business?.landingEnabled !== false
       const landingTemplate = state.business?.landingTemplate || 'classic'
       const landingTemplateInput = document.querySelector('input[name="landing-template"][value="' + landingTemplate + '"]')
       if (landingTemplateInput) landingTemplateInput.checked = true
+      const bookingTheme = state.business?.bookingTheme || defaultBookingThemeForTemplate(landingTemplate)
+      const bookingThemeInput = document.querySelector('input[name="booking-theme"][value="' + bookingTheme + '"]')
+      if (bookingThemeInput) bookingThemeInput.checked = true
+      renderBookingThemePreview()
       renderLandingTemplateConfiguration()
       els.landingSlug.value = slug
       els.landingFeature.value = state.business?.landingFeature || ''
@@ -25621,6 +25687,18 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       setLandingCover(state.business?.coverImageUrl || null)
       setLandingGallery(parseLandingGalleryImages(state.business?.landingGalleryImages))
       renderLandingLinks(slug)
+    }
+
+    function defaultBookingThemeForTemplate(templateId) {
+      if (templateId === 'classic') return 'dark'
+      if (templateId === 'luxe-nails') return 'violet'
+      if (templateId === 'salon-white') return 'rose'
+      return 'light'
+    }
+
+    function renderBookingThemePreview() {
+      const selected = document.querySelector('input[name="booking-theme"]:checked')?.value || 'light'
+      els.bookingThemePreview.className = 'booking-theme-preview booking-theme-' + selected
     }
 
     function loadLandingTemplateForm(templateId) {
@@ -26606,6 +26684,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         return
       }
       const selectedTemplate = document.querySelector('input[name="landing-template"]:checked')?.value || 'classic'
+      const selectedBookingTheme = document.querySelector('input[name="booking-theme"]:checked')?.value || defaultBookingThemeForTemplate(selectedTemplate)
       const styleContent = landingStyleContentFromForm()
       const salonWhiteContent = salonWhiteContentFromForm()
       const luxeNailsContent = luxeNailsContentFromForm()
@@ -26632,6 +26711,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           body: JSON.stringify({
             landingEnabled: els.landingEnabled.checked,
             landingTemplate: selectedTemplate,
+            bookingTheme: selectedBookingTheme,
             slug,
             landingSubtitle: els.landingSubtitle.value.trim() || null,
             landingFeature: els.landingFeature.value.trim() || null,
@@ -33115,7 +33195,19 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       templateInput.addEventListener('change', () => {
         renderLandingTemplateConfiguration()
         loadLandingTemplateForm(templateInput.value)
+        if (!state.business?.bookingTheme && !state.bookingThemeDirty) {
+          const suggestedTheme = defaultBookingThemeForTemplate(templateInput.value)
+          const suggestedThemeInput = document.querySelector('input[name="booking-theme"][value="' + suggestedTheme + '"]')
+          if (suggestedThemeInput) suggestedThemeInput.checked = true
+          renderBookingThemePreview()
+        }
         renderLandingLinks(els.landingSlug.value)
+      })
+    }
+    for (const themeInput of document.querySelectorAll('input[name="booking-theme"]')) {
+      themeInput.addEventListener('change', () => {
+        state.bookingThemeDirty = true
+        renderBookingThemePreview()
       })
     }
     els.landingSlug.addEventListener('input', () => {
