@@ -63,6 +63,7 @@ import { MetaOutboxProvider } from './bot-options/infrastructure/meta-outbox-pro
 import { startBotOptionsMetricsLoop } from './bot-options/observability/metrics.js'
 import { processDepositProofJob } from './bot-options/application/process-deposit-proof-job.js'
 import { bridgeDepositNotificationJob } from './bot-options/application/bridge-deposit-notification-job.js'
+import { startAppointmentRealtimeListener } from './services/appointment-realtime-listener.js'
 
 process.env.TZ ??= 'America/Argentina/Buenos_Aires'
 
@@ -246,6 +247,13 @@ async function startServer() {
   const app = await buildApp({
     authorizationProviders: createProductionAuthorizationProviders()
   })
+  const connectionString = process.env.DATABASE_URL
+  if (!connectionString) throw new Error('DATABASE_URL no esta configurada')
+  const appointmentRealtimeListener = startAppointmentRealtimeListener({
+    connectionString,
+    onError: (error) => app.log.error(error, 'appointment realtime listener error')
+  })
+  app.addHook('onClose', async () => { await appointmentRealtimeListener.stop() })
   await ensureBootstrapSuperAdmin()
   startMarketingScheduler(app)
 

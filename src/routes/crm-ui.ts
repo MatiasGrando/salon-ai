@@ -21741,6 +21741,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       source.addEventListener('open', () => {
         if (state.realtimeEventSource !== source) return
         stopCrmRealtimeFallback()
+        queueAgendaRealtimeRefresh()
       })
       source.addEventListener('error', () => {
         if (state.realtimeEventSource === source) {
@@ -21949,6 +21950,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const refresh = () => {
         if (document.body.dataset.auth !== 'ready') return
         refreshConversationSummary({ requestContext: FALLBACK_REQUEST_CONTEXT }).catch(() => null)
+        if (document.body.dataset.currentSection === 'agenda') queueAgendaRealtimeRefresh()
       }
       refresh()
       state.realtimeFallbackTimer = setInterval(refresh, intervalMs)

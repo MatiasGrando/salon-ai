@@ -165,17 +165,11 @@ assert.match(
   /function queueAgendaRealtimeRefresh\(\)[\s\S]*?currentSection !== 'agenda'[\s\S]*?setTimeout[\s\S]*?loadAgenda\(\)/,
   'la Agenda debe recargarse con debounce únicamente cuando su sección está visible'
 )
-for (const mutation of ['create', 'update', 'cancel', 'updateStatus', 'confirmPendingAppointments']) {
-  const start = appointmentServiceSource.indexOf(`async ${mutation}(`)
-  assert.notEqual(start, -1, `debe existir la mutación central ${mutation}`)
-  const nextMethod = appointmentServiceSource.indexOf('\n  async ', start + 1)
-  const source = appointmentServiceSource.slice(start, nextMethod === -1 ? undefined : nextMethod)
-  assert.match(source, /publishAppointmentChanged\(/, `${mutation} debe publicar el cambio confirmado`)
-  assert.ok(
-    source.indexOf('await prisma.$transaction') < source.indexOf('publishAppointmentChanged('),
-    `${mutation} debe publicar solamente después de resolver su transacción`
-  )
-}
+assert.doesNotMatch(
+  appointmentServiceSource,
+  /publishAppointmentChanged\(/,
+  'AppointmentService no debe duplicar las notificaciones emitidas por el trigger transaccional'
+)
 assert.equal(
   crmUiSource.includes('CRM_LOCAL_EVENT_SYNC_MS'),
   false,

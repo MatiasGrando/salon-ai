@@ -45,6 +45,7 @@
     "test:crm-ui-syntax": "tsx scripts/crm-ui-inline-syntax-test.ts",
     "test:crm-ui-interactive": "tsx scripts/crm-ui-interactive-metadata-contract-test.ts",
     "test:crm-realtime-events": "tsx scripts/crm-realtime-events-contract-test.ts",
+    "test:appointment-realtime-db": "tsx scripts/appointment-realtime-db-contract-test.ts",
     "test:crm-realtime-inbound": "tsx scripts/bot-options-inbound-crm-realtime-contract-test.ts",
     "test:crm-realtime-outbound": "tsx scripts/bot-options-outbound-crm-realtime-contract-test.ts",
     "sync:weex-bot-v1": "tsx scripts/sync-weex-support-bot-v1.ts",
