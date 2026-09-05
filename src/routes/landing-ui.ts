@@ -3796,7 +3796,7 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
   <title>${escapeHtml(input.title)}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600&family=Playfair+Display:wght@500;600;700;800;900&family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Jost:wght@400;500;600&family=Playfair+Display:wght@500;600;700;800;900&family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     :root {
       color-scheme: light;
@@ -6776,6 +6776,9 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
       --booking-surface: #FFFFFF;
       --booking-ink: #111827;
       --booking-muted: #667085;
+      --booking-secondary-ink: #596274;
+      --booking-deposit-ink: #7A4A22;
+      --booking-deposit-bg: #FFF1E4;
       --booking-border: #E2E5EA;
       --booking-accent: #2563A9;
       --booking-accent-hover: #194B83;
@@ -6791,6 +6794,9 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
       --booking-surface: #211F1D;
       --booking-ink: #F8F4EC;
       --booking-muted: #B8AFA2;
+      --booking-secondary-ink: #B8AFA2;
+      --booking-deposit-ink: #F1C27D;
+      --booking-deposit-bg: #3A2A1D;
       --booking-border: #403B35;
       --booking-accent: #D1A84B;
       --booking-accent-hover: #E0BC67;
@@ -6806,6 +6812,9 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
       --booking-surface: #FFFDFC;
       --booking-ink: #302421;
       --booking-muted: #806F69;
+      --booking-secondary-ink: #6F5E58;
+      --booking-deposit-ink: #7A452E;
+      --booking-deposit-bg: #FBE9DE;
       --booking-border: #E8DCD5;
       --booking-accent: #934054;
       --booking-accent-hover: #763143;
@@ -6821,6 +6830,9 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
       --booking-surface: #FEFFFC;
       --booking-ink: #27322B;
       --booking-muted: #6D796F;
+      --booking-secondary-ink: #59665D;
+      --booking-deposit-ink: #70482B;
+      --booking-deposit-bg: #F7EBDD;
       --booking-border: #DCE4D9;
       --booking-accent: #49745A;
       --booking-accent-hover: #365B45;
@@ -6836,6 +6848,9 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
       --booking-surface: #FFFFFF;
       --booking-ink: #172033;
       --booking-muted: #64748B;
+      --booking-secondary-ink: #56677D;
+      --booking-deposit-ink: #70482B;
+      --booking-deposit-bg: #F6EBDD;
       --booking-border: #D9E2EC;
       --booking-accent: #285F9E;
       --booking-accent-hover: #1E497A;
@@ -6851,6 +6866,9 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
       --booking-surface: #FFFDFF;
       --booking-ink: #302538;
       --booking-muted: #776A7E;
+      --booking-secondary-ink: #685B6F;
+      --booking-deposit-ink: #714A2D;
+      --booking-deposit-bg: #F6E8DC;
       --booking-border: #E5DAE9;
       --booking-accent: #735184;
       --booking-accent-hover: #5C3E6C;
@@ -6877,6 +6895,7 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
     body[class*="booking-theme-"] .booking-brand-name strong { color: var(--booking-ink); font-family: Inter, Arial, sans-serif; font-size: 16px; text-transform: none; letter-spacing: 0; }
     body[class*="booking-theme-"] .booking-brand-name span,
     body[class*="booking-theme-"] .booking-brand-note { color: var(--booking-muted); letter-spacing: 0; text-transform: none; }
+    body[class*="booking-theme-"] .booking-brand-name span { color: var(--booking-secondary-ink); font-size: 12px; font-weight: 400; line-height: 1.35; }
     body[class*="booking-theme-"] .fresha-modal {
       max-width: 1080px;
       overflow: visible;
@@ -6904,13 +6923,15 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
     body[class*="booking-theme-"] .crumb.done .crumb-number { color: var(--booking-on-accent); background: var(--booking-accent); border-color: var(--booking-accent); }
     body[class*="booking-theme-"] .crumb-sep { color: var(--booking-border); }
     body[class*="booking-theme-"] .fresha-body { grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; padding: 20px; background: var(--booking-bg); border-radius: 0 0 16px 16px; }
-    body[class*="booking-theme-"] .fresha-main { min-height: 520px; padding: 28px 30px 36px; background: var(--booking-surface); border: 1px solid var(--booking-border); border-radius: 13px; }
-    body[class*="booking-theme-"] .fresha-heading { margin-bottom: 20px; color: var(--booking-ink); font-family: Inter, Arial, sans-serif; font-size: 28px; letter-spacing: -.025em; }
+    body[class*="booking-theme-"] .fresha-main { min-height: 520px; padding: 0 0 12px; background: transparent; border: 0; border-radius: 0; }
+    body[class*="booking-theme-"] .fresha-heading { margin-bottom: 6px; color: var(--booking-ink); font-family: Inter, Arial, sans-serif; font-size: 25px; font-weight: 700; line-height: 1.2; letter-spacing: -.025em; }
     body[class*="booking-theme-"] .fresha-heading::after { display: none; }
-    body[class*="booking-theme-"] .booking-service-help,
-    body[class*="booking-theme-"] .booking-service-result-count,
-    body[class*="booking-theme-"] .booking-service-group-heading span,
-    body[class*="booking-theme-"] .service-meta small { color: var(--booking-muted); }
+    body[class*="booking-theme-"] .booking-service-help { margin: 0 0 10px; color: var(--booking-muted); font-size: 13px; line-height: 1.4; }
+    body[class*="booking-theme-"] .booking-service-result-count { color: var(--booking-muted); font-size: 12px; font-weight: 400; }
+    body[class*="booking-theme-"] .booking-service-browser { gap: 8px; margin-bottom: 16px; }
+    body[class*="booking-theme-"] .booking-service-search { min-height: 40px; padding: 0 12px; }
+    body[class*="booking-theme-"] .booking-service-search svg { width: 16px; height: 16px; flex-basis: 16px; }
+    body[class*="booking-theme-"] .booking-service-filters { gap: 7px; padding-bottom: 2px; }
     body[class*="booking-theme-"] .booking-service-search,
     body[class*="booking-theme-"] .booking-service-filter,
     body[class*="booking-theme-"] .fresha-option,
@@ -6925,15 +6946,27 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
     body[class*="booking-theme-"] .booking-account-ready,
     body[class*="booking-theme-"] .booking-account-required,
     body[class*="booking-theme-"] .booking-deposit-card { color: var(--booking-ink); background: var(--booking-surface); border-color: var(--booking-border); border-radius: 10px; }
-    body[class*="booking-theme-"] .booking-service-search input,
-    body[class*="booking-theme-"] .booking-service-option .service-price,
-    body[class*="booking-theme-"] .service-copy > strong,
-    body[class*="booking-theme-"] .booking-service-group-heading h2 { color: var(--booking-ink); font-family: Inter, Arial, sans-serif; }
+    body[class*="booking-theme-"] .booking-service-search input { color: var(--booking-ink); font-family: Inter, Arial, sans-serif; }
+    body[class*="booking-theme-"] .booking-service-filter { min-height: 30px; padding: 0 12px; font-size: 12px; font-weight: 400; }
     body[class*="booking-theme-"] .booking-service-filter:hover { color: var(--booking-accent); border-color: var(--booking-accent); }
     body[class*="booking-theme-"] .booking-service-filter.active { color: var(--booking-on-accent); background: var(--booking-accent); border-color: var(--booking-accent); }
     body[class*="booking-theme-"] .booking-service-search:focus-within { border-color: var(--booking-accent); box-shadow: 0 0 0 3px var(--booking-accent-soft); }
-    body[class*="booking-theme-"] .booking-service-group-heading { border-color: var(--booking-border); }
-    body[class*="booking-theme-"] .booking-service-option { min-height: 76px; padding: 14px 16px; box-shadow: none; }
+    body[class*="booking-theme-"] .booking-service-groups { gap: 20px; }
+    body[class*="booking-theme-"] .booking-service-group { gap: 8px; }
+    body[class*="booking-theme-"] .booking-service-group-heading { justify-content: space-between; gap: 12px; padding-bottom: 6px; border-color: var(--booking-border); }
+    body[class*="booking-theme-"] .booking-service-group-heading h2 { color: var(--booking-ink); font-family: Inter, Arial, sans-serif; font-size: 16px; font-weight: 700; line-height: 1.25; }
+    body[class*="booking-theme-"] .booking-service-group-heading span { color: var(--booking-muted); font-size: 12px; font-weight: 400; }
+    body[class*="booking-theme-"] .booking-service-options { gap: 8px; }
+    body[class*="booking-theme-"] .booking-service-option { min-height: 68px; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 10px; padding: 12px 14px; box-shadow: none; }
+    body[class*="booking-theme-"] .service-check { width: 18px; height: 18px; border-radius: 5px; }
+    body[class*="booking-theme-"] .booking-service-option.selected .service-check::after { width: 7px; height: 3px; top: 5px; left: 4px; }
+    body[class*="booking-theme-"] .service-copy { gap: 5px; }
+    body[class*="booking-theme-"] .service-copy > strong { color: var(--booking-ink); font-size: 15px; font-weight: 500; }
+    body[class*="booking-theme-"] .service-meta { gap: 5px; }
+    body[class*="booking-theme-"] .service-meta small { min-height: 20px; padding: 2px 7px; color: var(--booking-secondary-ink); background: var(--booking-bg); font-size: 12px; font-weight: 400; }
+    body[class*="booking-theme-"] .booking-service-option .service-price { color: var(--booking-ink); font-family: Inter, Arial, sans-serif; font-size: 15px; font-weight: 600; }
+    body[class*="booking-theme-"] .booking-service-option .option-right { gap: 4px; }
+    body[class*="booking-theme-"] .booking-service-option .option-deposit { padding: 3px 7px; color: var(--booking-deposit-ink); background: var(--booking-deposit-bg); font-size: 12px; font-weight: 400; }
     body[class*="booking-theme-"] .booking-service-option:hover { transform: none; background: var(--booking-accent-soft); border-color: var(--booking-accent); box-shadow: none; }
     body[class*="booking-theme-"] .booking-service-option.selected { color: var(--booking-accent); background: var(--booking-accent-soft); border-color: var(--booking-accent); box-shadow: 0 0 0 1px var(--booking-accent); }
     body[class*="booking-theme-"] .date-chip.selected,
@@ -6962,10 +6995,11 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
       border-radius: 13px;
     }
     body[class*="booking-theme-"] .summary-logo { color: var(--booking-on-accent); background: var(--booking-accent); border-color: var(--booking-accent); }
-    body[class*="booking-theme-"] .summary-name,
+    body[class*="booking-theme-"] .summary-name { color: var(--booking-summary-ink); font-family: Inter, Arial, sans-serif; font-size: 15px; font-weight: 600; line-height: 1.25; text-transform: none; }
     body[class*="booking-theme-"] .summary-card-line strong,
-    body[class*="booking-theme-"] .summary-card-line b,
-    body[class*="booking-theme-"] .summary-total { color: var(--booking-summary-ink); }
+    body[class*="booking-theme-"] .summary-card-line b { color: var(--booking-summary-ink); }
+    body[class*="booking-theme-"] .summary-card-line strong { font-weight: 400; }
+    body[class*="booking-theme-"] .summary-total { color: var(--booking-summary-ink); font-weight: 400; }
     body[class*="booking-theme-"] .summary-rating { color: var(--booking-accent); }
     body[class*="booking-theme-"] .summary-rating span,
     body[class*="booking-theme-"] .summary-address,
@@ -6975,7 +7009,11 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
     body[class*="booking-theme-"] .summary-divider,
     body[class*="booking-theme-"] .summary-card-line { border-color: var(--booking-border); }
     body[class*="booking-theme-"] .primary-line { padding: 10px 0; background: transparent; border: 0; border-bottom: 1px solid var(--booking-border); border-radius: 0; }
-    body[class*="booking-theme-"] .summary-deposit strong { color: var(--booking-accent); }
+    body[class*="booking-theme-"] .primary-line > div > strong { color: var(--booking-summary-ink); font-weight: 500; }
+    body[class*="booking-theme-"] .primary-line > b { color: var(--booking-summary-ink); font-weight: 600; }
+    body[class*="booking-theme-"] .summary-subtotal > strong { color: var(--booking-summary-ink); font-weight: 600; }
+    body[class*="booking-theme-"] .summary-deposit > strong { color: var(--booking-deposit-ink); font-weight: 600; }
+    body[class*="booking-theme-"] .summary-total > strong { color: var(--booking-summary-ink); font-weight: 600; }
     body[class*="booking-theme-"] .fresha-continue { color: var(--booking-muted); background: var(--booking-border); border-color: var(--booking-border); border-radius: 9px; letter-spacing: 0; text-transform: none; }
     body[class*="booking-theme-"] .fresha-continue.enabled { color: var(--booking-on-cta); background: var(--booking-cta); border-color: var(--booking-cta); }
     body[class*="booking-theme-"] .fresha-continue.enabled:hover { filter: brightness(.94); background: var(--booking-cta); }
@@ -7066,7 +7104,8 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
       .booking-template-salon-white .fresha-heading { font-size: 32px; }
       body[class*="booking-theme-"] .fresha-booking { padding: 12px 10px calc(112px + env(safe-area-inset-bottom)); }
       body[class*="booking-theme-"] .fresha-body { grid-template-columns: 1fr; padding: 12px; }
-      body[class*="booking-theme-"] .fresha-main { padding: 24px 18px 32px; }
+      body[class*="booking-theme-"] .fresha-main { padding: 0 0 12px; }
+      body[class*="booking-theme-"] .fresha-heading { font-size: 24px; }
       body[class*="booking-theme-"] .fresha-summary {
         min-height: 0;
         position: static;
