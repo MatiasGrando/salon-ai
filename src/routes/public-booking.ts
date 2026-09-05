@@ -191,14 +191,16 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       estimateOptionId?: string | null
       validationAccepted?: boolean
     }
-    const business = await findAvailablePublicBookingBusiness(request, params.slug)
+    const [business, weexAuth] = await Promise.all([
+      findAvailablePublicBookingBusiness(request, params.slug),
+      getWeexAuthFromRequest(request)
+    ])
     if (!business) return reply.status(404).send({ message: 'No encontre esta landing' })
 
     const serviceId = body.serviceId?.trim()
     const professionalId = body.professionalId?.trim()
     const date = body.date?.trim()
     const time = body.time?.trim()
-    const weexAuth = await getWeexAuthFromRequest(request)
     const customerName = weexAuth?.account.name || body.customerName?.trim()
     const defaultAreaCode = inferDefaultAreaCodeFromPhone(publicWhatsappNumber(business))
     const customerPhone = normalizePhone(weexAuth?.account.phone || body.customerPhone, { defaultAreaCode })
@@ -214,9 +216,11 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     }
 
     const professionals = await professionalsForService(business.id, serviceId, professionalId)
-    if (!professionals.some((professional) => professional.id === professionalId)) {
+    const offeredProfessional = professionals.find((item) => item.id === professionalId)
+    if (!offeredProfessional) {
       return reply.status(400).send({ message: 'Ese profesional no corresponde al servicio elegido' })
     }
+    const professional = business.professionals.find((item) => item.id === professionalId) || offeredProfessional
 
     const customer = await findOrCreatePublicCustomer({
       businessId: business.id,
@@ -262,10 +266,6 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       return reply.status(result.statusCode).send({ message: result.message })
     }
 
-    if (weexAuth?.account.phone) {
-      await linkExistingCustomersByPhone(weexAuth.account.id, customerPhone, defaultAreaCode)
-    }
-
     let deposit = null
     if (depositCalculation) {
       const expiresAt = new Date(Date.now() + service.depositHoldMinutes * 60_000)
@@ -296,16 +296,22 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       })
     }
 
-    const appointment = await prisma.appointment.findUnique({
-      where: {
-        id: result.appointment.id
-      },
-      include: {
-        service: true,
-        professional: true,
-        customer: true
+    const appointment = {
+      ...result.appointment,
+      service,
+      professional,
+      customer
+    }
+
+    if (weexAuth?.account.phone) {
+      if (deposit) {
+        void linkExistingCustomersByPhone(weexAuth.account.id, customerPhone, defaultAreaCode).catch((error) => {
+          request.log.error({ error, appointmentId: appointment.id }, 'No se pudo vincular la cuenta con el cliente web')
+        })
+      } else {
+        await linkExistingCustomersByPhone(weexAuth.account.id, customerPhone, defaultAreaCode)
       }
-    })
+    }
 
     let calendarSync: { ok: true; eventId: string } | { ok: false; message: string } | null = null
     if (!deposit && weexAuth && weexGoogleCalendarEnabled()) {
@@ -371,7 +377,10 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       customerName?: string
       customerPhone?: string
     }
-    const business = await findAvailablePublicBookingBusiness(request, params.slug)
+    const [business, weexAuth] = await Promise.all([
+      findAvailablePublicBookingBusiness(request, params.slug),
+      getWeexAuthFromRequest(request)
+    ])
     if (!business) return reply.status(404).send({ message: 'No encontre esta landing' })
     const date = body.date?.trim()
     const itineraryId = body.itineraryId?.trim()
@@ -422,7 +431,6 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       return reply.status(409).send({ message: 'Ese itinerario ya no esta disponible. Elegí otro horario.' })
     }
 
-    const weexAuth = await getWeexAuthFromRequest(request)
     const customerName = weexAuth?.account.name || body.customerName?.trim()
     const defaultAreaCode = inferDefaultAreaCodeFromPhone(publicWhatsappNumber(business))
     const customerPhone = normalizePhone(weexAuth?.account.phone || body.customerPhone, { defaultAreaCode })
@@ -500,7 +508,13 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     }
 
     if (weexAuth?.account.phone) {
-      await linkExistingCustomersByPhone(weexAuth.account.id, customerPhone, defaultAreaCode)
+      if (deposit) {
+        void linkExistingCustomersByPhone(weexAuth.account.id, customerPhone, defaultAreaCode).catch((error) => {
+          request.log.error({ error, coordinationGroupId }, 'No se pudo vincular la cuenta con los clientes web')
+        })
+      } else {
+        await linkExistingCustomersByPhone(weexAuth.account.id, customerPhone, defaultAreaCode)
+      }
     }
     const appointments = await prisma.appointment.findMany({
       where: { id: { in: appointmentIds } },

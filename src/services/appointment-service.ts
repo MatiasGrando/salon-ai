@@ -308,8 +308,6 @@ export class AppointmentService {
       }
     }
 
-    await bookingDepositService.expireOverdue()
-
     const servicesById = new Map(services.map((service) => [service.id, service]))
     const orderedServices = serviceIds.map((serviceId) => servicesById.get(serviceId)!)
     const professionalDuration = orderedServices.reduce(
@@ -1539,6 +1537,7 @@ export class AppointmentService {
     endAt: Date
     excludeAppointmentId?: string
   }, client: Pick<Prisma.TransactionClient, 'appointment'> = prisma) {
+    const now = new Date()
     const appointments = await client.appointment.findMany({
       where: {
         ...(input.excludeAppointmentId ? { id: { not: input.excludeAppointmentId } } : {}),
@@ -1548,6 +1547,12 @@ export class AppointmentService {
         },
         status: {
           notIn: ['CANCELLED', 'NO_SHOW']
+        },
+        NOT: {
+          status: 'PENDING',
+          bookingDeposit: {
+            is: { status: 'PENDING_PROOF', expiresAt: { lte: now } }
+          }
         }
       },
       select: { startAt: true, totalDurationMinutes: true }
