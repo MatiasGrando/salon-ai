@@ -180,6 +180,14 @@ export async function publicBookingRoutes(app: FastifyInstance) {
   })
 
   app.post('/public/booking/:slug/book', async (request, reply) => {
+    const confirmationStartedAt = performance.now()
+    let timingCheckpoint = confirmationStartedAt
+    const confirmationTiming: Record<string, number> = {}
+    const markConfirmationTiming = (stage: string) => {
+      const now = performance.now()
+      confirmationTiming[stage] = Math.round(now - timingCheckpoint)
+      timingCheckpoint = now
+    }
     const params = request.params as { slug: string }
     const body = request.body as {
       serviceId?: string
@@ -195,6 +203,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       findAvailablePublicBookingBusiness(request, params.slug),
       getWeexAuthFromRequest(request)
     ])
+    markConfirmationTiming('businessAndAuthMs')
     if (!business) return reply.status(404).send({ message: 'No encontre esta landing' })
 
     const serviceId = body.serviceId?.trim()
@@ -215,19 +224,6 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       return reply.status(400).send({ message: 'Ingresa un telefono valido para confirmar el turno' })
     }
 
-    const professionals = await professionalsForService(business.id, serviceId, professionalId)
-    const offeredProfessional = professionals.find((item) => item.id === professionalId)
-    if (!offeredProfessional) {
-      return reply.status(400).send({ message: 'Ese profesional no corresponde al servicio elegido' })
-    }
-    const professional = business.professionals.find((item) => item.id === professionalId) || offeredProfessional
-
-    const customer = await findOrCreatePublicCustomer({
-      businessId: business.id,
-      name: customerName,
-      phone: customerPhone,
-      email: weexAuth?.account.emailVerified ? weexAuth.account.email : null
-    })
     const service = business.services.find((item) => item.id === serviceId)
     if (!service || !serviceCanBookFromWeb(service)) {
       return reply.status(400).send({ message: 'Ese servicio no esta disponible para reserva online' })
@@ -252,42 +248,50 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       return reply.status(409).send({ message: 'Este comercio todavia no habilito transferencias para recibir la seña' })
     }
 
-    const result = await appointmentService.create({
+    const [professionals, customer] = await Promise.all([
+      professionalsForService(business.id, serviceId, professionalId),
+      findOrCreatePublicCustomer({
+        businessId: business.id,
+        name: customerName,
+        phone: customerPhone,
+        email: weexAuth?.account.emailVerified ? weexAuth.account.email : null
+      })
+    ])
+    markConfirmationTiming('professionalAndCustomerMs')
+    const offeredProfessional = professionals.find((item) => item.id === professionalId)
+    if (!offeredProfessional) {
+      return reply.status(400).send({ message: 'Ese profesional no corresponde al servicio elegido' })
+    }
+    const professional = business.professionals.find((item) => item.id === professionalId) || offeredProfessional
+
+    const depositExpiresAt = depositCalculation
+      ? new Date(Date.now() + service.depositHoldMinutes * 60_000)
+      : null
+    const result = await appointmentService.createPublicBooking({
+      businessId: business.id,
       customerId: customer.id,
+      customerPhone,
       professionalId,
       serviceId,
       startAt: `${date}T${time}:00`,
       origin: 'WEB',
       status: depositCalculation ? 'PENDING' : 'CONFIRMED',
-      quotedPrice: estimateSelection.priceMin
+      quotedPrice: estimateSelection.priceMin,
+      deposit: depositCalculation && depositExpiresAt ? {
+        mode: depositCalculation.mode,
+        configuredValue: depositCalculation.configuredValue,
+        baseAmount: depositCalculation.baseAmount,
+        amount: depositCalculation.amount,
+        expiresAt: depositExpiresAt
+      } : null
     })
+    markConfirmationTiming('appointmentAndDepositWriteMs')
 
     if (!result.ok) {
       return reply.status(result.statusCode).send({ message: result.message })
     }
 
-    let deposit = null
-    if (depositCalculation) {
-      const expiresAt = new Date(Date.now() + service.depositHoldMinutes * 60_000)
-      try {
-        deposit = await prisma.bookingDeposit.create({
-          data: {
-            businessId: business.id,
-            appointmentId: result.appointment.id,
-            conversationId: null,
-            source: 'WEB',
-            mode: depositCalculation.mode,
-            configuredValue: depositCalculation.configuredValue,
-            baseAmount: depositCalculation.baseAmount,
-            amount: depositCalculation.amount,
-            expiresAt
-          }
-        })
-      } catch (error) {
-        await appointmentService.cancel(result.appointment.id)
-        throw error
-      }
-    }
+    const deposit = result.appointment.bookingDeposit
     if (deposit) {
       publishDepositUpdated({
         businessId: business.id,
@@ -344,6 +348,13 @@ export async function publicBookingRoutes(app: FastifyInstance) {
         request.log.error({ error, appointmentId: appointment.id }, 'No se pudo enviar el correo de confirmacion')
       })
     }
+
+    confirmationTiming.totalMs = Math.round(performance.now() - confirmationStartedAt)
+    request.log.info({
+      event: 'public_booking_confirmation_timing',
+      hasDeposit: Boolean(deposit),
+      ...confirmationTiming
+    }, 'Tiempos de confirmacion de reserva web')
 
     return {
       appointment,

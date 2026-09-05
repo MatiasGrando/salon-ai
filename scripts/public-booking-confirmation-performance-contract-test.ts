@@ -25,6 +25,31 @@ assert.match(
   /const \[business, weexAuth\] = await Promise\.all/,
   'la carga del negocio y la sesión debe resolverse en paralelo'
 )
+assert.match(
+  singleBooking,
+  /const \[professionals, customer\] = await Promise\.all/,
+  'la validación del profesional y la resolución del cliente deben compartir la misma espera'
+)
+assert.match(
+  singleBooking,
+  /appointmentService\.createPublicBooking\(/,
+  'la reserva web simple debe usar el camino transaccional sin repetir el preflight genérico'
+)
+assert.doesNotMatch(
+  singleBooking,
+  /appointmentService\.create\(/,
+  'la reserva web simple no debe ejecutar la carga y validación previa del flujo genérico'
+)
+assert.doesNotMatch(
+  singleBooking,
+  /prisma\.bookingDeposit\.create|appointmentService\.cancel\(/,
+  'el turno y su seña deben persistirse juntos, sin escritura separada ni compensación'
+)
+assert.match(
+  singleBooking,
+  /request\.log\.info\([\s\S]*public_booking_confirmation_timing/,
+  'la confirmación debe registrar tiempos por etapa para verificar la mejora en producción'
+)
 assert.doesNotMatch(
   singleBooking,
   /prisma\.appointment\.findUnique/,

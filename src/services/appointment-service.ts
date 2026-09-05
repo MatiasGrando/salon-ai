@@ -70,6 +70,26 @@ type AppointmentMutationResult =
       conflicts?: AppointmentAvailabilityConflict[]
     }
 
+type PublicBookingDepositInput = {
+  mode: 'FIXED' | 'PERCENTAGE'
+  configuredValue: number
+  baseAmount: number | null
+  amount: number
+  expiresAt: Date
+}
+
+type PublicBookingMutationResult =
+  | {
+      ok: true
+      appointment: Prisma.AppointmentGetPayload<{
+        include: {
+          bookingDeposit: true
+          serviceItems: { include: { service: true } }
+        }
+      }>
+    }
+  | Exclude<AppointmentMutationResult, { ok: true }>
+
 type UpdateAppointmentInput = CreateAppointmentInput & {
   id: string
 }
@@ -460,6 +480,111 @@ export class AppointmentService {
       ok: true,
       appointment
     }
+  }
+
+  async createPublicBooking(input: CreateAppointmentInput & {
+    businessId: string
+    customerPhone: string
+    deposit?: PublicBookingDepositInput | null
+  }): Promise<PublicBookingMutationResult> {
+    const startAt = new Date(input.startAt)
+    if (Number.isNaN(startAt.getTime())) {
+      return { ok: false, statusCode: 400, message: 'La fecha de inicio no parece valida' }
+    }
+
+    let transactionAvailabilityConflicts: AppointmentAvailabilityConflict[] = []
+    const appointment = await prisma.$transaction(async (transaction) => {
+      const validation = await revalidateBookingWrite(transaction, {
+        businessId: input.businessId,
+        professionalId: input.professionalId,
+        serviceIds: [input.serviceId],
+        startAt
+      })
+
+      if (validation.conflicts.includes('PROFESSIONAL_INACTIVE')) return 'PROFESSIONAL_INACTIVE' as const
+      if (validation.conflicts.includes('PROFESSIONAL_SERVICE_MISMATCH')) return 'SERVICE_CONFLICT' as const
+      const conflicts = appointmentAvailabilityConflicts({
+        insideBusinessHours: !validation.conflicts.includes('OUTSIDE_BUSINESS_HOURS'),
+        insideProfessionalHours: !validation.conflicts.includes('OUTSIDE_PROFESSIONAL_HOURS'),
+        hasBlock: validation.conflicts.includes('SCHEDULE_BLOCK'),
+        hasOverlap: validation.conflicts.includes('APPOINTMENT_OVERLAP')
+      })
+      if (conflicts.length) {
+        transactionAvailabilityConflicts = conflicts
+        return 'AVAILABILITY_CONFLICT' as const
+      }
+
+      return createAppointmentRecord(transaction, {
+        data: {
+          customerId: input.customerId,
+          professionalId: input.professionalId,
+          serviceId: input.serviceId,
+          startAt,
+          origin: 'WEB',
+          totalDurationMinutes: validation.professionalDuration,
+          status: input.status ?? 'CONFIRMED',
+          quotedPrice: normalizeQuotedPrice(input.quotedPrice),
+          ...(input.deposit ? {
+            bookingDeposit: {
+              create: {
+                businessId: input.businessId,
+                conversationId: null,
+                source: 'WEB',
+                mode: input.deposit.mode,
+                configuredValue: input.deposit.configuredValue,
+                baseAmount: input.deposit.baseAmount,
+                amount: input.deposit.amount,
+                expiresAt: input.deposit.expiresAt
+              }
+            }
+          } : {}),
+          serviceItems: {
+            create: validation.orderedServices.map((service, sortOrder) => ({
+              serviceId: service.id,
+              sortOrder,
+              durationMinutes: service.duration,
+              price: service.price
+            }))
+          }
+        },
+        include: {
+          bookingDeposit: true,
+          serviceItems: { include: { service: true }, orderBy: { sortOrder: 'asc' } }
+        }
+      })
+    })
+
+    if (appointment === 'PROFESSIONAL_INACTIVE') {
+      return { ok: false, statusCode: 409, message: 'Ese profesional no esta activo' }
+    }
+    if (appointment === 'SERVICE_CONFLICT') {
+      return { ok: false, statusCode: 409, message: 'Ese profesional no realiza el servicio seleccionado' }
+    }
+    if (appointment === 'AVAILABILITY_CONFLICT') {
+      return {
+        ok: false,
+        statusCode: 409,
+        message: transactionAvailabilityConflicts[0]!.message,
+        code: 'APPOINTMENT_AVAILABILITY_CONFLICT',
+        forceable: true,
+        conflicts: transactionAvailabilityConflicts
+      }
+    }
+
+    if (appointment.status === 'CONFIRMED') {
+      try {
+        await markConversationOpportunityConverted({
+          businessId: input.businessId,
+          customerPhone: input.customerPhone,
+          appointmentId: appointment.id,
+          completeConversation: true
+        })
+      } catch (error) {
+        console.error('No pude vincular el turno con la oportunidad de chat', error)
+      }
+    }
+
+    return { ok: true, appointment }
   }
 
   async replacePendingDepositServices(input: {
