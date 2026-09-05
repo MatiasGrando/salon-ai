@@ -18112,6 +18112,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       agendaRangePointer: null,
       agendaRangeSelection: null,
       agendaPendingAppointmentIds: new Set(),
+      agendaDeletingAppointmentIds: new Set(),
       agendaDidDrag: false,
       editingAppointmentId: null,
       aiSettings: {
@@ -27360,7 +27361,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           getJson('/schedule-blocks?' + params.toString(), { signal: controller.signal })
         ])
         if (requestId !== state.agendaLoadRequest || state.businessId !== businessId) return
-        state.agendaAppointments = appointments
+        state.agendaAppointments = appointments.filter((appointment) => {
+          return !state.agendaDeletingAppointmentIds.has(appointment.id)
+        })
         state.agendaBlocks = blocks
         state.agendaLoadedRangeStart = new Date(rangeStart)
         state.agendaLoadedRangeEnd = new Date(rangeEnd)
@@ -29849,22 +29852,52 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         return
       }
       if (!await requestCrmConfirmation('¿Querés eliminar este turno de la agenda?')) return
+      if (state.agendaDeletingAppointmentIds.has(appointmentId)) return
 
-      if (!setButtonLoading(els.appointmentDelete, true, 'Eliminando...')) return
+      const businessId = state.businessId
+      const selectedConversationId = state.selected?.id || null
+      const appointmentIndex = state.agendaAppointments.findIndex((item) => item.id === appointmentId)
+      const conversationAppointmentIndex = state.appointments.findIndex((item) => item.id === appointmentId)
+      const appointment = state.agendaAppointments[appointmentIndex] || state.appointments[conversationAppointmentIndex]
+      if (!appointment) return
+
+      state.agendaDeletingAppointmentIds.add(appointmentId)
+      state.agendaAppointments = state.agendaAppointments.filter((item) => item.id !== appointmentId)
+      state.appointments = state.appointments.filter((item) => item.id !== appointmentId)
+      closeAppointmentDialog()
+      renderAgenda()
+      if (selectedConversationId && state.selected?.id === selectedConversationId) {
+        cacheSelectedConversation(state.selected)
+        renderAppointments()
+      }
+      showCrmToast('Turno eliminado · sincronizando...', 'success')
+
       try {
         await getJson('/appointments/' + appointmentId, {
           method: 'DELETE'
         })
-        closeAppointmentDialog()
-        await loadAgenda()
-        if (state.selected) {
-          await loadAppointments()
+        state.agendaDeletingAppointmentIds.delete(appointmentId)
+        showCrmToast('Turno eliminado.', 'success')
+        const refreshes = [loadAgenda()]
+        if (state.selected) refreshes.push(loadAppointments().then(() => renderAppointments()))
+        void Promise.allSettled(refreshes)
+      } catch (error) {
+        state.agendaDeletingAppointmentIds.delete(appointmentId)
+        if (state.businessId === businessId && appointmentIndex >= 0 && !state.agendaAppointments.some((item) => item.id === appointmentId)) {
+          state.agendaAppointments.splice(appointmentIndex, 0, appointment)
+          renderAgenda()
+        }
+        if (
+          selectedConversationId &&
+          state.selected?.id === selectedConversationId &&
+          conversationAppointmentIndex >= 0 &&
+          !state.appointments.some((item) => item.id === appointmentId)
+        ) {
+          state.appointments.splice(conversationAppointmentIndex, 0, appointment)
+          cacheSelectedConversation(state.selected)
           renderAppointments()
         }
-      } catch (error) {
-        els.appointmentFeedback.textContent = error.message
-      } finally {
-        setButtonLoading(els.appointmentDelete, false)
+        showCrmToast('No se pudo eliminar el turno. Lo restauramos. ' + error.message, 'error')
       }
     }
 
