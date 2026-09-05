@@ -2013,7 +2013,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
                     const selected = detail.estimateOption?.id === option.id
                     return '<button class="fresha-option ' + (selected ? 'selected' : '') + '" type="button" data-estimate-option-id="' + escapeHtml(option.id) + '" data-estimate-service-id="' + escapeHtml(service.id) + '">' +
                       '<span class="option-left"><span class="radio"></span><span><strong>' + escapeHtml(option.label) + '</strong>' + (option.note ? '<small>' + escapeHtml(option.note) + '</small>' : '') + '</span></span>' +
-                      '<span class="option-right"><strong>' + escapeHtml(formatEstimateRange(option.priceMin, option.priceMax)) + '</strong></span>' +
+                      '<span class="option-right"><strong class="estimate-option-price">' + escapeHtml(formatEstimateRange(option.priceMin, option.priceMax)) + '</strong></span>' +
                     '</button>'
                   }).join('') + '</div>'
                 : '<div class="booking-estimate-result"><span>Valor aproximado</span><strong>' + escapeHtml(formatEstimateRange(service.price, null)) + '</strong></div>'
@@ -2271,9 +2271,12 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
                     '<strong>Adjuntar comprobante</strong>' +
                     '<span class="booking-proof-help">JPG, PNG, WebP o PDF de hasta 3 MB</span>' +
                     '<input id="booking-proof-input" type="file" accept="image/jpeg,image/png,image/webp,application/pdf">' +
+                    '<span class="booking-proof-selection-status" id="booking-proof-selection-status" role="status" aria-live="polite" hidden>' +
+                      '<span class="booking-proof-selection-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span>' +
+                      '<span class="booking-proof-selection-copy"><strong>Archivo seleccionado</strong><span>Listo para enviar</span><span class="booking-proof-filename" id="booking-proof-filename">Ning&uacute;n archivo seleccionado</span></span>' +
+                    '</span>' +
                     '<span class="booking-proof-control">' +
-                      '<span class="booking-proof-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"></path></svg>Elegir archivo</span>' +
-                      '<span class="booking-proof-filename" id="booking-proof-filename">Ning&uacute;n archivo seleccionado</span>' +
+                      '<span class="booking-proof-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"></path></svg><span id="booking-proof-action-label">Elegir archivo</span></span>' +
                     '</span>' +
                   '</label>' +
                   '<button class="booking-proof-submit" id="booking-proof-submit" type="button" disabled>Enviar comprobante</button>' +
@@ -2283,11 +2286,15 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               const submit = document.getElementById('booking-proof-submit')
               const picker = input?.closest('.booking-proof-picker')
               const filename = document.getElementById('booking-proof-filename')
+              const selectionStatus = document.getElementById('booking-proof-selection-status')
+              const actionLabel = document.getElementById('booking-proof-action-label')
               input?.addEventListener('change', () => {
                 const selectedFile = input.files?.[0]
                 submit.disabled = !selectedFile
                 picker?.classList.toggle('has-file', Boolean(selectedFile))
                 if (filename) filename.textContent = selectedFile?.name || 'Ning\u00fan archivo seleccionado'
+                if (selectionStatus) selectionStatus.hidden = !selectedFile
+                if (actionLabel) actionLabel.textContent = selectedFile ? 'Cambiar archivo' : 'Elegir archivo'
                 setFeedback('', '')
               })
               submit?.addEventListener('click', () => void uploadDepositProof(input.files?.[0], submit))
@@ -5351,6 +5358,13 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
     .booking-proof-action svg { width: 17px; height: 17px; }
     .booking-proof-filename { min-width: 0; overflow: hidden; color: var(--ink); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
     .booking-proof-picker.has-file .booking-proof-filename { font-weight: 700; }
+    .booking-proof-selection-status { min-width: 0; margin-top: 10px; padding: 11px 12px; display: flex; align-items: center; gap: 10px; border: 1px solid var(--cream-line); border-radius: 9px; }
+    .booking-proof-selection-status[hidden] { display: none !important; }
+    .booking-proof-selection-icon { width: 28px; height: 28px; flex: 0 0 28px; display: grid; place-items: center; border-radius: 50%; }
+    .booking-proof-selection-icon svg { width: 16px; height: 16px; }
+    .booking-proof-selection-copy { min-width: 0; display: grid; gap: 2px; }
+    .booking-proof-selection-copy > strong { font-size: 13px; }
+    .booking-proof-selection-copy > span:not(.booking-proof-filename) { font-size: 12px; }
     .booking-proof-submit { width: 100%; margin-top: 12px; padding: 13px 18px; border: 0; border-radius: 10px; color: #fff; background: var(--dark-1); font-weight: 900; cursor: pointer; }
     .booking-proof-submit:disabled { opacity: .45; cursor: not-allowed; }
     .booking-account-required .success-link {
@@ -6967,6 +6981,8 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
     body[class*="booking-theme-"] .booking-service-option .service-price { color: var(--booking-ink); font-family: Inter, Arial, sans-serif; font-size: 15px; font-weight: 600; }
     body[class*="booking-theme-"] .booking-service-option .option-right { gap: 4px; }
     body[class*="booking-theme-"] .booking-service-option .option-deposit { padding: 3px 7px; color: var(--booking-deposit-ink); background: var(--booking-deposit-bg); font-size: 12px; font-weight: 400; }
+    body[class*="booking-theme-"] .estimate-option-price { color: var(--booking-ink); font-family: Inter, Arial, sans-serif; font-size: 15px; font-weight: 600; }
+    body[class*="booking-theme-"] .fresha-option.selected .estimate-option-price { color: var(--booking-ink); }
     body[class*="booking-theme-"] .booking-service-option:hover { transform: none; background: var(--booking-accent-soft); border-color: var(--booking-accent); box-shadow: none; }
     body[class*="booking-theme-"] .booking-service-option.selected { color: var(--booking-accent); background: var(--booking-accent-soft); border-color: var(--booking-accent); box-shadow: 0 0 0 1px var(--booking-accent); }
     body[class*="booking-theme-"] .date-chip.selected,
@@ -7051,6 +7067,10 @@ function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
     body[class*="booking-theme-"] .booking-transfer-details > div,
     body[class*="booking-theme-"] .booking-deposit-instructions { color: var(--booking-ink); background: var(--booking-accent-soft); border-color: var(--booking-accent); }
     body[class*="booking-theme-"] .booking-proof-picker { color: var(--booking-ink); background: var(--booking-surface); border-color: var(--booking-border); }
+    body[class*="booking-theme-"] .booking-proof-picker.has-file { color: var(--booking-ink); background: var(--booking-accent-soft); border: 1px solid var(--booking-accent); }
+    body[class*="booking-theme-"] .booking-proof-selection-status { min-width: 0; display: flex; color: var(--booking-ink); background: var(--booking-surface); border-color: var(--booking-border); }
+    body[class*="booking-theme-"] .booking-proof-selection-icon { color: var(--booking-on-accent); background: var(--booking-accent); }
+    body[class*="booking-theme-"] .booking-proof-selection-copy > span { color: var(--booking-secondary-ink); }
     body[class*="booking-theme-"] .booking-proof-picker:hover,
     body[class*="booking-theme-"] .booking-proof-picker:focus-within { background: var(--booking-accent-soft); border-color: var(--booking-accent); box-shadow: 0 0 0 3px var(--booking-accent-soft); }
     body[class*="booking-theme-"] .booking-proof-action,
