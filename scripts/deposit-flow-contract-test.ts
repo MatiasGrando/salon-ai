@@ -258,7 +258,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.ok(landing.includes('data-estimate-option-id'))
       assert.ok(landing.includes('data-validation-service-id'))
       assert.ok(landing.includes("estimateOptionId: serviceDetail(state.service).estimateOption?.id || null"))
-      assert.ok(landing.includes('Pod&eacute;s elegir uno o varios servicios'))
+      assert.ok(landing.includes('Eleg&iacute; uno o varios servicios para hacerlos en la misma visita.'))
       assert.ok(landing.includes('data-itinerary-id'))
       assert.ok(crm.includes("app.get('/crm/deposits'"))
       assert.ok(crm.includes("status: 'PROOF_RECEIVED'"))
@@ -281,8 +281,39 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         'la bandeja de señas debe elegir la ruta de aprobación según el origen'
       )
       assert.ok(
-        crmUi.includes("'/crm/conversations/' + state.selected.id + '/deposit/approve'"),
+        crmUi.includes("'/crm/conversations/' + selectedConversation.id + '/deposit/approve'"),
         'la seña también debe poder aprobarse desde la conversación derivada'
+      )
+      assert.ok(crmUi.includes('depositApprovalPendingIds: new Set()'), 'la aprobación debe protegerse por id y no por un único botón')
+      assert.ok(crmUi.includes("state.depositApprovalPendingIds.has(deposit.id)"), 'aprobar o rechazar debe ignorar reintentos mientras el depósito está en curso')
+      assert.ok(crmUi.includes("document.querySelectorAll('[data-deposit-review-approve], [data-deposit-review-reject]')"), 'la UI optimista debe bloquear acciones inline además del header')
+      assert.ok(crmUi.includes("els.stepChip.textContent = 'Aceptado · finalizando...'"), 'el estado optimista debe ser visible de inmediato')
+      assert.ok(crmUi.includes('role="status" aria-live="polite"'), 'el estado optimista inline debe anunciarse de forma accesible')
+      assert.ok(crmUi.includes('Aceptado &middot; finalizando...'), 'la tarjeta de revisión debe distinguir aceptación local de finalización remota')
+      assert.ok(crmUi.includes("showCrmToast('No se aprobó la seña. ' + error.message, 'error')"), 'un fallo debe aclarar que la aprobación no ocurrió')
+      assert.ok(crmUi.includes("showCrmToast('Seña aprobada y turno confirmado.', 'success')"), 'el éxito definitivo debe conservar su confirmación')
+      assert.ok(crmUi.includes('void Promise.allSettled([loadDeposits(), loadAgenda()])'), 'los refrescos de bandeja no deben bloquear la confirmación definitiva')
+      assert.ok(crmUi.includes('void Promise.allSettled([loadConversations(), loadAgenda()])'), 'los refrescos de conversación no deben bloquear la confirmación definitiva')
+      const approveStart = crmUi.indexOf('async function approveSelectedDeposit()')
+      const approveEnd = crmUi.indexOf('async function rejectSelectedDeposit()', approveStart)
+      const approveFlow = crmUi.slice(approveStart, approveEnd)
+      assert.ok(approveFlow.includes('if (state.selectedDeposit)'), 'la aprobación debe conservar el camino de la bandeja de señas')
+      assert.ok(approveFlow.includes('if (!state.selected)'), 'la aprobación debe conservar el camino desde conversaciones')
+      const conversationBranchStart = approveFlow.indexOf('if (!state.selected)')
+      const depositBranch = approveFlow.slice(approveFlow.indexOf('if (state.selectedDeposit)'), conversationBranchStart)
+      const conversationBranch = approveFlow.slice(conversationBranchStart)
+      assert.ok(
+        depositBranch.indexOf('setDepositApprovalPending(deposit, true)') < depositBranch.indexOf('await getJson('),
+        'la bandeja debe renderizar la confirmación optimista antes del POST'
+      )
+      assert.ok(
+        conversationBranch.indexOf('setDepositApprovalPending(deposit, true)') < conversationBranch.indexOf('await getJson('),
+        'la conversación debe renderizar la confirmación optimista antes del POST'
+      )
+      assert.equal(
+        approveFlow.match(/setDepositApprovalPending\(deposit, false\)/g)?.length,
+        2,
+        'ambos caminos deben revertir por completo el estado optimista cuando falla el POST'
       )
       assert.ok(
         crmUi.includes("deposit.source === 'WHATSAPP' && deposit.conversationId") &&

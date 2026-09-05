@@ -6875,6 +6875,34 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       min-height: 42px;
     }
 
+    .deposit-approval-status {
+      margin: 16px 0 4px;
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      color: #087a3d;
+      background: #e8f8ee;
+      border: 1px solid #b9e7ca;
+      border-radius: 10px;
+      font-size: 13px;
+    }
+
+    .deposit-approval-status::before {
+      content: "✓";
+      width: 22px;
+      height: 22px;
+      flex: 0 0 22px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      background: #087a3d;
+      border-radius: 50%;
+      font-weight: 800;
+    }
+
+    .deposit-approval-status strong { font-weight: 800; }
+
     .deposit-proof-preview {
       width: 100%;
       max-height: 480px;
@@ -14789,7 +14817,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           </div>
         </div>
         <div class="chat-actions">
-          <span class="chip" id="step-chip">Inicio</span>
+          <span class="chip" id="step-chip" role="status" aria-live="polite">Inicio</span>
           <details class="chat-more-menu">
             <summary class="icon-button" title="Opciones" data-icon="more"></summary>
             <div class="chat-more-popover">
@@ -17988,6 +18016,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       depositsCachedAt: 0,
       selectedDeposit: null,
       depositReviewOperationKeys: new Map(),
+      depositApprovalPendingIds: new Set(),
       handoffOperationKeys: new Map(),
       conversationNextCursor: null,
       conversationSearchTimer: null,
@@ -21605,18 +21634,21 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const appointment = deposit.appointment
       const customer = appointment.customer
       const canManage = state.currentUser?.role !== 'STAFF' || state.currentUser?.canManageDeposits
+      const approvalPending = state.depositApprovalPendingIds.has(deposit.id)
       els.chatAvatar.textContent = contactInitials(customer.name, customer.phone)
       els.chatPhone.textContent = customer.name
       els.chatStatus.textContent = (deposit.source === 'WHATSAPP' ? 'Reserva por WhatsApp' : 'Reserva desde la pagina') + ' · ' + customer.phone
-      els.stepChip.textContent = deposit.status === 'PROOF_RECEIVED' ? 'Comprobante recibido' : 'Esperando seña'
-      els.stepChip.className = 'chip step-confirm'
+      els.stepChip.textContent = approvalPending ? 'Aceptado · finalizando...' : (deposit.status === 'PROOF_RECEIVED' ? 'Comprobante recibido' : 'Esperando seña')
+      els.stepChip.className = approvalPending ? 'chip success processing' : 'chip step-confirm'
       els.depositApprove.hidden = !canManage
-      els.depositApprove.disabled = deposit.status !== 'PROOF_RECEIVED'
-      els.depositApprove.textContent = deposit.status === 'PROOF_RECEIVED'
+      els.depositApprove.disabled = approvalPending || deposit.status !== 'PROOF_RECEIVED'
+      els.depositApprove.textContent = approvalPending
+        ? 'Aceptado · finalizando...'
+        : deposit.status === 'PROOF_RECEIVED'
         ? 'Aprobar seña de ' + formatCurrency(deposit.amount)
         : 'Esperando comprobante'
       els.depositReject.hidden = !canManage
-      els.depositReject.disabled = deposit.status !== 'PROOF_RECEIVED'
+      els.depositReject.disabled = approvalPending || deposit.status !== 'PROOF_RECEIVED'
       els.advisorQuote.hidden = true
       els.defineService.hidden = true
       els.resolveHandoff.hidden = true
@@ -21634,9 +21666,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         : '<div class="empty">El cliente todav&iacute;a no envi&oacute; el comprobante.</div>'
       const reviewActions = canManage
         ? '<div class="deposit-review-actions">' +
-            '<button class="primary" type="button" data-deposit-review-approve' + (deposit.status === 'PROOF_RECEIVED' ? '' : ' disabled') + '>Aceptar se&ntilde;a y confirmar turno</button>' +
-            '<button class="danger" type="button" data-deposit-review-reject' + (deposit.status === 'PROOF_RECEIVED' ? '' : ' disabled') + '>Rechazar se&ntilde;a</button>' +
+            '<button class="primary" type="button" data-deposit-review-approve' + (approvalPending || deposit.status !== 'PROOF_RECEIVED' ? ' disabled' : '') + '>' + (approvalPending ? 'Aceptado &middot; finalizando...' : 'Aceptar se&ntilde;a y confirmar turno') + '</button>' +
+            '<button class="danger" type="button" data-deposit-review-reject' + (approvalPending || deposit.status !== 'PROOF_RECEIVED' ? ' disabled' : '') + '>Rechazar se&ntilde;a</button>' +
           '</div>'
+        : ''
+      const approvalStatus = approvalPending
+        ? '<div class="deposit-approval-status" role="status" aria-live="polite"><strong>Aceptado</strong> &middot; finalizando...</div>'
         : ''
       els.messages.innerHTML =
         '<div class="deposit-review-card">' +
@@ -21644,7 +21679,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           (deposit.coordinatedAppointments || [appointment]).map((item) =>
             '<p><strong>' + escapeHtml(item.service.name) + '</strong> · ' + escapeHtml(formatDateTime(item.startAt) + ' con ' + item.professional.name) + '</p>'
           ).join('') +
-          proof + reviewActions +
+          proof + approvalStatus + reviewActions +
         '</div>'
       els.messages.querySelector('[data-deposit-review-approve]')?.addEventListener('click', approveSelectedDeposit)
       els.messages.querySelector('[data-deposit-review-reject]')?.addEventListener('click', rejectSelectedDeposit)
@@ -22714,6 +22749,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.stepChip.className = conversationStepChipClass(selected.currentStep, selected.aiEnabled)
       const deposit = selected.bookingDeposits?.[0] || null
       const activeDeposit = deposit && ['PENDING_PROOF', 'PROOF_RECEIVED'].includes(deposit.status)
+      const approvalPending = Boolean(deposit && state.depositApprovalPendingIds.has(deposit.id))
+      if (approvalPending) {
+        els.stepChip.textContent = 'Aceptado · finalizando...'
+        els.stepChip.className = 'chip success processing'
+      }
       const canReplyConversation = state.currentUser?.role !== 'STAFF' || state.currentUser?.canReplyConversations
       const canManageDeposits = state.currentUser?.role !== 'STAFF' || state.currentUser?.canManageDeposits
       const handoffStage = conversationHandoffUiStage(selected)
@@ -22731,12 +22771,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         )
       )
       els.depositApprove.hidden = !activeDeposit || !canManageDeposits
-      els.depositApprove.disabled = deposit?.status !== 'PROOF_RECEIVED'
-      els.depositApprove.textContent = deposit?.status === 'PROOF_RECEIVED'
+      els.depositApprove.disabled = approvalPending || deposit?.status !== 'PROOF_RECEIVED'
+      els.depositApprove.textContent = approvalPending
+        ? 'Aceptado · finalizando...'
+        : deposit?.status === 'PROOF_RECEIVED'
         ? 'Aprobar seña de ' + formatCurrency(deposit.amount)
         : 'Esperando comprobante'
       els.depositReject.hidden = !activeDeposit || !canManageDeposits
-      els.depositReject.disabled = !activeDeposit
+      els.depositReject.disabled = approvalPending || !activeDeposit
       els.advisorQuote.hidden = !canSendAdvisorQuote || !canReplyConversation
       els.advisorQuote.disabled = !canSendAdvisorQuote
       els.defineService.hidden = !canReplyConversation || !canResolveHandoff || Boolean(activeDeposit) || Boolean(selected.selectedServiceId)
@@ -24764,15 +24806,34 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         : '/crm/deposits/' + encodeURIComponent(deposit.id) + '/' + action
     }
 
+    function disableDepositReviewControls() {
+      els.depositApprove.disabled = true
+      els.depositReject.disabled = true
+      for (const button of document.querySelectorAll('[data-deposit-review-approve], [data-deposit-review-reject]')) {
+        button.disabled = true
+      }
+    }
+
+    function setDepositApprovalPending(deposit, pending) {
+      if (pending) state.depositApprovalPendingIds.add(deposit.id)
+      else state.depositApprovalPendingIds.delete(deposit.id)
+
+      if (state.selectedDeposit?.id === deposit.id) renderSelectedDeposit()
+      else if (state.selected?.bookingDeposits?.some((item) => item.id === deposit.id)) renderSelected()
+      if (pending) disableDepositReviewControls()
+    }
+
     async function approveSelectedDeposit() {
       if (state.selectedDeposit) {
         const deposit = state.selectedDeposit
         if (deposit.status !== 'PROOF_RECEIVED') return
+        if (state.depositApprovalPendingIds.has(deposit.id)) return
         if (!await requestCrmConfirmation(
           '¿Confirmás que el comprobante por ' + formatCurrency(deposit.amount) + ' es válido? El turno quedará confirmado.',
           { confirmLabel: 'Sí, aprobar seña', danger: false }
         )) return
-        if (!setButtonLoading(els.depositApprove, true, 'Confirmando...')) return
+        if (state.depositApprovalPendingIds.has(deposit.id)) return
+        setDepositApprovalPending(deposit, true)
         try {
           const operationKey = deposit.visitId
             ? (state.depositReviewOperationKeys.get('approve:' + deposit.id) || (() => {
@@ -24786,38 +24847,44 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             headers: { 'Content-Type': 'application/json', ...(operationKey ? { 'Idempotency-Key': operationKey } : {}) },
             body: '{}'
           })
+          state.depositApprovalPendingIds.delete(deposit.id)
+          state.deposits = state.deposits.filter((item) => item.id !== deposit.id)
           state.selectedDeposit = null
-          await loadDeposits()
-          await loadAgenda()
+          renderDeposits()
+          renderEmptyDepositSelection()
           showCrmToast('Seña aprobada y turno confirmado.', 'success')
+          void Promise.allSettled([loadDeposits(), loadAgenda()])
         } catch (error) {
-          showCrmToast(error.message, 'error')
-        } finally {
-          setButtonLoading(els.depositApprove, false)
+          setDepositApprovalPending(deposit, false)
+          showCrmToast('No se aprobó la seña. ' + error.message, 'error')
         }
         return
       }
       if (!state.selected) return
       const deposit = state.selected.bookingDeposits?.[0]
       if (!deposit || deposit.status !== 'PROOF_RECEIVED') return
+      if (state.depositApprovalPendingIds.has(deposit.id)) return
       if (!await requestCrmConfirmation(
         '¿Confirmás que el comprobante por ' + formatCurrency(deposit.amount) + ' es válido? El turno quedará confirmado.',
         { confirmLabel: 'Sí, aprobar seña', danger: false }
       )) return
-      if (!setButtonLoading(els.depositApprove, true, 'Confirmando...')) return
+      if (state.depositApprovalPendingIds.has(deposit.id)) return
+      const selectedConversation = state.selected
+      setDepositApprovalPending(deposit, true)
       try {
-        state.selected = await getJson('/crm/conversations/' + state.selected.id + '/deposit/approve', {
+        const approvedConversation = await getJson('/crm/conversations/' + selectedConversation.id + '/deposit/approve', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({})
         })
-        await loadConversations()
+        state.depositApprovalPendingIds.delete(deposit.id)
+        state.selected = approvedConversation
+        renderSelected()
         showCrmToast('Seña aprobada y turno confirmado.', 'success')
-        await loadAgenda()
+        void Promise.allSettled([loadConversations(), loadAgenda()])
       } catch (error) {
-        showCrmToast(error.message, 'error')
-      } finally {
-        setButtonLoading(els.depositApprove, false)
+        setDepositApprovalPending(deposit, false)
+        showCrmToast('No se aprobó la seña. ' + error.message, 'error')
       }
     }
 
@@ -24825,12 +24892,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (state.selectedDeposit) {
         const deposit = state.selectedDeposit
         if (deposit.status !== 'PROOF_RECEIVED') return
+        if (state.depositApprovalPendingIds.has(deposit.id)) return
         openDepositRejectionDialog(deposit)
         return
       }
       if (!state.selected) return
       const deposit = state.selected.bookingDeposits?.[0]
       if (!deposit || !['PENDING_PROOF', 'PROOF_RECEIVED'].includes(deposit.status)) return
+      if (state.depositApprovalPendingIds.has(deposit.id)) return
       if (!await requestCrmConfirmation(
         '¿Querés rechazar la seña? El horario temporal se liberará y el cliente recibirá un aviso.',
         { confirmLabel: 'Sí, rechazar seña' }
