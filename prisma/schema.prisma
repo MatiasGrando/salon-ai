@@ -549,6 +549,42 @@ enum AppointmentAttentionColor {
   ORANGE
 }
 
+enum AppointmentPricingMode {
+  FIXED
+  ESTIMATED
+}
+
+enum CashEntryType {
+  PAYMENT
+  LEGACY_PAYMENT
+  EXPENSE
+  WITHDRAWAL
+  CASH_IN
+  ADJUSTMENT
+  REFUND
+  REVERSAL
+}
+
+enum CashDirection {
+  INFLOW
+  OUTFLOW
+}
+
+enum CashPaymentMethod {
+  CASH
+  TRANSFER
+  CARD
+  UNSPECIFIED
+}
+
+enum CashEntryOrigin {
+  AGENDA
+  CASH_REGISTER
+  WEB_DEPOSIT
+  BOT_DEPOSIT
+  MIGRATION
+}
+
 enum BookingVisitStatus {
   DRAFT
   HELD
@@ -730,6 +766,9 @@ model Business {
   id                     String                        @id @default(cuid())
   customerCode           String                        @unique
   name                   String
+  /// Zona IANA canónica. Nullable durante el rollout: Caja falla cerrada hasta
+  /// que exista una configuración explícita o migrada desde settings válidos.
+  timezone               String?
   isDemo                 Boolean                       @default(false)
   demoType               String?
   slug                   String?                       @unique
@@ -801,6 +840,12 @@ model Business {
   bookingVisits           BookingVisit[]
   botOptionsSettings      BusinessBotOptionsSettings?
   legacyCutoverInbounds   LegacyWhatsAppCutoverInbound[]
+  appointmentAccounts     AppointmentAccount[]
+  appointmentAccountLinks AppointmentAccountLink[]
+  appointments            Appointment[]
+  cashRegisterDays        CashRegisterDay[]
+  cashSessions            CashSession[]
+  cashEntries             CashEntry[]
 
   createdAt DateTime @default(now())
 
@@ -947,11 +992,19 @@ model User {
   canManageDeposits          Boolean       @default(false)
   canViewOperationalReports  Boolean       @default(false)
   canViewFinancialAmounts    Boolean       @default(false)
+  canViewCashRegister        Boolean       @default(false)
+  canRecordAppointmentPayments Boolean     @default(false)
+  canApplyDiscounts          Boolean       @default(false)
+  canManageCashOperations    Boolean       @default(false)
+  canAdjustCash              Boolean       @default(false)
+  canManageCashSessions      Boolean       @default(false)
+  cashSessions               CashSession[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([businessId])
+  @@unique([businessId, id])
   @@index([professionalId])
   @@index([role])
 }
@@ -1451,6 +1504,9 @@ model BookingVisit {
 model Appointment {
   id String @id @default(cuid())
 
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
   customerId String
   customer   Customer @relation(fields: [customerId], references: [id])
 
@@ -1481,13 +1537,124 @@ model Appointment {
   bookingDeposit          BookingDeposit?
   changeHistory          AppointmentChangeHistory[]
   serviceItems            AppointmentServiceItem[]
+  accountLink             AppointmentAccountLink?
   googleCalendarEventId   String?
   googleCalendarAccountId String?
 
   createdAt DateTime @default(now())
 
+  @@unique([businessId, id])
   @@index([coordinationGroupId])
+  @@index([businessId, startAt])
   @@index([professionalId, startAt])
+}
+
+model AppointmentAccount {
+  id             String                 @id @default(cuid())
+  businessId     String
+  business       Business               @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pricingMode    AppointmentPricingMode
+  agreedAmount   Int?
+  discountAmount Int                    @default(0)
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  appointmentLinks AppointmentAccountLink[]
+  cashEntries      CashEntry[]
+
+  @@unique([businessId, id])
+  @@index([businessId, createdAt])
+}
+
+model AppointmentAccountLink {
+  businessId    String
+  business      Business           @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  accountId     String
+  account       AppointmentAccount @relation(fields: [businessId, accountId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  appointmentId String             @unique
+  appointment   Appointment        @relation(fields: [businessId, appointmentId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  createdAt     DateTime           @default(now())
+
+  @@id([businessId, appointmentId])
+  @@index([businessId, accountId])
+}
+
+model CashRegisterDay {
+  id                  String    @id @default(cuid())
+  businessId          String
+  business            Business  @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  openedAt            DateTime  @default(dbgenerated("clock_timestamp()"))
+  closedAt            DateTime?
+  openingCash         Int
+  expectedClosingCash Int?
+  countedClosingCash  Int?
+  closingDifference   Int?
+  createdAt           DateTime  @default(now())
+
+  sessions CashSession[]
+  entries  CashEntry[]
+
+  @@unique([businessId, id])
+  @@index([businessId, openedAt, id])
+}
+
+model CashSession {
+  id                String          @id @default(cuid())
+  businessId        String
+  business          Business        @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  registerDayId     String
+  registerDay       CashRegisterDay @relation(fields: [businessId, registerDayId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  responsibleUserId String
+  responsibleUser   User            @relation(fields: [businessId, responsibleUserId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  responsibleName   String
+  openedAt          DateTime        @default(dbgenerated("clock_timestamp()"))
+  closedAt          DateTime?
+  expectedCash      Int?
+  countedCash       Int?
+  cashDifference    Int?
+  createdAt         DateTime        @default(now())
+
+  entries CashEntry[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, registerDayId, id])
+  @@index([businessId, registerDayId, openedAt, id])
+  @@index([businessId, responsibleUserId])
+}
+
+model CashEntry {
+  id               String              @id @default(cuid())
+  businessId       String
+  business         Business            @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  accountId        String?
+  account          AppointmentAccount? @relation(fields: [businessId, accountId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  registerDayId    String?
+  registerDay      CashRegisterDay?    @relation(fields: [businessId, registerDayId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  cashSessionId    String?
+  cashSession      CashSession?        @relation(fields: [businessId, registerDayId, cashSessionId], references: [businessId, registerDayId, id], onDelete: Restrict, onUpdate: Cascade)
+  type             CashEntryType
+  direction        CashDirection
+  amount           Int
+  paymentMethod    CashPaymentMethod
+  origin           CashEntryOrigin
+  description      String?
+  counterparty     String?
+  observation      String?
+  bookingDepositId String?             @unique
+  bookingDeposit   BookingDeposit?     @relation(fields: [businessId, bookingDepositId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  reversesEntryId  String?             @unique
+  reversesEntry    CashEntry?          @relation("CashEntryReversal", fields: [businessId, reversesEntryId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  reversedBy       CashEntry?          @relation("CashEntryReversal")
+  effectiveAt      DateTime?           @default(dbgenerated("clock_timestamp()"))
+  createdAt        DateTime            @default(now())
+
+  @@unique([businessId, id])
+  @@unique([businessId, bookingDepositId])
+  @@unique([businessId, reversesEntryId])
+  @@index([businessId, effectiveAt, id])
+  @@index([registerDayId, effectiveAt, id])
+  @@index([businessId, accountId, effectiveAt, id])
+  @@index([businessId, type, paymentMethod, effectiveAt, id])
 }
 
 model AppointmentServiceItem {
@@ -1685,6 +1852,7 @@ model BookingDeposit {
   expiryAudit BookingDepositExpiryAudit?
   proofs BookingDepositProof[]
   appointmentChanges AppointmentChangeHistory[] @relation("AppointmentChangeHistoryBookingDeposit")
+  cashEntry          CashEntry?
 
   @@unique([businessId, id])
   @@unique([businessId, visitId])

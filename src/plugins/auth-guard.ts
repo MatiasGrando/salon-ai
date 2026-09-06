@@ -275,6 +275,7 @@ const internalRouteRoots = new Set([
   'campaign-deliveries',
   'campaign-jobs',
   'campaigns',
+  'cash-register',
   'chat',
   'crm',
   'customers',

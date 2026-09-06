@@ -326,6 +326,12 @@ function publicUser(user: {
   canManageDeposits?: boolean
   canViewOperationalReports?: boolean
   canViewFinancialAmounts?: boolean
+  canViewCashRegister?: boolean
+  canRecordAppointmentPayments?: boolean
+  canApplyDiscounts?: boolean
+  canManageCashOperations?: boolean
+  canAdjustCash?: boolean
+  canManageCashSessions?: boolean
   canCreateBusinesses?: boolean
 }) {
   return {
@@ -354,6 +360,12 @@ function publicUser(user: {
     canManageDeposits: user.role === 'STAFF' ? user.canManageDeposits === true : true,
     canViewOperationalReports: user.role === 'STAFF' ? user.canViewOperationalReports === true : true,
     canViewFinancialAmounts: user.role === 'STAFF' ? user.canViewFinancialAmounts === true : true,
+    canViewCashRegister: user.role === 'STAFF' ? user.canViewCashRegister === true : ['BUSINESS_ADMIN', 'SUPER_ADMIN'].includes(user.role),
+    canRecordAppointmentPayments: user.role === 'STAFF' ? user.canRecordAppointmentPayments === true : ['BUSINESS_ADMIN', 'SUPER_ADMIN'].includes(user.role),
+    canApplyDiscounts: user.role === 'STAFF' ? user.canApplyDiscounts === true : ['BUSINESS_ADMIN', 'SUPER_ADMIN'].includes(user.role),
+    canManageCashOperations: user.role === 'STAFF' ? user.canManageCashOperations === true : ['BUSINESS_ADMIN', 'SUPER_ADMIN'].includes(user.role),
+    canAdjustCash: user.role === 'STAFF' ? user.canAdjustCash === true : ['BUSINESS_ADMIN', 'SUPER_ADMIN'].includes(user.role),
+    canManageCashSessions: user.role === 'STAFF' ? user.canManageCashSessions === true : ['BUSINESS_ADMIN', 'SUPER_ADMIN'].includes(user.role),
     canCreateBusinesses: user.role === 'SUPER_ADMIN' || user.canCreateBusinesses === true
   }
 }

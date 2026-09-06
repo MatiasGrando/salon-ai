@@ -68,6 +68,8 @@ import { setTamaraOptionsBotEnabled } from '../services/business-bot-activation-
 import { acquireAppointmentWriteHierarchy } from '../services/agenda-locks.js'
 import { revalidateAppointmentsForConfirmation } from '../services/booking-operations.js'
 import { approveCurrentDepositProof, rejectCurrentDepositProof, DepositReviewError, DepositReviewStateError } from '../services/deposit-review-operation.js'
+import { createCashTransactionRepository, projectApprovedDepositPaymentInTransaction } from '../repositories/prisma-cash-repository.js'
+import { ensureAppointmentAccountForPayment } from '../services/cash-service.js'
 import { randomUUID } from 'node:crypto'
 import { resolveBotHandoff, takeConversationForManualAttention } from '../bot-options/application/handoff-operations.js'
 
@@ -163,7 +165,18 @@ function safeMediaFilename(
   return `${mediaType === 'image' ? 'imagen' : 'archivo'}.${extension}`
 }
 
-export interface CrmRoutesOptions { readonly sseRecorder: SseRecorderFacade }
+export interface CrmRoutesOptions {
+  readonly sseRecorder: SseRecorderFacade
+  readonly cashRegisterEnabled?: boolean
+}
+
+export function resolveCrmRealtimeBusinessId(
+  user: { role: string; businessId: string | null } | undefined,
+  requestedBusinessId: string | undefined
+) {
+  if (user?.role === 'SUPER_ADMIN') return requestedBusinessId?.trim() || null
+  return user?.businessId ?? null
+}
 
 export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions) {
   const routeSessions = new Set<FunctionalSseSession>()
@@ -172,9 +185,9 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
     routeClosing = true
     for (const session of [...routeSessions]) session.close('server_shutdown')
   })
-  app.get('/crm/events', async (request, reply) => {
+  const registerRealtimeRoute = (path: '/crm/events' | '/crm/cash-events', cashOnly: boolean) => app.get(path, async (request, reply) => {
     const query = request.query as { businessId?: string }
-    const businessId = query.businessId || request.auth?.user.businessId
+    const businessId = resolveCrmRealtimeBusinessId(request.auth?.user, query.businessId)
     if (!businessId) {
       return reply.status(400).send({ message: 'Selecciona un comercio para recibir eventos' })
     }
@@ -252,6 +265,7 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
       unsubscribe = subscribeToCrmRealtimeEvents({
         businessId,
         send: (event) => {
+          if (cashOnly !== (event.type === 'cash_changed')) return
           if (response.writableEnded || response.destroyed) throw new Error('La conexión de eventos se cerró')
           const chunk = `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`
           opened.measurement?.business(chunk, true)
@@ -286,6 +300,8 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
 
     return reply
   })
+  registerRealtimeRoute('/crm/events', false)
+  if (options.cashRegisterEnabled !== false) registerRealtimeRoute('/crm/cash-events', true)
 
   app.post('/crm/maintenance/delete-qa-data', async (request, reply) => {
     const authUser = request.auth?.user
@@ -1106,7 +1122,8 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
       try {
         const result = await approveCurrentDepositProof(prisma, {
           businessId: deposit.businessId, depositId: deposit.id, actorUserId: authUser.id, operationKey,
-          method: request.method, path: request.routeOptions.url || request.url
+          method: request.method, path: request.routeOptions.url || request.url,
+          projectCashPayment: options.cashRegisterEnabled !== false
         })
         return { ok: true, outcome: result.outcome }
       } catch (error) {
@@ -1172,6 +1189,22 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
       })
       if (confirmedAppointments.count !== heldAppointmentIds.length) {
         throw new AuthorizationStateConflictError()
+      }
+      if (options.cashRegisterEnabled !== false) {
+        const cashTransaction = createCashTransactionRepository(tx)
+        if (!await cashTransaction.lockBusiness(scopedDeposit.businessId)) {
+          throw new AuthorizationStateConflictError()
+        }
+        await ensureAppointmentAccountForPayment(
+          cashTransaction,
+          scopedDeposit.businessId,
+          scopedDeposit.appointmentId
+        )
+        await projectApprovedDepositPaymentInTransaction(tx, {
+          businessId: scopedDeposit.businessId,
+          bookingDepositId: scopedDeposit.id,
+          origin: 'WEB_DEPOSIT'
+        })
       }
       return { approved: true as const, heldAppointmentIds }
     }).catch((error: unknown) => {
@@ -1795,6 +1828,22 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
       })
       if (confirmedAppointments.count !== heldAppointmentIds.length) {
         throw new AuthorizationStateConflictError()
+      }
+      if (options.cashRegisterEnabled !== false) {
+        const cashTransaction = createCashTransactionRepository(tx)
+        if (!await cashTransaction.lockBusiness(deposit.businessId)) {
+          throw new AuthorizationStateConflictError()
+        }
+        await ensureAppointmentAccountForPayment(
+          cashTransaction,
+          deposit.businessId,
+          deposit.appointmentId
+        )
+        await projectApprovedDepositPaymentInTransaction(tx, {
+          businessId: deposit.businessId,
+          bookingDepositId: deposit.id,
+          origin: 'WEB_DEPOSIT'
+        })
       }
       const conversationClaim = await tx.conversation.updateMany({
         where: authorizedConversationWhere(authUser, deposit.conversationId!),

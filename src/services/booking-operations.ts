@@ -429,10 +429,10 @@ async function createBookingVisit(
   `)
   await tx.$executeRaw(Prisma.sql`
     INSERT INTO "Appointment" (
-      "id", "customerId", "professionalId", "serviceId", "startAt", "origin",
+      "id", "businessId", "customerId", "professionalId", "serviceId", "startAt", "origin",
       "quotedPrice", "totalDurationMinutes", "status", "visitId", "notes"
     ) VALUES (
-      ${appointmentId}, ${customerId}, ${assigned.id}, ${serviceIds[0]!}, ${startAt},
+      ${appointmentId}, ${input.businessId}, ${customerId}, ${assigned.id}, ${serviceIds[0]!}, ${startAt},
        'BOT'::"AppointmentOrigin", ${input.totalPriceMinor}, ${input.totalDurationMinutes},
        ${input.depositRequired ? 'PENDING' : 'CONFIRMED'}::"AppointmentStatus", ${visitId}, ${estimateNotes}
     )

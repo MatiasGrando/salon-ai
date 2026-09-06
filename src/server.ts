@@ -6,6 +6,7 @@ import { professionalRoutes } from './routes/professional.js'
 import { serviceRoutes } from './routes/service.js'
 import { customerRoutes } from './routes/customer.js'
 import { appointmentRoutes } from './routes/appointment.js'
+import { cashRegisterRoutes } from './routes/cash-register.js'
 import { businessHoursRoutes } from './routes/business-hours.js'
 import { professionalHoursRoutes } from './routes/professional-hours.js'
 import { availabilityRoutes } from './routes/availability.js'
@@ -64,6 +65,8 @@ import { startBotOptionsMetricsLoop } from './bot-options/observability/metrics.
 import { processDepositProofJob } from './bot-options/application/process-deposit-proof-job.js'
 import { bridgeDepositNotificationJob } from './bot-options/application/bridge-deposit-notification-job.js'
 import { startAppointmentRealtimeListener } from './services/appointment-realtime-listener.js'
+import { startCashRealtimeListener } from './services/cash-realtime-listener.js'
+import { resolveCashRegisterConfig, type CashRegisterConfig } from './config/cash-register.js'
 
 process.env.TZ ??= 'America/Argentina/Buenos_Aires'
 
@@ -76,6 +79,7 @@ export type BuildAppOptions = AuthorizationBuildAppOptions & {
   authoritativeAdmission?: AuthoritativeWebhookAdmission
   legacyWhatsappWebhookService?: WhatsAppWebhookServiceContract
   outboxProvider?: OutboxProvider
+  cashRegisterConfig?: CashRegisterConfig
 }
 
 export async function buildApp(options: BuildAppOptions = {}) {
@@ -85,6 +89,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   const baseline = installEgressBaseline(app, resolveEgressBaselineConfig(process.env))
   installAuthorizationProviders(app, options)
   const botOptionsConfig = options.botOptionsConfig ?? resolveBotOptionsConfig(process.env)
+  const cashRegisterConfig = options.cashRegisterConfig ?? resolveCashRegisterConfig(process.env)
   let shadowAdmission = options.shadowAdmission
   let authoritativeAdmission = options.authoritativeAdmission
 
@@ -105,7 +110,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
 
   await app.register(healthRoutes)
   await app.register(authRoutes)
-  await app.register(crmUiRoutes, { pollingMarker: baseline.pollingMarker })
+  await app.register(crmUiRoutes, { pollingMarker: baseline.pollingMarker, cashRegisterEnabled: cashRegisterConfig.enabled })
   await app.register(tamaraSiteRoutes)
   await app.register(naturaFlowSiteRoutes)
   await app.register(landingUiRoutes)
@@ -129,13 +134,14 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(professionalRoutes)
   await app.register(serviceRoutes)
   await app.register(customerRoutes)
-  await app.register(appointmentRoutes)
+  await app.register(appointmentRoutes, { cashRegisterEnabled: cashRegisterConfig.enabled })
+  if (cashRegisterConfig.enabled) await app.register(cashRegisterRoutes)
   await app.register(businessHoursRoutes)
   await app.register(professionalHoursRoutes)
   await app.register(scheduleBlockRoutes)
   await app.register(availabilityRoutes)
   await app.register(chatRoutes)
-  await app.register(crmRoutes, { sseRecorder: baseline.sseRecorder })
+  await app.register(crmRoutes, { sseRecorder: baseline.sseRecorder, cashRegisterEnabled: cashRegisterConfig.enabled })
   await app.register(businessBotRoutingRoutes)
   await app.register(campaignRoutes)
   await app.register(postSaleRoutes)
@@ -253,7 +259,16 @@ async function startServer() {
     connectionString,
     onError: (error) => app.log.error(error, 'appointment realtime listener error')
   })
-  app.addHook('onClose', async () => { await appointmentRealtimeListener.stop() })
+  const cashRegisterConfig = resolveCashRegisterConfig(process.env)
+  const cashRealtimeListener = cashRegisterConfig.enabled
+    ? startCashRealtimeListener({
+        connectionString,
+        onError: (error) => app.log.error(error, 'cash realtime listener error')
+      })
+    : null
+  app.addHook('onClose', async () => {
+    await Promise.all([appointmentRealtimeListener.stop(), cashRealtimeListener?.stop()])
+  })
   await ensureBootstrapSuperAdmin()
   startMarketingScheduler(app)
 

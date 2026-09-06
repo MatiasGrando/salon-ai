@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 
-const SAFE_DATABASE_URL = 'postgresql://postgres:postgres@127.0.0.1:54322/salon_ai_test'
+const SAFE_DATABASE_URL = process.env.TEST_DATABASE_URL
+if (!SAFE_DATABASE_URL) {
+  console.log('SKIP F7 agenda locks PG: falta TEST_DATABASE_URL segura.')
+  process.exit(0)
+}
 const parsed = new URL(SAFE_DATABASE_URL)
 if (parsed.protocol !== 'postgresql:' || parsed.hostname !== '127.0.0.1' || parsed.port !== '54322' || parsed.pathname !== '/salon_ai_test') {
   throw new Error('Refusing unsafe F7 agenda-lock database')

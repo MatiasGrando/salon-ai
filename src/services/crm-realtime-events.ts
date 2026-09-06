@@ -35,7 +35,15 @@ export type AppointmentChangedEvent = {
   updatedAt: string
 }
 
-export type CrmRealtimeEvent = IncomingConversationMessageEvent | OutgoingConversationMessageEvent | ConversationUpdatedEvent | DepositUpdatedEvent | AppointmentChangedEvent
+export type CashChangedEvent = {
+  type: 'cash_changed'
+  businessId: string
+  entity: 'ENTRY' | 'DAY' | 'SESSION' | 'ACCOUNT'
+  entityId: string
+  updatedAt: string
+}
+
+export type CrmRealtimeEvent = IncomingConversationMessageEvent | OutgoingConversationMessageEvent | ConversationUpdatedEvent | DepositUpdatedEvent | AppointmentChangedEvent | CashChangedEvent
 
 type CrmRealtimeSubscriber = {
   businessId: string
@@ -164,6 +172,15 @@ export function publishDepositUpdated(input: Omit<DepositUpdatedEvent, 'type'>) 
 export function publishAppointmentChanged(input: Omit<AppointmentChangedEvent, 'type'>) {
   const event: AppointmentChangedEvent = {
     type: 'appointment_changed',
+    ...input
+  }
+
+  publishCrmRealtimeEvent(event)
+}
+
+export function publishCashChanged(input: Omit<CashChangedEvent, 'type'>) {
+  const event: CashChangedEvent = {
+    type: 'cash_changed',
     ...input
   }
 

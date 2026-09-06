@@ -33,6 +33,12 @@ export type AuthUser = {
   canManageDeposits: boolean
   canViewOperationalReports: boolean
   canViewFinancialAmounts: boolean
+  canViewCashRegister: boolean
+  canRecordAppointmentPayments: boolean
+  canApplyDiscounts: boolean
+  canManageCashOperations: boolean
+  canAdjustCash: boolean
+  canManageCashSessions: boolean
   canCreateBusinesses: boolean
   businessAccountStatus: 'ONBOARDING' | 'ACTIVE' | 'PAUSED' | 'CANCELLED' | null
 }
@@ -89,6 +95,9 @@ export async function getAuthFromRequest(request: FastifyRequest): Promise<AuthC
     if (session) await prisma.userSession.delete({ where: { id: session.id } }).catch(() => null)
     return null
   }
+  const cashUser = session.user as typeof session.user & Pick<AuthUser,
+    'canViewCashRegister' | 'canRecordAppointmentPayments' | 'canApplyDiscounts'
+    | 'canManageCashOperations' | 'canAdjustCash' | 'canManageCashSessions'>
 
   return {
     user: {
@@ -116,6 +125,12 @@ export async function getAuthFromRequest(request: FastifyRequest): Promise<AuthC
       canManageDeposits: session.user.canManageDeposits,
       canViewOperationalReports: session.user.canViewOperationalReports,
       canViewFinancialAmounts: session.user.canViewFinancialAmounts,
+      canViewCashRegister: cashUser.canViewCashRegister,
+      canRecordAppointmentPayments: cashUser.canRecordAppointmentPayments,
+      canApplyDiscounts: cashUser.canApplyDiscounts,
+      canManageCashOperations: cashUser.canManageCashOperations,
+      canAdjustCash: cashUser.canAdjustCash,
+      canManageCashSessions: cashUser.canManageCashSessions,
       canCreateBusinesses: session.user.role === 'SUPER_ADMIN' || session.user.canCreateBusinesses,
       businessAccountStatus: session.user.business?.accountStatus ?? null
     }

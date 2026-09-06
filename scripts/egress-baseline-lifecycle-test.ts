@@ -17,8 +17,15 @@ class CaptureWritable extends EventEmitter {
   write(chunk: string, callback?: (error?: Error | null) => void) { this.chunks.push(chunk); callback?.(null); return true }
 }
 
+function authenticateSseTestApp(app: ReturnType<typeof Fastify>) {
+  app.addHook('preHandler', async (request) => {
+    request.auth = { user: { role: 'SUPER_ADMIN', businessId: null } as never }
+  })
+}
+
 const writable = new CaptureWritable()
 const app = Fastify()
+authenticateSseTestApp(app)
 const baseline = installEgressBaseline(app, resolveEgressBaselineConfig({ EGRESS_BASELINE_SINK_ENABLED: 'true', EGRESS_BASELINE_HTTP_ENABLED: 'true', EGRESS_BASELINE_SSE_ENABLED: 'true', EGRESS_BASELINE_WINDOW_MS: '10000', EGRESS_BASELINE_JITTER_MS: '0' }), { writable, diagnosticWritable: writable })
 await app.register(crmRoutes, { sseRecorder: baseline.sseRecorder })
 await app.listen({ host: '127.0.0.1', port: 0 })
@@ -48,6 +55,7 @@ assert.equal(records[0].httpEntries.length, 0)
 
 const disabledWritable = new CaptureWritable()
 const disabledApp = Fastify()
+authenticateSseTestApp(disabledApp)
 const disabledBaseline = installEgressBaseline(disabledApp, resolveEgressBaselineConfig({ EGRESS_BASELINE_SINK_ENABLED: 'true', EGRESS_BASELINE_HTTP_ENABLED: 'true', EGRESS_BASELINE_SSE_ENABLED: 'false' }), { writable: disabledWritable })
 assert.equal(disabledBaseline.sseRecorder, DISABLED_SSE_RECORDER, 'SSE-ineffective install uses stateless disabled facade')
 await disabledApp.register(crmRoutes, { sseRecorder: disabledBaseline.sseRecorder })
@@ -66,6 +74,7 @@ const disabledRecords = disabledWritable.chunks.filter((chunk) => chunk.includes
 assert.equal(disabledRecords[0].sse.opened, 0, 'SSE-ineffective mode closes functional stream without telemetry state')
 
 const allDisabledApp = Fastify()
+authenticateSseTestApp(allDisabledApp)
 const allDisabledWritable = new CaptureWritable()
 const allDisabled = installEgressBaseline(allDisabledApp, resolveEgressBaselineConfig({}), { writable: allDisabledWritable })
 assert.equal(allDisabled.sseRecorder, DISABLED_SSE_RECORDER)
@@ -94,6 +103,7 @@ await sinkOnlyApp.close()
 assert.equal(sinkOnlyWritable.chunks.length, 0)
 
 const closingApp = Fastify()
+authenticateSseTestApp(closingApp)
 const closingFacade = { isClosing: () => true, canOpenSse: () => false, openSse: () => ({ status: 'closing' as const }), beginClosingAndSnapshotFunctionalSse: () => [] }
 await closingApp.register(crmRoutes, { sseRecorder: closingFacade })
 const unavailable = await closingApp.inject({ method: 'GET', url: '/crm/events?businessId=safe-test' })
@@ -105,7 +115,8 @@ async function captureEventsHandler(recorder: EffectiveSseRecorder) {
   const fakeApp = new Proxy({}, { get: () => (path: string, candidate: typeof handler) => { if (path === '/crm/events') handler = candidate } })
   await crmRoutes(fakeApp as never, { sseRecorder: recorder })
   assert.ok(handler)
-  return handler as unknown as (request: any, reply: any) => Promise<unknown>
+  const routeHandler = handler as unknown as (request: any, reply: any) => Promise<unknown>
+  return (request: any, reply: any) => routeHandler({ ...request, auth: request.auth ?? { user: { role: 'SUPER_ADMIN', businessId: null } } }, reply)
 }
 
 let fakeWall = 0
@@ -297,6 +308,7 @@ assert.equal(subscriptionRaw.destroyed, true)
 
 const disconnectWritable = new CaptureWritable()
 const disconnectApp = Fastify()
+authenticateSseTestApp(disconnectApp)
 const disconnectBaseline = installEgressBaseline(disconnectApp, resolveEgressBaselineConfig({ EGRESS_BASELINE_SINK_ENABLED: 'true', EGRESS_BASELINE_SSE_ENABLED: 'true', EGRESS_BASELINE_JITTER_MS: '0' }), { writable: disconnectWritable })
 await disconnectApp.register(crmRoutes, { sseRecorder: disconnectBaseline.sseRecorder })
 await disconnectApp.listen({ host: '127.0.0.1', port: 0 })
@@ -319,6 +331,7 @@ assert.equal(disconnectRecord.httpEntries.length, 0, 'SSE-only does not install 
 
 const raceWritable = new CaptureWritable()
 const raceApp = Fastify()
+authenticateSseTestApp(raceApp)
 let releasePreHandler!: () => void
 let enteredPreHandler!: () => void
 const entered = new Promise<void>((resolve) => { enteredPreHandler = resolve })
@@ -415,6 +428,7 @@ assert.equal(effectiveMatrixScheduler.cleared, 2)
 async function runDisabledCloseRace(config: ReturnType<typeof resolveEgressBaselineConfig>) {
   const raceOutput = new CaptureWritable()
   const disabledRaceApp = Fastify()
+  authenticateSseTestApp(disabledRaceApp)
   let enter!: () => void
   let resume!: () => void
   const entered = new Promise<void>((resolve) => { enter = resolve })

@@ -1,0 +1,67 @@
+schema: spec-driven
+
+context: |
+  Tech stack: Node.js ESM, TypeScript, Fastify, Prisma 7 y PostgreSQL.
+  Architecture: módulos por dominio con capas application, domain, services, repositories, routes e infrastructure.
+  UI: CRM renderizado en servidor; confirmaciones y errores usan componentes propios, nunca diálogos nativos.
+  Testing: contratos TypeScript ejecutados con tsx; existen pruebas puras, PostgreSQL, integración y E2E por dominio.
+  Style: TypeScript strict, UTF-8 obligatorio y validación de codificación antes de cada commit.
+
+strict_tdd: true
+
+testing:
+  detected: 2026-09-05
+  runner:
+    framework: tsx contract scripts
+    command: "npm run test:<domain>"
+  layers:
+    unit:
+      available: true
+      tool: TypeScript pure contract scripts
+    integration:
+      available: true
+      tool: Prisma/PostgreSQL and PGlite contract scripts
+    e2e:
+      available: true
+      tool: domain-specific tsx E2E scripts
+  coverage:
+    available: false
+    command: ""
+  quality:
+    linter:
+      available: false
+      command: ""
+    type_checker:
+      available: true
+      command: "npx tsc --noEmit"
+    formatter:
+      available: false
+      command: ""
+    text_encoding:
+      available: true
+      command: "npm run test:text-encoding"
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+    - Identify affected modules and packages
+  specs:
+    - Use Given/When/Then format for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+  design:
+    - Include sequence diagrams for complex flows
+    - Document architecture decisions with rationale
+  tasks:
+    - Group tasks by phase (infrastructure, implementation, testing)
+    - Use hierarchical numbering (1.1, 1.2, etc.)
+    - Keep tasks small enough to complete in one session
+  apply:
+    - Follow existing code patterns and conventions
+    - Follow strict RED-GREEN-REFACTOR with targeted contract scripts
+    - Never run a build as part of this project workflow
+  verify:
+    - Run targeted tests for every affected domain
+    - Run npm run test:text-encoding before commit
+    - Compare implementation against every spec scenario
+  archive:
+    - Warn before merging destructive deltas (large removals)

@@ -124,6 +124,7 @@ export class BusinessService {
 
   async update(id: string, data: {
     name?: string
+    timezone?: string
     slug?: string | null
     logoUrl?: string | null
     landingEnabled?: boolean

@@ -23,6 +23,12 @@ export type StaffPermissions = {
   canManageDeposits: boolean
   canViewOperationalReports: boolean
   canViewFinancialAmounts: boolean
+  canViewCashRegister: boolean
+  canRecordAppointmentPayments: boolean
+  canApplyDiscounts: boolean
+  canManageCashOperations: boolean
+  canAdjustCash: boolean
+  canManageCashSessions: boolean
 }
 
 export const STAFF_PRESET_DEFINITIONS: Record<Exclude<StaffPermissionPreset, 'CUSTOM'>, {
@@ -67,14 +73,16 @@ export const STAFF_PRESET_DEFINITIONS: Record<Exclude<StaffPermissionPreset, 'CU
   },
   SECRETARY_CASHIER: {
     label: 'Secretaria · Caja',
-    description: 'Incluye operaciones y suma aprobación o rechazo de señas y acceso a importes financieros. Recomendado solo para personal de confianza.',
+    description: 'Incluye operaciones, señas, importes financieros y todas las capacidades de Caja. Recomendado solo para personal de confianza.',
     profile: 'SECRETARY',
     permissions: permissions({
       agendaScope: 'ALL', canCreateAppointments: true, canEditAppointments: true, canCancelAppointments: true,
       canManageScheduleBlocks: true, canViewCustomers: true, canCreateCustomers: true, canEditCustomers: true,
       canManageCustomerNotes: true, canManageCustomerMarketing: true,
       canViewConversations: true, canReplyConversations: true, canManageDeposits: true,
-      canViewOperationalReports: true, canViewFinancialAmounts: true
+      canViewOperationalReports: true, canViewFinancialAmounts: true,
+      canViewCashRegister: true, canRecordAppointmentPayments: true, canApplyDiscounts: true,
+      canManageCashOperations: true, canAdjustCash: true, canManageCashSessions: true
     })
   }
 }
@@ -97,6 +105,12 @@ function permissions(overrides: Partial<StaffPermissions>): StaffPermissions {
     canManageDeposits: false,
     canViewOperationalReports: false,
     canViewFinancialAmounts: false,
+    canViewCashRegister: false,
+    canRecordAppointmentPayments: false,
+    canApplyDiscounts: false,
+    canManageCashOperations: false,
+    canAdjustCash: false,
+    canManageCashSessions: false,
     ...overrides
   }
 }
@@ -149,6 +163,7 @@ function pickPermissions(input: Partial<StaffPermissions>) {
 }
 
 export type StaffAuthorizationUser = StaffPermissions & {
+  businessId: string | null
   role: string
   staffProfile?: string | null
   professionalId?: string | null
@@ -158,6 +173,21 @@ export function canStaffAccessRoute(user: StaffAuthorizationUser, method: string
   if (user.role !== 'STAFF') return true
   const path = rawPath.split('?')[0] || '/'
   const verb = method.toUpperCase()
+
+  if (path.startsWith('/cash-register')) {
+    if (path === '/cash-register/responsibles') return verb === 'GET' && user.canManageCashSessions
+    if (verb === 'GET') return user.canViewCashRegister
+    if (/\/(?:open|new-session|close)$/.test(path)) return user.canManageCashSessions
+    if (/\/entries\/[^/]+\/reverse$/.test(path)) return user.canManageCashOperations || user.canAdjustCash || user.canRecordAppointmentPayments
+    if (path === '/cash-register/entries') return user.canManageCashOperations || user.canAdjustCash
+    return false
+  }
+  if (/^\/appointments\/[^/]+\/finance$/.test(path)) {
+    return verb === 'GET' && (user.canRecordAppointmentPayments || user.canApplyDiscounts)
+  }
+  if (/^\/appointments\/[^/]+\/estimated-total$/.test(path)) return user.canRecordAppointmentPayments
+  if (/^\/appointments\/[^/]+\/discount$/.test(path)) return user.canApplyDiscounts
+  if (/^\/appointments\/[^/]+\/payments$/.test(path)) return user.canRecordAppointmentPayments
 
   if (path.startsWith('/staff-users') || path.startsWith('/admin/') || path.startsWith('/businesses') && verb !== 'GET') return false
   if (/^\/businesses\/[^/]+\/(?:whatsapp|instagram|payment)(?:-|\/)/.test(path) || path.startsWith('/crm/ai-settings') || path.startsWith('/crm/bot-routing') || path.startsWith('/crm/maintenance')) return false
@@ -178,6 +208,9 @@ export function canStaffAccessRoute(user: StaffAuthorizationUser, method: string
     return verb === 'GET' ? user.canViewConversations : user.canReplyConversations
   }
   if (path === '/crm/events') return verb === 'GET' && user.canViewConversations
+  if (path === '/crm/cash-events') {
+    return verb === 'GET' && (user.canViewCashRegister || user.canRecordAppointmentPayments || user.canApplyDiscounts)
+  }
   if (path.startsWith('/crm/deposits')) {
     // A proof is financial PII. Listing its review queue, downloading its bytes, and
     // changing its state are one reviewer capability, not general conversation access.
@@ -193,6 +226,20 @@ export function canStaffAccessRoute(user: StaffAuthorizationUser, method: string
     return user.canEditAppointments
   }
   return true
+}
+
+export type CashPermission =
+  | 'canViewCashRegister'
+  | 'canRecordAppointmentPayments'
+  | 'canApplyDiscounts'
+  | 'canManageCashOperations'
+  | 'canAdjustCash'
+  | 'canManageCashSessions'
+
+export function hasCashPermission(user: StaffAuthorizationUser, permission: CashPermission) {
+  if (user.role === 'BUSINESS_ADMIN' || user.role === 'SUPER_ADMIN') return true
+  if (user.role !== 'STAFF') return false
+  return user[permission] === true
 }
 
 export function staffVisibleSections(user: StaffAuthorizationUser) {

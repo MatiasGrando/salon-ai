@@ -410,6 +410,7 @@ export class AppointmentService {
 
       return createAppointmentRecord(transaction, {
         data: {
+          businessId: professional.businessId,
           customerId: input.customerId,
           professionalId: input.professionalId,
           serviceId: input.serviceId,
@@ -516,6 +517,7 @@ export class AppointmentService {
 
       return createAppointmentRecord(transaction, {
         data: {
+          businessId: input.businessId,
           customerId: input.customerId,
           professionalId: input.professionalId,
           serviceId: input.serviceId,

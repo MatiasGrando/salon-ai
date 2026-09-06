@@ -3,10 +3,16 @@ import { prisma } from '../config/prisma.js'
 import { AppointmentService } from '../services/appointment-service.js'
 import { sendAuthorizationFailure } from '../services/authorization-response.js'
 import { requireAuthorizedBusiness } from '../services/business-authorization.js'
+import { PrismaCashRepository } from '../repositories/prisma-cash-repository.js'
+import { CashService } from '../services/cash-service.js'
+import { hasCashPermission, type CashPermission } from '../services/staff-permission-service.js'
+import { sendCashError } from './cash-register.js'
 
 const service = new AppointmentService()
+const defaultCashService = new CashService(new PrismaCashRepository(prisma))
 
-export async function appointmentRoutes(app: FastifyInstance) {
+export async function appointmentRoutes(app: FastifyInstance, options: { cashService?: CashService; cashRegisterEnabled?: boolean } = {}) {
+  const cashService = options.cashService ?? defaultCashService
 
   app.post('/appointments/check-availability', async (request, reply) => {
     const body = request.body as {
@@ -205,6 +211,92 @@ export async function appointmentRoutes(app: FastifyInstance) {
 
     return result.appointment
   })
+
+  if (options.cashRegisterEnabled !== false) app.get('/appointments/:id/finance', async (request, reply) => {
+    const params = request.params as { id: string }
+    const query = request.query as { businessId?: string }
+    const businessId = financeBusinessId(request.auth?.user, query.businessId)
+    if (!businessId || !hasAnyCashPermission(request.auth?.user, ['canRecordAppointmentPayments', 'canApplyDiscounts'])) {
+      return reply.status(403).send({ code: 'CASH_PERMISSION_REQUIRED', message: 'No tenés permiso para consultar pagos del turno' })
+    }
+    try {
+      return await cashService.getAppointmentFinance({ businessId, appointmentId: params.id })
+    } catch (error) {
+      return sendCashError(reply, error)
+    }
+  })
+
+  if (options.cashRegisterEnabled !== false) app.patch('/appointments/:id/estimated-total', async (request, reply) => {
+    const params = request.params as { id: string }
+    const body = request.body as { businessId?: string; agreedAmount?: number }
+    const businessId = financeBusinessId(request.auth?.user, body.businessId)
+    if (!businessId || !hasAnyCashPermission(request.auth?.user, ['canRecordAppointmentPayments'])) {
+      return reply.status(403).send({ code: 'CASH_PERMISSION_REQUIRED', message: 'No tenés permiso para definir el total del turno' })
+    }
+    if (body.agreedAmount === undefined) return reply.status(400).send({ code: 'VALIDATION', message: 'Total requerido' })
+    try {
+      return await cashService.setEstimatedAppointmentTotal({ businessId, appointmentId: params.id, agreedAmount: body.agreedAmount })
+    } catch (error) {
+      return sendCashError(reply, error)
+    }
+  })
+
+  if (options.cashRegisterEnabled !== false) app.patch('/appointments/:id/discount', async (request, reply) => {
+    const params = request.params as { id: string }
+    const body = request.body as { businessId?: string; discountAmount?: number }
+    const businessId = financeBusinessId(request.auth?.user, body.businessId)
+    if (!businessId || !hasAnyCashPermission(request.auth?.user, ['canApplyDiscounts'])) {
+      return reply.status(403).send({ code: 'CASH_PERMISSION_REQUIRED', message: 'No tenés permiso para aplicar descuentos' })
+    }
+    if (body.discountAmount === undefined) return reply.status(400).send({ code: 'VALIDATION', message: 'Descuento requerido' })
+    try {
+      return await cashService.setAppointmentDiscount({ businessId, appointmentId: params.id, discountAmount: body.discountAmount })
+    } catch (error) {
+      return sendCashError(reply, error)
+    }
+  })
+
+  if (options.cashRegisterEnabled !== false) app.post('/appointments/:id/payments', async (request, reply) => {
+    const params = request.params as { id: string }
+    const body = request.body as {
+      businessId?: string
+      cashSessionId?: string
+      lines?: Array<{ amount: number; method: 'CASH' | 'TRANSFER' | 'CARD' }>
+      observation?: string | null
+    }
+    const businessId = financeBusinessId(request.auth?.user, body.businessId)
+    if (!businessId || !hasAnyCashPermission(request.auth?.user, ['canRecordAppointmentPayments'])) {
+      return reply.status(403).send({ code: 'CASH_PERMISSION_REQUIRED', message: 'No tenés permiso para registrar pagos del turno' })
+    }
+    if (!body.cashSessionId?.trim() || !Array.isArray(body.lines)) {
+      return reply.status(400).send({ code: 'VALIDATION', message: 'Sesión y líneas de pago son requeridas' })
+    }
+    try {
+      return await cashService.recordAppointmentPayment({
+        businessId,
+        appointmentId: params.id,
+        cashSessionId: body.cashSessionId.trim(),
+        origin: 'AGENDA',
+        lines: body.lines,
+        ...(body.observation === undefined ? {} : { observation: body.observation })
+      })
+    } catch (error) {
+      return sendCashError(reply, error)
+    }
+  })
+}
+
+function financeBusinessId(user: { role: string; businessId: string | null } | undefined, requested: string | undefined) {
+  if (!user) return null
+  if (user.role === 'SUPER_ADMIN') return requested?.trim() || null
+  return user.businessId?.trim() || null
+}
+
+function hasAnyCashPermission(
+  user: Parameters<typeof hasCashPermission>[0] | undefined,
+  permissions: CashPermission[]
+) {
+  return Boolean(user && permissions.some((permission) => hasCashPermission(user, permission)))
 }
 
 function appointmentForAuthenticatedUser<T extends {

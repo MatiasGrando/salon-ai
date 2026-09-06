@@ -1,8 +1,17 @@
 import type { FastifyInstance } from 'fastify'
 import { crmRealtimeConfig } from '../config/crm-realtime.js'
 import type { PollingMarkerConfig } from '../observability/egress-baseline/types.js'
+import {
+  appointmentFinanceMarkup,
+  cashRegisterMarkup,
+  cashRegisterScript,
+  cashRegisterStyles
+} from './crm-ui/cash-register.js'
 
-export interface CrmUiRoutesOptions { readonly pollingMarker: PollingMarkerConfig }
+export interface CrmUiRoutesOptions {
+  readonly pollingMarker: PollingMarkerConfig
+  readonly cashRegisterEnabled?: boolean
+}
 
 export async function crmUiRoutes(app: FastifyInstance, options: CrmUiRoutesOptions) {
   const crmHtml = renderCrmHtml(options)
@@ -82,6 +91,7 @@ export function appendPreferredEmoji(
 }
 
 export function renderCrmHtml(options: CrmUiRoutesOptions) {
+  const cashRegisterEnabled = options.cashRegisterEnabled !== false
   const markerEffective = options.pollingMarker.effective ? 'true' : 'false'
   const markerHeader = options.pollingMarker.headerName
   const markerValue = options.pollingMarker.headerValue
@@ -14673,6 +14683,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     #account-create-dialog .account-create-dialog .dialog-actions .secondary { color: #fff !important; }
     #account-create-dialog .account-create-dialog .dialog-actions .primary { background: #e2b85f !important; }
     .support-business-badge { border: 0; cursor: pointer; }
+    ${cashRegisterEnabled ? cashRegisterStyles : ''}
   </style>
 </head>
 <body data-mobile-view="inbox" data-current-section="conversations" data-auth="checking">
@@ -14711,6 +14722,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       </div>
       <button class="active" type="button" data-mobile-section="conversations">Chats</button>
       <button type="button" data-mobile-section="agenda">Agenda</button>
+      ${cashRegisterEnabled ? '<button type="button" data-mobile-section="cash">Caja</button>' : ''}
       <button type="button" data-mobile-section="customers">Clientes</button>
       <button type="button" data-mobile-section="professionals">Profesionales</button>
       <button type="button" data-mobile-section="services">Servicios</button>
@@ -15053,6 +15065,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       </div>
     </section>
 
+    ${cashRegisterEnabled ? cashRegisterMarkup : ''}
+
     <section class="agenda-view" id="agenda-view">
       <aside class="agenda-sidebar">
         <div class="agenda-filters">
@@ -15249,6 +15263,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               </div>
             </div>
           </details>
+          ${cashRegisterEnabled ? appointmentFinanceMarkup : ''}
           <p class="hint" id="appointment-feedback"></p>
           <div class="dialog-actions">
             <button class="danger" id="appointment-no-show" type="button" hidden>Marcar ausente</button>
@@ -16485,6 +16500,16 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                 <label for="landing-maps-url">Link de Google Maps</label>
                 <input class="field" id="landing-maps-url" type="url" placeholder="https://maps.app.goo.gl/...">
                 <small>Abr&iacute; Google Maps, busc&aacute; el local, toc&aacute; Compartir y peg&aacute; el enlace.</small>
+              </div>
+              <div class="settings-field">
+                <label for="business-timezone">Zona horaria</label>
+                <input class="field" id="business-timezone" list="business-timezones" autocomplete="off" placeholder="Ej: America/Argentina/Buenos_Aires">
+                <datalist id="business-timezones">
+                  <option value="America/Argentina/Buenos_Aires"></option>
+                  <option value="America/Montevideo"></option>
+                  <option value="America/Santiago"></option>
+                </datalist>
+                <small>Se usa para asignar fechas y jornadas de Caja. Debe ser una zona IANA.</small>
               </div>
             </div>
 
@@ -18919,6 +18944,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       businessLogoRemove: document.getElementById('business-logo-remove'),
       businessName: document.getElementById('business-name'),
       businessCustomerCode: document.getElementById('business-customer-code'),
+      businessTimezone: document.getElementById('business-timezone'),
       businessSettingsSubmit: document.getElementById('business-settings-submit'),
       businessSettingsFeedback: document.getElementById('business-settings-feedback'),
       businessEmail: document.getElementById('business-email'),
@@ -19193,6 +19219,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         { section: 'accounts', label: 'Cuentas', icon: 'briefcase' },
         { section: 'conversations', label: 'Conversaciones', icon: 'message' },
         { section: 'agenda', label: 'Agenda', icon: 'calendar' },
+        ${cashRegisterEnabled ? "{ section: 'cash', label: 'Caja', icon: 'briefcase' }," : ''}
         { section: 'customers', label: 'Clientes', icon: 'users' },
         { section: 'professionals', label: 'Profesionales', icon: 'professional' },
         { section: 'services', label: 'Servicios', icon: 'scissors' },
@@ -19256,11 +19283,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (state.currentUser?.role === 'ACCOUNT_ADMIN') {
         return state.business ? ['accounts', 'conversations', 'agenda', 'customers', 'professionals', 'services', 'campaigns', 'reports', 'settings'] : ['accounts']
       }
-      if (state.currentUser?.role === 'SUPER_ADMIN') return ['accounts', 'conversations', 'agenda', 'customers', 'professionals', 'services', 'campaigns', 'reports', 'settings']
-      if (state.currentUser?.role !== 'STAFF') return ['conversations', 'agenda', 'customers', 'professionals', 'services', 'campaigns', 'reports', 'settings']
+      if (state.currentUser?.role === 'SUPER_ADMIN') return ['accounts', 'conversations', 'agenda', ${cashRegisterEnabled ? "'cash'," : ''} 'customers', 'professionals', 'services', 'campaigns', 'reports', 'settings']
+      if (state.currentUser?.role !== 'STAFF') return ['conversations', 'agenda', ${cashRegisterEnabled ? "'cash'," : ''} 'customers', 'professionals', 'services', 'campaigns', 'reports', 'settings']
       return [
         state.currentUser.canViewConversations ? 'conversations' : null,
         'agenda',
+        ${cashRegisterEnabled ? "state.currentUser.canViewCashRegister ? 'cash' : null," : ''}
         state.currentUser.canViewCustomers ? 'customers' : null,
         state.currentUser.canViewOperationalReports ? 'reports' : null
       ].filter(Boolean)
@@ -19385,6 +19413,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     async function logoutFromCrm() {
       stopCrmRealtimeEvents()
+      ${cashRegisterEnabled ? 'stopCashRealtimeEvents()' : ''}
       await getJson('/auth/logout', { method: 'POST' }).catch(() => null)
       window.location.reload()
     }
@@ -19441,7 +19470,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         els.commercialDemoWorkspaceName.textContent = 'Editando demo: ' + state.business.name
       }
       document.querySelectorAll('[data-mobile-section]').forEach((button) => {
-        button.hidden = isAccountAdmin && !state.business && button.dataset.mobileSection !== 'settings'
+        button.hidden = !staffVisibleSections().includes(button.dataset.mobileSection)
       })
       if (els.accountAdminManagement) els.accountAdminManagement.hidden = state.currentUser?.role !== 'SUPER_ADMIN'
       if (els.adminBusinessOwnerField) els.adminBusinessOwnerField.hidden = state.currentUser?.role !== 'SUPER_ADMIN'
@@ -20898,6 +20927,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
       if (!nextBusiness) return
       stopCrmRealtimeEvents()
+      ${cashRegisterEnabled ? 'stopCashRealtimeEvents()' : ''}
       state.business = nextBusiness
       state.businessId = nextBusiness.id
       state.professionalMediaBusinessId = null
@@ -20963,6 +20993,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         await loadAgenda()
         await loadConversations()
         startCrmRealtimeEvents()
+        ${cashRegisterEnabled ? 'startCashRealtimeEvents()' : ''}
         if (els.appShell?.dataset.section === 'customers') await loadCustomerOverview()
         if (els.appShell?.dataset.section === 'reports') await loadReports()
         showCrmToast('Revisando conversaciones de ' + nextBusiness.name + '.', 'success')
@@ -20973,6 +21004,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     async function startCrm() {
       await loadBasics()
+      ${cashRegisterEnabled ? 'startCashRealtimeEvents()' : ''}
       if (state.currentUser?.role === 'ACCOUNT_ADMIN') {
         if (state.business) {
           await loadConversations()
@@ -25717,6 +25749,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     function renderBusinessSettings() {
       els.businessName.value = state.business?.name || ''
       els.businessCustomerCode.value = state.business?.customerCode || ''
+      els.businessTimezone.value = state.business?.timezone || ''
       els.businessEmail.value = state.business?.contactEmail || ''
       els.businessInstagram.value = state.business?.instagramUrl || ''
       els.businessFacebook.value = state.business?.facebookUrl || ''
@@ -25982,7 +26015,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.whatsappWabaId.value = connection.wabaId || ''
       els.whatsappPhoneNumberId.value = connection.phoneNumberId || ''
       els.whatsappDisplayPhone.value = connection.displayPhoneNumber || ''
-      els.whatsappTokenExpires.value = connection.tokenExpiresAt ? toDatetimeLocalValue(connection.tokenExpiresAt) : ''
+      els.whatsappTokenExpires.value = connection.tokenExpiresAt ? toWhatsappDatetimeLocalValue(connection.tokenExpiresAt) : ''
       els.whatsappAccessToken.value = ''
       els.whatsappAppSecret.value = ''
       els.whatsappAppSecretStatus.textContent = connection.hasAppSecret ? 'Configurado' : 'No configurado'
@@ -26008,7 +26041,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.whatsappSettingsFeedback.className = 'settings-feedback'
     }
 
-    function toDatetimeLocalValue(value) {
+    function toWhatsappDatetimeLocalValue(value) {
       const date = new Date(value)
       if (Number.isNaN(date.getTime())) return ''
       const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
@@ -26811,6 +26844,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       event.preventDefault()
       clearBusinessSettingsFeedback()
       const name = els.businessName.value.trim()
+      const timezone = els.businessTimezone.value.trim()
       if (!state.businessId || !name) {
         showBusinessSettingsFeedback('Completa el nombre del local.', 'error')
         return
@@ -26827,6 +26861,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
       const hoursChanged = businessHoursKey(requestedHours) !== businessHoursKey(state.businessHours)
       const nameChanged = name !== state.business?.name
+      const timezoneChanged = timezone !== (state.business?.timezone || '')
       const logoChanged = state.businessLogoUrl !== (state.business?.logoUrl || null)
       const contactEmail = els.businessEmail.value.trim()
       const instagramUrl = els.businessInstagram.value.trim()
@@ -26874,12 +26909,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             })
           })
         }
-        if (nameChanged || logoChanged || contactEmailChanged || instagramChanged || facebookChanged || tiktokChanged || publicAddressChanged || publicAddressAreaChanged || publicMapsUrlChanged || openingYearChanged) {
+        if (nameChanged || timezoneChanged || logoChanged || contactEmailChanged || instagramChanged || facebookChanged || tiktokChanged || publicAddressChanged || publicAddressAreaChanged || publicMapsUrlChanged || openingYearChanged) {
           state.business = await getJson('/businesses/' + state.businessId, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               ...(nameChanged ? { name } : {}),
+              ...(timezoneChanged ? { timezone } : {}),
               ...(logoChanged ? { logoUrl: state.businessLogoUrl } : {}),
               ...(contactEmailChanged ? { contactEmail: contactEmail || null } : {}),
               ...(instagramChanged ? { instagramUrl: instagramUrl || null } : {}),
@@ -29454,6 +29490,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.appointmentCustomerName.readOnly = protectsScheduledCustomer
       if (protectsScheduledCustomer) els.appointmentCustomerPhone.value = ''
       updateAppointmentContactActions(appointment)
+      ${cashRegisterEnabled ? 'prepareAppointmentFinance(appointment)' : ''}
       applyAgendaPermissions()
       els.appointmentDialog.hidden = false
       els.appointmentStart.focus()
@@ -31792,6 +31829,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           accounts: 'Cuentas',
           conversations: 'Conversaciones',
           agenda: 'Agenda',
+          cash: 'Caja',
           customers: 'Clientes',
           professionals: 'Profesionales',
           services: 'Servicios',
@@ -31819,6 +31857,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         })
       } else {
         stopAgendaNowLineTimer()
+      }
+
+      if (${cashRegisterEnabled ? "section === 'cash'" : 'false'}) {
+        loadCashRegister().catch((error) => showCrmToast(error.message, 'error'))
       }
 
       if (section === 'customers') {
@@ -33803,6 +33845,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         closeAppointmentDialog()
       }
     })
+
+    ${cashRegisterEnabled ? cashRegisterScript : ''}
 
     hydrateIcons()
 

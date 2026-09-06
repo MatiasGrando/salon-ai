@@ -7,6 +7,7 @@ import { BusinessService } from '../services/business-service.js'
 import type { AuthContext } from '../services/auth-service.js'
 import { refreshBusinessOnboarding } from '../services/business-onboarding-service.js'
 import { storeBusinessImage } from '../services/media-storage-service.js'
+import { CashDomainError, assertIanaTimezone } from '../services/cash-domain.js'
 import {
   businessAccessWhere,
   canCreateBusiness,
@@ -184,6 +185,7 @@ export async function businessRoutes(app: FastifyInstance) {
     }
     const body = request.body as {
       name?: string
+      timezone?: string | null
       slug?: string | null
       logoUrl?: string | null
       landingEnabled?: boolean
@@ -206,6 +208,15 @@ export async function businessRoutes(app: FastifyInstance) {
       tiktokUrl?: string | null
     }
     const name = body.name?.trim()
+    let timezone: string | undefined
+    try {
+      timezone = body.timezone === undefined ? undefined : assertIanaTimezone(body.timezone)
+    } catch (error) {
+      if (error instanceof CashDomainError) {
+        return reply.status(400).send({ message: 'Seleccioná una zona horaria válida para el comercio' })
+      }
+      throw error
+    }
     const slug = body.slug === undefined ? undefined : normalizeOptionalText(body.slug)
     let logoUrl = normalizeLogoUrl(body.logoUrl)
     let coverImageUrl = normalizeCoverImageUrl(body.coverImageUrl)
@@ -312,6 +323,7 @@ export async function businessRoutes(app: FastifyInstance) {
 
     if (
       name === undefined &&
+      timezone === undefined &&
       slug === undefined &&
       logoUrl === undefined &&
       body.landingEnabled === undefined &&
@@ -376,6 +388,7 @@ export async function businessRoutes(app: FastifyInstance) {
     try {
       business = await service.update(params.id, {
         ...(name !== undefined ? { name } : {}),
+        ...(timezone !== undefined ? { timezone } : {}),
         ...(slug !== undefined ? { slug } : {}),
         ...(logoUrl !== undefined ? { logoUrl } : {}),
         ...(body.landingEnabled !== undefined ? { landingEnabled: Boolean(body.landingEnabled) } : {}),

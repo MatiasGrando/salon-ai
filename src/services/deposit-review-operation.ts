@@ -2,6 +2,11 @@ import { createHash, randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '../generated/prisma/client.js'
 import { acquireAgendaHierarchy } from './agenda-locks.js'
 import { bridgeDepositReviewOutboxTx, enqueueDepositReviewBridgeJobTx } from './deposit-notification-outbox.js'
+import {
+  createCashTransactionRepository,
+  projectApprovedDepositPaymentInTransaction
+} from '../repositories/prisma-cash-repository.js'
+import { ensureAppointmentAccountForPayment } from './cash-service.js'
 
 type ReviewClient = Pick<PrismaClient, '$transaction'>
 type ReviewTx = Prisma.TransactionClient
@@ -115,6 +120,7 @@ export async function approveCurrentDepositProof(client: ReviewClient, input: {
   operationKey: string
   method: string
   path: string
+  projectCashPayment?: boolean
 }): Promise<{ outcome: 'APPLIED' | 'REPLAYED'; auditId: string }> {
   return client.$transaction((tx) => approveCurrentDepositProofInTransaction(tx, input))
 }
@@ -127,6 +133,7 @@ export async function approveCurrentDepositProofInTransaction(tx: ReviewTx, inpu
   operationKey: string
   method: string
   path: string
+  projectCashPayment?: boolean
 }): Promise<{ outcome: 'APPLIED' | 'REPLAYED'; auditId: string }> {
   assertIdentifier(input.businessId, 'businessId')
   assertIdentifier(input.depositId, 'depositId')
@@ -148,11 +155,11 @@ export async function approveCurrentDepositProofInTransaction(tx: ReviewTx, inpu
   const rows = await tx.$queryRaw<Array<{
     depositId: string; visitId: string; appointmentId: string; sessionId: string; dbNow: Date
     depositStatus: string; visitStatus: string; appointmentStatus: string; expiresAt: Date; holdExpiresAt: Date | null
-    proofId: string | null
+    proofId: string | null; depositSource: string
   }>>(Prisma.sql`
     SELECT d."id" AS "depositId", v."id" AS "visitId", a."id" AS "appointmentId", v."sessionId",
       clock_timestamp() AS "dbNow", d."status"::text AS "depositStatus", v."status"::text AS "visitStatus",
-      a."status"::text AS "appointmentStatus", d."expiresAt", v."holdExpiresAt",
+      a."status"::text AS "appointmentStatus", d."source"::text AS "depositSource", d."expiresAt", v."holdExpiresAt",
       (SELECT p."id" FROM "BookingDepositProof" p
         WHERE p."businessId" = d."businessId" AND p."depositId" = d."id"
           AND p."validationStatus" = 'VALID'::"BookingDepositProofValidationStatus"
@@ -197,6 +204,23 @@ export async function approveCurrentDepositProofInTransaction(tx: ReviewTx, inpu
     WHERE "id" = ${row.appointmentId} AND "visitId" = ${row.visitId} AND "status" = 'PENDING'::"AppointmentStatus"
   `)
   if (depositCount !== 1 || visitCount !== 1 || appointmentCount !== 1) throw new DepositReviewStateError('review transition lost its state fence')
+
+  if (input.projectCashPayment !== false) {
+    const cashTransaction = createCashTransactionRepository(tx)
+    if (!await cashTransaction.lockBusiness(input.businessId)) {
+      throw new DepositReviewStateError('cash business is unavailable')
+    }
+    await ensureAppointmentAccountForPayment(
+      cashTransaction,
+      input.businessId,
+      row.appointmentId
+    )
+    await projectApprovedDepositPaymentInTransaction(tx, {
+      businessId: input.businessId,
+      bookingDepositId: row.depositId,
+      origin: row.depositSource === 'WEB' ? 'WEB_DEPOSIT' : 'BOT_DEPOSIT'
+    })
+  }
 
   const auditId = randomUUID()
   await tx.$executeRaw(Prisma.sql`
