@@ -228,8 +228,9 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
   constructor(private readonly transaction: Prisma.TransactionClient) {}
 
   async lockBusiness(businessId: string) {
-    await this.transaction.$queryRaw(Prisma.sql`
-      SELECT pg_advisory_xact_lock(hashtextextended(${`cash-register:${businessId}`}, 0))
+    await this.transaction.$queryRaw<Array<{ locked: number }>>(Prisma.sql`
+      SELECT 1::integer AS "locked"
+      FROM pg_advisory_xact_lock(hashtextextended(${`cash-register:${businessId}`}, 0))
     `)
     const rows = await this.transaction.$queryRaw<CashBusinessContext[]>(Prisma.sql`
       SELECT "id" AS "businessId", "timezone", clock_timestamp() AS "dbNow"

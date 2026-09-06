@@ -17,6 +17,11 @@ assert.match(serviceSource, /resolveRegisterOpeningCash/)
 assert.match(serviceSource, /summarizeCashRegister/)
 assert.match(serviceSource, /assertIanaTimezone/)
 assert.match(repositorySource, /pg_advisory_xact_lock\(hashtextextended/)
+assert.match(
+  repositorySource,
+  /SELECT 1::integer AS "locked"\s+FROM pg_advisory_xact_lock\(hashtextextended/,
+  'el advisory lock no debe exponer a Prisma la columna void de PostgreSQL'
+)
 assert.match(repositorySource, /clock_timestamp\(\) AS "dbNow"/)
 assert.match(repositorySource, /"businessId" = \$\{businessId\}[\s\S]*"isActive" = true/)
 assert.match(repositorySource, /WHERE day\."businessId" = \$\{businessId\}[\s\S]*day\."closedAt" IS NULL/)
