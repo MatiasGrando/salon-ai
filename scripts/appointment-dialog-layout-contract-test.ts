@@ -33,5 +33,12 @@ assert.match(financeSource, /financeTotal\.textContent = '--'/)
 assert.match(financeSource, /financeHistory\.innerHTML = '<div class="cash-inline-state">Cargando movimientos\.\.\.<\/div>'/)
 assert.match(financeSource, /appointmentFinanceRequestId/)
 assert.match(financeSource, /appointmentId !== state\.editingAppointmentId \|\| requestId !== state\.cashRegister\.appointmentFinanceRequestId/)
+assert.doesNotMatch(financeSource, /<form class="appointment-finance-form"/, 'el formulario principal del turno no debe contener formularios financieros anidados')
+for (const submitId of ['appointment-total-submit', 'appointment-discount-submit', 'appointment-payment-submit']) {
+  assert.ok(financeSource.includes(submitId), `falta el boton financiero ${submitId}`)
+}
+assert.match(financeSource, /totalSubmit\.addEventListener\('click'/)
+assert.match(financeSource, /discountSubmit\.addEventListener\('click'/)
+assert.match(financeSource, /paymentSubmit\.addEventListener\('click'/)
 
 console.log('OK: el formulario de turnos prioriza campos esenciales y agrupa la informacion adicional.')
