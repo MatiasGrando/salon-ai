@@ -4,7 +4,7 @@ import { AppointmentService } from '../services/appointment-service.js'
 import { sendAuthorizationFailure } from '../services/authorization-response.js'
 import { requireAuthorizedBusiness } from '../services/business-authorization.js'
 import { PrismaCashRepository } from '../repositories/prisma-cash-repository.js'
-import { CashService } from '../services/cash-service.js'
+import { CashService, CashServiceError } from '../services/cash-service.js'
 import { hasCashPermission, type CashPermission } from '../services/staff-permission-service.js'
 import { sendCashError } from './cash-register.js'
 
@@ -52,6 +52,13 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
       manualDepositAmount?: number | string | null
       notes?: string | null
       attentionColor?: 'NONE' | 'YELLOW' | 'ORANGE'
+      payment?: {
+        businessId?: string
+        cashSessionId?: string
+        lines?: Array<{ amount: number; method: 'CASH' | 'TRANSFER' | 'CARD' }>
+        observation?: string | null
+        agreedAmount?: number
+      }
     }
     if (body.force && request.auth?.user.role === 'STAFF' && !request.auth.user.canForceAppointments) {
       return reply.status(403).send({ message: 'No tenes permiso para forzar turnos fuera de disponibilidad' })
@@ -59,19 +66,56 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
 
     const authUser = request.auth?.user
     if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
-    const result = await service.create({
-      customerId: body.customerId,
-      professionalId: body.professionalId,
-      serviceId: body.serviceId,
-      ...(body.serviceIds ? { serviceIds: body.serviceIds } : {}),
-      startAt: body.startAt,
-      origin: 'MANUAL',
-      ...(body.manualDepositPaid === undefined ? {} : { manualDepositPaid: body.manualDepositPaid }),
-      ...(body.manualDepositAmount === undefined ? {} : { manualDepositAmount: body.manualDepositAmount }),
-      ...(body.notes === undefined ? {} : { notes: body.notes }),
-      ...(body.attentionColor === undefined ? {} : { attentionColor: body.attentionColor }),
-      ...(body.force === undefined ? {} : { force: body.force })
-    }, authUser)
+    const payment = body.payment
+    const paymentBusinessId = payment ? financeBusinessId(authUser, payment.businessId) : null
+    if (payment && options.cashRegisterEnabled === false) {
+      return reply.status(409).send({ code: 'CASH_DISABLED', message: 'Caja no está habilitada' })
+    }
+    if (payment && !hasCashPermission(authUser, 'canRecordAppointmentPayments')) {
+      return reply.status(403).send({ code: 'CASH_PERMISSION_REQUIRED', message: 'No tenés permiso para registrar pagos del turno' })
+    }
+    if (payment && (!paymentBusinessId || !payment.cashSessionId?.trim() || !Array.isArray(payment.lines))) {
+      return reply.status(400).send({ code: 'VALIDATION', message: 'Sesión y líneas de pago son requeridas' })
+    }
+
+    let result
+    try {
+      result = await service.create({
+        customerId: body.customerId,
+        professionalId: body.professionalId,
+        serviceId: body.serviceId,
+        ...(body.serviceIds ? { serviceIds: body.serviceIds } : {}),
+        startAt: body.startAt,
+        origin: 'MANUAL',
+        ...(body.manualDepositPaid === undefined ? {} : { manualDepositPaid: body.manualDepositPaid }),
+        ...(body.manualDepositAmount === undefined ? {} : { manualDepositAmount: body.manualDepositAmount }),
+        ...(body.notes === undefined ? {} : { notes: body.notes }),
+        ...(body.attentionColor === undefined ? {} : { attentionColor: body.attentionColor }),
+        ...(body.force === undefined ? {} : { force: body.force })
+      }, authUser, payment ? {
+        afterCreateInTransaction: async ({ transaction, appointment, businessId }) => {
+          if (businessId !== paymentBusinessId) throw new CashServiceError('BUSINESS_NOT_FOUND')
+          const transactionalCashService = new CashService(new PrismaCashRepository(transaction, true))
+          if (payment.agreedAmount !== undefined) {
+            await transactionalCashService.setEstimatedAppointmentTotal({
+              businessId,
+              appointmentId: appointment.id,
+              agreedAmount: payment.agreedAmount
+            })
+          }
+          await transactionalCashService.recordAppointmentPayment({
+            businessId,
+            appointmentId: appointment.id,
+            cashSessionId: payment.cashSessionId!.trim(),
+            origin: 'AGENDA',
+            lines: payment.lines!,
+            ...(payment.observation === undefined ? {} : { observation: payment.observation })
+          })
+        }
+      } : {})
+    } catch (error) {
+      return sendCashError(reply, error)
+    }
 
     if (!result.ok) {
       return reply.status(result.statusCode).send({
@@ -243,14 +287,43 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
 
   if (options.cashRegisterEnabled !== false) app.patch('/appointments/:id/discount', async (request, reply) => {
     const params = request.params as { id: string }
-    const body = request.body as { businessId?: string; discountAmount?: number }
+    const body = request.body as {
+      businessId?: string
+      discountAmount?: number
+      discountType?: 'AMOUNT' | 'PERCENTAGE'
+      discountValue?: number
+    }
     const businessId = financeBusinessId(request.auth?.user, body.businessId)
     if (!businessId || !hasAnyCashPermission(request.auth?.user, ['canApplyDiscounts'])) {
       return reply.status(403).send({ code: 'CASH_PERMISSION_REQUIRED', message: 'No tenés permiso para aplicar descuentos' })
     }
-    if (body.discountAmount === undefined) return reply.status(400).send({ code: 'VALIDATION', message: 'Descuento requerido' })
+    const usesLegacyAmount = body.discountAmount !== undefined
+    const usesTypedDiscount = body.discountType !== undefined || body.discountValue !== undefined
+    if (usesLegacyAmount && usesTypedDiscount) {
+      return reply.status(400).send({ code: 'VALIDATION', message: 'Indicá el descuento como monto o porcentaje, no ambos' })
+    }
+    if (!usesLegacyAmount && !usesTypedDiscount) {
+      return reply.status(400).send({ code: 'VALIDATION', message: 'Descuento requerido' })
+    }
+    if (usesTypedDiscount) {
+      if (!['AMOUNT', 'PERCENTAGE'].includes(body.discountType || '') || typeof body.discountValue !== 'number') {
+        return reply.status(400).send({ code: 'VALIDATION', message: 'Tipo y valor de descuento requeridos' })
+      }
+      if (body.discountType === 'PERCENTAGE' && (!Number.isFinite(body.discountValue) || body.discountValue <= 0 || body.discountValue > 100)) {
+        return reply.status(400).send({ code: 'VALIDATION', message: 'El porcentaje debe ser mayor a 0 y no superar 100' })
+      }
+      if (body.discountType === 'AMOUNT' && (!Number.isSafeInteger(body.discountValue) || body.discountValue < 0)) {
+        return reply.status(400).send({ code: 'VALIDATION', message: 'El monto debe ser un entero mayor o igual a 0' })
+      }
+    }
     try {
-      return await cashService.setAppointmentDiscount({ businessId, appointmentId: params.id, discountAmount: body.discountAmount })
+      return await cashService.setAppointmentDiscount({
+        businessId,
+        appointmentId: params.id,
+        ...(usesLegacyAmount
+          ? { discountAmount: body.discountAmount }
+          : { discountType: body.discountType, discountValue: body.discountValue })
+      })
     } catch (error) {
       return sendCashError(reply, error)
     }

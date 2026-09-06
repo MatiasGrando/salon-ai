@@ -176,6 +176,7 @@ export function canStaffAccessRoute(user: StaffAuthorizationUser, method: string
 
   if (path.startsWith('/cash-register')) {
     if (path === '/cash-register/responsibles') return verb === 'GET' && user.canManageCashSessions
+    if (path === '/cash-register/payment-context') return verb === 'GET' && user.canRecordAppointmentPayments
     if (verb === 'GET') return user.canViewCashRegister
     if (/\/(?:open|new-session|close)$/.test(path)) return user.canManageCashSessions
     if (/\/entries\/[^/]+\/reverse$/.test(path)) return user.canManageCashOperations || user.canAdjustCash || user.canRecordAppointmentPayments

@@ -37,6 +37,29 @@ export function assertEntryAmount(value: number) {
   return value
 }
 
+export type AppointmentDiscountType = 'AMOUNT' | 'PERCENTAGE'
+
+export function calculateAppointmentDiscountAmount(input: {
+  agreedAmount: number
+  discountType: AppointmentDiscountType
+  discountValue: number
+}) {
+  const agreedAmount = assertMoney(input.agreedAmount)
+  if (input.discountType === 'AMOUNT') {
+    return assertMoney(input.discountValue, 'INVALID_DISCOUNT_AMOUNT')
+  }
+  if (input.discountType !== 'PERCENTAGE') {
+    throw new CashDomainError('INVALID_DISCOUNT_TYPE')
+  }
+  if (!Number.isFinite(input.discountValue) || input.discountValue <= 0 || input.discountValue > 100) {
+    throw new CashDomainError('INVALID_DISCOUNT_PERCENTAGE')
+  }
+  return assertMoney(
+    Math.round((agreedAmount * input.discountValue) / 100),
+    'INVALID_DISCOUNT_AMOUNT'
+  )
+}
+
 export function assertIanaTimezone(value: unknown) {
   if (typeof value !== 'string' || !value.trim()) {
     throw new CashDomainError('BUSINESS_TIMEZONE_REQUIRED')

@@ -217,10 +217,18 @@ export interface CashRepository {
 }
 
 export class PrismaCashRepository implements CashRepository {
-  constructor(private readonly prisma: PrismaTransactionRunner) {}
+  constructor(
+    private readonly prisma: PrismaTransactionRunner | Prisma.TransactionClient,
+    private readonly alreadyInTransaction = false
+  ) {}
 
   transaction<T>(work: (repository: CashTransactionRepository) => Promise<T>) {
-    return this.prisma.$transaction((transaction) => work(new PrismaCashTransactionRepository(transaction)))
+    if (this.alreadyInTransaction) {
+      return work(new PrismaCashTransactionRepository(this.prisma as Prisma.TransactionClient))
+    }
+    return (this.prisma as PrismaTransactionRunner).$transaction(
+      (transaction) => work(new PrismaCashTransactionRepository(transaction))
+    )
   }
 }
 

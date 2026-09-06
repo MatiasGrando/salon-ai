@@ -35,7 +35,7 @@ Pago mixto bloquea cuenta, valida todas las líneas y las inserta juntas; nunca 
 
 ## API y UI
 
-`GET /appointments/:id/finance`; `PATCH .../estimated-total`; `PATCH .../discount`; `POST .../payments {lines:[{amount,method}],observation?}`. Caja: `GET /cash-register/current|days|days/:id/summary|days/:id/entries?cursor&type&method&q`; `POST /cash-register/open|new-session|close|entries|entries/:id/reverse`. Cursor estable `(effectiveAt,id)`; respuestas incluyen resumen, permisos y `nextCursor`. Errores: `400 VALIDATION`, `403 CASH_PERMISSION_REQUIRED`, `404 NOT_FOUND`, `409 CASH_CLOSED|STALE_SESSION|OVERPAYMENT|OPEN_DAY_EXISTS`.
+`GET /appointments/:id/finance`; `PATCH .../estimated-total`; `PATCH .../discount` acepta el contrato compatible `{discountAmount}` y el nuevo `{discountType,discountValue}`, calculando porcentajes en servidor y persistiendo el nominal; `POST .../payments {lines:[{amount,method}],observation?}`. Caja: `GET /cash-register/current|days|days/:id/summary|days/:id/entries?cursor&type&method&q`; `POST /cash-register/open|new-session|close|entries|entries/:id/reverse`. Cursor estable `(effectiveAt,id)`; respuestas incluyen resumen, permisos y `nextCursor`. Errores: `400 VALIDATION`, `403 CASH_PERMISSION_REQUIRED`, `404 NOT_FOUND`, `409 CASH_CLOSED|STALE_SESSION|OVERPAYMENT|OPEN_DAY_EXISTS`.
 
 `crm-ui.ts` agrega navegación Caja, estados abrir/abierta/cerrada, modales integrados de jornada/sesión, dashboard, filtros y carga incremental. Agenda agrega acordeón “Pago del turno” cerrado; conserva borrador en estado cliente mientras abre Caja. Sin diálogos nativos.
 

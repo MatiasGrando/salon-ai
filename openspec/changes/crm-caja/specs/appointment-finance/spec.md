@@ -17,7 +17,7 @@ El sistema **MUST** mantener una cuenta única por reserva simple, `BookingVisit
 
 ### Requirement: Precio acordado y descuento
 
-El sistema **MUST** congelar el precio fijo y **MUST NOT** permitir editarlo. Para precio estimativo **MUST** exigir y permitir editar el total definitivo. La UI **MUST** aceptar el descuento únicamente como monto nominal entero, sin motivo obligatorio y sólo con permiso; **MUST NOT** dejar el total final bajo lo ya pagado.
+El sistema **MUST** congelar el precio fijo y **MUST NOT** permitir editarlo. Para precio estimativo **MUST** exigir y permitir editar el total definitivo. La UI **MUST** aceptar el descuento como monto nominal entero o como porcentaje mayor a 0 y menor o igual a 100, sin motivo obligatorio y sólo con permiso. El porcentaje **MUST** calcularse en servidor sobre el total acordado bruto, redondearse al peso entero más cercano y persistirse como monto nominal; el sistema **MUST NOT** dejar el total final bajo lo ya pagado.
 
 #### Scenario: Descuento válido
 - GIVEN una cuenta de $100.000 con $20.000 pagados
@@ -28,6 +28,11 @@ El sistema **MUST** congelar el precio fijo y **MUST NOT** permitir editarlo. Pa
 - GIVEN pagos mayores al total final propuesto
 - WHEN se intenta guardar el descuento
 - THEN una ventana integrada explica el error y nada cambia
+
+#### Scenario: Descuento porcentual
+- GIVEN una cuenta de $12.345 sin pagos
+- WHEN un autorizado aplica un descuento de 12,5%
+- THEN el servidor persiste un descuento nominal de $1.543 y el total final es $10.802
 
 ### Requirement: Pagos manuales
 

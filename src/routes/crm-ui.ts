@@ -11456,7 +11456,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     .appointment-dialog-card {
       width: min(680px, 100%);
-      max-height: min(760px, calc(100dvh - 36px));
+      height: min(920px, calc(100dvh - 36px));
+      max-height: calc(100dvh - 36px);
       border: 1px solid #cbd5e1;
     }
 
@@ -11479,6 +11480,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       display: grid;
       gap: 14px;
       overflow: auto;
+      min-height: 0;
+      scroll-padding-block: 16px 84px;
+      scrollbar-gutter: stable;
     }
 
     .appointment-form .form-row {
@@ -15251,7 +15255,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                 <label for="appointment-notes">Comentarios adicionales</label>
                 <textarea class="field" id="appointment-notes" maxlength="2000" rows="3"></textarea>
               </div>
-              <div class="appointment-deposit-option">
+              <div class="appointment-deposit-option" ${cashRegisterEnabled ? 'hidden' : ''}>
                 <label>
                   <input id="appointment-deposit-paid" type="checkbox">
                   Dej&oacute; se&ntilde;a
@@ -29705,7 +29709,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const professionalId = els.appointmentProfessional.value
       const serviceId = els.appointmentService.value
       let force = false
-      const manualDepositPaid = els.appointmentDepositPaid.checked
+      const manualDepositPaid = ${cashRegisterEnabled ? 'false' : 'els.appointmentDepositPaid.checked'}
       const manualDepositAmountText = els.appointmentDepositAmount.value.trim()
       const manualDepositAmount = manualDepositAmountText ? Number(manualDepositAmountText) : null
       const notes = els.appointmentNotes.value.trim()
@@ -29727,6 +29731,16 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (!appointmentServicesForProfessional(professionalId).some((service) => service.id === serviceId)) {
         els.appointmentFeedback.textContent = 'El profesional seleccionado no realiza ese servicio.'
         return
+      }
+
+      let createPayment = null
+      if (!appointment) {
+        try {
+          createPayment = ${cashRegisterEnabled ? 'readCreateAppointmentPayment()' : 'null'}
+        } catch (error) {
+          els.appointmentFeedback.textContent = error.message
+          return
+        }
       }
 
       if (
@@ -29842,6 +29856,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             manualDepositAmount,
             notes: notes || null,
             attentionColor,
+            ...(!appointmentId && createPayment ? { payment: createPayment } : {}),
         }
         const submitAppointment = (forceOverride) => getJson(appointmentPath, {
           method: appointmentId ? 'PATCH' : 'POST',

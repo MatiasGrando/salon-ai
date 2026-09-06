@@ -51,6 +51,14 @@ type CreateAppointmentInput = {
 
 type AppointmentAuthorizationUser = BusinessAuthorizationUser & StaffAuthorizationUser
 
+type CreateAppointmentOptions = {
+  afterCreateInTransaction?: (input: {
+    transaction: Prisma.TransactionClient
+    appointment: Awaited<ReturnType<typeof prisma.appointment.create>>
+    businessId: string
+  }) => Promise<void>
+}
+
 export type AppointmentAvailabilityConflict = {
   code: 'OUTSIDE_BUSINESS_HOURS' | 'OUTSIDE_PROFESSIONAL_HOURS' | 'SCHEDULE_BLOCK' | 'APPOINTMENT_OVERLAP'
   message: string
@@ -217,7 +225,8 @@ export class AppointmentService {
 
   async create(
     input: CreateAppointmentInput,
-    authorizationUser?: AppointmentAuthorizationUser
+    authorizationUser?: AppointmentAuthorizationUser,
+    options: CreateAppointmentOptions = {}
   ): Promise<AppointmentMutationResult> {
     const startAt = new Date(input.startAt)
     const manualDeposit = normalizeManualDeposit(
@@ -408,7 +417,7 @@ export class AppointmentService {
         customerId: input.customerId
       }, transaction)
 
-      return createAppointmentRecord(transaction, {
+      const createdAppointment = await createAppointmentRecord(transaction, {
         data: {
           businessId: professional.businessId,
           customerId: input.customerId,
@@ -435,6 +444,12 @@ export class AppointmentService {
         },
         include: { serviceItems: { include: { service: true }, orderBy: { sortOrder: 'asc' } } }
       })
+      await options.afterCreateInTransaction?.({
+        transaction,
+        appointment: createdAppointment,
+        businessId: professional.businessId
+      })
+      return createdAppointment
     })
 
     if (appointment === 'AUTHORIZATION_CONFLICT') return appointmentConflict()

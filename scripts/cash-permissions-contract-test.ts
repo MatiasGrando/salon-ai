@@ -37,6 +37,8 @@ assert.equal(canStaffAccessRoute(denied, 'GET', '/cash-register/current'), false
 assert.equal(canStaffAccessRoute({ ...denied, canViewCashRegister: true }, 'GET', '/cash-register/current'), true)
 assert.equal(canStaffAccessRoute({ ...denied, canManageCashSessions: true }, 'GET', '/cash-register/responsibles'), true)
 assert.equal(canStaffAccessRoute({ ...denied, canViewCashRegister: true }, 'GET', '/cash-register/responsibles'), false, 'ver Caja no concede administrar responsables')
+assert.equal(canStaffAccessRoute({ ...denied, canRecordAppointmentPayments: true }, 'GET', '/cash-register/payment-context'), true)
+assert.equal(canStaffAccessRoute({ ...denied, canViewCashRegister: true }, 'GET', '/cash-register/payment-context'), false, 'ver Caja no concede el contexto para cobrar turnos')
 assert.equal(canStaffAccessRoute({ ...denied, canViewCashRegister: true }, 'GET', '/crm/cash-events'), true)
 assert.equal(canStaffAccessRoute(denied, 'GET', '/crm/cash-events'), false)
 assert.equal(canStaffAccessRoute({ ...denied, canRecordAppointmentPayments: true }, 'POST', '/appointments/a/payments'), true)

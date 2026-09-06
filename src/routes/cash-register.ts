@@ -38,6 +38,16 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
     }
   })
 
+  app.get('/cash-register/payment-context', async (request, reply) => {
+    const access = cashAccess(request.auth?.user, 'canRecordAppointmentPayments', request.query)
+    if (!access.ok) return cashAccessFailure(reply, access)
+    try {
+      return await service.getCurrentPaymentContext({ businessId: access.businessId })
+    } catch (error) {
+      return sendCashError(reply, error)
+    }
+  })
+
   app.get('/cash-register/days', async (request, reply) => {
     const query = request.query as { businessId?: string; limit?: string }
     const access = cashAccess(request.auth?.user, 'canViewCashRegister', query)
@@ -220,6 +230,15 @@ export function sendCashError(reply: FastifyReply, error: unknown) {
   }
   if (['BUSINESS_NOT_FOUND', 'REGISTER_DAY_NOT_FOUND', 'ENTRY_NOT_FOUND', 'APPOINTMENT_ACCOUNT_NOT_FOUND', 'MISSING_APPOINTMENT_EVIDENCE'].includes(code)) {
     return reply.status(404).send({ code: 'NOT_FOUND', message: 'El recurso no está disponible' })
+  }
+  if (code === 'OVERPAYMENT') {
+    return reply.status(409).send({ code, message: 'El importe supera el saldo pendiente o el descuento deja el total por debajo de lo ya pagado' })
+  }
+  if (code === 'INVALID_DISCOUNT_PERCENTAGE') {
+    return reply.status(400).send({ code: 'VALIDATION', message: 'El porcentaje debe ser mayor a 0 y no superar 100' })
+  }
+  if (code === 'INVALID_DISCOUNT_AMOUNT' || code === 'INVALID_DISCOUNT_TYPE') {
+    return reply.status(400).send({ code: 'VALIDATION', message: 'Revisá el tipo y el valor del descuento' })
   }
   if (['CASH_CLOSED', 'STALE_SESSION', 'OVERPAYMENT', 'OPEN_DAY_EXISTS', 'ENTRY_NOT_REVERSIBLE', 'FIXED_PRICE_IMMUTABLE', 'ESTIMATED_TOTAL_REQUIRED'].includes(code)) {
     return reply.status(409).send({ code, message: 'La operación no puede completarse en el estado actual' })

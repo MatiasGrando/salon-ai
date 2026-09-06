@@ -3,6 +3,7 @@ import {
   assertIanaTimezone,
   assertEntryAmount,
   assertMoney,
+  calculateAppointmentDiscountAmount,
   calculateAccountTotals,
   resolveRegisterOpeningCash,
   summarizeCashRegister
@@ -283,12 +284,24 @@ export class CashService {
     })
   }
 
-  async setAppointmentDiscount(input: { businessId: string; appointmentId: string; discountAmount: number }) {
-    const discountAmount = assertMoney(input.discountAmount)
+  async setAppointmentDiscount(input: {
+    businessId: string
+    appointmentId: string
+    discountAmount?: number
+    discountType?: 'AMOUNT' | 'PERCENTAGE'
+    discountValue?: number
+  }) {
     return this.repository.transaction(async (transaction) => {
       if (!await transaction.lockBusiness(input.businessId)) throw new CashServiceError('BUSINESS_NOT_FOUND')
       const account = await ensureAppointmentAccountForPayment(transaction, input.businessId, input.appointmentId)
       if (account.agreedAmount === null) throw new CashServiceError('ESTIMATED_TOTAL_REQUIRED')
+      const discountAmount = input.discountAmount !== undefined
+        ? assertMoney(input.discountAmount, 'INVALID_DISCOUNT_AMOUNT')
+        : calculateAppointmentDiscountAmount({
+            agreedAmount: account.agreedAmount,
+            discountType: input.discountType as 'AMOUNT' | 'PERCENTAGE',
+            discountValue: input.discountValue as number
+          })
       const entries = await transaction.listAccountEntries(input.businessId, account.id)
       calculateAccountTotals({ agreedAmount: account.agreedAmount, discountAmount, entries })
       return transaction.updateDiscount(input.businessId, account.id, discountAmount)
@@ -408,6 +421,19 @@ export class CashService {
       if (!session) throw new CashServiceError('CASH_CLOSED')
       const entries = await transaction.listDayEntries(input.businessId, day.id)
       return { day, session, summary: summarizeCashRegister({ openingCash: day.openingCash, entries }) }
+    })
+  }
+
+  async getCurrentPaymentContext(input: { businessId: string }) {
+    return this.repository.transaction(async (transaction) => {
+      if (!await transaction.lockBusiness(input.businessId)) throw new CashServiceError('BUSINESS_NOT_FOUND')
+      const day = await transaction.findOpenDay(input.businessId)
+      if (!day) return { day: null, session: null }
+      const session = await transaction.findOpenSession(input.businessId, day.id)
+      return {
+        day: { id: day.id },
+        session: session ? { id: session.id } : null
+      }
     })
   }
 

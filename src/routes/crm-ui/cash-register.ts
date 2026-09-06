@@ -56,9 +56,19 @@ export const cashRegisterStyles = `
     .appointment-finance-summary div { background: var(--surface-soft); border-radius: 9px; padding: 10px; display: grid; gap: 4px; }
     .appointment-finance-summary span { color: var(--muted); font-size: 12px; }
     .appointment-finance-form { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+    .appointment-finance-form > small { color: var(--muted); }
+    .appointment-finance-fixed-note { margin: 0; padding: 11px 12px; display: grid; gap: 4px; border: 1px solid var(--line); border-radius: 9px; color: var(--muted); background: var(--surface-soft); }
+    .appointment-finance-fixed-note strong { color: var(--text); }
     .appointment-finance-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: end; }
     .appointment-finance-history { display: grid; gap: 7px; }
     .appointment-finance-history article { display: flex; justify-content: space-between; gap: 8px; padding: 9px; border-radius: 8px; background: var(--surface-soft); }
+    .appointment-finance label { display: grid; gap: 6px; }
+    .appointment-finance :is(input, select) { width: 100%; min-height: 40px; border: 1px solid #b8c4d4; border-radius: 9px; padding: 8px 10px; background: var(--surface); }
+    .appointment-finance :is(input, select):focus { border-color: #2563eb; box-shadow: 0 0 0 3px #dbeafe; outline: none; }
+    .appointment-create-payment-content { padding: 14px; display: grid; gap: 12px; }
+    .appointment-create-payment-toggle { display: flex; align-items: center; gap: 9px; font-weight: 750; }
+    .appointment-create-payment-fields { display: grid; gap: 10px; }
+    .appointment-create-payment-total { display: flex; justify-content: space-between; gap: 12px; padding: 10px; border-radius: 9px; background: var(--surface-soft); }
     @media (max-width: 900px) {
       .app[data-section="cash"] { display: block; }
       .app[data-section="cash"] .cash-register-view { min-height: 100vh; padding-top: 70px; }
@@ -151,12 +161,28 @@ export const cashRegisterMarkup = `
 `
 
 export const appointmentFinanceMarkup = `
+          <details class="appointment-finance" id="appointment-create-payment" hidden>
+            <summary><span>Pago del turno</span><span id="appointment-create-payment-status">Sin pago</span></summary>
+            <div class="appointment-create-payment-content">
+              <label class="appointment-create-payment-toggle"><input id="appointment-create-payment-enabled" type="checkbox"> Registrar pago al crear el turno</label>
+              <div class="appointment-create-payment-fields" id="appointment-create-payment-fields" hidden>
+                <div class="appointment-create-payment-total"><span>Total del turno</span><strong id="appointment-create-payment-total">--</strong></div>
+                <label id="appointment-create-estimated-total-row" hidden>Total acordado<input id="appointment-create-estimated-total" type="number" min="1" step="1" inputmode="numeric" placeholder="Ingres&aacute; el total final"></label>
+                <div class="appointment-finance-row"><label>Importe<input id="appointment-create-payment-amount" type="number" min="1" step="1" inputmode="numeric"></label><label>Medio<select id="appointment-create-payment-method"><option value="CASH">Efectivo</option><option value="TRANSFER">Transferencia / Mercado Pago</option><option value="CARD">Tarjeta</option></select></label><button class="secondary" id="appointment-create-add-payment-line" type="button">Pago mixto</button></div>
+                <div class="appointment-finance-row" id="appointment-create-payment-line-two" hidden><label>Segundo importe<input id="appointment-create-payment-amount-two" type="number" min="1" step="1" inputmode="numeric"></label><label>Segundo medio<select id="appointment-create-payment-method-two"><option value="CASH">Efectivo</option><option value="TRANSFER">Transferencia / Mercado Pago</option><option value="CARD">Tarjeta</option></select></label><span></span></div>
+                <label>Observaci&oacute;n<input id="appointment-create-payment-observation" maxlength="500"></label>
+                <div id="appointment-create-cash-required" hidden><p>Para cobrar necesit&aacute;s una sesi&oacute;n de Caja activa.</p><button class="primary" id="appointment-create-open-cash" type="button">Abrir caja</button></div>
+              </div>
+              <p class="appointment-finance-feedback" id="appointment-create-payment-feedback" role="status"></p>
+            </div>
+          </details>
           <details class="appointment-finance" id="appointment-finance" hidden>
             <summary><span>Pago del turno</span><span id="appointment-finance-balance">Cargando...</span></summary>
             <div class="appointment-finance-content">
               <div class="appointment-finance-summary"><div><span>Total final</span><strong id="appointment-finance-total">--</strong></div><div><span>Pagado</span><strong id="appointment-finance-paid">--</strong></div><div><span>Saldo</span><strong id="appointment-finance-due">--</strong></div></div>
-              <form class="appointment-finance-form" id="appointment-total-form"><strong>Total estimativo</strong><div class="appointment-finance-row"><label>Importe<input id="appointment-estimated-total" type="number" min="0" step="1" inputmode="numeric"></label><span></span><button class="secondary" type="submit">Guardar total</button></div></form>
-              <form class="appointment-finance-form" id="appointment-discount-form"><strong>Descuento nominal</strong><div class="appointment-finance-row"><label>Importe<input id="appointment-discount" type="number" min="0" step="1" inputmode="numeric"></label><span></span><button class="secondary" type="submit">Aplicar</button></div></form>
+              <form class="appointment-finance-form" id="appointment-total-form"><strong>Total definitivo</strong><small>Disponible porque este servicio tiene precio estimativo.</small><div class="appointment-finance-row"><label>Importe acordado<input id="appointment-estimated-total" type="number" min="0" step="1" inputmode="numeric"></label><span></span><button class="secondary" type="submit">Guardar total</button></div></form>
+              <p class="appointment-finance-fixed-note" id="appointment-fixed-total-note" hidden><strong>Precio fijo: no se puede editar.</strong><span>El total corresponde al precio acordado al reservar el servicio.</span></p>
+              <form class="appointment-finance-form" id="appointment-discount-form"><strong>Aplicar descuento</strong><div class="appointment-finance-row"><label>Tipo<select id="appointment-discount-type"><option value="AMOUNT">Monto</option><option value="PERCENTAGE">Porcentaje</option></select></label><label><span id="appointment-discount-value-label">Monto</span><input id="appointment-discount-value" type="number" min="0" step="1" inputmode="decimal"></label><button class="secondary" type="submit">Aplicar</button></div><small id="appointment-discount-help">Se guarda como un monto nominal sobre el total del turno.</small></form>
               <div class="appointment-finance-form"><strong>Historial</strong><div class="appointment-finance-history" id="appointment-finance-history"></div></div>
               <form class="appointment-finance-form" id="appointment-payment-form"><strong>Registrar pago</strong><div class="appointment-finance-row"><label>Importe<input id="appointment-payment-amount" type="number" min="1" step="1" inputmode="numeric"></label><label>Medio<select id="appointment-payment-method"><option value="CASH">Efectivo</option><option value="TRANSFER">Transferencia / Mercado Pago</option><option value="CARD">Tarjeta</option></select></label><button class="secondary" id="appointment-add-payment-line" type="button">Pago mixto</button></div><div class="appointment-finance-row" id="appointment-payment-line-two" hidden><label>Segundo importe<input id="appointment-payment-amount-two" type="number" min="1" step="1" inputmode="numeric"></label><label>Segundo medio<select id="appointment-payment-method-two"><option value="CASH">Efectivo</option><option value="TRANSFER">Transferencia / Mercado Pago</option><option value="CARD">Tarjeta</option></select></label><span></span></div><label>Observaci&oacute;n<input id="appointment-payment-observation" maxlength="500"></label><button class="primary" type="submit">Registrar pago</button></form>
               <div id="appointment-cash-required" hidden><p>Para cobrar necesit&aacute;s una sesi&oacute;n de Caja activa.</p><button class="primary" id="appointment-open-cash" type="button">Abrir caja</button></div>
@@ -173,9 +199,10 @@ export const cashRegisterScript = `
       typeFilter: document.getElementById('cash-type-filter'), methodFilter: document.getElementById('cash-method-filter'), search: document.getElementById('cash-search'), entryList: document.getElementById('cash-entry-list'), nextPage: document.getElementById('cash-next-page'),
       sessionDialog: document.getElementById('cash-session-dialog'), sessionTitle: document.getElementById('cash-session-title'), sessionForm: document.getElementById('cash-session-form'), sessionX: document.getElementById('cash-session-x'), sessionCancel: document.getElementById('cash-session-cancel'), sessionSubmit: document.getElementById('cash-session-submit'), sessionResponsible: document.getElementById('cash-session-responsible'), responsibleField: document.getElementById('cash-responsible-field'), openingField: document.getElementById('cash-opening-field'), countedField: document.getElementById('cash-counted-field'), openingCash: document.getElementById('cash-opening-cash'), countedCash: document.getElementById('cash-counted-cash'), sessionFeedback: document.getElementById('cash-session-feedback'),
       operationDialog: document.getElementById('cash-operation-dialog'), operationForm: document.getElementById('cash-operation-form'), operationX: document.getElementById('cash-operation-x'), operationCancel: document.getElementById('cash-operation-cancel'), operationType: document.getElementById('cash-operation-type'), operationMethod: document.getElementById('cash-operation-method'), operationMethodField: document.getElementById('cash-operation-method-field'), operationAmount: document.getElementById('cash-operation-amount'), operationAmountField: document.getElementById('cash-operation-amount-field'), operationDelta: document.getElementById('cash-operation-delta'), operationDeltaField: document.getElementById('cash-operation-delta-field'), operationDescription: document.getElementById('cash-operation-description'), operationDescriptionField: document.getElementById('cash-operation-description-field'), operationCounterparty: document.getElementById('cash-operation-counterparty'), operationCounterpartyField: document.getElementById('cash-operation-counterparty-field'), operationObservation: document.getElementById('cash-operation-observation'), operationFeedback: document.getElementById('cash-operation-feedback'), operationSubmit: document.getElementById('cash-operation-submit'),
-      finance: document.getElementById('appointment-finance'), financeBalance: document.getElementById('appointment-finance-balance'), financeTotal: document.getElementById('appointment-finance-total'), financePaid: document.getElementById('appointment-finance-paid'), financeDue: document.getElementById('appointment-finance-due'), financeHistory: document.getElementById('appointment-finance-history'), financeFeedback: document.getElementById('appointment-finance-feedback'), totalForm: document.getElementById('appointment-total-form'), estimatedTotal: document.getElementById('appointment-estimated-total'), discountForm: document.getElementById('appointment-discount-form'), discount: document.getElementById('appointment-discount'), paymentForm: document.getElementById('appointment-payment-form'), paymentAmount: document.getElementById('appointment-payment-amount'), paymentMethod: document.getElementById('appointment-payment-method'), paymentLineTwo: document.getElementById('appointment-payment-line-two'), paymentAmountTwo: document.getElementById('appointment-payment-amount-two'), paymentMethodTwo: document.getElementById('appointment-payment-method-two'), addPaymentLine: document.getElementById('appointment-add-payment-line'), paymentObservation: document.getElementById('appointment-payment-observation'), cashRequired: document.getElementById('appointment-cash-required'), appointmentOpenCash: document.getElementById('appointment-open-cash')
+      createPayment: document.getElementById('appointment-create-payment'), createPaymentStatus: document.getElementById('appointment-create-payment-status'), createPaymentEnabled: document.getElementById('appointment-create-payment-enabled'), createPaymentFields: document.getElementById('appointment-create-payment-fields'), createPaymentTotal: document.getElementById('appointment-create-payment-total'), createEstimatedTotalRow: document.getElementById('appointment-create-estimated-total-row'), createEstimatedTotal: document.getElementById('appointment-create-estimated-total'), createPaymentAmount: document.getElementById('appointment-create-payment-amount'), createPaymentMethod: document.getElementById('appointment-create-payment-method'), createPaymentLineTwo: document.getElementById('appointment-create-payment-line-two'), createPaymentAmountTwo: document.getElementById('appointment-create-payment-amount-two'), createPaymentMethodTwo: document.getElementById('appointment-create-payment-method-two'), createAddPaymentLine: document.getElementById('appointment-create-add-payment-line'), createPaymentObservation: document.getElementById('appointment-create-payment-observation'), createCashRequired: document.getElementById('appointment-create-cash-required'), createOpenCash: document.getElementById('appointment-create-open-cash'), createPaymentFeedback: document.getElementById('appointment-create-payment-feedback'),
+      finance: document.getElementById('appointment-finance'), financeBalance: document.getElementById('appointment-finance-balance'), financeTotal: document.getElementById('appointment-finance-total'), financePaid: document.getElementById('appointment-finance-paid'), financeDue: document.getElementById('appointment-finance-due'), financeHistory: document.getElementById('appointment-finance-history'), financeFeedback: document.getElementById('appointment-finance-feedback'), totalForm: document.getElementById('appointment-total-form'), estimatedTotal: document.getElementById('appointment-estimated-total'), fixedTotalNote: document.getElementById('appointment-fixed-total-note'), discountForm: document.getElementById('appointment-discount-form'), discountType: document.getElementById('appointment-discount-type'), discountValue: document.getElementById('appointment-discount-value'), discountValueLabel: document.getElementById('appointment-discount-value-label'), discountHelp: document.getElementById('appointment-discount-help'), paymentForm: document.getElementById('appointment-payment-form'), paymentAmount: document.getElementById('appointment-payment-amount'), paymentMethod: document.getElementById('appointment-payment-method'), paymentLineTwo: document.getElementById('appointment-payment-line-two'), paymentAmountTwo: document.getElementById('appointment-payment-amount-two'), paymentMethodTwo: document.getElementById('appointment-payment-method-two'), addPaymentLine: document.getElementById('appointment-add-payment-line'), paymentObservation: document.getElementById('appointment-payment-observation'), cashRequired: document.getElementById('appointment-cash-required'), appointmentOpenCash: document.getElementById('appointment-open-cash')
     }
-    state.cashRegister = { current: null, days: [], selectedDayId: null, entries: [], nextCursor: null, permissions: {}, responsibleUsers: [], sessionMode: 'open', returnToAppointment: false, searchTimer: null, eventSource: null }
+    state.cashRegister = { current: null, days: [], selectedDayId: null, entries: [], nextCursor: null, permissions: {}, responsibleUsers: [], sessionMode: 'open', returnToAppointment: false, searchTimer: null, eventSource: null, appointmentFinance: null, appointmentFinanceRequestId: 0 }
 
     function canUseCashPermission(permission) {
       if (state.currentUser?.role === 'BUSINESS_ADMIN' || state.currentUser?.role === 'SUPER_ADMIN') return true
@@ -374,7 +401,8 @@ export const cashRegisterScript = `
         showCrmToast(mode === 'close' ? 'Caja cerrada.' : 'Sesión de Caja activa.', 'success')
         if (state.cashRegister.returnToAppointment && mode !== 'close') {
           returnToAppointmentDraft()
-          await loadAppointmentFinance()
+          if (state.editingAppointmentId) await loadAppointmentFinance()
+          else await loadCreateAppointmentCashState()
         }
       } catch (error) {
         cashUi.sessionFeedback.textContent = error.message
@@ -429,14 +457,94 @@ export const cashRegisterScript = `
       return cashTypeLabels[entry.type] || entry.type
     }
 
+    function selectedCreateAppointmentPrice() {
+      const service = state.services.find((item) => item.id === els.appointmentService.value)
+      const estimated = service?.priceMode === 'STARTING_AT' || !Number.isSafeInteger(Number(service?.price))
+      const enteredTotal = Number(cashUi.createEstimatedTotal.value)
+      return {
+        estimated,
+        total: estimated ? (Number.isSafeInteger(enteredTotal) && enteredTotal > 0 ? enteredTotal : null) : Number(service.price)
+      }
+    }
+
+    function syncCreateAppointmentPayment() {
+      if (cashUi.createPayment.hidden) return
+      const enabled = cashUi.createPaymentEnabled.checked
+      const price = selectedCreateAppointmentPrice()
+      cashUi.createPaymentFields.hidden = !enabled
+      cashUi.createEstimatedTotalRow.hidden = !enabled || !price.estimated
+      cashUi.createPaymentTotal.textContent = price.total === null ? 'A definir' : cashMoney(price.total)
+      cashUi.createPaymentStatus.textContent = enabled ? 'Registrar ahora' : 'Sin pago'
+      const hasSession = Boolean(state.cashRegister.current?.session?.id)
+      cashUi.createCashRequired.hidden = !enabled || hasSession
+      cashUi.createOpenCash.hidden = !canUseCashPermission('canManageCashSessions')
+      cashUi.createCashRequired.querySelector('p').textContent = canUseCashPermission('canManageCashSessions') ? 'Para cobrar necesitás una sesión de Caja activa.' : 'Pedile a un responsable autorizado que abra la Caja.'
+      if (enabled && price.total !== null && !cashUi.createPaymentAmount.value) {
+        cashUi.createPaymentAmount.value = String(price.total)
+      }
+      cashUi.createPaymentFeedback.textContent = ''
+    }
+
+    async function loadCreateAppointmentCashState() {
+      try {
+        state.cashRegister.current = await getJson(cashScoped('/cash-register/payment-context'))
+      } catch {
+        state.cashRegister.current = { day: null, session: null }
+      }
+      syncCreateAppointmentPayment()
+    }
+
+    function prepareCreateAppointmentPayment(appointment) {
+      const visible = !appointment && canUseCashPermission('canRecordAppointmentPayments')
+      cashUi.createPayment.hidden = !visible
+      cashUi.createPayment.open = false
+      cashUi.createPaymentEnabled.checked = false
+      cashUi.createPaymentFields.hidden = true
+      cashUi.createPaymentAmount.value = ''
+      cashUi.createPaymentMethod.value = 'CASH'
+      cashUi.createPaymentLineTwo.hidden = true
+      cashUi.createPaymentAmountTwo.value = ''
+      cashUi.createPaymentMethodTwo.value = 'TRANSFER'
+      cashUi.createEstimatedTotal.value = ''
+      cashUi.createPaymentObservation.value = ''
+      cashUi.createPaymentFeedback.textContent = ''
+      cashUi.createPaymentStatus.textContent = 'Sin pago'
+      if (visible) loadCreateAppointmentCashState()
+    }
+
+    function readCreateAppointmentPayment() {
+      if (!cashUi.createPaymentEnabled.checked) return null
+      if (!state.cashRegister.current?.session?.id) throw new Error('Para registrar el pago necesitás una sesión de Caja activa.')
+      const price = selectedCreateAppointmentPrice()
+      if (price.total === null) throw new Error('Ingresá el total acordado para este servicio estimativo.')
+      const lines = [{ amount: Number(cashUi.createPaymentAmount.value), method: cashUi.createPaymentMethod.value }]
+      if (!cashUi.createPaymentLineTwo.hidden) lines.push({ amount: Number(cashUi.createPaymentAmountTwo.value), method: cashUi.createPaymentMethodTwo.value })
+      if (lines.some((line) => !Number.isSafeInteger(line.amount) || line.amount <= 0)) {
+        throw new Error('Cada pago debe ser un importe entero mayor a cero.')
+      }
+      const paymentTotal = lines.reduce((total, line) => total + line.amount, 0)
+      if (paymentTotal > price.total) throw new Error('El pago no puede superar el saldo pendiente del turno.')
+      return {
+        cashSessionId: state.cashRegister.current.session.id,
+        lines,
+        observation: cashUi.createPaymentObservation.value.trim() || undefined,
+        ...(price.estimated ? { agreedAmount: price.total } : {}),
+        ...(state.currentUser?.role === 'SUPER_ADMIN' ? { businessId: state.businessId } : {})
+      }
+    }
+
     function renderAppointmentFinance(finance) {
+      state.cashRegister.appointmentFinance = finance
       cashUi.financeBalance.textContent = 'Saldo ' + cashMoney(finance.balanceAmount)
       cashUi.financeTotal.textContent = cashMoney(finance.finalAmount)
       cashUi.financePaid.textContent = cashMoney(finance.paidAmount)
       cashUi.financeDue.textContent = cashMoney(finance.balanceAmount)
       cashUi.estimatedTotal.value = finance.agreedAmount
-      cashUi.discount.value = finance.discountAmount
+      cashUi.discountType.value = 'AMOUNT'
+      cashUi.discountValue.value = finance.discountAmount
+      syncAppointmentDiscountField()
       cashUi.totalForm.hidden = finance.pricingMode !== 'ESTIMATED' || !canUseCashPermission('canRecordAppointmentPayments')
+      cashUi.fixedTotalNote.hidden = finance.pricingMode !== 'FIXED'
       cashUi.discountForm.hidden = !canUseCashPermission('canApplyDiscounts')
       const activeSession = state.cashRegister.current?.session
       cashUi.paymentForm.hidden = !canUseCashPermission('canRecordAppointmentPayments') || !activeSession
@@ -446,26 +554,59 @@ export const cashRegisterScript = `
       cashUi.financeHistory.innerHTML = finance.entries?.length ? finance.entries.map((entry) => '<article><span>' + escapeHtml(financeEntryLabel(entry)) + ' · ' + escapeHtml(cashMethodLabels[entry.method] || entry.method) + (entry.effectiveAt ? '<small> · ' + escapeHtml(cashDate(entry.effectiveAt)) + '</small>' : '') + '</span><strong>' + (entry.direction === 'OUTFLOW' ? '−' : '+') + cashMoney(entry.amount) + '</strong></article>').join('') : '<div class="cash-inline-state">Todav&iacute;a no hay pagos.</div>'
     }
 
+    function resetAppointmentFinanceView() {
+      state.cashRegister.appointmentFinance = null
+      cashUi.financeBalance.textContent = 'Cargando...'
+      cashUi.financeTotal.textContent = '--'
+      cashUi.financePaid.textContent = '--'
+      cashUi.financeDue.textContent = '--'
+      cashUi.estimatedTotal.value = ''
+      cashUi.discountType.value = 'AMOUNT'
+      cashUi.discountValue.value = ''
+      syncAppointmentDiscountField()
+      cashUi.totalForm.hidden = true
+      cashUi.fixedTotalNote.hidden = true
+      cashUi.discountForm.hidden = true
+      cashUi.paymentForm.hidden = true
+      cashUi.cashRequired.hidden = true
+      cashUi.financeHistory.innerHTML = '<div class="cash-inline-state">Cargando movimientos...</div>'
+      cashUi.financeFeedback.textContent = 'Cargando estado financiero...'
+      cashUi.financeFeedback.className = 'appointment-finance-feedback'
+    }
+
+    function scrollAppointmentFinanceIntoView() {
+      requestAnimationFrame(() => cashUi.finance.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+    }
+
     async function loadAppointmentFinance() {
       const appointmentId = state.editingAppointmentId
       if (!appointmentId || !(canUseCashPermission('canRecordAppointmentPayments') || canUseCashPermission('canApplyDiscounts'))) return
-      cashUi.financeFeedback.textContent = 'Cargando estado financiero...'
+      const requestId = ++state.cashRegister.appointmentFinanceRequestId
+      resetAppointmentFinanceView()
       try {
-        const [finance, current] = await Promise.all([getJson(cashScoped('/appointments/' + encodeURIComponent(appointmentId) + '/finance')), getJson(cashScoped('/cash-register/current')).catch(() => ({ day: null, session: null }))])
+        const paymentContext = canUseCashPermission('canRecordAppointmentPayments')
+          ? getJson(cashScoped('/cash-register/payment-context')).catch(() => ({ day: null, session: null }))
+          : Promise.resolve({ day: null, session: null })
+        const [finance, current] = await Promise.all([getJson(cashScoped('/appointments/' + encodeURIComponent(appointmentId) + '/finance')), paymentContext])
+        if (appointmentId !== state.editingAppointmentId || requestId !== state.cashRegister.appointmentFinanceRequestId) return
         state.cashRegister.current = current
         renderAppointmentFinance(finance)
         cashUi.financeFeedback.textContent = ''
       } catch (error) {
+        if (appointmentId !== state.editingAppointmentId || requestId !== state.cashRegister.appointmentFinanceRequestId) return
         cashUi.financeFeedback.textContent = error.message
         cashUi.financeFeedback.className = 'appointment-finance-feedback error'
       }
     }
 
     function prepareAppointmentFinance(appointment) {
+      state.cashRegister.appointmentFinanceRequestId += 1
+      resetAppointmentFinanceView()
       cashUi.finance.hidden = !appointment || !(canUseCashPermission('canRecordAppointmentPayments') || canUseCashPermission('canApplyDiscounts'))
       cashUi.finance.open = false
       cashUi.financeFeedback.textContent = ''
       if (appointment && !cashUi.finance.hidden) loadAppointmentFinance()
+      prepareCreateAppointmentPayment(appointment)
     }
 
     async function submitAppointmentFinanceValue(event, suffix, field, property) {
@@ -482,6 +623,44 @@ export const cashRegisterScript = `
       } catch (error) {
         cashUi.financeFeedback.textContent = error.message
         cashUi.financeFeedback.className = 'appointment-finance-feedback error'
+      }
+    }
+
+    function syncAppointmentDiscountField() {
+      const percentage = cashUi.discountType.value === 'PERCENTAGE'
+      cashUi.discountValueLabel.textContent = percentage ? 'Porcentaje' : 'Monto'
+      cashUi.discountValue.min = percentage ? '0.01' : '0'
+      cashUi.discountValue.max = percentage ? '100' : ''
+      cashUi.discountValue.step = percentage ? '0.01' : '1'
+      cashUi.discountHelp.textContent = percentage
+        ? 'Se calcula sobre el total acordado y se redondea al peso entero más cercano.'
+        : 'Se guarda como un monto nominal sobre el total del turno.'
+    }
+
+    function showAppointmentFinanceError(message) {
+      cashUi.financeFeedback.textContent = message
+      cashUi.financeFeedback.className = 'appointment-finance-feedback error'
+      showCrmToast(message, 'error')
+    }
+
+    async function submitAppointmentDiscount(event) {
+      event.preventDefault()
+      const discountType = cashUi.discountType.value
+      const discountValue = Number(cashUi.discountValue.value)
+      if (discountType === 'AMOUNT' && (!Number.isSafeInteger(discountValue) || discountValue < 0)) {
+        showAppointmentFinanceError('El monto del descuento debe ser un número entero mayor o igual a cero.')
+        return
+      }
+      if (discountType === 'PERCENTAGE' && (!Number.isFinite(discountValue) || discountValue <= 0 || discountValue > 100)) {
+        showAppointmentFinanceError('El porcentaje debe ser mayor a 0 y no superar 100.')
+        return
+      }
+      try {
+        await getJson('/appointments/' + encodeURIComponent(state.editingAppointmentId) + '/discount', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ discountType, discountValue, ...(state.currentUser?.role === 'SUPER_ADMIN' ? { businessId: state.businessId } : {}) }) })
+        await loadAppointmentFinance()
+        showCrmToast('Descuento actualizado.', 'success')
+      } catch (error) {
+        showAppointmentFinanceError(error.message)
       }
     }
 
@@ -525,11 +704,36 @@ export const cashRegisterScript = `
     cashUi.methodFilter.addEventListener('change', () => loadCashEntries())
     cashUi.search.addEventListener('input', () => { clearTimeout(state.cashRegister.searchTimer); state.cashRegister.searchTimer = setTimeout(() => loadCashEntries(), 250) })
     cashUi.nextPage.addEventListener('click', () => loadCashEntries({ append: true }))
-    cashUi.finance.addEventListener('toggle', () => { if (cashUi.finance.open) loadAppointmentFinance() })
+    cashUi.finance.addEventListener('toggle', () => { if (cashUi.finance.open) { scrollAppointmentFinanceIntoView(); loadAppointmentFinance() } })
     cashUi.totalForm.addEventListener('submit', (event) => submitAppointmentFinanceValue(event, 'estimated-total', cashUi.estimatedTotal, 'agreedAmount'))
-    cashUi.discountForm.addEventListener('submit', (event) => submitAppointmentFinanceValue(event, 'discount', cashUi.discount, 'discountAmount'))
+    cashUi.discountType.addEventListener('change', () => { cashUi.discountValue.value = ''; syncAppointmentDiscountField() })
+    cashUi.discountForm.addEventListener('submit', submitAppointmentDiscount)
     cashUi.addPaymentLine.addEventListener('click', () => { cashUi.paymentLineTwo.hidden = !cashUi.paymentLineTwo.hidden })
     cashUi.paymentForm.addEventListener('submit', submitAppointmentPayment)
+    cashUi.createPaymentEnabled.addEventListener('change', syncCreateAppointmentPayment)
+    cashUi.createEstimatedTotal.addEventListener('input', () => {
+      syncCreateAppointmentPayment()
+      if (cashUi.createPaymentLineTwo.hidden) {
+        const price = selectedCreateAppointmentPrice()
+        cashUi.createPaymentAmount.value = price.total === null ? '' : String(price.total)
+      }
+    })
+    cashUi.createAddPaymentLine.addEventListener('click', () => { cashUi.createPaymentLineTwo.hidden = !cashUi.createPaymentLineTwo.hidden })
+    els.appointmentService.addEventListener('change', () => {
+      cashUi.createPaymentAmount.value = ''
+      syncCreateAppointmentPayment()
+    })
+    els.appointmentProfessional.addEventListener('change', () => {
+      cashUi.createPaymentAmount.value = ''
+      syncCreateAppointmentPayment()
+    })
+    cashUi.createOpenCash.addEventListener('click', () => {
+      if (!canUseCashPermission('canManageCashSessions')) return
+      state.cashRegister.returnToAppointment = true
+      els.appointmentDialog.hidden = true
+      setSection('cash')
+      openCashSessionDialog('open')
+    })
     cashUi.appointmentOpenCash.addEventListener('click', () => {
       if (!canUseCashPermission('canManageCashSessions')) return
       state.cashRegister.returnToAppointment = true

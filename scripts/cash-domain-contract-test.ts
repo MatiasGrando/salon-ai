@@ -6,6 +6,7 @@ import {
   assertMoney,
   assertIanaTimezone,
   calculateAccountTotals,
+  calculateAppointmentDiscountAmount,
   createReversal,
   isInstantWithinRegisterDay,
   localDateKey,
@@ -62,6 +63,52 @@ expectDomainError('DISCOUNT_EXCEEDS_AGREED_AMOUNT', () => calculateAccountTotals
 expectDomainError('OVERPAYMENT', () => calculateAccountTotals({
   agreedAmount: 100_000,
   discountAmount: 15_000,
+  entries: [{ type: 'PAYMENT', direction: 'INFLOW', amount: 90_000 }]
+}))
+
+assert.equal(calculateAppointmentDiscountAmount({
+  agreedAmount: 65_000,
+  discountType: 'AMOUNT',
+  discountValue: 5_000
+}), 5_000)
+assert.equal(calculateAppointmentDiscountAmount({
+  agreedAmount: 65_000,
+  discountType: 'PERCENTAGE',
+  discountValue: 10
+}), 6_500)
+assert.equal(calculateAppointmentDiscountAmount({
+  agreedAmount: 12_345,
+  discountType: 'PERCENTAGE',
+  discountValue: 12.5
+}), 1_543)
+assert.equal(calculateAppointmentDiscountAmount({
+  agreedAmount: 50,
+  discountType: 'PERCENTAGE',
+  discountValue: 1
+}), 1)
+assert.equal(calculateAppointmentDiscountAmount({
+  agreedAmount: 12_345,
+  discountType: 'PERCENTAGE',
+  discountValue: 100
+}), 12_345)
+expectDomainError('INVALID_DISCOUNT_PERCENTAGE', () => calculateAppointmentDiscountAmount({
+  agreedAmount: 65_000,
+  discountType: 'PERCENTAGE',
+  discountValue: 0
+}))
+expectDomainError('INVALID_DISCOUNT_PERCENTAGE', () => calculateAppointmentDiscountAmount({
+  agreedAmount: 65_000,
+  discountType: 'PERCENTAGE',
+  discountValue: 100.01
+}))
+const percentageDiscount = calculateAppointmentDiscountAmount({
+  agreedAmount: 100_000,
+  discountType: 'PERCENTAGE',
+  discountValue: 20
+})
+expectDomainError('OVERPAYMENT', () => calculateAccountTotals({
+  agreedAmount: 100_000,
+  discountAmount: percentageDiscount,
   entries: [{ type: 'PAYMENT', direction: 'INFLOW', amount: 90_000 }]
 }))
 
