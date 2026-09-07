@@ -103,10 +103,10 @@ export function isInstantWithinRegisterDay(
 }
 
 export function resolveRegisterOpeningCash(input: {
-  previousExpectedCash: number | null
+  previousCountedCash: number | null
   firstOpeningCash: number | null
 }) {
-  if (input.previousExpectedCash !== null) return assertMoney(input.previousExpectedCash)
+  if (input.previousCountedCash !== null) return assertMoney(input.previousCountedCash)
   if (input.firstOpeningCash !== null) return assertMoney(input.firstOpeningCash)
   throw new CashDomainError('OPENING_CASH_REQUIRED')
 }

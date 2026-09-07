@@ -119,7 +119,8 @@ async function assertOpenAndCrossMidnight() {
     businessId: ids.businessA,
     currentSessionId: opened.session.id,
     responsibleUserId: ids.userA2,
-    countedCash: 900
+    countedCash: 900,
+    acknowledgeDifference: true
   })
   assert.equal(switched.day.id, opened.day.id, 'la jornada debe sobrevivir al cruce de medianoche')
   assert.equal(switched.closedSession.expectedCash, 1_000)
@@ -131,14 +132,15 @@ async function assertOpenAndCrossMidnight() {
 
 async function assertNewSessionCloseAndCarry(first: { day: { id: string }; session: { id: string } }) {
   await assert.rejects(() => service.closeRegisterDay({ businessId: ids.businessA, currentSessionId: first.day.id, countedCash: 1_000 }), (error: unknown) => hasCode(error, 'STALE_SESSION'))
-  const closed = await service.closeRegisterDay({ businessId: ids.businessA, currentSessionId: first.session.id, countedCash: 950 })
+  const closed = await service.closeRegisterDay({ businessId: ids.businessA, currentSessionId: first.session.id, countedCash: 950, acknowledgeDifference: true })
   assert.equal(closed.day.expectedClosingCash, 1_000)
   assert.equal(closed.day.closingDifference, -50)
-  assert.equal(closed.session.expectedCash, 1_000)
+  assert.equal(closed.session.expectedCash, 900, 'cada responsable debe conciliar desde el contado de la sesión anterior')
+  assert.equal(closed.session.cashDifference, 50)
   assert.equal(await countEntries(ids.businessA), 0)
 
   const reopened = await service.openRegisterDay({ businessId: ids.businessA, responsibleUserId: ids.userA })
-  assert.equal(reopened.day.openingCash, 1_000, 'la jornada siguiente hereda efectivo esperado, no contado')
+  assert.equal(reopened.day.openingCash, 950, 'la jornada siguiente debe heredar el efectivo realmente contado')
   return reopened
 }
 
@@ -202,11 +204,16 @@ async function assertInMemoryLifecycle() {
 
   const opened = await localService.openRegisterDay({ businessId: 'business-a', responsibleUserId: 'user-a', openingCash: 1_000 })
   memory.advanceHours(26)
+  await assert.rejects(
+    () => localService.startNewSession({ businessId: 'business-a', currentSessionId: opened.session.id, responsibleUserId: 'user-a2', countedCash: 800 }),
+    (error: unknown) => hasCode(error, 'CASH_DIFFERENCE_CONFIRMATION_REQUIRED')
+  )
   const switched = await localService.startNewSession({
     businessId: 'business-a',
     currentSessionId: opened.session.id,
     responsibleUserId: 'user-a2',
-    countedCash: 800
+    countedCash: 800,
+    acknowledgeDifference: true
   })
   assert.equal(switched.day.id, opened.day.id)
   assert.equal(switched.closedSession.expectedCash, 1_000)
@@ -216,16 +223,19 @@ async function assertInMemoryLifecycle() {
   const closed = await localService.closeRegisterDay({
     businessId: 'business-a',
     currentSessionId: switched.session.id,
-    countedCash: 900
+    countedCash: 900,
+    acknowledgeDifference: true
   })
   assert.equal(closed.day.expectedClosingCash, 1_000)
   assert.equal(closed.day.countedClosingCash, 900)
   assert.equal(closed.day.closingDifference, -100)
+  assert.equal(closed.session.expectedCash, 800)
+  assert.equal(closed.session.cashDifference, 100)
   assert.equal(memory.entryWrites, 0)
 
   const reopened = await localService.openRegisterDay({ businessId: 'business-a', responsibleUserId: 'user-a' })
-  assert.equal(reopened.day.openingCash, 1_000)
-  console.log('OK Caja sessions unit: apertura, cambio transmedianoche, cierre, controles sin ajuste y arrastre esperado.')
+  assert.equal(reopened.day.openingCash, 900)
+  console.log('OK Caja sessions unit: apertura, cambio transmedianoche, cierre, controles sin ajuste y arrastre contado.')
 }
 
 async function assertInMemoryRaces() {
@@ -275,8 +285,9 @@ function createMemoryRepository() {
     findResponsible: async (businessId: string, userId: string) => businessId === 'business-a' ? responsible.get(userId) ?? null : null,
     findOpenDay: async (businessId: string) => days.find((day) => day.businessId === businessId && day.closedAt === null) ?? null,
     findOpenSession: async (businessId: string, registerDayId: string) => sessions.find((session) => session.businessId === businessId && session.registerDayId === registerDayId && session.closedAt === null) ?? null,
-    findPreviousExpectedCash: async (businessId: string) => [...days].reverse().find((day) => day.businessId === businessId && day.closedAt !== null)?.expectedClosingCash ?? null,
+    findPreviousCountedCash: async (businessId: string) => [...days].reverse().find((day) => day.businessId === businessId && day.closedAt !== null)?.countedClosingCash ?? null,
     listDayEntries: async () => [],
+    listDaySessions: async (businessId: string, registerDayId: string) => sessions.filter((session) => session.businessId === businessId && session.registerDayId === registerDayId),
     createDay: async (input: { id: string; businessId: string; openedAt: Date; openingCash: number }) => {
       const day = { ...input, closedAt: null, expectedClosingCash: null, countedClosingCash: null, closingDifference: null }
       days.push(day)

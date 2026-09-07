@@ -314,7 +314,7 @@ async function assertPaymentsInMemory() {
   assert.equal(estimated.agreedAmount, 20_000)
   const discounted = await service.setAppointmentDiscount({ businessId: 'business-a', appointmentId: 'estimated', discountAmount: 2_000 })
   assert.equal(discounted.discountAmount, 2_000)
-  await assert.rejects(() => service.setAppointmentDiscount({ businessId: 'business-a', appointmentId: 'estimated', discountAmount: 1.5 }), /INVALID_MONEY_AMOUNT/)
+  await assert.rejects(() => service.setAppointmentDiscount({ businessId: 'business-a', appointmentId: 'estimated', discountAmount: 1.5 }), /INVALID_DISCOUNT_AMOUNT/)
   const simple = await service.recordAppointmentPayment({
     businessId: 'business-a', appointmentId: 'estimated', cashSessionId: 'session', origin: 'CASH_REGISTER',
     lines: [{ amount: 18_000, method: 'TRANSFER' }]

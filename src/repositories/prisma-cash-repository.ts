@@ -40,6 +40,7 @@ export type CashEntryForSummary = {
   direction: 'INFLOW' | 'OUTFLOW'
   amount: number
   method: 'CASH' | 'TRANSFER' | 'CARD' | 'UNSPECIFIED'
+  cashSessionId?: string | null
   reversedEntryType?: CashEntryForSummary['type']
 }
 
@@ -98,8 +99,9 @@ export interface CashTransactionRepository {
   findResponsible(businessId: string, userId: string): Promise<CashResponsible | null>
   findOpenDay(businessId: string): Promise<CashRegisterDayRecord | null>
   findOpenSession(businessId: string, registerDayId: string): Promise<CashSessionRecord | null>
-  findPreviousExpectedCash(businessId: string): Promise<number | null>
+  findPreviousCountedCash(businessId: string): Promise<number | null>
   listDayEntries(businessId: string, registerDayId: string): Promise<CashEntryForSummary[]>
+  listDaySessions(businessId: string, registerDayId: string): Promise<CashSessionRecord[]>
   createDay(input: { id: string; businessId: string; openedAt: Date; openingCash: number }): Promise<CashRegisterDayRecord>
   createSession(input: {
     id: string
@@ -287,17 +289,18 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
     return rows[0] ?? null
   }
 
-  async findPreviousExpectedCash(businessId: string) {
-    const rows = await this.transaction.$queryRaw<Array<{ expectedCash: number }>>(Prisma.sql`
-      SELECT day."expectedClosingCash" AS "expectedCash"
+  async findPreviousCountedCash(businessId: string) {
+    const rows = await this.transaction.$queryRaw<Array<{ countedCash: number }>>(Prisma.sql`
+      SELECT day."countedClosingCash" AS "countedCash"
       FROM "CashRegisterDay" AS day
       WHERE day."businessId" = ${businessId}
         AND day."closedAt" IS NOT NULL
+        AND day."countedClosingCash" IS NOT NULL
       ORDER BY day."closedAt" DESC, day."id" DESC
       LIMIT 1
       FOR SHARE OF day
     `)
-    return rows[0]?.expectedCash ?? null
+    return rows[0]?.countedCash ?? null
   }
 
   async listDayEntries(businessId: string, registerDayId: string) {
@@ -306,10 +309,12 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
       direction: CashEntryForSummary['direction']
       amount: number
       method: CashEntryForSummary['method']
+      cashSessionId: string | null
       reversedEntryType: CashEntryForSummary['type'] | null
     }>>(Prisma.sql`
       SELECT entry."type"::text AS "type", entry."direction"::text AS "direction", entry."amount",
-        entry."paymentMethod"::text AS "method", original."type"::text AS "reversedEntryType"
+        entry."paymentMethod"::text AS "method", entry."cashSessionId",
+        original."type"::text AS "reversedEntryType"
       FROM "CashEntry" AS entry
       LEFT JOIN "CashEntry" AS original
         ON original."businessId" = entry."businessId" AND original."id" = entry."reversesEntryId"
@@ -322,8 +327,21 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
       direction: row.direction,
       amount: row.amount,
       method: row.method,
+      cashSessionId: row.cashSessionId,
       ...(row.reversedEntryType ? { reversedEntryType: row.reversedEntryType } : {})
     }))
+  }
+
+  async listDaySessions(businessId: string, registerDayId: string) {
+    return this.transaction.$queryRaw<CashSessionRecord[]>(Prisma.sql`
+      SELECT session."id", session."businessId", session."registerDayId", session."responsibleUserId",
+        session."responsibleName", session."openedAt", session."closedAt", session."expectedCash",
+        session."countedCash", session."cashDifference"
+      FROM "CashSession" AS session
+      WHERE session."businessId" = ${businessId}
+        AND session."registerDayId" = ${registerDayId}
+      ORDER BY session."openedAt", session."id"
+    `)
   }
 
   async findUnlinkedAppointmentIds(businessId: string, afterId: string | null, limit: number) {

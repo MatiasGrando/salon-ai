@@ -43,6 +43,8 @@ assert.equal((await app.inject({ method: 'GET', url: '/cash-register/payment-con
 assert.equal((await app.inject({ method: 'GET', url: '/cash-register/payment-context', headers: { 'x-view': 'yes' } })).statusCode, 403)
 assert.equal((await app.inject({ method: 'GET', url: '/cash-register/payment-context', headers: { 'x-payments': 'yes' } })).statusCode, 200)
 assert.equal((await app.inject({ method: 'POST', url: '/cash-register/open', headers: { 'x-sessions': 'yes' }, payload: {} })).statusCode, 400)
+assert.equal((await app.inject({ method: 'POST', url: '/cash-register/new-session', headers: { 'x-sessions': 'yes' }, payload: { currentSessionId: 'session', responsibleUserId: 'next-user', countedCash: 90, acknowledgeDifference: true } })).statusCode, 200)
+assert.equal(callInputs.findLast((call) => call.property === 'startNewSession')?.input.acknowledgeDifference, true)
 assert.equal((await app.inject({ method: 'POST', url: '/cash-register/entries', headers: { 'x-operate': 'yes' }, payload: { cashSessionId: 'session', type: 'EXPENSE', amount: 10, description: 'closed' } })).statusCode, 409)
 assert.equal((await app.inject({ method: 'POST', url: '/cash-register/entries', headers: { 'x-adjust': 'yes' }, payload: { cashSessionId: 'session', type: 'EXPENSE', amount: 10, description: 'x' } })).statusCode, 403)
 assert.equal((await app.inject({ method: 'POST', url: '/cash-register/entries', headers: { 'x-operate': 'yes' }, payload: { businessId: 'foreign-business', cashSessionId: 'session', type: 'CASH_IN', amount: 10, description: 'x' } })).statusCode, 200)

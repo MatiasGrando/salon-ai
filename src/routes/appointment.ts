@@ -58,6 +58,8 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
         lines?: Array<{ amount: number; method: 'CASH' | 'TRANSFER' | 'CARD' }>
         observation?: string | null
         agreedAmount?: number
+        discountType?: 'AMOUNT' | 'PERCENTAGE'
+        discountValue?: number
       }
     }
     if (body.force && request.auth?.user.role === 'STAFF' && !request.auth.user.canForceAppointments) {
@@ -67,15 +69,38 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
     const authUser = request.auth?.user
     if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
     const payment = body.payment
+    const hasPaymentLines = Boolean(payment && Array.isArray(payment.lines) && payment.lines.length > 0)
+    const hasAgreedTotal = payment?.agreedAmount !== undefined
+    const hasDiscount = payment?.discountType !== undefined || payment?.discountValue !== undefined
     const paymentBusinessId = payment ? financeBusinessId(authUser, payment.businessId) : null
     if (payment && options.cashRegisterEnabled === false) {
       return reply.status(409).send({ code: 'CASH_DISABLED', message: 'Caja no está habilitada' })
     }
-    if (payment && !hasCashPermission(authUser, 'canRecordAppointmentPayments')) {
+    if ((hasPaymentLines || hasAgreedTotal) && !hasCashPermission(authUser, 'canRecordAppointmentPayments')) {
       return reply.status(403).send({ code: 'CASH_PERMISSION_REQUIRED', message: 'No tenés permiso para registrar pagos del turno' })
     }
-    if (payment && (!paymentBusinessId || !payment.cashSessionId?.trim() || !Array.isArray(payment.lines))) {
+    if (hasDiscount && !hasCashPermission(authUser, 'canApplyDiscounts')) {
+      return reply.status(403).send({ code: 'CASH_PERMISSION_REQUIRED', message: 'No tenés permiso para aplicar descuentos' })
+    }
+    if (payment && !paymentBusinessId) {
+      return reply.status(400).send({ code: 'VALIDATION', message: 'Negocio requerido para registrar datos financieros' })
+    }
+    if (hasPaymentLines && !payment?.cashSessionId?.trim()) {
       return reply.status(400).send({ code: 'VALIDATION', message: 'Sesión y líneas de pago son requeridas' })
+    }
+    if (payment && payment.lines !== undefined && !Array.isArray(payment.lines)) {
+      return reply.status(400).send({ code: 'VALIDATION', message: 'Las líneas de pago son inválidas' })
+    }
+    if (hasDiscount) {
+      if (!['AMOUNT', 'PERCENTAGE'].includes(payment?.discountType || '') || typeof payment?.discountValue !== 'number') {
+        return reply.status(400).send({ code: 'VALIDATION', message: 'Tipo y valor de descuento requeridos' })
+      }
+      if (payment.discountType === 'PERCENTAGE' && (!Number.isFinite(payment.discountValue) || payment.discountValue <= 0 || payment.discountValue > 100)) {
+        return reply.status(400).send({ code: 'VALIDATION', message: 'El porcentaje debe ser mayor a 0 y no superar 100' })
+      }
+      if (payment.discountType === 'AMOUNT' && (!Number.isSafeInteger(payment.discountValue) || payment.discountValue <= 0)) {
+        return reply.status(400).send({ code: 'VALIDATION', message: 'El monto debe ser un entero mayor a 0' })
+      }
     }
 
     let result
@@ -103,14 +128,24 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
               agreedAmount: payment.agreedAmount
             })
           }
-          await transactionalCashService.recordAppointmentPayment({
-            businessId,
-            appointmentId: appointment.id,
-            cashSessionId: payment.cashSessionId!.trim(),
-            origin: 'AGENDA',
-            lines: payment.lines!,
-            ...(payment.observation === undefined ? {} : { observation: payment.observation })
-          })
+          if (hasDiscount) {
+            await transactionalCashService.setAppointmentDiscount({
+              businessId,
+              appointmentId: appointment.id,
+              discountType: payment.discountType!,
+              discountValue: payment.discountValue!
+            })
+          }
+          if (hasPaymentLines) {
+            await transactionalCashService.recordAppointmentPayment({
+              businessId,
+              appointmentId: appointment.id,
+              cashSessionId: payment.cashSessionId!.trim(),
+              origin: 'AGENDA',
+              lines: payment.lines!,
+              ...(payment.observation === undefined ? {} : { observation: payment.observation })
+            })
+          }
         }
       } : {})
     } catch (error) {

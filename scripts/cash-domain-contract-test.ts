@@ -194,10 +194,10 @@ assert.equal(isInstantWithinRegisterDay(new Date('2026-09-06T03:00:00.000Z'), { 
 assert.equal(isInstantWithinRegisterDay(new Date('2026-09-06T06:00:00.000Z'), { openedAt, closedAt }), false)
 assert.equal(isInstantWithinRegisterDay(new Date('2026-09-07T03:00:00.000Z'), { openedAt, closedAt: null }), true)
 
-assert.equal(resolveRegisterOpeningCash({ previousExpectedCash: 75_000, firstOpeningCash: null }), 75_000)
-assert.equal(resolveRegisterOpeningCash({ previousExpectedCash: null, firstOpeningCash: 12_000 }), 12_000)
+assert.equal(resolveRegisterOpeningCash({ previousCountedCash: 75_000, firstOpeningCash: null }), 75_000)
+assert.equal(resolveRegisterOpeningCash({ previousCountedCash: null, firstOpeningCash: 12_000 }), 12_000)
 expectDomainError('OPENING_CASH_REQUIRED', () => resolveRegisterOpeningCash({
-  previousExpectedCash: null,
+  previousCountedCash: null,
   firstOpeningCash: null
 }))
 

@@ -111,24 +111,24 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
   })
 
   app.post('/cash-register/new-session', async (request, reply) => {
-    const body = request.body as { businessId?: string; currentSessionId?: string; responsibleUserId?: string; countedCash?: number }
+    const body = request.body as { businessId?: string; currentSessionId?: string; responsibleUserId?: string; countedCash?: number; acknowledgeDifference?: boolean }
     const access = cashAccess(request.auth?.user, 'canManageCashSessions', body)
     if (!access.ok) return cashAccessFailure(reply, access)
     if (!body.currentSessionId?.trim() || !body.responsibleUserId?.trim() || body.countedCash === undefined) return validation(reply, 'Sesión, responsable y efectivo contado son requeridos')
     try {
-      return await service.startNewSession({ businessId: access.businessId, currentSessionId: body.currentSessionId.trim(), responsibleUserId: body.responsibleUserId.trim(), countedCash: body.countedCash })
+      return await service.startNewSession({ businessId: access.businessId, currentSessionId: body.currentSessionId.trim(), responsibleUserId: body.responsibleUserId.trim(), countedCash: body.countedCash, acknowledgeDifference: body.acknowledgeDifference === true })
     } catch (error) {
       return sendCashError(reply, error)
     }
   })
 
   app.post('/cash-register/close', async (request, reply) => {
-    const body = request.body as { businessId?: string; currentSessionId?: string; countedCash?: number }
+    const body = request.body as { businessId?: string; currentSessionId?: string; countedCash?: number; acknowledgeDifference?: boolean }
     const access = cashAccess(request.auth?.user, 'canManageCashSessions', body)
     if (!access.ok) return cashAccessFailure(reply, access)
     if (!body.currentSessionId?.trim() || body.countedCash === undefined) return validation(reply, 'Sesión y efectivo contado son requeridos')
     try {
-      return await service.closeRegisterDay({ businessId: access.businessId, currentSessionId: body.currentSessionId.trim(), countedCash: body.countedCash })
+      return await service.closeRegisterDay({ businessId: access.businessId, currentSessionId: body.currentSessionId.trim(), countedCash: body.countedCash, acknowledgeDifference: body.acknowledgeDifference === true })
     } catch (error) {
       return sendCashError(reply, error)
     }
@@ -233,6 +233,9 @@ export function sendCashError(reply: FastifyReply, error: unknown) {
   }
   if (code === 'OVERPAYMENT') {
     return reply.status(409).send({ code, message: 'El importe supera el saldo pendiente o el descuento deja el total por debajo de lo ya pagado' })
+  }
+  if (code === 'CASH_DIFFERENCE_CONFIRMATION_REQUIRED') {
+    return reply.status(409).send({ code, message: 'Confirmá la diferencia de efectivo antes de continuar' })
   }
   if (code === 'INVALID_DISCOUNT_PERCENTAGE') {
     return reply.status(400).send({ code: 'VALIDATION', message: 'El porcentaje debe ser mayor a 0 y no superar 100' })

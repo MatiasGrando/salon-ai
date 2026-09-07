@@ -3,7 +3,11 @@
 .env.*
 node_modules/
 .codex-remote-attachments/
+.codex-deploy/
 .atl/
 *.log
 Invoke-LocalF8F10Drill.ps1
+Invoke-LocalF8F10Drill.output.log
 measurements/
+output/
+tmp/

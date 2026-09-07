@@ -11458,12 +11458,15 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       width: min(680px, 100%);
       height: min(920px, calc(100dvh - 36px));
       max-height: calc(100dvh - 36px);
+      display: flex;
+      flex-direction: column;
       border: 1px solid #cbd5e1;
     }
 
     .appointment-dialog-card .dialog-header {
       min-height: 64px;
       padding: 16px 20px;
+      flex: 0 0 auto;
     }
 
     .appointment-dialog-card .dialog-header h3 {
@@ -11471,19 +11474,65 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       font-weight: 850;
     }
 
+    .appointment-dialog-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .appointment-dialog-header-actions > :is(a, button) {
+      width: 38px;
+      height: 38px;
+      border: 1px solid #dce5ee;
+      border-radius: 9px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: #fff;
+      color: #2563eb;
+      text-decoration: none;
+      line-height: 0;
+    }
+
+    .appointment-dialog-header-actions > :is(a, button)[hidden] { display: none; }
+    .appointment-dialog-header-actions > a.whatsapp { color: #0d9f5f; }
+    .appointment-dialog-header-actions > :is(a, button):hover { background: #f8fafc; border-color: #94a3b8; }
+    .appointment-dialog-header-actions > :is(a, button):focus-visible { outline: 3px solid #dbeafe; outline-offset: 1px; }
+    .appointment-dialog-header-actions > .icon-button { color: var(--text); }
+    .appointment-dialog-header-actions > :is(a, button) .ti { width: 21px; height: 21px; stroke-width: 2.2; }
+
     .appointment-dialog-card :is(.icon-button, .secondary) {
       border-color: #b8c4d4;
     }
 
     .appointment-form {
-      padding: 18px 20px 0;
-      display: grid;
-      gap: 14px;
-      overflow: auto;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+      overflow-y: hidden;
       min-height: 0;
-      scroll-padding-block: 16px 84px;
-      scrollbar-gutter: stable;
     }
+
+    .appointment-modal-body {
+      flex: 1;
+      min-height: 0;
+      padding: 18px 20px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      overflow-y: auto;
+    }
+
+    .appointment-modal-body > * { flex-shrink: 0; }
+
+    .appointment-modal-body::-webkit-scrollbar { width: 8px; }
+    .appointment-modal-body::-webkit-scrollbar-track { background: #f1f5f9; }
+    .appointment-modal-body::-webkit-scrollbar-thumb {
+      border-radius: 999px;
+      background: #94a3b8;
+    }
+    .appointment-modal-body::-webkit-scrollbar-thumb:hover { background: #64748b; }
 
     .appointment-form .form-row {
       display: grid;
@@ -11563,14 +11612,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     .appointment-form .dialog-actions {
-      position: sticky;
+      flex: 0 0 auto;
       z-index: 12;
-      bottom: 0;
-      margin: 0 -20px;
+      margin: 0;
       padding: 14px 20px;
       border-top: 1px solid #e4e9f0;
-      background: rgba(255, 255, 255, .97);
-      backdrop-filter: blur(8px);
+      background: #fff;
     }
 
     .appointment-customer-combobox { position: relative; }
@@ -11614,22 +11661,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     .appointment-customer-results button span,
     .appointment-customer-result-empty { color: #667085; font-size: 12px; }
 
-    .appointment-contact-actions {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 10px;
-      border: 1px solid #e5e7eb;
-      border-radius: 8px;
-      background: #f9fafb;
-    }
+    .appointment-attention-picker { position: relative; }
+    .appointment-attention-picker[hidden], .appointment-attention-menu[hidden] { display: none; }
 
-    .appointment-contact-actions[hidden] {
-      display: none;
-    }
-
-    .appointment-contact-actions a,
-    .appointment-contact-actions button {
+    .appointment-attention-toggle {
       width: 38px;
       height: 38px;
       border: 1px solid #dce5ee;
@@ -11638,29 +11673,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       align-items: center;
       justify-content: center;
       background: #fff;
-      color: #2563eb;
-      text-decoration: none;
-      line-height: 0;
     }
-
-    .appointment-contact-actions a.whatsapp {
-      color: #0d9f5f;
-    }
-
-    .appointment-contact-actions button:disabled {
-      color: #9aa5b5;
-      background: #f3f4f6;
-      cursor: not-allowed;
-    }
-
-    .appointment-contact-actions .ti {
-      width: 22px;
-      height: 22px;
-      stroke-width: 2.2;
-    }
-
-    .appointment-attention-picker { position: relative; }
-    .appointment-attention-picker[hidden], .appointment-attention-menu[hidden] { display: none; }
 
     .appointment-attention-toggle .appointment-attention-dot,
     .appointment-attention-option-dot {
@@ -11681,7 +11694,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       position: absolute;
       z-index: 40;
       top: calc(100% + 7px);
-      left: 0;
+      right: 0;
       width: 170px;
       padding: 5px;
       border: 1px solid #dbe4f0;
@@ -11690,11 +11703,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       box-shadow: 0 14px 32px rgba(15, 23, 42, .18);
     }
 
-    .appointment-contact-actions .appointment-attention-menu button {
+    .appointment-attention-menu button {
       width: 100%;
       height: 38px;
       padding: 0 10px;
       border: 0;
+      display: flex;
+      align-items: center;
       justify-content: flex-start;
       gap: 9px;
       color: #1e293b;
@@ -11702,8 +11717,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       line-height: 1;
     }
 
-    .appointment-contact-actions .appointment-attention-menu button:hover,
-    .appointment-contact-actions .appointment-attention-menu button[aria-checked="true"] { background: #f1f5f9; }
+    .appointment-attention-menu button:hover,
+    .appointment-attention-menu button[aria-checked="true"] { background: #f1f5f9; }
 
     .dialog-actions {
       display: flex;
@@ -15196,9 +15211,23 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       <section class="dialog appointment-dialog-card" role="dialog" aria-modal="true" aria-labelledby="appointment-dialog-title">
         <header class="dialog-header">
           <h3 id="appointment-dialog-title">Nuevo turno</h3>
-          <button class="icon-button" id="appointment-close" type="button" title="Cerrar">X</button>
+          <div class="appointment-dialog-header-actions">
+            <a class="whatsapp" id="appointment-whatsapp" href="#" title="Abrir WhatsApp Desktop" aria-label="Abrir WhatsApp Desktop" data-icon="whatsapp" hidden></a>
+            <button id="appointment-open-chat" type="button" title="Abrir chat del cliente" aria-label="Abrir chat del cliente" data-icon="mail" hidden></button>
+            <div class="appointment-attention-picker" id="appointment-attention-picker" hidden>
+              <input id="appointment-attention-color" type="hidden" value="NONE">
+              <button class="appointment-attention-toggle" id="appointment-attention-toggle" type="button" title="Marcar turno para atenci&oacute;n" aria-label="Marcar turno para atenci&oacute;n" aria-haspopup="menu" aria-expanded="false"><span class="appointment-attention-dot" aria-hidden="true"></span></button>
+              <div class="appointment-attention-menu" id="appointment-attention-menu" role="menu" hidden>
+                <button type="button" role="menuitemradio" data-appointment-attention="NONE"><span class="appointment-attention-option-dot"></span>Sin color</button>
+                <button type="button" role="menuitemradio" data-appointment-attention="YELLOW"><span class="appointment-attention-option-dot attention-yellow"></span>Amarillo</button>
+                <button type="button" role="menuitemradio" data-appointment-attention="ORANGE"><span class="appointment-attention-option-dot attention-orange"></span>Naranja</button>
+              </div>
+            </div>
+            <button class="icon-button" id="appointment-close" type="button" title="Cerrar">X</button>
+          </div>
         </header>
         <form class="appointment-form" id="appointment-form" novalidate>
+          <div class="appointment-modal-body">
           <div class="form-row">
             <label for="appointment-start">Fecha y hora</label>
             <input class="field" id="appointment-start" type="datetime-local" required>
@@ -15231,19 +15260,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               <input class="field" id="appointment-customer-phone">
             </div>
           </div>
-          <div class="appointment-contact-actions" id="appointment-contact-actions" hidden>
-            <a class="whatsapp" id="appointment-whatsapp" href="#" title="Abrir WhatsApp Desktop" aria-label="Abrir WhatsApp Desktop" data-icon="whatsapp"></a>
-            <button id="appointment-open-chat" type="button" title="Abrir chat del cliente" aria-label="Abrir chat del cliente" data-icon="mail"></button>
-            <div class="appointment-attention-picker" id="appointment-attention-picker" hidden>
-              <input id="appointment-attention-color" type="hidden" value="NONE">
-              <button class="appointment-attention-toggle" id="appointment-attention-toggle" type="button" title="Marcar turno para atenci&oacute;n" aria-label="Marcar turno para atenci&oacute;n" aria-haspopup="menu" aria-expanded="false"><span class="appointment-attention-dot" aria-hidden="true"></span></button>
-              <div class="appointment-attention-menu" id="appointment-attention-menu" role="menu" hidden>
-                <button type="button" role="menuitemradio" data-appointment-attention="NONE"><span class="appointment-attention-option-dot"></span>Sin color</button>
-                <button type="button" role="menuitemradio" data-appointment-attention="YELLOW"><span class="appointment-attention-option-dot attention-yellow"></span>Amarillo</button>
-                <button type="button" role="menuitemradio" data-appointment-attention="ORANGE"><span class="appointment-attention-option-dot attention-orange"></span>Naranja</button>
-              </div>
-            </div>
-          </div>
           <div class="appointment-origin-summary" id="appointment-origin-row" hidden>
             <span id="appointment-origin-badge" aria-hidden="true"></span>
             <span>Origen: <strong id="appointment-origin-label"></strong></span>
@@ -15269,6 +15285,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           </details>
           ${cashRegisterEnabled ? appointmentFinanceMarkup : ''}
           <p class="hint" id="appointment-feedback"></p>
+          </div>
           <div class="dialog-actions">
             <button class="danger" id="appointment-no-show" type="button" hidden>Marcar ausente</button>
             <button class="danger" id="appointment-delete" type="button" hidden>Eliminar</button>
@@ -18925,7 +18942,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       appointmentCustomerResults: document.getElementById('appointment-customer-results'),
       appointmentCustomerName: document.getElementById('appointment-customer-name'),
       appointmentCustomerPhone: document.getElementById('appointment-customer-phone'),
-      appointmentContactActions: document.getElementById('appointment-contact-actions'),
       appointmentWhatsapp: document.getElementById('appointment-whatsapp'),
       appointmentOpenChat: document.getElementById('appointment-open-chat'),
       appointmentAttentionPicker: document.getElementById('appointment-attention-picker'),
@@ -29605,7 +29621,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         ? buildAppointmentReminderMessage(reminderAppointment, els.appointmentCustomerName.value || 'cliente')
         : ''
 
-      els.appointmentContactActions.hidden = !canOpenChat && !canUseWhatsapp && !canSetAttention
       els.appointmentWhatsapp.hidden = !canUseWhatsapp
       els.appointmentWhatsapp.href = canUseWhatsapp
         ? whatsappAppUrl(digits, reminderMessage)
@@ -31875,7 +31890,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
 
       if (${cashRegisterEnabled ? "section === 'cash'" : 'false'}) {
-        loadCashRegister().catch((error) => showCrmToast(error.message, 'error'))
+        loadCashRegister({ preserve: Boolean(state.cashRegister?.loaded) }).catch((error) => showCrmToast(error.message, 'error'))
       }
 
       if (section === 'customers') {

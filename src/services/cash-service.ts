@@ -41,8 +41,8 @@ export class CashService {
       const responsible = await requireResponsible(transaction, input.businessId, input.responsibleUserId)
       if (await transaction.findOpenDay(input.businessId)) throw new CashServiceError('OPEN_DAY_EXISTS')
 
-      const previousExpectedCash = await transaction.findPreviousExpectedCash(input.businessId)
-      const openingCash = resolveRegisterOpeningCash({ previousExpectedCash, firstOpeningCash })
+      const previousCountedCash = await transaction.findPreviousCountedCash(input.businessId)
+      const openingCash = resolveRegisterOpeningCash({ previousCountedCash, firstOpeningCash })
       const day = await transaction.createDay({
         id: randomUUID(),
         businessId: input.businessId,
@@ -66,13 +66,21 @@ export class CashService {
     currentSessionId: string
     responsibleUserId: string
     countedCash: number
+    acknowledgeDifference?: boolean
   }) {
     const countedCash = assertMoney(input.countedCash)
     return this.repository.transaction(async (transaction) => {
       const context = await requireBusinessContext(transaction, input.businessId)
       const { day, session } = await requireCurrentState(transaction, input.businessId, input.currentSessionId)
       const responsible = await requireResponsible(transaction, input.businessId, input.responsibleUserId)
-      const expectedCash = await expectedCashForDay(transaction, day)
+      const [entries, sessions] = await Promise.all([
+        transaction.listDayEntries(input.businessId, day.id),
+        transaction.listDaySessions(input.businessId, day.id)
+      ])
+      const expectedCash = expectedCashForSession(day, session, sessions, entries)
+      if (countedCash !== expectedCash && input.acknowledgeDifference !== true) {
+        throw new CashServiceError('CASH_DIFFERENCE_CONFIRMATION_REQUIRED')
+      }
       const closedSession = await transaction.closeSession({
         businessId: input.businessId,
         sessionId: session.id,
@@ -97,28 +105,38 @@ export class CashService {
     businessId: string
     currentSessionId: string
     countedCash: number
+    acknowledgeDifference?: boolean
   }) {
     const countedCash = assertMoney(input.countedCash)
     return this.repository.transaction(async (transaction) => {
       const context = await requireBusinessContext(transaction, input.businessId)
       const { day, session } = await requireCurrentState(transaction, input.businessId, input.currentSessionId)
-      const expectedCash = await expectedCashForDay(transaction, day)
-      const cashDifference = countedCash - expectedCash
+      const [entries, sessions] = await Promise.all([
+        transaction.listDayEntries(input.businessId, day.id),
+        transaction.listDaySessions(input.businessId, day.id)
+      ])
+      const sessionExpectedCash = expectedCashForSession(day, session, sessions, entries)
+      const dayExpectedCash = summarizeCashRegister({ openingCash: day.openingCash, entries }).expectedCash
+      const sessionCashDifference = countedCash - sessionExpectedCash
+      const dayCashDifference = countedCash - dayExpectedCash
+      if (sessionCashDifference !== 0 && input.acknowledgeDifference !== true) {
+        throw new CashServiceError('CASH_DIFFERENCE_CONFIRMATION_REQUIRED')
+      }
       const closedSession = await transaction.closeSession({
         businessId: input.businessId,
         sessionId: session.id,
         closedAt: context.dbNow,
-        expectedCash,
+        expectedCash: sessionExpectedCash,
         countedCash,
-        cashDifference
+        cashDifference: sessionCashDifference
       })
       const closedDay = await transaction.closeDay({
         businessId: input.businessId,
         registerDayId: day.id,
         closedAt: context.dbNow,
-        expectedClosingCash: expectedCash,
+        expectedClosingCash: dayExpectedCash,
         countedClosingCash: countedCash,
-        closingDifference: cashDifference
+        closingDifference: dayCashDifference
       })
       return { day: closedDay, session: closedSession }
     })
@@ -419,8 +437,17 @@ export class CashService {
       if (!day) return { day: null, session: null, summary: null }
       const session = await transaction.findOpenSession(input.businessId, day.id)
       if (!session) throw new CashServiceError('CASH_CLOSED')
-      const entries = await transaction.listDayEntries(input.businessId, day.id)
-      return { day, session, summary: summarizeCashRegister({ openingCash: day.openingCash, entries }) }
+      const [entries, sessions] = await Promise.all([
+        transaction.listDayEntries(input.businessId, day.id),
+        transaction.listDaySessions(input.businessId, day.id)
+      ])
+      return {
+        day,
+        session,
+        sessions,
+        sessionExpectedCash: expectedCashForSession(day, session, sessions, entries),
+        summary: summarizeCashRegister({ openingCash: day.openingCash, entries })
+      }
     })
   }
 
@@ -451,8 +478,11 @@ export class CashService {
       if (!await transaction.lockBusiness(input.businessId)) throw new CashServiceError('BUSINESS_NOT_FOUND')
       const day = await transaction.findRegisterDay(input.businessId, input.registerDayId)
       if (!day) throw new CashServiceError('REGISTER_DAY_NOT_FOUND')
-      const entries = await transaction.listDayEntries(input.businessId, day.id)
-      return { day, summary: summarizeCashRegister({ openingCash: day.openingCash, entries }) }
+      const [entries, sessions] = await Promise.all([
+        transaction.listDayEntries(input.businessId, day.id),
+        transaction.listDaySessions(input.businessId, day.id)
+      ])
+      return { day, sessions, summary: summarizeCashRegister({ openingCash: day.openingCash, entries }) }
     })
   }
 
@@ -693,12 +723,17 @@ async function requireCurrentState(
   return { day, session }
 }
 
-async function expectedCashForDay(
-  transaction: CashTransactionRepository,
-  day: CashRegisterDayRecord
+function expectedCashForSession(
+  day: CashRegisterDayRecord,
+  session: CashSessionRecord,
+  sessions: CashSessionRecord[],
+  entries: CashEntryForSummary[]
 ) {
-  const entries = await transaction.listDayEntries(day.businessId, day.id)
-  return summarizeCashRegister({ openingCash: day.openingCash, entries }).expectedCash
+  const sessionIndex = sessions.findIndex((candidate) => candidate.id === session.id)
+  const previousSession = sessionIndex > 0 ? sessions[sessionIndex - 1] : null
+  const openingCash = previousSession?.countedCash ?? previousSession?.expectedCash ?? day.openingCash
+  const sessionEntries = entries.filter((entry) => entry.cashSessionId === session.id)
+  return summarizeCashRegister({ openingCash, entries: sessionEntries }).expectedCash
 }
 
 async function requireAppointmentAccount(
