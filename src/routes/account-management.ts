@@ -1,3 +1,4 @@
+import { parseBusinessType } from '../services/business-type.js'
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
 import { hashPassword } from '../services/auth-service.js'
@@ -381,6 +382,7 @@ export async function accountManagementRoutes(app: FastifyInstance) {
   app.post('/admin/accounts', async (request, reply) => {
     if (!canManageAccounts(request.auth)) return reply.status(403).send({ message: 'No tenes permiso para gestionar cuentas' })
     const body = request.body as {
+      businessType?: unknown
       businessName?: string
       adminName?: string
       adminEmail?: string
@@ -389,6 +391,8 @@ export async function accountManagementRoutes(app: FastifyInstance) {
       planId?: string
       billingDay?: number
     }
+    const businessType = parseBusinessType(body.businessType)
+    if (!businessType) return reply.status(400).send({ message: 'El modelo de negocio no es valido' })
     const businessName = body.businessName?.trim()
     const adminName = body.adminName?.trim()
     const adminEmail = body.adminEmail?.trim().toLowerCase()
@@ -416,6 +420,7 @@ export async function accountManagementRoutes(app: FastifyInstance) {
     let createdUserId: string | undefined
     try {
       business = await businessService.create(businessName, undefined, {
+        businessType,
         accountAdminId: request.auth!.user.id,
         createdByUserId: request.auth!.user.id,
         contactName: adminName,
@@ -618,6 +623,7 @@ async function chargeActionContext(request: {
 function serializeAccountListItem(account: {
   id: string
   customerCode: string
+  businessType?: string
   name: string
   contactName: string | null
   contactPhone: string | null
@@ -646,6 +652,7 @@ function serializeAccountListItem(account: {
   return {
     id: account.id,
     customerCode: account.customerCode,
+    businessType: account.businessType || 'SALON',
     name: account.name,
     contactName: account.contactName,
     contactPhone: account.contactPhone,
@@ -655,6 +662,6 @@ function serializeAccountListItem(account: {
     plan: account.plan ? serializePlan(account.plan) : null,
     accountAdmin: account.accountAdmin,
     primaryUser: account.users[0] || null,
-    onboarding: account.onboardingStatus ? serializeBusinessOnboarding(account.onboardingStatus) : null
+    onboarding: account.onboardingStatus ? serializeBusinessOnboarding(account.onboardingStatus, account.businessType) : null
   }
 }

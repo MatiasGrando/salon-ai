@@ -1,3 +1,4 @@
+import { parseBusinessType } from '../services/business-type.js'
 import type { FastifyInstance } from 'fastify'
 import type { Prisma } from '../generated/prisma/client.js'
 import { prisma } from '../config/prisma.js'
@@ -26,12 +27,16 @@ export async function businessRoutes(app: FastifyInstance) {
     }
 
     const body = request.body as {
+      businessType?: unknown
       name: string
       slug?: string
     }
+    const businessType = parseBusinessType(body.businessType)
+    if (!businessType) return reply.status(400).send({ message: 'El modelo de negocio no es valido' })
 
     try {
       return await service.create(body.name, body.slug, {
+        businessType,
         accountAdminId: request.auth.user.id,
         createdByUserId: request.auth.user.id
       })

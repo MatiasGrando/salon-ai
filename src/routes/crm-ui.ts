@@ -4904,6 +4904,18 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       display: grid;
     }
 
+    .workshop-view { display: none; min-width: 0; padding: 32px; overflow: auto; }
+    .app[data-section="autos"], .app[data-section="workshop-jobs"] { grid-template-columns: var(--workspace-nav-width) minmax(0, 1fr); }
+    .app[data-section="autos"] .sidebar, .app[data-section="autos"] .chat, .app[data-section="autos"] .details,
+    .app[data-section="workshop-jobs"] .sidebar, .app[data-section="workshop-jobs"] .chat, .app[data-section="workshop-jobs"] .details { display: none; }
+    .app[data-section="autos"] .workshop-autos-view, .app[data-section="workshop-jobs"] .workshop-jobs-view { display: block; }
+    .workshop-empty { margin-top: 32px; padding: 48px 24px; border: 1px solid var(--border); border-radius: 16px; text-align: center; }
+    .workshop-empty p { color: var(--muted); }
+    @media (max-width: 900px) {
+      .app[data-section="autos"], .app[data-section="workshop-jobs"] { grid-template-columns: minmax(0, 1fr); }
+      .workshop-view { padding: 20px; }
+    }
+
     .app[data-section="accounts"] {
       grid-template-columns: var(--workspace-nav-width) minmax(0, 1fr);
       background: #090a0c;
@@ -14739,6 +14751,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           <span>Administr&aacute; tu negocio</span>
         </div>
       </div>
+      <button type="button" data-mobile-section="autos">Autos</button>
+      <button type="button" data-mobile-section="workshop-jobs">Trabajos</button>
       <button class="active" type="button" data-mobile-section="conversations">Chats</button>
       <button type="button" data-mobile-section="agenda">Agenda</button>
       ${cashRegisterEnabled ? '<button type="button" data-mobile-section="cash">Caja</button>' : ''}
@@ -14942,6 +14956,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     </aside>
 
+    <section class="workshop-view workshop-autos-view" aria-labelledby="workshop-autos-title">
+      <header><h1 id="workshop-autos-title">Autos</h1><p>El historial de cada veh&iacute;culo, en un solo lugar.</p></header>
+      <div class="workshop-empty"><h2>Todav&iacute;a no hay autos registrados</h2><p>Tu espacio de taller ya est&aacute; disponible. La carga de autos se habilitar&aacute; en la pr&oacute;xima etapa.</p></div>
+    </section>
+    <section class="workshop-view workshop-jobs-view" aria-labelledby="workshop-jobs-title">
+      <header><h1 id="workshop-jobs-title">Trabajos</h1><p>La actividad del taller, organizada por fecha.</p></header>
+      <div class="workshop-empty"><h2>Todav&iacute;a no hay trabajos registrados</h2><p>Ac&aacute; vas a consultar los trabajos realizados y acceder al auto correspondiente.</p></div>
+    </section>
     <section class="accounts-view" id="accounts-view">
       <div class="accounts-shell">
         <header class="accounts-header">
@@ -15330,6 +15352,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         </header>
         <form class="settings-form" id="account-create-form">
           <div class="settings-field"><label for="account-business-name">Nombre del comercio</label><input class="field" id="account-business-name" placeholder="Ej: Bellara Nails" required></div>
+          <div class="settings-field"><label for="account-business-type">Modelo de negocio</label><select class="field" id="account-business-type" required><option value="SALON">Peluquer&iacute;a / est&eacute;tica</option><option value="WORKSHOP">Taller</option></select></div>
           <div class="settings-field"><label for="account-owner-name">Administrador del comercio</label><input class="field" id="account-owner-name" autocomplete="name" placeholder="Nombre y apellido" required></div>
           <div class="settings-field"><label for="account-owner-email">Email de acceso</label><input class="field" id="account-owner-email" type="email" autocomplete="email" placeholder="admin@comercio.com" required></div>
           <div class="settings-field"><label for="account-contact-phone">Tel&eacute;fono</label><input class="field" id="account-contact-phone" type="tel" autocomplete="tel" placeholder="Ej: +54 9 11 1234-5678" required></div>
@@ -19087,6 +19110,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       accountCreateCancel: document.getElementById('account-create-cancel'),
       accountCreateSubmit: document.getElementById('account-create-submit'),
       accountCreateFeedback: document.getElementById('account-create-feedback'),
+      accountBusinessType: document.getElementById('account-business-type'),
       accountBusinessName: document.getElementById('account-business-name'),
       accountOwnerName: document.getElementById('account-owner-name'),
       accountOwnerEmail: document.getElementById('account-owner-email'),
@@ -19236,6 +19260,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (els.appShell) els.appShell.dataset.section = currentSection
       document.body.dataset.currentSection = currentSection
       const items = [
+        { section: 'autos', label: 'Autos', icon: 'briefcase' },
+        { section: 'workshop-jobs', label: 'Trabajos', icon: 'calendar' },
         { section: 'accounts', label: 'Cuentas', icon: 'briefcase' },
         { section: 'conversations', label: 'Conversaciones', icon: 'message' },
         { section: 'agenda', label: 'Agenda', icon: 'calendar' },
@@ -19295,10 +19321,18 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       })
     }
 
+    function isWorkshopBusiness() {
+      return state.business?.businessType === 'WORKSHOP'
+    }
+
     function staffVisibleSections() {
       if (!state.currentUser) return []
       if (!state.businessId) {
         return ['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(state.currentUser.role) ? ['accounts'] : []
+      }
+      if (isWorkshopBusiness()) {
+        return ['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(state.currentUser.role)
+          ? ['accounts', 'autos', 'workshop-jobs'] : ['autos', 'workshop-jobs']
       }
       if (state.currentUser?.role === 'ACCOUNT_ADMIN') {
         return state.business ? ['accounts', 'conversations', 'agenda', ${cashRegisterEnabled ? "'cash'," : ''} 'customers', 'professionals', 'services', 'campaigns', 'reports', 'settings'] : ['accounts']
@@ -20279,6 +20313,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       closeManagedAccount()
       setSection('conversations')
       await switchSupportBusiness(business.id)
+      if (isWorkshopBusiness()) setSection('autos')
       renderAuthUi()
     }
 
@@ -20316,6 +20351,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            businessType: els.accountBusinessType.value,
             businessName: els.accountBusinessName.value.trim(),
             adminName: els.accountOwnerName.value.trim(),
             adminEmail: els.accountOwnerEmail.value.trim(),
@@ -20783,6 +20819,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       // hay que reconstruirlo para habilitar las opciones operativas del perfil.
       hydrateWorkspaceNav()
       await loadDemoProfiles()
+      if (isWorkshopBusiness()) {
+        setSection('autos')
+        renderAuthUi()
+        return
+      }
       if (isAccountRole && !state.business) {
         setSection('accounts')
         await loadManagedAccounts()
@@ -20826,6 +20867,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     async function loadBusinessScopedBasics() {
+      if (isWorkshopBusiness()) return
       const businessQuery = state.businessId ? '?businessId=' + encodeURIComponent(state.businessId) : ''
       const lightweightCatalogQuery = businessQuery
         ? businessQuery + '&includeImages=false'
@@ -20946,6 +20988,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         }
       }
       if (!nextBusiness) return
+      const wasWorkshop = isWorkshopBusiness()
       stopCrmRealtimeEvents()
       ${cashRegisterEnabled ? 'stopCashRealtimeEvents()' : ''}
       state.business = nextBusiness
@@ -20997,6 +21040,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.postSaleLoaded = false
       state.postSaleData = null
 
+      hydrateWorkspaceNav()
+      renderAuthUi()
+      if (isWorkshopBusiness()) {
+        setSection('autos')
+        return
+      }
+      if (wasWorkshop) setSection('conversations')
       els.list.innerHTML = '<div class="empty">Cargando conversaciones de ' + escapeHtml(nextBusiness.name) + '...</div>'
       try {
         await loadBusinessScopedBasics()
@@ -21024,6 +21074,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     async function startCrm() {
       await loadBasics()
+      if (isWorkshopBusiness()) { setSection('autos'); return }
       ${cashRegisterEnabled ? 'startCashRealtimeEvents()' : ''}
       if (state.currentUser?.role === 'ACCOUNT_ADMIN') {
         if (state.business) {
@@ -31848,6 +31899,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function setSection(section) {
+      if (isWorkshopBusiness() && !staffVisibleSections().includes(section)) section = 'autos'
+      if (!isWorkshopBusiness() && ['autos', 'workshop-jobs'].includes(section)) section = staffVisibleSections()[0] || 'accounts'
       if (section === 'agenda' && !state.businessId) {
         showCrmToast('Esperá a que termine de cargar el negocio antes de abrir la agenda.', 'error')
         return
@@ -31857,6 +31910,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const mobileTitle = document.getElementById('mobile-current-section-title')
       if (mobileTitle) {
         const labels = {
+          autos: 'Autos',
+          'workshop-jobs': 'Trabajos',
           accounts: 'Cuentas',
           conversations: 'Conversaciones',
           agenda: 'Agenda',

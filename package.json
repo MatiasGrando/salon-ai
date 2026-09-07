@@ -40,6 +40,8 @@
     "test:weex-lead-campaign": "tsx scripts/weex-lead-campaign-contract-test.ts",
     "test:weex-bot-v1": "tsx scripts/weex-support-bot-v1-contract-test.ts",
     "test:business-customer-code": "tsx scripts/business-customer-code-contract-test.ts",
+    "test:workshop-entry": "tsx scripts/workshop-entry-contract-test.ts",
+    "test:workshop-account-create": "tsx scripts/workshop-account-create-contract-test.ts",
     "test:account-management": "tsx scripts/account-management-contract-test.ts",
     "test:account-billing": "tsx scripts/account-billing-contract-test.ts",
     "test:business-account-access": "tsx scripts/business-account-access-contract-test.ts",

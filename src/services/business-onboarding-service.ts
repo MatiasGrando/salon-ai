@@ -20,6 +20,7 @@ export async function refreshBusinessOnboarding(businessId: string) {
       select: {
         id: true,
         name: true,
+        businessType: true,
         contactPhone: true,
         contactEmail: true,
         landingEnabled: true,
@@ -53,8 +54,9 @@ export async function refreshBusinessOnboarding(businessId: string) {
       (business.landingSubtitle?.trim() || business.landingDescription?.trim() || business.coverImageUrl?.trim())
     )
   }
-  const totalSteps = BUSINESS_ONBOARDING_STEPS.length
-  const completedSteps = BUSINESS_ONBOARDING_STEPS.filter((step) => flags[step.key]).length
+  const applicableSteps = businessOnboardingSteps(business.businessType)
+  const totalSteps = applicableSteps.length
+  const completedSteps = applicableSteps.filter((step) => flags[step.key]).length
   const progress = Math.round((completedSteps / totalSteps) * 100)
 
   const status = await prisma.businessOnboardingStatus.upsert({
@@ -63,7 +65,13 @@ export async function refreshBusinessOnboarding(businessId: string) {
     update: { ...flags, completedSteps, totalSteps, progress }
   })
 
-  return serializeBusinessOnboarding(status)
+  return serializeBusinessOnboarding(status, business.businessType)
+}
+
+export function businessOnboardingSteps(businessType?: string) {
+  return businessType === 'WORKSHOP'
+    ? BUSINESS_ONBOARDING_STEPS.filter((step) => ['accountCreated', 'ownerLoggedIn', 'profileComplete'].includes(step.key))
+    : BUSINESS_ONBOARDING_STEPS
 }
 
 export function serializeBusinessOnboarding(status: {
@@ -80,8 +88,8 @@ export function serializeBusinessOnboarding(status: {
   totalSteps: number
   progress: number
   updatedAt: Date
-}) {
-  const steps = BUSINESS_ONBOARDING_STEPS.map((step) => ({
+}, businessType?: string) {
+  const steps = businessOnboardingSteps(businessType).map((step) => ({
     key: step.key,
     label: step.label,
     completed: status[step.key]

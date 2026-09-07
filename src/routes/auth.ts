@@ -1,3 +1,4 @@
+import { parseBusinessType } from '../services/business-type.js'
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
 import {
@@ -102,6 +103,7 @@ export async function authRoutes(app: FastifyInstance) {
     if (!canCreateBusiness) return reply.status(403).send({ message: 'No tenes permiso para crear comercios' })
 
     const body = request.body as {
+      businessType?: unknown
       businessName?: string
       adminName?: string
       adminEmail?: string
@@ -109,6 +111,8 @@ export async function authRoutes(app: FastifyInstance) {
       contactPhone?: string
       planId?: string
     }
+    const businessType = parseBusinessType(body.businessType)
+    if (!businessType) return reply.status(400).send({ message: 'El modelo de negocio no es valido' })
     const businessName = body.businessName?.trim()
     const adminName = body.adminName?.trim()
     const adminEmail = body.adminEmail?.trim().toLowerCase()
@@ -132,6 +136,7 @@ export async function authRoutes(app: FastifyInstance) {
     let business
     try {
       business = await businessService.create(businessName, undefined, {
+        businessType,
         accountAdminId: auth.user.id,
         createdByUserId: auth.user.id,
         contactPhone,

@@ -1,3 +1,4 @@
+import type { BusinessType } from './business-type.js'
 import { prisma } from '../config/prisma.js'
 import { generateBusinessCustomerCode } from './business-customer-code.js'
 import type { Prisma } from '../generated/prisma/client.js'
@@ -46,6 +47,7 @@ export class BusinessService {
     contactName?: string | null
     contactPhone?: string | null
     contactEmail?: string | null
+    businessType?: BusinessType
     planId?: string | null
   }) {
     const slug = await this.resolveAvailableSlug(requestedSlug || name)
@@ -57,6 +59,7 @@ export class BusinessService {
       try {
         return await prisma.business.create({
           data: {
+            businessType: ownership?.businessType || 'SALON',
             customerCode,
             name,
             slug,

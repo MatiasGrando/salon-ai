@@ -762,7 +762,13 @@ model BusinessPlan {
   updatedAt DateTime @updatedAt
 }
 
+enum BusinessType {
+  SALON
+  WORKSHOP
+}
+
 model Business {
+  businessType          BusinessType @default(SALON)
   id                     String                        @id @default(cuid())
   customerCode           String                        @unique
   name                   String
