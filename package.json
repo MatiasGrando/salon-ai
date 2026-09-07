@@ -79,6 +79,7 @@
     "test:cash-permissions": "tsx scripts/cash-permissions-contract-test.ts",
     "test:cash-routes": "tsx scripts/cash-routes-contract-test.ts",
     "test:cash-realtime-ui": "tsx scripts/cash-realtime-ui-contract-test.ts",
+    "test:appointment-finance-summary": "tsx scripts/appointment-finance-summary-contract-test.ts",
     "test:cash-rollout": "tsx scripts/cash-rollout-contract-test.ts",
     "cash:rollout": "tsx scripts/cash-register-rollout.ts",
     "test:appointment-account-backfill-pg": "tsx scripts/appointment-account-backfill-pg-contract-test.ts",

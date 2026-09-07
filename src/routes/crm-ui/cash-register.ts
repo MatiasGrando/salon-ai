@@ -322,12 +322,16 @@ export const cashRegisterScript = `
       createSummaryPrice: document.getElementById('appointment-create-summary-price'), createSummaryDiscount: document.getElementById('appointment-create-summary-discount'), createSummaryTotal: document.getElementById('appointment-create-summary-total'), createSummaryPaid: document.getElementById('appointment-create-summary-paid'), createSummaryDue: document.getElementById('appointment-create-summary-due'), createCashRequired: document.getElementById('appointment-create-cash-required'), createOpenCash: document.getElementById('appointment-create-open-cash'), createPaymentFeedback: document.getElementById('appointment-create-payment-feedback'),
       finance: document.getElementById('appointment-finance'), financeBalance: document.getElementById('appointment-finance-balance'), financePrice: document.getElementById('appointment-finance-price'), financeDiscount: document.getElementById('appointment-finance-discount'), financeTotal: document.getElementById('appointment-finance-total'), financePaid: document.getElementById('appointment-finance-paid'), financeDue: document.getElementById('appointment-finance-due'), financeHistory: document.getElementById('appointment-finance-history'), financeFeedback: document.getElementById('appointment-finance-feedback'), totalForm: document.getElementById('appointment-total-form'), totalSubmit: document.getElementById('appointment-total-submit'), estimatedTotal: document.getElementById('appointment-estimated-total'), editCollectTotal: document.getElementById('appointment-edit-collect-total'), editDeposit: document.getElementById('appointment-edit-deposit'), editDiscountToggle: document.getElementById('appointment-edit-discount-toggle'), discountForm: document.getElementById('appointment-discount-form'), discountSubmit: document.getElementById('appointment-discount-submit'), discountType: document.getElementById('appointment-discount-type'), discountValue: document.getElementById('appointment-discount-value'), discountValueLabel: document.getElementById('appointment-discount-value-label'), discountHelp: document.getElementById('appointment-discount-help'), editDepositPanel: document.getElementById('appointment-edit-deposit-panel'), editDepositAmount: document.getElementById('appointment-edit-deposit-amount'), editDepositMethod: document.getElementById('appointment-edit-deposit-method'), editDepositSubmit: document.getElementById('appointment-edit-deposit-submit'), paymentForm: document.getElementById('appointment-edit-payment-panel'), paymentSubmit: document.getElementById('appointment-payment-submit'), paymentAmount: document.getElementById('appointment-payment-amount'), paymentMethod: document.getElementById('appointment-payment-method'), paymentLineTwo: document.getElementById('appointment-payment-line-two'), paymentAmountTwo: document.getElementById('appointment-payment-amount-two'), paymentMethodTwo: document.getElementById('appointment-payment-method-two'), addPaymentLine: document.getElementById('appointment-add-payment-line'), editObservationRow: document.getElementById('appointment-edit-observation-row'), paymentObservation: document.getElementById('appointment-payment-observation'), cashRequired: document.getElementById('appointment-cash-required'), appointmentOpenCash: document.getElementById('appointment-open-cash')
     }
-    state.cashRegister = { current: null, days: [], selectedDayId: null, entries: [], nextCursor: null, permissions: {}, responsibleUsers: [], sessionMode: 'open', returnToAppointment: false, searchTimer: null, eventSource: null, loaded: false, appointmentFinance: null, appointmentFinanceRequestId: 0, createFinance: { collectTotal: false, deposit: false, discount: false }, editFinance: { collectTotal: false, deposit: false, discount: false } }
+    state.cashRegister = { current: null, days: [], selectedDayId: null, entries: [], nextCursor: null, permissions: {}, responsibleUsers: [], sessionMode: 'open', returnToAppointment: false, searchTimer: null, eventSource: null, loaded: false, appointmentFinance: null, appointmentFinanceRequestId: 0, appointmentFinanceSummaryCache: {}, appointmentFinanceCache: {}, appointmentFinanceInFlight: {}, financeSummaryRefreshTimer: null, createFinance: { collectTotal: false, deposit: false, discount: false }, editFinance: { collectTotal: false, deposit: false, discount: false } }
 
     function canUseCashPermission(permission) {
-      if (state.currentUser?.role === 'BUSINESS_ADMIN' || state.currentUser?.role === 'SUPER_ADMIN') return true
+      if (['BUSINESS_ADMIN', 'ACCOUNT_ADMIN', 'SUPER_ADMIN'].includes(state.currentUser?.role)) return true
       if (state.currentUser?.role !== 'STAFF') return false
       return state.currentUser?.[permission] === true
+    }
+
+    function isCashBusinessScopedRole() {
+      return ['ACCOUNT_ADMIN', 'SUPER_ADMIN'].includes(state.currentUser?.role)
     }
 
     function cashMoney(value) {
@@ -345,7 +349,7 @@ export const cashRegisterScript = `
     }
 
     function cashScoped(path) {
-      if (state.currentUser?.role !== 'SUPER_ADMIN' || !state.businessId) return path
+      if (!isCashBusinessScopedRole() || !state.businessId) return path
       return path + (path.includes('?') ? '&' : '?') + 'businessId=' + encodeURIComponent(state.businessId)
     }
 
@@ -363,9 +367,60 @@ export const cashRegisterScript = `
         let payload
         try { payload = JSON.parse(event.data) } catch { return }
         if (payload.businessId !== state.businessId || !payload.entityId) return
-        if (document.body.dataset.currentSection === 'cash') loadCashRegister().catch((error) => showCrmToast(error.message, 'error'))
-        if (state.editingAppointmentId && !cashUi.finance.hidden) loadAppointmentFinance()
+        if (document.body.dataset.currentSection === 'cash') loadCashRegister({ preserve: true }).catch((error) => showCrmToast(error.message, 'error'))
+        refreshVisibleAppointmentFinanceSummaries()
+        if (state.editingAppointmentId && cashUi.finance.open && !cashUi.finance.hidden) loadAppointmentFinance({ force: true, preserve: true })
       })
+    }
+
+    function appointmentFinanceCacheKey(appointmentId) {
+      return String(state.businessId || '') + ':' + String(appointmentId || '')
+    }
+
+    function cacheAppointmentFinanceSummary(appointmentId, summary) {
+      const key = appointmentFinanceCacheKey(appointmentId)
+      if (summary) state.cashRegister.appointmentFinanceSummaryCache[key] = summary
+      else delete state.cashRegister.appointmentFinanceSummaryCache[key]
+      const appointment = state.agendaAppointments.find((item) => item.id === appointmentId)
+      if (appointment) appointment.financeSummary = summary || null
+    }
+
+    function cacheAgendaAppointmentFinanceSummaries(appointments) {
+      for (const appointment of appointments || []) {
+        if (Object.prototype.hasOwnProperty.call(appointment, 'financeSummary')) {
+          cacheAppointmentFinanceSummary(appointment.id, appointment.financeSummary)
+        }
+      }
+    }
+
+    function refreshVisibleAppointmentFinanceSummaries() {
+      clearTimeout(state.cashRegister.financeSummaryRefreshTimer)
+      if (!state.businessId || !(canUseCashPermission('canRecordAppointmentPayments') || canUseCashPermission('canApplyDiscounts'))) return
+      state.cashRegister.financeSummaryRefreshTimer = setTimeout(async () => {
+        const businessId = state.businessId
+        const rangeStart = startOfDay(state.agendaSelectedDate || new Date())
+        const viewDays = [1, 3, 7].includes(Number(state.agendaViewDays)) ? Number(state.agendaViewDays) : 1
+        const params = new URLSearchParams({
+          businessId,
+          from: rangeStart.toISOString(),
+          to: addDays(rangeStart, viewDays).toISOString()
+        })
+        if (els.agendaProfessional.value) params.set('professionalId', els.agendaProfessional.value)
+        try {
+          const rows = await getJson('/appointments/finance-summaries?' + params.toString())
+          if (state.businessId !== businessId) return
+          for (const row of rows) {
+            cacheAppointmentFinanceSummary(row.appointmentId, row.financeSummary)
+            delete state.cashRegister.appointmentFinanceCache[appointmentFinanceCacheKey(row.appointmentId)]
+          }
+          if (state.editingAppointmentId && !cashUi.finance.open) {
+            const summary = state.cashRegister.appointmentFinanceSummaryCache[appointmentFinanceCacheKey(state.editingAppointmentId)]
+            if (summary) renderAppointmentFinanceSummary(summary)
+          }
+        } catch {
+          // El evento es una mejora oportunista: la próxima carga normal vuelve a sincronizar el resumen.
+        }
+      }, 140)
     }
 
     function renderCashResponsibleOptions() {
@@ -470,7 +525,7 @@ export const cashRegisterScript = `
       if (!dayId) return
       if (!options.append && !options.preserve) cashUi.entryList.innerHTML = '<div class="cash-inline-state">Cargando movimientos...</div>'
       const params = new URLSearchParams({ limit: '40' })
-      if (state.currentUser?.role === 'SUPER_ADMIN' && state.businessId) params.set('businessId', state.businessId)
+      if (isCashBusinessScopedRole() && state.businessId) params.set('businessId', state.businessId)
       if (options.append && state.cashRegister.nextCursor) params.set('cursor', state.cashRegister.nextCursor)
       if (cashUi.typeFilter.value) params.set('type', cashUi.typeFilter.value)
       if (cashUi.methodFilter.value) params.set('method', cashUi.methodFilter.value)
@@ -594,7 +649,7 @@ export const cashRegisterScript = `
         : mode === 'new'
           ? { currentSessionId, responsibleUserId: cashUi.sessionResponsible.value, countedCash: counted, acknowledgeDifference: cashUi.differenceConfirm.checked }
           : { currentSessionId, countedCash: counted, acknowledgeDifference: cashUi.differenceConfirm.checked }
-      if (state.currentUser?.role === 'SUPER_ADMIN') payload.businessId = state.businessId
+      if (isCashBusinessScopedRole()) payload.businessId = state.businessId
       if ((mode !== 'open' && !Number.isSafeInteger(counted)) || (openingText && !Number.isSafeInteger(Number(openingText)))) {
         cashUi.sessionFeedback.textContent = 'Ingresá un importe entero válido.'
         cashUi.sessionFeedback.className = 'cash-feedback error'
@@ -648,7 +703,7 @@ export const cashRegisterScript = `
       event.preventDefault()
       const type = cashUi.operationType.value
       const payload = { type, cashSessionId: state.cashRegister.current?.session?.id, observation: cashUi.operationObservation.value.trim() || undefined }
-      if (state.currentUser?.role === 'SUPER_ADMIN') payload.businessId = state.businessId
+      if (isCashBusinessScopedRole()) payload.businessId = state.businessId
       if (type === 'ADJUSTMENT') payload.delta = Number(cashUi.operationDelta.value)
       else payload.amount = Number(cashUi.operationAmount.value)
       if (type === 'WITHDRAWAL') payload.counterparty = cashUi.operationCounterparty.value.trim()
@@ -839,7 +894,7 @@ export const cashRegisterScript = `
         ...(hasPaymentLines && cashUi.createPaymentObservation.value.trim() ? { observation: cashUi.createPaymentObservation.value.trim() } : {}),
         ...(totals.price.estimated ? { agreedAmount: totals.price.total } : {}),
         ...(actions.discount ? { discountType: cashUi.createDiscountType.value, discountValue } : {}),
-        ...(state.currentUser?.role === 'SUPER_ADMIN' ? { businessId: state.businessId } : {})
+        ...(isCashBusinessScopedRole() ? { businessId: state.businessId } : {})
       }
     }
 
@@ -881,7 +936,7 @@ export const cashRegisterScript = `
       }
     }
 
-    function renderAppointmentFinance(finance) {
+    function renderAppointmentFinanceSummary(finance) {
       state.cashRegister.appointmentFinance = finance
       cashUi.financeBalance.textContent = finance.balanceAmount > 0 ? 'Saldo ' + cashMoney(finance.balanceAmount) : 'Pagado'
       cashUi.financePrice.textContent = cashMoney(finance.agreedAmount)
@@ -894,8 +949,13 @@ export const cashRegisterScript = `
       cashUi.discountValue.value = finance.discountAmount
       syncAppointmentDiscountField()
       cashUi.totalForm.hidden = finance.pricingMode !== 'ESTIMATED' || !canUseCashPermission('canRecordAppointmentPayments')
-      cashUi.financeHistory.innerHTML = finance.entries?.length ? finance.entries.map((entry) => '<article><span>' + escapeHtml(financeEntryLabel(entry)) + ' · ' + escapeHtml(cashMethodLabels[entry.method] || entry.method) + (entry.effectiveAt ? '<small> · ' + escapeHtml(cashDate(entry.effectiveAt)) + '</small>' : '') + '</span><strong>' + (entry.direction === 'OUTFLOW' ? '−' : '+') + cashMoney(entry.amount) + '</strong></article>').join('') : '<div class="cash-inline-state">Todav&iacute;a no hay pagos.</div>'
+      cashUi.financeHistory.innerHTML = '<div class="cash-inline-state">Abr&iacute; Pago para ver los movimientos.</div>'
       syncEditAppointmentFinanceActions()
+    }
+
+    function renderAppointmentFinance(finance) {
+      renderAppointmentFinanceSummary(finance)
+      cashUi.financeHistory.innerHTML = finance.entries?.length ? finance.entries.map((entry) => '<article><span>' + escapeHtml(financeEntryLabel(entry)) + ' · ' + escapeHtml(cashMethodLabels[entry.method] || entry.method) + (entry.effectiveAt ? '<small> · ' + escapeHtml(cashDate(entry.effectiveAt)) + '</small>' : '') + '</span><strong>' + (entry.direction === 'OUTFLOW' ? '−' : '+') + cashMoney(entry.amount) + '</strong></article>').join('') : '<div class="cash-inline-state">Todav&iacute;a no hay pagos.</div>'
     }
 
     function resetAppointmentFinanceView() {
@@ -938,21 +998,50 @@ export const cashRegisterScript = `
       requestAnimationFrame(() => cashUi.finance.scrollIntoView({ behavior: 'smooth', block: 'start' }))
     }
 
-    async function loadAppointmentFinance() {
+    async function loadAppointmentFinance(options = {}) {
       const appointmentId = state.editingAppointmentId
       if (!appointmentId || !(canUseCashPermission('canRecordAppointmentPayments') || canUseCashPermission('canApplyDiscounts'))) return
       const requestId = ++state.cashRegister.appointmentFinanceRequestId
-      resetAppointmentFinanceView()
+      const key = appointmentFinanceCacheKey(appointmentId)
+      const cached = state.cashRegister.appointmentFinanceCache[key]
+      if (cached && options.force === false) {
+        renderAppointmentFinance(cached)
+        cashUi.financeFeedback.textContent = ''
+        return cached
+      }
+      const preserve = options.preserve !== false && Boolean(state.cashRegister.appointmentFinance)
+      if (!preserve) resetAppointmentFinanceView()
+      else {
+        cashUi.financeFeedback.textContent = 'Actualizando...'
+        cashUi.financeFeedback.className = 'appointment-finance-feedback'
+      }
       try {
-        const paymentContext = canUseCashPermission('canRecordAppointmentPayments')
-          ? getJson(cashScoped('/cash-register/payment-context')).catch(() => ({ day: null, session: null }))
-          : Promise.resolve({ day: null, session: null })
-        const [finance, current] = await Promise.all([getJson(cashScoped('/appointments/' + encodeURIComponent(appointmentId) + '/finance')), paymentContext])
+        let pending = state.cashRegister.appointmentFinanceInFlight[key]
+        if (!pending) {
+          const paymentContext = canUseCashPermission('canRecordAppointmentPayments')
+            ? getJson(cashScoped('/cash-register/payment-context')).catch(() => ({ day: null, session: null }))
+            : Promise.resolve({ day: null, session: null })
+          pending = Promise.all([getJson(cashScoped('/appointments/' + encodeURIComponent(appointmentId) + '/finance')), paymentContext])
+          state.cashRegister.appointmentFinanceInFlight[key] = pending
+        }
+        const [finance, current] = await pending
+        if (state.cashRegister.appointmentFinanceInFlight[key] === pending) delete state.cashRegister.appointmentFinanceInFlight[key]
+        state.cashRegister.appointmentFinanceCache[key] = finance
+        cacheAppointmentFinanceSummary(appointmentId, {
+          accountId: finance.accountId,
+          pricingMode: finance.pricingMode,
+          agreedAmount: finance.agreedAmount,
+          discountAmount: finance.discountAmount,
+          finalAmount: finance.finalAmount,
+          paidAmount: finance.paidAmount,
+          balanceAmount: finance.balanceAmount
+        })
         if (appointmentId !== state.editingAppointmentId || requestId !== state.cashRegister.appointmentFinanceRequestId) return
         state.cashRegister.current = current
         renderAppointmentFinance(finance)
         cashUi.financeFeedback.textContent = ''
       } catch (error) {
+        delete state.cashRegister.appointmentFinanceInFlight[key]
         if (appointmentId !== state.editingAppointmentId || requestId !== state.cashRegister.appointmentFinanceRequestId) return
         cashUi.financeFeedback.textContent = error.message
         cashUi.financeFeedback.className = 'appointment-finance-feedback error'
@@ -961,11 +1050,15 @@ export const cashRegisterScript = `
 
     function prepareAppointmentFinance(appointment) {
       state.cashRegister.appointmentFinanceRequestId += 1
-      resetAppointmentFinanceView()
       cashUi.finance.hidden = !appointment || !(canUseCashPermission('canRecordAppointmentPayments') || canUseCashPermission('canApplyDiscounts'))
       cashUi.finance.open = false
       cashUi.financeFeedback.textContent = ''
-      if (appointment && !cashUi.finance.hidden) loadAppointmentFinance()
+      state.cashRegister.editFinance = { collectTotal: false, deposit: false, discount: false }
+      const summary = appointment
+        ? state.cashRegister.appointmentFinanceSummaryCache[appointmentFinanceCacheKey(appointment.id)] || appointment.financeSummary
+        : null
+      if (summary && !cashUi.finance.hidden) renderAppointmentFinanceSummary(summary)
+      else resetAppointmentFinanceView()
       prepareCreateAppointmentPayment(appointment)
     }
 
@@ -978,7 +1071,7 @@ export const cashRegisterScript = `
         return
       }
       try {
-        await getJson('/appointments/' + encodeURIComponent(state.editingAppointmentId) + '/' + suffix, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [property]: value, ...(state.currentUser?.role === 'SUPER_ADMIN' ? { businessId: state.businessId } : {}) }) })
+        await getJson('/appointments/' + encodeURIComponent(state.editingAppointmentId) + '/' + suffix, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [property]: value, ...(isCashBusinessScopedRole() ? { businessId: state.businessId } : {}) }) })
         await loadAppointmentFinance()
       } catch (error) {
         cashUi.financeFeedback.textContent = error.message
@@ -1016,7 +1109,7 @@ export const cashRegisterScript = `
         return
       }
       try {
-        await getJson('/appointments/' + encodeURIComponent(state.editingAppointmentId) + '/discount', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ discountType, discountValue, ...(state.currentUser?.role === 'SUPER_ADMIN' ? { businessId: state.businessId } : {}) }) })
+        await getJson('/appointments/' + encodeURIComponent(state.editingAppointmentId) + '/discount', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ discountType, discountValue, ...(isCashBusinessScopedRole() ? { businessId: state.businessId } : {}) }) })
         await loadAppointmentFinance()
         showCrmToast('Descuento actualizado.', 'success')
       } catch (error) {
@@ -1039,7 +1132,7 @@ export const cashRegisterScript = `
         return
       }
       try {
-        await getJson('/appointments/' + encodeURIComponent(state.editingAppointmentId) + '/payments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cashSessionId: state.cashRegister.current?.session?.id, lines, observation: cashUi.paymentObservation.value.trim() || undefined, ...(state.currentUser?.role === 'SUPER_ADMIN' ? { businessId: state.businessId } : {}) }) })
+        await getJson('/appointments/' + encodeURIComponent(state.editingAppointmentId) + '/payments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cashSessionId: state.cashRegister.current?.session?.id, lines, observation: cashUi.paymentObservation.value.trim() || undefined, ...(isCashBusinessScopedRole() ? { businessId: state.businessId } : {}) }) })
         cashUi.paymentAmount.value = ''
         cashUi.paymentMethod.value = 'CASH'
         cashUi.paymentAmountTwo.value = ''
@@ -1068,7 +1161,7 @@ export const cashRegisterScript = `
         return
       }
       try {
-        await getJson('/appointments/' + encodeURIComponent(state.editingAppointmentId) + '/payments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cashSessionId: state.cashRegister.current?.session?.id, lines: [{ amount, method: cashUi.editDepositMethod.value }], observation: cashUi.paymentObservation.value.trim() || undefined, ...(state.currentUser?.role === 'SUPER_ADMIN' ? { businessId: state.businessId } : {}) }) })
+        await getJson('/appointments/' + encodeURIComponent(state.editingAppointmentId) + '/payments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cashSessionId: state.cashRegister.current?.session?.id, lines: [{ amount, method: cashUi.editDepositMethod.value }], observation: cashUi.paymentObservation.value.trim() || undefined, ...(isCashBusinessScopedRole() ? { businessId: state.businessId } : {}) }) })
         cashUi.editDepositAmount.value = ''
         cashUi.editDepositMethod.value = 'CASH'
         cashUi.paymentObservation.value = ''
@@ -1102,7 +1195,7 @@ export const cashRegisterScript = `
     cashUi.methodFilter.addEventListener('change', () => loadCashEntries())
     cashUi.search.addEventListener('input', () => { clearTimeout(state.cashRegister.searchTimer); state.cashRegister.searchTimer = setTimeout(() => loadCashEntries(), 250) })
     cashUi.nextPage.addEventListener('click', () => loadCashEntries({ append: true }))
-    cashUi.finance.addEventListener('toggle', () => { if (cashUi.finance.open) { scrollAppointmentFinanceIntoView(); loadAppointmentFinance() } })
+    cashUi.finance.addEventListener('toggle', () => { if (cashUi.finance.open) { scrollAppointmentFinanceIntoView(); loadAppointmentFinance({ force: false, preserve: true }) } })
     cashUi.totalSubmit.addEventListener('click', (event) => submitAppointmentFinanceValue(event, 'estimated-total', cashUi.estimatedTotal, 'agreedAmount'))
     cashUi.discountType.addEventListener('change', () => { cashUi.discountValue.value = ''; syncAppointmentDiscountField() })
     cashUi.discountSubmit.addEventListener('click', submitAppointmentDiscount)

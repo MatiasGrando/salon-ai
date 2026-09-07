@@ -89,6 +89,10 @@ function isAccountAdminBusinessWorkspaceRoute(method: string, path: string) {
     || /^\/service-categories\/[^/]+$/.test(path)
     || path === '/services'
     || /^\/services\/[^/]+$/.test(path)
+    || path.startsWith('/cash-register')
+    || path === '/crm/cash-events'
+    || path === '/appointments/finance-summaries'
+    || /^\/appointments\/[^/]+\/(?:finance|estimated-total|discount|payments)$/.test(path)
     || /^\/businesses\/[^/]+$/.test(path)
     || /^\/businesses\/[^/]+\/(?:payment-settings|whatsapp-settings|instagram-settings)$/.test(path)
 }
@@ -104,7 +108,7 @@ export function requireSuperAdmin(request: FastifyRequest, reply: FastifyReply) 
 function injectStaffAgendaScope(request: FastifyRequest, auth: AuthContext) {
   if (auth.user.role !== 'STAFF' || auth.user.agendaScope !== 'OWN' || !auth.user.professionalId) return
   const path = request.url.split('?')[0] || ''
-  if (request.method.toUpperCase() !== 'GET' || !['/appointments', '/schedule-blocks', '/schedule-blocks/impact'].includes(path)) return
+  if (request.method.toUpperCase() !== 'GET' || !['/appointments', '/appointments/finance-summaries', '/schedule-blocks', '/schedule-blocks/impact'].includes(path)) return
   if (request.query && typeof request.query === 'object') {
     ;(request.query as { professionalId?: string }).professionalId = auth.user.professionalId
   }

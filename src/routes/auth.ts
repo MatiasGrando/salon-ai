@@ -334,6 +334,7 @@ function publicUser(user: {
   canManageCashSessions?: boolean
   canCreateBusinesses?: boolean
 }) {
+  const isCashAdmin = ['BUSINESS_ADMIN', 'ACCOUNT_ADMIN', 'SUPER_ADMIN'].includes(user.role)
   return {
     id: user.id,
     email: user.email,
@@ -360,12 +361,12 @@ function publicUser(user: {
     canManageDeposits: user.role === 'STAFF' ? user.canManageDeposits === true : true,
     canViewOperationalReports: user.role === 'STAFF' ? user.canViewOperationalReports === true : true,
     canViewFinancialAmounts: user.role === 'STAFF' ? user.canViewFinancialAmounts === true : true,
-    canViewCashRegister: user.role === 'STAFF' ? user.canViewCashRegister === true : ['BUSINESS_ADMIN', 'SUPER_ADMIN'].includes(user.role),
-    canRecordAppointmentPayments: user.role === 'STAFF' ? user.canRecordAppointmentPayments === true : ['BUSINESS_ADMIN', 'SUPER_ADMIN'].includes(user.role),
-    canApplyDiscounts: user.role === 'STAFF' ? user.canApplyDiscounts === true : ['BUSINESS_ADMIN', 'SUPER_ADMIN'].includes(user.role),
-    canManageCashOperations: user.role === 'STAFF' ? user.canManageCashOperations === true : ['BUSINESS_ADMIN', 'SUPER_ADMIN'].includes(user.role),
-    canAdjustCash: user.role === 'STAFF' ? user.canAdjustCash === true : ['BUSINESS_ADMIN', 'SUPER_ADMIN'].includes(user.role),
-    canManageCashSessions: user.role === 'STAFF' ? user.canManageCashSessions === true : ['BUSINESS_ADMIN', 'SUPER_ADMIN'].includes(user.role),
+    canViewCashRegister: user.role === 'STAFF' ? user.canViewCashRegister === true : isCashAdmin,
+    canRecordAppointmentPayments: user.role === 'STAFF' ? user.canRecordAppointmentPayments === true : isCashAdmin,
+    canApplyDiscounts: user.role === 'STAFF' ? user.canApplyDiscounts === true : isCashAdmin,
+    canManageCashOperations: user.role === 'STAFF' ? user.canManageCashOperations === true : isCashAdmin,
+    canAdjustCash: user.role === 'STAFF' ? user.canAdjustCash === true : isCashAdmin,
+    canManageCashSessions: user.role === 'STAFF' ? user.canManageCashSessions === true : isCashAdmin,
     canCreateBusinesses: user.role === 'SUPER_ADMIN' || user.canCreateBusinesses === true
   }
 }

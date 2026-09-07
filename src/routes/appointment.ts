@@ -7,6 +7,10 @@ import { PrismaCashRepository } from '../repositories/prisma-cash-repository.js'
 import { CashService, CashServiceError } from '../services/cash-service.js'
 import { hasCashPermission, type CashPermission } from '../services/staff-permission-service.js'
 import { sendCashError } from './cash-register.js'
+import {
+  buildAppointmentFinanceSummaries,
+  type AppointmentFinanceSummarySource
+} from '../services/appointment-finance-summary.js'
 
 const service = new AppointmentService()
 const defaultCashService = new CashService(new PrismaCashRepository(prisma))
@@ -180,14 +184,65 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
     const business = await requireAuthorizedBusiness(prisma, authUser, query.businessId)
     if (!business) return sendAuthorizationFailure(reply, 'notFound')
 
+    const canViewFinance = options.cashRegisterEnabled !== false
+      && hasAnyCashPermission(authUser, ['canRecordAppointmentPayments', 'canApplyDiscounts'])
     const appointments = await service.findAll({
       businessId: query.businessId,
       ...(query.customerPhone ? { customerPhone: query.customerPhone } : {}),
       ...(query.from ? { from: query.from } : {}),
       ...(query.to ? { to: query.to } : {}),
-      ...(query.professionalId ? { professionalId: query.professionalId } : {})
+      ...(query.professionalId ? { professionalId: query.professionalId } : {}),
+      includeFinanceSummary: canViewFinance
     })
-    return appointments.map((appointment) => appointmentForAuthenticatedUser(appointment, authUser))
+    const linkedFinanceSummaries = canViewFinance
+      ? await cashService.listAppointmentFinanceSummaries({
+          businessId: query.businessId,
+          appointmentIds: appointments.map((appointment) => appointment.id)
+        })
+      : []
+    const financeSummaries = canViewFinance
+      ? buildAppointmentFinanceSummaries(appointments as AppointmentFinanceSummarySource[], linkedFinanceSummaries)
+      : new Map()
+    return appointments.map((appointment) => {
+      const { accountLink: _accountLink, visit: _visit, ...publicAppointment } = appointment as typeof appointment & {
+        accountLink?: unknown
+        visit?: unknown
+      }
+      return appointmentForAuthenticatedUser({
+        ...publicAppointment,
+        ...(canViewFinance ? { financeSummary: financeSummaries.get(appointment.id) ?? null } : {})
+      }, authUser)
+    })
+  })
+
+  if (options.cashRegisterEnabled !== false) app.get('/appointments/finance-summaries', async (request, reply) => {
+    const query = request.query as { businessId?: string; from?: string; to?: string; professionalId?: string }
+    const authUser = request.auth?.user
+    const businessId = financeBusinessId(authUser, query.businessId)
+    if (!businessId || !hasAnyCashPermission(authUser, ['canRecordAppointmentPayments', 'canApplyDiscounts'])) {
+      return reply.status(403).send({ code: 'CASH_PERMISSION_REQUIRED', message: 'No tenés permiso para consultar pagos del turno' })
+    }
+    const business = await requireAuthorizedBusiness(prisma, authUser!, businessId)
+    if (!business) return sendAuthorizationFailure(reply, 'notFound')
+    const appointments = await service.findAll({
+      businessId,
+      ...(query.from ? { from: query.from } : {}),
+      ...(query.to ? { to: query.to } : {}),
+      ...(query.professionalId ? { professionalId: query.professionalId } : {}),
+      includeFinanceSummary: true
+    })
+    const linkedFinanceSummaries = await cashService.listAppointmentFinanceSummaries({
+      businessId,
+      appointmentIds: appointments.map((appointment) => appointment.id)
+    })
+    const summaries = buildAppointmentFinanceSummaries(
+      appointments as AppointmentFinanceSummarySource[],
+      linkedFinanceSummaries
+    )
+    return appointments.map((appointment) => ({
+      appointmentId: appointment.id,
+      financeSummary: summaries.get(appointment.id) ?? null
+    }))
   })
 
   app.patch('/appointments/:id/status', async (request, reply) => {
@@ -396,7 +451,7 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
 
 function financeBusinessId(user: { role: string; businessId: string | null } | undefined, requested: string | undefined) {
   if (!user) return null
-  if (user.role === 'SUPER_ADMIN') return requested?.trim() || null
+  if (user.role === 'SUPER_ADMIN' || user.role === 'ACCOUNT_ADMIN') return requested?.trim() || user.businessId?.trim() || null
   return user.businessId?.trim() || null
 }
 

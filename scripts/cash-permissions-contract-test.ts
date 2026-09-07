@@ -30,7 +30,13 @@ const denied = staff()
 for (const permission of permissions) assert.equal(hasCashPermission(denied, permission), false)
 assert.equal(hasCashPermission({ ...denied, role: 'BUSINESS_ADMIN' }, 'canAdjustCash'), true)
 assert.equal(hasCashPermission({ ...denied, role: 'SUPER_ADMIN' }, 'canManageCashSessions'), true)
-assert.equal(hasCashPermission({ ...denied, role: 'ACCOUNT_ADMIN' }, 'canViewCashRegister'), false)
+for (const permission of permissions) {
+  assert.equal(
+    hasCashPermission({ ...denied, role: 'ACCOUNT_ADMIN' }, permission),
+    true,
+    `ACCOUNT_ADMIN debe administrar ${permission} dentro de un comercio autorizado`
+  )
+}
 assert.equal(hasCashPermission({ ...denied, canRecordAppointmentPayments: true }, 'canRecordAppointmentPayments'), true)
 assert.equal(hasCashPermission({ ...denied, canViewFinancialAmounts: true }, 'canViewCashRegister'), false, 'un permiso financiero legacy no concede Caja')
 assert.equal(canStaffAccessRoute(denied, 'GET', '/cash-register/current'), false)
@@ -50,7 +56,7 @@ const custom = resolveStaffPermissions({ staffProfile: 'SECRETARY', permissionPr
 assert.equal(custom.permissions.canAdjustCash, true)
 assert.equal(custom.permissions.canManageCashOperations, false)
 
-console.log('OK Caja permissions: seis capacidades independientes, admins implícitos, ACCOUNT_ADMIN y staff deny-by-default.')
+console.log('OK Caja permissions: seis capacidades independientes, admins implícitos y staff deny-by-default.')
 
 function staff() {
   return {

@@ -71,6 +71,12 @@ export type AppointmentAccountRecord = {
   discountAmount: number
 }
 
+export type AppointmentFinanceSummaryRow = AppointmentAccountRecord & {
+  appointmentId: string
+  accountId: string
+  paidAmount: number
+}
+
 export type AppointmentAccountEntryRecord = CashEntryForSummary & {
   id: string
   origin: 'AGENDA' | 'CASH_REGISTER' | 'WEB_DEPOSIT' | 'BOT_DEPOSIT' | 'MIGRATION'
@@ -153,6 +159,7 @@ export interface CashTransactionRepository {
     amount: number
   }): Promise<boolean>
   resolveAppointmentAccount(businessId: string, appointmentId: string): Promise<AppointmentAccountRecord | null>
+  listAppointmentFinanceSummaryRows(businessId: string, appointmentIds: string[]): Promise<AppointmentFinanceSummaryRow[]>
   lockAppointmentAccount(businessId: string, appointmentId: string): Promise<AppointmentAccountRecord | null>
   listAccountEntries(businessId: string, accountId: string): Promise<AppointmentAccountEntryRecord[]>
   updateEstimatedTotal(businessId: string, accountId: string, agreedAmount: number): Promise<AppointmentAccountRecord>
@@ -489,6 +496,34 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
       LIMIT 1
     `)
     return rows[0] ?? null
+  }
+
+  async listAppointmentFinanceSummaryRows(businessId: string, appointmentIds: string[]) {
+    if (!appointmentIds.length) return []
+    return this.transaction.$queryRaw<AppointmentFinanceSummaryRow[]>(Prisma.sql`
+      SELECT link."appointmentId", account."id" AS "accountId", account."id", account."businessId",
+        account."pricingMode"::text AS "pricingMode", account."agreedAmount", account."discountAmount",
+        coalesce(sum(
+          CASE
+            WHEN entry."type" IN ('PAYMENT'::"CashEntryType", 'LEGACY_PAYMENT'::"CashEntryType")
+              OR (entry."type" = 'REVERSAL'::"CashEntryType"
+                AND original."type" IN ('PAYMENT'::"CashEntryType", 'LEGACY_PAYMENT'::"CashEntryType"))
+            THEN CASE WHEN entry."direction" = 'INFLOW'::"CashDirection" THEN entry."amount" ELSE -entry."amount" END
+            ELSE 0
+          END
+        ), 0)::integer AS "paidAmount"
+      FROM "AppointmentAccountLink" AS link
+      JOIN "AppointmentAccount" AS account
+        ON account."businessId" = link."businessId" AND account."id" = link."accountId"
+      LEFT JOIN "CashEntry" AS entry
+        ON entry."businessId" = account."businessId" AND entry."accountId" = account."id"
+      LEFT JOIN "CashEntry" AS original
+        ON original."businessId" = entry."businessId" AND original."id" = entry."reversesEntryId"
+      WHERE link."businessId" = ${businessId}
+        AND link."appointmentId" IN (${Prisma.join(appointmentIds)})
+      GROUP BY link."appointmentId", account."id", account."businessId", account."pricingMode",
+        account."agreedAmount", account."discountAmount"
+    `)
   }
 
   async lockAppointmentAccount(businessId: string, appointmentId: string) {

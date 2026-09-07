@@ -174,7 +174,8 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
 function cashAccess(user: StaffAuthorizationUser | undefined, permission: CashPermission, source: unknown) {
   if (!user || !hasCashPermission(user, permission)) return { ok: false as const, code: 'CASH_PERMISSION_REQUIRED' as const }
   const requested = source && typeof source === 'object' ? (source as { businessId?: unknown }).businessId : undefined
-  const businessId = user.role === 'SUPER_ADMIN' && typeof requested === 'string' ? requested.trim() : user.businessId?.trim()
+  const canSelectBusiness = user.role === 'SUPER_ADMIN' || user.role === 'ACCOUNT_ADMIN'
+  const businessId = canSelectBusiness && typeof requested === 'string' ? requested.trim() : user.businessId?.trim()
   if (!businessId) return { ok: false as const, code: 'BUSINESS_ID_REQUIRED' as const }
   return { ok: true as const, businessId }
 }
@@ -187,7 +188,7 @@ function cashAccessFailure(reply: FastifyReply, access: { code: 'CASH_PERMISSION
 
 function cashReversalTypes(user: StaffAuthorizationUser | undefined): Array<'PAYMENT' | 'LEGACY_PAYMENT' | 'EXPENSE' | 'WITHDRAWAL' | 'CASH_IN' | 'ADJUSTMENT' | 'REFUND'> {
   if (!user) return []
-  if (user.role === 'BUSINESS_ADMIN' || user.role === 'SUPER_ADMIN') return ['PAYMENT', 'LEGACY_PAYMENT', 'EXPENSE', 'WITHDRAWAL', 'CASH_IN', 'ADJUSTMENT', 'REFUND']
+  if (['BUSINESS_ADMIN', 'ACCOUNT_ADMIN', 'SUPER_ADMIN'].includes(user.role)) return ['PAYMENT', 'LEGACY_PAYMENT', 'EXPENSE', 'WITHDRAWAL', 'CASH_IN', 'ADJUSTMENT', 'REFUND']
   const types: Array<'PAYMENT' | 'LEGACY_PAYMENT' | 'EXPENSE' | 'WITHDRAWAL' | 'CASH_IN' | 'ADJUSTMENT' | 'REFUND'> = []
   if (user.canRecordAppointmentPayments) types.push('PAYMENT', 'LEGACY_PAYMENT')
   if (user.canManageCashOperations) types.push('EXPENSE', 'WITHDRAWAL', 'CASH_IN', 'REFUND')
@@ -196,7 +197,7 @@ function cashReversalTypes(user: StaffAuthorizationUser | undefined): Array<'PAY
 }
 
 function cashReversalPermission(user: StaffAuthorizationUser | undefined): CashPermission {
-  if (user?.role === 'BUSINESS_ADMIN' || user?.role === 'SUPER_ADMIN' || user?.canManageCashOperations) return 'canManageCashOperations'
+  if (user && (['BUSINESS_ADMIN', 'ACCOUNT_ADMIN', 'SUPER_ADMIN'].includes(user.role) || user.canManageCashOperations)) return 'canManageCashOperations'
   if (user?.canAdjustCash) return 'canAdjustCash'
   return 'canRecordAppointmentPayments'
 }

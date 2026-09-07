@@ -128,6 +128,7 @@ type FindAppointmentsInput = {
   from?: string
   to?: string
   professionalId?: string
+  includeFinanceSummary?: boolean
 }
 
 type FindAvailabilityResult =
@@ -1400,20 +1401,26 @@ export class AppointmentService {
             id: true,
             name: true,
             duration: true,
-            price: true
+            price: true,
+            priceMode: true
           }
         },
         serviceItems: {
           include: {
             service: {
-              select: { id: true, name: true, duration: true, price: true }
+              select: { id: true, name: true, duration: true, price: true, priceMode: true }
             }
           },
           orderBy: { sortOrder: 'asc' }
         },
         bookingDeposit: {
           select: { status: true, expiresAt: true }
-        }
+        },
+        ...(input.includeFinanceSummary
+          ? {
+              visit: { select: { totalPrice: true } }
+            }
+          : {})
       },
       orderBy: {
         startAt: 'asc'

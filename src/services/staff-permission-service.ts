@@ -238,7 +238,7 @@ export type CashPermission =
   | 'canManageCashSessions'
 
 export function hasCashPermission(user: StaffAuthorizationUser, permission: CashPermission) {
-  if (user.role === 'BUSINESS_ADMIN' || user.role === 'SUPER_ADMIN') return true
+  if (user.role === 'BUSINESS_ADMIN' || user.role === 'ACCOUNT_ADMIN' || user.role === 'SUPER_ADMIN') return true
   if (user.role !== 'STAFF') return false
   return user[permission] === true
 }

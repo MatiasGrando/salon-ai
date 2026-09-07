@@ -174,7 +174,7 @@ export function resolveCrmRealtimeBusinessId(
   user: { role: string; businessId: string | null } | undefined,
   requestedBusinessId: string | undefined
 ) {
-  if (user?.role === 'SUPER_ADMIN') return requestedBusinessId?.trim() || null
+  if (user?.role === 'SUPER_ADMIN' || user?.role === 'ACCOUNT_ADMIN') return requestedBusinessId?.trim() || user.businessId?.trim() || null
   return user?.businessId ?? null
 }
 

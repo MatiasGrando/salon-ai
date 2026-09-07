@@ -15,6 +15,8 @@ const shell = readFileSync(new URL('../src/routes/crm-ui.ts', import.meta.url), 
 const server = readFileSync(new URL('../src/server.ts', import.meta.url), 'utf8')
 const cashRoutes = readFileSync(new URL('../src/routes/cash-register.ts', import.meta.url), 'utf8')
 const cashPermissions = readFileSync(new URL('../src/services/staff-permission-service.ts', import.meta.url), 'utf8')
+const authGuard = readFileSync(new URL('../src/plugins/auth-guard.ts', import.meta.url), 'utf8')
+const authRoute = readFileSync(new URL('../src/routes/auth.ts', import.meta.url), 'utf8')
 
 assert.match(migration, /pg_notify\(\s*'cash_changed'/)
 assert.match(migration, /AFTER INSERT[\s\S]*?ON "CashEntry"/)
@@ -60,6 +62,21 @@ assert.match(ui, /timeZone:\s*state\.business\?\.timezone/, 'las fechas de Caja 
 assert.match(ui, /current\.day\?\.id === state\.cashRegister\.selectedDayId[\s\S]*?selectCashDay\(state\.cashRegister\.selectedDayId\)/, 'una jornada histórica debe cargar su propio resumen')
 assert.match(cashRoutes, /'\/cash-register\/responsibles'/, 'Caja debe listar responsables activos tenant-scoped')
 assert.match(cashPermissions, /path === '\/cash-register\/responsibles'[\s\S]*?canManageCashSessions/, 'administrar sesiones debe permitir consultar responsables sin conceder vista de Caja')
+assert.match(authGuard, /path\.startsWith\('\/cash-register'\)/, 'ACCOUNT_ADMIN debe poder entrar a rutas de Caja antes de validar el comercio solicitado')
+assert.match(authGuard, /path === '\/crm\/cash-events'/, 'ACCOUNT_ADMIN debe poder abrir eventos de Caja para el comercio activo')
+assert.ok(authGuard.includes("/^\\/appointments\\/[^/]+\\/(?:finance|estimated-total|discount|payments)$/"), 'ACCOUNT_ADMIN debe poder operar pagos de Agenda')
+assert.match(authRoute, /\['BUSINESS_ADMIN', 'ACCOUNT_ADMIN', 'SUPER_ADMIN'\]\.includes\(user\.role\)/, '/auth/me debe publicar permisos de Caja al administrador de cuenta')
+assert.match(shell, /role === 'ACCOUNT_ADMIN'[\s\S]{0,260}'cash'/, 'el menú de un comercio administrado debe mostrar Caja al ACCOUNT_ADMIN')
+assert.match(ui, /\['BUSINESS_ADMIN', 'ACCOUNT_ADMIN', 'SUPER_ADMIN'\]\.includes\(state\.currentUser\?\.role\)/, 'la UI debe tratar ACCOUNT_ADMIN como administrador de Caja')
+assert.match(ui, /function isCashBusinessScopedRole[\s\S]{0,260}ACCOUNT_ADMIN/, 'ACCOUNT_ADMIN debe identificarse como administrador multi-comercio de Caja')
+assert.match(ui, /function cashScoped[\s\S]{0,180}isCashBusinessScopedRole/, 'las solicitudes de Caja deben incluir el comercio activo para roles multi-comercio')
+assert.match(shell, /cacheAgendaAppointmentFinanceSummaries/, 'Agenda debe guardar el resumen financiero recibido con cada turno')
+assert.match(ui, /financeSummary/, 'la UI debe consumir el resumen financiero de Agenda')
+assert.match(ui, /appointmentFinanceSummaryCache/, 'los resumenes financieros deben conservarse por turno en memoria')
+assert.match(ui, /function refreshVisibleAppointmentFinanceSummaries/, 'los eventos deben refrescar solo los resumenes visibles')
+assert.match(ui, /finance-summary/, 'el refresco por evento no debe descargar el historial completo')
+assert.match(ui, /cashUi\.finance\.open[\s\S]{0,180}loadAppointmentFinance/, 'el historial detallado debe cargarse al desplegar Pago')
+assert.doesNotMatch(ui, /function prepareAppointmentFinance\([\s\S]{0,500}loadAppointmentFinance\(\)/, 'abrir un turno no debe pedir inmediatamente el historial completo')
 
 const own: string[] = []
 const foreign: string[] = []
@@ -89,6 +106,7 @@ tenantApp.get('/crm/cash-events', async (request, reply) => {
 assert.deepEqual((await tenantApp.inject({ method: 'GET', url: '/crm/cash-events?businessId=foreign', headers: { 'x-role': 'BUSINESS_ADMIN', 'x-business': 'own-admin' } })).json(), { businessId: 'own-admin' })
 assert.deepEqual((await tenantApp.inject({ method: 'GET', url: '/crm/cash-events?businessId=foreign', headers: { 'x-role': 'STAFF', 'x-business': 'own-staff' } })).json(), { businessId: 'own-staff' })
 assert.deepEqual((await tenantApp.inject({ method: 'GET', url: '/crm/cash-events?businessId=foreign', headers: { 'x-role': 'SUPER_ADMIN' } })).json(), { businessId: 'foreign' })
+assert.deepEqual((await tenantApp.inject({ method: 'GET', url: '/crm/cash-events?businessId=managed', headers: { 'x-role': 'ACCOUNT_ADMIN', 'x-business': 'own-admin' } })).json(), { businessId: 'managed' })
 assert.equal((await tenantApp.inject({ method: 'GET', url: '/crm/cash-events', headers: { 'x-role': 'SUPER_ADMIN' } })).statusCode, 400)
 await tenantApp.close()
 

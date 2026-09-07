@@ -19301,7 +19301,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         return ['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(state.currentUser.role) ? ['accounts'] : []
       }
       if (state.currentUser?.role === 'ACCOUNT_ADMIN') {
-        return state.business ? ['accounts', 'conversations', 'agenda', 'customers', 'professionals', 'services', 'campaigns', 'reports', 'settings'] : ['accounts']
+        return state.business ? ['accounts', 'conversations', 'agenda', ${cashRegisterEnabled ? "'cash'," : ''} 'customers', 'professionals', 'services', 'campaigns', 'reports', 'settings'] : ['accounts']
       }
       if (state.currentUser?.role === 'SUPER_ADMIN') return ['accounts', 'conversations', 'agenda', ${cashRegisterEnabled ? "'cash'," : ''} 'customers', 'professionals', 'services', 'campaigns', 'reports', 'settings']
       if (state.currentUser?.role !== 'STAFF') return ['conversations', 'agenda', ${cashRegisterEnabled ? "'cash'," : ''} 'customers', 'professionals', 'services', 'campaigns', 'reports', 'settings']
@@ -27420,6 +27420,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         state.agendaAppointments = appointments.filter((appointment) => {
           return !state.agendaDeletingAppointmentIds.has(appointment.id)
         })
+        ${cashRegisterEnabled ? 'cacheAgendaAppointmentFinanceSummaries(state.agendaAppointments)' : ''}
         state.agendaBlocks = blocks
         state.agendaLoadedRangeStart = new Date(rangeStart)
         state.agendaLoadedRangeEnd = new Date(rangeEnd)

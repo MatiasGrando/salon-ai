@@ -282,6 +282,30 @@ export class CashService {
     })
   }
 
+  async listAppointmentFinanceSummaries(input: { businessId: string; appointmentIds: string[] }) {
+    const appointmentIds = Array.from(new Set(input.appointmentIds.filter(Boolean)))
+    if (!appointmentIds.length) return []
+    return this.repository.transaction(async (transaction) => {
+      const rows = await transaction.listAppointmentFinanceSummaryRows(input.businessId, appointmentIds)
+      return rows.flatMap((row) => {
+        if (row.agreedAmount === null) return []
+        const totals = calculateAccountTotals({
+          agreedAmount: row.agreedAmount,
+          discountAmount: row.discountAmount,
+          entries: row.paidAmount > 0
+            ? [{ type: 'PAYMENT', direction: 'INFLOW', amount: row.paidAmount }]
+            : []
+        })
+        return [{
+          appointmentId: row.appointmentId,
+          accountId: row.accountId,
+          pricingMode: row.pricingMode,
+          ...totals
+        }]
+      })
+    })
+  }
+
   async getAppointmentFinance(input: { businessId: string; appointmentId: string }) {
     return this.repository.transaction(async (transaction) => {
       if (!await transaction.lockBusiness(input.businessId)) throw new CashServiceError('BUSINESS_NOT_FOUND')
