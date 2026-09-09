@@ -90,6 +90,7 @@ function applySiteHeaders(reply: FastifyReply) {
     "font-src 'self' https://fonts.gstatic.com",
     "script-src 'self'",
     "connect-src 'self' https://weex.com.ar",
+    "frame-src 'self' https://www.google.com",
     "form-action 'self'",
     "base-uri 'self'",
     "frame-ancestors 'none'"

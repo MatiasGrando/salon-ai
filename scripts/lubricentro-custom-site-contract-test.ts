@@ -23,6 +23,7 @@ assert.match(route, /findPublicByCustomerCode\(lubricentroBinding\.businessCusto
 assert.match(route, /sites['"], ['"]lubricentro-albarellos['"], ['"]dist/)
 assert.match(route, /constraints: \{ host: lubricentroHost \}/)
 assert.match(route, /Cache-Control/)
+assert.match(route, /frame-src 'self' https:\/\/www\.google\.com/)
 assert.match(authGuard, /isLubricentroSitePublicRoute\(request, path\)/)
 assert.match(server, /app\.register\(lubricentroSiteRoutes\)/)
 assert.match(rootPackage, /"build:lubricentro"/)
