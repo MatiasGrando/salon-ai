@@ -225,6 +225,7 @@ function isPublicRoute(request: FastifyRequest) {
     || path.startsWith('/landing-assets/')
     || isTamaraSitePublicRoute(request, path)
     || isNaturaFlowSitePublicRoute(request, path)
+    || isLubricentroSitePublicRoute(request, path)
     || path.startsWith('/public/booking/')
     || path.startsWith('/public/workshops/')
     || path.startsWith('/public/weex/')
@@ -242,6 +243,21 @@ function isNaturaFlowSitePublicRoute(request: FastifyRequest, path: string) {
   if (hostname !== 'naturalflow.weex.com.ar') return false
 
   return path === '/styles/custom.css' || path === '/scripts/app.js'
+}
+
+function isLubricentroSitePublicRoute(request: FastifyRequest, path: string) {
+  const rawHost = request.headers['x-forwarded-host'] || request.headers.host
+  const host = Array.isArray(rawHost) ? rawHost[0] : rawHost
+  const hostname = host?.split(',')[0]?.trim().split(':')[0]?.toLowerCase()
+  if (hostname !== 'lubricentro.weex.com.ar') return false
+  if (!['GET', 'HEAD'].includes(request.method.toUpperCase())) return false
+
+  return path === '/favicon.svg'
+    || path === '/icons.svg'
+    || path === '/logo-drop.svg'
+    || path === '/images/hero-desktop.jpg'
+    || path === '/images/hero-mobile.jpg'
+    || /^\/assets\/[a-zA-Z0-9._-]+$/.test(path)
 }
 
 function isWeexLeadCampaignPublicRoute(method: string, path: string) {

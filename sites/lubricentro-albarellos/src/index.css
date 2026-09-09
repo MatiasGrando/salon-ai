@@ -1,0 +1,66 @@
+﻿@import "tailwindcss";
+
+@layer base {
+  body {
+    background-color: #0b0d11;
+    color: #f3f4f6;
+    font-family: 'Inter', sans-serif;
+  }
+  h1, h2, h3, .font-heading {
+    font-family: 'Oswald', sans-serif;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+  .font-tech {
+    font-family: 'Chakra Petch', sans-serif;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #0d1017;
+}
+::-webkit-scrollbar-thumb {
+  background: #27272a;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #dc2626;
+}
+
+/* Glow effects */
+.glow-red {
+  box-shadow: 0 0 25px -5px rgba(220, 38, 38, 0.45);
+}
+
+.glow-red-lg {
+  box-shadow: 0 0 40px 0px rgba(220, 38, 38, 0.35);
+}
+
+/* Carbon & Workshop textures */
+.bg-carbon {
+  background-color: #0e1117;
+  background-image: radial-gradient(#1f242d 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
+.bg-workshop-dark {
+  background: linear-gradient(180deg, rgba(11, 13, 17, 0.95) 0%, rgba(17, 20, 26, 0.98) 100%);
+}
+
+/* Plate animation */
+@keyframes pulsePlate {
+  0%, 100% {
+    box-shadow: 0 0 15px rgba(220, 38, 38, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 28px rgba(220, 38, 38, 0.65);
+  }
+}
+
+.pulse-plate {
+  animation: pulsePlate 2.5s infinite;
+}

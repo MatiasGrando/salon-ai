@@ -17,6 +17,7 @@ import { crmUiRoutes } from './routes/crm-ui.js'
 import { landingUiRoutes } from './routes/landing-ui.js'
 import { tamaraSiteRoutes } from './routes/tamara-site.js'
 import { naturaFlowSiteRoutes } from './routes/natura-flow-site.js'
+import { lubricentroSiteRoutes } from './routes/lubricentro-site.js'
 import { publicBookingRoutes } from './routes/public-booking.js'
 import { publicWorkshopRoutes } from './routes/public-workshop.js'
 import { weexAccountRoutes } from './routes/weex-account.js'
@@ -115,6 +116,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(crmUiRoutes, { pollingMarker: baseline.pollingMarker, cashRegisterEnabled: cashRegisterConfig.enabled })
   await app.register(tamaraSiteRoutes)
   await app.register(naturaFlowSiteRoutes)
+  await app.register(lubricentroSiteRoutes)
   await app.register(landingUiRoutes)
   await app.register(publicBookingRoutes)
   await app.register(publicWorkshopRoutes)

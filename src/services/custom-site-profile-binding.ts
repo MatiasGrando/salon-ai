@@ -14,6 +14,11 @@ const customSiteProfileBindings: CustomSiteProfileBinding[] = [
     hostname: 'naturalflow.weex.com.ar',
     businessCustomerCode: 'WX-TFN89J',
     serviceCatalogMode: 'ALL'
+  },
+  {
+    hostname: 'lubricentro.weex.com.ar',
+    businessCustomerCode: 'WX-8Y4HHG',
+    serviceCatalogMode: 'ALL'
   }
 ]
 
