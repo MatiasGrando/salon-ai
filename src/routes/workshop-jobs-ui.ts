@@ -69,6 +69,7 @@ export const workshopJobsScript = String.raw`
     function wjMoney(cents) { return new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS'}).format(cents/100) }
     function wjQuery() { return '?businessId=' + encodeURIComponent(state.businessId) }
     function wjDateToday() { const d = new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0') }
+    if(!wj('filter-date').value) wj('filter-date').value=wjDateToday()
     function wjAddLine(description='', quantity=1, parts='', labor='') {
       const row = document.createElement('tr')
       row.innerHTML = '<td><input aria-label="Cantidad" data-wj-field="quantity" type="number" min="1" max="999" required></td><td><input aria-label="Descripcion" data-wj-field="description" maxlength="300" required></td><td><input aria-label="Repuestos por unidad" data-wj-field="parts" inputmode="decimal" placeholder="Opcional"></td><td><input aria-label="Mano de obra por unidad" data-wj-field="labor" inputmode="decimal" placeholder="Opcional"></td><td><button type="button" class="wj-remove" aria-label="Quitar tarea">&times;</button></td>'

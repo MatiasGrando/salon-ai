@@ -28,6 +28,7 @@ assert.doesNotMatch(workshopJobsMarkup, /Eleg&iacute; o escrib&iacute; un nombre
 assert.match(workshopJobsScript, /performerId:wj\('responsible'\)\.value/)
 assert.match(workshopJobsScript, /Sin registro/)
 assert.match(crmUi, /id="wj-filter-performer"/)
+assert.match(workshopJobsScript, /wj\('filter-date'\)\.value=wjDateToday\(\)/)
 assert.match(workshopJobsScript, /limit=10&offset=/)
 assert.match(workshopJobsScript, /Cargando trabajos anteriores/)
 assert.match(workshopJobsScript, /No hay m&aacute;s trabajos anteriores/)
