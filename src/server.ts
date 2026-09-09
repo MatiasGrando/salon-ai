@@ -18,6 +18,7 @@ import { landingUiRoutes } from './routes/landing-ui.js'
 import { tamaraSiteRoutes } from './routes/tamara-site.js'
 import { naturaFlowSiteRoutes } from './routes/natura-flow-site.js'
 import { publicBookingRoutes } from './routes/public-booking.js'
+import { publicWorkshopRoutes } from './routes/public-workshop.js'
 import { weexAccountRoutes } from './routes/weex-account.js'
 import { scheduleBlockRoutes } from './routes/schedule-block.js'
 import { whatsappWebhookRoutes } from './routes/whatsapp-webhook.js'
@@ -116,6 +117,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(naturaFlowSiteRoutes)
   await app.register(landingUiRoutes)
   await app.register(publicBookingRoutes)
+  await app.register(publicWorkshopRoutes)
   await app.register(weexAccountRoutes)
   await app.register(weexLeadCampaignRoutes)
   await app.register(weexSupportBotV1Routes)

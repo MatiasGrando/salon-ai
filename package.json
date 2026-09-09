@@ -46,6 +46,7 @@
     "test:workshop-vehicle-domain": "tsx scripts/workshop-vehicle-domain-contract-test.ts",
     "test:workshop-vehicles": "tsx scripts/workshop-vehicles-contract-test.ts",
     "test:workshop-vehicles-routes": "tsx scripts/workshop-vehicles-route-contract-test.ts",
+    "test:workshop-public": "tsx scripts/public-workshop-history-contract-test.ts && tsx scripts/public-workshop-route-contract-test.ts",
     "test:workshop-pilot-preview": "tsx scripts/workshop-pilot-preview-data-contract-test.ts",
     "preview:workshop": "tsx scripts/workshop-local-preview.ts",
     "test:account-management": "tsx scripts/account-management-contract-test.ts",
