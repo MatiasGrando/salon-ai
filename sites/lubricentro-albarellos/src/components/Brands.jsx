@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { Award, ShieldCheck } from 'lucide-react';
 
 const brands = [
@@ -16,7 +16,7 @@ export default function Brands() {
   return (
     <section id="marcas" className="py-16 bg-[#0b0d12] border-b border-zinc-800">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        
+
         <div className="text-center max-w-2xl mx-auto mb-12">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-800/70 border border-zinc-700 text-zinc-300 text-xs font-semibold uppercase tracking-wider mb-3">
             <ShieldCheck className="w-3.5 h-3.5 text-red-500" />

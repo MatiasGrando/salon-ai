@@ -1,4 +1,4 @@
-﻿export const mockVehicles = {
+export const mockVehicles = {
   "AA123AA": {
     plate: "AA 123 AA",
     ownerInitials: "M. G.",

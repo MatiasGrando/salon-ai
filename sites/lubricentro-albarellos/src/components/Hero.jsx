@@ -6,7 +6,7 @@ import { WhatsAppIcon } from './SocialIcons';
 export default function Hero() {
   return (
     <section className="relative w-full aspect-auto md:aspect-[16/9] min-h-[640px] md:min-h-0 flex items-center overflow-hidden border-b border-zinc-800 bg-[#090b0f]">
-      
+
       {/* 16:9 Uncropped Native Image */}
       <picture className="absolute inset-0 w-full h-full pointer-events-none select-none">
         <source media="(max-width: 768px)" srcSet="/images/hero-mobile.jpg" />
@@ -29,7 +29,7 @@ export default function Hero() {
 
         {/* UPPER LEFT: Fluid Responsive Headline and Subtitle */}
         <div className="w-full md:w-[50%] lg:w-[47%] xl:w-[45%]">
-          
+
           <h1 className="font-heading text-[clamp(2.3rem,4.2vw,5.5rem)] font-extrabold tracking-tight leading-[0.91] mb-[clamp(0.75rem,1.2vw,1.5rem)]">
             <span className="text-white block drop-shadow-xl">
               CUIDAMOS TU MOTOR
@@ -51,10 +51,10 @@ export default function Hero() {
 
         {/* BOTTOM ROW: Large Responsive Cards on the Left / Action Buttons on the Right */}
         <div className="w-full flex flex-col md:flex-row items-stretch md:items-end justify-between gap-[clamp(1rem,2vw,2.5rem)] pt-6 mt-auto">
-          
+
           {/* BOTTOM LEFT: 4 Large Service Cards that fill the available space */}
           <div className="grid grid-cols-4 gap-[clamp(0.5rem,1vw,1rem)] w-full md:w-[50%] lg:w-[47%] xl:w-[45%]">
-            
+
             {/* 1. Cambio de Aceite */}
             <div className="flex flex-col items-center justify-center text-center p-[clamp(0.6rem,1.1vw,1.35rem)] rounded-2xl bg-zinc-950/90 border border-zinc-800/90 backdrop-blur-md hover:border-red-500/60 hover:bg-zinc-900/90 transition-all duration-300 shadow-2xl group min-h-[clamp(90px,10vw,150px)]">
               <div className="w-[clamp(2.2rem,2.8vw,3.6rem)] h-[clamp(2.2rem,2.8vw,3.6rem)] rounded-xl bg-red-600/15 group-hover:bg-red-600/25 flex items-center justify-center text-red-500 mb-[clamp(0.35rem,0.7vw,0.85rem)] group-hover:scale-110 transition shrink-0">

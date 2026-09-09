@@ -1,4 +1,4 @@
-﻿export const siteConfig = {
+export const siteConfig = {
   name: "Lubricentro Albarellos",
   tagline: "Más que un cambio",
   subTagline: "Tu auto en buenas manos",

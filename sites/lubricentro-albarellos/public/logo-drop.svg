@@ -1,4 +1,4 @@
-﻿<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
   <circle cx="50" cy="50" r="46" fill="#111317" stroke="#DC2626" stroke-width="6"/>
   <path d="M50 18 C50 18, 30 50, 30 64 C30 75 39 82 50 82 C61 82 70 75 70 64 C70 50 50 18 50 18 Z" fill="#DC2626"/>
   <path d="M45 42 C45 42, 36 58, 36 65 C36 71 40 76 46 77 C44 75 42 71 42 66 C42 60 47 48 45 42 Z" fill="#FFA5A5" opacity="0.6"/>

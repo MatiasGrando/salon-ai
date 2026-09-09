@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { Shield, Clock, Search, ThumbsUp } from 'lucide-react';
 
 const reasons = [
@@ -28,7 +28,7 @@ export default function WhyUs() {
   return (
     <section id="nosotros" className="py-20 bg-[#090b0f] border-b border-zinc-800 relative">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        
+
         <div className="text-center max-w-3xl mx-auto mb-16">
           <h2 className="font-heading text-3xl sm:text-4xl md:text-5xl font-bold text-white tracking-wide">
             ¿POR QUÉ ELEGIR <span className="text-red-500">LUBRICENTRO ALBARELLOS</span>?

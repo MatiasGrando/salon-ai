@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 
 export function InstagramIcon({ className = "w-4 h-4" }) {
   return (

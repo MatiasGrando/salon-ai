@@ -1,19 +1,19 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { fetchVehicleByPlate, fetchVehicleHistoryPage, formatPlateDisplay } from '../services/plateService';
 import { siteConfig } from '../data/siteConfig';
-import { 
-  Search, 
-  Car, 
-  Calendar, 
-  Gauge, 
-  AlertTriangle, 
-  CheckCircle, 
-  AlertCircle, 
-  Clock, 
-  Wrench, 
-  MessageCircle, 
-  ChevronDown, 
-  ChevronUp, 
+import {
+  Search,
+  Car,
+  Calendar,
+  Gauge,
+  AlertTriangle,
+  CheckCircle,
+  AlertCircle,
+  Clock,
+  Wrench,
+  MessageCircle,
+  ChevronDown,
+  ChevronUp,
   RotateCcw,
   ShieldAlert,
   Sparkles
@@ -98,11 +98,11 @@ export default function PlateLookup() {
         {/* Search Plate Box */}
         <div className="max-w-xl mx-auto mb-12">
           <form onSubmit={(e) => handleSearch(e)} className="flex flex-col items-center">
-            
+
             {/* Chapa Patente Estilizada */}
             <div className="w-full bg-zinc-900 p-2 sm:p-3 rounded-2xl border-2 border-red-900/40 shadow-2xl shadow-red-950/40">
               <div className="relative bg-white rounded-xl border-4 border-zinc-800 p-2 sm:p-3 shadow-inner">
-                
+
                 {/* Cuatro tornillos esquineros de la patente */}
                 <div className="absolute top-2 left-2 w-2.5 h-2.5 rounded-full bg-zinc-400 border border-zinc-600 shadow-sm flex items-center justify-center">
                   <div className="w-1.5 h-0.5 bg-zinc-600 rotate-45" />
@@ -172,7 +172,7 @@ export default function PlateLookup() {
         {/* Result Area */}
         {result && result.success && (
           <div className="bg-[#11141c] rounded-2xl border border-zinc-800 overflow-hidden shadow-2xl transition-all duration-300 animate-fadeIn">
-            
+
             {/* Header del Vehículo */}
             <div className="bg-gradient-to-r from-zinc-900 via-zinc-800 to-zinc-900 p-6 border-b border-zinc-700/60 flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="flex items-start sm:items-center gap-4">
@@ -206,7 +206,7 @@ export default function PlateLookup() {
 
             {/* Banner de Estado y Semáforo */}
             <div className={`p-6 border-b ${
-              result.data.status === 'ok' 
+              result.data.status === 'ok'
                 ? 'bg-emerald-950/30 border-emerald-800/40 text-emerald-300'
                 : result.data.status === 'warning'
                 ? 'bg-amber-950/30 border-amber-800/40 text-amber-300'

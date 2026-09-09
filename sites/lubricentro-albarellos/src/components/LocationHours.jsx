@@ -7,7 +7,7 @@ export default function LocationHours() {
   return (
     <section id="ubicacion" className="py-20 bg-[#0c0f16] border-b border-zinc-800">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        
+
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
           {/* Info Column */}
           <div className="lg:col-span-6 space-y-6">

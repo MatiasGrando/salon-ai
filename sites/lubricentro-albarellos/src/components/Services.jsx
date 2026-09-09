@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { Droplet, Filter, BatteryCharging, Disc, Wrench, CheckCircle2, ArrowRight } from 'lucide-react';
 import { siteConfig } from '../data/siteConfig';
 
@@ -44,7 +44,7 @@ export default function Services() {
   return (
     <section id="servicios" className="py-20 bg-[#090b0f] relative border-b border-zinc-800">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        
+
         {/* Section Title */}
         <div className="text-center max-w-3xl mx-auto mb-16">
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-red-950/70 border border-red-700/50 text-red-400 text-xs font-semibold uppercase tracking-wider mb-3">
