@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import Fastify from 'fastify'
 import { prisma } from '../src/config/prisma.js'
 import { publicWorkshopRoutes } from '../src/routes/public-workshop.js'
+import { authGuard } from '../src/plugins/auth-guard.js'
 
 const restores: Array<() => void> = []
 function mock(target: any, key: string, value: any) {
@@ -23,6 +24,7 @@ const jobs = [
 
 const app = Fastify()
 await app.register(publicWorkshopRoutes)
+await authGuard(app)
 
 try {
   mock(prisma.business, 'findFirst', async ({ where }: any) => where.customerCode === 'WX-8Y4HHG' ? { id: 'business-a' } : null)

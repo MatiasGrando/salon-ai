@@ -226,6 +226,7 @@ function isPublicRoute(request: FastifyRequest) {
     || isTamaraSitePublicRoute(request, path)
     || isNaturaFlowSitePublicRoute(request, path)
     || path.startsWith('/public/booking/')
+    || path.startsWith('/public/workshops/')
     || path.startsWith('/public/weex/')
     || isWeexLeadCampaignPublicRoute(request.method, path)
     || isPublicLandingRoute(request.method, path)
